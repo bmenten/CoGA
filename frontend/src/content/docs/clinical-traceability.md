@@ -55,8 +55,9 @@ When you save a classification, CoGA freezes the evidence it rests on:
   in-silico scores the dialog read — the gnomAD frequencies (overall, exomes, genomes, popmax), the
   TOPMed frequency, the gnomAD allele, homozygote and hemizygote counts, CADD, REVEL, SpliceAI,
   SIFT, PolyPhen and AlphaMissense — taken from the variant's primary transcript, as the dialog
-  shows them, and, for a missense variant, the gnomAD missense Z of its gene, from the gene's
-  profile, which PP2 reads (PP2 reads it for no other variant, so none is frozen for one);
+  shows them, and, for a missense variant, the gnomAD missense Z of its gene that PP2 reads, with
+  where it came from: the gene's profile, or the VCF's own `MISSENSE_Z` when the gene's profile
+  holds none (PP2 reads it for no other variant, so none is frozen for one);
 - **ACMG (CNV)** (a structural variant or CNV): what the CNV classifier reads — the type, the genes the
   event overlaps and their number, the pLI and the annotated inheritance — with the event's caller and
   position, a fingerprint of its annotation, and the annotation versions its genes came from. The
@@ -75,7 +76,9 @@ banner lists every classification whose evidence changed:
   missense Z 2.95 → 3.52*), and so is a change of the primary transcript they are read from. The
   missense Z can change when the gene profiles are refreshed, without any change to the variant's
   annotation; such a refresh never prompts a re-review of a classification of any other variant
-  (a stop gained, for example). A missense variant no longer called one shows its missense Z as
+  (a stop gained, for example). When PP2 reads the missense Z from the other source now, because
+  the gene's profile gained or lost one, both sources are named (*gnomAD missense Z 4.20 (VCF) →
+  3.52 (gene profile)*). A missense variant no longer called one shows its missense Z as
   gone (*gnomAD missense Z 2.95 → n/a*), beside its new consequence;
 - the annotation changed in another way, or cannot be compared because a fingerprint is missing
   (*annotation set changed*). A classification saved before CoGA froze the frequencies and
@@ -186,7 +189,10 @@ the clinical report in the EPD refers to:
   are unknown, has no data of its own: its record holds no embryo calls;
 - for a monogenic NIPT family, its **NIPT results** as the NIPT page computes them at sign-out: the
   fetal fraction, the quality checks with their verdicts (paternity, the fetal sex from both signals,
-  the maternal plasma sample), the coverage of the capture targets, the category counts and the
+  the maternal plasma sample), the coverage of the capture targets or, without a per-target table, the
+  coverage check's notes on each coverage track it did not read as depth, word for word, with what the
+  check ran for (the sign-out runs it as the NIPT page does without a gene or panel: over the family's
+  region of interest), the category counts and the
   filter funnel, each variant tagged *report* as the NIPT analysis classifies it (its category, the
   reads behind it, the chance the fetus inherited it and, for a de novo candidate, its priority), the
   recessive fetal risk of the reported variants' genes, and what the analysis ran with (the coverage
@@ -355,7 +361,8 @@ It shows what the record holds:
   was classified (the ClinVar significance and the annotation version and, for a classification saved
   since CoGA froze them, the consequence, impact and LoF call, the population frequencies and in-silico
   scores as they were then, read from its primary transcript, and, for a missense variant, the gnomAD
-  missense Z of its gene), its tags and its note, and, for a variant its compound-het pair review
+  missense Z of its gene and whether PP2 read it from the gene's profile or the VCF), its tags and its
+  note, and, for a variant its compound-het pair review
   reports, that review (*Compound-het pair*: the partner, the gene, the phase, the pair's tags and
   classification, and its note);
 - each reported structural variant or CNV, with its description, classification and ClinGen CNV
@@ -374,10 +381,12 @@ It shows what the record holds:
   unknown, with the file it was loaded from, from where (a single-file upload or a package import) and
   when;
 - for a monogenic NIPT family, its **NIPT results**: the fetal fraction and the quality checks with
-  their verdicts, the coverage, the filter funnel and the categories, each reported variant as the NIPT
-  analysis classified it, the recessive fetal risk and what the analysis ran with. A NIPT family's
-  version signed before CoGA froze them says *Not in the signed record*; another family's record has
-  no NIPT results and the page says nothing of them;
+  their verdicts, the coverage, and without a per-target table the coverage tracks the coverage check
+  did not read as depth, in its words, with what it ran for (*Coverage tracks not read as depth: …*),
+  the filter funnel and the categories, each reported variant as the NIPT analysis classified it, the
+  recessive fetal risk and what the analysis ran with. A NIPT family's version signed before CoGA froze
+  them says *Not in the signed record*, and one signed before CoGA froze the coverage check's notes says
+  so on that line; another family's record has no NIPT results and the page says nothing of them;
 - the evidence drift, the Sample QC, the sequencing QC and the import state at sign-out, with any
   acknowledgement and its reason;
 - the versions it was signed with, the reference-data releases and the coverage tracks on one line

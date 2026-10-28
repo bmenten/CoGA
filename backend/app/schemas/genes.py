@@ -10,6 +10,9 @@ from .common import (
     ApiId,
     GeneLocation,
 )
+from .hpo import (
+    PhenotypeTermRefOut,
+)
 
 
 class GeneExonOut(BaseModel):
@@ -87,8 +90,6 @@ class GeneHomologOut(BaseModel):
     symbol: Optional[str] = None
     ensembl_gene_id: Optional[str] = None
     homology_type: Optional[str] = None
-    percent_id: Optional[float] = None
-    percent_coverage: Optional[float] = None
     in_platform: bool = False
 
 
@@ -119,11 +120,6 @@ class GeneExternalLinkOut(BaseModel):
     href: str
 
 
-class MonarchPhenotypeMatchOut(BaseModel):
-    hpo_id: str
-    label: Optional[str] = None
-
-
 class GeneMonarchAssociationOut(BaseModel):
     mondo_id: str
     disease_label: Optional[str] = None
@@ -133,7 +129,7 @@ class GeneMonarchAssociationOut(BaseModel):
     causal: bool = False
     monarch_url: Optional[str] = None
     phenotype_count: int = 0
-    matched_phenotypes: List[MonarchPhenotypeMatchOut] = Field(default_factory=list)
+    matched_phenotypes: List[PhenotypeTermRefOut] = Field(default_factory=list)
 
 
 class GeneProfileOut(BaseModel):

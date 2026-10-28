@@ -366,3 +366,93 @@ describe('GenomeOverviewPage', () => {
     expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
   });
 });
+
+// ENG-20, the owner's decision of 2026-10-28: on the overview the mitochondrion, 16.6 kb of a
+// genome of 3.1 Gb, is about 0.006 px wide. It is left out, as the Circos plot leaves it out: not
+// laid out, so not in the chromosome strip, not offered in the sidebar and asked of no track.
+// The chromosome view's list and the mtDNA page show it.
+describe('GenomeOverviewPage leaves the mitochondrion out (ENG-20)', () => {
+  const NUCLEAR = [...Array.from({ length: 22 }, (_, index) => String(index + 1)), 'X', 'Y'];
+
+  const renderOverview = (search: string) => {
+    (api.get as unknown as Mock).mockImplementation((url: string) => {
+      if (url === '/families/F1') {
+        return Promise.resolve({
+          data: {
+            family_id: 'F1',
+            members: [{ sample_id: 'PROBAND', role: 'proband', affected: true, sex: 'male' }],
+            projects: ['p1'],
+          },
+        });
+      }
+      if (url === '/chromosomes/GRCh38') {
+        // The assembly has the mitochondrion.
+        return Promise.resolve({
+          data: [...NUCLEAR.map((chr) => ({ chr, size: 1000 })), { chr: 'MT', size: 16_569 }],
+        });
+      }
+      if (url.startsWith('/families/F1/track-availability?')) {
+        return Promise.resolve({
+          data: {
+            samples: {
+              PROBAND: { coverage: true, segments: true, apcad: true, haplotypes: true, variants: true },
+            },
+          },
+        });
+      }
+      return Promise.resolve({ data: {} });
+    });
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MemoryRouter initialEntries={[`/families/F1/genome${search}`]}>
+          <Routes>
+            <Route path="/families/:familyId/genome" element={<GenomeOverviewPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+  };
+
+  // What the overview lays out and offers once it has the chromosome lengths.
+  const laidOut = async () => {
+    await waitFor(() => expect(workspaceSpy.mock.calls.at(-1)?.[0].layout).toBeTruthy());
+    const workspace = workspaceSpy.mock.calls.at(-1)?.[0];
+    const sidebar = sidebarSpy.mock.calls.at(-1)?.[0];
+    return {
+      layout: workspace.layout as { chroms: string[]; offsets: Record<string, number> },
+      urlMaps: workspace.urlMaps,
+      offered: Object.keys(sidebar.chromSelected),
+      ticked: Object.keys(sidebar.chromSelected).filter((chrom) => sidebar.chromSelected[chrom]),
+    };
+  };
+
+  it('lays out, offers and asks the tracks for 1–22, X and Y only', async () => {
+    renderOverview('');
+    const { layout, urlMaps, offered, ticked } = await laidOut();
+
+    // The chromosome strip draws the layout's chromosomes: no "Open chromosome M".
+    expect(layout.chroms).toEqual(NUCLEAR);
+    expect(layout.offsets).not.toHaveProperty('MT');
+    expect(offered).toEqual(NUCLEAR);
+    expect(ticked).toEqual(NUCLEAR);
+    const availabilityCall = (api.get as unknown as Mock).mock.calls
+      .map(([url]) => String(url))
+      .find((url) => url.startsWith('/families/F1/track-availability?'));
+    expect(new URLSearchParams(availabilityCall?.split('?')[1]).getAll('chrom')).toEqual(NUCLEAR);
+    expect(new URL(urlMaps.haplotypes.PROBAND[0]).searchParams.getAll('chr')).toEqual(NUCLEAR);
+    const coverage = urlMaps.coverageTrackUrls('PROBAND', 'hificnv');
+    expect(new URL(coverage.coverageUrls[0]).searchParams.getAll('chrom')).toEqual(NUCLEAR);
+    expect(new URL(coverage.segmentsUrls[0]).searchParams.getAll('chrom')).toEqual(NUCLEAR);
+    expect(new URL(urlMaps.apcad.PROBAND[0]).searchParams.getAll('chrom')).toEqual(NUCLEAR);
+  });
+
+  // A breakend's two chromosomes open on the overview from the Circos plot; the mitochondrion
+  // named by a link is not shown.
+  it.each(['M', 'MT', 'chrM'])('leaves out the mitochondrion a link names as %s', async (name) => {
+    renderOverview(`?chrom=2&chrom=${name}`);
+    const { layout, ticked } = await laidOut();
+
+    expect(layout.chroms).toEqual(['2']);
+    expect(ticked).toEqual(['2']);
+  });
+});

@@ -59,11 +59,15 @@ EVIDENCE_IN_SILICO_FIELDS: tuple[str, ...] = (
     "alpha_missense_pathogenicity",
 )
 # The gene's missense constraint the PP2 suggestion reads (missense in a gene with a gnomAD
-# missense Z of 3.09 or more). It is the gene profile's, not the annotation's: looked up as
-# the variant list looks it up (``evidence_gene_missense_z``). Frozen only for a missense
-# variant, the one variant PP2 reads it for (``reads_gene_missense_z``): for any other
-# variant the group is left out, so a refresh of the gene profiles is never its drift.
-EVIDENCE_GENE_CONSTRAINT_FIELDS: tuple[str, ...] = ("gene_missense_z",)
+# missense Z of 3.09 or more), and where it comes from (``pp2_gene_missense_z``): the gene
+# profile's, looked up as the variant list looks it up (``evidence_gene_missense_z``), else
+# the VCF's own MISSENSE_Z (TRACE-15). Frozen only for a missense variant, the one variant PP2
+# reads it for (``reads_gene_missense_z``): for any other variant the group is left out, so a
+# refresh of the gene profiles is never its drift.
+EVIDENCE_GENE_CONSTRAINT_FIELDS: tuple[str, ...] = ("gene_missense_z", "gene_missense_z_source")
+# The sources ``gene_missense_z_source`` names: the gene's profile (``gene_info``), or the VCF.
+MISSENSE_Z_FROM_GENE_PROFILE = "gene_profile"
+MISSENSE_Z_FROM_VCF = "vcf"
 
 
 def _normalize_acmg_payload(
@@ -189,6 +193,47 @@ async def evidence_gene_missense_z(
     return {key: (found.get(key) or {}).get("gene_missense_z") for key in records}
 
 
+def vcf_gene_missense_z(record: Any) -> float | None:
+    """The VCF's own MISSENSE_Z of ``record``, as the ACMG dialog reads it: its primary
+    transcript's ``gene_missense_z``, which the import stores from MISSENSE_Z (or MIS_Z,
+    missense_Z, GENE_MISSENSE_Z) and the variant list serves in ``annotation_extra``
+    (``_annotation_extra``: the annotation's ``extra`` first, then the annotation itself).
+    A finite number only, as ``pp2MissenseZ`` in lib/acmg/evaluate.ts reads one; anything
+    else is none."""
+    annotation = _primary_annotation(record)
+    extra = annotation.get("extra")
+    if isinstance(extra, dict) and "gene_missense_z" in extra:
+        value = extra["gene_missense_z"]
+    else:
+        value = annotation.get("gene_missense_z")
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    try:
+        return _finite(float(value))
+    except OverflowError:  # an integer past any float: none the dialog can read either
+        return None
+
+
+def pp2_gene_missense_z(record: Any, *, gene_profile_missense_z: float | None) -> tuple[float | None, str | None]:
+    """The gnomAD missense Z the PP2 suggestion reads for ``record``, and where it comes from
+    (TRACE-15, the owner's decision of 2026-10-28): the gene profile's
+    (``gene_profile_missense_z``, as ``evidence_gene_missense_z`` looks it up), else the VCF's
+    own MISSENSE_Z (``vcf_gene_missense_z``); ``(None, None)`` when neither holds a finite one.
+
+    The gene profile comes first: it is the value the variant card shows as the gene's
+    Missense Z and the ranking reads, from the gene reference of the family's assembly that the
+    report's reference-data releases name. The ACMG dialog reads the two in the same order
+    (``pp2MissenseZ``), and its PP2 evidence names the source it read.
+    """
+    profile = _finite(gene_profile_missense_z)
+    if profile is not None:
+        return profile, MISSENSE_Z_FROM_GENE_PROFILE
+    vcf = vcf_gene_missense_z(record)
+    if vcf is not None:
+        return vcf, MISSENSE_Z_FROM_VCF
+    return None, None
+
+
 def small_variant_evidence(record: Any, *, gene_missense_z: float | None) -> dict[str, Any]:
     """The consequence, population frequencies and in-silico scores a classification of
     ``record`` reads, the transcript they are read from (CLIN-7), and, for a missense
@@ -197,10 +242,12 @@ def small_variant_evidence(record: Any, *, gene_missense_z: float | None) -> dic
     Read from the variant's primary transcript (MANE Select, then canonical, then the most
     severe impact) with the helpers the variant's fields are served with
     (``_small_variant_out``), so the frozen values are the ones the ACMG dialog was given.
-    The gene's missense Z is not in the annotation: the caller looks it up in the gene
-    profiles as the variant list does (``evidence_gene_missense_z``). Every field is
-    present, None without a value, except ``gene_constraint``, which only a missense
-    variant has (``reads_gene_missense_z``): PP2 reads it for no other variant.
+    ``gene_missense_z`` is the gene profile's missense Z, which is not in the annotation: the
+    caller looks it up in the gene profiles as the variant list does
+    (``evidence_gene_missense_z``). The group freezes the missense Z PP2 reads, that one or
+    else the VCF's own, with its source (``pp2_gene_missense_z``). Every field is present,
+    None without a value, except ``gene_constraint``, which only a missense variant has
+    (``reads_gene_missense_z``): PP2 reads it for no other variant.
     """
     annotation = _primary_annotation(record)
     population = _annotation_population_frequencies(annotation)
@@ -208,11 +255,10 @@ def small_variant_evidence(record: Any, *, gene_missense_z: float | None) -> dic
     def _population(key: str) -> float | None:
         return _finite(population.get(key))
 
-    constraint = (
-        {"gene_constraint": {"gene_missense_z": _finite(gene_missense_z)}}
-        if reads_gene_missense_z(record)
-        else {}
-    )
+    constraint: dict[str, Any] = {}
+    if reads_gene_missense_z(record):
+        missense_z, source = pp2_gene_missense_z(record, gene_profile_missense_z=gene_missense_z)
+        constraint = {"gene_constraint": {"gene_missense_z": missense_z, "gene_missense_z_source": source}}
     return {
         "transcript_id": _annotation_text(annotation, "transcript_id", "transcriptId"),
         "consequence": {
@@ -256,9 +302,10 @@ def build_evidence_snapshot(
     it changes whenever any annotation changes — alongside the ClinVar significance,
     the most decision-relevant value, read from the per-transcript annotations, and the
     consequence, population frequencies and in-silico scores the classification reads, with
-    the transcript they are read from, and, for a missense variant, the gene's missense Z
-    (``small_variant_evidence``; ``gene_missense_z`` as ``evidence_gene_missense_z`` reads
-    it). The drift check compares each value the snapshot froze, so it names what moved.
+    the transcript they are read from, and, for a missense variant, the gene's missense Z PP2
+    reads with its source (``small_variant_evidence``; ``gene_missense_z`` is the gene
+    profile's, as ``evidence_gene_missense_z`` reads it). The drift check compares each value
+    the snapshot froze, so it names what moved.
     """
     clinvar = None
     for annotation in getattr(record, "annotations", None) or []:
@@ -281,7 +328,7 @@ async def freeze_evidence_snapshot(
 ) -> dict[str, Any]:
     """The evidence snapshot a classification of ``record`` saved now freezes, a missense
     variant's gene missense Z looked up as the variant list looks it up, in the family's
-    assembly (``assembly_id``)."""
+    assembly (``assembly_id``), else read from the VCF (``pp2_gene_missense_z``)."""
     gene_missense_z = (
         await evidence_gene_missense_z(session, {"record": record}, assembly_id=assembly_id)
     )["record"]

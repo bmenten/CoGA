@@ -679,8 +679,9 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
       node: (
         <div>
           <div style={{ marginBottom: 4 }}>
+            {/* The chromosome as the viewer names it (#602): `chr1`, not the route's `1`. */}
             <strong>
-              {chrom}:{sitePos.toLocaleString()}
+              {formatChromosomeLabel(chrom)}:{sitePos.toLocaleString()}
             </strong>
             {site && (
               <span style={{ marginLeft: 6 }}>

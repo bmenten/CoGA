@@ -49,6 +49,7 @@ import {
   describeInherited,
   describeModuleVersions,
   describeNiptCoverage,
+  describeNiptCoverageNotes,
   describeNiptFetalFraction,
   describeNiptFetalSex,
   describeNiptFunnel,
@@ -574,7 +575,28 @@ const CoverageTracksSection: React.FC<{ record: SignedReport; version: number }>
 const niptStatusLabel = (status: string | null): string =>
   qcStatusLabel(status === 'unknown' ? 'skip' : status);
 
-const NiptResultsBody: React.FC<{ nipt: SignedNipt }> = ({ nipt }) => {
+/**
+ * The notes of the coverage check without a per-target table, as the record froze them (TRACE-17):
+ * nothing with a per-target table, whose targets the check reads; "not in the signed record" for a
+ * record signed before CoGA froze them, never "none".
+ */
+const NiptCoverageNotesLine: React.FC<{ nipt: SignedNipt; version: number }> = ({ nipt, version }) => {
+  const notes = nipt.coverageNotes;
+  let said: string;
+  if (notes.state === 'recorded') {
+    if (notes.value === null) return null;
+    said = describeNiptCoverageNotes(notes.value);
+  } else if (notes.state === 'unavailable') {
+    said = `not captured (${notes.reason}).`;
+  } else {
+    // A record signed before them: with a per-target table there were none to freeze.
+    if (nipt.targetCoverage) return null;
+    said = `not in the signed record (version ${version} was signed before CoGA recorded the coverage check’s notes).`;
+  }
+  return <li>Coverage tracks not read as depth: {said}</li>;
+};
+
+const NiptResultsBody: React.FC<{ nipt: SignedNipt; version: number }> = ({ nipt, version }) => {
   const { fetalFraction: ff, paternity, fetalSex: sex, plasmaSample: plasma, targetCoverage: coverage } = nipt;
   return (
     <>
@@ -618,6 +640,7 @@ const NiptResultsBody: React.FC<{ nipt: SignedNipt }> = ({ nipt }) => {
                 }`
               : 'no per-target coverage table'}
           </li>
+          <NiptCoverageNotesLine nipt={nipt} version={version} />
           <li>
             Filters: {describeNiptFunnel(nipt.filterCounts)}
             {nipt.qualityFailures.length
@@ -721,7 +744,7 @@ const NiptResultsBody: React.FC<{ nipt: SignedNipt }> = ({ nipt }) => {
 const NiptResults: React.FC<{ record: SignedReport; version: number }> = ({ record, version }) =>
   isNiptRecord(record) ? (
     <RecordSectionBlock title="NIPT results" what="the NIPT results" section={record.nipt} version={version}>
-      {(nipt) => <NiptResultsBody nipt={nipt} />}
+      {(nipt) => <NiptResultsBody nipt={nipt} version={version} />}
     </RecordSectionBlock>
   ) : null;
 

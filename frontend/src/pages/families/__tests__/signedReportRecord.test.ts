@@ -26,6 +26,7 @@ import {
   describeInherited,
   describeModuleVersions,
   describeNiptCoverage,
+  describeNiptCoverageNotes,
   describeNiptFetalFraction,
   describeNiptFetalSex,
   describeNiptFunnel,
@@ -297,6 +298,7 @@ describe('parseSignedReport', () => {
       frequencies: null,
       inSilico: null,
       geneConstraint: null,
+      geneConstraintSource: null,
     });
 
     // No ACMG criteria: the class its classification tag names; no evidence was frozen.
@@ -483,6 +485,38 @@ describe('parseSignedReport', () => {
     expect(describeFrozenEvidenceValues(without)).toBe(
       "Read from its primary transcript: consequence not annotated and impact MODERATE. From its gene's " +
         'profile: gnomAD missense Z not annotated.',
+    );
+  });
+
+  it('says where the frozen missense Z PP2 read came from (TRACE-15)', () => {
+    // PP2 reads the gene profile's missense Z, else the VCF's own MISSENSE_Z; the snapshot freezes
+    // the value with its source. One frozen before the source was holds the gene profile's.
+    const missenseZ = (gene_constraint: Record<string, unknown>) =>
+      parseSignedReport({
+        ...SNAPSHOT,
+        reported_variants: [
+          { variant_id: '17-43000000-A-G', tags: ['report'], evidence_snapshot: { gene_constraint } },
+        ],
+      })!.reportedVariants![0].evidence!;
+
+    const fromVcf = missenseZ({ gene_missense_z: 4.2, gene_missense_z_source: 'vcf' });
+    expect(fromVcf.geneConstraint).toEqual([{ label: 'gnomAD missense Z', value: '4.20' }]);
+    expect(fromVcf.geneConstraintSource).toBe('vcf');
+    expect(describeFrozenEvidenceValues(fromVcf)).toBe(
+      "From the VCF's MISSENSE_Z, as its gene's profile held none: gnomAD missense Z 4.20.",
+    );
+    const fromProfile = missenseZ({ gene_missense_z: 3.521, gene_missense_z_source: 'gene_profile' });
+    expect(describeFrozenEvidenceValues(fromProfile)).toBe("From its gene's profile: gnomAD missense Z 3.52.");
+    const earlier = missenseZ({ gene_missense_z: 3.521 });
+    expect(earlier.geneConstraintSource).toBe('gene_profile');
+    expect(describeFrozenEvidenceValues(earlier)).toBe("From its gene's profile: gnomAD missense Z 3.52.");
+    // Neither held one: the record says so, rather than "not annotated" in one of them.
+    const neither = missenseZ({ gene_missense_z: null, gene_missense_z_source: null });
+    expect(neither.geneConstraintSource).toBeNull();
+    expect(describeFrozenEvidenceValues(neither)).toBe("Neither its gene's profile nor the VCF held a gnomAD missense Z.");
+    // A value whose source the record does not name is not given one.
+    expect(describeFrozenEvidenceValues(missenseZ({ gene_missense_z: 3.6, gene_missense_z_source: 7 }))).toBe(
+      'gnomAD missense Z 3.60, from a source the record does not name.',
     );
   });
 
@@ -693,6 +727,35 @@ describe('the signed report’s wording', () => {
     expect(describeSmallVariantEvidenceChange(['gene_missense_z'], { gene_missense_z: 3.091 }, { gene_missense_z: 3.089 })).toBe(
       'gnomAD missense Z 3.091 → 3.089',
     );
+  });
+
+  it('names the source of a missense Z read from elsewhere (TRACE-15)', () => {
+    const profile = { gene_missense_z: 3.52, gene_missense_z_source: 'gene_profile' };
+    // The same value, read from the VCF now that the gene profile holds none.
+    expect(
+      describeSmallVariantEvidenceChange(['gene_missense_z_source'], profile, {
+        gene_missense_z: 3.52,
+        gene_missense_z_source: 'vcf',
+      }),
+    ).toBe('gnomAD missense Z 3.52 (gene profile) → 3.52 (VCF)');
+    // The value and its source.
+    expect(
+      describeSmallVariantEvidenceChange(
+        ['gene_missense_z', 'gene_missense_z_source'],
+        { gene_missense_z: 4.2, gene_missense_z_source: 'vcf' },
+        profile,
+      ),
+    ).toBe('gnomAD missense Z 4.20 (VCF) → 3.52 (gene profile)');
+    // Gone with the missense consequence: neither is read now.
+    expect(
+      describeSmallVariantEvidenceChange(['effect', 'gene_missense_z', 'gene_missense_z_source'], profile, {
+        effect: 'stop_gained',
+      }),
+    ).toBe('consequence n/a → stop_gained; gnomAD missense Z 3.52 (gene profile) → n/a');
+    // Only the value moved: as before, without the source.
+    expect(
+      describeSmallVariantEvidenceChange(['gene_missense_z'], profile, { ...profile, gene_missense_z: 2.95 }),
+    ).toBe('gnomAD missense Z 3.52 → 2.95');
   });
 
   it('reads a moved consequence, LoF call and gene missense Z in the drift a version was signed with', () => {
@@ -1227,6 +1290,9 @@ describe('what the sign-out check could not compare', () => {
     expect(describeNotCompared(['pgt_analysis.qc_verdict', 'pgt_analysis.inputs.blocks_outdated'])).toBe(
       'the embryos’ QC verdicts and whether the haplotype blocks were built for the family’s pedigree',
     );
+    expect(describeNotCompared(['nipt.coverage_notes'])).toBe(
+      'the NIPT coverage check’s notes on the coverage tracks it did not read as depth',
+    );
     // A reference module CoGA records since: by its name, else by its key.
     expect(describeNotCompared(['modules.hpo', 'modules.gene_loci', 'modules.gencc'])).toBe(
       'the HPO version, the gene loci’s source and the gencc version',
@@ -1583,6 +1649,75 @@ describe('a NIPT family’s NIPT results', () => {
     );
     // The sign-out check names a changed section in words.
     expect(describeReportSections(['nipt', 'sample_qc'])).toBe('NIPT results and sample-integrity QC');
+  });
+
+  // Without a per-target table, the notes of the coverage check over the coverage tracks, word for
+  // word, with what the check ran for: frozen since TRACE-17 (owner, 2026-10-28).
+  const COVERAGE_NOTES = {
+    gene: null,
+    panel: null,
+    regions: [{ label: 'GENEA locus', chrom: '7', start: 1, end: 1000 }],
+    notes: [
+      'CFDNA1: the coverage BED does not declare whether it holds read depth or a log2 ratio; it is not read as depth.',
+      'CFDNA1: the WisecondorX coverage holds log2 ratios, not read depth; it is not read as depth.',
+    ],
+  };
+  const coverageNotesOf = (nipt: Record<string, unknown>) => {
+    const record = parseSignedReport({ ...SNAPSHOT, nipt })!;
+    if (record.nipt.state !== 'recorded') throw new Error('not recorded');
+    return { notes: record.nipt.value.coverageNotes, malformed: record.nipt.malformed };
+  };
+
+  it('reads the coverage check’s notes the record froze, and what it ran for', () => {
+    const { notes, malformed } = coverageNotesOf({ ...NIPT, coverage_notes: COVERAGE_NOTES });
+    expect(notes).toEqual({
+      state: 'recorded',
+      value: {
+        gene: null,
+        panel: null,
+        regions: [{ label: 'GENEA locus', chrom: '7', start: 1, end: 1000 }],
+        notes: COVERAGE_NOTES.notes,
+      },
+    });
+    // The section's one malformed list (a variant that is no entry); the notes add none.
+    expect(malformed).toBe(1);
+    if (notes.state !== 'recorded' || !notes.value) throw new Error('no notes');
+    expect(describeNiptCoverageNotes(notes.value)).toBe(
+      'CFDNA1: the coverage BED does not declare whether it holds read depth or a log2 ratio; it is not read as depth. ' +
+        'CFDNA1: the WisecondorX coverage holds log2 ratios, not read depth; it is not read as depth. ' +
+        'The coverage check ran without a gene or panel, over the family’s region of interest GENEA locus (7:1–1,000).',
+    );
+    // A check that named no track says so; without a region of interest it read none.
+    expect(describeNiptCoverageNotes({ ...notes.value, notes: [] })).toBe(
+      'none. The coverage check ran without a gene or panel, over the family’s region of interest GENEA locus (7:1–1,000).',
+    );
+    expect(describeNiptCoverageNotes({ ...notes.value, regions: [], notes: [] })).toBe(
+      'none. The coverage check ran without a gene or panel, over no region: the family had no region of interest.',
+    );
+    // A gene or panel the check ran for is named.
+    expect(describeNiptCoverageNotes({ ...notes.value, gene: 'GENEA', panel: 'Panel 1', notes: [] })).toBe(
+      'none. The coverage check ran for gene GENEA and panel Panel 1, over GENEA locus (7:1–1,000).',
+    );
+  });
+
+  it('reads a record without the coverage check’s notes as not holding them, never as none', () => {
+    // Signed before CoGA froze them: absent.
+    expect(coverageNotesOf(NIPT).notes).toEqual({ state: 'absent' });
+    // With a per-target table the check reads its targets: recorded, as none.
+    expect(coverageNotesOf({ ...NIPT, coverage_notes: null }).notes).toEqual({ state: 'recorded', value: null });
+    // A value this view cannot read: not captured, and said so.
+    expect(coverageNotesOf({ ...NIPT, coverage_notes: 'notes' }).notes).toEqual({
+      state: 'unavailable',
+      reason: 'it cannot be read here; the downloaded record holds it as stored',
+    });
+    // A list of them that cannot be read counts for the NIPT section, never read as no note.
+    const { notes, malformed } = coverageNotesOf({
+      ...NIPT,
+      coverage_notes: { ...COVERAGE_NOTES, regions: 'GENEA', notes: [COVERAGE_NOTES.notes[0], 7] },
+    });
+    expect(notes).toMatchObject({ state: 'recorded', value: { regions: [], notes: [COVERAGE_NOTES.notes[0]] }, malformed: 2 });
+    // The section's own malformed list (a variant that is no entry) counts with them.
+    expect(malformed).toBe(3);
   });
 });
 

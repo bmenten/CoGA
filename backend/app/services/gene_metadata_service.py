@@ -19,7 +19,7 @@ from ..schemas import (
     GeneProfileOut,
     GeneSearchResultOut,
     GeneTranscriptOut,
-    MonarchPhenotypeMatchOut,
+    PhenotypeTermRefOut,
 )
 from .data_scope import is_primary_chromosome
 from .gene_info_jobs_pg import _get_human_context
@@ -671,7 +671,7 @@ async def build_gene_profile(
             monarch_url=f"https://monarchinitiative.org/{row['mondo_id']}",
             phenotype_count=phenotype_summary[row["mondo_id"]]["phenotype_count"],
             matched_phenotypes=[
-                MonarchPhenotypeMatchOut(hpo_id=match["hpo_id"], label=match["label"])
+                PhenotypeTermRefOut(hpo_id=match["hpo_id"], label=match["label"])
                 for match in phenotype_summary[row["mondo_id"]]["matched"]
             ],
         )

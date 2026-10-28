@@ -5,7 +5,8 @@ them in memory. These tests prove the caps hold: a tiny "bomb" that inflates to 
 MiB is aborted at the ceiling instead of exhausting worker memory, an oversized transfer
 is stopped mid-stream, and the optional-file (404) and upstream-error paths are preserved.
 They also prove every member of a multi-member (bgzip) file is read, under one cap on
-the output of all members, and that a truncated file or trailing bytes are refused.
+the output of all members, and that a truncated file or trailing bytes are refused, a BGZF
+file cut exactly where one of its blocks ends included (DATA-4).
 """
 from __future__ import annotations
 
@@ -20,9 +21,11 @@ import pytest
 
 from backend.app.services import bounded_download
 from backend.app.services.bounded_download import (
+    InvalidGzipError,
     download_bounded_bytes,
     gunzip_bounded,
 )
+from backend.tests._bgzf import BGZF_EOF_BLOCK, bgzf_block, bgzf_blocks, bgzip, bgzip_cut_after
 from backend.tests._deadline import deadline
 
 
@@ -56,25 +59,10 @@ def test_gunzip_bounded_halts_decompression_bomb_at_cap() -> None:
 # --- every member of a multi-member gzip (bgzip) -----------------------------------------
 #
 # gzip allows members back to back, and bgzip writes nothing else. A decompressor stops at
-# the end of the first member, so reading only one silently cuts the file short.
+# the end of the first member, so reading only one silently cuts the file short. The BGZF
+# files are built in the tests (backend/tests/_bgzf.py).
 
-# The end-of-file block of the BGZF specification (SAM/BAM format, section 4.1.2): an
-# empty member that bgzip writes last.
-_BGZF_EOF_BLOCK = bytes.fromhex("1f8b08040000000000ff0600424302001b0003000000000000000000")
 _VCF_LINE = b"chr1\t1000\t.\tA\tT\t50\tPASS\tDP=30\n"
-
-
-def _bgzf_block(payload: bytes) -> bytes:
-    """One BGZF block as bgzip writes it: a gzip member whose extra subfield "BC" holds
-    the size of the whole block less one."""
-    deflater = zlib.compressobj(6, zlib.DEFLATED, -zlib.MAX_WBITS)
-    cdata = deflater.compress(payload) + deflater.flush()
-    header = (
-        b"\x1f\x8b\x08\x04"  # gzip magic, deflate, FEXTRA
-        + b"\x00\x00\x00\x00\x00\xff"  # MTIME, XFL, OS (unknown)
-        + struct.pack("<H2sHH", 6, b"BC", 2, 18 + len(cdata) + 8 - 1)  # XLEN, "BC" subfield
-    )
-    return header + cdata + struct.pack("<2I", zlib.crc32(payload), len(payload))
 
 
 def test_gunzip_bounded_reads_every_member() -> None:
@@ -84,14 +72,85 @@ def test_gunzip_bounded_reads_every_member() -> None:
 
 
 def test_gunzip_bounded_reads_a_bgzip_file_whole() -> None:
-    assert _bgzf_block(b"") == _BGZF_EOF_BLOCK  # the builder writes real BGZF
+    assert bgzf_block(b"") == BGZF_EOF_BLOCK  # the builder writes real BGZF
     text = _VCF_LINE * 20_000  # 620,000 bytes
     # bgzip puts 0xFF00 bytes of input in each block: ten blocks here.
-    blocks = [_bgzf_block(text[i : i + 0xFF00]) for i in range(0, len(text), 0xFF00)]
+    blocks = bgzf_blocks(text)
     assert len(blocks) == 10
-    assert gunzip_bounded(b"".join(blocks) + _BGZF_EOF_BLOCK, source="t") == text
+    assert gunzip_bounded(b"".join(blocks) + BGZF_EOF_BLOCK, source="t") == text
     # bgzip's output for an empty file is the end-of-file block alone: valid, and empty.
-    assert gunzip_bounded(_BGZF_EOF_BLOCK, source="t") == b""
+    assert gunzip_bounded(BGZF_EOF_BLOCK, source="t") == b""
+
+
+# --- a BGZF file ends with its end-of-file block (DATA-4) ----------------------------------
+#
+# gzip has no end mark, so a BGZF file cut exactly where one of its blocks ends is a whole
+# gzip file, short of the rest. BGZF ends every file with an empty block "so that unintended
+# file truncation can be easily detected" (section 4.1.2); the owner decided on 2026-10-28
+# that a BGZF file must end with it. A plain gzip file has no such block.
+
+_TEXT = _VCF_LINE * 20_000  # ten blocks
+# An extra subfield other than BC, as RFC 1952 allows before or after it.
+_OTHER_SUBFIELD = b"XY\x02\x00ab"
+
+
+def _gzip_member_with_extra(payload: bytes, extra: bytes) -> bytes:
+    """A plain gzip member whose header holds an extra field without the subfield BC."""
+    deflater = zlib.compressobj(6, zlib.DEFLATED, -zlib.MAX_WBITS)
+    cdata = deflater.compress(payload) + deflater.flush()
+    header = b"\x1f\x8b\x08\x04\x00\x00\x00\x00\x00\xff" + struct.pack("<H", len(extra)) + extra
+    return header + cdata + struct.pack("<2I", zlib.crc32(payload), len(payload))
+
+
+def test_the_end_of_file_block_is_the_specifications() -> None:
+    assert bounded_download.BGZF_EOF_BLOCK == BGZF_EOF_BLOCK
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        pytest.param(bgzip_cut_after(_TEXT, 3), id="cut where its third block ends"),
+        pytest.param(b"".join(bgzf_blocks(_TEXT)), id="every block but the end-of-file block"),
+        pytest.param(bgzip(_TEXT) + bgzip_cut_after(_TEXT, 1), id="a whole file and a cut one joined"),
+        pytest.param(bgzip(_TEXT) + gzip.compress(b"more\n"), id="a plain gzip member last"),
+        pytest.param(bgzf_block(_VCF_LINE, extra=_OTHER_SUBFIELD), id="BC after another subfield"),
+    ],
+)
+def test_gunzip_bounded_refuses_a_bgzf_file_without_its_end_of_file_block(data: bytes) -> None:
+    # Each is one or more complete gzip members: it used to be read as the whole file (here
+    # the first three blocks of ten, without a word).
+    with pytest.raises(InvalidGzipError) as refused:
+        gunzip_bounded(data, source="t")
+    assert str(refused.value) == (
+        "t is not valid gzip: it is truncated (it does not end with BGZF's end-of-file block)"
+    )
+    # Refused as a truncated gzip file is: by the readers' handlers of InvalidGzipError, and
+    # by those of the EOFError Python's gzip module raises for a member cut short.
+    assert isinstance(refused.value, bounded_download.TruncatedBgzfError)
+    assert isinstance(refused.value, EOFError)
+
+
+@pytest.mark.parametrize(
+    "data, text",
+    [
+        pytest.param(bgzip(_TEXT), _TEXT, id="a whole BGZF file"),
+        pytest.param(BGZF_EOF_BLOCK, b"", id="an empty BGZF file"),
+        pytest.param(bgzip(_TEXT) + bgzip(b"more\n"), _TEXT + b"more\n", id="two whole BGZF files joined"),
+        pytest.param(
+            bgzf_block(_VCF_LINE, extra=_OTHER_SUBFIELD) + BGZF_EOF_BLOCK,
+            _VCF_LINE,
+            id="BC after another subfield",
+        ),
+        pytest.param(gzip.compress(_TEXT), _TEXT, id="a plain gzip file"),
+        pytest.param(gzip.compress(b"first\n") + gzip.compress(b"second\n"), b"first\nsecond\n", id="plain gzip members"),
+        pytest.param(
+            _gzip_member_with_extra(_VCF_LINE, _OTHER_SUBFIELD), _VCF_LINE, id="plain gzip with an extra field"
+        ),
+    ],
+)
+def test_gunzip_bounded_reads_a_whole_bgzf_file_and_plain_gzip(data: bytes, text: bytes) -> None:
+    # A plain gzip file has no end-of-file block, and reads as before whatever its last member.
+    assert gunzip_bounded(data, source="t") == text
 
 
 @pytest.mark.parametrize(

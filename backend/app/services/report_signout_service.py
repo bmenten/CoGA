@@ -70,7 +70,7 @@ from .report_code import (
     parse_report_code,
     report_code,
 )
-from .signed_record_nipt import nipt_signout_concerns
+from .signed_record_nipt import nipt_comparable_with_record, nipt_signout_concerns
 from .signed_record_sections import (
     NIPT_RESULTS,
     RECORD_SECTIONS,
@@ -1966,13 +1966,13 @@ async def compare_report_with_latest_signout(
     rebuilds the snapshot body and compares it, section by section, with the frozen one. A
     section or reference module the signed record predates is listed in ``not_compared``
     (a module as ``modules.<key>``) rather than reported as changed, and so is what a section
-    gained since (``pgt_analysis.qc_verdict``, ``repeat_expansions.count_units``): the rest of
-    such a section is compared on what the record holds. A section of one
-    application that neither holds (``pgt_analysis`` of a family without an embryo, or of a
-    monogenic NIPT family whose embryo, its fetus, has no haplotype blocks; ``nipt`` of a family
-    that is no monogenic NIPT family) is neither compared nor listed. The report page and the
-    signed view name what is listed as not compared beside what changed, and beside "still
-    matches" (TRACE-19).
+    gained since (``pgt_analysis.qc_verdict``, ``repeat_expansions.count_units``,
+    ``nipt.coverage_notes``): the rest of such a section is compared on what the record holds.
+    A section of one application that neither holds (``pgt_analysis`` of a family without an
+    embryo, or of a monogenic NIPT family whose embryo, its fetus, has no haplotype blocks;
+    ``nipt`` of a family that is no monogenic NIPT family) is neither compared nor listed. The
+    report page and the signed view name what is listed as not compared beside what changed,
+    and beside "still matches" (TRACE-19).
     """
     context = await build_family_metadata_context(
         session, family_identifier=family_id, user=user, project_id=project_id
@@ -2031,6 +2031,11 @@ async def compare_report_with_latest_signout(
             # The near-boundary warnings and QA's counting-units records, which a record signed
             # before them does not hold.
             current_value, predated = repeat_expansions_comparable_with_record(signed_value, current_value)
+            not_compared.extend(predated)
+        if section == NIPT_RESULTS.key:
+            # The notes of the NIPT coverage check over the coverage tracks, which a record
+            # signed before them does not hold (TRACE-17).
+            current_value, predated = nipt_comparable_with_record(signed_value, current_value)
             not_compared.extend(predated)
         if _section_fingerprint(signed_value) != _section_fingerprint(current_value):
             changed.append(section)

@@ -110,10 +110,16 @@ export interface SignedEvidence {
   frequencies: SignedEvidenceValue[] | null;
   inSilico: SignedEvidenceValue[] | null;
   /**
-   * The gene's missense Z, from its gene profile, which is frozen for a missense variant only;
-   * null when the record holds none.
+   * The gene's missense Z PP2 read, which is frozen for a missense variant only; null when the
+   * record holds none.
    */
   geneConstraint: SignedEvidenceValue[] | null;
+  /**
+   * Where that missense Z came from: 'gene_profile', 'vcf' (the VCF's own MISSENSE_Z, read when
+   * the gene profile held none), or null when neither held one (TRACE-15). A record frozen before
+   * the source was holds the gene profile's: 'gene_profile'.
+   */
+  geneConstraintSource: string | null;
 }
 
 /**
@@ -172,7 +178,7 @@ export interface SignedDriftItem {
   clinvarTo: string | null;
   /**
    * What moved: 'clinvar', 'transcript_id', a consequence, frequency or in-silico field, the
-   * gene's 'gene_missense_z', 'annotations'.
+   * gene's 'gene_missense_z' and its 'gene_missense_z_source', 'annotations'.
    */
   changed: string[];
   evidenceFrom: ApiSmallVariantEvidence | null;
@@ -657,6 +663,22 @@ export interface SignedNiptRecessiveGene {
   paternalVariantId: string | null;
 }
 
+/**
+ * The notes of the coverage check without a per-target table, as the record froze them
+ * (`signed_record_nipt._coverage_notes`, TRACE-17): each of the plasma's coverage tracks the check
+ * did not read as depth, with why, word for word as the NIPT page showed them, and what the check
+ * ran for. The sign-out runs it as the NIPT page does without a gene or panel: over the family's
+ * region of interest.
+ */
+export interface SignedNiptCoverageNotes {
+  /** The gene and the panel the check ran for; null: none. */
+  gene: string | null;
+  panel: string | null;
+  /** The regions it read the tracks over; none: the family had no region of interest. */
+  regions: { label: string | null; chrom: string | null; start: number | null; end: number | null }[];
+  notes: string[];
+}
+
 /** A monogenic NIPT family's NIPT results, as its record froze them (`signed_record_nipt`). */
 export interface SignedNipt {
   samples: { father: string | null; maternalPlasma: string | null; fetus: string | null };
@@ -671,6 +693,11 @@ export interface SignedNipt {
   fetalSex: SignedNiptFetalSex | null;
   plasmaSample: SignedNiptCheck | null;
   targetCoverage: SignedNiptTargetCoverage | null;
+  /**
+   * The coverage check's notes over the coverage tracks: `absent` from a record signed before
+   * CoGA froze them; recorded as null with a per-target table, whose targets the check reads.
+   */
+  coverageNotes: SignedRecordSection<SignedNiptCoverageNotes | null>;
   variants: SignedNiptVariant[];
   notClassified: { variantId: string; reason: string }[];
   recessiveGenes: SignedNiptRecessiveGene[];
@@ -791,9 +818,22 @@ const IN_SILICO_FIELDS: EvidenceField[] = [
   { key: 'alpha_missense_pathogenicity', label: 'AlphaMissense score', format: 3 },
 ];
 
-// The gene's missense constraint the PP2 suggestion reads, from the gene's profile: frozen for a
-// missense variant only.
+// The gene's missense constraint the PP2 suggestion reads: frozen for a missense variant only,
+// with where it came from (MISSENSE_Z_SOURCE_KEY).
 const GENE_CONSTRAINT_FIELDS: EvidenceField[] = [{ key: 'gene_missense_z', label: 'gnomAD missense Z', format: 2 }];
+
+// The source of the frozen missense Z (TRACE-15): the gene's profile, else the VCF's own
+// MISSENSE_Z. Before the source was frozen, the missense Z was the gene profile's.
+const MISSENSE_Z_SOURCE_KEY = 'gene_missense_z_source';
+const MISSENSE_Z_SOURCE_LABEL: Record<string, string> = { gene_profile: 'gene profile', vcf: 'VCF' };
+
+const parseMissenseZSource = (value: unknown): string | null =>
+  isObject(value) ? (has(value, MISSENSE_Z_SOURCE_KEY) ? text(value[MISSENSE_Z_SOURCE_KEY]) : 'gene_profile') : null;
+
+const missenseZSourceLabel = (source: unknown): string | null => {
+  const value = text(source);
+  return value === null ? null : (MISSENSE_Z_SOURCE_LABEL[value] ?? value);
+};
 
 // A value of the wrong type for its field is not guessed: it reads as no value.
 const formatEvidenceValue = (field: EvidenceField, value: unknown): string | null => {
@@ -854,6 +894,7 @@ const parseSmallVariant = (entry: unknown): SignedSmallVariant => {
           frequencies: parseEvidenceValues(evidence.frequencies, FREQUENCY_FIELDS),
           inSilico: parseEvidenceValues(evidence.in_silico, IN_SILICO_FIELDS),
           geneConstraint: parseEvidenceValues(evidence.gene_constraint, GENE_CONSTRAINT_FIELDS),
+          geneConstraintSource: parseMissenseZSource(evidence.gene_constraint),
         }
       : null,
     compoundHet: pair
@@ -1533,6 +1574,18 @@ const parseNiptVariant = (entry: Json): SignedNiptVariant => {
   };
 };
 
+const parseNiptCoverageNotes = (value: Json): SignedNiptCoverageNotes => ({
+  gene: text(value.gene),
+  panel: text(value.panel),
+  regions: objects(value.regions).map((region) => ({
+    label: text(region.label),
+    chrom: text(region.chrom),
+    start: number(region.start),
+    end: number(region.end),
+  })),
+  notes: strings(value.notes),
+});
+
 const parseNipt = (value: Json): SignedNipt => {
   const samples = isObject(value.samples) ? value.samples : {};
   const ff = isObject(value.fetal_fraction) ? value.fetal_fraction : null;
@@ -1591,6 +1644,12 @@ const parseNipt = (value: Json): SignedNipt => {
           })),
         }
       : null,
+    // Null with a per-target table: recorded, as none (TRACE-17).
+    coverageNotes: !has(value, 'coverage_notes')
+      ? { state: 'absent' }
+      : value.coverage_notes === null
+        ? { state: 'recorded', value: null }
+        : parseRecordSection(value, 'coverage_notes', parseNiptCoverageNotes),
     variants: objects(value.variants).map(parseNiptVariant),
     notClassified: objects(value.not_classified).map((entry) => ({
       variantId: text(entry.variant_id) ?? 'a variant',
@@ -2081,6 +2140,29 @@ export const describeNiptCoverage = (coverage: SignedNiptTargetCoverage): string
     coverage.belowCritical ?? 0,
   )} below ${depth(coverage.criticalMeanDepth)}, ${formatCount(coverage.incomplete ?? 0)} with uncovered bases`;
 
+const describeCoverageRegion = (region: SignedNiptCoverageNotes['regions'][number]): string =>
+  `${region.label ?? 'a region'} (${region.chrom ?? '?'}:${region.start?.toLocaleString() ?? '?'}–${
+    region.end?.toLocaleString() ?? '?'
+  })`;
+
+/**
+ * The notes of the coverage check without a per-target table as signed (TRACE-17), word for word,
+ * then what the check ran for: "CFDNA1: the coverage BED does not declare whether it holds read
+ * depth or a log2 ratio; it is not read as depth. The coverage check ran without a gene or panel,
+ * over the family’s region of interest GENEA locus (7:1–1,000)." "none." when it named no track.
+ */
+export const describeNiptCoverageNotes = (coverage: SignedNiptCoverageNotes): string => {
+  const asked = [coverage.gene ? `gene ${coverage.gene}` : null, coverage.panel ? `panel ${coverage.panel}` : null]
+    .filter((part): part is string => Boolean(part));
+  const regions = coverage.regions.map(describeCoverageRegion).join('; ');
+  const ranFor = asked.length
+    ? `for ${asked.join(' and ')}, over ${regions || 'no region'}`
+    : regions
+      ? `without a gene or panel, over the family’s region of interest ${regions}`
+      : 'without a gene or panel, over no region: the family had no region of interest';
+  return `${coverage.notes.length ? coverage.notes.join(' ') : 'none.'} The coverage check ran ${ranFor}.`;
+};
+
 /** A reported variant's NIPT classification as signed, worded as the NIPT page words it. */
 export const describeNiptVariant = (variant: SignedNiptVariant): string => {
   const category =
@@ -2127,11 +2209,13 @@ export const describeReportSections = (sections: string[]): string =>
 
 // The parts of a section CoGA records since a record was signed: the sign-out check compares
 // such a record's section on what it holds and names these as not compared
-// (pgt_analysis.comparable_with_record, signed_record_sections.repeat_expansions_comparable_with_record).
+// (pgt_analysis.comparable_with_record, signed_record_sections.repeat_expansions_comparable_with_record,
+// signed_record_nipt.nipt_comparable_with_record).
 const NOT_COMPARED_PART_LABELS: Record<string, string> = {
   'pgt_analysis.qc_verdict': 'the embryos’ QC verdicts',
   'pgt_analysis.inputs.blocks_outdated': 'whether the haplotype blocks were built for the family’s pedigree',
   'repeat_expansions.count_units': 'the repeat calls’ near-boundary warnings and QA’s records of their counting units',
+  'nipt.coverage_notes': 'the NIPT coverage check’s notes on the coverage tracks it did not read as depth',
 };
 
 // The reference-layer modules a record can predate (annotation_manifest_service.REFERENCE_MODULE_KEYS),
@@ -2192,6 +2276,22 @@ export const qcStatusLabel = (status: string | null): string =>
   status ? (QC_STATUS_LABEL[status as QcStatus] ?? status) : 'not recorded';
 
 /**
+ * The sentence of a classification's frozen gene missense Z, naming where PP2 read it: "From its
+ * gene's profile: gnomAD missense Z 3.52." or "From the VCF's MISSENSE_Z, as its gene's profile
+ * held none: …" (TRACE-15); null when the record holds none.
+ */
+const describeFrozenMissenseZ = (evidence: SignedEvidence, list: (values: SignedEvidenceValue[]) => string) => {
+  if (!evidence.geneConstraint?.length) return null;
+  const values = list(evidence.geneConstraint);
+  if (evidence.geneConstraintSource === 'gene_profile') return `From its gene's profile: ${values}.`;
+  if (evidence.geneConstraintSource === 'vcf') return `From the VCF's MISSENSE_Z, as its gene's profile held none: ${values}.`;
+  if (evidence.geneConstraintSource !== null) return `From ${evidence.geneConstraintSource}: ${values}.`;
+  return evidence.geneConstraint.every((entry) => entry.value === null)
+    ? "Neither its gene's profile nor the VCF held a gnomAD missense Z."
+    : `${values}, from a source the record does not name.`;
+};
+
+/**
  * The frozen consequence, frequencies and in-silico scores of a classification and its gene's
  * missense Z, as the signed view writes them: "Read from its primary transcript ENST…:
  * consequence stop_gained, impact HIGH and LoF HC; population frequencies gnomAD AF 3.10e-5, …;
@@ -2210,7 +2310,7 @@ export const describeFrozenEvidenceValues = (evidence: SignedEvidence): string |
     groups.length
       ? `Read from its primary transcript${evidence.transcriptId ? ` ${evidence.transcriptId}` : ''}: ${groups.join('; ')}.`
       : null,
-    evidence.geneConstraint?.length ? `From its gene's profile: ${list(evidence.geneConstraint)}.` : null,
+    describeFrozenMissenseZ(evidence, list),
   ].filter((sentence): sentence is string => sentence !== null);
   return sentences.length ? sentences.join(' ') : null;
 };
@@ -2218,8 +2318,9 @@ export const describeFrozenEvidenceValues = (evidence: SignedEvidence): string |
 /**
  * What moved in a small-variant classification's frozen values ("consequence stop_gained →
  * stop_gained&splice_region_variant; REVEL 0.412 → 0.951; gnomAD missense Z 2.95 → 3.52");
- * null when none of them moved. The live report and the signed version both describe drift
- * this way.
+ * null when none of them moved. A missense Z read from another source names both sources
+ * ("gnomAD missense Z 3.52 (gene profile) → 3.52 (VCF)", TRACE-15). The live report and the
+ * signed version both describe drift this way.
  */
 export const describeSmallVariantEvidenceChange = (
   changed: string[],
@@ -2230,17 +2331,24 @@ export const describeSmallVariantEvidenceChange = (
   if (changed.includes('transcript_id')) {
     parts.push(`primary transcript ${text(from?.transcript_id) ?? 'n/a'} → ${text(to?.transcript_id) ?? 'n/a'}`);
   }
+  // A missense Z read from another source names each side's source, also when its value stayed.
+  const sourceMoved = changed.includes(MISSENSE_Z_SOURCE_KEY);
+  const namesSource = (field: EvidenceField) => sourceMoved && GENE_CONSTRAINT_FIELDS.includes(field);
+  const written = (field: EvidenceField, value: string | null, evidence: ApiSmallVariantEvidence | null) => {
+    const source = namesSource(field) ? missenseZSourceLabel(evidence?.[MISSENSE_Z_SOURCE_KEY]) : null;
+    return `${value ?? 'n/a'}${source ? ` (${source})` : ''}`;
+  };
   [...CONSEQUENCE_FIELDS, ...FREQUENCY_FIELDS, ...IN_SILICO_FIELDS, ...GENE_CONSTRAINT_FIELDS]
-    .filter((field) => changed.includes(field.key))
+    .filter((field) => changed.includes(field.key) || namesSource(field))
     .forEach((field) => {
       let before = formatEvidenceValue(field, from?.[field.key]);
       let after = formatEvidenceValue(field, to?.[field.key]);
       // Two values that differ past the digits the report writes are written in full.
-      if (before !== null && before === after) {
+      if (before !== null && before === after && changed.includes(field.key)) {
         before = String(from?.[field.key]);
         after = String(to?.[field.key]);
       }
-      parts.push(`${field.label} ${before ?? 'n/a'} → ${after ?? 'n/a'}`);
+      parts.push(`${field.label} ${written(field, before, from)} → ${written(field, after, to)}`);
     });
   return parts.length ? parts.join('; ') : null;
 };

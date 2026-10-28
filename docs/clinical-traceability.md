@@ -58,18 +58,25 @@ length-changing variant read (PVS1, PM4, PP2, BP7, and the criteria a consequenc
 genome, popmax and TOPMed frequencies and the gnomAD allele, homozygote and hemizygote counts the
 filters read. Under `in_silico`: CADD (`cadd_phred`), REVEL, SpliceAI (`spliceai_max`), SIFT,
 PolyPhen and the AlphaMissense class and score. Under `gene_constraint`, for a missense variant
-only: the gene's gnomAD missense Z (`gene_missense_z`) the PP2 criterion reads. A missense variant
+only: the gene's gnomAD missense Z (`gene_missense_z`) the PP2 criterion reads, and where it came
+from (`gene_missense_z_source`). A missense variant
 is one whose consequence includes `missense_variant`, as the dialog tells one for PP2
 (`reads_gene_missense_z`); PP2 reads the missense Z for no other variant, so for any other the
 group is left out and the gene's profile is not read (the owner's decision, 2026-10-20). The
-missense Z is not in the variant's annotation but in the gene's profile (`gene_info`), so it is
+missense Z PP2 reads first is not in the variant's annotation but in the gene's profile (`gene_info`), so it is
 read with the variant list's own lookup (`gene_constraint_metrics.fetch_gene_constraint_metrics`),
 in the profiles of the family's assembly, for the gene the variant is served with: the primary
 transcript's gene id, else its symbol, in any case, else the variant's first gene. Until TRACE-15
-the lookup read the newest profile of any assembly, and matched a symbol only as written. Every field is frozen, `null` without a value, so a value that appears
+the lookup read the newest profile of any assembly, and matched a symbol only as written. When the
+gene's profile holds none, PP2 reads the VCF's own `MISSENSE_Z`, which the import stores in the
+primary transcript's annotation as `gene_missense_z` and the variant list serves in
+`annotation_extra` (`small_variant_review_acmg.pp2_gene_missense_z`, the owner's decision of
+2026-10-28). The source is `gene_profile` or `vcf`, and `null` with the value when neither holds
+one. Every field is frozen, `null` without a value, so a value that appears
 later is a change; a value JSONB cannot hold (NaN, infinity) is frozen as `null`. A snapshot taken
 before these values were frozen (CLIN-7) holds none of them; one taken before the consequence and
-the missense Z were holds `transcript_id`, `frequencies` and `in_silico` only.
+the missense Z were holds `transcript_id`, `frequencies` and `in_silico` only, and one taken before
+the source was (TRACE-15) holds the gene profile's missense Z without it.
 
 A structural variant or CNV has no annotation-set hash in ClickHouse, so its snapshot
 (`services/structural_variant_evidence.py`, taken on every save of a CNV scoring) holds the
@@ -193,9 +200,12 @@ the variant's current annotation:
   under it, so a refresh of the gene profiles can move it while the hash stays the same; it never
   moves another variant's classification, which froze none). `changed` names what moved:
   `clinvar`, `transcript_id` (the primary transcript), each consequence, frequency or in-silico
-  field by its name (`effect`, `impact`, `lof`, `gnomad_af`, `revel`, …), `gene_missense_z`, and
+  field by its name (`effect`, `impact`, `lof`, `gnomad_af`, `revel`, …), `gene_missense_z`,
+  `gene_missense_z_source` when PP2 reads the missense Z from the other source now (the gene's
+  profile gained or lost one: *gnomAD missense Z 4.20 (VCF) → 3.52 (gene profile)*), and
   `annotations` when the hash moved; `evidence_from` and `evidence_to` hold the transcript,
-  consequence, frequencies, in-silico scores and missense Z as frozen and as they are now;
+  consequence, frequencies, in-silico scores and missense Z with its source as frozen and as they
+  are now;
 - `unknown`: nothing is seen to have moved, but a hash is missing or a frozen group cannot be
   read, so the match cannot be verified. A stored snapshot that is not a JSON object, which the
   writer never stores, is compared as one that froze nothing, and so is `unknown` too (or
@@ -208,7 +218,9 @@ not whether it was an integer). A snapshot taken before the frequencies and in-s
 were frozen has `evidence_from` null and is compared by its hash and ClinVar significance alone,
 as before: it does not turn into drift. One taken before the consequence and the missense Z were
 is compared on its transcript, frequencies and in-silico scores: a consequence or missense Z it
-does not hold is never drift. The current values are read as a classification saved now would
+does not hold is never drift. One taken before the missense Z's source was is compared on the
+missense Z alone: once the gene's profile holds none and the VCF does, the value PP2 reads moved
+(*gnomAD missense Z 2.95 → 4.20*). The current values are read as a classification saved now would
 freeze them: a variant classified as a missense variant and no longer called one names its
 consequence and its missense Z as gone (*gnomAD missense Z 2.95 → n/a*), and one that became a
 missense variant names its consequence only. The check reads the missense Z of the family's
@@ -339,7 +351,16 @@ in the EPD refers to the signed version by its report code (*The report code* be
     sentence that says why (`checks`: paternity, the fetal sex from the father's X alleles and
     from the plasma's chrY coverage, the maternal plasma sample's sex profile); the coverage of
     every capture target and each gene with a weak target (`target_coverage`, null without a
-    per-target coverage table); each variant tagged `report` as the NIPT variant list
+    per-target coverage table); without a per-target table, the notes of the coverage check over
+    the plasma's coverage tracks, word for word as the NIPT page shows them, each naming a track
+    the check does not read as depth and why (TRACE-9), with what the check ran for
+    (`coverage_notes`: `gene` and `panel`, both null, the `regions` it read the tracks over, and
+    the `notes`; owner decision of 2026-10-28, TRACE-17). The check depends on the gene or panel
+    the NIPT page's search gives it, which the sign-out is not told: the sign-out runs it with the
+    page's own code (`nipt_service.nipt_coverage_notes`) as the page runs it without a gene or
+    panel, over the family's region of interest (no region, and so no note, without one), as
+    `target_coverage` holds the check of every capture target. Null with a per-target table,
+    whose targets the check reads instead; each variant tagged `report` as the NIPT variant list
     classifies it (`variants`: its category, maternal state and fetal inheritance, the observed
     and expected allele fraction, the confidence, the fetal-inheritance probabilities, its flags
     and quality-filter failures, the plasma's and the father's reads, and for a de novo candidate
@@ -371,7 +392,8 @@ in the EPD refers to the signed version by its report code (*The report code* be
     their inputs. Every family's record holds it, as `{"tracks": []}` for a family without a
     coverage track, so a track loaded after sign-out reads as a change. A monogenic NIPT family's
     per-target coverage tables are another track type (`target_coverage`), which `nipt` holds
-    (`inputs.target_tables`); the NIPT section freezes no coverage note, so nothing is held twice;
+    (`inputs.target_tables`); without them `nipt` also holds the notes the NIPT coverage check
+    gave over these tracks, word for word (`nipt.coverage_notes`, above; TRACE-17);
 - the signer, the time, and any acknowledgement with its reason.
 
 Each section of what the analysis looked at is read inside a savepoint. One that cannot be
@@ -663,8 +685,12 @@ the disease haplotype, and per embryo its call, the homologs it carries at the R
 names them (P1, P2, M1, M2), its warnings, its QC at the ROI and, in a record that holds them, that
 QC's verdict and the thresholds it was checked against, and the haplotype file read); in a
 monogenic NIPT family its NIPT results (*NIPT results*: the fetal fraction and the quality
-checks with their verdicts, the coverage, the funnel and the categories, each reported variant
-as the NIPT analysis classified it, the recessive fetal risk, and what the analysis ran with);
+checks with their verdicts, the coverage, and without a per-target table the coverage check's notes
+on each coverage track it did not read as depth, word for word, with what the check ran for
+(*Coverage tracks not read as depth: … The coverage check ran without a gene or panel, over the
+family’s region of interest …*), or for a record signed before CoGA froze them that it does not
+hold them, the funnel and the categories, each reported variant as the NIPT analysis classified
+it, the recessive fetal risk, and what the analysis ran with);
 no other family's record shows or mentions either; the gene panels applied, the repeat
 expansions (in a record that holds them, each count near a boundary marked beside its call,
 *⚠ Near a boundary: 53 is within 3 repeats of 55 (Premutation)*, and each locus's counting units,
@@ -749,6 +775,16 @@ reads as a change, and the signed version shows such a record as it was signed, 
 not captured. A record that holds them is compared whole, so a locus whose counting units QA
 validated or withdrew since it was signed reads as a change.
 
+A NIPT family's record signed before CoGA froze the notes of the coverage check over the coverage
+tracks holds no `coverage_notes` in its `nipt` section (TRACE-17). The check compares its `nipt` on
+what it holds and lists `nipt.coverage_notes` under `not_compared`, instead of calling the record
+changed (`signed_record_nipt.nipt_comparable_with_record`); a fetal fraction or a classification
+that changed since still reads as a change. A record that holds them (as null too, with a per-target
+table) is compared whole, so a track declared, loaded or removed since, or a region of interest
+changed since, that changes the notes or what the check ran for reads as a change. The signed view
+says such a record does not hold them when it has no per-target table (*Coverage tracks not read as
+depth: not in the signed record …*); with a table the check read its targets and noted no track.
+
 A section CoGA has since computed differently reads as changed too. The Sample QC now counts a check
 that could not run as `warn`, with a note naming each sample whose sex could not be checked, so for a
 family with such a sex check the check lists `sample_qc` as changed against a version signed before:
@@ -761,11 +797,15 @@ check. A small variant's entry names the frozen values that had moved, with the 
 (*REVEL 0.412 → 0.951*, *LoF LC → HC*, *gnomAD missense Z 2.95 → 3.52*), and each reported small
 variant shows, under *Evidence when classified*, the consequence, frequencies and in-silico scores
 its snapshot froze from the primary transcript and, in a sentence of its own, a missense variant's
-gene missense Z; a group the snapshot did not freeze is left out, so one frozen before CoGA froze
+gene missense Z with where PP2 read it (*From its gene's profile: gnomAD missense Z 3.52.*, *From
+the VCF's MISSENSE_Z, as its gene's profile held none: …*, or *Neither its gene's profile nor the
+VCF held a gnomAD missense Z.*; one frozen before the source was reads as the gene profile's, which
+it was); a group the snapshot did not freeze is left out, so one frozen before CoGA froze
 any of them shows its ClinVar significance and annotation version only. A version signed before a
 small-variant drift entry named what moved (CLIN-7) has its `drift` section listed as changed by
 the check while it holds such an entry, and so does one signed before the consequence and the
-missense Z were frozen: the entry the check computes again also holds them as they are now
+missense Z were frozen, or before the missense Z's source was (TRACE-15) while it holds an entry of
+a missense variant: the entry the check computes again also holds them as they are now
 (`evidence_to`).
 
 The release candidate's snapshot format is the first one CoGA reads: records signed by earlier

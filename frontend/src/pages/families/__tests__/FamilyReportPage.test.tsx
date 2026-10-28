@@ -1870,6 +1870,60 @@ describe('FamilyReportPage', () => {
       expect(nipt).toHaveTextContent('Per-target coverage: CFDNA1: cfdna.targets.tsv, 3 targets, loaded 2026-10-01 09:00 UTC');
       expect(nipt).toHaveTextContent('Artifact list: nipt_cfdna, 2 alleles, digest abcdef01abcd; 1 left out of this analysis');
       expect(nipt).toHaveTextContent('Model: R NIPT-M v0.5.1 validation (6 families with trio exomes).');
+      // With a per-target table the coverage check reads its targets: it noted no coverage track.
+      expect(nipt).not.toHaveTextContent('Coverage tracks not read as depth');
+    });
+
+    // Without a per-target table, the notes of the coverage check over the plasma's coverage
+    // tracks, word for word as the NIPT page showed them, with what the check ran for (TRACE-17).
+    const WITHOUT_TARGET_TABLE = {
+      ...SIGNED_NIPT,
+      target_coverage: null,
+      inputs: { ...SIGNED_NIPT.inputs, target_tables: [] },
+    };
+
+    it('shows the coverage check’s notes a NIPT record froze, with what the check ran for, in print too', async () => {
+      const coverageNotes = {
+        gene: null,
+        panel: null,
+        regions: [{ label: 'GENEA locus', chrom: '7', start: 1, end: 1000 }],
+        notes: [
+          'CFDNA1: the coverage BED does not declare whether it holds read depth or a log2 ratio; it is not read as depth.',
+        ],
+      };
+      mockSignedCase({
+        snapshot: {
+          ...SIGNED_SNAPSHOT,
+          ...SIGNED_ANALYSIS,
+          sample_qc: NIPT_SAMPLE_QC,
+          nipt: { ...WITHOUT_TARGET_TABLE, coverage_notes: coverageNotes },
+        },
+      });
+      renderPage();
+
+      const nipt = (await screen.findByRole('heading', { name: 'NIPT results' })).closest('section')!;
+      expect(nipt.closest('.no-print')).toBeNull();
+      expect(nipt).toHaveTextContent('Target coverage: no per-target coverage table');
+      expect(nipt).toHaveTextContent(
+        'Coverage tracks not read as depth: CFDNA1: the coverage BED does not declare whether it holds read depth or a log2 ratio; it is not read as depth. The coverage check ran without a gene or panel, over the family’s region of interest GENEA locus (7:1–1,000).',
+      );
+    });
+
+    it('says a NIPT record signed before CoGA froze the coverage check’s notes does not hold them', async () => {
+      // A record of the format signed before TRACE-17: its NIPT section without the key, and the
+      // rest of it read as before.
+      mockSignedCase({
+        snapshot: { ...SIGNED_SNAPSHOT, ...SIGNED_ANALYSIS, sample_qc: NIPT_SAMPLE_QC, nipt: WITHOUT_TARGET_TABLE },
+      });
+      renderPage();
+
+      const nipt = (await screen.findByRole('heading', { name: 'NIPT results' })).closest('section')!;
+      expect(nipt).toHaveTextContent(
+        'Coverage tracks not read as depth: not in the signed record (version 2 was signed before CoGA recorded the coverage check’s notes).',
+      );
+      expect(nipt).toHaveTextContent('Paternity: Pass — Paternity supported');
+      expect(nipt).toHaveTextContent('Model: R NIPT-M v0.5.1 validation (6 families with trio exomes).');
+      expect(nipt).not.toHaveTextContent('cannot be read here');
     });
 
     it('says a NIPT family’s record signed before CoGA froze the NIPT results does not hold them', async () => {
@@ -2393,6 +2447,54 @@ describe('FamilyReportPage', () => {
       );
       const drift = screen.getByRole('heading', { name: 'Evidence drift at sign-out' }).closest('section')!;
       expect(drift).toHaveTextContent('17-43000000-A-G — gnomAD missense Z 2.95 → 3.52 (classified by alice)');
+    });
+
+    it("shows a missense Z PP2 read from the VCF, and one read from another source since (TRACE-15)", async () => {
+      const [reported] = SIGNED_SNAPSHOT.reported_variants;
+      mockSignedCase({
+        versions: [{ ...SIGNED_ENTRY, drift_acknowledged: true, drift_acknowledgement_reason: 'PP2 re-reviewed' }],
+        snapshot: {
+          ...SIGNED_SNAPSHOT,
+          reported_variants: [
+            {
+              // The gene's profile held no missense Z: PP2 read the VCF's own MISSENSE_Z.
+              ...reported,
+              evidence_snapshot: {
+                ...reported.evidence_snapshot,
+                gene_constraint: { gene_missense_z: 4.2, gene_missense_z_source: 'vcf' },
+              },
+            },
+          ],
+          drift: {
+            checked: 1,
+            drifted_count: 1,
+            drifted: [
+              {
+                variant_id: '17-43000000-A-G',
+                status: 'drifted',
+                clinvar_from: 'Likely_pathogenic',
+                clinvar_to: 'Likely_pathogenic',
+                changed: ['gene_missense_z', 'gene_missense_z_source'],
+                evidence_from: { gene_missense_z: 4.2, gene_missense_z_source: 'vcf' },
+                evidence_to: { gene_missense_z: 3.52, gene_missense_z_source: 'gene_profile' },
+                classified_by: 'alice',
+              },
+            ],
+          },
+          acknowledged_drift: true,
+          drift_acknowledgement_reason: 'PP2 re-reviewed',
+        },
+      });
+      renderPage();
+
+      await signedRecordCard();
+      const variant = screen.getByRole('heading', { name: '17-43000000-A-G' }).closest('article')!;
+      expect(variant).toHaveTextContent("From the VCF's MISSENSE_Z, as its gene's profile held none: gnomAD missense Z 4.20.");
+      expect(variant).not.toHaveTextContent("From its gene's profile");
+      const drift = screen.getByRole('heading', { name: 'Evidence drift at sign-out' }).closest('section')!;
+      expect(drift).toHaveTextContent(
+        '17-43000000-A-G — gnomAD missense Z 4.20 (VCF) → 3.52 (gene profile) (classified by alice)',
+      );
     });
 
     it('shows the overrides frozen into the signed version', async () => {

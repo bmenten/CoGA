@@ -905,7 +905,7 @@ async def refresh_all_gene_reference(
     return await queue_gene_reference_refresh_job(
         session=session,
         scope="all_human",
-        requested_by=user.email,
+        requested_by=user,
     )
 
 
@@ -919,7 +919,7 @@ async def refresh_gene_reference(
         session=session,
         scope="symbol",
         symbol=symbol,
-        requested_by=user.email,
+        requested_by=user,
     )
 
 
@@ -1007,5 +1007,5 @@ async def rebuild_clinical_cnv_kb(
         session,
         assembly=request.assembly,
         skip_clinvar=request.skip_clinvar,
-        requested_by=user.email,
+        requested_by=user,
     )

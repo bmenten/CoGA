@@ -25,7 +25,7 @@ import {
 import VizLoadingOverlay from './VizLoadingOverlay';
 import VizErrorOverlay from './VizErrorOverlay';
 import type { GenomeLayout } from './genomeBinLayout';
-import { NUCLEAR_CHROMOSOMES, formatChromosomeLabel } from '../../lib/chromosomes';
+import { NUCLEAR_CHROMOSOMES, formatChromosomeLabel, normalizeChrom } from '../../lib/chromosomes';
 import { isDeletedHaplotype } from '../../lib/phasedMarkers';
 
 // Stable fallback for the optional familyMembers prop. An inline `= []` default
@@ -198,7 +198,9 @@ const GenomeHaplotypeTrack: React.FC<Props> = ({
 
     segments.forEach((seg) => {
       const chr = seg.chr;
-      const offset = layout.offsets[chr];
+      // The layout names a chromosome as normalizeChrom does (`1`, `X`); a block comes under its
+      // stored name, which need not be that one (`x`, `chrX`).
+      const offset = layout.offsets[normalizeChrom(chr)];
       if (offset === undefined) return;
       const x1 = ((offset + seg.start) / layout.total) * width;
       const x2 = ((offset + seg.end) / layout.total) * width;

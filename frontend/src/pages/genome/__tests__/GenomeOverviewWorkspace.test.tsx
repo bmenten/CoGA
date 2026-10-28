@@ -309,18 +309,19 @@ describe('GenomeOverviewWorkspace', () => {
     expect(navigateToChromosome.mock.calls).toEqual([['1'], ['1']]);
   });
 
-  // ENG-7: the strip wrote the mitochondrion `MT`, where the sidebar, the chromosome view and
-  // the tracks name it chrM (#602). The strip writes each chromosome without its chr (1, X),
-  // so the mitochondrion is M; it still opens the chromosome view's `MT` route.
-  it('names the mitochondrion M in the chromosome strip, as chrM without its chr', () => {
+  // The strip writes each chromosome as the sidebar, the chromosome view and the tracks name it
+  // (#602), without its chr, which its narrow slots have no room for (1, X), and opens the
+  // chromosome view's route. ENG-7 named the mitochondrion M here; the overview has left it out
+  // since ENG-20 (the owner's decision of 2026-10-28), so no layout the page builds holds it.
+  it('names each chromosome in the strip without its chr, and opens it by its route', () => {
     const navigateToChromosome = vi.fn();
     renderWithoutTracks({
       navigateToChromosome,
       layout: {
-        chroms: ['X', 'Y', 'MT'],
-        offsets: { X: 0, Y: 1000, MT: 1500 },
-        lengths: { X: 1000, Y: 500, MT: 10 },
-        total: 1510,
+        chroms: ['X', 'Y'],
+        offsets: { X: 0, Y: 1000 },
+        lengths: { X: 1000, Y: 500 },
+        total: 1500,
       },
     });
 
@@ -329,11 +330,11 @@ describe('GenomeOverviewWorkspace', () => {
       within(strip)
         .getAllByRole('button', { name: /^Open chromosome / })
         .map((chromosome) => chromosome.getAttribute('aria-label')),
-    ).toEqual(['Open chromosome X', 'Open chromosome Y', 'Open chromosome M']);
-    expect(within(strip).queryByText('MT')).not.toBeInTheDocument();
+    ).toEqual(['Open chromosome X', 'Open chromosome Y']);
+    expect(within(strip).queryByText('chrY')).not.toBeInTheDocument();
 
-    fireEvent.click(within(strip).getByText('M'));
-    expect(navigateToChromosome).toHaveBeenCalledWith('MT');
+    fireEvent.click(within(strip).getByText('Y'));
+    expect(navigateToChromosome).toHaveBeenCalledWith('Y');
   });
 
   it('draws one labelled coverage track per CNV caller', () => {

@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import logging
 from pathlib import Path
 from uuid import UUID
 
 import pytest
 
+from backend.app.schemas import GeneBulkRefreshOut
 from backend.app.services import gene_info_jobs_pg
+from backend.app.services.access_control import CurrentUser
 
 
 class _ScalarResult:
@@ -303,3 +306,231 @@ def test_expand_groups_keeps_a_renamed_locus_even_though_its_old_symbol_is_unkno
     )
 
     assert result["LMTK1"][0]["gene_id"] == "ENST3"
+
+
+# --- the account that requested the refresh (SEC-35) ---------------------------------------------
+#
+# A refresh is an administrator's (the routes require one), and the worker ran it whoever had
+# asked for it by then. The job now keeps its requester by the account's id, and the worker
+# runs it only for an active administrator, as the owner decided on 2026-10-28: a job whose
+# requester no longer exists, has been deactivated or is no longer an administrator when a
+# worker takes it up (a queued job, or one taken again after its worker stopped) ends failed,
+# saying why, before any gene record is written, and frees the slot for the next refresh. The
+# refresh a start queues (``startup-bootstrap``) is no account's, and runs.
+
+JOB = "00000000-0000-0000-0000-0000000000e0"
+WORKER = "gene-worker-1"
+REQUESTER_ID = "00000000-0000-0000-0000-0000000000e1"
+REQUESTER_EMAIL = "gene.admin@example.org"
+
+
+def _account(*, is_active: bool = True, role: str = "admin") -> CurrentUser:
+    return CurrentUser(
+        id=REQUESTER_ID,
+        username="gene.admin",
+        email=REQUESTER_EMAIL,
+        first_name="Given-e1",
+        last_name="Surname-e1",
+        role=role,
+        is_active=is_active,
+        created_at=datetime.now(timezone.utc),
+    )
+
+
+class _FirstResult:
+    def __init__(self, row) -> None:
+        self._row = row
+
+    def mappings(self):
+        return self
+
+    def first(self):
+        return self._row
+
+
+class _RefreshJob:
+    """A refresh job this worker has taken up (``running``), requested by ``requested_by`` and
+    ``requested_by_id``, whose account the lookup finds as ``accounts`` holds it. Loading the
+    sources, choosing the genes and writing their records are stand-ins that say they ran; the
+    job's updates are recorded as the runner gives them."""
+
+    def __init__(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        *,
+        requested_by: str,
+        requested_by_id: str | None,
+        accounts: dict[str, CurrentUser],
+    ) -> None:
+        self.updates: list[tuple[str, dict]] = []
+        self.commits = 0
+        self.ran: list[str] = []
+        self.looked_up: list[str] = []
+        row = {"id": JOB, "symbol": None, "requested_by": requested_by, "requested_by_id": requested_by_id}
+        job = self
+
+        class _Session:
+            async def execute(self, statement, params=None):
+                sql = " ".join(str(statement).split())
+                if sql.startswith("SELECT"):
+                    return _FirstResult(row)
+                job.updates.append((sql, params or {}))
+                return _FirstResult(None)
+
+            async def commit(self) -> None:
+                job.commits += 1
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+        async def lookup(_session, user_id: str) -> CurrentUser | None:
+            self.looked_up.append(user_id)
+            return accounts.get(user_id)
+
+        async def load_sources(**_kwargs):
+            self.ran.append("sources loaded")
+            return None
+
+        async def gene_groups(_session, **_kwargs):
+            self.ran.append("genes chosen")
+            return gene_info_jobs_pg.HumanGeneContext(species={}, assemblies=[]), {}
+
+        async def write_records(_session, **_kwargs):
+            self.ran.append("records written")
+            return GeneBulkRefreshOut(
+                human_assemblies=1, gene_symbols=0, updated_records=0, completed_at=datetime.now(timezone.utc)
+            )
+
+        monkeypatch.setattr(gene_info_jobs_pg, "get_postgres_sessionmaker", lambda: _Session)
+        monkeypatch.setattr(gene_info_jobs_pg, "get_current_user_by_id", lookup)
+        monkeypatch.setattr(gene_info_jobs_pg, "load_human_gene_bulk_context", load_sources)
+        monkeypatch.setattr(gene_info_jobs_pg, "_load_human_gene_groups", gene_groups)
+        monkeypatch.setattr(gene_info_jobs_pg, "_refresh_grouped_human_gene_info", write_records)
+
+    async def run(self) -> None:
+        await gene_info_jobs_pg.run_gene_reference_refresh_job(job_id=JOB, worker_id=WORKER)
+
+
+_LOST_RIGHTS = [
+    pytest.param(None, {}, "REQUESTER_GONE_ERROR", id="account-deleted-link-cleared"),
+    pytest.param(REQUESTER_ID, {}, "REQUESTER_GONE_ERROR", id="no-account-has-the-id"),
+    pytest.param(REQUESTER_ID, {REQUESTER_ID: _account(is_active=False)}, "REQUESTER_INACTIVE_ERROR", id="deactivated"),
+    pytest.param(
+        REQUESTER_ID,
+        {REQUESTER_ID: _account(role="viewer")},
+        "REQUESTER_NOT_ADMIN_ERROR",
+        id="no-longer-an-administrator",
+    ),
+]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("requester_id", "accounts", "error"), _LOST_RIGHTS)
+async def test_a_refresh_whose_requester_lost_their_rights_is_not_run(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    requester_id: str | None,
+    accounts: dict[str, CurrentUser],
+    error: str,
+) -> None:
+    job = _RefreshJob(monkeypatch, requested_by=REQUESTER_EMAIL, requested_by_id=requester_id, accounts=accounts)
+    caplog.set_level(logging.DEBUG)
+
+    await job.run()
+
+    # Before, the refresh ran, whoever had asked for it.
+    assert job.ran == [], "the refresh ran for an account that may no longer ask for it"
+    expected = getattr(gene_info_jobs_pg, error)
+    [(sql, params)] = job.updates
+    # Ended failed, saying why, and the slot freed for the next refresh; only while the job is
+    # this worker's.
+    assert sql.startswith("UPDATE gene_info_refresh_jobs SET status = 'failed', active_slot = NULL, worker_id = NULL,")
+    assert sql.endswith("WHERE id = CAST(:job_id AS uuid) AND worker_id = :worker_id")
+    assert (params["job_id"], params["worker_id"], params["error"]) == (JOB, WORKER, expected)
+    assert job.commits == 1
+    assert "the account that requested this refresh" in expected
+    assert "The gene records stay as they were" in expected
+    # The log names neither the account nor its address.
+    for personal in (REQUESTER_ID, REQUESTER_EMAIL, "gene.admin", "Given-e1", "Surname-e1"):
+        assert personal not in caplog.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("role", ["admin", "superuser"])
+async def test_the_refresh_of_an_active_administrator_runs(monkeypatch: pytest.MonkeyPatch, role: str) -> None:
+    job = _RefreshJob(
+        monkeypatch,
+        requested_by=REQUESTER_EMAIL,
+        requested_by_id=REQUESTER_ID,
+        accounts={REQUESTER_ID: _account(role=role)},
+    )
+
+    await job.run()
+
+    assert job.ran == ["sources loaded", "genes chosen", "records written"]
+    assert job.looked_up == [REQUESTER_ID]
+    [(sql, _params)] = job.updates
+    assert sql.startswith("UPDATE gene_info_refresh_jobs SET status = 'completed'")
+
+
+@pytest.mark.asyncio
+async def test_the_refresh_a_start_queues_is_no_accounts_and_runs(monkeypatch: pytest.MonkeyPatch) -> None:
+    job = _RefreshJob(monkeypatch, requested_by="startup-bootstrap", requested_by_id=None, accounts={})
+
+    await job.run()
+
+    assert job.ran == ["sources loaded", "genes chosen", "records written"]
+    assert job.looked_up == []
+
+
+class _InsertSession:
+    """Records the job a refresh request inserts, and gives it back as Postgres would."""
+
+    def __init__(self) -> None:
+        self.params: dict = {}
+        self.sql = ""
+
+    async def execute(self, statement, params=None):
+        self.sql = " ".join(str(statement).split())
+        self.params = params or {}
+        row = {
+            "id": JOB,
+            "scope": self.params["scope"],
+            "symbol": self.params["symbol"],
+            "status": "queued",
+            "active_slot": self.params["active_slot"],
+            "requested_by": self.params["requested_by"],
+            "requested_at": self.params["requested_at"],
+            "metadata": {},
+        }
+        return _JobInsertResult(row)
+
+    async def commit(self) -> None:
+        return None
+
+
+@pytest.mark.asyncio
+async def test_a_queued_refresh_keeps_its_requester_by_the_account_id() -> None:
+    # As an import job's (SEC-32): the address it was asked under is shown with the job, and a
+    # Microsoft sign-in may change it later.
+    session = _InsertSession()
+
+    job = await gene_info_jobs_pg.queue_gene_reference_refresh_job(
+        session, scope="symbol", symbol="BRCA1", requested_by=_account()
+    )
+
+    assert "CAST(:requested_by_id AS uuid)" in session.sql
+    assert (session.params["requested_by"], session.params["requested_by_id"]) == (REQUESTER_EMAIL, REQUESTER_ID)
+    assert job.requested_by == REQUESTER_EMAIL
+
+
+@pytest.mark.asyncio
+async def test_the_refresh_a_start_queues_names_no_account() -> None:
+    session = _InsertSession()
+
+    await gene_info_jobs_pg.queue_gene_reference_refresh_job(session, scope="all_human", requested_by=None)
+
+    assert (session.params["requested_by"], session.params["requested_by_id"]) == ("startup-bootstrap", None)
