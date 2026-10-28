@@ -212,7 +212,9 @@ pull request updates this list only when it adds clinical behaviour that no area
   status, including contraction loci,
   unclassifiable alleles and an FMR1 premutation told from the grey zone; CNV caller ingestion (HiFiCNV, WisecondorX, QDNAseq) and their
   signal tracks.
-- **Interpretation** — the ACMG suggestions (conflicting ClinVar, parents from the pedigree),
+- **Interpretation** — the ACMG suggestions (conflicting ClinVar, parents from the pedigree, PP2
+  offered for review, never applied, at a gnomAD missense Z of 3.09 or more, the gene profile's or,
+  when it holds none, the VCF's own),
   classifications that reopen with their saved criteria, CNV classifications preserved by
   review edits, and the prioritised ranking and its cache keys.
 - **Application logic** — monogenic NIPT (one fetal fraction, paternally allowed fetal

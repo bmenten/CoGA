@@ -371,14 +371,15 @@ emergency password, without MFA, so switch it on only for an emergency and off a
 The page is not linked from the sign-in page, so nobody is led to type a Microsoft password
 into CoGA.
 
-**Accepted residual: staff roster.** `GET /api/users` returns the names and e-mail addresses
-of every active account to any signed-in user. The family page's assignee and reviewer pickers
-no longer read it: they read the family's own list, its projects' analysts and the admins
-(§1). CoGA is installed for one lab, where all users
-are colleagues, so there is no tenant boundary to protect. With Microsoft sign-in this holds
-only while the app registration requires assignment to the lab's group (deployment-gcp.md
-§12.12): any other member of the directory who could sign in would get an account, and so
-see the roster, though no patient data.
+**The account list is for administrators (SEC-33).** `GET /api/users` returns the names and
+e-mail addresses of every active account, to administrators only (`get_current_admin_user`):
+anyone else gets the 403 of the other admin routes, and an inactive administrator the 401 of
+every inactive account. No screen reads it: the family page's assignee and reviewer pickers
+read the family's own list, its projects' analysts and the admins (§1), and the *Users* page
+reads `GET /api/auth/users`. This ends the accepted residual *staff roster* (the owner's
+decision of 2026-10-28): before, any signed-in user got the list, so with Microsoft sign-in a
+member of the directory who could sign in without being assigned to the lab's group
+(deployment-gcp.md §12.12) would have seen the roster, though no patient data.
 
 ## 2. Access / audit logging
 
@@ -560,7 +561,22 @@ What the application relies on there:
   MSAL's accounts and tokens in the tab. The one exception: UI events the API has not taken
   (their token had expired by the logout, or the logout's keepalive did not arrive) wait in the
   browser under their account for its next sign-in, rather than being lost (*Session tokens*,
-  §1). Login starts with an empty cache. The Microsoft
+  §1). A logout in one tab ends the session in every tab of the browser, which share it: told
+  by the browser that the token is gone, each other tab clears its query cache and MSAL's
+  account and tokens in the tab, and opens the sign-in page (`onSessionEndedElsewhere` in
+  `lib/auth.ts`, used by `Layout`). The storage wrapper keeps a page's own copy of a write only
+  where the browser's storage did not take it (`lib/storage.ts`). Before, it kept a copy of
+  every write, so a tab that had written the token itself (it signed in, or renewed a Microsoft
+  token) read it back after another tab's logout and went on showing the user's data, and its
+  next renewal wrote the token back, which signed every tab in again (found while fixing
+  SEC-36). A sign-in of another account in another tab (on a sign-in page left open there)
+  ends the session in the same way: the other tabs see the user name, the account's address,
+  change, and that account's session is cleared with it, so no tab goes on as an account it
+  does not show, and the account signs in again. A renewal of the token, and a sign-in of the
+  same account, keep the user name, and the session goes on. Before, such a sign-in replaced the
+  session without a logout: a tab went on showing the first account's pages while its requests,
+  and with them the audit's record of who did what, went out as the other account (found while
+  fixing SEC-36). Login starts with an empty cache. The Microsoft
   sign-in always asks which account continues, so a shared workstation never signs the next
   person in as the previous one silently, and the page CoGA asked for before it travels to
   Microsoft only as a random key (the path, with any family ID in it, stays in the tab).

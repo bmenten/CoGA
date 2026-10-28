@@ -9,7 +9,8 @@ rejecting oversized input with HTTP 413 instead of buffering it without limit.
 
 The small-variant ingestion path streams line-by-line via ``gzip.open`` and is already
 memory-safe; this helper brings the remaining full-buffer decoders (SV, reference,
-BED, repeat-expansion, PED) up to the same standard.
+BED, repeat-expansion, PED) up to the same standard. A BGZF file that does not end with
+BGZF's end-of-file block is refused as cut short (400), here and by the streaming readers.
 """
 
 from __future__ import annotations
@@ -19,7 +20,7 @@ from pathlib import Path
 from fastapi import HTTPException, UploadFile
 
 from ..core.config import settings
-from .bounded_download import GzipTooLargeError, InvalidGzipError, gunzip_bounded
+from .bounded_download import GzipTooLargeError, InvalidGzipError, TruncatedBgzfError, gunzip_bounded
 
 _GZIP_MAGIC = b"\x1f\x8b"
 _READ_CHUNK = 1 << 20  # 1 MiB per read
@@ -46,14 +47,19 @@ def _gunzip_bounded(data: bytes, max_bytes: int, *, kind: str) -> bytes:
     # The reference downloads' reader: every gzip member (a bgzip `.vcf.gz` is many
     # blocks of at most 64 KiB, each a member), the cap on the output of all members
     # together, and a refusal of anything that is not complete gzip (a member cut short,
-    # bytes after the last member). An upload answers its errors with 413 and 400.
+    # bytes after the last member, a BGZF file without its end-of-file block). An upload
+    # answers its errors with 413 and 400.
     try:
-        return gunzip_bounded(data, max_bytes=max_bytes, source=kind)
+        return gunzip_bounded(data, max_bytes=max_bytes, source=f"{kind} file")
     except GzipTooLargeError as exc:
         raise HTTPException(
             status_code=413,
             detail=f"{kind} upload expands beyond the maximum allowed size",
         ) from exc
+    except TruncatedBgzfError as exc:
+        # Says why: gzip tools read a BGZF file cut where one of its blocks ends without a
+        # word (DATA-4).
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except InvalidGzipError as exc:
         raise HTTPException(
             status_code=400, detail=f"{kind} file is not valid gzip"

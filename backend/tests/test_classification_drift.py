@@ -535,14 +535,17 @@ def test_the_snapshot_freezes_the_primary_transcripts_consequence_and_the_genes_
     # The MANE Select transcript's consequence, not the more severe other transcript's.
     snap = _freeze(_annotated("123", _OTHER, _MANE), gene_missense_z=3.52)
     assert snap["consequence"] == {"effect": "missense_variant", "impact": "MODERATE", "lof": None}
-    assert snap["gene_constraint"] == {"gene_missense_z": 3.52}
+    assert snap["gene_constraint"] == {"gene_missense_z": 3.52, "gene_missense_z_source": "gene_profile"}
     # A stop gained is no missense variant: PP2 does not read its gene's missense Z, so none
     # is frozen, whatever the gene's profile holds.
     lof = _freeze(_annotated("123", _csq(transcript="ENST00000000002"), _LOF), gene_missense_z=3.52)
     assert lof["consequence"] == {"effect": "stop_gained", "impact": "HIGH", "lof": "HC"}
     assert "gene_constraint" not in lof
-    # A missense variant's missense Z is frozen also without a value.
-    assert _freeze(_annotated("123", _MANE))["gene_constraint"] == {"gene_missense_z": None}
+    # A missense variant's missense Z is frozen also without a value, and then without a source.
+    assert _freeze(_annotated("123", _MANE))["gene_constraint"] == {
+        "gene_missense_z": None,
+        "gene_missense_z_source": None,
+    }
     # Every field is frozen, in the order the drift check names them, also without a value.
     assert tuple(snap["consequence"]) == EVIDENCE_CONSEQUENCE_FIELDS
     assert tuple(snap["gene_constraint"]) == EVIDENCE_GENE_CONSTRAINT_FIELDS
@@ -627,12 +630,15 @@ def test_a_save_freezes_the_missense_z_its_genes_profile_holds() -> None:
 
     session = _GeneProfiles([_profile("GENE1", "ENSG00000000001", 3.52, when=_WHEN)])
     snap = _frozen(session, _annotated("h1", _MANE))
-    assert snap["gene_constraint"] == {"gene_missense_z": 3.52}
+    assert snap["gene_constraint"] == {"gene_missense_z": 3.52, "gene_missense_z_source": "gene_profile"}
     assert snap["consequence"]["effect"] == "missense_variant" and snap["captured_at"].startswith("2026-06-25")
     # Read in the family's assembly (TRACE-15).
     assert session.gene_queries[0]["assembly_id"] == _ASSEMBLY_ID
-    # A missense variant whose gene has no profile freezes none.
-    assert _frozen(_GeneProfiles([]), _annotated("h1", _MANE))["gene_constraint"] == {"gene_missense_z": None}
+    # A missense variant whose gene has no profile, and whose VCF holds no MISSENSE_Z, freezes none.
+    assert _frozen(_GeneProfiles([]), _annotated("h1", _MANE))["gene_constraint"] == {
+        "gene_missense_z": None,
+        "gene_missense_z_source": None,
+    }
     # A stop gained, and a variant without annotation, are no missense variants: their gene's
     # profile is not asked for, and no missense Z is frozen.
     nothing = _GeneProfiles([_profile("GENE1", "ENSG00000000001", 3.52, when=_WHEN)])
@@ -644,7 +650,7 @@ def test_a_save_freezes_the_missense_z_its_genes_profile_holds() -> None:
 def test_a_missense_z_jsonb_cannot_hold_is_frozen_as_none() -> None:
     for value in (float("nan"), float("inf")):
         snap = _freeze(_annotated("h1", _MANE), gene_missense_z=value)
-        assert snap["gene_constraint"] == {"gene_missense_z": None}
+        assert snap["gene_constraint"] == {"gene_missense_z": None, "gene_missense_z_source": None}
         _stored(snap)
 
 
@@ -678,10 +684,11 @@ def test_a_changed_gene_missense_z_reads_as_drift_under_the_same_annotation_set(
     diff = cds._diff(frozen, _now(_annotated("h1", _MANE), gene_missense_z=3.52))
     assert (diff["status"], diff["changed"]) == ("drifted", ["gene_missense_z"])
     assert (diff["evidence_from"]["gene_missense_z"], diff["evidence_to"]["gene_missense_z"]) == (2.95, 3.52)
-    # One that appears later, or is gone, is a change too; the same value is not.
+    # One that appears later, or is gone, is a change too, and so is its source (TRACE-15); the
+    # same value is not.
     appeared = cds._diff(_stored(_freeze(_annotated("h1", _MANE))), _now(_annotated("h1", _MANE), gene_missense_z=3.52))
-    assert appeared["changed"] == ["gene_missense_z"]
-    assert cds._diff(frozen, _now(_annotated("h1", _MANE)))["changed"] == ["gene_missense_z"]
+    assert appeared["changed"] == ["gene_missense_z", "gene_missense_z_source"]
+    assert cds._diff(frozen, _now(_annotated("h1", _MANE)))["changed"] == ["gene_missense_z", "gene_missense_z_source"]
     assert cds._diff(frozen, _now(_annotated("h1", _MANE), gene_missense_z=2.95))["status"] == "current"
 
 
@@ -705,8 +712,10 @@ def test_a_variant_no_longer_missense_names_its_consequence_and_its_missense_z_a
     frozen = _stored(_freeze(_annotated("h1", _MANE), gene_missense_z=2.95))
     recalled = _csq(transcript="ENST00000000001", mane=True, consequence="stop_gained", impact="HIGH")
     diff = cds._diff(frozen, _now(_annotated("h2", recalled), gene_missense_z=2.95))
-    assert diff["changed"] == ["effect", "impact", "gene_missense_z", "annotations"]
+    assert diff["changed"] == ["effect", "impact", "gene_missense_z", "gene_missense_z_source", "annotations"]
     assert (diff["evidence_from"]["gene_missense_z"], diff["evidence_to"].get("gene_missense_z")) == (2.95, None)
+    assert diff["evidence_from"]["gene_missense_z_source"] == "gene_profile"
+    assert "gene_missense_z_source" not in diff["evidence_to"]
     # The other way round, the missense Z it did not freeze is not compared.
     earlier = _stored(_freeze(_annotated("h1", recalled)))
     became = cds._diff(earlier, _now(_annotated("h2", _MANE), gene_missense_z=3.52))
@@ -896,3 +905,130 @@ def test_a_snapshot_that_is_not_a_json_object_reads_as_unknown_not_skipped(monke
         "variant_missing",
         "unknown",
     ]
+
+
+# --- The missense Z PP2 reads, and where it comes from (TRACE-15) ---------------------------------
+# The owner's decision of 2026-10-28: PP2 reads the gnomAD missense Z of the gene's profile, else
+# the VCF's own MISSENSE_Z (which the import stores in the annotation under gene_missense_z, and
+# the variant list serves in annotation_extra), and the snapshot freezes the value it read with
+# where it came from.
+
+# The CSQ of the entries above with a gene-level MISSENSE_Z, as a VEP plugin can add it.
+_CSQ_HEADER_WITH_MISSENSE_Z = _CSQ_HEADER.replace('|LoF">', '|LoF|MISSENSE_Z">')
+
+
+def _vcf_z(hash_: str, *entries: tuple[str, str]):
+    """A variant whose CSQ entries, each given with its MISSENSE_Z, go through the import's parser."""
+    from backend.app.services.variant_annotation_parser import (
+        AnnotationHeaderState,
+        extract_small_variant_annotations,
+        update_annotation_header_state,
+    )
+
+    state = AnnotationHeaderState()
+    update_annotation_header_state(state, _CSQ_HEADER_WITH_MISSENSE_Z)
+    csq = ",".join(f"{entry}|{missense_z}" for entry, missense_z in entries)
+    annotations = extract_small_variant_annotations({"CSQ": csq}, state)
+    return types.SimpleNamespace(annotation_version="v1", annotation_set_hash=hash_, annotations=annotations)
+
+
+def test_the_snapshot_freezes_the_missense_z_pp2_reads_with_where_it_came_from() -> None:
+    # The gene profile's value first, whatever the VCF holds.
+    both = _freeze(_vcf_z("h1", (_MANE, "1.5")), gene_missense_z=3.52)
+    assert both["gene_constraint"] == {"gene_missense_z": 3.52, "gene_missense_z_source": "gene_profile"}
+    # The VCF's own MISSENSE_Z when the gene profile holds none, or none JSONB can hold.
+    for profile in (None, float("nan"), float("inf")):
+        vcf = _freeze(_vcf_z("h1", (_MANE, "4.2")), gene_missense_z=profile)
+        assert vcf["gene_constraint"] == {"gene_missense_z": 4.2, "gene_missense_z_source": "vcf"}, profile
+        _stored(vcf)
+    # Neither holds one: no value, and no source.
+    assert _freeze(_vcf_z("h1", (_MANE, "")))["gene_constraint"] == {
+        "gene_missense_z": None,
+        "gene_missense_z_source": None,
+    }
+    # A stop gained freezes neither: PP2 reads no missense Z for it, from either.
+    assert "gene_constraint" not in _freeze(_vcf_z("h1", (_LOF, "4.2")), gene_missense_z=3.52)
+
+
+def test_the_frozen_vcf_missense_z_is_the_one_the_acmg_dialog_reads() -> None:
+    # The dialog reads the VCF's MISSENSE_Z where the variant list serves it: annotation_extra's
+    # gene_missense_z, of the primary transcript (pp2MissenseZ in lib/acmg/evaluate.ts). The
+    # variant list serves gene_missense_z itself from the gene profile alone.
+    record = _vcf_z("1", (_OTHER, "9.9"), (_MANE, "4.2"))
+    served = _served(record.annotations)
+    assert served.gene_missense_z is None
+    frozen = _freeze(record)["gene_constraint"]
+    assert frozen == {"gene_missense_z": served.annotation_extra["gene_missense_z"], "gene_missense_z_source": "vcf"}
+    assert frozen["gene_missense_z"] == 4.2
+    # As the variant list serves it: the annotation's extra first, and a number only, as the
+    # dialog reads one; anything else is no missense Z.
+    cases = (
+        ({"gene_missense_z": 1.0, "extra": {"gene_missense_z": 4.2}}, 4.2),
+        ({"gene_missense_z": 4}, 4),
+        ({"gene_missense_z": "4.2"}, None),
+        ({"gene_missense_z": True}, None),
+        ({"extra": {"gene_missense_z": None}, "gene_missense_z": 4.2}, None),
+    )
+    for fields, expected in cases:
+        annotations = [{"effect": "missense_variant", "impact": "MODERATE", **fields}]
+        extra = _served([{**annotations[0], "extra": dict(fields.get("extra") or {})}]).annotation_extra
+        snap = _freeze(types.SimpleNamespace(annotation_version="v1", annotation_set_hash="1", annotations=annotations))
+        assert snap["gene_constraint"]["gene_missense_z"] == expected, fields
+        assert snap["gene_constraint"]["gene_missense_z_source"] == ("vcf" if expected is not None else None), fields
+        served_value = extra.get("gene_missense_z")
+        dialog_reads = served_value if type(served_value) in (int, float) else None
+        assert dialog_reads == expected, fields
+
+
+def test_a_save_freezes_the_vcf_missense_z_when_the_genes_profile_holds_none() -> None:
+    from backend.app.services.small_variant_review_acmg import freeze_evidence_snapshot
+
+    def _frozen(session, record) -> dict:
+        return asyncio.run(freeze_evidence_snapshot(session, record, _WHEN, assembly_id=_ASSEMBLY_ID))
+
+    record = _vcf_z("h1", (_MANE, "4.2"))
+    assert _frozen(_GeneProfiles([]), record)["gene_constraint"] == {
+        "gene_missense_z": 4.2,
+        "gene_missense_z_source": "vcf",
+    }
+    # A profile with a missense Z is read first.
+    profiles = _GeneProfiles([_profile("GENE1", "ENSG00000000001", 2.95, when=_WHEN)])
+    assert _frozen(profiles, record)["gene_constraint"] == {
+        "gene_missense_z": 2.95,
+        "gene_missense_z_source": "gene_profile",
+    }
+
+
+def test_a_missense_z_read_from_another_source_reads_as_drift_naming_it() -> None:
+    # Frozen from the gene profile; the profile holds none now and the VCF holds the same value:
+    # PP2 reads the same number from elsewhere.
+    frozen = _stored(_freeze(_vcf_z("h1", (_MANE, "3.52")), gene_missense_z=3.52))
+    diff = cds._diff(frozen, _now(_vcf_z("h1", (_MANE, "3.52"))))
+    assert (diff["status"], diff["changed"]) == ("drifted", ["gene_missense_z_source"])
+    assert (diff["evidence_from"]["gene_missense_z_source"], diff["evidence_to"]["gene_missense_z_source"]) == (
+        "gene_profile",
+        "vcf",
+    )
+    # Frozen from the VCF; the gene profile holds one now: the value and its source moved.
+    from_vcf = _stored(_freeze(_vcf_z("h1", (_MANE, "4.2"))))
+    moved = cds._diff(from_vcf, _now(_vcf_z("h1", (_MANE, "4.2")), gene_missense_z=2.95))
+    assert moved["changed"] == ["gene_missense_z", "gene_missense_z_source"]
+    assert (moved["evidence_from"]["gene_missense_z"], moved["evidence_to"]["gene_missense_z"]) == (4.2, 2.95)
+    # A re-annotation that moves the VCF's value: the value, and the annotation set.
+    reannotated = cds._diff(from_vcf, _now(_vcf_z("h2", (_MANE, "2.1"))))
+    assert reannotated["changed"] == ["gene_missense_z", "annotations"]
+    # Unchanged, read back from JSONB: current.
+    assert cds._diff(from_vcf, _now(_vcf_z("h1", (_MANE, "4.2"))))["status"] == "current"
+
+
+def test_a_snapshot_frozen_before_the_source_was_is_compared_on_its_missense_z() -> None:
+    # Frozen before TRACE-15 froze the source: its missense Z was the gene profile's. The value is
+    # compared, the source it does not hold is not.
+    earlier = _stored(_freeze(_annotated("h1", _MANE), gene_missense_z=2.95))
+    del earlier["gene_constraint"]["gene_missense_z_source"]
+    diff = cds._diff(earlier, _now(_annotated("h1", _MANE), gene_missense_z=2.95))
+    assert (diff["status"], diff["changed"]) == ("current", [])
+    assert "gene_missense_z_source" not in diff["evidence_from"]
+    # Its gene's profile holds none now and the VCF does: PP2 reads another value.
+    moved = cds._diff(earlier, _now(_vcf_z("h1", (_MANE, "4.2"))))
+    assert (moved["status"], moved["changed"]) == ("drifted", ["gene_missense_z"])

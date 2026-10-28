@@ -1,4 +1,4 @@
-import React, { Suspense, lazy, useState } from 'react';
+import React, { Suspense, lazy, useEffect, useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import Breadcrumbs from './Breadcrumbs';
@@ -7,7 +7,7 @@ import HeaderMenu from './HeaderMenu';
 import ModalDialog from './ModalDialog';
 import PageState from './PageState';
 import { formatBuild, useAppVersion } from '../lib/appVersion';
-import { clearSession, getSessionSignIn, getStoredUsername } from '../lib/auth';
+import { clearSession, getSessionSignIn, getStoredUsername, onSessionEndedElsewhere } from '../lib/auth';
 import { forgetMicrosoftAccount } from '../lib/microsoftSignIn';
 import { DEVICE_MANUFACTURER, DEVICE_NAME, DEVICE_STATUS } from '../lib/deviceLabel';
 import { githubRepositoryUrl } from '../lib/githubLinks';
@@ -16,6 +16,9 @@ import { useUiTelemetry } from '../lib/useUiTelemetry';
 import { flushUiEventsNow } from '../lib/telemetry';
 
 const SettingsPage = lazy(() => import('../pages/settings/SettingsPage'));
+
+// The pages for a user without a session: the sign-in pages and the sign-up.
+const SIGNED_OUT_PAGE = /^\/(login|signup)(\/|$)/;
 
 const Layout: React.FC = () => {
   const navigate = useNavigate();
@@ -44,6 +47,31 @@ const Layout: React.FC = () => {
     }
     navigate('/login?logged_out=1', { replace: true });
   };
+
+  // A logout in another tab of this browser ends the session in this tab too, as this tab's
+  // own logout does: the tabs share the session, and this tab went on showing the user's data,
+  // with MSAL's tokens in the tab. So does a sign-in there of another account, which replaced the
+  // session without a logout: this tab went on showing the first account's pages while its
+  // requests went out as the other (both found while fixing SEC-36). That account's session ends
+  // with it, in every tab: no tab goes on as an account it does not show, and the account signs
+  // in again. A sign-in page has no session to end.
+  useEffect(
+    () =>
+      onSessionEndedElsewhere(() => {
+        if (SIGNED_OUT_PAGE.test(location.pathname)) return;
+        // The queued events are kept for the account they were made under, never sent under
+        // another: the token is gone, or another account's.
+        flushUiEventsNow();
+        queryClient.clear();
+        clearSession();
+        setShowSettings(false);
+        // How the session signed in may have gone with the other tab's write: MSAL's account in
+        // this tab is forgotten whichever it was, so it renews no token into a later session.
+        void forgetMicrosoftAccount();
+        navigate('/login?logged_out=1', { replace: true });
+      }),
+    [location.pathname, navigate, queryClient],
+  );
 
   return (
     <div className="app-shell flex min-h-screen flex-col">
