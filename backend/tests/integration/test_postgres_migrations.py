@@ -37,6 +37,12 @@ the CI ``smoke`` job sets it.
   UI-event log (revision 0009: a unique column, empty in the rows stored before), keeps every
   row, and ends at the same fingerprint; the writers' INSERT stores an event's id once, and a
   plain second INSERT of it is refused.
+- A database at revision 0010 from before ENG-6 loses the three columns no code read
+  (``auth_login_attempts.last_success_at``,
+  ``small_variant_reviews.compound_het_partner_variant_keys`` and
+  ``structural_variant_reviews.variant_key`` with its unique index) and the families' metadata
+  key ``unresolved_roi`` (revision 0011), keeps every row with its other values and a family's
+  other metadata, and ends at the same fingerprint; a later start changes nothing.
 - A ledger naming a revision this version does not have is refused, and nothing changes.
 - The restricted runtime role cannot run the migration; two instances that start together
   both come up, one after the other.
@@ -1458,4 +1464,173 @@ def test_a_database_from_before_sec17_gets_the_event_ids_with_its_rows_kept(
     assert "audit_log_events_event_id_key" in refused["audit_log_events"]
     assert "ui_events_event_id_key" in refused["ui_events"]
     # The schema is the baselines': the column with its type and its unique constraint.
+    assert actual == expected, _differences(expected, actual)
+
+
+# The columns as a database had them before ENG-6 (revision 0011): three that no code read, and
+# the structural-variant reviews' unique index on the key nothing wrote.
+_BEFORE_0011 = (
+    "ALTER TABLE auth_login_attempts ADD COLUMN last_success_at TIMESTAMPTZ",
+    "ALTER TABLE small_variant_reviews ADD COLUMN compound_het_partner_variant_keys jsonb "
+    "DEFAULT '[]'::jsonb NOT NULL",
+    "ALTER TABLE structural_variant_reviews ADD COLUMN variant_key bigint",
+    "CREATE UNIQUE INDEX idx_structural_variant_reviews_family_variant_key ON structural_variant_reviews "
+    "USING btree (family_id, variant_key) WHERE (variant_key IS NOT NULL)",
+)
+# Each table with a column the revision drops, and that column.
+_DROPPED_BY_0011 = {
+    "auth_login_attempts": "last_success_at",
+    "small_variant_reviews": "compound_het_partner_variant_keys",
+    "structural_variant_reviews": "variant_key",
+}
+
+
+async def _rows_without(conn: AsyncConnection, table: str, column: str) -> list[str]:
+    """``table``'s rows, every column but ``column``, as JSON text."""
+
+    assert _DROPPED_BY_0011.get(table) == column  # names from this file, safe in the statement
+    result = await conn.execute(text(f"SELECT (to_jsonb(t) - '{column}')::text FROM {table} t"))
+    return sorted(str(row[0]) for row in result.all())
+
+
+async def _families_metadata(conn: AsyncConnection) -> dict[str, dict]:
+    rows = (await conn.execute(text("SELECT family_id, metadata FROM families"))).all()
+    return {str(family_id): metadata for family_id, metadata in rows}
+
+
+@_MODES
+def test_a_database_from_before_eng6_loses_the_unused_columns_and_the_unresolved_roi_key(
+    monkeypatch, reapply_baselines: bool
+) -> None:
+    import json
+
+    from backend.app.core import postgres_migrations
+    from backend.app.core.postgres_migrations import apply_postgres_schema, head_revision
+
+    monkeypatch.setattr(postgres_migrations, "REAPPLY_BASELINES_ON_EVERY_RUN", reapply_baselines)
+    unresolved = {"query": "NOT_A_GENE", "source": "manifest"}
+    pipeline = {"reference": "GRCh38"}
+
+    async def _body(database: str):
+        engine = _engine(database)
+        try:
+            async with engine.begin() as conn:
+                await apply_postgres_schema(conn)
+            # A database at revision 0010 from before ENG-6, with a row in each table it changes:
+            # a family whose import could not resolve its manifest's ROI, and one without the key.
+            async with engine.begin() as conn:
+                await conn.execute(text("UPDATE alembic_version SET version_num = '0010'"))
+                for statement in _BEFORE_0011:
+                    await conn.exec_driver_sql(statement)
+                families = {}
+                for family_id, metadata in (
+                    ("FAM-ENG6-ROI", {"unresolved_roi": unresolved, "pipeline": pipeline}),
+                    ("FAM-ENG6", {"pipeline": pipeline}),
+                ):
+                    families[family_id] = (
+                        await conn.execute(
+                            text(
+                                "INSERT INTO families (family_id, metadata) VALUES (:f, CAST(:m AS jsonb)) "
+                                "RETURNING id::text"
+                            ),
+                            {"f": family_id, "m": json.dumps(metadata)},
+                        )
+                    ).scalar_one()
+                await conn.execute(
+                    text(
+                        "INSERT INTO auth_login_attempts (scope_type, scope_value, failure_count, last_failure_at, "
+                        "last_success_at) VALUES ('email', 'analyst@example.org', 2, now(), now())"
+                    )
+                )
+                await conn.execute(
+                    text(
+                        "INSERT INTO small_variant_reviews (family_id, variant_key, variant_id, tags, "
+                        "compound_het_partner_variant_keys, updated_by) VALUES (CAST(:f AS uuid), 11, '1-3000-G-A', "
+                        "'[\"report\"]'::jsonb, '[12]'::jsonb, 'analyst')"
+                    ),
+                    {"f": families["FAM-ENG6"]},
+                )
+                await conn.execute(
+                    text(
+                        "INSERT INTO structural_variant_reviews (family_id, variant_id, classification, tags, "
+                        "updated_by) VALUES (CAST(:f AS uuid), '1-30000-31000-DEL---', 'Pathogenic - class 5', "
+                        "'[\"report\"]'::jsonb, 'analyst')"
+                    ),
+                    {"f": families["FAM-ENG6"]},
+                )
+                before = {table: await _rows_without(conn, table, column) for table, column in _DROPPED_BY_0011.items()}
+                metadata_before = await _families_metadata(conn)
+            contents = await _table_contents(database)
+            async with engine.begin() as conn:
+                revision = await apply_postgres_schema(conn)
+            kept = await _table_contents(database)
+            async with engine.connect() as conn:
+                after = {table: await _rows_without(conn, table, column) for table, column in _DROPPED_BY_0011.items()}
+                metadata_after = await _families_metadata(conn)
+                left = (
+                    await conn.execute(
+                        text(
+                            "SELECT table_name, column_name FROM information_schema.columns "
+                            "WHERE table_schema = 'public' AND (table_name, column_name) IN "
+                            "(('auth_login_attempts', 'last_success_at'), "
+                            "('small_variant_reviews', 'compound_het_partner_variant_keys'), "
+                            "('structural_variant_reviews', 'variant_key'))"
+                        )
+                    )
+                ).all()
+                index = (
+                    await conn.execute(
+                        text(
+                            "SELECT count(*) FROM pg_indexes "
+                            "WHERE indexname = 'idx_structural_variant_reviews_family_variant_key'"
+                        )
+                    )
+                ).scalar_one()
+            # The next start finds nothing left to do.
+            async with engine.begin() as conn:
+                again = await apply_postgres_schema(conn)
+            unchanged = await _table_contents(database)
+        finally:
+            await engine.dispose()
+        reference = await _create_database()
+        try:
+            await _apply_baseline_files(reference)
+            fingerprints = await _fingerprint(reference), await _fingerprint(database)
+        finally:
+            await _drop_database(reference)
+        return (
+            (revision, again),
+            (before, after),
+            (metadata_before, metadata_after),
+            (contents, kept, unchanged),
+            (left, index),
+            fingerprints,
+        )
+
+    (
+        (revision, again),
+        (before, after),
+        (metadata_before, metadata_after),
+        (contents, kept, unchanged),
+        (left, index),
+        (expected, actual),
+    ) = _run(_body)
+
+    assert (revision.before, revision.after) == ("0010", head_revision())
+    assert (again.before, again.after) == (head_revision(), head_revision())
+    # The three columns are gone, the reviews' index with its column; every row is kept with
+    # every other value as it was.
+    assert left == [] and index == 0
+    assert after == before
+    assert [len(before[table]) for table in _DROPPED_BY_0011] == [1, 1, 1]
+    # The family whose ROI did not resolve keeps its other metadata; the other family is as it was.
+    assert metadata_before["FAM-ENG6-ROI"] == {"unresolved_roi": unresolved, "pipeline": pipeline}
+    assert metadata_after == {"FAM-ENG6-ROI": {"pipeline": pipeline}, "FAM-ENG6": {"pipeline": pipeline}}
+    # Every other table is as it was, and a later start changes nothing.
+    changed = {"alembic_version", "families", *_DROPPED_BY_0011}
+    assert {table: rows for table, rows in kept.items() if table not in changed} == {
+        table: rows for table, rows in contents.items() if table not in changed
+    }
+    assert unchanged == kept
+    # The schema is the baselines'.
     assert actual == expected, _differences(expected, actual)

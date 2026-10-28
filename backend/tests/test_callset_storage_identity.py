@@ -152,8 +152,8 @@ def test_a_small_variant_has_one_key_whatever_the_callset() -> None:
     _details, entries, _annotations, _index, _genes = _small_variant_entry_rows(
         "GRCh38", "fam-1", ["p1"], [direct, imputed]
     )
-    # key, variantId and source are the first, second and thirteenth entry columns.
-    assert [(row[0], row[1], row[12]) for row in entries] == [
+    # key, variantId and source are the first, second and twelfth entry columns.
+    assert [(row[0], row[1], row[11]) for row in entries] == [
         (small_variant_key("GRCh38", "1-3000-G-A"), "1-3000-G-A", "clair3"),
         (small_variant_key("GRCh38", "1-3000-G-A"), "1-3000-G-A", "glimpse2"),
     ]
@@ -175,7 +175,7 @@ def test_an_sv_key_names_the_source_and_the_variant_id_does_not() -> None:
     assert [row[0] for row in details] == [sniffles, spectre]
     assert [row[0] for row in entries] == [sniffles, spectre]
     assert [row[1] for row in entries] == ["1-30000-31000-DEL---", "1-30000-31000-DEL---"]
-    assert [row[9] for row in entries] == ["sniffles", "spectre"]
+    assert [row[8] for row in entries] == ["sniffles", "spectre"]
     assert lookups == [
         ("fam-1", "1-30000-31000-DEL---", "sniffles", sniffles),
         ("fam-1", "1-30000-31000-DEL---", "spectre", spectre),

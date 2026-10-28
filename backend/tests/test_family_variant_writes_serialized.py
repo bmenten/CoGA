@@ -316,7 +316,6 @@ def _entry(pos: int, calls: dict[str, str]) -> dict[str, Any]:
         annotationSetHash=11,
         project_guid="project-uuid",
         family_guid=_FAMILY,
-        sample_type="WGS",
         xpos=25_000_000_000 + pos,
         chrom="M",
         pos=pos,

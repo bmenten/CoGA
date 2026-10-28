@@ -615,26 +615,9 @@ async def _apply_manifest_roi(
         query=roi_query,
     )
     if roi is None:
-        # Merged where it is stored, as the provenance is (_register_package_provenance).
-        await session.execute(
-            text(
-                """
-                UPDATE families
-                SET metadata = jsonb_set(
-                    COALESCE(metadata, '{}'::jsonb),
-                    '{unresolved_roi}',
-                    CAST(:unresolved_roi AS jsonb),
-                    true
-                )
-                WHERE id = CAST(:family_uuid AS uuid)
-                """
-            ),
-            {
-                "family_uuid": context.family_uuid,
-                "unresolved_roi": json.dumps({"query": roi_query, "source": "manifest"}),
-            },
-        )
-        await session.commit()
+        # The family's region of interest stays as it was, and its metadata gets nothing: the
+        # key it got here, unresolved_roi, was never read, nor cleared by a later import that
+        # resolved the region (ENG-6).
         return
     await session.execute(
         text(

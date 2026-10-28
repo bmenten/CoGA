@@ -162,7 +162,6 @@ async def _fetch_review_row(
             """
             SELECT
                 id::text AS id,
-                variant_key,
                 variant_id,
                 classification,
                 tags,

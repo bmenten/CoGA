@@ -439,7 +439,6 @@ CREATE TABLE IF NOT EXISTS small_variant_reviews (
     tag_metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
     note text,
     compound_het_group_id text,
-    compound_het_partner_variant_keys jsonb DEFAULT '[]'::jsonb NOT NULL,
     compound_het_partner_variant_ids jsonb DEFAULT '[]'::jsonb NOT NULL,
     compound_het_gene text,
     compound_het_gene_id text,
@@ -563,7 +562,6 @@ CREATE TABLE IF NOT EXISTS small_variant_tag_definition_project_links (
 CREATE TABLE IF NOT EXISTS structural_variant_reviews (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
     family_id uuid NOT NULL,
-    variant_key bigint,
     variant_id text,
     classification text,
     tags jsonb DEFAULT '[]'::jsonb NOT NULL,
@@ -585,7 +583,6 @@ CREATE TABLE IF NOT EXISTS structural_variant_reviews (
 
 CREATE INDEX IF NOT EXISTS idx_structural_variant_reviews_family ON structural_variant_reviews USING btree (family_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_structural_variant_reviews_family_variant_id ON structural_variant_reviews USING btree (family_id, variant_id) WHERE (variant_id IS NOT NULL);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_structural_variant_reviews_family_variant_key ON structural_variant_reviews USING btree (family_id, variant_key) WHERE (variant_key IS NOT NULL);
 
 -- ---------------------------------------------------------------------------
 -- structural_variant_filter_presets

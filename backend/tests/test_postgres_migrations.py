@@ -314,6 +314,32 @@ def test_revision_0009_runs_the_traceability_baselines_own_upgrade_of_the_two_ev
         module.selected_statements(lambda _name: [])
 
 
+def test_revision_0011_drops_the_columns_nothing_reads_and_the_unresolved_roi_key() -> None:
+    # ENG-6: three columns no code reads, dropped from a database made before, and the
+    # families' metadata key an import wrote and nothing read. The baselines create none of
+    # the columns, so the revision ends at their definition.
+    module = migration_script().get_revision("0011").module
+
+    assert [" ".join(statement.split()) for statement in module._STATEMENTS] == [
+        "ALTER TABLE auth_login_attempts DROP COLUMN IF EXISTS last_success_at",
+        "ALTER TABLE small_variant_reviews DROP COLUMN IF EXISTS compound_het_partner_variant_keys",
+        # Its unique index on (family_id, variant_key) goes with it.
+        "ALTER TABLE structural_variant_reviews DROP COLUMN IF EXISTS variant_key",
+        "UPDATE families SET metadata = metadata - 'unresolved_roi' WHERE metadata ? 'unresolved_roi'",
+    ]
+    every = [statement for path in _schema_files() for statement in _statements(path.name)]
+    for table, column in (
+        ("auth_login_attempts", "last_success_at"),
+        ("small_variant_reviews", "compound_het_partner_variant_keys"),
+        ("structural_variant_reviews", "variant_key"),
+    ):
+        create = next(s for s in every if s.startswith(f"CREATE TABLE IF NOT EXISTS {table} "))
+        assert not re.search(rf"\b{column}\b", create), (table, column)
+    assert not [s for s in every if "idx_structural_variant_reviews_family_variant_key" in s]
+    # No baseline statement writes the key again: nothing in the code does either.
+    assert not [s for s in every if "unresolved_roi" in s]
+
+
 def test_the_ledger_table_is_alembics_own_and_its_revoke_follows_the_broad_grant() -> None:
     # Alembic finds the table the baseline created and uses it as its own.
     context = MigrationContext.configure(dialect_name="postgresql")

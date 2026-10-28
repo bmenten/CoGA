@@ -172,7 +172,6 @@ class _ReviewTable:
     def _row(params: dict, *, review_id: str) -> dict:
         return {
             "id": review_id,
-            "variant_key": None,
             "variant_id": params["variant_id"],
             "classification": params["classification"],
             "tags": json.loads(params["tags_json"]),

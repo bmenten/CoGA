@@ -983,17 +983,21 @@ async def _reported_structural_reviews(
 
     The report page renders these beside the small variants, so the signed record must
     freeze them too — before #508 a reported CNV was printed but never signed.
+
+    Each keeps ``variant_key``, null: the review's column of that name was never written
+    (#853) and went with ENG-6, so every record signed before holds null there, and the
+    sign-out's change check compares this section with theirs whole.
     """
     rows = (
         await session.execute(
             text(
                 """
-                SELECT variant_id, variant_key, classification, cnv_class, cnv_point_total,
+                SELECT variant_id, classification, cnv_class, cnv_point_total,
                        cnv_acmg, tags, note, cnv_evidence_snapshot
                 FROM structural_variant_reviews
                 WHERE family_id = CAST(:family_uuid AS uuid)
                   AND tags @> :report_tag
-                ORDER BY variant_id NULLS LAST, variant_key NULLS LAST
+                ORDER BY variant_id NULLS LAST
                 """
             ),
             {"family_uuid": family_uuid, "report_tag": json.dumps([_REPORT_TAG])},
@@ -1002,7 +1006,7 @@ async def _reported_structural_reviews(
     return [
         {
             "variant_id": row["variant_id"],
-            "variant_key": row["variant_key"],
+            "variant_key": None,
             "classification": row["classification"],
             "cnv_class": row["cnv_class"],
             "cnv_point_total": row["cnv_point_total"],
