@@ -61,6 +61,9 @@ test('signs out the family report from the browser (with gate handling)', async 
     const overrideButton = page.getByRole('button', { name: /sign out anyway/i });
     await expect(overrideButton).toBeEnabled();
     await overrideButton.click();
+    // The next step is read once this dialog has closed: read while it still shows, it would
+    // be taken for the step again, and the dialog after it would never be answered.
+    await expect(page.locator('#drift-ack-reason')).toBeHidden({ timeout: 20_000 });
     step = await nextStep(page, before);
   }
   if (step === 'qc') {
@@ -68,6 +71,7 @@ test('signs out the family report from the browser (with gate handling)', async 
     const overrideButton = page.getByRole('button', { name: /sign out anyway/i });
     await expect(overrideButton).toBeEnabled();
     await overrideButton.click();
+    await expect(page.locator('#qc-ack-reason')).toBeHidden({ timeout: 20_000 });
     step = await nextStep(page, before);
   }
   // The seeded trio's abnormal repeat and Paraphase calls have no review (REQ-TRACE-016): the
