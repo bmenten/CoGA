@@ -8,6 +8,9 @@ The server keeps its own copy of both tables: it refuses a strength a criterion 
 differ: a strength the dialog offers that the server refused would make a classification
 impossible to save, and one the server took that the dialog does not offer could be stored
 only by a client calling the API.
+
+The missense Z the dialog's PP2 suggestion reads is frozen by the server with the
+classification (TRACE-15): the dialog's sources and their order are the server's.
 """
 
 from __future__ import annotations
@@ -25,11 +28,16 @@ from backend.app.schemas import (
     CnvAcmgCriterion,
 )
 from backend.app.services import acmg_points, cnv_acmg_points
-from backend.app.services.small_variant_review_acmg import _normalize_acmg_payload
+from backend.app.services.small_variant_review_acmg import (
+    MISSENSE_Z_FROM_GENE_PROFILE,
+    MISSENSE_Z_FROM_VCF,
+    _normalize_acmg_payload,
+)
 from backend.app.services.structural_variant_review_pg import _normalize_cnv_acmg_payload
 
 FRONTEND_LIB = Path(__file__).resolve().parents[2] / "frontend" / "src" / "lib"
 ACMG_CRITERIA_TS = FRONTEND_LIB / "acmg" / "criteria.ts"
+ACMG_EVALUATE_TS = FRONTEND_LIB / "acmg" / "evaluate.ts"
 CNV_CRITERIA_TS = FRONTEND_LIB / "cnvAcmg" / "criteria.ts"
 
 _QUOTED = r"'(?:[^'\\]|\\.)*'|\"(?:[^\"\\]|\\.)*\""
@@ -143,6 +151,21 @@ def test_a_save_takes_every_strength_the_dialog_offers_and_refuses_any_other() -
             if taken != (strength in offered):
                 wrong.append(f"{code} at {strength}: {'taken' if taken else 'refused'}")
     assert wrong == []
+
+
+def test_the_missense_z_pp2_reads_comes_from_the_sources_the_server_freezes_in_its_order() -> None:
+    # The dialog's PP2 reads the gene profile's missense Z, else the VCF's own MISSENSE_Z
+    # (pp2MissenseZ); an ACMG save freezes the value with its source the same way
+    # (small_variant_review_acmg.pp2_gene_missense_z). The source names are the server's, and
+    # the gene profile's value is read first on both sides.
+    source = ACMG_EVALUATE_TS.read_text(encoding="utf-8")
+    sources = re.search(r"export type MissenseZSource = ([^;]+);", source)
+    assert sources, "MissenseZSource not found in evaluate.ts"
+    assert re.findall(r"'(\w+)'", sources.group(1)) == [MISSENSE_Z_FROM_GENE_PROFILE, MISSENSE_Z_FROM_VCF]
+    head = source.find("export function pp2MissenseZ(")
+    assert head >= 0, "pp2MissenseZ not found in evaluate.ts"
+    body = source[head : source.index("\n}\n", head)]
+    assert body.index("variant.gene_missense_z") < body.index("variant.annotation_extra?.gene_missense_z")
 
 
 # --- copy-number variants (ClinGen 2019) ------------------------------------------------------
