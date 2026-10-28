@@ -83,6 +83,7 @@ from backend.app.services.family_package_tracks import EmptyTrackFileError
 from backend.app.services.family_package_validation import _validate_dataset
 from backend.app.services.nipt import MONOGENIC_NIPT_ANALYSIS_TYPE
 from backend.app.services.nipt_target_coverage import TARGET_COVERAGE_SOURCE, TARGET_COVERAGE_TRACK_TYPE
+from backend.tests._bgzf import bgzip, bgzip_cut_after
 
 FAMILY = "FAM029"
 SAMPLES = ("S1", "S2")
@@ -1801,3 +1802,96 @@ async def test_a_paraphase_copy_number_at_the_integer_columns_bounds_is_stored_a
     assert stores.paraphase == {_uuid("S1"): 2, _uuid("S2"): 2}
     smn1 = {row["sample_id"]: row for row in stores.paraphase_rows if row["gene_symbol"] == "SMN1"}
     assert (smn1[_uuid("S1")]["total_cn"], smn1[_uuid("S2")]["gene_cn"]) == (2**31 - 1, -(2**31))
+
+
+# --- a BGZF file cut where one of its blocks ends (DATA-4) -------------------------------------
+#
+# Cut exactly where one of its blocks ends, a BGZF file is whole gzip: its first blocks were read
+# as the file, the records after the cut gone without a word. A BGZF file must end with BGZF's
+# end-of-file block (the owner's decision of 2026-10-28). The datasets that check every
+# sample's file before they replace any read each file's end in that check.
+
+_BGZF_CUT = "is not valid gzip: it is truncated (it does not end with BGZF's end-of-file block)"
+
+
+@pytest.mark.asyncio
+async def test_a_later_samples_qdnaseq_file_cut_where_a_bgzf_block_ends_fails_the_dataset_before_any_track_is_cleared(
+    stores: _Stores, tmp_path: Path
+) -> None:
+    stores.track("S1", "coverage", "qdnaseq", "S1_bins.csv.gz", rows=4)
+    before = stores.tracks()
+    bins = "chromosome,start,end,ratio\n" + "".join(
+        f"1,{start},{start + 1000},0.1\n" for start in range(0, 6_000_000, 1000)
+    )
+    dataset = ManifestDataset(
+        per_sample={
+            "S1": {"bins": _file(tmp_path, "qdnaseq/S1_bins.csv.gz", bgzip(bins.encode()))},
+            "S2": {"bins": _file(tmp_path, "qdnaseq/S2_bins.csv.gz", bgzip_cut_after(bins.encode(), 1))},
+        }
+    )
+
+    with pytest.raises(EOFError) as refused:
+        await _run(_job(stores, tmp_path, "qdnaseq", dataset))
+
+    assert str(refused.value) == f"S2_bins.csv.gz {_BGZF_CUT}"
+    # Before: both files imported, S2's track holding its first block's bins alone.
+    _assert_untouched(stores, before)
+
+
+@pytest.mark.asyncio
+async def test_a_later_embryos_apcad_bed_cut_where_a_bgzf_block_ends_fails_the_dataset_before_any_track_is_cleared(
+    stores: _Stores, tmp_path: Path
+) -> None:
+    stores.track("S1", "apcad", APCAD_SOURCE, "S1.old.vcf", rows=6)
+    stores.track("S2", "apcad", APCAD_SOURCE, "S2.old.bed", rows=4)
+    before = stores.tracks()
+    bed = "".join(f"1\t{start}\t{start + 1}\trs{start}\t0.5\tpaternal\n" for start in range(100, 300_100, 100))
+    dataset = ManifestDataset(
+        per_sample={
+            "S1": {"vcf": _file(tmp_path, "apcad/S1.vcf", _apcad_vcf(["S1"], ["0/1:10,10"], ["0/1:12,8"]))},
+            "S2": {"bed": _file(tmp_path, "apcad/S2.apcad.bed.gz", bgzip_cut_after(bed.encode(), 1))},
+        }
+    )
+
+    with pytest.raises(EOFError) as refused:
+        await _run(_job(stores, tmp_path, "apcad", dataset))
+
+    assert str(refused.value) == f"S2.apcad.bed.gz {_BGZF_CUT}"
+    # Before: S1's track replaced, then S2's by its first block's sites alone.
+    _assert_untouched(stores, before)
+
+
+@pytest.mark.asyncio
+async def test_a_nipt_fathers_snv_file_cut_where_a_bgzf_block_ends_fails_the_dataset_before_the_plasma_is_written(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    writes: list[str] = []
+
+    async def must_not_write(*_args: Any, **_kwargs: Any) -> None:
+        writes.append("write")
+        raise AssertionError("nothing may be written for a refused NIPT dataset")
+
+    monkeypatch.setattr(family_package_datasets, "upload_family_small_variant_file", must_not_write)
+    records = "".join(f"chr1\t{100 + index * 10}\t.\tA\tG\t30\tPASS\t.\tGT\t0/1\n" for index in range(3_000))
+    father = (_SNV_HEADER.format(sample="S2") + records).encode()
+    dataset = ManifestDataset(
+        per_sample={
+            "S1": {"vcf": _file(tmp_path, "S1.vcf", _SNV_HEADER.format(sample="S1") + records)},
+            "S2": {"vcf": _file(tmp_path, "S2.vcf.gz", bgzip_cut_after(father, 1))},
+        }
+    )
+    job = _job(_Stores(), tmp_path, "snv", dataset)
+    # S1 is the maternal plasma, read first; S2 the father.
+    job.bundle.manifest = PackageManifest(
+        ped="family.ped",
+        analysis_type=MONOGENIC_NIPT_ANALYSIS_TYPE,
+        samples={"S1": {"assay": "nipt_cfdna"}},
+        datasets={"snv": dataset},
+    )
+
+    with pytest.raises(EOFError) as refused:
+        await _run(job)
+
+    assert str(refused.value) == f"The NIPT SNV file of S2 (S2.vcf.gz) {_BGZF_CUT}"
+    # Before: the plasma's calls were written, then the father's first block read as his file.
+    assert writes == []

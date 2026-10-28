@@ -371,14 +371,15 @@ emergency password, without MFA, so switch it on only for an emergency and off a
 The page is not linked from the sign-in page, so nobody is led to type a Microsoft password
 into CoGA.
 
-**Accepted residual: staff roster.** `GET /api/users` returns the names and e-mail addresses
-of every active account to any signed-in user. The family page's assignee and reviewer pickers
-no longer read it: they read the family's own list, its projects' analysts and the admins
-(§1). CoGA is installed for one lab, where all users
-are colleagues, so there is no tenant boundary to protect. With Microsoft sign-in this holds
-only while the app registration requires assignment to the lab's group (deployment-gcp.md
-§12.12): any other member of the directory who could sign in would get an account, and so
-see the roster, though no patient data.
+**The account list is for administrators (SEC-33).** `GET /api/users` returns the names and
+e-mail addresses of every active account, to administrators only (`get_current_admin_user`):
+anyone else gets the 403 of the other admin routes, and an inactive administrator the 401 of
+every inactive account. No screen reads it: the family page's assignee and reviewer pickers
+read the family's own list, its projects' analysts and the admins (§1), and the *Users* page
+reads `GET /api/auth/users`. This ends the accepted residual *staff roster* (the owner's
+decision of 2026-10-28): before, any signed-in user got the list, so with Microsoft sign-in a
+member of the directory who could sign in without being assigned to the lab's group
+(deployment-gcp.md §12.12) would have seen the roster, though no patient data.
 
 ## 2. Access / audit logging
 

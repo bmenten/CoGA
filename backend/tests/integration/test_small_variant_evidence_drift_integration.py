@@ -660,8 +660,12 @@ def test_a_classification_freezes_its_consequence_lof_call_and_missense_z_and_dr
                 assert frozen["transcript_id"] == variant.transcript_id == _GENE8_TRANSCRIPT
                 assert frozen["consequence"] == {"effect": variant.effect, "impact": variant.impact, "lof": variant.lof}
             assert frozen_missense["consequence"] == {"effect": "missense_variant", "impact": "MODERATE", "lof": None}
-            assert frozen_missense["gene_constraint"] == {"gene_missense_z": metrics[_MISSENSE]["gene_missense_z"]}
-            assert frozen_missense["gene_constraint"] == {"gene_missense_z": 2.95}
+            # Read from the gene's profile, which PP2 reads first (TRACE-15).
+            assert frozen_missense["gene_constraint"] == {
+                "gene_missense_z": metrics[_MISSENSE]["gene_missense_z"],
+                "gene_missense_z_source": "gene_profile",
+            }
+            assert frozen_missense["gene_constraint"]["gene_missense_z"] == 2.95
             assert frozen_stop["consequence"] == {"effect": "stop_gained", "impact": "HIGH", "lof": "LC"}
             assert "gene_constraint" not in frozen_stop and metrics[_STOP_GAINED]["gene_missense_z"] == 2.95
 
@@ -746,7 +750,10 @@ def test_a_classification_freezes_its_consequence_lof_call_and_missense_z_and_dr
                 assert check["version"] == 1 and check["matches"] is True, check
             reported = {entry["variant_id"]: entry["evidence_snapshot"] for entry in signed["reported_variants"]}
             assert sorted(reported) == sorted([_MISSENSE, _STOP_GAINED])
-            assert reported[_MISSENSE]["gene_constraint"] == {"gene_missense_z": 2.95}
+            assert reported[_MISSENSE]["gene_constraint"] == {
+                "gene_missense_z": 2.95,
+                "gene_missense_z_source": "gene_profile",
+            }
             assert reported[_STOP_GAINED]["consequence"] == {"effect": "stop_gained", "impact": "HIGH", "lof": "LC"}
             assert "gene_constraint" not in reported[_STOP_GAINED]
             signed_drift = {entry["variant_id"]: entry for entry in signed["drift"]["drifted"]}
@@ -761,10 +768,204 @@ def test_a_classification_freezes_its_consequence_lof_call_and_missense_z_and_dr
                         s, context=_ctx_now(), variant_id=variant_id, payload=payload, user=user
                     )
             async with sm() as s:
-                assert (await _frozen(s, _MISSENSE))["gene_constraint"] == {"gene_missense_z": 3.52}
+                assert (await _frozen(s, _MISSENSE))["gene_constraint"] == {
+                    "gene_missense_z": 3.52,
+                    "gene_missense_z_source": "gene_profile",
+                }
                 assert (await _frozen(s, _STOP_GAINED))["consequence"]["lof"] == "HC"
                 drift, _ = await _drift(s)
             assert (drift["checked"], drift["drifted_count"]) == (3, 0)
+        finally:
+            await close_postgres_engine()
+            await close_clickhouse_client()
+
+    asyncio.run(_run())
+
+
+# --- The VCF's own MISSENSE_Z, read when the gene's profile holds none (TRACE-15) ------------------
+
+_GENE9 = "GENE9"
+_VCF_Z_MISSENSE = "12-40100601-C-T"
+_GENE9_CSQ_HEADER = (
+    '##INFO=<ID=CSQ,Number=.,Type=String,Description="Consequence annotations from Ensembl VEP.'
+    " Format: Allele|Consequence|IMPACT|SYMBOL|Gene|Feature_type|Feature|CANONICAL|MANE_SELECT"
+    '|REVEL|gnomADe_AF|gnomADg_AF|MISSENSE_Z">'
+)
+
+
+def _gene9_annotations() -> list[dict[str, Any]]:
+    """A missense variant of GENE9, whose CSQ carries the gene's MISSENSE_Z, as a VEP plugin can
+    add it: 9.9 on another transcript, 4.2 on the MANE Select one, whose value PP2 reads."""
+    from backend.app.services.variant_annotation_parser import (
+        AnnotationHeaderState,
+        extract_small_variant_annotations,
+        update_annotation_header_state,
+    )
+
+    state = AnnotationHeaderState()
+    update_annotation_header_state(state, _GENE9_CSQ_HEADER)
+    entries = [
+        f"T|missense_variant|MODERATE|{_GENE9}|ENSG00000000109|Transcript|ENST00000000110|||0.5|1e-05|1e-05|9.9",
+        f"T|missense_variant|MODERATE|{_GENE9}|ENSG00000000109|Transcript|ENST00000000111|YES|NM_000109.1|0.5"
+        "|1e-05|1e-05|4.2",
+    ]
+    return extract_small_variant_annotations({"CSQ": ",".join(entries)}, state)
+
+
+def test_a_classification_freezes_the_vcfs_missense_z_when_the_genes_profile_holds_none(monkeypatch) -> None:
+    """The owner's decision of 2026-10-28: PP2 reads the gene profile's missense Z, else the
+    VCF's own MISSENSE_Z. The real save of a missense variant whose gene has no profile freezes
+    the VCF's value, as the variant list serves it to the ACMG dialog, with its source; once the
+    gene's profile holds one, the drift check names the value and its source, and saving again
+    freezes the gene profile's."""
+    from backend.app.core.clickhouse import close_clickhouse_client
+    from backend.app.core.postgres import (
+        close_postgres_engine,
+        get_postgres_sessionmaker,
+        init_postgres_schema,
+    )
+    from backend.app.schemas import (
+        AcmgClassificationPayload,
+        AcmgCriterionSelection,
+        SmallVariantReviewUpdate,
+    )
+    from backend.app.services import classification_drift_service as cds
+    from backend.app.services import clickhouse_family_variants as family_variants
+    from backend.app.services.clickhouse_variant_storage import (
+        ensure_clickhouse_variant_tables,
+        insert_small_variant_records,
+    )
+    from backend.app.services.small_variant_review_pg import upsert_small_variant_review
+
+    tag = uuid4().hex[:12]
+    label = f"snv-vcf-missense-z-{tag}"
+    project = str(uuid4())
+    holder: dict[str, str] = {}
+
+    def _ctx_now():
+        return _context(holder["uuid"], label, project, holder["assembly"])
+
+    async def _ctx(session, *, family_identifier, user, project_id=None):
+        return _ctx_now()
+
+    async def _no_hydration(session, *, context, variants):
+        return None
+
+    monkeypatch.setattr(cds, "build_family_metadata_context", _ctx)
+    monkeypatch.setattr(family_variants, "_hydrate_small_variant_outs", _no_hydration)
+
+    user = SimpleNamespace(username="analyst", email="analyst@example.org", id=None)
+    # PM2 supporting (1) + PP2 supporting (1) = 2: VUS.
+    classification = SmallVariantReviewUpdate(
+        classification="VUS - class 3",
+        tags=["acmg_class_3"],
+        acmg=AcmgClassificationPayload(
+            criteria=[
+                AcmgCriterionSelection(code="PM2", strength="supporting", accepted=True, auto_suggested=True),
+                AcmgCriterionSelection(code="PP2", strength="supporting", accepted=True, auto_suggested=True),
+            ]
+        ),
+    )
+
+    async def _frozen(session) -> dict[str, Any]:
+        stored = (
+            await session.execute(
+                text(
+                    "SELECT acmg_evidence_snapshot FROM small_variant_reviews "
+                    "WHERE family_id = CAST(:f AS uuid) AND variant_id = :v"
+                ),
+                {"f": holder["uuid"], "v": _VCF_Z_MISSENSE},
+            )
+        ).scalar_one()
+        return json.loads(stored) if isinstance(stored, str) else stored
+
+    async def _run() -> None:
+        try:
+            await init_postgres_schema()
+            await ensure_clickhouse_variant_tables(_ASSEMBLY)
+            sm = get_postgres_sessionmaker()
+            async with sm() as s:
+                holder["uuid"] = (
+                    await s.execute(
+                        text("INSERT INTO families (family_id) VALUES (:f) RETURNING id::text"),
+                        {"f": label},
+                    )
+                ).scalar_one()
+                species = (
+                    await s.execute(
+                        text(
+                            "INSERT INTO species (name, common_name, tax_id) "
+                            "VALUES (:n, 'test', :t) RETURNING id::text"
+                        ),
+                        {"n": f"vcf-missense-z {tag}", "t": uuid4().int % 2_000_000_000},
+                    )
+                ).scalar_one()
+                # The family's assembly holds no profile of GENE9.
+                holder["assembly"] = (
+                    await s.execute(
+                        text(
+                            "INSERT INTO assemblies (species_id, assembly_name, version, release_date) "
+                            "VALUES (CAST(:s AS uuid), :a, 'v1', '2020-01-01') RETURNING id::text"
+                        ),
+                        {"s": species, "a": f"VCFMISSENSEZ{tag}"},
+                    )
+                ).scalar_one()
+                await s.commit()
+            await insert_small_variant_records(
+                _ASSEMBLY, holder["uuid"], [project], [_record(_VCF_Z_MISSENSE, _gene9_annotations())]
+            )
+
+            # (a) The save freezes the VCF's MISSENSE_Z of the primary transcript, the value the
+            # variant list serves the dialog in annotation_extra, and says it is the VCF's.
+            async with sm() as s:
+                await upsert_small_variant_review(
+                    s, context=_ctx_now(), variant_id=_VCF_Z_MISSENSE, payload=classification, user=user
+                )
+            async with sm() as s:
+                frozen = await _frozen(s)
+                page = await family_variants.get_family_small_variants_page(
+                    s, context=_ctx_now(), page=1, page_size=10
+                )
+            served = {variant.id: variant for variant in page.variants}[_VCF_Z_MISSENSE]
+            assert frozen["gene_constraint"] == {"gene_missense_z": 4.2, "gene_missense_z_source": "vcf"}
+            assert served.annotation_extra["gene_missense_z"] == frozen["gene_constraint"]["gene_missense_z"]
+            async with sm() as s:
+                drift = await cds.evaluate_classification_drift(s, family_id=label, user=user)
+            assert (drift["checked"], drift["drifted_count"]) == (1, 0)
+
+            # (b) The gene's profile now holds a missense Z: PP2 reads it first, so the value and
+            # its source moved, under the same annotation set.
+            async with sm() as s:
+                await s.execute(
+                    text(
+                        "INSERT INTO gene_info (assembly_id, hgnc_symbol, gene_id, extra) "
+                        "VALUES (CAST(:a AS uuid), :s, 'ENSG00000000109', CAST(:e AS jsonb))"
+                    ),
+                    {"a": holder["assembly"], "s": _GENE9, "e": json.dumps({"mis_z": 3.52})},
+                )
+                await s.commit()
+            async with sm() as s:
+                drift = await cds.evaluate_classification_drift(s, family_id=label, user=user)
+            [moved] = drift["drifted"]
+            assert (moved["status"], moved["changed"]) == ("drifted", ["gene_missense_z", "gene_missense_z_source"])
+            assert moved["evidence_from"]["gene_missense_z_source"] == "vcf"
+            assert (moved["evidence_to"]["gene_missense_z"], moved["evidence_to"]["gene_missense_z_source"]) == (
+                3.52,
+                "gene_profile",
+            )
+
+            # (c) Re-reviewed: saving again freezes the gene profile's; the drift clears.
+            async with sm() as s:
+                await upsert_small_variant_review(
+                    s, context=_ctx_now(), variant_id=_VCF_Z_MISSENSE, payload=classification, user=user
+                )
+            async with sm() as s:
+                assert (await _frozen(s))["gene_constraint"] == {
+                    "gene_missense_z": 3.52,
+                    "gene_missense_z_source": "gene_profile",
+                }
+                drift = await cds.evaluate_classification_drift(s, family_id=label, user=user)
+            assert (drift["checked"], drift["drifted_count"]) == (1, 0)
         finally:
             await close_postgres_engine()
             await close_clickhouse_client()

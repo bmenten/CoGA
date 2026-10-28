@@ -26,6 +26,7 @@ from backend.app.services.per_sample_small_variants import (
     iter_merged_sites,
     merged_site_record,
 )
+from backend.tests._bgzf import bgzip, bgzip_cut_after
 
 _CSQ = (
     '##INFO=<ID=CSQ,Number=.,Type=String,Description="Consequence annotations from Ensembl VEP. '
@@ -359,6 +360,29 @@ async def test_a_file_that_cannot_be_read_with_the_others_fails_before_any_write
         await _upload(files)
     assert raised.value.status_code == 400
     assert storage["events"] == []
+
+
+@pytest.mark.asyncio
+async def test_a_file_cut_where_a_bgzf_block_ends_is_refused_before_any_write(storage, tmp_path: Path) -> None:
+    # Cut where one of its BGZF blocks ends, the father's file is whole gzip: its records
+    # after the cut were left out of the callset without a word. A BGZF file must end with
+    # BGZF's end-of-file block (DATA-4); the mother's plain gzip file has none.
+    files = _couple_files(tmp_path)
+    text = _vcf("FATHER1", [_record("chr1", 1_000 + index * 10, "A", "G", "PASS", "0/1") for index in range(2_000)])
+    files[1].path.write_bytes(bgzip_cut_after(text.encode(), 1))
+    with pytest.raises(HTTPException) as raised:
+        await _upload(files)
+    assert (raised.value.status_code, raised.value.detail) == (
+        400,
+        "The SNV file of FATHER1 (FATHER1.vcf.gz) is not valid gzip: it is truncated "
+        "(it does not end with BGZF's end-of-file block)",
+    )
+    assert storage["events"] == []
+
+    # The whole file is read, every record of it.
+    files[1].path.write_bytes(bgzip(text.encode()))
+    result = await _upload(files)
+    assert result["calls_per_sample"]["FATHER1"] == 2_000
 
 
 @pytest.mark.asyncio

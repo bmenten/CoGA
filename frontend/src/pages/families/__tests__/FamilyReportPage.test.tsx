@@ -2395,6 +2395,54 @@ describe('FamilyReportPage', () => {
       expect(drift).toHaveTextContent('17-43000000-A-G — gnomAD missense Z 2.95 → 3.52 (classified by alice)');
     });
 
+    it("shows a missense Z PP2 read from the VCF, and one read from another source since (TRACE-15)", async () => {
+      const [reported] = SIGNED_SNAPSHOT.reported_variants;
+      mockSignedCase({
+        versions: [{ ...SIGNED_ENTRY, drift_acknowledged: true, drift_acknowledgement_reason: 'PP2 re-reviewed' }],
+        snapshot: {
+          ...SIGNED_SNAPSHOT,
+          reported_variants: [
+            {
+              // The gene's profile held no missense Z: PP2 read the VCF's own MISSENSE_Z.
+              ...reported,
+              evidence_snapshot: {
+                ...reported.evidence_snapshot,
+                gene_constraint: { gene_missense_z: 4.2, gene_missense_z_source: 'vcf' },
+              },
+            },
+          ],
+          drift: {
+            checked: 1,
+            drifted_count: 1,
+            drifted: [
+              {
+                variant_id: '17-43000000-A-G',
+                status: 'drifted',
+                clinvar_from: 'Likely_pathogenic',
+                clinvar_to: 'Likely_pathogenic',
+                changed: ['gene_missense_z', 'gene_missense_z_source'],
+                evidence_from: { gene_missense_z: 4.2, gene_missense_z_source: 'vcf' },
+                evidence_to: { gene_missense_z: 3.52, gene_missense_z_source: 'gene_profile' },
+                classified_by: 'alice',
+              },
+            ],
+          },
+          acknowledged_drift: true,
+          drift_acknowledgement_reason: 'PP2 re-reviewed',
+        },
+      });
+      renderPage();
+
+      await signedRecordCard();
+      const variant = screen.getByRole('heading', { name: '17-43000000-A-G' }).closest('article')!;
+      expect(variant).toHaveTextContent("From the VCF's MISSENSE_Z, as its gene's profile held none: gnomAD missense Z 4.20.");
+      expect(variant).not.toHaveTextContent("From its gene's profile");
+      const drift = screen.getByRole('heading', { name: 'Evidence drift at sign-out' }).closest('section')!;
+      expect(drift).toHaveTextContent(
+        '17-43000000-A-G — gnomAD missense Z 4.20 (VCF) → 3.52 (gene profile) (classified by alice)',
+      );
+    });
+
     it('shows the overrides frozen into the signed version', async () => {
       const entry = {
         ...SIGNED_ENTRY,

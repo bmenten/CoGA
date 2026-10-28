@@ -110,10 +110,16 @@ export interface SignedEvidence {
   frequencies: SignedEvidenceValue[] | null;
   inSilico: SignedEvidenceValue[] | null;
   /**
-   * The gene's missense Z, from its gene profile, which is frozen for a missense variant only;
-   * null when the record holds none.
+   * The gene's missense Z PP2 read, which is frozen for a missense variant only; null when the
+   * record holds none.
    */
   geneConstraint: SignedEvidenceValue[] | null;
+  /**
+   * Where that missense Z came from: 'gene_profile', 'vcf' (the VCF's own MISSENSE_Z, read when
+   * the gene profile held none), or null when neither held one (TRACE-15). A record frozen before
+   * the source was holds the gene profile's: 'gene_profile'.
+   */
+  geneConstraintSource: string | null;
 }
 
 /**
@@ -172,7 +178,7 @@ export interface SignedDriftItem {
   clinvarTo: string | null;
   /**
    * What moved: 'clinvar', 'transcript_id', a consequence, frequency or in-silico field, the
-   * gene's 'gene_missense_z', 'annotations'.
+   * gene's 'gene_missense_z' and its 'gene_missense_z_source', 'annotations'.
    */
   changed: string[];
   evidenceFrom: ApiSmallVariantEvidence | null;
@@ -791,9 +797,22 @@ const IN_SILICO_FIELDS: EvidenceField[] = [
   { key: 'alpha_missense_pathogenicity', label: 'AlphaMissense score', format: 3 },
 ];
 
-// The gene's missense constraint the PP2 suggestion reads, from the gene's profile: frozen for a
-// missense variant only.
+// The gene's missense constraint the PP2 suggestion reads: frozen for a missense variant only,
+// with where it came from (MISSENSE_Z_SOURCE_KEY).
 const GENE_CONSTRAINT_FIELDS: EvidenceField[] = [{ key: 'gene_missense_z', label: 'gnomAD missense Z', format: 2 }];
+
+// The source of the frozen missense Z (TRACE-15): the gene's profile, else the VCF's own
+// MISSENSE_Z. Before the source was frozen, the missense Z was the gene profile's.
+const MISSENSE_Z_SOURCE_KEY = 'gene_missense_z_source';
+const MISSENSE_Z_SOURCE_LABEL: Record<string, string> = { gene_profile: 'gene profile', vcf: 'VCF' };
+
+const parseMissenseZSource = (value: unknown): string | null =>
+  isObject(value) ? (has(value, MISSENSE_Z_SOURCE_KEY) ? text(value[MISSENSE_Z_SOURCE_KEY]) : 'gene_profile') : null;
+
+const missenseZSourceLabel = (source: unknown): string | null => {
+  const value = text(source);
+  return value === null ? null : (MISSENSE_Z_SOURCE_LABEL[value] ?? value);
+};
 
 // A value of the wrong type for its field is not guessed: it reads as no value.
 const formatEvidenceValue = (field: EvidenceField, value: unknown): string | null => {
@@ -854,6 +873,7 @@ const parseSmallVariant = (entry: unknown): SignedSmallVariant => {
           frequencies: parseEvidenceValues(evidence.frequencies, FREQUENCY_FIELDS),
           inSilico: parseEvidenceValues(evidence.in_silico, IN_SILICO_FIELDS),
           geneConstraint: parseEvidenceValues(evidence.gene_constraint, GENE_CONSTRAINT_FIELDS),
+          geneConstraintSource: parseMissenseZSource(evidence.gene_constraint),
         }
       : null,
     compoundHet: pair
@@ -2192,6 +2212,22 @@ export const qcStatusLabel = (status: string | null): string =>
   status ? (QC_STATUS_LABEL[status as QcStatus] ?? status) : 'not recorded';
 
 /**
+ * The sentence of a classification's frozen gene missense Z, naming where PP2 read it: "From its
+ * gene's profile: gnomAD missense Z 3.52." or "From the VCF's MISSENSE_Z, as its gene's profile
+ * held none: …" (TRACE-15); null when the record holds none.
+ */
+const describeFrozenMissenseZ = (evidence: SignedEvidence, list: (values: SignedEvidenceValue[]) => string) => {
+  if (!evidence.geneConstraint?.length) return null;
+  const values = list(evidence.geneConstraint);
+  if (evidence.geneConstraintSource === 'gene_profile') return `From its gene's profile: ${values}.`;
+  if (evidence.geneConstraintSource === 'vcf') return `From the VCF's MISSENSE_Z, as its gene's profile held none: ${values}.`;
+  if (evidence.geneConstraintSource !== null) return `From ${evidence.geneConstraintSource}: ${values}.`;
+  return evidence.geneConstraint.every((entry) => entry.value === null)
+    ? "Neither its gene's profile nor the VCF held a gnomAD missense Z."
+    : `${values}, from a source the record does not name.`;
+};
+
+/**
  * The frozen consequence, frequencies and in-silico scores of a classification and its gene's
  * missense Z, as the signed view writes them: "Read from its primary transcript ENST…:
  * consequence stop_gained, impact HIGH and LoF HC; population frequencies gnomAD AF 3.10e-5, …;
@@ -2210,7 +2246,7 @@ export const describeFrozenEvidenceValues = (evidence: SignedEvidence): string |
     groups.length
       ? `Read from its primary transcript${evidence.transcriptId ? ` ${evidence.transcriptId}` : ''}: ${groups.join('; ')}.`
       : null,
-    evidence.geneConstraint?.length ? `From its gene's profile: ${list(evidence.geneConstraint)}.` : null,
+    describeFrozenMissenseZ(evidence, list),
   ].filter((sentence): sentence is string => sentence !== null);
   return sentences.length ? sentences.join(' ') : null;
 };
@@ -2218,8 +2254,9 @@ export const describeFrozenEvidenceValues = (evidence: SignedEvidence): string |
 /**
  * What moved in a small-variant classification's frozen values ("consequence stop_gained →
  * stop_gained&splice_region_variant; REVEL 0.412 → 0.951; gnomAD missense Z 2.95 → 3.52");
- * null when none of them moved. The live report and the signed version both describe drift
- * this way.
+ * null when none of them moved. A missense Z read from another source names both sources
+ * ("gnomAD missense Z 3.52 (gene profile) → 3.52 (VCF)", TRACE-15). The live report and the
+ * signed version both describe drift this way.
  */
 export const describeSmallVariantEvidenceChange = (
   changed: string[],
@@ -2230,17 +2267,24 @@ export const describeSmallVariantEvidenceChange = (
   if (changed.includes('transcript_id')) {
     parts.push(`primary transcript ${text(from?.transcript_id) ?? 'n/a'} → ${text(to?.transcript_id) ?? 'n/a'}`);
   }
+  // A missense Z read from another source names each side's source, also when its value stayed.
+  const sourceMoved = changed.includes(MISSENSE_Z_SOURCE_KEY);
+  const namesSource = (field: EvidenceField) => sourceMoved && GENE_CONSTRAINT_FIELDS.includes(field);
+  const written = (field: EvidenceField, value: string | null, evidence: ApiSmallVariantEvidence | null) => {
+    const source = namesSource(field) ? missenseZSourceLabel(evidence?.[MISSENSE_Z_SOURCE_KEY]) : null;
+    return `${value ?? 'n/a'}${source ? ` (${source})` : ''}`;
+  };
   [...CONSEQUENCE_FIELDS, ...FREQUENCY_FIELDS, ...IN_SILICO_FIELDS, ...GENE_CONSTRAINT_FIELDS]
-    .filter((field) => changed.includes(field.key))
+    .filter((field) => changed.includes(field.key) || namesSource(field))
     .forEach((field) => {
       let before = formatEvidenceValue(field, from?.[field.key]);
       let after = formatEvidenceValue(field, to?.[field.key]);
       // Two values that differ past the digits the report writes are written in full.
-      if (before !== null && before === after) {
+      if (before !== null && before === after && changed.includes(field.key)) {
         before = String(from?.[field.key]);
         after = String(to?.[field.key]);
       }
-      parts.push(`${field.label} ${before ?? 'n/a'} → ${after ?? 'n/a'}`);
+      parts.push(`${field.label} ${written(field, before, from)} → ${written(field, after, to)}`);
     });
   return parts.length ? parts.join('; ') : null;
 };
