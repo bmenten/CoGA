@@ -1176,9 +1176,9 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
             no underlying data are simply omitted (see VariantWorkspaceLink).
           */}
           {/* One row of equal entries, one per analysis the family has data for. The
-              variant summary sits beside the structural variants: it summarises them
-              (every SV caller) and nothing else, so it is an analysis, not a family-level
-              output like the QC and the report in the header. */}
+              variant summary comes last, at the row's right end: it summarises the
+              structural variants (every SV caller), so it belongs with the analyses, not
+              with the family-level QC and report in the header. */}
           {(hasAnyVariantData || isMonogenicNipt) && (
             <nav className="family-module-nav" aria-label="Variant analyses">
               <VariantWorkspaceLink
@@ -1194,13 +1194,6 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                 className="family-module-link"
               >
                 Structural variants
-              </VariantWorkspaceLink>
-              <VariantWorkspaceLink
-                active={hasVariantSummary}
-                to={routePath`/families/${data.family_id}/variant-summary`}
-                className="family-module-link"
-              >
-                Variant summary
               </VariantWorkspaceLink>
               <VariantWorkspaceLink
                 active={hasRepeatExpansions}
@@ -1229,6 +1222,13 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                 className="family-module-link"
               >
                 Monogenic NIPT
+              </VariantWorkspaceLink>
+              <VariantWorkspaceLink
+                active={hasVariantSummary}
+                to={routePath`/families/${data.family_id}/variant-summary`}
+                className="family-module-link family-module-link--end"
+              >
+                Variant summary
               </VariantWorkspaceLink>
             </nav>
           )}

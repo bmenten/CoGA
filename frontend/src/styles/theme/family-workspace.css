@@ -81,15 +81,15 @@
 }
 
 /* The workspace's entries — the analyses in the Variants card and the genome views in the
-   Visualization card — as one row of equal, tab-like links on a single rule rather than
-   bordered buttons inside the card. The row wraps between entries, never inside one. */
+   Visualization card — as one row of equal, tab-like links rather than bordered buttons
+   inside the card, with no rule under the row. The row wraps between entries, never inside
+   one. */
 .family-module-nav {
   display: flex;
   flex-wrap: wrap;
   align-items: stretch;
   gap: 0 0.125rem;
   min-width: 0;
-  border-bottom: 1px solid var(--color-border);
 }
 
 .family-module-link {
@@ -97,7 +97,6 @@
   align-items: center;
   min-height: var(--control-height);
   padding: 0 0.5rem;
-  margin-bottom: -1px;
   border-bottom: 2px solid transparent;
   color: var(--color-link);
   font-size: var(--fs-sm);
@@ -117,6 +116,12 @@
 .family-module-link:focus-visible {
   outline: 2px solid var(--color-link);
   outline-offset: -2px;
+}
+
+/* The variant summary, last in the row, sits at its right end: it sums up the analyses
+   before it rather than being one of them. */
+.family-module-link--end {
+  margin-left: auto;
 }
 
 /* Pressed (or, on a page that marks it, the current entry): the signature red rule. */
@@ -594,21 +599,47 @@
   border-radius: var(--radius-card);
 }
 
-.family-member-modal-grid {
+/* The member's details in three groups side by side — the sample, its place in the
+   pedigree, its affected and carrier status — each under a small heading and a rule, with no
+   box around it. A group lays its own fields out as they fit. */
+.family-member-modal-groups {
   display: grid;
-  grid-template-columns: repeat(3, minmax(17rem, 1fr));
-  gap: 0.6875rem 0.8125rem;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) minmax(0, 3fr);
+  gap: 0.6875rem 1.25rem;
+  align-items: start;
+}
+
+.family-member-modal-group {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: 0.5rem 0.625rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.family-member-modal-group > legend {
+  float: left;
+  grid-column: 1 / -1;
+  width: 100%;
+  margin-bottom: 0.125rem;
+  padding-bottom: 0.1875rem;
+  border-bottom: 1px solid var(--color-row-rule);
+  color: var(--color-heading);
+  font-size: var(--fs-sm);
+  font-weight: 600;
 }
 
 .family-member-modal .field-label {
   gap: 0.375rem;
 }
 
-.family-member-modal-review-grid {
+/* HPO phenotypes, then the impact of a change, each across the dialog's whole width. */
+.family-member-modal-sections {
   display: grid;
-  grid-template-columns: minmax(0, 1.55fr) minmax(24rem, 0.85fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 0.75rem;
-  align-items: start;
 }
 
 .family-member-modal-section {
@@ -670,9 +701,8 @@
     padding: 0.625rem;
   }
 
-  .family-member-modal-grid,
-  .family-member-modal-review-grid {
-    grid-template-columns: 1fr;
+  .family-member-modal-groups {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .family-member-modal .family-hpo-controls {
@@ -681,12 +711,12 @@
 }
 
 @media (min-width: 901px) and (max-width: 1280px) {
-  .family-member-modal-grid {
-    grid-template-columns: repeat(2, minmax(17rem, 1fr));
+  .family-member-modal-groups {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   }
 
-  .family-member-modal-review-grid {
-    grid-template-columns: 1fr;
+  .family-member-modal-group--status {
+    grid-column: 1 / -1;
   }
 
   .family-member-modal .family-hpo-controls {

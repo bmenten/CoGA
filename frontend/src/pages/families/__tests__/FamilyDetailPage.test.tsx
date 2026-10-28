@@ -598,8 +598,8 @@ describe('FamilyDetailPage', () => {
     await waitFor(() => expect(screen.getByText(/Family F1/i)).toBeInTheDocument());
     await waitForVariantWorkspaceReady();
 
-    // One row of equal entries, in order; the variant summary sits beside the structural
-    // variants it summarises.
+    // One row of equal entries, in order; the variant summary comes last, at the row's
+    // right end.
     const analyses = screen.getByRole('navigation', { name: 'Variant analyses' });
     expect(within(analyses).getAllByRole('link').map((link) => link.textContent?.trim())).toEqual([
       'Small variants',
@@ -609,6 +609,7 @@ describe('FamilyDetailPage', () => {
     for (const link of within(analyses).getAllByRole('link')) {
       expect(link).toHaveClass('family-module-link');
     }
+    expect(within(analyses).getByRole('link', { name: 'Variant summary' })).toHaveClass('family-module-link--end');
 
     // The curation is its own block after the row, not interleaved with its links.
     const curation = container.querySelector('.family-curation-summary') as HTMLElement;

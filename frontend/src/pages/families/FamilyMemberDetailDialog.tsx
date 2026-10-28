@@ -301,168 +301,179 @@ const FamilyMemberDetailDialog: React.FC<FamilyMemberDetailDialogProps> = ({
             <p className="dashboard-link-note">Loading member details.</p>
           ) : (
             <>
-              <div className="family-member-modal-grid">
-                <label className="field-label">
-                  Identifier
-                  <input
-                    type="text"
-                    value={memberDraft.sample_id}
-                    onChange={(event) =>
-                      setMemberDraft((draft) =>
-                        draft ? { ...draft, sample_id: event.target.value } : draft,
-                      )
-                    }
-                    disabled={!userIsAdmin || memberBusy}
-                  />
-                </label>
-                <label className="field-label">
-                  Sex
-                  <select
-                    value={memberDraft.sex}
-                    onChange={(event) =>
-                      setMemberDraft((draft) =>
-                        draft
-                          ? { ...draft, sex: event.target.value as StructureMemberDraft['sex'] }
-                          : draft,
-                      )
-                    }
-                    disabled={!userIsAdmin || memberBusy}
-                  >
-                    {SEX_OPTIONS.map((sex) => (
-                      <option key={sex} value={sex}>
-                        {sex}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="field-label">
-                  Family role
-                  <select
-                    value={memberDraft.role}
-                    onChange={(event) =>
-                      setMemberDraft((draft) =>
-                        draft
-                          ? { ...draft, role: event.target.value as StructureMemberDraft['role'] }
-                          : draft,
-                      )
-                    }
-                    disabled={!userIsAdmin || memberBusy}
-                  >
-                    {ROLE_OPTIONS.map((role) => (
-                      <option key={role} value={role}>
-                        {role}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="field-label">
-                  Phenotype
-                  <select
-                    value={memberDraft.clinical_status}
-                    onChange={(event) =>
-                      setMemberDraft((draft) =>
-                        draft
-                          ? { ...draft, clinical_status: event.target.value as ClinicalStatus }
-                          : draft,
-                      )
-                    }
-                    disabled={!userIsAdmin || memberBusy}
-                  >
-                    {CLINICAL_STATUS_OPTIONS.map((status) => (
-                      <option key={status} value={status}>
-                        {status}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="field-label">
-                  Carrier status
-                  <select
-                    value={memberDraft.carrier_status}
-                    onChange={(event) =>
-                      setMemberDraft((draft) =>
-                        draft
-                          ? { ...draft, carrier_status: event.target.value as CarrierStatus }
-                          : draft,
-                      )
-                    }
-                    disabled={!userIsAdmin || memberBusy}
-                  >
-                    {CARRIER_STATUS_OPTIONS.map((status) => (
-                      <option key={status} value={status}>
-                        {status}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                {memberDraft.carrier_status === 'carrier' && (
+              {/* The member's details in three groups: the sample itself, where it sits in the
+                  pedigree (its role and its parents), and its affected and carrier status. */}
+              <div className="family-member-modal-groups">
+                <fieldset className="family-member-modal-group family-member-modal-group--sample">
+                  <legend>Sample</legend>
                   <label className="field-label">
-                    Carrier type
+                    Identifier
+                    <input
+                      type="text"
+                      value={memberDraft.sample_id}
+                      onChange={(event) =>
+                        setMemberDraft((draft) =>
+                          draft ? { ...draft, sample_id: event.target.value } : draft,
+                        )
+                      }
+                      disabled={!userIsAdmin || memberBusy}
+                    />
+                  </label>
+                  <label className="field-label">
+                    Sex
                     <select
-                      value={memberDraft.carrier_type}
+                      value={memberDraft.sex}
                       onChange={(event) =>
                         setMemberDraft((draft) =>
                           draft
-                            ? { ...draft, carrier_type: event.target.value as CarrierType }
+                            ? { ...draft, sex: event.target.value as StructureMemberDraft['sex'] }
                             : draft,
                         )
                       }
                       disabled={!userIsAdmin || memberBusy}
                     >
-                      <option value="">type</option>
-                      {CARRIER_TYPE_OPTIONS.map((type) => (
-                        <option key={type} value={type}>
-                          {type}
+                      {SEX_OPTIONS.map((sex) => (
+                        <option key={sex} value={sex}>
+                          {sex}
                         </option>
                       ))}
                     </select>
                   </label>
-                )}
-                <label className="field-label">
-                  Father
-                  <select
-                    value={memberDraft.father_id}
-                    onChange={(event) =>
-                      setMemberDraft((draft) =>
-                        draft ? { ...draft, father_id: event.target.value } : draft,
-                      )
-                    }
-                    disabled={!userIsAdmin || memberBusy}
-                  >
-                    <option value="">None</option>
-                    {orderedMembers
-                      .filter((member) => member.sample_id !== selectedMemberDetail.member.sample_id)
-                      .map((member) => (
-                        <option key={member.sample_id} value={member.sample_id}>
-                          {member.sample_id}
+                </fieldset>
+                <fieldset className="family-member-modal-group family-member-modal-group--pedigree">
+                  <legend>Pedigree</legend>
+                  <label className="field-label">
+                    Family role
+                    <select
+                      value={memberDraft.role}
+                      onChange={(event) =>
+                        setMemberDraft((draft) =>
+                          draft
+                            ? { ...draft, role: event.target.value as StructureMemberDraft['role'] }
+                            : draft,
+                        )
+                      }
+                      disabled={!userIsAdmin || memberBusy}
+                    >
+                      {ROLE_OPTIONS.map((role) => (
+                        <option key={role} value={role}>
+                          {role}
                         </option>
                       ))}
-                  </select>
-                </label>
-                <label className="field-label">
-                  Mother
-                  <select
-                    value={memberDraft.mother_id}
-                    onChange={(event) =>
-                      setMemberDraft((draft) =>
-                        draft ? { ...draft, mother_id: event.target.value } : draft,
-                      )
-                    }
-                    disabled={!userIsAdmin || memberBusy}
-                  >
-                    <option value="">None</option>
-                    {orderedMembers
-                      .filter((member) => member.sample_id !== selectedMemberDetail.member.sample_id)
-                      .map((member) => (
-                        <option key={member.sample_id} value={member.sample_id}>
-                          {member.sample_id}
+                    </select>
+                  </label>
+                  <label className="field-label">
+                    Father
+                    <select
+                      value={memberDraft.father_id}
+                      onChange={(event) =>
+                        setMemberDraft((draft) =>
+                          draft ? { ...draft, father_id: event.target.value } : draft,
+                        )
+                      }
+                      disabled={!userIsAdmin || memberBusy}
+                    >
+                      <option value="">None</option>
+                      {orderedMembers
+                        .filter((member) => member.sample_id !== selectedMemberDetail.member.sample_id)
+                        .map((member) => (
+                          <option key={member.sample_id} value={member.sample_id}>
+                            {member.sample_id}
+                          </option>
+                        ))}
+                    </select>
+                  </label>
+                  <label className="field-label">
+                    Mother
+                    <select
+                      value={memberDraft.mother_id}
+                      onChange={(event) =>
+                        setMemberDraft((draft) =>
+                          draft ? { ...draft, mother_id: event.target.value } : draft,
+                        )
+                      }
+                      disabled={!userIsAdmin || memberBusy}
+                    >
+                      <option value="">None</option>
+                      {orderedMembers
+                        .filter((member) => member.sample_id !== selectedMemberDetail.member.sample_id)
+                        .map((member) => (
+                          <option key={member.sample_id} value={member.sample_id}>
+                            {member.sample_id}
+                          </option>
+                        ))}
+                    </select>
+                  </label>
+                </fieldset>
+                <fieldset className="family-member-modal-group family-member-modal-group--status">
+                  <legend>Affected and carrier status</legend>
+                  <label className="field-label">
+                    Phenotype
+                    <select
+                      value={memberDraft.clinical_status}
+                      onChange={(event) =>
+                        setMemberDraft((draft) =>
+                          draft
+                            ? { ...draft, clinical_status: event.target.value as ClinicalStatus }
+                            : draft,
+                        )
+                      }
+                      disabled={!userIsAdmin || memberBusy}
+                    >
+                      {CLINICAL_STATUS_OPTIONS.map((status) => (
+                        <option key={status} value={status}>
+                          {status}
                         </option>
                       ))}
-                  </select>
-                </label>
+                    </select>
+                  </label>
+                  <label className="field-label">
+                    Carrier status
+                    <select
+                      value={memberDraft.carrier_status}
+                      onChange={(event) =>
+                        setMemberDraft((draft) =>
+                          draft
+                            ? { ...draft, carrier_status: event.target.value as CarrierStatus }
+                            : draft,
+                        )
+                      }
+                      disabled={!userIsAdmin || memberBusy}
+                    >
+                      {CARRIER_STATUS_OPTIONS.map((status) => (
+                        <option key={status} value={status}>
+                          {status}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  {memberDraft.carrier_status === 'carrier' && (
+                    <label className="field-label">
+                      Carrier type
+                      <select
+                        value={memberDraft.carrier_type}
+                        onChange={(event) =>
+                          setMemberDraft((draft) =>
+                            draft
+                              ? { ...draft, carrier_type: event.target.value as CarrierType }
+                              : draft,
+                          )
+                        }
+                        disabled={!userIsAdmin || memberBusy}
+                      >
+                        <option value="">type</option>
+                        {CARRIER_TYPE_OPTIONS.map((type) => (
+                          <option key={type} value={type}>
+                            {type}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                </fieldset>
               </div>
 
-              <div className="family-member-modal-review-grid">
+              <div className="family-member-modal-sections">
                 <div className="variant-review-modal-section family-member-modal-section">
                   <div className="family-workspace-card-head">
                     <h3 className="section-title">HPO phenotypes</h3>

@@ -517,7 +517,7 @@
     "/dashboard"
    ]
   ],
-  "text": "Everycasestartsonitsfamilypage.TheheaderStatus,AssignedtoandReviewedbytrackthecase'sworkflow;ananalystofthefamily'sprojectcanchangethem,areaderonlyseesthem.AssignedtoandReviewedbyoffertheactiveanalystsofthefamily'sprojectsandtheadministrators,neverareader.Someonechosenbeforetheybecameareader(orleftthefamily'sprojects)staysshown,marked(noteligible),untilyouchangeit.Theheaderalsoshowstheassemblyandtheprojects,andaNotvalidatedforclinicalusebannerwhenthefamilyisoutsidethevalidatedscope.Besidetheworkflowfieldssitthefamily-levelfunctions:SampleQC(whenthefamilyhassmallvariants)andReport(whenithassmallorstructuralvariants).TheanalysesandviewsVariants—onerowoflinks:Smallvariants,Structuralvariants,Variantsummary(ofthestructuralvariants),Repeatexpansions,Paraphase,mtDNAanalysisandMonogenicNIPT.Alinkappearsonlywhenthefamilyhasthatkindofdata.Undertherow,Curationgivesalineeachforthesmallandthestructuralvariants:howmanyarereviewed,howmanycarrynotes,andthecountperreviewtag.Visualization—Genomeview,Chromosomeview,CircosplotandIGVviewer.Regionofinterest(ROI)TheROIisthegeneorlocusthecaseisabout;PGTusesitfortheembryocalls.Anadministratorsetsit(Save,Clear).Anyonecanclickittoopenthechromosomeviewwith1Mboneachside.InaPGTfamily,ReviewROImarkers→opensthemarkerreview.FamilymembersOnerowperperson:role,parents,partner,Relatedto,status,HPOtermsandaSeq.QCchipwiththesequencingQCverdictandmeandepth(hoverorfocusitforthemetrics).Apassingchipshowsthenumberalone;anyotherstateisawordonthechip:WarningorFailwhenametriccrosseditslimit,whichthetooltipnames,andNotrunwhenthesample'sQCwasnotassessed(nolimitsetforanyofitsmetrics,ornoverdictreturned),whichisneverapass.AnembryowhoseQCholdsonlythePGTpipeline'sembryometricshasnodepthtoshow:itschipgivesthevalueofthemetricthatdecidedtheverdict(FailADO14.2%),orNotrunalone.InaPGTfamilyeachembryoalsoshowsitsderivedcall(seeHaplotypesegregation).Relatedtonamesthememberthroughwhomapersonisrelatedbyanunknowndegree,suchasaPGTindexknowntobeonthemother'sside,orbothparents.Thepedigreedrawsthelinkasadottedarcwitha?.Thehaplotypetrackcoloursthatpersonalongthegenomewhentheyturnouttobethatmember'sownparentorchild(theyshareoneofthemember'shaplotypesalongnearlyeverychromosome),andamoredistantrelativearoundtheROI,wherethemarkersonbothsidesshowthehaplotypetheyshare;elsewheresucharelativestaysgrey.Onlyanadministratoreditsamember:clickthesamplenametoopenFamilymemberdetails,changethefields,pressApplytopending,thenSavependingupdatesonthefamilypage.HPOtermsareaddedandremovedinthesamedialog,byananalystofthefamily'sprojectoranadministrator.Affectedstatusandcarrierstatusareseparate:anunaffectedpersoncanbeacarrier.Removememberinthedialogtakesthepersonoutofthefamilyatonce,afteryouconfirm.MembersareaddedinAdmin→Family&sampledata.FurtherdownarethePhenotypematch(Monarch)paneland,closedbydefault,theAnalysispipelinesettingsrecordedatimport.",
+  "text": "Everycasestartsonitsfamilypage.TheheaderStatus,AssignedtoandReviewedbytrackthecase'sworkflow;ananalystofthefamily'sprojectcanchangethem,areaderonlyseesthem.AssignedtoandReviewedbyoffertheactiveanalystsofthefamily'sprojectsandtheadministrators,neverareader.Someonechosenbeforetheybecameareader(orleftthefamily'sprojects)staysshown,marked(noteligible),untilyouchangeit.Theheaderalsoshowstheassemblyandtheprojects,andaNotvalidatedforclinicalusebannerwhenthefamilyisoutsidethevalidatedscope.Besidetheworkflowfieldssitthefamily-levelfunctions:SampleQC(whenthefamilyhassmallvariants)andReport(whenithassmallorstructuralvariants).TheanalysesandviewsVariants—onerowoflinks:Smallvariants,Structuralvariants,Repeatexpansions,Paraphase,mtDNAanalysisandMonogenicNIPT,withVariantsummary(ofthestructuralvariants)last,attherightend.Alinkappearsonlywhenthefamilyhasthatkindofdata.Undertherow,Curationgivesalineeachforthesmallandthestructuralvariants:howmanyarereviewed,howmanycarrynotes,andthecountperreviewtag.Visualization—Genomeview,Chromosomeview,CircosplotandIGVviewer.Regionofinterest(ROI)TheROIisthegeneorlocusthecaseisabout;PGTusesitfortheembryocalls.Anadministratorsetsit(Save,Clear).Anyonecanclickittoopenthechromosomeviewwith1Mboneachside.InaPGTfamily,ReviewROImarkers→opensthemarkerreview.FamilymembersOnerowperperson:role,parents,partner,Relatedto,status,HPOtermsandaSeq.QCchipwiththesequencingQCverdictandmeandepth(hoverorfocusitforthemetrics).Apassingchipshowsthenumberalone;anyotherstateisawordonthechip:WarningorFailwhenametriccrosseditslimit,whichthetooltipnames,andNotrunwhenthesample'sQCwasnotassessed(nolimitsetforanyofitsmetrics,ornoverdictreturned),whichisneverapass.AnembryowhoseQCholdsonlythePGTpipeline'sembryometricshasnodepthtoshow:itschipgivesthevalueofthemetricthatdecidedtheverdict(FailADO14.2%),orNotrunalone.InaPGTfamilyeachembryoalsoshowsitsderivedcall(seeHaplotypesegregation).Relatedtonamesthememberthroughwhomapersonisrelatedbyanunknowndegree,suchasaPGTindexknowntobeonthemother'sside,orbothparents.Thepedigreedrawsthelinkasadottedarcwitha?.Thehaplotypetrackcoloursthatpersonalongthegenomewhentheyturnouttobethatmember'sownparentorchild(theyshareoneofthemember'shaplotypesalongnearlyeverychromosome),andamoredistantrelativearoundtheROI,wherethemarkersonbothsidesshowthehaplotypetheyshare;elsewheresucharelativestaysgrey.Onlyanadministratoreditsamember:clickthesamplenametoopenFamilymemberdetails,changethefields,pressApplytopending,thenSavependingupdatesonthefamilypage.HPOtermsareaddedandremovedinthesamedialog,byananalystofthefamily'sprojectoranadministrator.Affectedstatusandcarrierstatusareseparate:anunaffectedpersoncanbeacarrier.Removememberinthedialogtakesthepersonoutofthefamilyatonce,afteryouconfirm.MembersareaddedinAdmin→Family&sampledata.FurtherdownarethePhenotypematch(Monarch)paneland,closedbydefault,theAnalysispipelinesettingsrecordedatimport.",
   "paragraphs": [
    "Every case starts on its family page.",
    "Status, Assigned to and Reviewed by track the case's workflow; an analyst of the family's project can change them, a reader only sees them. Assigned to and Reviewed by offer the active analysts of the family's projects and the administrators, never a reader. Someone chosen before they became a reader (or left the family's projects) stays shown, marked (not eligible), until you change it. The header also shows the assembly and the projects, and a Not validated for clinical use banner when the family is outside the validated scope. Beside the workflow fields sit the family-level functions: Sample QC (when the family has small variants) and Report (when it has small or structural variants).",
@@ -538,7 +538,7 @@
    ],
    [
     "li",
-    "Variants — one row of links: Small variants, Structural variants, Variant summary (of the structural variants), Repeat expansions, Paraphase, mtDNA analysis and Monogenic NIPT. A link appears only when the family has that kind of data. Under the row, Curation gives a line each for the small and the structural variants: how many are reviewed, how many carry notes, and the count per review tag."
+    "Variants — one row of links: Small variants, Structural variants, Repeat expansions, Paraphase, mtDNA analysis and Monogenic NIPT, with Variant summary (of the structural variants) last, at the right end. A link appears only when the family has that kind of data. Under the row, Curation gives a line each for the small and the structural variants: how many are reviewed, how many carry notes, and the count per review tag."
    ],
    [
     "li",
@@ -604,10 +604,6 @@
    ],
    [
     "strong",
-    "Variant summary"
-   ],
-   [
-    "strong",
     "Repeat expansions"
    ],
    [
@@ -621,6 +617,10 @@
    [
     "strong",
     "Monogenic NIPT"
+   ],
+   [
+    "strong",
+    "Variant summary"
    ],
    [
     "strong",
