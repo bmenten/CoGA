@@ -67,7 +67,7 @@ import {
   describeStructuralFrequency,
 } from './reportNarrative';
 import { apiPath, raw } from '../../lib/apiPath';
-import { memberLabel } from '../../lib/familyMembers';
+import { memberLabel, sortFamilyMembersProbandFirst } from '../../lib/familyMembers';
 import { joinWithAnd } from '../../lib/format';
 import { REPORT_LIST_PAGE_SIZE, reportedListNotice } from './reportedListCompleteness';
 import { auditTrailPrintNotice, auditTrailShownNotice, clinicalAuditTrail } from './clinicalAuditTrail';
@@ -276,14 +276,14 @@ const LiveFamilyReport: React.FC = () => {
   // The repeat loci and Paraphase regions marked Report, from the tables their pages read (and
   // share the cache of): their reviews come with the calls.
   const tableParams = projectId ? { project_id: projectId } : undefined;
-  const { data: repeatTable, isError: repeatsFailed } = useQuery<ApiFamilyRepeatExpansionTable>({
+  const { data: repeatTable, isError: repeatsFailed, refetch: refetchRepeats } = useQuery<ApiFamilyRepeatExpansionTable>({
     queryKey: ['family', familyId, 'repeat-expansions', projectId],
     enabled: variantQueryReady,
     queryFn: async () =>
       (await api.get(apiPath`/families/${familyId}/repeat-expansions`, { params: tableParams }))
         .data as ApiFamilyRepeatExpansionTable,
   });
-  const { data: paraphaseTable, isError: paraphaseFailed } = useQuery<ApiFamilyParaphaseTable>({
+  const { data: paraphaseTable, isError: paraphaseFailed, refetch: refetchParaphase } = useQuery<ApiFamilyParaphaseTable>({
     queryKey: ['family', familyId, 'paraphase', projectId],
     enabled: variantQueryReady,
     queryFn: async () =>
@@ -291,7 +291,8 @@ const LiveFamilyReport: React.FC = () => {
         .data as ApiFamilyParaphaseTable,
   });
   const reportedFindings = useMemo(() => {
-    const order = members.map((member) => member.sample_id);
+    // Proband first, as the cards list the calls.
+    const order = sortFamilyMembersProbandFirst(members).map((member) => member.sample_id);
     return [
       ...(repeatTable?.loci ?? []).map((row) => reportedRepeatFinding(row, order)),
       ...(paraphaseTable?.genes ?? []).map((gene) => reportedParaphaseFinding(gene, order)),
@@ -436,6 +437,8 @@ const LiveFamilyReport: React.FC = () => {
     driftFailed ? 'the evidence-drift check' : null,
     auditFailed ? 'the audit trail' : null,
     manifestFailed ? 'the annotation provenance' : null,
+    repeatsFailed ? 'the repeat locus calls' : null,
+    paraphaseFailed ? 'the Paraphase results' : null,
     // A printout that cannot name the build that produced it is not complete either.
     reportBuild.failed ? 'the software version' : null,
   ].filter((part): part is string => Boolean(part));
@@ -448,6 +451,8 @@ const LiveFamilyReport: React.FC = () => {
     if (auditFailed) void refetchAudit();
     if (manifestFailed) void refetchManifest();
     if (reportBuild.failed) reportBuild.retry();
+    if (repeatsFailed) void refetchRepeats();
+    if (paraphaseFailed) void refetchParaphase();
   };
   const incompleteNotice = failedParts.length
     ? `Incomplete — ${joinWithAnd(failedParts)} could not be loaded, so this printout does not show the whole report.`
