@@ -35,7 +35,7 @@ Twee dependencies komen in vrijwel elk beschermd endpoint terug. `get_postgres_s
 
 ## Schemas: validatie en documentatie
 
-Alle vormen van verzoeken en antwoorden staan in `backend/app/schemas/`, één module per domein. Ze doen drie dingen: ze **controleren invoer** (ongeldige JSON geeft `422` voordat de router draait), ze **leggen de vorm van het antwoord vast** (`response_model=`, zodat onbedoelde velden wegvallen) en ze leveren de **OpenAPI-beschrijving** van de API. Buiten ontwikkeling zijn `/docs`, `/redoc` en `/openapi.json` uitgeschakeld. Omdat alle schemas op één plek staan, kan een reviewer daar nagaan welke gegevens het systeem in- en uitgaan.
+Alle vormen van verzoeken en antwoorden staan in `backend/app/schemas/`, één module per domein. Ze doen drie dingen: ze **controleren invoer** (ongeldige JSON geeft `422` voordat de router draait), ze **leggen de vorm van het antwoord vast** (`response_model=`, zodat onbedoelde velden wegvallen) en ze leveren de **OpenAPI-beschrijving** van de API. Elke route die JSON antwoordt, noemt zo haar model, nooit een losse `dict`: de frontend leest het antwoord via het type dat daaruit gegenereerd wordt (`frontend/src/lib/apiSchema.generated.ts`), en `test_api_response_models.py` faalt op een route zonder model (ENG-4). Alleen de BED-leesroutes geven de JSON terug die hun service bouwt: hun model beschrijft die, zonder de tot een miljoen rijen opnieuw te valideren, en tests vergelijken elk tracktype met het model. Buiten ontwikkeling zijn `/docs`, `/redoc` en `/openapi.json` uitgeschakeld. Omdat alle schemas op één plek staan, kan een reviewer daar nagaan welke gegevens het systeem in- en uitgaan.
 
 ## Veiligheidsregels die overal gelden
 

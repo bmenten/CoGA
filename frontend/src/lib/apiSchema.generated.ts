@@ -106,6 +106,47 @@ export interface AuditLogPageOut {
   items: AuditLogEventOut[];
 }
 
+/**
+ * One APCAD site or PCF segment: the row with the parent it is inherited from
+ * (``paternal`` or ``maternal``; ``und`` where that is not known).
+ */
+export interface BedApcadRecordOut {
+  chr: string;
+  start: number;
+  end: number;
+  value: number | null;
+  origin: string;
+}
+
+/** A BED read of an APCAD or PCF track: each row with its origin. */
+export interface BedApcadTrackOut {
+  bed_type: "apcad" | "apcad_pcf";
+  items: BedApcadRecordOut[];
+}
+
+/**
+ * One row of a coverage or segments track, as the BED reads serve it (``routers/bed.py``);
+ * a windowed coverage read serves each window's mean. ``value`` is null where the stored row
+ * holds none.
+ */
+export interface BedRecordOut {
+  chr: string;
+  start: number;
+  end: number;
+  value: number | null;
+}
+
+/** A BED read of a coverage or segments track. */
+export interface BedTrackOut {
+  bed_type: "coverage" | "segments";
+  items: BedRecordOut[];
+}
+
+/** What a BED upload stored: its number of rows. */
+export interface BedUploadResult {
+  inserted: number;
+}
+
 export interface BlacklistRegionOut {
   _id: string;
   chr: string;
@@ -365,6 +406,14 @@ export interface CnvAcmgCriterion {
   auto_suggested?: boolean;
 }
 
+/**
+ * What deleting one kind of a sample's or a family's data removed: the number of tracks
+ * of a track type, of repeat calls, or of variants.
+ */
+export interface DataDeletionOut {
+  deleted: number;
+}
+
 export interface DgvDensityBin {
   start: number;
   end: number;
@@ -407,6 +456,24 @@ export interface DgvVariantOut {
  */
 export interface FamilyDeleteRequest {
   reason: string;
+}
+
+/**
+ * What deleting a family removed: the family, its samples, their interval tracks
+ * (``bed``), variants and repeat calls, and the kept copies of its uploads (``raw_files``).
+ */
+export interface FamilyDeletionCountsOut {
+  families: number;
+  samples: number;
+  bed: number;
+  structural_variants: number;
+  small_variants: number;
+  repeat_expansions: number;
+  raw_files: number;
+}
+
+export interface FamilyDeletionOut {
+  deleted: FamilyDeletionCountsOut;
 }
 
 /**
@@ -719,6 +786,13 @@ export interface FamilyPhenotypeMatchOut {
   query_hpo_ids: string[];
   results: PhenotypeMatchResultOut[];
   source: string;
+}
+
+/** A family's projects as an administrator set them: the family as the request named it. */
+export interface FamilyProjectsUpdateOut {
+  family_id: string;
+  project_ids: string[];
+  message: string;
 }
 
 /**
@@ -1250,6 +1324,11 @@ export interface HaplotypeSegment {
   hemizygous_in_males: boolean;
 }
 
+/** Liveness: the application has started. */
+export interface HealthOut {
+  status: "ok";
+}
+
 export interface HpoAdminSummaryOut {
   total_terms: number;
   active_terms: number;
@@ -1619,6 +1698,11 @@ export interface NiptArtifactCreate {
   label?: string | null;
   source?: "curated" | "auto";
   recurrence_count?: number;
+}
+
+/** A NIPT artifact deleted (an unknown one is a 404). */
+export interface NiptArtifactDeleteOut {
+  deleted: boolean;
 }
 
 /**
@@ -2513,6 +2597,24 @@ export interface QcThresholdProfileOut {
   thresholds: QcThresholdOut[];
 }
 
+/** A QC threshold profile without its cut-offs: what adding one answers, as it has none. */
+export interface QcThresholdProfileSummaryOut {
+  id: string;
+  key: string;
+  label: string;
+  description: string | null;
+  is_default: boolean;
+  sort_order: number;
+}
+
+/** A metric's cut-offs in a profile as an edit left them; both null where it cleared them. */
+export interface QcThresholdSetOut {
+  profile_key: string;
+  metric_key: string;
+  warn_value: number | null;
+  error_value: number | null;
+}
+
 /**
  * Set or clear one metric's cut-offs in a profile.
  *
@@ -2549,6 +2651,16 @@ export interface RawImportFileVerifyOut {
   expected_sha256: string | null;
   computed_sha256: string | null;
   message: string;
+}
+
+/**
+ * Readiness: whether Postgres and ClickHouse answer (``degraded``, with a 503, if either
+ * does not).
+ */
+export interface ReadinessOut {
+  status: "ok" | "degraded";
+  postgres: "ok" | "down";
+  clickhouse: "ok" | "down";
 }
 
 export interface ReferenceAutoImportRequest {
@@ -2904,6 +3016,23 @@ export interface ReportSnapshotGapOut {
   reason: string;
 }
 
+/**
+ * What deleting a sample removed: its interval tracks (``bed``), the SVs and small
+ * variants that went with its calls, its repeat calls and the kept copies of its uploads.
+ */
+export interface SampleDeletionCountsOut {
+  samples: number;
+  bed: number;
+  structural_variants: number;
+  small_variants: number;
+  repeat_expansions: number;
+  raw_import_files: number;
+}
+
+export interface SampleDeletionOut {
+  deleted: SampleDeletionCountsOut;
+}
+
 /** NIPT category-distribution QC (de-novo / paternal-absent / maternal transmission). */
 export interface SampleIntegrityCategoryQcOut {
   denovo: number;
@@ -3043,6 +3172,13 @@ export interface SegmentalDuplicationOut {
   label: string;
   source: string | null;
 }
+
+/**
+ * How many of the family's SVs each two members both carry: every member against every
+ * member, by sample ID, zeros included. A member's count with itself is of the SVs no other
+ * member carries.
+ */
+export type SharedStructuralVariantCountsOut = Record<string, Record<string, number>>;
 
 /**
  * How users sign in: with Microsoft when ``microsoft`` is given, else with a password
@@ -3332,6 +3468,16 @@ export interface StructuralVariantReviewUpdate {
   acmg?: AcmgClassificationPayload | null;
   cnv_acmg?: CnvAcmgClassificationPayload | null;
   source?: string | null;
+}
+
+/** What a sample's structural-variant upload stored. */
+export interface StructuralVariantUploadResult {
+  processed: number;
+  created: number;
+  merged: number;
+  skipped_without_extent: number;
+  source_format: "manual" | "sniffles" | "spectre";
+  annotation_provenance: Record<string, Record<string, unknown>>;
 }
 
 /**

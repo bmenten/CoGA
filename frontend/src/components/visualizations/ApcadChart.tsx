@@ -10,6 +10,7 @@ import VizErrorOverlay from './VizErrorOverlay';
 import VizTooltip from './VizTooltip';
 import { countOf } from '../../lib/countOf';
 import { deriveLayoutFromBins, splitKey, type GenomeLayout } from './genomeBinLayout';
+import type { BedApcadTrackOut } from '../../lib/apiSchema.generated';
 
 interface ApcadBin {
   chr: string;
@@ -31,11 +32,6 @@ interface SegmentHitbox {
   x2: number;
   y: number;
   segment: ApcadSegment;
-}
-
-// The BED endpoints' JSON has no generated type: no response model describes it.
-interface BedRecordPayload<T> {
-  items: T[];
 }
 
 /** Where the chart is looking, for its accessible name. */
@@ -121,12 +117,12 @@ const ApcadChart: React.FC<Props> = ({
       const [apcadPayloads, pcfPayloads] = await Promise.all([
         Promise.all(
           stableApcadUrls.map((url) =>
-            fetchTrackJson<BedRecordPayload<ApcadBin>>(url, { signal, emptyOn404: true }),
+            fetchTrackJson<BedApcadTrackOut>(url, { signal, emptyOn404: true }),
           ),
         ),
         Promise.all(
           stablePcfUrls.map((url) =>
-            fetchTrackJson<BedRecordPayload<ApcadSegment>>(url, { signal, emptyOn404: true }),
+            fetchTrackJson<BedApcadTrackOut>(url, { signal, emptyOn404: true }),
           ),
         ),
       ]);
@@ -143,8 +139,8 @@ const ApcadChart: React.FC<Props> = ({
           // to record one -- is served as `und` on purpose, and this dropped every
           // point of it, leaving "no APCAD data in this region" over a full track.
           // Where phased markers exist the server sends only those, so nothing here
-          // changes for a trio.
-          if (allowedChroms.has(chromName) && Number.isFinite(item.value)) {
+          // changes for a trio. A site served without a value (null) has nothing to draw.
+          if (allowedChroms.has(chromName) && item.value !== null && Number.isFinite(item.value)) {
             bins.push({ chr: chromName, start: item.start, end: item.end, value: item.value, origin });
           }
         });
@@ -156,6 +152,7 @@ const ApcadChart: React.FC<Props> = ({
           if (
             allowedChroms.has(chromName) &&
             (origin === 'paternal' || origin === 'maternal') &&
+            item.value !== null &&
             Number.isFinite(item.value)
           ) {
             segments.push({ chr: chromName, start: item.start, end: item.end, value: item.value, origin });

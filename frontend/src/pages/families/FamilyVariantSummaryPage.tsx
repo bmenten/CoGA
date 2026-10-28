@@ -8,7 +8,11 @@ import PageState from '../../components/PageState';
 import FamilyLoadFailure from '../../components/FamilyLoadFailure';
 import FamilyPageHeader from './FamilyPageHeader';
 import { apiPath } from '../../lib/apiPath';
-import type { FamilyOut, VariantLengthOut } from '../../lib/apiSchema.generated';
+import type {
+  FamilyOut,
+  SharedStructuralVariantCountsOut,
+  VariantLengthOut,
+} from '../../lib/apiSchema.generated';
 import { getErrorMessage } from '../../lib/errorMessage';
 import { useFamilyReference } from '../../lib/reference';
 
@@ -37,10 +41,6 @@ const variantBinLabels = [
   '100k-1M',
   '>1M',
 ];
-
-// The shared counts (`/shared-structural-variant-counts`) have no generated type: the route
-// serves a plain mapping, `Dict[str, Dict[str, int]]`.
-type SharedVariantCounts = Record<string, Record<string, number>>;
 
 const FamilyVariantSummaryPage: React.FC = () => {
   const { familyId } = useParams<{ familyId: string }>();
@@ -80,13 +80,13 @@ const FamilyVariantSummaryPage: React.FC = () => {
     isLoading: isLoadingShared,
     error: sharedError,
     refetch: refetchShared,
-  } = useQuery<SharedVariantCounts>({
+  } = useQuery<SharedStructuralVariantCountsOut>({
       queryKey: ['family', familyId, 'shared-structural-variant-counts'],
       queryFn: async () => {
         const res = await api.get(
           apiPath`/families/${familyId}/shared-structural-variant-counts`
         );
-        return res.data as SharedVariantCounts;
+        return res.data as SharedStructuralVariantCountsOut;
       },
     });
   const [logScale, setLogScale] = React.useState(true);
