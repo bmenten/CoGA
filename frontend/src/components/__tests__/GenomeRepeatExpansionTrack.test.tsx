@@ -253,7 +253,9 @@ describe('GenomeRepeatExpansionTrack', () => {
   // and was not drawn.
   it.each(['chrM', 'M', 'MT', 'chrMT'])('places a locus stored on %s on the mitochondrion', (chr) => {
     serve({ data: { items: [locus({ locus_id: 'MITO', chr, start: 7_990, end: 8_010 })] } });
-    // The genome overview's layout, which names the mitochondrion MT: chr1, then MT at 1 Mb.
+    // A layout with the mitochondrion, which it names MT, as normalizeChrom does: chr1, then MT at
+    // 1 Mb. The genome overview has left the mitochondrion out since ENG-20; the track places a
+    // locus on whichever chromosome its layout holds.
     const layout = {
       offsets: { '1': 0, MT: 1_000_000 },
       lengths: { '1': 1_000_000, MT: 16_569 },

@@ -62,8 +62,11 @@ def test_presence_maps_ids_to_names_and_filters_to_family(monkeypatch):
     present = asyncio.run(_small_variant_present_sample_names(_context(), _filters()))
     # PROBAND (by name) + MOTHER (by uuid) map in; "stranger" is not a family sample.
     assert present == {"PROBAND", "MOTHER"}
-    # The query is an ARRAY JOIN aggregate over an inner filtered subquery.
-    assert "ARRAY JOIN" in cap["query"] and "GROUP BY sid" in cap["query"]
+    # One SELECT over the family's rows: each row's samples with an ALT allele, picked from
+    # its call arrays, and the distinct samples. It was an ARRAY JOIN aggregate over an
+    # inner filtered subquery, which ClickHouse's analyzer was slow to analyse (ENG-19).
+    assert "SELECT DISTINCT arrayJoin(arrayFilter(" in cap["query"]
+    assert "ARRAY JOIN" not in cap["query"] and "FROM (" not in cap["query"]
     # Presence counts every call with an ALT allele, haploid and multi-allelic too (#511).
     assert cap["params"]["track_nonref_gts"] == genotype_vocabulary("het", "hom_alt")
     assert {"1", "1/2", "2/2"} <= set(cap["params"]["track_nonref_gts"])
@@ -79,19 +82,22 @@ def test_no_explicit_sample_filters_uses_nonref_only(monkeypatch):
 
 def test_explicit_reference_parent_present_iff_base_matches(monkeypatch):
     # MOTHER:0/0 (reference-parent / include_absent): present iff the base query matches at
-    # all — even if MOTHER never surfaces in a matching variant's calls (ARRAY JOIN empty).
+    # all — even if MOTHER never surfaces in a matching variant's calls (no ALT call found).
     queries: list[str] = []
 
     async def fake(query, params=None, data=None):
         queries.append(query)
-        return [(1,)] if "LIMIT 1" in query else []  # ARRAY JOIN empty; base-match has a row
+        return [(1,)] if "LIMIT 1" in query else []  # no ALT call; base-match has a row
 
     monkeypatch.setattr(cfv, "_execute_clickhouse", fake)
     present = asyncio.run(
         _small_variant_present_sample_names(_context(), _filters(sample_filters=["MOTHER:0/0"]))
     )
-    assert present == {"MOTHER"}  # via the base-match probe, not the ARRAY JOIN
+    assert present == {"MOTHER"}  # via the base-match probe, not the ALT-call aggregate
     assert any("LIMIT 1" in q for q in queries)  # the base-match probe ran
+    # The probe reads the family's rows in one SELECT too (ENG-19).
+    (probe,) = [q for q in queries if "LIMIT 1" in q]
+    assert probe.startswith("SELECT 1 FROM ") and "FROM (" not in probe
 
 
 def test_explicit_sample_absent_when_base_does_not_match(monkeypatch):
