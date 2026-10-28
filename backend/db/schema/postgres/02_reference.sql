@@ -67,6 +67,11 @@ CREATE INDEX IF NOT EXISTS idx_gene_info_upper_symbol ON gene_info USING btree (
 -- ---------------------------------------------------------------------------
 -- gene_info_refresh_jobs
 -- ---------------------------------------------------------------------------
+-- A refresh an administrator asks for keeps them by the account's id (requested_by_id,
+-- SEC-35): the worker runs it only while that account is an active administrator.
+-- requested_by is the e-mail address it was asked under, shown with the job, or
+-- startup-bootstrap for the refresh a start queues, which is no account's. The account's
+-- deletion keeps the job, linked to no account (it can then no longer run).
 CREATE TABLE IF NOT EXISTS gene_info_refresh_jobs (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
     scope text NOT NULL,
@@ -75,6 +80,7 @@ CREATE TABLE IF NOT EXISTS gene_info_refresh_jobs (
     active_slot text,
     worker_id text,
     requested_by text NOT NULL,
+    requested_by_id uuid,
     requested_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
     started_at timestamp with time zone,
     heartbeat_at timestamp with time zone,
@@ -89,8 +95,35 @@ CREATE TABLE IF NOT EXISTS gene_info_refresh_jobs (
     CONSTRAINT gene_info_refresh_jobs_pkey PRIMARY KEY (id),
     CONSTRAINT gene_info_refresh_jobs_active_slot_key UNIQUE (active_slot),
     CONSTRAINT gene_info_refresh_jobs_scope_check CHECK ((scope = ANY (ARRAY['symbol'::text, 'all_human'::text]))),
-    CONSTRAINT gene_info_refresh_jobs_status_check CHECK ((status = ANY (ARRAY['queued'::text, 'running'::text, 'completed'::text, 'failed'::text])))
+    CONSTRAINT gene_info_refresh_jobs_status_check CHECK ((status = ANY (ARRAY['queued'::text, 'running'::text, 'completed'::text, 'failed'::text]))),
+    CONSTRAINT gene_info_refresh_jobs_requested_by_id_fkey FOREIGN KEY (requested_by_id) REFERENCES users(id) ON DELETE SET NULL
 );
+
+-- Upgrade of a database made before SEC-35, a no-op on one the CREATE TABLE above made: the
+-- column, each job linked to the account its requested_by address finds (to none when no
+-- account has it, as for startup-bootstrap), and the foreign key. It runs once, when the
+-- column is added: a job whose account is deleted later stays linked to none, never to an
+-- account that has its address by then. Revision 0010 runs the same statement.
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_attribute
+        WHERE attrelid = 'gene_info_refresh_jobs'::regclass
+          AND attname = 'requested_by_id'
+          AND NOT attisdropped
+    ) THEN
+        ALTER TABLE gene_info_refresh_jobs ADD COLUMN requested_by_id uuid;
+        UPDATE gene_info_refresh_jobs AS job
+        SET requested_by_id = account.id
+        FROM users AS account
+        WHERE account.email = job.requested_by;
+        ALTER TABLE gene_info_refresh_jobs
+            ADD CONSTRAINT gene_info_refresh_jobs_requested_by_id_fkey
+            FOREIGN KEY (requested_by_id) REFERENCES users(id) ON DELETE SET NULL;
+    END IF;
+END
+$$;
 
 CREATE INDEX IF NOT EXISTS idx_gene_info_refresh_jobs_requested ON gene_info_refresh_jobs USING btree (requested_at);
 CREATE INDEX IF NOT EXISTS idx_gene_info_refresh_jobs_status ON gene_info_refresh_jobs USING btree (status, requested_at);
@@ -146,6 +179,10 @@ CREATE INDEX IF NOT EXISTS idx_clinical_cnvs_assembly_region ON clinical_cnvs US
 -- ---------------------------------------------------------------------------
 -- clinical_cnv_kb_jobs
 -- ---------------------------------------------------------------------------
+-- A rebuild keeps the administrator who asked for it by the account's id (requested_by_id,
+-- SEC-35): it runs, and loads what it built, only while that account is an active
+-- administrator. requested_by is the e-mail address it was asked under, shown with the job.
+-- The account's deletion keeps the job, linked to no account (it can then no longer run).
 CREATE TABLE IF NOT EXISTS clinical_cnv_kb_jobs (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
     assembly_id uuid NOT NULL,
@@ -153,6 +190,7 @@ CREATE TABLE IF NOT EXISTS clinical_cnv_kb_jobs (
     status text DEFAULT 'queued'::text NOT NULL,
     skip_clinvar boolean DEFAULT false NOT NULL,
     requested_by text,
+    requested_by_id uuid,
     requested_at timestamp with time zone DEFAULT now() NOT NULL,
     started_at timestamp with time zone,
     completed_at timestamp with time zone,
@@ -165,8 +203,33 @@ CREATE TABLE IF NOT EXISTS clinical_cnv_kb_jobs (
     heartbeat_at timestamp with time zone,
     CONSTRAINT clinical_cnv_kb_jobs_pkey PRIMARY KEY (id),
     CONSTRAINT clinical_cnv_kb_jobs_status_check CHECK ((status = ANY (ARRAY['queued'::text, 'running'::text, 'completed'::text, 'failed'::text]))),
-    CONSTRAINT clinical_cnv_kb_jobs_assembly_id_fkey FOREIGN KEY (assembly_id) REFERENCES assemblies(id) ON DELETE CASCADE
+    CONSTRAINT clinical_cnv_kb_jobs_assembly_id_fkey FOREIGN KEY (assembly_id) REFERENCES assemblies(id) ON DELETE CASCADE,
+    CONSTRAINT clinical_cnv_kb_jobs_requested_by_id_fkey FOREIGN KEY (requested_by_id) REFERENCES users(id) ON DELETE SET NULL
 );
+
+-- Upgrade of a database made before SEC-35, as for gene_info_refresh_jobs above: the column,
+-- each job linked to the account its requested_by address finds, and the foreign key, once.
+-- Revision 0010 runs the same statement.
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_attribute
+        WHERE attrelid = 'clinical_cnv_kb_jobs'::regclass
+          AND attname = 'requested_by_id'
+          AND NOT attisdropped
+    ) THEN
+        ALTER TABLE clinical_cnv_kb_jobs ADD COLUMN requested_by_id uuid;
+        UPDATE clinical_cnv_kb_jobs AS job
+        SET requested_by_id = account.id
+        FROM users AS account
+        WHERE account.email = job.requested_by;
+        ALTER TABLE clinical_cnv_kb_jobs
+            ADD CONSTRAINT clinical_cnv_kb_jobs_requested_by_id_fkey
+            FOREIGN KEY (requested_by_id) REFERENCES users(id) ON DELETE SET NULL;
+    END IF;
+END
+$$;
 
 -- One active rebuild at a time: the index key is a constant, so a second queued or running
 -- job collides with the first. Keyed on the status instead, a job could be queued beside a
