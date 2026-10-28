@@ -3,7 +3,15 @@ import type { ApiFamilyRegionOfInterest } from '../../lib/apiTypes';
 import { NUCLEAR_CHROMOSOMES, formatChromosomeLabel } from '../../lib/chromosomes';
 import { useMeasuredWidth } from '../../lib/useMeasuredWidth';
 
+/** The chromosome view's list: the nuclear chromosomes and the mitochondrion (MT, named chrM). */
 export const CHROMS = [...NUCLEAR_CHROMOSOMES, 'MT'];
+
+/**
+ * The genome overview's chromosomes: 1–22, X and Y. The mitochondrion, 16.6 kb of a genome of
+ * 3.1 Gb, would be about 0.006 px wide there; it is left out, as on the Circos plot, and the
+ * chromosome view's list and the mtDNA page show it (owner decision, 2026-10-28; ENG-20).
+ */
+export const GENOME_OVERVIEW_CHROMS = NUCLEAR_CHROMOSOMES;
 
 export const DEFAULT_TRACK_WIDTH = 1200;
 export const TRACK_WIDTH_PADDING = 32;

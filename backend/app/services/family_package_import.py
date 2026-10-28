@@ -32,7 +32,7 @@ from .family_variant_write_lock import (
 )
 from .hpo_service import PACKAGE_IMPORT, PhenotypeImport
 from .metadata_service import get_current_user_by_id
-from .access_control import CurrentUser
+from .access_control import CurrentUser, is_admin_user
 from . import ped_service
 from .bed_service import precompute_family_haplotype_lineage
 from .clickhouse_family_snapshot import (
@@ -133,12 +133,19 @@ LOCKS_LOST_ERROR = (
 )
 # Why a job is not run, as its record says: the import runs as the account that requested
 # it (SEC-32), and that account no longer exists, or has been deactivated, which ends its
-# access at once (docs/security-posture.md). Neither names the account: the job does.
+# access at once (docs/security-posture.md), or is no longer an administrator, as only an
+# administrator may queue an import (the import routes; SEC-35). None names the account: the
+# job does.
 REQUESTER_GONE_ERROR = "Requesting user no longer exists"
 REQUESTER_INACTIVE_ERROR = (
     "Not run: the account that requested this import has been deactivated, and an import runs "
     "as the account that requested it. Nothing of the family was written. To import the "
     "package, an active administrator queues it again."
+)
+REQUESTER_NOT_ADMIN_ERROR = (
+    "Not run: the account that requested this import is no longer an administrator, and an "
+    "import runs only for an administrator, as the account that requested it. Nothing of the "
+    "family was written. To import the package, an active administrator queues it again."
 )
 # How long a backup table of an import run outside a job is kept: nothing records whether
 # that import still runs (drop_orphaned_import_backups).
@@ -1020,8 +1027,9 @@ async def run_family_import_job(
     """Run a claimed job's import while its heartbeat is written, and record how it ended.
 
     The import runs as the account that requested the job. A job whose account no longer
-    exists or has been deactivated is not run: it ends failed, saying why
-    (``REQUESTER_GONE_ERROR``, ``REQUESTER_INACTIVE_ERROR``), having written nothing.
+    exists, has been deactivated or is no longer an administrator is not run: it ends failed,
+    saying why (``REQUESTER_GONE_ERROR``, ``REQUESTER_INACTIVE_ERROR``,
+    ``REQUESTER_NOT_ADMIN_ERROR``), having written nothing.
 
     When the heartbeat finds the job no longer this worker's -- it went stale, as the
     process could not write it for FAMILY_IMPORT_STALE_HEARTBEAT, and another worker ended
@@ -1213,15 +1221,20 @@ async def run_family_import_job(
             # The import runs as the account that requested it, found by its id: its e-mail
             # address may have changed since, or be another account's by now (SEC-32). It
             # does not run once that account is gone or deactivated, which ends the account's
-            # access at once: the job ends failed, saying why, before anything of the family
-            # is written. The account is checked here, as the import starts: one deactivated
-            # while its import runs has that import run to its end.
+            # access at once, nor once it is no longer an administrator, which only the
+            # import routes check (the import itself checks the project's access only;
+            # SEC-35): the job ends failed, saying why, before anything of the family is
+            # written. The account is checked here, as the import starts, and again when a
+            # job still validating is claimed again: one deactivated or demoted while its
+            # import runs has that import run to its end.
             requester = job_row.get("requested_by_id")
             user = await get_current_user_by_id(session, str(requester)) if requester else None
             if user is None:
                 raise RuntimeError(REQUESTER_GONE_ERROR)
             if not user.is_active:
                 raise RuntimeError(REQUESTER_INACTIVE_ERROR)
+            if not is_admin_user(user):
+                raise RuntimeError(REQUESTER_NOT_ADMIN_ERROR)
             job_metadata = _json_dict(job_row.get("metadata"))
             result = await execute_family_package_import(
                 session,

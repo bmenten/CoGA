@@ -79,7 +79,11 @@ was never shipped (OPS-17). Build them with the clinical CNV knowledgebase rebui
 (the ↻ button next to the clinical-CNV count on **Admin → Species & assemblies**;
 `POST /admin/clinical-cnv-kb/rebuild`), or upload a file (below). A rebuild whose ClinGen dosage
 curation or recurrent CNV regions cannot be loaded fails, says why on that page, and leaves the
-clinical CNVs as they were.
+clinical CNVs as they were. A rebuild runs, and loads what it built, only while the
+administrator who asked for it is an active administrator (SEC-35): it keeps that account by
+its id, and checks it as it starts and again before the load, as the build runs for up to two
+hours before it. Deactivated, set to another role or deleted by then, the rebuild ends failed,
+saying why, and leaves the clinical CNVs as they were.
 
 ClinGen's recurrent CNV file is pinned per assembly by its SHA-256
 (`CLINGEN_RECURRENT_CNV_SHA256` in `scripts/clinical_cnv_knowledgebase.py`): the rebuild reads
@@ -239,7 +243,12 @@ change is also recorded in `CHANGELOG.md` and TF-18 §8.
 The gene reference is the cached information per human gene: names and identifiers, disease
 links, dosage, constraint, expression and more (`gene_info`). An admin refreshes it from
 **Admin → Species & assemblies** (↻ next to the gene count) or the gene reference page
-(`/admin/reference/gene-reference`; `POST /admin/gene-reference/refresh-all`).
+(`/admin/reference/gene-reference`; `POST /admin/gene-reference/refresh-all`). The refresh runs
+as a job that keeps the administrator who asked for it by the account's id, and a worker runs
+it only while that account is an active administrator (SEC-35): deactivated, set to another
+role or deleted by then, the job ends failed, saying why, and writes no gene record, also
+when it is taken up again after its worker stopped. The refresh a start queues on an empty
+cache (`startup-bootstrap`) is no account's, and runs.
 
 HGNC decides which human genes exist. The sync takes the HGNC complete set as its list of
 genes. A symbol that HGNC has renamed is moved onto the current symbol, keeping its locus. A
@@ -396,10 +405,12 @@ has run. The time left is the running dataset's: the datasets after it are not e
 the page says how many follow. It is first given after half a minute of reading.
 
 A job runs as the account that queued it, found by the account's id whatever its e-mail
-address is by then (SEC-32), and only while that account is active: a job whose account has
-been deactivated, or no longer exists, when a worker takes it up is not run. It ends `failed`,
-saying why, with nothing of the family written; an active administrator queues the import
-again. An import already running when its account is deactivated runs to its end.
+address is by then (SEC-32), and only while that account is an active administrator, as
+queueing an import requires (SEC-35): a job whose account has been deactivated, is no longer
+an administrator, or no longer exists when a worker takes it up is not run, also when a job
+still `validating` is taken up again after its worker stopped. It ends `failed`, saying why,
+with nothing of the family written; an active administrator queues the import again. An
+import already running when its account is deactivated or demoted runs to its end.
 
 Jobs run on background workers: one job at a time per backend process, or more with
 `FAMILY_IMPORT_WORKER_COUNT` (up to 8). A running job writes a heartbeat every minute. The
@@ -997,7 +1008,12 @@ to be checked sample by sample, as each was written (SAFE-3). When the BED or TR
 sample's file (a coverage BED, an APCAD file read as a BED, a TRGT VCF), the dataset's failure names
 the sample and the file, by its path in the package, before the loader's words: *The coverage BED of
 S2 (coverage/S2.bed): No valid BED records found*. The loaders' own words, which a single-file upload
-answers with, name neither, and the dataset used to fail with them alone. A monogenic NIPT's per-sample SNV
+answers with, name neither, and the dataset used to fail with them alone. A per-target coverage
+table's refusal names the sample and the table too (*The per-target coverage table of S2
+(coverage_S2.txt) holds no target*; it named the table alone, or, for one that is no text or whole
+gzip, neither), and a family TRGT VCF's names the file before the loader's words, which name the
+samples (*The family TRGT VCF (trgt/family.vcf): No valid TRGT records found for S2*; it named no
+file: DATA-9). A monogenic NIPT's per-sample SNV
 files are checked for their one sample column and a record before the plasma's calls are written.
 The `paraphase` dataset reads every sample's JSON before it replaces any
 sample's results; it read each as it wrote it until DATA-7. The `mito` dataset reads every chrM SV file before it replaces a chrM call: one whose records all lie
@@ -1757,7 +1773,7 @@ a list for a capture panel takes the panel's key, the `assay_panel` of its cfDNA
 | `manifest_relationship_unknown_member` | A `family.relationships` entry names someone who is neither in the PED nor in `family.add_members`. |
 | "Sample '…' not found in family" (haplotypes) | The phased VCF has a sample the family lacks, such as a PGT index the PED does not hold; add it under `family.add_members`. |
 | `existing_family_or_samples` | The family or a sample exists; choose `update` or `overwrite`. |
-| "Not run: the account that requested this import has been deactivated …", "Requesting user no longer exists" (a job) | The account that queued the job was deactivated, or deleted, before a worker ran it, and a job runs as the account that queued it. Nothing was written: queue the import again as an active administrator. |
+| "Not run: the account that requested this import has been deactivated …", "Not run: the account that requested this import is no longer an administrator …", "Requesting user no longer exists" (a job) | The account that queued the job was deactivated, set to another role than administrator, or deleted, before a worker ran it, and a job runs only as an active administrator, the account that queued it. Nothing was written: queue the import again as an active administrator. |
 | "sample column(s) … match no sample in the family" | Set `vcf_sample` on the dataset. |
 | "… has no sample column for X: '…' is Y" | A per-sample file names another sample: point the entry at X's own file, or, if the file is X's after all, set `vcf_sample` on X's entry. An upload (TRGT, Sniffles, Spectre) takes X's own file. |
 | "… VCF has no #CHROM line", "… has a record before its #CHROM line", "… has more than one #CHROM line" | An uploaded Sniffles or Spectre VCF has no header line naming its sample columns before its records, or two files were joined into one: upload the sample's VCF as the caller wrote it. |
@@ -1777,7 +1793,7 @@ a list for a capture panel takes the panel's key, the `assay_panel` of its cfDNA
 | *Import incomplete* for `snv` or `haplotypes`, with no import job | A small-variant upload with `overwrite` failed after it had deleted the callset it replaced ([section 6](#6-single-file-uploads)). Upload the callset again, or import it. |
 | *Import incomplete*: "A single-file upload … began rewriting this family's data and has not finished" | An upload is still running, or one stopped (a restart, a crash, running out of memory) or failed after its first write to ClickHouse, and could not put back what it deleted ([The mark of an upload that did not finish](#the-mark-of-an-upload-that-did-not-finish)). Once no upload of the family runs, upload again with `overwrite` each dataset and sample the banner names (or import it again with overwrite); each goes from the mark as it is brought again. |
 | *Import incomplete*: "A deletion of this family's data … began and has not finished" | A deletion of the family's data (an admin's deletion of a sample, of its structural variants or of the family, a PED upload or manual family that replaced it, a structure change that cleared its data) is still running, or stopped or failed after its first write to ClickHouse ([The mark of an upload that did not finish](#the-mark-of-an-upload-that-did-not-finish)). Once it no longer runs, upload or import again, with `overwrite`, each dataset and sample the banner names; or, for a sample's deletion, delete the sample again: once it is gone its own items go. |
-| "No valid TRGT records found" (TRGT upload, 400, or the `repeats_trgt` dataset: "The TRGT VCF of … (…): No valid TRGT records found" for a sample's file, "No valid TRGT records found for …" for a family VCF) | The TRGT VCF holds no record for the sample (a family VCF: for the samples it names): a header alone, or a file cut short in a copy. Nothing was replaced. Use the sample's complete TRGT VCF. |
+| "No valid TRGT records found" (TRGT upload, 400, or the `repeats_trgt` dataset: "The TRGT VCF of … (…): No valid TRGT records found" for a sample's file, "The family TRGT VCF (…): No valid TRGT records found for …" for a family VCF) | The TRGT VCF holds no record for the sample (a family VCF: for the samples it names): a header alone, or a file cut short in a copy. Nothing was replaced. Use the sample's complete TRGT VCF. |
 | "… holds no record of the … track", "… holds no interval on a primary chromosome …", "… holds no segment", "… holds no APCAD value for …" | A package's track file holds nothing its reader can store: an empty or truncated pipeline output, or another file than the manifest means. Its dataset failed before the track was deleted ([Where each dataset lands](#where-each-dataset-lands)). Correct the file and import again. |
 | "Paraphase JSON for … holds no gene result", "The NeedlR file of … holds no structural variant", "The SNV file of … holds no record" | That sample's file holds no result; its dataset failed before the sample's data was replaced. |
 | "No mitochondrial call was replaced: the chrM VCF of … holds no variant record" (the `mito` dataset) | A sample's chrM VCF holds no variant record: a failed analysis or a file cut short. Every sample's mitochondrial calls are as they were; rerun the analysis and import its VCF. |

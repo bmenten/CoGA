@@ -243,12 +243,13 @@ describe('SvTrack draws every SV the list shows (CLIN-54)', () => {
     const canvas = screen.getByRole('img');
 
     // 200 px over 2 Mb: chr2:400,000 is at x 140. Six rows of 80/6 px: the Other row is the
-    // last, the DEL row the first.
+    // last, the DEL row the first. The chromosome as the viewer names it (#602), not as stored
+    // (ENG-20).
     fireEvent.mouseMove(canvas, { clientX: 140.5, clientY: 72 });
-    expect(screen.getByText('2:400000-400100 CPX [caller]')).toBeInTheDocument();
+    expect(screen.getByText('chr2:400000-400100 CPX [caller]')).toBeInTheDocument();
 
     fireEvent.mouseMove(canvas, { clientX: 40.5, clientY: 8 });
-    expect(screen.getByText('1:400000-400100 CNV (copy-number loss)')).toBeInTheDocument();
+    expect(screen.getByText('chr1:400000-400100 CNV (copy-number loss)')).toBeInTheDocument();
     expect(screen.getByText('S1: Het CN:1')).toBeInTheDocument();
   });
 });
@@ -256,20 +257,23 @@ describe('SvTrack draws every SV the list shows (CLIN-54)', () => {
 // Found while fixing the viewer's chrM names (#1023): the track looked an SV up in the layout
 // under its stored name, then without `chr`, so an SV stored as `chrM` or `M` never found the
 // layout's `MT`, and was neither drawn nor counted. The mitochondrial SV dataset (mito_sv) comes
-// as `M`: its VCF's chromosome name without `chr`.
+// as `M`: its VCF's chromosome name without `chr`. Its tooltip wrote that stored name, `M:…`,
+// where the viewer names the mitochondrion chrM (#602; ENG-20).
 describe('SvTrack places an SV on the mitochondrion however it is stored', () => {
   beforeEach(() => {
     useQueryMock.mockReset();
   });
 
-  // The genome overview's layout, which names the mitochondrion MT: chr1, then MT at 1 Mb.
+  // A layout with the mitochondrion, which it names MT, as normalizeChrom does: chr1, then MT at
+  // 1 Mb. The genome overview has left the mitochondrion out since ENG-20; the track places an SV
+  // on whichever chromosome its layout holds.
   const WITH_MT = {
     offsets: { '1': 0, MT: 1_000_000 },
     lengths: { '1': 1_000_000, MT: 16_569 },
     total: 2_000_000,
   };
 
-  it.each(['chrM', 'M', 'MT', 'chrMT'])('draws and counts an SV stored on %s', (chr) => {
+  it.each(['chrM', 'M', 'MT', 'chrMT'])('draws and counts an SV stored on %s, and names it on chrM', (chr) => {
     serve({ data: page([sv('DEL', chr, 1_000)]) });
     render(track({ layout: WITH_MT }));
 
@@ -278,6 +282,6 @@ describe('SvTrack places an SV on the mitochondrion however it is stored', () =>
     ).toBeInTheDocument();
     // On the mitochondrion: 200 px over 2 Mb, MT:1,000 is at x 100.1, in the DEL row (the first).
     fireEvent.mouseMove(screen.getByRole('img'), { clientX: 100.5, clientY: 3 });
-    expect(screen.getByText(`${chr}:1000-11000 DEL`)).toBeInTheDocument();
+    expect(screen.getByText('chrM:1000-11000 DEL')).toBeInTheDocument();
   });
 });
