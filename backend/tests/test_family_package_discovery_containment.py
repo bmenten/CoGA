@@ -2,15 +2,17 @@
 
 Discover names files after the family and sample IDs: ``<family ID>.ped``,
 ``cram/<sample ID>.cram``, a NIPT parent's ``<sample ID>.vcf.gz``. An ID is a name, but the ID
-rule lets it hold a path: an absolute one, or ``..`` that climbs out of the package folder, so
+rule let it hold a path: an absolute one, or ``..`` that climbs out of the package folder, so
 the file named after it lay outside the package. Discover looked such files up and read them:
 another folder's PED (its sample IDs and its path came back in the draft), a VCF's header (its
 column count decided whether a NIPT pair was proposed), any ``.ped`` on the host through an
 absolute family ID; a NIPT parent's absolute ID failed with a 500, a sample ID beginning with
 ``~`` named the home folder. A ``*``, ``?`` or ``[`` in an ID widened a pattern, so a sample took
-another's file. Now no path an ID leads out of the package is looked up, the ID is named in a
-warning, a symlink cannot lead a PED or a NIPT VCF out either, and an ID's wildcard characters
-match only themselves.
+another's file. Then no path an ID leads out of the package was looked up, and the ID was named
+in a warning; since SEC-15 such an ID is no ID (it holds a ``/``, or is ``..``): Discover
+refuses it (``family_id_invalid``, ``sample_id_invalid``) and drafts nothing, before it looks
+anything up under it. A symlink cannot lead a PED or a NIPT VCF out either, and an ID's
+wildcard characters match only themselves.
 
 Each package sits next to decoys, files named as an ID would lead to, that Discover must
 never open, look up or name (a symlink in the package is looked up to tell where it leads, but
@@ -34,6 +36,7 @@ import yaml
 
 from backend.app.core.config import settings
 from backend.app.schemas import FamilyPackageManifestBuildOut, FamilyPackageManifestBuildRequest
+from backend.app.services.family_identifiers import IDENTIFIER_RULE
 from backend.app.services.family_package_discovery import NAMING_SCHEMES, discover_family_package_manifest
 
 FAMILY = "FAM1"
@@ -210,7 +213,7 @@ _FAMILY_IDS_OUT = {
 
 @pytest.mark.parametrize("source", ["request", "manifest"])
 @pytest.mark.parametrize("case", sorted(_FAMILY_IDS_OUT))
-def test_a_family_id_that_leads_out_of_the_package_reads_no_ped_there(
+def test_a_family_id_that_leads_out_of_the_package_is_refused_and_reads_no_ped_there(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, imports: Path, case: str, source: str
 ) -> None:
     family_id, decoy_relative = _FAMILY_IDS_OUT[case]
@@ -224,26 +227,21 @@ def test_a_family_id_that_leads_out_of_the_package_reads_no_ped_there(
     with _recording(monkeypatch) as access:
         answer = _discover(package, family_id=family_id if source == "request" else None)
 
-    # The decoy was never opened nor looked up; the package's own PED was read.
+    # The decoy was never opened nor looked up.
     assert access.touching(decoy, tmp_path / "outside") == []
-    assert answer.ped_path == "family.ped"
-    assert answer.sample_ids == ["F1", "M1", "C1"]
     # Neither the decoy's content nor its path is in the answer.
     assert _holds(answer, *DECOY_MARKERS) == []
     assert _paths_naming(answer, package, decoy) == []
-    warning = next(issue for issue in answer.warnings if issue.code == "family_id_leaves_package")
+    # The ID holds a '/': no ID (SEC-15). Before, Discover warned (family_id_leaves_package)
+    # and drafted a manifest for it from the package's own PED.
     origin = "the family_id of the request" if source == "request" else "the manifest's family_id"
-    assert warning.message == (
-        f"Family ID '{family_id}' ({origin}) is a path out of the package folder: Discover looks "
-        "for files only within the package directory. Check the ID."
-    )
-    # The PED's family is not that ID: the draft says so, as for any other mismatch.
-    assert "ped_family_mismatch" in [issue.code for issue in answer.errors]
+    assert [(issue.code, issue.message) for issue in answer.errors] == [
+        ("family_id_invalid", f"Family ID '{family_id}' ({origin}) contains a slash (/). {IDENTIFIER_RULE}")
+    ]
+    assert (answer.manifest_yaml, answer.ped_path, answer.sample_ids, answer.warnings) == ("", None, [], [])
 
 
-def test_without_a_ped_the_draft_names_none_outside_the_package(
-    monkeypatch: pytest.MonkeyPatch, imports: Path
-) -> None:
+def test_without_a_ped_such_a_family_id_gets_no_draft(monkeypatch: pytest.MonkeyPatch, imports: Path) -> None:
     decoy = imports / "decoy.ped"
     decoy.write_text(DECOY_PED, encoding="utf-8")
     package = _package(imports, ped=None)
@@ -252,10 +250,10 @@ def test_without_a_ped_the_draft_names_none_outside_the_package(
         answer = _discover(package, family_id="../decoy")
 
     assert access.touching(decoy) == []
-    # Discover found no PED, and does not propose one outside the package.
-    assert [issue.code for issue in answer.errors] == ["ped_file_missing"]
-    assert answer.ped_path is None
-    assert "ped" not in yaml.safe_load(answer.manifest_yaml)
+    # Before SEC-15 Discover found no PED and proposed none outside the package; now it
+    # refuses the ID before it looks for one.
+    assert [issue.code for issue in answer.errors] == ["family_id_invalid"]
+    assert (answer.ped_path, answer.manifest_yaml) == (None, "")
     assert _holds(answer, *DECOY_MARKERS) == []
     assert _paths_naming(answer, package, decoy) == []
 
@@ -319,18 +317,19 @@ def test_a_family_id_with_a_wildcard_finds_its_own_callset(imports: Path) -> Non
 
 
 @pytest.mark.parametrize(
-    ("sample_id", "decoy_relative", "warned"),
+    ("sample_id", "decoy_relative", "refused"),
     [
         ("../decoy", "imports/decoy.cram", True),
         ("{tmp}/outside/decoy", "outside/decoy.cram", True),
         ("../../outside/decoy", "outside/decoy.cram", True),
-        # "~" is the home folder only in a path someone types: in an ID it is a name.
-        ("~/decoy", "outside/decoy.cram", False),
+        # "~" is the home folder only in a path someone types: in an ID it is a name. With a
+        # '/' after it, it is no ID (SEC-15).
+        ("~/decoy", "outside/decoy.cram", True),
         ("~decoy", "outside/decoy.cram", False),
     ],
 )
 def test_a_sample_id_that_leads_out_of_the_package_is_looked_up_nowhere_outside(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, imports: Path, sample_id: str, decoy_relative: str, warned: bool
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, imports: Path, sample_id: str, decoy_relative: str, refused: bool
 ) -> None:
     monkeypatch.setenv("HOME", str(tmp_path / "outside"))
     sample_id = sample_id.format(tmp=tmp_path)
@@ -344,21 +343,18 @@ def test_a_sample_id_that_leads_out_of_the_package_is_looked_up_nowhere_outside(
     # Discover answers (it refused the whole package with a 400, or failed with a 500 for
     # "~decoy"), and looks nothing up outside the package.
     assert access.touching(decoy, tmp_path / "outside") == []
+    assert _paths_naming(answer, package, decoy) == []
+    if refused:
+        # A '/' makes it no ID (SEC-15): no draft, and nothing looked up under it. Before,
+        # Discover warned about it (sample_id_leaves_package) and drafted.
+        assert [(issue.code, issue.message) for issue in answer.errors] == [
+            ("sample_id_invalid", f"Sample ID '{sample_id}' (in the PED) contains a slash (/). {IDENTIFIER_RULE}")
+        ]
+        assert (answer.manifest_yaml, answer.datasets, answer.warnings) == ("", [], [])
+        return
     assert answer.sample_ids == [sample_id]
     alignments = next(item for item in answer.datasets if item.dataset_type == "alignments")
     assert not alignments.complete
-    assert _paths_naming(answer, package, decoy) == []
-    warnings = [issue for issue in answer.warnings if issue.code == "sample_id_leaves_package"]
-    if warned:
-        assert [(issue.sample_id, issue.message) for issue in warnings] == [
-            (
-                sample_id,
-                f"Sample ID '{sample_id}' is a path out of the package folder: Discover looks for "
-                "files only within the package directory. Check the ID.",
-            )
-        ]
-    else:
-        assert warnings == []
 
 
 @pytest.mark.parametrize(
@@ -383,11 +379,12 @@ def test_a_nipt_parent_id_that_leads_out_reads_no_vcf_there(
 
     assert access.touching(*decoys) == []
     assert "nipt_pair_detected" not in [issue.code for issue in answer.warnings]
-    assert "analysis_type" not in yaml.safe_load(answer.manifest_yaml)
     assert _holds(answer, *DECOY_MARKERS, "decoyf.vcf.gz", "decoym.vcf.gz") == []
     assert _paths_naming(answer, package, *decoys) == []
-    # The parents are not in the PED, which the draft reports as before.
-    assert {issue.code for issue in answer.errors} == {"ped_missing_father", "ped_missing_mother"}
+    # The parents are not in the PED, which Discover reports as before, and their IDs hold a
+    # '/': no IDs (SEC-15), so it drafts nothing.
+    assert {issue.code for issue in answer.errors} == {"ped_missing_father", "ped_missing_mother", "sample_id_invalid"}
+    assert answer.manifest_yaml == ""
 
 
 def _nipt_package(imports: Path, *, father: str, mother: str) -> Path:
@@ -531,9 +528,9 @@ def _id_templates() -> list[str]:
     ["S1", ".", "..", "../x", "../../x", "a/..", "a/../..", "a/../../x", "./../x", "x/./../../y", "/abs/x", "~/x"],
 )
 def test_an_id_leads_a_path_out_of_the_package_only_when_it_is_a_path_out_itself(identifier: str) -> None:
-    # Discover warns about an ID that is a path out of the package folder. A path built from
-    # any other ID stays in the folder, so every path Discover leaves unlooked-up because it
-    # leads out comes from an ID it warns about; and no pattern leaves the folder of itself.
+    # Discover refuses an ID that is a path out of the package folder (the ID rule, SEC-15).
+    # A path built from any other ID stays in the folder, so every path that would lead out
+    # comes from an ID Discover refuses; and no pattern leaves the folder of itself.
     from backend.app.services.family_package_common import path_leaves_package
 
     for template in _id_templates():
@@ -620,4 +617,6 @@ def test_discover_stays_admin_only_and_reads_nothing_outside_through_the_route(
     answer = FamilyPackageManifestBuildOut.model_validate(response.json())
     assert _holds(answer, *DECOY_MARKERS) == []
     assert _paths_naming(answer, package, decoy) == []
-    assert answer.sample_ids == ["F1", "M1", "C1"]
+    # No ID (SEC-15): refused, with no draft.
+    assert [issue.code for issue in answer.errors] == ["family_id_invalid"]
+    assert (answer.sample_ids, answer.manifest_yaml) == ([], "")

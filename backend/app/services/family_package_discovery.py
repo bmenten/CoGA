@@ -1647,18 +1647,6 @@ def _no_draft_for_an_id(
     )
 
 
-def _out_of_package_message(kind: str, value: str, *, source: str | None = None) -> str:
-    """The warning for an ID that is a path out of the package folder: an absolute one, or
-    one whose ``..`` climb out of it. Discover names files after IDs and looks for none
-    outside the package (``package_path_within``), so it finds no file of such an ID there.
-    Whether such an ID may be stored at all is the ID rule's to say (family_identifiers)."""
-    origin = f" ({source})" if source else ""
-    return (
-        f"{kind} ID '{visible(value)}'{origin} is a path out of the package folder: Discover "
-        "looks for files only within the package directory. Check the ID."
-    )
-
-
 def _absent_parent_id_issues(ped: ParsedPed, *, path: Path | None) -> list[FamilyImportValidationIssue]:
     """A ``sample_id_invalid`` error for each father or mother the PED names but lacks as a
     member, whose ID cannot be stored (see family_identifiers); the message names the first
@@ -1769,13 +1757,11 @@ def discover_family_package_manifest(
         if isinstance(manifest_family_id, str) and manifest_family_id
         else "the folder name"
     )
+    # An ID the rule takes is one name (no `/` or `\`, not `.` or `..`, SEC-15), so no file
+    # Discover names after it lies outside the package.
     family_issue = family_id_issue(family_id, source=family_source)
     if family_issue is not None:
         return _no_draft_for_an_id(request, root, family_id=None, errors=[family_issue], warnings=warnings)
-    if path_leaves_package(family_id):
-        warnings.append(
-            _issue("family_id_leaves_package", _out_of_package_message("Family", family_id, source=family_source))
-        )
     ped_path, ped_errors, ped_warnings = _detect_ped_path(
         root,
         requested_ped_path=request.ped_path,
@@ -1889,11 +1875,6 @@ def discover_family_package_manifest(
             request, root, family_id=family_id, errors=[*errors, *added_issues], warnings=warnings
         )
     sample_ids = [*sample_ids, *added_ids]
-    warnings.extend(
-        _issue("sample_id_leaves_package", _out_of_package_message("Sample", sample_id), sample_id=sample_id)
-        for sample_id in dict.fromkeys(sample_ids)
-        if path_leaves_package(sample_id)
-    )
 
     # No PED file when the manifest names the members (family.add_members of a PED-less
     # long-read package). Without one found, the draft names the PED it expects after the
