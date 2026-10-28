@@ -57,7 +57,8 @@ is saved. Saving also freezes the evidence the criteria read, as the dialog show
 significance, and the consequence, impact and LoF call (LOFTEE), the gnomAD and other population
 frequencies and counts, and the CADD, REVEL, SpliceAI, SIFT, PolyPhen and AlphaMissense values of the
 variant's primary transcript, with, for a missense variant, the gnomAD missense Z of its gene that PP2
-reads. When one of them changes later, the report names it before sign-out.
+reads and where it came from (the gene profile or the VCF). When one of them changes later, the report
+names it before sign-out.
 
 ### VUS tiers: hot, warm, cold
 
@@ -100,9 +101,9 @@ They are never scored as negative evidence.
 ## What CoGA pre-evaluates
 
 The rules read the variant's annotation (consequence, gnomAD, in-silico scores, ClinVar), the gene
-profile (ClinGen dosage, GenCC inheritance modes, the gene's HPO terms), the family genotypes and the
-proband's HPO terms. The proband is the member with the proband role, otherwise the first affected
-member.
+profile (ClinGen dosage, GenCC inheritance modes, the gene's HPO terms and gnomAD missense Z), the family
+genotypes and the proband's HPO terms. The proband is the member with the proband role, otherwise the
+first affected member.
 
 | Criterion | State | Rule |
 | --- | --- | --- |
@@ -112,7 +113,7 @@ member.
 | **BS1** | Applied (Strong) | gnomAD allele frequency from 1% up to 5%. |
 | **BS2** | Applied (Strong) or Consider | Homozygotes in gnomAD. Applied when GenCC lists a recessive inheritance mode for the gene, otherwise Consider (Supporting). Not marked when the annotation holds no gnomAD homozygote count: check gnomAD. |
 | **PM4** | Consider (Moderate) | In-frame insertion or deletion, stop lost, or another protein-length change. Check that it lies outside a repeat region. |
-| **PP2** | Applied (Supporting) | Missense in a missense-constrained gene (gnomAD missense Z of 3.09 or more). |
+| **PP2** | Consider (Supporting) | Missense, in a gene with a gnomAD missense Z of 3.09 or more. See *Missense constraint (PP2)* below. |
 | **PP3 / BP4** | Applied, strength scaled | See *In-silico evidence* below. |
 | **BP7** | Applied (Supporting) | Synonymous, with SpliceAI below 0.1 or no SpliceAI score. A higher SpliceAI score marks BP7 as argues against. |
 | **PP5** | Applied (Supporting) | ClinVar lists this variant as pathogenic or likely pathogenic. BP6 is then marked argues against. |
@@ -161,6 +162,20 @@ When REVEL does not decide:
 Only a REVEL-based call marks the opposite criterion as argues against. With no REVEL, SpliceAI or
 AlphaMissense value, PP3 and BP4 are not applicable. A REVEL value between the thresholds, or an
 *ambiguous* AlphaMissense class, with no other signal, leaves both open.
+
+### Missense constraint (PP2)
+
+PP2 asks two things: the gene has few benign missense variants, and missense variants are a common
+mechanism of disease in it. CoGA reads the first from the gene's gnomAD missense Z: at 3.09 or more,
+the threshold ClinGen's Sequence Variant Interpretation working group discusses for PP2, it offers PP2
+as Consider (Supporting) for a missense variant. The second is your judgement, so CoGA never applies
+PP2 for you: tick it once you have checked the gene's disease mechanism.
+
+The missense Z comes from the gene profile, the value the variant card shows as *Missense Z*. When the
+gene profile holds none, CoGA reads the VCF's own `MISSENSE_Z`, shown under *Other scores &
+annotations* on the card as *Missense Z (gnomAD, from the VCF)*. The evidence says which one PP2 read,
+for example *gnomAD missense Z 3.52 (from the gene profile)*. A gene profile below 3.09 decides, even
+when the VCF holds a higher value. Without a missense Z from either, PP2 is left unmarked.
 
 ### Phenotype (PP4)
 

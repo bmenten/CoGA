@@ -268,9 +268,32 @@ test('names an SV of another type, and a CNV with its copy change and copy numbe
   const [other, cnv] = [...container.querySelectorAll('[data-variant-type]')];
 
   fireEvent.mouseMove(other, { clientX: 10, clientY: 70 });
-  expect(screen.getByText('13:32310000-32315000 CPX [caller]')).toBeInTheDocument();
+  expect(screen.getByText('chr13:32310000-32315000 CPX [caller]')).toBeInTheDocument();
 
   fireEvent.mouseMove(cnv, { clientX: 20, clientY: 20 });
-  expect(screen.getByText('13:32320000-32325000 CNV (copy-number gain)')).toBeInTheDocument();
+  expect(screen.getByText('chr13:32320000-32325000 CNV (copy-number gain)')).toBeInTheDocument();
   expect(screen.getByText('S1: Het CN:3')).toBeInTheDocument();
+});
+
+// The tooltip wrote the chromosome as the SV is stored (`M:10-30 DEL`, `1:50-70 DUP`), where
+// the viewer names it chrM and chr1 (#602), as the genome overview's SV tooltip does since
+// ENG-20 (found while fixing ENG-20, #1030). The mitochondrial SV dataset (mito_sv) comes as `M`.
+test.each([
+  ['M', 'MT', 'chrM:10-30 DEL'],
+  ['chrM', 'MT', 'chrM:10-30 DEL'],
+  ['MT', 'MT', 'chrM:10-30 DEL'],
+  ['1', '1', 'chr1:10-30 DEL'],
+  ['chr1', '1', 'chr1:10-30 DEL'],
+])('names an SV stored on %s on the chromosome as the viewer does', (chr, chrom, text) => {
+  useQueryMock.mockReturnValue({
+    data: { variants: [{ chr, start: 10, end: 30, type: 'DEL', genotypes: [{ sample: 'S1', gt: '0/1' }] }] },
+    isLoading: false,
+  });
+  const { container } = render(
+    <VariantTrack familyId="F1" sampleId="S1" chrom={chrom} regionStart={0} regionEnd={100} width={100} height={80} />,
+  );
+
+  fireEvent.mouseMove(container.querySelector('[data-variant-type="DEL"]') as Element, { clientX: 15, clientY: 5 });
+
+  expect(screen.getByText(text)).toBeInTheDocument();
 });

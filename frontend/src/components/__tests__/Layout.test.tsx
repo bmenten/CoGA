@@ -7,11 +7,12 @@
 
 import { QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, within } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import Layout from '../Layout';
 import { createTestQueryClient } from '../../test/createTestQueryClient';
+import { inAnotherTab } from '../../test/otherTab';
 
 const telemetry = vi.hoisted(() => ({ flushUiEventsNow: vi.fn() }));
 vi.mock('../../lib/telemetry', async (importOriginal) => ({
@@ -36,15 +37,24 @@ beforeEach(() => {
   );
 });
 
-const renderLayout = (queryClient = createTestQueryClient()) =>
+// The sign-in page, and the query string it was opened with.
+const LoginPageProbe = () => (
+  <>
+    <p>Login page</p>
+    <p data-testid="login-query">{useLocation().search}</p>
+  </>
+);
+
+// As in the app, the sign-in page is shown in the layout too.
+const renderLayout = (queryClient = createTestQueryClient(), page = '/dashboard') =>
   render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={['/dashboard']}>
+      <MemoryRouter initialEntries={[page]}>
         <Routes>
           <Route element={<Layout />}>
             <Route path="/dashboard" element={<p>Dashboard</p>} />
+            <Route path="/login" element={<LoginPageProbe />} />
           </Route>
-          <Route path="/login" element={<p>Login page</p>} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -83,6 +93,110 @@ describe('Layout logout', () => {
     expect(localStorage.getItem('token')).toBeNull();
     expect(localStorage.getItem('sign_in')).toBeNull();
     expect(screen.getByText('Login page')).toBeInTheDocument();
+  });
+});
+
+// A logout in another tab of the browser removes the session the tabs share, and the browser
+// tells this tab of each key removed. This tab went on showing the user's family data, with its
+// Microsoft account and its tokens in the tab. A sign-in of another account there replaced the
+// session without a logout: this tab went on showing the first account's pages while its
+// requests went out as the other account (both found while fixing SEC-36).
+describe('Layout: the session ended or replaced in another tab', () => {
+  const [token, renewed, next] = ['microsoft', 'renewed', 'next'].map((part) => [part, 'session'].join('-'));
+
+  const signInWithMicrosoft = () => {
+    localStorage.setItem('token', token);
+    localStorage.setItem('username', 'analyst@example.org');
+    localStorage.setItem('role', 'viewer');
+    localStorage.setItem('sign_in', 'microsoft');
+  };
+
+  // Another tab: the same browser storage, and a page of its own.
+  const anotherTab = async () => {
+    vi.resetModules();
+    return import('../../lib/auth');
+  };
+
+  const renderSignedIn = () => {
+    signInWithMicrosoft();
+    const queryClient = createTestQueryClient();
+    queryClient.setQueryData(['family', 'F1'], { family_id: 'F1' });
+    renderLayout(queryClient);
+    expect(screen.getByText('Dashboard', { selector: 'p' })).toBeInTheDocument();
+    return queryClient;
+  };
+
+  // This tab's session ended: its data, its Microsoft account and its page.
+  const expectSessionEnded = (queryClient: ReturnType<typeof createTestQueryClient>) => {
+    expect(queryClient.getQueryData(['family', 'F1'])).toBeUndefined();
+    // How the session signed in may have gone with the other tab's write: the tab forgets a
+    // Microsoft account whichever it was.
+    expect(microsoftSignIn.forgetMicrosoftAccount).toHaveBeenCalledTimes(1);
+    // The tab's queued events are kept for their account, never sent under another.
+    expect(telemetry.flushUiEventsNow).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('Login page')).toBeInTheDocument();
+    expect(screen.getByTestId('login-query')).toHaveTextContent(/^\?logged_out=1$/);
+    expect(screen.queryByRole('button', { name: 'Logout' })).not.toBeInTheDocument();
+  };
+
+  it('a logout there ends the session in this tab too', async () => {
+    microsoftSignIn.forgetMicrosoftAccount.mockResolvedValue(undefined);
+    const queryClient = renderSignedIn();
+    const tabB = await anotherTab();
+
+    inAnotherTab(() => tabB.clearSession());
+
+    expectSessionEnded(queryClient);
+  });
+
+  it('a sign-in there of another account ends the session in this tab, and no tab goes on as that account', async () => {
+    microsoftSignIn.forgetMicrosoftAccount.mockResolvedValue(undefined);
+    const queryClient = renderSignedIn();
+    const tabB = await anotherTab();
+
+    inAnotherTab(() => tabB.persistSession(next, 'colleague@example.org', 'viewer', 'microsoft'));
+
+    expectSessionEnded(queryClient);
+    // The other account's session is cleared with it, in every tab: it signs in again.
+    expect(localStorage.getItem('token')).toBeNull();
+    expect(localStorage.getItem('username')).toBeNull();
+  });
+
+  it('a sign-in there of the same account keeps this tab signed in: the token is replaced, the account stays', async () => {
+    const queryClient = renderSignedIn();
+    const tabB = await anotherTab();
+
+    inAnotherTab(() => tabB.persistSession(next, 'analyst@example.org', 'viewer', 'microsoft'));
+
+    expect(screen.getByText('Dashboard', { selector: 'p' })).toBeInTheDocument();
+    expect(queryClient.getQueryData(['family', 'F1'])).toEqual({ family_id: 'F1' });
+    expect(microsoftSignIn.forgetMicrosoftAccount).not.toHaveBeenCalled();
+    expect(localStorage.getItem('token')).toBe(next);
+  });
+
+  it('a renewal of the token there keeps this tab signed in', async () => {
+    const queryClient = renderSignedIn();
+    const tabB = await anotherTab();
+
+    inAnotherTab(() => tabB.updateSessionToken(renewed));
+
+    expect(screen.getByText('Dashboard', { selector: 'p' })).toBeInTheDocument();
+    expect(queryClient.getQueryData(['family', 'F1'])).toEqual({ family_id: 'F1' });
+    expect(microsoftSignIn.forgetMicrosoftAccount).not.toHaveBeenCalled();
+    expect(localStorage.getItem('token')).toBe(renewed);
+  });
+
+  it('leaves a sign-in page as it is: it has no session to end', async () => {
+    // A session another tab holds, which it logs out of while this tab shows the sign-in page.
+    signInWithMicrosoft();
+    renderLayout(createTestQueryClient(), '/login?next=%2Ffamilies%2FF1');
+    const tabB = await anotherTab();
+
+    inAnotherTab(() => tabB.clearSession());
+
+    expect(screen.getByTestId('login-query')).toHaveTextContent(/^\?next=%2Ffamilies%2FF1$/);
+    expect(microsoftSignIn.forgetMicrosoftAccount).not.toHaveBeenCalled();
+    expect(telemetry.flushUiEventsNow).not.toHaveBeenCalled();
   });
 });
 
