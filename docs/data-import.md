@@ -79,7 +79,11 @@ was never shipped (OPS-17). Build them with the clinical CNV knowledgebase rebui
 (the ↻ button next to the clinical-CNV count on **Admin → Species & assemblies**;
 `POST /admin/clinical-cnv-kb/rebuild`), or upload a file (below). A rebuild whose ClinGen dosage
 curation or recurrent CNV regions cannot be loaded fails, says why on that page, and leaves the
-clinical CNVs as they were.
+clinical CNVs as they were. A rebuild runs, and loads what it built, only while the
+administrator who asked for it is an active administrator (SEC-35): it keeps that account by
+its id, and checks it as it starts and again before the load, as the build runs for up to two
+hours before it. Deactivated, set to another role or deleted by then, the rebuild ends failed,
+saying why, and leaves the clinical CNVs as they were.
 
 ClinGen's recurrent CNV file is pinned per assembly by its SHA-256
 (`CLINGEN_RECURRENT_CNV_SHA256` in `scripts/clinical_cnv_knowledgebase.py`): the rebuild reads
@@ -239,7 +243,12 @@ change is also recorded in `CHANGELOG.md` and TF-18 §8.
 The gene reference is the cached information per human gene: names and identifiers, disease
 links, dosage, constraint, expression and more (`gene_info`). An admin refreshes it from
 **Admin → Species & assemblies** (↻ next to the gene count) or the gene reference page
-(`/admin/reference/gene-reference`; `POST /admin/gene-reference/refresh-all`).
+(`/admin/reference/gene-reference`; `POST /admin/gene-reference/refresh-all`). The refresh runs
+as a job that keeps the administrator who asked for it by the account's id, and a worker runs
+it only while that account is an active administrator (SEC-35): deactivated, set to another
+role or deleted by then, the job ends failed, saying why, and writes no gene record, also
+when it is taken up again after its worker stopped. The refresh a start queues on an empty
+cache (`startup-bootstrap`) is no account's, and runs.
 
 HGNC decides which human genes exist. The sync takes the HGNC complete set as its list of
 genes. A symbol that HGNC has renamed is moved onto the current symbol, keeping its locus. A
@@ -396,10 +405,12 @@ has run. The time left is the running dataset's: the datasets after it are not e
 the page says how many follow. It is first given after half a minute of reading.
 
 A job runs as the account that queued it, found by the account's id whatever its e-mail
-address is by then (SEC-32), and only while that account is active: a job whose account has
-been deactivated, or no longer exists, when a worker takes it up is not run. It ends `failed`,
-saying why, with nothing of the family written; an active administrator queues the import
-again. An import already running when its account is deactivated runs to its end.
+address is by then (SEC-32), and only while that account is an active administrator, as
+queueing an import requires (SEC-35): a job whose account has been deactivated, is no longer
+an administrator, or no longer exists when a worker takes it up is not run, also when a job
+still `validating` is taken up again after its worker stopped. It ends `failed`, saying why,
+with nothing of the family written; an active administrator queues the import again. An
+import already running when its account is deactivated or demoted runs to its end.
 
 Jobs run on background workers: one job at a time per backend process, or more with
 `FAMILY_IMPORT_WORKER_COUNT` (up to 8). A running job writes a heartbeat every minute. The
@@ -1762,7 +1773,7 @@ a list for a capture panel takes the panel's key, the `assay_panel` of its cfDNA
 | `manifest_relationship_unknown_member` | A `family.relationships` entry names someone who is neither in the PED nor in `family.add_members`. |
 | "Sample '…' not found in family" (haplotypes) | The phased VCF has a sample the family lacks, such as a PGT index the PED does not hold; add it under `family.add_members`. |
 | `existing_family_or_samples` | The family or a sample exists; choose `update` or `overwrite`. |
-| "Not run: the account that requested this import has been deactivated …", "Requesting user no longer exists" (a job) | The account that queued the job was deactivated, or deleted, before a worker ran it, and a job runs as the account that queued it. Nothing was written: queue the import again as an active administrator. |
+| "Not run: the account that requested this import has been deactivated …", "Not run: the account that requested this import is no longer an administrator …", "Requesting user no longer exists" (a job) | The account that queued the job was deactivated, set to another role than administrator, or deleted, before a worker ran it, and a job runs only as an active administrator, the account that queued it. Nothing was written: queue the import again as an active administrator. |
 | "sample column(s) … match no sample in the family" | Set `vcf_sample` on the dataset. |
 | "… has no sample column for X: '…' is Y" | A per-sample file names another sample: point the entry at X's own file, or, if the file is X's after all, set `vcf_sample` on X's entry. An upload (TRGT, Sniffles, Spectre) takes X's own file. |
 | "… VCF has no #CHROM line", "… has a record before its #CHROM line", "… has more than one #CHROM line" | An uploaded Sniffles or Spectre VCF has no header line naming its sample columns before its records, or two files were joined into one: upload the sample's VCF as the caller wrote it. |
