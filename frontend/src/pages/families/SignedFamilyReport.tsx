@@ -1,4 +1,5 @@
 import React from 'react';
+import ReportedFindings, { signedReportedFinding } from './ReportedFindings';
 import { Link, useLocation } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 
@@ -71,6 +72,9 @@ import {
   formatReportTime,
   geneReferenceSourceLabel,
   isNiptRecord,
+  describeUnreviewedFinding,
+  FINDING_DRIFT_WORDS,
+  FINDING_NOUN,
   NIPT_NOT_CLASSIFIED_REASONS,
   notComparedSentence,
   paraphaseStatusWords,
@@ -1087,6 +1091,27 @@ const SignedChecks: React.FC<{ record: SignedReport }> = ({ record }) => {
         )}
       </div>
       <div className="report-section">
+        <h3 className="report-subheading">Repeat and Paraphase calls without a review</h3>
+        {!record.findingReviews ? (
+          <p className="report-paragraph">Not in the signed record.</p>
+        ) : !record.findingReviews.unreviewed.length ? (
+          <p className="report-paragraph">Every abnormal repeat and Paraphase call had a review.</p>
+        ) : (
+          <>
+            <ul className="report-signed-list">
+              {record.findingReviews.unreviewed.map((finding, index) => (
+                <li key={`${finding.kind}-${finding.key ?? 'unreadable'}-${index}`}>
+                  {describeUnreviewedFinding(finding)}
+                </li>
+              ))}
+            </ul>
+            <p className="report-paragraph">
+              {acknowledgementLine(record.unreviewedAcknowledgement) ?? 'No acknowledgement is recorded.'}
+            </p>
+          </>
+        )}
+      </div>
+      <div className="report-section">
         <h3 className="report-subheading">Data import</h3>
         {importIncomplete === 'absent' && importUnfinished === 'absent' ? (
           <p className="report-paragraph">Not in the signed record.</p>
@@ -1262,10 +1287,17 @@ const SignedFamilyReport: React.FC<{ familyId: string; version: number; projectI
       .join(' ') || null;
   const smallVariants = record?.reportedVariants ?? null;
   const structuralVariants = record?.reportedStructuralVariants ?? null;
-  // The drift at sign-out of the small variants' and the SV/CNV classifications, counted as one.
+  // The repeat and Paraphase reviews whose calls had changed, were gone or could not be compared.
+  const findingDrift = (record?.findingReviews?.reviews ?? []).filter((review) => review.drift.status !== 'unchanged');
+  // The drift at sign-out of the small variants', the SV/CNV classifications and the repeat and
+  // Paraphase reviews, counted as one.
   const driftedAtSignout =
-    (record?.drift?.driftedCount ?? 0) + (record?.structuralDrift?.driftedCount ?? 0);
-  const checkedCounts = [record?.drift?.checked, record?.structuralDrift?.checked].filter(
+    (record?.drift?.driftedCount ?? 0) + (record?.structuralDrift?.driftedCount ?? 0) + findingDrift.length;
+  const checkedCounts = [
+    record?.drift?.checked,
+    record?.structuralDrift?.checked,
+    record?.findingReviews ? record.findingReviews.reviews.length : undefined,
+  ].filter(
     (value): value is number => typeof value === 'number',
   );
   const checkedAtSignout = checkedCounts.length ? checkedCounts.reduce((sum, value) => sum + value, 0) : null;
@@ -1529,6 +1561,16 @@ const SignedFamilyReport: React.FC<{ familyId: string; version: number; projectI
                       ) : null}
                     </li>
                   ))}
+                  {findingDrift.map((review) => (
+                    <li key={`${review.kind}:${review.key}`}>
+                      <strong>{review.gene ?? review.key}</strong> ({FINDING_NOUN[review.kind]} review) —{' '}
+                      {FINDING_DRIFT_WORDS[review.drift.status] ?? review.drift.status}
+                      {review.drift.changes.length ? `: ${review.drift.changes.join('; ')}` : ''}
+                      {review.reviewedBy ? (
+                        <span className="report-drift-meta"> (reviewed by {review.reviewedBy})</span>
+                      ) : null}
+                    </li>
+                  ))}
                 </ul>
                 <p className="report-paragraph">
                   {acknowledgementLine(record.driftAcknowledgement) ?? 'No acknowledgement is recorded.'}
@@ -1574,6 +1616,21 @@ const SignedFamilyReport: React.FC<{ familyId: string; version: number; projectI
               <p className="report-paragraph">No variants were tagged for reporting in this version.</p>
             </section>
           ) : null}
+
+          {record.findingReviews ? (
+            <ReportedFindings
+              findings={record.findingReviews.reviews
+                .map(signedReportedFinding)
+                .filter((finding) => finding !== null)}
+            />
+          ) : (
+            <section className="surface-card report-empty">
+              <p className="report-paragraph">
+                The signed record holds no reviews of repeat loci or Paraphase regions: it was signed
+                before CoGA froze them.
+              </p>
+            </section>
+          )}
 
           <AnalysisSections record={record} version={version} />
 

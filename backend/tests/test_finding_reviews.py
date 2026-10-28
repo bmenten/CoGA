@@ -222,6 +222,30 @@ def _row(key: str, **fields: Any) -> dict[str, Any]:
     }
 
 
+def test_the_workspace_counts_the_reviews_that_say_anything(monkeypatch) -> None:
+    _rows(
+        monkeypatch,
+        {
+            "HTT": _row("HTT", classification="pathogenic_expansion", tags=["report", "review"]),
+            "FXS_FMR1": _row("FXS_FMR1", note="Looked at it", tags=["review"]),
+            # An empty review counts for nothing.
+            "SCA1": _row("SCA1", note="  "),
+        },
+        {"smn1": _row("smn1", classification="carrier")},
+    )
+    summary = asyncio.run(frp.finding_review_summary(None, _context()))  # type: ignore[arg-type]
+    assert summary.repeat.model_dump() == {
+        "reviewed_count": 2,
+        "classified_count": 1,
+        "note_count": 1,
+        "tag_counts": {"report": 1, "review": 2},
+    }
+    assert (summary.paraphase.reviewed_count, summary.paraphase.classified_count) == (1, 1)
+    # Without an assembly the family holds no reviews.
+    empty = asyncio.run(frp.finding_review_summary(None, _context(None)))  # type: ignore[arg-type]
+    assert empty.repeat.reviewed_count == 0 and empty.paraphase.tag_counts == {}
+
+
 def test_the_record_holds_the_reviews_that_bear_a_judgement_with_their_drift(monkeypatch) -> None:
     htt = _locus("HTT", "HTT", "pathogenic", [_call("PROBAND", "pathogenic", [18, 42])])
     frozen_old = _locus("HTT", "HTT", "intermediate", [_call("PROBAND", "intermediate", [18, 34])])

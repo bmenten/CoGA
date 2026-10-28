@@ -31,6 +31,8 @@ const mockApiState = vi.hoisted(() => ({
   readOnly: false,
   // Whom the case pickers offer: the family's analysts and the administrators.
   assignableUsers: [] as unknown[],
+  // How many repeat loci the family has calls at (the presence check).
+  repeatLociCount: 0,
 }));
 
 const ANN = { id: 'u1', username: 'ann', email: 'ann@example.com', first_name: 'Ann', last_name: 'Lee' };
@@ -215,6 +217,17 @@ vi.mock('../../../lib/api', () => ({
       if (url === '/families/F1/assignable-users') {
         return Promise.resolve({ data: mockApiState.assignableUsers });
       }
+      if (url.startsWith('/families/F1/repeat-expansions')) {
+        return Promise.resolve({ data: { samples: [], loci: [], loci_count: mockApiState.repeatLociCount } });
+      }
+      if (url === '/families/F1/finding-review-summary') {
+        return Promise.resolve({
+          data: {
+            repeat: { reviewed_count: 2, classified_count: 1, note_count: 1, tag_counts: { review: 2 } },
+            paraphase: { reviewed_count: 0, classified_count: 0, note_count: 0, tag_counts: {} },
+          },
+        });
+      }
       return Promise.resolve({ data: [] });
     }),
     put: vi.fn(),
@@ -236,6 +249,7 @@ describe('FamilyDetailPage', () => {
     mockApiState.analysisType = null;
     mockApiState.readOnly = false;
     mockApiState.assignableUsers = [ANN, BOB];
+    mockApiState.repeatLociCount = 0;
     vi.mocked(api.put).mockReset();
     vi.mocked(api.post).mockReset();
     vi.mocked(api.delete).mockReset();
@@ -626,6 +640,28 @@ describe('FamilyDetailPage', () => {
     ]);
     expect(within(actions).getByRole('link', { name: 'Sample QC' })).toHaveAttribute('href', '/families/F1/qc');
     expect(within(analyses).queryByRole('link', { name: /sample qc|report/i })).toBeNull();
+  });
+
+  it('counts the repeat reviews on a curation line of their own', async () => {
+    mockApiState.repeatLociCount = 3;
+    localStorage.setItem('role', 'viewer');
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MemoryRouter initialEntries={['/families/F1']}>
+          <Routes>
+            <Route path="/families/:familyId" element={<FamilyDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    const line = await screen.findByRole('group', { name: 'Repeat expansions curation' });
+    await waitFor(() => expect(line).toHaveTextContent('Reviewed 2'));
+    expect(line).toHaveTextContent('Classified 1');
+    expect(line).toHaveTextContent('Notes 1');
+    expect(within(line).getByText('Review')).toBeInTheDocument();
+    // No Paraphase results: no line for them.
+    expect(screen.queryByRole('group', { name: 'Paraphase curation' })).not.toBeInTheDocument();
   });
 
   it('offers the report but not Sample QC without small variants', async () => {

@@ -343,6 +343,60 @@ describe('FamilyReportPage', () => {
     expect(await screen.findByText(/No variants are currently tagged for reporting/)).toBeInTheDocument();
   });
 
+  it('lists the repeat loci and Paraphase regions marked Report, with the review beside the status', async () => {
+    mockApi();
+    const base = apiMock.get.getMockImplementation()!;
+    const call = (sample: string, status: string, counts: number[]) => ({
+      sample,
+      status,
+      review_reason: null,
+      alleles: counts.map((count) => ({ repeat_count: count, status })),
+    });
+    apiMock.get.mockImplementation((url: string, config?: unknown) => {
+      if (url === '/families/F1/repeat-expansions') {
+        return Promise.resolve({
+          data: {
+            samples: [],
+            loci: [
+              {
+                locus_id: 'HD_HTT',
+                gene: 'HTT',
+                display_name: 'HTT',
+                disease: 'Huntington disease',
+                status: 'pathogenic',
+                calls: { PROBAND: call('PROBAND', 'pathogenic', [17, 42]), FATHER: call('FATHER', 'normal', [17, 20]) },
+                review: {
+                  key: 'HD_HTT',
+                  classification: 'reduced_penetrance',
+                  tags: ['report'],
+                  tag_metadata: {},
+                  note: 'Reduced penetrance range in the proband.',
+                  updated_by: 'analyst',
+                  updated_at: '2026-10-28T10:00:00Z',
+                  evidence_captured_at: '2026-10-28T10:00:00Z',
+                  drift: { status: 'changed', changes: ['PROBAND: 42 → 44'] },
+                },
+              },
+              { locus_id: 'SCA1', gene: 'ATXN1', display_name: 'ATXN1', status: 'normal', calls: {}, review: null },
+            ],
+          },
+        });
+      }
+      if (url === '/families/F1/paraphase') return Promise.resolve({ data: { samples: [], genes: [] } });
+      return base(url, config);
+    });
+    renderPage();
+
+    const section = await screen.findByRole('region', { name: 'Reported repeat expansions and Paraphase findings' });
+    await waitFor(() => expect(section).toHaveTextContent('HTT (repeat locus) — Huntington disease'));
+    expect(section).toHaveTextContent("Analyst's classification: Reduced penetrance");
+    expect(section).toHaveTextContent('Changed since review: PROBAND: 42 → 44');
+    expect(section).toHaveTextContent('PROBAND: 17 / 42 — Pathogenic');
+    expect(section).toHaveTextContent('FATHER: 17 / 20 — Normal');
+    expect(section).toHaveTextContent('Reduced penetrance range in the proband.');
+    expect(section).not.toHaveTextContent('ATXN1');
+  });
+
   it('warns when a classification’s evidence has drifted since it was made', async () => {
     apiMock.get.mockImplementation((url: string) => {
       if (url === '/families/F1') {
@@ -1348,6 +1402,8 @@ describe('FamilyReportPage', () => {
     '/families/F1/annotation-manifest',
     '/families/F1/classification-drift',
     '/families/F1/clinical-audit',
+    '/families/F1/repeat-expansions',
+    '/families/F1/paraphase',
   ];
 
   const signedRecordCard = async (version = 2) =>
@@ -2298,10 +2354,62 @@ describe('FamilyReportPage', () => {
         'Signed version 2 records 1 reported small variant and no list of reported structural variants in family F1.',
       );
       const checks = screen.getByRole('heading', { name: 'Checks at sign-out' }).closest('section')!;
-      expect(within(checks).getAllByText('Not in the signed record.')).toHaveLength(3);
+      // Sample QC, sequencing QC, the calls without a review and the import.
+      expect(within(checks).getAllByText('Not in the signed record.')).toHaveLength(4);
+      expect(screen.getByText(/holds no reviews of repeat loci or Paraphase regions/)).toBeInTheDocument();
       const drift = screen.getByRole('heading', { name: 'Evidence drift at sign-out' }).closest('section')!;
       expect(drift).toHaveTextContent('Not in the signed record.');
       expect(container.querySelector('footer')).toHaveTextContent('Signed with: not in the signed record');
+    });
+
+    it('shows the reported repeat and Paraphase reviews, their drift and the calls without a review', async () => {
+      mockSignedCase({
+        snapshot: {
+          ...SIGNED_SNAPSHOT,
+          repeat_expansion_reviews: [
+            {
+              key: 'HD_HTT',
+              classification: 'normal',
+              classification_label: 'Normal',
+              tags: ['report'],
+              reported: true,
+              note: 'Relevant negative.',
+              reviewed_by: 'analyst',
+              reviewed_at: '2026-06-24T10:00:00+00:00',
+              evidence_snapshot: {
+                captured_at: '2026-06-24T10:00:00+00:00',
+                evidence: {
+                  locus_id: 'HD_HTT',
+                  gene: 'HTT',
+                  disease: 'Huntington disease',
+                  status: 'pathogenic',
+                  calls: [{ sample: 'PROBAND', status: 'pathogenic', alleles: [{ repeat_count: 17 }, { repeat_count: 42 }] }],
+                },
+              },
+              drift: { status: 'changed', changes: ['PROBAND: 42 → 44'] },
+            },
+          ],
+          paraphase_reviews: [],
+          finding_review_drift: { checked: 1, drifted_count: 1, drifted: [] },
+          unreviewed_findings: [
+            { kind: 'paraphase', key: 'smn1', gene: 'SMN1/SMN2', samples: [{ sample: 'PROBAND', status: 'carrier' }] },
+          ],
+          acknowledged_drift: true,
+          drift_acknowledgement_reason: 'Re-reviewed with the lab.',
+          acknowledged_unreviewed_findings: true,
+          unreviewed_findings_acknowledgement_reason: 'Carrier status reported separately.',
+        },
+      });
+      renderPage();
+
+      const section = await screen.findByRole('region', { name: 'Reported repeat expansions and Paraphase findings' });
+      expect(section).toHaveTextContent("Analyst's classification: Normal · differs from CoGA's status");
+      expect(section).toHaveTextContent('PROBAND: 17 / 42 — Pathogenic');
+      const drift = screen.getByRole('heading', { name: 'Evidence drift at sign-out' }).closest('section')!;
+      expect(drift).toHaveTextContent('HTT (repeat locus review) — its calls changed since the review: PROBAND: 42 → 44');
+      const checks = screen.getByRole('heading', { name: 'Checks at sign-out' }).closest('section')!;
+      expect(checks).toHaveTextContent('SMN1/SMN2 (Paraphase region): PROBAND carrier');
+      expect(checks).toHaveTextContent('Carrier status reported separately.');
     });
 
     it('names what the signed record could not capture (#514)', async () => {

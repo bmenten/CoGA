@@ -17,73 +17,18 @@ import {
 } from '../../components/ImportIncompleteBanner';
 import { apiErrorMessage } from './reportSignoutQueries';
 
-// A repeat or Paraphase review whose frozen calls are no longer the family's, as the drift
-// gate lists it (finding_review_pg: `finding_drifted`).
-export type FindingDriftItem = { kind: string; key: string; status: string; changes: string[] };
-// A repeat locus or Paraphase region with an abnormal call and no review, as the gate of
-// unreviewed findings lists it; `key` null: that kind's calls could not be read.
-export type UnreviewedFinding = {
-  kind: string;
-  key: string | null;
-  gene: string | null;
-  samples: { sample: string; status: string; nearBoundary: boolean }[];
-};
-
-const FINDING_NOUN: Record<string, string> = { repeat: 'repeat locus', paraphase: 'Paraphase region' };
-
-const FINDING_DRIFT_WORDS: Record<string, string> = {
-  changed: 'its calls changed since the review',
-  not_found: 'the family holds no call there any more',
-  no_snapshot: 'the review froze no calls',
-  unverifiable: 'the calls could not be read',
-};
-
-const record = (value: unknown): Record<string, unknown> =>
-  value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
-
-export const parseFindingDrift = (value: unknown): FindingDriftItem[] =>
-  (Array.isArray(value) ? value : []).map((entry) => {
-    const item = record(entry);
-    return {
-      kind: String(item.kind ?? ''),
-      key: String(item.key ?? ''),
-      status: String(item.status ?? ''),
-      changes: Array.isArray(item.changes) ? item.changes.map(String) : [],
-    };
-  });
-
-export const parseUnreviewedFindings = (value: unknown): UnreviewedFinding[] =>
-  (Array.isArray(value) ? value : []).map((entry) => {
-    const item = record(entry);
-    return {
-      kind: String(item.kind ?? ''),
-      key: item.key == null ? null : String(item.key),
-      gene: item.gene == null ? null : String(item.gene),
-      samples: (Array.isArray(item.samples) ? item.samples : []).map((raw) => {
-        const sample = record(raw);
-        return {
-          sample: String(sample.sample ?? ''),
-          status: String(sample.status ?? ''),
-          nearBoundary: Boolean(sample.near_boundary),
-        };
-      }),
-    };
-  });
-
-/** A finding the gate lists, in words: "HTT (repeat locus): PROBAND pathogenic". */
-export const describeUnreviewedFinding = (finding: UnreviewedFinding): string => {
-  const noun = FINDING_NOUN[finding.kind] ?? finding.kind;
-  if (finding.key === null) return `The ${noun} calls could not be read`;
-  const calls = finding.samples
-    .map((sample) => `${sample.sample} ${sample.status.replace(/_/g, ' ')}${sample.nearBoundary ? ' (near a boundary)' : ''}`)
-    .join(', ');
-  return `${finding.gene || finding.key} (${noun}): ${calls}`;
-};
 
 import {
+  FINDING_DRIFT_WORDS,
+  FINDING_NOUN,
   describeSignedDrift,
   describeSignedStructuralDrift,
+  describeUnreviewedFinding,
   parseDrift,
+  parseFindingDrift,
+  parseUnreviewedFindings,
+  type FindingDriftItem,
+  type UnreviewedFinding,
   parseStructuralDrift,
   type SignedDriftItem,
   type SignedStructuralDriftItem,

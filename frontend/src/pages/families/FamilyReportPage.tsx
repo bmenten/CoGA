@@ -72,6 +72,8 @@ import { joinWithAnd } from '../../lib/format';
 import { REPORT_LIST_PAGE_SIZE, reportedListNotice } from './reportedListCompleteness';
 import { auditTrailPrintNotice, auditTrailShownNotice, clinicalAuditTrail } from './clinicalAuditTrail';
 import { routePath } from '../../lib/routePath';
+import type { ApiFamilyParaphaseTable, ApiFamilyRepeatExpansionTable } from '../../lib/apiTypes';
+import ReportedFindings, { reportedParaphaseFinding, reportedRepeatFinding } from './ReportedFindings';
 
 interface GeneHpoTerm {
   hpo_id?: string | null;
@@ -270,6 +272,31 @@ const LiveFamilyReport: React.FC = () => {
     () => structuralReportPage?.variants ?? [],
     [structuralReportPage],
   );
+
+  // The repeat loci and Paraphase regions marked Report, from the tables their pages read (and
+  // share the cache of): their reviews come with the calls.
+  const tableParams = projectId ? { project_id: projectId } : undefined;
+  const { data: repeatTable, isError: repeatsFailed } = useQuery<ApiFamilyRepeatExpansionTable>({
+    queryKey: ['family', familyId, 'repeat-expansions', projectId],
+    enabled: variantQueryReady,
+    queryFn: async () =>
+      (await api.get(apiPath`/families/${familyId}/repeat-expansions`, { params: tableParams }))
+        .data as ApiFamilyRepeatExpansionTable,
+  });
+  const { data: paraphaseTable, isError: paraphaseFailed } = useQuery<ApiFamilyParaphaseTable>({
+    queryKey: ['family', familyId, 'paraphase', projectId],
+    enabled: variantQueryReady,
+    queryFn: async () =>
+      (await api.get(apiPath`/families/${familyId}/paraphase`, { params: tableParams }))
+        .data as ApiFamilyParaphaseTable,
+  });
+  const reportedFindings = useMemo(() => {
+    const order = members.map((member) => member.sample_id);
+    return [
+      ...(repeatTable?.loci ?? []).map((row) => reportedRepeatFinding(row, order)),
+      ...(paraphaseTable?.genes ?? []).map((gene) => reportedParaphaseFinding(gene, order)),
+    ].filter((finding) => finding !== null);
+  }, [members, paraphaseTable, repeatTable]);
 
   const geneSymbols = useMemo(() => {
     const symbols = new Set(uniqueGeneSymbols(variants));
@@ -1059,6 +1086,14 @@ const LiveFamilyReport: React.FC = () => {
         })}
         </>
       )}
+
+      <ReportedFindings
+        findings={reportedFindings}
+        unavailable={[
+          ...(repeatsFailed ? ['the repeat locus calls'] : []),
+          ...(paraphaseFailed ? ['the Paraphase results'] : []),
+        ]}
+      />
 
       {readOnly ? (
         // Said on screen and in print, so a reader's printout is not read as a report whose

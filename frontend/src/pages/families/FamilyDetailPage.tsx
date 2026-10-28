@@ -28,6 +28,7 @@ import type {
   FamilyStatusOut,
   FamilyStructureUpdateOut,
   VariantPage,
+  FindingReviewSummaryOut,
 } from '../../lib/apiSchema.generated';
 import FamilyPageHeader from './FamilyPageHeader';
 import PageState from '../../components/PageState';
@@ -370,6 +371,23 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     enabled: Boolean(familyId && hasVariants),
     queryFn: () => fetchFamilyReviewTags(familyId, projectId),
   });
+  // The repeat and Paraphase reviews in the family's assembly, counted for their curation lines.
+  const hasFindingReviews = hasRepeatExpansions || hasParaphase;
+  const { data: findingReviewSummary, isError: findingReviewSummaryFailed } = useQuery<FindingReviewSummaryOut>({
+    queryKey: ['family', familyId, 'finding-review-summary', projectId || null],
+    enabled: Boolean(familyId && hasFindingReviews),
+    queryFn: async () => {
+      const res = await api.get(apiPath`/families/${familyId}/finding-review-summary`, {
+        params: projectId ? { project_id: projectId } : undefined,
+      });
+      return res.data as FindingReviewSummaryOut;
+    },
+  });
+  const { data: findingReviewTags = [] } = useQuery<SmallVariantTagDefinition[]>({
+    queryKey: ['family', familyId, 'small-variant-tags', 'summary', projectId || null],
+    enabled: Boolean(familyId && hasFindingReviews),
+    queryFn: () => fetchFamilyReviewTags(familyId, projectId),
+  });
   const { data: hpoAnnotations = [], isError: hpoFailed } = useQuery<ApiHpoAnnotation[]>({
     queryKey: ['family', familyId, 'hpo'],
     enabled: Boolean(familyId),
@@ -398,6 +416,11 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
   const structuralReviewSummaryTags = useMemo(() => {
     return getReviewSummaryTags(structuralReviewSummary?.tag_counts, structuralVariantTags);
   }, [structuralReviewSummary?.tag_counts, structuralVariantTags]);
+  const findingReviewTagMap = useMemo(() => getTagDefinitionMap(findingReviewTags), [findingReviewTags]);
+  const findingCurationLines = [
+    ...(hasRepeatExpansions ? [{ key: 'repeat' as const, label: 'Repeat expansions', noun: 'repeat loci' }] : []),
+    ...(hasParaphase ? [{ key: 'paraphase' as const, label: 'Paraphase', noun: 'Paraphase regions' }] : []),
+  ];
   const variantPageQuerySuffix = projectId ? `?project_id=${encodeURIComponent(projectId)}` : '';
   const orderedMembers = useMemo(
     () => sortFamilyMembersProbandFirst(data?.members || []),
@@ -1250,7 +1273,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
           )}
           {/* Curation so far, a quiet line per reviewable variant type under the analyses
               rather than between them. */}
-          {(hasSmallVariants || hasVariants) && (
+          {(hasSmallVariants || hasVariants || hasFindingReviews) && (
             <div className="family-curation-summary">
               <span className="family-curation-summary-title">Curation</span>
               {hasSmallVariants && (
@@ -1295,6 +1318,39 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                   ))}
                 </div>
               )}
+              {findingCurationLines.map((line) => {
+                const counts = findingReviewSummary?.[line.key];
+                const shown = (value: number | undefined) => (findingReviewSummaryFailed ? '—' : (value ?? 0));
+                return (
+                  <div
+                    key={line.key}
+                    className="family-curation-line"
+                    role="group"
+                    aria-label={`${line.label} curation`}
+                  >
+                    <span className="family-curation-type">{line.label}</span>
+                    <span className="family-curation-count">
+                      Reviewed <strong>{shown(counts?.reviewed_count)}</strong>
+                    </span>
+                    <span className="family-curation-count">
+                      Classified <strong>{shown(counts?.classified_count)}</strong>
+                    </span>
+                    <span className="family-curation-count">
+                      Notes <strong>{shown(counts?.note_count)}</strong>
+                    </span>
+                    {getReviewSummaryTags(counts?.tag_counts, findingReviewTags).map((tag) => (
+                      <span
+                        key={tag.key}
+                        className="table-chip table-chip--tag family-review-summary-chip"
+                        style={getReviewTagStyle(tag.key, findingReviewTagMap)}
+                        title={`${tag.count} ${line.noun} tagged ${tag.label}`}
+                      >
+                        {tag.label} <strong>{tag.count}</strong>
+                      </span>
+                    ))}
+                  </div>
+                );
+              })}
             </div>
           )}
         </article>

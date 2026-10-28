@@ -229,7 +229,7 @@ describe('reviews on the Paraphase region cards', () => {
 
   it('saves to the region and offers the Paraphase scale', async () => {
     const call = (sample: string, status: string) => ({
-      sample_id: sample,
+      sample,
       clinical_status: status,
       copy_number_metrics: [{ key: 'smn1_cn', label: 'SMN1 CN', value: status === 'carrier' ? 1 : 2 }],
       read_metrics: [],
