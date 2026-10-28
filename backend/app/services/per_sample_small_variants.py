@@ -58,6 +58,7 @@ from .clickhouse_variant_storage import (
 from .data_scope import normalize_chromosome
 from .family_metadata_context import FamilyMetadataContext, SampleMetadataContext
 from .family_variant_write_lock import SMALL_VARIANTS, lock_family_variant_writes
+from .genotypes import genotype_notation_refusal, is_vcf_genotype
 from .import_progress import bytes_read_on_disk, file_size, read_stats
 from .variant_annotation_parser import (
     AnnotationHeaderState,
@@ -182,6 +183,8 @@ class _PerSampleVcfReader:
         self.columns: list[str] = []
         self.records_read = 0
         self.skipped_malformed = 0
+        # The file's line last read, counted from 1, header lines included.
+        self.line_number = 0
         self._order: _ContigOrder | None = None
         self._next: _SiteRecord | None = None
         self._next_key: tuple[int, int] | None = None
@@ -189,6 +192,7 @@ class _PerSampleVcfReader:
 
     def read_header(self) -> None:
         for line in self._lines:
+            self.line_number += 1
             if line.startswith("##"):
                 if line.startswith("##INFO"):
                     update_annotation_header_state(self.annotation_state, line.strip())
@@ -229,6 +233,7 @@ class _PerSampleVcfReader:
         assert self._order is not None
         sample_column = 9 + self.source.column
         for line in self._lines:
+            self.line_number += 1
             if not line.strip() or line.startswith("#"):
                 continue
             self.records_read += 1
@@ -247,6 +252,16 @@ class _PerSampleVcfReader:
                     "comes after a later position"
                 )
             self._last_key = key
+            sample_field = fields[sample_column]
+            genotype = _record_genotype(fmt, sample_field)
+            if not is_vcf_genotype(genotype):
+                # A word such as HET, which only a malformed VCF holds (CLIN-16). Any record's:
+                # an excluded one is kept as its sample's call where another sample has a
+                # variant.
+                raise PerSampleMergeError(
+                    f"{self.label}, line {self.line_number}: the genotype (GT) "
+                    f"{genotype_notation_refusal(genotype)}"
+                )
             record_filters = [value for value in filt.split(";") if value] if filt not in {"", "."} else []
             self._next = _SiteRecord(
                 reader=self.index,
@@ -258,7 +273,7 @@ class _PerSampleVcfReader:
                 filt=filt,
                 info=info,
                 fmt=fmt,
-                sample_field=fields[sample_column],
+                sample_field=sample_field,
                 excluded=bool(record_filters)
                 and all(value in self._excluded_filters for value in record_filters),
             )
@@ -273,6 +288,14 @@ class _PerSampleVcfReader:
             records.append(self._next)
             self._advance()
         return records
+
+
+def _record_genotype(fmt: str, sample_field: str) -> str:
+    """A record's GT as ``_site_call`` reads it, without splitting the whole sample field
+    where GT comes first, as VCF puts it."""
+    if fmt == "GT" or fmt.startswith("GT:"):
+        return sample_field.split(":", 1)[0]
+    return _parse_format(fmt, sample_field).get("GT", "./.")
 
 
 def iter_merged_sites(readers: Sequence[_PerSampleVcfReader]) -> Iterator[list[_SiteRecord]]:
@@ -373,7 +396,10 @@ async def upload_family_per_sample_small_variant_files(
     there is one). It must bring the file of every sample with calls in the stored one: a
     sample left out would lose its calls without a word, so that is refused (409) before
     anything is deleted, as is a file with no record (SAFE-29) and a BGZF file that does not
-    end with BGZF's end-of-file block (400, DATA-4). ``exclude_filters`` names
+    end with BGZF's end-of-file block (400, DATA-4). A record whose genotype is not VCF's
+    allele notation (a word such as ``HET``) is refused (400, CLIN-16): in a file's first
+    record before anything is deleted, in a later one as the callset is written, which is then
+    removed again, as for an unsorted file. ``exclude_filters`` names
     the FILTER values of records that carry no variant (see the module docstring). Each
     file must hold one sample, checked by the caller. ``progress`` is told, every
     ``SMALL_VARIANT_PROGRESS_INTERVAL`` records read, the records read and stored and the

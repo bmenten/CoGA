@@ -17,6 +17,10 @@ Every genotype now falls in exactly one class:
 * ``no_call`` — everything else: ``./.``, ``.``, empty, a half reference call ``./0``, and
   anything that is not a VCF genotype.
 
+A genotype written as a word (``HET``, ``HOMOZYGOUS``) is not stored: the small-variant
+import refuses a record that holds one (:func:`is_vcf_genotype`; the owner's decision of
+2026-10-28, CLIN-16). No reader maps a word to a class any more.
+
 Python code calls :func:`classify_genotype`. ClickHouse queries use
 :func:`clickhouse_genotype_condition`: a set lookup against every genotype string of up to
 three characters (all that single-digit allele indices can produce), with an exact
@@ -30,6 +34,8 @@ import re
 from functools import lru_cache
 from typing import Any, Iterable, Literal
 
+from ..core.coga_logging import scrub_log
+
 GenotypeClass = Literal["hom_alt", "het", "hom_ref", "no_call"]
 
 HOM_ALT: GenotypeClass = "hom_alt"
@@ -42,10 +48,30 @@ ALT_CLASSES: frozenset[GenotypeClass] = frozenset({HOM_ALT, HET})
 
 _ALLELE_SEPARATOR = re.compile(r"[/|]")
 _MISSING_ALLELES = frozenset({".", ""})
+# The characters of VCF's GT notation: allele indices, "." for a missing allele, and "/" or
+# "|" between alleles.
+_VCF_GENOTYPE = re.compile(r"[0-9./|]*")
+# A refused genotype is shown no longer than this.
+_SHOWN_GENOTYPE_LENGTH = 20
 
 
 def _is_allele(value: str) -> bool:
     return value in _MISSING_ALLELES or (value.isascii() and value.isdigit())
+
+
+def is_vcf_genotype(gt: str | None) -> bool:
+    """Whether ``gt`` is written in VCF's allele notation, as every caller writes a ``GT``:
+    allele indices, ``.`` and the separators ``/`` and ``|`` alone (``0/1``, ``1|0``, ``./.``,
+    haploid ``1``). Empty or missing is a missing call. A word (``HET``, ``REF``, ``A/G``) is
+    not: only a malformed VCF holds one, and the import refuses it (CLIN-16)."""
+    return _VCF_GENOTYPE.fullmatch((gt or "").strip()) is not None
+
+
+def genotype_notation_refusal(gt: str) -> str:
+    """The end of a refusal of ``gt``, which is no VCF genotype: the value shown short and
+    without control characters, as a file can hold anything there."""
+    shown = scrub_log(gt.strip(), max_len=_SHOWN_GENOTYPE_LENGTH)
+    return f"is '{shown}', which is not VCF's allele notation (such as 0/1, 1|0 or ./.)"
 
 
 def classify_genotype(gt: str | None) -> GenotypeClass:

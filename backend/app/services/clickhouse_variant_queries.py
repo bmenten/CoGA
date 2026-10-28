@@ -472,17 +472,10 @@ def _small_transcript_annotations(
 
 
 def _normalize_gt(value: Any) -> str:
-    raw = str(value or "").strip()
-    normalized = raw.upper()
-    if normalized in {"REF", "REFERENCE", "WT", "WILDTYPE"}:
-        return "0/0"
-    if normalized in {"HET", "HETEROZYGOUS"}:
-        return "0/1"
-    if normalized in {"HOM", "HOM_ALT", "HOMOZYGOUS", "ALT"}:
-        return "1/1"
-    if normalized in {"MISSING", "NO_CALL"}:
-        return "./."
-    return raw or "./."
+    """A stored genotype as the variant list shows it: as stored, ``./.`` for none. Only VCF's
+    allele notation is stored (the import refuses a word such as ``HET``, CLIN-16), and none
+    is turned into another: a word read as a genotype here was a no-call to every filter."""
+    return str(value or "").strip() or "./."
 
 
 def _small_type(ref: str, alt: str) -> str:

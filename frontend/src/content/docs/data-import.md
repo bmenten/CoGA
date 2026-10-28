@@ -409,7 +409,11 @@ repeat expansions, and interval tracks (coverage, APCAD, APCAD PCF segments, seg
 A family small-variant upload that replaces stored calls (**overwrite**) reads the whole file before it
 replaces anything: a file it refuses (one naming a sample the family does not have, holding no record
 it can store, cut short in a copy, or with a line over the length limit) leaves the stored calls, and for
-imputed genotypes the haplotype blocks, as they were. Should storing the new calls still fail after the
+imputed genotypes the haplotype blocks, as they were. A genotype written as a word (*HET*, *HOM*,
+*REF*) instead of VCF's allele notation (*0/1*, *1|1*, *./.*) is refused too, naming the file, the line
+and the sample: only a malformed VCF holds one, and it used to be stored, read as a no-call by the
+filters but shown as a genotype on the variant list. A package import's small-variant files are refused
+the same way. Should storing the new calls still fail after the
 stored ones were deleted (the variant store failing part-way), the upload reports an error, and every
 family page shows *Import incomplete* for those calls, so the report can be signed out only with an
 acknowledgement, until they have been uploaded or imported again.

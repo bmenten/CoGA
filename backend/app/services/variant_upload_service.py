@@ -74,6 +74,7 @@ from .family_variant_write_lock import (
     STRUCTURAL_VARIANTS,
     lock_family_variant_writes,
 )
+from .genotypes import genotype_notation_refusal, is_vcf_genotype
 from .haplotype_block_builder import HaplotypeBlockBuilder
 from .haplotype_phase_correction import FAMILY_METADATA_KEY as PHASE_CORRECTIONS_KEY, PhaseCorrection
 from .import_progress import bytes_read_on_disk, read_stats
@@ -988,7 +989,7 @@ async def upload_family_small_variant_file(
                         )
                 variant_batch.clear()
 
-            for line in _iter_upload_text_lines(file, kind="VCF"):
+            for line_number, line in enumerate(_iter_upload_text_lines(file, kind="VCF"), start=1):
                 if line.startswith("##INFO"):
                     update_annotation_header_state(read.annotation_state, line.strip())
                 elif (
@@ -1093,6 +1094,17 @@ async def upload_family_small_variant_file(
                 for sample_name, sample_field in zip(read.sample_names, sample_fields):
                     fmt_vals = _parse_format(fmt, sample_field)
                     gt_val = fmt_vals.get("GT", "./.")
+                    if not is_vcf_genotype(gt_val):
+                        # A word such as HET, which only a malformed VCF holds: refused, not
+                        # stored for each reader to read its own way (CLIN-16).
+                        raise HTTPException(
+                            status_code=400,
+                            detail=(
+                                f"The VCF {scrub_log(file.filename or 'upload', max_len=120)}, line "
+                                f"{line_number}: the genotype (GT) of {sample_name} "
+                                f"{genotype_notation_refusal(gt_val)}"
+                            ),
+                        )
                     call = SmallVariantCall(
                         sample=sample_name,
                         gt=gt_val,
