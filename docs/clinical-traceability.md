@@ -58,18 +58,25 @@ length-changing variant read (PVS1, PM4, PP2, BP7, and the criteria a consequenc
 genome, popmax and TOPMed frequencies and the gnomAD allele, homozygote and hemizygote counts the
 filters read. Under `in_silico`: CADD (`cadd_phred`), REVEL, SpliceAI (`spliceai_max`), SIFT,
 PolyPhen and the AlphaMissense class and score. Under `gene_constraint`, for a missense variant
-only: the gene's gnomAD missense Z (`gene_missense_z`) the PP2 criterion reads. A missense variant
+only: the gene's gnomAD missense Z (`gene_missense_z`) the PP2 criterion reads, and where it came
+from (`gene_missense_z_source`). A missense variant
 is one whose consequence includes `missense_variant`, as the dialog tells one for PP2
 (`reads_gene_missense_z`); PP2 reads the missense Z for no other variant, so for any other the
 group is left out and the gene's profile is not read (the owner's decision, 2026-10-20). The
-missense Z is not in the variant's annotation but in the gene's profile (`gene_info`), so it is
+missense Z PP2 reads first is not in the variant's annotation but in the gene's profile (`gene_info`), so it is
 read with the variant list's own lookup (`gene_constraint_metrics.fetch_gene_constraint_metrics`),
 in the profiles of the family's assembly, for the gene the variant is served with: the primary
 transcript's gene id, else its symbol, in any case, else the variant's first gene. Until TRACE-15
-the lookup read the newest profile of any assembly, and matched a symbol only as written. Every field is frozen, `null` without a value, so a value that appears
+the lookup read the newest profile of any assembly, and matched a symbol only as written. When the
+gene's profile holds none, PP2 reads the VCF's own `MISSENSE_Z`, which the import stores in the
+primary transcript's annotation as `gene_missense_z` and the variant list serves in
+`annotation_extra` (`small_variant_review_acmg.pp2_gene_missense_z`, the owner's decision of
+2026-10-28). The source is `gene_profile` or `vcf`, and `null` with the value when neither holds
+one. Every field is frozen, `null` without a value, so a value that appears
 later is a change; a value JSONB cannot hold (NaN, infinity) is frozen as `null`. A snapshot taken
 before these values were frozen (CLIN-7) holds none of them; one taken before the consequence and
-the missense Z were holds `transcript_id`, `frequencies` and `in_silico` only.
+the missense Z were holds `transcript_id`, `frequencies` and `in_silico` only, and one taken before
+the source was (TRACE-15) holds the gene profile's missense Z without it.
 
 A structural variant or CNV has no annotation-set hash in ClickHouse, so its snapshot
 (`services/structural_variant_evidence.py`, taken on every save of a CNV scoring) holds the
@@ -193,9 +200,12 @@ the variant's current annotation:
   under it, so a refresh of the gene profiles can move it while the hash stays the same; it never
   moves another variant's classification, which froze none). `changed` names what moved:
   `clinvar`, `transcript_id` (the primary transcript), each consequence, frequency or in-silico
-  field by its name (`effect`, `impact`, `lof`, `gnomad_af`, `revel`, …), `gene_missense_z`, and
+  field by its name (`effect`, `impact`, `lof`, `gnomad_af`, `revel`, …), `gene_missense_z`,
+  `gene_missense_z_source` when PP2 reads the missense Z from the other source now (the gene's
+  profile gained or lost one: *gnomAD missense Z 4.20 (VCF) → 3.52 (gene profile)*), and
   `annotations` when the hash moved; `evidence_from` and `evidence_to` hold the transcript,
-  consequence, frequencies, in-silico scores and missense Z as frozen and as they are now;
+  consequence, frequencies, in-silico scores and missense Z with its source as frozen and as they
+  are now;
 - `unknown`: nothing is seen to have moved, but a hash is missing or a frozen group cannot be
   read, so the match cannot be verified. A stored snapshot that is not a JSON object, which the
   writer never stores, is compared as one that froze nothing, and so is `unknown` too (or
@@ -208,7 +218,9 @@ not whether it was an integer). A snapshot taken before the frequencies and in-s
 were frozen has `evidence_from` null and is compared by its hash and ClinVar significance alone,
 as before: it does not turn into drift. One taken before the consequence and the missense Z were
 is compared on its transcript, frequencies and in-silico scores: a consequence or missense Z it
-does not hold is never drift. The current values are read as a classification saved now would
+does not hold is never drift. One taken before the missense Z's source was is compared on the
+missense Z alone: once the gene's profile holds none and the VCF does, the value PP2 reads moved
+(*gnomAD missense Z 2.95 → 4.20*). The current values are read as a classification saved now would
 freeze them: a variant classified as a missense variant and no longer called one names its
 consequence and its missense Z as gone (*gnomAD missense Z 2.95 → n/a*), and one that became a
 missense variant names its consequence only. The check reads the missense Z of the family's
@@ -785,11 +797,15 @@ check. A small variant's entry names the frozen values that had moved, with the 
 (*REVEL 0.412 → 0.951*, *LoF LC → HC*, *gnomAD missense Z 2.95 → 3.52*), and each reported small
 variant shows, under *Evidence when classified*, the consequence, frequencies and in-silico scores
 its snapshot froze from the primary transcript and, in a sentence of its own, a missense variant's
-gene missense Z; a group the snapshot did not freeze is left out, so one frozen before CoGA froze
+gene missense Z with where PP2 read it (*From its gene's profile: gnomAD missense Z 3.52.*, *From
+the VCF's MISSENSE_Z, as its gene's profile held none: …*, or *Neither its gene's profile nor the
+VCF held a gnomAD missense Z.*; one frozen before the source was reads as the gene profile's, which
+it was); a group the snapshot did not freeze is left out, so one frozen before CoGA froze
 any of them shows its ClinVar significance and annotation version only. A version signed before a
 small-variant drift entry named what moved (CLIN-7) has its `drift` section listed as changed by
 the check while it holds such an entry, and so does one signed before the consequence and the
-missense Z were frozen: the entry the check computes again also holds them as they are now
+missense Z were frozen, or before the missense Z's source was (TRACE-15) while it holds an entry of
+a missense variant: the entry the check computes again also holds them as they are now
 (`evidence_to`).
 
 The release candidate's snapshot format is the first one CoGA reads: records signed by earlier

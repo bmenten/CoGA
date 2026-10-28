@@ -6,7 +6,7 @@ import type { ComponentProps } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
 import GenomeOverviewSidebar, { type GenomeTrackKey } from '../GenomeOverviewSidebar';
-import { CHROMS } from '../viewerShared';
+import { NUCLEAR_CHROMOSOMES } from '../../../lib/chromosomes';
 import type { ApiFamilyMember } from '../../../lib/apiTypes';
 
 type Props = ComponentProps<typeof GenomeOverviewSidebar>;
@@ -27,8 +27,9 @@ const TRACKS: Array<[key: GenomeTrackKey, label: string]> = [
   ['repeatExpansions', 'Repeat expansions'],
 ];
 
+// The genome overview's chromosomes: 1–22, X and Y (ENG-20).
 const allChroms = (on: boolean): Record<string, boolean> =>
-  Object.fromEntries(CHROMS.map((chrom) => [chrom, on]));
+  Object.fromEntries(NUCLEAR_CHROMOSOMES.map((chrom) => [chrom, on]));
 
 const renderSidebar = (overrides: Partial<Props> = {}): Props => {
   const props: Props = {
@@ -44,7 +45,7 @@ const renderSidebar = (overrides: Partial<Props> = {}): Props => {
       haplotypes: true,
       repeatExpansions: false,
     },
-    chromSelected: { ...allChroms(true), Y: false, MT: false },
+    chromSelected: { ...allChroms(true), Y: false },
     onToggleSample: vi.fn(),
     onToggleTrack: vi.fn(),
     onToggleChrom: vi.fn(),
@@ -119,8 +120,10 @@ describe('GenomeOverviewSidebar', () => {
     expect(props.onToggleSample).not.toHaveBeenCalled();
   });
 
-  // The mitochondrion is chrM, as the viewer header and the tracks name it (#602).
-  it('lists chr1–chr22, chrX, chrY and chrM, ticked from the chromosome selection', () => {
+  // Named as the viewer header and the tracks name them (#602). The mitochondrion is not
+  // offered: about 0.006 px wide on the overview, it is left out there as on the Circos plot,
+  // and the chromosome view's list and the mtDNA page show it (owner decision, 2026-10-28; ENG-20).
+  it('lists chr1–chr22, chrX and chrY, not chrM, ticked from the chromosome selection', () => {
     renderSidebar();
     const chromosomes = section('Chromosomes');
 
@@ -128,12 +131,11 @@ describe('GenomeOverviewSidebar', () => {
       ...Array.from({ length: 22 }, (_, index) => `chr${index + 1}`),
       'chrX',
       'chrY',
-      'chrM',
     ]);
     expect(within(chromosomes).getByRole('checkbox', { name: 'chr1' })).toBeChecked();
     expect(within(chromosomes).getByRole('checkbox', { name: 'chrX' })).toBeChecked();
     expect(within(chromosomes).getByRole('checkbox', { name: 'chrY' })).not.toBeChecked();
-    expect(within(chromosomes).getByRole('checkbox', { name: 'chrM' })).not.toBeChecked();
+    expect(within(chromosomes).queryByRole('checkbox', { name: 'chrM' })).not.toBeInTheDocument();
   });
 
   it('reports the bare chromosome name, without the chr prefix, when one is toggled', async () => {
@@ -142,9 +144,8 @@ describe('GenomeOverviewSidebar', () => {
 
     await user.click(screen.getByRole('checkbox', { name: 'chr7' }));
     await user.click(screen.getByRole('checkbox', { name: 'chrX' }));
-    await user.click(screen.getByRole('checkbox', { name: 'chrM' }));
 
-    expect(vi.mocked(props.onToggleChrom).mock.calls).toEqual([['7'], ['X'], ['MT']]);
+    expect(vi.mocked(props.onToggleChrom).mock.calls).toEqual([['7'], ['X']]);
   });
 
   it('selects or clears every chromosome through its own callback, not per-chromosome toggles', async () => {

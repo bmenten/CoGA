@@ -12,12 +12,6 @@ from .clickhouse_variant_queries import (
 )
 from .genotypes import HET, classify_genotype
 
-# Genotypes are stored as the VCF's GT field has them, unchecked (genotypes.py), so a file
-# can store a word such as "HET". classify_genotype reads it as no call; the compound-het
-# partner check below still reads "HET" as het, as _normalize_gt
-# (clickhouse_variant_queries) shows it on the variant list.
-_HET_WORDS = {"HET"}
-
 
 def _table_name(assembly_name: str, suffix: str) -> str:
     dataset = clickhouse_dataset_key(assembly_name)
@@ -138,7 +132,8 @@ def variants_share_gene(
 
 
 def _is_het_call(gt: str) -> bool:
-    return gt.upper() in _HET_WORDS or classify_genotype(gt) == HET
+    # As every filter reads a genotype: only VCF's allele notation is stored (CLIN-16).
+    return classify_genotype(gt) == HET
 
 
 def has_affected_het_call(

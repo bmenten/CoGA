@@ -551,6 +551,16 @@ const CARD_CONSUMED_EXTRA_KEYS = new Set([
   'alpha_missense_pathogenicity',
 ]);
 
+// annotation_extra keys the disclosure names in words rather than by the raw key. The VCF's own
+// MISSENSE_Z is stored under the annotation's gene_missense_z: as a raw key it read like the gene
+// profile's Missense Z in the In silico column, which PP2 reads first (TRACE-15).
+const EXTRA_KEY_LABELS: Record<string, string> = {
+  gene_missense_z: 'Missense Z (gnomAD, from the VCF)',
+};
+
+const annotationExtraLabel = (key: string): string =>
+  EXTRA_KEY_LABELS[key.toLowerCase()] ?? key.replace(/_/g, ' ');
+
 // Detail-disclosure annotations, built only when a card's "More annotations"
 // section is open (see openCardIds) so collapsed cards skip this per-render work.
 const buildVariantDetailData = (variant: SmallVariant) => {
@@ -1175,7 +1185,7 @@ export default function SmallVariantCards({
                       ))}
                       {additionalAnnotations.map(([label, value]) => (
                         <div key={label} className="variant-card-detail-row">
-                          <dt>{label.replace(/_/g, ' ')}</dt>
+                          <dt>{annotationExtraLabel(label)}</dt>
                           <dd>{String(value)}</dd>
                         </div>
                       ))}

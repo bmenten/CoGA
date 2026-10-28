@@ -11,9 +11,9 @@ The annotation-set hash is the authoritative drift key (it changes whenever any
 annotation changes); the ClinVar significance is reported as the human-readable
 specific when it is what moved, and so is each value the snapshot froze: the consequence,
 impact and LoF call, each population frequency and in-silico score (CLIN-7), and, for a
-missense variant, the gene's missense Z, which is the gene profile's and so is not under
-the hash: ``changed`` names what moved, ``evidence_from`` and ``evidence_to`` hold the
-values. Only the fields a snapshot froze are compared, so a snapshot frozen before a field
+missense variant, the gene's missense Z PP2 reads and its source, the gene profile's, which
+is not under the hash, else the VCF's own (TRACE-15): ``changed`` names what moved,
+``evidence_from`` and ``evidence_to`` hold the values. Only the fields a snapshot froze are compared, so a snapshot frozen before a field
 was (it holds none of its group) is never compared on it: one frozen before the
 frequencies were is compared by its hash and ClinVar significance alone, and one of a
 variant that is not a missense variant, which holds no missense Z, never drifts on its

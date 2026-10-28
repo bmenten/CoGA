@@ -298,6 +298,7 @@ describe('parseSignedReport', () => {
       frequencies: null,
       inSilico: null,
       geneConstraint: null,
+      geneConstraintSource: null,
     });
 
     // No ACMG criteria: the class its classification tag names; no evidence was frozen.
@@ -484,6 +485,38 @@ describe('parseSignedReport', () => {
     expect(describeFrozenEvidenceValues(without)).toBe(
       "Read from its primary transcript: consequence not annotated and impact MODERATE. From its gene's " +
         'profile: gnomAD missense Z not annotated.',
+    );
+  });
+
+  it('says where the frozen missense Z PP2 read came from (TRACE-15)', () => {
+    // PP2 reads the gene profile's missense Z, else the VCF's own MISSENSE_Z; the snapshot freezes
+    // the value with its source. One frozen before the source was holds the gene profile's.
+    const missenseZ = (gene_constraint: Record<string, unknown>) =>
+      parseSignedReport({
+        ...SNAPSHOT,
+        reported_variants: [
+          { variant_id: '17-43000000-A-G', tags: ['report'], evidence_snapshot: { gene_constraint } },
+        ],
+      })!.reportedVariants![0].evidence!;
+
+    const fromVcf = missenseZ({ gene_missense_z: 4.2, gene_missense_z_source: 'vcf' });
+    expect(fromVcf.geneConstraint).toEqual([{ label: 'gnomAD missense Z', value: '4.20' }]);
+    expect(fromVcf.geneConstraintSource).toBe('vcf');
+    expect(describeFrozenEvidenceValues(fromVcf)).toBe(
+      "From the VCF's MISSENSE_Z, as its gene's profile held none: gnomAD missense Z 4.20.",
+    );
+    const fromProfile = missenseZ({ gene_missense_z: 3.521, gene_missense_z_source: 'gene_profile' });
+    expect(describeFrozenEvidenceValues(fromProfile)).toBe("From its gene's profile: gnomAD missense Z 3.52.");
+    const earlier = missenseZ({ gene_missense_z: 3.521 });
+    expect(earlier.geneConstraintSource).toBe('gene_profile');
+    expect(describeFrozenEvidenceValues(earlier)).toBe("From its gene's profile: gnomAD missense Z 3.52.");
+    // Neither held one: the record says so, rather than "not annotated" in one of them.
+    const neither = missenseZ({ gene_missense_z: null, gene_missense_z_source: null });
+    expect(neither.geneConstraintSource).toBeNull();
+    expect(describeFrozenEvidenceValues(neither)).toBe("Neither its gene's profile nor the VCF held a gnomAD missense Z.");
+    // A value whose source the record does not name is not given one.
+    expect(describeFrozenEvidenceValues(missenseZ({ gene_missense_z: 3.6, gene_missense_z_source: 7 }))).toBe(
+      'gnomAD missense Z 3.60, from a source the record does not name.',
     );
   });
 
@@ -694,6 +727,35 @@ describe('the signed report’s wording', () => {
     expect(describeSmallVariantEvidenceChange(['gene_missense_z'], { gene_missense_z: 3.091 }, { gene_missense_z: 3.089 })).toBe(
       'gnomAD missense Z 3.091 → 3.089',
     );
+  });
+
+  it('names the source of a missense Z read from elsewhere (TRACE-15)', () => {
+    const profile = { gene_missense_z: 3.52, gene_missense_z_source: 'gene_profile' };
+    // The same value, read from the VCF now that the gene profile holds none.
+    expect(
+      describeSmallVariantEvidenceChange(['gene_missense_z_source'], profile, {
+        gene_missense_z: 3.52,
+        gene_missense_z_source: 'vcf',
+      }),
+    ).toBe('gnomAD missense Z 3.52 (gene profile) → 3.52 (VCF)');
+    // The value and its source.
+    expect(
+      describeSmallVariantEvidenceChange(
+        ['gene_missense_z', 'gene_missense_z_source'],
+        { gene_missense_z: 4.2, gene_missense_z_source: 'vcf' },
+        profile,
+      ),
+    ).toBe('gnomAD missense Z 4.20 (VCF) → 3.52 (gene profile)');
+    // Gone with the missense consequence: neither is read now.
+    expect(
+      describeSmallVariantEvidenceChange(['effect', 'gene_missense_z', 'gene_missense_z_source'], profile, {
+        effect: 'stop_gained',
+      }),
+    ).toBe('consequence n/a → stop_gained; gnomAD missense Z 3.52 (gene profile) → n/a');
+    // Only the value moved: as before, without the source.
+    expect(
+      describeSmallVariantEvidenceChange(['gene_missense_z'], profile, { ...profile, gene_missense_z: 2.95 }),
+    ).toBe('gnomAD missense Z 3.52 → 2.95');
   });
 
   it('reads a moved consequence, LoF call and gene missense Z in the drift a version was signed with', () => {

@@ -8,6 +8,7 @@ import type {
   VariantOut,
   VariantPage,
 } from '../../lib/apiSchema.generated';
+import { formatChromosomeLabel } from '../../lib/chromosomes';
 import { hasAltAllele } from '../../lib/genotypes';
 import { cssVar } from '../../lib/colors';
 import {
@@ -432,8 +433,9 @@ const SmallVariantTrack: React.FC<Props> = ({
       {tooltip && (
         <VizTooltip x={tooltip.x} y={tooltip.y}>
           <div>{tooltip.variant.gene || tooltip.variant.gene_id || 'Intergenic variant'}</div>
+          {/* The chromosome as the viewer names it (#602), however the variant is stored. */}
           <div>
-            {tooltip.variant.chr}:{tooltip.variant.start}
+            {formatChromosomeLabel(tooltip.variant.chr)}:{tooltip.variant.start}
             {tooltip.variant.ref || tooltip.variant.alt
               ? ` ${tooltip.variant.ref ?? ''}>${tooltip.variant.alt ?? ''}`
               : ''}{' '}
