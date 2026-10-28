@@ -8,8 +8,8 @@ from pydantic import BaseModel, Field
 from .common import (
     ApiDocumentModel,
 )
-from .genes import (
-    MonarchPhenotypeMatchOut,
+from .hpo import (
+    PhenotypeTermRefOut,
 )
 from .reviews import (
     SmallVariantCompoundHetReviewOut,
@@ -155,7 +155,7 @@ class VariantPriorityOut(BaseModel):
     phenotype_score: Optional[float] = None
     segregation_modes: List[str] = Field(default_factory=list)
     phenotype_gene: Optional[str] = None
-    phenotype_matches: List[MonarchPhenotypeMatchOut] = Field(default_factory=list)
+    phenotype_matches: List[PhenotypeTermRefOut] = Field(default_factory=list)
     rank: Optional[int] = None
 
 

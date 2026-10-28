@@ -9,6 +9,9 @@ from .common import (
     ApiDocumentModel,
     ApiId,
 )
+from .families import (
+    FamilyStructureCoupleUpdate,
+)
 
 
 class PedFamilyResult(BaseModel):
@@ -180,16 +183,11 @@ class ManualPedMemberCreate(BaseModel):
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
-class ManualPedCoupleCreate(BaseModel):
-    partners: List[str] = Field(min_length=2, max_length=2)
-    context: Optional[str] = None
-    metadata: Dict[str, Any] = Field(default_factory=dict)
-
-
 class ManualPedFamilyCreate(BaseModel):
     family_id: str = Field(min_length=1)
     members: List[ManualPedMemberCreate] = Field(min_length=1)
-    couples: List[ManualPedCoupleCreate] = Field(default_factory=list)
+    # A couple as the structure edit takes one: the same two partners, context and metadata.
+    couples: List[FamilyStructureCoupleUpdate] = Field(default_factory=list)
     project_id: Optional[str] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
 

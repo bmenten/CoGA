@@ -281,10 +281,41 @@ describe('FamilyStructuralVariantsPage', () => {
 
       const [path, body] = (api.put as unknown as Mock).mock.calls.at(-1)!;
       expect(path).toBe('/families/F1/structural-variants/v1/review');
-      expect(JSON.parse(JSON.stringify(body))).toMatchObject({ source: 'sniffles', cnv_acmg: { kind: 'loss' } });
+      const sent = JSON.parse(JSON.stringify(body));
+      expect(sent).toMatchObject({ source: 'sniffles', cnv_acmg: { kind: 'loss' } });
+      // A small variant's ACMG classification and compound-het review: the SV route takes
+      // neither (#853).
+      expect(sent).not.toHaveProperty('acmg');
+      expect(sent).not.toHaveProperty('compound_het');
     } finally {
       get.mockImplementation(workingGet);
     }
+  });
+
+  it("saves the review dialog without a small variant's ACMG or compound-het fields (#853)", async () => {
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MemoryRouter initialEntries={['/families/F1/structural-variants']}>
+          <Routes>
+            <Route path="/families/:familyId/structural-variants" element={<FamilyStructuralVariantsPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(screen.getByText(/Showing 1/)).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: /tags & notes/i }));
+    fireEvent.change(await screen.findByPlaceholderText('Note or rationale'), {
+      target: { value: 'Breakpoints checked.' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /save review/i }));
+    await waitFor(() => expect(screen.getByText(/Variant review saved/i)).toBeInTheDocument());
+
+    const [path, body] = (api.put as unknown as Mock).mock.calls.at(-1)!;
+    expect(path).toBe('/families/F1/structural-variants/v1/review');
+    const sent = JSON.parse(JSON.stringify(body));
+    expect(sent).toMatchObject({ note: 'Breakpoints checked.', tags: [] });
+    expect(sent).not.toHaveProperty('acmg');
+    expect(sent).not.toHaveProperty('compound_het');
   });
 
   it('searches the region flags left ticked, each as its own parameter', async () => {

@@ -3559,6 +3559,44 @@ def test_a_nipt_record_signed_before_the_section_names_it_not_compared(monkeypat
     assert out["not_captured"] == []
 
 
+def test_a_nipt_record_signed_before_its_coverage_notes_names_them_not_compared(monkeypatch) -> None:
+    # The notes of the NIPT coverage check over the coverage tracks are frozen since TRACE-17
+    # (owner, 2026-10-28). A record signed before holds none: the rest of its NIPT section is
+    # compared, and the notes are named as not compared, never as a change.
+    notes = {
+        "gene": None,
+        "panel": None,
+        "regions": [{"label": "GENE1", "chrom": "7", "start": 10, "end": 20}],
+        "notes": ["CFDNA1: the coverage BED does not declare whether it holds read depth or a log2 ratio; it is not read as depth."],
+    }
+    _patch_check(monkeypatch, reviews=[_REVIEW])
+    _with_sections(monkeypatch, nipt=_nipt_section())
+    older = asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
+    assert "coverage_notes" not in older["nipt"]
+    _with_sections(monkeypatch, nipt={**_nipt_section(), "coverage_notes": notes})
+
+    def _check(signed: dict) -> dict:
+        return asyncio.run(
+            rss.compare_report_with_latest_signout(_CheckSession(_signed_row(signed)), family_id="FAM1", user=_user())
+        )
+
+    out = _check(older)
+    assert (out["matches"], out["changed_sections"], out["not_compared"]) == (True, [], ["nipt.coverage_notes"])
+    # What it holds is compared: a fetal fraction moved since is a change, the notes still not compared.
+    moved = _nipt_section()
+    moved["fetal_fraction"] = {**moved["fetal_fraction"], "ff": 0.13}
+    _with_sections(monkeypatch, nipt={**moved, "coverage_notes": notes})
+    out = _check(older)
+    assert (out["matches"], out["changed_sections"], out["not_compared"]) == (False, ["nipt"], ["nipt.coverage_notes"])
+    # A record that holds them is compared on them: a note gone since is a change.
+    _with_sections(monkeypatch, nipt={**_nipt_section(), "coverage_notes": notes})
+    signed = asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
+    assert (_check(signed)["matches"], _check(signed)["not_compared"]) == (True, [])
+    _with_sections(monkeypatch, nipt={**_nipt_section(), "coverage_notes": {**notes, "notes": []}})
+    out = _check(signed)
+    assert (out["matches"], out["changed_sections"], out["not_compared"]) == (False, ["nipt"], [])
+
+
 def test_the_check_of_a_family_that_is_no_nipt_family_names_no_nipt_section(monkeypatch) -> None:
     # Neither the record nor the family's data holds it: not compared, and not named.
     _patch_check(monkeypatch, reviews=[_REVIEW])

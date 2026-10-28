@@ -308,7 +308,6 @@ def api(monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str, Any]]:
     monkeypatch.setattr(families_router, "delete_individual_hpo_annotation", recorder("delete_hpo"))
     monkeypatch.setattr(families_router, "list_family_hpo_annotations", recorder("list_hpo", []))
     monkeypatch.setattr(small_variants_router, "save_small_variant_filter_preset_record", recorder("save_preset", preset))
-    monkeypatch.setattr(small_variants_router, "delete_small_variant_filter_preset_for_owner", recorder("delete_preset"))
     monkeypatch.setattr(
         structural_variants_router,
         "save_structural_variant_filter_preset_record",
@@ -394,13 +393,12 @@ def test_a_reader_saves_and_deletes_their_own_filter_presets(api: dict) -> None:
     preset_id = "00000000-0000-4000-8000-0000000000e2"
     answers = [
         client.post("/api/families/FAM_B/small-variant-filter-presets", json={"name": "mine"}, headers=headers),
-        client.delete(f"/api/families/FAM_B/small-variant-filter-presets/{preset_id}", headers=headers),
         client.post("/api/families/FAM_B/structural-variant-filter-presets", json={"name": "mine"}, headers=headers),
         client.delete(f"/api/auth/small-variant-filter-presets/{preset_id}", headers=headers),
     ]
 
-    assert [answer.status_code for answer in answers] == [200, 204, 200, 204]
-    assert [name for name, _call in api["reached"]] == ["save_preset", "delete_preset", "save_sv_preset", "delete_my_preset"]
+    assert [answer.status_code for answer in answers] == [200, 200, 204]
+    assert [name for name, _call in api["reached"]] == ["save_preset", "save_sv_preset", "delete_my_preset"]
 
 
 def test_a_reader_is_refused_the_audit_trail_and_an_analyst_reads_it(api: dict) -> None:
@@ -424,7 +422,6 @@ def test_the_user_says_which_of_their_projects_they_only_read(api: dict) -> None
 OWN_DATA_ROUTES = {
     ("DELETE", "/api/auth/small-variant-filter-presets/{preset_id}"),
     ("POST", "/api/families/{family_id}/small-variant-filter-presets"),
-    ("DELETE", "/api/families/{family_id}/small-variant-filter-presets/{preset_id}"),
     ("POST", "/api/families/{family_id}/structural-variant-filter-presets"),
     ("DELETE", "/api/families/{family_id}/structural-variant-filter-presets/{preset_id}"),
     ("POST", "/api/ui-events"),

@@ -63,7 +63,9 @@ table differs.
   the same drift check. The save reuses `PUT /families/{family_id}/structural-variants/{variant_id}/review`
   and names in `source` the caller of the row the classification was made on: callers that call one
   event under one id share its review, and the evidence frozen is that caller's row. A save that names
-  no caller takes the SV's one row, and is refused (`422`) when several callers call it.
+  no caller takes the SV's one row, and is refused (`422`) when several callers call it. The route
+  takes no `acmg` or `compound_het`, a small variant's (`StructuralVariantReviewUpdate`); a client
+  that still sends them is answered as before, without them.
 - Only a save is checked. A classification stored before these checks is read and served as it was
   written, and a save that leaves `acmg` or `cnv_acmg` out keeps it.
 - Every list of small variants serves each review with the columns of a single-review read

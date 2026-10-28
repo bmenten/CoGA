@@ -25,6 +25,7 @@ from .hpo_service import (
 from .family_package_common import CORE_DATASETS, HAPLOTYPE_ORIGIN_ROLES, IDENTIFIER_ISSUE_CODES, LONG_READ_DATASET_ROLES, PCF_ROLE_KEYS, QC_FAMILY_ROLES, FamilyPackageBundle, ManifestDataset, PackageManifest, ParsedPed, SUPPORTED_DATASETS, _display_path, _is_uncompressed_vcf, _issue, _package_path_or_none, _resolve_package_path, _vcf_index_candidates, family_id_issue, read_vcf_sample_columns, sample_id_issues, vcf_holds_a_data_line
 from .family_package_manifest import _manifest_added_member_entries, _manifest_added_ped_rows, _manifest_derived_statuses, _manifest_pgt_metadata, _manifest_relationship_issues, _manifest_roi_value, _normalize_manifest_samples, _parse_ped_text_strict
 from .family_package_source import _ensure_authorized_package_path, _find_manifest, _parse_manifest, manifest_link_out_of_package, manifest_outside_package_issue, package_folder_link_issues, package_folder_path, staged_package_source
+from .family_package_nipt import nipt_vcf_column_issue
 from .nipt import MONOGENIC_NIPT_ANALYSIS_TYPE
 from .nipt_target_coverage import target_table_missing_columns
 from .coverage_content import COVERAGE_CONTENT_KEY, DECLARED_COVERAGE_CONTENTS
@@ -440,6 +441,19 @@ def _validate_per_sample_snv_dataset(
                         path=vcf_path,
                     )
                 )
+            elif analysis_type == MONOGENIC_NIPT_ANALYSIS_TYPE and warnings is not None:
+                # The import reads a NIPT file's one column as the entry's sample whatever its
+                # name: a column named otherwise is warned of, not refused (CLIN-13).
+                column_issue = nipt_vcf_column_issue(
+                    root,
+                    sample_id,
+                    entry,
+                    vcf_path=vcf_path,
+                    column=columns[0],
+                    family_sample_ids=ped_sample_ids,
+                )
+                if column_issue is not None:
+                    warnings.append(column_issue)
     return FamilyImportDatasetSummary(
         dataset_type="snv",
         enabled=True,

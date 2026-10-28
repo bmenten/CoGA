@@ -5,8 +5,8 @@ it received into ``CAST(:x AS uuid)`` answered a non-UUID in its path or query s
 500 (the raw-file download and verify, the import job, the HPO annotation and NIPT artifact
 routes); a route that checked the value with ``uuid.UUID`` and then bound it as received did
 the same for a spelling ``uuid.UUID`` reads and asyncpg does not, such as ``{…}`` or
-``urn:uuid:…`` (the panel, preset, user, project, species and clinical CNV routes, and the
-panel filter of the variant pages). Each now reads the value with ``canonical_uuid`` or
+``urn:uuid:…`` (the panel, preset, user, project and clinical CNV routes, and the panel
+filter of the variant pages). Each now reads the value with ``canonical_uuid`` or
 ``require_uuid``:
 
 * a value that spells no UUID names no record, and is answered as an unknown record is (the
@@ -244,7 +244,6 @@ ROUTES: list[tuple[str, str, Any, tuple[int, Any], Any]] = [
     ("DELETE", "/api/admin/nipt/artifacts/{v}", None, (404, {"detail": "Artifact not found"}), SAME),
     ("GET", "/api/admin/nipt/artifacts?assembly_id={v}", None, (200, []), SAME),
     ("DELETE", "/api/auth/small-variant-filter-presets/{v}", None, (404, {"detail": "Preset not found"}), SAME),
-    ("DELETE", "/api/families/FAM1/small-variant-filter-presets/{v}", None, (404, {"detail": "Preset not found"}), SAME),
     (
         "DELETE",
         "/api/families/FAM1/structural-variant-filter-presets/{v}",
@@ -252,7 +251,6 @@ ROUTES: list[tuple[str, str, Any, tuple[int, Any], Any]] = [
         (404, {"detail": "Preset not found"}),
         SAME,
     ),
-    ("GET", "/api/assemblies/{v}", None, (200, []), (400, {"detail": "Invalid species id"})),
     ("PATCH", "/api/auth/users/{v}", {}, (404, {"detail": "User not found"}), (400, {"detail": "Invalid user id"})),
     (
         "GET",

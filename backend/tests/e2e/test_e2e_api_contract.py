@@ -100,6 +100,7 @@ async def _collect_api_responses(root: Path) -> dict:
         r["shared"] = _cap(await ac.get(f"/api/families/{FAMILY}/shared-structural-variant-counts"))
 
         r["bed_json"] = _cap(await ac.get("/api/bed/PROBAND/coverage", params={"chrom": "1", "format": "json"}))
+        r["bed_default"] = _cap(await ac.get("/api/bed/PROBAND/coverage", params={"chrom": "1"}))
         r["bed_text"] = _cap(await ac.get("/api/bed/PROBAND/coverage", params={"chrom": "1", "format": "text"}), as_json=False)
         r["bed_bad"] = _cap(await ac.get("/api/bed/PROBAND/not-a-track", params={"chrom": "1"}), as_json=False)
         r["bed_empty"] = _cap(await ac.get("/api/bed/PROBAND/coverage", params={"chrom": "22", "format": "json"}), as_json=False)
@@ -298,16 +299,19 @@ def test_the_family_pedigree_text_is_its_stored_structure(api):
 # ------------------------------------------------------------------------- BED
 
 
-def test_bed_coverage_json_and_text(api):
+def test_bed_coverage_answers_json_only(api):
     j = _resp(api, "bed_json")
     assert j["status"] == 200, j["text"]
     body = j["json"]
     assert body["bed_type"] == "coverage"
     assert body["items"] and {"chr", "start", "end", "value"} <= set(body["items"][0])
 
+    # Without format the same JSON: the text format, once the default, was removed (ENG-5),
+    # and a read that asks for it is refused.
+    d = _resp(api, "bed_default")
+    assert (d["status"], d.get("json")) == (200, body), d["text"]
     t = _resp(api, "bed_text")
-    assert t["status"] == 200, t["text"]
-    assert t["text"].splitlines()[0].startswith("chr\tstart\tend")
+    assert t["status"] == 422, t["text"]
 
 
 def test_bed_invalid_type_and_empty_region(api):

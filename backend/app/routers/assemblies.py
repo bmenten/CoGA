@@ -109,17 +109,6 @@ async def list_recent_reference_activity(
     return await list_recent_reference_imports(session, limit=limit)
 
 
-@router.get("/{species_id}", response_model=List[AssemblyOut])
-async def list_assemblies(
-    species_id: str,
-    session: AsyncSession = Depends(get_postgres_session),
-    user: CurrentUser = Depends(get_current_user),
-) -> List[AssemblyOut]:
-    del user
-    species_uuid = require_uuid(species_id, "Invalid species id")
-    return await list_assembly_records(session, species_id=species_uuid)
-
-
 @router.post("/", response_model=AssemblyOut, status_code=201)
 async def create_assembly(
     assembly_in: AssemblyCreate,

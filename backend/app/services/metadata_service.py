@@ -601,43 +601,21 @@ async def get_assembly_mapping(session: AsyncSession, assembly_id: str) -> dict[
     return dict(row)
 
 
-async def list_assembly_records(
-    session: AsyncSession,
-    *,
-    species_id: str | None = None,
-) -> list[AssemblyOut]:
-    if species_id is None:
-        result = await session.execute(
-            text(
-                """
-                SELECT
-                    id::text AS id,
-                    species_id::text AS species_id,
-                    assembly_name,
-                    version,
-                    release_date
-                FROM assemblies
-                ORDER BY assembly_name, version
-                """
-            )
+async def list_assembly_records(session: AsyncSession) -> list[AssemblyOut]:
+    result = await session.execute(
+        text(
+            """
+            SELECT
+                id::text AS id,
+                species_id::text AS species_id,
+                assembly_name,
+                version,
+                release_date
+            FROM assemblies
+            ORDER BY assembly_name, version
+            """
         )
-    else:
-        result = await session.execute(
-            text(
-                """
-                SELECT
-                    id::text AS id,
-                    species_id::text AS species_id,
-                    assembly_name,
-                    version,
-                    release_date
-                FROM assemblies
-                WHERE species_id = CAST(:species_id AS uuid)
-                ORDER BY assembly_name, version
-                """
-            ),
-            {"species_id": species_id},
-        )
+    )
     return [_assembly_out_from_mapping(dict(row)) for row in result.mappings().all()]
 
 
