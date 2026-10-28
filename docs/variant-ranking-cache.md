@@ -258,9 +258,39 @@ aggregate over the rows the view reads, and for comparison a member's track (its
 
 Before and after keep the same rows here (1,175 and 72, 6,302 and 335), as this cohort annotates
 a variant only with the genes that hold it; a variant reached by a gene alone is shown by
-`e2e/test_e2e_track_availability_panel.py`. The availability now costs about the same over any
-window. ClickHouse's analyzer plans the aggregate around the join less well than the track's
-count: with `enable_analyzer=0` the 10 Mb window of the smaller family takes 0.045 s.
+`e2e/test_e2e_track_availability_panel.py`. The availability then cost about the same over any
+window. ClickHouse's analyzer planned the aggregate less well than the track's count: with
+`enable_analyzer=0` the 10 Mb window of the smaller family took 0.045 s.
+
+That was the aggregate's shape (ENG-19). It wrapped the family's matching rows in a subquery,
+ARRAY JOINed their calls and grouped the samples outside it, and under the Mendeliome the
+analyzer took some 36 ms to analyse that query, three times as long as a member's track count
+with the same panel clause (11 ms), whatever the window: in a small window, most of the
+availability's time. The aggregate is one SELECT over the family's rows now: each matching
+row's visible samples with an ALT allele, picked from its call arrays (`arrayFilter`), and the
+distinct samples. Its base-match probe, which runs when the search sends sample filters, reads
+the rows in one SELECT too. Measured on the throwaway stack (clickhouse-server 26.8, the image
+CI runs, on a shared machine): the two shapes alternating, best and median of 9 runs, in
+seconds, on a cohort built like the one above (19,157 genes, 5,287 of them the Mendeliome's,
+with 42,296 loci; families of 190,000 and 1,000,000 rows).
+
+| The availability's aggregate with the Mendeliome | Subquery, ARRAY JOIN (before) | One SELECT (now) |
+| --- | --- | --- |
+| 190,000 rows, the whole of chromosome 1 | 0.067 / 0.072 | 0.042 / 0.043 |
+| 190,000 rows, 10 Mb of chromosome 1 | 0.062 / 0.063 | 0.036 / 0.036 |
+| 190,000 rows, 100 kb of chromosome 1 | 0.062 / 0.068 | 0.038 / 0.039 |
+| 1,000,000 rows, the whole of chromosome 1 | 0.085 / 0.087 | 0.059 / 0.061 |
+| 1,000,000 rows, 10 Mb of chromosome 1 | 0.064 / 0.065 | 0.037 / 0.038 |
+| 1,000,000 rows, 100 kb of chromosome 1 | 0.066 / 0.067 | 0.038 / 0.040 |
+| 1,000,000 rows, 10 Mb, with a de novo search's sample filters | 0.085 / 0.089 | 0.055 / 0.061 |
+| The analyzer's time, median run (ms) | 35 to 43 | 11 to 17 |
+
+Both shapes offered the same members in every case measured: the Mendeliome, a panel of two
+genes and no panel, the whole chromosome and windows of 10 Mb, 1 Mb and 100 kb, with and without
+sample filters. With two genes or no panel either shape takes 0.003 to 0.03 s. The old analyzer
+took 0.046 to 0.070 s over the subquery shape, and as long as the analyzer over one SELECT; the
+query keeps the default analyzer. `integration/test_track_availability_presence_integration.py`
+holds the analyzer's time over the aggregate within twice its time over a member's track count.
 
 ### Structural variants
 

@@ -107,6 +107,11 @@ def _family() -> FamilyMetadataContext:
     )
 
 
+# The presence's per-sample aggregate: the one query that binds the genotypes with an ALT
+# allele, whatever its shape.
+_PRESENCE = "%(track_nonref_gts)s"
+
+
 class _ClickHouse:
     """ClickHouse faked at its edge: every query is recorded with its parameters and answered
     with no rows, but for the presence's per-sample aggregate, which answers ``present``."""
@@ -117,12 +122,12 @@ class _ClickHouse:
 
     async def execute(self, query: str, params: dict[str, Any]) -> list[tuple[Any, ...]]:
         self.sent.append((query, dict(params)))
-        if "ARRAY JOIN sids AS sid" in query:
+        if _PRESENCE in query:
             return [(sample,) for sample in self.present]
         return []
 
     def presence_queries(self) -> list[tuple[str, dict[str, Any]]]:
-        return [(query, params) for query, params in self.sent if "ARRAY JOIN sids AS sid" in query]
+        return [(query, params) for query, params in self.sent if _PRESENCE in query]
 
     def small_variant_queries(self) -> list[str]:
         return [query for query, _params in self.sent if "SNV_INDEL" in query]
@@ -322,3 +327,34 @@ async def test_without_a_panel_the_presence_reads_no_panel(monkeypatch: pytest.M
     assert _panel_part(clauses, params) == ([], {})
     assert not [name for name in params if name.startswith(("panel_", "include_region"))]
     assert len(clickhouse.presence_queries()) == 1
+
+
+# --------------------------------------------------------------------------- #
+# The presence is one SELECT over the family's rows (ENG-19)
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("view", list(_VIEWS))
+async def test_the_presence_is_one_select_over_the_familys_rows(monkeypatch: pytest.MonkeyPatch, view: str) -> None:
+    # The presence wrapped the family's matching rows in a subquery, ARRAY JOINed and grouped
+    # outside it. Under a Mendeliome-sized panel ClickHouse's analyzer took some 36 ms to
+    # analyse that query, where a member's track count, one SELECT with the same panel
+    # clause, takes 11 ms, whatever the window: in a small window most of the query's time.
+    # It now picks each matching row's samples with an ALT allele from its call arrays
+    # (arrayFilter) and keeps the distinct samples, in one SELECT over the entries table.
+    # That it offers the members it offered is pinned on real ClickHouse
+    # (integration/test_track_availability_presence_integration.py and
+    # e2e/test_e2e_track_availability_panel.py).
+    clickhouse, _built = _serve(monkeypatch, _mendeliome_sized(), present=("sample-father",))
+
+    assert await _availability(view) == {"PROBAND": False, "MOTHER": False, "FATHER": True}
+
+    ((query, _params),) = clickhouse.presence_queries()
+    flat = " ".join(query.split())
+    # What precedes the WHERE, where the panel clause brings its own subqueries.
+    head = flat.split(" WHERE ", 1)[0]
+    assert head.startswith("SELECT DISTINCT arrayJoin(arrayFilter( (sid, gt) -> sid IN %(track_visible_ids)s AND ")
+    assert re.search(r"e\.calls\.sampleId, e\.calls\.gt \)\) AS sid FROM \S+\.`GRCh38/SNV_INDEL/entries` AS e$", head)
+    assert head.count(" FROM ") == 1 and "ARRAY JOIN" not in head
+    assert "GROUP BY sid" not in flat

@@ -1,7 +1,7 @@
 // The genome-wide haplotype track (#588): the risk haplotype is inferred at the ROI and
 // drawn only on the ROI's chromosome, where its homolog label means something; without
 // an ROI no risk haplotype is drawn and no risk state is claimed.
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import type { ReactElement } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -153,5 +153,67 @@ describe('GenomeHaplotypeTrack risk haplotype (#588)', () => {
     const track_ = container.querySelector('[data-risk-state]');
     expect(track_?.getAttribute('data-risk-state')).toBe('not_assessed');
     expect(track_?.className).not.toMatch(/haplotype-track--affected_or_at_risk|haplotype-track--carrier/);
+  });
+});
+
+// ENG-20, left by #1023 and #1026: the track looked a block up in the layout under its stored
+// chromosome name, and the layout names a chromosome as normalizeChrom does (`1`, `X`), so a
+// block stored as `x` or `chrX` was not drawn. Latent: the blocks are stored without `chr`.
+describe('GenomeHaplotypeTrack places a block however its chromosome is stored', () => {
+  // The genome overview's layout: chr1 and chrX, 1,000 bp each, on a 200 px track: X is x 100–200.
+  const LAYOUT_1_X = {
+    offsets: { '1': 0, X: 1000 },
+    lengths: { '1': 1000, X: 1000 },
+    total: 2000,
+    chroms: ['1', 'X'],
+  };
+
+  // The x of each rectangle the last draw filled: one per lane of a block.
+  let filled: number[] = [];
+
+  beforeEach(() => {
+    filled = [];
+    vi.mocked(HTMLCanvasElement.prototype.getContext).mockImplementation(
+      () =>
+        ({
+          clearRect: () => {
+            filled = [];
+          },
+          fillRect: (x: number) => {
+            filled.push(x);
+          },
+          beginPath: vi.fn(),
+          moveTo: vi.fn(),
+          lineTo: vi.fn(),
+          stroke: vi.fn(),
+          setLineDash: vi.fn(),
+          fillText: vi.fn(),
+        }) as unknown as CanvasRenderingContext2D,
+    );
+  });
+
+  it.each(['X', 'x', 'chrX', 'chrx'])('draws a block stored on %s on chrX', async (chr) => {
+    trackFetchMock.mockResolvedValue({ samples: [{ sample: 'CHILD', segments: segments(chr) }] });
+    renderWithClient(
+      <GenomeHaplotypeTrack
+        urls={['/api/families/F1/haplotypes/batch?chr=1&chr=X']}
+        sampleId="CHILD"
+        role="proband"
+        affected={false}
+        sex="female"
+        layout={LAYOUT_1_X}
+        width={200}
+        height={20}
+        chroms={LAYOUT_1_X.chroms}
+      />,
+    );
+
+    expect(
+      await screen.findByRole('img', {
+        name: 'Haplotypes of CHILD across 2 chromosomes; risk state: not assessed, no region of interest',
+      }),
+    ).toBeInTheDocument();
+    // Both of her lanes, over the whole of chrX.
+    await waitFor(() => expect(filled).toEqual([100, 100]));
   });
 });

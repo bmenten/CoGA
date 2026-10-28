@@ -5,9 +5,10 @@ With local storage a family's files lie in two folders of the data directory: th
 serve a family's files from there look a file up only inside those folders: the aligned reads
 (``routers/cram.py``), the CNV caller's signal files (``routers/signal_tracks.py``) and the
 sequencing-QC report (``routers/family_qc_reports.py``). What names the file is data: the
-family and sample IDs come from the request, and the ID rule lets them hold ``/`` and ``..``
-(SEC-15); a recorded path comes back from ``samples.metadata``, where an edited row can hold
-``..`` or an absolute path.
+family and sample IDs come from the request, and may hold ``/`` and ``..`` (the ID rule refuses
+both since SEC-15, but a request is not held to it, and an ID stored before may hold them); a
+recorded path comes back from ``samples.metadata``, where an edited row can hold ``..`` or an
+absolute path.
 
 So a path is built and checked as a string first: joined to the family's folder, normalised
 (``os.path.normpath``) and dropped when it leaves that folder, before anything is looked up by

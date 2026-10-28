@@ -28,7 +28,8 @@ import type {
 // for evidence strings); `alpha_missense_class` the AlphaMissense class as the variant is served
 // with it (likely_benign, ambiguous, likely_pathogenic): the value an ACMG classification's
 // evidence snapshot freezes; `chr` and `hemizygous_in_males` the locus, for the sex-aware de
-// novo rule (#621).
+// novo rule (#621); `gene_missense_z` the gene profile's gnomAD missense Z and
+// `annotation_extra` the VCF's own MISSENSE_Z (its `gene_missense_z`), which PP2 reads.
 export type AcmgVariantInput = Partial<
   Pick<
     VariantOut,
@@ -40,6 +41,7 @@ export type AcmgVariantInput = Partial<
     | 'gnomad_af'
     | 'gnomad_hom_count'
     | 'gene_missense_z'
+    | 'annotation_extra'
     | 'revel'
     | 'spliceai_max'
     | 'alpha_missense_class'
@@ -68,7 +70,9 @@ const SPLICEAI_PP3_MODERATE = 0.5;
 const SPLICEAI_PP3_SUPPORTING = 0.2;
 const SPLICEAI_NO_IMPACT = 0.1; // below this, no predicted splice effect
 
-// gnomAD missense-Z constraint for PP2.
+// gnomAD missense-Z constraint for PP2: a Z of 3.09 or more stands in for a gene with few benign
+// missense variants, the threshold ClinGen's Sequence Variant Interpretation working group
+// discusses for PP2.
 const PP2_MISSENSE_Z = 3.09;
 
 // PP4 phenotype-specificity (Monarch Resnik best-match-average score in [0, 1]).
@@ -122,6 +126,29 @@ function isRecessiveGene(gene?: AcmgGeneContext): boolean {
 
 export function fmtAf(af: number): string {
   return af < 1e-4 ? af.toExponential(1) : `${(af * 100).toPrecision(3)}%`;
+}
+
+// Where the gnomAD missense Z PP2 reads comes from: the gene profile (the value the variant card
+// shows as Missense Z and the ranking reads), else the VCF's own MISSENSE_Z, which the variant list
+// serves in annotation_extra under the annotation's gene_missense_z (TRACE-15, the owner's
+// decision of 2026-10-28). An ACMG save freezes the same value and source with the classification
+// (backend small_variant_review_acmg.pp2_gene_missense_z).
+export type MissenseZSource = 'gene_profile' | 'vcf';
+
+const MISSENSE_Z_SOURCE_NOTE: Record<MissenseZSource, string> = {
+  gene_profile: 'from the gene profile',
+  vcf: "from the VCF's MISSENSE_Z: the gene profile holds none",
+};
+
+const finiteNumber = (value: unknown): number | null =>
+  typeof value === 'number' && Number.isFinite(value) ? value : null;
+
+/** The gnomAD missense Z PP2 reads, and its source; null when neither holds a finite number. */
+export function pp2MissenseZ(variant: AcmgVariantInput): { value: number; source: MissenseZSource } | null {
+  const profile = finiteNumber(variant.gene_missense_z);
+  if (profile !== null) return { value: profile, source: 'gene_profile' };
+  const vcf = finiteNumber(variant.annotation_extra?.gene_missense_z);
+  return vcf !== null ? { value: vcf, source: 'vcf' } : null;
 }
 
 // ---- Molecular consequence class → criteria that cannot apply ----
@@ -289,9 +316,18 @@ export function evaluateAcmg(
     notApplicable('BS2', 'No homozygotes observed in gnomAD.');
   }
 
-  // ---- PP2: missense in a constrained gene ----
-  if (isMissense(effect) && (variant.gene_missense_z ?? 0) >= PP2_MISSENSE_Z) {
-    add('PP2', 'supporting', `Missense in a missense-constrained gene (gnomAD missense Z = ${variant.gene_missense_z}).`);
+  // ---- PP2: missense in a gene with few benign missense variants ----
+  // The gene's gnomAD missense Z stands in for the first half of PP2. Whether missense variants
+  // are a common mechanism of disease in the gene, its second half, is the analyst's judgement:
+  // PP2 is offered for review, never applied, and says which missense Z it read (TRACE-15).
+  const missenseZ = isMissense(effect) ? pp2MissenseZ(variant) : null;
+  if (missenseZ && missenseZ.value >= PP2_MISSENSE_Z) {
+    add(
+      'PP2',
+      'supporting',
+      `Missense variant in a gene with gnomAD missense Z ${missenseZ.value.toFixed(2)} (${MISSENSE_Z_SOURCE_NOTE[missenseZ.source]}), ${PP2_MISSENSE_Z} or more: few benign missense variants. Whether missense variants are a common mechanism of disease in this gene is your judgement — review before applying.`,
+      'consider',
+    );
   }
 
   // ---- PP3 / BP4: in-silico evidence (REVEL preferred, then AlphaMissense) ----

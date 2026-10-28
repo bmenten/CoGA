@@ -10,7 +10,7 @@ import { FamilyReadOnlyContext } from '../../../lib/familyAccess';
 import type { StructuralVariant } from '../structuralVariantSearch';
 import type { SmallVariantTagDefinition } from '../smallVariantSearch';
 import { tagDefinition } from '../../../test/tagDefinitions';
-import { genotype, structuralVariant } from '../../../test/variants';
+import { genotype, review as reviewOf, structuralVariant } from '../../../test/variants';
 
 const ALL_COLUMNS = {
   chr: true,
@@ -171,7 +171,7 @@ describe('StructuralVariantTable', () => {
 
   it('toggles the quick tags, shows which are on, and leaves them off while a save is pending', () => {
     const { handlers, rerender } = renderTable({
-      variants: [sv({ review: { tags: ['review', 'report'] } as StructuralVariant['review'] })],
+      variants: [sv({ review: reviewOf({ variant_id: 'sv1', tags: ['review', 'report'] }) })],
     });
     const review = screen.getByRole('button', { name: 'Review' });
     const exclude = screen.getByRole('button', { name: 'Exclude' });
@@ -217,7 +217,7 @@ describe('StructuralVariantTable', () => {
             familyId="F1"
             linkSearch=""
             members={[]}
-            variants={[sv({ review: { tags: ['report'] } as StructuralVariant['review'] })]}
+            variants={[sv({ review: reviewOf({ variant_id: 'sv1', tags: ['report'] }) })]}
             sortKey="start"
             sortAsc
             visible={ALL_COLUMNS}
@@ -243,11 +243,12 @@ describe('StructuralVariantTable', () => {
     renderTable({
       variants: [
         sv({
-          review: {
+          review: reviewOf({
+            variant_id: 'sv1',
             tags: ['excluded', 'mosaic'],
             classification: 'VUS - class 3',
             note: 'Breakpoint in intron 10.',
-          } as StructuralVariant['review'],
+          }),
         }),
       ],
     });
@@ -261,7 +262,7 @@ describe('StructuralVariantTable', () => {
 
   it('shows a deleted tag the review still holds by its label, marked and dashed', () => {
     renderTable({
-      variants: [sv({ review: { tags: ['probe_x'] } as StructuralVariant['review'] })],
+      variants: [sv({ review: reviewOf({ variant_id: 'sv1', tags: ['probe_x'] }) })],
       tags: [
         ...TAGS,
         tagDefinition({
@@ -285,7 +286,11 @@ describe('StructuralVariantTable', () => {
     renderTable({
       variants: [
         sv({
-          review: { tags: ['acmg_class_4'], classification: 'Likely Pathogenic - class 4' } as StructuralVariant['review'],
+          review: reviewOf({
+            variant_id: 'sv1',
+            tags: ['acmg_class_4'],
+            classification: 'Likely Pathogenic - class 4',
+          }),
         }),
       ],
     });

@@ -106,7 +106,7 @@ Alle routers staan in `backend/app/routers/__init__.py` en hangen onder `/api`, 
 | `product.py` | `/product` | De releasecatalogus |
 | `admin.py` | `/admin` | Alle beheerfuncties, elk achter `get_current_admin_user` (hoofdstuk 15) |
 | `ui_events.py` | `/ui-events` | UI-telemetrie (hoofdstuk 15) |
-| `lookups.py` | `/family-statuses`, `/users` | De statuslijst voor de keuzelijst op de familiepagina, en de lijst van actieve accounts |
+| `lookups.py` | `/family-statuses`, `/users` | De statuslijst voor de keuzelijst op de familiepagina, en de lijst van actieve accounts (alleen voor beheerders, SEC-33) |
 
 ## De servicegroepen
 

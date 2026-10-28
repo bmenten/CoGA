@@ -50,7 +50,9 @@ table differs.
   the variant's primary transcript (`small_variant_evidence`), with, for a missense variant only,
   the gene's gnomAD missense Z PP2 reads, from the gene's profile through the variant list's own
   lookup (`evidence_gene_missense_z`; `reads_gene_missense_z` tells a missense variant as the
-  dialog's `isMissense` does). A later change of any of them is drift that names the value
+  dialog's `isMissense` does), else the VCF's own `MISSENSE_Z`, with its source
+  (`gene_missense_z_source`: `gene_profile` or `vcf`; `pp2_gene_missense_z`, TRACE-15). A later
+  change of any of them is drift that names the value
   ([clinical-traceability.md](clinical-traceability.md#evidence-drift)); a refresh of the gene
   profiles is never drift for a classification of a variant that is not a missense variant.
 - CNVs: `structural_variant_reviews.cnv_acmg` (JSONB), `cnv_point_total`, `cnv_class` and
@@ -94,3 +96,10 @@ Some pre-evaluation rules repeat a backend rule. Change both sides together:
   zygosity as Consider.
 - **mtDNA maternal transmission.** `_maternal_transmission` in `mitochondrial_analysis.py` reads the
   proband's mother and father from the same links. The mtDNA PP1 needs `maternal_shared`.
+- **The missense Z PP2 reads.** `pp2MissenseZ` in `evaluate.ts` reads the served `gene_missense_z`
+  (the gene profile's) first, else `annotation_extra.gene_missense_z` (the VCF's own `MISSENSE_Z`),
+  a finite number only; `pp2_gene_missense_z` in `small_variant_review_acmg.py` freezes the same value
+  and its source with the classification (TRACE-15, the owner's decision of 2026-10-28;
+  `test_acmg_frontend_parity.py` checks the source names and their order). PP2 is
+  offered as Consider at a Z of 3.09 or more (`PP2_MISSENSE_Z`) and never applied: whether missense
+  variants are a common mechanism of disease in the gene is the analyst's judgement.
