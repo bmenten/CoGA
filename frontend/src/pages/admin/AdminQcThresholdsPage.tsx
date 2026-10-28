@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Link } from 'react-router';
+import PageHeader from '../../components/PageHeader';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../../lib/api';
 import PageState from '../../components/PageState';
@@ -152,21 +152,12 @@ const AdminQcThresholdsPage: React.FC = () => {
   }
 
   return (
-    <div className="page-shell space-y-6">
-      <section className="surface-card page-top-card">
-        <p className="page-kicker">
-          <Link to="/admin" className="table-link">
-            Admin
-          </Link>{' '}
-          / Sequencing QC thresholds
-        </p>
-        <h1 className="catalog-card-title">Sequencing QC thresholds</h1>
-        <p className="section-copy">
-          A warning bound shows the sample amber in the family workspace, an error bound red, and a
-          metric with no bound is left unchecked rather than reported as passing. Cut-offs are a
-          clinical decision: none are shipped by default, and the numbers entered here define what
-          the interface reports as an inadequate run.
-        </p>
+    <div className="page-shell admin-compact space-y-5">
+      <PageHeader
+        kicker="Administration"
+        title="Sequencing QC thresholds"
+        description="A warning bound shows the sample amber in the family workspace, an error bound red, and a metric with no bound is left unchecked rather than reported as passing. Cut-offs are a clinical decision: none are shipped by default, and the numbers entered here define what the interface reports as an inadequate run."
+      >
         {status && (
           <div
             className={`status-note ${
@@ -176,7 +167,7 @@ const AdminQcThresholdsPage: React.FC = () => {
             {status.message}
           </div>
         )}
-      </section>
+      </PageHeader>
 
       <section className="surface-card qc-threshold-layout">
         <aside className="qc-profile-list" aria-label="QC threshold profiles">

@@ -1,8 +1,9 @@
-// Pins the admin landing page: six domain groups whose cards link to each admin workspace, and
-// every card target is a route declared behind the RequireAdmin guard (none falls to "not found").
+// Pins the admin landing page: six domain groups whose links lead to each admin workspace, each
+// link named by its label alone with its description as a tooltip, and every target a route
+// declared behind the RequireAdmin guard (none falls to "not found").
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { describe, expect, it } from 'vitest';
 
@@ -84,26 +85,32 @@ describe('AdminDashboardPage', () => {
     );
   });
 
-  it.each(GROUPS)('links each $title card to its workspace', ({ title, cards }) => {
+  it.each(GROUPS)('links each $title workspace by its label', ({ title, cards }) => {
     renderPage();
     const section = sectionFor(title);
 
     expect(within(section).getAllByRole('link')).toHaveLength(cards.length);
     for (const [label, href] of cards) {
-      const card = within(section).getByRole('link', { name: (name) => name.startsWith(label) });
-      expect(card).toHaveAttribute('href', href);
+      expect(within(section).getByRole('link', { name: label })).toHaveAttribute('href', href);
     }
   });
 
-  it('describes what each workspace holds on its card', () => {
+  it('describes what each workspace holds in a tooltip that pointing or focus opens', () => {
     renderPage();
+    const users = screen.getByRole('link', { name: 'Users' });
+    // The description is not part of the link's text or name.
+    expect(users).toHaveTextContent(/^Users$/);
+    expect(screen.queryByRole('tooltip')).toBeNull();
 
-    expect(screen.getByRole('link', { name: /^Users/ })).toHaveTextContent(
-      'User accounts, roles, and activation status.',
-    );
-    expect(screen.getByRole('link', { name: /^Audit logs/ })).toHaveTextContent(
-      'Request, user, status, and update-event history.',
-    );
+    fireEvent.focus(users);
+    expect(screen.getByRole('tooltip')).toHaveTextContent('User accounts, roles, and activation status.');
+    expect(users).toHaveAccessibleDescription('User accounts, roles, and activation status.');
+    fireEvent.blur(users);
+    expect(screen.queryByRole('tooltip')).toBeNull();
+
+    const auditLogs = screen.getByRole('link', { name: 'Audit logs' });
+    fireEvent.mouseEnter(auditLogs.parentElement as HTMLElement);
+    expect(screen.getByRole('tooltip')).toHaveTextContent('Request, user, status, and update-event history.');
   });
 
   it('points every card at a route declared behind the admin guard', () => {

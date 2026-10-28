@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Link } from 'react-router';
+import PageHeader from '../../components/PageHeader';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../../lib/api';
 import PageState from '../../components/PageState';
@@ -106,23 +106,21 @@ const AdminRepeatLociPage: React.FC = () => {
   const margin = data?.margin ?? 0;
 
   return (
-    <div className="page-shell space-y-6">
-      <section className="surface-card page-top-card">
-        <p className="page-kicker">
-          <Link to="/admin" className="table-link">
-            Admin
-          </Link>{' '}
-          / Repeat catalogue
-        </p>
-        <h1 className="catalog-card-title">Repeat catalogue: TRGT counting units</h1>
-        <p className="section-copy">
-          TRGT counts the motif across the region its own catalogue gives a locus, which need not be the clinical repeat
-          number the locus&apos;s ranges count. QA and the laboratory director check each locus the laboratory&apos;s TRGT
-          catalogue uses. Until a locus is recorded here as validated, the repeat page and the genome tracks mark a count
-          within {margin} repeats of a boundary there as near a boundary. The record changes no status. Record a locus as
-          validated only when TRGT&apos;s count there is the clinical repeat number; a locus whose count needs a correction
-          stays not validated until CoGA applies corrections.
-        </p>
+    <div className="page-shell admin-compact space-y-5">
+      <PageHeader
+        kicker="Administration"
+        title="Repeat catalogue: TRGT counting units"
+        description={
+          <>
+            TRGT counts the motif across the region its own catalogue gives a locus, which need not be the clinical repeat
+            number the locus&apos;s ranges count. QA and the laboratory director check each locus the laboratory&apos;s TRGT
+            catalogue uses. Until a locus is recorded here as validated, the repeat page and the genome tracks mark a count
+            within {margin} repeats of a boundary there as near a boundary. The record changes no status. Record a locus as
+            validated only when TRGT&apos;s count there is the clinical repeat number; a locus whose count needs a correction
+            stays not validated until CoGA applies corrections.
+          </>
+        }
+      >
         <p className="dashboard-link-note">
           {validatedCount} of {(data?.loci ?? []).length} loci validated. Each change is kept in the clinical audit trail
           with its reason.
@@ -136,7 +134,7 @@ const AdminRepeatLociPage: React.FC = () => {
             {status.message}
           </div>
         )}
-      </section>
+      </PageHeader>
 
       <section className="surface-card space-y-3">
         <div className="family-workspace-card-head">

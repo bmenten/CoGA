@@ -779,6 +779,100 @@ span.nipt-coverage-gene {
   transform: rotate(180deg);
 }
 
+.variant-advanced-toggle[aria-expanded='false'] .variant-filter-dropdown-caret {
+  transform: rotate(-90deg);
+}
+
+/* The preset or saved search the draft was loaded from, under the toolbar: its name in the
+   signature red, a "default" or "modified" tag beside it. */
+.variant-active-preset {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.125rem 0.375rem;
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--color-text-muted);
+}
+
+.variant-active-preset-key {
+  font-weight: 500;
+}
+
+.variant-active-preset-name {
+  font-weight: 600;
+  color: var(--color-signature-red-dark);
+  overflow-wrap: anywhere;
+}
+
+.variant-active-preset--none .variant-active-preset-name {
+  font-weight: 500;
+  font-style: italic;
+  color: var(--color-text-muted);
+}
+
+.variant-active-preset-tag {
+  padding: 0 0.3125rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.variant-active-preset-tag--modified {
+  border-color: var(--color-warning-border);
+  background: var(--color-warning-surface);
+  color: var(--color-warning-strong);
+}
+
+.variant-active-preset-reset {
+  font-size: var(--fs-xs);
+}
+
+/* The preset select once a preset is loaded: a red edge, amber once the draft departs from it. */
+.variant-search-toolbar > .variant-preset-select--active {
+  border-color: var(--color-signature-red);
+  border-left-width: 3px;
+}
+
+.variant-search-toolbar > .variant-preset-select--modified {
+  border-color: var(--color-warning-border);
+}
+
+/* The bar that opens the filter categories; collapsed, it still says how many there are. */
+.variant-advanced-toggle {
+  display: inline-flex;
+  align-items: baseline;
+  justify-self: start;
+  gap: 0.375rem;
+  min-height: auto;
+  padding: 0.125rem 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--color-heading);
+}
+
+.variant-advanced-toggle:hover,
+.variant-advanced-toggle:active {
+  background: none;
+  color: var(--color-link-hover);
+}
+
+.variant-advanced-toggle .variant-filter-dropdown-caret {
+  align-self: center;
+  color: currentColor;
+}
+
+.variant-advanced-toggle-meta {
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--color-text-muted);
+}
+
 .variant-filter-chip-list {
   display: flex;
   flex-wrap: wrap;

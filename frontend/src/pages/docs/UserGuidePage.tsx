@@ -3,6 +3,7 @@ import { Link } from 'react-router';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
+import PageHeader from '../../components/PageHeader';
 import { guideSections, type GuideLink } from './userGuideSections';
 
 // Links a guide section to an in-depth, in-app reference document (rendered from a
@@ -109,15 +110,11 @@ const WorkspaceLinkRow: React.FC<{ links: GuideLink[] }> = ({ links }) => (
 
 const UserGuidePage: React.FC = () => (
   <div className="page-shell content-shell user-guide-page">
-    <header className="user-guide-hero">
-      <p className="page-kicker">Documentation</p>
-      <h1 className="user-guide-title">CoGA user guide</h1>
-      <p className="user-guide-lede">
-        An in-app manual for lab staff and administrators. It follows a case from setup to
-        sign-out: each section says what a page is for and how to use it, and links to the
-        in-depth reference that holds the rules.
-      </p>
-    </header>
+    <PageHeader
+      kicker="Documentation"
+      title="CoGA user guide"
+      description="An in-app manual for lab staff and administrators. It follows a case from setup to sign-out: each section says what a page is for and how to use it, and links to the in-depth reference that holds the rules."
+    />
 
     <div className="user-guide-layout">
       <aside id="user-guide-contents" className="user-guide-toc">

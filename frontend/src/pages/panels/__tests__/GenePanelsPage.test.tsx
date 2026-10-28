@@ -185,6 +185,33 @@ describe('GenePanelsPage', () => {
     ).toBeInTheDocument();
   });
 
+  it('orders the admin tools: external panels, then a custom panel, then the catalogue', async () => {
+    localStorage.setItem('role', 'admin');
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MemoryRouter>
+          <GenePanelsPage />
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+    await screen.findByRole('link', { name: 'PanelA' });
+
+    expect(screen.getByRole('heading', { level: 1, name: 'Gene panels' })).toBeInTheDocument();
+    expect(screen.getAllByRole('heading', { level: 2 }).map((heading) => heading.textContent)).toEqual([
+      'Import and sync external panels',
+      'Add new custom gene panel',
+      'Existing panels',
+    ]);
+    // PanelApp import first, the Mendeliome update from Monarch directly below it, in one section.
+    const external = screen.getByRole('region', { name: 'Import and sync external panels' });
+    expect(
+      Array.from(external.querySelectorAll('h3')).map((heading) => heading.textContent),
+    ).toEqual(['Import PanelApp panel', 'Mendeliome update from Monarch']);
+    expect(screen.getByRole('link', { name: 'Monarch data' })).toHaveAttribute('href', '/admin/reference/monarch');
+    const custom = screen.getByRole('region', { name: 'Add new custom gene panel' });
+    expect(custom).toContainElement(screen.getByRole('button', { name: 'Create panel' }));
+  });
+
   it('shows server message when creation returns warning', async () => {
     localStorage.setItem('role', 'admin');
     (api.post as unknown as Mock).mockResolvedValueOnce({

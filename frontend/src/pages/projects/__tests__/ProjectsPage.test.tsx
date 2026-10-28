@@ -109,6 +109,14 @@ describe('ProjectsPage', () => {
     expect(screen.getByText(/View Er · viewer@example.com/)).toBeInTheDocument();
     expect(screen.getAllByText('F1').length).toBeGreaterThan(0);
     expect(screen.getByText('S1')).toBeInTheDocument();
+    // The selected project reads top to bottom in one column: its settings, who has access,
+    // then its families and samples; none of them a card inside the project's card.
+    expect(screen.getAllByRole('heading', { level: 3 }).map((heading) => heading.textContent)).toEqual([
+      'Project settings',
+      'User access',
+      'Project overview',
+    ]);
+    expect(document.querySelector('.surface-card .surface-card, .surface-card .surface-card-muted')).toBeNull();
   });
 
   // #610 — a failed list read "No projects yet", with counts of 0.
@@ -166,7 +174,7 @@ describe('ProjectsPage', () => {
     // No level for someone who is no member.
     expect(screen.queryByRole('combobox', { name: 'Access level of student@example.com' })).not.toBeInTheDocument();
 
-    const userAccess = screen.getByRole('heading', { name: 'User access' }).closest('.surface-card-muted') as HTMLElement;
+    const userAccess = screen.getByRole('heading', { name: 'User access' }).closest('section') as HTMLElement;
     fireEvent.click(within(userAccess).getByRole('checkbox', { name: /Stu Dent/ }));
     const studentLevel = screen.getByRole('combobox', { name: 'Access level of student@example.com' });
     expect(studentLevel).toHaveValue('analyst');
@@ -199,7 +207,7 @@ describe('ProjectsPage', () => {
     await screen.findByRole('combobox', { name: 'Access level of viewer@example.com' });
     expect(queryClient.getQueryState(['admin', 'users'])?.isInvalidated).toBe(false);
 
-    const userAccess = screen.getByRole('heading', { name: 'User access' }).closest('.surface-card-muted') as HTMLElement;
+    const userAccess = screen.getByRole('heading', { name: 'User access' }).closest('section') as HTMLElement;
     fireEvent.click(within(userAccess).getByRole('checkbox', { name: /Stu Dent/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Save settings' }));
 
@@ -253,7 +261,7 @@ describe('ProjectsPage', () => {
     await waitFor(() => expect(screen.getByText(/Project One/)).toBeInTheDocument());
     const linkedFamiliesSection = screen
       .getByRole('heading', { name: /linked families/i })
-      .closest('.surface-card-muted') as HTMLElement;
+      .closest('.project-linked-families') as HTMLElement;
     const bodyRows = () => within(linkedFamiliesSection).getAllByRole('row').slice(1);
 
     await waitFor(() => expect(bodyRows()[0]).toHaveTextContent('F2'));

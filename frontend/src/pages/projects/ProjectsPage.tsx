@@ -14,6 +14,7 @@ import { formatShortDate } from '../../lib/format';
 import { apiPath } from '../../lib/apiPath';
 import { userAccountsQuery } from '../../lib/users';
 import { memberAccessLevel, type ProjectAccessLevel } from '../../lib/familyAccess';
+import PageHeader from '../../components/PageHeader';
 import QueryFailure from '../../components/QueryFailure';
 
 // Each served under its `_id`, which withEntityId copies to `id`.
@@ -407,17 +408,12 @@ const ProjectsPage: React.FC = () => {
 
   return (
     <div className="page-shell project-page space-y-6">
-      <section className="surface-card page-top-card">
-        <div className="page-header">
-          <div className="space-y-2">
-            <p className="page-kicker">Administration</p>
-            <h1 className="catalog-card-title">Projects</h1>
-            <p className="catalog-card-copy">
-              Keep all project definitions in one searchable catalog, then open a selected project
-              to review notes, linked families, reference context, and access.
-            </p>
-          </div>
-          <div className="project-header-actions">
+      <PageHeader
+        kicker="Administration"
+        title="Projects"
+        description="Keep all project definitions in one searchable catalog, then open a selected project to review its settings, user access, and linked families and samples."
+        actions={
+          <>
             <div className="variant-summary-row">
               <span className="badge-chip">Projects {projectTotals.projects}</span>
               <span className="badge-chip">Families {projectTotals.families}</span>
@@ -433,9 +429,9 @@ const ProjectsPage: React.FC = () => {
             >
               {createFormOpen ? 'Close new project form' : 'Create new project'}
             </button>
-          </div>
-        </div>
-      </section>
+          </>
+        }
+      />
 
       {status && (
         <p className={status.tone === 'success' ? 'form-status' : 'status-note status-note--error'}>
@@ -444,19 +440,18 @@ const ProjectsPage: React.FC = () => {
       )}
 
       {createFormOpen && (
-        <section className="surface-card-flat space-y-5">
-          <div className="page-header">
-            <div className="space-y-2">
-              <p className="page-kicker">Create</p>
-              <h2 className="section-title">New project</h2>
-              <p className="catalog-card-copy">
-                Add the project title, notes, organism, assembly, and initial user access in one
-                step.
-              </p>
-            </div>
+        <section className="surface-card space-y-4" aria-labelledby="project-create-heading">
+          <div className="space-y-1">
+            <h2 id="project-create-heading" className="section-title">
+              New project
+            </h2>
+            <p className="catalog-card-copy">
+              Add the project title, notes, organism, assembly, and initial user access in one
+              step.
+            </p>
           </div>
 
-          <form onSubmit={handleCreateProject} className="space-y-5">
+          <form onSubmit={handleCreateProject} className="space-y-4">
             <div className="field-grid project-form-grid">
               <label className="field-label">
                 Title
@@ -551,11 +546,12 @@ const ProjectsPage: React.FC = () => {
         </section>
       )}
 
-      <section className="surface-card space-y-5">
+      <section className="surface-card space-y-4" aria-labelledby="project-catalog-heading">
         <div className="project-toolbar">
-          <div className="space-y-2">
-            <p className="page-kicker">Catalog</p>
-            <h2 className="section-title">Existing projects</h2>
+          <div className="space-y-1">
+            <h2 id="project-catalog-heading" className="section-title">
+              Existing projects
+            </h2>
             <p className="catalog-card-copy">
               Select a row to open the project detail workspace below.
             </p>
@@ -642,24 +638,28 @@ const ProjectsPage: React.FC = () => {
         )}
       </section>
 
-      <section className="surface-card space-y-6">
-        {!selectedProject ? (
+      {!selectedProject ? (
+        <section className="surface-card">
           <div className="page-state">
             <div className="space-y-2">
               <p className="page-kicker">Projects</p>
               <h2 className="page-state-title">No project selected</h2>
               <p className="page-state-copy">
-                Select a project from the table to inspect its notes, linked families, and
-                settings.
+                Select a project from the table to inspect its settings, user access, and linked
+                families.
               </p>
             </div>
           </div>
-        ) : (
-          <>
+        </section>
+      ) : (
+        <section className="surface-card card-sections" aria-labelledby="project-selected-heading">
+          <div className="card-section">
             <div className="page-header">
-              <div className="space-y-2">
+              <div className="space-y-1">
                 <p className="page-kicker">Selected project</p>
-                <h2 className="section-title">{selectedProject.name}</h2>
+                <h2 id="project-selected-heading" className="section-title">
+                  {selectedProject.name}
+                </h2>
                 <p className="catalog-card-copy">
                   {getSpeciesLabel(selectedProject, speciesNameById)} •{' '}
                   {getAssemblyLabel(selectedProject, assemblyById)}
@@ -690,200 +690,189 @@ const ProjectsPage: React.FC = () => {
                 </div>
               </div>
             </div>
+          </div>
 
-            <div className="project-detail-layout">
-              <div className="project-detail-main">
-                <div className="surface-card-muted space-y-4">
-                  <h3 className="section-title">Overview</h3>
-                  <div className="project-stat-grid">
-                    <div className="project-stat-card">
-                      <span className="stat-label">Families</span>
-                      <strong className="family-workspace-stat-value">
-                        {selectedProject.families.length}
-                      </strong>
-                    </div>
-                    <div className="project-stat-card">
-                      <span className="stat-label">Samples</span>
-                      <strong className="family-workspace-stat-value">
-                        {getProjectSampleCount(selectedProject)}
-                      </strong>
-                    </div>
-                    <div className="project-stat-card">
-                      <span className="stat-label">Organism</span>
-                      <strong className="family-workspace-stat-copy">
-                        {getSpeciesLabel(selectedProject, speciesNameById)}
-                      </strong>
-                    </div>
-                    <div className="project-stat-card">
-                      <span className="stat-label">Assembly</span>
-                      <strong className="family-workspace-stat-copy">
-                        {getAssemblyLabel(selectedProject, assemblyById)}
-                      </strong>
-                    </div>
-                    <div className="project-stat-card">
-                      <span className="stat-label">Restricted users</span>
-                      <strong className="family-workspace-stat-value">
-                        {selectedProject.user_ids?.length ?? 0}
-                      </strong>
-                    </div>
-                    <div className="project-stat-card">
-                      <span className="stat-label">Readers</span>
-                      <strong className="family-workspace-stat-value">
-                        {selectedProject.reader_user_ids?.length ?? 0}
-                      </strong>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="surface-card-muted space-y-4">
-                  <h3 className="section-title">Notes</h3>
-                  <p className="project-note-block">
-                    {selectedProject.description?.trim() || 'No project notes have been added yet.'}
-                  </p>
-                </div>
-
-                <div className="surface-card-muted space-y-4">
-                  <h3 className="section-title">Linked families</h3>
-                  {selectedProject.families.length ? (
-                    <div className="data-table-shell overflow-x-auto">
-                      <table className="analysis-table project-family-table">
-                        <thead>
-                          <tr>
-                            <th className="table-sortable" onClick={() => handleFamilySort('family_id')}>
-                              Family {familySortIndicator('family_id')}
-                            </th>
-                            <th
-                              className="table-sortable project-family-uploaded-header"
-                              onClick={() => handleFamilySort('created_at')}
-                            >
-                              Uploaded {familySortIndicator('created_at')}
-                            </th>
-                            <th className="table-sortable" onClick={() => handleFamilySort('samples')}>
-                              Samples {familySortIndicator('samples')}
-                            </th>
-                            <th className="table-sortable" onClick={() => handleFamilySort('sample_ids')}>
-                              Sample IDs {familySortIndicator('sample_ids')}
-                            </th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {sortedSelectedFamilies.map((family) => (
-                            <tr key={family.family_id}>
-                              <td>{family.family_id}</td>
-                              <td className="project-family-uploaded-cell" title={family.created_at ?? undefined}>
-                                {formatShortDate(family.created_at)}
-                              </td>
-                              <td>{family.members.length}</td>
-                              <td>
-                                <div className="project-family-samples">
-                                  {family.members.map((member) => (
-                                    <span key={`${family.family_id}:${member.sample_id}`} className="badge-chip">
-                                      {member.sample_id}
-                                    </span>
-                                  ))}
-                                </div>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  ) : (
-                    <p className="table-empty">No families are currently linked to this project.</p>
-                  )}
-                </div>
-              </div>
-
-              <div className="project-detail-side">
-                <div className="surface-card-muted space-y-4">
-                  <h3 className="section-title">Settings</h3>
-                  <div className="field-grid project-form-grid">
-                    <label className="field-label">
-                      Title
-                      <input
-                        value={editForm.name}
-                        onChange={(event) =>
-                          setEditForm((current) => ({ ...current, name: event.target.value }))
-                        }
-                      />
-                    </label>
-                    <label className="field-label">
-                      Notes
-                      <textarea
-                        value={editForm.description}
-                        onChange={(event) =>
-                          setEditForm((current) => ({
-                            ...current,
-                            description: event.target.value,
-                          }))
-                        }
-                      />
-                    </label>
-                    <label className="field-label">
-                      Organism
-                      <select
-                        value={editForm.speciesId}
-                        onChange={(event) =>
-                          setEditForm((current) => ({
-                            ...current,
-                            speciesId: event.target.value,
-                            assemblyId: '',
-                          }))
-                        }
-                      >
-                        <option value="">Select organism</option>
-                        {species.map((entry) => (
-                          <option key={entry.id} value={entry.id}>
-                            {entry.name}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="field-label">
-                      Assembly
-                      <select
-                        value={editForm.assemblyId}
-                        onChange={(event) =>
-                          setEditForm((current) => ({
-                            ...current,
-                            assemblyId: event.target.value,
-                          }))
-                        }
-                        disabled={!editForm.speciesId}
-                      >
-                        <option value="">Select assembly</option>
-                        {editAssemblies.map((entry) => (
-                          <option key={entry.id} value={entry.id}>
-                            {entry.assembly_name} {entry.version}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  </div>
-                </div>
-
-                <div className="surface-card-muted space-y-4">
-                  <h3 className="section-title">User access</h3>
-                  <p className="catalog-card-copy">
-                    An analyst reads and changes the project&rsquo;s records; a reader only reads
-                    them. Administrators have every right in every project.
-                  </p>
-                  {users.length > 0 ? (
-                    <ProjectMemberPicker
-                      users={users}
-                      form={editForm}
-                      onToggle={(userId) => toggleUserId(setEditForm, userId)}
-                      onLevel={(userId, level) => setUserLevel(setEditForm, userId, level)}
-                    />
-                  ) : (
-                    <p className="table-empty">No users are available for project assignment.</p>
-                  )}
-                </div>
-              </div>
+          <section className="card-section" aria-labelledby="project-settings-heading">
+            <h3 id="project-settings-heading" className="card-section-subtitle">
+              Project settings
+            </h3>
+            <div className="field-grid project-form-grid">
+              <label className="field-label">
+                Title
+                <input
+                  value={editForm.name}
+                  onChange={(event) =>
+                    setEditForm((current) => ({ ...current, name: event.target.value }))
+                  }
+                />
+              </label>
+              <label className="field-label">
+                Notes
+                <textarea
+                  value={editForm.description}
+                  onChange={(event) =>
+                    setEditForm((current) => ({
+                      ...current,
+                      description: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+              <label className="field-label">
+                Organism
+                <select
+                  value={editForm.speciesId}
+                  onChange={(event) =>
+                    setEditForm((current) => ({
+                      ...current,
+                      speciesId: event.target.value,
+                      assemblyId: '',
+                    }))
+                  }
+                >
+                  <option value="">Select organism</option>
+                  {species.map((entry) => (
+                    <option key={entry.id} value={entry.id}>
+                      {entry.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="field-label">
+                Assembly
+                <select
+                  value={editForm.assemblyId}
+                  onChange={(event) =>
+                    setEditForm((current) => ({
+                      ...current,
+                      assemblyId: event.target.value,
+                    }))
+                  }
+                  disabled={!editForm.speciesId}
+                >
+                  <option value="">Select assembly</option>
+                  {editAssemblies.map((entry) => (
+                    <option key={entry.id} value={entry.id}>
+                      {entry.assembly_name} {entry.version}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
-          </>
-        )}
-      </section>
+            <p className="table-subtle">
+              Save settings, at the top of the project, saves these fields and the user access below.
+            </p>
+          </section>
+
+          <section className="card-section" aria-labelledby="project-access-heading">
+            <h3 id="project-access-heading" className="card-section-subtitle">
+              User access
+            </h3>
+            <p className="catalog-card-copy">
+              An analyst reads and changes the project&rsquo;s records; a reader only reads
+              them. Administrators have every right in every project.
+            </p>
+            {users.length > 0 ? (
+              <ProjectMemberPicker
+                users={users}
+                form={editForm}
+                onToggle={(userId) => toggleUserId(setEditForm, userId)}
+                onLevel={(userId, level) => setUserLevel(setEditForm, userId, level)}
+              />
+            ) : (
+              <p className="table-empty">No users are available for project assignment.</p>
+            )}
+          </section>
+
+          <section className="card-section" aria-labelledby="project-overview-heading">
+            <h3 id="project-overview-heading" className="card-section-subtitle">
+              Project overview
+            </h3>
+            <dl className="project-stat-list">
+              <div>
+                <dt>Families</dt>
+                <dd>{selectedProject.families.length}</dd>
+              </div>
+              <div>
+                <dt>Samples</dt>
+                <dd>{getProjectSampleCount(selectedProject)}</dd>
+              </div>
+              <div>
+                <dt>Organism</dt>
+                <dd>{getSpeciesLabel(selectedProject, speciesNameById)}</dd>
+              </div>
+              <div>
+                <dt>Assembly</dt>
+                <dd>{getAssemblyLabel(selectedProject, assemblyById)}</dd>
+              </div>
+              <div>
+                <dt>Restricted users</dt>
+                <dd>{selectedProject.user_ids?.length ?? 0}</dd>
+              </div>
+              <div>
+                <dt>Readers</dt>
+                <dd>{selectedProject.reader_user_ids?.length ?? 0}</dd>
+              </div>
+            </dl>
+            <div className="project-notes">
+              <h4 className="stat-label">Notes</h4>
+              <p className="project-note-block">
+                {selectedProject.description?.trim() || 'No project notes have been added yet.'}
+              </p>
+            </div>
+            <div className="project-linked-families">
+              <h4 className="stat-label">Linked families</h4>
+              {selectedProject.families.length ? (
+                <div className="data-table-shell overflow-x-auto">
+                  <table className="analysis-table project-family-table">
+                    <thead>
+                      <tr>
+                        <th className="table-sortable" onClick={() => handleFamilySort('family_id')}>
+                          Family {familySortIndicator('family_id')}
+                        </th>
+                        <th
+                          className="table-sortable project-family-uploaded-header"
+                          onClick={() => handleFamilySort('created_at')}
+                        >
+                          Uploaded {familySortIndicator('created_at')}
+                        </th>
+                        <th className="table-sortable" onClick={() => handleFamilySort('samples')}>
+                          Samples {familySortIndicator('samples')}
+                        </th>
+                        <th className="table-sortable" onClick={() => handleFamilySort('sample_ids')}>
+                          Sample IDs {familySortIndicator('sample_ids')}
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sortedSelectedFamilies.map((family) => (
+                        <tr key={family.family_id}>
+                          <td>{family.family_id}</td>
+                          <td className="project-family-uploaded-cell" title={family.created_at ?? undefined}>
+                            {formatShortDate(family.created_at)}
+                          </td>
+                          <td>{family.members.length}</td>
+                          <td>
+                            <div className="project-family-samples">
+                              {family.members.map((member) => (
+                                <span key={`${family.family_id}:${member.sample_id}`} className="badge-chip">
+                                  {member.sample_id}
+                                </span>
+                              ))}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="table-empty">No families are currently linked to this project.</p>
+              )}
+            </div>
+          </section>
+        </section>
+      )}
     </div>
   );
 };

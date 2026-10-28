@@ -207,6 +207,71 @@ export interface FilterSectionForm
   draftLocationProblems?: LocationProblems | null;
 }
 
+/**
+ * How many filters each section has set in the draft: the count its summary bar shows
+ * ("2 active"), and what the collapsed advanced panel adds up.
+ */
+export const SECTION_FILTER_COUNTS: Record<
+  keyof OpenSections,
+  (form: Pick<FilterSectionForm, 'draftFilters' | 'activeSampleMemberCount' | 'offers'>) => number
+> = {
+  phenotype: ({ draftFilters }) => (draftFilters.prioritize === 'true' ? 1 : 0),
+  svSecondHit: ({ draftFilters }) => (draftFilters.require_sv_second_hit === 'true' ? 1 : 0),
+  inheritance: ({ draftFilters, activeSampleMemberCount }) =>
+    activeSampleMemberCount +
+    (draftFilters.expanded_carrier_screening === 'true' ? 1 : 0) +
+    countNonEmpty(draftFilters.inheritance, draftFilters.type, draftFilters.source, draftFilters.ps),
+  categories: ({ draftFilters }) => parseCommaSeparatedValues(draftFilters.category).length,
+  pathogenicity: ({ draftFilters }) => parseCommaSeparatedValues(draftFilters.clinvar).length,
+  annotations: ({ draftFilters }) =>
+    parseCommaSeparatedValues(draftFilters.impact).length +
+    parseCommaSeparatedValues(draftFilters.effect).length +
+    countNonEmpty(
+      draftFilters.transcript,
+      draftFilters.rsid,
+      draftFilters.hgvsc,
+      draftFilters.hgvsp,
+      draftFilters.canonical_only,
+      draftFilters.mane_only,
+      draftFilters.lof_only,
+    ),
+  inSilico: ({ draftFilters }) =>
+    countNonEmpty(
+      draftFilters.min_cadd,
+      draftFilters.min_revel,
+      draftFilters.min_spliceai,
+      draftFilters.sift,
+      draftFilters.polyphen,
+    ),
+  frequency: ({ draftFilters }) =>
+    countNonEmpty(
+      draftFilters.max_gnomad_af,
+      draftFilters.max_gnomad_exomes_af,
+      draftFilters.max_gnomad_genomes_af,
+      draftFilters.max_gnomad_popmax_af,
+      draftFilters.max_topmed_af,
+      draftFilters.max_gnomad_ac,
+      draftFilters.max_gnomad_hom_count,
+      draftFilters.max_gnomad_hemi_count,
+    ),
+  locations: ({ draftFilters }) =>
+    countNonEmpty(draftFilters.panel_id) +
+    (draftFilters.gene.trim() ? countTextAreaEntries(draftFilters.gene) : 0) +
+    (draftFilters.intervals.trim() ? countTextAreaEntries(draftFilters.intervals) : 0),
+  exclude: ({ draftFilters }) =>
+    parseCommaSeparatedValues(draftFilters.exclude_clinvar).length +
+    parseCommaSeparatedValues(draftFilters.exclude_review_tags).length +
+    (draftFilters.exclude_gene.trim() ? countTextAreaEntries(draftFilters.exclude_gene) : 0) +
+    (draftFilters.exclude_intervals.trim()
+      ? countTextAreaEntries(draftFilters.exclude_intervals)
+      : 0),
+  // A search without the classification filter (the NIPT list) offers the review tags only.
+  review: ({ draftFilters, offers }) =>
+    (offers('classification') ? parseCommaSeparatedValues(draftFilters.classification).length : 0) +
+    parseCommaSeparatedValues(draftFilters.review_tags).length +
+    (offers('has_notes') && draftFilters.has_notes === 'true' ? 1 : 0),
+};
+
 /** The unreadable entries of a location field, named so the search is not run on them. */
 const LocationProblemList = ({ problems }: { problems: string[] }) =>
   problems.length ? (
@@ -229,10 +294,7 @@ export const PhenotypeFilterSection = ({ form }: { form: FilterSectionForm }) =>
       open={openSections.phenotype}
       onToggle={handleSectionToggle('phenotype')}
       meta={
-summarizeSection(
-            draftFilters.prioritize === 'true' ? 1 : 0,
-            'Prioritization off',
-          )
+summarizeSection(SECTION_FILTER_COUNTS.phenotype(form), 'Prioritization off')
       }
       controls={
         <>
@@ -273,10 +335,7 @@ export const SvSecondHitFilterSection = ({ form }: { form: FilterSectionForm }) 
       open={openSections.svSecondHit}
       onToggle={handleSectionToggle('svSecondHit')}
       meta={
-summarizeSection(
-            draftFilters.require_sv_second_hit === 'true' ? 1 : 0,
-            'Off',
-          )
+summarizeSection(SECTION_FILTER_COUNTS.svSecondHit(form), 'Off')
       }
       controls={
         <>
@@ -309,7 +368,6 @@ summarizeSection(
 
 export const InheritanceFilterSection = ({ form }: { form: FilterSectionForm }) => {
   const {
-    activeSampleMemberCount,
     carrierScreeningCouple,
     draftFilters,
     handleDraftFieldChange,
@@ -325,10 +383,7 @@ export const InheritanceFilterSection = ({ form }: { form: FilterSectionForm }) 
     toggleSingleValueCheckbox,
     updateInheritanceGenotypes,
   } = form;
-  const inheritanceFilterCount =
-    activeSampleMemberCount +
-    (draftFilters.expanded_carrier_screening === 'true' ? 1 : 0) +
-    countNonEmpty(draftFilters.inheritance, draftFilters.type, draftFilters.source, draftFilters.ps);
+  const inheritanceFilterCount = SECTION_FILTER_COUNTS.inheritance(form);
 
   const applyInheritanceQuickFilter = (value: string) => {
     if (value === 'all') {
@@ -658,10 +713,7 @@ export const NiptCategoriesFilterSection = ({ form }: { form: FilterSectionForm 
       open={openSections.categories}
       onToggle={handleSectionToggle('categories')}
       meta={
-summarizeSection(
-            parseCommaSeparatedValues(draftFilters.category).length,
-            'All categories',
-          )
+summarizeSection(SECTION_FILTER_COUNTS.categories(form), 'All categories')
       }
       controls={
         <>
@@ -775,7 +827,7 @@ export const PathogenicityFilterSection = ({ form }: { form: FilterSectionForm }
     summarizeSection,
     toggleDraftFilterListValue,
   } = form;
-  const pathogenicityFilterCount = parseCommaSeparatedValues(draftFilters.clinvar).length;
+  const pathogenicityFilterCount = SECTION_FILTER_COUNTS.pathogenicity(form);
   const selectedClinvarValues = parseCommaSeparatedValues(draftFilters.clinvar);
   const applyPathogenicityQuickFilter = (value: string) => {
     if (value === 'all') {
@@ -865,18 +917,7 @@ export const AnnotationsFilterSection = ({ form }: { form: FilterSectionForm }) 
     summarizeSection,
     toggleDraftFilterListValue,
   } = form;
-  const annotationFilterCount =
-    parseCommaSeparatedValues(draftFilters.impact).length +
-    parseCommaSeparatedValues(draftFilters.effect).length +
-    countNonEmpty(
-      draftFilters.transcript,
-      draftFilters.rsid,
-      draftFilters.hgvsc,
-      draftFilters.hgvsp,
-      draftFilters.canonical_only,
-      draftFilters.mane_only,
-      draftFilters.lof_only,
-    );
+  const annotationFilterCount = SECTION_FILTER_COUNTS.annotations(form);
   const selectedImpactValues = parseCommaSeparatedValues(draftFilters.impact);
   const selectedEffectValues = parseCommaSeparatedValues(draftFilters.effect);
   const applyAnnotationQuickFilter = (value: string) => {
@@ -1077,13 +1118,7 @@ export const InSilicoFilterSection = ({ form }: { form: FilterSectionForm }) => 
     summarizeSection,
     toggleSingleValueCheckbox,
   } = form;
-  const inSilicoFilterCount = countNonEmpty(
-    draftFilters.min_cadd,
-    draftFilters.min_revel,
-    draftFilters.min_spliceai,
-    draftFilters.sift,
-    draftFilters.polyphen,
-  );
+  const inSilicoFilterCount = SECTION_FILTER_COUNTS.inSilico(form);
   return (
     <FilterSection
       title="In silico"
@@ -1163,16 +1198,7 @@ export const FrequencyFilterSection = ({ form }: { form: FilterSectionForm }) =>
     setDraftFilterValue,
     summarizeSection,
   } = form;
-  const frequencyFilterCount = countNonEmpty(
-    draftFilters.max_gnomad_af,
-    draftFilters.max_gnomad_exomes_af,
-    draftFilters.max_gnomad_genomes_af,
-    draftFilters.max_gnomad_popmax_af,
-    draftFilters.max_topmed_af,
-    draftFilters.max_gnomad_ac,
-    draftFilters.max_gnomad_hom_count,
-    draftFilters.max_gnomad_hemi_count,
-  );
+  const frequencyFilterCount = SECTION_FILTER_COUNTS.frequency(form);
 
   const setFrequencyFromPercent = (key: keyof SmallFilterState, percentValue: number) => {
     if (!Number.isFinite(percentValue) || percentValue <= 0) {
@@ -1348,10 +1374,7 @@ export const LocationsFilterSection = ({ form }: { form: FilterSectionForm }) =>
     panels,
     summarizeSection,
   } = form;
-  const locationFilterCount =
-    countNonEmpty(draftFilters.panel_id) +
-    (draftFilters.gene.trim() ? countTextAreaEntries(draftFilters.gene) : 0) +
-    (draftFilters.intervals.trim() ? countTextAreaEntries(draftFilters.intervals) : 0);
+  const locationFilterCount = SECTION_FILTER_COUNTS.locations(form);
   return (
     <FilterSection
       title="Locations"
@@ -1423,13 +1446,7 @@ export const ExcludeFilterSection = ({ form }: { form: FilterSectionForm }) => {
     summarizeSection,
     toggleDraftFilterListValue,
   } = form;
-  const excludeFilterCount =
-    parseCommaSeparatedValues(draftFilters.exclude_clinvar).length +
-    parseCommaSeparatedValues(draftFilters.exclude_review_tags).length +
-    (draftFilters.exclude_gene.trim() ? countTextAreaEntries(draftFilters.exclude_gene) : 0) +
-    (draftFilters.exclude_intervals.trim()
-      ? countTextAreaEntries(draftFilters.exclude_intervals)
-      : 0);
+  const excludeFilterCount = SECTION_FILTER_COUNTS.exclude(form);
   const selectedExcludeClinvarValues = parseCommaSeparatedValues(draftFilters.exclude_clinvar);
   const selectedExcludeReviewTagValues = parseCommaSeparatedValues(draftFilters.exclude_review_tags);
   const excludeCustomTagOptions = [
@@ -1607,10 +1624,7 @@ export const ReviewFilterSection = ({ form }: { form: FilterSectionForm }) => {
   } = form;
   // A search without the classification filter (the NIPT list) offers the review tags only.
   const offersClassification = offers('classification');
-  const reviewFilterCount =
-    (offersClassification ? parseCommaSeparatedValues(draftFilters.classification).length : 0) +
-    parseCommaSeparatedValues(draftFilters.review_tags).length +
-    (offers('has_notes') && draftFilters.has_notes === 'true' ? 1 : 0);
+  const reviewFilterCount = SECTION_FILTER_COUNTS.review(form);
 
   const selectedClassificationValues = parseCommaSeparatedValues(draftFilters.classification);
   const selectedReviewTagValues = parseCommaSeparatedValues(draftFilters.review_tags);

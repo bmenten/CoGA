@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router';
+import AuthIntro from './AuthIntro';
 import api from '../../lib/api';
 import { buildApiUnavailableMessage, getErrorMessage } from '../../lib/errorMessage';
 import { fetchSignInConfig } from '../../lib/microsoftSignIn';
@@ -69,103 +70,106 @@ const SignupPage: React.FC = () => {
 
   return (
     <div className="auth-shell">
-      <div className="auth-card">
-        <div className="auth-form">
-          <div className="auth-form-intro">
-            <h1>Create account</h1>
-            <p className="page-subtitle">
-              Use your professional details so administrators can assign the right access.
-            </p>
-          </div>
-          {microsoftSignIn ? (
-            <p className="status-note status-note--info" role="status">
-              There is no sign-up: your first sign-in with the Microsoft account of your hospital or
-              university makes your CoGA account. An administrator then gives you access to your
-              projects.
-            </p>
-          ) : acknowledgement ? (
-            <div className="space-y-4" role="status">
-              <p className="status-note status-note--success">{acknowledgement}</p>
+      <div className="auth-layout">
+        <AuthIntro />
+        <div className="auth-card">
+          <div className="auth-form">
+            <div className="auth-form-intro">
+              <h1>Create account</h1>
               <p className="page-subtitle">
-                You can sign in once your account has been activated.
+                Use your professional details so administrators can assign the right access.
               </p>
             </div>
-          ) : (
-          <form onSubmit={handleSubmit} className="field-grid">
-            <label className="field-label">
-              First name
-              <input
-                value={firstName}
-                onChange={(e) => setFirstName(e.target.value)}
-                placeholder="First name"
-                autoComplete="given-name"
-                required
-              />
-            </label>
-            <label className="field-label">
-              Last name
-              <input
-                value={lastName}
-                onChange={(e) => setLastName(e.target.value)}
-                placeholder="Last name"
-                autoComplete="family-name"
-                required
-              />
-            </label>
-            <label className="field-label">
-              Email
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="Email"
-                autoComplete="email"
-                required
-              />
-            </label>
-            <label className="field-label">
-              Affiliation
-              <input
-                value={affiliation}
-                onChange={(e) => setAffiliation(e.target.value)}
-                placeholder="Affiliation"
-                autoComplete="organization"
-                required
-              />
-            </label>
-            <label className="field-label">
-              Password
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Password"
-                autoComplete="new-password"
-                minLength={PASSWORD_MIN_LENGTH}
-                required
-                aria-describedby="signup-password-rule"
-              />
-            </label>
-            <p id="signup-password-rule" className="table-subtle">
-              At least {PASSWORD_MIN_LENGTH} characters. A passphrase of several words works well.
-            </p>
-            <button
-              type="submit"
-              className="form-button"
-              disabled={submitting}
-            >
-              {submitting ? 'Signing up…' : 'Sign up'}
-            </button>
-            {error && (
-              <p className="status-note status-note--error text-center" aria-live="polite">
-                {error}
+            {microsoftSignIn ? (
+              <p className="status-note status-note--info" role="status">
+                There is no sign-up: your first sign-in with the Microsoft account of your hospital or
+                university makes your CoGA account. An administrator then gives you access to your
+                projects.
               </p>
+            ) : acknowledgement ? (
+              <div className="space-y-4" role="status">
+                <p className="status-note status-note--success">{acknowledgement}</p>
+                <p className="page-subtitle">
+                  You can sign in once your account has been activated.
+                </p>
+              </div>
+            ) : (
+            <form onSubmit={handleSubmit} className="field-grid">
+              <label className="field-label">
+                First name
+                <input
+                  value={firstName}
+                  onChange={(e) => setFirstName(e.target.value)}
+                  placeholder="First name"
+                  autoComplete="given-name"
+                  required
+                />
+              </label>
+              <label className="field-label">
+                Last name
+                <input
+                  value={lastName}
+                  onChange={(e) => setLastName(e.target.value)}
+                  placeholder="Last name"
+                  autoComplete="family-name"
+                  required
+                />
+              </label>
+              <label className="field-label">
+                Email
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="Email"
+                  autoComplete="email"
+                  required
+                />
+              </label>
+              <label className="field-label">
+                Affiliation
+                <input
+                  value={affiliation}
+                  onChange={(e) => setAffiliation(e.target.value)}
+                  placeholder="Affiliation"
+                  autoComplete="organization"
+                  required
+                />
+              </label>
+              <label className="field-label">
+                Password
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Password"
+                  autoComplete="new-password"
+                  minLength={PASSWORD_MIN_LENGTH}
+                  required
+                  aria-describedby="signup-password-rule"
+                />
+              </label>
+              <p id="signup-password-rule" className="table-subtle">
+                At least {PASSWORD_MIN_LENGTH} characters. A passphrase of several words works well.
+              </p>
+              <button
+                type="submit"
+                className="form-button"
+                disabled={submitting}
+              >
+                {submitting ? 'Signing up…' : 'Sign up'}
+              </button>
+              {error && (
+                <p className="status-note status-note--error text-center" aria-live="polite">
+                  {error}
+                </p>
+              )}
+            </form>
             )}
-          </form>
-          )}
-          <p className="auth-form-switch">
-            Already registered? <Link to="/login">Return to login</Link>
-          </p>
+            <p className="auth-form-switch">
+              Already registered? <Link to="/login">Return to login</Link>
+            </p>
+          </div>
         </div>
       </div>
     </div>

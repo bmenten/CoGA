@@ -19,6 +19,10 @@ import { formatResolvedReferenceLabel, useFamilyReference } from '../../lib/refe
 import GenomeWorkspaceLink from './GenomeWorkspaceLink';
 import { apiPath } from '../../lib/apiPath';
 import InfoTip from '../../components/InfoTip';
+import GeneDiseaseHeading from '../../components/GeneDiseaseHeading';
+import TruncatedText from '../../components/TruncatedText';
+import SampleLabel from '../../components/SampleLabel';
+import { omimSearchHref } from '../../lib/omim';
 import { COUNT_UNIT_MARK, countUnitWarningText, repeatStatusLabel } from '../../lib/repeatStatus';
 import { raw, routePath } from '../../lib/routePath';
 
@@ -70,8 +74,18 @@ export const formatCutoff = (row: {
   return 'No reference cutoff';
 };
 
-const omimSearchHref = (disease: string): string =>
-  `https://www.omim.org/search?index=entry&search=${encodeURIComponent(disease)}`;
+// A repeat motif or sequence longer than this shows its first nucleotides and "…" on screen,
+// the whole of it in its tooltip.
+export const MOTIF_DISPLAY_MAX = 10;
+
+// The disease after the gene in the locus heading, with its OMIM search. A locus outside the
+// catalogue carries its own ID as its disease (chr2_1000000_1000030_CAG): that names no
+// disease, and the heading already shows it.
+const locusDiseases = (row: ApiRepeatExpansionRow) => {
+  const disease = (row.disease || '').trim();
+  if (!disease || [row.display_name, row.gene, row.locus_id].includes(disease)) return [];
+  return [{ name: disease, omimUrl: omimSearchHref(disease) }];
+};
 
 const formatAlleles = (alleles: ApiRepeatExpansionAllele[]): string => {
   const values = alleles
@@ -396,10 +410,14 @@ const FamilyRepeatExpansionsPage: React.FC = () => {
         </div>
         <div className="data-table-shell overflow-x-auto">
           <table className="analysis-table family-repeat-table">
+            <colgroup>
+              <col className="family-repeat-col-locus" />
+              <col />
+              <col className="family-repeat-col-cutoff" />
+            </colgroup>
             <thead>
               <tr>
                 <th>Repeat</th>
-                <th>Disease</th>
                 <th>Family calls</th>
                 <th className="repeat-cutoff-head">Cutoffs</th>
               </tr>
@@ -413,8 +431,7 @@ const FamilyRepeatExpansionsPage: React.FC = () => {
                   }`}
                 >
                   <td>
-                    <div className="family-repeat-table-locus-head">
-                      <div className="family-repeat-locus-name">{row.display_name}</div>
+                    <GeneDiseaseHeading gene={row.display_name} diseases={locusDiseases(row)}>
                       {row.status !== 'normal' && (
                         <span
                           className={`table-chip family-repeat-table-locus-flag family-repeat-table-locus-flag--${row.status}`}
@@ -422,14 +439,20 @@ const FamilyRepeatExpansionsPage: React.FC = () => {
                           {repeatStatusLabel(row.status, row.review_reason)}
                         </span>
                       )}
+                    </GeneDiseaseHeading>
+                    <div className="table-subtle family-repeat-locus-meta">
+                      <span>
+                        chr{row.chr}:{row.start.toLocaleString()}-{row.end.toLocaleString()}
+                      </span>
+                      {row.motif && (
+                        <span>
+                          motif <TruncatedText text={row.motif} max={MOTIF_DISPLAY_MAX} mono />
+                        </span>
+                      )}
                     </div>
-                    <div className="table-subtle">
-                      chr{row.chr}:{row.start.toLocaleString()}-{row.end.toLocaleString()}
-                    </div>
-                    {row.motif && <div className="table-subtle">{row.motif}</div>}
                     {/* Both leave this list behind, so both open a tab — same as the
                         small-variant and structural-variant tables. */}
-                    <div className="mt-1 inline-actions">
+                    <div className="finding-actions">
                       <GenomeWorkspaceLink
                         to={buildRepeatIgvHref(family.family_id, row, resolvedProjectId)}
                         className="variant-card-resource variant-card-resource--clinical"
@@ -451,37 +474,22 @@ const FamilyRepeatExpansionsPage: React.FC = () => {
                     </div>
                   </td>
                   <td>
-                    {row.disease ? (
-                      <a
-                        href={omimSearchHref(row.disease)}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="table-link family-repeat-disease-link"
-                        title={`Open ${row.disease} on OMIM`}
-                      >
-                        {row.disease}
-                      </a>
-                    ) : (
-                      <span className="table-subtle">—</span>
-                    )}
-                  </td>
-                  <td>
                     <div className="family-repeat-table-calls">
                       {orderedMembers.map((member) => {
                         const call = row.calls[member.sample_id];
+                        const abnormal = Boolean(call && isAbnormalStatus(call.status));
                         return (
                           <div
                             key={member.sample_id}
                             className={`family-repeat-table-call-row${
-                              call && isAbnormalStatus(call.status)
-                                ? ' family-repeat-table-call-row--abnormal'
-                                : ''
+                              abnormal ? ' family-repeat-table-call-row--abnormal' : ''
                             }`}
                           >
-                            <div className="family-repeat-table-call-person">
-                              <strong>{member.sample_id}</strong>
-                              <div className="table-subtle">{member.role}</div>
-                            </div>
+                            <SampleLabel
+                              sampleId={member.sample_id}
+                              role={member.role}
+                              emphasis={abnormal}
+                            />
                             <div className="family-repeat-table-call-value">
                               {call ? (
                                 <div className="family-repeat-table-call-stack">
@@ -531,7 +539,7 @@ const FamilyRepeatExpansionsPage: React.FC = () => {
               ))}
               {filteredLoci.length === 0 && (
                 <tr>
-                  <td colSpan={4} className="table-subtle">
+                  <td colSpan={3} className="table-subtle">
                     {repeatTable.loci.length
                       ? 'No repeat expansion loci match the selected filters.'
                       : 'No repeat expansion data is loaded for this family.'}

@@ -335,7 +335,11 @@ describe('FamilyParaphasePage', () => {
     expect(smnCard).not.toBeNull();
     const smnScope = within(smnCard as HTMLElement);
     expect(smnScope.getByText('Clinical')).toBeInTheDocument();
-    expect(smnScope.getByText('Spinal muscular atrophy')).toHaveAttribute(
+    // Gene first, then the disease with its OMIM link: the repeat page's heading.
+    expect(smnScope.getByText('Spinal muscular atrophy').closest('.gene-disease-heading')).toHaveTextContent(
+      'SMN1/SMN2—Spinal muscular atrophy (OMIM)',
+    );
+    expect(smnScope.getByRole('link', { name: /open spinal muscular atrophy on omim/i })).toHaveAttribute(
       'href',
       'https://www.omim.org/entry/253300',
     );
@@ -468,5 +472,100 @@ describe('FamilyParaphasePage — failed requests (#610)', () => {
 
     expect(await screen.findByRole('heading', { name: 'Family not found' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
+  });
+});
+
+// The repeat page's pattern: how to read a region sits behind an info icon, while this
+// family's calls, their status and the region's caveat stay on the card.
+describe('FamilyParaphasePage — the region card', () => {
+  const members = [
+    { sample_id: 'PROBAND', role: 'proband', affected: true, sex: 'female' },
+    { sample_id: 'MOTHER', role: 'mother', affected: false, sex: 'female' },
+  ];
+  const call = (sample: string, status: string, cn: number) => ({
+    sample,
+    role: sample === 'PROBAND' ? 'proband' : 'mother',
+    clinical_status: status,
+    phase_region: '7:chr5:70917100-70961220',
+    region_depth: {},
+    final_haplotype_count: 2,
+    assembled_haplotype_count: 2,
+    variant_site_count: 3,
+    heterozygous_site_count: 1,
+    copy_number_metrics: [{ key: 'smn1_cn', label: 'SMN1 CN', value: cn }],
+    read_metrics: [],
+  });
+  const gene = {
+    gene_symbol: 'smn1',
+    is_medically_relevant: true,
+    has_copy_number_signal: true,
+    region_info: {
+      region_id: 'smn1_smn2',
+      display_name: 'SMN1/SMN2',
+      genes: ['SMN1', 'SMN2'],
+      summary: 'Copy-number calls for SMN1 and SMN2.',
+      clinical: {
+        interpretation: 'Read SMN1 copy number first: 0 copies = affected, 1 = carrier.',
+        normal: 'SMN1 CN 2.',
+        caveats: 'Misses silent 2+0 carriers.',
+      },
+      clinical_priority: 1,
+      key_copy_number_fields: ['smn1_cn'],
+      key_read_fields: [],
+      key_haplotype_fields: [],
+      key_extra_fields: [],
+      field_descriptions: {},
+      notes: [],
+      disorders: [
+        { name: 'Spinal muscular atrophy', omim_url: 'https://www.omim.org/entry/253300' },
+        { name: 'A disorder without an entry', omim_url: null },
+      ],
+    },
+    samples: { PROBAND: call('PROBAND', 'carrier', 1), MOTHER: call('MOTHER', 'normal', 2) },
+  };
+
+  it('keeps the calls and the caveat visible and the reading guide behind the info icon', async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === '/families/F1') {
+        return Promise.resolve({ data: { family_id: 'F1', members, projects: [] } });
+      }
+      if (url === '/families/F1/paraphase') {
+        return Promise.resolve({ data: { samples: members, genes: [gene] } });
+      }
+      return Promise.resolve({ data: [] });
+    });
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MemoryRouter initialEntries={['/families/F1/paraphase']}>
+          <Routes>
+            <Route path="/families/:familyId/paraphase" element={<FamilyParaphasePage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    const card = (await screen.findByText('SMN1/SMN2')).closest('article') as HTMLElement;
+    const scope = within(card);
+
+    // Proband first, each with their copy number and status.
+    const rows = card.querySelectorAll('.paraphase-sample-row');
+    expect(rows[0]).toHaveTextContent('PROBANDprobandSMN1 CN 1Carrier');
+    expect(rows[0]).toHaveClass('paraphase-sample-row--carrier');
+    expect(rows[1]).toHaveTextContent('MOTHERmotherSMN1 CN 2Normal');
+
+    expect(scope.getByText('Misses silent 2+0 carriers.')).toBeVisible();
+    expect(scope.queryByText(/read smn1 copy number first/i)).not.toBeInTheDocument();
+    const icon = scope.getByText('How to read SMN1/SMN2').closest('.info-icon') as HTMLElement;
+    fireEvent.focus(icon);
+    expect(screen.getByRole('tooltip')).toHaveTextContent(
+      'Copy-number calls for SMN1 and SMN2. Read SMN1 copy number first: 0 copies = affected, 1 = carrier.',
+    );
+
+    // A disorder without an OMIM URL is named without a link, never one to "#".
+    expect(scope.getByText('A disorder without an entry')).toBeInTheDocument();
+    expect(scope.getAllByRole('link', { name: /on omim/i })).toHaveLength(1);
+    // The genome links and the extra-info toggle share the actions row at the card's end.
+    const actions = card.querySelector('.finding-actions') as HTMLElement;
+    expect(within(actions).getByRole('link', { name: /open igv/i })).toBeInTheDocument();
+    expect(within(actions).getByRole('button', { name: 'Extra info' })).toBeInTheDocument();
   });
 });

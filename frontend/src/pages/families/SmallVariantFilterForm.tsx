@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import type { ChangeEvent, SyntheticEvent } from 'react';
 import {
   ALL_GT_GROUPS,
   BUILT_IN_SMALL_PRESETS,
   addableTagDefinitions,
+  buildSmallVariantQueryParams,
   heldTagOptions,
   sortTagDefinitions,
   resolveCarrierScreeningCoupleMembers,
@@ -13,6 +14,7 @@ import {
   type LocationProblems,
   type SmallFilterState,
   type SmallVariantFilterPreset,
+  type SmallVariantSampleFilter,
   type SmallPreset,
   type SmallVariantSearchState,
   type SmallVariantTagDefinition,
@@ -23,6 +25,7 @@ import {
   type FilterSectionForm,
   type GtGroupId,
   type OpenSections,
+  SECTION_FILTER_COUNTS,
   PhenotypeFilterSection,
   SvSecondHitFilterSection,
   InheritanceFilterSection,
@@ -112,6 +115,54 @@ type SmallVariantFilterFormProps = Pick<
    * built-ins; the NIPT page passes its own (de novo / recessive).
    */
   builtInPresets?: typeof BUILT_IN_SMALL_PRESETS;
+  /**
+   * The preset the page opened on (the family small-variant page's fresh-open default),
+   * named as the active filter until another is picked or the filters are cleared. Pass it
+   * once the draft holds it; `overrides` are what the page set on top of the preset (the
+   * Mendeliome panel), so "Reset to preset" restores the same draft.
+   */
+  initialPreset?: {
+    value: string;
+    label: string;
+    overrides?: Partial<SmallFilterState>;
+  } | null;
+  /**
+   * When true, the filter categories sit behind an "Advanced filters" toggle, collapsed on
+   * open. The fields stay mounted while collapsed, so collapsing never changes a filter.
+   */
+  collapsibleAdvanced?: boolean;
+};
+
+/** The preset or saved search the draft was loaded from, and the draft it loaded. */
+type LoadedPreset = {
+  value: string;
+  label: string;
+  isDefault: boolean;
+  overrides?: Partial<SmallFilterState>;
+  /** The draft as the preset left it (draftKey); null until the preset's draft has landed. */
+  baseline: string | null;
+  /** The draft object the preset replaces: the baseline is taken once the draft differs. */
+  pendingFrom: SmallFilterState | null;
+};
+
+/**
+ * The draft as a comparable key: its query parameters, sorted, so the order values were
+ * ticked in does not count as a change. Only compared, never sent.
+ */
+const draftKey = (
+  filters: SmallFilterState,
+  sampleFilters: Record<string, SmallVariantSampleFilter>,
+) => {
+  const params = buildSmallVariantQueryParams(filters, sampleFilters, 1);
+  return Array.from(params.entries())
+    .map(([key, value]) => {
+      if (key !== 'sample_filter') return `${key}=${value}`;
+      // sample:gt|gt…:qual:dp:af:ad_alt — the genotypes in the order they were ticked.
+      const [sample, gt = '', ...thresholds] = value.split(':');
+      return `${key}=${[sample, gt.split('|').sort().join('|'), ...thresholds].join(':')}`;
+    })
+    .sort()
+    .join('&');
 };
 
 const CLINVAR_OPTIONS = [
@@ -153,6 +204,8 @@ const SmallVariantFilterForm = ({
   categoryLabels,
   niptInheritancePresets,
   builtInPresets = BUILT_IN_SMALL_PRESETS,
+  initialPreset = null,
+  collapsibleAdvanced = false,
 }: SmallVariantFilterFormProps) => {
   const offers = (key: keyof SmallFilterState) => !unsupportedFilters?.has(key);
   const [selectedQuickPreset, setSelectedQuickPreset] = useState('');
@@ -160,6 +213,32 @@ const SmallVariantFilterForm = ({
   const [openSections, setOpenSections] = useState<OpenSections>(DEFAULT_OPEN_SECTIONS);
   const [presetName, setPresetName] = useState('');
   const [presetDescription, setPresetDescription] = useState('');
+  const [advancedOpen, setAdvancedOpen] = useState(!collapsibleAdvanced);
+  const advancedPanelId = useId();
+  const [loadedPreset, setLoadedPreset] = useState<LoadedPreset | null>(null);
+  const [initialPresetTaken, setInitialPresetTaken] = useState(false);
+  const currentDraftKey = draftKey(draftFilters, sampleDraftFilters);
+  // The page's opening preset is named once its draft is in place; a pick before then wins.
+  if (initialPreset && !initialPresetTaken) {
+    setInitialPresetTaken(true);
+    setSelectedQuickPreset(initialPreset.value);
+    setLoadedPreset({
+      value: initialPreset.value,
+      label: initialPreset.label,
+      isDefault: true,
+      overrides: initialPreset.overrides,
+      baseline: currentDraftKey,
+      pendingFrom: null,
+    });
+  }
+  // A picked preset lands in the draft with this render: take that draft as its baseline.
+  if (loadedPreset && loadedPreset.baseline === null && draftFilters !== loadedPreset.pendingFrom) {
+    setLoadedPreset({ ...loadedPreset, baseline: currentDraftKey, pendingFrom: null });
+  }
+  const presetModified =
+    loadedPreset !== null &&
+    loadedPreset.baseline !== null &&
+    loadedPreset.baseline !== currentDraftKey;
   const carrierScreeningCouple = resolveCarrierScreeningCoupleMembers(members, relationships);
   const availableBuiltInPresets = builtInPresets.filter(
     (preset) => preset.value !== 'expanded_carrier_screening' || carrierScreeningCouple,
@@ -255,17 +334,63 @@ const SmallVariantFilterForm = ({
   // Selecting a preset populates the draft filters immediately (chips + sample
   // thresholds update) so the user can review/tweak before hitting Apply. The
   // single "Apply filters" button is what actually runs the search.
-  const populateFromQuickPreset = (value: string) => {
-    setSelectedQuickPreset(value);
-    if (!value) return;
+  const loadPreset = (value: string, overrides?: Partial<SmallFilterState>) => {
     if (value.startsWith('built-in:')) {
       applyPreset(value.replace('built-in:', '') as SmallPreset);
-      return;
-    }
-    const preset = presets.find((entry) => `saved:${entry._id}` === value);
-    if (preset) {
+    } else {
+      const preset = presets.find((entry) => `saved:${entry._id}` === value);
+      if (!preset) return false;
       applySavedPreset(preset);
     }
+    Object.entries(overrides ?? {}).forEach(([key, overrideValue]) => {
+      setDraftFilterValue(key as keyof SmallFilterState, overrideValue ?? '');
+    });
+    return true;
+  };
+
+  const presetLabel = (value: string) => {
+    if (value.startsWith('built-in:')) {
+      const id = value.replace('built-in:', '');
+      return builtInPresets.find((preset) => preset.value === id)?.label ?? id;
+    }
+    return presets.find((entry) => `saved:${entry._id}` === value)?.name ?? value;
+  };
+
+  const populateFromQuickPreset = (value: string) => {
+    setSelectedQuickPreset(value);
+    setInitialPresetTaken(true);
+    if (!value) {
+      setLoadedPreset(null);
+      return;
+    }
+    // Both apply functions do nothing without family members: then nothing was loaded.
+    if (members.length && loadPreset(value)) {
+      setLoadedPreset({
+        value,
+        label: presetLabel(value),
+        isDefault: false,
+        baseline: null,
+        pendingFrom: draftFilters,
+      });
+    } else {
+      setLoadedPreset(null);
+    }
+  };
+
+  // Put the loaded preset's draft back (the preset loaded again, as picking it does).
+  const resetToLoadedPreset = () => {
+    if (loadedPreset) loadPreset(loadedPreset.value, loadedPreset.overrides);
+  };
+  const canResetToPreset =
+    loadedPreset !== null &&
+    (loadedPreset.value.startsWith('built-in:') ||
+      presets.some((entry) => `saved:${entry._id}` === loadedPreset.value));
+
+  const clearAllFilters = () => {
+    setSelectedQuickPreset('');
+    setLoadedPreset(null);
+    setInitialPresetTaken(true);
+    handleReset();
   };
 
   const setSampleQualityThresholds = (thresholds: {
@@ -333,6 +458,20 @@ const SmallVariantFilterForm = ({
     updateInheritanceGenotypes,
   };
 
+  // The categories the form shows, as rendered below, and how many have a filter set.
+  const visibleSections = (Object.keys(SECTION_FILTER_COUNTS) as (keyof OpenSections)[]).filter(
+    (section) => {
+      if (section === 'phenotype' || section === 'svSecondHit' || section === 'inheritance') {
+        return familyAware;
+      }
+      if (section === 'categories') return mode === 'nipt';
+      return true;
+    },
+  );
+  const sectionsWithFilters = visibleSections.filter(
+    (section) => SECTION_FILTER_COUNTS[section](form) > 0,
+  ).length;
+
   return (
     <form onSubmit={handleApply} className="space-y-4 variant-search-workspace">
       <div className="variant-search-header">
@@ -345,6 +484,9 @@ const SmallVariantFilterForm = ({
               <>
                 <select
                   aria-label="Preset or saved search"
+                  className={`variant-preset-select${
+                    loadedPreset ? ' variant-preset-select--active' : ''
+                  }${presetModified ? ' variant-preset-select--modified' : ''}`}
                   value={selectedQuickPreset}
                   onChange={(event) => populateFromQuickPreset(event.target.value)}
                 >
@@ -375,10 +517,43 @@ const SmallVariantFilterForm = ({
                 </button>
               </>
             ) : null}
-            <button type="button" className="button-secondary" onClick={handleReset}>
+            <button type="button" className="button-secondary" onClick={clearAllFilters}>
               Clear all filters
             </button>
           </div>
+          {familyAware || mode === 'nipt' ? (
+            <p
+              className={`variant-active-preset${loadedPreset ? '' : ' variant-active-preset--none'}`}
+              role="status"
+              aria-live="polite"
+            >
+              <span className="variant-active-preset-key">Active filter:</span>{' '}
+              {loadedPreset ? (
+                <>
+                  <strong className="variant-active-preset-name">{loadedPreset.label}</strong>
+                  {loadedPreset.isDefault ? (
+                    <span className="variant-active-preset-tag">default</span>
+                  ) : null}
+                  {presetModified ? (
+                    <span className="variant-active-preset-tag variant-active-preset-tag--modified">
+                      modified
+                    </span>
+                  ) : null}
+                  {presetModified && canResetToPreset ? (
+                    <button
+                      type="button"
+                      className="button-link variant-active-preset-reset"
+                      onClick={resetToLoadedPreset}
+                    >
+                      Reset to preset
+                    </button>
+                  ) : null}
+                </>
+              ) : (
+                <span className="variant-active-preset-name">custom (no preset loaded)</span>
+              )}
+            </p>
+          ) : null}
         </div>
       </div>
 
@@ -459,7 +634,30 @@ const SmallVariantFilterForm = ({
       ) : null}
 
       <section className="variant-search-section">
-        <div className="variant-filter-dropdown-grid">
+        {collapsibleAdvanced ? (
+          <button
+            type="button"
+            className="variant-advanced-toggle"
+            aria-expanded={advancedOpen}
+            aria-controls={advancedPanelId}
+            onClick={() => setAdvancedOpen((current) => !current)}
+          >
+            <span className="variant-filter-dropdown-caret" aria-hidden="true">
+              ▾
+            </span>
+            <span className="variant-advanced-toggle-title">Advanced filters</span>
+            <span className="variant-advanced-toggle-meta">
+              ({visibleSections.length} categories
+              {sectionsWithFilters > 0 ? `, ${sectionsWithFilters} with filters set` : ''})
+            </span>
+          </button>
+        ) : null}
+        {/* Hidden, not unmounted: collapsing keeps every field and its value as it is. */}
+        <div
+          id={collapsibleAdvanced ? advancedPanelId : undefined}
+          className="variant-filter-dropdown-grid"
+          hidden={collapsibleAdvanced && !advancedOpen}
+        >
           {familyAware ? (
           <PhenotypeFilterSection form={form} />
           ) : null}

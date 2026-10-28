@@ -7,13 +7,17 @@ project can change them, a reader only sees them. **Assigned to** and **Reviewed
 analysts of the family's projects and the administrators, never a reader. Someone chosen before they
 became a reader (or left the family's projects) stays shown, marked *(not eligible)*, until you change it. The
 header also shows the assembly and the projects, and a *Not validated for clinical use* banner when the
-family is outside the validated scope.
+family is outside the validated scope. Beside the workflow fields sit the family-level functions:
+**Sample QC** (when the family has small variants) and **Report** (when it has small or structural
+variants).
 
-### The buttons
+### The analyses and views
 
-- **Variants** — **Small variants** and **Structural variants** (each with its curation counts); then
-  **Repeat expansions**, **Paraphase**, **mtDNA analysis** and **Monogenic NIPT**; and finally **Variant
-  summary**, **Sample QC** and **Report**. A button appears only when the family has that kind of data.
+- **Variants** — one row of links: **Small variants**, **Structural variants**, **Variant summary** (of
+  the structural variants), **Repeat expansions**, **Paraphase**, **mtDNA analysis** and **Monogenic
+  NIPT**. A link appears only when the family has that kind of data. Under the row, **Curation** gives a
+  line each for the small and the structural variants: how many are reviewed, how many carry notes, and
+  the count per review tag.
 - **Visualization** — **Genome view**, **Chromosome view**, **Circos plot** and **IGV viewer**.
 
 ### Region of interest (ROI)

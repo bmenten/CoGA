@@ -16,6 +16,9 @@ import { sortFamilyMembersProbandFirst } from '../../lib/familyMembers';
 import { formatResolvedReferenceLabel, useFamilyReference } from '../../lib/reference';
 import { apiPath } from '../../lib/apiPath';
 import { raw, routePath } from '../../lib/routePath';
+import GeneDiseaseHeading from '../../components/GeneDiseaseHeading';
+import InfoIcon from '../../components/InfoIcon';
+import SampleLabel from '../../components/SampleLabel';
 
 
 
@@ -188,10 +191,7 @@ const ParaphaseSampleDetail: React.FC<{
     call.read_metrics?.filter((metric) => !highlightedReadKeys.has(metric.key)) || [];
   return (
     <div className="paraphase-sample-detail">
-      <div className="paraphase-sample-detail-head">
-        <strong>{call.sample}</strong>
-        <span className="table-subtle">{call.role}</span>
-      </div>
+      <SampleLabel sampleId={call.sample} role={call.role} />
       {otherCnMetrics.length > 0 && (
         <div className="paraphase-cn-grid">
           {otherCnMetrics.map((metric) => (
@@ -218,9 +218,6 @@ const ParaphaseSampleDetail: React.FC<{
             </span>
           ))}
         </div>
-      )}
-      {!!gene.region_info?.notes?.length && hasClinicalNoCall(gene, call) && (
-        <div className="paraphase-clinical-note">{gene.region_info.notes[0]}</div>
       )}
       {!!call.extra_fields?.length && (
         <div className="paraphase-extra-fields">
@@ -278,55 +275,45 @@ const ParaphaseLocusCard: React.FC<{
     Object.values(gene.samples)
       .map((call) => parsePhaseRegion(call.phase_region))
       .find(Boolean) || null;
+  const title = region?.display_name || gene.gene_symbol;
+  // What the region is and how to read its calls: explanation, not this family's result, so
+  // it sits behind the info icon.
+  const readingGuide = [region?.summary, clinical?.interpretation].filter(Boolean).join(' ');
+  // The region's note on a null copy-number call, shown whenever a member's key copy number
+  // is one: it says why the call is missing, so it stays on the card.
+  const noCallNote =
+    region?.notes?.length &&
+    Object.values(gene.samples).some((call) => hasClinicalNoCall(gene, call))
+      ? region.notes[0]
+      : null;
   return (
     <article
       className={`variant-card paraphase-card${anyPathogenic ? ' variant-card--clinvar-pathogenic' : ''}`}
     >
       <div className="paraphase-card-head">
-        <div>
-          <div className="paraphase-card-title">{region?.display_name || gene.gene_symbol}</div>
-          {region?.genes?.length ? (
-            <div className="table-subtle">{region.genes.join(', ')}</div>
-          ) : (
-            region?.display_name &&
-            region.display_name !== gene.gene_symbol && (
-              <div className="table-subtle">{gene.gene_symbol}</div>
-            )
-          )}
-        </div>
+        <GeneDiseaseHeading
+          gene={<span className="paraphase-card-title">{title}</span>}
+          diseases={(region?.disorders || []).map((disorder) => ({
+            name: disorder.name,
+            omimUrl: disorder.omim_url,
+          }))}
+        >
+          {readingGuide && <InfoIcon name={`How to read ${title}`} text={readingGuide} />}
+        </GeneDiseaseHeading>
         {gene.is_medically_relevant && <span className="table-chip table-chip--accent">Clinical</span>}
       </div>
-      {!!region?.disorders?.length && (
-        <div className="paraphase-disorder-list">
-          {region.disorders.map((disorder) => (
-            <a key={disorder.name} href={disorder.omim_url || '#'} target="_blank" rel="noreferrer">
-              {disorder.name}
-            </a>
-          ))}
-        </div>
+      {region?.genes?.length ? (
+        <div className="table-subtle paraphase-card-genes">Genes {region.genes.join(', ')}</div>
+      ) : (
+        region?.display_name &&
+        region.display_name !== gene.gene_symbol && (
+          <div className="table-subtle paraphase-card-genes">Gene {gene.gene_symbol}</div>
+        )
       )}
-      {clinical?.interpretation && (
-        <p className="paraphase-card-interpretation">{clinical.interpretation}</p>
-      )}
-      {/* Both leave this table behind, so both open a tab — same as the small-variant,
-          structural-variant and repeat tables. */}
-      {phaseRegion && (
-        <div className="paraphase-card-links">
-          <GenomeWorkspaceLink
-            to={buildParaphaseIgvHref(familyId, phaseRegion, projectId)}
-            className="variant-card-resource variant-card-resource--clinical"
-            label={`Open IGV at ${getParaphaseIgvLocus(phaseRegion)}`}
-          >
-            IGV
-          </GenomeWorkspaceLink>
-          <GenomeWorkspaceLink
-            to={buildParaphaseChromosomeHref(familyId, phaseRegion, projectId)}
-            className="variant-card-resource variant-card-resource--clinical"
-            label={`Open chromosome view at ${formatParaphaseRegion(phaseRegion)}`}
-          >
-            Chromosome view
-          </GenomeWorkspaceLink>
-        </div>
+      {clinical?.caveats && (
+        <p className="paraphase-card-caveat">
+          <span className="paraphase-card-caveat-label">Caveat</span> {clinical.caveats}
+        </p>
       )}
       <div className="paraphase-card-samples">
         {members.map((member) => {
@@ -334,22 +321,21 @@ const ParaphaseLocusCard: React.FC<{
           if (!call) {
             return (
               <div key={member.sample_id} className="paraphase-sample-row">
-                <span className="paraphase-sample-id">{member.sample_id}</span>
-                <span className="table-subtle">No data</span>
+                <SampleLabel sampleId={member.sample_id} role={member.role} />
+                <span className="table-subtle paraphase-sample-cn">No data</span>
               </div>
             );
           }
           const status = call.clinical_status || 'none';
           const meta = CLINICAL_STATUS_META[status] || CLINICAL_STATUS_META.none;
           const clinicalCn = clinicalCopyNumberMetrics(gene, call);
+          const abnormal = status === 'pathogenic' || status === 'carrier';
           return (
             <div
               key={member.sample_id}
-              className={`paraphase-sample-row${status === 'pathogenic' ? ' paraphase-sample-row--pathogenic' : ''}`}
+              className={`paraphase-sample-row paraphase-sample-row--${status}`}
             >
-              <span className="paraphase-sample-id">{member.sample_id}</span>
-              <span className="table-subtle paraphase-sample-role">{member.role}</span>
-              {meta.label && <span className={`paraphase-status ${meta.className}`}>{meta.label}</span>}
+              <SampleLabel sampleId={member.sample_id} role={member.role} emphasis={abnormal} />
               <span className="paraphase-sample-cn">
                 {clinicalCn.length ? (
                   clinicalCn.map((metric) => (
@@ -361,21 +347,49 @@ const ParaphaseLocusCard: React.FC<{
                   <span className="table-subtle">CN n/a</span>
                 )}
               </span>
+              {meta.label ? (
+                <span className={`paraphase-status ${meta.className}`}>{meta.label}</span>
+              ) : (
+                <span />
+              )}
             </div>
           );
         })}
       </div>
-      <button
-        type="button"
-        className="button-link paraphase-extra-toggle"
-        aria-expanded={showExtra}
-        onClick={() => setShowExtra((value) => !value)}
-      >
-        {showExtra ? 'Hide extra info' : 'Extra info'}
-      </button>
+      {noCallNote && <div className="paraphase-clinical-note">{noCallNote}</div>}
+      {/* Both genome links leave this list behind, so both open a tab — same as the
+          small-variant, structural-variant and repeat tables. */}
+      <div className="finding-actions">
+        {phaseRegion && (
+          <>
+            <GenomeWorkspaceLink
+              to={buildParaphaseIgvHref(familyId, phaseRegion, projectId)}
+              className="variant-card-resource variant-card-resource--clinical"
+              label={`Open IGV at ${getParaphaseIgvLocus(phaseRegion)}`}
+            >
+              IGV
+            </GenomeWorkspaceLink>
+            <GenomeWorkspaceLink
+              to={buildParaphaseChromosomeHref(familyId, phaseRegion, projectId)}
+              className="variant-card-resource variant-card-resource--clinical"
+              label={`Open chromosome view at ${formatParaphaseRegion(phaseRegion)}`}
+            >
+              Chromosome view
+            </GenomeWorkspaceLink>
+          </>
+        )}
+        <button
+          type="button"
+          className="button-link paraphase-extra-toggle"
+          aria-expanded={showExtra}
+          onClick={() => setShowExtra((value) => !value)}
+        >
+          {showExtra ? 'Hide extra info' : 'Extra info'}
+        </button>
+      </div>
       {showExtra && (
         <div className="paraphase-card-extra">
-          {clinical && (clinical.normal || clinical.carrier || clinical.pathogenic || clinical.caveats) && (
+          {clinical && (clinical.normal || clinical.carrier || clinical.pathogenic) && (
             <dl className="paraphase-findings">
               {clinical.normal && (
                 <>
@@ -393,12 +407,6 @@ const ParaphaseLocusCard: React.FC<{
                 <>
                   <dt className="paraphase-findings-pathogenic">Pathogenic</dt>
                   <dd>{clinical.pathogenic}</dd>
-                </>
-              )}
-              {clinical.caveats && (
-                <>
-                  <dt>Caveats</dt>
-                  <dd>{clinical.caveats}</dd>
                 </>
               )}
             </dl>
@@ -586,10 +594,13 @@ const FamilyParaphasePage: React.FC = () => {
       <section className="surface-card space-y-4">
         <div className="page-header">
           <div className="space-y-1">
-            <h2 className="section-title">Duplicated-region results</h2>
-            <p className="catalog-card-copy">
-              Medically relevant Paraphase regions are shown by default. Show all to include exploratory regions.
-            </p>
+            <div className="paraphase-section-head">
+              <h2 className="section-title">Duplicated-region results</h2>
+              <InfoIcon
+                name="About this list"
+                text="Medically relevant Paraphase regions are shown by default. Show all to include exploratory regions."
+              />
+            </div>
           </div>
         </div>
 

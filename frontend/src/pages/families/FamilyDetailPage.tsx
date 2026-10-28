@@ -1128,6 +1128,27 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                   {metadataBusy ? 'Saving…' : metadataStatus?.message}
                 </span>
               )}
+              {/* Family-level functions, beside the case's workflow fields rather than among
+                  the variant analyses: the sample-integrity QC of the members and the report
+                  drawn from the analyses. Each appears once its data is known to exist. */}
+              {(hasSmallVariants || hasVariants) && (
+                <div className="family-workspace-actions" role="group" aria-label="Family actions">
+                  <VariantWorkspaceLink
+                    active={hasSmallVariants}
+                    to={routePath`/families/${data.family_id}/qc`}
+                    className="button-secondary family-workspace-action"
+                  >
+                    Sample QC
+                  </VariantWorkspaceLink>
+                  <VariantWorkspaceLink
+                    active={hasSmallVariants || hasVariants}
+                    to={routePath`/families/${data.family_id}/report${raw(variantPageQuerySuffix)}`}
+                    className="button-secondary family-workspace-action"
+                  >
+                    Report
+                  </VariantWorkspaceLink>
+                </div>
+              )}
             </div>
             {statusesFailed || usersFailed ? (
               <QueryFailure
@@ -1154,127 +1175,63 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
             the page no longer blocks on the slowest count query. Workspaces with
             no underlying data are simply omitted (see VariantWorkspaceLink).
           */}
-          <div className="family-variant-links">
-            {hasSmallVariants && (
-              <div className="family-variant-row family-variant-row--small">
-                <Link
-                  to={routePath`/families/${data.family_id}/small-variants${raw(variantPageQuerySuffix)}`}
-                  className="button-secondary family-variant-link hover:no-underline"
-                >
-                  Small variants
-                </Link>
-                <div className="family-variant-curation" aria-label="Small variant curation">
-                  <span className="family-review-summary-label">Curation</span>
-                  <span className="table-chip family-review-summary-chip">
-                    Reviewed <strong>{reviewSummaryFailed ? '—' : (reviewSummary?.reviewed_variant_count ?? 0)}</strong>
-                  </span>
-                  <span className="table-chip family-review-summary-chip family-review-summary-chip--notes">
-                    Notes <strong>{reviewSummaryFailed ? '—' : (reviewSummary?.note_count ?? 0)}</strong>
-                  </span>
-                  {reviewSummaryTags.map((tag) => (
-                    <span
-                      key={tag.key}
-                      className="table-chip table-chip--tag family-review-summary-chip"
-                      style={getReviewTagStyle(tag.key, smallVariantReviewTagMap)}
-                      title={`${tag.count} small variants tagged ${tag.label}`}
-                    >
-                      {tag.label} <strong>{tag.count}</strong>
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-            {hasVariants && (
-              <div className="family-variant-row family-variant-row--structural">
-                <Link
-                  to={routePath`/families/${data.family_id}/structural-variants${raw(variantPageQuerySuffix)}`}
-                  className="button-secondary family-variant-link hover:no-underline"
-                >
-                  Structural variants
-                </Link>
-                <div className="family-variant-curation" aria-label="Structural variant curation">
-                  <span className="family-review-summary-label">Curation</span>
-                  <span className="table-chip family-review-summary-chip">
-                    Reviewed <strong>{structuralReviewSummaryFailed ? '—' : (structuralReviewSummary?.reviewed_variant_count ?? 0)}</strong>
-                  </span>
-                  <span className="table-chip family-review-summary-chip family-review-summary-chip--notes">
-                    Notes <strong>{structuralReviewSummaryFailed ? '—' : (structuralReviewSummary?.note_count ?? 0)}</strong>
-                  </span>
-                  {structuralReviewSummaryTags.map((tag) => (
-                    <span
-                      key={tag.key}
-                      className="table-chip table-chip--tag family-review-summary-chip"
-                      style={getReviewTagStyle(tag.key, structuralVariantReviewTagMap)}
-                      title={`${tag.count} structural variants tagged ${tag.label}`}
-                    >
-                      {tag.label} <strong>{tag.count}</strong>
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-            {/* Row 3 — the assay-specific analyses. */}
-            {(hasRepeatExpansions || hasParaphase || hasMitoDna || isMonogenicNipt) && (
-              <div className="family-variant-row family-variant-row--assays">
-                <VariantWorkspaceLink
-                  active={hasRepeatExpansions}
-                  to={routePath`/families/${data.family_id}/repeat-expansions`}
-                  className="button-secondary family-variant-link"
-                >
-                  Repeat expansions
-                </VariantWorkspaceLink>
-                <VariantWorkspaceLink
-                  active={hasParaphase}
-                  to={routePath`/families/${data.family_id}/paraphase`}
-                  className="button-secondary family-variant-link"
-                >
-                  Paraphase
-                </VariantWorkspaceLink>
-                <VariantWorkspaceLink
-                  active={hasMitoDna}
-                  to={routePath`/families/${data.family_id}/mitochondrial-dna${raw(variantPageQuerySuffix)}`}
-                  className="button-secondary family-variant-link"
-                >
-                  mtDNA analysis
-                </VariantWorkspaceLink>
-                {isMonogenicNipt && (
-                  <VariantWorkspaceLink
-                    active
-                    to={routePath`/families/${data.family_id}/nipt`}
-                    className="button-secondary family-variant-link"
-                  >
-                    Monogenic NIPT
-                  </VariantWorkspaceLink>
-                )}
-              </div>
-            )}
-            {/* Row 4 — what you produce from the analyses, rather than an analysis. */}
-            {(hasAnyVariantData || isMonogenicNipt) && (
-              <div className="family-variant-row family-variant-row--reports">
-                <VariantWorkspaceLink
-                  active={hasVariantSummary}
-                  to={routePath`/families/${data.family_id}/variant-summary`}
-                  className="button-secondary family-variant-link"
-                >
-                  Variant summary
-                </VariantWorkspaceLink>
-                <VariantWorkspaceLink
-                  active={hasSmallVariants}
-                  to={routePath`/families/${data.family_id}/qc`}
-                  className="button-secondary family-variant-link"
-                >
-                  Sample QC
-                </VariantWorkspaceLink>
-                <VariantWorkspaceLink
-                  active={hasSmallVariants || hasVariants}
-                  to={routePath`/families/${data.family_id}/report${raw(variantPageQuerySuffix)}`}
-                  className="button-secondary family-variant-link"
-                >
-                  Report
-                </VariantWorkspaceLink>
-              </div>
-            )}
-          </div>
+          {/* One row of equal entries, one per analysis the family has data for. The
+              variant summary sits beside the structural variants: it summarises them
+              (every SV caller) and nothing else, so it is an analysis, not a family-level
+              output like the QC and the report in the header. */}
+          {(hasAnyVariantData || isMonogenicNipt) && (
+            <nav className="family-module-nav" aria-label="Variant analyses">
+              <VariantWorkspaceLink
+                active={hasSmallVariants}
+                to={routePath`/families/${data.family_id}/small-variants${raw(variantPageQuerySuffix)}`}
+                className="family-module-link"
+              >
+                Small variants
+              </VariantWorkspaceLink>
+              <VariantWorkspaceLink
+                active={hasVariants}
+                to={routePath`/families/${data.family_id}/structural-variants${raw(variantPageQuerySuffix)}`}
+                className="family-module-link"
+              >
+                Structural variants
+              </VariantWorkspaceLink>
+              <VariantWorkspaceLink
+                active={hasVariantSummary}
+                to={routePath`/families/${data.family_id}/variant-summary`}
+                className="family-module-link"
+              >
+                Variant summary
+              </VariantWorkspaceLink>
+              <VariantWorkspaceLink
+                active={hasRepeatExpansions}
+                to={routePath`/families/${data.family_id}/repeat-expansions`}
+                className="family-module-link"
+              >
+                Repeat expansions
+              </VariantWorkspaceLink>
+              <VariantWorkspaceLink
+                active={hasParaphase}
+                to={routePath`/families/${data.family_id}/paraphase`}
+                className="family-module-link"
+              >
+                Paraphase
+              </VariantWorkspaceLink>
+              <VariantWorkspaceLink
+                active={hasMitoDna}
+                to={routePath`/families/${data.family_id}/mitochondrial-dna${raw(variantPageQuerySuffix)}`}
+                className="family-module-link"
+              >
+                mtDNA analysis
+              </VariantWorkspaceLink>
+              <VariantWorkspaceLink
+                active={isMonogenicNipt}
+                to={routePath`/families/${data.family_id}/nipt`}
+                className="family-module-link"
+              >
+                Monogenic NIPT
+              </VariantWorkspaceLink>
+            </nav>
+          )}
           {!variantCountsLoaded && (
             <p className="dashboard-link-note">Checking available family data…</p>
           )}
@@ -1291,6 +1248,55 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
               automatically once its data is imported.
             </p>
           )}
+          {/* Curation so far, a quiet line per reviewable variant type under the analyses
+              rather than between them. */}
+          {(hasSmallVariants || hasVariants) && (
+            <div className="family-curation-summary">
+              <span className="family-curation-summary-title">Curation</span>
+              {hasSmallVariants && (
+                <div className="family-curation-line" role="group" aria-label="Small variant curation">
+                  <span className="family-curation-type">Small variants</span>
+                  <span className="family-curation-count">
+                    Reviewed <strong>{reviewSummaryFailed ? '—' : (reviewSummary?.reviewed_variant_count ?? 0)}</strong>
+                  </span>
+                  <span className="family-curation-count">
+                    Notes <strong>{reviewSummaryFailed ? '—' : (reviewSummary?.note_count ?? 0)}</strong>
+                  </span>
+                  {reviewSummaryTags.map((tag) => (
+                    <span
+                      key={tag.key}
+                      className="table-chip table-chip--tag family-review-summary-chip"
+                      style={getReviewTagStyle(tag.key, smallVariantReviewTagMap)}
+                      title={`${tag.count} small variants tagged ${tag.label}`}
+                    >
+                      {tag.label} <strong>{tag.count}</strong>
+                    </span>
+                  ))}
+                </div>
+              )}
+              {hasVariants && (
+                <div className="family-curation-line" role="group" aria-label="Structural variant curation">
+                  <span className="family-curation-type">Structural variants</span>
+                  <span className="family-curation-count">
+                    Reviewed <strong>{structuralReviewSummaryFailed ? '—' : (structuralReviewSummary?.reviewed_variant_count ?? 0)}</strong>
+                  </span>
+                  <span className="family-curation-count">
+                    Notes <strong>{structuralReviewSummaryFailed ? '—' : (structuralReviewSummary?.note_count ?? 0)}</strong>
+                  </span>
+                  {structuralReviewSummaryTags.map((tag) => (
+                    <span
+                      key={tag.key}
+                      className="table-chip table-chip--tag family-review-summary-chip"
+                      style={getReviewTagStyle(tag.key, structuralVariantReviewTagMap)}
+                      title={`${tag.count} structural variants tagged ${tag.label}`}
+                    >
+                      {tag.label} <strong>{tag.count}</strong>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </article>
 
         <div className="family-workspace-side">
@@ -1301,32 +1307,34 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                 <p className="family-workspace-card-subtitle">Browse the data across the genome</p>
               </div>
             </div>
-            <div className="compact-toolbar family-toolbar">
+            {/* The same row of entries as the analyses: views of the whole genome, always
+                offered, kept in their own card because they are not tied to one data type. */}
+            <nav className="family-module-nav" aria-label="Genome views">
               <Link
                 to={routePath`/families/${data.family_id}/genome`}
-                className="button-secondary workspace-button hover:no-underline"
+                className="family-module-link hover:no-underline"
               >
                 Genome view
               </Link>
               <Link
                 to={routePath`/families/${data.family_id}/chromosome/1`}
-                className="button-secondary workspace-button hover:no-underline"
+                className="family-module-link hover:no-underline"
               >
                 Chromosome view
               </Link>
               <Link
                 to={routePath`/families/${data.family_id}/circos`}
-                className="button-secondary workspace-button hover:no-underline"
+                className="family-module-link hover:no-underline"
               >
                 Circos plot
               </Link>
               <Link
                 to={routePath`/families/${data.family_id}/igv`}
-                className="button-secondary workspace-button hover:no-underline"
+                className="family-module-link hover:no-underline"
               >
                 IGV viewer
               </Link>
-            </div>
+            </nav>
           </article>
 
           <article className="surface-card-flat family-workspace-card family-workspace-card--roi">

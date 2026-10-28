@@ -116,7 +116,8 @@
   display: grid;
   /* One shrinkable column: a card is never wider than the page, whatever it holds. */
   grid-template-columns: minmax(0, 1fr);
-  gap: 0.375rem;
+  /* Room between cards to read one from the next; the cards themselves stay compact. */
+  gap: 0.75rem;
 }
 
 /* One variant per bordered row; a left rail carries the ClinVar accent. */
