@@ -84,7 +84,7 @@ class SmallVariantReviewOut(BaseModel):
     acmg_unreadable: bool = False
 
 
-class SmallVariantReviewUpdate(BaseModel):
+class _VariantReviewUpdate(BaseModel):
     # Optimistic concurrency (#513): the review's ``updated_at`` as the client loaded it,
     # or null when it loaded no review. On a mismatch the save is refused with 409 and
     # the current review, instead of silently overwriting another reviewer's edit. A
@@ -93,6 +93,9 @@ class SmallVariantReviewUpdate(BaseModel):
     classification: Optional[str] = None
     tags: List[str] = Field(default_factory=list)
     note: Optional[str] = None
+
+
+class SmallVariantReviewUpdate(_VariantReviewUpdate):
     compound_het: Optional[SmallVariantCompoundHetReviewUpdate] = None
     # For ``acmg`` and ``cnv_acmg`` alike: left out, the stored classification is kept;
     # sent, it replaces it; sent as null or with no criteria, it is cleared.
@@ -101,7 +104,13 @@ class SmallVariantReviewUpdate(BaseModel):
     cnv_acmg: Optional[CnvAcmgClassificationPayload] = None
 
 
-class StructuralVariantReviewUpdate(SmallVariantReviewUpdate):
+class StructuralVariantReviewUpdate(_VariantReviewUpdate):
+    # A small variant's ``acmg`` and ``compound_het`` are not taken: the SV save never read
+    # them (#853). A client that still sends them is answered as before, the two left out,
+    # as Pydantic leaves out every field a model does not have.
+    # The CNV (ClinGen) classification: left out, the stored one is kept; sent, it replaces
+    # it; sent as null or with no criteria, it is cleared.
+    cnv_acmg: Optional[CnvAcmgClassificationPayload] = None
     # The caller (the SV row's ``source``) whose row a CNV scoring is made on. Several
     # callers can call one SV under one id and share its review, and a scoring freezes
     # the evidence of the row it was made on (TRACE-11). Read only with a scoring: left

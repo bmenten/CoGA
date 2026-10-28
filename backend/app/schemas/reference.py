@@ -90,8 +90,6 @@ class ReferenceImportSourceAssemblyOut(BaseModel):
     release_date: Optional[date] = None
     description: str
     source_name: str
-    cytobands_available: bool = True
-    genes_available: bool = True
     gene_source: str
 
 

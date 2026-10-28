@@ -160,8 +160,6 @@ describe('GeneInfoPage', () => {
                   symbol: 'Brca1',
                   ensembl_gene_id: 'ENSMUSG00000017146',
                   homology_type: 'ortholog_one2one',
-                  percent_id: 81.2,
-                  percent_coverage: 96.4,
                   in_platform: true,
                 },
               ],

@@ -115,6 +115,9 @@ class HpoFamilyQueryOut(BaseModel):
 
 
 class PhenotypeTermRefOut(BaseModel):
+    """An HPO term named in a response: a Monarch match's terms, a gene's Monarch phenotypes,
+    a variant's phenotype matches."""
+
     hpo_id: str
     label: Optional[str] = None
 

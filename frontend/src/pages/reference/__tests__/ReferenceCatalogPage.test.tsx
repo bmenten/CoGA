@@ -100,8 +100,6 @@ describe('ReferenceCatalogPage', () => {
               release_date: '2024-01-01',
               description: 'Dec. 2013 (GRCh38/hg38)',
               source_name: 'Genome Reference Consortium',
-              cytobands_available: true,
-              genes_available: true,
               gene_source: 'UCSC gene tables',
             },
           ],

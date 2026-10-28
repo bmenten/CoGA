@@ -564,7 +564,6 @@ export interface FamilyMemberUpdate {
   father_id?: string | null;
   mother_id?: string | null;
   expected_structure_version?: number | null;
-  clear_existing_genomic_data?: boolean;
   change_reason?: string | null;
 }
 
@@ -914,8 +913,6 @@ export interface GeneHomologOut {
   symbol: string | null;
   ensembl_gene_id: string | null;
   homology_type: string | null;
-  percent_id: number | null;
-  percent_coverage: number | null;
   in_platform: boolean;
 }
 
@@ -980,7 +977,7 @@ export interface GeneMonarchAssociationOut {
   causal: boolean;
   monarch_url: string | null;
   phenotype_count: number;
-  matched_phenotypes: MonarchPhenotypeMatchOut[];
+  matched_phenotypes: PhenotypeTermRefOut[];
 }
 
 export interface GeneOut {
@@ -1408,16 +1405,10 @@ export interface IntegrityVerifyOut {
   reason: string | null;
 }
 
-export interface ManualPedCoupleCreate {
-  partners: string[];
-  context?: string | null;
-  metadata?: Record<string, unknown>;
-}
-
 export interface ManualPedFamilyCreate {
   family_id: string;
   members: ManualPedMemberCreate[];
-  couples?: ManualPedCoupleCreate[];
+  couples?: FamilyStructureCoupleUpdate[];
   project_id?: string | null;
   metadata?: Record<string, unknown>;
 }
@@ -1552,11 +1543,6 @@ export interface MonarchGeneOverviewItemOut {
 export interface MonarchGeneOverviewOut {
   total: number;
   genes: MonarchGeneOverviewItemOut[];
-}
-
-export interface MonarchPhenotypeMatchOut {
-  hpo_id: string;
-  label: string | null;
 }
 
 export interface MonarchRefreshSummaryOut {
@@ -2409,6 +2395,10 @@ export interface PhenotypeMatchResultOut {
   extra_phenotypes: PhenotypeTermRefOut[];
 }
 
+/**
+ * An HPO term named in a response: a Monarch match's terms, a gene's Monarch phenotypes,
+ * a variant's phenotype matches.
+ */
 export interface PhenotypeTermRefOut {
   hpo_id: string;
   label: string | null;
@@ -2631,8 +2621,6 @@ export interface ReferenceImportSourceAssemblyOut {
   release_date: string | null;
   description: string;
   source_name: string;
-  cytobands_available: boolean;
-  genes_available: boolean;
   gene_source: string;
 }
 
@@ -3348,8 +3336,6 @@ export interface StructuralVariantReviewUpdate {
   classification?: string | null;
   tags?: string[];
   note?: string | null;
-  compound_het?: SmallVariantCompoundHetReviewUpdate | null;
-  acmg?: AcmgClassificationPayload | null;
   cnv_acmg?: CnvAcmgClassificationPayload | null;
   source?: string | null;
 }
@@ -3665,7 +3651,7 @@ export interface VariantPriorityOut {
   phenotype_score: number | null;
   segregation_modes: string[];
   phenotype_gene: string | null;
-  phenotype_matches: MonarchPhenotypeMatchOut[];
+  phenotype_matches: PhenotypeTermRefOut[];
   rank: number | null;
 }
 
