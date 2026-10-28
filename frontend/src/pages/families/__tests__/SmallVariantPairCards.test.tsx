@@ -4,9 +4,10 @@ import { describe, expect, it, vi } from 'vitest';
 
 import SmallVariantPairCards from '../SmallVariantPairCards';
 import type { SmallVariant, SmallVariantGroup } from '../smallVariantSearch';
+import { compoundHetReview, genotype, smallVariant, smallVariantGroup } from '../../../test/variants';
 
 const variant = (id: string, gt: string, start: number): SmallVariant =>
-  ({
+  smallVariant({
     _id: id,
     chr: '3',
     start,
@@ -17,21 +18,20 @@ const variant = (id: string, gt: string, start: number): SmallVariant =>
     alt: 'G',
     impact: 'MODERATE',
     effect: 'missense_variant',
-    genotypes: [{ sample: 'PROBAND', gt }],
-  }) as unknown as SmallVariant;
+    genotypes: [genotype({ sample: 'PROBAND', gt })],
+  });
 
 const renderPair = (group: Partial<SmallVariantGroup>) =>
   render(
     <MemoryRouter>
       <SmallVariantPairCards
         groups={[
-          {
-            group_type: 'compound_het',
+          smallVariantGroup({
             group_key: 'pair-1',
             gene: 'TRNT1',
             variants: [variant('v1', '0|1', 3129108), variant('v2', '1|0', 3139593)],
             ...group,
-          } as SmallVariantGroup,
+          }),
         ]}
         members={[{ sample_id: 'PROBAND', role: 'proband', affected: true } as never]}
         familyId="F1"
@@ -69,7 +69,8 @@ describe('SmallVariantPairCards', () => {
   });
 
   it('treats a payload without a phase as unresolved rather than claiming trans', () => {
-    renderPair({});
+    // The list always sends a phase (SmallVariantGroupOut); a pair without one claims no trans.
+    renderPair({ phase: undefined });
     expect(within(phasingRow()).getByText('Not resolved by reads or segregation')).toBeInTheDocument();
   });
 
@@ -77,7 +78,8 @@ describe('SmallVariantPairCards', () => {
     renderPair({
       phase: 'trans',
       phase_evidence: 'read',
-      review: { phase_status: 'likely_cis' } as never,
+      // The first variant's pair review, which names its partner.
+      review: compoundHetReview({ group_id: 'G1', partner_variant_ids: ['v2'], phase_status: 'likely_cis' }),
     });
     // The reviewer's own call stands on its own row and is not overwritten.
     const curated = screen.getByText('Phase').closest('.variant-compound-het-summary-row') as HTMLElement;
