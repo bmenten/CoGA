@@ -53,6 +53,20 @@ export const buildSmallVariantReviewPath = (familyId: string, variantId: string)
 export const hasReviewContent = (review: SmallVariantReview | null | undefined): boolean =>
   Boolean(review?.classification || review?.tags?.length || review?.note || review?.compound_het);
 
+// The search parameters by which a variant list reads the family's reviews: with one of them, a
+// saved review can add a variant to the list or drop one from it, so the list is searched again.
+const REVIEW_SEARCH_PARAMS = ['review_tag', 'exclude_review_tag', 'classification', 'has_notes'];
+
+/**
+ * Whether a variant search (its query string) depends on the reviews. A review saved from a card
+ * is already shown on it, from the server's answer; a search that does not read reviews would
+ * come back the same, so it is not run again, and the list stays usable without a reload.
+ */
+export const searchReadsReviews = (queryString: string): boolean => {
+  const params = new URLSearchParams(queryString);
+  return REVIEW_SEARCH_PARAMS.some((key) => params.has(key));
+};
+
 export const buildOptimisticReview = (
   variant: SmallVariant,
   payload: SmallVariantReviewSavePayload,

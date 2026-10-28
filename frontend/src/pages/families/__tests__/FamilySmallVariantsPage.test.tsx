@@ -1412,6 +1412,51 @@ describe('FamilySmallVariantsPage', () => {
     expect(payload?.expected_updated_at).toBe('2026-04-14T10:00:00Z');
   });
 
+  // A review saved from a card is shown on it from the server's answer: the list is searched
+  // again only when its filters read reviews, and it stays usable meanwhile.
+  const searchCalls = () =>
+    apiMock.get.mock.calls.filter(([url]) => String(url).startsWith('/families/F1/small-variants?')).length;
+
+  const renderAt = (entry: string) =>
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MemoryRouter initialEntries={[entry]}>
+          <Routes>
+            <Route path="/families/:familyId/small-variants" element={<FamilySmallVariantsPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+
+  it('saves a quick tag without searching the list again when its filters read no reviews', async () => {
+    renderAt('/families/F1/small-variants');
+    fireEvent.click(await screen.findByRole('tab', { name: 'Table' }));
+    await screen.findByRole('columnheader', { name: /Chr/i });
+    const searchesBefore = searchCalls();
+    const brca2Row = screen.getAllByRole('row').find((row) => within(row).queryByText('BRCA2')) as HTMLElement;
+
+    fireEvent.click(within(brca2Row).getByRole('button', { name: 'Exclude' }));
+
+    await waitFor(() => expect(apiMock.put).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByText('Variant review saved.')).toBeInTheDocument());
+    expect(searchCalls()).toBe(searchesBefore);
+    expect(screen.queryByText('Loading variants')).not.toBeInTheDocument();
+  });
+
+  it('searches the list again after a review save when its filters read reviews, without covering it', async () => {
+    renderAt('/families/F1/small-variants?exclude_review_tag=excluded');
+    fireEvent.click(await screen.findByRole('tab', { name: 'Table' }));
+    await screen.findByRole('columnheader', { name: /Chr/i });
+    const searchesBefore = searchCalls();
+    const brca2Row = screen.getAllByRole('row').find((row) => within(row).queryByText('BRCA2')) as HTMLElement;
+
+    fireEvent.click(within(brca2Row).getByRole('button', { name: 'Exclude' }));
+
+    await waitFor(() => expect(searchCalls()).toBe(searchesBefore + 1));
+    // The same search run again: the results stay usable, with no loading cover.
+    expect(screen.queryByText('Loading variants')).not.toBeInTheDocument();
+  });
+
   it('shows a review conflict and reloads instead of overwriting (#513)', async () => {
     apiMock.put.mockRejectedValue({
       response: {

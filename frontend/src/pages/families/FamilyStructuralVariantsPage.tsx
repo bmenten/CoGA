@@ -30,7 +30,7 @@ import {
   type StructuralVariantTagDefinition,
 } from './structuralVariantSearch';
 import { addableTagDefinitions } from './smallVariantSearch';
-import { fetchFamilyReviewTags, quickTagTogglePayload } from './smallVariantReview';
+import { fetchFamilyReviewTags, quickTagTogglePayload, searchReadsReviews } from './smallVariantReview';
 import { apiPath, raw } from '../../lib/apiPath';
 import { routePath } from '../../lib/routePath';
 
@@ -202,7 +202,7 @@ const FamilyStructuralVariantsPage: React.FC = () => {
     [projectId],
   );
 
-  const { data, isLoading, isFetching, isError, error, refetch } = useQuery<StructuralVariantPage>({
+  const { data, isLoading, isFetching, isPlaceholderData, isError, error, refetch } = useQuery<StructuralVariantPage>({
     queryKey: ['family', familyId, 'structural-variants', listQueryString],
     enabled: projectKnown,
     queryFn: async () => {
@@ -301,7 +301,12 @@ const FamilyStructuralVariantsPage: React.FC = () => {
           );
         });
       setWorkspaceFeedback({ type: 'success', message: 'Variant review saved.' });
-      void queryClient.invalidateQueries({ queryKey: ['family', familyId, 'structural-variants'] });
+      // As on the small-variant page: the list is searched again only when its filters read
+      // reviews; other cached searches are marked stale.
+      void queryClient.invalidateQueries({
+        queryKey: ['family', familyId, 'structural-variants'],
+        refetchType: searchReadsReviews(listQueryString) ? 'active' : 'none',
+      });
     },
     onError: (error, _variables, context) => {
       context?.snapshots.forEach(([queryKey, snapshot]) => {
@@ -433,7 +438,8 @@ const FamilyStructuralVariantsPage: React.FC = () => {
       ) : null}
 
       <div className="variant-results-region">
-        {isFetching ? (
+        {/* A new search covers the previous results; the same search run again does not. */}
+        {isFetching && isPlaceholderData ? (
           <VariantResultsLoading
             title="Loading variants"
             message="Applying your filters to this family’s structural-variant calls."
@@ -444,7 +450,10 @@ const FamilyStructuralVariantsPage: React.FC = () => {
         {isError ? (
           <QueryFailure what="the structural variants" error={error} onRetry={() => void refetch()} />
         ) : (
-        <div className={isFetching ? 'variant-results-fetching' : undefined} aria-busy={isFetching}>
+        <div
+          className={isFetching && isPlaceholderData ? 'variant-results-fetching' : undefined}
+          aria-busy={isFetching}
+        >
       <StructuralVariantResults
         familyId={familyId}
         speciesName={speciesName}
