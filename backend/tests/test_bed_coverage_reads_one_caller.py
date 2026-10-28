@@ -9,9 +9,7 @@ that is none of them. The views always name the caller (#852). Now:
 * a coverage read without ``source`` where the sample holds several callers' coverage, in the
   region read, is refused (400), naming the callers; with ``source`` it reads that caller's rows;
 * where the sample holds one caller's coverage there, a read without ``source`` is answered as
-  before; the other track types are not refused (segments and APCAD are not averaged);
-* the text format names its value column ``value``, as the JSON does, whatever the track holds;
-  it said ``ratio``.
+  before; the other track types are not refused (segments and APCAD are not averaged).
 
 The interval store is a fake: each (source, chromosome) with its rows, answering as ClickHouse
 answers (``source=None``: every source's rows).
@@ -96,7 +94,7 @@ def test_a_coverage_read_without_a_caller_is_refused_where_the_sample_holds_seve
         bed_service.fetch_bed_json(
             None, sample_context=SAMPLE, bed_type="coverage", chrom="1", window=500, start=None, end=None, limit=10
         ),
-        bed_service.fetch_bed_batch_text(
+        bed_service.fetch_bed_batch_json(
             None, sample_context=SAMPLE, bed_type="coverage", chroms=["1", "2"], window=None, start=None, end=None, limit=10
         ),
     ):
@@ -154,27 +152,3 @@ def test_a_coverage_read_of_one_callers_track_and_the_other_track_types_are_answ
         )
     )
     assert sorted(item["value"] for item in segments["items"]) == [0.0, 0.1]
-
-
-def test_the_text_format_names_its_value_column_value(monkeypatch: pytest.MonkeyPatch) -> None:
-    _Store(TWO_CALLERS).install(monkeypatch)
-
-    def _header(bed_type: str, source: str) -> str:
-        response = asyncio.run(
-            bed_service.fetch_bed_text(
-                None,
-                sample_context=SAMPLE,
-                bed_type=bed_type,
-                chrom="1",
-                window=None,
-                start=None,
-                end=None,
-                limit=10,
-                source=source,
-            )
-        )
-        return response.body.decode().splitlines()[0]
-
-    # Before: `ratio`, whatever the track held (a read depth here).
-    assert _header("coverage", "web") == "chr\tstart\tend\tid\tvalue"
-    assert _header("segments", "wisecondorx") == "chr\tstart\tend\tvalue"

@@ -1,16 +1,14 @@
 from typing import Literal
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
-from fastapi.responses import PlainTextResponse, Response
+from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.postgres import get_postgres_session
 from ..dependencies import get_current_admin_user, get_current_user
 from ..services.bed_service import (
     fetch_bed_batch_json,
-    fetch_bed_batch_text,
     fetch_bed_json,
-    fetch_bed_text,
     upload_bed_data,
     validate_bed_type,
 )
@@ -21,6 +19,11 @@ from ..services.access_control import CurrentUser
 from ..services.raw_import_files_pg import record_upload_file_obj
 
 router = APIRouter(prefix="/bed", tags=["bed"])
+
+# The reads answer JSON. Their text format (a header line and tab-separated rows), once the
+# default, was removed with the routes no screen called (ENG-5): a read that asks for it is
+# refused (422) before anything is read, rather than answered in another format.
+_FORMAT_DESCRIPTION = "The answer's format: json, the only one (the text format was removed)."
 
 
 @router.post("/upload/{sample_id}/{bed_type}")
@@ -96,11 +99,7 @@ async def upload_bed(
     return result
 
 
-@router.get(
-    "/{sample_id}/{bed_type}/batch",
-    response_class=PlainTextResponse,
-    response_model=None,
-)
+@router.get("/{sample_id}/{bed_type}/batch", response_model=None)
 async def fetch_bed_batch(
     sample_id: str,
     bed_type: str,
@@ -108,7 +107,7 @@ async def fetch_bed_batch(
     window: int | None = Query(None, ge=1),
     start: int | None = Query(None, ge=0),
     end: int | None = Query(None, ge=0),
-    format: Literal["text", "json"] = "text",
+    format: Literal["json"] = Query("json", description=_FORMAT_DESCRIPTION),
     limit: int = Query(100000, ge=1, le=1000000),
     # Which caller's rows to return. A sample can carry HiFiCNV, WisecondorX and
     # QDNAseq coverage at once; merged, a windowed coverage read averaged three
@@ -118,24 +117,13 @@ async def fetch_bed_batch(
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ) -> Response:
+    del format
     sample_context = await build_sample_metadata_context(
         session,
         sample_identifier=sample_id,
         user=user,
     )
-    if format == "json":
-        return await fetch_bed_batch_json(
-            session,
-            sample_context=sample_context,
-            bed_type=bed_type,
-            chroms=chrom,
-            window=window,
-            start=start,
-            end=end,
-            limit=limit,
-            source=source,
-        )
-    return await fetch_bed_batch_text(
+    return await fetch_bed_batch_json(
         session,
         sample_context=sample_context,
         bed_type=bed_type,
@@ -148,7 +136,7 @@ async def fetch_bed_batch(
     )
 
 
-@router.get("/{sample_id}/{bed_type}", response_class=PlainTextResponse, response_model=None)
+@router.get("/{sample_id}/{bed_type}", response_model=None)
 async def fetch_bed(
     sample_id: str,
     bed_type: str,
@@ -156,7 +144,7 @@ async def fetch_bed(
     window: int | None = Query(None, ge=1),
     start: int | None = Query(None, ge=0),
     end: int | None = Query(None, ge=0),
-    format: Literal["text", "json"] = "text",
+    format: Literal["json"] = Query("json", description=_FORMAT_DESCRIPTION),
     limit: int = Query(100000, ge=1, le=1000000),
     # See the batch endpoint above: a coverage read without this is refused where the
     # sample holds several callers' coverage.
@@ -164,24 +152,13 @@ async def fetch_bed(
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ) -> Response:
+    del format
     sample_context = await build_sample_metadata_context(
         session,
         sample_identifier=sample_id,
         user=user,
     )
-    if format == "json":
-        return await fetch_bed_json(
-            session,
-            sample_context=sample_context,
-            bed_type=bed_type,
-            chrom=chrom,
-            window=window,
-            start=start,
-            end=end,
-            limit=limit,
-            source=source,
-        )
-    return await fetch_bed_text(
+    return await fetch_bed_json(
         session,
         sample_context=sample_context,
         bed_type=bed_type,

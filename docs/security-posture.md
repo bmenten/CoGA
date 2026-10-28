@@ -141,8 +141,8 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   (`/api/admin/data/files/PROBEX/download`), or a UUID in braces or after `urn:uuid:` that a
   route had checked with `uuid.UUID` and then bound as received, failed the request with a
   500. Every such value (a raw file, an import job, an HPO annotation, a NIPT artifact, a
-  panel, a filter preset, a user, a project, a species, an assembly, a clinical CNV, the
-  `panel_id` filter) is now read by `core/sql.py` (`canonical_uuid`, `require_uuid`): one that
+  panel, a filter preset, a user, a project, an assembly, a clinical CNV, the `panel_id`
+  filter) is now read by `core/sql.py` (`canonical_uuid`, `require_uuid`): one that
   spells no UUID is answered as an unknown record is, with the route's own 404 or the 400 it
   answers an invalid id with, before any query; one that does is bound as its canonical text,
   so each spelling of a record's id names that record. What `uuid.UUID` merely tolerates (an

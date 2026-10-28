@@ -92,7 +92,7 @@ Alle routers staan in `backend/app/routers/__init__.py` en hangen onder `/api`, 
 | `cnvs.py` | `/cnvs` | De klinische-CNV-catalogus en CNV's per regio |
 | `variant_explorer.py` | `/variant-explorer` | Varianten over alle toegankelijke projecten heen (hoofdstuk 14) |
 | `genes.py` | `/genes` | Gene Explorer en genen per regio (hoofdstuk 13) |
-| `hpo.py` | `/hpo` | HPO-termen zoeken en opvragen (hoofdstuk 12); de ontologie importeren loopt via `POST /api/admin/hpo/sync` |
+| `hpo.py` | `/hpo` | HPO-termen zoeken (hoofdstuk 12); de ontologie importeren loopt via `POST /api/admin/hpo/sync` |
 | `panels.py` | `/panels` | Genpanels, versies, PanelApp |
 | `bed.py` | `/bed` | Interval-tracks ophalen en uploaden |
 | `chromosomes.py` | `/chromosomes` | Chromosoomgroottes en cytobanden |

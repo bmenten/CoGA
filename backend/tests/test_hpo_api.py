@@ -61,7 +61,7 @@ def hpo_api_client(monkeypatch: pytest.MonkeyPatch):
     app.dependency_overrides = original_overrides
 
 
-def test_hpo_search_and_detail_endpoints(hpo_api_client) -> None:
+def test_hpo_search_endpoint(hpo_api_client) -> None:
     client, monkeypatch = hpo_api_client
 
     async def fake_search(*args, **kwargs):
@@ -74,30 +74,12 @@ def test_hpo_search_and_detail_endpoints(hpo_api_client) -> None:
             }
         ]
 
-    async def fake_details(*args, **kwargs):
-        return {
-            "hpo_id": "HP:0001250",
-            "label": "Seizure",
-            "definition": "A seizure phenotype.",
-            "is_obsolete": False,
-            "replaced_by": None,
-            "release_version": "test",
-            "release_date": None,
-            "synonyms": ["Epileptic seizure"],
-            "parents": [],
-            "children": [],
-        }
-
     monkeypatch.setattr(hpo_router, "search_hpo_terms", fake_search)
-    monkeypatch.setattr(hpo_router, "get_hpo_term_details", fake_details)
 
     search_response = client.get("/api/hpo/search?q=seizure")
-    detail_response = client.get("/api/hpo/HP:0001250")
 
     assert search_response.status_code == 200
     assert search_response.json()[0]["hpo_id"] == "HP:0001250"
-    assert detail_response.status_code == 200
-    assert detail_response.json()["synonyms"] == ["Epileptic seizure"]
 
 
 def test_admin_hpo_terms_endpoint(hpo_api_client) -> None:
@@ -155,32 +137,20 @@ def test_family_hpo_annotation_endpoints(hpo_api_client) -> None:
     async def fake_create(*args, **kwargs):
         return annotation
 
-    async def fake_query(*args, **kwargs):
-        return {
-            "hpo_id": "HP:0001250",
-            "include_descendants": True,
-            "sample_ids": ["PROBAND"],
-            "annotations": [annotation],
-        }
-
     monkeypatch.setattr(families_router, "build_family_metadata_context", fake_context)
     monkeypatch.setattr(families_router, "list_family_hpo_annotations", fake_list)
     monkeypatch.setattr(families_router, "create_individual_hpo_annotation", fake_create)
-    monkeypatch.setattr(families_router, "query_family_hpo_annotations", fake_query)
 
     list_response = client.get("/api/families/FAM1/hpo")
     create_response = client.post(
         "/api/families/FAM1/members/PROBAND/hpo",
         json={"hpo_id": "HP:0001250", "status": "present"},
     )
-    query_response = client.get("/api/families/FAM1/hpo/query?hpo_id=HP:0001250")
 
     assert list_response.status_code == 200
     assert list_response.json()[0]["sample_id"] == "PROBAND"
     assert create_response.status_code == 200
     assert create_response.json()["hpo_id"] == "HP:0001250"
-    assert query_response.status_code == 200
-    assert query_response.json()["sample_ids"] == ["PROBAND"]
 
 
 def test_family_member_management_endpoints(hpo_api_client) -> None:

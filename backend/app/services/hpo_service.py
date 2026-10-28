@@ -1499,64 +1499,6 @@ async def search_hpo_terms(
     return [dict(row) for row in result.mappings().all()]
 
 
-async def get_hpo_term_details(
-    session: AsyncSession,
-    *,
-    hpo_id: str,
-) -> dict[str, Any]:
-    normalized_id = normalize_hpo_id(hpo_id)
-    if not normalized_id:
-        raise HTTPException(status_code=400, detail="Invalid HPO identifier")
-    # Single round-trip via LATERAL/jsonb_agg (same pattern as list_hpo_admin_terms)
-    # instead of four sequential queries.
-    result = await session.execute(
-        text(
-            """
-            SELECT
-                t.hpo_id, t.label, t.definition, t.is_obsolete, t.replaced_by,
-                t.release_version, t.release_date,
-                COALESCE(s.synonyms, '[]'::jsonb) AS synonyms,
-                COALESCE(p.parents, '[]'::jsonb) AS parents,
-                COALESCE(c.children, '[]'::jsonb) AS children
-            FROM hpo_term t
-            LEFT JOIN LATERAL (
-                SELECT jsonb_agg(to_jsonb(synonym) ORDER BY synonym) AS synonyms
-                FROM hpo_synonym
-                WHERE hpo_id = t.hpo_id
-            ) s ON TRUE
-            LEFT JOIN LATERAL (
-                SELECT jsonb_agg(
-                    jsonb_build_object('hpo_id', e.parent_id, 'label', parent.label, 'relation', e.relation)
-                    ORDER BY parent.label
-                ) AS parents
-                FROM hpo_edge e
-                JOIN hpo_term parent ON parent.hpo_id = e.parent_id
-                WHERE e.child_id = t.hpo_id
-            ) p ON TRUE
-            LEFT JOIN LATERAL (
-                SELECT jsonb_agg(
-                    jsonb_build_object('hpo_id', e.child_id, 'label', child.label, 'relation', e.relation)
-                    ORDER BY child.label
-                ) AS children
-                FROM hpo_edge e
-                JOIN hpo_term child ON child.hpo_id = e.child_id
-                WHERE e.parent_id = t.hpo_id
-            ) c ON TRUE
-            WHERE t.hpo_id = :hpo_id
-            """
-        ),
-        {"hpo_id": normalized_id},
-    )
-    row = result.mappings().first()
-    if row is None:
-        raise HTTPException(status_code=404, detail="HPO term was not found")
-    term = dict(row)
-    term["synonyms"] = _text_list(term.get("synonyms"))
-    term["parents"] = _relation_list(term.get("parents"))
-    term["children"] = _relation_list(term.get("children"))
-    return term
-
-
 async def get_loaded_hpo_release(session: AsyncSession) -> dict[str, Any] | None:
     """The HPO ontology that is loaded: its release, release date, the SHA-256 of the file its
     terms were imported from (``release_sha256``; None for an import from before TRACE-18) and
@@ -2526,65 +2468,6 @@ async def delete_individual_hpo_annotation(
         user=user,
     )
     await session.commit()
-
-
-async def query_family_hpo_annotations(
-    session: AsyncSession,
-    *,
-    family_uuid: str,
-    hpo_id: str,
-    include_descendants: bool = True,
-) -> dict[str, Any]:
-    await _ensure_hpo_schema_available(session)
-    normalized_id = normalize_hpo_id(hpo_id)
-    if not normalized_id:
-        raise HTTPException(status_code=400, detail="Invalid HPO identifier")
-    if normalized_id not in await _existing_hpo_terms(session, [normalized_id]):
-        raise HTTPException(status_code=404, detail="HPO term was not found")
-    if include_descendants:
-        term_clause = """
-        ih.hpo_id IN (
-            SELECT hpo_id
-            FROM hpo_closure
-            WHERE ancestor_id = :hpo_id
-        )
-        """
-    else:
-        term_clause = "ih.hpo_id = :hpo_id"
-    result = await session.execute(
-        text(
-            f"""
-            SELECT
-                ih.id::text AS id,
-                s.sample_id AS sample_id,
-                ih.hpo_id AS hpo_id,
-                COALESCE(t.label, ih.hpo_id) AS label,
-                t.definition AS definition,
-                ih.status AS status,
-                ih.onset AS onset,
-                ih.evidence AS evidence,
-                ih.source AS source,
-                ih.note AS note,
-                ih.created_at AS created_at,
-                ih.updated_at AS updated_at
-            FROM individual_hpo ih
-            JOIN samples s ON s.id = ih.sample_id
-            LEFT JOIN hpo_term t ON t.hpo_id = ih.hpo_id
-            WHERE ih.family_id = CAST(:family_uuid AS uuid)
-              AND ih.status = 'present'
-              AND {term_clause}
-            ORDER BY s.sample_id, COALESCE(t.label, ih.hpo_id)
-            """
-        ),
-        {"family_uuid": family_uuid, "hpo_id": normalized_id},
-    )
-    annotations = [dict(row) for row in result.mappings().all()]
-    return {
-        "hpo_id": normalized_id,
-        "include_descendants": include_descendants,
-        "sample_ids": sorted({str(row["sample_id"]) for row in annotations}),
-        "annotations": annotations,
-    }
 
 
 async def import_family_hpo_annotations(

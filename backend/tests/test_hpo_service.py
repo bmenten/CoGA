@@ -300,28 +300,6 @@ async def test_update_individual_hpo_annotation_returns_service_unavailable_when
 
 
 @pytest.mark.asyncio
-async def test_query_family_hpo_annotations_returns_service_unavailable_when_hpo_schema_is_missing(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    session = _FakeSession([])
-
-    async def fake_tables_available(*_args: object, **_kwargs: object) -> bool:
-        return False
-
-    monkeypatch.setattr(hpo_service, "_postgres_tables_available", fake_tables_available)
-
-    with pytest.raises(Exception) as exc_info:
-        await hpo_service.query_family_hpo_annotations(
-            session,
-            family_uuid="11111111-1111-1111-1111-111111111111",
-            hpo_id="HP:0001250",
-        )
-
-    assert exc_info.value.status_code == 503
-    assert "HPO database schema is not available" in exc_info.value.detail
-
-
-@pytest.mark.asyncio
 async def test_list_family_hpo_annotations_falls_back_when_hpo_term_table_is_missing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

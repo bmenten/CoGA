@@ -107,13 +107,6 @@ class HpoAnnotationOut(BaseModel):
     updated_at: datetime
 
 
-class HpoFamilyQueryOut(BaseModel):
-    hpo_id: str
-    include_descendants: bool
-    sample_ids: List[str] = Field(default_factory=list)
-    annotations: List[HpoAnnotationOut] = Field(default_factory=list)
-
-
 class PhenotypeTermRefOut(BaseModel):
     hpo_id: str
     label: Optional[str] = None

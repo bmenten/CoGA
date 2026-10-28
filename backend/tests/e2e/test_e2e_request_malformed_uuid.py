@@ -3,8 +3,8 @@
 asyncpg's uuid codec takes nothing but hex digits and hyphens. ``GET /api/admin/data/files/
 <not a UUID>/download`` bound the value into ``CAST(:file_id AS uuid)`` and failed with a
 500, and so did the import job, the HPO annotation and the NIPT artifact routes. The panel,
-preset, user, project, species and clinical CNV routes, and the panel filter of the variant
-pages, checked the value with ``uuid.UUID`` and then bound it as received, so a UUID in
+preset, user, project and clinical CNV routes, and the panel filter of the variant pages,
+checked the value with ``uuid.UUID`` and then bound it as received, so a UUID in
 braces or after ``urn:uuid:`` failed the same way. Each route now reads the value once
 (``core/sql.py``: ``canonical_uuid``, ``require_uuid``).
 
@@ -375,7 +375,7 @@ async def _collect(run: str) -> dict[str, Any]:
                 for key, (sql, params) in inserts.items():
                     ids[key] = (await session.execute(text(sql), params)).scalar_one()
                 await session.commit()
-            ids.update({"project_a": project_id, "assembly": assembly_id, "species": species_id, "viewer": viewer_id})
+            ids.update({"project_a": project_id, "assembly": assembly_id, "viewer": viewer_id})
 
             # --- the viewer, before anything is deleted ---------------------------------
             login = await viewer.post("/api/auth/login", json={"email": viewer_email, "password": viewer_password})
@@ -397,7 +397,6 @@ async def _collect(run: str) -> dict[str, Any]:
                 "job": ("GET", "/api/family-imports/{v}", "job", None),
                 "annotation_update": ("PUT", f"/api/families/{family_a}/hpo/{{v}}", "annotation", {"note": "e2e"}),
                 "artifacts": ("GET", "/api/admin/nipt/artifacts?assembly_id={v}", "assembly", None),
-                "assemblies": ("GET", "/api/assemblies/{v}", "species", None),
                 "user": ("PATCH", "/api/auth/users/{v}", "viewer", {}),
                 "cnv": ("GET", "/api/cnvs/entry/{v}", "cnv", None),
                 "panel": ("GET", "/api/panels/{v}", "panel", None),
@@ -432,9 +431,11 @@ async def _collect(run: str) -> dict[str, Any]:
                 "annotation_delete": ("DELETE", f"/api/families/{family_a}/hpo/{{v}}", "annotation", "braces"),
                 "artifact_delete": ("DELETE", "/api/admin/nipt/artifacts/{v}", "artifact", "urn"),
                 "preset_owner_delete": ("DELETE", "/api/auth/small-variant-filter-presets/{v}", "preset_owner", "capitals"),
+                # The preset saved on the family page, deleted by the owner's route without its
+                # hyphens: the family page's own delete route was removed (ENG-5).
                 "preset_family_delete": (
                     "DELETE",
-                    f"/api/families/{family_a}/small-variant-filter-presets/{{v}}",
+                    "/api/auth/small-variant-filter-presets/{v}",
                     "preset_family",
                     "no_hyphens",
                 ),
@@ -508,7 +509,6 @@ NOT_FOUND = {
     "job": ((404, {"detail": "Family import job not found"}), None),
     "annotation_update": ((404, {"detail": "HPO annotation was not found"}), None),
     "artifacts": ((200, []), None),
-    "assemblies": ((200, []), (400, {"detail": "Invalid species id"})),
     "user": ((404, {"detail": "User not found"}), (400, {"detail": "Invalid user id"})),
     "cnv": ((404, {"detail": "Clinical CNV not found"}), (400, {"detail": "Invalid clinical CNV id"})),
     "panel": ((404, {"detail": "Panel not found"}), (400, {"detail": "Invalid panel id"})),
@@ -547,7 +547,6 @@ READS = [
     "job",
     "annotation_update",
     "artifacts",
-    "assemblies",
     "user",
     "cnv",
     "panel",
@@ -580,7 +579,6 @@ def test_the_records_are_found_by_their_ids(snap: dict[str, Any]) -> None:
         else:
             assert r[key]["canonical"]["status"] == 200, (key, r[key]["canonical"])
     assert snap["ids"]["artifact"] in [row["id"] for row in r["artifacts"]["canonical"]["json"]]
-    assert snap["ids"]["assembly"] in [row["_id"] for row in r["assemblies"]["canonical"]["json"]]
 
 
 @pytest.mark.parametrize("spelling", ["canonical", "braces", "urn", "capitals", "no_hyphens"])
