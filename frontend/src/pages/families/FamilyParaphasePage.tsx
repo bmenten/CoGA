@@ -24,6 +24,8 @@ import { omimGeneHref } from '../../lib/omim';
 import FindingCard, { FindingLinks } from './FindingCard';
 import FamilyGenotypeGrid, { type GenotypeTone } from './FamilyGenotypeGrid';
 import SampleLabel from '../../components/SampleLabel';
+import type { FindingReview } from './findingReview';
+import { useFindingReviewCards, type FindingReviewCardParts } from './useFindingReviewCards';
 
 
 
@@ -287,12 +289,23 @@ const regionCopyNumberColumns = (
   return Array.from(columns, ([key, label]) => ({ key, label }));
 };
 
+// A saved review in the cached Paraphase table, at its region.
+const writeParaphaseReview = (
+  table: ApiFamilyParaphaseTable,
+  key: string,
+  review: FindingReview | null,
+): ApiFamilyParaphaseTable => ({
+  ...table,
+  genes: table.genes.map((gene) => (gene.gene_symbol === key ? { ...gene, review } : gene)),
+});
+
 const ParaphaseLocusCard: React.FC<{
   gene: ApiParaphaseGeneResult;
   members: ApiFamilyMember[];
   familyId: string;
   projectId?: string | null;
-}> = ({ gene, members, familyId, projectId }) => {
+  review: FindingReviewCardParts;
+}> = ({ gene, members, familyId, projectId, review }) => {
   const [showExtra, setShowExtra] = useState(false);
   const region = gene.region_info;
   const clinical = region?.clinical;
@@ -317,7 +330,10 @@ const ParaphaseLocusCard: React.FC<{
     <FindingCard
       aria-label={`${title} region`}
       rail={anyPathogenic ? 'pathogenic' : anyCarrier ? 'warning' : 'neutral'}
-      className="paraphase-card"
+      className={`paraphase-card${review.excluded ? ' variant-card--excluded' : ''}`}
+      folded={review.folded}
+      excludedBar={review.excludedBar}
+      subhead={review.subhead}
       heading={
         <GeneDiseaseHeading
           gene={title}
@@ -401,16 +417,26 @@ const ParaphaseLocusCard: React.FC<{
           ),
         },
       ]}
-      note={noCallNote ? <p className="paraphase-clinical-note">{noCallNote}</p> : null}
+      note={
+        noCallNote || review.note ? (
+          <>
+            {noCallNote ? <p className="paraphase-clinical-note">{noCallNote}</p> : null}
+            {review.note}
+          </>
+        ) : null
+      }
       actions={
-        <button
-          type="button"
-          className="variant-review-link paraphase-extra-toggle"
-          aria-expanded={showExtra}
-          onClick={() => setShowExtra((value) => !value)}
-        >
-          {showExtra ? 'Hide extra info' : 'Extra info'}
-        </button>
+        <>
+          {review.actions}
+          <button
+            type="button"
+            className="variant-review-link paraphase-extra-toggle"
+            aria-expanded={showExtra}
+            onClick={() => setShowExtra((value) => !value)}
+          >
+            {showExtra ? 'Hide extra info' : 'Extra info'}
+          </button>
+        </>
       }
       links={
         <FindingLinks
@@ -563,6 +589,18 @@ const FamilyParaphasePage: React.FC = () => {
     () => (paraphaseTable?.genes || []).filter((gene) => gene.is_medically_relevant).length,
     [paraphaseTable?.genes],
   );
+  const paraphaseQueryKey = useMemo(
+    () => ['family', familyId, 'paraphase', resolvedProjectId],
+    [familyId, resolvedProjectId],
+  );
+  const reviews = useFindingReviewCards<ApiFamilyParaphaseTable>({
+    kind: 'paraphase',
+    familyId,
+    projectId: resolvedProjectId,
+    queryKey: paraphaseQueryKey,
+    write: writeParaphaseReview,
+    readOnly: Boolean(family?.read_only),
+  });
 
   if (familyLoading || paraphaseLoading || (family?.projects?.length && referenceLoading)) {
     return (
@@ -691,6 +729,7 @@ const FamilyParaphasePage: React.FC = () => {
           </div>
         </div>
 
+        {reviews.errorBanner}
         {filteredGenes.length === 0 ? (
           <p className="table-subtle">No Paraphase results match the current filters.</p>
         ) : (
@@ -702,11 +741,16 @@ const FamilyParaphasePage: React.FC = () => {
                 members={orderedMembers}
                 familyId={family.family_id}
                 projectId={resolvedProjectId}
+                review={reviews.parts(gene.gene_symbol, gene.review, {
+                  subject: gene.region_info?.display_name || gene.gene_symbol,
+                  statuses: Object.values(gene.samples).map((call) => call.clinical_status),
+                })}
               />
             ))}
           </div>
         )}
       </section>
+      {reviews.dialog}
     </div>
   );
 };

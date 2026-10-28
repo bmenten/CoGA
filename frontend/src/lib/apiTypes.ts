@@ -4,6 +4,7 @@
 // each saying why.
 import type {
   FamilyOut,
+  FindingReviewOut,
   IdeogramBandOut,
   NiptQcOut,
   NiptTargetCoverageOut,
@@ -600,6 +601,8 @@ export interface ApiRepeatExpansionRow {
   status: ApiRepeatStatus;
   review_reason?: ApiRepeatReviewReason | null;
   calls: Record<string, ApiRepeatExpansionSampleCall>;
+  // The analyst's review of the locus in the family's assembly, and its drift (none: null).
+  review?: FindingReviewOut | null;
 }
 
 export interface ApiFamilyRepeatExpansionTable {
@@ -701,6 +704,8 @@ export interface ApiParaphaseGeneResult {
   max_highest_total_cn?: number | null;
   has_copy_number_signal?: boolean;
   samples: Record<string, ApiParaphaseSampleResult>;
+  // The analyst's review of the region in the family's assembly, and its drift (none: null).
+  review?: FindingReviewOut | null;
 }
 
 export interface ApiFamilyParaphaseTable {

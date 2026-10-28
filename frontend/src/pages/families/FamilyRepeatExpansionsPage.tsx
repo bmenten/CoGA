@@ -28,6 +28,8 @@ import FindingCard, { FindingLinks, type FindingRail } from './FindingCard';
 import FamilyGenotypeGrid, { STATUS_CHIP_TONE_CLASS, type GenotypeTone } from './FamilyGenotypeGrid';
 import { COUNT_UNIT_MARK, countUnitWarningText, repeatStatusLabel } from '../../lib/repeatStatus';
 import { raw, routePath } from '../../lib/routePath';
+import type { FindingReview } from './findingReview';
+import { useFindingReviewCards, type FindingReviewCardParts } from './useFindingReviewCards';
 
 
 
@@ -207,18 +209,35 @@ const repeatRail = (status: ApiRepeatStatus): FindingRail => {
   return 'neutral';
 };
 
+// A saved review in the cached repeat table, at its locus.
+const writeRepeatReview = (
+  table: ApiFamilyRepeatExpansionTable,
+  key: string,
+  review: FindingReview | null,
+): ApiFamilyRepeatExpansionTable => ({
+  ...table,
+  loci: table.loci.map((row) => (row.locus_id === key ? { ...row, review } : row)),
+});
+
 // One repeat locus as a variant card: the locus and its catalogue cutoffs at the left, each
-// member's alleles in the genotype grid, the genome and OMIM links in the footer.
+// member's alleles in the genotype grid, the review's actions and the genome and OMIM links in
+// the footer.
 const RepeatLocusCard: React.FC<{
   row: ApiRepeatExpansionRow;
   members: ApiFamilyMember[];
   familyId: string;
   projectId?: string;
-}> = ({ row, members, familyId, projectId }) => (
+  review: FindingReviewCardParts;
+}> = ({ row, members, familyId, projectId, review }) => (
   <FindingCard
     aria-label={`${row.display_name} repeat`}
     rail={repeatRail(row.status)}
-    className={`family-repeat-card family-repeat-card--${row.status}`}
+    className={`family-repeat-card family-repeat-card--${row.status}${review.excluded ? ' variant-card--excluded' : ''}`}
+    folded={review.folded}
+    excludedBar={review.excludedBar}
+    subhead={review.subhead}
+    note={review.note}
+    actions={review.actions}
     heading={
       <GeneDiseaseHeading
         gene={row.display_name}
@@ -429,6 +448,18 @@ const FamilyRepeatExpansionsPage: React.FC = () => {
     { assemblyName, assemblyVersion, isError: referenceFailed },
     'Not linked',
   );
+  const repeatQueryKey = useMemo(
+    () => ['family', familyId, 'repeat-expansions', resolvedProjectId],
+    [familyId, resolvedProjectId],
+  );
+  const reviews = useFindingReviewCards<ApiFamilyRepeatExpansionTable>({
+    kind: 'repeat',
+    familyId,
+    projectId: resolvedProjectId,
+    queryKey: repeatQueryKey,
+    write: writeRepeatReview,
+    readOnly: Boolean(family?.read_only),
+  });
 
   if (familyLoading || repeatLoading || (family?.projects?.length && referenceLoading)) {
     return (
@@ -550,6 +581,7 @@ const FamilyRepeatExpansionsPage: React.FC = () => {
             {filteredLoci.length} of {repeatTable.loci.length} loci
           </div>
         </div>
+        {reviews.errorBanner}
         <div className="variant-card-list family-repeat-list">
           {filteredLoci.map((row) => (
             <RepeatLocusCard
@@ -558,6 +590,10 @@ const FamilyRepeatExpansionsPage: React.FC = () => {
               members={orderedMembers}
               familyId={family.family_id}
               projectId={resolvedProjectId}
+              review={reviews.parts(row.locus_id, row.review, {
+                subject: row.display_name,
+                statuses: Object.values(row.calls).map((call) => call.status),
+              })}
             />
           ))}
           {filteredLoci.length === 0 && (
@@ -569,6 +605,7 @@ const FamilyRepeatExpansionsPage: React.FC = () => {
           )}
         </div>
       </section>
+      {reviews.dialog}
     </div>
   );
 };
