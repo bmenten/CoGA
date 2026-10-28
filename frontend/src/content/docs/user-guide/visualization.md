@@ -1,7 +1,8 @@
 Tables are for finding candidates; viewers are for checking them in their genomic context. From the
 family page:
 
-- **Genome view** — the whole genome with its variants and tracks.
+- **Genome view** — chromosomes 1–22, X and Y with their variants and tracks. The mitochondrion,
+  too small to see there, is in the chromosome view (chrM) and on the **mtDNA analysis** page.
 - **Chromosome view** — one chromosome with coverage, segments, APCAD, haplotypes and variant tracks.
   Clicking the ROI on the family page opens it here with 1 Mb on each side.
 - **Circos plot** — genome-wide structural relationships at a glance, drawn on chromosomes 1–22, X and

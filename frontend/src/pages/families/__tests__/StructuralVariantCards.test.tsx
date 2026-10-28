@@ -4,8 +4,9 @@ import { describe, expect, it, vi } from 'vitest';
 
 import StructuralVariantCards from '../StructuralVariantCards';
 import type { StructuralVariant } from '../structuralVariantSearch';
+import { structuralVariant } from '../../../test/variants';
 
-const variant = {
+const variant = structuralVariant({
   _id: '2-160120294-160120688-DEL---',
   chr: '2',
   start: 160120294,
@@ -14,7 +15,7 @@ const variant = {
   type: 'DEL',
   gene: 'ITGB6',
   genotypes: [],
-} as unknown as StructuralVariant;
+});
 
 const renderCards = (assembly?: { speciesName?: string; assemblyName?: string }) =>
   render(
@@ -60,10 +61,10 @@ describe('StructuralVariantCards frequencies heading', () => {
 
 describe('StructuralVariantCards HPO link', () => {
   it('carries the SV page, with its project and filters, so the HPO page can return to it (#526)', () => {
-    const withHpo = {
+    const withHpo: StructuralVariant = {
       ...variant,
       annotation_extra: { hpo_terms: 'HP:0001250;HP:0000707' },
-    } as unknown as StructuralVariant;
+    };
     render(
       <MemoryRouter initialEntries={['/families/F1/structural-variants?project_id=P1&type=DEL']}>
         <StructuralVariantCards

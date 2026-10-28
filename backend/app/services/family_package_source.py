@@ -35,7 +35,7 @@ from .family_package_common import (
     package_path_within,
     runs_through_symlink_loop,
 )
-from .family_package_long_read import long_read_sample_ids
+from .family_package_long_read import LONG_READ_SAMPLE_DATASET_FOLDERS, long_read_sample_ids
 
 
 # Aligned reads and their indexes. Staging a remote package leaves these in the store:
@@ -423,6 +423,88 @@ def manifest_outside_package_issue(link: Path) -> FamilyImportValidationIssue:
         "CoGA reads and writes a package's manifest only in the package folder. Put the "
         "manifest itself in the folder.",
         path=link,
+    )
+
+
+def package_folder_link_issues(root: Path) -> list[FamilyImportValidationIssue]:
+    """A ``package_folder_link`` warning for each folder of the package at ``root`` that the
+    package list and Discover read by its layout and that is a symbolic link to a folder:
+    the PED folder (``ped/``), a long-read dataset folder (``snv/``, ``repeats/``, ...), a
+    folder in one (a sample's) and a folder in that.
+
+    They follow such a link wherever it leads: a PED in a linked ``ped/`` lists the package,
+    and Discover proposes a member from a linked per-sample folder, though what it holds may
+    be another family's. The owner chose a warning over a refusal (SEC-27), so Discover and
+    the package validation report each such link, in name order: the folder in the package,
+    and where it leads, as a path relative to the import folder that holds it, or as a
+    folder outside the import folders. A message never names an absolute path. Nothing under
+    a link is looked into, and a link that leads to no folder (a dangling one, one to a file,
+    one that loops) is followed by nothing and not reported. The containment guards are
+    unchanged: a file is read only when it lies in the package (``package_path_within``,
+    ``_resolve_package_path``)."""
+    issues = [
+        _issue("package_folder_link", _package_folder_link_message(root, folder, target), path=folder)
+        for folder in _layout_folders(root)
+        if (target := _linked_folder_target(folder)) is not None
+    ]
+    return sorted(issues, key=lambda issue: issue.path or "")
+
+
+def _layout_folders(root: Path) -> list[Path]:
+    """The folders of the package the package list and Discover read by layout, as their
+    paths in the package: ``ped/``, each long-read dataset folder, each folder in one and
+    each folder in that. A folder that is a symbolic link is listed, but not looked into."""
+    level = [root / name for name in LONG_READ_SAMPLE_DATASET_FOLDERS]
+    folders: list[Path] = [root / PED_FOLDER, *level]
+    for _depth in range(2):
+        level = [child for folder in level if not folder.is_symlink() for child in _subfolders(folder)]
+        folders.extend(level)
+    return folders
+
+
+def _subfolders(folder: Path) -> list[Path]:
+    """The folders in ``folder`` (a symbolic link to a folder counts as one), but for hidden
+    ones; none when it is no folder or cannot be listed."""
+    try:
+        entries = list(os.scandir(folder))
+    except OSError:
+        return []
+    found: list[Path] = []
+    for entry in entries:
+        try:
+            is_folder = entry.is_dir()
+        except OSError:
+            # A link that loops: no folder.
+            is_folder = False
+        if is_folder and not entry.name.startswith("."):
+            found.append(folder / entry.name)
+    return found
+
+
+def _linked_folder_target(folder: Path) -> str | None:
+    """The real path of the folder ``folder`` leads to when it is a symbolic link; None when it
+    is none, or leads to no folder."""
+    if not folder.is_symlink():
+        return None
+    target = os.path.realpath(folder)
+    return target if os.path.isdir(target) else None
+
+
+def _package_folder_link_message(root: Path, folder: Path, target: str) -> str:
+    """The warning for ``folder`` of the package at ``root``, a symbolic link to the folder
+    ``target``: where it leads, relative to the import folder that holds it, or that it lies
+    outside the import folders."""
+    leads_to = "a folder outside the import folders"
+    for import_root in _authorized_local_roots():
+        if target == str(import_root):
+            leads_to = "the top of an import folder"
+            break
+        if target.startswith(str(import_root) + os.sep):
+            leads_to = f"'{visible(os.path.relpath(target, import_root))}' in the import folders"
+            break
+    return (
+        f"Folder '{visible(folder.relative_to(root).as_posix())}' of the package is a symbolic link "
+        f"to {leads_to}: check that what it holds belongs to this family."
     )
 
 
