@@ -347,10 +347,10 @@ const RelatednessMatrix: React.FC<{
 };
 
 const PaternityCard: React.FC<{ check: ApiSampleIntegrityPaternityCheck }> = ({ check }) => {
-  const homSeen = check.hom_alt_transmitted ?? 0;
-  const homAll = homSeen + (check.hom_alt_not_transmitted ?? 0);
-  const hetSeen = check.het_transmitted ?? 0;
-  const hetAll = hetSeen + (check.het_not_transmitted ?? 0);
+  const homSeen = check.hom_alt_transmitted;
+  const homAll = homSeen + check.hom_alt_not_transmitted;
+  const hetSeen = check.het_transmitted;
+  const hetAll = hetSeen + check.het_not_transmitted;
   return (
     <section className="surface-card space-y-2">
       <h2 className="section-title">Paternity (the father&apos;s alleles in the cfDNA)</h2>

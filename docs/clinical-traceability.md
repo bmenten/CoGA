@@ -397,7 +397,13 @@ and report code, which also holds the NIPT results (`nipt`, above). Where it is 
 makes no difference to what is frozen. The Sample QC's NIPT checks stay in `sample_qc`
 (`paternity_check`, `fetal_sex_check` from the father's X alleles, `category_qc_check`, the
 parents' sex, and their fixed notes), and the gene panels its NIPT searches applied in
-`gene_panels`. A NIPT variant whose review, or compound-het pair review, is tagged `report` is
+`gene_panels`. The paternity check is frozen with its four counts (the father's homozygous and
+het alleles seen and not seen), not the totals the Sample QC page is served. The Sample QC's
+summary (`application_summary`) is frozen as it read: a record signed before ENG-4 says
+paternity was confirmed from "categories 7/8", named after the check's logic before #749, and
+one signed since says it is read from the father's alleles in the plasma. So the sign-out check
+names the sample-integrity QC as changed for a NIPT family whose latest record holds the old
+wording, until it is signed again. A NIPT variant whose review, or compound-het pair review, is tagged `report` is
 frozen in `reported_variants` and `variant_descriptions` like any reported small variant, with its
 classification, and in `nipt` with its category, reads and probabilities; the recessive fetal
 risk in `nipt` is computed over them, so it is the one the NIPT page's recessive view computes over
