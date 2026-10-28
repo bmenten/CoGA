@@ -46,7 +46,7 @@ Een gewoon endpoint zoals `GET /api/families/{family_id}` vraagt `get_current_us
 Twee nuances voor de auditor:
 
 1. Elke beheercontrole gebruikt `ADMIN_ROLES`, dus een `superuser` telt overal als beheerder. Een test weigert elke nieuwe vergelijking van een rol met de letterlijke tekst `"admin"` (`backend/tests/test_admin_role_checks.py`).
-2. Een beperkte gebruikerslijst (`GET /api/users`, alleen naam en e-mail van elk actief account) is leesbaar voor elke ingelogde gebruiker. `docs/security-posture.md` (§1) documenteert dat als **aanvaard restrisico**: CoGA draait in één labo waar alle gebruikers collega's zijn. De keuzelijsten *Assigned to* en *Reviewed by* van een familie lezen ze niet meer, maar de eigen lijst van de familie (hieronder).
+2. De beperkte gebruikerslijst (`GET /api/users`, alleen naam en e-mail van elk actief account) is alleen voor beheerders (`get_current_admin_user`, SEC-33): wie geen beheerder is, krijgt `403` zoals op de andere beheerroutes, een gedeactiveerde beheerder `401`. Geen scherm leest ze: de keuzelijsten *Assigned to* en *Reviewed by* van een familie lezen de eigen lijst van de familie (hieronder), de pagina *Users* leest `GET /api/auth/users`. Vroeger kon elke ingelogde gebruiker ze lezen, een **aanvaard restrisico** in `docs/security-posture.md` (§1); de eigenaar beëindigde het op 2026-10-28.
 
 **Waar in de code:** `backend/app/dependencies.py` (beide dependencies), `backend/app/routers/admin.py` en `backend/app/routers/projects.py`.
 

@@ -541,7 +541,7 @@ python docs/handleiding/build_site.py
 <p>Twee nuances voor de auditor:</p>
 <ol>
 <li>Elke beheercontrole gebruikt <code>ADMIN_ROLES</code>, dus een <code>superuser</code> telt overal als beheerder. Een test weigert elke nieuwe vergelijking van een rol met de letterlijke tekst <code>"admin"</code> (<code>backend/tests/test_admin_role_checks.py</code>).</li>
-<li>Een beperkte gebruikerslijst (<code>GET /api/users</code>, alleen naam en e-mail van elk actief account) is leesbaar voor elke ingelogde gebruiker. <code>docs/security-posture.md</code> (§1) documenteert dat als <strong>aanvaard restrisico</strong>: CoGA draait in één labo waar alle gebruikers collega's zijn. De keuzelijsten <em>Assigned to</em> en <em>Reviewed by</em> van een familie lezen ze niet meer, maar de eigen lijst van de familie (hieronder).</li>
+<li>De beperkte gebruikerslijst (<code>GET /api/users</code>, alleen naam en e-mail van elk actief account) is alleen voor beheerders (<code>get_current_admin_user</code>, SEC-33): wie geen beheerder is, krijgt <code>403</code> zoals op de andere beheerroutes, een gedeactiveerde beheerder <code>401</code>. Geen scherm leest ze: de keuzelijsten <em>Assigned to</em> en <em>Reviewed by</em> van een familie lezen de eigen lijst van de familie (hieronder), de pagina <em>Users</em> leest <code>GET /api/auth/users</code>. Vroeger kon elke ingelogde gebruiker ze lezen, een <strong>aanvaard restrisico</strong> in <code>docs/security-posture.md</code> (§1); de eigenaar beëindigde het op 2026-10-28.</li>
 </ol>
 <p class="waar"><strong>Waar in de code:</strong> <code>backend/app/dependencies.py</code> (beide dependencies), <code>backend/app/routers/admin.py</code> en <code>backend/app/routers/projects.py</code>.</p>
 <h2>Toegangsniveau per project: analist of lezer</h2>
@@ -1751,7 +1751,7 @@ python docs/handleiding/build_site.py
 <tr>
 <td><code>lookups.py</code></td>
 <td><code>/family-statuses</code>, <code>/users</code></td>
-<td>De statuslijst voor de keuzelijst op de familiepagina, en de lijst van actieve accounts</td>
+<td>De statuslijst voor de keuzelijst op de familiepagina, en de lijst van actieve accounts (alleen voor beheerders, SEC-33)</td>
 </tr>
 </tbody>
 </table></div>
