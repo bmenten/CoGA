@@ -561,7 +561,22 @@ What the application relies on there:
   MSAL's accounts and tokens in the tab. The one exception: UI events the API has not taken
   (their token had expired by the logout, or the logout's keepalive did not arrive) wait in the
   browser under their account for its next sign-in, rather than being lost (*Session tokens*,
-  §1). Login starts with an empty cache. The Microsoft
+  §1). A logout in one tab ends the session in every tab of the browser, which share it: told
+  by the browser that the token is gone, each other tab clears its query cache and MSAL's
+  account and tokens in the tab, and opens the sign-in page (`onSessionEndedElsewhere` in
+  `lib/auth.ts`, used by `Layout`). The storage wrapper keeps a page's own copy of a write only
+  where the browser's storage did not take it (`lib/storage.ts`). Before, it kept a copy of
+  every write, so a tab that had written the token itself (it signed in, or renewed a Microsoft
+  token) read it back after another tab's logout and went on showing the user's data, and its
+  next renewal wrote the token back, which signed every tab in again (found while fixing
+  SEC-36). A sign-in of another account in another tab (on a sign-in page left open there)
+  ends the session in the same way: the other tabs see the user name, the account's address,
+  change, and that account's session is cleared with it, so no tab goes on as an account it
+  does not show, and the account signs in again. A renewal of the token, and a sign-in of the
+  same account, keep the user name, and the session goes on. Before, such a sign-in replaced the
+  session without a logout: a tab went on showing the first account's pages while its requests,
+  and with them the audit's record of who did what, went out as the other account (found while
+  fixing SEC-36). Login starts with an empty cache. The Microsoft
   sign-in always asks which account continues, so a shared workstation never signs the next
   person in as the previous one silently, and the page CoGA asked for before it travels to
   Microsoft only as a random key (the path, with any family ID in it, stays in the tab).
