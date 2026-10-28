@@ -2,8 +2,9 @@
 
 In local storage mode the CRAM endpoints look for ``<sample>.cram`` (``.crai``, ``.bam``,
 ``.bai``) under five layouts in the family's two folders, ``<data>/<family>`` and
-``<data>/families/<family>``. The family and sample IDs come from the request, and the ID rule
-lets them hold ``/`` and ``..`` (SEC-15). The lookup used to join them into a path and check
+``<data>/families/<family>``. The family and sample IDs come from the request, and may hold
+``/`` and ``..`` (the ID rule refuses both for a new ID since SEC-15, not in a request or an ID
+stored before). The lookup used to join them into a path and check
 only that the path stayed inside the data directory, so a sample ID ``../F2/S2`` of family F1
 found family F2's reads and the alignment manifest listed them, a family ID such as
 ``families/F2`` reached F2's package, and a symlinked folder could lead into another family's

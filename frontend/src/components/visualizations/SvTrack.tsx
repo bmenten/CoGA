@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { formatGt, hasAltAllele } from '../../lib/genotypes';
-import { normalizeChrom } from '../../lib/chromosomes';
+import { formatChromosomeLabel, normalizeChrom } from '../../lib/chromosomes';
 import { cssVar } from '../../lib/colors';
 import { fetchTrackJson } from '../../lib/trackFetch';
 import type { WithoutNulls } from '../../lib/apiTypes';
@@ -101,7 +101,8 @@ const SvTrack: React.FC<Props> = ({
         const typeKey = svTypeKey(v.type, v.copy_change);
         const row = SV_TYPE_ORDER.indexOf(typeKey);
         // The layout names a chromosome as normalizeChrom does (`1`, `X`, `MT`); an SV comes under
-        // its VCF's name, with or without `chr`: `M` or `chrM` for the mitochondrion (mito_sv).
+        // its VCF's name, with or without `chr`: `M` or `chrM` for the mitochondrion (mito_sv). The
+        // genome overview lays out no mitochondrion (ENG-20), so such an SV is not drawn there.
         const offset = layout.offsets[normalizeChrom(v.chr)];
         if (offset === undefined) return null;
         const x1 = ((offset + v.start) / layout.total) * width;
@@ -236,7 +237,8 @@ const SvTrack: React.FC<Props> = ({
       )}
       {tooltip && (
         <VizTooltip x={tooltip.x} y={tooltip.y}>
-          <div>{`${tooltip.variant.chr}:${tooltip.variant.start}-${tooltip.variant.end} ${describeSvType(
+          {/* The chromosome as the viewer names it (#602), however the SV is stored: `chr1`, not `1`. */}
+          <div>{`${formatChromosomeLabel(tooltip.variant.chr)}:${tooltip.variant.start}-${tooltip.variant.end} ${describeSvType(
             tooltip.variant.type,
             tooltip.variant.copy_change,
           )}${tooltip.variant.source ? ` [${tooltip.variant.source}]` : ''}`}</div>

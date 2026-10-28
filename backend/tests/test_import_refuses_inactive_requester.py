@@ -1,4 +1,4 @@
-"""A queued import does not run as an account deactivated since it was queued (found while fixing SEC-32).
+"""A queued import does not run as an account deactivated since it was queued (found while fixing SEC-32), nor as one no longer an administrator (SEC-35).
 
 The worker runs a queued import job as the account that requested it, found by the job's
 ``requested_by_id`` (SEC-32), and took that account whatever its state: an account an
@@ -8,6 +8,13 @@ ended failed, saying why, before anything of the family is written, as a job who
 no longer exists already was; the log names neither the account nor its address. An import
 already running when its requester is deactivated runs to its end: the account is checked
 once, when the import starts.
+
+Only an administrator queues an import (the import routes require one), and the import
+checked the requester's access to the job's project only: an administrator demoted to viewer
+since, an analyst of that project, still had the import run (SEC-35). Such a job now ends
+failed the same way, as the owner decided on 2026-10-28, and so does a job claimed again
+after its worker stopped while it was still ``validating``; an administrator of either admin
+role has the import run, and one demoted while the import runs has it run to its end.
 
 The job's row and the import are stand-ins: what this tests is whether the import runs, as
 whom, and how the job ends.
@@ -31,15 +38,17 @@ REQUESTER_ID = "00000000-0000-0000-0000-0000000000c1"
 REQUESTER_EMAIL = "colleague-deactivated@example.org"
 
 
-def _requester(*, is_active: bool) -> CurrentUser:
+def _requester(*, is_active: bool, role: str = "admin") -> CurrentUser:
     return CurrentUser(
         id=REQUESTER_ID,
         username=REQUESTER_EMAIL,
         email=REQUESTER_EMAIL,
         first_name="Given-c1",
         last_name="Surname-c1",
-        role="admin",
+        role=role,
         is_active=is_active,
+        # An analyst of the job's project: the project's check alone lets the import run.
+        metadata_project_ids=["project-uuid"],
         created_at=datetime.now(timezone.utc),
     )
 
@@ -157,8 +166,66 @@ async def test_the_job_of_an_account_that_no_longer_exists_still_ends_failed(
 
 
 @pytest.mark.asyncio
-async def test_the_job_of_an_active_account_runs_as_that_account(monkeypatch: pytest.MonkeyPatch) -> None:
-    active = _requester(is_active=True)
+async def test_the_job_of_an_account_no_longer_an_administrator_ends_failed_and_its_import_does_not_run(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    # SEC-35: demoted to viewer since it queued the import, the account is an analyst of the
+    # job's project, which is all the import itself checked.
+    demoted = _requester(is_active=True, role="viewer")
+    job = _Job(monkeypatch, requester_id=REQUESTER_ID, accounts={REQUESTER_ID: demoted})
+    caplog.set_level(logging.DEBUG)
+
+    raised = await job.run()
+
+    # Before, the import ran as the demoted account, and the job ended completed.
+    assert job.ran_as == [], "the import ran as an account that is no longer an administrator"
+    assert job.looked_up == [REQUESTER_ID]
+    assert job.ends == [
+        {"status": "failed", "error": package_import.REQUESTER_NOT_ADMIN_ERROR, "completed": True}
+    ]
+    assert raised == package_import.REQUESTER_NOT_ADMIN_ERROR
+    # The job's record says why, and that nothing was written.
+    assert "no longer an administrator" in package_import.REQUESTER_NOT_ADMIN_ERROR
+    assert "Nothing of the family was written" in package_import.REQUESTER_NOT_ADMIN_ERROR
+    # The log names neither the account nor its address.
+    for personal in (REQUESTER_ID, REQUESTER_EMAIL, "Given-c1", "Surname-c1"):
+        assert personal not in caplog.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("account", "error"),
+    [
+        (_requester(is_active=False), "REQUESTER_INACTIVE_ERROR"),
+        (_requester(is_active=True, role="viewer"), "REQUESTER_NOT_ADMIN_ERROR"),
+    ],
+    ids=["deactivated", "no-longer-an-administrator"],
+)
+async def test_a_job_claimed_again_while_validating_checks_its_requester_again(
+    monkeypatch: pytest.MonkeyPatch, account: CurrentUser, error: str
+) -> None:
+    # A job whose worker stopped before its import wrote anything (still ``validating``) is
+    # claimed again by another worker and run from the start: its requester is checked again,
+    # as it is by then.
+    job = _Job(monkeypatch, requester_id=REQUESTER_ID, accounts={REQUESTER_ID: account})
+
+    with pytest.raises(RuntimeError) as refused:
+        await package_import.handle_claimed_family_import_job(
+            {"id": JOB, "status": "validating"}, worker_id=WORKER
+        )
+
+    assert job.ran_as == []
+    expected = getattr(package_import, error)
+    assert str(refused.value) == expected
+    assert job.ends == [{"status": "failed", "error": expected, "completed": True}]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("role", ["admin", "superuser"])
+async def test_the_job_of_an_active_administrator_runs_as_that_account(
+    monkeypatch: pytest.MonkeyPatch, role: str
+) -> None:
+    active = _requester(is_active=True, role=role)
     job = _Job(monkeypatch, requester_id=REQUESTER_ID, accounts={REQUESTER_ID: active})
 
     raised = await job.run()
@@ -169,17 +236,21 @@ async def test_the_job_of_an_active_account_runs_as_that_account(monkeypatch: py
 
 
 @pytest.mark.asyncio
-async def test_an_import_already_running_when_its_requester_is_deactivated_runs_to_its_end(
-    monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.parametrize(
+    "changed",
+    [_requester(is_active=False), _requester(is_active=True, role="viewer")],
+    ids=["deactivated", "no-longer-an-administrator"],
+)
+async def test_an_import_already_running_when_its_requester_is_deactivated_or_demoted_runs_to_its_end(
+    monkeypatch: pytest.MonkeyPatch, changed: CurrentUser
 ) -> None:
-    # The account is checked once, when the import starts: deactivating it while the import
-    # runs ends the account's own requests at once, and lets the import finish rather than
-    # stop it part-way, which would leave its family to the import's fail-clean restore.
+    # The account is checked once, when the import starts: deactivating or demoting it while
+    # the import runs ends the account's own requests at once (or its administration), and
+    # lets the import finish rather than stop it part-way, which would leave its family to
+    # the import's fail-clean restore.
     active = _requester(is_active=True)
     job = _Job(monkeypatch, requester_id=REQUESTER_ID, accounts={REQUESTER_ID: active})
-    job.during_import.append(
-        lambda: job.accounts.update({REQUESTER_ID: _requester(is_active=False)})
-    )
+    job.during_import.append(lambda: job.accounts.update({REQUESTER_ID: changed}))
 
     raised = await job.run()
 

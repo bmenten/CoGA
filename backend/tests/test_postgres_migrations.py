@@ -314,6 +314,50 @@ def test_revision_0009_runs_the_traceability_baselines_own_upgrade_of_the_two_ev
         module.selected_statements(lambda _name: [])
 
 
+def test_revision_0010_runs_the_reference_baselines_own_upgrade_of_the_two_job_tables() -> None:
+    # SEC-35: a gene-reference refresh's and a knowledgebase rebuild's requester kept by the
+    # account's id, which the worker checks before it runs the job, brought to a database made
+    # before it by the statements 02_reference.sql adds it with.
+    from backend.app.core.postgres_migrations import baseline_statements
+
+    module = migration_script().get_revision("0010").module
+    selected = module.selected_statements(baseline_statements)
+
+    statements = _statements("02_reference.sql")
+    assert len(selected) == 2 and all(statement in statements for statement in selected)
+    assert [statements.index(statement) for statement in selected] == sorted(
+        statements.index(statement) for statement in selected
+    )
+    # Each upgrade runs once, when its column is missing, so that a later start never links a
+    # job again, by an address another account may have by then; a job is linked to the
+    # account its address finds, or to none, and the account's deletion keeps the job.
+    for upgrade, table in zip(
+        (" ".join(statement.split()) for statement in selected), ("gene_info_refresh_jobs", "clinical_cnv_kb_jobs")
+    ):
+        assert upgrade.startswith("DO $$ BEGIN IF NOT EXISTS ( SELECT 1 FROM pg_attribute")
+        assert f"WHERE attrelid = '{table}'::regclass AND attname = 'requested_by_id' AND NOT attisdropped" in upgrade
+        assert f"ALTER TABLE {table} ADD COLUMN requested_by_id uuid;" in upgrade
+        assert (
+            f"UPDATE {table} AS job SET requested_by_id = account.id FROM users AS account "
+            "WHERE account.email = job.requested_by;" in upgrade
+        )
+        assert (
+            f"ADD CONSTRAINT {table}_requested_by_id_fkey FOREIGN KEY (requested_by_id) "
+            "REFERENCES users(id) ON DELETE SET NULL;" in upgrade
+        )
+        assert "DELETE FROM" not in upgrade and "SET NOT NULL" not in upgrade
+        # The table a new database's CREATE TABLE gives: the same column and foreign key.
+        create = " ".join(next(s for s in statements if s.startswith(f"CREATE TABLE IF NOT EXISTS {table} ")).split())
+        assert "requested_by_id uuid," in create
+        assert (
+            f"CONSTRAINT {table}_requested_by_id_fkey FOREIGN KEY (requested_by_id) "
+            "REFERENCES users(id) ON DELETE SET NULL" in create
+        )
+    # A baseline that no longer holds them stops the revision.
+    with pytest.raises(RuntimeError, match="the baseline changed under it"):
+        module.selected_statements(lambda _name: [])
+
+
 def test_revision_0011_drops_the_columns_nothing_reads_and_the_unresolved_roi_key() -> None:
     # ENG-6: three columns no code reads, dropped from a database made before, and the
     # families' metadata key an import wrote and nothing read. The baselines create none of

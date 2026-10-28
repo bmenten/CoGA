@@ -11,7 +11,7 @@ from typing import Any
 from uuid import uuid4
 
 from fastapi import HTTPException
-from sqlalchemy import text
+from sqlalchemy import RowMapping, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,6 +24,7 @@ from ..schemas import (
     GeneInfoSourceSummaryOut,
     GeneReferenceAdminStatusOut,
 )
+from .access_control import CurrentUser, is_admin_user
 from .gene_info_bulk_sources import (
     HumanGeneBulkContext,
     build_hgnc_symbol_resolver,
@@ -31,6 +32,7 @@ from .gene_info_bulk_sources import (
     load_human_gene_bulk_context,
 )
 from .gene_info_external import fetch_external_gene_bundle
+from .metadata_service import get_current_user_by_id
 from .sex_chromosomes import assembly_display_rank
 
 logger = logging.getLogger(__name__)
@@ -44,6 +46,24 @@ GENE_REFERENCE_STALE_HEARTBEAT = timedelta(minutes=5)
 # collapse to ~N/100 (or one per 30s of work).
 GENE_REFERENCE_PROGRESS_COMMIT_SYMBOLS = 100
 GENE_REFERENCE_PROGRESS_COMMIT_SECONDS = 30.0
+# Who asked for the refresh a start queues: no account, so the worker runs it as it is.
+STARTUP_REQUESTER = "startup-bootstrap"
+
+
+def _requester_lost(lapse: str) -> str:
+    return (
+        f"Not run: the account that requested this refresh {lapse}, and a refresh runs only "
+        "for an active administrator. The gene records stay as they were; an active "
+        "administrator requests the refresh again."
+    )
+
+
+# Why a refresh is not run, as the job's error says (SEC-35): the account that asked for it no
+# longer exists, has been deactivated, or is no longer an administrator, as the routes
+# required. None names the account: the job does.
+REQUESTER_GONE_ERROR = _requester_lost("no longer exists")
+REQUESTER_INACTIVE_ERROR = _requester_lost("has been deactivated")
+REQUESTER_NOT_ADMIN_ERROR = _requester_lost("is no longer an administrator")
 
 
 @dataclass(slots=True)
@@ -426,9 +446,13 @@ async def queue_gene_reference_refresh_job(
     session: AsyncSession,
     *,
     scope: str,
-    requested_by: str,
+    requested_by: CurrentUser | None,
     symbol: str | None = None,
 ) -> GeneInfoRefreshJobOut:
+    """Queue a refresh. One an administrator asked for keeps them by the account's id, which
+    the worker checks before it runs the job (SEC-35), and the e-mail address it was asked
+    under, which it shows; the refresh a start queues (``requested_by`` None) is no account's,
+    ``STARTUP_REQUESTER``."""
     if scope == "symbol" and not str(symbol or "").strip():
         raise HTTPException(status_code=400, detail="Gene symbol is required")
     now = datetime.now(timezone.utc)
@@ -442,6 +466,7 @@ async def queue_gene_reference_refresh_job(
                     status,
                     active_slot,
                     requested_by,
+                    requested_by_id,
                     requested_at,
                     metadata
                 )
@@ -451,6 +476,7 @@ async def queue_gene_reference_refresh_job(
                     'queued',
                     :active_slot,
                     :requested_by,
+                    CAST(:requested_by_id AS uuid),
                     :requested_at,
                     '{}'::jsonb
                 )
@@ -479,7 +505,8 @@ async def queue_gene_reference_refresh_job(
                 "scope": scope,
                 "symbol": symbol.strip() if symbol else None,
                 "active_slot": ACTIVE_GENE_REFERENCE_SLOT,
-                "requested_by": requested_by,
+                "requested_by": requested_by.email if requested_by is not None else STARTUP_REQUESTER,
+                "requested_by_id": requested_by.id if requested_by is not None else None,
                 "requested_at": now,
             },
         )
@@ -548,7 +575,7 @@ async def queue_startup_gene_reference_refresh_if_needed(
         job = await queue_gene_reference_refresh_job(
             session,
             scope="all_human",
-            requested_by="startup-bootstrap",
+            requested_by=None,
         )
         logger.info(
             "Queued startup dbNSFP-backed human gene reference sync from %s",
@@ -827,17 +854,69 @@ async def _refresh_grouped_human_gene_info(
     )
 
 
+async def _requester_refusal(session: AsyncSession, job_row: RowMapping) -> str | None:
+    """Why the refresh is not run for the account that asked for it: it no longer exists (its
+    deletion unlinks the job), has been deactivated, or is no longer an administrator, as the
+    routes required (SEC-35). None while it is an active administrator, and for the refresh a
+    start queues, which is no account's."""
+    requester_id = job_row.get("requested_by_id")
+    if requester_id is None and job_row.get("requested_by") == STARTUP_REQUESTER:
+        return None
+    user = await get_current_user_by_id(session, str(requester_id)) if requester_id else None
+    if user is None:
+        return REQUESTER_GONE_ERROR
+    if not user.is_active:
+        return REQUESTER_INACTIVE_ERROR
+    if not is_admin_user(user):
+        return REQUESTER_NOT_ADMIN_ERROR
+    return None
+
+
+async def _end_refused_job(session: AsyncSession, *, job_id: str, worker_id: str, error: str) -> None:
+    """End the job failed with ``error`` while it is this worker's, and free its slot for the
+    next refresh."""
+    now = datetime.now(timezone.utc)
+    await session.execute(
+        text(
+            """
+            UPDATE gene_info_refresh_jobs
+            SET
+                status = 'failed',
+                active_slot = NULL,
+                worker_id = NULL,
+                current_symbol = NULL,
+                error = :error,
+                heartbeat_at = :now,
+                completed_at = :now
+            WHERE id = CAST(:job_id AS uuid)
+              AND worker_id = :worker_id
+            """
+        ),
+        {"job_id": job_id, "worker_id": worker_id, "error": error, "now": now},
+    )
+    await session.commit()
+
+
 async def run_gene_reference_refresh_job(
     *,
     job_id: str,
     worker_id: str,
 ) -> None:
+    """Run a job this worker has taken up: queued, or taken again after its worker stopped.
+
+    The refresh runs only for an active administrator, as the routes that queue it require
+    (SEC-35): a job whose account no longer exists, has been deactivated or is no longer an
+    administrator when a worker takes it up ends failed, saying why
+    (``REQUESTER_GONE_ERROR``, ``REQUESTER_INACTIVE_ERROR``, ``REQUESTER_NOT_ADMIN_ERROR``),
+    before any gene record is written. The account is checked as the job starts, also when it
+    is taken again: one deactivated or demoted while the refresh runs has it run to its end.
+    """
     session_factory = get_postgres_sessionmaker()
     async with session_factory() as session:
         job_result = await session.execute(
             text(
                 """
-                SELECT id::text AS id, symbol
+                SELECT id::text AS id, symbol, requested_by, requested_by_id::text AS requested_by_id
                 FROM gene_info_refresh_jobs
                 WHERE id = CAST(:job_id AS uuid)
                   AND worker_id = :worker_id
@@ -850,6 +929,16 @@ async def run_gene_reference_refresh_job(
         if job_row is None:
             return
         try:
+            refusal = await _requester_refusal(session, job_row)
+            if refusal is not None:
+                # The log names the job, not the account: the job's record names its requester.
+                logger.warning(
+                    "Gene reference refresh job %s not run: the account that requested it is no "
+                    "longer an active administrator",
+                    job_id,
+                )
+                await _end_refused_job(session, job_id=job_id, worker_id=worker_id, error=refusal)
+                return
             job_symbol = str(job_row.get("symbol") or "").strip() or None
             # Load the bulk sources before choosing which genes to refresh: HGNC is
             # what says which human genes exist, so the gene set is derived from it

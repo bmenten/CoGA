@@ -37,6 +37,12 @@ the CI ``smoke`` job sets it.
   UI-event log (revision 0009: a unique column, empty in the rows stored before), keeps every
   row, and ends at the same fingerprint; the writers' INSERT stores an event's id once, and a
   plain second INSERT of it is refused.
+- A database at revision 0009 from before SEC-35 gets a gene-reference refresh's and a
+  knowledgebase rebuild's requester kept by the account's id (revision 0010): each job linked
+  to the account its e-mail address finds, one of an address no account has, and the refresh
+  a start queues, linked to none; a deleted account's jobs stay, linked to none, and a later
+  start does not link them to the account that took the address since. It keeps every row and
+  ends at the same fingerprint.
 - A database at revision 0010 from before ENG-6 loses the three columns no code read
   (``auth_login_attempts.last_success_at``,
   ``small_variant_reviews.compound_het_partner_variant_keys`` and
@@ -1464,6 +1470,159 @@ def test_a_database_from_before_sec17_gets_the_event_ids_with_its_rows_kept(
     assert "audit_log_events_event_id_key" in refused["audit_log_events"]
     assert "ui_events_event_id_key" in refused["ui_events"]
     # The schema is the baselines': the column with its type and its unique constraint.
+    assert actual == expected, _differences(expected, actual)
+
+
+# The gene-reference refresh and knowledgebase rebuild jobs as a database had them before SEC-35
+# (revision 0010): a requester kept only by an e-mail address.
+_BEFORE_0010 = (
+    "ALTER TABLE gene_info_refresh_jobs DROP COLUMN requested_by_id",
+    "ALTER TABLE clinical_cnv_kb_jobs DROP COLUMN requested_by_id",
+)
+_SEC35_USER = "admin-sec35@example.org"
+_SEC35_GONE = "gone-sec35@example.org"
+
+
+async def _sec35_jobs(conn: AsyncConnection) -> dict[str, list[tuple]]:
+    """The refresh and rebuild jobs the SEC-35 test stores, each with the account it is kept by."""
+
+    queries = {
+        "refresh": (
+            "SELECT j.requested_by, u.email FROM gene_info_refresh_jobs j "
+            "LEFT JOIN users u ON u.id = j.requested_by_id WHERE j.symbol LIKE 'SEC35%'"
+        ),
+        "rebuild": (
+            "SELECT j.requested_by, u.email FROM clinical_cnv_kb_jobs j "
+            "LEFT JOIN users u ON u.id = j.requested_by_id WHERE j.assembly_name = 'SEC35TEST'"
+        ),
+    }
+    return {
+        name: sorted(tuple(row) for row in (await conn.execute(text(query))).all())
+        for name, query in queries.items()
+    }
+
+
+@_MODES
+def test_a_database_from_before_sec35_keeps_each_refresh_and_rebuild_by_its_account(
+    monkeypatch, reapply_baselines: bool
+) -> None:
+    from backend.app.core import postgres_migrations
+    from backend.app.core.postgres_migrations import apply_postgres_schema, head_revision
+
+    monkeypatch.setattr(postgres_migrations, "REAPPLY_BASELINES_ON_EVERY_RUN", reapply_baselines)
+
+    async def _body(database: str):
+        engine = _engine(database)
+        try:
+            async with engine.begin() as conn:
+                await apply_postgres_schema(conn)
+            # A database at revision 0009 from before SEC-35: a refresh and a rebuild of an
+            # account, of an address no account has, and the refresh a start queues.
+            async with engine.begin() as conn:
+                await conn.execute(text("UPDATE alembic_version SET version_num = '0009'"))
+                for statement in _BEFORE_0010:
+                    await conn.exec_driver_sql(statement)
+                account = (
+                    await conn.execute(
+                        text(
+                            "INSERT INTO users (username, hashed_password, role, email) "
+                            "VALUES (:n, '', 'admin', :n) RETURNING id::text"
+                        ),
+                        {"n": _SEC35_USER},
+                    )
+                ).scalar_one()
+                species = (
+                    await conn.execute(
+                        text(
+                            "INSERT INTO species (name, common_name, tax_id) "
+                            "VALUES ('Organism SEC-35', 'Test organism', 999000035) RETURNING id::text"
+                        )
+                    )
+                ).scalar_one()
+                assembly = (
+                    await conn.execute(
+                        text(
+                            "INSERT INTO assemblies (species_id, assembly_name, version, release_date) "
+                            "VALUES (CAST(:s AS uuid), 'SEC35TEST', 'test', DATE '2026-01-01') RETURNING id::text"
+                        ),
+                        {"s": species},
+                    )
+                ).scalar_one()
+                for symbol, requester in (
+                    ("SEC35A", _SEC35_USER),
+                    ("SEC35B", _SEC35_GONE),
+                    ("SEC35C", "startup-bootstrap"),
+                ):
+                    await conn.execute(
+                        text(
+                            "INSERT INTO gene_info_refresh_jobs (scope, symbol, status, requested_by) "
+                            "VALUES ('symbol', :g, 'completed', :r)"
+                        ),
+                        {"g": symbol, "r": requester},
+                    )
+                for requester in (_SEC35_USER, _SEC35_GONE):
+                    await conn.execute(
+                        text(
+                            "INSERT INTO clinical_cnv_kb_jobs (assembly_id, assembly_name, status, requested_by) "
+                            "VALUES (CAST(:a AS uuid), 'SEC35TEST', 'completed', :r)"
+                        ),
+                        {"a": assembly, "r": requester},
+                    )
+            contents = await _table_contents(database)
+            async with engine.begin() as conn:
+                revision = await apply_postgres_schema(conn)
+            kept = await _table_contents(database)
+            async with engine.connect() as conn:
+                linked = await _sec35_jobs(conn)
+            # The account is deleted, and another takes its address: its jobs keep no
+            # requester, and a later start, which re-applies the baselines until the RC, gives
+            # them none.
+            async with engine.begin() as conn:
+                await conn.execute(text("DELETE FROM users WHERE id = CAST(:a AS uuid)"), {"a": account})
+                await conn.execute(
+                    text(
+                        "INSERT INTO users (username, hashed_password, role, email) "
+                        "VALUES ('successor-sec35', '', 'admin', :n)"
+                    ),
+                    {"n": _SEC35_USER},
+                )
+            async with engine.begin() as conn:
+                await apply_postgres_schema(conn)
+            async with engine.connect() as conn:
+                after_deletion = await _sec35_jobs(conn)
+        finally:
+            await engine.dispose()
+        reference = await _create_database()
+        try:
+            await _apply_baseline_files(reference)
+            fingerprints = await _fingerprint(reference), await _fingerprint(database)
+        finally:
+            await _drop_database(reference)
+        return revision, (contents, kept), linked, after_deletion, fingerprints
+
+    revision, (contents, kept), linked, after_deletion, (expected, actual) = _run(_body)
+
+    assert (revision.before, revision.after) == ("0009", head_revision())
+    # Each job is kept, linked to the account its address found; one whose address no account
+    # has, and the refresh a start queues, are linked to none.
+    assert linked == {
+        "refresh": [(_SEC35_USER, _SEC35_USER), (_SEC35_GONE, None), ("startup-bootstrap", None)],
+        "rebuild": [(_SEC35_USER, _SEC35_USER), (_SEC35_GONE, None)],
+    }
+    # Every row stays; only the two job tables gained their column, and the ledger moved.
+    changed = {"alembic_version", "gene_info_refresh_jobs", "clinical_cnv_kb_jobs"}
+    assert {table: rows for table, rows in kept.items() if table not in changed} == {
+        table: rows for table, rows in contents.items() if table not in changed
+    }
+    assert [kept[table][0] for table in ("gene_info_refresh_jobs", "clinical_cnv_kb_jobs")] == [
+        contents[table][0] for table in ("gene_info_refresh_jobs", "clinical_cnv_kb_jobs")
+    ]
+    # The deleted account's jobs stayed, linked to no account, also after a later start.
+    assert after_deletion == {
+        "refresh": [(_SEC35_USER, None), (_SEC35_GONE, None), ("startup-bootstrap", None)],
+        "rebuild": [(_SEC35_USER, None), (_SEC35_GONE, None)],
+    }
+    # The schema is the baselines': the columns and their foreign keys.
     assert actual == expected, _differences(expected, actual)
 
 
