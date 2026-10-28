@@ -244,30 +244,44 @@ describe('FamilyMitoDNAAnalysisPage', () => {
     expect(rowScope.getByText('0.0%')).toBeInTheDocument();
     expect(rowScope.getAllByText('Heteroplasmic').length).toBeGreaterThanOrEqual(2);
 
-    // Two parts: the variant on the left — gene first, then its disease with an OMIM link —
-    // and the family's calls on the right, the heteroplasmy as each row's figure.
-    const variantPart = pathogenicRow.querySelector('.family-mtdna-card-variant') as HTMLElement;
-    const samplePart = pathogenicRow.querySelector('.family-mtdna-card-samples') as HTMLElement;
-    expect(variantPart.querySelector('.gene-disease-heading')).toHaveTextContent(
-      'MT-TL1—MELAS syndrome (OMIM)',
+    // The anatomy of every variant card: the gene (to its gene page) and its disease (to
+    // OMIM) heading the card, the variant in the first column, the family's calls in the
+    // genotype grid of the second, the heteroplasmy as each member's call.
+    const heading = pathogenicRow.querySelector('.gene-disease-heading') as HTMLElement;
+    expect(heading).toHaveTextContent('MT-TL1—MELAS syndrome');
+    expect(within(heading).getByRole('link', { name: 'MT-TL1' })).toHaveAttribute(
+      'href',
+      '/genes?gene=MT-TL1&family_id=F1',
     );
-    expect(within(variantPart).getByRole('link', { name: /open melas syndrome on omim/i })).toHaveAttribute(
+    expect(within(heading).getByRole('link', { name: /melas syndrome on omim/i })).toHaveAttribute(
       'href',
       'https://www.omim.org/search?index=entry&search=MELAS%20syndrome',
     );
-    expect(within(samplePart).getByText('46.0%')).toHaveClass('family-mtdna-call-af');
+    const [variantPart, samplePart] = Array.from(
+      pathogenicRow.querySelectorAll<HTMLElement>('.variant-card-col'),
+    );
+    expect(variantPart.querySelector('.variant-card-col-title')).toHaveTextContent('Variant');
+    expect(samplePart.querySelector('.variant-card-col-title')).toHaveTextContent('Genotypes');
+    expect(within(samplePart).getByText('46.0%')).toHaveClass('variant-card-gtline-gt');
     expect(within(variantPart).queryByText('46.0%')).not.toBeInTheDocument();
-    const callRows = samplePart.querySelectorAll('.family-mtdna-call');
+    const callRows = samplePart.querySelectorAll('.variant-card-gtline');
     // The maternal line (proband first), then the father, apart.
-    expect([...callRows].map((callRow) => callRow.querySelector('.sample-label-id')?.textContent)).toEqual([
-      'PROBAND',
-      'MOM',
-      'DAD',
+    expect([...callRows].map((callRow) => callRow.querySelector('.variant-card-gtline-sample')?.textContent)).toEqual([
+      '♀PROBAND',
+      '♀MOM',
+      '♂DAD',
     ]);
+    expect(
+      Array.from(samplePart.querySelectorAll('.variant-card-gtgroup')).map((group) => group.textContent),
+    ).toEqual(['Mother(s) and children', 'Father']);
+    const footer = pathogenicRow.querySelector('.variant-card-footer') as HTMLElement;
+    expect(
+      Array.from(footer.querySelectorAll('.variant-card-nav > *')).map((link) => link.textContent),
+    ).toEqual(['IGV', 'Chromosome view', 'OMIM', 'MITOMAP']);
 
     // IGV on the variant, on chrM — the name IGV's genomes give the mitochondrion (MT is an
     // alias of it, chrMT is not) — returning here, in a new tab like every genome link.
-    const igvLink = within(variantPart).getByRole('link', {
+    const igvLink = within(footer).getByRole('link', {
       name: /open igv at chrM:3243-3243.*opens in a new tab/i,
     });
     expect(igvLink).toHaveAttribute(
@@ -275,7 +289,7 @@ describe('FamilyMitoDNAAnalysisPage', () => {
       '/families/F1/igv?locus=chrM%3A3243-3243&back_path=%2Ffamilies%2FF1%2Fmitochondrial-dna',
     );
     expect(igvLink).toHaveAttribute('target', '_blank');
-    expect(within(variantPart).getByRole('link', { name: /open chromosome view at MT:3,243/i })).toHaveAttribute(
+    expect(within(footer).getByRole('link', { name: /open chromosome view at MT:3,243/i })).toHaveAttribute(
       'href',
       '/families/F1/chromosome/MT?start=3143&end=3343',
     );

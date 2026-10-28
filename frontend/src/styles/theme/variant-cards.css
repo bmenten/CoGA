@@ -199,6 +199,13 @@ button.sv-second-hit-badge--del:hover {
   color: var(--color-signature-red-dark);
 }
 
+/* A call to look at again: violet, a colour no other status has (ENG-10). */
+.variant-card-chip--review {
+  border-color: rgba(124, 58, 237, 0.24);
+  background: rgba(124, 58, 237, 0.1);
+  color: #6d28d9;
+}
+
 .variant-card-chip--link {
   text-decoration: none;
   cursor: pointer;
@@ -521,7 +528,8 @@ a.variant-card-gene:hover {
    on a wide card; only the sample column gives way when the card is narrow. */
 .variant-card-gtlist {
   display: grid;
-  grid-template-columns: minmax(0, max-content) repeat(5, max-content);
+  /* The sample, then one column per field (FamilyGenotypeGrid sets how many). */
+  grid-template-columns: minmax(0, max-content) repeat(var(--gt-cols, 5), max-content);
   justify-content: start;
   gap: 0.0625rem 0.5rem;
   margin-top: 0;
@@ -592,12 +600,31 @@ a.variant-card-gene:hover {
   text-align: right;
 }
 
-.variant-card-gtline--het .variant-card-gtline-gt {
+.variant-card-gtline-value {
+  color: var(--color-text-muted);
+}
+
+.variant-card-gtline-status {
+  justify-self: start;
+}
+
+/* One tone vocabulary for the call on every card (FamilyGenotypeGrid): red for pathogenic,
+   homozygous or homoplasmic, amber for heterozygous, grey zone, carrier or heteroplasmic,
+   blue for not assessed or to review, muted for reference or normal, faded for no call. */
+.variant-card-gtline--warn .variant-card-gtline-gt {
   color: #8d6020;
 }
 
-.variant-card-gtline--hom .variant-card-gtline-gt {
+.variant-card-gtline--alert .variant-card-gtline-gt {
   color: var(--color-signature-red-dark);
+}
+
+.variant-card-gtline--info .variant-card-gtline-gt {
+  color: #3f618f;
+}
+
+.variant-card-gtline--review .variant-card-gtline-gt {
+  color: #6d28d9;
 }
 
 .variant-card-gtline--ref .variant-card-gtline-gt {
@@ -606,6 +633,29 @@ a.variant-card-gene:hover {
 
 .variant-card-gtline--na {
   opacity: 0.6;
+}
+
+/* A note on a member's call, read under it in the value columns. */
+.variant-card-gtline-detail {
+  grid-column: 3 / -1;
+  margin-top: -0.0625rem;
+  color: var(--color-text-muted);
+  font-size: var(--fs-2xs);
+}
+
+/* A heading over a group of members (the maternal line, the father). */
+.variant-card-gtgroup {
+  grid-column: 1 / -1;
+  padding-top: 0.1875rem;
+  color: var(--color-text-muted);
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+}
+
+.variant-card-gtgroup-empty {
+  grid-column: 1 / -1;
+  color: var(--color-text-muted);
+  font-size: var(--fs-2xs);
 }
 
 .variant-card-gtline.is-affected .variant-card-gtline-sample {

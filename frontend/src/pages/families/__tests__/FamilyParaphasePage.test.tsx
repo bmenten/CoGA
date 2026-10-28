@@ -335,11 +335,15 @@ describe('FamilyParaphasePage', () => {
     expect(smnCard).not.toBeNull();
     const smnScope = within(smnCard as HTMLElement);
     expect(smnScope.getByText('Clinical')).toBeInTheDocument();
-    // Gene first, then the disease with its OMIM link: the repeat page's heading.
+    // Gene first, to its gene page, then the disease, to its OMIM entry: every card's heading.
     expect(smnScope.getByText('Spinal muscular atrophy').closest('.gene-disease-heading')).toHaveTextContent(
-      'SMN1/SMN2—Spinal muscular atrophy (OMIM)',
+      'SMN1/SMN2—Spinal muscular atrophy',
     );
-    expect(smnScope.getByRole('link', { name: /open spinal muscular atrophy on omim/i })).toHaveAttribute(
+    expect(smnScope.getByRole('link', { name: 'SMN1/SMN2' })).toHaveAttribute(
+      'href',
+      '/genes?gene=SMN1&family_id=F1',
+    );
+    expect(smnScope.getByRole('link', { name: /spinal muscular atrophy on omim/i })).toHaveAttribute(
       'href',
       'https://www.omim.org/entry/253300',
     );
@@ -546,13 +550,21 @@ describe('FamilyParaphasePage — the region card', () => {
     const card = (await screen.findByText('SMN1/SMN2')).closest('article') as HTMLElement;
     const scope = within(card);
 
-    // Proband first, each with their copy number and status.
-    const rows = card.querySelectorAll('.paraphase-sample-row');
-    expect(rows[0]).toHaveTextContent('PROBANDprobandSMN1 CN 1Carrier');
-    expect(rows[0]).toHaveClass('paraphase-sample-row--carrier');
-    expect(rows[1]).toHaveTextContent('MOTHERmotherSMN1 CN 2Normal');
+    // Proband first, each with their copy number and status, in the genotype grid every
+    // variant card has.
+    const grid = card.querySelector('.variant-card-gtlist') as HTMLElement;
+    expect(grid.querySelector('.variant-card-gthead')).toHaveTextContent('SampleRoleSMN1 CNStatus');
+    const rows = grid.querySelectorAll('.variant-card-gtline');
+    expect(rows[0]).toHaveTextContent('PROBANDproband1Carrier');
+    expect(rows[0]).toHaveClass('variant-card-gtline--warn');
+    expect(rows[1]).toHaveTextContent('MOTHERmother2Normal');
 
-    expect(scope.getByText('Misses silent 2+0 carriers.')).toBeVisible();
+    // The caveat's mark stays on the card; its full text is in the tooltip alone.
+    expect(scope.queryByText('Misses silent 2+0 carriers.')).not.toBeInTheDocument();
+    const caveat = scope.getByText('Read before interpreting');
+    fireEvent.focus(caveat);
+    expect(screen.getByRole('tooltip')).toHaveTextContent('Misses silent 2+0 carriers.');
+    fireEvent.blur(caveat);
     expect(scope.queryByText(/read smn1 copy number first/i)).not.toBeInTheDocument();
     const icon = scope.getByText('How to read SMN1/SMN2').closest('.info-icon') as HTMLElement;
     fireEvent.focus(icon);
@@ -563,9 +575,15 @@ describe('FamilyParaphasePage — the region card', () => {
     // A disorder without an OMIM URL is named without a link, never one to "#".
     expect(scope.getByText('A disorder without an entry')).toBeInTheDocument();
     expect(scope.getAllByRole('link', { name: /on omim/i })).toHaveLength(1);
-    // The genome links and the extra-info toggle share the actions row at the card's end.
-    const actions = card.querySelector('.finding-actions') as HTMLElement;
-    expect(within(actions).getByRole('link', { name: /open igv/i })).toBeInTheDocument();
-    expect(within(actions).getByRole('button', { name: 'Extra info' })).toBeInTheDocument();
+    // The footer every card has: the extra-info toggle at the left, the links at the right
+    // in one order.
+    const footer = card.querySelector('.variant-card-footer') as HTMLElement;
+    expect(within(footer).getByRole('button', { name: 'Extra info' }).closest('.variant-card-quick')).not.toBeNull();
+    const nav = footer.querySelector('.variant-card-nav') as HTMLElement;
+    expect(within(nav).getAllByRole('link').map((link) => link.textContent)).toEqual([
+      'IGV',
+      'Chromosome view',
+      'OMIM',
+    ]);
   });
 });

@@ -1,9 +1,10 @@
+import type React from 'react';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
+import { MemoryRouter } from 'react-router';
 
 import GeneDiseaseHeading, { DISEASE_NAME_MAX } from '../GeneDiseaseHeading';
 import InfoIcon from '../InfoIcon';
-import OmimLink from '../OmimLink';
 import SampleLabel from '../SampleLabel';
 import TruncatedText from '../TruncatedText';
 
@@ -34,42 +35,34 @@ describe('TruncatedText', () => {
   });
 });
 
-describe('OmimLink', () => {
-  it('opens OMIM in a new tab and names the disease it opens', () => {
-    render(<OmimLink href="https://www.omim.org/entry/253300" subject="Spinal muscular atrophy" />);
-    const link = screen.getByRole('link', {
-      name: 'Open Spinal muscular atrophy on OMIM (opens in a new tab)',
-    });
-    expect(link).toHaveTextContent('OMIM');
-    expect(link).toHaveAttribute('href', 'https://www.omim.org/entry/253300');
-    expect(link).toHaveAttribute('target', '_blank');
-    expect(link).toHaveAttribute('rel', 'noopener noreferrer');
-  });
-});
+const inRouter = (node: React.ReactElement) => render(<MemoryRouter>{node}</MemoryRouter>);
 
 describe('GeneDiseaseHeading', () => {
-  it('reads "GENE — Disease (OMIM)", the gene first and prominent', () => {
-    const { container } = render(
+  it('reads "GENE — Disease", the gene to its gene page and the disease to OMIM', () => {
+    const { container } = inRouter(
       <GeneDiseaseHeading
         gene="HTT"
+        geneHref="/genes?gene=HTT&family_id=F1"
         diseases={[{ name: 'Huntington disease', omimUrl: 'https://www.omim.org/entry/143100' }]}
       >
         <span>Pathogenic</span>
       </GeneDiseaseHeading>,
     );
     const heading = container.querySelector('.gene-disease-heading') as HTMLElement;
-    expect(heading).toHaveTextContent('HTT—Huntington disease (OMIM)Pathogenic');
-    expect(heading.firstElementChild).toHaveClass('gene-disease-heading-gene');
-    expect(heading.firstElementChild).toHaveTextContent('HTT');
-    expect(within(heading).getByRole('link', { name: /huntington disease on omim/i })).toHaveAttribute(
-      'href',
-      'https://www.omim.org/entry/143100',
-    );
+    expect(heading).toHaveClass('variant-card-headline');
+    expect(heading).toHaveTextContent('HTT—Huntington diseasePathogenic');
+    const gene = within(heading).getByRole('link', { name: 'HTT' });
+    expect(gene).toHaveClass('variant-card-gene');
+    expect(gene).toHaveAttribute('href', '/genes?gene=HTT&family_id=F1');
+    const omim = within(heading).getByRole('link', { name: 'Huntington disease on OMIM (opens in a new tab)' });
+    expect(omim).toHaveAttribute('href', 'https://www.omim.org/entry/143100');
+    expect(omim).toHaveAttribute('target', '_blank');
+    expect(omim).toHaveAttribute('rel', 'noopener noreferrer');
   });
 
   it('cuts a long disease name but never the gene, and links each disease it can', () => {
     const longName = 'Spinocerebellar ataxia type 3 / Machado-Joseph disease, adult onset';
-    const { container } = render(
+    const { container } = inRouter(
       <GeneDiseaseHeading
         gene="ATXN3"
         diseases={[
@@ -79,9 +72,12 @@ describe('GeneDiseaseHeading', () => {
       />,
     );
     expect(longName.length).toBeGreaterThan(DISEASE_NAME_MAX);
-    expect(screen.getByText('ATXN3')).toBeInTheDocument();
+    // Without a gene page the gene stands unlinked.
+    expect(screen.getByText('ATXN3').tagName).toBe('SPAN');
     expect(screen.getByText(longName)).toHaveClass('sr-only');
-    fireEvent.mouseEnter(screen.getByText(longName).closest('.truncated-text') as HTMLElement);
+    const link = screen.getByRole('link', { name: `${longName} on OMIM (opens in a new tab)` });
+    expect(link).toHaveClass('truncated-text--cut');
+    fireEvent.focus(link);
     expect(screen.getByRole('tooltip')).toHaveTextContent(longName);
     expect(screen.getByText('No entry')).toBeInTheDocument();
     expect(screen.getAllByRole('link')).toHaveLength(1);
@@ -89,7 +85,7 @@ describe('GeneDiseaseHeading', () => {
   });
 
   it('shows the gene alone when no disease is named', () => {
-    const { container } = render(<GeneDiseaseHeading gene="MT-ND5" diseases={[{ name: ' ' }]} />);
+    const { container } = inRouter(<GeneDiseaseHeading gene="MT-ND5" diseases={[{ name: ' ' }]} />);
     expect(container.querySelector('.gene-disease-heading')).toHaveTextContent(/^MT-ND5$/);
     expect(container.querySelector('.gene-disease-heading-sep')).toBeNull();
   });

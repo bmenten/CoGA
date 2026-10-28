@@ -3,6 +3,7 @@ import { useLocation, useParams } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import api from '../../lib/api';
 import type {
+  ApiFamilyMember,
   ApiFamilyRecord,
   ApiFamilyRepeatExpansionTable,
   ApiRepeatExpansionAllele,
@@ -16,13 +17,15 @@ import PageState from '../../components/PageState';
 import FamilyLoadFailure from '../../components/FamilyLoadFailure';
 import { sortFamilyMembersProbandFirst } from '../../lib/familyMembers';
 import { formatResolvedReferenceLabel, useFamilyReference } from '../../lib/reference';
-import GenomeWorkspaceLink from './GenomeWorkspaceLink';
 import { apiPath } from '../../lib/apiPath';
 import InfoTip from '../../components/InfoTip';
 import GeneDiseaseHeading from '../../components/GeneDiseaseHeading';
 import TruncatedText from '../../components/TruncatedText';
-import SampleLabel from '../../components/SampleLabel';
-import { omimSearchHref } from '../../lib/omim';
+import { omimGeneHref, omimSearchHref } from '../../lib/omim';
+import { geneInfoHref } from '../../lib/geneInfo';
+import InfoIcon from '../../components/InfoIcon';
+import FindingCard, { FindingLinks, type FindingRail } from './FindingCard';
+import FamilyGenotypeGrid, { STATUS_CHIP_TONE_CLASS, type GenotypeTone } from './FamilyGenotypeGrid';
 import { COUNT_UNIT_MARK, countUnitWarningText, repeatStatusLabel } from '../../lib/repeatStatus';
 import { raw, routePath } from '../../lib/routePath';
 
@@ -168,6 +171,154 @@ const buildRepeatIgvHref = (
   params.set('back_path', routePath`/families/${familyId}/repeat-expansions`);
   return routePath`/families/${familyId}/igv${raw(`?${params.toString()}`)}`;
 };
+
+// How to read the calls: explanation, not this family's result, so it sits behind the info icon
+// beside the list's title. Each call says its own status in words.
+// The gene a locus names, for its gene page and OMIM: none for a locus outside the catalogue,
+// whose gene is its own coordinate ID (chr2_1000000_1000030_CAG).
+const UNCATALOGUED_LOCUS_ID = /^(chr)?[0-9XYMT]+_\d+_\d+/i;
+const locusGene = (row: ApiRepeatExpansionRow): string | null =>
+  row.gene && !UNCATALOGUED_LOCUS_ID.test(row.gene) ? row.gene : null;
+
+const REPEAT_READING_GUIDE =
+  'Each member\'s call gives the repeat count of both alleles and, when it is not normal, its status: ' +
+  'grey zone or premutation (amber; a premutation is an FMR1 allele of 55–200 repeats, which can expand ' +
+  'in a child), pathogenic (red), or not assessed (blue: the catalogue gives the locus no threshold and ' +
+  'the count is outside any benign range it states there). ' +
+  `${COUNT_UNIT_MARK} marks a count a few repeats from a boundary at a locus where QA has not yet ` +
+  'validated that TRGT counts the clinical repeat number; there, a small difference could change the ' +
+  'status. Hover over or focus it for the boundary. Aberrant only keeps such a locus too.';
+
+// Each status's tone on the card (FamilyGenotypeGrid): the call, its status chip and the
+// locus chip. A review call has a tone of its own, never another status's (ENG-10).
+export const REPEAT_STATUS_TONE: Record<ApiRepeatStatus, GenotypeTone> = {
+  normal: 'ref',
+  intermediate: 'warn',
+  premutation: 'warn',
+  pathogenic: 'alert',
+  not_assessed: 'info',
+  review: 'review',
+  unknown: 'na',
+};
+
+const repeatRail = (status: ApiRepeatStatus): FindingRail => {
+  if (status === 'pathogenic') return 'pathogenic';
+  if (status === 'intermediate' || status === 'premutation') return 'warning';
+  return 'neutral';
+};
+
+// One repeat locus as a variant card: the locus and its catalogue cutoffs at the left, each
+// member's alleles in the genotype grid, the genome and OMIM links in the footer.
+const RepeatLocusCard: React.FC<{
+  row: ApiRepeatExpansionRow;
+  members: ApiFamilyMember[];
+  familyId: string;
+  projectId?: string;
+}> = ({ row, members, familyId, projectId }) => (
+  <FindingCard
+    aria-label={`${row.display_name} repeat`}
+    rail={repeatRail(row.status)}
+    className={`family-repeat-card family-repeat-card--${row.status}`}
+    heading={
+      <GeneDiseaseHeading
+        gene={row.display_name}
+        geneHref={geneInfoHref(locusGene(row), familyId, projectId)}
+        diseases={locusDiseases(row)}
+      >
+        {row.inheritance ? (
+          <span className="variant-card-chip variant-card-chip--soft">{row.inheritance}</span>
+        ) : null}
+      </GeneDiseaseHeading>
+    }
+    tags={
+      row.status !== 'normal' ? (
+        <span
+          className={`variant-card-chip variant-card-chip--${STATUS_CHIP_TONE_CLASS[REPEAT_STATUS_TONE[row.status]]}`}
+        >
+          {repeatStatusLabel(row.status, row.review_reason)}
+        </span>
+      ) : null
+    }
+    columns={[
+      {
+        key: 'variant',
+        title: 'Repeat',
+        content: (
+          <dl className="variant-card-mini-dl">
+            <div>
+              <dt>Locus</dt>
+              <dd>
+                chr{row.chr}:{row.start.toLocaleString()}-{row.end.toLocaleString()}
+              </dd>
+            </div>
+            <div>
+              <dt>Motif</dt>
+              <dd>{row.motif ? <TruncatedText text={row.motif} max={MOTIF_DISPLAY_MAX} mono /> : '—'}</dd>
+            </div>
+            <div>
+              <dt>Cutoffs</dt>
+              <dd className="repeat-cutoff-cell">{formatCutoff(row)}</dd>
+            </div>
+          </dl>
+        ),
+      },
+      {
+        key: 'genotypes',
+        title: 'Genotypes',
+        content: (
+          <FamilyGenotypeGrid
+            callLabel="Alleles"
+            withStatus
+            entries={members.map((member) => {
+              const call = row.calls[member.sample_id];
+              if (!call) {
+                return { member, tone: 'na' as const, call: 'No data' };
+              }
+              const warnings = countUnitWarnings(call);
+              const details = [...formatAlleleMotifLabels(call.alleles), ...(call.note ? [call.note] : [])];
+              return {
+                member,
+                tone: REPEAT_STATUS_TONE[call.status],
+                call: (
+                  <span className="family-repeat-alleles">
+                    {formatAlleles(call.alleles)}
+                    {warnings.length > 0 && (
+                      <InfoTip
+                        staticChild
+                        className="family-repeat-count-unit-flag"
+                        label={countUnitWarningText(warnings, row.count_units_note)}
+                      >
+                        {COUNT_UNIT_MARK}
+                      </InfoTip>
+                    )}
+                  </span>
+                ),
+                status:
+                  call.status !== 'normal'
+                    ? {
+                        label: repeatStatusLabel(call.status, call.review_reason),
+                        tone: REPEAT_STATUS_TONE[call.status],
+                      }
+                    : null,
+                detail: details.length ? details.join(' · ') : undefined,
+              };
+            })}
+          />
+        ),
+      },
+    ]}
+    links={
+      <FindingLinks
+        igv={{ href: buildRepeatIgvHref(familyId, row, projectId), label: `Open IGV at ${getRepeatIgvLocus(row)}` }}
+        chromosome={{
+          href: buildRepeatChromosomeHref(familyId, row, projectId),
+          label: `Chromosome view ${CHROMOSOME_VIEW_PADDING_LABEL} around ${getRepeatChromosomeViewWindow(row)}`,
+        }}
+        omim={locusGene(row) ? omimGeneHref(locusGene(row) as string) : null}
+      />
+    }
+  />
+);
 
 const FamilyRepeatExpansionsPage: React.FC = () => {
   const { familyId } = useParams<{ familyId: string }>();
@@ -356,18 +507,9 @@ const FamilyRepeatExpansionsPage: React.FC = () => {
 
       <section className="surface-card space-y-4">
         <div className="page-header">
-          <div className="space-y-1">
-            <h2 className="section-title">TRGT repeat table</h2>
-            <p className="catalog-card-copy">
-              Grey marks normal loci, orange grey-zone alleles, deep orange a premutation (an FMR1 allele of 55–200 repeats, which
-              can expand in a child), and red pathogenic expansions. Blue marks a call that is not assessed: the catalogue
-              gives its locus no threshold, and the count is outside any benign range the catalogue states there.
-            </p>
-            <p className="catalog-card-copy">
-              {COUNT_UNIT_MARK} marks a count a few repeats from a boundary at a locus where QA has not yet validated that
-              TRGT counts the clinical repeat number; there, a small difference could change the status. Hover over or
-              focus it for the boundary. Aberrant only keeps such a locus too.
-            </p>
+          <div className="paraphase-section-head">
+            <h2 className="section-title">TRGT repeat expansions</h2>
+            <InfoIcon name="How to read the repeat calls" text={REPEAT_READING_GUIDE} />
           </div>
         </div>
         <div className="family-repeat-toolbar">
@@ -408,146 +550,23 @@ const FamilyRepeatExpansionsPage: React.FC = () => {
             {filteredLoci.length} of {repeatTable.loci.length} loci
           </div>
         </div>
-        <div className="data-table-shell overflow-x-auto">
-          <table className="analysis-table family-repeat-table">
-            <colgroup>
-              <col className="family-repeat-col-locus" />
-              <col />
-              <col className="family-repeat-col-cutoff" />
-            </colgroup>
-            <thead>
-              <tr>
-                <th>Repeat</th>
-                <th>Family calls</th>
-                <th className="repeat-cutoff-head">Cutoffs</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredLoci.map((row) => (
-                <tr
-                  key={`${row.locus_id}-${row.chr}-${row.start}`}
-                  className={`family-repeat-table-row family-repeat-table-row--${row.status}${
-                    isAbnormalStatus(row.status) ? ' family-repeat-table-row--abnormal' : ''
-                  }`}
-                >
-                  <td>
-                    <GeneDiseaseHeading gene={row.display_name} diseases={locusDiseases(row)}>
-                      {row.status !== 'normal' && (
-                        <span
-                          className={`table-chip family-repeat-table-locus-flag family-repeat-table-locus-flag--${row.status}`}
-                        >
-                          {repeatStatusLabel(row.status, row.review_reason)}
-                        </span>
-                      )}
-                    </GeneDiseaseHeading>
-                    <div className="table-subtle family-repeat-locus-meta">
-                      <span>
-                        chr{row.chr}:{row.start.toLocaleString()}-{row.end.toLocaleString()}
-                      </span>
-                      {row.motif && (
-                        <span>
-                          motif <TruncatedText text={row.motif} max={MOTIF_DISPLAY_MAX} mono />
-                        </span>
-                      )}
-                    </div>
-                    {/* Both leave this list behind, so both open a tab — same as the
-                        small-variant and structural-variant tables. */}
-                    <div className="finding-actions">
-                      <GenomeWorkspaceLink
-                        to={buildRepeatIgvHref(family.family_id, row, resolvedProjectId)}
-                        className="variant-card-resource variant-card-resource--clinical"
-                        label={`Open IGV at ${getRepeatIgvLocus(row)}`}
-                      >
-                        IGV
-                      </GenomeWorkspaceLink>
-                      <GenomeWorkspaceLink
-                        to={buildRepeatChromosomeHref(
-                          family.family_id,
-                          row,
-                          resolvedProjectId,
-                        )}
-                        className="variant-card-resource variant-card-resource--clinical"
-                        label={`Chromosome view ${CHROMOSOME_VIEW_PADDING_LABEL} around ${getRepeatChromosomeViewWindow(row)}`}
-                      >
-                        Chromosome view
-                      </GenomeWorkspaceLink>
-                    </div>
-                  </td>
-                  <td>
-                    <div className="family-repeat-table-calls">
-                      {orderedMembers.map((member) => {
-                        const call = row.calls[member.sample_id];
-                        const abnormal = Boolean(call && isAbnormalStatus(call.status));
-                        return (
-                          <div
-                            key={member.sample_id}
-                            className={`family-repeat-table-call-row${
-                              abnormal ? ' family-repeat-table-call-row--abnormal' : ''
-                            }`}
-                          >
-                            <SampleLabel
-                              sampleId={member.sample_id}
-                              role={member.role}
-                              emphasis={abnormal}
-                            />
-                            <div className="family-repeat-table-call-value">
-                              {call ? (
-                                <div className="family-repeat-table-call-stack">
-                                  <div
-                                    className={`family-repeat-table-call-chip family-repeat-table-call-chip--${call.status}`}
-                                  >
-                                    <span className={`repeat-status repeat-status--${call.status}`}>
-                                      {formatAlleles(call.alleles)}
-                                    </span>
-                                    {call.status !== 'normal' && (
-                                      <span className="family-repeat-table-call-flag">
-                                        {repeatStatusLabel(call.status, call.review_reason)}
-                                      </span>
-                                    )}
-                                  </div>
-                                  {countUnitWarnings(call).length > 0 && (
-                                    <InfoTip
-                                      staticChild
-                                      className="family-repeat-count-unit-flag"
-                                      label={countUnitWarningText(countUnitWarnings(call), row.count_units_note)}
-                                    >
-                                      {COUNT_UNIT_MARK}
-                                    </InfoTip>
-                                  )}
-                                  {formatAlleleMotifLabels(call.alleles).map((label) => (
-                                    <div key={label} className="family-repeat-table-call-motifs">
-                                      {label}
-                                    </div>
-                                  ))}
-                                  {call.note && (
-                                    <div className="family-repeat-table-call-motifs">{call.note}</div>
-                                  )}
-                                </div>
-                              ) : (
-                                <span className="table-subtle">No data</span>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </td>
-                  <td className="repeat-cutoff-cell">
-                    <div>{formatCutoff(row)}</div>
-                  </td>
-                </tr>
-              ))}
-              {filteredLoci.length === 0 && (
-                <tr>
-                  <td colSpan={3} className="table-subtle">
-                    {repeatTable.loci.length
-                      ? 'No repeat expansion loci match the selected filters.'
-                      : 'No repeat expansion data is loaded for this family.'}
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+        <div className="variant-card-list family-repeat-list">
+          {filteredLoci.map((row) => (
+            <RepeatLocusCard
+              key={`${row.locus_id}-${row.chr}-${row.start}`}
+              row={row}
+              members={orderedMembers}
+              familyId={family.family_id}
+              projectId={resolvedProjectId}
+            />
+          ))}
+          {filteredLoci.length === 0 && (
+            <p className="table-subtle">
+              {repeatTable.loci.length
+                ? 'No repeat expansion loci match the selected filters.'
+                : 'No repeat expansion data is loaded for this family.'}
+            </p>
+          )}
         </div>
       </section>
     </div>

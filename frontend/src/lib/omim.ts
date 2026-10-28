@@ -4,3 +4,7 @@
  */
 export const omimSearchHref = (term: string): string =>
   `https://www.omim.org/search?index=entry&search=${encodeURIComponent(term)}`;
+
+/** The gene's OMIM search, the "OMIM" link in every finding card's link row. */
+export const omimGeneHref = (gene: string): string =>
+  `https://www.omim.org/search?search=${encodeURIComponent(gene)}`;

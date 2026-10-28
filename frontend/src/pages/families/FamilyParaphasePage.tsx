@@ -3,6 +3,7 @@ import { useLocation, useParams } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import api from '../../lib/api';
 import type {
+  ApiFamilyMember,
   ApiFamilyParaphaseTable,
   ApiFamilyRecord,
   ApiParaphaseGeneResult,
@@ -11,13 +12,17 @@ import type {
 import FamilyPageHeader from './FamilyPageHeader';
 import PageState from '../../components/PageState';
 import FamilyLoadFailure from '../../components/FamilyLoadFailure';
-import GenomeWorkspaceLink from './GenomeWorkspaceLink';
 import { sortFamilyMembersProbandFirst } from '../../lib/familyMembers';
 import { formatResolvedReferenceLabel, useFamilyReference } from '../../lib/reference';
 import { apiPath } from '../../lib/apiPath';
 import { raw, routePath } from '../../lib/routePath';
 import GeneDiseaseHeading from '../../components/GeneDiseaseHeading';
 import InfoIcon from '../../components/InfoIcon';
+import InfoTip from '../../components/InfoTip';
+import { geneInfoHref } from '../../lib/geneInfo';
+import { omimGeneHref } from '../../lib/omim';
+import FindingCard, { FindingLinks } from './FindingCard';
+import FamilyGenotypeGrid, { type GenotypeTone } from './FamilyGenotypeGrid';
 import SampleLabel from '../../components/SampleLabel';
 
 
@@ -259,22 +264,42 @@ const ParaphaseSampleDetail: React.FC<{
   );
 };
 
+const PARAPHASE_STATUS_TONE: Record<string, GenotypeTone> = {
+  pathogenic: 'alert',
+  carrier: 'warn',
+  review: 'review',
+  normal: 'ref',
+  no_call: 'na',
+  none: 'ref',
+};
+
+// The copy-number columns of a region's genotype grid: its key copy numbers, in the order the
+// members' calls list them; the first is the call, the others its measurements.
+const regionCopyNumberColumns = (
+  gene: ApiParaphaseGeneResult,
+  members: { sample_id: string }[],
+): { key: string; label: string }[] => {
+  const columns = new Map<string, string>();
+  members.forEach((member) => {
+    const call = gene.samples[member.sample_id];
+    if (call) clinicalCopyNumberMetrics(gene, call).forEach((metric) => columns.set(metric.key, metric.label));
+  });
+  return Array.from(columns, ([key, label]) => ({ key, label }));
+};
+
 const ParaphaseLocusCard: React.FC<{
   gene: ApiParaphaseGeneResult;
-  members: { sample_id: string; role?: string | null }[];
+  members: ApiFamilyMember[];
   familyId: string;
   projectId?: string | null;
 }> = ({ gene, members, familyId, projectId }) => {
   const [showExtra, setShowExtra] = useState(false);
   const region = gene.region_info;
   const clinical = region?.clinical;
-  const anyPathogenic = Object.values(gene.samples).some(
-    (call) => call.clinical_status === 'pathogenic',
-  );
-  const phaseRegion =
-    Object.values(gene.samples)
-      .map((call) => parsePhaseRegion(call.phase_region))
-      .find(Boolean) || null;
+  const calls = Object.values(gene.samples);
+  const anyPathogenic = calls.some((call) => call.clinical_status === 'pathogenic');
+  const anyCarrier = calls.some((call) => call.clinical_status === 'carrier');
+  const phaseRegion = calls.map((call) => parsePhaseRegion(call.phase_region)).find(Boolean) || null;
   const title = region?.display_name || gene.gene_symbol;
   // What the region is and how to read its calls: explanation, not this family's result, so
   // it sits behind the info icon.
@@ -282,17 +307,21 @@ const ParaphaseLocusCard: React.FC<{
   // The region's note on a null copy-number call, shown whenever a member's key copy number
   // is one: it says why the call is missing, so it stays on the card.
   const noCallNote =
-    region?.notes?.length &&
-    Object.values(gene.samples).some((call) => hasClinicalNoCall(gene, call))
-      ? region.notes[0]
-      : null;
+    region?.notes?.length && calls.some((call) => hasClinicalNoCall(gene, call)) ? region.notes[0] : null;
+  const [callColumn, ...metricColumns] = regionCopyNumberColumns(gene, members);
+  const genes = region?.genes?.length ? region.genes : [gene.gene_symbol];
+  // Paraphase names a region by its own key (smn1, RCCX); the gene page and OMIM take the
+  // region's first gene, its HGNC symbol.
+  const primaryGene = genes[0];
   return (
-    <article
-      className={`variant-card paraphase-card${anyPathogenic ? ' variant-card--clinvar-pathogenic' : ''}`}
-    >
-      <div className="paraphase-card-head">
+    <FindingCard
+      aria-label={`${title} region`}
+      rail={anyPathogenic ? 'pathogenic' : anyCarrier ? 'warning' : 'neutral'}
+      className="paraphase-card"
+      heading={
         <GeneDiseaseHeading
-          gene={<span className="paraphase-card-title">{title}</span>}
+          gene={title}
+          geneHref={geneInfoHref(primaryGene, familyId, projectId)}
           diseases={(region?.disorders || []).map((disorder) => ({
             name: disorder.name,
             omimUrl: disorder.omim_url,
@@ -300,126 +329,143 @@ const ParaphaseLocusCard: React.FC<{
         >
           {readingGuide && <InfoIcon name={`How to read ${title}`} text={readingGuide} />}
         </GeneDiseaseHeading>
-        {gene.is_medically_relevant && <span className="table-chip table-chip--accent">Clinical</span>}
-      </div>
-      {region?.genes?.length ? (
-        <div className="table-subtle paraphase-card-genes">Genes {region.genes.join(', ')}</div>
-      ) : (
-        region?.display_name &&
-        region.display_name !== gene.gene_symbol && (
-          <div className="table-subtle paraphase-card-genes">Gene {gene.gene_symbol}</div>
-        )
-      )}
-      {clinical?.caveats && (
-        <p className="paraphase-card-caveat">
-          <span className="paraphase-card-caveat-label">Caveat</span> {clinical.caveats}
-        </p>
-      )}
-      <div className="paraphase-card-samples">
-        {members.map((member) => {
-          const call = gene.samples[member.sample_id];
-          if (!call) {
-            return (
-              <div key={member.sample_id} className="paraphase-sample-row">
-                <SampleLabel sampleId={member.sample_id} role={member.role} />
-                <span className="table-subtle paraphase-sample-cn">No data</span>
+      }
+      tags={
+        gene.is_medically_relevant ? (
+          <span className="variant-card-chip variant-card-chip--accent">Clinical</span>
+        ) : null
+      }
+      columns={[
+        {
+          key: 'variant',
+          title: 'Region',
+          content: (
+            <dl className="variant-card-mini-dl">
+              <div>
+                <dt>Locus</dt>
+                <dd>{phaseRegion ? formatParaphaseRegion(phaseRegion) : '—'}</dd>
               </div>
-            );
-          }
-          const status = call.clinical_status || 'none';
-          const meta = CLINICAL_STATUS_META[status] || CLINICAL_STATUS_META.none;
-          const clinicalCn = clinicalCopyNumberMetrics(gene, call);
-          const abnormal = status === 'pathogenic' || status === 'carrier';
-          return (
-            <div
-              key={member.sample_id}
-              className={`paraphase-sample-row paraphase-sample-row--${status}`}
-            >
-              <SampleLabel sampleId={member.sample_id} role={member.role} emphasis={abnormal} />
-              <span className="paraphase-sample-cn">
-                {clinicalCn.length ? (
-                  clinicalCn.map((metric) => (
-                    <span key={metric.key}>
-                      {metric.label} <strong>{formatMetricValue(metric.value)}</strong>
-                    </span>
-                  ))
-                ) : (
-                  <span className="table-subtle">CN n/a</span>
-                )}
-              </span>
-              {meta.label ? (
-                <span className={`paraphase-status ${meta.className}`}>{meta.label}</span>
-              ) : (
-                <span />
+              {/* The genes a region spans, when its name is not already them. */}
+              {genes.join('/') !== title && (
+                <div>
+                  <dt>Genes</dt>
+                  <dd>{genes.join(', ')}</dd>
+                </div>
               )}
-            </div>
-          );
-        })}
-      </div>
-      {noCallNote && <div className="paraphase-clinical-note">{noCallNote}</div>}
-      {/* Both genome links leave this list behind, so both open a tab — same as the
-          small-variant, structural-variant and repeat tables. */}
-      <div className="finding-actions">
-        {phaseRegion && (
-          <>
-            <GenomeWorkspaceLink
-              to={buildParaphaseIgvHref(familyId, phaseRegion, projectId)}
-              className="variant-card-resource variant-card-resource--clinical"
-              label={`Open IGV at ${getParaphaseIgvLocus(phaseRegion)}`}
-            >
-              IGV
-            </GenomeWorkspaceLink>
-            <GenomeWorkspaceLink
-              to={buildParaphaseChromosomeHref(familyId, phaseRegion, projectId)}
-              className="variant-card-resource variant-card-resource--clinical"
-              label={`Open chromosome view at ${formatParaphaseRegion(phaseRegion)}`}
-            >
-              Chromosome view
-            </GenomeWorkspaceLink>
-          </>
-        )}
+              {clinical?.caveats && (
+                // The caveat applies to every call in the region: its mark stays on the card,
+                // its full text is in the tooltip.
+                <div>
+                  <dt>Caveat</dt>
+                  <dd>
+                    <InfoTip
+                      staticChild
+                      label={clinical.caveats}
+                      className="variant-card-chip variant-card-chip--warning paraphase-caveat-chip"
+                    >
+                      Read before interpreting
+                    </InfoTip>
+                  </dd>
+                </div>
+              )}
+            </dl>
+          ),
+        },
+        {
+          key: 'genotypes',
+          title: 'Genotypes',
+          content: (
+            <FamilyGenotypeGrid
+              callLabel={callColumn?.label ?? 'Copy number'}
+              columns={metricColumns.map((column) => ({ ...column, numeric: true }))}
+              withStatus
+              entries={members.map((member) => {
+                const call = gene.samples[member.sample_id];
+                if (!call) return { member, tone: 'na' as const, call: 'No data' };
+                const status = call.clinical_status || 'none';
+                const meta = CLINICAL_STATUS_META[status] || CLINICAL_STATUS_META.none;
+                const metrics = new Map(
+                  clinicalCopyNumberMetrics(gene, call).map((metric) => [metric.key, metric.value]),
+                );
+                return {
+                  member,
+                  tone: PARAPHASE_STATUS_TONE[status] ?? 'ref',
+                  call: callColumn ? formatMetricValue(metrics.get(callColumn.key)) : 'CN n/a',
+                  values: Object.fromEntries(
+                    metricColumns.map((column) => [column.key, formatMetricValue(metrics.get(column.key))]),
+                  ),
+                  status: meta.label ? { label: meta.label, tone: PARAPHASE_STATUS_TONE[status] ?? 'ref' } : null,
+                };
+              })}
+            />
+          ),
+        },
+      ]}
+      note={noCallNote ? <p className="paraphase-clinical-note">{noCallNote}</p> : null}
+      actions={
         <button
           type="button"
-          className="button-link paraphase-extra-toggle"
+          className="variant-review-link paraphase-extra-toggle"
           aria-expanded={showExtra}
           onClick={() => setShowExtra((value) => !value)}
         >
           {showExtra ? 'Hide extra info' : 'Extra info'}
         </button>
-      </div>
-      {showExtra && (
-        <div className="paraphase-card-extra">
-          {clinical && (clinical.normal || clinical.carrier || clinical.pathogenic) && (
-            <dl className="paraphase-findings">
-              {clinical.normal && (
-                <>
-                  <dt>Normal</dt>
-                  <dd>{clinical.normal}</dd>
-                </>
-              )}
-              {clinical.carrier && (
-                <>
-                  <dt>Carrier</dt>
-                  <dd>{clinical.carrier}</dd>
-                </>
-              )}
-              {clinical.pathogenic && (
-                <>
-                  <dt className="paraphase-findings-pathogenic">Pathogenic</dt>
-                  <dd>{clinical.pathogenic}</dd>
-                </>
-              )}
-            </dl>
-          )}
-          {members.map((member) => {
-            const call = gene.samples[member.sample_id];
-            return call ? (
-              <ParaphaseSampleDetail key={member.sample_id} gene={gene} call={call} />
-            ) : null;
-          })}
-        </div>
-      )}
-    </article>
+      }
+      links={
+        <FindingLinks
+          igv={
+            phaseRegion
+              ? {
+                  href: buildParaphaseIgvHref(familyId, phaseRegion, projectId),
+                  label: `Open IGV at ${getParaphaseIgvLocus(phaseRegion)}`,
+                }
+              : null
+          }
+          chromosome={
+            phaseRegion
+              ? {
+                  href: buildParaphaseChromosomeHref(familyId, phaseRegion, projectId),
+                  label: `Open chromosome view at ${formatParaphaseRegion(phaseRegion)}`,
+                }
+              : null
+          }
+          omim={omimGeneHref(primaryGene)}
+        />
+      }
+      more={
+        showExtra ? (
+          <div className="paraphase-card-extra">
+            {clinical && (clinical.normal || clinical.carrier || clinical.pathogenic) && (
+              <dl className="paraphase-findings">
+                {clinical.normal && (
+                  <>
+                    <dt>Normal</dt>
+                    <dd>{clinical.normal}</dd>
+                  </>
+                )}
+                {clinical.carrier && (
+                  <>
+                    <dt>Carrier</dt>
+                    <dd>{clinical.carrier}</dd>
+                  </>
+                )}
+                {clinical.pathogenic && (
+                  <>
+                    <dt className="paraphase-findings-pathogenic">Pathogenic</dt>
+                    <dd>{clinical.pathogenic}</dd>
+                  </>
+                )}
+              </dl>
+            )}
+            {members.map((member) => {
+              const call = gene.samples[member.sample_id];
+              return call ? <ParaphaseSampleDetail key={member.sample_id} gene={gene} call={call} /> : null;
+            })}
+          </div>
+        ) : null
+      }
+    />
   );
 };
 
@@ -648,7 +694,7 @@ const FamilyParaphasePage: React.FC = () => {
         {filteredGenes.length === 0 ? (
           <p className="table-subtle">No Paraphase results match the current filters.</p>
         ) : (
-          <div className="paraphase-card-grid">
+          <div className="variant-card-list paraphase-card-list">
             {filteredGenes.map((gene) => (
               <ParaphaseLocusCard
                 key={gene.gene_symbol}

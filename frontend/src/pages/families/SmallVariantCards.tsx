@@ -36,12 +36,26 @@ import {
   visibleReviewTagKeys,
 } from './smallVariantResultUtils';
 import FilterTranscriptNote from './FilterTranscriptNote';
-import GenomeWorkspaceLink from './GenomeWorkspaceLink';
+import FamilyGenotypeGrid, { type GenotypeColumn, type GenotypeTone } from './FamilyGenotypeGrid';
+import { FindingLinks } from './FindingCard';
 import ReviewTagChip from './ReviewTagChip';
 import SvSecondHitBadge from './SvSecondHitBadge';
 import VariantPriorityBlock from './VariantPriorityBlock';
 import NiptClassificationBlock from './NiptClassificationBlock';
 import { READ_ONLY_HINT, useFamilyReadOnly } from '../../lib/familyAccess';
+
+const GENOTYPE_COLUMNS: GenotypeColumn[] = [
+  { key: 'dp', label: 'DP', numeric: true },
+  { key: 'ad', label: 'AD', numeric: true },
+  { key: 'af', label: 'AF', numeric: true },
+];
+
+const ZYGOSITY_TONE: Record<ReturnType<typeof genotypeZygosity>, GenotypeTone> = {
+  hom: 'alert',
+  het: 'warn',
+  ref: 'ref',
+  na: 'na',
+};
 
 interface SmallVariantCardsProps {
   variants: SmallVariant[];
@@ -725,7 +739,7 @@ export default function SmallVariantCards({
         return (
           <article
             key={variant._id}
-            className={`variant-card variant-card--clinvar-${getClinvarHighlightTone(
+            className={`variant-card finding-card variant-card--clinvar-${getClinvarHighlightTone(
               variant.clinvar,
             )}${isExcluded ? ' variant-card--excluded' : ''}`}
           >
@@ -906,16 +920,10 @@ export default function SmallVariantCards({
               {members.length ? (
                 <section className="variant-card-col">
                   <p className="variant-card-col-title">Genotypes</p>
-                  <div className="variant-card-gtlist">
-                    <div className="variant-card-gthead">
-                      <span>Sample</span>
-                      <span>Role</span>
-                      <span>GT</span>
-                      <span className="variant-card-gthead-num">DP</span>
-                      <span className="variant-card-gthead-num">AD</span>
-                      <span className="variant-card-gthead-num">AF</span>
-                    </div>
-                    {members.map((member) => {
+                  <FamilyGenotypeGrid
+                    callLabel="GT"
+                    columns={GENOTYPE_COLUMNS}
+                    entries={members.map((member) => {
                       const genotype = variant.genotypes.find(
                         (entry) => entry.sample === member.sample_id,
                       );
@@ -946,40 +954,20 @@ export default function SmallVariantCards({
                             .map((value) => (Number.isFinite(value) ? value.toFixed(2) : '-'))
                             .join(',')
                         : '—';
-                      // Haploid and multi-allelic calls are classified too (#511):
-                      // '1' reads as hom, '0' as ref, '1/2' as het.
-                      const zygosity = genotypeZygosity(gt === '—' ? '' : gt);
-                      const sexSymbol =
-                        member.sex === 'male' ? '♂' : member.sex === 'female' ? '♀' : '⚥';
-                      return (
-                        <div
-                          key={member.sample_id}
-                          className={`variant-card-gtline variant-card-gtline--${zygosity}${
-                            member.affected ? ' is-affected' : ''
-                          }${member.role === 'proband' ? ' is-proband' : ''}`}
-                        >
-                          <span className="variant-card-gtline-sample">
-                            <span
-                              className={`variant-card-gtline-sex variant-card-gtline-sex--${
-                                member.sex || 'und'
-                              }`}
-                              title={member.sex || 'unknown sex'}
-                            >
-                              {sexSymbol}
-                            </span>
-                            {member.sample_id}
-                          </span>
-                          <span className="variant-card-gtline-role">{member.role}</span>
-                          <span className="variant-card-gtline-gt">{gt}</span>
-                          <span className="variant-card-gtline-metric">
-                            {typeof depth === 'number' ? depth : '—'}
-                          </span>
-                          <span className="variant-card-gtline-metric">{adText}</span>
-                          <span className="variant-card-gtline-metric">{afText}</span>
-                        </div>
-                      );
+                      return {
+                        member,
+                        // Haploid and multi-allelic calls are classified too (#511):
+                        // '1' reads as hom, '0' as ref, '1/2' as het.
+                        tone: ZYGOSITY_TONE[genotypeZygosity(gt === '—' ? '' : gt)],
+                        call: gt,
+                        values: {
+                          dp: typeof depth === 'number' ? depth : '—',
+                          ad: adText,
+                          af: afText,
+                        },
+                      };
                     })}
-                  </div>
+                  />
                 </section>
               ) : null}
 
@@ -1109,32 +1097,12 @@ export default function SmallVariantCards({
                   ACMG classify
                 </button>
               </div>
-              <div className="variant-card-nav">
-                <GenomeWorkspaceLink
-                  to={igvHref}
-                  className="variant-card-resource variant-card-resource--clinical"
-                  label={`Open IGV at ${locus}`}
-                >
-                  IGV
-                </GenomeWorkspaceLink>
-                <GenomeWorkspaceLink
-                  to={viewHref}
-                  className="variant-card-resource variant-card-resource--clinical"
-                  label={`Open chromosome view around ${locus}`}
-                >
-                  Chromosome view
-                </GenomeWorkspaceLink>
-                {/* The gene's disease resources sit with the other ways out of the card. */}
-                {omimLink ? (
-                  <a
-                    href={omimLink.href}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="variant-card-resource variant-card-resource--clinical"
-                  >
-                    OMIM
-                  </a>
-                ) : null}
+              {/* The links every finding card has, in the same order (FindingLinks). */}
+              <FindingLinks
+                igv={{ href: igvHref, label: `Open IGV at ${locus}` }}
+                chromosome={{ href: viewHref, label: `Open chromosome view around ${locus}` }}
+                omim={omimLink?.href}
+              >
                 {decipherLink ? (
                   <a
                     href={decipherLink.href}
@@ -1145,7 +1113,7 @@ export default function SmallVariantCards({
                     DECIPHER
                   </a>
                 ) : null}
-              </div>
+              </FindingLinks>
             </div>
 
             <details

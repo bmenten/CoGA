@@ -1,4 +1,6 @@
 import { compareChromosomes } from '../../lib/chromosomes';
+import { geneInfoHref } from '../../lib/geneInfo';
+import { omimGeneHref } from '../../lib/omim';
 import { humanAssemblyOf } from '../../lib/reference';
 import type { StructuralVariant } from './structuralVariantSearch';
 import {
@@ -523,14 +525,7 @@ export const buildSmallVariantGeneInfoHref = (
   variant: SmallVariant,
   familyId?: string,
   projectId?: string,
-) => {
-  const geneLabel = (variant.gene || variant.gene_id || '').trim();
-  if (!geneLabel) return null;
-  const params = new URLSearchParams({ gene: geneLabel });
-  if (familyId) params.set('family_id', familyId);
-  if (projectId) params.set('project_id', projectId);
-  return `/genes?${params.toString()}`;
-};
+) => geneInfoHref(variant.gene || variant.gene_id, familyId, projectId);
 
 /**
  * Where a second-hit badge goes: the family's SV list, filtered to this gene.
@@ -615,7 +610,7 @@ export const buildSmallVariantExternalLinks = ({
     geneLabel
       ? {
           label: 'OMIM',
-          href: `https://www.omim.org/search?search=${encodeURIComponent(geneLabel)}`,
+          href: omimGeneHref(geneLabel),
         }
       : null,
     variant.gene
