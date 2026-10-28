@@ -1950,6 +1950,51 @@ describe('FamilyReportPage', () => {
       );
     });
 
+    // ENG-4: the NIPT Sample QC summary named the paternity check's old logic ("categories
+    // 7/8"), and a record signed before #749 holds the check's old totals (cat7_transmitted,
+    // cat8_absent). Such a record keeps its text, and shows as it did: its checks as before,
+    // and no summary, as the signed view prints none.
+    it('shows a NIPT record signed with the old paternity wording as it was signed', async () => {
+      const paternity = {
+        father: 'FATHER1',
+        hom_alt_transmitted: 485,
+        hom_alt_not_transmitted: 15,
+        het_transmitted: 1020,
+        het_not_transmitted: 980,
+        status: 'pass',
+        message: 'Paternity supported (485 of 500 (97%) of his homozygous alleles seen).',
+      };
+      const checksShown = async (summary: string, check: Record<string, unknown>) => {
+        mockSignedCase({
+          snapshot: {
+            ...SIGNED_SNAPSHOT,
+            sample_qc: { ...NIPT_SAMPLE_QC, application_summary: summary, sex_checks: [], paternity_check: check },
+          },
+        });
+        const { unmount } = renderPage();
+        await signedRecordCard();
+        const checks = screen.getByRole('heading', { name: 'Checks at sign-out' }).closest('section')!;
+        const shown = checks.textContent;
+        expect(document.body).not.toHaveTextContent(summary);
+        unmount();
+        return shown;
+      };
+
+      const signedBefore = await checksShown(
+        'cfDNA integrity from the NIPT classification: paternity is confirmed from paternal-transmitted sites (categories 7/8), which excludes a sample mixup.',
+        { ...paternity, cat7_transmitted: 1505, cat8_absent: 15, informative_sites: 2500 },
+      );
+      expect(signedBefore).toContain('Overall: Pass (Monogenic NIPT (cfDNA)).');
+      expect(signedBefore).toContain(`Paternity (cfDNA) of FATHER1: Pass — ${paternity.message}`);
+
+      // A record signed from now on, with the new wording and without the totals, shows the same.
+      const signedAfter = await checksShown(
+        "cfDNA integrity from the NIPT analysis: paternity is confirmed from the father's alleles in the plasma, which excludes a sample mixup.",
+        paternity,
+      );
+      expect(signedAfter).toBe(signedBefore);
+    });
+
     it('says nothing of NIPT results in the record of a family that is no NIPT family', async () => {
       mockSignedCase({ snapshot: { ...SIGNED_SNAPSHOT, ...SIGNED_ANALYSIS } });
       renderPage();

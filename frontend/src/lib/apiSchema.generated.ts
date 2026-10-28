@@ -2926,13 +2926,14 @@ export interface SampleIntegrityMendelianCheckOut {
 
 /**
  * NIPT paternity: the father's homozygous alleles must all be in the plasma, his het
- * ones half. ``cat7_transmitted`` counts both kinds seen, ``cat8_absent`` the homozygous
- * ones missing.
+ * ones half. ``transmitted_sites`` counts the sites where his allele is seen, of both
+ * kinds; ``hom_alt_absent_sites`` his homozygous sites where it is not (the count
+ * ``hom_alt_not_transmitted`` holds).
  */
 export interface SampleIntegrityPaternityCheckOut {
   father: string;
-  cat7_transmitted: number;
-  cat8_absent: number;
+  transmitted_sites: number;
+  hom_alt_absent_sites: number;
   informative_sites: number;
   hom_alt_transmitted: number;
   hom_alt_not_transmitted: number;

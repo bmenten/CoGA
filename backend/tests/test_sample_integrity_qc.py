@@ -270,7 +270,7 @@ def _paternity(hom: tuple[int, int], het: tuple[int, int]):
 def test_evaluate_paternity_supported_vs_mixup() -> None:
     # The true father: his homozygous alleles all seen but a few dropouts, half his het ones.
     ok = _paternity((485, 15), (1020, 980))
-    assert ok.status == "pass" and ok.cat7_transmitted == 485 + 1020 and ok.cat8_absent == 15
+    assert ok.status == "pass" and ok.transmitted_sites == 485 + 1020 and ok.hom_alt_absent_sites == 15
     # Another man's file: far from all his homozygous alleles, and a quarter of his het ones.
     # Pooled, a third of its alleles were absent, which the old 40% warning let through.
     bad = _paternity((200, 300), (500, 1500))
