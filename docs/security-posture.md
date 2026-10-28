@@ -75,9 +75,10 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   `audit_log_events` row of such a request names the kind in `request_meta.record_hidden`
   (`family`, `sample` or `project`), which the response never carries
   (`main._answer_record_not_visible`), and the admin *Audit logs* page shows it in its
-  *Flags* column (§2). Another user's filter preset, on delete, and import job, on read,
-  answer the same way (`404 Preset not found`, `404 Family import job not found`), their rows
-  naming `filter_preset` or `import_job` (SEC-9).
+  *Flags* column (§2). Another user's filter preset, on delete, answers the same way
+  (`404 Preset not found`), its row naming `filter_preset`, and so does the import-job service
+  for another user's job (`404 Family import job not found`, `import_job`), though only an
+  admin may read a job through the API (SEC-9).
   `backend/tests/e2e/test_e2e_inaccessible_records_look_unknown.py` asks every route with a
   family or sample ID in its path, on real Postgres, for a family of another project and for
   an unknown one, and requires the same status and body. Refusals because of the caller's
@@ -259,11 +260,24 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
 **IDOR review.** Every endpoint that takes a `family_id`, `sample_id` or `project_id` goes
 through the checkpoint above. No unscoped PHI endpoint was found.
 
-**Residual: IDs that are taken.** Family and sample IDs are unique across all projects, so
-creating a family refuses an ID that another project already uses (`409 Family id already
-exists`, `409 Sample id already exists`). A user who may create families (the Family Builder
-is open to an analyst of a project) can learn from that that the ID exists, but nothing else
-about it. Closing that would take IDs scoped per project.
+**Accepted residual: IDs that are taken (SEC-9).** Family and sample IDs are unique across all
+projects, so the Family Builder (`POST /api/ped/manual`), which an analyst of a project may
+use, refuses an ID that is already in use, also by a family or sample the analyst cannot see:
+`409 Family id already exists: <ID>` or `409 Sample id already exists: <IDs>`. With
+`overwrite=true`, a non-admin is refused
+`403 Only admins can overwrite existing families or samples` when the family ID is in use,
+where a free ID creates the family; the page offers the overwrite to an admin only and tells
+anyone else to ask one. Each answer tells the analyst that an ID they gave is taken, and
+nothing else about the record: it names only the request's own IDs, and none of the record's
+project, members, phenotypes, variants or reports. The PED upload (`POST /api/ped/upload`)
+gives the same 409s, but only an admin may call it, and an admin sees every project. The
+residual was accepted by the owner on 2026-10-28, and the behaviour stays as it is: only a
+signed-in analyst of the project the request names, or an admin, reaches the check (a reader,
+a viewer in no project and a request naming another team's project are refused before it, the
+last as an unknown project); the request audit records each attempt with its caller and its
+answer; and closing it would take IDs scoped per project, where an ID now names one family or
+sample in every record, folder and audit entry that carries it
+([TF-13 §2](regulatory/TF-13-cybersecurity.md)).
 
 **Session tokens.** Tokens are bearer JWTs kept in `localStorage`. Moving them to HttpOnly
 cookies would add CSRF surface and rework the Microsoft sign-in and telemetry paths, so the
