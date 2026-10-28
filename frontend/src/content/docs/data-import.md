@@ -294,6 +294,14 @@ records still fails its dataset when the import reaches the cut, and the family 
 for any failed dataset. A mitochondrial structural-variant file without a call is a result, not an empty
 file (most samples carry no mtDNA deletion): it removes that sample's earlier chrM deletions.
 
+**A bgzip file must end with its end-of-file block.** bgzip, which compresses the pipelines' `.vcf.gz`
+files, ends every file with an empty block. A file cut exactly where one of its blocks ends is still
+whole gzip, and was imported as the part before the cut, its later records gone without a word. Such a
+file is now refused as cut short (*… is not valid gzip: it is truncated (it does not end with BGZF's
+end-of-file block)*): an upload with nothing replaced, a dataset failing before anything is replaced.
+Copy the file again from the pipeline's output. A gzip file that bgzip did not write has no such block
+and is read as before.
+
 **Every sample's file is checked before any sample's data is replaced.** A dataset of one file per
 sample reads or checks the file of every sample first: the TRGT files, HiFiCNV's VCFs and signal files,
 the WisecondorX and QDNAseq bins and segments, the PCF tables, the Paraphase results, the APCAD file of
@@ -401,7 +409,11 @@ repeat expansions, and interval tracks (coverage, APCAD, APCAD PCF segments, seg
 A family small-variant upload that replaces stored calls (**overwrite**) reads the whole file before it
 replaces anything: a file it refuses (one naming a sample the family does not have, holding no record
 it can store, cut short in a copy, or with a line over the length limit) leaves the stored calls, and for
-imputed genotypes the haplotype blocks, as they were. Should storing the new calls still fail after the
+imputed genotypes the haplotype blocks, as they were. A genotype written as a word (*HET*, *HOM*,
+*REF*) instead of VCF's allele notation (*0/1*, *1|1*, *./.*) is refused too, naming the file, the line
+and the sample: only a malformed VCF holds one, and it used to be stored, read as a no-call by the
+filters but shown as a genotype on the variant list. A package import's small-variant files are refused
+the same way. Should storing the new calls still fail after the
 stored ones were deleted (the variant store failing part-way), the upload reports an error, and every
 family page shows *Import incomplete* for those calls, so the report can be signed out only with an
 acknowledgement, until they have been uploaded or imported again.

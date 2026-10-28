@@ -23,6 +23,7 @@ from ..schemas import (
     FamilyImportValidationIssue,
     FamilyPackageValidationOut,
 )
+from .bounded_download import require_bgzf_path_end
 from .family_identifiers import CONTROL_CHARACTERS, IDENTIFIER_RULE, identifier_problem, visible
 from .upload_safety import read_path_text_bounded
 
@@ -548,10 +549,21 @@ def vcf_sample_alias_map(
 
 def package_text_handle(path: Path) -> TextIO:
     """A package file opened as UTF-8 text, undecodable bytes replaced, through gzip when
-    its name ends in ``.gz``. The caller closes it."""
+    its name ends in ``.gz``. The caller closes it. For a reader of a header, or of the
+    first records; one that stores the file, or checks it before it does, opens it with
+    ``whole_package_text_handle``."""
     if path.name.endswith(".gz"):
         return gzip.open(path, "rt", encoding="utf-8", errors="replace")
     return path.open("r", encoding="utf-8", errors="replace")
+
+
+def whole_package_text_handle(path: Path) -> TextIO:
+    """``package_text_handle`` for a reader that stores the file, or checks it before it
+    does: a BGZF file that does not end with BGZF's end-of-file block is refused first, as
+    cut short (``TruncatedBgzfError``, DATA-4). gzip reads one cut exactly where one of its
+    blocks ends as a whole file, the records after the cut gone without a word."""
+    require_bgzf_path_end(path, label=path.name)
+    return package_text_handle(path)
 
 
 def read_vcf_sample_columns(path: Path) -> list[str]:
@@ -811,7 +823,7 @@ def _read_package_text(path: Path) -> str:
 
 @asynccontextmanager
 async def _open_package_text(path: Path):
-    handle = package_text_handle(path)
+    handle = whole_package_text_handle(path)
     try:
         yield handle
     finally:

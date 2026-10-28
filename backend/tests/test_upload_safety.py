@@ -8,6 +8,7 @@ from fastapi import HTTPException, UploadFile
 
 from app.core.config import settings
 from app.services.upload_safety import decode_upload_text, read_path_text_bounded
+from backend.tests._bgzf import bgzip, bgzip_cut_after
 from backend.tests._deadline import deadline
 
 
@@ -206,3 +207,36 @@ async def test_truncated_gzip_upload_rejected_as_bad_request():
         await decode_upload_text(_upload(data), kind="SV")
     assert exc.value.status_code == 400
     assert exc.value.detail == "SV file is not valid gzip"
+
+
+# ---------------------------------------------------------------------------
+# A BGZF file must end with its end-of-file block (DATA-4, the owner's decision of
+# 2026-10-28). Cut exactly where one of its blocks ends, a bgzip file is whole gzip: the
+# reader returned its first blocks as the file. A plain gzip file has no such block.
+# ---------------------------------------------------------------------------
+
+_BGZF_TEXT = (_VCF_TEXT * 4).encode()  # three BGZF blocks
+_BGZF_CUT = "is not valid gzip: it is truncated (it does not end with BGZF's end-of-file block)"
+
+
+def test_read_path_bgzf_cut_where_a_block_ends_rejected_as_bad_request(tmp_path):
+    path = tmp_path / "sv.vcf.gz"
+    path.write_bytes(bgzip_cut_after(_BGZF_TEXT, 2))
+    with pytest.raises(HTTPException) as exc:
+        read_path_text_bounded(path, kind="Package VCF")
+    assert exc.value.status_code == 400
+    assert exc.value.detail == f"Package VCF file {_BGZF_CUT}"
+
+
+@pytest.mark.asyncio
+async def test_bgzf_upload_cut_where_a_block_ends_rejected_as_bad_request():
+    with pytest.raises(HTTPException) as exc:
+        await decode_upload_text(_upload(bgzip_cut_after(_BGZF_TEXT, 1)), kind="SV")
+    assert exc.value.status_code == 400
+    assert exc.value.detail == f"SV file {_BGZF_CUT}"
+
+
+@pytest.mark.asyncio
+async def test_a_whole_bgzf_upload_and_a_plain_gzip_upload_are_read():
+    assert await decode_upload_text(_upload(bgzip(_BGZF_TEXT)), kind="SV") == _BGZF_TEXT.decode()
+    assert await decode_upload_text(_upload(gzip.compress(_BGZF_TEXT)), kind="SV") == _BGZF_TEXT.decode()

@@ -217,8 +217,8 @@ def _user_ref(row: Mapping[str, Any]) -> UserRefOut:
 
 
 async def list_assignable_users(session: AsyncSession) -> list[UserRefOut]:
-    """Every active user (``GET /api/users``). The case pickers read the family's own list,
-    ``list_family_assignable_users``."""
+    """Every active user (``GET /api/users``, administrators only). The case pickers read the
+    family's own list, ``list_family_assignable_users``."""
     result = await session.execute(
         text(
             """
