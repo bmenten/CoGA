@@ -32,9 +32,11 @@ type QueuedUiEvent = UiEventInput & {
   occurred_at: string;
 };
 
-// A queued event, and the account of the session it was queued under (tokenAccount; null with
-// no session). The account stays in the browser: the API takes the actor from the token.
-type PendingUiEvent = { event: QueuedUiEvent; account: string | null };
+// A queued event, the account of the session it was queued under (tokenAccount; null for a token
+// that names none), and its place among the events its page made, which orders the events kept
+// in the browser that were made in the same millisecond. Both stay in the browser: the API takes
+// the actor from the token.
+type PendingUiEvent = { event: QueuedUiEvent; account: string | null; seq: number };
 
 const MAX_QUEUE = 200;
 const MAX_BATCH = 50;
@@ -58,7 +60,10 @@ const EXPIRY_MARGIN_MS = 30 * 1000;
 // Events the API would refuse for their session's token wait here, under their account, for a
 // flush of that account the API takes (its token renewed, or the account signed in again): in
 // the browser's storage, so that they outlive the page, and never sent under another account.
-const KEPT_EVENTS_KEY = 'coga.ui-events.kept';
+// Each is kept under a key of its own, this prefix and its event_id: tabs share the storage, and
+// one value that each tab read, changed and wrote back lost what another tab wrote in between
+// (SEC-36).
+const KEPT_EVENT_KEY_PREFIX = 'coga.ui-events.kept.';
 
 // Interactive elements we treat as meaningful clicks. `data-audit-id` lets a
 // component opt a custom element in and give it a stable identifier.
@@ -67,11 +72,15 @@ const INTERACTIVE_SELECTOR =
   'input[type="submit"], input[type="button"], summary, [data-audit-id]';
 
 let queue: PendingUiEvent[] = [];
+let eventsMade = 0;
 let sessionId = '';
 let started = false;
 let flushTimer: ReturnType<typeof setInterval> | null = null;
 let flushInFlight = false;
 let renewalDueAt = 0;
+// The events of the page-close keepalives still on their way: kept until the API takes them, and
+// not sent again by a flush meanwhile.
+const onTheirWay = new Set<string>();
 
 const getSessionId = (): string => {
   if (!sessionId) {
@@ -107,10 +116,16 @@ const truncate = (value: string | null | undefined, max: number): string | undef
 };
 
 export const logUiEvent = (event: UiEventInput): void => {
+  const token = getAuthToken();
+  // An event no session made (on the sign-in page, or once the session has ended) is not
+  // recorded: the API records every event of a batch as the act of the user whose token sends
+  // it, and no user's session made this one. Before, it went out with the session the next flush
+  // found, if any, as that user's (SEC-36).
+  if (!token) return;
   if (queue.length >= MAX_QUEUE) {
     queue.shift();
   }
-  const token = getAuthToken();
+  eventsMade += 1;
   queue.push({
     event: {
       ...event,
@@ -119,7 +134,8 @@ export const logUiEvent = (event: UiEventInput): void => {
       session_id: getSessionId(),
       occurred_at: nowIso(),
     },
-    account: token ? tokenAccount(token) : null,
+    account: tokenAccount(token),
+    seq: eventsMade,
   });
 };
 
@@ -175,65 +191,91 @@ const hasExpired = (token: string): boolean => {
   return expiresAt !== null && expiresAt - EXPIRY_MARGIN_MS <= Date.now();
 };
 
-type KeptUiEvents = { account: string; events: QueuedUiEvent[] };
+type KeptUiEvent = { account: string; event: QueuedUiEvent; seq: number };
 
-const isKeptUiEvents = (value: unknown): value is KeptUiEvents =>
-  typeof value === 'object' &&
-  value !== null &&
-  typeof (value as KeptUiEvents).account === 'string' &&
-  Array.isArray((value as KeptUiEvents).events);
+const keptKey = (eventId: string): string => `${KEPT_EVENT_KEY_PREFIX}${eventId}`;
 
-const readKept = (): KeptUiEvents[] => {
-  try {
-    const kept: unknown = JSON.parse(storage.getItem(KEPT_EVENTS_KEY) ?? '[]');
-    return Array.isArray(kept) ? kept.filter(isKeptUiEvents) : [];
-  } catch {
-    return [];
-  }
+const isKeptUiEvent = (value: unknown): value is KeptUiEvent => {
+  const kept = value as KeptUiEvent;
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof kept.account === 'string' &&
+    typeof kept.seq === 'number' &&
+    typeof kept.event === 'object' &&
+    kept.event !== null &&
+    typeof kept.event.event_id === 'string' &&
+    typeof kept.event.occurred_at === 'string'
+  );
 };
 
-const writeKept = (entries: KeptUiEvents[]): void => {
-  const left = entries.filter((entry) => entry.events.length);
-  if (left.length) {
-    storage.setItem(KEPT_EVENTS_KEY, JSON.stringify(left));
-  } else {
-    storage.removeItem(KEPT_EVENTS_KEY);
-  }
+// The order the events were made in: by their time, then by their place on the page that made
+// them.
+const byWhenMade = (a: KeptUiEvent, b: KeptUiEvent): number => {
+  if (a.event.occurred_at !== b.event.occurred_at) return a.event.occurred_at < b.event.occurred_at ? -1 : 1;
+  return a.seq - b.seq;
 };
 
-// Keep events the API would refuse for their session's token, under their account, instead of
-// sending them to be refused, or dropping them: the UI-event log is part of the audit, and its
-// rows are kept for good (#893). Bounded by MAX_QUEUE per account, as the queue is.
-const keepForAccount = (account: string, events: QueuedUiEvent[]): void => {
-  const entries = readKept();
-  const entry = entries.find((kept) => kept.account === account);
-  if (entry) {
-    entry.events = [...entry.events, ...events].slice(-MAX_QUEUE);
-  } else {
-    entries.push({ account, events: events.slice(-MAX_QUEUE) });
+// Every event kept in the browser, any account's, oldest first. An entry that cannot be read is
+// removed: no event can be sent from it.
+const readKept = (): KeptUiEvent[] => {
+  const keys: string[] = [];
+  for (let index = 0; index < storage.length; index += 1) {
+    const key = storage.key(index);
+    if (key?.startsWith(KEPT_EVENT_KEY_PREFIX)) keys.push(key);
   }
-  writeKept(entries);
+  const kept: KeptUiEvent[] = [];
+  for (const key of keys) {
+    try {
+      const value: unknown = JSON.parse(storage.getItem(key) ?? 'null');
+      if (isKeptUiEvent(value) && key === keptKey(value.event.event_id)) {
+        kept.push(value);
+        continue;
+      }
+    } catch {
+      // Not JSON: removed below.
+    }
+    storage.removeItem(key);
+  }
+  return kept.sort(byWhenMade);
 };
 
-// Keep queued events each under the account of the session it was queued under, or under
-// `fallback` when it was queued with no session (it would have gone out with the session the
-// flush found). One with neither is dropped: no account can be named for it, and the API stores
-// no event without one.
-const keepUnderTheirAccounts = (pending: PendingUiEvent[], fallback: string | null = null): void => {
-  const byAccount = new Map<string, QueuedUiEvent[]>();
-  for (const { event, account } of pending) {
-    const owner = account ?? fallback;
-    if (owner) byAccount.set(owner, [...(byAccount.get(owner) ?? []), event]);
+// Keep events under their account instead of sending them to be refused, or dropping them: the
+// UI-event log is part of the audit, and its rows are kept for good (#893). Each event is written
+// on its own, so tabs keeping or sending events at the same moment leave each other's in place;
+// at worst two tabs both send an event, which the API stores once, by its event_id (SEC-17).
+// Bounded by MAX_QUEUE per account, as the queue is: beyond it, the oldest go.
+const keepForAccount = (account: string, pending: PendingUiEvent[]): void => {
+  for (const { event, seq } of pending) {
+    storage.setItem(keptKey(event.event_id), JSON.stringify({ account, event, seq }));
   }
-  byAccount.forEach((events, owner) => keepForAccount(owner, events));
+  const kept = readKept().filter((entry) => entry.account === account);
+  kept
+    .slice(0, Math.max(0, kept.length - MAX_QUEUE))
+    .forEach(({ event }) => storage.removeItem(keptKey(event.event_id)));
 };
 
-// Whether the session of `account` may send the event: one queued under that account, or with
-// no session, which goes out with the session the flush finds, as before.
+// Remove events the API has answered from the browser's storage, where they may be kept.
+const forgetKept = (eventIds: string[]): void => {
+  eventIds.forEach((eventId) => storage.removeItem(keptKey(eventId)));
+};
+
+// Keep queued events each under the account of the session it was queued under. One queued
+// under a token that names no account is dropped: no account can be named for it, and the API
+// stores no event without one.
+const keepUnderTheirAccounts = (pending: PendingUiEvent[]): void => {
+  const byAccount = new Map<string, PendingUiEvent[]>();
+  for (const queued of pending) {
+    if (queued.account) byAccount.set(queued.account, [...(byAccount.get(queued.account) ?? []), queued]);
+  }
+  byAccount.forEach((events, account) => keepForAccount(account, events));
+};
+
+// Whether the session of `account` may send the event: only one queued under that account.
 const sendableUnder =
   (account: string | null) =>
   (pending: PendingUiEvent): boolean =>
-    pending.account === null || pending.account === account;
+    pending.account === account;
 
 // The account of the session's token now; undefined with no session.
 const sessionAccount = (): string | null | undefined => {
@@ -243,8 +285,8 @@ const sessionAccount = (): string | null | undefined => {
 
 // Set aside what a flush with the session's token (null: none) may not send, and return the
 // session's account: an event queued under another account waits under its own, never sent under
-// this session, and with no session (another request's 401 ended it) every event that names its
-// account waits under it, instead of being dropped.
+// this session, and with no session (another request's 401 ended it) every event waits under its
+// account, instead of being dropped.
 const setAside = (token: string | null): string | null => {
   const account = token ? tokenAccount(token) : null;
   const mayGo = (pending: PendingUiEvent): boolean => token !== null && sendableUnder(account)(pending);
@@ -256,21 +298,29 @@ const setAside = (token: string | null): string | null => {
   return account;
 };
 
-// Put the events kept for this session's account back at the front of the queue, as many as
-// it has room for: they were made before the events queued since. Another account's stay kept.
+// Put the events kept for this session's account at the front of the queue, as many as it has
+// room for: they were made before the events queued since. They stay kept until the API has
+// answered them (settle), so a page that ends first loses none; one already queued, or on its
+// way in a page-close keepalive, is not queued twice. Another account's stay kept.
 const restoreKept = (account: string): void => {
   const room = MAX_QUEUE - queue.length;
-  const entries = readKept();
-  const entry = entries.find((kept) => kept.account === account);
-  if (!entry || room <= 0) return;
-  queue = [...entry.events.splice(0, room).map((event) => ({ event, account })), ...queue];
-  writeKept(entries);
+  if (room <= 0) return;
+  const queued = new Set(queue.map(({ event }) => event.event_id));
+  const restored = readKept()
+    .filter(
+      (kept) =>
+        kept.account === account && !queued.has(kept.event.event_id) && !onTheirWay.has(kept.event.event_id),
+    )
+    .slice(0, room)
+    .map(({ event, seq }) => ({ event, account, seq }));
+  if (restored.length) queue = [...restored, ...queue];
 };
 
 // Take a batch the API has answered out of the queue, where the flush at page hide has not
-// already taken it.
+// already taken it, and out of the browser's storage, where it may be kept.
 const settle = (batch: PendingUiEvent[]): void => {
   queue = queue.filter((pending) => !batch.includes(pending));
+  forgetKept(batch.map(({ event }) => event.event_id));
 };
 
 // Renew a Microsoft session's token before it expires, as the API client does before a
@@ -296,8 +346,9 @@ const keepTokenFresh = async (): Promise<void> => {
 // with the rest (flushKeepalive), and the API stores an event that did arrive once, by its
 // event_id. A batch that fails transiently stays at the front of the queue for the next flush
 // instead of being lost (#521); the queue stays bounded by MAX_QUEUE. The events kept for the
-// session's account go out first; a batch the API refuses for the session's token (401) is
-// kept for the account, with the rest of the queue, rather than dropped.
+// session's account go out first, and leave the browser's storage once the API has answered
+// them; a batch the API refuses for the session's token (401) is kept for the account, with the
+// rest of the queue, rather than dropped.
 const flush = async (): Promise<void> => {
   if (flushInFlight) return;
   const token = getAuthToken();
@@ -317,7 +368,7 @@ const flush = async (): Promise<void> => {
         settle(batch);
       } catch (error) {
         if (account && isRefusedSession(error)) {
-          keepUnderTheirAccounts(queue, account);
+          keepUnderTheirAccounts(queue);
           queue = [];
         } else if (!isTransientFailure(error)) {
           settle(batch);
@@ -332,38 +383,55 @@ const flush = async (): Promise<void> => {
   }
 };
 
+// One page-close keepalive. While it is on its way no flush sends its events again; the API
+// taking it (a 2xx) removes them from the browser's storage. Any other answer, or none (the page
+// was closed before it came), leaves them kept for the account's next flush the API takes.
+const sendKeepalive = (token: string, events: QueuedUiEvent[]): void => {
+  const eventIds = events.map(({ event_id }) => event_id);
+  eventIds.forEach((eventId) => onTheirWay.add(eventId));
+  const answered = (taken: boolean): void => {
+    eventIds.forEach((eventId) => onTheirWay.delete(eventId));
+    if (taken) forgetKept(eventIds);
+  };
+  try {
+    void fetch(`${apiBaseUrl}/ui-events`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ events }),
+      keepalive: true,
+    }).then(
+      (response) => answered(response.ok),
+      () => answered(false),
+    );
+  } catch {
+    // Telemetry is best-effort and never disrupts the app: the events stay kept.
+    answered(false);
+  }
+};
+
 // Synchronous flush for page-hide / unload, when an async request would be
 // cancelled. `fetch(..., { keepalive: true })` survives unload and lets us
 // attach the bearer token (sendBeacon cannot set the Authorization header).
-// The token is the session's, which the flush timer keeps renewed (keepTokenFresh); one that
-// has expired anyway (the device slept, or MSAL needs the user) would be refused, and the
-// events lost: they are kept for the account's next flush instead (keepForAccount). The whole
-// queue goes, a batch the API client has in flight included: the page closing cancels that
-// request, whether or not it arrived.
+// The whole queue goes, a batch the API client has in flight included: the page closing cancels
+// that request, whether or not it arrived. It is kept for the account before it is sent, and
+// stays kept until the API takes it: a keepalive that fails, is refused, or whose answer the
+// closing page never reads goes out again with the account's next flush the API takes, and the
+// API stores an event that did arrive once, by its event_id (SEC-36; before, nothing read the
+// answer). The token is the session's, which the flush timer keeps renewed (keepTokenFresh); one
+// that has expired anyway (the device slept, or MSAL needs the user) would be refused, so the
+// events are only kept.
 const flushKeepalive = (): void => {
   const token = getAuthToken();
   const account = setAside(token);
   if (!token || !queue.length) return;
-  const pending = queue.splice(0, queue.length).map((queued) => queued.event);
-  if (account && hasExpired(token)) {
-    keepForAccount(account, pending);
-    return;
-  }
-  try {
-    for (let i = 0; i < pending.length; i += MAX_KEEPALIVE_BATCH) {
-      const events = pending.slice(i, i + MAX_KEEPALIVE_BATCH);
-      void fetch(`${apiBaseUrl}/ui-events`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ events }),
-        keepalive: true,
-      });
-    }
-  } catch {
-    // ignore — telemetry is best-effort
+  const pending = queue.splice(0, queue.length);
+  if (account) keepForAccount(account, pending);
+  if (account && hasExpired(token)) return;
+  for (let i = 0; i < pending.length; i += MAX_KEEPALIVE_BATCH) {
+    sendKeepalive(token, pending.slice(i, i + MAX_KEEPALIVE_BATCH).map(({ event }) => event));
   }
 };
 
@@ -416,8 +484,9 @@ const handleDocumentClick = (event: MouseEvent): void => {
 /**
  * Send everything queued now, with the current session's token, surviving a
  * navigation. Called on logout before the session is cleared, so the logout click
- * and the events before it are recorded under the user who made them (#521). When
- * that token has expired, they are kept for the account's next sign-in instead.
+ * and the events before it are recorded under the user who made them (#521). They
+ * stay kept for the account until the API takes them; when that token has expired,
+ * they are only kept, for the account's next sign-in.
  */
 export const flushUiEventsNow = (): void => {
   flushKeepalive();
