@@ -20,7 +20,7 @@ from ..core.coga_logging import describe_error
 from ..core.csv_export import TRUNCATED_BY_CANDIDATE_LIMIT, TRUNCATED_BY_ROW_LIMIT
 from ..core.sql import require_uuid
 from ..schemas import (
-    MonarchPhenotypeMatchOut,
+    PhenotypeTermRefOut,
     SmallVariantGroupOut,
     SmallVariantSampleSummaryOut,
     SmallVariantSummaryOut,
@@ -2338,7 +2338,7 @@ async def _rank_small_variants(
         )
         phenotype_matches = (
             [
-                MonarchPhenotypeMatchOut(
+                PhenotypeTermRefOut(
                     hpo_id=match["hpo_id"], label=term_labels.get(match["hpo_id"])
                 )
                 for match in gene_score.matched
@@ -3813,7 +3813,7 @@ async def _prioritized_structural_variants_page(
         )
         phenotype_matches = (
             [
-                MonarchPhenotypeMatchOut(
+                PhenotypeTermRefOut(
                     hpo_id=match["hpo_id"], label=term_labels.get(match["hpo_id"])
                 )
                 for match in best_gene_score.matched

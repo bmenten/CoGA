@@ -1,6 +1,6 @@
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.postgres import get_postgres_session
@@ -51,17 +51,13 @@ async def get_clinical_cnvs(
     assembly: str,
     chrom: str,
     start: int = Query(0, ge=0),
-    end: str = Query("0"),
+    end: int = Query(0, ge=0),
     session: AsyncSession = Depends(get_postgres_session),
 ) -> List[ClinicalCnvOut]:
-    try:
-        end_val = int(end.split(":")[0])
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail="Invalid end parameter") from exc
     return await get_clinical_cnvs_data(
         session,
         assembly=assembly,
         chrom=chrom,
         start=start,
-        end=end_val,
+        end=end,
     )

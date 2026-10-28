@@ -247,7 +247,6 @@ class FamilyMemberUpdate(BaseModel):
     father_id: Optional[str] = None
     mother_id: Optional[str] = None
     expected_structure_version: Optional[int] = None
-    clear_existing_genomic_data: bool = False
     change_reason: Optional[str] = None
 
 

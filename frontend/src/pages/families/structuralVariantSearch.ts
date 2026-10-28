@@ -87,10 +87,14 @@ export const getPresetScopeLabel = (scope: StructuralVariantFilterPreset['scope'
   scope === 'family' ? 'Family' : 'Reusable';
 export type StructuralVariantTagDefinition = SmallVariantTagDefinition;
 export type StructuralVariantReview = SmallVariantReview;
-// A CNV classification names the caller (`source`) of the row it was made on: callers that
-// share an SV id share its review, and the save freezes the evidence of that caller's row
+// An SV review save takes no small-variant `acmg` or `compound_het`: the SV route does not
+// (#853). A CNV classification names the caller (`source`) of the row it was made on: callers
+// that share an SV id share its review, and the save freezes the evidence of that caller's row
 // (TRACE-11). Typed from the API's request model, so tsc fails when the API stops taking it.
-export type StructuralVariantReviewSavePayload = SmallVariantReviewSavePayload &
+export type StructuralVariantReviewSavePayload = Omit<
+  SmallVariantReviewSavePayload,
+  'acmg' | 'compound_het'
+> &
   Pick<StructuralVariantReviewUpdate, 'source'>;
 
 export type StructuralGenePanel = GenePanel;
