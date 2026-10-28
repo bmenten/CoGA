@@ -202,7 +202,13 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   where it read another import's staged copy (#850). The staging folder,
   `coga-family-imports` in the temp folder, is made private to the backend (mode 0700); one
   found there that is a symlink, no folder or another user's is refused rather than followed,
-  so a link planted on a shared temp folder cannot widen the rule (SEC-27).
+  so a link planted on a shared temp folder cannot widen the rule (SEC-27). A package's
+  `ped/` folder or long-read folder (a dataset's, a sample's) that is a symlink is followed
+  wherever it leads, by the package list and by Discover, which may propose a member from
+  it; the owner chose a warning over a refusal. Discover and validation report each such
+  link (`package_folder_link`), saying where it leads relative to the import roots, or that
+  it leads outside them, and never as an absolute path (SEC-27). A file read through such a
+  link must still lie in the package.
 - ✅ **No weak secrets outside development.** `Settings.validate_security_defaults` refuses to
   start when `SECRET_KEY` is a placeholder or shorter than 32 characters, when
   `CLICKHOUSE_PASSWORD` is empty or a placeholder, when `POSTGRES_PASSWORD` or

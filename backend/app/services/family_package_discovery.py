@@ -25,7 +25,7 @@ from .family_package_manifest import _parse_ped_text_strict
 from .family_package_nipt import NiptPackageFiles, discover_nipt_package_files
 from .nipt import MONOGENIC_NIPT_ANALYSIS_TYPE, NIPT_CFDNA_ASSAY
 from .family_package_pgt import pgt_family_block, pgt_run_context, read_pgt_pipeline_roles
-from .family_package_source import _ensure_authorized_package_path, _existing_manifest_dict, manifest_link_out_of_package, manifest_outside_package_issue, package_folder_path
+from .family_package_source import _ensure_authorized_package_path, _existing_manifest_dict, manifest_link_out_of_package, manifest_outside_package_issue, package_folder_link_issues, package_folder_path
 from .family_package_validation import validate_family_package
 
 
@@ -1738,6 +1738,9 @@ def discover_family_package_manifest(
             manifest_yaml="",
             errors=[manifest_outside_package_issue(manifest_link)],
         )
+    # A PED folder or a long-read folder that is a symbolic link is followed below, wherever
+    # it leads; the user is told which and where (SEC-27).
+    warnings.extend(package_folder_link_issues(root))
 
     # Prefer an explicit request id, then an existing manifest's family_id (the
     # validate/import path already does this), and only fall back to the folder
