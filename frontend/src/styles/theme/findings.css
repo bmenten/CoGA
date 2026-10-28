@@ -1,6 +1,12 @@
-/* The design language the repeat-expansion, Paraphase and mtDNA pages share: the
-   "GENE — Disease (OMIM)" heading, cut text with its tooltip, the info icon, a member's
-   sample label and the row of small link-styled actions at a finding's end. */
+/* What the variant cards add to the small-variant card's classes so that every kind of finding
+   reads the same (FindingCard, FamilyGenotypeGrid): the gene — disease heading, cut text with
+   its tooltip, the info icon, the amber rail and the link row's button. */
+
+/* A finding to look at that is neither pathogenic nor benign: a grey-zone or premutation
+   repeat, a carrier, an mtDNA variant reported or uncertain. */
+.variant-card--clinvar-warning {
+  border-left-color: #b47d2d;
+}
 
 .gene-disease-heading {
   min-width: 0;
@@ -9,14 +15,6 @@
   align-items: baseline;
   gap: 0.125rem 0.3125rem;
   line-height: 1.3;
-}
-
-/* The gene reads first and largest; it is never cut. */
-.gene-disease-heading-gene {
-  color: var(--color-heading);
-  font-size: var(--fs-md);
-  font-weight: 700;
-  white-space: nowrap;
 }
 
 .gene-disease-heading-sep {
@@ -37,19 +35,14 @@
   font-size: var(--fs-sm);
 }
 
-.omim-link-wrap {
-  color: var(--color-text-muted);
-  font-size: var(--fs-xs);
-  white-space: nowrap;
-}
-
-.omim-link {
-  color: var(--color-link);
-  font-weight: 500;
+/* A disease name leads to OMIM, as the gene name leads to its gene page. */
+.gene-disease-heading-link {
+  color: inherit;
   text-decoration: none;
 }
 
-.omim-link:hover {
+.gene-disease-heading-link:hover,
+.gene-disease-heading-link:focus-visible {
   color: var(--color-link-hover);
   text-decoration: underline;
 }
@@ -113,17 +106,35 @@
   font-size: var(--fs-2xs);
 }
 
-/* A finding's links and actions, small and link-styled as on the small-variant cards. */
-.finding-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.125rem 0.625rem;
-  margin-top: 0.25rem;
+/* The card is the container its columns read. */
+.finding-card {
+  container-type: inline-size;
 }
 
-.finding-actions .button-link {
-  font-size: var(--fs-xs);
-  font-weight: 500;
-  color: var(--color-link);
+/* On a wide card the columns sit on four equal tracks, so the genotypes start at the same place
+   on every kind of finding: the small variant's second of four (variant, genotypes,
+   frequencies, in silico), and a finding with two columns lets its genotypes take the rest. */
+@container (min-width: 64rem) {
+  .finding-card .variant-card-cols {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .finding-card .variant-card-col:nth-child(2):last-child {
+    grid-column: 2 / -1;
+  }
+}
+
+/* MITOMAP opens from a button (it copies the query first), styled as the link row's links.
+   Hover keeps the link colour: the base button hover would turn it white. */
+button.variant-card-resource {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+button.variant-card-resource:hover,
+button.variant-card-resource:focus-visible {
+  background: transparent;
+  color: var(--color-link-hover);
 }

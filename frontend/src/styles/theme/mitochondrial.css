@@ -254,103 +254,15 @@
   vertical-align: top;
 }
 
-/* A variant card in two parts: the variant (gene, identity, annotation, disease, links) on
-   the left, the family's calls on it on the right, a rule between them. */
-.family-mtdna-card {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
-  gap: 0 0.875rem;
-}
-
-.family-mtdna-card--reported {
-  border-left-color: #b47d2d;
-}
-
-.family-mtdna-card-variant {
-  min-width: 0;
-  display: grid;
-  align-content: start;
-  gap: 0.1875rem;
-}
-
-.family-mtdna-card-id {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.25rem;
-}
-
 .family-mtdna-card-label {
   color: var(--color-heading);
   font-family: var(--font-mono);
   font-size: var(--fs-sm);
 }
 
-.family-mtdna-card-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0 0.5rem;
-  color: var(--color-text-muted);
-  font-size: var(--fs-xs);
-  line-height: 1.35;
-}
-
-.family-mtdna-card-samples {
-  min-width: 0;
-  display: grid;
-  align-content: start;
-  gap: 0.3125rem;
-  padding-left: 0.875rem;
-  border-left: 1px solid var(--color-border);
-}
-
-.family-mtdna-card-transmission {
-  display: flex;
-  align-items: center;
-  gap: 0.375rem;
-}
-
-.family-mtdna-call-group {
-  display: grid;
-}
-
-.family-mtdna-call-group-label {
-  padding-bottom: 0.0625rem;
-  color: var(--color-text-muted);
-  font-size: var(--fs-2xs);
-  font-weight: 600;
-}
-
 .family-mtdna-copy-note {
   color: inherit;
   font-weight: 600;
-}
-
-.family-mtdna-significance--pathogenic,
-.family-mtdna-significance--likely_pathogenic {
-  border-color: rgba(173, 31, 45, 0.24);
-  background: rgba(173, 31, 45, 0.12);
-  color: var(--color-signature-red);
-}
-
-.family-mtdna-significance--benign,
-.family-mtdna-significance--likely_benign,
-.family-mtdna-significance--polymorphism {
-  border-color: rgba(38, 134, 90, 0.2);
-  background: rgba(38, 134, 90, 0.1);
-  color: #1f7a53;
-}
-
-.family-mtdna-significance--reported,
-.family-mtdna-significance--uncertain {
-  border-color: rgba(180, 125, 45, 0.24);
-  background: rgba(180, 125, 45, 0.12);
-  color: #8d6020;
-}
-
-.family-mtdna-polymorphism {
-  color: var(--color-text-muted);
-  font-size: var(--fs-xs);
-  line-height: 1.35;
 }
 
 .family-mtdna-transmission {
@@ -377,67 +289,9 @@
   gap: 0.25rem;
 }
 
-/* One member's call per row, as the repeat table lists its calls; a left rail carries the
-   zygosity. */
-.family-mtdna-call {
-  display: grid;
-  grid-template-columns: minmax(6rem, 1fr) 6.5rem 4.5rem minmax(7rem, auto);
-  align-items: baseline;
-  gap: 0.375rem;
-  padding: 0.125rem 0 0.125rem 0.3125rem;
-  border-bottom: 1px solid var(--color-row-rule);
-  border-left: 3px solid transparent;
-}
-
-.family-mtdna-call:last-child {
-  border-bottom: 0;
-}
-
-.family-mtdna-call--homoplasmic {
-  border-left-color: #1a4d64;
-}
-
-.family-mtdna-call--heteroplasmic,
-.family-mtdna-call--low_level {
-  border-left-color: #b47d2d;
-}
-
-.family-mtdna-call-zygosity {
-  color: var(--color-text-muted);
-  font-size: var(--fs-2xs);
-}
-
-/* The heteroplasmy is the result: the row's largest figure. */
-.family-mtdna-call-af {
-  color: var(--color-heading);
-  font-family: var(--font-mono);
-  font-size: var(--fs-sm);
-  text-align: right;
-}
-
-.family-mtdna-call--reference .family-mtdna-call-af,
-.family-mtdna-call--no_call .family-mtdna-call-af {
-  color: var(--color-text-muted);
-  font-weight: 500;
-}
-
-.family-mtdna-call-depth {
-  color: var(--color-text-muted);
-  font-family: var(--font-mono);
-  font-size: var(--fs-2xs);
-  text-align: right;
-  white-space: nowrap;
-}
-
 @media (max-width: 960px) {
-  .family-mtdna-sample-layout,
-  .family-mtdna-card {
+  .family-mtdna-sample-layout {
     grid-template-columns: minmax(0, 1fr);
-  }
-
-  .family-mtdna-card-samples {
-    padding-left: 0;
-    border-left: 0;
   }
 
   .family-mtdna-filter-count {
@@ -450,10 +304,6 @@
 @media (max-width: 720px) {
   .family-mtdna-sample-metrics {
     grid-template-columns: minmax(0, 1fr);
-  }
-
-  .family-mtdna-call {
-    grid-template-columns: minmax(0, 1fr) auto;
   }
 
   .family-mtdna-scope-toggle {

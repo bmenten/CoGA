@@ -401,8 +401,8 @@ describe('the stylesheet', () => {
   });
 
   it('reads dynamic class names as patterns and everything else as literal words', () => {
-    // `repeat-status--${status}` in the repeat-expansion page.
-    expect(producible('repeat-status--pathogenic')).toBe(true);
+    // `variant-card-gtline--${entry.tone}` in the shared genotype grid.
+    expect(producible('variant-card-gtline--alert')).toBe(true);
     // `gene${n === 1 ? '' : 's'}` is two words, not a prefix that would excuse `.gene-*`.
     expect(WORDS.prefixes.has('gene')).toBe(false);
     expect(producible('zz-no-such-class')).toBe(false);
