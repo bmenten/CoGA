@@ -20,10 +20,20 @@ import { formatResolvedReferenceLabel, useFamilyReference } from '../../lib/refe
 import { getErrorMessage } from '../../lib/errorMessage';
 import AcmgClassificationModal, { type AcmgModalVariant } from './AcmgClassificationModal';
 import type { AcmgMitoContext } from '../../lib/acmg';
-import type { SmallVariantReview, SmallVariantReviewSavePayload } from './smallVariantSearch';
-import { buildSmallVariantReviewPath } from './smallVariantReview';
+import {
+  COLLABORATION_QUICK_TAGS,
+  getTagDefinitionMap,
+  type SmallVariantReview,
+  type SmallVariantReviewSavePayload,
+  type SmallVariantTagDefinition,
+} from './smallVariantSearch';
+import { buildSmallVariantReviewPath, fetchFamilyReviewTags, quickTagTogglePayload } from './smallVariantReview';
+import { sortReviewTagKeys, visibleReviewTagKeys } from './smallVariantResultUtils';
+import ReviewTagChip from './ReviewTagChip';
+import ExcludedCardBar, { useUnfoldedExcludedCards } from './ExcludedCardBar';
+import SmallVariantReviewDialog from './SmallVariantReviewDialog';
 import { apiPath } from '../../lib/apiPath';
-import { FamilyReadOnlyContext } from '../../lib/familyAccess';
+import { FamilyReadOnlyContext, READ_ONLY_HINT } from '../../lib/familyAccess';
 import { raw, routePath } from '../../lib/routePath';
 import GeneDiseaseHeading from '../../components/GeneDiseaseHeading';
 import InfoIcon from '../../components/InfoIcon';
@@ -363,6 +373,8 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
   const [excludeSynonymous, setExcludeSynonymous] = useState(false);
   const [copiedMitomapVariant, setCopiedMitomapVariant] = useState<string | null>(null);
   const [acmgVariant, setAcmgVariant] = useState<ApiMitoDNAVariant | null>(null);
+  // The variant whose tags and note are open in the review dialog.
+  const [notesVariant, setNotesVariant] = useState<ApiMitoDNAVariant | null>(null);
   const [reviewError, setReviewError] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
@@ -406,6 +418,16 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
     },
     enabled: Boolean(familyId && (!family?.projects?.length || !referenceLoading)),
   });
+
+  // The review tags the small-variant pages offer: an mtDNA variant's review is the same
+  // small-variant review, so it takes the same tags (and the Report tag puts it on the report).
+  const { data: tags = [] } = useQuery<SmallVariantTagDefinition[]>({
+    queryKey: ['family', familyId, 'small-variant-tags', resolvedProjectId || null],
+    enabled: Boolean(familyId && (!family?.projects?.length || !referenceLoading)),
+    queryFn: () => fetchFamilyReviewTags(familyId, resolvedProjectId || undefined),
+  });
+  const tagMap = useMemo(() => getTagDefinitionMap(tags), [tags]);
+  const excludedCards = useUnfoldedExcludedCards();
 
   const referenceLabel = formatResolvedReferenceLabel(
     { assemblyName, assemblyVersion, isError: referenceFailed },
@@ -512,6 +534,51 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
       });
     },
   });
+
+  // A save that failed: the message, and a reload when someone else saved the review meanwhile.
+  const reportReviewFailure = useCallback(
+    (error: unknown, fallback: string) => {
+      setReviewError(getErrorMessage(error, fallback));
+      if (isReviewConflict(error)) {
+        void queryClient.invalidateQueries({
+          queryKey: ['family', familyId, 'mitochondrial-dna', resolvedProjectId],
+        });
+      }
+    },
+    [queryClient, familyId, resolvedProjectId],
+  );
+
+  // Review, Exclude and Report: a quick tag on the review, as on the small-variant cards.
+  const toggleReviewTag = useCallback(
+    async (variant: ApiMitoDNAVariant, tagKey: string) => {
+      setReviewError(null);
+      try {
+        await reviewMutation.mutateAsync({
+          variantId: variant.variant_id,
+          review: variant.review,
+          payload: quickTagTogglePayload(variant.review, tagKey),
+        });
+      } catch (error) {
+        reportReviewFailure(error, 'Unable to save the variant review.');
+      }
+    },
+    [reviewMutation, reportReviewFailure],
+  );
+
+  const handleSaveNotes = useCallback(
+    async (payload: SmallVariantReviewSavePayload) => {
+      if (!notesVariant) return;
+      setReviewError(null);
+      try {
+        await reviewMutation.mutateAsync({ variantId: notesVariant.variant_id, review: notesVariant.review, payload });
+        setNotesVariant(null);
+      } catch (error) {
+        reportReviewFailure(error, 'Unable to save the variant review.');
+        throw error;
+      }
+    },
+    [notesVariant, reviewMutation, reportReviewFailure],
+  );
 
   const openAcmgModal = useCallback((variant: ApiMitoDNAVariant) => {
     setReviewError(null);
@@ -773,16 +840,63 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
           </div>
         </div>
 
+        {/* A quick tag that could not be saved says so here; the dialogs show their own. */}
+        {reviewError && !acmgVariant && !notesVariant ? (
+          <p className="status-note status-note--error" role="alert">
+            {reviewError}
+          </p>
+        ) : null}
         <div className="variant-card-list family-mtdna-variant-list">
           {filteredVariants.map((variant) => {
             const gene = variant.annotation.gene || variant.annotation.region;
             const mitomapQuery = variant.annotation.mitomap_query || variant.label;
+            const sortedReviewTags = sortReviewTagKeys(variant.review?.tags || [], tagMap);
+            const visibleReviewTags = visibleReviewTagKeys(sortedReviewTags);
+            const quickTags = [
+              { key: COLLABORATION_QUICK_TAGS.review, label: 'Review' },
+              { key: COLLABORATION_QUICK_TAGS.excluded, label: 'Exclude' },
+              { key: COLLABORATION_QUICK_TAGS.report, label: 'Report' },
+            ];
+            const isExcluded = sortedReviewTags.includes(COLLABORATION_QUICK_TAGS.excluded);
             return (
               <FindingCard
                 key={variant.variant_id}
                 aria-label={`${variant.label}${gene ? ` in ${gene}` : ''}`}
                 rail={significanceRail(variant.annotation.clinical_significance)}
-                className="family-mtdna-card"
+                className={`family-mtdna-card${isExcluded ? ' variant-card--excluded' : ''}`}
+                folded={isExcluded && !excludedCards.isUnfolded(variant.variant_id)}
+                excludedBar={
+                  isExcluded ? (
+                    <ExcludedCardBar
+                      subject={variant.label}
+                      expanded={excludedCards.isUnfolded(variant.variant_id)}
+                      onToggleExpanded={() => excludedCards.toggle(variant.variant_id)}
+                      onUndoExclude={() => {
+                        void toggleReviewTag(variant, COLLABORATION_QUICK_TAGS.excluded);
+                      }}
+                      readOnly={Boolean(family.read_only)}
+                      pending={reviewMutation.isPending}
+                    />
+                  ) : null
+                }
+                subhead={
+                  visibleReviewTags.length ? (
+                    <div className="variant-card-chip-row variant-card-tag-row">
+                      {visibleReviewTags.map((tagKey) => (
+                        <ReviewTagChip
+                          key={tagKey}
+                          className="variant-card-chip variant-card-chip--tag"
+                          tagKey={tagKey}
+                          tagMap={tagMap}
+                          tagMetadata={variant.review?.tag_metadata}
+                        />
+                      ))}
+                    </div>
+                  ) : null
+                }
+                note={
+                  variant.review?.note ? <p className="variant-card-review-note">{variant.review.note}</p> : null
+                }
                 heading={
                   <GeneDiseaseHeading
                     gene={gene || 'mtDNA'}
@@ -892,6 +1006,34 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
                 ]}
                 actions={
                   <>
+                    {quickTags.map((quickTag) => {
+                      const active = sortedReviewTags.includes(quickTag.key);
+                      return (
+                        <button
+                          key={quickTag.key}
+                          type="button"
+                          className={`variant-quick-toggle${active ? ' variant-quick-toggle--active' : ''}`}
+                          aria-pressed={active}
+                          disabled={Boolean(family.read_only) || reviewMutation.isPending}
+                          title={family.read_only ? READ_ONLY_HINT : undefined}
+                          onClick={() => {
+                            void toggleReviewTag(variant, quickTag.key);
+                          }}
+                        >
+                          {quickTag.label}
+                        </button>
+                      );
+                    })}
+                    <button
+                      type="button"
+                      className="variant-review-link"
+                      onClick={() => {
+                        setReviewError(null);
+                        setNotesVariant(variant);
+                      }}
+                    >
+                      Tags &amp; notes
+                    </button>
                     <button
                       type="button"
                       className="variant-review-link"
@@ -1020,6 +1162,30 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
             isPending={reviewMutation.isPending}
             onClose={() => setAcmgVariant(null)}
             onSave={handleSaveAcmg}
+          />
+        </FamilyReadOnlyContext.Provider>
+      )}
+
+      {notesVariant && (
+        <FamilyReadOnlyContext.Provider value={Boolean(family.read_only)}>
+          <SmallVariantReviewDialog
+            familyId={family.family_id}
+            projectId={resolvedProjectId ?? undefined}
+            members={samplesToMembers(mtDNA.samples)}
+            // No gene constraint or AlphaMissense score for an mtDNA variant: the dialog
+            // shows none.
+            variant={{
+              ...toSmallVariantForAcmg(notesVariant, mtDNA.samples),
+              gene_pli: null,
+              gene_missense_z: null,
+              alpha_missense_pathogenicity: null,
+              alpha_missense_class: null,
+            }}
+            tags={tags}
+            errorMessage={reviewError}
+            isPending={reviewMutation.isPending}
+            onClose={() => setNotesVariant(null)}
+            onSave={handleSaveNotes}
           />
         </FamilyReadOnlyContext.Provider>
       )}

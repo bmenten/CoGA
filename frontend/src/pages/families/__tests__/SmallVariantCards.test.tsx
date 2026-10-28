@@ -8,7 +8,7 @@ import SmallVariantCards from '../SmallVariantCards';
 import type { SmallVariant } from '../smallVariantSearch';
 import api from '../../../lib/api';
 import { createTestQueryClient } from '../../../test/createTestQueryClient';
-import { genotype, smallVariant, svSecondHit, transcript } from '../../../test/variants';
+import { genotype, review, smallVariant, svSecondHit, transcript } from '../../../test/variants';
 
 vi.mock('../../../lib/api', () => ({ default: { get: vi.fn(), post: vi.fn() } }));
 
@@ -921,5 +921,46 @@ describe('SmallVariantCards', () => {
         'The gene’s transcript annotation could not be loaded, so CCDS membership and RefSeq accessions are not shown.',
       ),
     ).toBeInTheDocument();
+  });
+});
+
+// An excluded variant's card folds to its heading and a bar, unfolds on request, and its
+// exclusion can be taken back from the bar; it stays in the list.
+describe('SmallVariantCards excluded variant', () => {
+  it('folds to its heading, unfolds and undoes the exclusion', async () => {
+    const onToggleReviewTag = vi.fn(async () => undefined);
+    const excluded = smallVariant({
+      _id: 'pkd1-var',
+      chr: '16',
+      start: 2100000,
+      end: 2100000,
+      type: 'SNV',
+      gene: 'PKD1',
+      review: review({ variant_id: 'pkd1-var', tags: ['excluded'] }),
+    });
+    const { container } = renderCards(
+      <SmallVariantCards
+        variants={[excluded]}
+        members={[{ sample_id: 'P1', role: 'proband', affected: true, sex: 'female' }]}
+        familyId="F1"
+        locationSearch=""
+        tags={[]}
+        onEditReview={vi.fn()}
+        onAcmgClassify={vi.fn()}
+        onToggleReviewTag={onToggleReviewTag}
+      />,
+    );
+    const card = container.querySelector('article') as HTMLElement;
+    expect(card).toHaveClass('variant-card--excluded');
+    expect(within(card).getByRole('link', { name: 'PKD1' })).toBeInTheDocument();
+    expect(card.querySelector('.variant-card-cols')).toBeNull();
+    expect(card.querySelector('.variant-card-footer')).toBeNull();
+
+    await userEvent.click(within(card).getByRole('button', { name: /show the excluded card of PKD1/i }));
+    expect(card.querySelector('.variant-card-cols')).not.toBeNull();
+    expect(within(card).getByRole('button', { name: 'Exclude' })).toHaveAttribute('aria-pressed', 'true');
+
+    await userEvent.click(within(card).getByRole('button', { name: /undo the exclusion of PKD1/i }));
+    expect(onToggleReviewTag).toHaveBeenCalledWith(excluded, 'excluded');
   });
 });

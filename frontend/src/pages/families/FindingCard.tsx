@@ -7,7 +7,7 @@ import GenomeWorkspaceLink from './GenomeWorkspaceLink';
  * same place on every page:
  *
  *   head     the gene (to its gene page) — its diseases, what the finding is; at the right
- *            its classification or status
+ *            its classification or status; under it the review's tag chips
  *   columns  "Variant" first (what and where it is, its annotation), "Genotypes" second (each
  *            member's call, FamilyGenotypeGrid), then what the kind of finding adds
  *   footer   the actions at the left, the links at the right in one order (FindingLinks)
@@ -28,6 +28,12 @@ const FindingCard: React.FC<{
   heading: React.ReactNode;
   /** The heading row's right part: the classification or status chips. */
   tags?: React.ReactNode;
+  /** Between the heading and the columns: the review's tag chips. */
+  subhead?: React.ReactNode;
+  /** Under the heading of an excluded finding: its ExcludedCardBar. */
+  excludedBar?: React.ReactNode;
+  /** An excluded finding not unfolded: the heading and its bar alone. */
+  folded?: boolean;
   columns: FindingColumn[];
   /** A line under the columns, for what the whole finding needs said. */
   note?: React.ReactNode;
@@ -38,7 +44,21 @@ const FindingCard: React.FC<{
   rail?: FindingRail;
   className?: string;
   'aria-label'?: string;
-}> = ({ heading, tags, columns, note, actions, links, more, rail = 'neutral', className, ...rest }) => (
+}> = ({
+  heading,
+  tags,
+  subhead,
+  excludedBar,
+  folded = false,
+  columns,
+  note,
+  actions,
+  links,
+  more,
+  rail = 'neutral',
+  className,
+  ...rest
+}) => (
   <article
     aria-label={rest['aria-label']}
     className={`variant-card finding-card${rail !== 'neutral' ? ` variant-card--clinvar-${rail}` : ''}${
@@ -49,22 +69,28 @@ const FindingCard: React.FC<{
       {heading}
       {tags ? <div className="variant-card-headtags">{tags}</div> : null}
     </div>
-    <div className="variant-card-cols">
-      {columns.map((column) => (
-        <section key={column.key} className="variant-card-col">
-          <p className="variant-card-col-title">{column.title}</p>
-          {column.content}
-        </section>
-      ))}
-    </div>
-    {note}
-    {actions || links ? (
-      <div className="variant-card-footer">
-        <div className="variant-card-quick">{actions}</div>
-        {links}
-      </div>
-    ) : null}
-    {more}
+    {excludedBar}
+    {folded ? null : (
+      <>
+        {subhead}
+        <div className="variant-card-cols">
+          {columns.map((column) => (
+            <section key={column.key} className="variant-card-col">
+              <p className="variant-card-col-title">{column.title}</p>
+              {column.content}
+            </section>
+          ))}
+        </div>
+        {note}
+        {actions || links ? (
+          <div className="variant-card-footer">
+            <div className="variant-card-quick">{actions}</div>
+            {links}
+          </div>
+        ) : null}
+        {more}
+      </>
+    )}
   </article>
 );
 

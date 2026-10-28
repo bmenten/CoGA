@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest';
 
 import {
   buildGnomadSvRegionHref,
+  buildSmallVariantNavigation,
   buildReviewTagTooltip,
   buildSvSecondHitHref,
   describeFilterTranscript,
   formatGenomicChange,
+  formatLocus,
   formatPredictionScore,
   formatReviewTagLabel,
   formatVariantTotal,
@@ -20,7 +22,7 @@ import {
 } from '../smallVariantResultUtils';
 import type { SmallVariantTagDefinition, SvSecondHit } from '../smallVariantSearch';
 import { tagDefinition } from '../../../test/tagDefinitions';
-import { svSecondHit } from '../../../test/variants';
+import { smallVariant, svSecondHit } from '../../../test/variants';
 
 const variant = (chr: string, start: number, ref: string, alt: string) =>
   ({ chr, start, ref, alt }) as Parameters<typeof formatGenomicChange>[0];
@@ -591,5 +593,24 @@ describe('ClinVar tones', () => {
   ])('reads %s as a %s chip and a %s row', (clinvar, tone, highlight) => {
     expect(getClinvarTone(clinvar)).toBe(tone);
     expect(getClinvarHighlightTone(clinvar)).toBe(highlight);
+  });
+});
+
+// A variant stored on "MT" is named chrM: prefixing it gave "chrMT", which neither the viewers
+// nor IGV's genomes know, so IGV opened nowhere. Other names keep their spelling.
+describe('the mitochondrion in a small variant locus', () => {
+  it('names chrM, however the data spells it', () => {
+    for (const chr of ['MT', 'M', 'chrM', 'chrMT']) {
+      const variant = smallVariant({ _id: `${chr}-3243`, chr, start: 3243, end: 3243, type: 'SNV' });
+      expect(formatLocus(variant)).toBe('chrM:3,243-3,243');
+      const { locus, igvHref } = buildSmallVariantNavigation({ variant, familyId: 'F1', locationSearch: '' });
+      expect(locus).toBe('chrM:3243-3243');
+      expect(igvHref).toContain('locus=chrM%3A3243-3243');
+    }
+  });
+
+  it('keeps every other name as written', () => {
+    expect(formatLocus(smallVariant({ _id: '7-100', chr: '7', start: 100, end: 101, type: 'SNV' }))).toBe('chr7:100-101');
+    expect(formatLocus(smallVariant({ _id: 'un-5', chr: 'chrUn_KI270742v1', start: 5, end: 5, type: 'SNV' }))).toBe('chrUn_KI270742v1:5-5');
   });
 });
