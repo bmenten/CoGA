@@ -13,9 +13,9 @@ variants).
 
 ### The analyses and views
 
-- **Variants** — one row of links: **Small variants**, **Structural variants**, **Variant summary** (of
-  the structural variants), **Repeat expansions**, **Paraphase**, **mtDNA analysis** and **Monogenic
-  NIPT**. A link appears only when the family has that kind of data. Under the row, **Curation** gives a
+- **Variants** — one row of links: **Small variants**, **Structural variants**, **Repeat expansions**,
+  **Paraphase**, **mtDNA analysis** and **Monogenic NIPT**, with **Variant summary** (of the structural
+  variants) last, at the right end. A link appears only when the family has that kind of data. Under the row, **Curation** gives a
   line each for the small and the structural variants: how many are reviewed, how many carry notes, and
   the count per review tag.
 - **Visualization** — **Genome view**, **Chromosome view**, **Circos plot** and **IGV viewer**.
