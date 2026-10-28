@@ -1,22 +1,27 @@
-"""A queued import does not run as an account deactivated since it was queued (E2E, real Postgres and ClickHouse).
+"""A queued import does not run as an account deactivated, or no longer an administrator, since it was queued (E2E, real Postgres and ClickHouse).
 
 Found while fixing SEC-32 (#1005). The worker runs a queued import job as the account that
 requested it, found by the job's ``requested_by_id``, and took that account whatever its
 state: an account an administrator deactivated between the request and the run had its import
 run as it, writing the family, though deactivating an account ends its access at once
-(docs/security-posture.md).
+(docs/security-posture.md). And only an administrator queues an import, but the import
+checked the requester's access to the job's project only: an administrator demoted to viewer
+since, an analyst of that project, still had it run (SEC-35; refused as the owner decided on
+2026-10-28).
 
 Through the app over HTTP (an in-process ``httpx.ASGITransport`` client on one event loop, see
-test_e2e_api_contract.py): a colleague, an administrator in the e2e project with a password of
-their own, queues the import of a new one-sample family with an SNV callset. The e2e
-administrator then deactivates the colleague's account (``PATCH /api/auth/users/{id}``), and
-the colleague's next request is refused (401). The worker claims the job and runs it
-(``run_family_import_job``): the job ends ``failed``, saying why, and nothing of the family is
-written, neither the family nor its sample; the log names neither the colleague's account nor
-their address. Then the e2e administrator queues the same package and the worker runs it: the
-family and its variants are imported, so the package was one the import takes.
+test_e2e_api_contract.py), for each of two colleagues, administrators and analysts in the e2e
+project with a password of their own: the colleague queues the import of a new one-sample
+family with an SNV callset. The e2e administrator then deactivates the first colleague's
+account, and sets the second's role to viewer (``PATCH /api/auth/users/{id}``); the first
+colleague's next request is refused (401), the second's (403: no longer an administrator).
+The worker claims each job and runs it (``run_family_import_job``): the job ends ``failed``,
+saying why, and nothing of the family is written, neither the family nor its sample; the log
+names neither colleague's account nor their address. Then the e2e administrator queues the
+same package and the worker runs it: the family and its variants are imported, so the package
+was one the import takes.
 
-The values are synthetic: the family is new and uniquely named, the colleague's password is
+The values are synthetic: the family is new and uniquely named, the colleagues' passwords are
 made at run time, and the job rows end failed or completed. Skipped unless
 ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``e2e`` job sets it.
 """
@@ -34,6 +39,12 @@ from sqlalchemy import text
 pytestmark = pytest.mark.integration
 
 _VARIANTS = 3
+# What the e2e administrator changes of each colleague's account after the colleague queued
+# the import, the answer to the colleague's next request, and the error the job ends with
+# (family_package_import).
+_CHANGES = {"deactivated": {"is_active": False}, "demoted": {"role": "viewer"}}
+_NEXT_REQUEST = {"deactivated": 401, "demoted": 403}
+_ERRORS = {"deactivated": "REQUESTER_INACTIVE_ERROR", "demoted": "REQUESTER_NOT_ADMIN_ERROR"}
 
 
 def _cap(response) -> dict[str, Any]:
@@ -100,26 +111,31 @@ async def _exercise(base: Path, run: str) -> dict[str, Any]:
     family_id = f"E2E_INACTIVE_{run}"
     sample_id = f"{family_id}_S1"
     package = _write_package(base / family_id, family_id)
-    email = f"colleague-{run}@example.org"
-    password = uuid4().hex  # made at run time
-    async with sessionmaker() as session:
-        colleague_id = (
+    # Each colleague is an administrator, and an analyst of the e2e project (the membership's
+    # default level): demoted to viewer, they keep their access to the project.
+    colleagues: dict[str, dict[str, str]] = {}
+    for change in _CHANGES:
+        email = f"colleague-{change}-{run}@example.org"
+        password = uuid4().hex  # made at run time
+        async with sessionmaker() as session:
+            colleague_id = (
+                await session.execute(
+                    text(
+                        "INSERT INTO users (username, hashed_password, role, email, is_active) "
+                        "VALUES (:email, :hashed, 'admin', :email, TRUE) RETURNING id::text"
+                    ),
+                    {"email": email, "hashed": get_password_hash(password)},
+                )
+            ).scalar_one()
             await session.execute(
                 text(
-                    "INSERT INTO users (username, hashed_password, role, email, is_active) "
-                    "VALUES (:email, :hashed, 'admin', :email, TRUE) RETURNING id::text"
+                    "INSERT INTO project_users (project_id, user_id) "
+                    "VALUES (CAST(:p AS uuid), CAST(:u AS uuid))"
                 ),
-                {"email": email, "hashed": get_password_hash(password)},
+                {"p": project_id, "u": colleague_id},
             )
-        ).scalar_one()
-        await session.execute(
-            text(
-                "INSERT INTO project_users (project_id, user_id) "
-                "VALUES (CAST(:p AS uuid), CAST(:u AS uuid))"
-            ),
-            {"p": project_id, "u": colleague_id},
-        )
-        await session.commit()
+            await session.commit()
+        colleagues[change] = {"email": email, "password": password, "id": colleague_id}
 
     async def job_row(job_id: str) -> dict[str, Any]:
         async with sessionmaker() as session:
@@ -190,7 +206,7 @@ async def _exercise(base: Path, run: str) -> dict[str, Any]:
             return str(exc)
         return None
 
-    out: dict[str, Any] = {"email": email, "colleague_id": colleague_id}
+    out: dict[str, Any] = {}
     jobs: list[str] = []
     body = {
         "folder_path": str(package),
@@ -202,35 +218,40 @@ async def _exercise(base: Path, run: str) -> dict[str, Any]:
     try:
         async with AsyncClient(transport=transport, base_url="http://e2e") as client:
             administrator = {"Authorization": f"Bearer {await _harness.login_admin_token(client)}"}
-            signed_in = await client.post("/api/auth/login", json={"email": email, "password": password})
-            out["colleague_sign_in"] = signed_in.status_code
-            colleague = {"Authorization": f"Bearer {signed_in.json()['access_token']}"}
-
-            queued = await client.post("/api/family-imports", json=body, headers=colleague)
-            out["queued"] = _cap(queued)
-            job_id = str(queued.json()["_id"])
-            jobs.append(job_id)
-
-            # The e2e administrator deactivates the colleague before the worker runs the job.
-            out["deactivated"] = _cap(
-                await client.patch(
-                    f"/api/auth/users/{colleague_id}", json={"is_active": False}, headers=administrator
+            for change, update in _CHANGES.items():
+                account = colleagues[change]
+                seen: dict[str, Any] = {"email": account["email"], "colleague_id": account["id"]}
+                signed_in = await client.post(
+                    "/api/auth/login", json={"email": account["email"], "password": account["password"]}
                 )
-            )
-            out["colleague_next_request"] = _cap(
-                await client.get(f"/api/family-imports/{job_id}", headers=colleague)
-            )
+                seen["colleague_sign_in"] = signed_in.status_code
+                colleague = {"Authorization": f"Bearer {signed_in.json()['access_token']}"}
 
-            lines = _LogLines()
-            root = logging.getLogger()
-            root.addHandler(lines)
-            try:
-                out["raised"] = await claim_and_run(job_id)
-            finally:
-                root.removeHandler(lines)
-            out["log"] = lines.lines
-            out["job"] = await job_row(job_id)
-            out["written"] = await written()
+                queued = await client.post("/api/family-imports", json=body, headers=colleague)
+                seen["queued"] = _cap(queued)
+                job_id = str(queued.json()["_id"])
+                jobs.append(job_id)
+
+                # The e2e administrator deactivates the colleague, or sets their role to viewer,
+                # before the worker runs the job.
+                seen["changed"] = _cap(
+                    await client.patch(f"/api/auth/users/{account['id']}", json=update, headers=administrator)
+                )
+                seen["colleague_next_request"] = _cap(
+                    await client.get(f"/api/family-imports/{job_id}", headers=colleague)
+                )
+
+                lines = _LogLines()
+                root = logging.getLogger()
+                root.addHandler(lines)
+                try:
+                    seen["raised"] = await claim_and_run(job_id)
+                finally:
+                    root.removeHandler(lines)
+                seen["log"] = lines.lines
+                seen["job"] = await job_row(job_id)
+                seen["written"] = await written()
+                out[change] = seen
 
             # The same package, queued by the e2e administrator, active.
             control = await client.post("/api/family-imports", json=body, headers=administrator)
@@ -268,42 +289,56 @@ def ran(tmp_path_factory, request) -> dict[str, Any]:
     return _harness.run_async(lambda: _exercise(base, run))
 
 
-def test_the_colleague_queued_the_import_and_was_then_deactivated(ran) -> None:
-    assert ran["colleague_sign_in"] == 200
-    assert ran["queued"]["status"] == 200, ran["queued"]
-    assert ran["queued"]["json"]["status"] == "queued"
-    assert ran["queued"]["json"]["requested_by"] == ran["email"]
-    assert ran["deactivated"]["status"] == 200, ran["deactivated"]
-    assert ran["deactivated"]["json"]["is_active"] is False
-    # Deactivation ends the colleague's own requests at once.
-    assert ran["colleague_next_request"]["status"] == 401
+@pytest.mark.parametrize("change", list(_CHANGES))
+def test_the_colleague_queued_the_import_and_was_then_deactivated_or_demoted(ran, change: str) -> None:
+    seen = ran[change]
+    assert seen["colleague_sign_in"] == 200
+    assert seen["queued"]["status"] == 200, seen["queued"]
+    assert seen["queued"]["json"]["status"] == "queued"
+    assert seen["queued"]["json"]["requested_by"] == seen["email"]
+    assert seen["changed"]["status"] == 200, seen["changed"]
+    if change == "deactivated":
+        assert seen["changed"]["json"]["is_active"] is False
+    else:
+        assert (seen["changed"]["json"]["role"], seen["changed"]["json"]["is_active"]) == ("viewer", True)
+    # Deactivation ends the colleague's own requests at once (401); the demotion their
+    # administration (403: the import routes are an administrator's).
+    assert seen["colleague_next_request"]["status"] == _NEXT_REQUEST[change]
 
 
-def test_the_job_of_the_deactivated_account_ends_failed_saying_why(ran) -> None:
+@pytest.mark.parametrize("change", list(_CHANGES))
+def test_the_job_of_the_changed_account_ends_failed_saying_why(ran, change: str) -> None:
     from backend.app.services import family_package_import as package_import
 
-    # Before, the worker ran the import as the deactivated account, and the job completed.
-    job = ran["job"]
+    seen = ran[change]
+    # Before, the worker ran the import as the deactivated or demoted account, and the job
+    # completed: a demoted colleague is still an analyst of the job's project.
+    job = seen["job"]
+    expected = getattr(package_import, _ERRORS[change])
     assert job["status"] == "failed", job
-    assert job["error"] == package_import.REQUESTER_INACTIVE_ERROR
+    assert job["error"] == expected
     assert job["ended"] is True and job["worker_id"] is None
-    assert ran["raised"] == package_import.REQUESTER_INACTIVE_ERROR
+    assert seen["raised"] == expected
     # The job keeps its requester, the account and the address it was requested under.
-    assert (job["requested_by_id"], job["requested_by"]) == (ran["colleague_id"], ran["email"])
+    assert (job["requested_by_id"], job["requested_by"]) == (seen["colleague_id"], seen["email"])
 
 
-def test_nothing_of_the_family_is_written(ran) -> None:
+@pytest.mark.parametrize("change", list(_CHANGES))
+def test_nothing_of_the_family_is_written(ran, change: str) -> None:
     # Before, the family, its sample and its variants were written, made by the deactivated
-    # account.
-    assert ran["job"]["family_id"] is None
-    assert ran["written"] == {"family": False, "made_by": [], "samples": 0, "variants": 0}
+    # or demoted account.
+    seen = ran[change]
+    assert seen["job"]["family_id"] is None
+    assert seen["written"] == {"family": False, "made_by": [], "samples": 0, "variants": 0}
 
 
-def test_the_log_names_neither_the_account_nor_its_address(ran) -> None:
-    assert ran["log"], "the refusal was logged"
-    for line in ran["log"]:
-        assert ran["email"] not in line
-        assert ran["colleague_id"] not in line
+@pytest.mark.parametrize("change", list(_CHANGES))
+def test_the_log_names_neither_the_account_nor_its_address(ran, change: str) -> None:
+    seen = ran[change]
+    assert seen["log"], "the refusal was logged"
+    for line in seen["log"]:
+        assert seen["email"] not in line
+        assert seen["colleague_id"] not in line
 
 
 def test_the_same_package_queued_by_an_active_administrator_is_imported(ran) -> None:
