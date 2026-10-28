@@ -44,6 +44,7 @@ from typing import Any, Awaitable, Callable, Iterator, Sequence
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from .bounded_download import TruncatedBgzfError, require_bgzf_file_end
 from .clickhouse_column_bounds import UINT32, column_int
 from .clickhouse_variant_ids import build_small_variant_id
 from .clickhouse_variant_records import SmallVariantCall, SmallVariantRecord
@@ -165,6 +166,12 @@ class _PerSampleVcfReader:
         self._raw.seek(0)
         self._handle: io.TextIOBase
         if magic == b"\x1f\x8b" or source.path.name.endswith(".gz"):
+            try:
+                # Cut where one of its blocks ends, a BGZF file reads as whole (DATA-4).
+                require_bgzf_file_end(self._raw, label=self.label)
+            except BaseException:
+                self._raw.close()
+                raise
             self._handle = gzip.open(self._raw, mode="rt", encoding="utf-8", errors="replace")
         else:
             self._handle = io.TextIOWrapper(self._raw, encoding="utf-8", errors="replace")
@@ -365,7 +372,8 @@ async def upload_family_per_sample_small_variant_files(
     The callset replaces the family's stored primary callset (``overwrite``; else 409 when
     there is one). It must bring the file of every sample with calls in the stored one: a
     sample left out would lose its calls without a word, so that is refused (409) before
-    anything is deleted, as is a file with no record (SAFE-29). ``exclude_filters`` names
+    anything is deleted, as is a file with no record (SAFE-29) and a BGZF file that does not
+    end with BGZF's end-of-file block (400, DATA-4). ``exclude_filters`` names
     the FILTER values of records that carry no variant (see the module docstring). Each
     file must hold one sample, checked by the caller. ``progress`` is told, every
     ``SMALL_VARIANT_PROGRESS_INTERVAL`` records read, the records read and stored and the
@@ -532,7 +540,7 @@ async def upload_family_per_sample_small_variant_files(
         if progress is not None:
             await progress({**result, **read_stats(bytes_total, bytes_total)})
         return result
-    except PerSampleMergeError as exc:
+    except (PerSampleMergeError, TruncatedBgzfError) as exc:
         if mutation_started:
             await _clean_up(assembly_name, context.family_uuid, source)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
