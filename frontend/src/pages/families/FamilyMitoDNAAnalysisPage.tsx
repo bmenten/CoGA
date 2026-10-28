@@ -27,7 +27,12 @@ import {
   type SmallVariantReviewSavePayload,
   type SmallVariantTagDefinition,
 } from './smallVariantSearch';
-import { buildSmallVariantReviewPath, fetchFamilyReviewTags, quickTagTogglePayload } from './smallVariantReview';
+import {
+  buildSmallVariantReviewPath,
+  fetchFamilyReviewTags,
+  hasReviewContent,
+  quickTagTogglePayload,
+} from './smallVariantReview';
 import { sortReviewTagKeys, visibleReviewTagKeys } from './smallVariantResultUtils';
 import ReviewTagChip from './ReviewTagChip';
 import ExcludedCardBar, { useUnfoldedExcludedCards } from './ExcludedCardBar';
@@ -508,6 +513,27 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
     window.open(variant.annotation.mitomap_url, '_blank', 'noopener,noreferrer');
   }, []);
 
+  // The page's mtDNA analysis in the query cache, where a saved review is written in place.
+  const mtDNAQueryKey = useMemo(
+    () => ['family', familyId, 'mitochondrial-dna', resolvedProjectId],
+    [familyId, resolvedProjectId],
+  );
+  const setCachedVariantReview = useCallback(
+    (variantId: string, review: SmallVariantReview | null) => {
+      queryClient.setQueryData<ApiFamilyMitoDNAAnalysis>(mtDNAQueryKey, (current) =>
+        current
+          ? {
+              ...current,
+              variants: current.variants.map((variant) =>
+                variant.variant_id === variantId ? { ...variant, review } : variant,
+              ),
+            }
+          : current,
+      );
+    },
+    [queryClient, mtDNAQueryKey],
+  );
+
   const reviewMutation = useMutation({
     mutationFn: async ({
       variantId,
@@ -528,10 +554,29 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
         : await api.put(path, body);
       return res.data as SmallVariantReview;
     },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({
-        queryKey: ['family', familyId, 'mitochondrial-dna', resolvedProjectId],
-      });
+    // A quick tag or a note shows on the card at once; the ACMG classification the review
+    // holds stays, as the save keeps it. An ACMG save waits for the server, which computes it.
+    onMutate: async ({ variantId, review, payload }) => {
+      await queryClient.cancelQueries({ queryKey: mtDNAQueryKey });
+      const previous = queryClient.getQueryData<ApiFamilyMitoDNAAnalysis>(mtDNAQueryKey);
+      if (!('acmg' in payload)) {
+        const optimistic: SmallVariantReview = {
+          ...(review ?? { variant_id: variantId, tag_metadata: {}, updated_by: null, updated_at: null }),
+          classification: payload.classification ?? null,
+          tags: payload.tags,
+          note: payload.note ?? null,
+        } as SmallVariantReview;
+        setCachedVariantReview(variantId, hasReviewContent(optimistic) ? optimistic : null);
+      }
+      return { previous };
+    },
+    // The saved review, as the server answers it, replaces the card's: the analysis itself is
+    // not computed again, as no filter of this page reads the reviews.
+    onSuccess: (saved, { variantId }) => {
+      setCachedVariantReview(variantId, hasReviewContent(saved) ? saved : null);
+    },
+    onError: (_error, _variables, context) => {
+      if (context?.previous) queryClient.setQueryData(mtDNAQueryKey, context.previous);
     },
   });
 
