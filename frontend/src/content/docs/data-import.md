@@ -290,6 +290,14 @@ records still fails its dataset when the import reaches the cut, and the family 
 for any failed dataset. A mitochondrial structural-variant file without a call is a result, not an empty
 file (most samples carry no mtDNA deletion): it removes that sample's earlier chrM deletions.
 
+**A bgzip file must end with its end-of-file block.** bgzip, which compresses the pipelines' `.vcf.gz`
+files, ends every file with an empty block. A file cut exactly where one of its blocks ends is still
+whole gzip, and was imported as the part before the cut, its later records gone without a word. Such a
+file is now refused as cut short (*… is not valid gzip: it is truncated (it does not end with BGZF's
+end-of-file block)*): an upload with nothing replaced, a dataset failing before anything is replaced.
+Copy the file again from the pipeline's output. A gzip file that bgzip did not write has no such block
+and is read as before.
+
 **Every sample's file is checked before any sample's data is replaced.** A dataset of one file per
 sample reads or checks the file of every sample first: the TRGT files, HiFiCNV's VCFs and signal files,
 the WisecondorX and QDNAseq bins and segments, the PCF tables, the Paraphase results, the APCAD file of

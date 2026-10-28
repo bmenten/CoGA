@@ -34,6 +34,7 @@ import pytest
 from app.routers import families_small_variants as snv_router
 from app.services import annotation_manifest_service, family_package_registration, variant_upload_service
 from app.services.family_metadata_context import FamilyMetadataContext
+from backend.tests._bgzf import bgzip_cut_after
 
 _SAMPLE_ROWS = [
     {"sample_uuid": "uuid-S1", "sample_id": "S1", "sex": "female", "role": "proband"},
@@ -335,6 +336,13 @@ _INVALID_FILES = {
         400,
         "VCF file must be plain text or gzipped",
     ),
+    # Two BGZF blocks, cut where the first ends: whole gzip, which the upload used to store
+    # as the callset, its later records gone (DATA-4).
+    "a BGZF file cut where one of its blocks ends": (
+        bgzip_cut_after((_HEADER + _calls(2_000)).encode(), 1),
+        400,
+        "VCF file is not valid gzip: it is truncated (it does not end with BGZF's end-of-file block)",
+    ),
     "a line over the limit after its first records": (
         _HEADER + _calls(3) + "1\t2000\t.\tA\tG\t50\tPASS\t" + "X" * 300 + "\tGT\t0/1\t0/0\n",
         413,
@@ -361,6 +369,38 @@ async def test_an_invalid_file_uploaded_with_overwrite_leaves_the_callset_as_it_
     assert not [event for event in stores.events if event[0] in {"delete", "insert"}]
     _as_stored_before(stores, database)
     assert database.commits == 0
+
+
+@pytest.mark.asyncio
+async def test_a_bgzf_file_cut_where_a_block_ends_is_refused_before_a_package_import_replaces_the_callset(
+    stores,
+) -> None:
+    # A package import's load reads its file once, after it deleted the callset
+    # (check_before_replacing=False): the file's end is read first, so the refusal comes
+    # before the lock and the delete, and the import's clean-up deletes nothing (DATA-4).
+    write_state = variant_upload_service.SmallVariantWriteState()
+    body = bgzip_cut_after((_HEADER + _calls(2_000)).encode(), 1)
+
+    with pytest.raises(HTTPException) as refused:
+        await variant_upload_service.upload_family_small_variant_file(
+            _Postgres(),  # type: ignore[arg-type]
+            context=_FAMILY,
+            sample_contexts=snv_router._family_sample_contexts(_FAMILY),
+            file=UploadFile(file=BytesIO(body), filename="family.vcf.gz"),
+            overwrite=True,
+            format_hint="clair3",
+            check_before_replacing=False,
+            write_state=write_state,
+        )
+
+    assert (refused.value.status_code, refused.value.detail) == (
+        400,
+        "VCF file is not valid gzip: it is truncated (it does not end with BGZF's end-of-file block)",
+    )
+    # Before: the callset deleted, the first block's records stored as the callset.
+    assert stores.events == []
+    assert stores.rows == _STORED_ROWS
+    assert not write_state.began
 
 
 @pytest.mark.asyncio

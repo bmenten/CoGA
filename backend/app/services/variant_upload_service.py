@@ -21,6 +21,7 @@ from ..core.coga_logging import scrub_log
 from .annotation_table_parser import VepAnnotationLookup, _coerce_int, _parse_vep_tsv_annotation_lines
 from .bed_service import get_track_presence_by_sample
 from .clickhouse_column_bounds import UINT32, column_float32, column_int
+from .bounded_download import TruncatedBgzfError, require_bgzf_file_end
 from .upload_safety import decode_upload_text
 from .clickhouse_variant_records import (
     SmallVariantCall,
@@ -193,6 +194,20 @@ def _upload_size(file: UploadFile) -> int | None:
     return int(size)
 
 
+def _refuse_bgzf_without_its_end(file: UploadFile, *, kind: str) -> None:
+    """400 for an upload that is a BGZF file without BGZF's end-of-file block: cut short,
+    perhaps exactly where one of its blocks ends, which gzip reads as a whole file, the
+    records after the cut gone without a word (DATA-4). Read from the file's first header
+    and last bytes, so before any of its records. A file that cannot seek is left to its
+    read, which refuses it."""
+    try:
+        require_bgzf_file_end(file.file, label=f"{kind} file")
+    except TruncatedBgzfError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (AttributeError, OSError):
+        return
+
+
 def _iter_upload_text_lines(file: UploadFile, *, kind: str):
     raw = file.file
     try:
@@ -203,6 +218,8 @@ def _iter_upload_text_lines(file: UploadFile, *, kind: str):
     magic = raw.read(2)
     raw.seek(0)
     is_gzip = magic == b"\x1f\x8b" or (file.filename or "").endswith(".gz")
+    if is_gzip:
+        _refuse_bgzf_without_its_end(file, kind=kind)
     try:
         if is_gzip:
             with gzip.open(raw, mode="rt", encoding="utf-8", errors="replace") as handle:
@@ -771,6 +788,10 @@ async def upload_family_small_variant_file(
     commits its rows (``record_family_upload``). A package import records what it imported
     itself, when it ends.
 
+    A BGZF file that does not end with BGZF's end-of-file block (cut short, perhaps exactly
+    where one of its blocks ends) is refused (400) before anything is read or replaced,
+    whatever ``check_before_replacing`` says (DATA-4).
+
     An upload that replaces stored rows (with ``overwrite``, the family's rows of its
     callset, and for imputed genotypes the family's haplotype blocks) reads and checks the
     whole file before it deletes them (``check_before_replacing``, SAFE-25): a first read
@@ -803,6 +824,9 @@ async def upload_family_small_variant_file(
             status_code=400,
             detail="Could not resolve a single assembly for this family",
         )
+    # A BGZF file cut where one of its blocks ends is refused before anything else: a
+    # package import reads its file only after the delete (DATA-4).
+    _refuse_bgzf_without_its_end(file, kind="VCF")
 
     alias_map = {str(key): str(value) for key, value in (sample_aliases or {}).items()}
     excluded_filters = {str(value).strip() for value in (exclude_filters or []) if str(value).strip()}

@@ -17,8 +17,9 @@ into real Postgres and ClickHouse:
   haplotype blocks, are uploaded;
 * refused with overwrite, each leaving both callsets, the blocks and their records as they
   were: a VCF naming a sample the family does not have, a gzip file cut short after its first
-  records (400, before: 500), one with no record it can store, and imputed genotypes cut
-  short;
+  records (400, before: 500), a BGZF file cut exactly where one of its blocks ends (400,
+  before: 200 with its first block's records stored as the callset; DATA-4), one with no
+  record it can store, and imputed genotypes cut short;
 * a valid VCF with overwrite replaces the callset, and imputed genotypes replace theirs and
   the blocks;
 * a write that fails after the delete (ClickHouse failing after the first batch, simulated)
@@ -40,6 +41,8 @@ from typing import Any
 from uuid import uuid4
 
 import pytest
+
+from backend.tests._bgzf import bgzip_cut_after
 
 pytestmark = pytest.mark.integration
 
@@ -206,6 +209,10 @@ async def _exercise(family_id: str) -> dict[str, Any]:
             overwrite=True,
         )
         await upload("cut_short", _cut_short(header + _calls(2_000)), callset="clair3", overwrite=True)
+        # Two BGZF blocks, cut where the first ends: whole gzip, short of its end-of-file block.
+        await upload(
+            "bgzf_cut", bgzip_cut_after((header + _calls(2_000)).encode(), 1), callset="clair3", overwrite=True
+        )
         # Each record's POS unreadable: none can be stored.
         await upload(
             "no_record", header + _calls(3).replace("1\t10", "1\tx10"), callset="clair3", overwrite=True
@@ -291,6 +298,10 @@ def test_the_family_and_both_callsets_are_uploaded(run) -> None:
     [
         ("unknown_sample", "Sample 'NOT_IN_THIS_FAMILY' not found in family"),
         ("cut_short", "VCF file must be plain text or gzipped"),
+        (
+            "bgzf_cut",
+            "VCF file is not valid gzip: it is truncated (it does not end with BGZF's end-of-file block)",
+        ),
         ("no_record", "No valid small-variant records found"),
         ("imputed_cut_short", "VCF file must be plain text or gzipped"),
     ],

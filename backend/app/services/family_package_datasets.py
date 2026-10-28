@@ -17,6 +17,7 @@ from ..schemas import (
     FamilyImportDatasetSummary,
 )
 from .bed_service import BED_UPLOAD_SOURCE, upload_bed_data
+from .bounded_download import require_bgzf_path_end
 from .clickhouse_column_bounds import UINT32, column_int
 from .coverage_content import COVERAGE_CONTENT_KEY, declared_coverage_content
 from .clickhouse_interval_tracks import (
@@ -1316,9 +1317,11 @@ async def _import_nipt_per_sample_snv(job: DatasetImportJob) -> FamilyImportData
     # Every file is checked, its one sample column and a record, before the plasma's calls
     # are written: the father's file was checked after them, so a refused one failed the
     # dataset with the plasma's calls replaced (SAFE-3). The loader refuses a file without
-    # a record as well; here it is found before anything is written.
+    # a record as well; here it is found before anything is written. So is a BGZF file that
+    # does not end with BGZF's end-of-file block, which the loader refuses too (DATA-4).
     sample_columns: dict[str, list[str]] = {}
     for sample_id, vcf_path in sample_files:
+        require_bgzf_path_end(vcf_path, label=f"The NIPT SNV file of {sample_id} ({vcf_path.name})")
         vcf_columns = read_vcf_sample_columns(vcf_path)
         if len(vcf_columns) != 1:
             raise RuntimeError(
