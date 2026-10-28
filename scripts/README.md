@@ -18,7 +18,7 @@ scripts that import backend code need the backend's environment, installed from
 | [audit-frontend-prod.mjs](audit-frontend-prod.mjs) | Audits the frontend's production dependencies; its exceptions are in [frontend-audit-allowlist.json](frontend-audit-allowlist.json) and justified in [SECURITY-AUDIT-ALLOWLIST.md](../SECURITY-AUDIT-ALLOWLIST.md). |
 | [generate-api-types.py](generate-api-types.py) | Writes the frontend's API types (`frontend/src/lib/apiSchema.generated.ts`) from the backend's OpenAPI schema; run it after changing a Pydantic model. `--check` fails when the file is stale. |
 | **Dependencies and SBOM** | |
-| [compile-requirements.sh](compile-requirements.sh) | Recompiles the hash-locked backend requirements from the `.in` files, in Docker with Python 3.12. |
+| [compile-requirements.sh](compile-requirements.sh) | Recompiles the hash-locked backend requirements from the `.in` files, in Docker with Python 3.12. CI's `lock` job runs it and fails when a committed lock differs from what it compiles. |
 | [verify-requirements.sh](verify-requirements.sh) | Checks that a compiled lock installs, hashes and all, in a clean Python 3.12. |
 | [generate-sbom.sh](generate-sbom.sh) | Writes the CycloneDX SBOMs to `sbom/`, in Docker, or with `--native` as CI runs it ([sbom/README.md](../sbom/README.md)). |
 | **Reference data** | |

@@ -13,6 +13,10 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # GitHub's merge queue (OPS-22): a queued group runs tf-validate only, so the ruleset may
+  # require it; prepare, and with it every build, deploy and SBOM job, never runs for a group.
+  merge_group:
+    types: [checks_requested]
 
 # Never let two runs for the same ref overlap. Both the release path and the main path end
 # in `terraform apply -auto-approve` against one shared state file, so concurrent runs race
@@ -55,9 +59,10 @@ jobs:
         run: terraform validate
 
   prepare:
-    # Build/deploy only on push to a release branch, tags, or a published release —
-    # never on pull_request (no auto-apply of infra from PR code).
-    if: github.event_name != 'pull_request'
+    # Build, push and deploy only for a push to main or a published release: never for a
+    # pull request (no auto-apply of infra from PR code) or a merge-queue group. Every job
+    # below needs this one.
+    if: github.event_name == 'push' || github.event_name == 'release'
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.meta.outputs.tag }}
@@ -110,7 +115,7 @@ jobs:
         # runs each image by its digest (the deploy job), not by this tag.
         #
         # The version stamped into the backend image (TF-18 section 2): a release build, the
-        # only one with a tag ref, stamps VERSION as it is; every other build stamps VERSION
+        # only one with a tag ref, stamps VERSION as it is; a build of main stamps VERSION
         # marked as a development build (0.1.0-dev, 0.1.0-rc.1.dev), so a build of main after
         # a release tag never reports that release's version (scripts/build-version.sh).
         run: |
@@ -124,8 +129,9 @@ jobs:
             TAG="main-${GIT_SHA}"
             APP_VERSION=$(./scripts/build-version.sh)
           else
-            TAG=$(echo "$REF_NAME" | tr '/.' '_')
-            APP_VERSION=$(./scripts/build-version.sh)
+            # prepare runs for a push to main and a published release only.
+            echo "::error::Images are built from main or from a release tag, not from this branch."
+            exit 1
           fi
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "app_version=${APP_VERSION}" >> "$GITHUB_OUTPUT"
@@ -250,7 +256,7 @@ jobs:
     # main (COGA_DEPLOY_TRIGGER unset or 'main', the documented default) or
     # published releases (COGA_DEPLOY_TRIGGER=release). There is one environment and one
     # state, so letting both apply would have a main push overwrite a release deployment.
-    # Never on a branch push or PR.
+    # Never for a pull request or a merge-queue group.
     if: ${{ needs.prepare.outputs.gcp_configured == 'true' && ((github.event_name == 'release' && vars.COGA_DEPLOY_TRIGGER == 'release') || (github.event_name == 'push' && (vars.COGA_DEPLOY_TRIGGER || 'main') == 'main' && github.ref == 'refs/heads/main')) }}
     runs-on: ubuntu-latest
     # Gate every infrastructure apply behind a protected GitHub Environment. Configure

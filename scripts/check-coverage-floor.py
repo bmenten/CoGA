@@ -23,7 +23,8 @@ import tomllib
 # followed (in brackets), rounded down and never lowered: the unit job's coverage.json and
 # the `coverage` job's combined report (#678).
 
-# Global floor for the whole backend/app package. Keep in step with --cov-fail-under in ci.yml.
+# Global floor for the whole backend/app package. Keep in step with --cov-fail-under in ci.yml
+# (backend/tests/test_ci_workflows.py fails when the two differ).
 GLOBAL_FLOOR = 74.0  # (77.6)
 
 # Per-module floors (percent of lines covered) for clinical-critical modules. Every module

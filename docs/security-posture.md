@@ -651,13 +651,16 @@ What the application relies on there:
 
 ## 5. CI enforcement of the gates
 
-Every pull request and push to `main` runs the gates in `ci.yml` (backend, frontend, smoke,
-e2e, e2e-playwright, catalogue, plus coverage, the SBOM and a build of both production images
-that pushes nothing) and `security.yml` (`deps`: blocking `pip-audit --require-hashes` and
-production `npm audit`; `secret-scan`: gitleaks over the full history; `codeql` for Python and
-JavaScript/TypeScript). All of these but the SBOM and the image build, and GitHub's `CodeQL`
-code-scanning result, are the twelve required status checks on `main` (S-6, the ruleset
-`CoGA_branch_protect`); a branch need not be up to date with `main` before it merges.
+Every pull request, push to `main` and merge-queue group runs the gates in `ci.yml` (backend,
+frontend, smoke, e2e, e2e-playwright, catalogue, plus coverage, the SBOM, a build of both
+production images that pushes nothing, and `lock`, which compiles the backend locks again
+with `scripts/compile-requirements.sh` and fails when they differ, S-7) and `security.yml`
+(`deps`: blocking `pip-audit --require-hashes` and production `npm audit`; `secret-scan`:
+gitleaks over the full history; `codeql` for Python and JavaScript/TypeScript). All of these
+but the SBOM, the image build and `lock`, and GitHub's `CodeQL` code-scanning result, are the
+twelve required status checks on `main` (S-6, the ruleset `CoGA_branch_protect`); a branch
+need not be up to date with `main` before it merges. The ruleset does not require GitHub's
+merge queue yet (OPS-22): the workflows are ready for it.
 No approving review is required: pull requests need no approval, and the four-eyes review is
 QA's, per release, signed before the tag. The list is in [docs/testing.md](testing.md); the
 policy, QA's review and the open gaps are in
