@@ -9,7 +9,7 @@ import logging
 from typing import Any, Iterator
 
 from fastapi import HTTPException, UploadFile
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -405,18 +405,6 @@ async def upload_bed_data(
     return {"inserted": len(rows)}
 
 
-def _bed_header(bed_type: str) -> str:
-    """The text format's header. The value column is ``value``, as the JSON names it: what it
-    holds is the track's (a read depth, a log2 ratio, an allele fraction), which the track
-    availability serves (``coverage_contents``). It was ``ratio`` whatever the track held
-    (TRACE-10)."""
-    if bed_type == "coverage":
-        return "chr\tstart\tend\tid\tvalue"
-    if bed_type == "segments":
-        return "chr\tstart\tend\tvalue"
-    return "chr\tstart\tend\tid\tvalue\torigin"
-
-
 async def _require_one_coverage_source(
     sample_context: SampleMetadataContext,
     *,
@@ -464,17 +452,6 @@ def _serialize_bed_record(track_type: str, row: dict[str, Any]) -> dict[str, Any
     if track_type in {"apcad", "apcad_pcf"}:
         payload["origin"] = row.get("origin") or "und"
     return payload
-
-
-def _bed_record_to_line(track_type: str, record: dict[str, Any]) -> str:
-    if track_type == "coverage":
-        return f"{record['chr']}\t{record['start']}\t{record['end']}\t.\t{record['value']}"
-    if track_type == "segments":
-        return f"{record['chr']}\t{record['start']}\t{record['end']}\t{record['value']}"
-    return (
-        f"{record['chr']}\t{record['start']}\t{record['end']}\t.\t{record['value']}\t"
-        f"{record.get('origin', 'und')}"
-    )
 
 
 async def _fetch_raw_track_rows(
@@ -678,37 +655,6 @@ async def _fetch_bed_records_for_chroms(
     return records
 
 
-async def fetch_bed_text(
-    session: AsyncSession,
-    *,
-    sample_context: SampleMetadataContext,
-    bed_type: str,
-    chrom: str,
-    window: int | None,
-    start: int | None,
-    end: int | None,
-    limit: int,
-    source: str | None = None,
-) -> PlainTextResponse:
-    validate_bed_type(bed_type)
-    records = await _fetch_bed_records_for_chrom(
-        session,
-        sample_context=sample_context,
-        bed_type=bed_type,
-        chrom=chrom,
-        window=window,
-        start=start,
-        end=end,
-        limit=limit,
-        source=source,
-    )
-    if not records:
-        raise HTTPException(status_code=404, detail="No BED data found")
-    return PlainTextResponse(
-        "\n".join([_bed_header(bed_type), *[_bed_record_to_line(bed_type, item) for item in records]])
-    )
-
-
 async def fetch_bed_json(
     session: AsyncSession,
     *,
@@ -736,39 +682,6 @@ async def fetch_bed_json(
     if not records:
         raise HTTPException(status_code=404, detail="No BED data found")
     return JSONResponse({"bed_type": bed_type, "items": records})
-
-
-async def fetch_bed_batch_text(
-    session: AsyncSession,
-    *,
-    sample_context: SampleMetadataContext,
-    bed_type: str,
-    chroms: list[str],
-    window: int | None,
-    start: int | None,
-    end: int | None,
-    limit: int,
-    source: str | None = None,
-) -> PlainTextResponse:
-    validate_bed_type(bed_type)
-    if not chroms:
-        raise HTTPException(status_code=400, detail="At least one chromosome is required")
-    records = await _fetch_bed_records_for_chroms(
-        session,
-        sample_context=sample_context,
-        bed_type=bed_type,
-        chroms=chroms,
-        window=window,
-        start=start,
-        end=end,
-        limit=limit,
-        source=source,
-    )
-    if not records:
-        raise HTTPException(status_code=404, detail="No BED data found")
-    return PlainTextResponse(
-        "\n".join([_bed_header(bed_type), *[_bed_record_to_line(bed_type, item) for item in records]])
-    )
 
 
 async def fetch_bed_batch_json(

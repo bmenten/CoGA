@@ -7,14 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.postgres import get_postgres_session
 from ..dependencies import get_current_user
-from ..schemas import (
-    HpoTermDetailOut,
-    HpoTermOut,
-)
-from ..services.hpo_service import (
-    get_hpo_term_details,
-    search_hpo_terms,
-)
+from ..schemas import HpoTermOut
+from ..services.hpo_service import search_hpo_terms
 from ..services.access_control import CurrentUser
 
 router = APIRouter(prefix="/hpo", tags=["hpo"])
@@ -29,13 +23,3 @@ async def search_hpo(
 ) -> List[HpoTermOut]:
     _ = user
     return await search_hpo_terms(session, query=q, limit=limit)
-
-
-@router.get("/{hpo_id}", response_model=HpoTermDetailOut)
-async def get_hpo_term(
-    hpo_id: str,
-    session: AsyncSession = Depends(get_postgres_session),
-    user: CurrentUser = Depends(get_current_user),
-) -> HpoTermDetailOut:
-    _ = user
-    return await get_hpo_term_details(session, hpo_id=hpo_id)

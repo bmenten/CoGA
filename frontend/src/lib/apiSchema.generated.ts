@@ -1311,13 +1311,6 @@ export interface HpoAnnotationUpdate {
   note?: string | null;
 }
 
-export interface HpoFamilyQueryOut {
-  hpo_id: string;
-  include_descendants: boolean;
-  sample_ids: string[];
-  annotations: HpoAnnotationOut[];
-}
-
 export interface HpoOntologyImportOut {
   terms: number;
   synonyms: number;
@@ -1340,19 +1333,6 @@ export interface HpoOntologySyncRequest {
   release_version?: string | null;
   release_date?: string | null;
   preview_only?: boolean;
-}
-
-export interface HpoTermDetailOut {
-  hpo_id: string;
-  label: string;
-  definition: string | null;
-  is_obsolete: boolean;
-  replaced_by: string | null;
-  release_version: string | null;
-  release_date: string | null;
-  synonyms: string[];
-  parents: HpoTermRelationOut[];
-  children: HpoTermRelationOut[];
 }
 
 export interface HpoTermOut {

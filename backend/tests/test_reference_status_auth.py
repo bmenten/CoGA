@@ -83,7 +83,6 @@ def test_reference_status_returns_data_for_authenticated_user(reference_status_c
         "/api/blacklist/GRCh38/chr1",
         "/api/segmental-duplications/GRCh38/chr1",
         "/api/assemblies/",
-        "/api/assemblies/3fa85f64-5717-4562-b3fc-2c963f66afa6",
     ],
 )
 def test_reference_data_endpoints_require_authentication(reference_status_client, path) -> None:
