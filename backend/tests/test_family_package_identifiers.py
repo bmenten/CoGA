@@ -8,8 +8,14 @@ it (``family_id_invalid``, ``sample_id_invalid``) and read nothing else under it
 job, the Family Builder and the PED upload refuse it; the whitespace around an ID is
 stripped. A PED field holds no whitespace but can hold the other control characters, and a
 package without a PED takes its IDs from the request, the manifest or folder names. Discover
-holds a parent the PED names but lacks as a member to the rule too. All IDs here are
-synthetic.
+holds a parent the PED names but lacks as a member to the rule too.
+
+Since SEC-15 an ID holds no other character a reader cannot see either (a C1 control, a
+text-direction or zero-width character, or any other character that is not printable: two IDs
+that look the same would name different records), and it is no path: no ``/`` or ``\\``, and
+not ``.`` or ``..`` (a folder named after it, or a URL's path segment, would read it as a
+separator, the folder itself or its parent). Every writer above refuses such an ID. All IDs
+here are synthetic.
 """
 
 from __future__ import annotations
@@ -18,6 +24,7 @@ from datetime import datetime, timezone
 import gzip
 import io
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -32,7 +39,7 @@ from backend.app.services import family_package_import as package_import
 from backend.app.services import ped_service
 from backend.app.services.access_control import CurrentUser
 from backend.app.services.family_identifiers import CONTROL_CHARACTERS, IDENTIFIER_RULE, identifier_problem, visible
-from backend.app.services.family_package_common import PackageManifest, _issue
+from backend.app.services.family_package_common import PackageManifest, _issue, path_leaves_package
 from backend.app.services.family_package_discovery import discover_family_package_manifest
 from backend.app.services.family_package_jobs import queue_family_import_job
 from backend.app.services.family_package_long_read import long_read_sample_ids
@@ -132,7 +139,7 @@ def test_printable_text_without_spaces_is_an_id(value: str) -> None:
         ("FAM 001", "contains a space"),
         (" FAM001", "contains a space"),
         ("FAM\xa0001", "contains whitespace (\\xa0)"),
-        ("FAM 001", "contains whitespace (\\u2028)"),
+        ("FAM\u2028001", "contains whitespace (\\u2028)"),
         ("", "is empty"),
     ],
 )
@@ -266,10 +273,9 @@ def test_discover_reports_a_per_sample_folder_no_sample_can_be_stored_under(tmp_
     assert (out.valid, out.manifest_yaml) == (False, "")
     messages = [issue.message for issue in out.errors if issue.code == "sample_id_invalid"]
     assert messages == [
-        "Sample ID 'FATHER 1' (the name of its per-sample folder) contains a space. "
-        "Family and sample IDs are printable text without spaces.",
+        f"Sample ID 'FATHER 1' (the name of its per-sample folder) contains a space. {IDENTIFIER_RULE}",
         "Sample ID 'MOTHER\\x1b1' (the name of its per-sample folder) contains a control character (\\x1b). "
-        "Family and sample IDs are printable text without spaces.",
+        f"{IDENTIFIER_RULE}",
     ]
 
 
@@ -639,3 +645,249 @@ async def test_a_ped_upload_is_refused_before_anything_is_written() -> None:
         await ped_service.upload_ped_data(_ExplodingSession(), upload, False, _admin(), None)  # type: ignore[arg-type]
 
     assert refused.value.status_code == 400
+
+
+# --------------------------------------------------------------------------- #
+# Characters a reader cannot see, and paths (SEC-15)
+# --------------------------------------------------------------------------- #
+
+# The characters that turn the text around them on screen (Unicode's bidirectional formatting
+# characters and the Arabic letter mark), and the zero-width ones (U+FEFF is also the
+# byte-order mark).
+TEXT_DIRECTION = (
+    "\u200e", "\u200f", "\u202a", "\u202b", "\u202c", "\u202d", "\u202e", "\u2066", "\u2067", "\u2068", "\u2069", "\u061c"
+)
+ZERO_WIDTH = ("\u200b", "\u200c", "\u200d", "\u2060", "\ufeff")
+RLO, ZWSP, NEL = "\u202e", "\u200b", "\x85"
+
+
+@pytest.mark.parametrize("code", range(0x80, 0xA0))
+def test_every_c1_control_character_is_refused(code: int) -> None:
+    character = chr(code)
+    assert identifier_problem(f"FAM{character}001") == f"contains a control character ({visible(character)})"
+    assert visible(character).startswith("\\x")
+
+
+@pytest.mark.parametrize("character", TEXT_DIRECTION)
+def test_every_text_direction_character_is_refused(character: str) -> None:
+    # Shown, 'FAM\u202e100' reads 'FAM001': another family's ID.
+    assert identifier_problem(f"FAM{character}001") == f"contains a text-direction character ({visible(character)})"
+
+
+@pytest.mark.parametrize("character", ZERO_WIDTH)
+def test_every_zero_width_character_is_refused(character: str) -> None:
+    # Shown, 'FAM\u200b001' reads 'FAM001', and is another ID.
+    assert identifier_problem(f"FAM{character}001") == f"contains a zero-width character ({visible(character)})"
+
+
+@pytest.mark.parametrize(
+    "character",
+    [
+        "\xad",  # a soft hyphen, shown only where a line breaks
+        "\u2062",  # invisible times
+        "\U000e0041",  # a tag character
+        "\ue000",  # a private-use character
+        "\u0378",  # unassigned
+        "\udcff",  # a lone surrogate: Python's reading of a file name that is not UTF-8
+    ],
+)
+def test_any_other_character_that_is_not_printable_is_refused(character: str) -> None:
+    assert identifier_problem(f"FAM{character}001") == (
+        f"contains a character that is not printable ({visible(character)})"
+    )
+
+
+@pytest.mark.parametrize(
+    ("value", "problem"),
+    [
+        ("FAM/001", "contains a slash (/)"),
+        ("../FAM001", "contains a slash (/)"),
+        ("/data/families/FAM001", "contains a slash (/)"),
+        ("FAM001/", "contains a slash (/)"),
+        ("FAM\\001", "contains a backslash (\\)"),
+        ("..\\FAM001", "contains a backslash (\\)"),
+        (".", "is '.'"),
+        ("..", "is '..'"),
+    ],
+)
+def test_an_id_that_is_a_path_is_refused(value: str, problem: str) -> None:
+    # A folder named after an ID and a URL's path segment read '/' and '\' as separators, and
+    # '.' and '..' as the folder itself and its parent.
+    assert identifier_problem(value) == problem
+
+
+@pytest.mark.parametrize(
+    "value", ["F..1", "...", "..FAM", "FAM.", ".FAM", "fam-01.b", "FAM?1", "FAM#1", "FAM%41", "~FAM", "FAMÉ01", "家族1"]
+)
+def test_dots_and_url_characters_inside_an_id_are_kept(value: str) -> None:
+    # Without '/' or '\' an ID is one name, '..' inside it too; a URL carries '?', '#' and '%'
+    # encoded (core/url_path.py, the frontend's apiPath and routePath).
+    assert identifier_problem(value) is None
+
+
+def test_no_id_the_rule_accepts_leads_a_path_out_of_its_folder() -> None:
+    # Discover, the family's data folders and a URL take an ID as one name in a folder. Before,
+    # '..', '../x' and '/abs/x' were IDs, and Discover only warned about them.
+    candidates = [".", "..", "../x", "a/..", "a/../..", "./x", "x/.", "/abs/x", "x/", "a\\..\\b", "..\\x", "~/x"]
+    candidates += ["F..1", "...", "..x", "x..", ".x", "~x"]
+    parent = os.path.join(os.sep, "data", "families")
+
+    accepted = [value for value in candidates if identifier_problem(value) is None]
+
+    assert accepted == ["F..1", "...", "..x", "x..", ".x", "~x"]
+    for value in accepted:
+        joined = os.path.normpath(os.path.join(parent, value))
+        assert (os.path.dirname(joined), os.path.basename(joined)) == (parent, value)
+        assert not path_leaves_package(value)
+
+
+def _shows_nothing_unseen(message: str) -> bool:
+    """Whether every character of ``message`` is one a reader sees."""
+    return all(character.isprintable() for character in message)
+
+
+@pytest.mark.parametrize(
+    "family_id",
+    ["../decoy", "FAM/001", "FAM\\001", "..", f"FAM{RLO}001", f"FAM{ZWSP}001", f"FAM{NEL}001", "FAM\xad001"],
+)
+def test_discover_refuses_a_requested_family_id_that_is_a_path_or_holds_a_character_unseen(
+    tmp_path: Path, family_id: str
+) -> None:
+    root = _write_package(tmp_path / FAMILY, ped=_trio_ped())
+
+    out = discover_family_package_manifest(FamilyPackageManifestBuildRequest(folder_path=str(root), family_id=family_id))
+
+    # No draft, and no warning that the ID leads out of the package: it is no ID.
+    assert (out.valid, out.family_id, out.manifest_yaml, out.warnings) == (False, None, "", [])
+    assert [issue.code for issue in out.errors] == ["family_id_invalid"]
+    message = out.errors[0].message
+    assert message.startswith(f"Family ID '{visible(family_id)}' (the family_id of the request) ")
+    assert message.endswith(f". {IDENTIFIER_RULE}")
+    assert _shows_nothing_unseen(message)
+
+
+def test_discover_refuses_a_per_sample_folder_named_with_a_backslash_or_a_zero_width_character(tmp_path: Path) -> None:
+    root = tmp_path / "COUPLE1"
+    _write_long_read_sample(root, f"MOTHER{ZWSP}1", "XX")
+    _write_long_read_sample(root, "FATHER\\1", "XY")
+
+    out = discover_family_package_manifest(FamilyPackageManifestBuildRequest(folder_path=str(root)))
+
+    assert (out.valid, out.manifest_yaml) == (False, "")
+    assert [issue.message for issue in out.errors if issue.code == "sample_id_invalid"] == [
+        f"Sample ID 'FATHER\\1' (the name of its per-sample folder) contains a backslash (\\). {IDENTIFIER_RULE}",
+        "Sample ID 'MOTHER\\u200b1' (the name of its per-sample folder) contains a zero-width character "
+        f"(\\u200b). {IDENTIFIER_RULE}",
+    ]
+
+
+@pytest.mark.parametrize("family_id", ["..", "FAM/001", f"FAM{RLO}001"])
+def test_a_manifest_family_id_that_is_a_path_or_holds_a_character_unseen_stops_the_validation(
+    tmp_path: Path, family_id: str
+) -> None:
+    root = _write_package(
+        tmp_path / FAMILY,
+        manifest={"family_id": family_id, "ped": "family.ped", "datasets": {"snv": {"family_vcf": "missing.vcf"}}},
+        ped=_trio_ped(),
+    )
+
+    validation, bundle = load_validated_family_package(root)
+
+    assert bundle is None
+    assert [issue.code for issue in validation.errors] == ["family_id_invalid"]
+    assert validation.errors[0].message.startswith(f"Family ID '{visible(family_id)}' (the manifest's family_id) ")
+    assert (validation.family_id, validation.sample_ids, validation.datasets) == (None, [], [])
+
+
+def test_a_ped_sample_id_with_a_text_direction_character_stops_the_validation(tmp_path: Path) -> None:
+    root = _write_package(
+        tmp_path / FAMILY, manifest={"family_id": FAMILY, "ped": "family.ped"}, ped=_trio_ped(mother=f"MOTHER{RLO}1")
+    )
+
+    validation, bundle = load_validated_family_package(root)
+
+    assert bundle is None
+    assert [issue.message for issue in validation.errors] == [
+        f"Sample ID 'MOTHER\\u202e1' (in the PED) contains a text-direction character (\\u202e). {IDENTIFIER_RULE}"
+    ]
+
+
+@pytest.mark.parametrize(
+    ("member", "shown"),
+    [
+        ({"sample_id": "INDEX/1"}, "Sample ID 'INDEX/1' (under family.add_members) contains a slash (/)."),
+        (
+            {"sample_id": CHILD, "father": f"FATHER{ZWSP}1", "mother": MOTHER},
+            f"Sample ID 'FATHER\\u200b1' (a parent of {CHILD} under family.add_members) contains a zero-width "
+            "character (\\u200b).",
+        ),
+    ],
+)
+def test_an_added_member_or_parent_that_is_a_path_or_holds_a_character_unseen_is_refused(
+    member: dict[str, str], shown: str
+) -> None:
+    rows, errors = _added_rows([member])
+
+    assert rows == []
+    assert [(error.code, error.message) for error in errors] == [("sample_id_invalid", f"{shown} {IDENTIFIER_RULE}")]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("family_id", ["../FAM001", "..", f"FAM{ZWSP}001"])
+async def test_an_import_job_for_a_family_id_that_is_a_path_or_holds_a_character_unseen_is_refused(
+    family_id: str,
+) -> None:
+    with pytest.raises(HTTPException) as refused:
+        await queue_family_import_job(
+            _ExplodingSession(),  # type: ignore[arg-type]
+            folder_path="/data/families/FAM001",
+            project_id=None,
+            dry_run=True,
+            requested_family_id=family_id,
+            requested_by=_admin(),
+        )
+
+    assert refused.value.status_code == 400
+    assert str(refused.value.detail).startswith(f"family_id '{visible(family_id)}' ")
+    assert _shows_nothing_unseen(str(refused.value.detail))
+
+
+@pytest.mark.parametrize(
+    ("family", "detail"),
+    [
+        (_family("FAM/001"), "Family ID 'FAM/001' contains a slash (/)."),
+        (_family("."), "Family ID '.' is '.'."),
+        (_family(FAMILY, MOTHER, f"FATHER{ZWSP}1"), "Sample ID 'FATHER\\u200b1' contains a zero-width character (\\u200b)."),
+        (_family(FAMILY, f"MOTHER{NEL}1"), "Sample ID 'MOTHER\\x851' contains a control character (\\x85)."),
+    ],
+)
+def test_the_family_builder_refuses_an_id_that_is_a_path_or_holds_a_character_unseen(
+    family: ManualPedFamilyCreate, detail: str
+) -> None:
+    with pytest.raises(HTTPException) as refused:
+        ped_service._validate_manual_family(family)
+
+    assert refused.value.status_code == 400
+    assert refused.value.detail == f"{detail} {IDENTIFIER_RULE}"
+
+
+@pytest.mark.parametrize(
+    ("ped", "detail"),
+    [
+        (_trio_ped(mother=f"MOTHER{RLO}1"), "Sample ID 'MOTHER\\u202e1' contains a text-direction character (\\u202e)."),
+        (_trio_ped(f"..\\{FAMILY}"), f"Family ID '..\\{FAMILY}' contains a backslash (\\)."),
+        (f"{FAMILY} {CHILD} FATHER/1 0 1 2\n", "Parent ID 'FATHER/1' contains a slash (/)."),
+    ],
+)
+def test_a_ped_upload_with_an_id_that_is_a_path_or_holds_a_character_unseen_is_refused(ped: str, detail: str) -> None:
+    with pytest.raises(HTTPException) as refused:
+        ped_service._parse_ped_text(ped)
+
+    assert refused.value.status_code == 400
+    assert refused.value.detail == f"{detail} {IDENTIFIER_RULE}"
+
+
+def test_the_rule_says_what_an_id_is() -> None:
+    assert IDENTIFIER_RULE == (
+        "Family and sample IDs are printable text without spaces, '/' or '\\', and are not '.' or '..'."
+    )

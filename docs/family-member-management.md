@@ -93,11 +93,13 @@ unknown.
   is also refused when ClickHouse cannot be reached, because CoGA cannot then confirm that
   nothing would be orphaned.
 - A sample ID the request gives a member (its new ID, the father or mother a member edit
-  names, the ID of a member the structure edit adds) is printable text without spaces, as on
-  import ([data-import.md](data-import.md#validation)). The whitespace around it is stripped.
-  One that holds a control character (a line break, a tab, an escape, a NUL) or whitespace is
-  refused (400) before anything is read or written under it, so a batch holding one renames
-  no member. The message writes the character as an escape (`\t`, `\x1b`).
+  names, the ID of a member the structure edit adds) is printable text without spaces, and no
+  path, as on import ([data-import.md](data-import.md#validation)). The whitespace around it
+  is stripped. One that holds a control character (a line break, a tab, an escape, a NUL, a
+  C1 control) or whitespace, a text-direction or zero-width character or another character
+  that is not printable, a `/` or a `\`, or that is `.` or `..`, is refused (400) before
+  anything is read or written under it, so a batch holding one renames no member. The message
+  writes each character a reader cannot see as its escape (`\t`, `\x1b`, `\u200b`).
 
 ## What an edit changes
 

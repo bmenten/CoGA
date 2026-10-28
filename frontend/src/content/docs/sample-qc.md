@@ -2,8 +2,9 @@
 
 The **Sample QC** page (the **Sample QC** button on the family page) checks automatically that a
 family's samples are who the pedigree says they are. Run it **before** you trust any interpretation. It
-catches sample swaps, wrong relationships, wrong-sex labels, contamination and consanguinity — problems
-that quietly invalidate a variant call or a segregation analysis.
+catches sample swaps, wrong relationships, wrong-sex labels and consanguinity — problems that quietly
+invalidate a variant call or a segregation analysis. It does not measure contamination; some of its
+results can be a sign of it (see *Sign-out and limits*).
 
 How to read the page is in the [user guide](/docs), section *Sample-integrity QC*. This page holds the
 checks and their thresholds.
@@ -114,8 +115,8 @@ child that shares no allele with that parent.
 - 5% or more → **fail**; 2% or more → **warn**; otherwise **pass**.
 - At least **200** informative sites are needed; with fewer the result is a **warn**.
 
-A clear rate points to a swap, a wrong parent or genotyping noise. The same logic highlights impossible
-genotypes on the **Review ROI markers** page.
+A clear rate points to a swap, a wrong parent, contamination or genotyping noise. The same logic
+highlights impossible genotypes on the **Review ROI markers** page.
 
 ---
 
@@ -235,3 +236,11 @@ cards, and the parent-sex rows appear in the per-sample table.
   than 20 of the 22 autosomes, the checks still run and the report warns: *The callset covers part of
   the genome: its sites lie on N of the 22 autosomes, so the checks read only that part.* The warning
   makes the verdict a warning, and the signed report records it.
+- **Contamination is not measured.** No check estimates how much of a sample's DNA comes from someone
+  else, so a pass does not rule contamination out. Some results are consistent with it, among other
+  causes: a child's Mendelian-error rate at a warning or a fail (*Mendelian errors*); heterozygous calls
+  on a man's X outside the pseudo-autosomal regions, which raise his X heterozygosity so that his sex
+  can read indeterminate, or female against the record (*Sex*); and in a NIPT family an excess of de
+  novo sites (*cfDNA category check*). The **mtDNA analysis** page shows a mitochondrial contamination
+  estimate where one was imported with the sample, judged against the lab's limits
+  (**Sequencing QC thresholds**).

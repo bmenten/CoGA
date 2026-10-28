@@ -66,6 +66,30 @@ export function clearSession(): void {
 }
 
 /**
+ * Call `onEnded` when another tab of this browser ends the session the tabs share: its logout, or
+ * the 401 that ended it there, removes the token (or the storage is cleared), and a sign-in there
+ * of another account replaces the user name, the account's address. A renewal of the token writes
+ * no user name, and a sign-in of the same account writes the one there is: the session goes on.
+ * The browser tells a tab of the changes the other tabs make to its storage, each key with its old
+ * and new value. Returns the function that stops it.
+ */
+export function onSessionEndedElsewhere(onEnded: () => void): () => void {
+  const listener = (event: StorageEvent): void => {
+    const ended = (event.key === AUTH_STORAGE_KEYS.token || event.key === null) && event.newValue === null;
+    const otherAccount =
+      event.key === AUTH_STORAGE_KEYS.username &&
+      event.oldValue !== null &&
+      event.newValue !== null &&
+      event.newValue !== event.oldValue;
+    if (ended || otherAccount) {
+      onEnded();
+    }
+  };
+  window.addEventListener('storage', listener);
+  return () => window.removeEventListener('storage', listener);
+}
+
+/**
  * The sign-in page that returns to `page` (a path with its query string and hash, as the
  * browser holds it) once the user has signed in. The sign-in follows only a page of this site
  * (LoginPage, REQ-UI-006).

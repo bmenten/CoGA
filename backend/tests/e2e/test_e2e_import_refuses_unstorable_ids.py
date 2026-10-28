@@ -21,6 +21,19 @@ and Postgres, with synthetic packages:
   family ID with a NUL, and the PED upload (``POST /api/ped/upload``) a sample ID with an
   escape, each with 400 and nothing written; before, the line break was stored.
 
+Since SEC-15 an ID is no path and holds no other character a reader cannot see. Through the
+same API and Postgres:
+
+* the Family Builder refuses a family ID holding ``/``, a sample ID that is ``..``, one with a
+  zero-width character and one with a C1 control, and the PED upload a sample ID holding a
+  backslash, each with 400 naming the character as its escape, and nothing written; before,
+  each was stored;
+* Discover answers a request whose ``family_id`` climbs out of the package (``../FAMID03``)
+  with ``family_id_invalid`` and no draft (before: a warning and a draft), and Validate a
+  package whose manifest ``family_id`` is ``..`` the same way;
+* a real import job of a package whose PED has a sample ID with a text-direction character
+  ends ``failed`` with ``sample_id_invalid``, and writes no family or sample.
+
 Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``e2e`` job sets it.
 """
 
@@ -36,6 +49,8 @@ import yaml
 pytestmark = pytest.mark.integration
 
 NUL, LF, ESC = "\x00", "\n", "\x1b"
+# A C1 control, a text-direction character and a zero-width one (SEC-15).
+NEL, RLO, ZWSP = "\x85", "\u202e", "\u200b"
 _WORKER = "e2e-unstorable-ids-worker"
 
 
@@ -136,6 +151,10 @@ async def _collect(base: Path) -> dict[str, Any]:
     nul_family = _package(base / "nul-family" / "FAMID01", family_id=f"FAMID{NUL}01", ped=_trio_ped("FAMID01", mother="MOTHER01"))
     esc_sample = _package(base / "esc-sample" / "FAMID02", family_id="FAMID02", ped=_trio_ped("FAMID02", mother=f"MOTHER{ESC}02"))
     clean = _package(base / "clean" / "FAMID03", family_id="FAMID03", ped=_trio_ped("FAMID03", mother="MOTHER03"))
+    text_direction_sample = _package(
+        base / "text-direction" / "FAMID12", family_id="FAMID12", ped=_trio_ped("FAMID12", mother=f"MOTHER{RLO}12")
+    )
+    dot_dot_family = _package(base / "dot-dot" / "FAMID13", family_id="..", ped=_trio_ped("FAMID13", mother="MOTHER13"))
 
     out: dict[str, Any] = {"before": await _counts()}
     # A request the app fails on is answered 500, as a server answers it, so that every step
@@ -191,6 +210,39 @@ async def _collect(base: Path) -> dict[str, Any]:
                 files={"file": ("family.ped", _trio_ped("FAMID06", mother=f"MOTHER{ESC}06").encode(), "text/plain")},
             )
         )
+
+        # SEC-15: a path, and characters a reader cannot see.
+        out["manual_unseen_or_path"] = [
+            _cap(
+                await ac.post(
+                    "/api/ped/manual",
+                    json={"family_id": family_id, "project_id": project_id, "members": [{"sample_id": sample_id}]},
+                )
+            )
+            for family_id, sample_id in (
+                ("FAMID07/A", "MOTHER07"),
+                ("FAMID08", ".."),
+                ("FAMID09", f"MOTHER{ZWSP}09"),
+                ("FAMID10", f"MOTHER{NEL}10"),
+            )
+        ]
+        out["ped_upload_backslash"] = _cap(
+            await ac.post(
+                "/api/ped/upload",
+                params={"project_id": project_id},
+                files={"file": ("family.ped", _trio_ped("FAMID11", mother="MOTHER\\11").encode(), "text/plain")},
+            )
+        )
+        out["discover_climbing"] = _cap(
+            await ac.post(
+                "/api/family-imports/manifest/discover",
+                json={"folder_path": str(clean), "family_id": "../FAMID03"},
+            )
+        )
+        out["validate_dot_dot"] = _cap(
+            await ac.post("/api/family-imports/validate", json={"folder_path": str(dot_dot_family)})
+        )
+        out["job_text_direction"] = await _run_job(ac, text_direction_sample, project_id)
     out["after"] = await _counts()
     return out
 
@@ -256,8 +308,54 @@ def test_the_family_builder_and_the_ped_upload_refuse_such_ids(snap: dict[str, A
         assert shown in response["json"]["detail"], (name, response["json"])
 
 
+def test_the_family_builder_and_the_ped_upload_refuse_an_id_that_is_a_path_or_holds_a_character_unseen(
+    snap: dict[str, Any],
+) -> None:
+    from backend.app.services.family_identifiers import IDENTIFIER_RULE
+
+    details = [(response["status"], response["json"]["detail"]) for response in snap["manual_unseen_or_path"]]
+    assert details == [
+        (400, f"Family ID 'FAMID07/A' contains a slash (/). {IDENTIFIER_RULE}"),
+        (400, f"Sample ID '..' is '..'. {IDENTIFIER_RULE}"),
+        (400, f"Sample ID 'MOTHER\\u200b09' contains a zero-width character (\\u200b). {IDENTIFIER_RULE}"),
+        (400, f"Sample ID 'MOTHER\\x8510' contains a control character (\\x85). {IDENTIFIER_RULE}"),
+    ]
+    response = snap["ped_upload_backslash"]
+    assert (response["status"], response["json"]["detail"]) == (
+        400,
+        f"Sample ID 'MOTHER\\11' contains a backslash (\\). {IDENTIFIER_RULE}",
+    )
+
+
+def test_discover_and_validate_refuse_a_family_id_that_is_a_path(snap: dict[str, Any]) -> None:
+    discover, validate = snap["discover_climbing"], snap["validate_dot_dot"]
+    for response in (discover, validate):
+        assert response["status"] == 200, response["text"]
+        assert _codes(response) == ["family_id_invalid"], response["json"]
+        assert response["json"]["family_id"] is None
+    # No draft, and no warning that the ID leads out of the package.
+    assert (discover["json"]["manifest_yaml"], discover["json"]["warnings"]) == ("", [])
+    assert "'../FAMID03' (the family_id of the request) contains a slash (/)" in discover["json"]["errors"][0]["message"]
+    assert "'..' (the manifest's family_id) is '..'" in validate["json"]["errors"][0]["message"]
+
+
+def test_an_import_job_records_the_refusal_of_a_sample_id_with_a_text_direction_character(snap: dict[str, Any]) -> None:
+    job = snap["job_text_direction"]
+    assert "raised" not in job, job
+    assert (job["status"], job["ended"], job["error"], job["family_id"]) == (
+        "failed",
+        True,
+        "Package validation failed",
+        "FAMID12",
+    ), job
+    assert [issue["code"] for issue in job["validation_errors"]] == ["sample_id_invalid"], job["validation_errors"]
+    assert "'MOTHER\\u202e12' (in the PED) contains a text-direction character (\\u202e)" in (
+        job["validation_errors"][0]["message"]
+    )
+
+
 def test_nothing_of_a_refused_family_or_sample_was_written(snap: dict[str, Any]) -> None:
     before, after = snap["before"], snap["after"]
     assert (after["families"], after["samples"]) == (before["families"], before["samples"])
-    # The two import jobs run above, and no other.
-    assert after["jobs"] == before["jobs"] + 2
+    # The three import jobs run above, and no other.
+    assert after["jobs"] == before["jobs"] + 3
