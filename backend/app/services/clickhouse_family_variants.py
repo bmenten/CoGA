@@ -1695,8 +1695,16 @@ async def _small_variant_present_sample_names(
     base query matches ANY variant — even when it is absent from that variant's calls (the
     ``include_absent`` / reference-parent case, e.g. a de-novo MOTHER:0/0). Every other
     sample is present iff a matching variant carries a non-ref genotype for it. The base
-    sample-filters are evaluated on the full call arrays in the inner query (before the
-    ARRAY JOIN), so cross-sample constraints are not corrupted.
+    sample-filters are evaluated on the full call arrays in the WHERE, before each matching
+    row's samples are picked from them, so cross-sample constraints are not corrupted.
+
+    The query is one SELECT over the family's rows: each matching row's visible samples with
+    an ALT allele (``arrayFilter`` over its call arrays), then the distinct samples. It used
+    to wrap the matching rows in a subquery, ARRAY JOINed and grouped outside it, and under a
+    Mendeliome-sized panel ClickHouse's analyzer took some 36 ms over that query, three times
+    its time over a member's track count with the same panel clause, whatever the window: in
+    a small window, most of the query's time (ENG-19). Both shapes keep the same samples
+    (measured in docs/variant-ranking-cache.md, "A panel of any size").
 
     ``panel_constraints`` is the gene panel the list applies (``_fetch_panel_constraints``),
     applied with the list's own clause (``_small_query_filter_parts``,
@@ -1722,10 +1730,7 @@ async def _small_variant_present_sample_names(
     where_clauses, params, _use_detail_join = _small_query_filter_parts(
         context, filters, panel_constraints=panel_constraints
     )
-    inner = (
-        f"SELECT e.calls.sampleId AS sids, e.calls.gt AS gts "
-        f"FROM {entries_table} AS e WHERE {' AND '.join(where_clauses)}"
-    )
+    where = " AND ".join(where_clauses)
     explicit_names = {
         entry.split(":", 1)[0]
         for entry in (filters.sample_filters or [])
@@ -1736,11 +1741,12 @@ async def _small_variant_present_sample_names(
     # and multi-allelic calls included, so an all-haploid sample is not "empty" (#511).
     is_alt = clickhouse_genotype_condition("gt", ALT_CLASSES, param="track_nonref_gts", params=params)
     nonref_query = f"""
-        SELECT sid
-        FROM ({inner})
-        ARRAY JOIN sids AS sid, gts AS gt
-        WHERE sid IN %(track_visible_ids)s AND {is_alt}
-        GROUP BY sid
+        SELECT DISTINCT arrayJoin(arrayFilter(
+            (sid, gt) -> sid IN %(track_visible_ids)s AND {is_alt},
+            e.calls.sampleId, e.calls.gt
+        )) AS sid
+        FROM {entries_table} AS e
+        WHERE {where}
     """
     present: set[str] = set()
     for (sid,) in await _execute_clickhouse(nonref_query, params):
@@ -1748,9 +1754,11 @@ async def _small_variant_present_sample_names(
         if name and name in context.sample_name_to_uuid:
             present.add(name)
     # Explicit-filter samples: present iff the base query matches at all (handles the
-    # reference-parent / include_absent case the non-ref ARRAY JOIN cannot).
+    # reference-parent / include_absent case the non-ref arrayFilter cannot).
     if explicit_names:
-        base_match = await _execute_clickhouse(f"SELECT 1 FROM ({inner}) LIMIT 1", params)
+        base_match = await _execute_clickhouse(
+            f"SELECT 1 FROM {entries_table} AS e WHERE {where} LIMIT 1", params
+        )
         if base_match:
             present |= explicit_names
     return present
