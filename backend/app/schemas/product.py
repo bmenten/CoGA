@@ -1,9 +1,24 @@
-"""Product metadata: the running build and the releases."""
+"""Product metadata: the running build, its health probes and the releases."""
 
 from datetime import datetime
 from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
+
+
+class HealthOut(BaseModel):
+    """Liveness: the application has started."""
+
+    status: Literal["ok"]
+
+
+class ReadinessOut(BaseModel):
+    """Readiness: whether Postgres and ClickHouse answer (``degraded``, with a 503, if either
+    does not)."""
+
+    status: Literal["ok", "degraded"]
+    postgres: Literal["ok", "down"]
+    clickhouse: Literal["ok", "down"]
 
 
 class VersionOut(BaseModel):

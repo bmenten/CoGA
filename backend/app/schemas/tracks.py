@@ -1,7 +1,7 @@
-"""Haplotypes, phased markers, signal tracks, repeat expansions and Paraphase."""
+"""Haplotypes, phased markers, BED and signal tracks, repeat expansions and Paraphase."""
 
 from datetime import datetime
-from typing import Any, Dict, List, Literal, Optional
+from typing import Annotated, Any, Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, Field
 
@@ -187,6 +187,48 @@ class TrackAvailabilityOut(BaseModel):
 
 class FamilyTrackAvailabilityOut(BaseModel):
     samples: Dict[str, TrackAvailabilityOut] = Field(default_factory=dict)
+
+
+class BedRecordOut(BaseModel):
+    """One row of a coverage or segments track, as the BED reads serve it (``routers/bed.py``);
+    a windowed coverage read serves each window's mean. ``value`` is null where the stored row
+    holds none."""
+
+    chr: str
+    start: int
+    end: int
+    value: Optional[float]
+
+
+class BedApcadRecordOut(BedRecordOut):
+    """One APCAD site or PCF segment: the row with the parent it is inherited from
+    (``paternal`` or ``maternal``; ``und`` where that is not known)."""
+
+    origin: str
+
+
+class BedTrackOut(BaseModel):
+    """A BED read of a coverage or segments track."""
+
+    bed_type: Literal["coverage", "segments"]
+    items: List[BedRecordOut]
+
+
+class BedApcadTrackOut(BaseModel):
+    """A BED read of an APCAD or PCF track: each row with its origin."""
+
+    bed_type: Literal["apcad", "apcad_pcf"]
+    items: List[BedApcadRecordOut]
+
+
+# What a BED read answers: the track type it read decides the shape of its rows.
+BedReadOut = Annotated[Union[BedTrackOut, BedApcadTrackOut], Field(discriminator="bed_type")]
+
+
+class BedUploadResult(BaseModel):
+    """What a BED upload stored: its number of rows."""
+
+    inserted: int
 
 
 # A repeat allele's, call's or locus's status (repeat_expansion_pg.classify_repeat_count):

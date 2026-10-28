@@ -22,8 +22,11 @@ from ..schemas import (
     ClinicalCnvKbJobOut,
     ClinicalCnvKbRebuildRequest,
     ClinicalCnvKbStatusOut,
+    DataDeletionOut,
+    FamilyDeletionOut,
     FamilyInventoryDetailOut,
     FamilyInventoryPageOut,
+    FamilyProjectsUpdateOut,
     FamilyRawFilesOut,
     FamilyStatusCreate,
     FamilyStatusOut,
@@ -40,6 +43,7 @@ from ..schemas import (
     NiptArtifactAutoSeed,
     NiptArtifactAutoSeedOut,
     NiptArtifactCreate,
+    NiptArtifactDeleteOut,
     NiptArtifactImportOut,
     NiptArtifactOut,
     ProjectsUpdate,
@@ -48,11 +52,14 @@ from ..schemas import (
     QcThresholdChangeOut,
     QcThresholdProfileOut,
     QcThresholdProfileCreate,
+    QcThresholdProfileSummaryOut,
+    QcThresholdSetOut,
     QcThresholdUpdate,
     RawImportFileVerifyOut,
     RepeatLocusCountUnitsCatalogueOut,
     RepeatLocusCountUnitsSetOut,
     FamilyDeleteRequest,
+    SampleDeletionOut,
     RepeatLocusCountUnitsUpdate,
     SmallVariantFilterPresetOut,
     SmallVariantTagDefinitionCreate,
@@ -284,7 +291,7 @@ async def add_nipt_artifact_endpoint(
     return NiptArtifactOut(**row)
 
 
-@router.delete("/nipt/artifacts/{artifact_id}")
+@router.delete("/nipt/artifacts/{artifact_id}", response_model=NiptArtifactDeleteOut)
 async def delete_nipt_artifact_endpoint(
     artifact_id: str,
     session: AsyncSession = Depends(get_postgres_session),
@@ -338,7 +345,7 @@ async def import_nipt_artifacts_endpoint(
     return NiptArtifactImportOut(**result)
 
 
-@router.put("/families/{family_id}/projects")
+@router.put("/families/{family_id}/projects", response_model=FamilyProjectsUpdateOut)
 async def update_family_projects(
     family_id: str,
     update: ProjectsUpdate,
@@ -650,7 +657,7 @@ async def list_qc_thresholds_admin(
     )
 
 
-@router.post("/qc-thresholds/profiles", status_code=201)
+@router.post("/qc-thresholds/profiles", status_code=201, response_model=QcThresholdProfileSummaryOut)
 async def create_qc_threshold_profile_admin(
     payload: QcThresholdProfileCreate,
     session: AsyncSession = Depends(get_postgres_session),
@@ -671,7 +678,7 @@ async def create_qc_threshold_profile_admin(
     )
 
 
-@router.put("/qc-thresholds/{profile_key}")
+@router.put("/qc-thresholds/{profile_key}", response_model=QcThresholdSetOut)
 async def set_qc_threshold_admin(
     profile_key: str,
     payload: QcThresholdUpdate,
@@ -733,7 +740,7 @@ async def set_repeat_locus_count_units_admin(
     )
 
 
-@router.delete("/data/samples/{sample_id}/{data_type}")
+@router.delete("/data/samples/{sample_id}/{data_type}", response_model=DataDeletionOut)
 async def delete_sample_data(
     sample_id: str,
     data_type: str,
@@ -749,7 +756,7 @@ async def delete_sample_data(
     )
 
 
-@router.delete("/data/families/{family_id}/{data_type}")
+@router.delete("/data/families/{family_id}/{data_type}", response_model=DataDeletionOut)
 async def delete_family_data(
     family_id: str,
     data_type: str,
@@ -765,7 +772,7 @@ async def delete_family_data(
     )
 
 
-@router.delete("/samples/{sample_id}")
+@router.delete("/samples/{sample_id}", response_model=SampleDeletionOut)
 async def delete_sample(
     sample_id: str,
     confirm: bool = False,
@@ -780,7 +787,7 @@ async def delete_sample(
     )
 
 
-@router.delete("/families/{family_id}")
+@router.delete("/families/{family_id}", response_model=FamilyDeletionOut)
 async def delete_family(
     family_id: str,
     confirm: bool = False,

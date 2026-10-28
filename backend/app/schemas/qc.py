@@ -37,8 +37,8 @@ class QcThresholdOut(BaseModel):
     error_value: Optional[float] = None
 
 
-class QcThresholdProfileOut(BaseModel):
-    """A named set of sequencing-QC cut-offs (one per assay type)."""
+class QcThresholdProfileSummaryOut(BaseModel):
+    """A QC threshold profile without its cut-offs: what adding one answers, as it has none."""
 
     id: ApiId
     key: str
@@ -46,6 +46,11 @@ class QcThresholdProfileOut(BaseModel):
     description: Optional[str] = None
     is_default: bool = False
     sort_order: int = 500
+
+
+class QcThresholdProfileOut(QcThresholdProfileSummaryOut):
+    """A named set of sequencing-QC cut-offs (one per assay type)."""
+
     thresholds: List[QcThresholdOut] = Field(default_factory=list)
 
 
@@ -62,6 +67,15 @@ class QcThresholdChangeOut(BaseModel):
     changed_at: datetime
     # Null only for edits made before the field was required.
     reason: Optional[str] = None
+
+
+class QcThresholdSetOut(BaseModel):
+    """A metric's cut-offs in a profile as an edit left them; both null where it cleared them."""
+
+    profile_key: str
+    metric_key: str
+    warn_value: Optional[float]
+    error_value: Optional[float]
 
 
 class QcThresholdCatalogueOut(BaseModel):

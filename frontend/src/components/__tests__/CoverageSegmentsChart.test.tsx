@@ -97,11 +97,20 @@ describe('CoverageSegmentsChart', () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
   });
 
-  it('renders coverage from raw array BED payloads', async () => {
+  // ENG-4 — the chart reads the BED endpoint's JSON through its generated type, `BedTrackOut`,
+  // whose `value` is null where the stored row holds none. Such a bin is left out: it was drawn
+  // as 0, a normal log2 ratio. (It also read a bare array, which no route serves.)
+  it('draws each bin the BED endpoint serves with a value, and leaves out one without', async () => {
     const fetchMock = vi.fn(() =>
       Promise.resolve({
         ok: true,
-        json: async () => [{ chr: '1', start: 0, end: 100, value: 0.2 }],
+        json: async () => ({
+          bed_type: 'coverage',
+          items: [
+            { chr: '1', start: 0, end: 100, value: 0.2 },
+            { chr: '1', start: 100, end: 200, value: null },
+          ],
+        }),
       }),
     );
     serveTrackFetchFrom(fetchMock);
@@ -110,18 +119,25 @@ describe('CoverageSegmentsChart', () => {
       <CoverageSegmentsChart
         coverageUrls={['https://example.test/coverage']}
         chroms={['1']}
+        regionStart={0}
+        regionEnd={200}
         width={320}
         height={120}
       />,
     );
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(canvasContext.arc).toHaveBeenCalled());
+    await waitFor(() => expect(canvasContext.arc).toHaveBeenCalledTimes(1));
   });
 
   it('shows the gain/loss thresholds in use, and marks this browser’s own (#529)', async () => {
     serveTrackFetchFrom(
-      vi.fn(() => Promise.resolve({ ok: true, json: async () => [{ chr: '1', start: 0, end: 100, value: 0.2 }] })),
+      vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          json: async () => ({ bed_type: 'coverage', items: [{ chr: '1', start: 0, end: 100, value: 0.2 }] }),
+        }),
+      ),
     );
     storage.removeItem('coverageUpperThreshold');
     storage.removeItem('coverageLowerThreshold');

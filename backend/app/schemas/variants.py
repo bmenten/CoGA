@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, RootModel
 
 from .common import (
     ApiDocumentModel,
@@ -324,6 +324,24 @@ class SmallVariantUploadResult(BaseModel):
     insert_batch_size: int
 
 
+class StructuralVariantUploadResult(BaseModel):
+    """What a sample's structural-variant upload stored."""
+
+    # The records read for the sample: each a new SV (``created``) or a call added to an SV
+    # stored with the same id (``merged``).
+    processed: int
+    created: int
+    merged: int
+    # Deletions, duplications, inversions and CNVs left out for stating neither END nor
+    # SVLEN (CLIN-39).
+    skipped_without_extent: int
+    # The caller the calls are stored under (``auto`` resolves to one of them).
+    source_format: Literal["manual", "sniffles", "spectre"]
+    # The tool and database versions the VCF header names, {module: {version, detail}}, as
+    # merged into the family's annotation manifest; none for a TSV.
+    annotation_provenance: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
+
+
 # --- Global Small Variant Explorer (variant-centric, cross-project aggregation) ---
 
 
@@ -420,3 +438,9 @@ class VariantLengthOut(BaseModel):
     type: str
     source: Optional[str] = None
     chr: str
+
+
+class SharedStructuralVariantCountsOut(RootModel[Dict[str, Dict[str, int]]]):
+    """How many of the family's SVs each two members both carry: every member against every
+    member, by sample ID, zeros included. A member's count with itself is of the SVs no other
+    member carries."""

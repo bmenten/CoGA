@@ -14,6 +14,7 @@ from ..schemas import (
     PgtAnalysisOut,
     PhasedMarkerResponse,
     RepeatExpansionTrackResponse,
+    SharedStructuralVariantCountsOut,
     VariantLengthOut,
 )
 from ..services.family_metadata_context import build_family_metadata_context
@@ -261,7 +262,7 @@ async def get_structural_variant_lengths(
     )
 
 
-@router.get("/{family_id}/shared-structural-variant-counts", response_model=Dict[str, Dict[str, int]])
+@router.get("/{family_id}/shared-structural-variant-counts", response_model=SharedStructuralVariantCountsOut)
 async def get_shared_structural_variant_counts(
     family_id: str,
     session: AsyncSession = Depends(get_postgres_session),

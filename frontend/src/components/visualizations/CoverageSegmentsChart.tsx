@@ -15,6 +15,7 @@ import VizLoadingOverlay from './VizLoadingOverlay';
 import VizErrorOverlay from './VizErrorOverlay';
 import { NUCLEAR_CHROMOSOMES, normalizeChrom } from '../../lib/chromosomes';
 import type { CoverageContent } from '../../lib/apiTypes';
+import type { BedTrackOut } from '../../lib/apiSchema.generated';
 import { deriveLayoutFromBins, splitKey, type GenomeLayout } from './genomeBinLayout';
 
 interface CoverageBin {
@@ -39,13 +40,6 @@ interface CoverageTrackData {
   bins: CoverageBin[];
   segments: Segment[];
 }
-
-// The BED endpoints' JSON has no generated type: no response model describes it.
-interface BedRecordPayload<T> {
-  items?: T[];
-}
-
-type BedRecordResponse<T> = BedRecordPayload<T> | T[];
 
 /** The y-axis a coverage chart draws its values on (TRACE-9). */
 interface CoverageAxis {
@@ -131,16 +125,6 @@ const log2Axis = (): CoverageAxis => {
   return { min: -range, max: range, ticks, tickLabel: (value) => String(value), low: -range, high: range, count: 0 };
 };
 
-const payloadItems = <T,>(payload: BedRecordResponse<T> | null): T[] => {
-  if (!payload) {
-    return [];
-  }
-  if (Array.isArray(payload)) {
-    return payload;
-  }
-  return Array.isArray(payload.items) ? payload.items : [];
-};
-
 interface Props {
   coverageUrls: string[];
   segmentsUrls?: string[];
@@ -209,29 +193,30 @@ const CoverageSegmentsChart: React.FC<Props> = ({
       const [coveragePayloads, segmentPayloads] = await Promise.all([
         Promise.all(
           stableCoverageUrls.map((url) =>
-            fetchTrackJson<BedRecordResponse<CoverageBin>>(url, { signal, emptyOn404: true }),
+            fetchTrackJson<BedTrackOut>(url, { signal, emptyOn404: true }),
           ),
         ),
         Promise.all(
           stableSegmentsUrls.map((url) =>
-            fetchTrackJson<BedRecordResponse<Segment>>(url, { signal, emptyOn404: true }),
+            fetchTrackJson<BedTrackOut>(url, { signal, emptyOn404: true }),
           ),
         ),
       ]);
+      // A row served without a value (null) has nothing to draw: it was drawn as 0.
       const bins: CoverageBin[] = [];
       coveragePayloads.forEach((payload) => {
-        payloadItems(payload).forEach((item) => {
+        payload?.items.forEach((item) => {
           const chromName = normalizeChrom(item.chr);
-          if (allowedChroms.has(chromName)) {
+          if (allowedChroms.has(chromName) && item.value !== null) {
             bins.push({ chr: chromName, start: item.start, end: item.end, value: item.value });
           }
         });
       });
       const segments: Segment[] = [];
       segmentPayloads.forEach((payload) => {
-        payloadItems(payload).forEach((item) => {
+        payload?.items.forEach((item) => {
           const chromName = normalizeChrom(item.chr);
-          if (allowedChroms.has(chromName)) {
+          if (allowedChroms.has(chromName) && item.value !== null) {
             segments.push({ chr: chromName, start: item.start, end: item.end, value: item.value });
           }
         });
