@@ -55,7 +55,6 @@ _COLUMNS: dict[str, tuple[str, ...]] = {
         "variantId",
         "project_guid",
         "family_guid",
-        "sample_type",
         "chrom",
         "start",
         "end",

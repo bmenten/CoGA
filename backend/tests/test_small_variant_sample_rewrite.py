@@ -50,7 +50,6 @@ def _entry(project: str, pos: int, calls: dict[str, tuple[str, float]], **fields
         annotationSetHash=11,
         project_guid=project,
         family_guid="family-uuid",
-        sample_type="WGS",
         xpos=25_000_000_000 + pos,
         chrom="M",
         pos=pos,

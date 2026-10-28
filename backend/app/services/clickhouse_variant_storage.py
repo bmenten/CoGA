@@ -74,6 +74,18 @@ _SMALL_VARIANT_WIDENED_CALL_COLUMNS: dict[str, tuple[str, str]] = {
     "calls.dp": ("Array(Nullable(UInt16))", "Array(Nullable(UInt32))"),
     "calls.ad": ("Array(Array(Nullable(UInt16)))", "Array(Array(Nullable(UInt32)))"),
 }
+# Columns an earlier version created that no code reads (ENG-6), per table under the
+# assembly: the details' lifted-over position (always null), the entries' sample type (always
+# WGS), the annotation index's transcript ids and SIFT and PolyPhen terms (written, never
+# read), and the SV calls' genotype quality (never written). The tables are created without
+# them; a table created before loses them when this version first ensures it
+# (``_drop_unused_columns``).
+_UNUSED_COLUMNS: dict[str, tuple[str, ...]] = {
+    "SNV_INDEL/variants/details": ("liftedOverChrom", "liftedOverPos"),
+    "SNV_INDEL/variants/annotation_index": ("transcript_ids", "sift_terms", "polyphen_terms"),
+    "SNV_INDEL/entries": ("sample_type",),
+    "SV/entries": ("sample_type", "calls.gq"),
+}
 _CALLSET_SORT_KEYS: dict[str, tuple[str, ...]] = {
     "SNV_INDEL/entries": _SMALL_VARIANT_ENTRY_SORT_KEY,
     "SV/entries": _STRUCTURAL_VARIANT_ENTRY_SORT_KEY,
@@ -125,8 +137,6 @@ async def ensure_clickhouse_variant_tables(assembly_name: str) -> None:
             `alt` String,
             `rsid` Nullable(String),
             `annotationsJson` String,
-            `liftedOverChrom` LowCardinality(Nullable(String)),
-            `liftedOverPos` Nullable(UInt32),
             `updatedAt` DateTime DEFAULT now()
         )
         ENGINE = ReplacingMergeTree(updatedAt)
@@ -205,7 +215,6 @@ async def ensure_clickhouse_variant_tables(assembly_name: str) -> None:
             `rsid` Nullable(String),
             `gene_symbols` Array(String),
             `gene_ids` Array(String),
-            `transcript_ids` Array(String),
             `hgvsc_values` Array(String),
             `hgvsp_values` Array(String),
             `impacts` Array(String),
@@ -226,8 +235,6 @@ async def ensure_clickhouse_variant_tables(assembly_name: str) -> None:
             `max_cadd_phred` Nullable(Float32),
             `max_revel` Nullable(Float32),
             `max_spliceai` Nullable(Float32),
-            `sift_terms` Array(String),
-            `polyphen_terms` Array(String),
             `updatedAt` DateTime DEFAULT now(),
             INDEX idx_ann_idx_key key TYPE bloom_filter(0.01) GRANULARITY 4,
             INDEX idx_ann_idx_gene gene_symbols TYPE bloom_filter(0.01) GRANULARITY 4,
@@ -276,7 +283,6 @@ async def ensure_clickhouse_variant_tables(assembly_name: str) -> None:
             `annotationSetHash` UInt64,
             `project_guid` LowCardinality(String),
             `family_guid` String,
-            `sample_type` LowCardinality(String),
             `xpos` UInt64,
             `chrom` LowCardinality(String),
             `pos` UInt32,
@@ -396,7 +402,6 @@ async def ensure_clickhouse_variant_tables(assembly_name: str) -> None:
             `variantId` String,
             `project_guid` LowCardinality(String),
             `family_guid` String,
-            `sample_type` LowCardinality(String),
             `chrom` LowCardinality(String),
             `start` UInt32,
             `end` UInt32,
@@ -405,7 +410,6 @@ async def ensure_clickhouse_variant_tables(assembly_name: str) -> None:
             `gene_symbols` Array(String),
             `calls.sampleId` Array(String),
             `calls.gt` Array(LowCardinality(String)),
-            `calls.gq` Array(Nullable(UInt16)),
             `calls.qual` Array(Nullable(Float32)),
             `calls.readSupport` Array(Nullable(UInt32)),
             `calls.filter` Array(Nullable(String)),
@@ -445,6 +449,7 @@ async def ensure_clickhouse_variant_tables(assembly_name: str) -> None:
         for statement in statements:
             await _execute(statement)
         await _widen_small_variant_call_columns(dataset)
+        await _drop_unused_columns(dataset)
         _ensured_variant_table_assemblies.add(dataset)
 
 
@@ -478,6 +483,38 @@ async def _widen_small_variant_call_columns(dataset: str) -> None:
         f"MODIFY COLUMN `{name}` {_SMALL_VARIANT_WIDENED_CALL_COLUMNS[name][1]}" for name in narrow
     )
     await _execute(f"ALTER TABLE {_small_table_name(dataset, 'entries')} {changes}")
+
+
+async def _drop_unused_columns(dataset: str) -> None:
+    """Drop the columns of ``_UNUSED_COLUMNS`` from the assembly's tables that still have them.
+
+    One bound query over ``system.columns`` finds them first, so a table created without them,
+    or altered before, is not altered; each table that has any gets one ALTER. ``DROP COLUMN IF
+    EXISTS`` leaves a second process that found them before the first dropped them with nothing
+    to do. Every other column of every row stays as stored."""
+    tables = {f"{dataset}/{suffix}": suffix for suffix in _UNUSED_COLUMNS}
+    rows = await _execute(
+        """
+        SELECT table, name
+        FROM system.columns
+        WHERE database = %(database)s AND table IN %(tables)s AND name IN %(names)s
+        """,
+        {
+            "database": settings.clickhouse_database,
+            "tables": tuple(sorted(tables)),
+            "names": tuple(sorted({name for names in _UNUSED_COLUMNS.values() for name in names})),
+        },
+    )
+    present: dict[str, set[str]] = {}
+    for table, name in rows or []:
+        suffix = tables.get(str(table))
+        if suffix is not None and str(name) in _UNUSED_COLUMNS[suffix]:
+            present.setdefault(suffix, set()).add(str(name))
+    for suffix in sorted(present):
+        drops = ", ".join(
+            f"DROP COLUMN IF EXISTS `{name}`" for name in _UNUSED_COLUMNS[suffix] if name in present[suffix]
+        )
+        await _execute(f"ALTER TABLE {settings.clickhouse_database}.`{dataset}/{suffix}` {drops}")
 
 
 class ClickHouseStorageIdentityError(RuntimeError):
@@ -788,9 +825,7 @@ async def insert_small_variant_records(
                 ref,
                 alt,
                 rsid,
-                annotationsJson,
-                liftedOverChrom,
-                liftedOverPos
+                annotationsJson
             ) VALUES
             """,
             detail_rows,
@@ -806,7 +841,6 @@ async def insert_small_variant_records(
                 annotationSetHash,
                 project_guid,
                 family_guid,
-                sample_type,
                 xpos,
                 chrom,
                 pos,
@@ -893,7 +927,6 @@ async def insert_small_variant_records(
                 rsid,
                 gene_symbols,
                 gene_ids,
-                transcript_ids,
                 hgvsc_values,
                 hgvsp_values,
                 impacts,
@@ -913,9 +946,7 @@ async def insert_small_variant_records(
                 max_gnomad_hemi_count,
                 max_cadd_phred,
                 max_revel,
-                max_spliceai,
-                sift_terms,
-                polyphen_terms
+                max_spliceai
             ) VALUES
             """,
             annotation_index_rows,
@@ -952,7 +983,6 @@ SMALL_VARIANT_ENTRY_COLUMNS: tuple[str, ...] = (
     "annotationSetHash",
     "project_guid",
     "family_guid",
-    "sample_type",
     "xpos",
     "chrom",
     "pos",
@@ -1252,7 +1282,6 @@ async def insert_structural_variant_records(
                 variantId,
                 project_guid,
                 family_guid,
-                sample_type,
                 chrom,
                 start,
                 end,

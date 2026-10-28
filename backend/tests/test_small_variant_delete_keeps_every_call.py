@@ -49,7 +49,6 @@ def _entry(calls: list[tuple[Any, ...]], **overrides: Any) -> dict[str, Any]:
         "annotationSetHash": 987654321,
         "project_guid": "project-uuid",
         "family_guid": "family-uuid",
-        "sample_type": "WGS",
         "xpos": 1000001000,
         "chrom": "1",
         "pos": 1000,

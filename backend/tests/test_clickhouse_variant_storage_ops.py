@@ -297,7 +297,9 @@ async def test_insert_small_variant_records_stores_site_qual(
     assert "qual," in entry_query
     assert entry_data is not None
     # qual is the variant-level column inserted immediately after `filters`.
-    assert entry_data[0][18] == pytest.approx(42.5)
+    columns = clickhouse_variant_storage.SMALL_VARIANT_ENTRY_COLUMNS
+    assert columns.index("qual") == columns.index("filters") + 1
+    assert entry_data[0][columns.index("qual")] == pytest.approx(42.5)
 
 
 @pytest.mark.asyncio

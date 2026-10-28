@@ -215,10 +215,6 @@ def _small_annotation_index_row(
     annotation_list = [annotation for annotation in annotations if isinstance(annotation, dict)]
     gene_symbols = _string_list(_casefold(_annotation_gene(annotation)) for annotation in annotation_list)
     gene_ids = _string_list(_casefold(_annotation_gene_id(annotation)) for annotation in annotation_list)
-    transcript_ids = _string_list(
-        _clean_text(_annotation_text(annotation, "transcript_id", "transcriptId"))
-        for annotation in annotation_list
-    )
     hgvsc_values = _string_list(
         _clean_text(_annotation_text(annotation, "hgvsc"))
         for annotation in annotation_list
@@ -241,14 +237,6 @@ def _small_annotation_index_row(
         for annotation in annotation_list
         for term in _status_terms(_annotation_clinvar(annotation))
     )
-    sift_terms = _string_list(
-        _casefold(_annotation_text(annotation, "sift", "siftPrediction"))
-        for annotation in annotation_list
-    )
-    polyphen_terms = _string_list(
-        _casefold(_annotation_text(annotation, "polyphen", "polyphenPrediction"))
-        for annotation in annotation_list
-    )
     lof_terms = {
         _casefold(_annotation_text(annotation, "lof") or "")
         for annotation in annotation_list
@@ -265,7 +253,6 @@ def _small_annotation_index_row(
         record.rsid or _annotation_rsid(annotation_list),
         gene_symbols,
         gene_ids,
-        transcript_ids,
         hgvsc_values,
         hgvsp_values,
         impacts,
@@ -286,8 +273,6 @@ def _small_annotation_index_row(
         _max_or_none(_annotation_float32(annotation, "cadd_phred", "caddPhred") for annotation in annotation_list),
         _max_or_none(_annotation_float32(annotation, "revel") for annotation in annotation_list),
         _max_or_none(column_float32(_annotation_spliceai_max(annotation)) for annotation in annotation_list),
-        sift_terms,
-        polyphen_terms,
     )
 
 
@@ -453,8 +438,6 @@ def _small_variant_entry_rows(
                 record.alt,
                 rsid,
                 annotations_json,
-                None,
-                None,
             )
         )
         annotation_index_rows.append(
@@ -507,7 +490,6 @@ def _small_variant_entry_rows(
                     record_annotation_set_hash,
                     project_id,
                     family_uuid,
-                    "WGS",
                     _xpos(record.chr, record.start),
                     normalize_chromosome(record.chr),
                     int(record.start),
@@ -605,7 +587,6 @@ def _structural_variant_entry_rows(
                     variant_id,
                     project_id,
                     family_uuid,
-                    "WGS",
                     normalize_chromosome(record.chr),
                     int(record.start),
                     int(record.end),
