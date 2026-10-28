@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, expect, test, vi } from 'vitest';
 
 const { apiGetMock, useQueryMock } = vi.hoisted(() => ({
@@ -495,9 +495,50 @@ test('shows a hover tooltip with the gene and variant', async () => {
   expect(tooltip).not.toBeNull();
   expect(tooltip).toHaveClass('viz-tooltip--floating');
   expect(tooltip?.textContent).toContain('BRCA2');
-  expect(tooltip?.textContent).toContain('13:32316461');
+  expect(tooltip?.textContent).toContain('chr13:32316461');
   expect(tooltip?.textContent).toContain('G>A');
   expect(tooltip?.textContent).toContain('c.7007G>A');
+});
+
+// The tooltip wrote the chromosome as the variant is stored (`13:32316461`, `MT:3243`), where the
+// viewer names it chr13 and chrM (#602), as the genome overview's SV tooltip does since ENG-20
+// (found while fixing ENG-20, #1030).
+test.each([
+  ['13', '13', 32316461, 'G', 'A', 'chr13:32316461 G>A SNV'],
+  ['chr13', '13', 32316461, 'G', 'A', 'chr13:32316461 G>A SNV'],
+  ['MT', 'MT', 3243, 'A', 'G', 'chrM:3243 A>G SNV'],
+  ['chrM', 'MT', 3243, 'A', 'G', 'chrM:3243 A>G SNV'],
+  ['M', 'MT', 3243, 'A', 'G', 'chrM:3243 A>G SNV'],
+])('names a variant stored on %s on the chromosome as the viewer does', async (chr, chrom, start, ref, alt, text) => {
+  useQueryMock.mockImplementation(({ queryKey }) =>
+    queryKey[0] === 'small-variant-track-tags'
+      ? { data: [], isLoading: false }
+      : {
+          data: {
+            total: 1,
+            variants: [{ chr, start, end: start, type: 'SNV', ref, alt, genotypes: [{ sample: 'S1', gt: '0/1' }] }],
+          },
+          isLoading: false,
+        },
+  );
+
+  const { container } = render(
+    <SmallVariantTrack
+      familyId="F1"
+      sampleId="S1"
+      chrom={chrom}
+      regionStart={start - 500}
+      regionEnd={start + 500}
+      width={100}
+      height={20}
+    />,
+  );
+
+  await waitFor(() => expect(container.querySelectorAll('rect').length).toBeGreaterThan(0));
+  // The variant is in the middle of the view: x 50 over 100 px.
+  fireEvent.mouseMove(container.querySelector('rect') as Element, { clientX: 50, clientY: 10 });
+
+  expect(within(document.body.querySelector('.viz-tooltip') as HTMLElement).getByText(text)).toBeInTheDocument();
 });
 
 test('names the review tags in the tooltip, since a ring gives only a colour (#529)', async () => {
