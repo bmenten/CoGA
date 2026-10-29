@@ -329,6 +329,8 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
   const hasVariantSummary = hasVariants;
   const hasAnyVariantData =
     hasVariants || hasSmallVariants || hasRepeatExpansions || hasParaphase || hasMitoDna;
+  // Every kind of finding the report lists once it is marked Report.
+  const hasReportableFindings = hasAnyVariantData;
   // A failed check is settled too: "Checking…" used to stay up for good (#607).
   const variantCountsLoaded =
     variantCountsReady &&
@@ -1153,8 +1155,10 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
               )}
               {/* Family-level functions, beside the case's workflow fields rather than among
                   the variant analyses: the sample-integrity QC of the members and the report
-                  drawn from the analyses. Each appears once its data is known to exist. */}
-              {(hasSmallVariants || hasVariants) && (
+                  drawn from the analyses. Each appears once its data is known to exist: Sample QC
+                  reads the small-variant genotypes; the report lists every kind of finding that can
+                  be marked Report, repeat loci, Paraphase regions and mtDNA variants included. */}
+              {hasReportableFindings && (
                 <div className="family-workspace-actions" role="group" aria-label="Family actions">
                   <VariantWorkspaceLink
                     active={hasSmallVariants}
@@ -1164,7 +1168,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                     Sample QC
                   </VariantWorkspaceLink>
                   <VariantWorkspaceLink
-                    active={hasSmallVariants || hasVariants}
+                    active={hasReportableFindings}
                     to={routePath`/families/${data.family_id}/report${raw(variantPageQuerySuffix)}`}
                     className="button-secondary family-workspace-action"
                   >
