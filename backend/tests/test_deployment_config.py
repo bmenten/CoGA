@@ -38,6 +38,33 @@ def test_databases_and_the_api_are_published_on_loopback_only() -> None:
             assert str(mapping).startswith("127.0.0.1:"), f"{name} publishes {mapping} beyond this machine"
 
 
+def test_the_vm_override_publishes_nothing_beyond_loopback() -> None:
+    # On a VM the reverse proxy is the one way in (docs/deployment-vm.md): Docker publishes
+    # ports past the host firewall, so the frontend's 3000 must be loopback too.
+    # `!override` replaces the base file's list instead of appending to it; without the tag
+    # Compose would publish both mappings.
+    class _ComposeLoader(yaml.SafeLoader):
+        pass
+
+    overridden: list[yaml.Node] = []
+
+    def _override(loader: yaml.SafeLoader, node: yaml.Node) -> object:
+        overridden.append(node)
+        assert isinstance(node, yaml.SequenceNode)
+        return loader.construct_sequence(node)
+
+    _ComposeLoader.add_constructor("!override", _override)
+    vm = yaml.load((REPO / "docker-compose.vm.yml").read_text(), Loader=_ComposeLoader)["services"]
+    assert set(vm) == set(_compose()["services"]), "the override names a service compose does not run"
+    assert vm["frontend"]["ports"] == ["127.0.0.1:3000:3000"]
+    assert overridden, "the frontend's ports must replace the base file's, with !override"
+    published = {name: service.get("ports", []) for name, service in _compose()["services"].items()}
+    published.update({name: service["ports"] for name, service in vm.items() if "ports" in service})
+    for name, mappings in published.items():
+        for mapping in mappings:
+            assert str(mapping).startswith("127.0.0.1:"), f"{name} publishes {mapping} beyond the VM"
+
+
 def test_the_frontend_does_not_receive_the_backend_secrets() -> None:
     frontend = _compose()["services"]["frontend"]
     assert "env_file" not in frontend, "the frontend container must not get the whole .env"
