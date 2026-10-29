@@ -47,6 +47,10 @@ switch off a VM that breaks the terms. What each term asks of a CoGA VM:
 | **A successor administrator** must be reported through ICT self-service or HelpMe; a VM without an administrator is shut down | name the new administrator before you hand over |
 | **Security incidents**: ICT isolates or switches off the VM, and the department can be held co-liable for negligence | synthetic data only, loopback-only ports, and the firewall of step 2 |
 
+Give the VM a host name under `ugent.be`, and take its TLS certificate from ICT's certificate
+service (HARICA); ICT's single sign-on is open only to existing UGent DNS names served over
+HTTPS.
+
 Since ICT may switch the VM off, make sure a shutdown stops ClickHouse cleanly (step 2) and
 that the back-ups are current.
 
@@ -118,9 +122,17 @@ chmod 600 .env
 | `FAMILY_IMPORT_WORKER_COUNT` | 1 to 8; more workers import families in parallel |
 | `METRICS_TOKEN` | optional, 32+ characters, to collect `/metrics` ([monitoring.md](monitoring.md)) |
 
-Leave `AZURE_TENANT_ID` and `AZURE_CLIENT_ID` empty unless the VM's users sign in through
-an Entra ID tenant that has an app registration for this host; accounts then sign in with
-their passwords.
+**Sign-in.** Left empty, `AZURE_TENANT_ID` and `AZURE_CLIENT_ID` give every account a CoGA
+password. With an app registration in the organisation's Entra ID, users sign in with their
+Microsoft account instead, MFA included; IT creates the registration as
+[deployment-gcp.md §12.12](deployment-gcp.md#1212-microsoft-sign-in-azure-ad--microsoft-entra-id)
+describes, with the redirect URI `https://<host name>/login`, and the go-live steps there apply
+here too, with `AZURE_ADMIN_OVERRIDE` in `.env` for the Terraform variable.
+
+At Ghent University the UGent accounts are in Entra ID, so CoGA's Microsoft sign-in serves
+them as it is: ask ICT, through ICT self-service, for that app registration in the UGent
+tenant. The sign-in ICT documents for web applications is CAS (`login.ugent.be`); CoGA has no
+CAS client, so if ICT offers only CAS, a VM for testing keeps the password sign-in.
 
 **The dbNSFP gene file** is not in the repository (its download needs a registration,
 [data-import.md](data-import.md)). Copy `dbNSFP5.4_gene.gz` to `/srv/coga/data/ref-data/`; without
