@@ -177,6 +177,23 @@ class SmallVariantReviewSummaryOut(BaseModel):
     tag_counts: Dict[str, int] = Field(default_factory=dict)
 
 
+class FindingReviewCountsOut(BaseModel):
+    """A family's reviews of one kind of finding (repeat loci or Paraphase regions) in its
+    assembly: how many say anything, carry a classification or a note, and how many hold each tag."""
+
+    reviewed_count: int = 0
+    classified_count: int = 0
+    note_count: int = 0
+    tag_counts: Dict[str, int] = Field(default_factory=dict)
+
+
+class FindingReviewSummaryOut(BaseModel):
+    """The family workspace's curation lines of the repeat and Paraphase reviews."""
+
+    repeat: FindingReviewCountsOut = Field(default_factory=FindingReviewCountsOut)
+    paraphase: FindingReviewCountsOut = Field(default_factory=FindingReviewCountsOut)
+
+
 class SmallVariantFilterPresetCreate(BaseModel):
     # A small-variant preset is its owner's, reusable in every family they can open.
     name: str = Field(min_length=1, max_length=80)

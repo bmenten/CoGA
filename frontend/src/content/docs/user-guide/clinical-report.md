@@ -13,6 +13,9 @@ and refers to exactly one signed version: the one it rests on.
 - Every **reported variant**, small variants and structural variants alike. If a list cannot hold them
   all, an *Incomplete* warning says so, on screen and in print, so a printout cannot pass for the whole
   list.
+- The **repeat expansions and Paraphase findings** marked **Report**: each with its gene and disease,
+  every member's call with CoGA's status, your classification and note, and the marks *differs from
+  CoGA's status* and *Changed since review* where they apply. Without any, the section says so.
 - A **provenance footer** with the CoGA version that produced the page, the in-house IVD statement and
   the manufacturer, and the versions behind the data: the pipeline tools, the assembly, the gene loci,
   the Monarch release and the HPO release. It prints with the report.
@@ -49,15 +52,16 @@ track held (read depth, a log2 ratio or unknown, and whether an upload or a pack
 each embryo's call at the region of interest as the family page shows it, with its phasing QC and that
 QC's verdict against the thresholds, and for a monogenic NIPT family its NIPT results (the NIPT page
 signs out through this same sign-out, see the NIPT chapter). The EPD refers to the signed version by
-its **report code** (for example `7KQM2X-2-4PHT`). It stops for five things:
+its **report code** (for example `7KQM2X-2-4PHT`). It stops for six things:
 
 1. **An assembly outside the validated scope** (the page says *Not validated for clinical use*): the
    report cannot be signed out.
 2. **Data being written**: a data import of the family is queued or running, or an upload, or a
    deletion of its variants, is changing its data. Sign out once it has finished; there is no override.
 3. **Evidence drift**, of a small variant, a structural variant or a CNV, including a reported variant
-   that was never saved through **ACMG classify** or **ACMG (CNV)** (its evidence cannot be checked):
-   re-review, or acknowledge with a reason. The dialog lists each classification and what moved.
+   that was never saved through **ACMG classify** or **ACMG (CNV)** (its evidence cannot be checked),
+   and of a repeat or Paraphase review with a classification or the **Report** tag whose calls changed
+   since: re-review, or acknowledge with a reason. The dialog lists each classification and what moved.
 4. **Sample QC** that failed, or could not confirm the pedigree or a sample's identity, and for a NIPT
    family a NIPT quality check that failed: acknowledge with a reason. The dialog lists every concern
    before you write it, under its own heading: the checks that failed, the checks that could not run,
@@ -71,6 +75,10 @@ its **report code** (for example `7KQM2X-2-4PHT`). It stops for five things:
    what an upload brought. After a single upload or a deletion that did not finish, upload or import
    again with **overwrite** what the warning names; after an administrator's deletion of a sample
    that did not finish, deleting the sample again also removes what the warning names of it.
+6. **Repeat and Paraphase calls without a review**: a repeat call that reads *Pathogenic*,
+   *Premutation*, *Review* or *Not assessed*, a count *Near a boundary*, or a Paraphase call that reads
+   *pathogenic*, *carrier* or *review*, at a locus or region without a review (any tag, note or
+   classification): review it, or acknowledge with a reason. A grey-zone call alone does not stop it.
 
 Your acknowledgement covers exactly what its dialog lists. If the concerns change before you click
 **Sign out anyway**, nothing is signed out: the dialog lists them as they are now, says the concerns

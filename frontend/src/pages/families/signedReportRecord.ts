@@ -77,6 +77,167 @@ const strings = (value: unknown): string[] => {
 };
 const has = (record: Json, key: string): boolean => Object.prototype.hasOwnProperty.call(record, key);
 
+// --- Reviews of repeat loci and Paraphase regions (finding_review_pg) -------------------
+
+// A repeat or Paraphase review whose frozen calls are no longer the family's, as the drift
+// gate lists it (finding_review_pg: `finding_drifted`).
+export type FindingDriftItem = { kind: string; key: string; status: string; changes: string[] };
+// A repeat locus or Paraphase region with an abnormal call and no review, as the gate of
+// unreviewed findings lists it; `key` null: that kind's calls could not be read.
+export type UnreviewedFinding = {
+  kind: string;
+  key: string | null;
+  gene: string | null;
+  samples: { sample: string; status: string; nearBoundary: boolean }[];
+};
+
+export const FINDING_NOUN: Record<string, string> = { repeat: 'repeat locus', paraphase: 'Paraphase region' };
+
+export const FINDING_DRIFT_WORDS: Record<string, string> = {
+  changed: 'its calls changed since the review',
+  not_found: 'the family holds no call there any more',
+  no_snapshot: 'the review froze no calls',
+  unverifiable: 'the calls could not be read',
+};
+
+const asRecord = (value: unknown): Json => (isObject(value) ? value : {});
+
+export const parseFindingDrift = (value: unknown): FindingDriftItem[] =>
+  (Array.isArray(value) ? value : []).map((entry) => {
+    const item = asRecord(entry);
+    return {
+      kind: String(item.kind ?? ''),
+      key: String(item.key ?? ''),
+      status: String(item.status ?? ''),
+      changes: Array.isArray(item.changes) ? item.changes.map(String) : [],
+    };
+  });
+
+export const parseUnreviewedFindings = (value: unknown): UnreviewedFinding[] =>
+  (Array.isArray(value) ? value : []).map((entry) => {
+    const item = asRecord(entry);
+    return {
+      kind: String(item.kind ?? ''),
+      key: item.key == null ? null : String(item.key),
+      gene: item.gene == null ? null : String(item.gene),
+      samples: (Array.isArray(item.samples) ? item.samples : []).map((raw) => {
+        const sample = asRecord(raw);
+        return {
+          sample: String(sample.sample ?? ''),
+          status: String(sample.status ?? ''),
+          nearBoundary: Boolean(sample.near_boundary),
+        };
+      }),
+    };
+  });
+
+/** A finding the gate lists, in words: "HTT (repeat locus): PROBAND pathogenic". */
+export const describeUnreviewedFinding = (finding: UnreviewedFinding): string => {
+  const noun = FINDING_NOUN[finding.kind] ?? finding.kind;
+  if (finding.key === null) return `The ${noun} calls could not be read`;
+  const calls = finding.samples
+    .map((sample) => `${sample.sample} ${sample.status.replace(/_/g, ' ')}${sample.nearBoundary ? ' (near a boundary)' : ''}`)
+    .join(', ');
+  return `${finding.gene || finding.key} (${noun}): ${calls}`;
+};
+
+/** A member's call at a reviewed finding as the review froze it, with CoGA's status. */
+export interface SignedFindingCall {
+  sample: string;
+  /** The repeat counts ("17 / 42") or the key copy number ("SMN1 CN 1"). */
+  call: string | null;
+  status: string | null;
+}
+
+/**
+ * A review of a repeat locus or Paraphase region the record holds: one with a classification
+ * or the Report tag (B13), with the calls it rests on and whether they still were the family's
+ * when the version was signed (REQ-TRACE-015, REQ-TRACE-017).
+ */
+export interface SignedFindingReview {
+  kind: 'repeat' | 'paraphase';
+  key: string;
+  gene: string | null;
+  disease: string | null;
+  classification: string | null;
+  classificationLabel: string | null;
+  tags: string[];
+  reported: boolean;
+  note: string | null;
+  reviewedBy: string | null;
+  reviewedAt: string | null;
+  calls: SignedFindingCall[];
+  drift: { status: string; changes: string[] };
+}
+
+/** The repeat and Paraphase reviews of a record; null when signed before CoGA froze them. */
+export interface SignedFindingReviews {
+  reviews: SignedFindingReview[];
+  /** The abnormal calls without a review the sign-out listed (REQ-TRACE-016). */
+  unreviewed: UnreviewedFinding[];
+}
+
+const frozenCalls = (kind: 'repeat' | 'paraphase', evidence: Json): SignedFindingCall[] =>
+  kind === 'repeat'
+    ? objects(evidence.calls).map((call) => {
+        const counts = objects(call.alleles)
+          .map((allele) => number(allele.repeat_count))
+          .filter((count): count is number => count !== null);
+        return {
+          sample: text(call.sample) ?? 'a sample',
+          call: counts.length ? counts.join(' / ') : null,
+          status: text(call.status),
+        };
+      })
+    : objects(evidence.samples).map((sample) => {
+        const metric = objects(sample.copy_number)[0];
+        const value = metric ? number(metric.value) : null;
+        return {
+          sample: text(sample.sample) ?? 'a sample',
+          call: metric ? `${text(metric.label) ?? 'copy number'} ${value ?? 'no call'}` : null,
+          status: text(sample.status),
+        };
+      });
+
+const parseFindingReviewList = (kind: 'repeat' | 'paraphase', value: unknown): SignedFindingReview[] =>
+  (Array.isArray(value) ? value : []).filter(isObject).map((entry) => {
+    const snapshot = isObject(entry.evidence_snapshot) ? entry.evidence_snapshot : {};
+    const evidence = isObject(snapshot.evidence) ? snapshot.evidence : {};
+    const drift = isObject(entry.drift) ? entry.drift : {};
+    return {
+      kind,
+      key: text(entry.key) ?? '',
+      gene: kind === 'repeat' ? text(evidence.gene) : (text(evidence.region) ?? text(evidence.gene)),
+      disease: kind === 'repeat' ? text(evidence.disease) : null,
+      classification: text(entry.classification),
+      classificationLabel: text(entry.classification_label),
+      tags: Array.isArray(entry.tags) ? entry.tags.filter((tag): tag is string => typeof tag === 'string') : [],
+      reported: entry.reported === true,
+      note: text(entry.note),
+      reviewedBy: text(entry.reviewed_by),
+      reviewedAt: text(entry.reviewed_at),
+      calls: frozenCalls(kind, evidence),
+      drift: {
+        status: text(drift.status) ?? 'unverifiable',
+        changes: Array.isArray(drift.changes) ? drift.changes.map(String) : [],
+      },
+    };
+  });
+
+/** The record's repeat and Paraphase reviews; null when it holds none of their keys. */
+export const parseFindingReviews = (snapshot: Json): SignedFindingReviews | null => {
+  if (!['repeat_expansion_reviews', 'paraphase_reviews', 'unreviewed_findings'].some((key) => has(snapshot, key))) {
+    return null;
+  }
+  return {
+    reviews: [
+      ...parseFindingReviewList('repeat', snapshot.repeat_expansion_reviews),
+      ...parseFindingReviewList('paraphase', snapshot.paraphase_reviews),
+    ],
+    unreviewed: parseUnreviewedFindings(snapshot.unreviewed_findings),
+  };
+};
+
 /** An override of a sign-out gate, as frozen: `null` when the record holds none. */
 export interface SignedAcknowledgement {
   acknowledged: boolean | null;
@@ -746,6 +907,9 @@ export interface SignedReport {
   pgtAnalysis: SignedRecordSection<SignedPgtAnalysis>;
   /** A monogenic NIPT family's NIPT results; `absent` from a record of any other family too. */
   nipt: SignedRecordSection<SignedNipt>;
+  /** The repeat and Paraphase reviews; null: signed before CoGA froze them. */
+  findingReviews: SignedFindingReviews | null;
+  unreviewedAcknowledgement: SignedAcknowledgement;
 }
 
 const acknowledgement = (snapshot: Json, flag: string, reason: string): SignedAcknowledgement => ({
@@ -1727,6 +1891,12 @@ export const parseSignedReport = (snapshot: unknown): SignedReport | null => {
     coverageTracks: parseRecordSection(snapshot, 'coverage_tracks', parseCoverageTracks),
     pgtAnalysis: parseRecordSection(snapshot, 'pgt_analysis', parsePgtAnalysis),
     nipt: parseRecordSection(snapshot, 'nipt', parseNipt),
+    findingReviews: parseFindingReviews(snapshot),
+    unreviewedAcknowledgement: acknowledgement(
+      snapshot,
+      'acknowledged_unreviewed_findings',
+      'unreviewed_findings_acknowledgement_reason',
+    ),
   };
 };
 
@@ -1795,6 +1965,10 @@ const REPORT_SECTION_LABELS: Record<string, string> = {
   coverage_tracks: 'coverage tracks',
   pgt_analysis: 'PGT embryo results',
   nipt: 'NIPT results',
+  repeat_expansion_reviews: 'repeat locus reviews',
+  paraphase_reviews: 'Paraphase region reviews',
+  finding_review_drift: 'repeat and Paraphase review drift',
+  unreviewed_findings: 'repeat and Paraphase calls without a review',
 };
 
 // --- Wording of what the analysis looked at --------------------------------------------

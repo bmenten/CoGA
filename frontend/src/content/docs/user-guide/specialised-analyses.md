@@ -107,6 +107,30 @@ Paraphase infers, else the pedigree's; without a sex a chrX value is not called 
 fixed normal value (*highest_total_cn*) and a no-call are no change. **Copy-number changes only** shows
 only the loci with such a change.
 
+### Reviewing a repeat locus or a Paraphase region
+
+Each repeat locus and Paraphase region has a review of its own, kept per family and reference
+assembly, and its card the controls of every variant card: **Review**, **Exclude** and **Report**
+toggle their tag, and **Tags & notes** opens the review. There you give your classification on the
+type's own scale, beside CoGA's status, which it never changes:
+
+- a repeat locus: *Pathogenic expansion*, *Reduced penetrance*, *Premutation*, *Intermediate (grey
+  zone)*, *Normal* or *Uncertain significance*;
+- a Paraphase region: *Affected*, *Carrier*, *Risk allele*, *Normal* or *Uncertain significance*.
+
+The ACMG class tags and VUS tiers are not offered here: they are the small variants' ACMG classes. A
+review that already holds one lists it, marked, so you can untick it. The card shows your
+classification as *Review: …*, and *Differs from CoGA's status* when it agrees with none of the
+members' calls (a *Normal* where every call reads *Pathogenic*, say): a review is of the locus or
+region, so a classification that fits one member's call is not marked. **Exclude** folds the card
+to its heading; it stays in the list, **Aberrant only** included.
+
+A classification, and the **Report** tag, rest on the calls as they were when you saved them: CoGA
+freezes them. When the calls change after that (a new import, a locus whose counting units QA
+validated), the card says *Changed since review*, and the tooltip names what changed; *No call since
+review* when the family holds no call there any more. A save of tags or a note alone keeps the calls
+your classification rests on. Sign-out checks them again (see *Clinical report*).
+
 ### mtDNA
 
 Each sample's row in the family summary of the **mtDNA analysis** page gives its mean chrM depth and

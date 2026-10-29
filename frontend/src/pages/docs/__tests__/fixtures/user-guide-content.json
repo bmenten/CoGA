@@ -517,7 +517,7 @@
     "/dashboard"
    ]
   ],
-  "text": "Everycasestartsonitsfamilypage.TheheaderStatus,AssignedtoandReviewedbytrackthecase'sworkflow;ananalystofthefamily'sprojectcanchangethem,areaderonlyseesthem.AssignedtoandReviewedbyoffertheactiveanalystsofthefamily'sprojectsandtheadministrators,neverareader.Someonechosenbeforetheybecameareader(orleftthefamily'sprojects)staysshown,marked(noteligible),untilyouchangeit.Theheaderalsoshowstheassemblyandtheprojects,andaNotvalidatedforclinicalusebannerwhenthefamilyisoutsidethevalidatedscope.Besidetheworkflowfieldssitthefamily-levelfunctions:SampleQC(whenthefamilyhassmallvariants)andReport(whenithassmallorstructuralvariants).TheanalysesandviewsVariants—onerowoflinks:Smallvariants,Structuralvariants,Repeatexpansions,Paraphase,mtDNAanalysisandMonogenicNIPT,withVariantsummary(ofthestructuralvariants)last,attherightend.Alinkappearsonlywhenthefamilyhasthatkindofdata.Undertherow,Curationgivesalineeachforthesmallandthestructuralvariants:howmanyarereviewed,howmanycarrynotes,andthecountperreviewtag.Visualization—Genomeview,Chromosomeview,CircosplotandIGVviewer.Regionofinterest(ROI)TheROIisthegeneorlocusthecaseisabout;PGTusesitfortheembryocalls.Anadministratorsetsit(Save,Clear).Anyonecanclickittoopenthechromosomeviewwith1Mboneachside.InaPGTfamily,ReviewROImarkers→opensthemarkerreview.FamilymembersOnerowperperson:role,parents,partner,Relatedto,status,HPOtermsandaSeq.QCchipwiththesequencingQCverdictandmeandepth(hoverorfocusitforthemetrics).Apassingchipshowsthenumberalone;anyotherstateisawordonthechip:WarningorFailwhenametriccrosseditslimit,whichthetooltipnames,andNotrunwhenthesample'sQCwasnotassessed(nolimitsetforanyofitsmetrics,ornoverdictreturned),whichisneverapass.AnembryowhoseQCholdsonlythePGTpipeline'sembryometricshasnodepthtoshow:itschipgivesthevalueofthemetricthatdecidedtheverdict(FailADO14.2%),orNotrunalone.InaPGTfamilyeachembryoalsoshowsitsderivedcall(seeHaplotypesegregation).Relatedtonamesthememberthroughwhomapersonisrelatedbyanunknowndegree,suchasaPGTindexknowntobeonthemother'sside,orbothparents.Thepedigreedrawsthelinkasadottedarcwitha?.Thehaplotypetrackcoloursthatpersonalongthegenomewhentheyturnouttobethatmember'sownparentorchild(theyshareoneofthemember'shaplotypesalongnearlyeverychromosome),andamoredistantrelativearoundtheROI,wherethemarkersonbothsidesshowthehaplotypetheyshare;elsewheresucharelativestaysgrey.Onlyanadministratoreditsamember:clickthesamplenametoopenFamilymemberdetails,changethefields,pressApplytopending,thenSavependingupdatesonthefamilypage.HPOtermsareaddedandremovedinthesamedialog,byananalystofthefamily'sprojectoranadministrator.Affectedstatusandcarrierstatusareseparate:anunaffectedpersoncanbeacarrier.Removememberinthedialogtakesthepersonoutofthefamilyatonce,afteryouconfirm.MembersareaddedinAdmin→Family&sampledata.FurtherdownarethePhenotypematch(Monarch)paneland,closedbydefault,theAnalysispipelinesettingsrecordedatimport.",
+  "text": "Everycasestartsonitsfamilypage.TheheaderStatus,AssignedtoandReviewedbytrackthecase'sworkflow;ananalystofthefamily'sprojectcanchangethem,areaderonlyseesthem.AssignedtoandReviewedbyoffertheactiveanalystsofthefamily'sprojectsandtheadministrators,neverareader.Someonechosenbeforetheybecameareader(orleftthefamily'sprojects)staysshown,marked(noteligible),untilyouchangeit.Theheaderalsoshowstheassemblyandtheprojects,andaNotvalidatedforclinicalusebannerwhenthefamilyisoutsidethevalidatedscope.Besidetheworkflowfieldssitthefamily-levelfunctions:SampleQC(whenthefamilyhassmallvariants)andReport(whenithassmallorstructuralvariants).TheanalysesandviewsVariants—onerowoflinks:Smallvariants,Structuralvariants,Repeatexpansions,Paraphase,mtDNAanalysisandMonogenicNIPT,withVariantsummary(ofthestructuralvariants)last,attherightend.Alinkappearsonlywhenthefamilyhasthatkindofdata.Undertherow,Curationgivesalineeachforthesmallandthestructuralvariants,therepeatlociandtheParaphaseregions:howmanyarereviewed,howmanycarrynotes,andthecountperreviewtag;fortherepeatlociandtheParaphaseregionsalsohowmanycarryyourclassification.Visualization—Genomeview,Chromosomeview,CircosplotandIGVviewer.Regionofinterest(ROI)TheROIisthegeneorlocusthecaseisabout;PGTusesitfortheembryocalls.Anadministratorsetsit(Save,Clear).Anyonecanclickittoopenthechromosomeviewwith1Mboneachside.InaPGTfamily,ReviewROImarkers→opensthemarkerreview.FamilymembersOnerowperperson:role,parents,partner,Relatedto,status,HPOtermsandaSeq.QCchipwiththesequencingQCverdictandmeandepth(hoverorfocusitforthemetrics).Apassingchipshowsthenumberalone;anyotherstateisawordonthechip:WarningorFailwhenametriccrosseditslimit,whichthetooltipnames,andNotrunwhenthesample'sQCwasnotassessed(nolimitsetforanyofitsmetrics,ornoverdictreturned),whichisneverapass.AnembryowhoseQCholdsonlythePGTpipeline'sembryometricshasnodepthtoshow:itschipgivesthevalueofthemetricthatdecidedtheverdict(FailADO14.2%),orNotrunalone.InaPGTfamilyeachembryoalsoshowsitsderivedcall(seeHaplotypesegregation).Relatedtonamesthememberthroughwhomapersonisrelatedbyanunknowndegree,suchasaPGTindexknowntobeonthemother'sside,orbothparents.Thepedigreedrawsthelinkasadottedarcwitha?.Thehaplotypetrackcoloursthatpersonalongthegenomewhentheyturnouttobethatmember'sownparentorchild(theyshareoneofthemember'shaplotypesalongnearlyeverychromosome),andamoredistantrelativearoundtheROI,wherethemarkersonbothsidesshowthehaplotypetheyshare;elsewheresucharelativestaysgrey.Onlyanadministratoreditsamember:clickthesamplenametoopenFamilymemberdetails,changethefields,pressApplytopending,thenSavependingupdatesonthefamilypage.HPOtermsareaddedandremovedinthesamedialog,byananalystofthefamily'sprojectoranadministrator.Affectedstatusandcarrierstatusareseparate:anunaffectedpersoncanbeacarrier.Removememberinthedialogtakesthepersonoutofthefamilyatonce,afteryouconfirm.MembersareaddedinAdmin→Family&sampledata.FurtherdownarethePhenotypematch(Monarch)paneland,closedbydefault,theAnalysispipelinesettingsrecordedatimport.",
   "paragraphs": [
    "Every case starts on its family page.",
    "Status, Assigned to and Reviewed by track the case's workflow; an analyst of the family's project can change them, a reader only sees them. Assigned to and Reviewed by offer the active analysts of the family's projects and the administrators, never a reader. Someone chosen before they became a reader (or left the family's projects) stays shown, marked (not eligible), until you change it. The header also shows the assembly and the projects, and a Not validated for clinical use banner when the family is outside the validated scope. Beside the workflow fields sit the family-level functions: Sample QC (when the family has small variants) and Report (when it has small or structural variants).",
@@ -538,7 +538,7 @@
    ],
    [
     "li",
-    "Variants — one row of links: Small variants, Structural variants, Repeat expansions, Paraphase, mtDNA analysis and Monogenic NIPT, with Variant summary (of the structural variants) last, at the right end. A link appears only when the family has that kind of data. Under the row, Curation gives a line each for the small and the structural variants: how many are reviewed, how many carry notes, and the count per review tag."
+    "Variants — one row of links: Small variants, Structural variants, Repeat expansions, Paraphase, mtDNA analysis and Monogenic NIPT, with Variant summary (of the structural variants) last, at the right end. A link appears only when the family has that kind of data. Under the row, Curation gives a line each for the small and the structural variants, the repeat loci and the Paraphase regions: how many are reviewed, how many carry notes, and the count per review tag; for the repeat loci and the Paraphase regions also how many carry your classification."
    ],
    [
     "li",
@@ -1489,11 +1489,11 @@
   "title": "Family report and sign-out",
   "summary": "Draft the family report from the tagged variants, see what changed, and sign the analysis out into a version that can never change. The clinical report is signed in the EPD.",
   "quickLinks": [],
-  "text": "TagavariantwithReportanditjoinsthefamilyreport(theReportbuttononthefamilypage).Thelivereportdraftsreadabletextperreportedvariant—description,ACMGreasoning,genecontextandphenotypeoverlap—andiswheretheanalysisissignedout.Onceitissignedout,theReportbuttonopensitssignedversion.Sign-outclosestheanalysis;themedicalsign-offisintheEPD.Signoutreportistheanalyst'sanalyticalsign-off:itclosestheanalysisandfreezesitintoasignedversion.Theclinicalreportisdraftedandmedicallysignedinthehospital'selectronicpatientrecord(EPD),notinCoGA,andreferstoexactlyonesignedversion:theoneitrestson.WhatthelivereportshowsEveryreportedvariant,smallvariantsandstructuralvariantsalike.Ifalistcannotholdthemall,anIncompletewarningsaysso,onscreenandinprint,soaprintoutcannotpassforthewholelist.AprovenancefooterwiththeCoGAversionthatproducedthepage,thein-houseIVDstatementandthemanufacturer,andtheversionsbehindthedata:thepipelinetools,theassembly,thegeneloci,theMonarchreleaseandtheHPOrelease.Itprintswiththereport.Anevidence-driftbannerwhenaclassification'sevidencechangedafteritwasmade:forexampleanewClinVarsignificance,anewREVELscoreorgnomADfrequency(REVEL0.412→0.951),anewconsequenceorLoFcall(LoFLC→HC),anewmissenseZforamissensevariant'sgene,orastructuralvariantthatnowoverlapsothergenes.Re-reviewthosevariants.TheClinicalaudittrail:whoclassified,taggedorannotatedwhat,whoreviewedacompound-heterozygouspair,whochangedthepedigreeorthefamily'sphenotypes,andwhen.Entriescanneverbechangedordeleted.Itisforanalystsandadministrators:areaderofthefamily'sprojectsees,onscreenandinprint,thatitisnotshown.Itopensonthe200mostrecententries;whentherearemore,itsayshowmanyitshows,andShowoldereventsloadsthenext200.Aprintoutthatshowsonlypartofthetrailsaysso.TheAnalysispipelinesettingsrecordedatimport.AnImportincompletewarningatthetopwhenadataimportleftthefamilypartlyloaded,orhasnotfinished:itisstillrunning,oritstoppedpart-way(forexampletheserverrestarted).Itnamesthedatasetsthatfailed,orthattheimporthadnotfinished,andtheimportjob.Asingleuploadthathasnotfinished,orthatfailedandcouldnotputbackwhatitdeleted,isnamedthesameway,asasingle-fileupload,andsoisadeletionofthefamily'sdatathathasnotfinished(anadministrator'sdeletionofasampleorofthefamily,aPEDuploadthatreplacesthefamily,astructurechangethatclearsitsdata),asadeletionofthisfamily'sdata.Thesamewarningshowsoneveryfamilypageuntilanimport,oranupload,hasbroughtthosedatasetsagain.SigningoutSignoutreportisyouranalyticalsign-off:itclosestheanalysisandfreezesthereportedresultintoanumberedversionwithauniquefingerprint,withwhattheanalysislookedat:eachreportedvariant'sdescriptionasyoureviewedit,thegenepanelsthefamily'ssearchesapplied,thereference-datareleases,therepeat-expansionandParaphaseresults(witheachrepeatcountnearaboundarymarked,andwhetherQAhadvalidatedTRGT'scountingunitsateachlocus),whateachcoveragetrackheld(readdepth,alog2ratioorunknown,andwhetheranuploadorapackageloadedit),inaPGTfamilyeachembryo'scallattheregionofinterestasthefamilypageshowsit,withitsphasingQCandthatQC'sverdictagainstthethresholds,andforamonogenicNIPTfamilyitsNIPTresults(theNIPTpagesignsoutthroughthissamesign-out,seetheNIPTchapter).TheEPDreferstothesignedversionbyitsreportcode(forexample7KQM2X-2-4PHT).Itstopsforfivethings:Anassemblyoutsidethevalidatedscope(thepagesaysNotvalidatedforclinicaluse):thereportcannotbesignedout.Databeingwritten:adataimportofthefamilyisqueuedorrunning,oranupload,oradeletionofitsvariants,ischangingitsdata.Signoutonceithasfinished;thereisnooverride.Evidencedrift,ofasmallvariant,astructuralvariantoraCNV,includingareportedvariantthatwasneversavedthroughACMGclassifyorACMG(CNV)(itsevidencecannotbechecked):re-review,oracknowledgewithareason.Thedialoglistseachclassificationandwhatmoved.SampleQCthatfailed,orcouldnotconfirmthepedigreeorasample'sidentity,andforaNIPTfamilyaNIPTqualitycheckthatfailed:acknowledgewithareason.Thedialoglistseveryconcernbeforeyouwriteit,underitsownheading:thechecksthatfailed,thechecksthatcouldnotrun,theNIPTqualitychecksthatfailed,andthewarnings,whichdonotstopthesign-outontheirown.Eachconcernnamesthesample,thepairorthechilditisabout,andyourreasoncoversallofthem.Anincompleteimport(thepagesaysImportincomplete):importwhatfailedagain,oracknowledgewithareason.Afteranimportthatstoppedpart-way,re-runitwithoverwrite:anupdateskipsdatathatisalreadythere,partlywrittendatatoo.Afterafailedoverwritethatcouldnotputthefamily'sdataback,importthewholefamilyagainwithoverwrite,everydatasetthewarningnamesandnotonlythosethatfailed,anduploadagainwithoverwritewhatanuploadbrought.Afterasingleuploadoradeletionthatdidnotfinish,uploadorimportagainwithoverwritewhatthewarningnames;afteranadministrator'sdeletionofasamplethatdidnotfinish,deletingthesampleagainalsoremoveswhatthewarningnamesofit.Youracknowledgementcoversexactlywhatitsdialoglists.IftheconcernschangebeforeyouclickSignoutanyway,nothingissignedout:thedialogliststhemastheyarenow,saystheconcernschanged,andasksforyourreasonagain.APGTembryocallwhosephasingQCdoesnotmeetitsthresholds(⚠phasingQConthefamilypage)doesnotstopthesign-out:thecallstands,youdecideonit,andthesignedversionrecordsthewarning.Areasonyougiveisfrozenintothesignedversionandwrittentotheaudittrail.Signingoutagaincreatesanewversion(Amendsign-out);earlierversionsareneveroverwritten,andaclinicalreportthatrestsontheamendedanalysisreferstothenewversion.Aftersigningout,thepageshowstheversionyousignedanditsreportcode:quotethatcodeintheEPDreport.Amistypedcodeisrefusedasatypo,nevertakenforanotherrecord's.Reportcodesinthemainmenufindsthesignedversionacodenames.Onlypeoplethelaboratoryauthorisessignout.CoGAletsanyanalystofthefamily'sprojectpressSignoutreport,notareader,anddoesnotcheckthatauthorityfurther.Thelaboratorydecideswhomaysignoutananalysis;CoGArecordswhodid.Themedicalsign-offisgivenintheEPD.Isthisthesignedreport?Onlythesignedversionis.Asignedcaseopensonitslatestsignedversion,drawnfromthefrozenrecord:SignedversionN—signedoutby…on…,withitsreportcodeandfingerprint.Itshowswhatwassigned:eachreportedvariant'sdescription,classification,criteria,evidenceandnote,inaPGTfamilytheembryocalls(PGTembryoresults,witheachcall'sQCverdictandthethresholds),inamonogenicNIPTfamilyitsNIPTresults(NIPTresults),thegenepanelsapplied,therepeatexpansions(eachcountnearaboundarymarkedbesideitscall,⚠Nearaboundary,andeachlocus'scountingunitsasQAhadrecordedthem)andParaphaseresults,thecoveragetracks(Coveragetracks:whateachheld,andfromwhichfile),thereference-datareleases,andthechecksatsign-out.Itsayswhattherecorddoesnothold—thepopulationfrequenciesandpredictions,thegeneandphenotypecontext,theaudittrail—andneverfillsthatinfromcurrentdata.PrintsignedversionNprintsit,andDownloadsignedversionN(JSON)returnstherecorditself.Signedversionsliststheearlierones.Openthelivereportshowsthecurrentdata.ItsaysThisisthelivereport,notsignedversionN,andwhetheritstillmatches:amberwhensomethingchangedsince(itnameswhat),greywhenthecheckcouldnotbemade(treatitasunsigned).WhatversionNdoesnotholdcouldnotbecompared,anditnamesthattoo(NotinsignedversionN,sonotcompared:…).ItsprintoutstartswithNotthesignedreport.In-depthreferenceReporttraceabilityandsign-outreference(footer,drift,audit,thesign-outchecks)→",
+  "text": "TagavariantwithReportanditjoinsthefamilyreport(theReportbuttononthefamilypage).Thelivereportdraftsreadabletextperreportedvariant—description,ACMGreasoning,genecontextandphenotypeoverlap—andiswheretheanalysisissignedout.Onceitissignedout,theReportbuttonopensitssignedversion.Sign-outclosestheanalysis;themedicalsign-offisintheEPD.Signoutreportistheanalyst'sanalyticalsign-off:itclosestheanalysisandfreezesitintoasignedversion.Theclinicalreportisdraftedandmedicallysignedinthehospital'selectronicpatientrecord(EPD),notinCoGA,andreferstoexactlyonesignedversion:theoneitrestson.WhatthelivereportshowsEveryreportedvariant,smallvariantsandstructuralvariantsalike.Ifalistcannotholdthemall,anIncompletewarningsaysso,onscreenandinprint,soaprintoutcannotpassforthewholelist.TherepeatexpansionsandParaphasefindingsmarkedReport:eachwithitsgeneanddisease,everymember'scallwithCoGA'sstatus,yourclassificationandnote,andthemarksdiffersfromCoGA'sstatusandChangedsincereviewwheretheyapply.Withoutany,thesectionsaysso.AprovenancefooterwiththeCoGAversionthatproducedthepage,thein-houseIVDstatementandthemanufacturer,andtheversionsbehindthedata:thepipelinetools,theassembly,thegeneloci,theMonarchreleaseandtheHPOrelease.Itprintswiththereport.Anevidence-driftbannerwhenaclassification'sevidencechangedafteritwasmade:forexampleanewClinVarsignificance,anewREVELscoreorgnomADfrequency(REVEL0.412→0.951),anewconsequenceorLoFcall(LoFLC→HC),anewmissenseZforamissensevariant'sgene,orastructuralvariantthatnowoverlapsothergenes.Re-reviewthosevariants.TheClinicalaudittrail:whoclassified,taggedorannotatedwhat,whoreviewedacompound-heterozygouspair,whochangedthepedigreeorthefamily'sphenotypes,andwhen.Entriescanneverbechangedordeleted.Itisforanalystsandadministrators:areaderofthefamily'sprojectsees,onscreenandinprint,thatitisnotshown.Itopensonthe200mostrecententries;whentherearemore,itsayshowmanyitshows,andShowoldereventsloadsthenext200.Aprintoutthatshowsonlypartofthetrailsaysso.TheAnalysispipelinesettingsrecordedatimport.AnImportincompletewarningatthetopwhenadataimportleftthefamilypartlyloaded,orhasnotfinished:itisstillrunning,oritstoppedpart-way(forexampletheserverrestarted).Itnamesthedatasetsthatfailed,orthattheimporthadnotfinished,andtheimportjob.Asingleuploadthathasnotfinished,orthatfailedandcouldnotputbackwhatitdeleted,isnamedthesameway,asasingle-fileupload,andsoisadeletionofthefamily'sdatathathasnotfinished(anadministrator'sdeletionofasampleorofthefamily,aPEDuploadthatreplacesthefamily,astructurechangethatclearsitsdata),asadeletionofthisfamily'sdata.Thesamewarningshowsoneveryfamilypageuntilanimport,oranupload,hasbroughtthosedatasetsagain.SigningoutSignoutreportisyouranalyticalsign-off:itclosestheanalysisandfreezesthereportedresultintoanumberedversionwithauniquefingerprint,withwhattheanalysislookedat:eachreportedvariant'sdescriptionasyoureviewedit,thegenepanelsthefamily'ssearchesapplied,thereference-datareleases,therepeat-expansionandParaphaseresults(witheachrepeatcountnearaboundarymarked,andwhetherQAhadvalidatedTRGT'scountingunitsateachlocus),whateachcoveragetrackheld(readdepth,alog2ratioorunknown,andwhetheranuploadorapackageloadedit),inaPGTfamilyeachembryo'scallattheregionofinterestasthefamilypageshowsit,withitsphasingQCandthatQC'sverdictagainstthethresholds,andforamonogenicNIPTfamilyitsNIPTresults(theNIPTpagesignsoutthroughthissamesign-out,seetheNIPTchapter).TheEPDreferstothesignedversionbyitsreportcode(forexample7KQM2X-2-4PHT).Itstopsforsixthings:Anassemblyoutsidethevalidatedscope(thepagesaysNotvalidatedforclinicaluse):thereportcannotbesignedout.Databeingwritten:adataimportofthefamilyisqueuedorrunning,oranupload,oradeletionofitsvariants,ischangingitsdata.Signoutonceithasfinished;thereisnooverride.Evidencedrift,ofasmallvariant,astructuralvariantoraCNV,includingareportedvariantthatwasneversavedthroughACMGclassifyorACMG(CNV)(itsevidencecannotbechecked),andofarepeatorParaphasereviewwithaclassificationortheReporttagwhosecallschangedsince:re-review,oracknowledgewithareason.Thedialoglistseachclassificationandwhatmoved.SampleQCthatfailed,orcouldnotconfirmthepedigreeorasample'sidentity,andforaNIPTfamilyaNIPTqualitycheckthatfailed:acknowledgewithareason.Thedialoglistseveryconcernbeforeyouwriteit,underitsownheading:thechecksthatfailed,thechecksthatcouldnotrun,theNIPTqualitychecksthatfailed,andthewarnings,whichdonotstopthesign-outontheirown.Eachconcernnamesthesample,thepairorthechilditisabout,andyourreasoncoversallofthem.Anincompleteimport(thepagesaysImportincomplete):importwhatfailedagain,oracknowledgewithareason.Afteranimportthatstoppedpart-way,re-runitwithoverwrite:anupdateskipsdatathatisalreadythere,partlywrittendatatoo.Afterafailedoverwritethatcouldnotputthefamily'sdataback,importthewholefamilyagainwithoverwrite,everydatasetthewarningnamesandnotonlythosethatfailed,anduploadagainwithoverwritewhatanuploadbrought.Afterasingleuploadoradeletionthatdidnotfinish,uploadorimportagainwithoverwritewhatthewarningnames;afteranadministrator'sdeletionofasamplethatdidnotfinish,deletingthesampleagainalsoremoveswhatthewarningnamesofit.RepeatandParaphasecallswithoutareview:arepeatcallthatreadsPathogenic,Premutation,RevieworNotassessed,acountNearaboundary,oraParaphasecallthatreadspathogenic,carrierorreview,atalocusorregionwithoutareview(anytag,noteorclassification):reviewit,oracknowledgewithareason.Agrey-zonecallalonedoesnotstopit.Youracknowledgementcoversexactlywhatitsdialoglists.IftheconcernschangebeforeyouclickSignoutanyway,nothingissignedout:thedialogliststhemastheyarenow,saystheconcernschanged,andasksforyourreasonagain.APGTembryocallwhosephasingQCdoesnotmeetitsthresholds(⚠phasingQConthefamilypage)doesnotstopthesign-out:thecallstands,youdecideonit,andthesignedversionrecordsthewarning.Areasonyougiveisfrozenintothesignedversionandwrittentotheaudittrail.Signingoutagaincreatesanewversion(Amendsign-out);earlierversionsareneveroverwritten,andaclinicalreportthatrestsontheamendedanalysisreferstothenewversion.Aftersigningout,thepageshowstheversionyousignedanditsreportcode:quotethatcodeintheEPDreport.Amistypedcodeisrefusedasatypo,nevertakenforanotherrecord's.Reportcodesinthemainmenufindsthesignedversionacodenames.Onlypeoplethelaboratoryauthorisessignout.CoGAletsanyanalystofthefamily'sprojectpressSignoutreport,notareader,anddoesnotcheckthatauthorityfurther.Thelaboratorydecideswhomaysignoutananalysis;CoGArecordswhodid.Themedicalsign-offisgivenintheEPD.Isthisthesignedreport?Onlythesignedversionis.Asignedcaseopensonitslatestsignedversion,drawnfromthefrozenrecord:SignedversionN—signedoutby…on…,withitsreportcodeandfingerprint.Itshowswhatwassigned:eachreportedvariant'sdescription,classification,criteria,evidenceandnote,inaPGTfamilytheembryocalls(PGTembryoresults,witheachcall'sQCverdictandthethresholds),inamonogenicNIPTfamilyitsNIPTresults(NIPTresults),thegenepanelsapplied,therepeatexpansions(eachcountnearaboundarymarkedbesideitscall,⚠Nearaboundary,andeachlocus'scountingunitsasQAhadrecordedthem)andParaphaseresults,thecoveragetracks(Coveragetracks:whateachheld,andfromwhichfile),thereference-datareleases,andthechecksatsign-out.Itsayswhattherecorddoesnothold—thepopulationfrequenciesandpredictions,thegeneandphenotypecontext,theaudittrail—andneverfillsthatinfromcurrentdata.PrintsignedversionNprintsit,andDownloadsignedversionN(JSON)returnstherecorditself.Signedversionsliststheearlierones.Openthelivereportshowsthecurrentdata.ItsaysThisisthelivereport,notsignedversionN,andwhetheritstillmatches:amberwhensomethingchangedsince(itnameswhat),greywhenthecheckcouldnotbemade(treatitasunsigned).WhatversionNdoesnotholdcouldnotbecompared,anditnamesthattoo(NotinsignedversionN,sonotcompared:…).ItsprintoutstartswithNotthesignedreport.In-depthreferenceReporttraceabilityandsign-outreference(footer,drift,audit,thesign-outchecks)→",
   "paragraphs": [
    "Tag a variant with Report and it joins the family report (the Report button on the family page). The live report drafts readable text per reported variant — description, ACMG reasoning, gene context and phenotype overlap — and is where the analysis is signed out. Once it is signed out, the Report button opens its signed version.",
    "Sign-out closes the analysis; the medical sign-off is in the EPD. Sign out report is the analyst's analytical sign-off: it closes the analysis and freezes it into a signed version. The clinical report is drafted and medically signed in the hospital's electronic patient record (EPD), not in CoGA, and refers to exactly one signed version: the one it rests on.",
-   "Sign out report is your analytical sign-off: it closes the analysis and freezes the reported result into a numbered version with a unique fingerprint, with what the analysis looked at: each reported variant's description as you reviewed it, the gene panels the family's searches applied, the reference-data releases, the repeat-expansion and Paraphase results (with each repeat count near a boundary marked, and whether QA had validated TRGT's counting units at each locus), what each coverage track held (read depth, a log2 ratio or unknown, and whether an upload or a package loaded it), in a PGT family each embryo's call at the region of interest as the family page shows it, with its phasing QC and that QC's verdict against the thresholds, and for a monogenic NIPT family its NIPT results (the NIPT page signs out through this same sign-out, see the NIPT chapter). The EPD refers to the signed version by its report code (for example 7KQM2X-2-4PHT). It stops for five things:",
+   "Sign out report is your analytical sign-off: it closes the analysis and freezes the reported result into a numbered version with a unique fingerprint, with what the analysis looked at: each reported variant's description as you reviewed it, the gene panels the family's searches applied, the reference-data releases, the repeat-expansion and Paraphase results (with each repeat count near a boundary marked, and whether QA had validated TRGT's counting units at each locus), what each coverage track held (read depth, a log2 ratio or unknown, and whether an upload or a package loaded it), in a PGT family each embryo's call at the region of interest as the family page shows it, with its phasing QC and that QC's verdict against the thresholds, and for a monogenic NIPT family its NIPT results (the NIPT page signs out through this same sign-out, see the NIPT chapter). The EPD refers to the signed version by its report code (for example 7KQM2X-2-4PHT). It stops for six things:",
    "Your acknowledgement covers exactly what its dialog lists. If the concerns change before you click Sign out anyway, nothing is signed out: the dialog lists them as they are now, says the concerns changed, and asks for your reason again.",
    "A PGT embryo call whose phasing QC does not meet its thresholds (⚠ phasing QC on the family page) does not stop the sign-out: the call stands, you decide on it, and the signed version records the warning.",
    "A reason you give is frozen into the signed version and written to the audit trail. Signing out again creates a new version (Amend sign-out); earlier versions are never overwritten, and a clinical report that rests on the amended analysis refers to the new version. After signing out, the page shows the version you signed and its report code: quote that code in the EPD report. A mistyped code is refused as a typo, never taken for another record's. Report codes in the main menu finds the signed version a code names.",
@@ -1508,6 +1508,10 @@
    [
     "li",
     "Every reported variant, small variants and structural variants alike. If a list cannot hold them all, an Incomplete warning says so, on screen and in print, so a printout cannot pass for the whole list."
+   ],
+   [
+    "li",
+    "The repeat expansions and Paraphase findings marked Report: each with its gene and disease, every member's call with CoGA's status, your classification and note, and the marks differs from CoGA's status and Changed since review where they apply. Without any, the section says so."
    ],
    [
     "li",
@@ -1543,7 +1547,7 @@
    ],
    [
     "li",
-    "Evidence drift, of a small variant, a structural variant or a CNV, including a reported variant that was never saved through ACMG classify or ACMG (CNV) (its evidence cannot be checked): re-review, or acknowledge with a reason. The dialog lists each classification and what moved."
+    "Evidence drift, of a small variant, a structural variant or a CNV, including a reported variant that was never saved through ACMG classify or ACMG (CNV) (its evidence cannot be checked), and of a repeat or Paraphase review with a classification or the Report tag whose calls changed since: re-review, or acknowledge with a reason. The dialog lists each classification and what moved."
    ],
    [
     "li",
@@ -1552,6 +1556,10 @@
    [
     "li",
     "An incomplete import (the page says Import incomplete): import what failed again, or acknowledge with a reason. After an import that stopped part-way, re-run it with overwrite: an update skips data that is already there, partly written data too. After a failed overwrite that could not put the family's data back, import the whole family again with overwrite, every dataset the warning names and not only those that failed, and upload again with overwrite what an upload brought. After a single upload or a deletion that did not finish, upload or import again with overwrite what the warning names; after an administrator's deletion of a sample that did not finish, deleting the sample again also removes what the warning names of it."
+   ],
+   [
+    "li",
+    "Repeat and Paraphase calls without a review: a repeat call that reads Pathogenic, Premutation, Review or Not assessed, a count Near a boundary, or a Paraphase call that reads pathogenic, carrier or review, at a locus or region without a review (any tag, note or classification): review it, or acknowledge with a reason. A grey-zone call alone does not stop it."
    ],
    [
     "callout",
@@ -1590,6 +1598,22 @@
    [
     "em",
     "Incomplete"
+   ],
+   [
+    "strong",
+    "repeat expansions and Paraphase findings"
+   ],
+   [
+    "strong",
+    "Report"
+   ],
+   [
+    "em",
+    "differs from CoGA's status"
+   ],
+   [
+    "em",
+    "Changed since review"
    ],
    [
     "strong",
@@ -1661,6 +1685,10 @@
    ],
    [
     "strong",
+    "Report"
+   ],
+   [
+    "strong",
     "Sample QC"
    ],
    [
@@ -1686,6 +1714,42 @@
    [
     "strong",
     "overwrite"
+   ],
+   [
+    "strong",
+    "Repeat and Paraphase calls without a review"
+   ],
+   [
+    "em",
+    "Pathogenic"
+   ],
+   [
+    "em",
+    "Premutation"
+   ],
+   [
+    "em",
+    "Review"
+   ],
+   [
+    "em",
+    "Not assessed"
+   ],
+   [
+    "em",
+    "Near a boundary"
+   ],
+   [
+    "em",
+    "pathogenic"
+   ],
+   [
+    "em",
+    "carrier"
+   ],
+   [
+    "em",
+    "review"
    ],
    [
     "strong",
@@ -1786,7 +1850,7 @@
   "title": "Structural variants, repeats, Paraphase and mtDNA",
   "summary": "The analyses beyond small variants, including the CNV classifier and the variant summary.",
   "quickLinks": [],
-  "text": "StructuralvariantsFilterandreviewCNVsandotherSVswiththeirgenotypes,rankthembyphenotype,classifycopy-numberchanges,andtagthemforthereport.Repeatexpansions(TRGT)Per-samplerepeatcalls,scoredagainsttheSTRchivecatalogueofdiseaseloci.ParaphaseGenesinparalogousorduplicatedregions,wherestandardvariantcallingisunreliable.MitochondrialDNAmtDNAvariantsandlargechrMdeletionsandduplications,eachwithitsheteroplasmypermember,andeachsample'smtDNAcoverage.StructuralvariantsTheStructuralvariantspageopensontheMendeliomepanel,withapopulationfrequencybelow1%andtheaffectedmembersascarriers.ItsfiltersarePhenotype,InheritanceandSupport,Locations,ClassandBreakpoints,NeedlrAnnotationsandReview;thepresetsareMendeliome,Dominant,Recessive-likeandAnyaffected.PhenotypeprioritizationranksSVsbythesamephenotypescoreassmallvariants.Clearallfiltersremovesthedefault.AgenepanelkeepsanSVwhoseannotationnamesoneofitsgenesorthatoverlapsoneofitsregions,whateverthepanel'ssize,asonthesmall-variantpage:theMendeliomealsokeepsanSVinoneofitsgeneswhoseannotationnamesthatgeneotherwise,andasmallpanelalsokeepsanSVwhoseannotationnamesoneofitsgeneswithoutoverlappingit,suchasageneafewkilobasesaway.WithagenepanelandaGenesymbolbothfilledin,anSVmustmeetboth.MinlengthandExactlength,underClassandBreakpoints,measureanSVbytheLengththelistshows,withouttheminussignofadeletion:thecaller'sSVLEN;foracallwrittenasitssequencewithoutanSVLEN(asVCF4.4writesone),thebasesitinsertsordeletes;otherwisetheendminusthestart.Aninsertionisaslongasthesequenceitinserts,althoughmostcallerswriteitsendatitsstart.Alengthtypedwithaminussign,asthelistwritesadeletion's,isreadwithoutit.Atranslocation(BND,TRA)hasnolength:thelistshowsnone,everyminimumkeepsit,andnoexactlengthfindsit.Afilteredsearchreadsatmost50,000SVsofthecallsetbeforeitappliesthefilters,andwithPhenotypeprioritizationon(thedefault)itranksatmost5,000oftheSVsthatmatch.Whenasearchreacheseitherlimit,awarningsays\"Resultsmaybeincomplete\"(\"Rankingmaybeincomplete\"whenthelistisranked),thecountshowsa+,andanSVbeyondthelimitisnotshown:narrowthesearchwitharegion,agenepaneloragene.Agenepanelofanysize,theMendeliomeincluded,andageneareappliedbeforethe50,000areread,sothelimitcountsonlytheSVstheykeep.Thefamilyreport'slistofreportedSVsisnotcutbythiscap:itreadsthereportedSVsthemselves,notthefirst50,000.ACMG(CNV)onarowopenstheClinGencopy-numberclassifier(Riggsetal.2020):chooseCopy-numberlossorCopy-numbergain,checkthepre-selectedcriteriaandaddtherest.Variantsummaryonthefamilypagesummarisesthestructuralvariantsofeverycaller,HiFiCNV'scopy-numbercallsincluded:countsperchromosomeandtype,sharingbetweenmembers,andsizedistributions.Thebuttonappearswhenthefamilyhasstructuralvariants.Smallvariantsarenotinit,noraretheWisecondorXandQDNAseqsegments,whicharecoveragetracksratherthanvariants.RepeatexpansionsTheRepeatexpansionspagelistseachrepeatlocuswitheverymember'scall:therepeatcountofeachallele,andastatusreadagainstthelocus'sthresholdsintherepeatcatalogue(STRchive):Normal,Greyzone(theintermediaterange),Premutation(anFMR1alleleof55–200repeats,whichcanexpandinachild)andPathogenic.Wherethecataloguegivesalocusabenignrangeandapathogenicthresholdbutnogreyzone,acountbetweenthetworeadsGreyzone:itisneitherbenignnorpathogenic.Review:outsidecataloguedranges:acountthecataloguecannotclassifyatalocusthatispathogenicbycontraction.Review:twochrXallelesinamale:amale'scallwithtwodifferentchrXalleles,wherehecarriesone;anoteexplainsit.Thegenometrackscoloureachcallbythestatustherepeatpagegivesit.Notassessed:acallatalocuswithoutthresholds.NocataloguedlocusmatchesitsTRID(alocusthecataloguelacks,oraTRIDspelleddifferently),orthecataloguegivesthelocusnothreshold.CoGAcannotsaywhethersuchacountisnormal;itscutoffreadsNoreferencecutoff.Wherethecataloguegivesalocusabenignrangebutnothreshold(STRchive'sPOLG:10repeats),acountinsidetherangereadsNormalandanyothercountNotassessed;thecutoffreadsnormal10·nothreshold.ThecountistheoneTRGTreportsforthecataloguedmotifacrossthewholelocus,flankingcopiesincluded,soitcanrunhigherthanthecounttherangedescribes:intheTRGTcatalogueinuse(TRIDCPEO_POLG),POLG'scommonalleleof10repeatscounts14andstaysNotassessed.Agenewithseveralrepeattracts,eachalocusofitsowninSTRchive(ARX,HOXA13),hasthresholdspertract.AcallwhoseTRIDisthegene'snameisreadagainstthetractitsregionoverlaps.Iftheregionoverlapsnoneofthetracts,ormorethanone,thecallreadsNotassessed,anditsnotenamesthetractsandsayswhy.Unknown:nocall.AberrantonlykeepseverylocuswhosestatusisnotNormalorUnknown,Notassessedincluded,andthepageheadercountsthecallsnotassessed.Thegenometrackscoloureachlocusbythestatusitscallwasimportedwith,andkeepituntilthecallisimportedagain;thispageclassifieseverycallagain,againstthecatalogueasitisnow.Nearaboundary.TRGTcountsthemotifacrosstheregionitsowncataloguegivesalocus,whichneednotbetheclinicalrepeatnumberthelocus'srangescount.AtFMR1itleavesouttheAGGinterruptions,soanallelereads1to3belowitsclinicalnumber(apremutationof55repeatscanread53,inthegreyzone);atHTTitalsocountstheCAGaftertheCAAinterruption,oneabovetheusualcount;atPOLGitcountsfourflankingGCTcopies,sothecommon10-repeatallelereads14.UntilQAandthelaboratorydirectorhavevalidatedalocus'scountingunits,acountwithin3repeatsofaboundarythelocus'sclassificationusesismarkedNearaboundarybesideitscall.Hoveroverorfocusthemarkforthecount,thenearestcountoneachsidethatreadsanotherstatus,andwhatisknownofTRGT'scountatthegene.Thestatusitselfisnotchanged:readthecallwiththemarkinmind.Aberrantonlykeepssuchalocuswhateveritsstatus,thepageheadercountsthecallsnearaboundary,andagenometracksaysitinthelocus'stooltip.Anadministratorrecordseachlocus'svalidation,withitsreason,ontheadminpageRepeatcatalogue;avalidatedlocusisnolongermarked.Signingoutfreezesthemarkbesideitscall,andforeachlocuswhetherQAhadvalidateditscountingunits,withthereason,bywhomandwhen:alocusvalidatedorwithdrawnaftersign-outmakesthereportsaytherepeatexpansionschangedsince.ParaphaseSomegeneslieinregionswithnearlyidenticalcopies,suchasSMN1/SMN2orPMS2,wherestandardvariantcallingfails.TheParaphasepageshows,perlocus,whatParaphasefoundthereforeachmember:thecopynumber,andastatusreadfromacatalogueofmedicalregions.Wherethecataloguehasaruleforthelocus,thecopynumberreadsasnormal,carrierorpathogenic,orasreviewwhenitfitsnoneofthem;atalocuswithoutarule,acopy-numberchangeorafusionreadsasreview.Achangeisacopynumberoutsidethenormalrangethecataloguerecordsforthelocus(6forNEB,4foragenewithitspseudogene).OnchrXamanhasonecopyandawomantwo,bythesexParaphaseinfers,elsethepedigree's;withoutasexachrXvalueisnotcallednormal.Afieldwithoutafixednormalvalue(highest_total_cn)andano-callarenochange.Copy-numberchangesonlyshowsonlythelociwithsuchachange.mtDNAEachsample'srowinthefamilysummaryofthemtDNAanalysispagegivesitsmeanchrMdepthandtheshareofchrMcovered,andaQCstatusjudgedagainstthelab'slimits(SequencingQCthresholds).Thedepthcomesfromonecoveragetrackthatholdsreaddepth:thesample'scoverageBEDwhenitwasdeclaredasreaddepth,otherwiseHiFiCNV'sdepthwheretheimportstoreditasread.WisecondorX'sandQDNAseq'sbins,HiFiCNV'snormaliseddepthandacoverageBEDdeclaredasalog2ratioholdlog2ratios,notdepths,andnevercount,nordoesacoverageBEDthatdoesnotsaywhatitholds.AsamplewithoutatrackofreaddepthshowsthedepthofitschrMcalls,andthepage'sQCnotesnameeachtrackleftoutandwhy.EachmtDNAvarianthasthesamereviewasasmallvariant,anditscardthesamecontrols:Review,ExcludeandReport,Tags&notesandACMGclassify.Itisonereview:thesamevariantontheSmallvariantspageshowsthesametagsandnote,andReportputsitonthereportwiththeotherreportedsmallvariants.Excludefoldsthecardtoitsheading,asontheothervariantpages.ACMGclassifyonavariantfromthemtDNAanalysispageusesthemitochondrialruleset.In-depthreferenceACMGclassificationreference(includingtheCNVclassifier)→",
+  "text": "StructuralvariantsFilterandreviewCNVsandotherSVswiththeirgenotypes,rankthembyphenotype,classifycopy-numberchanges,andtagthemforthereport.Repeatexpansions(TRGT)Per-samplerepeatcalls,scoredagainsttheSTRchivecatalogueofdiseaseloci.ParaphaseGenesinparalogousorduplicatedregions,wherestandardvariantcallingisunreliable.MitochondrialDNAmtDNAvariantsandlargechrMdeletionsandduplications,eachwithitsheteroplasmypermember,andeachsample'smtDNAcoverage.StructuralvariantsTheStructuralvariantspageopensontheMendeliomepanel,withapopulationfrequencybelow1%andtheaffectedmembersascarriers.ItsfiltersarePhenotype,InheritanceandSupport,Locations,ClassandBreakpoints,NeedlrAnnotationsandReview;thepresetsareMendeliome,Dominant,Recessive-likeandAnyaffected.PhenotypeprioritizationranksSVsbythesamephenotypescoreassmallvariants.Clearallfiltersremovesthedefault.AgenepanelkeepsanSVwhoseannotationnamesoneofitsgenesorthatoverlapsoneofitsregions,whateverthepanel'ssize,asonthesmall-variantpage:theMendeliomealsokeepsanSVinoneofitsgeneswhoseannotationnamesthatgeneotherwise,andasmallpanelalsokeepsanSVwhoseannotationnamesoneofitsgeneswithoutoverlappingit,suchasageneafewkilobasesaway.WithagenepanelandaGenesymbolbothfilledin,anSVmustmeetboth.MinlengthandExactlength,underClassandBreakpoints,measureanSVbytheLengththelistshows,withouttheminussignofadeletion:thecaller'sSVLEN;foracallwrittenasitssequencewithoutanSVLEN(asVCF4.4writesone),thebasesitinsertsordeletes;otherwisetheendminusthestart.Aninsertionisaslongasthesequenceitinserts,althoughmostcallerswriteitsendatitsstart.Alengthtypedwithaminussign,asthelistwritesadeletion's,isreadwithoutit.Atranslocation(BND,TRA)hasnolength:thelistshowsnone,everyminimumkeepsit,andnoexactlengthfindsit.Afilteredsearchreadsatmost50,000SVsofthecallsetbeforeitappliesthefilters,andwithPhenotypeprioritizationon(thedefault)itranksatmost5,000oftheSVsthatmatch.Whenasearchreacheseitherlimit,awarningsays\"Resultsmaybeincomplete\"(\"Rankingmaybeincomplete\"whenthelistisranked),thecountshowsa+,andanSVbeyondthelimitisnotshown:narrowthesearchwitharegion,agenepaneloragene.Agenepanelofanysize,theMendeliomeincluded,andageneareappliedbeforethe50,000areread,sothelimitcountsonlytheSVstheykeep.Thefamilyreport'slistofreportedSVsisnotcutbythiscap:itreadsthereportedSVsthemselves,notthefirst50,000.ACMG(CNV)onarowopenstheClinGencopy-numberclassifier(Riggsetal.2020):chooseCopy-numberlossorCopy-numbergain,checkthepre-selectedcriteriaandaddtherest.Variantsummaryonthefamilypagesummarisesthestructuralvariantsofeverycaller,HiFiCNV'scopy-numbercallsincluded:countsperchromosomeandtype,sharingbetweenmembers,andsizedistributions.Thebuttonappearswhenthefamilyhasstructuralvariants.Smallvariantsarenotinit,noraretheWisecondorXandQDNAseqsegments,whicharecoveragetracksratherthanvariants.RepeatexpansionsTheRepeatexpansionspagelistseachrepeatlocuswitheverymember'scall:therepeatcountofeachallele,andastatusreadagainstthelocus'sthresholdsintherepeatcatalogue(STRchive):Normal,Greyzone(theintermediaterange),Premutation(anFMR1alleleof55–200repeats,whichcanexpandinachild)andPathogenic.Wherethecataloguegivesalocusabenignrangeandapathogenicthresholdbutnogreyzone,acountbetweenthetworeadsGreyzone:itisneitherbenignnorpathogenic.Review:outsidecataloguedranges:acountthecataloguecannotclassifyatalocusthatispathogenicbycontraction.Review:twochrXallelesinamale:amale'scallwithtwodifferentchrXalleles,wherehecarriesone;anoteexplainsit.Thegenometrackscoloureachcallbythestatustherepeatpagegivesit.Notassessed:acallatalocuswithoutthresholds.NocataloguedlocusmatchesitsTRID(alocusthecataloguelacks,oraTRIDspelleddifferently),orthecataloguegivesthelocusnothreshold.CoGAcannotsaywhethersuchacountisnormal;itscutoffreadsNoreferencecutoff.Wherethecataloguegivesalocusabenignrangebutnothreshold(STRchive'sPOLG:10repeats),acountinsidetherangereadsNormalandanyothercountNotassessed;thecutoffreadsnormal10·nothreshold.ThecountistheoneTRGTreportsforthecataloguedmotifacrossthewholelocus,flankingcopiesincluded,soitcanrunhigherthanthecounttherangedescribes:intheTRGTcatalogueinuse(TRIDCPEO_POLG),POLG'scommonalleleof10repeatscounts14andstaysNotassessed.Agenewithseveralrepeattracts,eachalocusofitsowninSTRchive(ARX,HOXA13),hasthresholdspertract.AcallwhoseTRIDisthegene'snameisreadagainstthetractitsregionoverlaps.Iftheregionoverlapsnoneofthetracts,ormorethanone,thecallreadsNotassessed,anditsnotenamesthetractsandsayswhy.Unknown:nocall.AberrantonlykeepseverylocuswhosestatusisnotNormalorUnknown,Notassessedincluded,andthepageheadercountsthecallsnotassessed.Thegenometrackscoloureachlocusbythestatusitscallwasimportedwith,andkeepituntilthecallisimportedagain;thispageclassifieseverycallagain,againstthecatalogueasitisnow.Nearaboundary.TRGTcountsthemotifacrosstheregionitsowncataloguegivesalocus,whichneednotbetheclinicalrepeatnumberthelocus'srangescount.AtFMR1itleavesouttheAGGinterruptions,soanallelereads1to3belowitsclinicalnumber(apremutationof55repeatscanread53,inthegreyzone);atHTTitalsocountstheCAGaftertheCAAinterruption,oneabovetheusualcount;atPOLGitcountsfourflankingGCTcopies,sothecommon10-repeatallelereads14.UntilQAandthelaboratorydirectorhavevalidatedalocus'scountingunits,acountwithin3repeatsofaboundarythelocus'sclassificationusesismarkedNearaboundarybesideitscall.Hoveroverorfocusthemarkforthecount,thenearestcountoneachsidethatreadsanotherstatus,andwhatisknownofTRGT'scountatthegene.Thestatusitselfisnotchanged:readthecallwiththemarkinmind.Aberrantonlykeepssuchalocuswhateveritsstatus,thepageheadercountsthecallsnearaboundary,andagenometracksaysitinthelocus'stooltip.Anadministratorrecordseachlocus'svalidation,withitsreason,ontheadminpageRepeatcatalogue;avalidatedlocusisnolongermarked.Signingoutfreezesthemarkbesideitscall,andforeachlocuswhetherQAhadvalidateditscountingunits,withthereason,bywhomandwhen:alocusvalidatedorwithdrawnaftersign-outmakesthereportsaytherepeatexpansionschangedsince.ParaphaseSomegeneslieinregionswithnearlyidenticalcopies,suchasSMN1/SMN2orPMS2,wherestandardvariantcallingfails.TheParaphasepageshows,perlocus,whatParaphasefoundthereforeachmember:thecopynumber,andastatusreadfromacatalogueofmedicalregions.Wherethecataloguehasaruleforthelocus,thecopynumberreadsasnormal,carrierorpathogenic,orasreviewwhenitfitsnoneofthem;atalocuswithoutarule,acopy-numberchangeorafusionreadsasreview.Achangeisacopynumberoutsidethenormalrangethecataloguerecordsforthelocus(6forNEB,4foragenewithitspseudogene).OnchrXamanhasonecopyandawomantwo,bythesexParaphaseinfers,elsethepedigree's;withoutasexachrXvalueisnotcallednormal.Afieldwithoutafixednormalvalue(highest_total_cn)andano-callarenochange.Copy-numberchangesonlyshowsonlythelociwithsuchachange.ReviewingarepeatlocusoraParaphaseregionEachrepeatlocusandParaphaseregionhasareviewofitsown,keptperfamilyandreferenceassembly,anditscardthecontrolsofeveryvariantcard:Review,ExcludeandReporttoggletheirtag,andTags&notesopensthereview.Thereyougiveyourclassificationonthetype'sownscale,besideCoGA'sstatus,whichitneverchanges:arepeatlocus:Pathogenicexpansion,Reducedpenetrance,Premutation,Intermediate(greyzone),NormalorUncertainsignificance;aParaphaseregion:Affected,Carrier,Riskallele,NormalorUncertainsignificance.TheACMGclasstagsandVUStiersarenotofferedhere:theyarethesmallvariants'ACMGclasses.Areviewthatalreadyholdsonelistsit,marked,soyoucanuntickit.ThecardshowsyourclassificationasReview:…,andDiffersfromCoGA'sstatuswhenitagreeswithnoneofthemembers'calls(aNormalwhereeverycallreadsPathogenic,say):areviewisofthelocusorregion,soaclassificationthatfitsonemember'scallisnotmarked.Excludefoldsthecardtoitsheading;itstaysinthelist,Aberrantonlyincluded.Aclassification,andtheReporttag,restonthecallsastheywerewhenyousavedthem:CoGAfreezesthem.Whenthecallschangeafterthat(anewimport,alocuswhosecountingunitsQAvalidated),thecardsaysChangedsincereview,andthetooltipnameswhatchanged;Nocallsincereviewwhenthefamilyholdsnocallthereanymore.Asaveoftagsoranotealonekeepsthecallsyourclassificationrestson.Sign-outchecksthemagain(seeClinicalreport).mtDNAEachsample'srowinthefamilysummaryofthemtDNAanalysispagegivesitsmeanchrMdepthandtheshareofchrMcovered,andaQCstatusjudgedagainstthelab'slimits(SequencingQCthresholds).Thedepthcomesfromonecoveragetrackthatholdsreaddepth:thesample'scoverageBEDwhenitwasdeclaredasreaddepth,otherwiseHiFiCNV'sdepthwheretheimportstoreditasread.WisecondorX'sandQDNAseq'sbins,HiFiCNV'snormaliseddepthandacoverageBEDdeclaredasalog2ratioholdlog2ratios,notdepths,andnevercount,nordoesacoverageBEDthatdoesnotsaywhatitholds.AsamplewithoutatrackofreaddepthshowsthedepthofitschrMcalls,andthepage'sQCnotesnameeachtrackleftoutandwhy.EachmtDNAvarianthasthesamereviewasasmallvariant,anditscardthesamecontrols:Review,ExcludeandReport,Tags&notesandACMGclassify.Itisonereview:thesamevariantontheSmallvariantspageshowsthesametagsandnote,andReportputsitonthereportwiththeotherreportedsmallvariants.Excludefoldsthecardtoitsheading,asontheothervariantpages.ACMGclassifyonavariantfromthemtDNAanalysispageusesthemitochondrialruleset.In-depthreferenceACMGclassificationreference(includingtheCNVclassifier)→",
   "paragraphs": [
    "The Structural variants page opens on the Mendeliome panel, with a population frequency below 1% and the affected members as carriers. Its filters are Phenotype, Inheritance and Support, Locations, Class and Breakpoints, Needlr Annotations and Review; the presets are Mendeliome, Dominant, Recessive-like and Any affected. Phenotype prioritization ranks SVs by the same phenotype score as small variants. Clear all filters removes the default.",
    "A gene panel keeps an SV whose annotation names one of its genes or that overlaps one of its regions, whatever the panel's size, as on the small-variant page: the Mendeliome also keeps an SV in one of its genes whose annotation names that gene otherwise, and a small panel also keeps an SV whose annotation names one of its genes without overlapping it, such as a gene a few kilobases away. With a gene panel and a Gene symbol both filled in, an SV must meet both.",
@@ -1798,6 +1862,9 @@
    "Aberrant only keeps every locus whose status is not Normal or Unknown, Not assessed included, and the page header counts the calls not assessed. The genome tracks colour each locus by the status its call was imported with, and keep it until the call is imported again; this page classifies every call again, against the catalogue as it is now.",
    "Near a boundary. TRGT counts the motif across the region its own catalogue gives a locus, which need not be the clinical repeat number the locus's ranges count. At FMR1 it leaves out the AGG interruptions, so an allele reads 1 to 3 below its clinical number (a premutation of 55 repeats can read 53, in the grey zone); at HTT it also counts the CAG after the CAA interruption, one above the usual count; at POLG it counts four flanking GCT copies, so the common 10-repeat allele reads 14. Until QA and the laboratory director have validated a locus's counting units, a count within 3 repeats of a boundary the locus's classification uses is marked Near a boundary beside its call. Hover over or focus the mark for the count, the nearest count on each side that reads another status, and what is known of TRGT's count at the gene. The status itself is not changed: read the call with the mark in mind. Aberrant only keeps such a locus whatever its status, the page header counts the calls near a boundary, and a genome track says it in the locus's tooltip. An administrator records each locus's validation, with its reason, on the admin page Repeat catalogue; a validated locus is no longer marked. Signing out freezes the mark beside its call, and for each locus whether QA had validated its counting units, with the reason, by whom and when: a locus validated or withdrawn after sign-out makes the report say the repeat expansions changed since.",
    "Some genes lie in regions with nearly identical copies, such as SMN1/SMN2 or PMS2, where standard variant calling fails. The Paraphase page shows, per locus, what Paraphase found there for each member: the copy number, and a status read from a catalogue of medical regions. Where the catalogue has a rule for the locus, the copy number reads as normal, carrier or pathogenic, or as review when it fits none of them; at a locus without a rule, a copy-number change or a fusion reads as review. A change is a copy number outside the normal range the catalogue records for the locus (6 for NEB, 4 for a gene with its pseudogene). On chrX a man has one copy and a woman two, by the sex Paraphase infers, else the pedigree's; without a sex a chrX value is not called normal. A field without a fixed normal value (highest_total_cn) and a no-call are no change. Copy-number changes only shows only the loci with such a change.",
+   "Each repeat locus and Paraphase region has a review of its own, kept per family and reference assembly, and its card the controls of every variant card: Review, Exclude and Report toggle their tag, and Tags & notes opens the review. There you give your classification on the type's own scale, beside CoGA's status, which it never changes:",
+   "The ACMG class tags and VUS tiers are not offered here: they are the small variants' ACMG classes. A review that already holds one lists it, marked, so you can untick it. The card shows your classification as Review: …, and Differs from CoGA's status when it agrees with none of the members' calls (a Normal where every call reads Pathogenic, say): a review is of the locus or region, so a classification that fits one member's call is not marked. Exclude folds the card to its heading; it stays in the list, Aberrant only included.",
+   "A classification, and the Report tag, rest on the calls as they were when you saved them: CoGA freezes them. When the calls change after that (a new import, a locus whose counting units QA validated), the card says Changed since review, and the tooltip names what changed; No call since review when the family holds no call there any more. A save of tags or a note alone keeps the calls your classification rests on. Sign-out checks them again (see Clinical report).",
    "Each sample's row in the family summary of the mtDNA analysis page gives its mean chrM depth and the share of chrM covered, and a QC status judged against the lab's limits (Sequencing QC thresholds). The depth comes from one coverage track that holds read depth: the sample's coverage BED when it was declared as read depth, otherwise HiFiCNV's depth where the import stored it as read. WisecondorX's and QDNAseq's bins, HiFiCNV's normalised depth and a coverage BED declared as a log2 ratio hold log2 ratios, not depths, and never count, nor does a coverage BED that does not say what it holds. A sample without a track of read depth shows the depth of its chrM calls, and the page's QC notes name each track left out and why.",
    "Each mtDNA variant has the same review as a small variant, and its card the same controls: Review, Exclude and Report, Tags & notes and ACMG classify. It is one review: the same variant on the Small variants page shows the same tags and note, and Report puts it on the report with the other reported small variants. Exclude folds the card to its heading, as on the other variant pages. ACMG classify on a variant from the mtDNA analysis page uses the mitochondrial rule set."
   ],
@@ -1873,6 +1940,18 @@
    [
     "h3",
     "Paraphase"
+   ],
+   [
+    "h3",
+    "Reviewing a repeat locus or a Paraphase region"
+   ],
+   [
+    "li",
+    "a repeat locus: Pathogenic expansion, Reduced penetrance, Premutation, Intermediate (grey zone), Normal or Uncertain significance;"
+   ],
+   [
+    "li",
+    "a Paraphase region: Affected, Carrier, Risk allele, Normal or Uncertain significance."
    ],
    [
     "h3",
@@ -2127,6 +2206,106 @@
    [
     "strong",
     "Copy-number changes only"
+   ],
+   [
+    "strong",
+    "Review"
+   ],
+   [
+    "strong",
+    "Exclude"
+   ],
+   [
+    "strong",
+    "Report"
+   ],
+   [
+    "strong",
+    "Tags & notes"
+   ],
+   [
+    "em",
+    "Pathogenic expansion"
+   ],
+   [
+    "em",
+    "Reduced penetrance"
+   ],
+   [
+    "em",
+    "Premutation"
+   ],
+   [
+    "em",
+    "Intermediate (grey zone)"
+   ],
+   [
+    "em",
+    "Normal"
+   ],
+   [
+    "em",
+    "Uncertain significance"
+   ],
+   [
+    "em",
+    "Affected"
+   ],
+   [
+    "em",
+    "Carrier"
+   ],
+   [
+    "em",
+    "Risk allele"
+   ],
+   [
+    "em",
+    "Normal"
+   ],
+   [
+    "em",
+    "Uncertain significance"
+   ],
+   [
+    "em",
+    "Review: …"
+   ],
+   [
+    "em",
+    "Differs from CoGA's status"
+   ],
+   [
+    "em",
+    "Normal"
+   ],
+   [
+    "em",
+    "Pathogenic"
+   ],
+   [
+    "strong",
+    "Exclude"
+   ],
+   [
+    "strong",
+    "Aberrant only"
+   ],
+   [
+    "strong",
+    "Report"
+   ],
+   [
+    "em",
+    "Changed since review"
+   ],
+   [
+    "em",
+    "No call since review"
+   ],
+   [
+    "em",
+    "Clinical report"
    ],
    [
     "strong",

@@ -46,6 +46,10 @@ Een analist kan zijn filterinstellingen bewaren als **preset**. Een preset is va
 
 **Waar in de code:** `backend/app/services/small_variant_review_presets.py` en, voor de SV-presets, `structural_variant_review_pg.py`; `frontend/src/pages/families/SmallVariantReviewDialog.tsx`.
 
+### Repeatloci en Paraphase-regio's
+
+Een repeatlocus en een Paraphase-regio krijgen een eigen review, per familie en assembly, met dezelfde tagcatalogus, maar met een classificatie op de eigen schaal van het type in plaats van een ACMG-klasse (REQ-DIAG-009; `docs/repeat-paraphase-review-design.md`). De kaart op de repeat- en de Paraphase-pagina heeft de knoppen van elke variantkaart: *Review*, *Exclude* en *Report* zetten hun tag aan of uit, *Tags & notes* opent de dialoog (`FindingReviewDialog.tsx`). Die biedt de klassetags met sleutel `acmg_*` (de ACMG-klassen en de VUS-niveaus) niet aan; een review die er toch een draagt, toont hem gemarkeerd, zodat hij weggehaald kan worden (beslissing B14). *Secondary finding* blijft aangeboden. Op de kaart staan de classificatie (*Review: …*), de markering *Differs from CoGA's status* als ze bij geen enkele call van de leden past, de drift (*Changed since review*, met in de tooltip wat veranderde), de tags en de notitie; *Exclude* klapt de kaart dicht tot haar kop. Een opslag schrijft de review meteen in de geladen tabel; het antwoord van de server, met de drift, vervangt ze, en een mislukte opslag zet de kaart terug (`useFindingReviewSave` in `findingReview.ts`). De familiepagina telt de reviews per type (`GET /families/{id}/finding-review-summary`).
+
 ## Deel 2 — De ACMG-classificator voor small variants
 
 ### Beslissingssteun, geen automaat

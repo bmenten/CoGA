@@ -142,7 +142,7 @@ describe('FamilyRepeatExpansionsPage', () => {
         });
       }
 
-      return Promise.resolve({ data: {} });
+      return Promise.resolve({ data: [] });
     });
 
     const queryClient = createTestQueryClient();
@@ -1030,7 +1030,7 @@ describe('FamilyRepeatExpansionsPage — failed requests (#610)', () => {
       if (url === '/families/F1') {
         return Promise.resolve({ data: { family_id: 'F1', members: [], projects: [] } });
       }
-      return Promise.resolve({ data: {} });
+      return Promise.resolve({ data: [] });
     });
     renderPage();
 

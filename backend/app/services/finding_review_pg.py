@@ -37,8 +37,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..schemas import (
     FamilyParaphaseTableOut,
     FamilyRepeatExpansionTableOut,
+    FindingReviewCountsOut,
     FindingReviewDriftOut,
     FindingReviewOut,
+    FindingReviewSummaryOut,
     ParaphaseReviewUpdate,
     RepeatExpansionReviewUpdate,
 )
@@ -180,6 +182,39 @@ def bears_judgement(row: Mapping[str, Any] | None) -> bool:
         return False
     return bool(str(row.get("classification") or "").strip()) or REPORT_TAG in _normalize_tags(
         row.get("tags") or []
+    )
+
+
+def _review_counts(rows: Mapping[str, Mapping[str, Any]]) -> FindingReviewCountsOut:
+    counts = FindingReviewCountsOut()
+    for row in rows.values():
+        if not has_review_content(row):
+            continue
+        counts.reviewed_count += 1
+        if str(row.get("classification") or "").strip():
+            counts.classified_count += 1
+        if str(row.get("note") or "").strip():
+            counts.note_count += 1
+        for tag in _normalize_tags(row.get("tags") or []):
+            counts.tag_counts[tag] = counts.tag_counts.get(tag, 0) + 1
+    return counts
+
+
+async def finding_review_summary(
+    session: AsyncSession, context: FamilyMetadataContext
+) -> FindingReviewSummaryOut:
+    """The family's repeat and Paraphase reviews in its assembly, counted for the workspace's
+    curation lines (none without an assembly)."""
+    assembly_id = getattr(context, "assembly_id", None)
+    return FindingReviewSummaryOut(
+        repeat=_review_counts(
+            await finding_review_rows(session, REPEAT, family_uuid=context.family_uuid, assembly_id=assembly_id)
+        ),
+        paraphase=_review_counts(
+            await finding_review_rows(
+                session, PARAPHASE_REGION, family_uuid=context.family_uuid, assembly_id=assembly_id
+            )
+        ),
     )
 
 

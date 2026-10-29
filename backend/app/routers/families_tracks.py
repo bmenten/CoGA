@@ -11,6 +11,7 @@ from ..schemas import (
     FamilyRepeatExpansionTableOut,
     FamilyTrackAvailabilityOut,
     FindingReviewOut,
+    FindingReviewSummaryOut,
     HaplotypeResponse,
     ParaphaseReviewUpdate,
     PgtAnalysisOut,
@@ -35,6 +36,7 @@ from ..services.finding_review_pg import (
     REPEAT,
     attach_paraphase_reviews,
     attach_repeat_reviews,
+    finding_review_summary,
     upsert_finding_review,
 )
 from ..services.mitochondrial_analysis import get_family_mitochondrial_analysis_response
@@ -203,6 +205,20 @@ async def upsert_paraphase_review(
     return await upsert_finding_review(
         session, kind=PARAPHASE_REGION, context=context, key=gene_symbol, payload=payload, user=user
     )
+
+
+@router.get("/{family_id}/finding-review-summary", response_model=FindingReviewSummaryOut)
+async def get_family_finding_review_summary(
+    family_id: str,
+    project_id: str | None = None,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_user),
+) -> FindingReviewSummaryOut:
+    """The family's repeat and Paraphase reviews in its assembly, counted for the workspace."""
+    context = await build_family_metadata_context(
+        session, family_identifier=family_id, user=user, project_id=project_id
+    )
+    return await finding_review_summary(session, context)
 
 
 @router.get("/{family_id}/mitochondrial-dna", response_model=FamilyMitoDNAAnalysisOut)

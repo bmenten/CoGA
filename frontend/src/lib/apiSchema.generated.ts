@@ -959,6 +959,17 @@ export interface FamilyTrackAvailabilityOut {
 }
 
 /**
+ * A family's reviews of one kind of finding (repeat loci or Paraphase regions) in its
+ * assembly: how many say anything, carry a classification or a note, and how many hold each tag.
+ */
+export interface FindingReviewCountsOut {
+  reviewed_count: number;
+  classified_count: number;
+  note_count: number;
+  tag_counts: Record<string, number>;
+}
+
+/**
  * Whether the calls a repeat or Paraphase review rests on are still those it froze.
  *
  * ``unchanged``: the frozen calls are the current ones. ``changed``: they differ (``changes``
@@ -985,6 +996,12 @@ export interface FindingReviewOut {
   updated_at: string | null;
   evidence_captured_at: string | null;
   drift: FindingReviewDriftOut | null;
+}
+
+/** The family workspace's curation lines of the repeat and Paraphase reviews. */
+export interface FindingReviewSummaryOut {
+  repeat: FindingReviewCountsOut;
+  paraphase: FindingReviewCountsOut;
 }
 
 export interface GeneAssemblyLocationOut {
