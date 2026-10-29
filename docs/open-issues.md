@@ -63,6 +63,10 @@ deployed, no release tagged.
 | 22 | REG-10 | P2 | No regression truth set (GIAB / GeT-RM) | Eng, QA |
 | 23 | REG-11 | P2 | Post-market, vigilance and security-process inputs | QA, RA, Owner |
 | 24 | OPS-9 | P2 | Scale is unproven | Eng, Owner |
+| 25 | DOC-7 | P2 | The technical file and the docs lean on pull-request numbers | Eng, QA |
+| 26 | ENG-21 | P2 | The test suite has never been audited as a whole | Eng |
+| 27 | ENG-22 | P2 | Dead and legacy code left after the fix rounds | Eng, Owner |
+| 28 | OPS-27 | P2 | Stale branches and worktrees; no alpha baseline tagged | Eng, Owner |
 
 ## P1 — before the release candidate
 
@@ -668,6 +672,47 @@ per-change approval, and records the first review before the RC tag.
   per-sample upload builds each batch's rows twice (#922). #922 moved the Sample QC and VCF
   parsing off the event loop and runs a NIPT sign-out's analysis once;
   `application-scheme.md` lists what remains under *Performance*.
+- **DOC-7 · The technical file and the docs lean on pull-request numbers.** `docs/` holds
+  about 1,070 references to GitHub pull requests and issues (counted 2026-10-29): most in
+  this page and `testing.md`, and a handful in each technical-file document (TF-12 14,
+  TF-09b 13, TF-06 7, TF-14 5, TF-02 5, others 1 to 3), `security-posture.md`,
+  `clinical-traceability.md`, `database.md` and the handleiding (chapter 11). A reviewer
+  cannot read them without GitHub. The owner decided on 2026-10-29 that the technical file
+  and the user and reference docs describe the device as it is, standing on their own: each
+  reference is replaced by what it stood for (the behaviour, the decision and its reason, the
+  test that verifies it). The design history stays in the git history, which is kept: every
+  squash commit carries its pull request's description. **Next:** rewrite the references in
+  `docs/regulatory/`, the handleiding and the reference docs (this page and `testing.md` are
+  working lists and may keep theirs); add a CI check that refuses a `#123`-style reference in
+  `docs/regulatory/`; from the RC, TF-18 names a change by its CR number and commit SHA.
+- **ENG-21 · The test suite has never been audited as a whole.** About 6,900 tests in 680
+  files on 2026-10-29: some 4,900 in the backend (132,000 lines, of which the e2e harness
+  32,000 and the integration tests 18,000) and 2,000 in the frontend (49,000 lines), against
+  about 174,000 lines of production code. Every fix round added at least one regression test
+  per defect, so tests overlap, and some pin how a screen is built (exact text, class names)
+  rather than what it does, and break on every UI change. The largest files are the
+  sign-out (`test_report_signout.py`, 4,400 lines), `FamilyReportPage.test.tsx` (4,100),
+  `test_clickhouse_family_variants.py`, `test_family_import_compensation.py` and
+  `test_loaders_refuse_empty_files.py`. **Next:** an audit that lists, before anything is
+  removed, the tests that add no coverage another test does not give, the tests that pin
+  implementation details, and the small regression tests that fold into one parametrised
+  test; keep the e2e and integration tests that back TF-09c and TF-09d and every test a
+  TF-09b row cites; update `docs/testing.md` and the coverage floors with the result.
+- **ENG-22 · Dead and legacy code left after the fix rounds.** The cleanup of 2026-10-08
+  predates more than 250 merged pull requests. A new pass looks for unused functions,
+  components, CSS, routes, settings and scripts; compatibility shims for data formats or
+  records that no longer exist (the data are synthetic, so nothing old needs reading); and
+  the leftovers ENG-4, ENG-5, ENG-6 and ENG-8 list, which wait on the owner's decisions.
+  Verify each candidate in the code before removing it: some code that looks dead is live
+  (the 2026-10-08 audit lists those).
+- **OPS-27 · Stale branches and worktrees; no alpha baseline tagged.** On 2026-10-29 the
+  repository has 27 remote and 29 local branches, 9 worktrees besides the main checkout,
+  and one stray tag (`my770`). The owner decided to keep the git history rather than restart
+  it from one commit, and to start from a tagged baseline instead. **Next:** remove the
+  merged and abandoned branches (remote and local), the worktrees whose work is merged, and
+  the stray tag, checking each for unmerged work first; then tag the version that goes into
+  testing and validation (for example `v0.1.0-alpha.1`) with a GitHub release, and name that
+  tag or its commit in every validation record.
 
 ## P3 — after the release candidate
 
