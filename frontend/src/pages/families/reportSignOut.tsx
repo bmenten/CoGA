@@ -120,7 +120,7 @@ export interface SignOutOffer {
 
 /**
  * Why a page does not offer the sign-out, or null when it does; the button is disabled with
- * this as its reason. The live report and the NIPT page both read it, so a family is offered
+ * this as its reason. The live report and the NIPT report both read it, so a family is offered
  * the sign-out alike on both: never to a reader in its project, who signs nothing out (SEC-1;
  * the server refuses them with 403); never off the validated assembly scope, which the server
  * refuses anyway (#515); and not while the sign-out record is unknown, as the analysis may be
@@ -139,7 +139,7 @@ export const signOutRefusal = (offer: SignOutOffer, subject: 'report' | 'analysi
 
 /**
  * The family sign-out (`POST /families/{family_id}/report/sign-out`) with its gates: the
- * live report signs a family out with it, and the NIPT page a monogenic NIPT family, so both
+ * live report signs a family out with it, and the NIPT report a monogenic NIPT family, so both
  * sign out through one flow, one record per analysis. A gate that refuses opens its dialog,
  * which lists the gate's concerns and is acknowledged with a reason that is frozen into the
  * signed record and with the fingerprint of the concerns it listed, so the acknowledgement

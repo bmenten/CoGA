@@ -4,6 +4,7 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import FamilySmallVariantsPage from '../FamilySmallVariantsPage';
 import { createTestQueryClient } from '../../../test/createTestQueryClient';
+import { factText } from '../../../test/factText';
 
 const apiMock = vi.hoisted(() => ({
   get: vi.fn(),
@@ -291,7 +292,7 @@ describe('FamilySmallVariantsPage', () => {
         expect.stringContaining('/families/F1/small-variants?page=1&page_size=100&project_id=p1'),
       );
     });
-    expect(await screen.findByText('Showing 7')).toBeInTheDocument();
+    expect(await screen.findByText(factText('Showing 7'))).toBeInTheDocument();
   });
 
   // #608 — the search runs within the linked project; with the catalogue failed it used to
@@ -334,7 +335,7 @@ describe('FamilySmallVariantsPage', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
 
-    expect(await screen.findByText('Showing 7')).toBeInTheDocument();
+    expect(await screen.findByText(factText('Showing 7'))).toBeInTheDocument();
   });
 
   // SAFE-14 — the search waits for the family record, which holds what the header warns of;
@@ -375,7 +376,7 @@ describe('FamilySmallVariantsPage', () => {
 
     fireEvent.click(within(failure).getByRole('button', { name: 'Retry' }));
 
-    expect(await screen.findByText('Showing 7')).toBeInTheDocument();
+    expect(await screen.findByText(factText('Showing 7'))).toBeInTheDocument();
   });
 
   // #606 — a failed panel list used to leave the select at "Any gene panel" while the
@@ -442,7 +443,7 @@ describe('FamilySmallVariantsPage', () => {
     it('is named under the field, and the search is not run', async () => {
       serveFamily();
       renderAt('/families/F1/small-variants?page=1&gene=BRCA1');
-      expect(await screen.findByText('Showing 3')).toBeInTheDocument();
+      expect(await screen.findByText(factText('Showing 3'))).toBeInTheDocument();
       const before = searches().length;
 
       fireEvent.change(screen.getByPlaceholderText(/^Intervals:/), {
@@ -520,10 +521,10 @@ describe('FamilySmallVariantsPage', () => {
     );
 
     // Thousands separated, matching the SNV/indel chips beside them.
-    expect(await screen.findByText('Showing 1,000+')).toBeInTheDocument();
-    expect(screen.getByText('All variants 1,000+')).toBeInTheDocument();
-    expect(screen.getByText('SNVs 900')).toBeInTheDocument();
-    expect(screen.getByText('Indels 101')).toBeInTheDocument();
+    expect(await screen.findByText(factText('Showing 1,000+'))).toBeInTheDocument();
+    expect(screen.getByText(factText('All variants 1,000+'))).toBeInTheDocument();
+    expect(screen.getByText(factText('SNVs 900'))).toBeInTheDocument();
+    expect(screen.getByText(factText('Indels 101'))).toBeInTheDocument();
     // The per-member table of variants, het and hom calls is gone from the header (owner,
     // 2026-10-29).
     expect(screen.queryByText('345')).not.toBeInTheDocument();
@@ -572,7 +573,7 @@ describe('FamilySmallVariantsPage', () => {
       );
       expect(notice).toHaveTextContent('Narrow the filters (a region, a gene panel or a gene)');
       // The 12 rows read are counted as 12, a lower bound; it read "11+".
-      expect(screen.getByText('Showing 12+')).toBeInTheDocument();
+      expect(screen.getByText(factText('Showing 12+'))).toBeInTheDocument();
     });
 
     it('says how many candidates a truncated ranking covered', async () => {
@@ -590,7 +591,7 @@ describe('FamilySmallVariantsPage', () => {
 
     it('shows no notice for a complete search', async () => {
       renderWithPage({ total: 3, total_is_estimated: false });
-      expect(await screen.findByText('Showing 3')).toBeInTheDocument();
+      expect(await screen.findByText(factText('Showing 3'))).toBeInTheDocument();
       expect(screen.queryByTestId('candidate-cap-notice')).not.toBeInTheDocument();
     });
   });
@@ -636,8 +637,8 @@ describe('FamilySmallVariantsPage', () => {
       </QueryClientProvider>
     );
 
-    expect(await screen.findByText('All variants 135,791')).toBeInTheDocument();
-    expect(screen.getByText('Showing 24,680')).toBeInTheDocument();
+    expect(await screen.findByText(factText('All variants 135,791'))).toBeInTheDocument();
+    expect(screen.getByText(factText('Showing 24,680'))).toBeInTheDocument();
 
     // The heading itself navigates, so the separate Family button is gone.
     const title = screen.getByRole('link', { name: 'Family F1' });
@@ -1794,7 +1795,7 @@ describe('FamilySmallVariantsPage', () => {
       NIPT_ONLY.forEach((name) => expect(params.has(name), name).toBe(false));
       expect(params.getAll('impact')).toEqual(['HIGH', 'MODERATE']);
       // The search runs, with every filter the list applies.
-      expect(await screen.findByText('Showing 1')).toBeInTheDocument();
+      expect(await screen.findByText(factText('Showing 1'))).toBeInTheDocument();
       expect(screen.queryByText('Unable to load small variants')).not.toBeInTheDocument();
       // Only what the list applies is chipped and counted: the impacts and the gnomAD AF.
       expect(screen.getByRole('button', { name: 'Impact: HIGH' })).toBeInTheDocument();
@@ -1802,7 +1803,7 @@ describe('FamilySmallVariantsPage', () => {
       expect(screen.queryByRole('button', { name: /^Category/ })).not.toBeInTheDocument();
       expect(screen.queryByRole('button', { name: /^Min confidence/ })).not.toBeInTheDocument();
       expect(screen.queryByRole('button', { name: /^De novo priority/ })).not.toBeInTheDocument();
-      expect(screen.getByText('Active filters 3')).toBeInTheDocument();
+      expect(screen.getByText(factText('Active filters 3'))).toBeInTheDocument();
       // Said once, beside the chips.
       expect(
         screen.getAllByText(
@@ -1840,11 +1841,11 @@ describe('FamilySmallVariantsPage', () => {
       serve();
       renderAt('/families/F1/small-variants?inheritance=de_novo&prioritize=false');
 
-      expect(await screen.findByText('Showing 1')).toBeInTheDocument();
+      expect(await screen.findByText(factText('Showing 1'))).toBeInTheDocument();
       expect(listRequests().length).toBeGreaterThan(0);
       listRequests().forEach((params) => expect(params.has('inheritance')).toBe(false));
       expect(screen.queryByRole('button', { name: /^Inheritance/ })).not.toBeInTheDocument();
-      expect(screen.getByText('Active filters 0')).toBeInTheDocument();
+      expect(screen.getByText(factText('Active filters 0'))).toBeInTheDocument();
       expect(
         screen.getByText('The small-variant list does not apply this search’s “De novo in the fetus” inheritance filter.'),
       ).toBeInTheDocument();
@@ -1854,7 +1855,7 @@ describe('FamilySmallVariantsPage', () => {
       serve();
       renderAt('/families/F1/small-variants?inheritance=paternal_dominant&include_not_inherited=true&prioritize=false');
 
-      expect(await screen.findByText('Showing 1')).toBeInTheDocument();
+      expect(await screen.findByText(factText('Showing 1'))).toBeInTheDocument();
       expect(screen.queryByText(/Unsupported small-variant inheritance filter/)).not.toBeInTheDocument();
       listRequests().forEach((params) => {
         expect(params.has('inheritance')).toBe(false);
@@ -1874,7 +1875,7 @@ describe('FamilySmallVariantsPage', () => {
 
       await waitFor(() => expect(listRequests().at(-1)?.get('inheritance')).toBe('de_novo_dominant'));
       expect(await screen.findByRole('button', { name: 'Inheritance: De novo / dominant' })).toBeInTheDocument();
-      expect(screen.getByText('Active filters 1')).toBeInTheDocument();
+      expect(screen.getByText(factText('Active filters 1'))).toBeInTheDocument();
       expect(screen.queryByText(/The small-variant list does not apply/)).not.toBeInTheDocument();
     });
   });
@@ -2034,7 +2035,7 @@ describe('FamilySmallVariantsPage', () => {
     it('names no preset when the page opens on a search from the URL', async () => {
       serveTrio();
       renderAt('/families/F1/small-variants?impact=HIGH');
-      await screen.findByText('Showing 1');
+      await screen.findByText(factText('Showing 1'));
       expect(activeFilter()).toHaveTextContent('Active filter: custom (no preset loaded)');
     });
   });

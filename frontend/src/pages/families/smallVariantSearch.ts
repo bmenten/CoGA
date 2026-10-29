@@ -467,7 +467,7 @@ export const NIPT_BUILT_IN_PRESETS: Array<{
     value: 'nipt_de_novo',
     label: 'De novo',
     description:
-      'De novo candidates in the fetal window, triaged and ranked: high/moderate impact, gnomAD <1% (ClinVar P/LP overrides), no supported call in the father.',
+      'De novo candidates in the fetal window, triaged and ranked: high/moderate impact, gnomAD <1% (ClinVar P/LP overrides), ClinVar benign and likely benign excluded, no supported call in the father.',
   },
   {
     value: 'nipt_paternal',
@@ -959,13 +959,15 @@ const buildPresetState = (
   } else if (preset === 'nipt_de_novo') {
     // Monogenic NIPT: the de novo view (candidates in the fetal window without a
     // supported paternal call, triaged), high/moderate impact, rare in gnomAD, ClinVar
-    // P/LP overriding the frequency cut-off. No genotype filters (the fetal call is
+    // P/LP overriding the frequency cut-off, ClinVar benign and likely benign excluded (as the
+    // small-variant page's default). The page opens on it on the Mendeliome. No genotype filters (the fetal call is
     // inferred from the cfDNA VAF) and no category tick: a candidate whose father's call
     // is too weak to tell de novo from paternal is category 7 and still a candidate.
     filters.inheritance = 'de_novo';
     filters.impact = 'HIGH, MODERATE';
     setFrequencyCeiling('0.01');
     filters.clinvar_overrides_frequency = 'true';
+    filters.exclude_clinvar = 'Benign, Likely benign';
   } else if (preset === 'nipt_paternal') {
     // Monogenic NIPT: the father's alleles the fetus inherited, rare and damaging.
     filters.inheritance = 'paternal_dominant';

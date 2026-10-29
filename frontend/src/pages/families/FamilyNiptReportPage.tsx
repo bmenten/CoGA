@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Link, useLocation, useParams } from 'react-router';
+import { Link, useLocation, useNavigate, useParams } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 
 import api from '../../lib/api';
@@ -33,10 +33,12 @@ import {
 import { apiPath } from '../../lib/apiPath';
 import { memberLabel } from '../../lib/familyMembers';
 import { formatCount, joinWithAnd } from '../../lib/format';
+import { signOutRefusal, useReportSignOut } from './reportSignOut';
 import { useReportSignoutCheck, useReportSignouts } from './reportSignoutQueries';
 import {
   describeReportSections,
   formatReportTime,
+  LIVE_REPORT_SIGN_OFF_STATEMENT,
   liveReportSignedNotice,
   liveReportSignedState,
   notComparedSentence,
@@ -178,6 +180,7 @@ const ReportVariant: React.FC<{ variant: SmallVariant }> = ({ variant }) => {
 const FamilyNiptReportPage: React.FC = () => {
   const { familyId } = useParams<{ familyId: string }>();
   const location = useLocation();
+  const navigate = useNavigate();
   const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
   const preferredProjectId = searchParams.get('project_id') || undefined;
   const panelId = searchParams.get('panel_id') || undefined;
@@ -286,7 +289,7 @@ const FamilyNiptReportPage: React.FC = () => {
     },
   });
 
-  // The NIPT analysis is signed out from the NIPT page into the family's signed record. This
+  // The NIPT analysis is signed out from this report into the family's signed record. This
   // page is live, never that record: it says so on screen and at the top of every printout,
   // as the family's live report does (TF-06 H9).
   const {
@@ -298,6 +301,30 @@ const FamilyNiptReportPage: React.FC = () => {
   const { data: signoutCheck, isError: signoutCheckFailed } = useReportSignoutCheck(
     familyId,
     latestSignout?.version ?? null,
+  );
+  // Signed out through the family sign-out, its gates and report code: one record per
+  // analysis, which holds the NIPT results (signed_record_nipt). The signed version it issues
+  // opens on the family's report page, which renders it from its record.
+  const signedVersionLink = (version: number) => {
+    const params = new URLSearchParams();
+    if (preferredProjectId) params.set('project_id', preferredProjectId);
+    params.set('version', String(version));
+    return { pathname: routePath`/families/${familyId}/report`, search: `?${params.toString()}` };
+  };
+  const {
+    signOut,
+    isPending: signOutPending,
+    error: signOutError,
+    dialogs: signOutDialogs,
+  } = useReportSignOut(
+    familyId,
+    (version) => navigate(signedVersionLink(version), { state: { signedOut: { version } } }),
+    // A reader in the family's project signs nothing out (SEC-1).
+    { readOnly: Boolean(family?.read_only) },
+  );
+  const signOutBlocked = signOutRefusal(
+    { readOnly: Boolean(family?.read_only), assemblyValidated, signoutsFailed, signoutsPending },
+    'analysis',
   );
 
   const candidates = useMemo(
@@ -474,8 +501,19 @@ const FamilyNiptReportPage: React.FC = () => {
           <Link to={routePath`/families/${familyId}/nipt`} className="button-secondary hover:no-underline">
             Back to NIPT
           </Link>
-          <button type="button" className="form-button" onClick={() => window.print()}>
+          <button type="button" className="button-secondary" onClick={() => window.print()}>
             Print report
+          </button>
+          <button
+            type="button"
+            className="form-button"
+            onClick={signOut}
+            // As on the family report: not to a reader (SEC-1), nor off the validated scope,
+            // nor while the sign-out record is unknown (the analysis may be signed already).
+            disabled={signOutPending || signOutBlocked !== null}
+            title={signOutBlocked ?? undefined}
+          >
+            {signOutPending ? 'Signing out…' : latestSignout ? 'Amend sign-out' : 'Sign out NIPT analysis'}
           </button>
         </div>
       </header>
@@ -494,7 +532,7 @@ const FamilyNiptReportPage: React.FC = () => {
             : signedState === 'loading'
               ? 'Looking up the signed versions…'
               : signedState === 'none'
-                ? 'Draft: this NIPT analysis has not been signed out. It is signed out from the NIPT page, into the family’s signed record.'
+                ? 'Draft: this NIPT analysis has not been signed out. It is signed out from this report, into the family’s signed record.'
                 : `This is the live report, not signed version ${latestSignout?.version}.`}
         </p>
         {latestSignout ? (
@@ -525,7 +563,22 @@ const FamilyNiptReportPage: React.FC = () => {
             </Link>
           </p>
         ) : null}
+        <p className="report-signout-status no-print">
+          {LIVE_REPORT_SIGN_OFF_STATEMENT} The family has one signed record: signing out here or from
+          the family report freezes the same analysis, with its NIPT results (the fetal fraction, the
+          quality checks, the target coverage, and each variant tagged report as this analysis
+          classifies it).
+        </p>
       </section>
+
+      {signOutError ? (
+        <section className="surface-card report-signout-error no-print" role="alert">
+          <p className="report-paragraph">
+            <strong>Not signed out.</strong> {signOutError}
+          </p>
+        </section>
+      ) : null}
+      {signOutDialogs}
 
       {failedParts.length ? (
         <section className="surface-card report-incomplete no-print" role="alert">

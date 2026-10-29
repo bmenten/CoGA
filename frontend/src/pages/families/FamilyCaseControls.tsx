@@ -224,7 +224,7 @@ const FamilyCaseControls: React.FC<{ familyId: string }> = ({ familyId }) => {
  * lists every kind of finding that can be marked Report, repeat loci, Paraphase regions and mtDNA
  * variants included.
  */
-export type FamilyCaseActionKey = 'qc' | 'report';
+export type FamilyCaseActionKey = 'qc' | 'report' | 'nipt-report';
 
 export const FamilyCaseActions: React.FC<{
   familyId: string;
@@ -232,7 +232,11 @@ export const FamilyCaseActions: React.FC<{
   presence: FamilyDataPresence;
   /** The page this is: its link is marked, and shown whatever the checks find. */
   current?: string;
-}> = ({ familyId, projectId, presence, current }) => {
+  /** A monogenic NIPT family: its NIPT report beside the family's report. */
+  isMonogenicNipt?: boolean;
+  /** The NIPT report's query string, carried from the NIPT page (its panel and gene). */
+  niptReportSearch?: string;
+}> = ({ familyId, projectId, presence, current, isMonogenicNipt = false, niptReportSearch }) => {
   const projectSuffix = projectId ? `?project_id=${encodeURIComponent(projectId)}` : '';
   const actions = [
     { key: 'qc', label: 'Sample QC', available: presence.hasSmallVariants, to: routePath`/families/${familyId}/qc` },
@@ -241,6 +245,12 @@ export const FamilyCaseActions: React.FC<{
       label: 'Report',
       available: presence.hasAnyVariantData,
       to: routePath`/families/${familyId}/report${raw(projectSuffix)}`,
+    },
+    {
+      key: 'nipt-report',
+      label: 'NIPT report',
+      available: isMonogenicNipt,
+      to: routePath`/families/${familyId}/nipt/report${raw(niptReportSearch ?? projectSuffix)}`,
     },
   ].filter((action) => action.available || action.key === current);
   return actions.length ? (

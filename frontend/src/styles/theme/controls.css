@@ -126,15 +126,6 @@ a.button-danger:hover {
   overflow-wrap: anywhere;
 }
 
-/* The filtered-count chip ("Showing N") — the headline number, so make it stand out from the
-   muted context chips beside it. */
-.badge-chip--emphasis {
-  background: var(--color-primary);
-  border-color: var(--color-primary);
-  color: var(--color-white);
-  font-weight: 600;
-}
-
 .badge-chip--signature {
   border-color: rgba(173, 31, 45, 0.2);
   background: var(--color-signature-red-soft);

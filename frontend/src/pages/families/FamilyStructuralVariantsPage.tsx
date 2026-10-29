@@ -4,7 +4,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import api from '../../lib/api';
 import { isReviewConflict, withReviewVersion } from '../../lib/reviewConcurrency';
 import { getErrorMessage } from '../../lib/errorMessage';
-import FamilyCaseHeader from './FamilyCaseHeader';
+import FamilyCaseHeader, { FamilyFact } from './FamilyCaseHeader';
 import FilterCollapseToggle from './FilterCollapseToggle';
 import { formatResolvedReferenceLabel, useFamilyReference } from '../../lib/reference';
 import PageState from '../../components/PageState';
@@ -366,6 +366,16 @@ const FamilyStructuralVariantsPage: React.FC = () => {
         assemblyLabel={referenceLabel}
         current="structural-variants"
         className="variant-workbench-card"
+        facts={
+          <>
+            {/* A failed search counts nothing: its count is unknown, not 0 (#606). */}
+            <FamilyFact label="Showing" value={isError ? '—' : filteredTotalLabel} />
+            <FamilyFact label="All variants" value={overallTotal ?? '—'} />
+            <FamilyFact label="Active filters" value={activeFilterCount} />
+            <FamilyFact label="Tag library" value={addableTagDefinitions(tags).length} />
+            {isFetching ? <FamilyFact label="Updating…" /> : null}
+          </>
+        }
         views={
           <>
             <GenomeWorkspaceLink
@@ -419,16 +429,7 @@ const FamilyStructuralVariantsPage: React.FC = () => {
         )}
           </>
         }
-      >
-        <div className="variant-summary-row">
-          {/* A failed search counts nothing: its count is unknown, not 0 (#606). */}
-          <span className="badge-chip">Showing {isError ? '—' : filteredTotalLabel}</span>
-          <span className="badge-chip">All variants {overallTotal ?? '—'}</span>
-          <span className="badge-chip">Active filters {activeFilterCount}</span>
-          <span className="badge-chip">Tag library {addableTagDefinitions(tags).length}</span>
-          {isFetching ? <span className="badge-chip">Updating…</span> : null}
-        </div>
-      </FamilyCaseHeader>
+      />
 
       {panelsFailed ? (
         <QueryFailure

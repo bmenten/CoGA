@@ -1,14 +1,16 @@
 import { QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import FamilyNiptReportPage from '../FamilyNiptReportPage';
+import { READ_ONLY_HINT } from '../../../lib/familyAccess';
 import { createTestQueryClient } from '../../../test/createTestQueryClient';
 import { INCOMPLETE_IMPORT_METADATA, findImportIncompleteBanner } from '../../../test/familyPageBanners';
 
 const apiMock = vi.hoisted(() => ({
   get: vi.fn(),
+  post: vi.fn(),
   // GET /version, the build the report footer names (TF-15 §1). Answered here for every
   // test, so each test's fake backend serves only the family.
   version: vi.fn(),
@@ -17,6 +19,7 @@ const apiMock = vi.hoisted(() => ({
 vi.mock('../../../lib/api', () => ({
   default: {
     get: (...args: unknown[]) => (args[0] === '/version' ? apiMock.version() : apiMock.get(...args)),
+    post: (...args: unknown[]) => apiMock.post(...args),
   },
 }));
 
@@ -26,6 +29,9 @@ beforeEach(() => {
   apiMock.version.mockResolvedValue({ data: RUNNING_BUILD });
 });
 
+// Whether the project's assembly is validated for clinical use: a sign-out is refused off it.
+const referenceState = vi.hoisted(() => ({ validated: true }));
+
 vi.mock('../../../lib/reference', () => ({
   // The family header lists the family's projects by name.
   useProjectCatalog: () => ({ data: [] }),
@@ -33,6 +39,7 @@ vi.mock('../../../lib/reference', () => ({
     speciesName: 'Homo sapiens',
     assemblyName: 'GRCh38',
     assemblyVersion: 'p14',
+    assemblyValidated: referenceState.validated,
     projectId: undefined,
     isLoading: false,
   }),
@@ -543,7 +550,7 @@ describe('FamilyNiptReportPage', () => {
     });
   });
 
-  // The NIPT analysis is signed out from the NIPT page into the family's signed record. This
+  // The NIPT analysis is signed out from this report into the family's signed record. This
   // live report is never that record: it says so on screen and at the top of every printout,
   // as the family's live report does (TF-06 H9).
   describe('beside the signed record', () => {
@@ -638,7 +645,7 @@ describe('FamilyNiptReportPage', () => {
       renderPage('');
 
       expect(await signoutStatus()).toHaveTextContent(
-        'Draft: this NIPT analysis has not been signed out. It is signed out from the NIPT page, into the family’s signed record.',
+        'Draft: this NIPT analysis has not been signed out. It is signed out from this report, into the family’s signed record.',
       );
       expect(screen.getByText('Draft — this report has not been signed.')).toHaveClass('print-only');
     });
@@ -653,6 +660,359 @@ describe('FamilyNiptReportPage', () => {
       expect(
         screen.getByText('The sign-out record could not be loaded — do not use as the signed report.'),
       ).toHaveClass('print-only');
+    });
+  });
+
+  // The NIPT analysis is signed out from this report, through the family sign-out, its gates and
+  // report code: one signed record per analysis, which holds the NIPT results (REG-2). The NIPT
+  // page offers no sign-out: it links here.
+  describe('signing the NIPT analysis out', () => {
+    const LATEST = {
+      version: 2,
+      signed_out_by: 'lab-signer',
+      signed_out_at: '2026-10-15T09:00:00Z',
+      content_hash: 'hash-v2',
+      report_code: '7KQM2X-2-4PHT',
+    };
+
+    beforeEach(() => {
+      apiMock.post.mockReset();
+      referenceState.validated = true;
+    });
+
+    const serve = ({
+      latest = null,
+      changed = null,
+      notCompared = [],
+      readOnly = false,
+    }: {
+      latest?: typeof LATEST | null;
+      changed?: string[] | null;
+      notCompared?: string[];
+      readOnly?: boolean;
+    } = {}) => {
+      serveReport({});
+      const base = apiMock.get.getMockImplementation()!;
+      apiMock.get.mockImplementation((url: string, config?: unknown) => {
+        if (url === '/families/NIPT001') {
+          return Promise.resolve({
+            data: {
+              family_id: 'NIPT001',
+              members: [],
+              metadata: { analysis_type: 'monogenic_nipt' },
+              read_only: readOnly,
+            },
+          });
+        }
+        if (url === '/families/NIPT001/report/sign-outs') {
+          return Promise.resolve({ data: { family_id: 'NIPT001', latest, signouts: latest ? [latest] : [] } });
+        }
+        if (url === '/families/NIPT001/report/sign-out-check') {
+          return Promise.resolve({
+            data: {
+              family_id: 'NIPT001',
+              version: latest?.version ?? null,
+              content_hash: latest?.content_hash ?? null,
+              matches: !changed,
+              changed_sections: changed ?? [],
+              not_compared: notCompared,
+              not_captured: [],
+              checked_at: '2026-10-16T09:00:00Z',
+            },
+          });
+        }
+        return base(url, config);
+      });
+    };
+    const signoutStatus = async () =>
+      (await screen.findByText(/^This is the live report|^Draft: this NIPT analysis/)).closest('section') as HTMLElement;
+
+    // Where a sign-out leads: the signed version, opened on the family's report page.
+    const SignedVersionProbe = () => {
+      const location = useLocation();
+      const state = location.state as { signedOut?: { version?: number } } | null;
+      return (
+        <p>
+          Report page {location.pathname}
+          {location.search} (signed out as version {state?.signedOut?.version ?? 'none'})
+        </p>
+      );
+    };
+
+    const renderWithReport = () =>
+      render(
+        <QueryClientProvider client={createTestQueryClient()}>
+          <MemoryRouter initialEntries={['/families/NIPT001/nipt/report']}>
+            <Routes>
+              <Route path="/families/:familyId/nipt/report" element={<FamilyNiptReportPage />} />
+              <Route path="/families/:familyId/report" element={<SignedVersionProbe />} />
+            </Routes>
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+
+    it('signs out through the family sign-out, and opens the version it signed', async () => {
+      serve();
+      apiMock.post.mockResolvedValue({ data: { version: 1, report_code: '7KQM2X-1-B3HV' } });
+      renderWithReport();
+
+      const sign = await screen.findByRole('button', { name: 'Sign out NIPT analysis' });
+      const status = await signoutStatus();
+      expect(status).toHaveTextContent('Draft: this NIPT analysis has not been signed out.');
+      expect(status).toHaveTextContent('The family has one signed record');
+      fireEvent.click(sign);
+
+      expect(await screen.findByText(/Report page \/families\/NIPT001\/report\?version=1/)).toHaveTextContent(
+        '(signed out as version 1)',
+      );
+      expect(apiMock.post).toHaveBeenCalledWith('/families/NIPT001/report/sign-out', {
+        acknowledge_drift: false,
+        drift_acknowledgement_reason: undefined,
+        acknowledge_qc: false,
+        qc_acknowledgement_reason: undefined,
+        acknowledge_import_incomplete: false,
+        import_incomplete_acknowledgement_reason: undefined,
+        acknowledge_unreviewed_findings: false,
+        unreviewed_findings_acknowledgement_reason: undefined,
+      });
+    });
+
+    it('asks for a reason when a NIPT quality check failed, and freezes it with the sign-out', async () => {
+      serve();
+      const concern =
+        'Sample CFDNA1 (maternal plasma): male DNA (chrY at the autosomal level, chrX low): this sample cannot be maternal plasma.';
+      apiMock.post
+        .mockRejectedValueOnce({
+          response: {
+            status: 409,
+            data: {
+              detail: {
+                gate: 'sample_qc',
+                message:
+                  'A NIPT quality check failed. Resolve each concern listed, or acknowledge them with a reason to sign out anyway.',
+                qc_summary: { overall_status: 'pass', messages: [concern] },
+                failed_checks: [],
+                unverifiable_checks: [],
+                nipt_failed_checks: [concern],
+                warning_checks: [],
+                concerns_fingerprint: '9'.repeat(64),
+                concerns_changed: false,
+              },
+            },
+          },
+        })
+        .mockResolvedValueOnce({ data: { version: 1 } });
+      renderWithReport();
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Sign out NIPT analysis' }));
+      const dialog = await screen.findByRole('dialog', { name: 'Sample-integrity QC acknowledgement required' });
+      expect(dialog).toHaveTextContent('A NIPT quality check failed');
+      expect(within(dialog).getByText(concern)).toBeInTheDocument();
+      fireEvent.change(within(dialog).getByLabelText(/Reason for signing out despite the QC concern/), {
+        target: { value: 'Plasma re-drawn; identity confirmed.' },
+      });
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Sign out anyway' }));
+
+      expect(await screen.findByText(/Report page \/families\/NIPT001\/report\?version=1/)).toBeInTheDocument();
+      // With the fingerprint of the concerns the dialog showed, which it covers (TRACE-19).
+      expect(apiMock.post).toHaveBeenLastCalledWith(
+        '/families/NIPT001/report/sign-out',
+        expect.objectContaining({
+          acknowledge_qc: true,
+          qc_acknowledgement_reason: 'Plasma re-drawn; identity confirmed.',
+          qc_concerns_fingerprint: '9'.repeat(64),
+        }),
+      );
+    });
+
+    it('lists the NIPT checks as they are now when another failed after the dialog listed them (TRACE-19)', async () => {
+      // The reason was written for the plasma's check; the fetal-sex check failed before it was
+      // sent. The sign-out is refused with the checks as they are now, which the dialog lists
+      // for a fresh reason: the first one does not cover a check it was not written for.
+      serve();
+      const plasma =
+        'Sample CFDNA1 (maternal plasma): male DNA (chrY at the autosomal level, chrX low): this sample cannot be maternal plasma.';
+      const fetalSex = 'NIPT fetal sex: the two signals disagree.';
+      const refusal = (checks: string[], fingerprint: string, changed: boolean) => ({
+        response: {
+          status: 409,
+          data: {
+            detail: {
+              gate: 'sample_qc',
+              message:
+                'A NIPT quality check failed. Resolve each concern listed, or acknowledge them with a reason to sign out anyway.',
+              qc_summary: { overall_status: 'pass', messages: checks },
+              failed_checks: [],
+              unverifiable_checks: [],
+              nipt_failed_checks: checks,
+              warning_checks: [],
+              concerns_fingerprint: fingerprint,
+              concerns_changed: changed,
+            },
+          },
+        },
+      });
+      const posts: Array<Record<string, unknown>> = [];
+      apiMock.post.mockImplementation((_url: string, body: Record<string, unknown>) => {
+        posts.push(body);
+        if (posts.length === 1) return Promise.reject(refusal([plasma], '9'.repeat(64), false));
+        if (posts.length === 2) return Promise.reject(refusal([fetalSex, plasma], '8'.repeat(64), true));
+        return Promise.resolve({ data: { version: 1 } });
+      });
+      renderWithReport();
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Sign out NIPT analysis' }));
+      const dialog = await screen.findByRole('dialog', { name: 'Sample-integrity QC acknowledgement required' });
+      const reason = () => within(dialog).getByLabelText(/Reason for signing out despite the QC concern/);
+      fireEvent.change(reason(), { target: { value: 'Plasma re-drawn; identity confirmed.' } });
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Sign out anyway' }));
+
+      expect(await within(dialog).findByRole('alert')).toHaveTextContent(
+        'Nothing was signed out: the concerns changed after this dialog listed them.',
+      );
+      expect(
+        within(within(dialog).getByRole('list', { name: 'NIPT quality checks that failed' }))
+          .getAllByRole('listitem')
+          .map((item) => item.textContent),
+      ).toEqual([fetalSex, plasma]);
+      expect(reason()).toHaveValue('');
+      expect(screen.queryByText(/Report page \/families\/NIPT001/)).not.toBeInTheDocument();
+
+      fireEvent.change(reason(), { target: { value: 'Plasma re-drawn; fetal sex read from the scan.' } });
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Sign out anyway' }));
+      expect(await screen.findByText(/Report page \/families\/NIPT001\/report\?version=1/)).toBeInTheDocument();
+      // No fingerprint before a dialog showed concerns, then the one each dialog showed.
+      expect(posts.map((body) => body.qc_concerns_fingerprint)).toEqual([undefined, '9'.repeat(64), '8'.repeat(64)]);
+      expect(posts[2]).toMatchObject({
+        acknowledge_qc: true,
+        qc_acknowledgement_reason: 'Plasma re-drawn; fetal sex read from the scan.',
+      });
+    });
+
+    it('lists the checks that could not run beside the failures, each group under its heading (CLIN-58)', async () => {
+      // The mother's sex check failed and the maternal plasma is male DNA, while the paternity
+      // and the maternal lineage could not run. The dialog listed the failures and the
+      // paternity (`qc_summary`), but not the maternal lineage, which the 409 names among the
+      // checks that could not run: the reason written there might not cover it. Each group the
+      // 409 names is listed under its heading, before the reason.
+      serve();
+      const motherFailed =
+        'Sample MOTHER1: recorded female but genotypes indicate male (1.0% chrX het over 500 sites) — possible sample swap or mislabel.';
+      const paternity =
+        'Sample FATHER1 (father): too few paternal-informative sites (3 homozygous, 0 het) to assess paternity.';
+      const lineage =
+        'NIPT maternal lineage could not be verified (too few maternal-informative sites) — possible wrong mother.';
+      const plasma =
+        'Sample CFDNA1 (maternal plasma): male DNA (chrY at the autosomal level, chrX low): this sample cannot be maternal plasma.';
+      const fetalSex =
+        'Fetal sex indeterminate — too few informative paternal-X sites (0 paternal-X transmitted, 0 absent of 0 sites).';
+      apiMock.post
+        .mockRejectedValueOnce({
+          response: {
+            status: 409,
+            data: {
+              detail: {
+                gate: 'sample_qc',
+                message:
+                  "Sample-integrity QC status is 'fail' (possible sample or pedigree swap — TF-06 H4). A sample-integrity check that confirms the pedigree or a sample's identity could not run. A sample swap can present as missing data rather than a mismatch. A NIPT quality check failed. Resolve each concern listed, or acknowledge them with a reason to sign out anyway.",
+                qc_summary: {
+                  overall_status: 'fail',
+                  messages: [motherFailed, paternity, fetalSex, plasma],
+                },
+                failed_checks: [motherFailed],
+                unverifiable_checks: [paternity, lineage],
+                nipt_failed_checks: [plasma],
+                warning_checks: [fetalSex],
+              },
+            },
+          },
+        })
+        .mockResolvedValueOnce({ data: { version: 1 } });
+      renderWithReport();
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Sign out NIPT analysis' }));
+      const dialog = await screen.findByRole('dialog', { name: 'Sample-integrity QC acknowledgement required' });
+      expect(within(dialog).getByText(lineage)).toBeInTheDocument();
+      const group = (name: string) =>
+        within(within(dialog).getByRole('list', { name }))
+          .getAllByRole('listitem')
+          .map((item) => item.textContent);
+      expect(group('Sample QC checks that failed')).toEqual([motherFailed]);
+      expect(group('Checks that could not run')).toEqual([paternity, lineage]);
+      expect(group('NIPT quality checks that failed')).toEqual([plasma]);
+      expect(group('Warnings, which do not stop the sign-out on their own')).toEqual([fetalSex]);
+      // Each concern once, the paternity among the checks that could not run only.
+      expect(within(dialog).getAllByRole('listitem')).toHaveLength(5);
+      const reason = within(dialog).getByLabelText(
+        'Reason for signing out despite the QC concerns listed (required)',
+      );
+      for (const list of within(dialog).getAllByRole('list')) {
+        expect(list.compareDocumentPosition(reason) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      }
+      fireEvent.change(reason, { target: { value: 'Samples re-drawn and re-run; identities confirmed.' } });
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Sign out anyway' }));
+
+      expect(await screen.findByText(/Report page \/families\/NIPT001\/report\?version=1/)).toBeInTheDocument();
+      expect(apiMock.post).toHaveBeenLastCalledWith(
+        '/families/NIPT001/report/sign-out',
+        expect.objectContaining({
+          acknowledge_qc: true,
+          qc_acknowledgement_reason: 'Samples re-drawn and re-run; identities confirmed.',
+        }),
+      );
+    });
+
+    it('names the latest signed version, its report code, and what changed since', async () => {
+      serve({ latest: LATEST, changed: ['nipt'] });
+      renderWithReport();
+
+      expect(await screen.findByRole('button', { name: 'Amend sign-out' })).toBeEnabled();
+      const status = await signoutStatus();
+      await waitFor(() => expect(status).toHaveTextContent('Changed since sign-out: NIPT results.'));
+      expect(status).toHaveTextContent(
+        'Signed version 2 (report code 7KQM2X-2-4PHT) was signed out by lab-signer on 2026-10-15 09:00 UTC: it holds the NIPT results.',
+      );
+      expect(within(status).getByRole('link', { name: 'View signed version 2' })).toHaveAttribute(
+        'href',
+        '/families/NIPT001/report?version=2',
+      );
+    });
+
+    it('names what the check could not compare with the latest signed version (TRACE-19)', async () => {
+      serve({ latest: LATEST, notCompared: ['nipt'] });
+      renderWithReport();
+
+      expect(await screen.findByRole('button', { name: 'Amend sign-out' })).toBeEnabled();
+      const status = await signoutStatus();
+      await waitFor(() =>
+        expect(status).toHaveTextContent(
+          'The family’s current data still matches it in everything it holds. Not in signed version 2, so not compared: NIPT results.',
+        ),
+      );
+    });
+
+    // SEC-1: a reader in the family's project reads the NIPT report and whether it was signed
+    // out, but signs nothing out: the button is disabled with the reason the report page gives.
+    it('offers a reader no sign-out, says why, and sends none', async () => {
+      serve({ readOnly: true });
+      renderWithReport();
+
+      const sign = await screen.findByRole('button', { name: 'Sign out NIPT analysis' });
+      await waitFor(() => expect(sign).toBeDisabled());
+      expect(sign).toHaveAttribute('title', READ_ONLY_HINT);
+      fireEvent.click(sign);
+      expect(await signoutStatus()).toHaveTextContent('Draft: this NIPT analysis has not been signed out.');
+      expect(apiMock.post).not.toHaveBeenCalled();
+    });
+
+    it('offers no sign-out off the validated assembly scope', async () => {
+      referenceState.validated = false;
+      serve();
+      renderWithReport();
+
+      const sign = await screen.findByRole('button', { name: 'Sign out NIPT analysis' });
+      await waitFor(() => expect(sign).toBeDisabled());
+      expect(sign).toHaveAttribute('title', 'Not validated for clinical use — this analysis cannot be signed out');
     });
   });
 

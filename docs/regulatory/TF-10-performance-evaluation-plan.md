@@ -263,7 +263,7 @@ pull request updates this list only when it adds clinical behaviour that no area
   versions the family's searches applied, the reference-data releases, the repeat-expansion
   and Paraphase calls with their status, in a PGT family each embryo's call at the ROI as
   the family page shows it, and a monogenic NIPT family's NIPT results as the NIPT page
-  computes them, signed out from the NIPT page too, a failed NIPT quality check gating the
+  computes them, signed out from the NIPT report too, a failed NIPT quality check gating the
   sign-out with the Sample QC; and what each coverage track held, read depth, a log2 ratio or
   unknown, and where it was loaded from); the report code the EPD report quotes, its check
   symbol and its lookup; the device label and the build identity; every review,
