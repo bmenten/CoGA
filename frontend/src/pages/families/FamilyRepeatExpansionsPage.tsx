@@ -348,7 +348,9 @@ const FamilyRepeatExpansionsPage: React.FC = () => {
   );
   const [geneFilter, setGeneFilter] = useState('');
   const [diseaseFilter, setDiseaseFilter] = useState('');
-  const [aberrantOnly, setAberrantOnly] = useState(false);
+  // Ticked on open: the loci to look at first. A count near a boundary and every status but
+  // normal stay in view; unticking shows every locus.
+  const [aberrantOnly, setAberrantOnly] = useState(true);
 
   const {
     data: family,

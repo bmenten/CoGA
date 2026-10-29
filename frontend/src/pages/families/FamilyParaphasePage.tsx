@@ -41,6 +41,13 @@ const formatNullableNumber = (value?: number | null, digits = 0): string => {
 // the region (NEB 6, a gene + pseudogene pair 4, ...) and, on chrX, on the sample's sex.
 // Re-deriving it here against a flat 2 flagged nearly every region, so the
 // "Copy-number changes only" filter hid nothing. Shared by the filter and the count.
+// A member's call to look at whatever its copy number: pathogenic, carrier, or review (which a
+// fusion, or a value no rule of the region names, gives without any copy-number change).
+const ABNORMAL_CALL_STATUSES = new Set(['pathogenic', 'carrier', 'review']);
+
+const geneHasAbnormalCall = (gene: ApiParaphaseGeneResult): boolean =>
+  Object.values(gene.samples).some((call) => ABNORMAL_CALL_STATUSES.has(call?.clinical_status ?? ''));
+
 const geneHasCopyNumberSignal = (gene: ApiParaphaseGeneResult): boolean =>
   Boolean(gene.has_copy_number_signal) ||
   Object.values(gene.samples).some((call) => Boolean(call?.copy_number_signal));
@@ -499,7 +506,9 @@ const FamilyParaphasePage: React.FC = () => {
   const { familyId } = useParams<{ familyId: string }>();
   const location = useLocation();
   const [searchText, setSearchText] = useState('');
-  const [onlyCopyNumberSignals, setOnlyCopyNumberSignals] = useState(false);
+  // Ticked on open: the regions with a copy-number change or an abnormal call. Unticking shows
+  // every region of the scope.
+  const [onlyCopyNumberSignals, setOnlyCopyNumberSignals] = useState(true);
   const [regionScope, setRegionScope] = useState<'clinical' | 'all'>('clinical');
   const projectIdParam = useMemo(
     () => new URLSearchParams(location.search).get('project_id') || undefined,
@@ -576,7 +585,8 @@ const FamilyParaphasePage: React.FC = () => {
         return false;
       }
       if (!onlyCopyNumberSignals) return true;
-      return geneHasCopyNumberSignal(gene);
+      // A call that reads abnormal stays in view without a copy-number change (a fusion's review).
+      return geneHasCopyNumberSignal(gene) || geneHasAbnormalCall(gene);
     });
   }, [onlyCopyNumberSignals, paraphaseTable?.genes, regionScope, searchText]);
 
@@ -705,7 +715,7 @@ const FamilyParaphasePage: React.FC = () => {
               checked={onlyCopyNumberSignals}
               onChange={(event) => setOnlyCopyNumberSignals(event.target.checked)}
             />
-            <span>Copy-number changes only</span>
+            <span>Copy-number changes and abnormal calls only</span>
           </label>
           <div className="family-paraphase-scope-toggle" aria-label="Region display scope">
             <button

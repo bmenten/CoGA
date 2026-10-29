@@ -73,8 +73,8 @@ each allele, and a status read against the locus's thresholds in the repeat cata
   assessed*, and its note names the tracts and says why.
 - *Unknown*: no call.
 
-**Aberrant only** keeps every locus whose status is not *Normal* or *Unknown*, *Not assessed*
-included, and the page header counts the calls not assessed. The genome tracks colour each locus by
+**Aberrant only**, ticked when the page opens, keeps every locus whose status is not *Normal* or
+*Unknown*, *Not assessed* included, and the page header counts the calls not assessed. The genome tracks colour each locus by
 the status its call was imported with, and keep it until the call is imported again; this page
 classifies every call again, against the catalogue as it is now.
 
@@ -104,8 +104,10 @@ fits none of them; at a locus without a rule, a copy-number change or a fusion r
 is a copy number outside the normal range the catalogue records for the locus (6 for *NEB*, 4 for a gene
 with its pseudogene). On chrX a man has one copy and a woman two, by the sex
 Paraphase infers, else the pedigree's; without a sex a chrX value is not called normal. A field without a
-fixed normal value (*highest_total_cn*) and a no-call are no change. **Copy-number changes only** shows
-only the loci with such a change.
+fixed normal value (*highest_total_cn*) and a no-call are no change. **Copy-number changes and abnormal
+calls only**, ticked when the page opens, shows the regions with such a change or with a member's call
+that reads *Pathogenic*, *Carrier* or *Review*: a fusion is reviewed without any change in copy number.
+Untick it to see every region.
 
 ### Reviewing a repeat locus or a Paraphase region
 

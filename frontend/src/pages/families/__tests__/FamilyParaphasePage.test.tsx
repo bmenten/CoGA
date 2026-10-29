@@ -330,6 +330,10 @@ describe('FamilyParaphasePage', () => {
     await waitFor(() => {
       expect(screen.getByRole('heading', { name: /duplicated-region results/i })).toBeInTheDocument();
     });
+    // The filter is ticked when the page opens; this test starts from every region.
+    const changesOnly = screen.getByLabelText(/copy-number changes and abnormal calls only/i);
+    expect(changesOnly).toBeChecked();
+    fireEvent.click(changesOnly);
 
     const smnCard = screen.getByText('SMN1/SMN2').closest('article');
     expect(smnCard).not.toBeNull();
@@ -414,7 +418,7 @@ describe('FamilyParaphasePage', () => {
     fireEvent.click(screen.getByRole('button', { name: /show all/i }));
     expect(screen.getByText('4 of 4 regions · 3 clinical · 2 with CN signals')).toBeInTheDocument();
     expect(screen.getByText('EXPLORATORY')).toBeInTheDocument();
-    fireEvent.click(screen.getByLabelText(/copy-number changes only/i));
+    fireEvent.click(screen.getByLabelText(/copy-number changes and abnormal calls only/i));
     expect(screen.getByText('2 of 4 regions · 3 clinical · 2 with CN signals')).toBeInTheDocument();
     expect(screen.getByText('SMN1/SMN2')).toBeInTheDocument();
     expect(screen.getByText('RCCX module')).toBeInTheDocument();
@@ -527,6 +531,51 @@ describe('FamilyParaphasePage — the region card', () => {
     },
     samples: { PROBAND: call('PROBAND', 'carrier', 1), MOTHER: call('MOTHER', 'normal', 2) },
   };
+
+  // Ticked when the page opens, the filter keeps a region with a copy-number change or a call
+  // that reads abnormal: a fusion is reviewed without any change in copy number.
+  it('opens on the regions with a copy-number change or an abnormal call, a fusion review included', async () => {
+    const region = (gene_symbol: string, status: string, signal: boolean) => ({
+      ...gene,
+      gene_symbol,
+      has_copy_number_signal: signal,
+      region_info: { ...gene.region_info, region_id: gene_symbol, display_name: gene_symbol, genes: [gene_symbol] },
+      samples: {
+        PROBAND: { ...call('PROBAND', status, 2), copy_number_signal: signal },
+        MOTHER: { ...call('MOTHER', 'normal', 2), copy_number_signal: false },
+      },
+    });
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === '/families/F1') {
+        return Promise.resolve({ data: { family_id: 'F1', members, projects: [] } });
+      }
+      if (url === '/families/F1/paraphase') {
+        return Promise.resolve({
+          data: {
+            samples: members,
+            genes: [region('CNCHANGE', 'carrier', true), region('FUSION', 'review', false), region('QUIET', 'normal', false)],
+          },
+        });
+      }
+      return Promise.resolve({ data: [] });
+    });
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MemoryRouter initialEntries={['/families/F1/paraphase']}>
+          <Routes>
+            <Route path="/families/:familyId/paraphase" element={<FamilyParaphasePage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByRole('article', { name: /CNCHANGE/ })).toBeInTheDocument();
+    expect(screen.getByLabelText(/copy-number changes and abnormal calls only/i)).toBeChecked();
+    expect(screen.getByRole('article', { name: /FUSION/ })).toBeInTheDocument();
+    expect(screen.queryByRole('article', { name: /QUIET/ })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText(/copy-number changes and abnormal calls only/i));
+    expect(screen.getByRole('article', { name: /QUIET/ })).toBeInTheDocument();
+  });
 
   it('keeps the calls and the caveat visible and the reading guide behind the info icon', async () => {
     apiMock.get.mockImplementation((url: string) => {

@@ -35,6 +35,14 @@ vi.mock('../../../lib/reference', () => ({
       .join(' • ') || 'Not linked',
 }));
 
+
+// "Aberrant only" is ticked when the page opens. These tests start from every locus, and tick it
+// where they test what it keeps.
+const showEveryLocus = async () => {
+  const filter = (await screen.findByLabelText('Aberrant only')) as HTMLInputElement;
+  if (filter.checked) fireEvent.click(filter);
+};
+
 describe('FamilyRepeatExpansionsPage', () => {
   it('renders family calls stacked in one column and keeps cutoffs at the far right', async () => {
     apiMock.get.mockImplementation((url: string) => {
@@ -163,6 +171,7 @@ describe('FamilyRepeatExpansionsPage', () => {
     await waitFor(() => {
       expect(screen.getByRole('heading', { name: /trgt repeat expansions/i })).toBeInTheDocument();
     });
+    await showEveryLocus();
 
     // A card like every variant card: the repeat at the left, the members' calls in the
     // genotype grid, no table and no column per member.
@@ -318,6 +327,7 @@ describe('FamilyRepeatExpansionsPage — review status (#535)', () => {
     );
 
     expect((await screen.findAllByText(/Review: outside catalogued ranges/)).length).toBeGreaterThan(0);
+    await showEveryLocus();
     fireEvent.click(screen.getByLabelText('Aberrant only'));
     // Before #535 this allele ranked below "normal" and the row vanished from the view.
     expect(screen.getByText('1 of 1 loci')).toBeInTheDocument();
@@ -633,6 +643,7 @@ describe('FamilyRepeatExpansionsPage — a locus without thresholds (CLIN-26)', 
   it('labels its calls Not assessed, counts them and keeps the locus in the aberrant-only view', async () => {
     renderWith([uncatalogued, htt]);
 
+    await showEveryLocus();
     const row = await screen.findByRole('article', { name: /chr2_1000000_1000030_CAG/ });
     expect(row).toHaveClass('family-repeat-card--not_assessed');
     // The locus flag and both members' calls; never Normal.
@@ -651,6 +662,7 @@ describe('FamilyRepeatExpansionsPage — a locus without thresholds (CLIN-26)', 
   it('counts none when every call was assessed', async () => {
     renderWith([htt]);
 
+    await showEveryLocus();
     expect(await screen.findByRole('article', { name: /HTT/ })).toBeInTheDocument();
     expect(callsNotAssessed()).toBe('0');
     expect(screen.queryByText('Not assessed')).not.toBeInTheDocument();
@@ -694,6 +706,7 @@ describe('FamilyRepeatExpansionsPage — a locus without thresholds (CLIN-26)', 
       htt,
     ]);
 
+    await showEveryLocus();
     const row = await screen.findByRole('article', { name: /POLG/ });
     expect(row.querySelector('.repeat-cutoff-cell')?.textContent?.trim()).toBe('normal 10 · no threshold');
     // The locus flag and the mother's call; the proband's 10 / 10 carries no flag.
@@ -707,9 +720,30 @@ describe('FamilyRepeatExpansionsPage — a locus without thresholds (CLIN-26)', 
     expect(screen.getByRole('article', { name: /POLG/ })).toBeInTheDocument();
   });
 
+  it('opens on the aberrant loci, with Aberrant only ticked', async () => {
+    renderWith([
+      polg(
+        { PROBAND: call('PROBAND', 'normal', [10, 10]), MOTHER: call('MOTHER', 'not_assessed', [10, 13]) },
+        'not_assessed',
+      ),
+      htt,
+    ]);
+
+    // The not-assessed POLG locus in view, the normal HTT locus not, until unticked.
+    expect(await screen.findByRole('article', { name: /POLG/ })).toBeInTheDocument();
+    expect(screen.getByLabelText('Aberrant only')).toBeChecked();
+    expect(screen.getByText('1 of 2 loci')).toBeInTheDocument();
+    expect(screen.queryByRole('article', { name: /HTT/ })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText('Aberrant only'));
+    expect(screen.getByText('2 of 2 loci')).toBeInTheDocument();
+    expect(screen.getByRole('article', { name: /HTT/ })).toBeInTheDocument();
+  });
+
   it('leaves a locus whose every call is inside its benign range out of the aberrant-only view', async () => {
     renderWith([polg({ PROBAND: call('PROBAND', 'normal', [10, 10]) }, 'normal'), htt]);
 
+    await showEveryLocus();
     const row = await screen.findByRole('article', { name: /POLG/ });
     expect(row).not.toHaveClass('family-repeat-table-row--abnormal');
     expect(within(row).queryByText('Not assessed')).not.toBeInTheDocument();
@@ -881,6 +915,7 @@ describe('FamilyRepeatExpansionsPage — a count near a boundary while the count
   it('keeps a normal locus with a count near a boundary in the aberrant-only view', async () => {
     renderWith([htt, atxn1]);
 
+    await showEveryLocus();
     const row = await screen.findByRole('article', { name: /HTT/ });
     expect(row).not.toHaveClass('family-repeat-table-row--abnormal');
     expect(within(row).getByText('Near a boundary')).toBeInTheDocument();
@@ -1116,6 +1151,7 @@ describe('FamilyRepeatExpansionsPage — the narrow locus column', () => {
 
   it('cuts a long motif to its first 10 nt with the full motif in the DOM and its tooltip', async () => {
     renderWith([locus({})]);
+    await showEveryLocus();
     const row = await screen.findByRole('article', { name: /RFC1/ });
     expect(within(row).getByText('AAGGGAAGGG…')).toHaveAttribute('aria-hidden', 'true');
     // The full motif is what a screen reader reads, and stays in the DOM.
@@ -1132,6 +1168,7 @@ describe('FamilyRepeatExpansionsPage — the narrow locus column', () => {
 
   it('cuts a long disease name after the gene, keeping the full name and its OMIM link', async () => {
     renderWith([locus({})]);
+    await showEveryLocus();
     const row = await screen.findByRole('article', { name: /RFC1/ });
     const heading = row.querySelector('.gene-disease-heading') as HTMLElement;
     expect(within(heading).getByRole('link', { name: 'RFC1' })).toHaveClass('variant-card-gene');
@@ -1147,6 +1184,7 @@ describe('FamilyRepeatExpansionsPage — the narrow locus column', () => {
 
   it('shows a short motif whole, without a tooltip', async () => {
     renderWith([locus({ motif: 'CAG', disease: 'Short disease' })]);
+    await showEveryLocus();
     const row = await screen.findByRole('article', { name: /RFC1/ });
     expect(within(row).getByText('CAG')).not.toHaveClass('truncated-text--cut');
     expect(within(row).getByText('Short disease')).not.toHaveClass('truncated-text--cut');
@@ -1155,6 +1193,7 @@ describe('FamilyRepeatExpansionsPage — the narrow locus column', () => {
   it('names no disease for a locus outside the catalogue, whose disease is its own ID', async () => {
     const id = 'chr2_1000000_1000030_CAG';
     renderWith([locus({ locus_id: id, gene: id, display_name: id, disease: id })]);
+    await showEveryLocus();
     const row = await screen.findByRole('article', { name: new RegExp(id) });
     expect(row.querySelector('.gene-disease-heading-diseases')).toBeNull();
     // Its "gene" is its ID too: no gene page and no OMIM link.
