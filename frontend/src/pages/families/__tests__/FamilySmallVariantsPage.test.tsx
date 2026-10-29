@@ -524,10 +524,9 @@ describe('FamilySmallVariantsPage', () => {
     expect(screen.getByText('All variants 1,000+')).toBeInTheDocument();
     expect(screen.getByText('SNVs 900')).toBeInTheDocument();
     expect(screen.getByText('Indels 101')).toBeInTheDocument();
-    expect(screen.getByText('PROBAND')).toBeInTheDocument();
-    expect(screen.getByText('345')).toBeInTheDocument();
-    expect(screen.getByText('300')).toBeInTheDocument();
-    expect(screen.getByText('45')).toBeInTheDocument();
+    // The per-member table of variants, het and hom calls is gone from the header (owner,
+    // 2026-10-29).
+    expect(screen.queryByText('345')).not.toBeInTheDocument();
   });
 
   describe('a search that read only part of the callset (#725 follow-up)', () => {

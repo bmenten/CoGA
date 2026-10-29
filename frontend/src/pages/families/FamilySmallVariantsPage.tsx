@@ -448,30 +448,6 @@ const FamilySmallVariantsPage: React.FC = () => {
       >
                 {data ? (
                   <div className="variant-sample-summary">
-                    {smallVariantSummary?.sample_counts?.length ? (
-                      <div className="data-table-shell overflow-x-auto">
-                        <table className="analysis-table variant-sample-summary-table">
-                          <thead>
-                            <tr>
-                              <th>Sample</th>
-                              <th>Variants</th>
-                              <th>Het</th>
-                              <th>Hom</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {smallVariantSummary.sample_counts.map((sampleSummary) => (
-                              <tr key={sampleSummary.sample_id}>
-                                <td>{sampleSummary.sample_id}</td>
-                                <td>{formatSummaryCount(sampleSummary.non_ref_count)}</td>
-                                <td>{formatSummaryCount(sampleSummary.het_count)}</td>
-                                <td>{formatSummaryCount(sampleSummary.hom_alt_count)}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    ) : null}
                     <div className="variant-summary-row">
                       <span className="badge-chip badge-chip--emphasis">
                         Showing {formatVariantTotal(data?.total, data?.total_is_estimated, data?.count_limit)}

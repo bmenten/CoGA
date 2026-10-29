@@ -2,22 +2,23 @@ Every case starts on its family page.
 
 ### The header
 
-The family page and every analysis page (small and structural variants, repeat expansions, Paraphase,
-mtDNA) open with the same header, so you can work on the case and move between analyses from any of
+The family page, every analysis page (small and structural variants, repeat expansions, Paraphase,
+mtDNA, monogenic NIPT, the variant summary), the Sample QC and the report open with the same header, so you can work on the case and move between analyses from any of
 them. One line gives the members, the assembly and the projects, then the page's own figures.
 **Status**, **Assigned to** and **Reviewed by** track the case's workflow; an analyst of the family's
 project can change them, a reader only sees them. **Assigned to** and **Reviewed by** offer the active
 analysts of the family's projects and the administrators, never a reader. Someone chosen before they
 became a reader (or left the family's projects) stays shown, marked *(not eligible)*, until you change it. The
 header also shows the assembly and the projects, and a *Not validated for clinical use* banner when the
-family is outside the validated scope. Beside the workflow fields sit the family-level functions:
-**Sample QC** (when the family has small variants) and **Report** (when it has any variant data:
-small or structural variants, repeat expansions, Paraphase results or mtDNA data).
+family is outside the validated scope.
 
 At the foot of the header, one row of links leads to the family's analyses: **Small variants**,
 **Structural variants**, **Repeat expansions**, **Paraphase**, **mtDNA analysis** and **Monogenic
-NIPT**, with **Variant summary** (of the structural variants) last, at the right end. A link appears
-only when the family has that kind of data; on an analysis page its own link is marked.
+NIPT**, with **Variant summary** (of the structural variants) last. At the far right of the same row,
+under the pedigree, sit the family-level functions: **Sample QC** (when the family has small variants)
+and **Report** (when it has any variant data: small or structural variants, repeat expansions,
+Paraphase results or mtDNA data). A link appears only when the family has that kind of data; the page
+you are on is marked.
 
 ### The analyses and views
 
