@@ -28,12 +28,37 @@ performance environment**. The Google Cloud deployment is in
 | TLS certificate | from the institution's certificate service when the VM is reachable only from inside, since an ACME HTTP challenge cannot reach it; Let's Encrypt when port 80 is open to the internet |
 | Mail relay (optional) | an SMTP relay that accepts mail on port 25 without authentication, for the signup notice to `ADMIN_EMAIL` |
 
+### At Ghent University
+
+A staff member requests the VM through the ICT self-service portal (the virtual-server form,
+<https://helpdesk.ugent.be/webhosting/virtueel.php>), with the default Linux profile or a later
+PXE install of a supported, non-EOL distribution. Submitting the request accepts ICT's terms
+of use. ICT manages only the platform; the VM's administrator carries the rest, and ICT may
+switch off a VM that breaks the terms. What each term asks of a CoGA VM:
+
+| ICT term | What it means here |
+| --- | --- |
+| **Self-care**: the administrator is responsible for the OS, the licences and access control (authentication and authorization) inside the VM; ICT gives only the management console (vSphere Web Client, through Athena) | SSH keys, ufw, nginx and CoGA's own accounts and project access are yours (steps 2, 4 and 6). The dbNSFP licence (step 4) is yours too |
+| **VMware tools** are mandatory; without them ICT may switch the VM off | install `open-vm-tools` (step 2) |
+| **Keep it up to date**; a VM with an outdated OS or missing security patches may be switched off | `unattended-upgrades` (step 2), a reboot when a kernel update needs one (stop the stack first, [step 9](#9-run-it)), and regular rebuilds so the images pick up their base images' fixes |
+| **Back-ups** are the administrator's; ICT's disaster-recovery back-ups restore the whole platform, not files inside a VM | back up to a network share from ICT's storage offering, not to the VM's own disk ([step 9](#9-run-it)) |
+| **Fair use**; a VM that uses resources unreasonably may be switched off | request the size you need (step 1), and raise `FAMILY_IMPORT_WORKER_COUNT` and the ClickHouse limits only as far as the VM's size allows ([step 10](#10-tuning-at-scale)) |
+| **Yearly confirmation**: an unused VM, or one outside the university's normal work, gets an e-mail; without an answer through ICT self-service within 30 days it is switched off for good | the request names a mailbox someone reads; answer the e-mail |
+| **A successor administrator** must be reported through ICT self-service or HelpMe; a VM without an administrator is shut down | name the new administrator before you hand over |
+| **Security incidents**: ICT isolates or switches off the VM, and the department can be held co-liable for negligence | synthetic data only, loopback-only ports, and the firewall of step 2 |
+
+Since ICT may switch the VM off, make sure a shutdown stops ClickHouse cleanly (step 2) and
+that the back-ups are current.
+
 ## 2. Prepare the VM
 
 ```bash
 sudo apt update && sudo apt full-upgrade -y
-sudo apt install -y unattended-upgrades git ufw nginx
+sudo apt install -y unattended-upgrades open-vm-tools git ufw nginx
 ```
+
+`open-vm-tools` lets the VMware platform see and shut down the VM properly; on a VMware host
+such as Ghent University's it is mandatory.
 
 1. Install Docker Engine and the Compose plugin from Docker's own apt repository
    (<https://docs.docker.com/engine/install/>), not the distribution's `docker.io` package. The
@@ -49,6 +74,14 @@ sudo apt install -y unattended-upgrades git ufw nginx
 3. Open only SSH and the web ports: `sudo ufw allow 22,80,443/tcp && sudo ufw enable`. Docker
    publishes container ports past ufw, which is why the override in step 5 binds the frontend to
    loopback.
+4. Let a shutdown of the VM wait for ClickHouse. The stack gives ClickHouse five minutes to
+   stop; give the Docker service more, so the operating system does not cut it off, with
+   `sudo systemctl edit docker` and:
+
+   ```ini
+   [Service]
+   TimeoutStopSec=6min
+   ```
 
 ## 3. Get the code
 
@@ -201,14 +234,19 @@ docker compose -f docker-compose.yml -f docker-compose.vm.yml up --build -d
 
 **Stop** with `docker compose stop`, never by killing the containers or the VM: ClickHouse needs
 up to five minutes to finish its merges, and a cut-off flush corrupts parts that the next
-start then refuses to attach. Ask for the VM's shutdown to wait for Docker likewise.
+start then refuses to attach. A shutdown of the VM waits for it as well, once step 2 gave the
+Docker service the time.
 
-**Back up** Postgres every night, and keep the dumps off the VM:
+**Back up** Postgres every night, to a share off the VM (at Ghent University, a network share
+from ICT's storage offering, mounted here on `/mnt/backup`):
 
 ```bash
 docker compose exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' \
-  > /srv/backups/coga-$(date +%F).dump
+  > /mnt/backup/coga-$(date +%F).dump
 ```
+
+Copy `.env` there too, kept as secret as on the VM: a restored database needs the keys it was
+written with, such as `INTEGRITY_ANCHOR_SIGNING_KEY`.
 
 ClickHouse holds the imported variants, which can be imported again from the packages. To keep
 them, take a snapshot of the data disk while ClickHouse is stopped, or copy the
