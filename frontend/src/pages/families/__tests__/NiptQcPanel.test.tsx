@@ -2,7 +2,7 @@
 // risks H4/H6): the fetal fraction, the fetal sex from two signals, paternity, the plasma
 // sample and the target coverage.
 
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
 import type { NiptQcOut } from '../../../lib/apiSchema.generated';
@@ -74,7 +74,31 @@ const ff = {
   low_confidence: false,
 };
 
+// The checks' own verdicts, under the summary's overall one.
+const details = () => within(document.querySelector('.nipt-qc-details') as HTMLElement);
+const overall = () => screen.getByLabelText(/^Overall: /);
+
 describe('NiptQcPanel', () => {
+  // Folded on open to its title and one verdict; a click unfolds the checks.
+  it('opens folded, with one overall verdict, and unfolds on a click', () => {
+    const { container } = render(<NiptQcPanel qc={qc} fetalFraction={ff} />);
+    const panel = container.querySelector('details') as HTMLDetailsElement;
+    expect(panel).not.toHaveAttribute('open');
+    expect(overall()).toHaveTextContent('Pass');
+    fireEvent.click(screen.getByText('Quality checks'));
+    expect(panel).toHaveAttribute('open');
+  });
+
+  it.each([
+    ['Fail as soon as one check failed', { paternity: { ...qc.paternity, status: 'fail' } }, 'Fail'],
+    ['Warning on a warning', { fetal_fraction_status: 'warn' }, 'Warning'],
+    // A check that could not run confirmed nothing: never Pass beside the others.
+    ['Warning when a check could not run', { plasma_profile_status: 'unknown' }, 'Warning'],
+  ])('rolls the checks up: %s', (_case, change, verdict) => {
+    render(<NiptQcPanel qc={{ ...qc, ...change } as typeof qc} fetalFraction={ff} />);
+    expect(overall()).toHaveTextContent(verdict);
+  });
+
   it('shows each check with its verdict', () => {
     render(<NiptQcPanel qc={qc} fetalFraction={ff} />);
     expect(screen.getByText('Fetal fraction 18.0% (95% CI 17.8%–18.2%)')).toBeInTheDocument();
@@ -85,7 +109,7 @@ describe('NiptQcPanel', () => {
     expect(screen.getByText(/Het paternal alleles seen 1000 of 2000 \(50.0%; half expected\)/)).toBeInTheDocument();
     expect(screen.getByText('Target coverage: median 800x over 60,000 targets')).toBeInTheDocument();
     expect(screen.getByText(/1,200 quality \(TLOD\) below the minimum; 900 too few alt reads/)).toBeInTheDocument();
-    expect(screen.getAllByText('Pass').length).toBe(4);
+    expect(details().getAllByText('Pass').length).toBe(4);
   });
 
   it('fails a discordant fetal sex and a failed paternity', () => {
@@ -101,7 +125,7 @@ describe('NiptQcPanel', () => {
     );
     expect(screen.getByText('Fetal sex: Discordant')).toBeInTheDocument();
     expect(screen.getByText(/The two signals disagree/)).toBeInTheDocument();
-    expect(screen.getAllByText('Fail').length).toBe(2);
+    expect(details().getAllByText('Fail').length).toBe(2);
   });
 
   it('warns on a low-confidence fetal fraction', () => {
@@ -109,7 +133,7 @@ describe('NiptQcPanel', () => {
       <NiptQcPanel qc={{ ...qc, fetal_fraction_status: 'warn' }} fetalFraction={{ ...ff, low_confidence: true }} />,
     );
     expect(screen.getByText(/Low confidence: too few sites or a wide interval/)).toBeInTheDocument();
-    expect(screen.getByText('Warning')).toBeInTheDocument();
+    expect(details().getByText('Warning')).toBeInTheDocument();
   });
 
   // The signed record freezes the backend's verdicts (nipt_quality_checks): the panel shows
@@ -126,8 +150,8 @@ describe('NiptQcPanel', () => {
       />,
     );
     expect(screen.getByText('Fetal fraction 18.0% (95% CI 17.8%–18.2%)')).toBeInTheDocument();
-    expect(screen.getAllByText('Fail').length).toBe(1);
+    expect(details().getAllByText('Fail').length).toBe(1);
     expect(screen.getByText('Fetal sex: Female')).toBeInTheDocument();
-    expect(screen.getAllByText('Warning').length).toBe(1);
+    expect(details().getAllByText('Warning').length).toBe(1);
   });
 });
