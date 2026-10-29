@@ -8,8 +8,8 @@ analysts of the family's projects and the administrators, never a reader. Someon
 became a reader (or left the family's projects) stays shown, marked *(not eligible)*, until you change it. The
 header also shows the assembly and the projects, and a *Not validated for clinical use* banner when the
 family is outside the validated scope. Beside the workflow fields sit the family-level functions:
-**Sample QC** (when the family has small variants) and **Report** (when it has small or structural
-variants).
+**Sample QC** (when the family has small variants) and **Report** (when it has any variant data:
+small or structural variants, repeat expansions, Paraphase results or mtDNA data).
 
 ### The analyses and views
 

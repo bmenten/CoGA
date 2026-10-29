@@ -689,6 +689,32 @@ describe('FamilyDetailPage', () => {
     expect(screen.getByLabelText(/structural variant curation/i)).toBeInTheDocument();
   });
 
+  it('offers the report to a family with repeat expansions only', async () => {
+    mockApiState.smallVariantTotal = 0;
+    mockApiState.structuralVariantTotal = 0;
+    mockApiState.repeatLociCount = 1;
+    localStorage.setItem('role', 'viewer');
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MemoryRouter initialEntries={['/families/F1']}>
+          <Routes>
+            <Route path="/families/:familyId" element={<FamilyDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    // A repeat locus marked Report is on the report, so the family reaches it; Sample QC
+    // reads the small-variant genotypes, which this family has none of.
+    const actions = await screen.findByRole('group', { name: 'Family actions' });
+    expect(within(actions).getByRole('link', { name: 'Report' })).toHaveAttribute(
+      'href',
+      '/families/F1/report?project_id=p1',
+    );
+    expect(within(actions).queryByRole('link', { name: 'Sample QC' })).toBeNull();
+  });
+
   it('gives the visualization links the same row look as the analyses', async () => {
     mockApiState.smallVariantTotal = 2;
     localStorage.setItem('role', 'viewer');
