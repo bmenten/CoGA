@@ -193,8 +193,8 @@
   margin-left: auto;
 }
 
-/* A page's views of the genome (Genome, Circos) at the right of the analyses, in the secondary
-   colour: they open a view of the data, not another analysis. */
+/* A page's views of the genome (Genome, Circos) at the right of the analyses, in the view-link
+   green: they open a view of the data, not another analysis. */
 .family-case-header-views {
   display: flex;
   flex-wrap: wrap;
@@ -202,12 +202,12 @@
 }
 
 .family-module-link.family-module-link--view {
-  color: var(--color-secondary);
+  color: var(--color-view-link);
 }
 
 .family-module-link.family-module-link--view:hover,
 .family-module-link.family-module-link--view:focus-visible {
-  color: var(--color-heading);
+  color: var(--color-view-link-hover);
 }
 
 /* Compact, single-line ROI editor. */

@@ -47,6 +47,10 @@
   --color-accent-soft: #e6ecf1;
   --color-link: #0b5cba;
   --color-link-hover: #084a96;
+  /* Links that open a view of the data (Genome, Circos) rather than another analysis: a deep
+     green as strong as the link blue and the signature red. */
+  --color-view-link: #1f7a5c;
+  --color-view-link-hover: #17604a;
   --color-focus-ring: rgba(11, 92, 186, 0.22);
   --color-signature-red: #c61f2d;
   --color-signature-red-dark: #9d1623;
