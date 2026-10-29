@@ -4,7 +4,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import api from '../../lib/api';
 import { isReviewConflict, withReviewVersion } from '../../lib/reviewConcurrency';
 import { getErrorMessage } from '../../lib/errorMessage';
-import { useFamilyReference } from '../../lib/reference';
+import { formatResolvedReferenceLabel, useFamilyReference } from '../../lib/reference';
 import type {
   ApiNiptCoverageSummary,
   ApiNiptSummary,
@@ -17,7 +17,6 @@ import {
   pct,
 } from './niptClassification';
 import { parseCommaSeparatedValues } from '../../lib/sampleFilterState';
-import { parsePedigree } from '../../lib/pedigree';
 import {
   buildPresetPayload,
   createEmptySmallFilters,
@@ -49,10 +48,9 @@ import {
   quickTagTogglePayload,
   updateSmallVariantPageReview,
 } from './smallVariantReview';
-import Pedigree from '../../components/visualizations/Pedigree';
 import PageState from '../../components/PageState';
 import FamilyLoadFailure from '../../components/FamilyLoadFailure';
-import FamilyPageBanners from '../../components/FamilyPageBanners';
+import FamilyCaseHeader from './FamilyCaseHeader';
 import QueryFailure from '../../components/QueryFailure';
 import SmallVariantFilterForm from './SmallVariantFilterForm';
 import FilterCollapseToggle from './FilterCollapseToggle';
@@ -464,7 +462,6 @@ const FamilyNiptPage: React.FC = () => {
     { readOnly: Boolean(family?.read_only) },
   );
 
-  const pedRows = useMemo(() => parsePedigree(family?.pedigree), [family?.pedigree]);
   // Unknown, not zero, while the summary could not be loaded (#606).
   const categoryCounts = summaryFailed ? null : (summary?.category_counts ?? {});
   // The variants a sign-out freezes: those tagged report, every other filter cleared (the
@@ -566,135 +563,125 @@ const FamilyNiptPage: React.FC = () => {
 
   return (
     <div className="page-shell analysis-shell">
-      <section className="surface-card page-top-card variant-workbench-card">
-        <div className={`page-top-card-grid${pedRows.length ? ' page-top-card-grid--with-visual' : ''}`}>
-          <div className="page-top-card-copy">
-            <div className="page-header">
-              <div className="space-y-2">
-                <p className="page-kicker">Monogenic NIPT</p>
-                <h1 className="catalog-card-title">Family {familyId}</h1>
-                <div className="variant-sample-summary">
-                  <div className="variant-summary-row">
-                    {summaryFailed ? (
-                      // Not "—": a failed estimate also hides its low-confidence warning
-                      // (#606, TF-12 U1).
-                      <span className="badge-chip badge-chip--signature" role="alert">
-                        Fetal fraction could not be loaded
-                      </span>
-                    ) : (
-                      <span className="badge-chip badge-chip--signature">Fetal fraction {pct(ff?.ff)}</span>
-                    )}
-                    {ff?.ci_low != null && ff?.ci_high != null ? (
-                      <span className="badge-chip">95% CI {pct(ff.ci_low)}–{pct(ff.ci_high)}</span>
-                    ) : null}
-                    {ff ? (
-                      <span className="badge-chip" title={ff.method}>
-                        {ff.n_sites} cat-7 sites
-                      </span>
-                    ) : null}
-                    {ff?.low_confidence ? <span className="badge-chip">Low-confidence FF</span> : null}
-                  </div>
-                  <div className="variant-summary-row">
-                    {FILTER_STEPS.map((step) => (
-                      <span className="badge-chip" key={step.key}>
-                        {step.label} {summaryFailed ? '—' : (summary?.filter_counts?.[step.key] ?? 0)}
-                      </span>
-                    ))}
-                    <span className="badge-chip">Active filters {appliedFilterChips.length}</span>
-                    {variantsFetching ? <span className="badge-chip">Updating…</span> : null}
-                  </div>
-                </div>
-              </div>
-              <div className="inline-actions">
-                <Link to={routePath`/families/${familyId}`} className="button-ghost hover:no-underline">
-                  Family
-                </Link>
-                <Link
-                  to={routePath`/families/${familyId}/nipt/report${raw(niptReportQuerySuffix)}`}
-                  className="button-secondary hover:no-underline"
-                >
-                  Report
-                </Link>
-                <button
-                  type="button"
-                  className="form-button"
-                  onClick={signOut}
-                  // As on the report page: not to a reader (SEC-1), nor off the validated scope,
-                  // nor while the sign-out record is unknown (the analysis may be signed already).
-                  disabled={signOutPending || signOutBlocked !== null}
-                  title={signOutBlocked ?? undefined}
-                >
-                  {signOutPending
-                    ? 'Signing out…'
-                    : latestSignout
-                      ? 'Amend sign-out'
-                      : 'Sign out NIPT analysis'}
-                </button>
-              </div>
-            </div>
-            {/* As on every family page: a NIPT family can be partly imported like any other,
-                or be on an assembly outside the validated scope. */}
-            <FamilyPageBanners
-              metadata={family.metadata}
-              assemblyScope={{
-                name: assemblyName,
-                validated: assemblyValidated,
-                unavailable: referenceFailed,
-                onRetry: retryReference,
-              }}
-            />
-          </div>
-          {pedRows.length > 0 && (
-            <div className="page-top-card-visual">
-              <div className="page-top-card-pedigree">
-                <p className="analysis-section-title">Pedigree</p>
-                <Pedigree rows={pedRows} members={family.members} relationships={family.relationships ?? []} />
-              </div>
-            </div>
-          )}
-        </div>
-
-        <FilterCollapseToggle
-          collapsed={filtersCollapsed}
-          onToggle={() => setFiltersCollapsed((current) => !current)}
-        />
-
-        {!filtersCollapsed && (
-          <SmallVariantFilterForm
-            mode="nipt"
-            familyAware={false}
-            unsupportedFilters={NIPT_UNSUPPORTED_FILTERS}
-            unappliedFiltersNote={unappliedFiltersNote}
-            categoryCounts={categoryCounts}
-            categoryLabels={CATEGORY_LABELS}
-            niptInheritancePresets={INHERITANCE_PRESETS}
-            builtInPresets={NIPT_BUILT_IN_PRESETS}
-            activeFilterChips={appliedFilterChips}
-            applyPreset={applyPreset}
-            applySavedPreset={applySavedPreset}
-            draftFilters={draftFilters}
-            handleApply={handleApply}
-            draftLocationProblems={draftLocationProblems}
-            handleGtToggle={handleGtToggle}
-            handleReset={handleReset}
-            handleSampleFieldChange={handleSampleFieldChange}
-            members={members}
-            relationships={family.relationships ?? []}
-            panels={panels}
-            presets={presets}
-            removeActiveFilterChip={removeActiveFilterChip}
-            sampleDraftFilters={sampleDraftFilters}
-            setDraftFilterValue={setDraftFilterValue}
-            tags={tags}
-            toggleDraftFilterListValue={toggleDraftFilterListValue}
-            savingPreset={savePresetMutation.isPending}
-            feedback={presetFeedback}
-            onSaveCurrentPreset={async (payload) => {
-              await savePresetMutation.mutateAsync(payload);
-            }}
-          />
+      <FamilyCaseHeader
+        assemblyScope={{
+          name: assemblyName,
+          validated: assemblyValidated,
+          unavailable: referenceFailed,
+          onRetry: retryReference,
+        }}
+        assemblyLabel={formatResolvedReferenceLabel(
+          { assemblyName, assemblyVersion, isError: referenceFailed },
+          'Not linked',
         )}
-      </section>
+        kicker="Monogenic NIPT"
+        familyId={familyId ?? ''}
+        family={family}
+        projectId={projectId}
+        current="nipt"
+        className="variant-workbench-card"
+        actions={
+          <>
+            <Link
+              to={routePath`/families/${familyId}/nipt/report${raw(niptReportQuerySuffix)}`}
+              className="button-secondary hover:no-underline"
+            >
+              NIPT report
+            </Link>
+            <button
+              type="button"
+              className="form-button"
+              onClick={signOut}
+              // As on the report page: not to a reader (SEC-1), nor off the validated scope,
+              // nor while the sign-out record is unknown (the analysis may be signed already).
+              disabled={signOutPending || signOutBlocked !== null}
+              title={signOutBlocked ?? undefined}
+            >
+              {signOutPending
+                ? 'Signing out…'
+                : latestSignout
+                  ? 'Amend sign-out'
+                  : 'Sign out NIPT analysis'}
+            </button>
+          </>
+        }
+        footer={
+          <>
+            <FilterCollapseToggle
+              collapsed={filtersCollapsed}
+              onToggle={() => setFiltersCollapsed((current) => !current)}
+            />
+
+            {!filtersCollapsed && (
+              <SmallVariantFilterForm
+                mode="nipt"
+                familyAware={false}
+                unsupportedFilters={NIPT_UNSUPPORTED_FILTERS}
+                unappliedFiltersNote={unappliedFiltersNote}
+                categoryCounts={categoryCounts}
+                categoryLabels={CATEGORY_LABELS}
+                niptInheritancePresets={INHERITANCE_PRESETS}
+                builtInPresets={NIPT_BUILT_IN_PRESETS}
+                activeFilterChips={appliedFilterChips}
+                applyPreset={applyPreset}
+                applySavedPreset={applySavedPreset}
+                draftFilters={draftFilters}
+                handleApply={handleApply}
+                draftLocationProblems={draftLocationProblems}
+                handleGtToggle={handleGtToggle}
+                handleReset={handleReset}
+                handleSampleFieldChange={handleSampleFieldChange}
+                members={members}
+                relationships={family.relationships ?? []}
+                panels={panels}
+                presets={presets}
+                removeActiveFilterChip={removeActiveFilterChip}
+                sampleDraftFilters={sampleDraftFilters}
+                setDraftFilterValue={setDraftFilterValue}
+                tags={tags}
+                toggleDraftFilterListValue={toggleDraftFilterListValue}
+                savingPreset={savePresetMutation.isPending}
+                feedback={presetFeedback}
+                onSaveCurrentPreset={async (payload) => {
+                  await savePresetMutation.mutateAsync(payload);
+                }}
+              />
+            )}
+          </>
+        }
+      >
+        <div className="variant-sample-summary">
+          <div className="variant-summary-row">
+            {summaryFailed ? (
+              // Not "—": a failed estimate also hides its low-confidence warning
+              // (#606, TF-12 U1).
+              <span className="badge-chip badge-chip--signature" role="alert">
+                Fetal fraction could not be loaded
+              </span>
+            ) : (
+              <span className="badge-chip badge-chip--signature">Fetal fraction {pct(ff?.ff)}</span>
+            )}
+            {ff?.ci_low != null && ff?.ci_high != null ? (
+              <span className="badge-chip">95% CI {pct(ff.ci_low)}–{pct(ff.ci_high)}</span>
+            ) : null}
+            {ff ? (
+              <span className="badge-chip" title={ff.method}>
+                {ff.n_sites} cat-7 sites
+              </span>
+            ) : null}
+            {ff?.low_confidence ? <span className="badge-chip">Low-confidence FF</span> : null}
+          </div>
+          <div className="variant-summary-row">
+            {FILTER_STEPS.map((step) => (
+              <span className="badge-chip" key={step.key}>
+                {step.label} {summaryFailed ? '—' : (summary?.filter_counts?.[step.key] ?? 0)}
+              </span>
+            ))}
+            <span className="badge-chip">Active filters {appliedFilterChips.length}</span>
+            {variantsFetching ? <span className="badge-chip">Updating…</span> : null}
+          </div>
+        </div>
+      </FamilyCaseHeader>
 
       {signOutError ? (
         <section className="surface-card report-signout-error" role="alert">

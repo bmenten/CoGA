@@ -4,7 +4,7 @@ import { useInfiniteQuery, useQueries, useQuery } from '@tanstack/react-query';
 
 import api from '../../lib/api';
 import PageState from '../../components/PageState';
-import FamilyPageHeader from './FamilyPageHeader';
+import FamilyCaseHeader from './FamilyCaseHeader';
 import SignedFamilyReport from './SignedFamilyReport';
 import { useAnnotationManifest } from './AnnotationProvenanceSummary';
 import type {
@@ -593,7 +593,7 @@ const LiveFamilyReport: React.FC = () => {
         // printout can never pass for the signed report (#508).
         <p className="report-print-notice print-only">{printNotice}</p>
       ) : null}
-      <FamilyPageHeader
+      <FamilyCaseHeader
         assemblyScope={{
           name: assemblyName,
           validated: assemblyValidated,
@@ -607,9 +607,13 @@ const LiveFamilyReport: React.FC = () => {
               ? 'Clinical report — live'
               : 'Clinical report — draft, not signed'
         }
-        familyId={familyId}
+        familyId={familyId ?? ''}
         family={family}
         projectId={projectId}
+        // The species too: the printed report names the reference it was read against, and
+        // this line is the only place it says the species.
+        assemblyLabel={referenceLabel}
+        current="report"
         className="report-header"
         actions={
           <div className="report-header-actions no-print">
@@ -633,9 +637,7 @@ const LiveFamilyReport: React.FC = () => {
             </button>
           </div>
         }
-      >
-        <p className="report-header-meta">{referenceLabel}</p>
-      </FamilyPageHeader>
+      />
 
       {signOutError ? (
         <section className="surface-card report-signout-error no-print" role="alert">

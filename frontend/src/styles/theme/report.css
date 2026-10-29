@@ -9,6 +9,12 @@
   flex-wrap: wrap;
 }
 
+/* The live report's header is the top card every family page shares (FamilyCaseHeader): its own
+   grid and foot row, not the flex row of the signed and NIPT report headers. */
+.report-header.family-case-header {
+  display: block;
+}
+
 .report-header-meta {
   margin: 0;
   font-size: var(--fs-xs);

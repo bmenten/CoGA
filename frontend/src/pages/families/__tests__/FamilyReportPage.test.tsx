@@ -276,7 +276,9 @@ describe('FamilyReportPage', () => {
 
     const listUrls = apiMock.get.mock.calls
       .map(([url]) => String(url))
-      .filter((url) => /^\/families\/F1\/(small|structural)-variants\?/.test(url));
+      .filter((url) => /^\/families\/F1\/(small|structural)-variants\?/.test(url))
+      // The header's check whether the family has such data is no list of the report.
+      .filter((url) => !url.includes('count_only=true'));
     expect(listUrls.some((url) => url.startsWith('/families/F1/small-variants?'))).toBe(true);
     expect(listUrls.some((url) => url.startsWith('/families/F1/structural-variants?'))).toBe(true);
     listUrls.forEach((url) => {

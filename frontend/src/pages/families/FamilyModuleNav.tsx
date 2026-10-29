@@ -28,7 +28,8 @@ const FamilyModuleNav: React.FC<{
   projectId?: string | null;
   presence: FamilyDataPresence;
   isMonogenicNipt: boolean;
-  current?: FamilyModuleKey;
+  /** The page this is: its link is marked; a page outside the row (the report) marks none. */
+  current?: string;
 }> = ({ familyId, projectId, presence, isMonogenicNipt, current }) => {
   const projectSuffix = projectId ? `?project_id=${encodeURIComponent(projectId)}` : '';
   const modules: { key: FamilyModuleKey; label: string; available: boolean; withProject: boolean }[] = [
@@ -47,7 +48,7 @@ const FamilyModuleNav: React.FC<{
   ];
   const shown = modules.filter((module) => module.available || module.key === current);
   return (
-    <>
+    <div className="family-module-nav-block">
       {shown.length ? (
         <nav className="family-module-nav" aria-label="Variant analyses">
           {shown.map((module) => (
@@ -71,7 +72,7 @@ const FamilyModuleNav: React.FC<{
           consequence="Their links are shown, so you can open them."
         />
       ) : null}
-    </>
+    </div>
   );
 };
 

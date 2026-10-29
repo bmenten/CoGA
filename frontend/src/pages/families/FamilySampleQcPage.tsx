@@ -6,7 +6,7 @@ import api from '../../lib/api';
 import { QC_STATUS_CHIP, QC_STATUS_LABEL, worstIntegrityStatus } from '../../lib/qcStatus';
 import PageState from '../../components/PageState';
 import FamilyLoadFailure from '../../components/FamilyLoadFailure';
-import FamilyPageHeader from './FamilyPageHeader';
+import FamilyCaseHeader from './FamilyCaseHeader';
 import InfoTip from '../../components/InfoTip';
 import Pedigree, { type PedigreeQcStatus } from '../../components/visualizations/Pedigree';
 import type {
@@ -19,7 +19,7 @@ import type {
   QcStatus,
 } from '../../lib/apiTypes';
 import { apiPath } from '../../lib/apiPath';
-import { useFamilyReference } from '../../lib/reference';
+import { formatResolvedReferenceLabel, useFamilyReference } from '../../lib/reference';
 import { parsePedigree } from '../../lib/pedigree';
 import { routePath } from '../../lib/routePath';
 
@@ -405,6 +405,8 @@ const FamilySampleQcPage: React.FC = () => {
   const {
     assemblyName,
     assemblyValidated,
+    assemblyVersion,
+    projectId,
     isLoading: referenceLoading,
     isError: referenceFailed,
     retry: retryReference,
@@ -486,23 +488,33 @@ const FamilySampleQcPage: React.FC = () => {
 
   return (
     <div className="page-shell space-y-6">
-      <FamilyPageHeader
+      <FamilyCaseHeader
         assemblyScope={{
           name: assemblyName,
           validated: assemblyValidated,
           unavailable: referenceFailed,
           onRetry: retryReference,
         }}
+        assemblyLabel={formatResolvedReferenceLabel(
+          { assemblyName, assemblyVersion, isError: referenceFailed },
+          'Not linked',
+        )}
         kicker={`Sample-integrity QC · ${qc.application_label || qc.application}`}
         familyId={familyId}
         family={family}
-      >
-        <p className="catalog-card-copy">
-          {qc.genotype_source
-            ? `${qc.genotype_source} genotypes · ${qc.autosomal_sites.toLocaleString()} autosomal sites`
-            : 'cfDNA classification'}
-        </p>
-      </FamilyPageHeader>
+        projectId={projectId}
+        current="qc"
+        facts={
+          <div className="family-workspace-stat">
+            <span className="stat-label">Read from</span>
+            <strong className="family-workspace-stat-copy">
+              {qc.genotype_source
+                ? `${qc.genotype_source} genotypes · ${qc.autosomal_sites.toLocaleString()} autosomal sites`
+                : 'cfDNA classification'}
+            </strong>
+          </div>
+        }
+      />
 
       <section className={`surface-card qc-overall qc-overall--${overall}`}>
         <div className="qc-overall-head">

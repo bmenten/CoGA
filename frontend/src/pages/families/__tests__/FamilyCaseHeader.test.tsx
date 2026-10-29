@@ -34,7 +34,7 @@ const answer = (url: string) => {
   return { data: [] };
 };
 
-const renderHeader = (current: 'repeat-expansions' | 'paraphase' | undefined) =>
+const renderHeader = (current: 'repeat-expansions' | 'paraphase' | 'report' | undefined) =>
   render(
     <QueryClientProvider client={createTestQueryClient()}>
       <MemoryRouter>
@@ -109,6 +109,22 @@ describe('FamilyCaseHeader', () => {
       'href',
       '/families/F1/small-variants?project_id=p1',
     );
+  });
+
+  it('puts Sample QC and the report at the right of the foot row, as links like the analyses', async () => {
+    const { container } = renderHeader('report');
+    const actions = await screen.findByRole('group', { name: 'Family actions' });
+    const bar = container.querySelector('.family-case-header-bar') as HTMLElement;
+    expect(bar).toContainElement(actions);
+    expect(bar).toContainElement(await screen.findByRole('navigation', { name: 'Variant analyses' }));
+    // After the analyses, at the row's end: not a button above them.
+    expect(bar.lastElementChild).toBe(actions);
+    for (const link of within(actions).getAllByRole('link')) {
+      expect(link).toHaveClass('family-module-link');
+      expect(link).not.toHaveClass('button-secondary');
+    }
+    expect(within(actions).getByRole('link', { name: 'Report' })).toHaveAttribute('aria-current', 'page');
+    expect(within(actions).getByRole('link', { name: 'Sample QC' })).not.toHaveAttribute('aria-current');
   });
 
   it('keeps the page it is on in the row even when the check finds no data there', async () => {

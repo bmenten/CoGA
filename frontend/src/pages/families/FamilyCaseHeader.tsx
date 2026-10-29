@@ -2,17 +2,17 @@ import React, { useMemo } from 'react';
 import type { FamilyAssemblyScope } from '../../components/FamilyPageBanners';
 import { useProjectCatalog } from '../../lib/reference';
 import FamilyPageHeader, { type FamilyPageHeaderFamily } from './FamilyPageHeader';
-import FamilyCaseControls, { FamilyCaseActions } from './FamilyCaseControls';
+import FamilyCaseControls, { FamilyCaseActions, type FamilyCaseActionKey } from './FamilyCaseControls';
 import FamilyModuleNav, { type FamilyModuleKey } from './FamilyModuleNav';
 import { useFamilyDataPresence } from './familyDataPresence';
 import { MONOGENIC_NIPT_ANALYSIS_TYPE } from './niptClassification';
 
 /**
- * The top card of the family workspace and of every analysis page, one and the same: the
- * family's facts on one compact line (members, assembly, projects, then the page's own), the
- * case's workflow fields with the family's Sample QC and report, and the row of the family's
- * analyses with the page it is on marked. From any of them an analyst moves to another analysis
- * or to the report without going back to the workspace.
+ * The top card of every family page (the workspace, the analyses, the Sample QC, the report),
+ * one and the same: the family's facts on one compact line (members, assembly, projects, then the
+ * page's own), the case's workflow fields, and at its foot one row with the family's analyses at
+ * the left and its Sample QC and report at the right, the page it is on marked. From any of them
+ * an analyst moves to another analysis or to the report without going back to the workspace.
  */
 const FamilyCaseHeader: React.FC<{
   kicker: string;
@@ -22,8 +22,8 @@ const FamilyCaseHeader: React.FC<{
   /** The family's assembly as the page names it ("GRCh38 p14", "Not linked"). */
   assemblyLabel: string;
   assemblyScope?: FamilyAssemblyScope;
-  /** The analysis page this is; none on the workspace. */
-  current?: FamilyModuleKey;
+  /** The page this is, marked in the foot row; none on the workspace. */
+  current?: FamilyModuleKey | FamilyCaseActionKey;
   isWorkspace?: boolean;
   /** The page's own facts, after the family's: `.family-workspace-stat` items. */
   facts?: React.ReactNode;
@@ -73,15 +73,31 @@ const FamilyCaseHeader: React.FC<{
       projectId={projectId}
       isWorkspace={isWorkspace}
       assemblyScope={assemblyScope}
-      actions={
+      actions={actions}
+      className={`family-case-header${className ? ` ${className}` : ''}`}
+      phenotypeSampleIds={phenotypeSampleIds}
+      footer={
         <>
-          {actions}
-          <FamilyCaseActions familyId={familyId} projectId={projectId} presence={presence} />
+          {/* Across the card, under the pedigree too: the analyses at the left, the family's
+              Sample QC and report at the right, at one height and in one style. Not printed. */}
+          <div className="family-case-header-bar no-print">
+            <FamilyModuleNav
+              familyId={familyId}
+              projectId={projectId}
+              presence={presence}
+              isMonogenicNipt={isMonogenicNipt}
+              current={current}
+            />
+            <FamilyCaseActions
+              familyId={familyId}
+              projectId={projectId}
+              presence={presence}
+              current={current}
+            />
+          </div>
+          {footer}
         </>
       }
-      className={className}
-      phenotypeSampleIds={phenotypeSampleIds}
-      footer={footer}
     >
       <div className="family-workspace-summary">
         <div className="family-workspace-stat">
@@ -108,19 +124,10 @@ const FamilyCaseHeader: React.FC<{
         </div>
         {facts}
       </div>
-      <FamilyCaseControls familyId={familyId} />
-      {children}
-      {/* In the column beside the pedigree, under the facts and the case's fields, so the card is
-          no taller than the pedigree beside it. */}
-      <div className="family-case-header-nav">
-        <FamilyModuleNav
-          familyId={familyId}
-          projectId={projectId}
-          presence={presence}
-          isMonogenicNipt={isMonogenicNipt}
-          current={current}
-        />
+      <div className="no-print">
+        <FamilyCaseControls familyId={familyId} />
       </div>
+      {children}
     </FamilyPageHeader>
   );
 };

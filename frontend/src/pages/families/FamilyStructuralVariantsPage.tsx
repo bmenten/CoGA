@@ -171,9 +171,10 @@ const FamilyStructuralVariantsPage: React.FC = () => {
     preferredProjectId,
   );
   // The page waits for the reference (below), so it is never shown as loading here.
+  // As every family page's header names it: the assembly and its version.
   const referenceLabel = formatResolvedReferenceLabel(
-    { speciesName, assemblyName, assemblyVersion, isError: referenceFailed },
-    'Reference not linked',
+    { assemblyName, assemblyVersion, isError: referenceFailed },
+    'Not linked',
   );
 
   const { data: presets = [] } = useQuery<StructuralVariantFilterPreset[]>({

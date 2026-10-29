@@ -59,7 +59,7 @@ filters, such as **Back to NIPT**, opens on those.
 
 ### The NIPT report
 
-**Report** on the NIPT page opens a printable summary: the fetal fraction, the quality checks, the
+**NIPT report** on the NIPT page opens a printable summary: the fetal fraction, the quality checks, the
 coverage of the targets in scope, and the classified variants grouped as *De novo in fetus*,
 *Dominant, transmitted*, *Recessive / biallelic risk* and *Other categories*. Its footer names when it
 was made and the CoGA version that made it. Its *Scope* names the panel and genes you selected; your

@@ -9,7 +9,7 @@ import QueryFailure from '../../components/QueryFailure';
 import { formatUserRef } from '../../lib/users';
 import { NOT_ASSIGNABLE_HINT, NOT_ASSIGNABLE_MARK, READ_ONLY_HINT } from '../../lib/familyAccess';
 import { getErrorMessage } from '../../lib/errorMessage';
-import VariantWorkspaceLink from './VariantWorkspaceLink';
+import { Link } from 'react-router';
 import type { FamilyDataPresence } from './familyDataPresence';
 
 /**
@@ -224,28 +224,37 @@ const FamilyCaseControls: React.FC<{ familyId: string }> = ({ familyId }) => {
  * lists every kind of finding that can be marked Report, repeat loci, Paraphase regions and mtDNA
  * variants included.
  */
+export type FamilyCaseActionKey = 'qc' | 'report';
+
 export const FamilyCaseActions: React.FC<{
   familyId: string;
   projectId?: string | null;
   presence: FamilyDataPresence;
-}> = ({ familyId, projectId, presence }) => {
+  /** The page this is: its link is marked, and shown whatever the checks find. */
+  current?: string;
+}> = ({ familyId, projectId, presence, current }) => {
   const projectSuffix = projectId ? `?project_id=${encodeURIComponent(projectId)}` : '';
-  return presence.hasAnyVariantData ? (
+  const actions = [
+    { key: 'qc', label: 'Sample QC', available: presence.hasSmallVariants, to: routePath`/families/${familyId}/qc` },
+    {
+      key: 'report',
+      label: 'Report',
+      available: presence.hasAnyVariantData,
+      to: routePath`/families/${familyId}/report${raw(projectSuffix)}`,
+    },
+  ].filter((action) => action.available || action.key === current);
+  return actions.length ? (
     <div className="family-workspace-actions" role="group" aria-label="Family actions">
-      <VariantWorkspaceLink
-        active={presence.hasSmallVariants}
-        to={routePath`/families/${familyId}/qc`}
-        className="button-secondary family-workspace-action"
-      >
-        Sample QC
-      </VariantWorkspaceLink>
-      <VariantWorkspaceLink
-        active={presence.hasAnyVariantData}
-        to={routePath`/families/${familyId}/report${raw(projectSuffix)}`}
-        className="button-secondary family-workspace-action"
-      >
-        Report
-      </VariantWorkspaceLink>
+      {actions.map((action) => (
+        <Link
+          key={action.key}
+          to={action.to}
+          className="family-module-link hover:no-underline"
+          aria-current={action.key === current ? 'page' : undefined}
+        >
+          {action.label}
+        </Link>
+      ))}
     </div>
   ) : null;
 };

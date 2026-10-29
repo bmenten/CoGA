@@ -6,7 +6,7 @@ import Histogram from '../../components/visualizations/Histogram';
 import { compareChromosomes } from '../../lib/chromosomes';
 import PageState from '../../components/PageState';
 import FamilyLoadFailure from '../../components/FamilyLoadFailure';
-import FamilyPageHeader from './FamilyPageHeader';
+import FamilyCaseHeader from './FamilyCaseHeader';
 import { apiPath } from '../../lib/apiPath';
 import type {
   FamilyOut,
@@ -14,7 +14,7 @@ import type {
   VariantLengthOut,
 } from '../../lib/apiSchema.generated';
 import { getErrorMessage } from '../../lib/errorMessage';
-import { useFamilyReference } from '../../lib/reference';
+import { formatResolvedReferenceLabel, useFamilyReference } from '../../lib/reference';
 
 const VARIANT_LIMIT = 100000;
 
@@ -61,6 +61,8 @@ const FamilyVariantSummaryPage: React.FC = () => {
   const {
     assemblyName,
     assemblyValidated,
+    assemblyVersion,
+    projectId,
     isLoading: referenceLoading,
     isError: referenceFailed,
     retry: retryReference,
@@ -191,16 +193,22 @@ const FamilyVariantSummaryPage: React.FC = () => {
 
   return (
     <div className="page-shell analysis-shell">
-      <FamilyPageHeader
+      <FamilyCaseHeader
         assemblyScope={{
           name: assemblyName,
           validated: assemblyValidated,
           unavailable: referenceFailed,
           onRetry: retryReference,
         }}
+        assemblyLabel={formatResolvedReferenceLabel(
+          { assemblyName, assemblyVersion, isError: referenceFailed },
+          'Not linked',
+        )}
         kicker="Variant summary"
-        familyId={familyId}
+        familyId={familyId ?? ''}
         family={family}
+        projectId={projectId}
+        current="variant-summary"
         actions={
           <button onClick={() => setLogScale((s) => !s)} className="button-ghost">
             {logScale ? 'Linear scale' : 'Log scale'}
@@ -211,7 +219,7 @@ const FamilyVariantSummaryPage: React.FC = () => {
           Counts, sharing and length distributions of this family&apos;s structural variants, from
           every caller.
         </p>
-      </FamilyPageHeader>
+      </FamilyCaseHeader>
 
       <nav className="analysis-nav">
         <a href="#counts">

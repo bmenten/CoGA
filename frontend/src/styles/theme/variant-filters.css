@@ -909,21 +909,6 @@ span.nipt-coverage-gene {
   margin-top: 0.1875rem;
 }
 
-.variant-sample-summary-table {
-  width: auto;
-  font-size: var(--fs-xs);
-}
-
-.variant-sample-summary-table th,
-.variant-sample-summary-table td {
-  padding: 0.125rem 0.5rem;
-  white-space: nowrap;
-}
-
-.variant-sample-summary-table thead th {
-  font-size: var(--fs-xs);
-}
-
 .variant-sample-summary .analysis-section-title {
   font-size: var(--fs-xs);
   margin-bottom: 0.1875rem;
