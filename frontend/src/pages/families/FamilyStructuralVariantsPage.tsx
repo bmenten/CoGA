@@ -4,7 +4,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import api from '../../lib/api';
 import { isReviewConflict, withReviewVersion } from '../../lib/reviewConcurrency';
 import { getErrorMessage } from '../../lib/errorMessage';
-import FamilyPageHeader from './FamilyPageHeader';
+import FamilyCaseHeader from './FamilyCaseHeader';
 import FilterCollapseToggle from './FilterCollapseToggle';
 import { formatResolvedReferenceLabel, useFamilyReference } from '../../lib/reference';
 import PageState from '../../components/PageState';
@@ -351,7 +351,7 @@ const FamilyStructuralVariantsPage: React.FC = () => {
 
   return (
     <div className="page-shell analysis-shell">
-      <FamilyPageHeader
+      <FamilyCaseHeader
         assemblyScope={{
           name: assemblyName,
           validated: assemblyValidated,
@@ -359,9 +359,11 @@ const FamilyStructuralVariantsPage: React.FC = () => {
           onRetry: retryReference,
         }}
         kicker="Structural variants"
-        familyId={familyId}
+        familyId={familyId ?? ''}
         family={familyData}
         projectId={projectId}
+        assemblyLabel={referenceLabel}
+        current="structural-variants"
         className="variant-workbench-card"
         actions={
           <>
@@ -417,7 +419,6 @@ const FamilyStructuralVariantsPage: React.FC = () => {
           </>
         }
       >
-        <p className="catalog-card-copy">{referenceLabel}</p>
         <div className="variant-summary-row">
           {/* A failed search counts nothing: its count is unknown, not 0 (#606). */}
           <span className="badge-chip">Showing {isError ? '—' : filteredTotalLabel}</span>
@@ -426,7 +427,7 @@ const FamilyStructuralVariantsPage: React.FC = () => {
           <span className="badge-chip">Tag library {addableTagDefinitions(tags).length}</span>
           {isFetching ? <span className="badge-chip">Updating…</span> : null}
         </div>
-      </FamilyPageHeader>
+      </FamilyCaseHeader>
 
       {panelsFailed ? (
         <QueryFailure

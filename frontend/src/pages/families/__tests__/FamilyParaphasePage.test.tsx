@@ -15,6 +15,8 @@ vi.mock('../../../lib/api', () => ({
 }));
 
 vi.mock('../../../lib/reference', () => ({
+  // The family header lists the family's projects by name.
+  useProjectCatalog: () => ({ data: [] }),
   useFamilyReference: () => ({
     assemblyName: 'GRCh38',
     assemblyVersion: 'p14',

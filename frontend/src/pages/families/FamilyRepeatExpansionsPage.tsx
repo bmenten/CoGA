@@ -12,7 +12,7 @@ import type {
   ApiRepeatStatus,
 } from '../../lib/apiTypes';
 import type { RepeatCountUnitWarningOut } from '../../lib/apiSchema.generated';
-import FamilyPageHeader from './FamilyPageHeader';
+import FamilyCaseHeader from './FamilyCaseHeader';
 import PageState from '../../components/PageState';
 import FamilyLoadFailure from '../../components/FamilyLoadFailure';
 import { sortFamilyMembersProbandFirst } from '../../lib/familyMembers';
@@ -501,7 +501,7 @@ const FamilyRepeatExpansionsPage: React.FC = () => {
 
   return (
     <div className="page-shell family-repeat-page space-y-6">
-      <FamilyPageHeader
+      <FamilyCaseHeader
         assemblyScope={{
           name: assemblyName,
           validated: assemblyValidated,
@@ -509,34 +509,28 @@ const FamilyRepeatExpansionsPage: React.FC = () => {
           onRetry: retryReference,
         }}
         kicker="Repeat expansions"
+        familyId={family.family_id}
         family={family}
         projectId={resolvedProjectId}
-      >
-            <div className="family-workspace-summary">
-              <div className="family-workspace-stat">
-                <span className="stat-label">Members</span>
-                <strong className="family-workspace-stat-value">{orderedMembers.length}</strong>
-              </div>
-              <div className="family-workspace-stat">
-                <span className="stat-label">Assembly</span>
-                <strong className="family-workspace-stat-copy">
-                  {referenceLabel}
-                </strong>
-              </div>
-              <div className="family-workspace-stat">
-                <span className="stat-label">Loci with calls</span>
-                <strong className="family-workspace-stat-value">{repeatTable.loci.length}</strong>
-              </div>
-              <div className="family-workspace-stat">
-                <span className="stat-label">Calls not assessed</span>
-                <strong className="family-workspace-stat-value">{notAssessedCalls}</strong>
-              </div>
-              <div className="family-workspace-stat">
-                <span className="stat-label">Calls near a boundary</span>
-                <strong className="family-workspace-stat-value">{nearBoundaryCalls}</strong>
-              </div>
+        assemblyLabel={referenceLabel}
+        current="repeat-expansions"
+        facts={
+          <>
+            <div className="family-workspace-stat">
+              <span className="stat-label">Loci with calls</span>
+              <strong className="family-workspace-stat-value">{repeatTable.loci.length}</strong>
             </div>
-      </FamilyPageHeader>
+            <div className="family-workspace-stat">
+              <span className="stat-label">Calls not assessed</span>
+              <strong className="family-workspace-stat-value">{notAssessedCalls}</strong>
+            </div>
+            <div className="family-workspace-stat">
+              <span className="stat-label">Calls near a boundary</span>
+              <strong className="family-workspace-stat-value">{nearBoundaryCalls}</strong>
+            </div>
+          </>
+        }
+      />
 
       <section className="surface-card space-y-4">
         <div className="page-header">

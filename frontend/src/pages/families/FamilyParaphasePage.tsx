@@ -9,7 +9,7 @@ import type {
   ApiParaphaseGeneResult,
   ApiParaphaseSampleResult,
 } from '../../lib/apiTypes';
-import FamilyPageHeader from './FamilyPageHeader';
+import FamilyCaseHeader from './FamilyCaseHeader';
 import PageState from '../../components/PageState';
 import FamilyLoadFailure from '../../components/FamilyLoadFailure';
 import { sortFamilyMembersProbandFirst } from '../../lib/familyMembers';
@@ -650,7 +650,7 @@ const FamilyParaphasePage: React.FC = () => {
 
   return (
     <div className="page-shell family-paraphase-page space-y-6">
-      <FamilyPageHeader
+      <FamilyCaseHeader
         assemblyScope={{
           name: assemblyName,
           validated: assemblyValidated,
@@ -658,32 +658,28 @@ const FamilyParaphasePage: React.FC = () => {
           onRetry: retryReference,
         }}
         kicker="Paraphase"
+        familyId={family.family_id}
         family={family}
         projectId={resolvedProjectId}
-      >
-            <div className="family-workspace-summary">
-              <div className="family-workspace-stat">
-                <span className="stat-label">Members</span>
-                <strong className="family-workspace-stat-value">{orderedMembers.length}</strong>
-              </div>
-              <div className="family-workspace-stat">
-                <span className="stat-label">Assembly</span>
-                <strong className="family-workspace-stat-copy">{referenceLabel}</strong>
-              </div>
-              <div className="family-workspace-stat">
-                <span className="stat-label">Clinical regions</span>
-                <strong className="family-workspace-stat-value">
-                  {medicallyRelevantCount}
-                </strong>
-              </div>
-              <div className="family-workspace-stat">
-                <span className="stat-label">Sample calls</span>
-                <strong className="family-workspace-stat-value">
-                  {sampleCallCount(paraphaseTable.genes)}
-                </strong>
-              </div>
+        assemblyLabel={referenceLabel}
+        current="paraphase"
+        facts={
+          <>
+            <div className="family-workspace-stat">
+              <span className="stat-label">Clinical regions</span>
+              <strong className="family-workspace-stat-value">
+                {medicallyRelevantCount}
+              </strong>
             </div>
-      </FamilyPageHeader>
+            <div className="family-workspace-stat">
+              <span className="stat-label">Sample calls</span>
+              <strong className="family-workspace-stat-value">
+                {sampleCallCount(paraphaseTable.genes)}
+              </strong>
+            </div>
+          </>
+        }
+      />
 
       <section className="surface-card space-y-4">
         <div className="page-header">

@@ -607,12 +607,22 @@ describe('FamilyStructuralVariantsPage', () => {
       );
 
       expect(await screen.findByText('1p36.33')).toBeInTheDocument();
-      const searched = get.mock.calls
+      const read = get.mock.calls
         .map(([url]) => String(url))
         .filter((url) => url.startsWith('/families/F1/structural-variants?'));
+      // The header's check whether the family has SVs reads apart from the page's list.
+      const searched = read.filter((url) => !url.includes('count_only=true'));
       expect(searched.length).toBe(2); // the list and its total, each once
-      // Each in the page's project: none ran without it first.
+      // Each in the page's project: none ran without it first, the header's check neither.
       expect(searched.map((url) => new URLSearchParams(url.split('?')[1]).get('project_id'))).toEqual(['p2', 'p2']);
+      await waitFor(() =>
+        expect(
+          get.mock.calls
+            .map(([url]) => String(url))
+            .filter((url) => url.startsWith('/families/F1/structural-variants?') && url.includes('count_only=true'))
+            .map((url) => new URLSearchParams(url.split('?')[1]).get('project_id')),
+        ).toEqual(['p2']),
+      );
     });
 
     it('says the family could not be loaded, shows none of the SVs, and loads them on retry', async () => {
