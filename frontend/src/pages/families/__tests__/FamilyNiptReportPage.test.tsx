@@ -27,6 +27,8 @@ beforeEach(() => {
 });
 
 vi.mock('../../../lib/reference', () => ({
+  // The family header lists the family's projects by name.
+  useProjectCatalog: () => ({ data: [] }),
   useFamilyReference: () => ({
     speciesName: 'Homo sapiens',
     assemblyName: 'GRCh38',

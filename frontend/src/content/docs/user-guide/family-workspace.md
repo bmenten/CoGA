@@ -2,6 +2,9 @@ Every case starts on its family page.
 
 ### The header
 
+The family page and every analysis page (small and structural variants, repeat expansions, Paraphase,
+mtDNA) open with the same header, so you can work on the case and move between analyses from any of
+them. One line gives the members, the assembly and the projects, then the page's own figures.
 **Status**, **Assigned to** and **Reviewed by** track the case's workflow; an analyst of the family's
 project can change them, a reader only sees them. **Assigned to** and **Reviewed by** offer the active
 analysts of the family's projects and the administrators, never a reader. Someone chosen before they
@@ -11,11 +14,14 @@ family is outside the validated scope. Beside the workflow fields sit the family
 **Sample QC** (when the family has small variants) and **Report** (when it has any variant data:
 small or structural variants, repeat expansions, Paraphase results or mtDNA data).
 
+At the foot of the header, one row of links leads to the family's analyses: **Small variants**,
+**Structural variants**, **Repeat expansions**, **Paraphase**, **mtDNA analysis** and **Monogenic
+NIPT**, with **Variant summary** (of the structural variants) last, at the right end. A link appears
+only when the family has that kind of data; on an analysis page its own link is marked.
+
 ### The analyses and views
 
-- **Variants** — one row of links: **Small variants**, **Structural variants**, **Repeat expansions**,
-  **Paraphase**, **mtDNA analysis** and **Monogenic NIPT**, with **Variant summary** (of the structural
-  variants) last, at the right end. A link appears only when the family has that kind of data. Under the row, **Curation** gives a
+- **Curation** gives a
   line each for the small and the structural variants, the repeat loci and the Paraphase regions: how
   many are reviewed, how many carry notes, and the count per review tag; for the repeat loci and the
   Paraphase regions also how many carry your classification.

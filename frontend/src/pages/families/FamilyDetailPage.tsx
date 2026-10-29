@@ -18,32 +18,21 @@ import type {
   ApiFamilyMemberBatchUpdateItem,
   ApiHpoAnnotation,
   ApiSmallVariantReviewSummary,
-  ApiUserRef,
 } from '../../lib/apiTypes';
 import type {
   FamilyMemberBatchUpdateOut,
-  FamilyMitoDNAAnalysisOut,
-  FamilyParaphaseTableOut,
-  FamilyRepeatExpansionTableOut,
-  FamilyStatusOut,
   FamilyStructureUpdateOut,
-  VariantPage,
   FindingReviewSummaryOut,
 } from '../../lib/apiSchema.generated';
-import FamilyPageHeader from './FamilyPageHeader';
+import FamilyCaseHeader from './FamilyCaseHeader';
+import { useFamilyDataPresence } from './familyDataPresence';
 import PageState from '../../components/PageState';
 import FamilyLoadFailure from '../../components/FamilyLoadFailure';
 import QueryFailure from '../../components/QueryFailure';
-import { formatUserRef } from '../../lib/users';
 import { isAdmin } from '../../lib/auth';
-import { NOT_ASSIGNABLE_HINT, NOT_ASSIGNABLE_MARK, READ_ONLY_HINT } from '../../lib/familyAccess';
 import { buildApiUnavailableMessage, getErrorMessage } from '../../lib/errorMessage';
 import { sortFamilyMembersProbandFirst } from '../../lib/familyMembers';
-import {
-  formatResolvedReferenceLabel,
-  useFamilyReference,
-  useProjectCatalog,
-} from '../../lib/reference';
+import { formatResolvedReferenceLabel, useFamilyReference } from '../../lib/reference';
 import { getTagDefinitionMap, type SmallVariantTagDefinition } from './smallVariantSearch';
 import { getReviewTagStyle } from './smallVariantResultUtils';
 import { fetchFamilyReviewTags } from './smallVariantReview';
@@ -77,7 +66,6 @@ import {
   relativeDraftsFromRelationships,
   sampleKey,
 } from './familyDetailHelpers';
-import VariantWorkspaceLink from './VariantWorkspaceLink';
 import SampleQcCell from './SampleQcCell';
 import PipelineSettingsPanel, { pipelineSettingsFromMetadata } from './PipelineSettingsPanel';
 import { apiPath, raw } from '../../lib/apiPath';
@@ -147,14 +135,6 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     tone: 'success' | 'error';
     message: string;
   } | null>(null);
-  const [statusDraft, setStatusDraft] = useState('');
-  const [assignedToDraft, setAssignedToDraft] = useState('');
-  const [reviewedByDraft, setReviewedByDraft] = useState('');
-  const [metadataBusy, setMetadataBusy] = useState(false);
-  const [metadataStatus, setMetadataStatus] = useState<{
-    tone: 'success' | 'error';
-    message: string;
-  } | null>(null);
 
   const {
     data,
@@ -173,41 +153,6 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
   // the controls say so.
   const readOnly = Boolean(data?.read_only);
 
-  // The active status catalogue powers the status picker: a small, app-wide lookup, cached
-  // by a stable key and shared across family pages.
-  const {
-    data: familyStatusOptions = [],
-    isError: statusesFailed,
-    refetch: refetchStatuses,
-  } = useQuery<FamilyStatusOut[]>({
-    queryKey: ['family-statuses'],
-    queryFn: async () => {
-      const res = await api.get('/family-statuses');
-      return res.data as FamilyStatusOut[];
-    },
-  });
-
-  // The assignee and reviewer pickers offer the family's own list: the active analysts of its
-  // projects and the active administrators, never a reader (SEC-1).
-  const {
-    data: assignableUsers = [],
-    isError: usersFailed,
-    isSuccess: usersListed,
-    refetch: refetchUsers,
-  } = useQuery<ApiUserRef[]>({
-    queryKey: ['family', familyId, 'assignable-users'],
-    enabled: Boolean(familyId),
-    queryFn: async () => {
-      const res = await api.get(apiPath`/families/${familyId}/assignable-users`);
-      return res.data as ApiUserRef[];
-    },
-  });
-  // A stored assignee or reviewer the list no longer holds (a reader now, say) stays shown,
-  // marked, until it is changed. Only once the list has loaded: a list that failed says
-  // nothing about who is on it.
-  const notAssignable = (userId: string) =>
-    usersListed && Boolean(userId) && !assignableUsers.some((candidate) => candidate.id === userId);
-
   const {
     assemblyName,
     assemblyValidated,
@@ -221,127 +166,19 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     familyId && data && (!(data.projects?.length) || projectId),
   );
 
-  // Presence-only fetches: count_only returns a lightweight presence flag instead
-  // of the full small/structural/repeat/Paraphase/mtDNA payloads. For small and
-  // structural variants this skips the bounded row count + summary aggregation
-  // (which scan the whole family) — the dashboard only needs total > 0.
-  const buildPresenceParams = () => {
-    const params = new URLSearchParams({ count_only: 'true' });
-    if (projectId) {
-      params.set('project_id', projectId);
-    }
-    return `?${params.toString()}`;
-  };
-
+  // Which kinds of data the family has: the header's analysis row and the curation lines below
+  // read the same checks (useFamilyDataPresence shares their queries).
+  const presence = useFamilyDataPresence({ familyId, projectId, ready: variantCountsReady });
   const {
-    data: variantPage,
-    isError: structuralPresenceFailed,
-    refetch: refetchStructuralPresence,
-  } = useQuery<Pick<VariantPage, 'total'>>({
-    queryKey: ['family', familyId, 'structural-variants', 'has-data', projectId || null],
-    enabled: variantCountsReady,
-    queryFn: async () => {
-      const res = await api.get(apiPath`/families/${familyId}/structural-variants${raw(buildPresenceParams())}`);
-      return res.data as VariantPage;
-    },
-  });
-
-  const {
-    data: familyVariantPage,
-    isError: smallPresenceFailed,
-    refetch: refetchSmallPresence,
-  } = useQuery<Pick<VariantPage, 'total'>>({
-    queryKey: ['family', familyId, 'small-variants', 'has-data', projectId || null],
-    enabled: variantCountsReady,
-    queryFn: async () => {
-      const res = await api.get(apiPath`/families/${familyId}/small-variants${raw(buildPresenceParams())}`);
-      return res.data as VariantPage;
-    },
-  });
-
-  const {
-    data: repeatTable,
-    isError: repeatPresenceFailed,
-    refetch: refetchRepeatPresence,
-  } = useQuery<Pick<FamilyRepeatExpansionTableOut, 'loci_count'>>({
-    queryKey: ['family', familyId, 'repeat-expansions', 'has-data', projectId || null],
-    enabled: variantCountsReady,
-    queryFn: async () => {
-      const res = await api.get(apiPath`/families/${familyId}/repeat-expansions${raw(buildPresenceParams())}`);
-      return res.data as FamilyRepeatExpansionTableOut;
-    },
-  });
-
-  const {
-    data: paraphaseTable,
-    isError: paraphasePresenceFailed,
-    refetch: refetchParaphasePresence,
-  } = useQuery<Pick<FamilyParaphaseTableOut, 'genes_count'>>({
-    queryKey: ['family', familyId, 'paraphase', 'has-data', projectId || null],
-    enabled: variantCountsReady,
-    queryFn: async () => {
-      const res = await api.get(apiPath`/families/${familyId}/paraphase${raw(buildPresenceParams())}`);
-      return res.data as FamilyParaphaseTableOut;
-    },
-  });
-
-  const {
-    data: mitoTable,
-    isError: mitoPresenceFailed,
-    refetch: refetchMitoPresence,
-  } = useQuery<Pick<FamilyMitoDNAAnalysisOut, 'variant_count' | 'has_coverage'>>({
-    queryKey: ['family', familyId, 'mitochondrial-dna', 'has-data', projectId || null],
-    enabled: variantCountsReady,
-    queryFn: async () => {
-      const res = await api.get(apiPath`/families/${familyId}/mitochondrial-dna${raw(buildPresenceParams())}`);
-      return res.data as FamilyMitoDNAAnalysisOut;
-    },
-  });
-
-  // A presence check that failed leaves it unknown whether the family has that data: its
-  // workspace link is shown, so the page can say for itself, rather than hidden as if
-  // there were none (#607).
-  const hasVariants = (variantPage?.total ?? 0) > 0 || structuralPresenceFailed;
-  const hasSmallVariants = (familyVariantPage?.total ?? 0) > 0 || smallPresenceFailed;
-  const hasRepeatExpansions = (repeatTable?.loci_count ?? 0) > 0 || repeatPresenceFailed;
-  const hasParaphase = (paraphaseTable?.genes_count ?? 0) > 0 || paraphasePresenceFailed;
-  // mtDNA data is present when there are chrM variants or any sample carries
-  // mtDNA coverage (coverage-only families still have something to show).
-  const hasMitoDna =
-    (mitoTable?.variant_count ?? 0) > 0 || (mitoTable?.has_coverage ?? false) || mitoPresenceFailed;
-  const failedPresenceChecks = [
-    smallPresenceFailed ? 'small variants' : null,
-    structuralPresenceFailed ? 'structural variants' : null,
-    repeatPresenceFailed ? 'repeat expansions' : null,
-    paraphasePresenceFailed ? 'Paraphase results' : null,
-    mitoPresenceFailed ? 'mtDNA data' : null,
-  ].filter((name): name is string => Boolean(name));
-  const retryPresenceChecks = () => {
-    if (smallPresenceFailed) void refetchSmallPresence();
-    if (structuralPresenceFailed) void refetchStructuralPresence();
-    if (repeatPresenceFailed) void refetchRepeatPresence();
-    if (paraphasePresenceFailed) void refetchParaphasePresence();
-    if (mitoPresenceFailed) void refetchMitoPresence();
-  };
-  // The variant summary summarises the structural variants, from every SV caller (HiFiCNV
-  // copy-number calls included), and nothing else: it is offered when the family has them,
-  // or when that check failed, never for small variants alone.
-  const hasVariantSummary = hasVariants;
-  const hasAnyVariantData =
-    hasVariants || hasSmallVariants || hasRepeatExpansions || hasParaphase || hasMitoDna;
-  // Every kind of finding the report lists once it is marked Report.
-  const hasReportableFindings = hasAnyVariantData;
-  // A failed check is settled too: "Checking…" used to stay up for good (#607).
-  const variantCountsLoaded =
-    variantCountsReady &&
-    (variantPage !== undefined || structuralPresenceFailed) &&
-    (familyVariantPage !== undefined || smallPresenceFailed) &&
-    (repeatTable !== undefined || repeatPresenceFailed) &&
-    (paraphaseTable !== undefined || paraphasePresenceFailed) &&
-    (mitoTable !== undefined || mitoPresenceFailed);
+    hasStructuralVariants: hasVariants,
+    hasSmallVariants,
+    hasRepeatExpansions,
+    hasParaphase,
+    hasAnyVariantData,
+    loaded: variantCountsLoaded,
+  } = presence;
   // Monogenic NIPT families surface a dedicated analysis tab (see docs/monogenic-nipt.md).
   const isMonogenicNipt = data?.metadata?.analysis_type === MONOGENIC_NIPT_ANALYSIS_TYPE;
-  const { data: projects = [] } = useProjectCatalog();
   const assemblyLabel = formatResolvedReferenceLabel(
     { assemblyName, assemblyVersion, isError: referenceFailed },
     'Not linked',
@@ -399,14 +236,6 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     },
   });
 
-  const familyProjects = useMemo(() => {
-    if (!data?.projects?.length) return [];
-    const projectNameById = new Map(projects.map((project) => [project.id, project.name]));
-    return data.projects.map((projectIdValue) => ({
-      id: projectIdValue,
-      name: projectNameById.get(projectIdValue) ?? projectIdValue,
-    }));
-  }, [data?.projects, projects]);
   const smallVariantReviewTagMap = useMemo(() => getTagDefinitionMap(smallVariantTags), [smallVariantTags]);
   const structuralVariantReviewTagMap = useMemo(
     () => getTagDefinitionMap(structuralVariantTags),
@@ -423,7 +252,6 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     ...(hasRepeatExpansions ? [{ key: 'repeat' as const, label: 'Repeat expansions', noun: 'repeat loci' }] : []),
     ...(hasParaphase ? [{ key: 'paraphase' as const, label: 'Paraphase', noun: 'Paraphase regions' }] : []),
   ];
-  const variantPageQuerySuffix = projectId ? `?project_id=${encodeURIComponent(projectId)}` : '';
   const orderedMembers = useMemo(
     () => sortFamilyMembersProbandFirst(data?.members || []),
     [data?.members],
@@ -503,13 +331,6 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
   useEffect(() => {
     setRoiInput(data?.roi?.query ?? '');
   }, [data?.roi?.query]);
-
-  useEffect(() => {
-    setStatusDraft(data?.status?.key ?? '');
-    setAssignedToDraft(data?.assigned_to?.id ?? '');
-    setReviewedByDraft(data?.reviewed_by?.id ?? '');
-    setMetadataStatus(null);
-  }, [data?.status?.key, data?.assigned_to?.id, data?.reviewed_by?.id]);
 
   useEffect(() => {
     setPendingMemberUpdates({});
@@ -611,37 +432,6 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
       });
     } finally {
       setRoiBusy(false);
-    }
-  };
-
-  // Each picker auto-saves the single field it changed (the backend applies a
-  // partial update). On failure the pickers roll back to the stored values.
-  const saveMetadata = async (patch: {
-    status_key?: string | null;
-    assigned_to?: string | null;
-    reviewed_by?: string | null;
-  }) => {
-    if (!familyId) return;
-    setMetadataBusy(true);
-    setMetadataStatus(null);
-    try {
-      const response = await api.put(apiPath`/families/${familyId}/metadata`, patch);
-      const updatedFamily = response.data as ApiFamilyRecord;
-      queryClient.setQueryData(['family', familyId], updatedFamily);
-      // The dashboard's nested table is fed by the project catalog (['projects']),
-      // while the unassigned-families table uses ['families'] — refresh both.
-      await queryClient.invalidateQueries({ queryKey: ['families'] });
-      await queryClient.invalidateQueries({ queryKey: ['projects'] });
-    } catch (error) {
-      setStatusDraft(data?.status?.key ?? '');
-      setAssignedToDraft(data?.assigned_to?.id ?? '');
-      setReviewedByDraft(data?.reviewed_by?.id ?? '');
-      setMetadataStatus({
-        tone: 'error',
-        message: getErrorMessage(error, 'Failed to update the family status.'),
-      });
-    } finally {
-      setMetadataBusy(false);
     }
   };
 
@@ -1020,255 +810,34 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     <div
       className={`family-detail-page space-y-6${embedded ? '' : ' page-shell'}`}
     >
-      <FamilyPageHeader
+      <FamilyCaseHeader
         assemblyScope={{
           name: assemblyName,
           validated: assemblyValidated,
           unavailable: referenceFailed,
           onRetry: retryReference,
         }}
+        assemblyLabel={assemblyLabel}
         kicker="Family workspace"
         familyId={data.family_id}
         family={data}
+        projectId={projectId}
         isWorkspace
         phenotypeSampleIds={phenotypeSampleIds}
-      >
-            <div className="family-workspace-summary">
-              <div className="family-workspace-stat">
-                <span className="stat-label">Members</span>
-                <strong className="family-workspace-stat-value">{orderedMembers.length}</strong>
-              </div>
-              <div className="family-workspace-stat">
-                <span className="stat-label">Assembly</span>
-                <strong className="family-workspace-stat-copy">{assemblyLabel}</strong>
-              </div>
-              <div className="family-workspace-stat">
-                <span className="stat-label">Projects</span>
-                {familyProjects.length > 0 ? (
-                  <div className="family-workspace-projects">
-                    {familyProjects.map((project) => (
-                      <span key={project.id} className="table-chip">
-                        {project.name}
-                      </span>
-                    ))}
-                  </div>
-                ) : (
-                  <strong className="family-workspace-stat-copy">Not linked</strong>
-                )}
-              </div>
-            </div>
-            <div className="family-workspace-meta-row">
-              <div className="family-workspace-meta-field">
-                <span className="stat-label">Status</span>
-                <select
-                  className="family-workspace-select"
-                  aria-label="Family status"
-                  value={statusDraft}
-                  onChange={(event) => {
-                    const value = event.target.value;
-                    setStatusDraft(value);
-                    saveMetadata({ status_key: value || null });
-                  }}
-                  disabled={readOnly || metadataBusy || statusesFailed}
-                  title={readOnly ? READ_ONLY_HINT : undefined}
-                >
-                  <option value="">No status</option>
-                  {familyStatusOptions.map((option) => (
-                    <option key={option.key} value={option.key}>
-                      {option.label}
-                    </option>
-                  ))}
-                  {/* The current status stays shown when its list failed: it read "No
-                      status" on a reviewed case (#607). */}
-                  {statusDraft && !familyStatusOptions.some((option) => option.key === statusDraft) ? (
-                    <option value={statusDraft}>
-                      {data.status?.key === statusDraft ? data.status.label : statusDraft}
-                    </option>
-                  ) : null}
-                </select>
-              </div>
-              <div className="family-workspace-meta-field">
-                <span className="stat-label">Assigned to</span>
-                <select
-                  className="family-workspace-select"
-                  aria-label="Assigned to"
-                  value={assignedToDraft}
-                  onChange={(event) => {
-                    const value = event.target.value;
-                    setAssignedToDraft(value);
-                    saveMetadata({ assigned_to: value || null });
-                  }}
-                  disabled={readOnly || metadataBusy || usersFailed}
-                  title={readOnly ? READ_ONLY_HINT : notAssignable(assignedToDraft) ? NOT_ASSIGNABLE_HINT : undefined}
-                >
-                  <option value="">Unassigned</option>
-                  {assignableUsers.map((candidate) => (
-                    <option key={candidate.id} value={candidate.id}>
-                      {formatUserRef(candidate)}
-                    </option>
-                  ))}
-                  {assignedToDraft && !assignableUsers.some((candidate) => candidate.id === assignedToDraft) ? (
-                    <option value={assignedToDraft}>
-                      {data.assigned_to?.id === assignedToDraft ? formatUserRef(data.assigned_to) : assignedToDraft}
-                      {notAssignable(assignedToDraft) ? NOT_ASSIGNABLE_MARK : ''}
-                    </option>
-                  ) : null}
-                </select>
-              </div>
-              <div className="family-workspace-meta-field">
-                <span className="stat-label">Reviewed by</span>
-                <select
-                  className="family-workspace-select"
-                  aria-label="Reviewed by"
-                  value={reviewedByDraft}
-                  onChange={(event) => {
-                    const value = event.target.value;
-                    setReviewedByDraft(value);
-                    saveMetadata({ reviewed_by: value || null });
-                  }}
-                  disabled={readOnly || metadataBusy || usersFailed}
-                  title={readOnly ? READ_ONLY_HINT : notAssignable(reviewedByDraft) ? NOT_ASSIGNABLE_HINT : undefined}
-                >
-                  <option value="">Not reviewed</option>
-                  {assignableUsers.map((candidate) => (
-                    <option key={candidate.id} value={candidate.id}>
-                      {formatUserRef(candidate)}
-                    </option>
-                  ))}
-                  {reviewedByDraft && !assignableUsers.some((candidate) => candidate.id === reviewedByDraft) ? (
-                    <option value={reviewedByDraft}>
-                      {data.reviewed_by?.id === reviewedByDraft ? formatUserRef(data.reviewed_by) : reviewedByDraft}
-                      {notAssignable(reviewedByDraft) ? NOT_ASSIGNABLE_MARK : ''}
-                    </option>
-                  ) : null}
-                </select>
-              </div>
-              {(metadataBusy || metadataStatus) && (
-                <span
-                  className={`family-workspace-metadata-status${
-                    metadataStatus?.tone === 'error' ? ' family-workspace-metadata-status--error' : ''
-                  }`}
-                  role="status"
-                >
-                  {metadataBusy ? 'Saving…' : metadataStatus?.message}
-                </span>
-              )}
-              {/* Family-level functions, beside the case's workflow fields rather than among
-                  the variant analyses: the sample-integrity QC of the members and the report
-                  drawn from the analyses. Each appears once its data is known to exist: Sample QC
-                  reads the small-variant genotypes; the report lists every kind of finding that can
-                  be marked Report, repeat loci, Paraphase regions and mtDNA variants included. */}
-              {hasReportableFindings && (
-                <div className="family-workspace-actions" role="group" aria-label="Family actions">
-                  <VariantWorkspaceLink
-                    active={hasSmallVariants}
-                    to={routePath`/families/${data.family_id}/qc`}
-                    className="button-secondary family-workspace-action"
-                  >
-                    Sample QC
-                  </VariantWorkspaceLink>
-                  <VariantWorkspaceLink
-                    active={hasReportableFindings}
-                    to={routePath`/families/${data.family_id}/report${raw(variantPageQuerySuffix)}`}
-                    className="button-secondary family-workspace-action"
-                  >
-                    Report
-                  </VariantWorkspaceLink>
-                </div>
-              )}
-            </div>
-            {statusesFailed || usersFailed ? (
-              <QueryFailure
-                what={statusesFailed && usersFailed ? 'the status and user lists' : statusesFailed ? 'the status list' : 'the user list'}
-                onRetry={() => {
-                  if (statusesFailed) void refetchStatuses();
-                  if (usersFailed) void refetchUsers();
-                }}
-                consequence="The current values are shown, and cannot be changed until it loads."
-              />
-            ) : null}
-      </FamilyPageHeader>
+      />
 
       <section className="family-workspace-grid">
         <article className="surface-card-flat family-workspace-card family-workspace-card--variants">
           <div className="family-workspace-card-head">
             <div className="space-y-1">
-              <h2 className="section-title">Variants</h2>
-              <p className="family-workspace-card-subtitle">Filter, review and curate variant calls</p>
+              <h2 className="section-title">Curation</h2>
+              {/* The analyses themselves are in the top card's row, on every family page. */}
+              <p className="family-workspace-card-subtitle">The review so far, per kind of variant</p>
             </div>
           </div>
-          {/*
-            Each workspace renders as soon as its own presence check resolves, so
-            the page no longer blocks on the slowest count query. Workspaces with
-            no underlying data are simply omitted (see VariantWorkspaceLink).
-          */}
-          {/* One row of equal entries, one per analysis the family has data for. The
-              variant summary comes last, at the row's right end: it summarises the
-              structural variants (every SV caller), so it belongs with the analyses, not
-              with the family-level QC and report in the header. */}
-          {(hasAnyVariantData || isMonogenicNipt) && (
-            <nav className="family-module-nav" aria-label="Variant analyses">
-              <VariantWorkspaceLink
-                active={hasSmallVariants}
-                to={routePath`/families/${data.family_id}/small-variants${raw(variantPageQuerySuffix)}`}
-                className="family-module-link"
-              >
-                Small variants
-              </VariantWorkspaceLink>
-              <VariantWorkspaceLink
-                active={hasVariants}
-                to={routePath`/families/${data.family_id}/structural-variants${raw(variantPageQuerySuffix)}`}
-                className="family-module-link"
-              >
-                Structural variants
-              </VariantWorkspaceLink>
-              <VariantWorkspaceLink
-                active={hasRepeatExpansions}
-                to={routePath`/families/${data.family_id}/repeat-expansions`}
-                className="family-module-link"
-              >
-                Repeat expansions
-              </VariantWorkspaceLink>
-              <VariantWorkspaceLink
-                active={hasParaphase}
-                to={routePath`/families/${data.family_id}/paraphase`}
-                className="family-module-link"
-              >
-                Paraphase
-              </VariantWorkspaceLink>
-              <VariantWorkspaceLink
-                active={hasMitoDna}
-                to={routePath`/families/${data.family_id}/mitochondrial-dna${raw(variantPageQuerySuffix)}`}
-                className="family-module-link"
-              >
-                mtDNA analysis
-              </VariantWorkspaceLink>
-              <VariantWorkspaceLink
-                active={isMonogenicNipt}
-                to={routePath`/families/${data.family_id}/nipt`}
-                className="family-module-link"
-              >
-                Monogenic NIPT
-              </VariantWorkspaceLink>
-              <VariantWorkspaceLink
-                active={hasVariantSummary}
-                to={routePath`/families/${data.family_id}/variant-summary`}
-                className="family-module-link family-module-link--end"
-              >
-                Variant summary
-              </VariantWorkspaceLink>
-            </nav>
-          )}
           {!variantCountsLoaded && (
             <p className="dashboard-link-note">Checking available family data…</p>
           )}
-          {failedPresenceChecks.length ? (
-            <QueryFailure
-              what={`whether this family has ${failedPresenceChecks.join(', ')}`}
-              onRetry={retryPresenceChecks}
-              consequence="Their links are shown, so you can open them."
-            />
-          ) : null}
           {variantCountsLoaded && !hasAnyVariantData && !isMonogenicNipt && (
             <p className="dashboard-link-note">
               No variant data is loaded for this family yet — each type activates
@@ -1279,7 +848,6 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
               rather than between them. */}
           {(hasSmallVariants || hasVariants || hasFindingReviews) && (
             <div className="family-curation-summary">
-              <span className="family-curation-summary-title">Curation</span>
               {hasSmallVariants && (
                 <div className="family-curation-line" role="group" aria-label="Small variant curation">
                   <span className="family-curation-type">Small variants</span>

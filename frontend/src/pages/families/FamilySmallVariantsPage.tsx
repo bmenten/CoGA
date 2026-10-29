@@ -4,9 +4,9 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import api from '../../lib/api';
 import { isReviewConflict, withReviewVersion } from '../../lib/reviewConcurrency';
 import { getErrorMessage } from '../../lib/errorMessage';
-import FamilyPageHeader from './FamilyPageHeader';
+import FamilyCaseHeader from './FamilyCaseHeader';
 import FilterCollapseToggle from './FilterCollapseToggle';
-import { useFamilyReference } from '../../lib/reference';
+import { formatResolvedReferenceLabel, useFamilyReference } from '../../lib/reference';
 import PageState from '../../components/PageState';
 import FamilyLoadFailure from '../../components/FamilyLoadFailure';
 import QueryFailure from '../../components/QueryFailure';
@@ -86,6 +86,10 @@ const FamilySmallVariantsPage: React.FC = () => {
   );
   const variantQueryReady = Boolean(
     familyId && family && (!(family.projects?.length) || projectId),
+  );
+  const referenceLabel = formatResolvedReferenceLabel(
+    { assemblyName, assemblyVersion, isError: referenceFailed },
+    'Not linked',
   );
 
   const {
@@ -387,7 +391,7 @@ const FamilySmallVariantsPage: React.FC = () => {
 
   return (
     <div className="page-shell analysis-shell">
-      <FamilyPageHeader
+      <FamilyCaseHeader
         assemblyScope={{
           name: assemblyName,
           validated: assemblyValidated,
@@ -395,9 +399,11 @@ const FamilySmallVariantsPage: React.FC = () => {
           onRetry: retryReference,
         }}
         kicker="Small variants"
-        familyId={familyId}
+        familyId={familyId ?? ''}
         family={family}
-        projectId={preferredProjectId}
+        projectId={projectId ?? preferredProjectId}
+        assemblyLabel={referenceLabel}
+        current="small-variants"
         className="variant-workbench-card"
         footer={
           <>
@@ -490,7 +496,7 @@ const FamilySmallVariantsPage: React.FC = () => {
                     </div>
                   </div>
                 ) : null}
-      </FamilyPageHeader>
+      </FamilyCaseHeader>
 
       {panelsFailed ? (
         <QueryFailure

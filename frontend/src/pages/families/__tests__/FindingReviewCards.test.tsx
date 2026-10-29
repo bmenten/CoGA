@@ -16,6 +16,8 @@ import { createTestQueryClient } from '../../../test/createTestQueryClient';
 const apiMock = vi.hoisted(() => ({ get: vi.fn(), put: vi.fn() }));
 vi.mock('../../../lib/api', () => ({ default: apiMock }));
 vi.mock('../../../lib/reference', () => ({
+  // The family header lists the family's projects by name.
+  useProjectCatalog: () => ({ data: [] }),
   useFamilyReference: () => ({ assemblyName: 'GRCh38', assemblyVersion: 'p14', projectId: undefined, isLoading: false }),
   formatResolvedReferenceLabel: () => 'GRCh38',
 }));

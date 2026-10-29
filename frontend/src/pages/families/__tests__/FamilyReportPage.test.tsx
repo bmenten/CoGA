@@ -42,6 +42,8 @@ const GRCH38_REFERENCE = {
 const referenceMock = vi.hoisted(() => ({ value: undefined as unknown }));
 
 vi.mock('../../../lib/reference', () => ({
+  // The family header lists the family's projects by name.
+  useProjectCatalog: () => ({ data: [] }),
   useFamilyReference: () => referenceMock.value,
   formatResolvedReferenceLabel: ({ assemblyName }: { assemblyName?: string }) =>
     assemblyName || 'Not linked',

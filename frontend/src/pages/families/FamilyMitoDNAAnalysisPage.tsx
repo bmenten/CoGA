@@ -12,7 +12,7 @@ import type {
   ApiMitoDNAVariant,
   ApiMitoDNAVariantSampleCall,
 } from '../../lib/apiTypes';
-import FamilyPageHeader from './FamilyPageHeader';
+import FamilyCaseHeader from './FamilyCaseHeader';
 import PageState from '../../components/PageState';
 import FamilyLoadFailure from '../../components/FamilyLoadFailure';
 import { sortFamilyMembersProbandFirst } from '../../lib/familyMembers';
@@ -693,7 +693,7 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
 
   return (
     <div className="page-shell family-mtdna-page space-y-6">
-      <FamilyPageHeader
+      <FamilyCaseHeader
         assemblyScope={{
           name: assemblyName,
           validated: assemblyValidated,
@@ -701,32 +701,28 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
           onRetry: retryReference,
         }}
         kicker="mtDNA analysis"
+        familyId={family.family_id}
         family={family}
         projectId={resolvedProjectId}
-      >
-            <div className="family-workspace-summary">
-              <div className="family-workspace-stat">
-                <span className="stat-label">Members</span>
-                <strong className="family-workspace-stat-value">{orderedSamples.length}</strong>
-              </div>
-              <div className="family-workspace-stat">
-                <span className="stat-label">Assembly</span>
-                <strong className="family-workspace-stat-copy">{referenceLabel}</strong>
-              </div>
-              <div className="family-workspace-stat">
-                <span className="stat-label">MT variants</span>
-                <strong className="family-workspace-stat-value">{mtDNA.variants.length}</strong>
-              </div>
-              <div className="family-workspace-stat">
-                <span className="stat-label">Heteroplasmic</span>
-                <strong className="family-workspace-stat-value">{heteroplasmicCount}</strong>
-              </div>
-              <div className="family-workspace-stat">
-                <span className="stat-label">QC warnings</span>
-                <strong className="family-workspace-stat-value">{qcWarningCount}</strong>
-              </div>
+        assemblyLabel={referenceLabel}
+        current="mitochondrial-dna"
+        facts={
+          <>
+            <div className="family-workspace-stat">
+              <span className="stat-label">MT variants</span>
+              <strong className="family-workspace-stat-value">{mtDNA.variants.length}</strong>
             </div>
-      </FamilyPageHeader>
+            <div className="family-workspace-stat">
+              <span className="stat-label">Heteroplasmic</span>
+              <strong className="family-workspace-stat-value">{heteroplasmicCount}</strong>
+            </div>
+            <div className="family-workspace-stat">
+              <span className="stat-label">QC warnings</span>
+              <strong className="family-workspace-stat-value">{qcWarningCount}</strong>
+            </div>
+          </>
+        }
+      />
 
       <section className="surface-card space-y-2">
         <div className="paraphase-section-head">
