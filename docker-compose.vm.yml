@@ -1,0 +1,27 @@
+# The production stack on a single virtual machine (docs/deployment-vm.md):
+#   docker compose -f docker-compose.yml -f docker-compose.vm.yml up --build -d
+# A reverse proxy on the VM terminates TLS and forwards to the frontend on loopback.
+
+x-logging: &logging
+  # Rotate container logs, so a long import cannot fill the disk.
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "5"
+
+services:
+  postgres:
+    logging: *logging
+
+  clickhouse:
+    logging: *logging
+
+  backend:
+    logging: *logging
+
+  frontend:
+    logging: *logging
+    # Loopback only: the reverse proxy is the one way in. Docker publishes ports past the
+    # host firewall, so 3000 on every interface would bypass both the proxy and ufw.
+    ports: !override
+      - "127.0.0.1:3000:3000"
