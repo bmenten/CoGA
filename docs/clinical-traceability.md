@@ -789,14 +789,14 @@ clinical audit trail shows only its most recent events, the notice says that too
 sign-out record is loading or could not be loaded, sign-out is not offered. After a sign-out the
 page shows the new version.
 
-**A monogenic NIPT family** is signed out from the NIPT page too (`FamilyNiptPage.tsx`,
+**A monogenic NIPT family** is signed out from the NIPT report too (`FamilyNiptReportPage.tsx`,
 *Sign out NIPT analysis*, or *Amend sign-out* once signed), through the same request, gates and
-acknowledgement dialogs as the live report (`reportSignOut.tsx`, which both pages use). The NIPT
-page names the latest signed version with its report code, says whether the family's data still
-matches it (`sign-out-check`) and links to it; after a sign-out it opens the new version on the
-report page. Sign-out is not offered there off the validated assembly scope, nor while the
-sign-out record is loading or could not be loaded. The NIPT report (`FamilyNiptReportPage.tsx`)
-is live too: it says so on screen, beside the latest signed version, and every printout of it
+acknowledgement dialogs as the live report (`reportSignOut.tsx`, which both pages use); the NIPT
+page offers no sign-out. The NIPT report names the latest signed version with its report code,
+says whether the family's data still matches it (`sign-out-check`) and links to it; after a
+sign-out it opens the new version on the report page. Sign-out is not offered there off the
+validated assembly scope, nor while the sign-out record is loading or could not be loaded. The
+NIPT report is live too: it says so on screen, beside the latest signed version, and every printout of it
 starts with the live report's notice ("Draft …", "Not the signed report …", "Not verified …").
 
 Each snapshot also records the reference modules its build looked up (`reference_modules`). A

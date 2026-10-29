@@ -127,7 +127,14 @@ describe('FamilyCaseHeader', () => {
     expect(within(actions).getByRole('link', { name: 'Sample QC' })).not.toHaveAttribute('aria-current');
   });
 
-  it("puts a page's genome views between the analyses and the family's QC and report, in their own colour", async () => {
+  it("puts a page's genome views after mtDNA analysis, before the variant summary, in their own colour", async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url.startsWith('/families/F1/structural-variants?')) return Promise.resolve({ data: { total: 4 } });
+      if (url.startsWith('/families/F1/mitochondrial-dna?')) {
+        return Promise.resolve({ data: { variant_count: 2, has_coverage: true } });
+      }
+      return Promise.resolve(answer(url));
+    });
     const { container } = render(
       <QueryClientProvider client={createTestQueryClient()}>
         <MemoryRouter>
@@ -147,15 +154,52 @@ describe('FamilyCaseHeader', () => {
         </MemoryRouter>
       </QueryClientProvider>,
     );
-    const actions = await screen.findByRole('group', { name: 'Family actions' });
-    const bar = container.querySelector('.family-case-header-bar') as HTMLElement;
-    const views = within(bar).getByRole('group', { name: 'Genome views' });
-    expect(Array.from(bar.children)).toEqual([
-      bar.querySelector('.family-module-nav-block'),
-      views,
-      actions,
+    const nav = await screen.findByRole('navigation', { name: 'Variant analyses' });
+    await waitFor(() => expect(within(nav).getByRole('link', { name: 'Variant summary' })).toBeInTheDocument());
+    expect(Array.from(nav.children).map((child) => child.textContent)).toEqual([
+      'Small variants',
+      'Structural variants',
+      'Repeat expansions',
+      'mtDNA analysis',
+      'Genome',
+      'Variant summary',
     ]);
+    const views = within(nav).getByRole('group', { name: 'Genome views' });
     expect(within(views).getByRole('link', { name: 'Genome' })).toHaveClass('family-module-link--view');
+    // The family's QC and report stay at the row's right end.
+    const bar = container.querySelector('.family-case-header-bar') as HTMLElement;
+    expect(bar.lastElementChild).toBe(await screen.findByRole('group', { name: 'Family actions' }));
+  });
+
+  it("puts a monogenic NIPT family's NIPT report beside its report, with the NIPT page's scope", async () => {
+    const nipt = { ...family, metadata: { analysis_type: 'monogenic_nipt' } };
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MemoryRouter>
+          <FamilyCaseHeader
+            kicker="Monogenic NIPT"
+            familyId="F1"
+            family={nipt}
+            projectId="p1"
+            assemblyLabel="GRCh38 p14"
+            current="nipt"
+            niptReportSearch="?project_id=p1&panel_id=panel-1"
+          />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    const actions = await screen.findByRole('group', { name: 'Family actions' });
+    await waitFor(() =>
+      expect(within(actions).getAllByRole('link').map((link) => link.textContent)).toEqual([
+        'Sample QC',
+        'Report',
+        'NIPT report',
+      ]),
+    );
+    expect(within(actions).getByRole('link', { name: 'NIPT report' })).toHaveAttribute(
+      'href',
+      '/families/F1/nipt/report?project_id=p1&panel_id=panel-1',
+    );
   });
 
   it('keeps the page it is on in the row even when the check finds no data there', async () => {

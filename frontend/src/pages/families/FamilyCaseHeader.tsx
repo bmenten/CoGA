@@ -11,7 +11,7 @@ import { MONOGENIC_NIPT_ANALYSIS_TYPE } from './niptClassification';
  * The top card of every family page (the workspace, the analyses, the Sample QC, the report),
  * one and the same: the family's facts on one compact line (members, assembly, projects, then the
  * page's own), the case's workflow fields, and at its foot one row with the family's analyses at
- * the left and its Sample QC and report at the right, the page it is on marked. From any of them
+ * the left (a page's genome views among them) and its Sample QC and report at the right, the page it is on marked. From any of them
  * an analyst moves to another analysis or to the report without going back to the workspace.
  */
 const FamilyCaseHeader: React.FC<{
@@ -30,9 +30,11 @@ const FamilyCaseHeader: React.FC<{
   /** Page-specific content under the facts and the case's fields. */
   children?: React.ReactNode;
   actions?: React.ReactNode;
-  /** In the foot row, at the right of the analyses: a page's views of the genome (Genome,
+  /** In the row of analyses, after mtDNA analysis: a page's views of the genome (Genome,
    *  Circos), in their own colour. */
   views?: React.ReactNode;
+  /** The NIPT report's query string, from the NIPT page (its panel and gene). */
+  niptReportSearch?: string;
   /** Under the card's grid, across the card: a page's filter form. */
   footer?: React.ReactNode;
   /** Extra classes on the card, for a page that styles its own top card. */
@@ -51,6 +53,7 @@ const FamilyCaseHeader: React.FC<{
   children,
   actions,
   views,
+  niptReportSearch,
   footer,
   className,
   phenotypeSampleIds,
@@ -91,17 +94,15 @@ const FamilyCaseHeader: React.FC<{
               presence={presence}
               isMonogenicNipt={isMonogenicNipt}
               current={current}
+              views={views}
             />
-            {views ? (
-              <div className="family-case-header-views" role="group" aria-label="Genome views">
-                {views}
-              </div>
-            ) : null}
             <FamilyCaseActions
               familyId={familyId}
               projectId={projectId}
               presence={presence}
               current={current}
+              isMonogenicNipt={isMonogenicNipt}
+              niptReportSearch={niptReportSearch}
             />
           </div>
           {footer}
@@ -140,5 +141,26 @@ const FamilyCaseHeader: React.FC<{
     </FamilyPageHeader>
   );
 };
+
+/**
+ * One of a page's facts in the header's line (a count, an estimate): its label, then its value,
+ * as the family's members, assembly and projects are given.
+ */
+export const FamilyFact: React.FC<{
+  label: React.ReactNode;
+  value?: React.ReactNode;
+  title?: string;
+  role?: string;
+}> = ({ label, value, title, role }) => (
+  <div className="family-workspace-stat" title={title} role={role}>
+    <span className="stat-label">{label}</span>
+    {value !== undefined ? (
+      <>
+        {' '}
+        <strong className="family-workspace-stat-value">{value}</strong>
+      </>
+    ) : null}
+  </div>
+);
 
 export default FamilyCaseHeader;

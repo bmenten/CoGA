@@ -211,9 +211,9 @@ that could not be read while the version was frozen is recorded as not captured,
 part of a section this page cannot read is said too (*Part of … cannot be read here*), never shown
 as empty: the downloaded record holds it as stored.
 
-A monogenic NIPT family is signed out from the NIPT page as well (**Sign out NIPT analysis**): the
+A monogenic NIPT family is signed out from the NIPT report as well (**Sign out NIPT analysis**): the
 same sign-out, with the same checks and report code, into the family's one signed record. Where you
-sign out from makes no difference to what is frozen. The NIPT page names the latest signed version
+sign out from makes no difference to what is frozen. The NIPT report names the latest signed version
 with its report code and says whether the family's data still matches it. The NIPT report is live,
 like the live family report: it says so on screen, and every printout of it starts with *Draft* or
 *Not the signed report*.

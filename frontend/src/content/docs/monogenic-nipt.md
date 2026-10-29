@@ -328,9 +328,10 @@ below the table holds every carrier variant of the listed genes.
 ### Built-in presets
 
 The presets combine the views with the usual filters: **De novo** (the de novo view, HIGH or MODERATE
-impact, gnomAD 1% or below, a ClinVar pathogenic record overriding the frequency), **Paternal, inherited**
-(the paternal view with the same filters) and **Recessive (both parents carrier)** (the recessive view
-with the same filters). The page opens on **De novo** unless its link carries a search of its own.
+impact, gnomAD 1% or below, a ClinVar pathogenic record overriding the frequency, ClinVar benign and
+likely benign left out), **Paternal, inherited** (the paternal view with HIGH or MODERATE impact and the
+same frequency rule) and **Recessive (both parents carrier)** (the recessive view with those filters).
+The page opens on **De novo**, on the **Mendeliome** panel, unless its link carries a search of its own.
 
 ---
 
@@ -414,11 +415,12 @@ every printout starts with *Draft* or *Not the signed report*, as the live famil
 
 ## Sign-out
 
-**Sign out NIPT analysis** on the NIPT page signs the analysis out: the analyst's analytical sign-off,
+**Sign out NIPT analysis** on the NIPT report signs the analysis out: the analyst's analytical sign-off,
 which closes and freezes the analysis into the family's signed record (the medical sign-off of the
 patient report happens in the EPD, which refers to the record by its report code). It is the family
 sign-out, with its checks and report code: one record per family, whether it is signed out here or from
-the family report. Once signed, the button reads **Amend sign-out**, and the page names the latest
+the family report. The NIPT page itself offers no sign-out. Once signed, the button reads **Amend
+sign-out**, and the NIPT report names the latest
 signed version, its report code, and whether the family's data still matches it, naming what it could
 not compare because that version does not hold it (*Not in signed version 2, so not compared: …*).
 

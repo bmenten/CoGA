@@ -49,7 +49,8 @@ must carry FORMAT/AD.
 
 The built-in presets **De novo**, **Paternal, inherited** and **Recessive (both parents carrier)** set a
 view with high or moderate impact and a gnomAD frequency of 1% or less (a ClinVar pathogenic record
-overrides the frequency). Pick a gene panel as well. The page opens on **De novo**; a link with its own
+overrides the frequency); **De novo** also leaves out ClinVar benign and likely benign. The page opens
+on **De novo** on the **Mendeliome** panel; pick a narrower panel if you need one. A link with its own
 filters, such as **Back to NIPT**, opens on those.
 
 > **Read the probabilities, not only the category.** A de novo or paternal allele shows clearly at any
@@ -59,7 +60,7 @@ filters, such as **Back to NIPT**, opens on those.
 
 ### The NIPT report
 
-**NIPT report** on the NIPT page opens a printable summary: the fetal fraction, the quality checks, the
+**NIPT report**, at the right of the header beside **Report**, opens a printable summary: the fetal fraction, the quality checks, the
 coverage of the targets in scope, and the classified variants grouped as *De novo in fetus*,
 *Dominant, transmitted*, *Recessive / biallelic risk* and *Other categories*. Its footer names when it
 was made and the CoGA version that made it. Its *Scope* names the panel and genes you selected; your
@@ -72,19 +73,19 @@ signed record: it says so beside the latest signed version, and every printout s
 
 ### Signing the NIPT analysis out
 
-**Sign out NIPT analysis** on the NIPT page is the analytical sign-off: it freezes the analysis into
+**Sign out NIPT analysis** on the NIPT report is the analytical sign-off: it freezes the analysis into
 the family's signed record, which the EPD report refers to by its report code. It is the family's own
 sign-out, with the same checks and report code, so the family has one signed record whether you sign
 out here or from the family report. The record holds the NIPT results as CoGA computed them: the fetal
 fraction and the quality checks, the coverage, and each variant tagged *report* with its category,
-reads and probabilities. Tag the variants you report first. **Show reported (N)**, under the sign-out
-status, lists them before you sign out: the variants tagged *report*, with every other filter
+reads and probabilities. Tag the variants you report first. **Show reported (N)**, in the NIPT page's
+header, lists them before you sign out: the variants tagged *report*, with every other filter
 cleared. A tagged variant the analysis does not classify (not in the family's NIPT data, on the
 assay's artifact list, or without a call in the plasma) is in no list: the page names it above the
 list with the reason, as the signed record does. Besides the Sample QC, a NIPT quality
 check that failed (no fetal-fraction estimate, fetal-sex signals that disagree, or male DNA as the
 maternal plasma) stops the sign-out until you record a reason. Afterwards the signed version opens,
-with its report code; the NIPT page then shows **Amend sign-out** and says whether the data still
+with its report code; the NIPT report then shows **Amend sign-out** and says whether the data still
 matches the signed version. A reader of the family's project cannot sign out, here or on the report:
 the button says why.
 

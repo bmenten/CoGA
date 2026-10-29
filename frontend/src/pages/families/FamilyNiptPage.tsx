@@ -50,7 +50,7 @@ import {
 } from './smallVariantReview';
 import PageState from '../../components/PageState';
 import FamilyLoadFailure from '../../components/FamilyLoadFailure';
-import FamilyCaseHeader from './FamilyCaseHeader';
+import FamilyCaseHeader, { FamilyFact } from './FamilyCaseHeader';
 import QueryFailure from '../../components/QueryFailure';
 import SmallVariantFilterForm from './SmallVariantFilterForm';
 import FilterCollapseToggle from './FilterCollapseToggle';
@@ -61,16 +61,7 @@ import NiptTargetCoverage from './NiptTargetCoverage';
 import VariantResultsLoading from './VariantResultsLoading';
 import { apiPath } from '../../lib/apiPath';
 import NiptCoverageNotes from './NiptCoverageNotes';
-import { signOutRefusal, useReportSignOut } from './reportSignOut';
-import { useReportSignoutCheck, useReportSignouts } from './reportSignoutQueries';
-import {
-  describeReportSections,
-  formatReportTime,
-  LIVE_REPORT_SIGN_OFF_STATEMENT,
-  liveReportSignedState,
-  NIPT_NOT_CLASSIFIED_REASONS,
-  notComparedSentence,
-} from './signedReportRecord';
+import { NIPT_NOT_CLASSIFIED_REASONS } from './signedReportRecord';
 import { raw, routePath } from '../../lib/routePath';
 
 const PAGE_SIZE = 50;
@@ -219,6 +210,26 @@ const FamilyNiptPage: React.FC = () => {
     retry: retryReference,
   } = useFamilyReference(family?.projects as string[] | undefined);
 
+  const {
+    data: panels = [],
+    isLoading: panelsLoading,
+    isError: panelsFailed,
+    error: panelsError,
+    refetch: refetchPanels,
+  } = useQuery<GenePanel[]>({
+    queryKey: ['panels'],
+    enabled: Boolean(familyId && isMonogenicNipt),
+    queryFn: async () => {
+      const res = await api.get('/panels');
+      return res.data as GenePanel[];
+    },
+  });
+  // The generated Mendeliome panel scopes the default NIPT search, as it does the small-variant one.
+  const mendeliomePanelId = useMemo(
+    () => panels.find((panel) => panel.source === 'mendeliome')?._id,
+    [panels],
+  );
+
   // The shared small-variant filter state drives the reused SmallVariantFilterForm.
   const {
     activeFilterChips,
@@ -246,7 +257,9 @@ const FamilyNiptPage: React.FC = () => {
     locationSearch: location.search,
     navigate,
     resolvedProjectId: projectId,
-    // Opens on the De novo preset: the small-variant page's Phenotype-priority default
+    mendeliomePanelId,
+    panelsLoaded: !panelsLoading,
+    // Opens on the De novo preset, on the Mendeliome: the small-variant page's Phenotype-priority default
     // rests on genotype and phenotype filters that do not apply to cfDNA.
     freshOpenPreset: 'nipt_de_novo',
   });
@@ -259,19 +272,6 @@ const FamilyNiptPage: React.FC = () => {
     [activeFilterChips],
   );
 
-  const {
-    data: panels = [],
-    isError: panelsFailed,
-    error: panelsError,
-    refetch: refetchPanels,
-  } = useQuery<GenePanel[]>({
-    queryKey: ['panels'],
-    enabled: Boolean(familyId && isMonogenicNipt),
-    queryFn: async () => {
-      const res = await api.get('/panels');
-      return res.data as GenePanel[];
-    },
-  });
 
   const {
     data: summary,
@@ -430,43 +430,11 @@ const FamilyNiptPage: React.FC = () => {
     },
   });
 
-  // The NIPT analysis is signed out through the family sign-out, its gates and report code:
-  // one record per analysis, which holds the NIPT results (signed_record_nipt). The signed
-  // version opens on the report page, which renders it from its record.
-  const {
-    data: signouts,
-    isError: signoutsFailed,
-    isPending: signoutsPending,
-    refetch: refetchSignouts,
-  } = useReportSignouts(isMonogenicNipt ? familyId : undefined);
-  const latestSignout = signouts?.latest ?? null;
-  const { data: signoutCheck, isError: signoutCheckFailed } = useReportSignoutCheck(
-    familyId,
-    latestSignout?.version ?? null,
-  );
-  const signedVersionLink = (version: number) => {
-    const params = new URLSearchParams();
-    if (projectId) params.set('project_id', projectId);
-    params.set('version', String(version));
-    return { pathname: routePath`/families/${familyId}/report`, search: `?${params.toString()}` };
-  };
-  const {
-    signOut,
-    isPending: signOutPending,
-    error: signOutError,
-    dialogs: signOutDialogs,
-  } = useReportSignOut(
-    familyId,
-    (version) => navigate(signedVersionLink(version), { state: { signedOut: { version } } }),
-    // A reader in the family's project signs nothing out (SEC-1).
-    { readOnly: Boolean(family?.read_only) },
-  );
-
   // Unknown, not zero, while the summary could not be loaded (#606).
   const categoryCounts = summaryFailed ? null : (summary?.category_counts ?? {});
-  // The variants a sign-out freezes: those tagged report, every other filter cleared (the
-  // inheritance view, the categories and the minimum confidence too), each as this
-  // analysis classifies it. Unknown, not zero, until the review summary is in.
+  // The variants a sign-out (from the NIPT report) freezes: those tagged report, every other
+  // filter cleared (the inheritance view, the categories and the minimum confidence too), each as
+  // this analysis classifies it. Unknown, not zero, until the review summary is in.
   const reportedCount = reviewSummary ? (reviewSummary.tag_counts?.[REPORT_TAG_KEY] ?? 0) : null;
   const showReported = () => runSearch({ ...createEmptySmallFilters(), review_tags: REPORT_TAG_KEY });
   const notClassified = variantPage?.not_classified ?? [];
@@ -545,22 +513,6 @@ const FamilyNiptPage: React.FC = () => {
   // now, filters and all (they live in the URL).
   const coverageHref = routePath`/families/${familyId}/nipt/coverage${raw(niptReportQuerySuffix)}`;
   const coverageLinkState = { from: `${location.pathname}${location.search}` };
-  // Whether the family's data still matches the latest signed version (sign-out-check), read
-  // as the live reports read it.
-  const signOutBlocked = signOutRefusal(
-    { readOnly: Boolean(family?.read_only), assemblyValidated, signoutsFailed, signoutsPending },
-    'analysis',
-  );
-  const signoutCheckState = liveReportSignedState({
-    signoutsFailed,
-    signoutsPending,
-    latestVersion: latestSignout?.version ?? null,
-    checkFailed: signoutCheckFailed,
-    check: signoutCheck,
-  });
-  // What the check could not compare, the signed version not holding it (TRACE-19).
-  const notCompared = notComparedSentence(signoutCheck?.not_compared, `signed version ${latestSignout?.version}`);
-
   return (
     <div className="page-shell analysis-shell">
       <FamilyCaseHeader
@@ -580,31 +532,40 @@ const FamilyNiptPage: React.FC = () => {
         projectId={projectId}
         current="nipt"
         className="variant-workbench-card"
-        actions={
+        facts={
           <>
-            <Link
-              to={routePath`/families/${familyId}/nipt/report${raw(niptReportQuerySuffix)}`}
-              className="button-secondary hover:no-underline"
-            >
-              NIPT report
-            </Link>
-            <button
-              type="button"
-              className="form-button"
-              onClick={signOut}
-              // As on the report page: not to a reader (SEC-1), nor off the validated scope,
-              // nor while the sign-out record is unknown (the analysis may be signed already).
-              disabled={signOutPending || signOutBlocked !== null}
-              title={signOutBlocked ?? undefined}
-            >
-              {signOutPending
-                ? 'Signing out…'
-                : latestSignout
-                  ? 'Amend sign-out'
-                  : 'Sign out NIPT analysis'}
+            {summaryFailed ? (
+              // Not "—": a failed estimate also hides its low-confidence warning
+              // (#606, TF-12 U1).
+              <span className="badge-chip badge-chip--signature" role="alert">
+                Fetal fraction could not be loaded
+              </span>
+            ) : (
+              <FamilyFact label="Fetal fraction" value={pct(ff?.ff)} />
+            )}
+            {ff?.ci_low != null && ff?.ci_high != null ? (
+              <FamilyFact label="95% CI" value={`${pct(ff.ci_low)}–${pct(ff.ci_high)}`} />
+            ) : null}
+            {ff ? <FamilyFact label="Cat-7 sites" value={ff.n_sites} title={ff.method} /> : null}
+            {ff?.low_confidence ? <span className="badge-chip badge-chip--signature">Low-confidence FF</span> : null}
+            {FILTER_STEPS.map((step) => (
+              <FamilyFact
+                key={step.key}
+                label={step.label}
+                value={summaryFailed ? '—' : (summary?.filter_counts?.[step.key] ?? 0)}
+              />
+            ))}
+            <FamilyFact label="Active filters" value={appliedFilterChips.length} />
+            {variantsFetching ? <FamilyFact label="Updating…" /> : null}
+            {/* What a sign-out from the NIPT report freezes: the variants tagged report. */}
+            <button type="button" className="button-link" onClick={showReported}>
+              {reportedCount === null ? 'Show reported' : `Show reported (${reportedCount})`}
             </button>
           </>
         }
+        // Its NIPT report beside the family's report, at the right of the foot row, carrying the
+        // panel and gene this page shows; it is signed out from there.
+        niptReportSearch={niptReportQuerySuffix}
         footer={
           <>
             <FilterCollapseToggle
@@ -649,105 +610,7 @@ const FamilyNiptPage: React.FC = () => {
             )}
           </>
         }
-      >
-        <div className="variant-sample-summary">
-          <div className="variant-summary-row">
-            {summaryFailed ? (
-              // Not "—": a failed estimate also hides its low-confidence warning
-              // (#606, TF-12 U1).
-              <span className="badge-chip badge-chip--signature" role="alert">
-                Fetal fraction could not be loaded
-              </span>
-            ) : (
-              <span className="badge-chip badge-chip--signature">Fetal fraction {pct(ff?.ff)}</span>
-            )}
-            {ff?.ci_low != null && ff?.ci_high != null ? (
-              <span className="badge-chip">95% CI {pct(ff.ci_low)}–{pct(ff.ci_high)}</span>
-            ) : null}
-            {ff ? (
-              <span className="badge-chip" title={ff.method}>
-                {ff.n_sites} cat-7 sites
-              </span>
-            ) : null}
-            {ff?.low_confidence ? <span className="badge-chip">Low-confidence FF</span> : null}
-          </div>
-          <div className="variant-summary-row">
-            {FILTER_STEPS.map((step) => (
-              <span className="badge-chip" key={step.key}>
-                {step.label} {summaryFailed ? '—' : (summary?.filter_counts?.[step.key] ?? 0)}
-              </span>
-            ))}
-            <span className="badge-chip">Active filters {appliedFilterChips.length}</span>
-            {variantsFetching ? <span className="badge-chip">Updating…</span> : null}
-          </div>
-        </div>
-      </FamilyCaseHeader>
-
-      {signOutError ? (
-        <section className="surface-card report-signout-error" role="alert">
-          <p className="report-paragraph">
-            <strong>Not signed out.</strong> {signOutError}
-          </p>
-        </section>
-      ) : null}
-      {signOutDialogs}
-
-      <section className="surface-card space-y-2" aria-label="Sign-out">
-        <h2 className="section-title">Sign-out</h2>
-        {signoutsFailed ? (
-          <p className="table-subtle" role="alert">
-            The sign-out record could not be loaded, so it is not known whether this analysis has been
-            signed out.{' '}
-            <button type="button" className="button-link" onClick={() => void refetchSignouts()}>
-              Retry
-            </button>
-          </p>
-        ) : signoutsPending ? (
-          <p className="table-subtle" role="status">
-            Looking up the signed versions…
-          </p>
-        ) : latestSignout ? (
-          <p
-            className={`table-subtle${signoutCheckState === 'changed' ? ' status-note status-note--warning' : ''}`}
-            role={signoutCheckState === 'changed' ? 'alert' : undefined}
-          >
-            Signed version {latestSignout.version}
-            {latestSignout.report_code ? ` (report code ${latestSignout.report_code})` : ''} was signed out by{' '}
-            <strong>{latestSignout.signed_out_by}</strong> on {formatReportTime(latestSignout.signed_out_at)}.{' '}
-            {signoutCheckState === 'checking' ? 'Checking the family’s current data against it… ' : null}
-            {signoutCheckState === 'matches'
-              ? notCompared
-                ? `The family’s current data still matches it in everything it holds. ${notCompared} `
-                : 'The family’s current data still matches it. '
-              : null}
-            {signoutCheckState === 'changed' ? (
-              <>
-                <strong>Changed since sign-out:</strong>{' '}
-                {describeReportSections(signoutCheck?.changed_sections ?? [])}.{' '}
-                {notCompared ? `${notCompared} ` : null}Sign out again to issue a new version.{' '}
-              </>
-            ) : null}
-            {signoutCheckState === 'unverified'
-              ? 'Whether the family’s current data still matches it could not be checked. '
-              : null}
-            <Link to={signedVersionLink(latestSignout.version)}>View signed version {latestSignout.version}</Link>
-          </p>
-        ) : (
-          <p className="table-subtle">This NIPT analysis has not been signed out.</p>
-        )}
-        <p className="table-subtle">
-          {LIVE_REPORT_SIGN_OFF_STATEMENT} The family has one signed record: signing out here or from
-          the family report freezes the same analysis, with its NIPT results (the fetal fraction, the
-          quality checks, the target coverage, and each variant tagged report as this analysis
-          classifies it).
-        </p>
-        <p className="table-subtle">
-          <button type="button" className="button-secondary" onClick={showReported}>
-            {reportedCount === null ? 'Show reported' : `Show reported (${reportedCount})`}
-          </button>{' '}
-          lists the variants tagged report, with every other filter cleared: those a sign-out would freeze.
-        </p>
-      </section>
+      />
 
       {summary?.qc ? <NiptQcPanel qc={summary.qc} fetalFraction={summary.fetal_fraction} /> : null}
 

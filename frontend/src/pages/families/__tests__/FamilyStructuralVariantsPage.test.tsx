@@ -7,6 +7,7 @@ import api from '../../../lib/api';
 import { createTestQueryClient } from '../../../test/createTestQueryClient';
 import { findAssemblyScopeBanner, offScopeProject } from '../../../test/familyPageBanners';
 import { held, settle } from '../../../test/settle';
+import { factText } from '../../../test/factText';
 
 vi.mock('../../../lib/api', () => ({
   default: {
@@ -112,11 +113,11 @@ describe('FamilyStructuralVariantsPage', () => {
       </QueryClientProvider>
     );
     await waitFor(() =>
-      expect(screen.getByText(/Showing 1/)).toBeInTheDocument()
+      expect(screen.getByText(factText(/Showing 1/))).toBeInTheDocument()
     );
-    expect(screen.getByText(/All variants 5/)).toBeInTheDocument();
+    expect(screen.getByText(factText(/All variants 5/))).toBeInTheDocument();
     expect(screen.getByText(/Pedigree/)).toBeInTheDocument();
-    expect(screen.getByText(/Tag library 2/)).toBeInTheDocument();
+    expect(screen.getByText(factText(/Tag library 2/))).toBeInTheDocument();
     expect(screen.getByText('1p36.33')).toBeInTheDocument();
     expect(screen.getByPlaceholderText('Gene or region')).toBeInTheDocument();
     expect(screen.getByText(/Preset or saved search/)).toBeInTheDocument();
@@ -138,7 +139,7 @@ describe('FamilyStructuralVariantsPage', () => {
         </MemoryRouter>
       </QueryClientProvider>
     );
-    await waitFor(() => expect(screen.getByText(/Showing 1/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(factText(/Showing 1/))).toBeInTheDocument());
     fireEvent.click(screen.getByRole('tab', { name: 'Table' }));
     expect(await screen.findByRole('columnheader', { name: /^Source/ })).toBeInTheDocument();
   });
@@ -154,7 +155,7 @@ describe('FamilyStructuralVariantsPage', () => {
         </MemoryRouter>
       </QueryClientProvider>
     );
-    await waitFor(() => expect(screen.getByText(/Showing 1/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(factText(/Showing 1/))).toBeInTheDocument());
 
     // Per-variant loci and the whole-genome workspaces in the header both leave the
     // list behind, so both open a tab rather than replacing it.
@@ -185,7 +186,7 @@ describe('FamilyStructuralVariantsPage', () => {
       </QueryClientProvider>
     );
 
-    await waitFor(() => expect(screen.getByText(/Showing 1/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(factText(/Showing 1/))).toBeInTheDocument());
     fireEvent.click(screen.getAllByRole('button', { name: /^review$/i })[0]);
 
     await waitFor(() => expect(screen.getByText(/Variant review saved/i)).toBeInTheDocument());
@@ -229,7 +230,7 @@ describe('FamilyStructuralVariantsPage', () => {
           </MemoryRouter>
         </QueryClientProvider>,
       );
-      await waitFor(() => expect(screen.getByText(/Showing 1/)).toBeInTheDocument());
+      await waitFor(() => expect(screen.getByText(factText(/Showing 1/))).toBeInTheDocument());
       fireEvent.click(screen.getAllByRole('button', { name: /^review$/i })[0]);
       await waitFor(() => expect(screen.getByText(/Variant review saved/i)).toBeInTheDocument());
 
@@ -302,7 +303,7 @@ describe('FamilyStructuralVariantsPage', () => {
         </MemoryRouter>
       </QueryClientProvider>,
     );
-    await waitFor(() => expect(screen.getByText(/Showing 1/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(factText(/Showing 1/))).toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: /tags & notes/i }));
     fireEvent.change(await screen.findByPlaceholderText('Note or rationale'), {
       target: { value: 'Breakpoints checked.' },
@@ -328,7 +329,7 @@ describe('FamilyStructuralVariantsPage', () => {
         </MemoryRouter>
       </QueryClientProvider>,
     );
-    await waitFor(() => expect(screen.getByText(/Showing 1/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(factText(/Showing 1/))).toBeInTheDocument());
     fireEvent.click(screen.getByLabelText('Segdup'));
     fireEvent.click(screen.getByLabelText('Repeat'));
     fireEvent.click(screen.getByLabelText('Segdup'));
@@ -386,7 +387,7 @@ describe('FamilyStructuralVariantsPage', () => {
         'Results may be incomplete: the search stopped after the first 50,000 candidate SVs',
       );
       expect(notice).toHaveTextContent('Narrow the filters (a region, a gene panel or a gene)');
-      expect(screen.getByText('Showing 1+')).toBeInTheDocument();
+      expect(screen.getByText(factText('Showing 1+'))).toBeInTheDocument();
       expect(screen.getByText(/Filtered 1\+ of 5 imported SVs/)).toBeInTheDocument();
     });
 
@@ -399,7 +400,7 @@ describe('FamilyStructuralVariantsPage', () => {
 
     it('shows no notice for a complete search', async () => {
       renderWithSearch({});
-      await waitFor(() => expect(screen.getByText('Showing 1')).toBeInTheDocument());
+      await waitFor(() => expect(screen.getByText(factText('Showing 1'))).toBeInTheDocument());
       expect(screen.queryByTestId('candidate-cap-notice')).not.toBeInTheDocument();
     });
   });
@@ -451,13 +452,13 @@ describe('FamilyStructuralVariantsPage', () => {
       // for the default search to have failed too, so the page is settled.
       await waitFor(() => expect(searches() - earlier).toBeGreaterThanOrEqual(2));
       const failure = await screen.findByText(/Could not load the structural variants — this is not an empty result/);
-      expect(screen.getByText('Showing —')).toBeInTheDocument();
+      expect(screen.getByText(factText('Showing —'))).toBeInTheDocument();
       expect(screen.queryByText('1p36.33')).not.toBeInTheDocument();
 
       search.recover();
       fireEvent.click(within(failure).getByRole('button', { name: 'Retry' }));
       expect(await screen.findByText('1p36.33')).toBeInTheDocument();
-      expect(screen.getByText('Showing 1')).toBeInTheDocument();
+      expect(screen.getByText(factText('Showing 1'))).toBeInTheDocument();
     });
 
     it('does not show the filtered count as the total when the total could not be loaded', async () => {
@@ -465,14 +466,14 @@ describe('FamilyStructuralVariantsPage', () => {
       renderAt();
 
       expect(await screen.findByText(/Filtered 1 SVs; the number imported could not be loaded/)).toBeInTheDocument();
-      expect(screen.getByText('All variants —')).toBeInTheDocument();
+      expect(screen.getByText(factText('All variants —'))).toBeInTheDocument();
     });
 
     // #604 — a location that reads as neither a gene nor a region is not searched as a
     // gene name: from the form it is named under its field, from a URL it fails the search.
     it('names an unreadable location under its field instead of searching it', async () => {
       renderAt();
-      await waitFor(() => expect(screen.getByText('Showing 1')).toBeInTheDocument());
+      await waitFor(() => expect(screen.getByText(factText('Showing 1'))).toBeInTheDocument());
       const searchesBefore = get.mock.calls.length;
 
       fireEvent.change(screen.getByPlaceholderText('Gene or region'), { target: { value: 'chr1:100-' } });
@@ -642,7 +643,7 @@ describe('FamilyStructuralVariantsPage', () => {
       expect(failure).toBeInTheDocument();
       expect(failure).toHaveTextContent('This is a failed request, not a missing family.');
       expect(screen.queryByText('1p36.33')).not.toBeInTheDocument();
-      expect(screen.queryByText(/^Showing/)).not.toBeInTheDocument();
+      expect(screen.queryByText(factText(/^Showing/))).not.toBeInTheDocument();
 
       familyFails = false;
       fireEvent.click(within(failure).getByRole('button', { name: 'Retry' }));

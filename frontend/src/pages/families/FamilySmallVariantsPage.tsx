@@ -4,7 +4,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import api from '../../lib/api';
 import { isReviewConflict, withReviewVersion } from '../../lib/reviewConcurrency';
 import { getErrorMessage } from '../../lib/errorMessage';
-import FamilyCaseHeader from './FamilyCaseHeader';
+import FamilyCaseHeader, { FamilyFact } from './FamilyCaseHeader';
 import FilterCollapseToggle from './FilterCollapseToggle';
 import { formatResolvedReferenceLabel, useFamilyReference } from '../../lib/reference';
 import PageState from '../../components/PageState';
@@ -405,6 +405,29 @@ const FamilySmallVariantsPage: React.FC = () => {
         assemblyLabel={referenceLabel}
         current="small-variants"
         className="variant-workbench-card"
+        facts={
+          data ? (
+            <>
+              <FamilyFact
+                label="Showing"
+                value={formatVariantTotal(data.total, data.total_is_estimated, data.count_limit)}
+              />
+              <FamilyFact
+                label="All variants"
+                value={formatVariantTotal(allVariantTotal, allVariantTotalIsEstimated, data.count_limit)}
+              />
+              {smallVariantSummary ? (
+                <>
+                  <FamilyFact label="SNVs" value={formatSummaryCount(smallVariantSummary.snv_count)} />
+                  <FamilyFact label="Indels" value={formatSummaryCount(smallVariantSummary.indel_count)} />
+                </>
+              ) : null}
+              <FamilyFact label="Active filters" value={activeFilterCount} />
+              <FamilyFact label="Tag library" value={addableTagDefinitions(tags).length} />
+              {isFetching ? <FamilyFact label="Updating…" /> : null}
+            </>
+          ) : null
+        }
         footer={
           <>
         <FilterCollapseToggle
@@ -445,34 +468,7 @@ const FamilySmallVariantsPage: React.FC = () => {
         </div>
           </>
         }
-      >
-                {data ? (
-                  <div className="variant-sample-summary">
-                    <div className="variant-summary-row">
-                      <span className="badge-chip badge-chip--emphasis">
-                        Showing {formatVariantTotal(data?.total, data?.total_is_estimated, data?.count_limit)}
-                      </span>
-                      <span className="badge-chip">
-                        All variants{' '}
-                        {formatVariantTotal(allVariantTotal, allVariantTotalIsEstimated, data?.count_limit)}
-                      </span>
-                      {smallVariantSummary ? (
-                        <>
-                          <span className="badge-chip">
-                            SNVs {formatSummaryCount(smallVariantSummary.snv_count)}
-                          </span>
-                          <span className="badge-chip">
-                            Indels {formatSummaryCount(smallVariantSummary.indel_count)}
-                          </span>
-                        </>
-                      ) : null}
-                      <span className="badge-chip">Active filters {activeFilterCount}</span>
-                      <span className="badge-chip">Tag library {addableTagDefinitions(tags).length}</span>
-                      {isFetching ? <span className="badge-chip">Updating…</span> : null}
-                    </div>
-                  </div>
-                ) : null}
-      </FamilyCaseHeader>
+      />
 
       {panelsFailed ? (
         <QueryFailure

@@ -30,7 +30,10 @@ const FamilyModuleNav: React.FC<{
   isMonogenicNipt: boolean;
   /** The page this is: its link is marked; a page outside the row (the report) marks none. */
   current?: string;
-}> = ({ familyId, projectId, presence, isMonogenicNipt, current }) => {
+  /** A page's views of the genome (Genome, Circos), after the analyses of the family's own
+   *  calls (mtDNA analysis last), before the NIPT and the variant summary. */
+  views?: React.ReactNode;
+}> = ({ familyId, projectId, presence, isMonogenicNipt, current, views }) => {
   const projectSuffix = projectId ? `?project_id=${encodeURIComponent(projectId)}` : '';
   const modules: { key: FamilyModuleKey; label: string; available: boolean; withProject: boolean }[] = [
     { key: 'small-variants', label: 'Small variants', available: presence.hasSmallVariants, withProject: true },
@@ -47,22 +50,31 @@ const FamilyModuleNav: React.FC<{
     { key: 'variant-summary', label: 'Variant summary', available: presence.hasVariantSummary, withProject: false },
   ];
   const shown = modules.filter((module) => module.available || module.key === current);
+  const viewsBefore = shown.findIndex((module) => module.key === 'nipt' || module.key === 'variant-summary');
+  const viewsGroup = views ? (
+    <span className="family-case-header-views" role="group" aria-label="Genome views">
+      {views}
+    </span>
+  ) : null;
   return (
     <div className="family-module-nav-block">
-      {shown.length ? (
+      {shown.length || viewsGroup ? (
         <nav className="family-module-nav" aria-label="Variant analyses">
-          {shown.map((module) => (
-            <Link
-              key={module.key}
-              to={routePath`/families/${familyId}/${module.key}${raw(module.withProject ? projectSuffix : '')}`}
-              className={`family-module-link hover:no-underline${
-                module.key === 'variant-summary' ? ' family-module-link--end' : ''
-              }`}
-              aria-current={module.key === current ? 'page' : undefined}
-            >
-              {module.label}
-            </Link>
+          {shown.map((module, index) => (
+            <React.Fragment key={module.key}>
+              {index === viewsBefore ? viewsGroup : null}
+              <Link
+                to={routePath`/families/${familyId}/${module.key}${raw(module.withProject ? projectSuffix : '')}`}
+                className={`family-module-link hover:no-underline${
+                  module.key === 'variant-summary' ? ' family-module-link--end' : ''
+                }`}
+                aria-current={module.key === current ? 'page' : undefined}
+              >
+                {module.label}
+              </Link>
+            </React.Fragment>
           ))}
+          {viewsBefore === -1 ? viewsGroup : null}
         </nav>
       ) : null}
       {presence.failedChecks.length ? (

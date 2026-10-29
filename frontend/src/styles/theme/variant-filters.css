@@ -903,17 +903,6 @@ span.nipt-coverage-gene {
   gap: 0.3125rem;
 }
 
-.variant-sample-summary {
-  display: grid;
-  gap: 0.375rem;
-  margin-top: 0.1875rem;
-}
-
-.variant-sample-summary .analysis-section-title {
-  font-size: var(--fs-xs);
-  margin-bottom: 0.1875rem;
-}
-
 .analysis-checkbox {
   display: inline-flex;
   align-items: center;
