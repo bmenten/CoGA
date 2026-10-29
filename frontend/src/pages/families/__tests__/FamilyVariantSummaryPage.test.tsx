@@ -123,9 +123,13 @@ describe('FamilyVariantSummaryPage', () => {
 
     expect(await screen.findByRole('link', { name: 'Family F1' })).toHaveAttribute('href', '/families/F1');
     expect(screen.getByText('Variant summary', { selector: '.page-kicker' })).toBeInTheDocument();
-    // The page says what it summarises: the structural variants, not the small variants.
-    expect(screen.getByText(/of this family's structural variants, from every caller/)).toBeInTheDocument();
+    // No sentence of its own in the header (owner, 2026-10-29); the histograms' scale sits above
+    // them, not in the header.
+    expect(screen.queryByText(/of this family's structural variants, from every caller/)).not.toBeInTheDocument();
     expect(await screen.findByText('Pedigree')).toBeInTheDocument();
+    const scale = screen.getByRole('button', { name: 'Linear scale' });
+    expect(scale.closest('.page-top-card')).toBeNull();
+    expect(scale.closest('.analysis-graph-toolbar')).toHaveTextContent('Length histograms');
   });
 
   // Like every family page, its header warns of a partly imported family and of one off the

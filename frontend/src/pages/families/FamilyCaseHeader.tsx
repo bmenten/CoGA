@@ -30,6 +30,9 @@ const FamilyCaseHeader: React.FC<{
   /** Page-specific content under the facts and the case's fields. */
   children?: React.ReactNode;
   actions?: React.ReactNode;
+  /** In the foot row, at the right of the analyses: a page's views of the genome (Genome,
+   *  Circos), in their own colour. */
+  views?: React.ReactNode;
   /** Under the card's grid, across the card: a page's filter form. */
   footer?: React.ReactNode;
   /** Extra classes on the card, for a page that styles its own top card. */
@@ -47,6 +50,7 @@ const FamilyCaseHeader: React.FC<{
   facts,
   children,
   actions,
+  views,
   footer,
   className,
   phenotypeSampleIds,
@@ -88,6 +92,11 @@ const FamilyCaseHeader: React.FC<{
               isMonogenicNipt={isMonogenicNipt}
               current={current}
             />
+            {views ? (
+              <div className="family-case-header-views" role="group" aria-label="Genome views">
+                {views}
+              </div>
+            ) : null}
             <FamilyCaseActions
               familyId={familyId}
               projectId={projectId}

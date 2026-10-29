@@ -366,18 +366,18 @@ const FamilyStructuralVariantsPage: React.FC = () => {
         assemblyLabel={referenceLabel}
         current="structural-variants"
         className="variant-workbench-card"
-        actions={
+        views={
           <>
             <GenomeWorkspaceLink
               to={routePath`/families/${familyId}/genome${raw(linkSearch)}${raw(projectId ? `${linkSearch ? '&' : '?'}project_id=${encodeURIComponent(projectId)}` : '')}`}
-              className="button-secondary workspace-button hover:no-underline"
+              className="family-module-link family-module-link--view hover:no-underline"
               label="Open the genome overview"
             >
               Genome
             </GenomeWorkspaceLink>
             <GenomeWorkspaceLink
               to={routePath`/families/${familyId}/circos${raw(linkSearch)}${raw(projectId ? `${linkSearch ? '&' : '?'}project_id=${encodeURIComponent(projectId)}` : '')}`}
-              className="button-secondary workspace-button hover:no-underline"
+              className="family-module-link family-module-link--view hover:no-underline"
               label="Open the Circos view"
             >
               Circos

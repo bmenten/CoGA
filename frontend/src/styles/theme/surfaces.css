@@ -74,6 +74,8 @@
 .page-top-card .page-kicker {
   font-weight: 600;
   color: var(--color-signature-red);
+  /* Some air between the page's name and the title under it, on every page's header. */
+  margin-bottom: 0.4375rem;
 }
 
 .page-top-card-grid {
