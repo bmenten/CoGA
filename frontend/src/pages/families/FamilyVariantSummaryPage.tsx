@@ -209,17 +209,7 @@ const FamilyVariantSummaryPage: React.FC = () => {
         family={family}
         projectId={projectId}
         current="variant-summary"
-        actions={
-          <button onClick={() => setLogScale((s) => !s)} className="button-ghost">
-            {logScale ? 'Linear scale' : 'Log scale'}
-          </button>
-        }
-      >
-        <p className="catalog-card-copy">
-          Counts, sharing and length distributions of this family&apos;s structural variants, from
-          every caller.
-        </p>
-      </FamilyCaseHeader>
+      />
 
       <nav className="analysis-nav">
         <a href="#counts">
@@ -313,6 +303,15 @@ const FamilyVariantSummaryPage: React.FC = () => {
           samples is counted in every pair, so the cells do not add up to a total.
         </p>
       </section>
+
+      {/* The scale of the length histograms below (all variants, by type, by caller), above them
+          rather than in the page's header. */}
+      <div className="analysis-graph-toolbar">
+        <span className="stat-label">Length histograms</span>
+        <button type="button" onClick={() => setLogScale((s) => !s)} className="button-ghost">
+          {logScale ? 'Linear scale' : 'Log scale'}
+        </button>
+      </div>
 
       <section id="all" className="analysis-panel space-y-4">
         <h2 className="section-title">All variants</h2>

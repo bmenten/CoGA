@@ -127,6 +127,37 @@ describe('FamilyCaseHeader', () => {
     expect(within(actions).getByRole('link', { name: 'Sample QC' })).not.toHaveAttribute('aria-current');
   });
 
+  it("puts a page's genome views between the analyses and the family's QC and report, in their own colour", async () => {
+    const { container } = render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MemoryRouter>
+          <FamilyCaseHeader
+            kicker="Structural variants"
+            familyId="F1"
+            family={family}
+            projectId="p1"
+            assemblyLabel="GRCh38 p14"
+            current="structural-variants"
+            views={
+              <a href="/families/F1/genome" className="family-module-link family-module-link--view">
+                Genome
+              </a>
+            }
+          />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    const actions = await screen.findByRole('group', { name: 'Family actions' });
+    const bar = container.querySelector('.family-case-header-bar') as HTMLElement;
+    const views = within(bar).getByRole('group', { name: 'Genome views' });
+    expect(Array.from(bar.children)).toEqual([
+      bar.querySelector('.family-module-nav-block'),
+      views,
+      actions,
+    ]);
+    expect(within(views).getByRole('link', { name: 'Genome' })).toHaveClass('family-module-link--view');
+  });
+
   it('keeps the page it is on in the row even when the check finds no data there', async () => {
     renderHeader('paraphase');
     const nav = await screen.findByRole('navigation', { name: 'Variant analyses' });
