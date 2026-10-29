@@ -24,8 +24,10 @@ must carry FORMAT/AD.
   and *Not validated for clinical use* for a family outside the validated scope.
 - **Quality checks** come first: the fetal fraction (with the per-site median and the de novo window),
   the fetal sex from the father's X alleles and from the chrY coverage, **paternity**, the maternal
-  plasma sample, the coverage of the capture targets and why cfDNA calls failed the quality filter. A
-  failed paternity check means another father or a sample mix-up: do not read the variants.
+  plasma sample, the coverage of the capture targets and why cfDNA calls failed the quality filter. The
+  section opens folded, with one verdict: **Pass** when every check passed, **Fail** as soon as one
+  failed, **Warning** otherwise (a check that could not run counts as a warning). Click it for the
+  details. A failed paternity check means another father or a sample mix-up: do not read the variants.
 - **The filters** are the small-variant page's *Pathogenicity*, *Annotations*, *In Silico*, *Frequency*,
   *Locations* and *Exclude* filters and its review tags (*Review and curation*: the tags, not the
   classification or saved notes), plus **Maternal/fetal categories** (tick any of the eight; each
@@ -50,7 +52,8 @@ must carry FORMAT/AD.
 The built-in presets **De novo**, **Paternal, inherited** and **Recessive (both parents carrier)** set a
 view with high or moderate impact and a gnomAD frequency of 1% or less (a ClinVar pathogenic record
 overrides the frequency); **De novo** also leaves out ClinVar benign and likely benign. The page opens
-on **De novo** on the **Mendeliome** panel; pick a narrower panel if you need one. A link with its own
+on **De novo** on the **Mendeliome** panel, named under the presets as *Active filter: De novo,
+Mendeliome panel* (*default*), as on the small-variant page; pick a narrower panel if you need one. A link with its own
 filters, such as **Back to NIPT**, opens on those.
 
 > **Read the probabilities, not only the category.** A de novo or paternal allele shows clearly at any

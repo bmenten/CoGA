@@ -352,7 +352,9 @@ The calls are not equally reliable.
 
 ## Quality checks
 
-The NIPT page opens with the checks a reader confirms before reading any variant.
+The NIPT page opens with the checks a reader confirms before reading any variant, folded to one
+verdict: *Pass* when every check with a verdict passed, *Fail* as soon as one failed, *Warning*
+otherwise, a check that could not run included. A click shows each check.
 
 - **Fetal fraction**, with its interval, the per-site median, the chrY estimate and the de novo window.
 - **Fetal sex**, from two independent signals. *Paternal X*: at the father's X alleles (outside the

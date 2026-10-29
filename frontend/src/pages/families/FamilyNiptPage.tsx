@@ -267,6 +267,23 @@ const FamilyNiptPage: React.FC = () => {
   // small-variant list, or a link, may carry others, such as a classification: they showed as
   // chips the list did not apply (ENG-19). They are named once instead.
   const appliedFilterChips = useMemo(() => activeFilterChips.filter(niptAppliesFilterChip), [activeFilterChips]);
+  // Opened without a search in the URL, the page loads the De novo preset on the Mendeliome
+  // panel: the form names it as the active filter, marked default, as the small-variant page
+  // names its own.
+  const [openedOnDefault] = useState(() =>
+    Array.from(new URLSearchParams(location.search).keys()).every(
+      (key) => key === 'project_id' || key === 'page',
+    ),
+  );
+  const initialPreset = useMemo(() => {
+    if (!openedOnDefault || !searchReady || !members.length) return null;
+    const label = NIPT_BUILT_IN_PRESETS.find((preset) => preset.value === 'nipt_de_novo')?.label ?? 'De novo';
+    return {
+      value: 'built-in:nipt_de_novo',
+      label: mendeliomePanelId ? `${label}, Mendeliome panel` : label,
+      overrides: { panel_id: mendeliomePanelId ?? '' },
+    };
+  }, [openedOnDefault, searchReady, members.length, mendeliomePanelId]);
   const unappliedFiltersNote = useMemo(
     () => describeUnappliedFilters('NIPT list', activeFilterChips.filter((chip) => !niptAppliesFilterChip(chip))),
     [activeFilterChips],
@@ -583,6 +600,7 @@ const FamilyNiptPage: React.FC = () => {
                 categoryLabels={CATEGORY_LABELS}
                 niptInheritancePresets={INHERITANCE_PRESETS}
                 builtInPresets={NIPT_BUILT_IN_PRESETS}
+                initialPreset={initialPreset}
                 activeFilterChips={appliedFilterChips}
                 applyPreset={applyPreset}
                 applySavedPreset={applySavedPreset}

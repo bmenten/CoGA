@@ -292,6 +292,9 @@ describe('FamilyNiptPage', () => {
     expect(variantCalls.every(([, config]) => config?.params?.panel_id === 'panel-mendeliome')).toBe(true);
     expect(params.exclude_clinvar).toEqual(['Benign', 'Likely benign']);
     expect(screen.getByLabelText('NIPT inheritance preset')).toHaveValue('de_novo');
+    // Named in the preset window as the active filter, marked default, as the small-variant page names its own.
+    const active = (await screen.findByText('De novo, Mendeliome panel')).closest('p') as HTMLElement;
+    expect(active).toHaveTextContent('Active filter: De novo, Mendeliome paneldefault');
   });
 
   // The list classifies the first variants of the search, in genomic order, up to a limit.

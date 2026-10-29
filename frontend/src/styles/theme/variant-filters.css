@@ -345,6 +345,37 @@
   color: var(--color-text-muted);
 }
 
+/* The NIPT quality checks, folded on open to their title and overall verdict. */
+.nipt-qc-summary {
+  display: flex;
+  list-style: none;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+}
+
+.nipt-qc-summary::-webkit-details-marker {
+  display: none;
+}
+
+/* Its own open/closed mark: a flex summary drops the browser's. */
+.nipt-qc-summary::before {
+  content: '▸';
+  color: var(--color-text-muted);
+}
+
+.nipt-qc-panel[open] .nipt-qc-summary::before {
+  content: '▾';
+}
+
+.nipt-qc-summary .section-title {
+  margin: 0;
+}
+
+.nipt-qc-panel[open] .nipt-qc-summary {
+  margin-bottom: 0.5rem;
+}
+
 .nipt-category-grid {
   display: grid;
   gap: 0.25rem 0.4375rem;
