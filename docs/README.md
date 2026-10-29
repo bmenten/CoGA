@@ -47,6 +47,7 @@ The rules for lab users are in the in-app reference docs; these files hold the i
 - [regulatory/README.md](regulatory/README.md) — the IVDR technical file.
 - [handleiding/README.md](handleiding/README.md) — the Dutch technical manual for the review board.
 - [ROADMAP.md](ROADMAP.md) — the open work.
+- [repeat-paraphase-review-design.md](repeat-paraphase-review-design.md) — the design, in Dutch, of the reviews of repeat expansions and Paraphase findings, with the decisions behind them (B1–B23); built in #1063 and #1064.
 - [open-issues.md](open-issues.md) — every open issue, ranked by priority (snapshot of 2026-10-08).
 - [SECURITY.md](../SECURITY.md) and [SECURITY-AUDIT-ALLOWLIST.md](../SECURITY-AUDIT-ALLOWLIST.md) — how to report a vulnerability, and the register of security-check exceptions.
 - [CHANGELOG.md](../CHANGELOG.md) — notable changes.
