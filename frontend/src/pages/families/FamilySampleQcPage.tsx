@@ -65,10 +65,12 @@ const formatSex = (sex?: string | null): string => {
   return value || 'unknown';
 };
 
-// The genotype-sex cell's mark for each sex-check verdict. Only a pass confirms the
-// recorded sex. A warn did not (the genotypes left the sex indeterminate, or no sex was
-// recorded to compare with), nor did a skip (no chrX genotypes), so neither may look like
-// a match: this is a sample-identity check (TF-06 H4).
+// The genetic-sex cell's mark for each sex-check verdict. The sex is read from the chrX
+// genotypes or, for a sample without them, from the pipeline's ngs-bits read ratio; the
+// check's message says which. Only a pass confirms the recorded sex. A warn did not (the
+// sex stayed indeterminate, or no sex was recorded to compare with), nor did a skip (no
+// chrX genotypes and no ngs-bits call), so neither may look like a match: this is a
+// sample-identity check (TF-06 H4).
 const SEX_CHECK_MARK: Record<QcStatus, { tone: string; glyph: string }> = {
   pass: { tone: 'match', glyph: '✓' },
   warn: { tone: 'unconfirmed', glyph: '!' },
@@ -79,15 +81,11 @@ const SEX_CHECK_MARK: Record<QcStatus, { tone: string; glyph: string }> = {
 // The API types the verdict as a string: an unexpected one reads as unconfirmed.
 const sexCheckMark = (status: QcStatus) => SEX_CHECK_MARK[status] ?? SEX_CHECK_MARK.warn;
 
-// The ring tooltip's words for a sex check: "(matches record)" for a pass alone. A warn or
-// a skip gives its own message, which says why the sex could not be confirmed.
-const sexCheckNote = (check: ApiSampleIntegritySexCheck): string => {
-  if (check.status === 'pass') return `Sex ${formatSex(check.inferred_sex)} (matches record)`;
-  if (check.status === 'fail') {
-    return `Sex mismatch: recorded ${formatSex(check.recorded_sex)}, genotypes ${formatSex(check.inferred_sex)}`;
-  }
-  return check.message;
-};
+// The ring tooltip's words for a sex check: "(matches record)" for a pass alone. Any other
+// verdict gives its own message, which says why the sex was not confirmed and what it was
+// read from: the genotypes, or the reads (ngs-bits) for a sample without chrX genotypes.
+const sexCheckNote = (check: ApiSampleIntegritySexCheck): string =>
+  check.status === 'pass' ? `Sex ${formatSex(check.inferred_sex)} (matches record)` : check.message;
 
 // Roll each sample's sex / Mendelian / relatedness checks into one ring status for the
 // pedigree, with a tooltip summarising why. As in the overall verdict, a check that could
@@ -189,7 +187,7 @@ const SampleQcTable: React.FC<{
             <th>Sample</th>
             <th>Role</th>
             <th>Recorded sex</th>
-            <th>Genotype sex</th>
+            <th>Genetic sex</th>
             <th>Mendelian errors</th>
             <th>Sample status</th>
           </tr>
@@ -437,7 +435,7 @@ const FamilySampleQcPage: React.FC = () => {
         loading
         kicker="Sample QC"
         title="Running sample-integrity checks"
-        message="Estimating relatedness, Mendelian-error rate and genotype sex."
+        message="Estimating relatedness, Mendelian-error rate and genetic sex."
       />
     );
   }

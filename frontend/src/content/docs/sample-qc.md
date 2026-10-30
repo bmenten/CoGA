@@ -64,8 +64,27 @@ heterozygotes, a woman many.
   no-call or a half call (`./1`) is left out.
 - A recorded sex that differs from the genetic sex is a **fail** — most often a sample swap or a
   mislabelled tube. No recorded sex is a **warn**.
-- A sample with no X genotypes at all is **not run**: its sex is indeterminate, and the overall verdict
-  is at least **warn**.
+- A sample with no called X site is read from its reads instead, when the pipeline gave a sex call
+  (see *Sex from the reads*). Without one its sex check is **not run**: its sex is indeterminate, and
+  the overall verdict is at least **warn**.
+
+#### Sex from the reads
+
+A PGT family's genotypes are imputed for the autosomes only, so its samples have no X genotypes. The
+PGT pipeline also runs ngs-bits *SampleGender*, which reads each sample's sex from the ratio of its reads
+on chromosome Y to those on chromosome X, and CoGA stores that call with the sample's sequencing QC
+when the family is imported. For a sample without X genotypes the sex check compares that call with the
+recorded sex, graded as above: a match is a **pass**, a different sex a **fail**, and an indeterminate
+call or no recorded sex a **warn**. The message says the sex was read from the reads, not the genotypes,
+and quotes the ratio and the read counts. Where a sample has X genotypes, they are read and the call is
+not.
+
+An embryo's recorded sex comes from that same call: the pipeline's pedigree file gives each embryo the
+sex ngs-bits read. For an embryo the match therefore confirms nothing independent. It is a **pass**, and
+its message says so. The parents' recorded sex comes from the pedigree, so theirs is a real comparison.
+An index the pipeline's pedigree file lacks is added at discovery with the sex ngs-bits read, unless the
+manifest gives another before the import: its match then rests on the same call as well, although its
+message does not say so.
 
 ### Relatedness against the pedigree
 
@@ -207,7 +226,7 @@ explanation. The genetic sex carries a mark for its verdict:
 | Pass | ✓, green | matches the recorded sex |
 | Warn | !, amber | not confirmed: indeterminate, or no recorded sex to compare with |
 | Fail | ✗, red | contradicts the recorded sex — a possible swap or mislabelled tube |
-| Not run | ?, grey | not checked: no X genotypes for the sample |
+| Not run | ?, grey | not checked: no X genotypes, and no sex call from the reads |
 
 **Relatedness matrix.** A sample × sample grid (lower half only; it is symmetric). Each cell shows the
 inferred relationship, the kinship φ and the IBS0. A pair that contradicts the pedigree — including

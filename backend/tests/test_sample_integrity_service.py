@@ -551,6 +551,183 @@ def test_service_trio_without_chrx_calls_warns_and_the_signed_snapshot_records_i
     assert _unverifiable_swap_checks(frozen) == []
 
 
+# --- PGT without chrX genotypes: the pipeline's ngs-bits sex --------------------
+
+_COPGTM_SAMPLES = ["FATHER1", "MOTHER1", "EMB1", "INDEX1"]
+_COPGTM_ROLES = {"FATHER1": "father", "MOTHER1": "mother", "EMB1": "embryo", "INDEX1": "index"}
+_COPGTM_SEXES = {"FATHER1": "male", "MOTHER1": "female", "EMB1": "female", "INDEX1": "male"}
+
+
+def _ngsbits_metadata(sex: str, reads_chry: int, reads_chrx: int, ratio: str) -> dict:
+    """A sample's metadata as a PGT package's qc dataset stores its ngs-bits SampleGender
+    file: read through the import's own parser, so the two stay in step."""
+    from backend.app.services.family_package_qc import parse_ngsbits_sample_gender_text
+
+    text = (
+        "#file\tgender\treads_chry\treads_chrx\tratio_chry_chrx\n"
+        f"sample.bam\t{sex}\t{reads_chry}\t{reads_chrx}\t{ratio}\n"
+    )
+    return {"sequencing_qc": {"sex_check": parse_ngsbits_sample_gender_text(text)}}
+
+
+_NGSBITS = {
+    "FATHER1": _ngsbits_metadata("male", 10500, 100000, "0.1050"),
+    "MOTHER1": _ngsbits_metadata("female", 150, 125000, "0.0012"),
+    "EMB1": _ngsbits_metadata("female", 90, 80000, "0.0011"),
+    "INDEX1": _ngsbits_metadata("male", 9800, 95000, "0.1032"),
+}
+
+
+def _copgtm_context(metadata: dict[str, dict], sexes: dict[str, str] | None = None) -> FamilyMetadataContext:
+    """A PGT family from the copgtm pipeline: the parents, an embryo and the index, a child
+    of both, each sample carrying what its qc dataset stored."""
+    recorded = {**_COPGTM_SEXES, **(sexes or {})}
+    return FamilyMetadataContext(
+        family_uuid="fam-copgtm",
+        family_id="PGT2",
+        project_ids=[],
+        sample_rows=[
+            {
+                "sample_id": sample,
+                "role": _COPGTM_ROLES[sample],
+                "sex": recorded[sample],
+                "sample_metadata": metadata.get(sample, {}),
+            }
+            for sample in _COPGTM_SAMPLES
+        ],
+        sample_uuid_to_name={f"uuid-{s}": s for s in _COPGTM_SAMPLES},
+        sample_name_to_uuid={s: f"uuid-{s}" for s in _COPGTM_SAMPLES},
+        affected_sample_names=["INDEX1"],
+        assembly_id="asm",
+        assembly_name="GRCh38",
+        relationship_rows=[
+            {"relationship_type": "parent_child", "sample_id_a": parent, "sample_id_b": child, "role_a": role}
+            for child in ("EMB1", "INDEX1")
+            for parent, role in (("FATHER1", "father"), ("MOTHER1", "mother"))
+        ],
+    )
+
+
+def _imputed_autosome_rows(n: int):
+    """A GLIMPSE2 callset: autosomes only (no chrX), the embryo and the index each inheriting
+    one allele of each parent."""
+    rng = random.Random(41)
+    rows = []
+    for i in range(n):
+        f = (rng.getrandbits(1), rng.getrandbits(1))
+        m = (rng.getrandbits(1), rng.getrandbits(1))
+        children = [(rng.choice(f), rng.choice(m)) for _ in range(2)]
+        rows.append((str(i % 22 + 1), i, "A", "G", _COPGTM_SAMPLES, [_phased(gt) for gt in (f, m, *children)]))
+    return rows
+
+
+def _copgtm_qc(monkeypatch, context: FamilyMetadataContext):
+    async def _fake_context(session, *, family_identifier, user, project_id=None):
+        return context
+
+    async def _fake_get_family(session, family_id, user):
+        return types.SimpleNamespace(metadata={})
+
+    async def _fake_sources(context):
+        return ["glimpse2"]
+
+    async def _fake_sample(context, *, scope, limit, source):
+        return [] if scope == "chrX" else _imputed_autosome_rows(2_400)
+
+    monkeypatch.setattr(sample_integrity_service, "build_family_metadata_context", _fake_context)
+    monkeypatch.setattr(sample_integrity_service, "get_family_record", _fake_get_family)
+    monkeypatch.setattr(sample_integrity_service, "fetch_family_variant_sources", _fake_sources)
+    monkeypatch.setattr(sample_integrity_service, "fetch_genotype_site_sample", _fake_sample)
+    return asyncio.run(
+        sample_integrity_service.get_family_sample_integrity_qc(session=_Session(), family_id="PGT2", user=None)
+    )
+
+
+def test_service_sexes_a_pgt_family_without_chrx_genotypes_from_the_ngsbits_call(monkeypatch) -> None:
+    # The imputed callset holds no chrX site, so every sex check could not run and every
+    # PGT family warned. The sex the pipeline's ngs-bits read off each sample's reads, which
+    # the qc dataset stored on the sample, is compared with the record instead. Every sample
+    # passes, the note naming unchecked samples is gone, and the family passes.
+    from backend.app.services.report_signout_service import _failed_qc_checks, _unverifiable_swap_checks
+
+    report = _copgtm_qc(monkeypatch, _copgtm_context(_NGSBITS))
+
+    assert report.application == "pgt"
+    messages = {c.sample_id: (c.status, c.message) for c in report.sex_checks}
+    assert messages == {
+        "EMB1": (
+            "pass",
+            "Read-inferred sex matches the record (ngs-bits chrY/chrX read ratio 0.0011, 90 chrY and "
+            "80,000 chrX reads, from the pipeline; no chrX genotypes). The embryo's recorded sex was "
+            "taken from this same ngs-bits call, so the match confirms nothing independent.",
+        ),
+        "FATHER1": (
+            "pass",
+            "Read-inferred sex matches the record (ngs-bits chrY/chrX read ratio 0.1050, 10,500 chrY "
+            "and 100,000 chrX reads, from the pipeline; no chrX genotypes).",
+        ),
+        "INDEX1": (
+            "pass",
+            "Read-inferred sex matches the record (ngs-bits chrY/chrX read ratio 0.1032, 9,800 chrY "
+            "and 95,000 chrX reads, from the pipeline; no chrX genotypes).",
+        ),
+        "MOTHER1": (
+            "pass",
+            "Read-inferred sex matches the record (ngs-bits chrY/chrX read ratio 0.0012, 150 chrY "
+            "and 125,000 chrX reads, from the pipeline; no chrX genotypes).",
+        ),
+    }
+    assert all(c.status == "pass" for c in report.relatedness_checks + report.mendelian_checks)
+    assert report.notes == []
+    assert report.overall_status == "pass"
+    # The signed record freezes the checks with their messages, which say what was read.
+    frozen = _canonical_sample_qc(report)
+    assert [(c["sample_id"], c["status"], c["message"]) for c in frozen["sex_checks"]] == [
+        (c.sample_id, c.status, c.message) for c in report.sex_checks
+    ]
+    assert (frozen["overall_status"], frozen["notes"]) == ("pass", [])
+    assert _failed_qc_checks(frozen) == [] and _unverifiable_swap_checks(frozen) == []
+
+
+def test_service_fails_a_recorded_sex_the_ngsbits_call_contradicts(monkeypatch) -> None:
+    # The mother's tube reads male: the sex check fails, as a genotype mismatch does, and
+    # the sign-out gate lists it.
+    from backend.app.services.report_signout_service import _failed_qc_checks
+
+    metadata = {**_NGSBITS, "MOTHER1": _ngsbits_metadata("male", 10500, 100000, "0.1050")}
+    report = _copgtm_qc(monkeypatch, _copgtm_context(metadata))
+
+    mother = next(c for c in report.sex_checks if c.sample_id == "MOTHER1")
+    assert (mother.recorded_sex, mother.inferred_sex, mother.status) == ("female", "male", "fail")
+    assert report.overall_status == "fail"
+    assert _failed_qc_checks(_canonical_sample_qc(report)) == [
+        "Sample MOTHER1: recorded female but the reads indicate male (ngs-bits chrY/chrX read ratio "
+        "0.1050, 10,500 chrY and 100,000 chrX reads, from the pipeline; no chrX genotypes) — possible "
+        "sample swap or mislabel."
+    ]
+
+
+def test_service_reads_only_an_ngsbits_sex_call(monkeypatch) -> None:
+    # The index has no stored sex call, and the embryo's does not say it came from ngs-bits:
+    # neither is read (the message would name ngs-bits). Their checks could not run, and the
+    # note names them.
+    metadata = {
+        **_NGSBITS,
+        "EMB1": {"sequencing_qc": {"sex_check": {"inferred_sex": "female"}}},
+        "INDEX1": {"sequencing_qc": {"depth": {"mean_depth": 4.2}}},
+    }
+    report = _copgtm_qc(monkeypatch, _copgtm_context(metadata))
+
+    assert {c.sample_id: c.status for c in report.sex_checks} == {
+        "EMB1": "skip",
+        "FATHER1": "pass",
+        "INDEX1": "skip",
+        "MOTHER1": "pass",
+    }
+    assert report.overall_status == "warn"
+    assert report.notes == [f"Sex could not be checked for samples EMB1 and INDEX1. {_NOT_A_PASS}"]
+
+
 def _nipt_site(variant_id: str, *, father_state: str, father_dp: int | None, present: bool):
     from backend.app.services.nipt_analysis import NiptSiteObservation
 

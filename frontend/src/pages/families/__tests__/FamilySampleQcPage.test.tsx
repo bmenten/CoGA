@@ -349,6 +349,83 @@ describe('FamilySampleQcPage', () => {
     expect(container.innerHTML).not.toMatch(/matches record/);
   });
 
+  it('shows a sex read from the reads (ngs-bits) with its own message, a mismatch included', async () => {
+    // An imputed PGT callset holds no chrX: the sex is read off the pipeline's ngs-bits
+    // chrY/chrX read ratio, and the messages say so. The mismatch's ring note is its
+    // message, which names what was read, not "genotypes".
+    const evidence = (ratio: string, y: string, x: string) =>
+      `(ngs-bits chrY/chrX read ratio ${ratio}, ${y} chrY and ${x} chrX reads, from the pipeline; no chrX genotypes)`;
+    const motherMismatch = `Recorded female but the reads indicate male ${evidence('0.1050', '10,500', '100,000')} — possible sample swap or mislabel.`;
+    const embryoPass =
+      `Read-inferred sex matches the record ${evidence('0.0011', '90', '80,000')}. The embryo's recorded sex was ` +
+      'taken from this same ngs-bits call, so the match confirms nothing independent.';
+    const readCheck = (sampleId: string, recorded: string, inferred: string, status: string, message: string) => ({
+      sample_id: sampleId,
+      recorded_sex: recorded,
+      inferred_sex: inferred,
+      x_het_rate: null,
+      x_sites: 0,
+      status,
+      message,
+    });
+    mockApi(
+      {
+        family_id: 'FAM1',
+        overall_status: 'fail',
+        application: 'pgt',
+        application_label: 'Shallow-WGS PGT (imputed)',
+        application_summary: 'Embryo integrity from imputed genotypes.',
+        genotype_source: 'glimpse2',
+        paternity_check: null,
+        autosomal_sites: 90000,
+        notes: [],
+        sex_checks: [
+          readCheck(
+            'FATHER1',
+            'male',
+            'male',
+            'pass',
+            `Read-inferred sex matches the record ${evidence('0.1050', '10,500', '100,000')}.`,
+          ),
+          readCheck('MOTHER1', 'female', 'male', 'fail', motherMismatch),
+          readCheck('EMB1', 'female', 'female', 'pass', embryoPass),
+        ],
+        relatedness_checks: [],
+        mendelian_checks: [],
+      },
+      {
+        family_id: 'FAM1',
+        members: [
+          { sample_id: 'FATHER1', role: 'father', affected: false, sex: 'male' },
+          { sample_id: 'MOTHER1', role: 'mother', affected: false, sex: 'female' },
+          { sample_id: 'EMB1', role: 'embryo', affected: false, sex: 'female' },
+        ],
+        relationships: [
+          { id: 'r1', relationship_type: 'parent_child', sample_id_a: 'FATHER1', sample_id_b: 'EMB1', role_a: 'father' },
+          { id: 'r2', relationship_type: 'parent_child', sample_id_a: 'MOTHER1', sample_id_b: 'EMB1', role_a: 'mother' },
+        ],
+        pedigree: null,
+      },
+    );
+
+    const { container } = renderPage();
+
+    expect(await screen.findByText('Family members & per-sample checks')).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'Genetic sex' })).toBeInTheDocument();
+    expect(genotypeSexCell('MOTHER1')).toHaveClass('qc-genotype-sex--mismatch');
+    expect(genotypeSexCell('MOTHER1')).toHaveTextContent('male ✗');
+    expect(genotypeSexCell('MOTHER1')).toHaveAccessibleName(motherMismatch);
+    // The embryo passes, and its tooltip says the match is the ngs-bits call against itself.
+    expect(genotypeSexCell('EMB1')).toHaveClass('qc-genotype-sex--match');
+    expect(genotypeSexCell('EMB1')).toHaveTextContent('female ✓');
+    expect(genotypeSexCell('EMB1')).toHaveAccessibleName(embryoPass);
+    await waitFor(() =>
+      expect(container.querySelector('[data-pedigree-node="MOTHER1"]')).toHaveAttribute('data-qc-status', 'fail'),
+    );
+    expect(pedigreeTooltip(container, 'MOTHER1')).toBe(motherMismatch);
+    expect(container.innerHTML).not.toMatch(/genotypes male/);
+  });
+
   describe('a sex check that could not run (CLIN-1)', () => {
     const noChrX = 'No chrX genotypes available for sex inference.';
     const unchecked =

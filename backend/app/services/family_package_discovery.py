@@ -22,6 +22,7 @@ from .family_identifiers import visible
 from .family_package_common import HAPLOTYPE_ORIGIN_ROLES, IDENTIFIER_ISSUE_CODES, LONG_READ_DATASET_ROLES, PED_FOLDER, QC_FAMILY_ROLES, PackageManifest, ParsedPed, _display_path, _is_uncompressed_vcf, _issue, _package_path_or_none, _resolve_package_path, family_id_issue, nul_location, package_path_within, package_text_handle, path_leaves_package, sample_id_issues
 from .family_package_long_read import long_read_family_block, long_read_sample_ids
 from .family_package_manifest import _parse_ped_text_strict
+from .family_package_mito_table import MITO_TABLE_PATTERNS, read_mito_table, table_id_member
 from .family_package_nipt import NiptPackageFiles, discover_nipt_package_files, nipt_draft_column_issues
 from .nipt import MONOGENIC_NIPT_ANALYSIS_TYPE, NIPT_CFDNA_ASSAY
 from .family_package_pgt import pgt_family_block, pgt_roi_phasing_issue, pgt_run_context, read_pgt_pipeline_roles
@@ -288,6 +289,11 @@ NAMING_SCHEMES: dict[str, dict[str, Any]] = {
                     "split_trio/filter_trio/{sample_id}.trio_filtered.vcf.gz.tbi",
                     "split_trio/filter_trio/{sample_id}.trio_filtered.vcf.gz.csi",
                 ],
+                # Newer runs of the PGT pipeline also write the sites their APCAD read for
+                # each embryo (the parents homozygous for opposite alleles, the embryo read
+                # deep enough), with the embryo's allele fraction and the parent each
+                # alternate allele came from: read in place of the embryo's trio VCF.
+                "parental_table": ["apcad/{sample_id}_APCAD_parental_data.csv"],
             },
             "pcf": {
                 # The PGT pipeline (nf-cmgg/copgtm) keeps its PCF output beside the
@@ -1012,6 +1018,52 @@ def _optional_role_dataset_availability(
     )
 
 
+def _mito_table_availability(
+    *,
+    root: Path,
+    sample_ids: list[str],
+    item: FamilyManifestDatasetAvailability,
+    block: dict[str, Any],
+) -> tuple[FamilyManifestDatasetAvailability, dict[str, Any]]:
+    """Without a chrM VCF per sample, the ``mito`` dataset from one mtDNA-Server table for
+    all samples (the PGT pipeline's ``mito/variants.annotated.txt``): an entry per member the
+    table holds rows for, naming the table and the ID its rows carry (the owner's decision of
+    2026-10-30). An ID that names no member is said in the message and not imported."""
+    for pattern in MITO_TABLE_PATTERNS:
+        path = package_path_within(root, pattern)
+        if path is None or not path.is_file():
+            continue
+        try:
+            table_ids = read_mito_table(path).ids()
+        except (HTTPException, OSError, UnicodeDecodeError):
+            continue
+        per_sample: dict[str, dict[str, str]] = {}
+        unmatched: list[str] = []
+        for table_id in table_ids:
+            member = table_id_member(table_id, sample_ids)
+            if member is None or member in per_sample:
+                unmatched.append(table_id)
+                continue
+            per_sample[member] = {"table": pattern, "table_id": table_id}
+        if not per_sample:
+            continue
+        message = f"Available as the mtDNA-Server table {pattern} for {len(per_sample)} sample(s)"
+        if unmatched:
+            message += f"; its rows of {', '.join(unmatched)} name no member and are not imported"
+        return (
+            FamilyManifestDatasetAvailability(
+                dataset_type="mito",
+                enabled=True,
+                complete=True,
+                files=[_availability_file(root=root, role="table", path_value=pattern, sample_id=member) for member in per_sample],
+                samples=list(per_sample),
+                message=message,
+            ),
+            {"enabled": True, "per_sample": per_sample},
+        )
+    return item, block
+
+
 def _with_family_qc_files(
     *,
     root: Path,
@@ -1261,10 +1313,41 @@ def _apcad_dataset_availability(
         required_roles=("vcf",),
         optional_roles=("index",),
     )
-    if trio_item.complete:
-        # One trio VCF per embryo (nf-cmgg/copgtm): the importer reads each embryo's
-        # column against the parents' columns of the same file.
-        return trio_item.model_copy(update={"message": f"Available as a trio VCF for {len(trio_item.samples)} embryo(s)"}), trio_block
+    table_item, table_block = _optional_role_dataset_availability(
+        root=root,
+        family_id=family_id,
+        sample_ids=sample_ids,
+        dataset_type="apcad",
+        patterns={"file": patterns["parental_table"]},
+        required_roles=("file",),
+        optional_roles=(),
+    )
+    if table_item.complete or trio_item.complete:
+        # One file per embryo (nf-cmgg/copgtm). The pipeline's table of the sites its APCAD
+        # read, where the run wrote one: the points the laboratory's own plots and the PCF
+        # segments rest on (the owner's decision of 2026-10-30). Else the embryo's trio VCF,
+        # whose embryo column the importer reads against the parents' columns.
+        tables = table_block["per_sample"]
+        trios = {sample_id: entry for sample_id, entry in trio_block["per_sample"].items() if sample_id not in tables}
+        per_sample = {sample_id: tables.get(sample_id) or trios[sample_id] for sample_id in sample_ids if sample_id in tables or sample_id in trios}
+        files = [
+            file
+            for file in (*table_item.files, *trio_item.files)
+            if file.exists and (file.sample_id in tables if file.role == "file" else file.sample_id in trios)
+        ]
+        read_as = [
+            f"the pipeline's APCAD table for {len(tables)} embryo(s)" if tables else "",
+            f"a trio VCF for {len(trios)} embryo(s)" if trios else "",
+        ]
+        item = FamilyManifestDatasetAvailability(
+            dataset_type="apcad",
+            enabled=True,
+            complete=True,
+            files=files,
+            samples=list(per_sample),
+            message="Available as " + " and ".join(part for part in read_as if part),
+        )
+        return item, {"enabled": True, "per_sample": per_sample}
     return _per_sample_dataset_availability(
         root=root,
         family_id=family_id,
@@ -1463,6 +1546,8 @@ def _build_manifest_payload(
             item, block = _with_family_qc_files(
                 root=root, family_id=family_id, patterns=scheme["qc"], item=item, block=block
             )
+        if dataset_type == "mito" and not item.complete:
+            item, block = _mito_table_availability(root=root, sample_ids=sample_ids, item=item, block=block)
         availability.append(item)
         datasets[dataset_type] = block
 

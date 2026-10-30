@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import json
 from pathlib import Path
 from typing import Any
@@ -22,8 +23,9 @@ from .hpo_service import (
     parse_manifest_inline_hpo,
 )
 
-from .family_package_common import CORE_DATASETS, HAPLOTYPE_ORIGIN_ROLES, IDENTIFIER_ISSUE_CODES, LONG_READ_DATASET_ROLES, PCF_ROLE_KEYS, QC_FAMILY_ROLES, FamilyPackageBundle, ManifestDataset, PackageManifest, ParsedPed, SUPPORTED_DATASETS, _display_path, _is_uncompressed_vcf, _issue, _package_path_or_none, _resolve_package_path, _vcf_index_candidates, family_id_issue, read_vcf_sample_columns, sample_id_issues, vcf_holds_a_data_line
+from .family_package_common import CORE_DATASETS, HAPLOTYPE_ORIGIN_ROLES, IDENTIFIER_ISSUE_CODES, LONG_READ_DATASET_ROLES, PCF_ROLE_KEYS, QC_FAMILY_ROLES, FamilyPackageBundle, ManifestDataset, PackageManifest, ParsedPed, SUPPORTED_DATASETS, _display_path, _is_uncompressed_vcf, _issue, _package_path_or_none, _resolve_package_path, _vcf_index_candidates, family_id_issue, package_text_handle, read_vcf_sample_columns, sample_id_issues, vcf_holds_a_data_line
 from .family_package_manifest import _manifest_added_member_entries, _manifest_added_ped_rows, _manifest_derived_statuses, _manifest_pgt_metadata, _manifest_relationship_issues, _manifest_roi_value, _normalize_manifest_samples, _parse_ped_text_strict
+from .family_package_mito_table import mito_sample_calls, read_mito_table
 from .family_package_pgt import pgt_roi_phasing_issue
 from .family_package_source import _ensure_authorized_package_path, _find_manifest, _parse_manifest, manifest_link_out_of_package, manifest_outside_package_issue, package_folder_link_issues, package_folder_path, staged_package_source
 from .family_package_nipt import nipt_vcf_column_issue
@@ -720,6 +722,7 @@ def _validate_apcad_dataset(
                 errors=errors,
                 warnings=warnings,
             )
+            _check_apcad_table_sample(root=root, sample_id=sample_id, entry=entry, errors=errors)
     elif dataset.bed:
         _require_file(
             root=root,
@@ -788,6 +791,50 @@ def _check_apcad_sample_vcf_columns(
                     path=path,
                 )
             )
+
+
+def _check_apcad_table_sample(
+    *,
+    root: Path,
+    sample_id: str,
+    entry: dict[str, Any],
+    errors: list[FamilyImportValidationIssue],
+) -> None:
+    """The PGT pipeline's APCAD table of an embryo names the embryo in its ``Indiv`` column:
+    a table naming another (an embryo's file under its sibling's entry) is refused, as a
+    per-sample VCF without the sample's column is, before anything is written. Its first
+    record is read; a table without that column, or one that cannot be read here, is left
+    to the import."""
+    value = entry.get("file") or entry.get("bed")
+    if not isinstance(value, str) or not value.lower().endswith(".csv"):
+        return
+    path = _package_path_or_none(root, value)
+    if path is None or not path.is_file():
+        return
+    try:
+        with package_text_handle(path) as handle:
+            rows = csv.reader(handle)
+            header = [cell.strip().lower() for cell in next(rows, [])]
+            if "indiv" not in header:
+                return
+            first = next(rows, None)
+    except (OSError, UnicodeDecodeError, csv.Error):
+        return
+    if not first or len(first) <= header.index("indiv"):
+        return
+    named = first[header.index("indiv")].strip()
+    expected = {sample_id, entry.get("vcf_sample"), entry.get("sample_name")} - {None}
+    if named and named not in expected:
+        errors.append(
+            _issue(
+                "apcad_table_sample_mismatch",
+                f"APCAD table {value} is {named}'s (its Indiv column), not {sample_id}'s; "
+                "name the right file, or the table's sample with vcf_sample",
+                dataset="apcad",
+                sample_id=sample_id,
+                path=path,
+            )
+        )
 
 
 def _pcf_role_path(entry: dict[str, Any], role: str) -> Any:
@@ -1102,7 +1149,14 @@ def _validate_per_sample_file_dataset(
             entry=raw_entry,
             errors=errors,
         )
-        for role in required_roles:
+        # A mito entry may read its sample's rows of one mtDNA-Server table for all samples
+        # instead of a chrM VCF (family_package_mito_table).
+        from_table = dataset_type == "mito" and bool(entry.get("table")) and not (entry.get("vcf") or entry.get("file"))
+        if from_table:
+            _check_mito_table_entry(
+                root=root, sample_id=sample_id, entry=entry, errors=errors, files=files, remote_only_files=remote_only_files
+            )
+        for role in () if from_table else required_roles:
             path = _require_file(
                 root=root,
                 dataset_type=dataset_type,
@@ -1145,6 +1199,59 @@ def _validate_per_sample_file_dataset(
         files=list(dict.fromkeys(files)),
         samples=samples,
     )
+
+
+def _check_mito_table_entry(
+    *,
+    root: Path,
+    sample_id: str,
+    entry: dict[str, Any],
+    errors: list[FamilyImportValidationIssue],
+    files: list[str],
+    remote_only_files: frozenset[str],
+) -> None:
+    """A mito entry reading the mtDNA-Server table names the table and the ID of its
+    sample's rows (``table_id``), and the table holds a row for that ID the loader stores: the
+    import refuses a sample without one, as it refuses a chrM VCF without a record."""
+    path = _require_file(
+        root=root,
+        dataset_type="mito",
+        value=entry.get("table"),
+        field_name="table",
+        errors=errors,
+        files=files,
+        sample_id=sample_id,
+        remote_only_files=remote_only_files,
+    )
+    table_id = entry.get("table_id")
+    if not isinstance(table_id, str) or not table_id.strip():
+        errors.append(
+            _issue(
+                "mito_table_id_missing",
+                f"The mito entry of {sample_id} reads {entry.get('table')} but names no table_id: "
+                "the ID its sample's rows carry",
+                dataset="mito",
+                sample_id=sample_id,
+            )
+        )
+        return
+    if path is None or not path.is_file():
+        return
+    try:
+        calls = mito_sample_calls(read_mito_table(path), table_id=table_id, sample_id=sample_id, source=entry["table"])
+    except (HTTPException, OSError, UnicodeDecodeError):
+        return
+    if not calls.records:
+        errors.append(
+            _issue(
+                "mito_table_rows_missing",
+                f"{entry['table']} holds no call of {sample_id} under the ID {table_id}"
+                + (f" ({calls.skipped} row(s) it cannot read as a call)" if calls.skipped else ""),
+                dataset="mito",
+                sample_id=sample_id,
+                path=path,
+            )
+        )
 
 
 def _validate_pipeline_info_dataset(

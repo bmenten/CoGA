@@ -183,8 +183,10 @@ FAM001/
   dashboard/      samplesheet.csv, pedigree.csv                each sample's role (newer runs:
                   samplesheet_FAM001_10x.csv, the run's own name)
   qdnaseq/        EMBRYO1_cnv.csv                              CNV bins and segments
-  split_trio/     filter_trio/EMBRYO1.trio_filtered.vcf.gz     APCAD, one trio per embryo
+  apcad/          EMBRYO1_APCAD_parental_data.csv              APCAD: the sites the run read, when it writes them
+  split_trio/     filter_trio/EMBRYO1.trio_filtered.vcf.gz     APCAD otherwise, one trio per embryo
   apcad/          EMBRYO1_pcf_{mat,pat}_data.csv               PCF segments, when the run writes them
+  mito/           variants.annotated.txt                       mtDNA-Server calls of every sample
   phasing/        shapeit_filter/FAM001_shapeit_rephased_final.vcf.gz   haplotypes
   cram/           EMBRYO1.cram (+ .crai)                       alignments
   mean/ qualimap/ ngsbits/ picard/ rtgtools/ king/             QC
@@ -203,10 +205,16 @@ parent (`metadata.pgt.affected_parents`) and its index as the index (`metadata.p
 inheritance model (`metadata.pgt.inheritance_model`) and both get the status it asks: the parent is
 recorded as affected (AD, XLD, or a father under XLR) or as a proven carrier (AR, or a mother under
 XLR), and the index as affected (AD, XLD, AR, or a male index under XLR) or, a female index under XLR,
-as a proven carrier. Validation lists each status it derived. A status you record for the member under
-`family.members` (or, for the added index, under `family.add_members`) wins. The ROI comes from the
-pipeline run. PCF segments are read from their CSV table only; a run that only draws them in an HTML plot
-gets no PCF track.
+as a proven carrier. Under AR, when the index is the couple's affected child, the other parent is
+recorded as a proven carrier too: both parents of an affected child are obligate carriers. Validation
+lists each status it derived. A status you record for the member under `family.members` (or, for the
+added index, under `family.add_members`) wins. The ROI comes from the pipeline run. PCF segments are
+read from their CSV table only; a run that only draws them in an HTML plot gets no PCF track. APCAD is
+read from the run's table of the sites it read for each embryo (`_APCAD_parental_data.csv`: the
+embryo's `raw_AF` and the parent in `source`), the points the laboratory's own plots rest on; an embryo
+without one from its trio VCF. The run's mtDNA-Server table (`mito/variants.annotated.txt`) gives each
+member it holds rows for its chrM calls: Discover matches the table's `ID` (the sample's chrM BAM) to
+the member.
 
 CoGA knows several usual file names per layer, so packages from slightly different pipelines are still
 found; **Discover manifest** shows what it found. When a caller names a VCF's sample column after its
