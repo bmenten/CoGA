@@ -681,13 +681,20 @@ export interface SignedPgtInherited extends SignedPgtHaplotype {
   end: number | null;
 }
 
-/** An embryo's phasing QC at the ROI, as the ROI marker review counts it. */
+/**
+ * An embryo's phasing QC at the ROI, as the ROI marker review counts it over the window the call
+ * reads (the ROI and its flanks), with each parent's markers on each flank of the ROI apart.
+ */
 export interface SignedPgtEmbryoQc {
   informativeSites: number | null;
   mendelErrors: number | null;
   mendelRate: number | null;
   paternalMarkers: number | null;
   maternalMarkers: number | null;
+  paternalMarkersLeft: number | null;
+  paternalMarkersRight: number | null;
+  maternalMarkersLeft: number | null;
+  maternalMarkersRight: number | null;
 }
 
 /** An embryo's phasing QC at the ROI checked against the thresholds, as the record froze it. */
@@ -705,7 +712,7 @@ export interface SignedPgtQcVerdict {
 export interface SignedPgtQcThresholds {
   minInformativeSites: number | null;
   maxMendelRate: number | null;
-  minMarkersPerSide: number | null;
+  minMarkersPerFlank: number | null;
 }
 
 export interface SignedPgtEmbryo {
@@ -1552,6 +1559,7 @@ const riskState = (value: unknown): HaplotypeRiskState | null =>
   RISK_STATES.includes(value as HaplotypeRiskState) ? (value as HaplotypeRiskState) : null;
 const parentSide = (value: unknown): 'paternal' | 'maternal' | null =>
   value === 'paternal' || value === 'maternal' ? value : null;
+const roiFlank = (value: unknown): 'left' | 'right' | null => (value === 'left' || value === 'right' ? value : null);
 
 const QC_VERDICT_STATUSES: SignedPgtQcVerdict['status'][] = ['pass', 'warning', 'not_counted'];
 const QC_MEASURES: PgtEmbryoQcFindingOut['measure'][] = [
@@ -1574,7 +1582,9 @@ const parseQcVerdict = (value: unknown): SignedPgtQcVerdict | null => {
     const measure = QC_MEASURES.find((candidate) => candidate === entry.measure);
     const found = number(entry.value);
     const threshold = number(entry.threshold);
-    return measure && found !== null && threshold !== null ? [{ measure, value: found, threshold }] : [];
+    return measure && found !== null && threshold !== null
+      ? [{ measure, value: found, threshold, flank: roiFlank(entry.flank) }]
+      : [];
   });
   return {
     status,
@@ -1593,7 +1603,7 @@ const parseQcThresholds = (value: unknown): SignedPgtQcThresholds | null =>
     ? {
         minInformativeSites: number(value.min_informative_sites),
         maxMendelRate: number(value.max_mendel_rate),
-        minMarkersPerSide: number(value.min_markers_per_side),
+        minMarkersPerFlank: number(value.min_markers_per_flank),
       }
     : null;
 
@@ -1661,6 +1671,10 @@ const parsePgtAnalysis = (value: Json): SignedPgtAnalysis => {
               mendelRate: number(qc.mendel_rate),
               paternalMarkers: number(qc.paternal_markers),
               maternalMarkers: number(qc.maternal_markers),
+              paternalMarkersLeft: number(qc.paternal_markers_left),
+              paternalMarkersRight: number(qc.paternal_markers_right),
+              maternalMarkersLeft: number(qc.maternal_markers_left),
+              maternalMarkersRight: number(qc.maternal_markers_right),
             }
           : null,
         qcVerdict: parseQcVerdict(embryo.qc_verdict),
@@ -2690,20 +2704,33 @@ export const describeNoCall = (embryo: SignedPgtEmbryo, analysis: SignedPgtAnaly
     : 'No disease haplotype could be resolved at the ROI (uninformative markers).';
 };
 
-/** An embryo's phasing QC at the ROI: "40 informative sites, Mendelian error rate 2.5% (1 of 40); …". */
+/** A parent's markers, with those left and right of the ROI when the record holds them. */
+const describeSideMarkers = (total: number | null, left: number | null, right: number | null, side: string): string => {
+  const flanks = left !== null && right !== null ? ` (${left.toLocaleString()} left, ${right.toLocaleString()} right of the ROI)` : '';
+  return `${(total ?? 0).toLocaleString()} ${side}${flanks}`;
+};
+
+/**
+ * An embryo's phasing QC at the ROI: "40 informative sites, Mendelian error rate 2.5% (1 of 40);
+ * informative markers 22 paternal (10 left, 12 right of the ROI), …".
+ */
 export const describeEmbryoQc = (qc: SignedPgtEmbryoQc): string => {
   const sites = qc.informativeSites ?? 0;
   const rate = qc.mendelRate !== null ? `${(qc.mendelRate * 100).toFixed(1)}%` : 'not recorded';
   return `${sites.toLocaleString()} informative site${sites === 1 ? '' : 's'}, Mendelian error rate ${rate} (${(
     qc.mendelErrors ?? 0
-  ).toLocaleString()} of ${sites.toLocaleString()}); informative markers ${qc.paternalMarkers ?? 0} paternal, ${
-    qc.maternalMarkers ?? 0
-  } maternal`;
+  ).toLocaleString()} of ${sites.toLocaleString()}); informative markers ${describeSideMarkers(
+    qc.paternalMarkers,
+    qc.paternalMarkersLeft,
+    qc.paternalMarkersRight,
+    'paternal',
+  )}, ${describeSideMarkers(qc.maternalMarkers, qc.maternalMarkersLeft, qc.maternalMarkersRight, 'maternal')}`;
 };
 
 /**
  * The thresholds the record's embryo QC was checked against: "at least 50 informative sites, a
- * Mendelian error rate of at most 2% and at least 6 markers on each parental side the call reads".
+ * Mendelian error rate of at most 2% and at least 6 markers on each flank of the ROI, on each
+ * parental side the call reads".
  */
 export const describeQcThresholds = (thresholds: SignedPgtQcThresholds): string => {
   const parts = [
@@ -2711,8 +2738,8 @@ export const describeQcThresholds = (thresholds: SignedPgtQcThresholds): string 
       ? `at least ${thresholds.minInformativeSites.toLocaleString()} informative sites`
       : null,
     thresholds.maxMendelRate !== null ? `a Mendelian error rate of at most ${formatQcRate(thresholds.maxMendelRate)}` : null,
-    thresholds.minMarkersPerSide !== null
-      ? `at least ${thresholds.minMarkersPerSide.toLocaleString()} markers on each parental side the call reads`
+    thresholds.minMarkersPerFlank !== null
+      ? `at least ${thresholds.minMarkersPerFlank.toLocaleString()} markers on each flank of the ROI, on each parental side the call reads`
       : null,
   ].filter((part): part is string => Boolean(part));
   return parts.length ? joinWithAnd(parts) : 'thresholds the record does not state';

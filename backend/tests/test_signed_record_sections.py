@@ -634,8 +634,18 @@ def _pgt_context(*roles: str) -> types.SimpleNamespace:
 
 
 def _analysis() -> PgtAnalysisOut:
-    # Twelve informative sites, one a Mendelian error, four markers on the father's side.
-    qc = PgtEmbryoQcOut(informative_sites=12, mendel_errors=1, mendel_rate=1 / 12, paternal_markers=4, maternal_markers=5)
+    # Twelve informative sites, one a Mendelian error, four markers on the father's side, all
+    # right of the ROI.
+    qc = PgtEmbryoQcOut(
+        informative_sites=12,
+        mendel_errors=1,
+        mendel_rate=1 / 12,
+        paternal_markers=4,
+        maternal_markers=5,
+        paternal_markers_right=4,
+        maternal_markers_left=2,
+        maternal_markers_right=3,
+    )
     return PgtAnalysisOut(
         region_of_interest=PgtRegionOfInterestOut(query="GENE1", label="GENE1", source="gene", chrom="7", start=10, end=20),
         inheritance_model=PgtInheritanceModelOut(recorded="AD", applied="AD", mode="dominant"),
@@ -696,15 +706,16 @@ def test_a_pgt_familys_record_freezes_the_analysis_the_family_page_shows(monkeyp
         "status": "warning",
         "sides": ["paternal"],
         "findings": [
-            {"measure": "informative_sites", "value": 12, "threshold": 50},
-            {"measure": "mendel_rate", "value": 1 / 12, "threshold": 0.02},
-            {"measure": "paternal_markers", "value": 4, "threshold": 6},
+            {"measure": "informative_sites", "value": 12, "threshold": 50, "flank": None},
+            {"measure": "mendel_rate", "value": 1 / 12, "threshold": 0.02, "flank": None},
+            {"measure": "paternal_markers", "value": 0, "threshold": 6, "flank": "left"},
+            {"measure": "paternal_markers", "value": 4, "threshold": 6, "flank": "right"},
         ],
     }
     assert sections["pgt_analysis"]["rules"]["qc_thresholds"] == {
         "min_informative_sites": 50,
         "max_mendel_rate": 0.02,
-        "min_markers_per_side": 6,
+        "min_markers_per_flank": 6,
     }
     # Every section without an application, and the PGT one: this family is no NIPT family.
     assert set(sections) == {

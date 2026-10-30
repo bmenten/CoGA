@@ -815,7 +815,7 @@ describe('FamilyDetailPage', () => {
       window_flank: 1_000_000,
       recombination_flank: 250_000,
       phase_switch_uncertainty: 2_000_000,
-      qc_thresholds: { min_informative_sites: 50, max_mendel_rate: 0.02, min_markers_per_side: 6 },
+      qc_thresholds: { min_informative_sites: 50, max_mendel_rate: 0.02, min_markers_per_flank: 6 },
     },
     ...overrides,
   });
@@ -1064,14 +1064,24 @@ describe('FamilyDetailPage', () => {
         {
           sample: 'E1',
           call: 'affected_or_at_risk',
-          qc: { informative_sites: 6, mendel_errors: 1, mendel_rate: 1 / 6, paternal_markers: 3, maternal_markers: 3 },
+          qc: {
+            informative_sites: 6,
+            mendel_errors: 1,
+            mendel_rate: 1 / 6,
+            paternal_markers: 9,
+            maternal_markers: 3,
+            paternal_markers_left: 3,
+            paternal_markers_right: 6,
+            maternal_markers_left: 1,
+            maternal_markers_right: 2,
+          },
           qc_verdict: {
             status: 'warning',
             sides: ['paternal'],
             findings: [
-              { measure: 'informative_sites', value: 6, threshold: 50 },
-              { measure: 'mendel_rate', value: 1 / 6, threshold: 0.02 },
-              { measure: 'paternal_markers', value: 3, threshold: 6 },
+              { measure: 'informative_sites', value: 6, threshold: 50, flank: null },
+              { measure: 'mendel_rate', value: 1 / 6, threshold: 0.02, flank: null },
+              { measure: 'paternal_markers', value: 3, threshold: 6, flank: 'left' },
             ],
           },
         },
@@ -1088,7 +1098,7 @@ describe('FamilyDetailPage', () => {
       const warning = within(e1).getByRole('button', { name: /The phasing QC at the ROI does not meet its thresholds/ });
       expect(warning).toHaveTextContent('⚠ phasing QC');
       expect(warning).toHaveAccessibleName(
-        "The phasing QC at the ROI does not meet its thresholds: 6 informative sites (fewer than 50); Mendelian error rate 16.7% (above 2%); 3 markers on the father's side (fewer than 6). The call stands: review the ROI markers before relying on it.",
+        "The phasing QC at the ROI does not meet its thresholds: 6 informative sites (fewer than 50); Mendelian error rate 16.7% (above 2%); 3 markers on the father's side left of the ROI (fewer than 6). The call stands: review the ROI markers before relying on it.",
       );
 
       // A QC that meets its thresholds raises nothing.

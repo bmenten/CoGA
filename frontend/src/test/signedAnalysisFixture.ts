@@ -333,7 +333,17 @@ export const SIGNED_PGT_ANALYSIS = {
         { origin: 'paternal', homolog: '1', start: 29000000, end: 32000000 },
       ],
       recombinations: [],
-      qc: { informative_sites: 40, mendel_errors: 1, mendel_rate: 0.025, paternal_markers: 22, maternal_markers: 18 },
+      qc: {
+        informative_sites: 40,
+        mendel_errors: 1,
+        mendel_rate: 0.025,
+        paternal_markers: 22,
+        maternal_markers: 18,
+        paternal_markers_left: 10,
+        paternal_markers_right: 12,
+        maternal_markers_left: 8,
+        maternal_markers_right: 9,
+      },
       qc_verdict: {
         status: 'warning',
         sides: ['paternal'],
@@ -365,7 +375,17 @@ export const SIGNED_PGT_ANALYSIS = {
         { origin: 'paternal', homolog: '0', start: 29000000, end: 32000000 },
       ],
       recombinations: [],
-      qc: { informative_sites: 120, mendel_errors: 0, mendel_rate: 0, paternal_markers: 40, maternal_markers: 35 },
+      qc: {
+        informative_sites: 120,
+        mendel_errors: 0,
+        mendel_rate: 0,
+        paternal_markers: 40,
+        maternal_markers: 35,
+        paternal_markers_left: 20,
+        paternal_markers_right: 20,
+        maternal_markers_left: 17,
+        maternal_markers_right: 18,
+      },
       qc_verdict: { status: 'pass', sides: ['paternal'], findings: [] },
     },
     { call: 'not a call' },
@@ -384,16 +404,26 @@ export const SIGNED_PGT_ANALYSIS = {
     recombination_flank: 250000,
     phase_switch_uncertainty: 2000000,
     // The phasing-QC thresholds each embryo's verdict was made against (pgt_embryo_qc.py).
-    qc_thresholds: { min_informative_sites: 50, max_mendel_rate: 0.02, min_markers_per_side: 6 },
+    qc_thresholds: { min_informative_sites: 50, max_mendel_rate: 0.02, min_markers_per_flank: 6 },
   },
 };
 
+// The QC counts a record holds from before the markers on each flank of the ROI were counted apart.
+const FLANK_COUNTS = ['paternal_markers_left', 'paternal_markers_right', 'maternal_markers_left', 'maternal_markers_right'];
+const withoutFlankCounts = (qc: unknown) =>
+  qc && typeof qc === 'object' ? Object.fromEntries(Object.entries(qc).filter(([key]) => !FLANK_COUNTS.includes(key))) : qc;
+
 // The same analysis as a PGT family's record signed before CoGA checked each embryo's phasing QC
-// against thresholds holds it: no verdict beside the embryos' QC, and no thresholds.
+// against thresholds holds it: no verdict beside the embryos' QC, no thresholds, and no markers
+// counted on each flank of the ROI.
 export const SIGNED_PGT_ANALYSIS_BEFORE_QC_VERDICT = {
   ...SIGNED_PGT_ANALYSIS,
   embryos: SIGNED_PGT_ANALYSIS.embryos.map((embryo) =>
-    Object.fromEntries(Object.entries(embryo).filter(([key]) => key !== 'qc_verdict')),
+    Object.fromEntries(
+      Object.entries(embryo)
+        .filter(([key]) => key !== 'qc_verdict')
+        .map(([key, value]) => [key, key === 'qc' ? withoutFlankCounts(value) : value]),
+    ),
   ),
   rules: { window_flank: 1000000, recombination_flank: 250000, phase_switch_uncertainty: 2000000 },
 };

@@ -32,8 +32,13 @@ import { raw, routePath } from '../../lib/routePath';
 
 // Floor on the zoomed-in window so the view can't collapse to nothing.
 const MIN_SPAN = 2_000;
-// Cap rendered columns so a dense window stays responsive; the rest is summarised.
+// Cap rendered columns so a dense window stays responsive; the markers nearest the ROI are kept.
 const MAX_COLUMNS = 800;
+// What the embryo calls and their phasing QC read on each side of the ROI
+// (`pgt_embryo_calls.ROI_WINDOW_FLANK`). The review opens on that window, so the Mendelian error
+// rate it shows is the one the QC verdict was made on, and a point ROI (the variant itself) shows
+// the markers its call rests on.
+const ROI_WINDOW_FLANK = 1_000_000;
 
 // The two homolog lanes drawn per member, mirroring the chromosome view.
 const LANES = ['hap1', 'hap2'] as const;
@@ -166,8 +171,8 @@ const FamilyRoiMarkersPage: React.FC = () => {
   const [viewport, setViewport] = useState<{ start: number; end: number } | null>(null);
   const window = useMemo(() => {
     if (!roi) return null;
-    // The standard view is the ROI itself; zoom/pan widen it for context on demand.
-    const base = { start: Math.max(0, roi.start), end: roi.end };
+    // The standard view is the window the calls and their QC read: the ROI and 1 Mb on each side.
+    const base = { start: Math.max(0, roi.start - ROI_WINDOW_FLANK), end: roi.end + ROI_WINDOW_FLANK };
     const view = viewport ?? base;
     return { chr: roi.chr, start: view.start, end: view.end };
   }, [roi, viewport]);
@@ -241,8 +246,16 @@ const FamilyRoiMarkersPage: React.FC = () => {
     [allSites, embryoInformativePos],
   );
 
-  // Only the informative markers drive the segregation call; the rest are noise here.
-  const shownSites = useMemo(() => informativeSites.slice(0, MAX_COLUMNS), [informativeSites]);
+  // Only the informative markers drive the segregation call; the rest are noise here. Past the
+  // cap, the ones nearest the ROI are kept, in position order.
+  const shownSites = useMemo(() => {
+    if (informativeSites.length <= MAX_COLUMNS || !roi) return informativeSites.slice(0, MAX_COLUMNS);
+    const distance = (pos: number) => (pos < roi.start ? roi.start - pos : pos > roi.end ? pos - roi.end : 0);
+    return [...informativeSites]
+      .sort((a, b) => distance(a.pos) - distance(b.pos) || a.pos - b.pos)
+      .slice(0, MAX_COLUMNS)
+      .sort((a, b) => a.pos - b.pos);
+  }, [informativeSites, roi]);
   const siteByPos = useMemo(() => new Map(shownSites.map((s) => [s.pos, s])), [shownSites]);
   const sampleOrder = useMemo(() => (phased?.samples ?? []).map((s) => s.sample), [phased?.samples]);
   const qcBySample = useMemo(
@@ -516,8 +529,9 @@ const FamilyRoiMarkersPage: React.FC = () => {
         />
         <p className="segregation-note">
           Informative phased markers for every family member across the ROI {roi.chr}:
-          {roi.start.toLocaleString()}–{roi.end.toLocaleString()}. The view opens on the ROI; use the zoom and
-          pan controls to widen the window for flanking context. Genotypes are derived from the phased imputed
+          {roi.start.toLocaleString()}–{roi.end.toLocaleString()}. The view opens on the ROI and 1 Mb on each side of
+          it, the window the embryo calls and their phasing QC read; use the zoom and pan controls to narrow or
+          move it. Genotypes are derived from the phased imputed
           data; each marker shows its nucleotide allele on white above a continuous lineage-coloured band
           (blue = paternal, green = maternal, grey = untransmitted/donor), matching the chromosome view. The
           ROI is bracketed by an orange line between members and any flanking markers are dimmed; each member
@@ -552,7 +566,7 @@ const FamilyRoiMarkersPage: React.FC = () => {
             className="button-ghost"
             onClick={() => setViewport(null)}
             disabled={isDefaultView}
-            title="Reset to the ROI"
+            title="Reset to the ROI and 1 Mb on each side"
           >
             Reset
           </button>
@@ -596,8 +610,8 @@ const FamilyRoiMarkersPage: React.FC = () => {
 
       {shownSites.length < informativeSites.length && (
         <div className="segregation-note segregation-note--error">
-          Showing the first {shownSites.length.toLocaleString()} of {informativeSites.length.toLocaleString()} informative
-          markers.
+          Showing the {shownSites.length.toLocaleString()} of {informativeSites.length.toLocaleString()} informative
+          markers nearest the ROI; pan or zoom in to see the others.
         </div>
       )}
 

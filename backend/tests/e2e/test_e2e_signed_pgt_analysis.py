@@ -8,10 +8,12 @@ chr1, the inheritance model AD and an ROI on chr1), through the API, this:
 * reads the embryo calls the family page shows (``GET /families/{id}/pgt-analysis``): the
   disease haplotype the affected father and index share, the embryo that carries it at risk,
   the other unaffected, each with the homologs it carries at the ROI and the phasing QC the
-  ROI marker review counts, and the haplotype file the calls were read from;
-* reads each embryo's QC verdict against the thresholds (``pgt_embryo_qc``): six informative
-  sites and three markers on the father's side, below the provisional thresholds, so a warning
-  beside a call that stands; and the thresholds in force with the analysis's rules;
+  ROI marker review counts over the window the call reads (the ROI and 1 Mb on each side), and
+  the haplotype file the calls were read from;
+* reads each embryo's QC verdict against the thresholds (``pgt_embryo_qc``): twenty informative
+  sites, and three markers on the father's side left of the ROI and four right of it, below the
+  provisional thresholds, so a warning beside a call that stands; and the thresholds in force
+  with the analysis's rules;
 * signs the family out and reads the record back: it holds those calls as served, verifies,
   and still matches right after it was signed, with nothing named as not captured;
 * signs out once more as a build from before the section (its key left out): that record
@@ -304,11 +306,20 @@ def test_the_family_page_reads_each_embryo_call_from_the_stored_blocks(pgt) -> N
     clear_paternal = [homolog for homolog in clear["inherited"] if homolog["origin"] == "paternal"]
     assert clear_paternal and all(homolog["homolog"] != disease["homolog"] for homolog in clear_paternal)
     assert risk["roi_not_covered"] is False and clear["roi_not_covered"] is False
-    # The phasing QC at the ROI: six sites (1,005,000 to 1,010,000), none a Mendelian error;
-    # three of them read the homolog from the father, three from the mother.
+    # The phasing QC over the window the call reads, the ROI and 1 Mb on each side: all twenty
+    # sites, none a Mendelian error; half read the homolog from the father, half from the mother.
+    # Left of the ROI (1,000,000 to 1,004,000) three read the father's and two the mother's,
+    # right of it (1,011,000 to 1,019,000) four the father's and five the mother's; the six in
+    # the ROI are on neither flank.
     for embryo in (risk, clear):
-        assert embryo["qc"]["informative_sites"] == 6 and embryo["qc"]["mendel_errors"] == 0, embryo
-        assert (embryo["qc"]["paternal_markers"], embryo["qc"]["maternal_markers"]) == (3, 3), embryo
+        assert embryo["qc"]["informative_sites"] == 20 and embryo["qc"]["mendel_errors"] == 0, embryo
+        assert (embryo["qc"]["paternal_markers"], embryo["qc"]["maternal_markers"]) == (10, 10), embryo
+        assert (
+            embryo["qc"]["paternal_markers_left"],
+            embryo["qc"]["paternal_markers_right"],
+            embryo["qc"]["maternal_markers_left"],
+            embryo["qc"]["maternal_markers_right"],
+        ) == (3, 4, 2, 5), embryo
     # The inputs: the haplotype file each member's blocks were built from, and a digest.
     sources = {source["sample"]: source for source in analysis["inputs"]["haplotype_sources"]}
     assert set(sources) == set(names.values())
@@ -350,7 +361,7 @@ def test_each_embryo_call_carries_its_qc_verdict_and_the_record_freezes_it(pgt) 
     assert analysis["rules"]["qc_thresholds"] == {
         "min_informative_sites": 50,
         "max_mendel_rate": 0.02,
-        "min_markers_per_side": 6,
+        "min_markers_per_flank": 6,
     }
     embryos = _embryos(analysis)
     names = pgt["names"]
@@ -359,14 +370,16 @@ def test_each_embryo_call_carries_its_qc_verdict_and_the_record_freezes_it(pgt) 
         "unaffected_non_carrier",
     )
     for embryo in embryos.values():
-        # Six sites at the ROI, none a Mendelian error, three read on the father's side: the
-        # dominant haplotype is his, so his side alone is checked.
+        # Twenty sites in the window, none a Mendelian error, three read on the father's side
+        # left of the ROI and four right of it: the dominant haplotype is his, so his side
+        # alone is checked, on each flank.
         assert embryo["qc_verdict"] == {
             "status": "warning",
             "sides": ["paternal"],
             "findings": [
-                {"measure": "informative_sites", "value": 6, "threshold": 50},
-                {"measure": "paternal_markers", "value": 3, "threshold": 6},
+                {"measure": "informative_sites", "value": 20, "threshold": 50, "flank": None},
+                {"measure": "paternal_markers", "value": 3, "threshold": 6, "flank": "left"},
+                {"measure": "paternal_markers", "value": 4, "threshold": 6, "flank": "right"},
             ],
         }, embryo
     # The signed record freezes the verdicts and the thresholds with the embryos' results.

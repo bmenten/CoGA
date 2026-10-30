@@ -62,7 +62,7 @@ export const BLOCKS_OUTDATED_WARNING =
 /** Why an embryo's phasing QC at the ROI was not counted, in the words the record uses too. */
 export const qcNotCountedReason = (markersTruncated: boolean): string =>
   markersTruncated
-    ? 'the ROI holds more sites than the marker review reads'
+    ? 'the ROI and its flanks hold more sites than the marker review reads'
     : 'the embryo is not recorded as a child of the couple';
 
 /**
@@ -124,7 +124,14 @@ const formatRateAbove = (rate: number, maximum: number): string => {
 const count = (value: number, one: string, many: string): string =>
   `${value.toLocaleString()} ${value === 1 ? one : many}`;
 
-/** One measure that does not meet its threshold: "6 informative sites (fewer than 50)". */
+/** Where a parent's markers were counted: " left of the ROI", " right of the ROI", or nothing. */
+const flankText = (flank: PgtEmbryoQcFindingOut['flank'] | undefined): string =>
+  flank === 'left' ? ' left of the ROI' : flank === 'right' ? ' right of the ROI' : '';
+
+/**
+ * One measure that does not meet its threshold: "6 informative sites (fewer than 50)", "3 markers
+ * on the father's side left of the ROI (fewer than 6)".
+ */
 export const describeQcFinding = (finding: PgtEmbryoQcFindingOut): string => {
   switch (finding.measure) {
     case 'informative_sites':
@@ -132,9 +139,9 @@ export const describeQcFinding = (finding: PgtEmbryoQcFindingOut): string => {
     case 'mendel_rate':
       return `Mendelian error rate ${formatRateAbove(finding.value, finding.threshold)} (above ${formatQcRate(finding.threshold)})`;
     case 'paternal_markers':
-      return `${count(finding.value, 'marker', 'markers')} on the father's side (fewer than ${finding.threshold.toLocaleString()})`;
+      return `${count(finding.value, 'marker', 'markers')} on the father's side${flankText(finding.flank)} (fewer than ${finding.threshold.toLocaleString()})`;
     case 'maternal_markers':
-      return `${count(finding.value, 'marker', 'markers')} on the mother's side (fewer than ${finding.threshold.toLocaleString()})`;
+      return `${count(finding.value, 'marker', 'markers')} on the mother's side${flankText(finding.flank)} (fewer than ${finding.threshold.toLocaleString()})`;
   }
 };
 

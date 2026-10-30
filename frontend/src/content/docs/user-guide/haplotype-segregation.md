@@ -34,9 +34,10 @@ CoGA works the calls out on the server, from the stored haplotypes, and **Sign o
 the same calls into the signed version (*PGT embryo results*), each with the haplotypes it rests on,
 its warnings, its QC at the ROI and that QC's verdict against the thresholds. Next to the badge may be:
 
-- **⚠ phasing QC** — the embryo's phasing QC at the ROI does not meet its thresholds: at least 50
-  informative sites, a Mendelian error rate of at most 2%, and at least 6 markers on each parent's side
-  the call reads. The tooltip names each measure, its value and its threshold. The call stands: check
+- **⚠ phasing QC** — the embryo's phasing QC at the ROI does not meet its thresholds, counted over the
+  ROI and 1 Mb on each side: at least 50 informative sites, a Mendelian error rate of at most 2%, and
+  at least 6 markers on each flank of the ROI on each parent's side the call reads. The tooltip names
+  each measure, its value and its threshold. The call stands: check
   it in the ROI markers before you rely on it. These thresholds are provisional, to be confirmed by
   the laboratory director and QA. At an X-linked locus a man is counted with his one X: a son against
   his mother alone.

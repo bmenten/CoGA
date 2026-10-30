@@ -24,7 +24,7 @@ from .family_package_long_read import long_read_family_block, long_read_sample_i
 from .family_package_manifest import _parse_ped_text_strict
 from .family_package_nipt import NiptPackageFiles, discover_nipt_package_files, nipt_draft_column_issues
 from .nipt import MONOGENIC_NIPT_ANALYSIS_TYPE, NIPT_CFDNA_ASSAY
-from .family_package_pgt import pgt_family_block, pgt_run_context, read_pgt_pipeline_roles
+from .family_package_pgt import pgt_family_block, pgt_roi_phasing_issue, pgt_run_context, read_pgt_pipeline_roles
 from .family_package_source import _ensure_authorized_package_path, _existing_manifest_dict, manifest_link_out_of_package, manifest_outside_package_issue, package_folder_link_issues, package_folder_path
 from .family_package_validation import validate_family_package
 
@@ -1975,6 +1975,13 @@ def discover_family_package_manifest(
     # import reads as the member's calls all the same: said before the manifest is written,
     # as the validation says it (CLIN-13).
     warnings.extend(nipt_draft_column_issues(root, manifest_payload, family_sample_ids=sample_ids))
+    haplotypes_block = manifest_payload.get("datasets", {}).get("haplotypes")
+    if isinstance(haplotypes_block, dict) and haplotypes_block.get("enabled") and isinstance(roi, str):
+        roi_issue = pgt_roi_phasing_issue(
+            root, roi=roi, family_vcf=haplotypes_block.get("family_vcf"), index=haplotypes_block.get("index")
+        )
+        if roi_issue is not None:
+            warnings.append(roi_issue)
     manifest_yaml = yaml.safe_dump(
         _ordered_manifest(manifest_payload),
         sort_keys=False,

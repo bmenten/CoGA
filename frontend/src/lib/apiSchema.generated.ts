@@ -2312,15 +2312,23 @@ export interface PgtEmbryoQcFindingOut {
   measure: "informative_sites" | "mendel_rate" | "paternal_markers" | "maternal_markers";
   value: number;
   threshold: number;
+  flank: "left" | "right" | null;
 }
 
-/** The embryo's phasing QC at the ROI, as the ROI marker review counts it (REQ-PGT-004). */
+/**
+ * The embryo's phasing QC at the ROI, as the ROI marker review counts it (REQ-PGT-004):
+ * over the window the call reads, the ROI and ``rules.window_flank`` on each side of it.
+ */
 export interface PgtEmbryoQcOut {
   informative_sites: number;
   mendel_errors: number;
   mendel_rate: number;
   paternal_markers: number;
   maternal_markers: number;
+  paternal_markers_left: number;
+  paternal_markers_right: number;
+  maternal_markers_left: number;
+  maternal_markers_right: number;
 }
 
 /**
@@ -2394,7 +2402,7 @@ export interface PgtPhaseCorrectionOut {
 export interface PgtQcThresholdsOut {
   min_informative_sites: number;
   max_mendel_rate: number;
-  min_markers_per_side: number;
+  min_markers_per_flank: number;
 }
 
 /** The family's region of interest, as set on the family page: the embryos are called there. */

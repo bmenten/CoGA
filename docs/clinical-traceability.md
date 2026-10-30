@@ -346,9 +346,9 @@ in the EPD refers to the signed version by its report code (*The report code* be
     whether an uninformative call is down to its own missing data at the ROI, both calls when an
     X-linked recessive call depends on a sex that is not recorded, the homologs it carries at the
     ROI with the extent of their blocks, the block boundaries inside the ROI or within 250 kb of
-    it (recombinations), its phasing QC at the ROI as the ROI marker review counts it
-    (informative sites, Mendelian errors and their rate, and the sites read on each parent's
-    side), and that QC's verdict against the thresholds of `services/pgt_embryo_qc.py`
+    it (recombinations), its phasing QC at the ROI as the ROI marker review counts it over the
+    same window (informative sites, Mendelian errors and their rate, and the sites read on each
+    parent's side, in all and on each flank of the ROI), and that QC's verdict against the thresholds of `services/pgt_embryo_qc.py`
     (`qc_verdict`: `pass`; `warning`, naming each measure that does not meet its threshold with
     its value and the threshold; or `not_counted` when no QC was counted, which is no pass), with
     the parental sides whose markers were checked, the sides the call reads. Its inputs: the
@@ -971,8 +971,9 @@ anchors can be deleted without trace unless a copy is kept outside the database.
   implementation of the same rules, which the parity cases pin but do not prove equal on every
   input.
 - No threshold gates an embryo call on its QC. A call whose phasing QC at the ROI does not meet
-  the thresholds of `services/pgt_embryo_qc.py` (at least 50 informative sites, a Mendelian error
-  rate of at most 2 %, at least 6 markers on each parental side the call reads) carries a warning
+  the thresholds of `services/pgt_embryo_qc.py`, counted over the ROI and 1 Mb on each side (at
+  least 50 informative sites, a Mendelian error rate of at most 2 %, at least 6 markers on each
+  flank of the ROI on each parental side the call reads) carries a warning
   beside it on the family page and in the signed version, and so does one whose QC was not
   counted; the call stands, the sign-out is not held up, and the analyst decides (the owner's
   decision of 2026-10-20). The thresholds are provisional: the laboratory director and QA are to

@@ -180,7 +180,8 @@ PGT packages from the PGT pipeline (nf-cmgg/copgtm) are laid out per tool:
 ```text
 FAM001/
   ped/            combined.ped                                 the couple and the embryos
-  dashboard/      samplesheet.csv, pedigree.csv                each sample's role
+  dashboard/      samplesheet.csv, pedigree.csv                each sample's role (newer runs:
+                  samplesheet_FAM001_10x.csv, the run's own name)
   qdnaseq/        EMBRYO1_cnv.csv                              CNV bins and segments
   split_trio/     filter_trio/EMBRYO1.trio_filtered.vcf.gz     APCAD, one trio per embryo
   apcad/          EMBRYO1_pcf_{mat,pat}_data.csv               PCF segments, when the run writes them

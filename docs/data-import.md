@@ -646,13 +646,15 @@ for each dataset:
 FAM001/
   manifest.yaml
   ped/combined.ped                       the couple and the embryos
-  dashboard/samplesheet.csv              the pipeline's input: each sample's role
+  dashboard/samplesheet.csv              the pipeline's input: each sample's role (newer runs
+                                         keep the run's own name, samplesheet_FAM001_10x.csv)
   dashboard/pedigree.csv                 father, mother, index and embryo per row
   qdnaseq/SAMPLE_cnv.csv                 QDNAseq bins (copynumber) and segments (segmented)
   split_trio/filter_trio/EMBRYO1.trio_filtered.vcf.gz (+ .tbi)          APCAD
   apcad/EMBRYO1_pcf_{mat,pat}_data.csv   PCF segments, when the run writes them
   phasing/shapeit_filter/FAM001_shapeit_rephased_final.vcf.gz (+ .tbi)  haplotypes
-  phasing/haplotype_origin/PARENT_affected_normal_haplotype.csv, PARENT_haplotype_conclusion.txt
+  phasing/haplotype_origin/PARENT_haplotype_conclusion.txt (+ PARENT_affected_normal_haplotype.csv,
+                                         which a run with a sibling as its index does not write)
   cram/SAMPLE.cram (+ .crai)
   mean/SAMPLE_coverage.csv, ngsbits/SAMPLE.tsv, qualimap/SAMPLE/genome_results.txt + qualimapReport.html
   picard/FAM001_ADO_ADI.csv, rtgtools/FAM001_{cohort,imputed}_concordance.csv, king/FAM001.kin0
@@ -661,7 +663,8 @@ FAM001/
 
 Its PED gives the embryos the sex ngs-bits read, so CoGA cannot tell them apart from the
 couple's other children, and it lacks the index, the relative whose haplotypes tell the
-affected parent's two haplotypes apart. Discover takes both from the samplesheet: each
+affected parent's two haplotypes apart. Discover takes both from the samplesheet (the one
+the newest `params_*.json` names as its `input`, when the run kept it under that name): each
 embryo gets the embryo role under `family.members`, and an index the PED lacks is added
 under `family.add_members` with the sex ngs-bits read. How the index is related is in none
 of the pipeline's files, so Discover proposes a link from what KING measured against the

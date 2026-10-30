@@ -28,27 +28,32 @@ const family = {
 
 // The (stub) backend's full set; the mock filters it to the requested window like the
 // real endpoint. Two sites sit in the ROI (1,000,000–1,001,000) — one informative, one
-// uninformative — and one just past it at 1,001,500 (flank), revealed by zooming out.
+// uninformative — one just past it at 1,001,500 (flank, in the window the calls read: the ROI
+// and 1 Mb on each side), and one at 2,500,500, beyond that window, revealed by zooming out.
 type Marker = { pos: number; hap1: number | null; hap2: number | null };
 const ALL_MARKERS: Record<string, Marker[]> = {
   FATHER: [
     { pos: 1_000_500, hap1: 0, hap2: 1 },
     { pos: 1_001_500, hap1: 1, hap2: 0 },
+    { pos: 2_500_500, hap1: 1, hap2: 0 },
   ],
   MOTHER: [
     { pos: 1_000_500, hap1: 0, hap2: 0 },
     { pos: 1_001_500, hap1: 1, hap2: 1 },
+    { pos: 2_500_500, hap1: 1, hap2: 1 },
   ],
   // 1,000,500: hap1 resolved (informative), hap2 unresolved (null -> greyed).
   EMBRYO: [
     { pos: 1_000_500, hap1: 1, hap2: null },
     { pos: 1_001_500, hap1: 0, hap2: 1 },
+    { pos: 2_500_500, hap1: 0, hap2: 1 },
   ],
 };
 const ALL_SITES = [
   { pos: 1_000_500, ref: 'G', alt: 'A', gts: ['0|1', '0|0', '1|0'] }, // ROI, informative
   { pos: 1_000_800, ref: 'C', alt: 'T', gts: ['0|0', '0|0', '0|0'] }, // ROI, uninformative
   { pos: 1_001_500, ref: 'C', alt: 'T', gts: ['1|0', '1|1', '0|1'] }, // flank, informative
+  { pos: 2_500_500, ref: 'C', alt: 'T', gts: ['1|0', '1|1', '0|1'] }, // beyond the window, informative
 ];
 const inWin = (pos: number, start: number, end: number) => pos >= start && pos <= end;
 const phasedFor = (start: number, end: number) => ({
@@ -192,10 +197,10 @@ describe('FamilyRoiMarkersPage', () => {
     const header = (await screen.findByRole('heading', { name: 'ROI marker review — GENEX' })).parentElement;
     expect(header).toContainElement(await findImportIncompleteBanner());
     expect(header).toContainElement(await findAssemblyScopeBanner());
-    expect(screen.getByText(/2 markers in view/)).toBeInTheDocument();
+    expect(screen.getByText(/3 markers in view/)).toBeInTheDocument();
   });
 
-  it('opens on the ROI with two homolog bands per member and an orange ROI line', async () => {
+  it('opens on the ROI and its 1 Mb flanks with two homolog bands per member and an orange ROI line', async () => {
     renderPage();
     await waitFor(() => expect(screen.getByText(/ROI marker review/)).toBeTruthy());
 
@@ -204,14 +209,15 @@ describe('FamilyRoiMarkersPage', () => {
     expect(screen.getByText('MOTHER')).toBeTruthy();
     expect(screen.getByText('EMBRYO')).toBeTruthy();
 
-    // Default view is the ROI only: the two ROI sites are in view, the flank site is not.
-    // Of the ROI sites, one is informative for the embryo.
-    expect(screen.getByText(/2 markers in view/)).toBeTruthy();
-    expect(screen.getByText(/1 informative for embryos/)).toBeTruthy();
+    // Default view is the window the calls and their QC read, the ROI and 1 Mb on each side
+    // (0–2,001,000 here): the two ROI sites and the flank site are in view, the site beyond it
+    // is not. One ROI site and the flank site are informative for the embryo.
+    expect(screen.getByText(/3 markers in view/)).toBeTruthy();
+    expect(screen.getByText(/2 informative for embryos/)).toBeTruthy();
 
-    // One informative site renders -> 3 members × 2 lanes × 1 site = 6 band cells.
+    // Two informative sites render -> 3 members × 2 lanes = 6 band rows, × 2 sites = 12 cells.
     expect(document.querySelectorAll('.roi-markers-bandrow').length).toBe(6);
-    expect(document.querySelectorAll('.roi-markers-band').length).toBe(6);
+    expect(document.querySelectorAll('.roi-markers-band').length).toBe(12);
 
     // The allele is linked to its homolog band: father 0|1 -> G on hap1, A on hap2.
     const fatherHap1 = bandCell('FATHER', 1, 1_000_500);
@@ -235,18 +241,20 @@ describe('FamilyRoiMarkersPage', () => {
     expect(mutedG?.className).toContain('roi-markers-allele--muted');
     expect(mutedG?.getAttribute('style')).not.toBe(fatherG);
 
-    // Members are separated by spacer rows (3 members -> 2 gaps), and every in-view column
-    // is in the ROI, so each gap carries the orange ROI line across its one column.
+    // Members are separated by spacer rows (3 members -> 2 gaps); one in-view column is in the
+    // ROI, so each gap carries the orange ROI line across that column.
     expect(document.querySelectorAll('.roi-markers-spacer').length).toBe(2);
     expect(document.querySelectorAll('.roi-markers-spacer-cell--roi').length).toBe(2);
 
-    // The uninformative ROI site (1,000,800) and the out-of-window flank site (1,001,500)
-    // are not rendered; the informative ROI site is.
+    // The uninformative ROI site (1,000,800) and the site beyond the window (2,500,500) are
+    // not rendered; the informative ROI site is, and the flank site, dimmed.
     const table = document.querySelector('.roi-markers-table') as HTMLElement;
     expect(table.textContent).not.toContain('1,000,800');
-    expect(table.textContent).not.toContain('1,001,500');
+    expect(table.textContent).not.toContain('2,500,500');
     expect(screen.getByText('1,000,500')).toBeTruthy();
     expect(screen.getByTitle(/1,000,500 G>A$/).className).toContain('roi-markers-poscol--roi');
+    expect(screen.getByTitle(/1,001,500 .*\(flank\)$/).className).not.toContain('roi-markers-poscol--roi');
+    expect(bandCell('EMBRYO', 1, 1_001_500)?.className).toContain('roi-markers-band--flank');
 
     // The red ⚠ badge after a child's id is the Mendelian-error rate. It uses the
     // chromosome-view floating tooltip (not a native title); hovering it shows the
@@ -303,7 +311,7 @@ describe('FamilyRoiMarkersPage', () => {
     expect(alleleColor('FATHER', 2)).not.toBe(alleleColor('EMBRYO', 2));
   });
 
-  it('zooms out to reveal — and dim — the flanking markers, then resets to the ROI', async () => {
+  it('zooms out to reveal — and dim — the markers beyond the window, then resets to it', async () => {
     renderPage();
     await waitFor(() => expect(screen.getByText(/ROI marker review/)).toBeTruthy());
 
@@ -316,30 +324,68 @@ describe('FamilyRoiMarkersPage', () => {
           opts?.params?.end === end,
       );
 
-    // Standard view opens on the ROI itself (1,000,000–1,001,000).
-    expect(phasedCall(1_000_000, 1_001_000)).toBe(true);
+    // Standard view opens on the ROI (1,000,000–1,001,000) and 1 Mb on each side, the chromosome
+    // start bounding it on the left.
+    expect(phasedCall(0, 2_001_000)).toBe(true);
 
-    // Zoom out doubles the span about the centre (1,000,500); the 1 kb ROI -> 2 kb window,
-    // which now reaches the flank site at 1,001,500.
+    // Zoom out doubles the span about the centre (1,000,500), which now reaches the site at
+    // 2,500,500.
     fireEvent.click(screen.getByRole('button', { name: 'Zoom out' }));
-    await waitFor(() => expect(phasedCall(999_500, 1_001_500)).toBe(true));
+    await waitFor(() => expect(phasedCall(0, 3_001_500)).toBe(true));
 
-    // The flank marker now appears, tagged as flank (not ROI) and dimmed; the ROI column
-    // stays highlighted.
-    const flankHeader = await screen.findByTitle(/1,001,500 .*\(flank\)$/);
-    expect(flankHeader.className).not.toContain('roi-markers-poscol--roi');
+    // That marker now appears, tagged as flank (not ROI) and dimmed; the ROI column stays
+    // highlighted.
+    const farHeader = await screen.findByTitle(/2,500,500 .*\(flank\)$/);
+    expect(farHeader.className).not.toContain('roi-markers-poscol--roi');
     expect(screen.getByTitle(/1,000,500 G>A$/).className).toContain('roi-markers-poscol--roi');
-    const flankCell = bandCell('EMBRYO', 1, 1_001_500);
-    expect(flankCell?.className).toContain('roi-markers-band--flank');
+    expect(bandCell('EMBRYO', 1, 2_500_500)?.className).toContain('roi-markers-band--flank');
     expect(bandCell('EMBRYO', 1, 1_000_500)?.className).not.toContain('roi-markers-band--flank');
 
-    // Reset returns to the ROI-only window.
+    // Reset returns to the window the calls read.
     fireEvent.click(screen.getByRole('button', { name: /Reset/ }));
     await waitFor(() =>
       expect((api.get as Mock).mock.calls.filter(([url]) => String(url).endsWith('/phased-markers')).length)
         .toBeGreaterThan(2),
     );
-    await waitFor(() => expect(screen.queryByTitle(/1,001,500 .*\(flank\)$/)).toBeNull());
+    await waitFor(() => expect(screen.queryByTitle(/2,500,500 .*\(flank\)$/)).toBeNull());
+  });
+
+  it('keeps the informative markers nearest the ROI when the window holds more than it draws', async () => {
+    // 450 informative sites left of the ROI (100,000–549,000) and 450 right of it
+    // (1,450,000–1,899,000), all in the window the calls read: 900, of which 800 are drawn.
+    const positions = [
+      ...Array.from({ length: 450 }, (_, index) => 100_000 + index * 1_000),
+      ...Array.from({ length: 450 }, (_, index) => 1_450_000 + index * 1_000),
+    ];
+    const dense = {
+      samples: [
+        { sample: 'FATHER', markers: positions.map((pos) => ({ pos, hap1: 0, hap2: 1 })), reference: true, qc: null },
+        { sample: 'MOTHER', markers: positions.map((pos) => ({ pos, hap1: 0, hap2: 0 })), reference: true, qc: null },
+        {
+          sample: 'EMBRYO',
+          markers: positions.map((pos) => ({ pos, hap1: 1, hap2: null })),
+          reference: false,
+          qc: { informative_sites: 900, mendel_errors: 0, mendel_rate: 0 },
+        },
+      ],
+      sites: positions.map((pos) => ({ pos, ref: 'G', alt: 'A', gts: ['0|1', '0|0', '1|0'] })),
+      truncated: false,
+    };
+    const working = (api.get as Mock).getMockImplementation()!;
+    (api.get as Mock).mockImplementation((url: string, config?: unknown) =>
+      url.endsWith('/phased-markers') ? Promise.resolve({ data: dense }) : working(url, config),
+    );
+    renderPage();
+
+    expect(
+      await screen.findByText(/Showing the 800 of 900 informative markers nearest the ROI; pan or zoom in to see the others/),
+    ).toBeInTheDocument();
+    // The farthest on each side are left out, not the right flank as a whole.
+    expect(bandCell('EMBRYO', 1, 549_000)).not.toBeNull();
+    expect(bandCell('EMBRYO', 1, 1_450_000)).not.toBeNull();
+    expect(bandCell('EMBRYO', 1, 100_000)).toBeNull();
+    expect(bandCell('EMBRYO', 1, 1_899_000)).toBeNull();
+    expect(document.querySelectorAll('[data-sample="EMBRYO"][data-lane="1"]').length).toBe(800);
   });
 
   it('highlights Mendelian-error markers on the child with a light-orange cell', async () => {

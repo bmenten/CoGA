@@ -229,7 +229,10 @@ def test_the_embryos_at_an_x_linked_roi_are_called_from_those_blocks(x_linked) -
     son, daughter = embryos[names["E_SON"]], embryos[names["E_DAUGHTER"]]
     assert (son["call"], daughter["call"]) == ("affected_or_at_risk", "unaffected_non_carrier")
     assert {(homolog["origin"], homolog["homolog"]) for homolog in son["inherited"]} == {("maternal", "1")}
-    # A hundred sites at the ROI, each read on the mother's side: the QC is met.
+    # The QC is read over the ROI and 1 Mb on each side: all two hundred sites outside the PARs,
+    # fifty left of the ROI, a hundred in it and fifty right of it, each read on the mother's
+    # side: the QC is met.
     for embryo in (son, daughter):
-        assert embryo["qc"]["informative_sites"] == 100 and embryo["qc"]["mendel_errors"] == 0, embryo
+        assert embryo["qc"]["informative_sites"] == 200 and embryo["qc"]["mendel_errors"] == 0, embryo
+        assert (embryo["qc"]["maternal_markers_left"], embryo["qc"]["maternal_markers_right"]) == (50, 50), embryo
         assert embryo["qc_verdict"] == {"status": "pass", "sides": ["maternal"], "findings": []}, embryo
