@@ -849,16 +849,34 @@ def _parse_apcad_interval_row(
     path: Path,
     line_no: int,
 ) -> dict[str, Any] | None:
+    extra: dict[str, Any] = {}
     if header is not None:
         chrom = _normalized_header_value(parts, header, "chr", "chrom", "chromosome")
         start_raw = _normalized_header_value(parts, header, "start", "window_start")
         end_raw = _normalized_header_value(parts, header, "end", "stop", "window_end")
         pos_raw = _normalized_header_value(parts, header, "pos", "position")
         record_id = _normalized_header_value(parts, header, "id", "record_id", "name")
-        value_raw = _normalized_header_value(parts, header, *_APCAD_VALUE_KEYS)
-        origin_raw = _normalized_header_value(parts, header, *_APCAD_ORIGIN_KEYS)
+        # The PGT pipeline's table of an embryo's informative sites (nf-cmgg/copgtm,
+        # apcad/<embryo>_APCAD_parental_data.csv) holds the cohort's AF beside the
+        # embryo's own allele fraction (raw_AF), and the parent the alternate allele came
+        # from as `source` (mat, pat): those are read, never the cohort's AF.
+        pipeline_table = _normalize_header_key("raw_AF") in header
+        value_raw = (
+            _normalized_header_value(parts, header, "raw_AF")
+            if pipeline_table
+            else _normalized_header_value(parts, header, *_APCAD_VALUE_KEYS)
+        )
+        origin_raw = _normalized_header_value(parts, header, *_APCAD_ORIGIN_KEYS) or (
+            _normalized_header_value(parts, header, "source") if pipeline_table else None
+        )
         ref = _normalized_header_value(parts, header, "ref")
         alt = _normalized_header_value(parts, header, "alt")
+        # Its FILTER and QUAL, where the table has them, as a VCF's sites carry theirs: the
+        # APCAD view keeps the sites that passed.
+        for key in ("filter", "qual"):
+            value = _normalized_header_value(parts, header, key)
+            if value is not None:
+                extra[key] = value
     else:
         if len(parts) >= 7 and _coerce_int(parts[1]) is not None and _coerce_int(parts[2]) is None:
             chrom = parts[0]
@@ -898,7 +916,7 @@ def _parse_apcad_interval_row(
         record_id=None if record_id in (None, "", ".") else str(record_id),
         value=value,
         origin=_normalize_origin(origin_raw),
-        extra_metadata={"ref": ref, "alt": alt},
+        extra_metadata={"ref": ref, "alt": alt, **extra},
     )
 
 

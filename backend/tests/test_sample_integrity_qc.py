@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import random
 
+import pytest
+
 from backend.app.services.sample_integrity_qc import (
     PedigreeSpec,
+    ReadSexCall,
     SexCheck,
     classify_relatedness,
     evaluate_fetal_sex,
@@ -188,6 +191,169 @@ def test_evaluate_sex_mismatch_fails() -> None:
     assert child_sex.inferred_sex == "female"
     assert child_sex.status == "fail"
     assert report.overall_status == "fail"
+
+
+# --- Sex from the reads (ngs-bits) without chrX genotypes ----------------------
+
+_PGT = profile_for("pgt")
+# What the PGT pipeline's ngs-bits SampleGender read off each sample's chrY/chrX read ratio.
+_MALE_READS = ReadSexCall("male", reads_chry=10_500, reads_chrx=100_000, ratio_chry_chrx=0.105)
+_FEMALE_READS = ReadSexCall("female", reads_chry=150, reads_chrx=125_000, ratio_chry_chrx=0.0012)
+_MALE_EVIDENCE = (
+    "ngs-bits chrY/chrX read ratio 0.1050, 10,500 chrY and 100,000 chrX reads, from the pipeline; "
+    "no chrX genotypes"
+)
+_FEMALE_EVIDENCE = (
+    "ngs-bits chrY/chrX read ratio 0.0012, 150 chrY and 125,000 chrX reads, from the pipeline; "
+    "no chrX genotypes"
+)
+_SAME_CALL = (
+    " The embryo's recorded sex was taken from this same ngs-bits call, so the match confirms "
+    "nothing independent."
+)
+
+
+def _pgt_family(sexes: dict[str, str] | None = None):
+    """A PGT family's imputed autosomal genotypes (no chrX) and pedigree: the parents, an
+    embryo and the index, a child of both."""
+    rng = random.Random(30)
+    father, mother = _founder(rng), _founder(rng)
+    autosomal = {
+        "FATHER1": father,
+        "MOTHER1": mother,
+        "EMB1": _child(rng, father, mother),
+        "INDEX1": _child(rng, father, mother),
+    }
+    spec = PedigreeSpec(
+        recorded_sex=sexes or {"FATHER1": "male", "MOTHER1": "female", "EMB1": "female", "INDEX1": "male"},
+        parents_of={child: {"father": "FATHER1", "mother": "MOTHER1"} for child in ("EMB1", "INDEX1")},
+        roles={"FATHER1": "father", "MOTHER1": "mother", "EMB1": "embryo", "INDEX1": "index"},
+    )
+    return autosomal, spec
+
+
+_PGT_READS = {
+    "FATHER1": _MALE_READS,
+    "MOTHER1": _FEMALE_READS,
+    "EMB1": _FEMALE_READS,
+    "INDEX1": _MALE_READS,
+}
+
+
+def test_without_chrx_genotypes_the_sex_check_compares_the_ngsbits_sex() -> None:
+    # An imputed PGT callset has no chrX: every sex check could not run, so every family
+    # warned and every sign-out had to be acknowledged. The pipeline's ngs-bits read each
+    # sample's sex off its chrY/chrX read ratio: that is compared with the record instead,
+    # and the message says the sex was read from the reads.
+    autosomal, spec = _pgt_family()
+    report = evaluate_sample_integrity(autosomal, {}, spec, profile=_PGT, read_sex=_PGT_READS)
+
+    checks = {c.sample_id: c for c in report.sex_checks}
+    assert {s: (c.status, c.inferred_sex, c.x_sites) for s, c in checks.items()} == {
+        "EMB1": ("pass", "female", 0),
+        "FATHER1": ("pass", "male", 0),
+        "INDEX1": ("pass", "male", 0),
+        "MOTHER1": ("pass", "female", 0),
+    }
+    assert checks["FATHER1"].message == f"Read-inferred sex matches the record ({_MALE_EVIDENCE})."
+    assert checks["MOTHER1"].message == f"Read-inferred sex matches the record ({_FEMALE_EVIDENCE})."
+    assert checks["INDEX1"].message == f"Read-inferred sex matches the record ({_MALE_EVIDENCE})."
+    # The embryo's recorded sex is the ngs-bits call itself (the copgtm PED): it passes, and
+    # says the match confirms nothing independent. The parents and the index were compared.
+    assert checks["EMB1"].message == (
+        f"Read-inferred sex matches the record ({_FEMALE_EVIDENCE}).{_SAME_CALL}"
+    )
+    # Every sample was checked: no note names one, and the family passes.
+    assert report.notes == []
+    assert report.overall_status == "pass"
+
+
+@pytest.mark.parametrize(
+    ("sample_id", "recorded", "call", "status", "message"),
+    [
+        # A sex the reads contradict fails as a genotype mismatch does, the embryo's too.
+        (
+            "MOTHER1", "female", _MALE_READS, "fail",
+            f"Recorded female but the reads indicate male ({_MALE_EVIDENCE}) — possible sample swap or mislabel.",
+        ),
+        (
+            "EMB1", "female", _MALE_READS, "fail",
+            f"Recorded female but the reads indicate male ({_MALE_EVIDENCE}) — possible sample swap or mislabel.",
+        ),
+        # No recorded sex to compare with: not confirmed.
+        (
+            "INDEX1", "unknown", _MALE_READS, "warn",
+            f"Sex not recorded; the reads indicate male ({_MALE_EVIDENCE}).",
+        ),
+        # ngs-bits read no sex: not confirmed, as an indeterminate genotype sex.
+        (
+            "FATHER1", "male",
+            ReadSexCall("indeterminate", reads_chry=4_500, reads_chrx=100_000, ratio_chry_chrx=0.045), "warn",
+            "Could not infer sex from the reads (ngs-bits chrY/chrX read ratio 0.0450, 4,500 chrY and "
+            "100,000 chrX reads, from the pipeline; no chrX genotypes).",
+        ),
+        # The pipeline gave the call without its numbers.
+        (
+            "FATHER1", "male", ReadSexCall("male"), "pass",
+            "Read-inferred sex matches the record (ngs-bits chrY/chrX read ratio, from the pipeline; "
+            "no chrX genotypes).",
+        ),
+    ],
+)
+def test_the_ngsbits_sex_is_graded_as_the_genotype_sex(sample_id, recorded, call, status, message) -> None:
+    sexes = {"FATHER1": "male", "MOTHER1": "female", "EMB1": "female", "INDEX1": "male", sample_id: recorded}
+    autosomal, spec = _pgt_family(sexes)
+    report = evaluate_sample_integrity(
+        autosomal, {}, spec, profile=_PGT, read_sex={**_PGT_READS, sample_id: call}
+    )
+
+    check = next(c for c in report.sex_checks if c.sample_id == sample_id)
+    assert (check.status, check.message) == (status, message)
+    assert check.inferred_sex == call.inferred_sex
+    assert report.overall_status == status
+    # The sample was checked, though not confirmed: the note names no sample.
+    assert report.notes == []
+
+
+def test_genotype_sex_stays_first_when_there_are_chrx_genotypes() -> None:
+    # The chrX genotypes say male; ngs-bits, read for the sample, is not consulted.
+    autosomal, spec = _pgt_family()
+    x = {"FATHER1": [(0, 0)] * N_SITES}
+    report = evaluate_sample_integrity(
+        autosomal, x, spec, profile=_PGT, read_sex={**_PGT_READS, "FATHER1": _FEMALE_READS}
+    )
+
+    father = next(c for c in report.sex_checks if c.sample_id == "FATHER1")
+    assert (father.status, father.inferred_sex, father.x_sites) == ("pass", "male", N_SITES)
+    assert father.message.startswith("Genotype-inferred sex matches the record")
+
+
+def test_a_sample_without_a_called_chrx_site_reads_the_ngsbits_sex_and_one_without_it_is_named() -> None:
+    # The callset holds chrX sites, but none of them called for the mother: she has no chrX
+    # genotypes and is sexed from her reads. The index has no ngs-bits call either: his
+    # check could not run, and the note names him alone.
+    autosomal, spec = _pgt_family()
+    x = {
+        "FATHER1": [(0, 0)] * N_SITES,
+        "MOTHER1": [None] * N_SITES,
+        "EMB1": _founder(random.Random(31)),
+    }
+    reads = {"MOTHER1": _FEMALE_READS}
+    report = evaluate_sample_integrity(autosomal, x, spec, profile=_PGT, read_sex=reads)
+
+    checks = {c.sample_id: c for c in report.sex_checks}
+    assert {s: c.status for s, c in checks.items()} == {
+        "EMB1": "pass",
+        "FATHER1": "pass",
+        "INDEX1": "skip",
+        "MOTHER1": "pass",
+    }
+    assert checks["MOTHER1"].message == f"Read-inferred sex matches the record ({_FEMALE_EVIDENCE})."
+    # Sexed from its genotypes, the embryo's check carries no note about the ngs-bits call.
+    assert checks["EMB1"].message.startswith("Genotype-inferred sex matches the record")
+    assert checks["INDEX1"].message == "No chrX genotypes available for sex inference."
+    assert report.notes == [f"Sex could not be checked for sample INDEX1. {_NOT_A_PASS}"]
+    assert report.overall_status == "warn"
 
 
 # --- Application resolution + per-profile gating -----------------------------

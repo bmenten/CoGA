@@ -544,6 +544,40 @@ def _manifest_derived_statuses(
                 "(or family.add_members)."
             ),
         )
+
+    # Under AR, both parents of an affected child are obligate carriers. Where the index is the
+    # embryos' parents' affected child, the parent the run did not trace is recorded as a proven
+    # carrier too (the owner's decision of 2026-10-30); an index that is not their child says
+    # nothing of the other parent.
+    if inheritance_model == "AR":
+        couples = {
+            (member.pid, member.mid)
+            for member in ped.members
+            if member.pid not in {"", "0"}
+            and member.mid not in {"", "0"}
+            and (explicit.get(member.iid, {}).get("role") == "embryo" or member.iid in _ped_embryo_sample_ids(ped))
+        }
+        for sample_id in indexes:
+            member = members.get(sample_id)
+            if member is None or sample_id in parents or (member.pid, member.mid) not in couples:
+                continue
+            recorded = explicit.get(sample_id, {}).get("clinical_status") or (
+                member.clinical_status if member.clinical_status != "unknown" else None
+            )
+            if (recorded or derived.get(sample_id, {}).get("clinical_status")) != "affected":
+                continue
+            for parent_id in (member.pid, member.mid):
+                parent = members.get(parent_id)
+                if parent is None or parent_id in parents or parent_id in derived:
+                    continue
+                derive(
+                    parent_id,
+                    parent,
+                    {"carrier_status": "carrier", "carrier_type": "proven"},
+                    role=f"parent of the affected index {sample_id}, an obligate carrier,",
+                    code="pgt_index_parent",
+                    key="metadata.pgt.indexes",
+                )
     return derived, errors, warnings
 
 

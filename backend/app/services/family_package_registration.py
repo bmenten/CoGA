@@ -191,6 +191,8 @@ _PROVENANCE_PATH_KEYS = frozenset(
         "bam",
         # The long-read datasets' files, and each sample's QC files of either pipeline.
         *(role for required, optional in LONG_READ_DATASET_ROLES.values() for role in (*required, *optional)),
+        # The mtDNA-Server table a mito entry reads its sample's rows from, without a chrM VCF.
+        "table",
         # The PGT pipeline's (nf-cmgg/copgtm) family files: its QC tables and its reading
         # of the affected haplotype.
         *QC_FAMILY_ROLES,

@@ -6,7 +6,8 @@ person, so inheritance reasoning is quietly wrong. This module runs three
 reference-free checks that catch that before interpretation:
 
   * Sex concordance -- genotype-inferred sex (chrX heterozygosity) vs the
-    recorded sex.
+    recorded sex; for a sample without chrX genotypes, the sex the pipeline's
+    ngs-bits read off its chrY/chrX read ratio.
   * Relatedness concordance -- KING-robust kinship + IBS0 between sample pairs
     vs the relationship the pedigree asserts (parent-child / sibling / unrelated).
   * Mendelian error rate -- parent-child / trio transmission consistency.
@@ -21,6 +22,7 @@ aligned by index (same site at the same position in every sample's list).
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -96,6 +98,21 @@ class SexCheck:
     x_sites: int
     status: Status
     message: str
+
+
+@dataclass(frozen=True, slots=True)
+class ReadSexCall:
+    """The sex the pipeline's ngs-bits ``SampleGender`` read off a sample's chrY/chrX read
+    ratio (``samples.metadata.sequencing_qc.sex_check``, from a package's ``qc`` dataset).
+
+    The sex check reads it only for a sample without chrX genotypes: an imputed PGT callset
+    (GLIMPSE2) holds the autosomes alone.
+    """
+
+    inferred_sex: str  # "male" | "female" | "indeterminate"
+    reads_chry: int | None = None
+    reads_chrx: int | None = None
+    ratio_chry_chrx: float | None = None
 
 
 @dataclass(slots=True)
@@ -233,6 +250,8 @@ class PedigreeSpec:
     recorded_sex: dict[str, str]  # sample_id -> "male" | "female" | "unknown"
     # child -> {"father": id, "mother": id} (either parent may be absent)
     parents_of: dict[str, dict[str, str]]
+    # sample_id -> its member role, lower-cased ("father", "embryo", ...)
+    roles: dict[str, str] = field(default_factory=dict)
 
 
 _STATUS_RANK: dict[Status, int] = {"skip": 0, "pass": 1, "warn": 2, "fail": 3}
@@ -418,12 +437,25 @@ def _norm_sex(value: str | None) -> str:
 
 
 def _evaluate_sex(
-    sample_id: str, recorded: str, x_gts: list[Genotype | None] | None
+    sample_id: str,
+    recorded: str,
+    x_gts: list[Genotype | None] | None,
+    *,
+    read_sex: ReadSexCall | None = None,
+    embryo: bool = False,
 ) -> SexCheck:
+    """One sample's sex check: its chrX genotypes against the recorded sex.
+
+    The genotypes come first. Without a called chrX site the check compares the sex the
+    pipeline's ngs-bits read off the sample's reads (``read_sex``) instead, when there is
+    one; with neither it could not run ("skip").
+    """
+    inferred, het_rate, n = infer_sex(x_gts) if x_gts else ("indeterminate", None, 0)
+    if n == 0 and read_sex is not None:
+        return _evaluate_read_sex(sample_id, recorded, read_sex, embryo=embryo)
     if not x_gts:
         return SexCheck(sample_id, recorded, "indeterminate", None, 0, "skip",
                         "No chrX genotypes available for sex inference.")
-    inferred, het_rate, n = infer_sex(x_gts)
     rate_text = f"{het_rate:.1%} chrX het over {n} sites" if het_rate is not None else "no sites"
     if inferred == "indeterminate":
         return SexCheck(sample_id, recorded, inferred, het_rate, n, "warn",
@@ -437,6 +469,53 @@ def _evaluate_sex(
     return SexCheck(sample_id, recorded, inferred, het_rate, n, "fail",
                     f"Recorded {recorded} but genotypes indicate {inferred} "
                     f"({rate_text}) — possible sample swap or mislabel.")
+
+
+def _read_sex_evidence(call: ReadSexCall) -> str:
+    """What a read-based sex check read, for its message: the pipeline's ngs-bits chrY/chrX
+    read ratio and the reads behind it, as far as the pipeline gave them."""
+    text = "ngs-bits chrY/chrX read ratio"
+    if call.ratio_chry_chrx is not None:
+        text += f" {call.ratio_chry_chrx:.4f}"
+    reads = [
+        f"{count:,} {chrom}"
+        for count, chrom in ((call.reads_chry, "chrY"), (call.reads_chrx, "chrX"))
+        if count is not None
+    ]
+    if reads:
+        text += f", {' and '.join(reads)} reads"
+    return f"{text}, from the pipeline; no chrX genotypes"
+
+
+def _evaluate_read_sex(
+    sample_id: str, recorded: str, call: ReadSexCall, *, embryo: bool
+) -> SexCheck:
+    """The sex check of a sample without chrX genotypes: the sex ngs-bits read off its
+    chrY/chrX read ratio against the recorded sex, graded as the genotype check grades.
+
+    The message says the sex was read from the reads, not the genotypes. A copgtm PED gives
+    an embryo the sex ngs-bits read, so an embryo's match is that call compared with itself:
+    still a pass (the owner's decision of 2026-10-30), with a sentence saying so.
+    """
+    inferred = call.inferred_sex
+    evidence = _read_sex_evidence(call)
+    if inferred == "indeterminate":
+        return SexCheck(sample_id, recorded, inferred, None, 0, "warn",
+                        f"Could not infer sex from the reads ({evidence}).")
+    if recorded == "unknown":
+        return SexCheck(sample_id, recorded, inferred, None, 0, "warn",
+                        f"Sex not recorded; the reads indicate {inferred} ({evidence}).")
+    if inferred == recorded:
+        message = f"Read-inferred sex matches the record ({evidence})."
+        if embryo:
+            message += (
+                " The embryo's recorded sex was taken from this same ngs-bits call, so the "
+                "match confirms nothing independent."
+            )
+        return SexCheck(sample_id, recorded, inferred, None, 0, "pass", message)
+    return SexCheck(sample_id, recorded, inferred, None, 0, "fail",
+                    f"Recorded {recorded} but the reads indicate {inferred} "
+                    f"({evidence}) — possible sample swap or mislabel.")
 
 
 def _relationship_check(
@@ -774,15 +853,26 @@ def evaluate_sample_integrity(
     category_qc_check: NiptCategoryQc | None = None,
     extra_sex_checks: list[SexCheck] | None = None,
     extra_notes: list[str] | None = None,
+    read_sex: Mapping[str, ReadSexCall] | None = None,
 ) -> SampleIntegrityReport:
     """Run the checks the application profile enables and roll up an overall status, in
-    which a check that could not run counts as a warning (``_overall_status``)."""
+    which a check that could not run counts as a warning (``_overall_status``).
+
+    ``read_sex`` holds the sex the pipeline's ngs-bits read per sample, which the sex check
+    of a sample without chrX genotypes compares instead (``_evaluate_sex``)."""
     samples = sorted(autosomal)
     notes: list[str] = list(extra_notes or [])
+    read_calls = read_sex or {}
 
     sex_checks = (
         [
-            _evaluate_sex(s, _norm_sex(spec.recorded_sex.get(s)), x_genotypes.get(s))
+            _evaluate_sex(
+                s,
+                _norm_sex(spec.recorded_sex.get(s)),
+                x_genotypes.get(s),
+                read_sex=read_calls.get(s),
+                embryo=spec.roles.get(s) == "embryo",
+            )
             for s in samples
         ]
         if profile.run_sex
@@ -853,7 +943,8 @@ def evaluate_sample_integrity(
                 "relatedness estimates may be unreliable."
             )
     # A sex check that could not run makes the overall a warning (below); the note says
-    # whose sex was not checked, on the page and in the signed report.
+    # whose sex was not checked, on the page and in the signed report. A sample sexed from
+    # its reads (ngs-bits) was checked, and is not named.
     unchecked_sex = list(dict.fromkeys(c.sample_id for c in sex_checks if c.status == "skip"))
     if unchecked_sex:
         notes.append(_unchecked_sex_note(unchecked_sex))

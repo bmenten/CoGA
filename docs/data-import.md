@@ -650,8 +650,10 @@ FAM001/
                                          keep the run's own name, samplesheet_FAM001_10x.csv)
   dashboard/pedigree.csv                 father, mother, index and embryo per row
   qdnaseq/SAMPLE_cnv.csv                 QDNAseq bins (copynumber) and segments (segmented)
-  split_trio/filter_trio/EMBRYO1.trio_filtered.vcf.gz (+ .tbi)          APCAD
+  apcad/EMBRYO1_APCAD_parental_data.csv APCAD: the sites the run's APCAD read, when it writes them
+  split_trio/filter_trio/EMBRYO1.trio_filtered.vcf.gz (+ .tbi)          APCAD otherwise
   apcad/EMBRYO1_pcf_{mat,pat}_data.csv   PCF segments, when the run writes them
+  mito/variants.annotated.txt            mtDNA-Server calls of every sample, when the run writes them
   phasing/shapeit_filter/FAM001_shapeit_rephased_final.vcf.gz (+ .tbi)  haplotypes
   phasing/haplotype_origin/PARENT_haplotype_conclusion.txt (+ PARENT_affected_normal_haplotype.csv,
                                          which a run with a sibling as its index does not write)
@@ -685,6 +687,30 @@ The embryo-only VCFs (`split_trio/extract_embryo/`), the pipeline's HTML plots a
 `dashboard/` copies are not imported. The PCF segmentation is read from its table only: a
 run that draws it in `apcad/EMBRYO1_pcf_apcad_plot.html` alone gets no PCF track, and
 Discover leaves the `pcf` dataset off.
+
+APCAD is read from the run's own table of the sites it read for each embryo
+(`apcad/EMBRYO1_APCAD_parental_data.csv`: the parents homozygous for opposite alleles, the
+embryo read deep enough), where the run writes one (the owner's decision of 2026-10-30): the
+embryo's allele fraction from its `raw_AF` column (its `AF` column is the cohort's), the parent
+the alternate allele came from from its `source` column (`mat`, `pat`), and its FILTER and QUAL.
+These are the points the laboratory's own APCAD plots and the PCF segments rest on, and the
+table imports in seconds. An embryo without one is read from its trio VCF, as before: every
+site at which only one parent carries the alternate allele. A table whose `Indiv` column names
+another sample than its entry's fails validation (`apcad_table_sample_mismatch`). The
+segregation table (`_APCAD_segregation_data.csv`) is not imported.
+
+The run's mtDNA-Server table (`mito/variants.annotated.txt`) holds the chrM calls of every
+sample it analysed, one row per variant per sample, its `ID` column naming the sample's chrM
+BAM; it writes no chrM VCF. Discover gives each member the table holds rows for a `mito` entry
+naming the table and that ID (`table`, `table_id`: `EMBRYO1.depth_10x_chrM.bam` is EMBRYO1's),
+and says which IDs name no member. The import writes each member's rows as its chrM VCF (the
+genotype, `Coverage` as its depth and `VariantLevel` as its heteroplasmy level) with their own
+annotation, and reads them as it reads a chrM VCF and its mutserve annotation; a row whose
+allele is not one base (mutserve's `D` for a deletion) is not a call it reads. An entry whose ID
+holds no call fails validation (`mito_table_rows_missing`). The table's `Phylotree17_haplogroups`
+and `Phylotree17_clades` columns count the PhyloTree 17 haplogroups and clades that carry a variant;
+a number there is kept as that count (`haplogroup_count`, `haplogroup_clade_count`), never read as a
+haplogroup, so such a table gives no sample a haplogroup (it read the most frequent count as one).
 
 A monogenic NIPT package from the NIPT-M pipeline holds one VCF per parent, each with one
 sample: the maternal plasma's (cfDNA) and the father's, both called by Mutect2 in tumour-only
@@ -860,6 +886,13 @@ validation says so. A status recorded for the index wins, as for the parent, and
 `family.add_members` adds it with a `clinical_status`. The index must be a member, and not
 the affected parent.
 
+Under AR both parents of an affected child are obligate carriers. Where the index is the
+embryos' parents' child and affected (derived or recorded), the parent the run did not trace
+is recorded as a proven carrier too (the owner's decision of 2026-10-30), its
+`carrier_evidence` naming `metadata.pgt.indexes`, and validation lists it
+(`pgt_index_parent_status`). A status recorded for that parent wins, as above; an index that is
+not the couple's child says nothing of the other parent.
+
 `family.add_members` adds a member the PED lacks: it becomes one more PED row, with its
 `role` (default `relative`), `sex` (default unknown), `clinical_status` (default unknown) and,
 when given, its `father` and `mother`, so every check and the stored pedigree treat it like
@@ -922,12 +955,12 @@ is migrated; import or upload such a BED again with what it holds.
 | `repeats_trgt` | repeat expansions (Postgres), scored against the TRGT catalogue |
 | `wisecondorx`, `qdnaseq` | bins as the `coverage` track, segments as the `segments` track |
 | `coverage` | the `coverage` track (a BED per sample, `bed:`, with what it holds, `content:`, [above](#the-manifest)), or the `target_coverage` track (a capture panel's per-target coverage table, `target_table:`, [below](#monogenic-nipt-pairs)) |
-| `apcad` | the `apcad` track: per SNV the embryo's alternate-allele fraction, tagged with the parent the alternate allele can only have come from. From a family VCF, or one trio VCF per embryo (`vcf:` under `per_sample`) |
+| `apcad` | the `apcad` track: per SNV the embryo's alternate-allele fraction, tagged with the parent the alternate allele can only have come from. From a family VCF, one trio VCF per embryo (`vcf:` under `per_sample`), or the PGT pipeline's table of the sites its APCAD read (`file:`; the embryo's `raw_AF` and the parent in `source`) |
 | `pcf` | the `apcad_pcf` track (maternal and paternal segment files) |
 | `haplotypes` | a phased family VCF (GLIMPSE2, or SHAPEIT5 from the PGT pipeline) becomes small variants plus haplotype blocks, with a switch in a parent's phasing undone where the couple's children all switch together (kept in `families.metadata.haplotype_phase_corrections`); a per-sample BCF is only registered, not imported. The PGT pipeline's haplotype-origin files (`haplotype_origin`, `haplotype_conclusion`) are kept on the family as its reading of the affected haplotype; CoGA's own risk call does not use them |
 | `paraphase` | Paraphase results (Postgres), shown on the family's Paraphase page |
 | `cnv` (HiFiCNV) | structural variants, source `hificnv`, each named by its coordinates, type and source, never by the record's ID, which its annotation keeps, and one event in two samples' VCFs one SV with both calls (CLIN-39); the depth bigWig as `coverage` and the copy-number bedGraph as `segments` (both stored as log2 ratios, like the other callers, each with its transform recorded in its `sample_interval_track_sources` row: [database.md](database.md); a depth file without autosomal depth gives no median to normalise by, and its depths are stored as read, recorded as `none`), and the MAF bigWig as `apcad` |
-| `mito` | chrM small variants, source `mito`, annotated from the mutserve table, and each sample's mtDNA haplogroup, the one most of its annotated variants name; the chrM SV file (`sv_vcf`, Sniffles2 `--mosaic`) as structural variants, source `mito_sv`, with each sample's heteroplasmy (`INFO/VAF`) and the mtDNA genes it overlaps, shown on the mtDNA page |
+| `mito` | chrM small variants, source `mito`, annotated from the mutserve table (from a chrM VCF per sample, or a sample's rows of one mtDNA-Server table for all samples: `table`, `table_id`), and each sample's mtDNA haplogroup, the one most of its annotated variants name; the chrM SV file (`sv_vcf`, Sniffles2 `--mosaic`) as structural variants, source `mito_sv`, with each sample's heteroplasmy (`INFO/VAF`) and the mtDNA genes it overlaps, shown on the mtDNA page |
 | `qc` | the sample's sequencing QC, shown as a chip in the family members table: NanoPlot and mosdepth, or the PGT pipeline's mean coverage, Qualimap summary and report, and ngs-bits sex. The PGT pipeline's family tables (`ado_adi`, `concordance`, `imputed_concordance`) go onto each embryo, its KING table (`kinship`) onto the family |
 | `alignments` | the CRAM/BAM location, used by IGV: the package-relative path and, for a package in a bucket, the object's URI |
 | `pipeline_info` | tool versions in the annotation manifest; run parameters on the family (for the PGT pipeline also the affected parent, the ROI, the QDNAseq bin size, and the callset and phasing panel it started from) |

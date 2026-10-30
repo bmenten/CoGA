@@ -5,8 +5,9 @@ generic QC is wrong. This layer resolves the application (long-read WGS family /
 shallow-WGS PGT / monogenic NIPT / carrier couple (BEGECS) / single targeted),
 picks the matching genotype callset (clair3 SNVs, GLIMPSE2 imputed, …), runs only
 the checks that make sense for it, and — for NIPT — derives paternity from the
-cfDNA classification instead of genotype relatedness. The QC maths is in the pure
-``sample_integrity_qc`` module.
+cfDNA classification instead of genotype relatedness. A sample without chrX genotypes
+is sexed from the call the pipeline's ngs-bits made from its reads, stored with its
+sequencing QC. The QC maths is in the pure ``sample_integrity_qc`` module.
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import functools
 import logging
+import math
 import re
 from typing import TYPE_CHECKING
 
@@ -38,6 +40,7 @@ from .sample_integrity_qc import (
     NiptCategoryQc,
     PaternityCheck,
     PedigreeSpec,
+    ReadSexCall,
     SampleIntegrityReport,
     SexCheck,
     _evaluate_sex,
@@ -190,7 +193,53 @@ def _build_pedigree_spec(context: FamilyMetadataContext) -> PedigreeSpec:
         if row.get("sample_id")
     }
     pedigree = build_pedigree(context.sample_rows, context.relationship_rows)
-    return PedigreeSpec(recorded_sex=recorded_sex, parents_of=pedigree.parents_of)
+    return PedigreeSpec(recorded_sex=recorded_sex, parents_of=pedigree.parents_of, roles=pedigree.roles)
+
+
+# What the PGT pipeline's qc dataset stores of ngs-bits SampleGender
+# (family_package_qc.parse_ngsbits_sample_gender_text), under
+# samples.metadata.sequencing_qc.sex_check.
+_NGSBITS_SEX_METHOD = "ngs-bits SampleGender"
+_READ_SEXES = {"male", "female", "indeterminate"}
+
+
+def _stored_count(value: object) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
+
+
+def _stored_ratio(value: object) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value) if math.isfinite(value) and value >= 0 else None
+
+
+def _read_sex_call(sample_metadata: object) -> ReadSexCall | None:
+    """The sex the pipeline's ngs-bits read off a sample's chrY/chrX read ratio, from what
+    its ``qc`` dataset stored on the sample; None without one, or when what is stored is not
+    an ngs-bits call (the message the check gives names ngs-bits)."""
+    sequencing_qc = sample_metadata.get("sequencing_qc") if isinstance(sample_metadata, dict) else None
+    stored = sequencing_qc.get("sex_check") if isinstance(sequencing_qc, dict) else None
+    if not isinstance(stored, dict) or stored.get("method") != _NGSBITS_SEX_METHOD:
+        return None
+    inferred = stored.get("inferred_sex")
+    if not isinstance(inferred, str) or inferred.strip().lower() not in _READ_SEXES:
+        return None
+    return ReadSexCall(
+        inferred_sex=inferred.strip().lower(),
+        reads_chry=_stored_count(stored.get("reads_chry")),
+        reads_chrx=_stored_count(stored.get("reads_chrx")),
+        ratio_chry_chrx=_stored_ratio(stored.get("ratio_chry_chrx")),
+    )
+
+
+def _read_sex_calls(context: FamilyMetadataContext) -> dict[str, ReadSexCall]:
+    """Each member's ngs-bits sex, for the sex check of a sample without chrX genotypes."""
+    calls: dict[str, ReadSexCall] = {}
+    for row in context.sample_rows:
+        call = _read_sex_call(row.get("sample_metadata"))
+        if row.get("sample_id") and call is not None:
+            calls[str(row["sample_id"])] = call
+    return calls
 
 
 async def _nipt_parent_sex_checks(
@@ -409,4 +458,7 @@ async def get_family_sample_integrity_qc(
         category_qc_check=category_qc_check,
         extra_sex_checks=nipt_parent_sex_checks,
         extra_notes=service_notes,
+        # A sample without chrX genotypes (an imputed PGT callset holds the autosomes alone)
+        # is sexed from the sex the pipeline's ngs-bits read off its reads.
+        read_sex=_read_sex_calls(context),
     )

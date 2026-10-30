@@ -21,7 +21,10 @@ The page first works out what kind of case it is and runs only the checks that f
   fail. A check that could not run counts as a warning here too. Hover a symbol for the reason.
 - **Per-sample table** — recorded sex against genetic sex, and the Mendelian-error rate. The genetic sex
   carries green ✓ when it matches the record, red ✗ when it does not, amber ! when it could not be
-  confirmed and grey ? when it was not checked. Hover a cell for the reason.
+  confirmed and grey ? when it was not checked. Hover a cell for the reason. A sample without X
+  genotypes, such as in a PGT family, is sexed from its reads by the pipeline's ngs-bits, and the
+  reason says so. An embryo's recorded sex comes from that same call, so its ✓ confirms nothing
+  independent; nor does that of an index added with the sex ngs-bits read.
 - **Relatedness matrix** — each pair's inferred relationship, kinship and IBS0. A pair that contradicts
   the pedigree, including parents who look related, is outlined: red for a fail, amber for a warning.
 - **NIPT cards** — paternity, fetal sex and the category check, for a cfDNA family.

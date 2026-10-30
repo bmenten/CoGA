@@ -322,6 +322,13 @@ _MUTSERVE_ANNOTATION_FIELDS = {
 _MUTSERVE_IGNORED_COLUMNS = frozenset({"id", "filter"})
 
 
+# mtDNA-Server's annotation (the PGT pipeline's mito/variants.annotated.txt) writes in its
+# Phylotree17_haplogroups and Phylotree17_clades columns how many PhyloTree 17 haplogroups and
+# clades carry the variant (4247 at 73G), not their names. A number there is kept as that count:
+# read as a haplogroup, it became the sample's "haplogroup" (the most frequent one, "471").
+_MUTSERVE_COUNT_FIELDS = {"haplogroup": "haplogroup_count", "haplogroup_clades": "haplogroup_clade_count"}
+
+
 def _mutserve_annotation_row(row: dict[str, str]) -> dict[str, Any]:
     annotation: dict[str, Any] = {}
     for column, raw_value in row.items():
@@ -331,7 +338,10 @@ def _mutserve_annotation_row(row: dict[str, str]) -> dict[str, Any]:
         value = (raw_value or "").strip()
         if value in {"", "."}:
             continue
-        annotation[_MUTSERVE_ANNOTATION_FIELDS.get(key, key)] = value
+        field = _MUTSERVE_ANNOTATION_FIELDS.get(key, key)
+        if field in _MUTSERVE_COUNT_FIELDS and value.isdigit():
+            field = _MUTSERVE_COUNT_FIELDS[field]
+        annotation[field] = value
     return annotation
 
 

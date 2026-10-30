@@ -7,6 +7,7 @@ from functools import partial
 import json
 from math import log2
 from pathlib import Path
+import tempfile
 from typing import Any, Awaitable, Callable, Iterator, Mapping, Sequence
 
 from fastapi import HTTPException, UploadFile
@@ -53,7 +54,7 @@ from .repeat_expansion_pg import (
     read_trgt_sample_calls,
 )
 from .upload_safety import read_path_text_bounded
-from .annotation_table_parser import parse_mutserve_annotation_path
+from .annotation_table_parser import VepAnnotationLookup, parse_mutserve_annotation_lines, parse_mutserve_annotation_path
 from .variant_upload_service import (
     NIPT_SMALL_VARIANT_SOURCE,
     SmallVariantWriteState,
@@ -64,6 +65,7 @@ from .variant_upload_service import (
 from .family_package_bigwig import autosomal_median, open_bigwig
 from .family_package_common import APCAD_PCF_SOURCE, APCAD_PCF_TRACK_TYPE, APCAD_SOURCE, CNV_SOURCE, HAPLOTYPE_ORIGIN_ROLES, QC_FAMILY_ROLES, DatasetLeftMissing, DatasetProgressCallback, FamilyPackageBundle, ManifestDataset, MITO_SOURCE, MITO_SV_SOURCE, _display_path, _read_package_text, _resolve_package_path, _run_with_periodic_progress, known_vcf_sample_ids, per_sample_vcf_column, read_vcf_sample_columns, resolve_vcf_sample_id, vcf_holds_a_data_line, vcf_sample_alias_map
 from .family_package_manifest import _ped_embryo_sample_ids
+from .family_package_mito_table import mito_sample_calls, read_mito_table
 from .family_package_nipt import (
     nipt_import_order,
     nipt_package_cfdna_sample,
@@ -2436,8 +2438,62 @@ async def _import_cnv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumma
     )
 
 
+@dataclass(frozen=True)
+class _MitoTableCalls:
+    """A member's rows of the mtDNA-Server table, written as the chrM VCF the loader reads."""
+
+    vcf: Path
+    annotation_lines: list[str]
+    # The table and the ID, for what the dataset says of the file.
+    display: str
+
+
+def _mito_table_calls(job: DatasetImportJob, scratch: Path) -> dict[str, _MitoTableCalls]:
+    """Each mito entry that reads its member's rows of an mtDNA-Server table (``table`` and
+    ``table_id``, no chrM VCF), its rows written as a chrM VCF under ``scratch``
+    (``family_package_mito_table``); the owner's decision of 2026-10-30."""
+    calls: dict[str, _MitoTableCalls] = {}
+    tables: dict[Path, Any] = {}
+    for number, (sample_id, raw_entry) in enumerate((job.dataset.per_sample or {}).items()):
+        if (
+            sample_id not in job.sample_contexts
+            or not isinstance(raw_entry, dict)
+            or not raw_entry.get("table")
+            or raw_entry.get("vcf")
+            or raw_entry.get("file")
+        ):
+            continue
+        path = _resolve_package_path(job.bundle.root, raw_entry.get("table"))
+        if path is None:
+            continue
+        table = tables.get(path) or tables.setdefault(path, read_mito_table(path))
+        table_id = str(raw_entry.get("table_id") or sample_id)
+        display = f"{_display_path(job.bundle.root, path)}, ID {table_id}"
+        sample_calls = mito_sample_calls(table, table_id=table_id, sample_id=sample_id, source=display)
+        vcf = scratch / f"{number}.chrM.vcf"
+        vcf.write_text(sample_calls.vcf_text, encoding="utf-8")
+        calls[sample_id] = _MitoTableCalls(vcf=vcf, annotation_lines=sample_calls.annotation_lines, display=display)
+    return calls
+
+
+def _mito_vcf_path(job: DatasetImportJob, sample_id: str, raw_entry: Any, table_calls: dict[str, _MitoTableCalls]) -> Path | None:
+    """The chrM VCF a mito entry is read from: the one it names, or its rows of the table."""
+    if sample_id in table_calls:
+        return table_calls[sample_id].vcf
+    return _resolve_package_path(job.bundle.root, raw_entry.get("vcf") or raw_entry.get("file"))
+
+
 @_dataset_importer("mito")
 async def _import_mito_dataset(job: DatasetImportJob) -> FamilyImportDatasetSummary:
+    """Import mitochondrial calls (``_import_mito_calls``). A member's rows of an mtDNA-Server
+    table are written first to a temporary chrM VCF, removed afterwards whatever happens."""
+    with tempfile.TemporaryDirectory(prefix="coga-mito-table-") as scratch:
+        return await _import_mito_calls(job, _mito_table_calls(job, Path(scratch)))
+
+
+async def _import_mito_calls(
+    job: DatasetImportJob, table_calls: dict[str, _MitoTableCalls]
+) -> FamilyImportDatasetSummary:
     """Import mitochondrial calls.
 
     chrM SNVs go into the ordinary small-variant store under a dedicated ``mito``
@@ -2454,6 +2510,10 @@ async def _import_mito_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumm
     they were (``_mito_files_without_a_record``). It used to remove the sample's
     earlier calls and end ``imported``, which counts as importing the dataset again
     (SAFE-29, the owner's decision).
+
+    A member without a chrM VCF may have its rows of one mtDNA-Server table for all samples
+    (``table``, ``table_id``; the PGT pipeline's): ``table_calls`` holds them, written as the
+    chrM VCF and the mutserve annotation of that member alone.
 
     The chrM SV calls (``sv_vcf``, Sniffles2 ``--mosaic``) go into the structural-variant
     store under their own ``mito_sv`` source, where the mtDNA workspace and the SV views
@@ -2492,10 +2552,10 @@ async def _import_mito_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumm
     # Every file's sample column -- the chrM calls and the chrM SVs of every sample -- is
     # checked before anything is written, so a refused file fails the dataset with none
     # of it stored (it used to be checked file by file, after the earlier files' writes).
-    columns = await _mito_sample_columns(job)
+    columns = await _mito_sample_columns(job, table_calls)
     # And that every chrM VCF holds a record: a file without one fails the dataset before
     # any sample's calls are replaced (SAFE-29).
-    empty = _mito_files_without_a_record(job, columns)
+    empty = _mito_files_without_a_record(job, columns, table_calls)
     if empty:
         raise RuntimeError(
             "No mitochondrial call was replaced: "
@@ -2518,18 +2578,25 @@ async def _import_mito_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumm
         sample_context = sample_contexts.get(sample_id)
         if sample_context is None or not isinstance(raw_entry, dict):
             continue
-        vcf_path = _resolve_package_path(bundle.root, raw_entry.get("vcf") or raw_entry.get("file"))
+        vcf_path = _mito_vcf_path(job, sample_id, raw_entry, table_calls)
         if vcf_path is None:
             continue
         sample_column = str(columns[sample_id]["vcf"])
         aliases = {sample_column: sample_id}
         # The annotation is an SQLite file in the temporary directory, which on Cloud Run is
         # memory. The upload leaves it open for the haplogroup read below, and the finally
-        # removes it whatever happens.
+        # removes it whatever happens. A member read from the table has its own rows of it.
         annotation_path = _resolve_package_path(bundle.root, raw_entry.get("annotation_tsv"))
-        mutserve_annotations = (
-            parse_mutserve_annotation_path(annotation_path) if annotation_path is not None else None
-        )
+        mutserve_annotations: VepAnnotationLookup | None
+        if sample_id in table_calls:
+            mutserve_annotations = parse_mutserve_annotation_lines(table_calls[sample_id].annotation_lines)
+            if mutserve_annotations.row_count == 0:
+                mutserve_annotations.close()
+                mutserve_annotations = None
+        else:
+            mutserve_annotations = (
+                parse_mutserve_annotation_path(annotation_path) if annotation_path is not None else None
+            )
         try:
             # A file whose records the check above passed but the loader stores none of
             # (400) fails the dataset here, as any refused file does.
@@ -2613,7 +2680,9 @@ def _vcf_holds_a_record(text_value: str) -> bool:
 
 
 def _mito_files_without_a_record(
-    job: DatasetImportJob, columns: dict[str, dict[str, str | int]]
+    job: DatasetImportJob,
+    columns: dict[str, dict[str, str | int]],
+    table_calls: dict[str, _MitoTableCalls] | None = None,
 ) -> list[tuple[str, str]]:
     """Each (sample, file name) of a ``mito`` entry whose chrM VCF holds no record the loader
     stores (``_vcf_holds_a_record``), checked before any sample's calls are replaced; each file
@@ -2627,15 +2696,18 @@ def _mito_files_without_a_record(
     for sample_id, raw_entry in (job.dataset.per_sample or {}).items():
         if sample_id not in columns or not isinstance(raw_entry, dict):
             continue
-        vcf_path = _resolve_package_path(job.bundle.root, raw_entry.get("vcf") or raw_entry.get("file"))
+        vcf_path = _mito_vcf_path(job, sample_id, raw_entry, table_calls or {})
         if vcf_path is None:
             continue
         if not _vcf_holds_a_record(_read_package_text(vcf_path)):
-            empty.append((sample_id, vcf_path.name))
+            table = (table_calls or {}).get(sample_id)
+            empty.append((sample_id, table.display if table else vcf_path.name))
     return empty
 
 
-async def _mito_sample_columns(job: DatasetImportJob) -> dict[str, dict[str, str | int]]:
+async def _mito_sample_columns(
+    job: DatasetImportJob, table_calls: dict[str, _MitoTableCalls] | None = None
+) -> dict[str, dict[str, str | int]]:
     """Each mito entry's sample column, checked by ``per_sample_vcf_column``: the chrM
     VCF's column name (``vcf``) and the chrM SV VCF's column index (``sv_vcf``).
 
@@ -2650,6 +2722,10 @@ async def _mito_sample_columns(job: DatasetImportJob) -> dict[str, dict[str, str
         declared = raw_entry.get("vcf_sample") or raw_entry.get("sample_name")
         entry: dict[str, str | int] = {}
         for role, label in (("vcf", "Mito VCF"), ("sv_vcf", "Mito SV VCF")):
+            if role == "vcf" and sample_id in (table_calls or {}):
+                # Its rows of the table, written under its own name.
+                entry[role] = sample_id
+                continue
             value = raw_entry.get(role) or (raw_entry.get("file") if role == "vcf" else None)
             path = _resolve_package_path(bundle.root, value)
             if path is None:

@@ -15,6 +15,7 @@ Every identifier and number here is synthetic.
 from __future__ import annotations
 
 import gzip
+import json
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
@@ -607,11 +608,13 @@ def test_every_file_role_discovery_writes_leaves_a_provenance_record() -> None:
         for dataset in family_package_discovery.NAMING_SCHEMES["standard_v1"]["datasets"].values()
         for role in dataset
         # Pattern lists, not manifest keys: discovery writes what they find as `vcf` and
-        # `index`.
-        if role not in {"sample_vcf", "sample_index"}
+        # `index`, and the pipeline's APCAD table as `file`.
+        if role not in {"sample_vcf", "sample_index", "parental_table"}
     }
 
     assert roles - family_package_registration._PROVENANCE_PATH_KEYS == set()
+    # A mito entry read from the mtDNA-Server table names it as `table`.
+    assert "table" in family_package_registration._PROVENANCE_PATH_KEYS
 
 
 # ---------------------------------------------------------------------------
@@ -1045,6 +1048,99 @@ def test_the_index_gets_the_status_the_inheritance_model_asks(
     assert _manifest_pgt_metadata(manifest)["indexes"] == [INDEX]
 
 
+def _sibling_index_ped(*, index_phenotype: str = "-9", father_columns: str = "") -> ParsedPed:
+    """The couple, an embryo and the index as the couple's child: an affected sibling."""
+    ped, errors = _parse_ped_text_strict(
+        f"{FAMILY} {FATHER} 0 0 1 -9{' ' + father_columns if father_columns else ''}\n"
+        f"{FAMILY} {MOTHER} 0 0 2 -9\n"
+        f"{FAMILY} EMB1 {FATHER} {MOTHER} 1 -9\n"
+        f"{FAMILY} {INDEX} {FATHER} {MOTHER} 2 {index_phenotype}\n"
+    )
+    assert ped is not None and errors == []
+    return ped
+
+
+EMBRYO_ROLES = {"members": {"EMB1": {"role": "embryo"}}}
+CARRIER_OF_AN_AFFECTED_INDEX = {
+    "carrier_status": "carrier",
+    "carrier_type": "proven",
+    "carrier_evidence": {"derived_from": "metadata.pgt.indexes", "inheritance_model": "AR"},
+}
+
+
+def test_under_ar_both_parents_of_the_affected_index_are_carriers() -> None:
+    # The owner's decision of 2026-10-30: the run traces one parent; the other parent of an
+    # affected child is an obligate carrier too.
+    manifest = _pgt_manifest(
+        {"inheritance_model": "AR", "affected_parents": [MOTHER], "indexes": [INDEX]}, EMBRYO_ROLES
+    )
+    ped = _sibling_index_ped()
+
+    derived, errors, warnings = _manifest_derived_statuses(manifest, ped)
+
+    assert errors == []
+    assert derived[FATHER] == CARRIER_OF_AN_AFFECTED_INDEX
+    assert derived[MOTHER]["carrier_evidence"]["derived_from"] == "metadata.pgt.affected_parents"
+    assert [(warning.code, warning.sample_id) for warning in warnings] == [
+        ("pgt_affected_parent_status", MOTHER),
+        ("pgt_index_status", INDEX),
+        ("pgt_index_parent_status", FATHER),
+    ]
+    assert warnings[-1].message == (
+        f"{FATHER} is recorded as a proven carrier: the parent of the affected index {INDEX}, an obligate "
+        "carrier, under AR inheritance."
+    )
+    members = {
+        member["sample_id"]: member
+        for member in _ped_members_for_import(ped, member_overrides=_manifest_member_status_overrides(manifest, ped))
+    }
+    assert (members[FATHER]["carrier_status"], members[FATHER]["carrier_type"]) == ("carrier", "proven")
+    # Without a traced parent, both.
+    derived, _errors, _warnings = _manifest_derived_statuses(
+        _pgt_manifest({"inheritance_model": "AR", "indexes": [INDEX]}, EMBRYO_ROLES), ped
+    )
+    assert (derived[FATHER], derived[MOTHER]) == (CARRIER_OF_AN_AFFECTED_INDEX, CARRIER_OF_AN_AFFECTED_INDEX)
+
+
+@pytest.mark.parametrize(
+    ("pgt", "ped", "family"),
+    [
+        # Another model: no obligate carriers derived.
+        ({"inheritance_model": "AD", "affected_parents": [MOTHER], "indexes": [INDEX]}, "sibling", EMBRYO_ROLES),
+        # The index is recorded as unaffected (an unaffected sibling read as a reference).
+        ({"inheritance_model": "AR", "affected_parents": [MOTHER], "indexes": [INDEX]}, "unaffected", EMBRYO_ROLES),
+        # The index is not the couple's child: it says nothing of the other parent.
+        ({"inheritance_model": "AR", "affected_parents": [MOTHER], "indexes": [INDEX]}, "relative", EMBRYO_ROLES),
+    ],
+)
+def test_the_other_parent_gets_no_status_where_the_index_does_not_make_it_a_carrier(
+    pgt: dict[str, Any], ped: str, family: dict[str, Any]
+) -> None:
+    parsed = {
+        "sibling": lambda: _sibling_index_ped(),
+        "unaffected": lambda: _sibling_index_ped(index_phenotype="1"),
+        "relative": lambda: _index_ped(),
+    }[ped]()
+
+    derived, errors, warnings = _manifest_derived_statuses(_pgt_manifest(pgt, family), parsed)
+
+    assert errors == []
+    assert FATHER not in derived
+    assert "pgt_index_parent_status" not in {warning.code for warning in warnings}
+
+
+def test_a_status_recorded_for_the_other_parent_wins_over_the_obligate_carrier() -> None:
+    manifest = _pgt_manifest(
+        {"inheritance_model": "AR", "affected_parents": [MOTHER], "indexes": [INDEX]}, EMBRYO_ROLES
+    )
+
+    derived, errors, warnings = _manifest_derived_statuses(manifest, _sibling_index_ped(father_columns="carrier=0"))
+
+    assert errors == [] and FATHER not in derived
+    conflict = next(warning for warning in warnings if warning.code == "pgt_index_parent_status_conflict")
+    assert conflict.sample_id == FATHER and "not carrier" in conflict.message
+
+
 @pytest.mark.parametrize(
     ("pgt", "index_sex", "code", "phrase"),
     [
@@ -1438,6 +1534,87 @@ async def test_a_trio_vcf_gives_the_embryos_allele_fraction_and_its_parental_ori
     assert {row["sample_id"] for row in inserted} == {"uuid-EMB1"}
 
 
+# Newer runs write, per embryo, the sites their APCAD read (the parents homozygous for opposite
+# alleles, the embryo read deep enough). The cohort's AF sits beside the embryo's own raw_AF.
+APCAD_TABLE_HEADER = (
+    '"CHROM","POS","ID","REF","ALT","QUAL","FILTER","VariantKey","RAF","AF","Indiv","gt_GT",'
+    '"gt_DP","gt_GT_alleles","raw_AF","source"\n'
+)
+
+
+def _apcad_table(embryo: str) -> str:
+    return APCAD_TABLE_HEADER + (
+        f'"chr1",100,"1:100:A:G","A","G",50,"PASS",1,"0.4","0.5","{embryo}","0/1",14,"A/G",0.42,"mat"\n'
+        f'"chr1",200,"1:200:C:T","C","T",60,"PASS",2,"0.3","0.25","{embryo}","0/1",13,"C/T",0.61,"pat"\n'
+    )
+
+
+def test_discovery_reads_the_pipelines_apcad_table_in_place_of_the_trio_vcf(tmp_path: Path) -> None:
+    # The owner's decision of 2026-10-30: the points the laboratory's plots and the PCF rest on.
+    root = _write_copgtm_package(tmp_path / FAMILY)
+    _write(root / "apcad/EMB1_APCAD_parental_data.csv", _apcad_table("EMB1"))
+
+    result = _discover(root)
+
+    apcad = yaml.safe_load(result.manifest_yaml)["datasets"]["apcad"]
+    # Per embryo: EMB1's table, EMB2's trio VCF (its run wrote no table).
+    assert apcad["per_sample"] == {
+        "EMB1": {"file": "apcad/EMB1_APCAD_parental_data.csv"},
+        "EMB2": {
+            "vcf": "split_trio/filter_trio/EMB2.trio_filtered.vcf.gz",
+            "index": "split_trio/filter_trio/EMB2.trio_filtered.vcf.gz.tbi",
+        },
+    }
+    availability = next(item for item in result.datasets if item.dataset_type == "apcad")
+    assert availability.message == "Available as the pipeline's APCAD table for 1 embryo(s) and a trio VCF for 1 embryo(s)"
+    assert {(file.role, file.sample_id) for file in availability.files} == {
+        ("file", "EMB1"),
+        ("vcf", "EMB2"),
+        ("index", "EMB2"),
+    }
+
+
+@pytest.mark.asyncio
+async def test_the_pipelines_apcad_table_gives_the_embryos_allele_fraction_and_its_parent(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    inserted: list[dict[str, Any]] = []
+
+    async def capture(_session: Any, rows: list[dict[str, Any]]) -> None:
+        inserted.extend(rows)
+
+    monkeypatch.setattr(family_package_tracks, "_insert_interval_track_rows", capture)
+    path = _write(tmp_path / "EMB1_APCAD_parental_data.csv", _apcad_table("EMB1"))
+
+    await family_package_tracks._import_apcad_interval_file(object(), sample_context=_sample_context("EMB1"), path=path)  # type: ignore[arg-type]
+
+    # The embryo's raw_AF, never the cohort's AF; `source` gives the parent.
+    assert [(row["chr"], row["end"], row["value"], row["origin"]) for row in inserted] == [
+        ("1", 100, 0.42, "maternal"),
+        ("1", 200, 0.61, "paternal"),
+    ]
+    metadata = json.loads(inserted[0]["metadata_json"])
+    assert (metadata["ref"], metadata["alt"], metadata["filter"], metadata["qual"]) == ("A", "G", "PASS", "50")
+    # Another table keeps its AF and its origin column, and has no `source` read.
+    other = _write(tmp_path / "other.tsv", "chrom\tpos\tAF\torigin\tsource\nchr1\t300\t0.33\tpat\tmat\n")
+    inserted.clear()
+    await family_package_tracks._import_apcad_interval_file(object(), sample_context=_sample_context("EMB1"), path=other)  # type: ignore[arg-type]
+    assert [(row["value"], row["origin"]) for row in inserted] == [(0.33, "paternal")]
+
+
+def test_an_apcad_table_naming_another_embryo_fails_validation(tmp_path: Path) -> None:
+    root = _write_copgtm_package(tmp_path / FAMILY)
+    _write(root / "apcad/EMB1_APCAD_parental_data.csv", _apcad_table("EMB2"))
+    _write(root / "apcad/EMB2_APCAD_parental_data.csv", _apcad_table("EMB2"))
+    _write_discovered_manifest(root)
+
+    validation = family_package_validation.validate_family_package(root)
+
+    assert validation.valid is False
+    assert [(error.code, error.sample_id) for error in validation.errors] == [("apcad_table_sample_mismatch", "EMB1")]
+    assert "is EMB2's (its Indiv column), not EMB1's" in validation.errors[0].message
+
+
 @pytest.mark.asyncio
 async def test_a_large_trio_vcf_goes_in_as_few_large_inserts(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -1584,6 +1761,185 @@ async def test_the_apcad_import_reads_each_embryos_trio_vcf_and_reports_progress
         (first.stat().st_size // 2, total),
         (first.stat().st_size + second.stat().st_size // 2, total),
     ]
+
+
+# ---------------------------------------------------------------------------
+# The mtDNA-Server table (one for all samples, no chrM VCF)
+# ---------------------------------------------------------------------------
+
+MITO_TABLE_HEADER = "ID\tFilter\tPos\tRef\tVariant\tVariantLevel\tCoverage\tGT\tType\tPhylotree17_haplogroups\n"
+
+
+def _mito_table(*rows: str) -> str:
+    return MITO_TABLE_HEADER + "".join(f"{row}\n" for row in rows)
+
+
+MITO_ROWS = (
+    "MOTHER1.depth_1x_chrM.bam\tPASS\t73\tA\tG\t1.00\t77\t1\t1\tH2",
+    "MOTHER1.depth_1x_chrM.bam\tPASS\t3243\tA\tG\t0.21\t500\t0/1\t2\tH2",
+    "EMB1.depth_10x_chrM.bam\tPASS\t73\tA\tG\t0.99\t900\t1\t1\tH2",
+    "EMB1.depth_10x_chrM.bam\tPASS\t3243\tA\tG\t0.08\t880\t1/0\t2\tH2",
+    # mutserve writes a deletion as D: not a base, so not a call the loader reads.
+    "EMB1.depth_10x_chrM.bam\tPASS\t8270\tC\tD\t0.30\t850\t0/1\t2\tH2",
+    "OTHER9.depth_1x_chrM.bam\tPASS\t73\tA\tG\t1.00\t60\t1\t1\tH2",
+)
+
+
+def test_the_mito_tables_phylotree_counts_are_not_read_as_haplogroups() -> None:
+    # mtDNA-Server writes how many PhyloTree 17 haplogroups and clades carry the variant.
+    from backend.app.services.annotation_table_parser import parse_mutserve_annotation_lines
+    from backend.app.services.clickhouse_variant_ids import build_small_variant_id
+
+    lookup = parse_mutserve_annotation_lines(
+        [
+            "ID\tFilter\tPos\tRef\tVariant\tVariantLevel\tPhylotree17_haplogroups\tPhylotree17_clades",
+            "MOTHER1.bam\tPASS\t73\tA\tG\t1.0\t4247\t13",
+            "MOTHER1.bam\tPASS\t263\tA\tG\t1.0\tH2a2a1\t",
+        ]
+    )
+    try:
+        [counted] = lookup.get(build_small_variant_id("M", 73, "A", "G"), "M", 73, "A", "G") or [None]
+        [named] = lookup.get(build_small_variant_id("M", 263, "A", "G"), "M", 263, "A", "G") or [None]
+    finally:
+        lookup.close()
+
+    assert counted is not None and named is not None
+    assert "haplogroup" not in counted
+    assert (counted["haplogroup_count"], counted["haplogroup_clade_count"]) == ("4247", "13")
+    assert named["haplogroup"] == "H2a2a1"
+
+
+@pytest.mark.parametrize(
+    ("table_id", "member"),
+    [
+        ("EMB1.depth_10x_chrM.bam", "EMB1"),
+        ("/hpc/run/EMB1_chrM.bam", "EMB1"),
+        ("EMB1", "EMB1"),
+        ("EMB10.depth_10x_chrM.bam", None),
+        ("XEMB1.bam", None),
+    ],
+)
+def test_a_mito_table_id_names_the_member_whose_bam_it_is(table_id: str, member: str | None) -> None:
+    from backend.app.services.family_package_mito_table import table_id_member
+
+    assert table_id_member(table_id, ["EMB1", "MOTHER1"]) == member
+
+
+def test_a_members_rows_of_the_mito_table_become_its_chrm_vcf_and_annotation(tmp_path: Path) -> None:
+    from backend.app.services.family_package_mito_table import mito_sample_calls, read_mito_table
+
+    table = read_mito_table(_write(tmp_path / "variants.annotated.txt", _mito_table(*MITO_ROWS)))
+
+    calls = mito_sample_calls(table, table_id="EMB1.depth_10x_chrM.bam", sample_id="EMB1", source="mito/x.txt")
+
+    records = [line.split("\t") for line in calls.vcf_text.splitlines() if not line.startswith("#")]
+    # A homoplasmic call is one allele, a heteroplasmic one two; the level is its AF.
+    assert [(r[0], r[1], r[3], r[4], r[6], r[9]) for r in records] == [
+        ("chrM", "73", "A", "G", "PASS", "1:900:0.99"),
+        ("chrM", "3243", "A", "G", "PASS", "0/1:880:0.08"),
+    ]
+    assert (calls.records, calls.skipped) == (2, 1)
+    assert calls.vcf_text.splitlines()[-3].endswith("\tFORMAT\tEMB1")
+    # The annotation of its own rows only: the mother's level at 3243 is not EMB1's.
+    assert len(calls.annotation_lines) == 4 and all(
+        line.startswith("EMB1.") for line in calls.annotation_lines[1:]
+    )
+
+
+def test_discovery_reads_the_mito_table_per_member(tmp_path: Path) -> None:
+    root = _write_copgtm_package(tmp_path / FAMILY)
+    _write(root / "mito/variants.annotated.txt", _mito_table(*MITO_ROWS))
+
+    result = _discover(root)
+
+    mito = yaml.safe_load(result.manifest_yaml)["datasets"]["mito"]
+    assert mito["enabled"] is True
+    assert mito["per_sample"] == {
+        MOTHER: {"table": "mito/variants.annotated.txt", "table_id": "MOTHER1.depth_1x_chrM.bam"},
+        "EMB1": {"table": "mito/variants.annotated.txt", "table_id": "EMB1.depth_10x_chrM.bam"},
+    }
+    availability = next(item for item in result.datasets if item.dataset_type == "mito")
+    assert availability.message == (
+        "Available as the mtDNA-Server table mito/variants.annotated.txt for 2 sample(s); its rows of "
+        "OTHER9.depth_1x_chrM.bam name no member and are not imported"
+    )
+    # The discovered manifest validates.
+    _write_discovered_manifest(root)
+    validation = family_package_validation.validate_family_package(root)
+    assert validation.valid is True, validation.errors
+
+
+@pytest.mark.parametrize(
+    ("entry", "code"),
+    [
+        ({"table": "mito/variants.annotated.txt", "table_id": "EMB2.depth_10x_chrM.bam"}, "mito_table_rows_missing"),
+        ({"table": "mito/variants.annotated.txt"}, "mito_table_id_missing"),
+        ({"table": "mito/absent.txt", "table_id": "EMB1.depth_10x_chrM.bam"}, "dataset_file_missing"),
+    ],
+)
+def test_a_mito_table_entry_without_its_members_rows_fails_validation(
+    tmp_path: Path, entry: dict[str, str], code: str
+) -> None:
+    root = _write_copgtm_package(tmp_path / FAMILY)
+    _write(root / "mito/variants.annotated.txt", _mito_table(*MITO_ROWS))
+    manifest = yaml.safe_load(_discover(root).manifest_yaml)
+    manifest["datasets"]["mito"]["per_sample"] = {"EMB2": entry}
+    (root / "manifest.yaml").write_text(yaml.safe_dump(manifest), encoding="utf-8")
+
+    validation = family_package_validation.validate_family_package(root)
+
+    assert validation.valid is False
+    assert [(error.code, error.sample_id) for error in validation.errors] == [(code, "EMB2")]
+
+
+@pytest.mark.asyncio
+async def test_the_mito_import_reads_each_members_rows_of_the_table_as_its_chrm_vcf(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    root = _write_copgtm_package(tmp_path / FAMILY)
+    _write(root / "mito/variants.annotated.txt", _mito_table(*MITO_ROWS))
+    job = _job(root, "mito")
+    uploads: list[dict[str, Any]] = []
+    scratch: list[Path] = []
+
+    async def known(_session: Any, **_kwargs: Any) -> set[str]:
+        return set(SAMPLES)
+
+    async def upload(_session: Any, **kwargs: Any) -> dict[str, Any]:
+        path = Path(kwargs["file"].file.name)
+        scratch.append(path)
+        annotations = kwargs["vep_annotations"]
+        uploads.append(
+            {
+                "sample_column": kwargs["sample_column"],
+                "aliases": kwargs["sample_aliases"],
+                "format": kwargs["format_hint"],
+                "scope": kwargs["overwrite_scope"],
+                "records": [line for line in path.read_text(encoding="utf-8").splitlines() if line.startswith("chrM")],
+                "annotated": annotations.row_count if annotations is not None else 0,
+            }
+        )
+        return {"inserted": 1}
+
+    async def record_mtdna(_session: Any, **_kwargs: Any) -> None:
+        return None
+
+    monkeypatch.setattr(family_package_datasets, "known_vcf_sample_ids", known)
+    monkeypatch.setattr(family_package_datasets, "upload_family_small_variant_file", upload)
+    monkeypatch.setattr(family_package_datasets, "_record_mtdna_sample_metadata", record_mtdna)
+
+    summary = await family_package_datasets._import_mito_dataset(job)
+
+    assert summary.status == "imported"
+    assert [(item["sample_column"], item["aliases"], item["format"], item["scope"]) for item in uploads] == [
+        (MOTHER, {MOTHER: MOTHER}, "mito", "samples"),
+        ("EMB1", {"EMB1": "EMB1"}, "mito", "samples"),
+    ]
+    assert [len(item["records"]) for item in uploads] == [2, 2]
+    # Each member's own annotation rows (EMB1's deletion row included, as mutserve wrote it).
+    assert [item["annotated"] for item in uploads] == [2, 3]
+    # The chrM VCFs written for the loader are gone once the dataset is done.
+    assert scratch and not any(path.exists() for path in scratch)
 
 
 @pytest.mark.asyncio
