@@ -608,13 +608,15 @@ def test_every_file_role_discovery_writes_leaves_a_provenance_record() -> None:
         for dataset in family_package_discovery.NAMING_SCHEMES["standard_v1"]["datasets"].values()
         for role in dataset
         # Pattern lists, not manifest keys: discovery writes what they find as `vcf` and
-        # `index`, and the pipeline's APCAD table as `file`.
-        if role not in {"sample_vcf", "sample_index", "parental_table"}
+        # `index`, the pipeline's APCAD table as `file` and its segregation table as
+        # `segregation`.
+        if role not in {"sample_vcf", "sample_index", "parental_table", "segregation_table"}
     }
 
     assert roles - family_package_registration._PROVENANCE_PATH_KEYS == set()
-    # A mito entry read from the mtDNA-Server table names it as `table`.
-    assert "table" in family_package_registration._PROVENANCE_PATH_KEYS
+    # A mito entry read from the mtDNA-Server table names it as `table`, and an embryo's
+    # APCAD entry its segregation table as `segregation`.
+    assert {"table", "segregation"} <= family_package_registration._PROVENANCE_PATH_KEYS
 
 
 # ---------------------------------------------------------------------------
@@ -1614,6 +1616,175 @@ def test_an_apcad_table_naming_another_embryo_fails_validation(tmp_path: Path) -
     assert [(error.code, error.sample_id) for error in validation.errors] == [("apcad_table_sample_mismatch", "EMB1")]
     assert "is EMB2's (its Indiv column), not EMB1's" in validation.errors[0].message
 
+
+
+# The segregation table of an embryo (nf-cmgg/copgtm): the sites where one parent is
+# heterozygous and the other homozygous (group 2, the mother heterozygous; 3, the father; A, the
+# homozygous parent carries the alternate allele; B, the reference), with the embryo's raw_AF.
+SEGREGATION_TABLE_HEADER = (
+    '"CHROM","POS","ID","REF","ALT","QUAL","FILTER","Indiv","gt_GT","gt_DP","source","raw_AF"\n'
+)
+
+
+def _segregation_table(embryo: str, rows: str | None = None) -> str:
+    return SEGREGATION_TABLE_HEADER + (
+        rows
+        if rows is not None
+        else (
+            f'"chr9",1000,"9:1000:A:G","A","G",80,"PASS","{embryo}","0/1",24,"2B",0.34\n'
+            f'"chr9",2000,"9:2000:C:T","C","T",90,"PASS","{embryo}","0/1",22,"2A",0.7\n'
+            f'"chr9",3000,"9:3000:G:A","G","A",70,"PASS","{embryo}","0/0",25,"3B",0.0\n'
+            f'"chr9",4000,"9:4000:T:C","T","C",60,"PASS","{embryo}","1/1",21,"3A",0.68\n'
+            f'"chr9",5000,"9:5000:T:C","T","C",60,"PASS","{embryo}","0/1",21,"1A",0.5\n'
+            f'"chr9",6000,"9:6000:T:C","T","C",60,"PASS","{embryo}","0/1",21,"2B",NA\n'
+        )
+    )
+
+
+def test_discovery_names_an_embryos_segregation_table_beside_its_apcad_table(tmp_path: Path) -> None:
+    root = _write_copgtm_package(tmp_path / FAMILY)
+    _write(root / "apcad/EMB1_APCAD_parental_data.csv", _apcad_table("EMB1"))
+    _write(root / "apcad/EMB1_APCAD_segregation_data.csv", _segregation_table("EMB1"))
+
+    result = _discover(root)
+
+    apcad = yaml.safe_load(result.manifest_yaml)["datasets"]["apcad"]
+    assert apcad["per_sample"]["EMB1"] == {
+        "file": "apcad/EMB1_APCAD_parental_data.csv",
+        "segregation": "apcad/EMB1_APCAD_segregation_data.csv",
+    }
+    availability = next(item for item in result.datasets if item.dataset_type == "apcad")
+    assert availability.message == (
+        "Available as the pipeline's APCAD table for 1 embryo(s), with its segregation table for 1"
+        " and a trio VCF for 1 embryo(s)"
+    )
+    assert ("segregation", "EMB1") in {(file.role, file.sample_id) for file in availability.files}
+
+
+def test_a_segregation_site_reads_as_the_fraction_of_the_allele_the_homozygous_parent_lacks(tmp_path: Path) -> None:
+    path = _write(tmp_path / "EMB1_APCAD_segregation_data.csv", _segregation_table("EMB1"))
+    with path.open() as handle:
+        rows = [
+            row
+            for row in family_package_tracks._segregation_rows(handle, sample_context=_sample_context("EMB1"), path=path)
+            if row is not None
+        ]
+
+    # 2B and 3B: the embryo's alternate-allele fraction; 2A and 3A: one minus it. The origin is
+    # the heterozygous parent. A group other than 2 or 3, or a site without raw_AF, is left out.
+    assert [(row["chr"], row["start"], row["end"], round(row["value"], 2), row["origin"]) for row in rows] == [
+        ("9", 999, 1000, 0.34, "maternal"),
+        ("9", 1999, 2000, 0.3, "maternal"),
+        ("9", 2999, 3000, 0.0, "paternal"),
+        ("9", 3999, 4000, 0.32, "paternal"),
+    ]
+    assert {row["track_type"] for row in rows} == {"apcad_segregation"}
+    metadata = json.loads(rows[1]["metadata_json"])
+    assert (metadata["group"], metadata["raw_af"], metadata["dp"], metadata["sample_id"]) == ("2A", 0.7, 22, "EMB1")
+
+
+@pytest.mark.asyncio
+async def test_a_segregation_table_replaces_its_track_and_one_without_a_site_is_refused(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    events: list[Any] = []
+
+    async def capture(_session: Any, rows: list[dict[str, Any]]) -> None:
+        events.append(("insert", len(rows)))
+
+    async def delete(_session: Any, **kwargs: Any) -> None:
+        events.append(("delete", kwargs["track_type"], kwargs["source"]))
+
+    async def record(_session: Any, **kwargs: Any) -> None:
+        events.append(("record", kwargs["track_type"], kwargs["row_count"]))
+
+    class Session:
+        async def commit(self) -> None:
+            events.append("commit")
+
+    monkeypatch.setattr(family_package_tracks, "_insert_interval_track_rows", capture)
+    monkeypatch.setattr(family_package_tracks, "_delete_sample_interval_source", delete)
+    monkeypatch.setattr(family_package_tracks, "upsert_interval_track_source", record)
+    path = _write(tmp_path / "EMB1_APCAD_segregation_data.csv", _segregation_table("EMB1"))
+
+    # Checked first: read up to its first site, nothing deleted or stored.
+    assert await family_package_tracks._import_segregation_table(
+        Session(), sample_context=_sample_context("EMB1"), path=path, check_only=True  # type: ignore[arg-type]
+    ) == {}
+    assert events == []
+    result = await family_package_tracks._import_segregation_table(
+        Session(), sample_context=_sample_context("EMB1"), path=path  # type: ignore[arg-type]
+    )
+    assert result["inserted"] == 4
+    assert events == [
+        ("delete", "apcad_segregation", "apcad"),
+        ("insert", 4),
+        ("record", "apcad_segregation", 4),
+        "commit",
+    ]
+    empty = _write(tmp_path / "empty.csv", _segregation_table("EMB1", rows='"chr9",5000,".","T","C",60,"PASS","EMB1","0/1",21,"1A",0.5\n'))
+    with pytest.raises(family_package_tracks.EmptyTrackFileError):
+        await family_package_tracks._import_segregation_table(
+            Session(), sample_context=_sample_context("EMB1"), path=empty, check_only=True  # type: ignore[arg-type]
+        )
+
+
+@pytest.mark.asyncio
+async def test_the_apcad_dataset_checks_every_segregation_table_before_it_replaces_a_track(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    calls: list[tuple[str, str, bool]] = []
+
+    async def fake_track_file(_session: Any, *, path: Path, selected_sample_id: str | None = None, check_only: bool = False, **_kwargs: Any) -> dict[str, Any]:
+        calls.append(("apcad", path.name, check_only))
+        return {selected_sample_id: {} if check_only else {"inserted": 2}}
+
+    async def fake_segregation(_session: Any, *, sample_context: Any, path: Path, check_only: bool = False) -> dict[str, int]:
+        calls.append(("segregation", path.name, check_only))
+        return {} if check_only else {"inserted": 4}
+
+    async def no_tracks(*_args: Any, **_kwargs: Any) -> int:
+        return 0
+
+    monkeypatch.setattr(family_package_datasets, "_import_apcad_track_file", fake_track_file)
+    monkeypatch.setattr(family_package_datasets, "_import_segregation_table", fake_segregation)
+    monkeypatch.setattr(family_package_datasets, "_interval_track_count", no_tracks)
+    root = _write_copgtm_package(tmp_path / FAMILY)
+    _write(root / "apcad/EMB1_APCAD_parental_data.csv", _apcad_table("EMB1"))
+    _write(root / "apcad/EMB1_APCAD_segregation_data.csv", _segregation_table("EMB1"))
+
+    result = await family_package_datasets._import_apcad_dataset(_job(root, "apcad"))
+
+    assert calls == [
+        ("apcad", "EMB1_APCAD_parental_data.csv", True),
+        ("segregation", "EMB1_APCAD_segregation_data.csv", True),
+        ("apcad", "EMB2.trio_filtered.vcf.gz", True),
+        ("apcad", "EMB1_APCAD_parental_data.csv", False),
+        ("segregation", "EMB1_APCAD_segregation_data.csv", False),
+        ("apcad", "EMB2.trio_filtered.vcf.gz", False),
+    ]
+    assert result.summary["EMB1"] == {"inserted": 2, "segregation": {"inserted": 4}}
+    assert result.summary["EMB2"] == {"inserted": 2}
+
+
+def test_a_segregation_table_naming_another_embryo_or_missing_fails_validation(tmp_path: Path) -> None:
+    root = _write_copgtm_package(tmp_path / FAMILY)
+    _write(root / "apcad/EMB1_APCAD_parental_data.csv", _apcad_table("EMB1"))
+    _write(root / "apcad/EMB1_APCAD_segregation_data.csv", _segregation_table("EMB2"))
+    _write_discovered_manifest(root)
+
+    validation = family_package_validation.validate_family_package(root)
+
+    assert [(error.code, error.sample_id) for error in validation.errors] == [("apcad_table_sample_mismatch", "EMB1")]
+    assert validation.errors[0].message.startswith(
+        "Segregation table apcad/EMB1_APCAD_segregation_data.csv is EMB2's (its Indiv column), not EMB1's"
+    )
+    (root / "apcad/EMB1_APCAD_segregation_data.csv").unlink()
+
+    validation = family_package_validation.validate_family_package(root)
+
+    assert validation.valid is False
+    assert any("segregation" in error.message for error in validation.errors)
 
 @pytest.mark.asyncio
 async def test_a_large_trio_vcf_goes_in_as_few_large_inserts(

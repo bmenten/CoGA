@@ -62,6 +62,11 @@ LINEAGE_TRACK_TYPE = "haplotype_lineage"
 
 VALID_BED_TYPES = {"coverage", "apcad", "apcad_pcf", "segments"}
 
+# The track types that are read but never uploaded as a BED: an embryo's segregation table
+# (``apcad_segregation``) comes from the PGT pipeline's own table, read by a package import's
+# ``apcad`` dataset, and a BED holds none of what its rows mean.
+READ_ONLY_BED_TYPES = {"apcad_segregation"}
+
 # The source of a track read from a BED file by ``upload_bed_data``: the single-file BED
 # upload's, and a package's coverage BED's (its ``coverage`` dataset), which replace each
 # other. A sample can carry other callers' tracks of the same types (WisecondorX, QDNAseq,
@@ -70,8 +75,14 @@ VALID_BED_TYPES = {"coverage", "apcad", "apcad_pcf", "segments"}
 BED_UPLOAD_SOURCE = "web"
 
 
-def validate_bed_type(bed_type: str, *, allow_haplotype: bool = False) -> None:
-    valid_types = VALID_BED_TYPES | ({"haplotype"} if allow_haplotype else set())
+def validate_bed_type(bed_type: str, *, allow_haplotype: bool = False, reading: bool = False) -> None:
+    """Refuse (400) a track type the request may not name: an upload names one of
+    ``VALID_BED_TYPES``; a read (``reading``) also one of ``READ_ONLY_BED_TYPES``."""
+    valid_types = (
+        VALID_BED_TYPES
+        | ({"haplotype"} if allow_haplotype else set())
+        | (READ_ONLY_BED_TYPES if reading else set())
+    )
     if bed_type not in valid_types:
         raise HTTPException(status_code=400, detail="Invalid bed type")
 
@@ -449,7 +460,7 @@ def _serialize_bed_record(track_type: str, row: dict[str, Any]) -> dict[str, Any
         "end": int(row["end"]),
         "value": float(row["value"]) if row.get("value") is not None else None,
     }
-    if track_type in {"apcad", "apcad_pcf"}:
+    if track_type in {"apcad", "apcad_pcf", "apcad_segregation"}:
         payload["origin"] = row.get("origin") or "und"
     return payload
 
@@ -667,7 +678,7 @@ async def fetch_bed_json(
     limit: int,
     source: str | None = None,
 ) -> JSONResponse:
-    validate_bed_type(bed_type)
+    validate_bed_type(bed_type, reading=True)
     records = await _fetch_bed_records_for_chrom(
         session,
         sample_context=sample_context,
@@ -696,7 +707,7 @@ async def fetch_bed_batch_json(
     limit: int,
     source: str | None = None,
 ) -> JSONResponse:
-    validate_bed_type(bed_type)
+    validate_bed_type(bed_type, reading=True)
     if not chroms:
         raise HTTPException(status_code=400, detail="At least one chromosome is required")
     records = await _fetch_bed_records_for_chroms(
@@ -1289,7 +1300,7 @@ async def get_track_sources_by_sample(
     WisecondorX and QDNAseq each produce their own, and they are separate tracks.
     """
 
-    validate_bed_type(track_type, allow_haplotype=True)
+    validate_bed_type(track_type, allow_haplotype=True, reading=True)
     if not context.sample_uuid_to_name or not context.assembly_name:
         return {}
     _ = session
@@ -1313,7 +1324,7 @@ async def get_track_presence_by_sample(
     start: int | None = None,
     end: int | None = None,
 ) -> set[str]:
-    validate_bed_type(track_type, allow_haplotype=True)
+    validate_bed_type(track_type, allow_haplotype=True, reading=True)
     sample_ids = list(context.sample_uuid_to_name)
     if not sample_ids or not context.assembly_name:
         return set()

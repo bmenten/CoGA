@@ -47,6 +47,7 @@ GENOMIC_DATA_KEYS = {
     "segments",
     "apcad",
     "apcad_pcf",
+    "apcad_segregation",
     "haplotype",
     "target_coverage",
 }
@@ -295,7 +296,7 @@ def _impact_scopes(
         scopes.extend(["haplotype-phasing", "shared-haplotype-calculations"])
         stale_scopes.extend(["haplotypes", "phasing"])
         warnings.append("This individual has haplotype track data.")
-    if any(data_counts.get(kind, 0) > 0 for kind in ("coverage", "apcad", "apcad_pcf", "target_coverage")):
+    if any(data_counts.get(kind, 0) > 0 for kind in ("coverage", "apcad", "apcad_pcf", "apcad_segregation", "target_coverage")):
         scopes.extend(["coverage", "apcad"])
         stale_scopes.extend(["coverage", "apcad"])
         warnings.append("This individual has coverage or APCAD-derived data.")

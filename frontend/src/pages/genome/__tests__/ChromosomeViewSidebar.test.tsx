@@ -25,6 +25,7 @@ const TRACK_LABELS: Record<ChromosomeTrackKey, string> = {
   haplotypes: 'Haplotypes',
   phasedMarkers: 'Phased markers',
   repeatExpansions: 'Repeat expansions',
+  parentalOrigin: 'Parental origin (aneuploidy)',
 };
 
 const EVERY_TRACK = Object.keys(TRACK_LABELS) as ChromosomeTrackKey[];
@@ -43,6 +44,7 @@ const renderSidebar = (overrides: Partial<Props> = {}): Props => {
       haplotypes: true,
       phasedMarkers: false,
       repeatExpansions: true,
+      parentalOrigin: false,
     },
     trackLabels: TRACK_LABELS,
     onToggleSample: vi.fn(),

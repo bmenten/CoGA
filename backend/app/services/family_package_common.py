@@ -123,6 +123,15 @@ APCAD_PCF_SOURCE = "pcf"
 APCAD_SOURCE = "apcad"
 
 
+# The PGT pipeline's segregation table of an embryo (nf-cmgg/copgtm,
+# ``apcad/<embryo>_APCAD_segregation_data.csv``): the sites where one parent is heterozygous
+# and the other homozygous, with the embryo's allele fraction. The ``apcad`` dataset reads it,
+# where an embryo's entry names it (``segregation``), into a track of its own: the parental-origin
+# view of the chromosome view reads it, to tell whether an aneuploid chromosome carries both of
+# a parent's homologs or two copies of one (a meiotic or a mitotic error).
+APCAD_SEGREGATION_TRACK_TYPE = "apcad_segregation"
+
+
 # ClickHouse ``source`` tags for the long-read callsets. Each one scopes its own
 # delete/re-import, so a family can hold NeedlR SVs, HiFiCNV CNV calls and chrM
 # variants side by side and re-importing one never removes another.

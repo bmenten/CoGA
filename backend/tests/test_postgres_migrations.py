@@ -87,8 +87,13 @@ def test_the_revisions_give_the_tables_the_baselines_checks() -> None:
     assert relationship_and_track._RELATIONSHIP_TYPE_CHECK == _baseline_check(
         "family_relationships_relationship_type_check"
     )
-    assert relationship_and_track._TRACK_TYPE_CHECK == _baseline_check(
-        "sample_interval_track_sources_track_type_check"
+    # The newest revision that sets the track-type check (0012, `apcad_segregation`) gives the
+    # baseline's; 0003 gave the list as it stood then, which the baseline's extends.
+    segregation_track = script.get_revision("0012").module
+    assert segregation_track._TRACK_TYPE_CHECK == _baseline_check("sample_interval_track_sources_track_type_check")
+    assert (
+        relationship_and_track._TRACK_TYPE_CHECK.removesuffix("])))") + ", 'apcad_segregation'::text])))"
+        == segregation_track._TRACK_TYPE_CHECK
     )
 
 

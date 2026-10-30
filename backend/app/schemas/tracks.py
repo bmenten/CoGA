@@ -180,6 +180,8 @@ class TrackAvailabilityOut(BaseModel):
     apcad_sources: List[str] = Field(default_factory=list)
     apcad: bool = False
     apcad_pcf: bool = False
+    # An embryo's segregation table (nf-cmgg/copgtm), for the parental-origin view.
+    apcad_segregation: bool = False
     variants: bool = False
     small_variants: bool = False
     haplotypes: bool = False
@@ -203,7 +205,9 @@ class BedRecordOut(BaseModel):
 
 class BedApcadRecordOut(BedRecordOut):
     """One APCAD site or PCF segment: the row with the parent it is inherited from
-    (``paternal`` or ``maternal``; ``und`` where that is not known)."""
+    (``paternal`` or ``maternal``; ``und`` where that is not known). A segregation site's
+    origin is its heterozygous parent, and its value the embryo's fraction of the allele the
+    other parent does not carry (``family_package_tracks._parse_segregation_row``)."""
 
     origin: str
 
@@ -216,9 +220,9 @@ class BedTrackOut(BaseModel):
 
 
 class BedApcadTrackOut(BaseModel):
-    """A BED read of an APCAD or PCF track: each row with its origin."""
+    """A BED read of an APCAD, PCF or segregation track: each row with its origin."""
 
-    bed_type: Literal["apcad", "apcad_pcf"]
+    bed_type: Literal["apcad", "apcad_pcf", "apcad_segregation"]
     items: List[BedApcadRecordOut]
 
 

@@ -243,7 +243,8 @@ pull request updates this list only when it adds clinical behaviour that no area
   PED, its members and their sex from the pipeline's folders and TRGT's karyotype, and its one
   SNV VCF per partner read as one callset, a partner without a record at the other's variant
   read as reference; the PGT pipeline layout, with the
-  embryo roles and the index its PED lacks; the monogenic NIPT pair, one VCF per sample with
+  embryo roles and the index its PED lacks, and each embryo's segregation table, drawn as the
+  parental-origin view of an aneuploid chromosome; the monogenic NIPT pair, one VCF per sample with
   the father's noise left out, and the per-target coverage tables; bucket sources;
   snapshot/restore); coverage BEDs that declare whether they hold read depth or a log2 ratio,
   read as depth only when declared so, an undeclared one drawn without an axis;

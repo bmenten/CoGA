@@ -696,8 +696,18 @@ the alternate allele came from from its `source` column (`mat`, `pat`), and its 
 These are the points the laboratory's own APCAD plots and the PCF segments rest on, and the
 table imports in seconds. An embryo without one is read from its trio VCF, as before: every
 site at which only one parent carries the alternate allele. A table whose `Indiv` column names
-another sample than its entry's fails validation (`apcad_table_sample_mismatch`). The
-segregation table (`_APCAD_segregation_data.csv`) is not imported.
+another sample than its entry's fails validation (`apcad_table_sample_mismatch`). Beside the
+table, an embryo's entry names its segregation table (`segregation:`,
+`apcad/EMBRYO1_APCAD_segregation_data.csv`, which Discover writes where the run has one): the
+sites where one parent is heterozygous and the other homozygous (`source` 2A/2B: the mother
+heterozygous; 3A/3B: the father; A, the homozygous parent carries the alternate allele), read
+into the embryo's `apcad_segregation` track. Each site is stored at the embryo's fraction of
+the allele the homozygous parent does not carry (`raw_AF` for B, one minus it for A), with the
+heterozygous parent as its origin. The chromosome view draws them as the *Parental origin*
+track, which tells heterodisomy from isodisomy on an aneuploid chromosome. The table is checked
+with the APCAD files, before any track is replaced; one without a site of group 2 or 3 is
+refused, and one whose `Indiv` names another embryo fails validation like the APCAD table. The
+track is read only: a BED upload of it is refused.
 
 The run's mtDNA-Server table (`mito/variants.annotated.txt`) holds the chrM calls of every
 sample it analysed, one row per variant per sample, its `ID` column naming the sample's chrM
@@ -955,7 +965,7 @@ is migrated; import or upload such a BED again with what it holds.
 | `repeats_trgt` | repeat expansions (Postgres), scored against the TRGT catalogue |
 | `wisecondorx`, `qdnaseq` | bins as the `coverage` track, segments as the `segments` track |
 | `coverage` | the `coverage` track (a BED per sample, `bed:`, with what it holds, `content:`, [above](#the-manifest)), or the `target_coverage` track (a capture panel's per-target coverage table, `target_table:`, [below](#monogenic-nipt-pairs)) |
-| `apcad` | the `apcad` track: per SNV the embryo's alternate-allele fraction, tagged with the parent the alternate allele can only have come from. From a family VCF, one trio VCF per embryo (`vcf:` under `per_sample`), or the PGT pipeline's table of the sites its APCAD read (`file:`; the embryo's `raw_AF` and the parent in `source`) |
+| `apcad` | the `apcad` track: per SNV the embryo's alternate-allele fraction, tagged with the parent the alternate allele can only have come from. From a family VCF, one trio VCF per embryo (`vcf:` under `per_sample`), or the PGT pipeline's table of the sites its APCAD read (`file:`; the embryo's `raw_AF` and the parent in `source`); and, from an embryo's segregation table (`segregation:`), its `apcad_segregation` track |
 | `pcf` | the `apcad_pcf` track (maternal and paternal segment files) |
 | `haplotypes` | a phased family VCF (GLIMPSE2, or SHAPEIT5 from the PGT pipeline) becomes small variants plus haplotype blocks, with a switch in a parent's phasing undone where the couple's children all switch together (kept in `families.metadata.haplotype_phase_corrections`); a per-sample BCF is only registered, not imported. The PGT pipeline's haplotype-origin files (`haplotype_origin`, `haplotype_conclusion`) are kept on the family as its reading of the affected haplotype; CoGA's own risk call does not use them |
 | `paraphase` | Paraphase results (Postgres), shown on the family's Paraphase page |

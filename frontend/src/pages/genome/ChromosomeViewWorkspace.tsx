@@ -13,6 +13,7 @@ import type { ApiFamilyMember, ApiFamilyRegionOfInterest } from '../../lib/apiTy
 import type { GeneProfileOut, GeneSearchResultOut } from '../../lib/apiSchema.generated';
 import CoverageSegmentsChart from '../../components/visualizations/CoverageSegmentsChart';
 import ApcadChart from '../../components/visualizations/ApcadChart';
+import ParentalOriginChart from '../../components/visualizations/ParentalOriginChart';
 import Ideogram from '../../components/visualizations/Ideogram';
 import ZoomedIdeogram from '../../components/visualizations/ZoomedIdeogram';
 import VariantTrack from '../../components/visualizations/VariantTrack';
@@ -43,6 +44,7 @@ import { formatChromosomeLabel, normalizeChrom } from '../../lib/chromosomes';
 import { CHROMS, formatBp, formatRoiCoordinates } from './viewerShared';
 
 const TRACK_HEIGHT = 120;
+const PARENTAL_ORIGIN_TRACK_HEIGHT = 160;
 const NO_PHASE_CORRECTIONS: HaplotypePhaseCorrection[] = [];
 const VARIANT_TRACK_HEIGHT = 80;
 // Combined haplotype + phased-marker track: two lanes (paternal / maternal),
@@ -74,6 +76,8 @@ interface ChromosomeTrackAvailability {
   apcadSources: string[];
   apcad: boolean;
   apcadPcf: boolean;
+  /** An embryo's segregation table (nf-cmgg/copgtm), for the parental-origin view. */
+  apcadSegregation?: boolean;
   variants: boolean;
   smallVariants: boolean;
   haplotypes: boolean;
@@ -607,6 +611,26 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
                       />
                     </ViewerTrackBlock>
                   )}
+                {trackVisibility.parentalOrigin && availability[member.sample_id]?.apcadSegregation && (
+                  <ViewerTrackBlock
+                    label="Parental origin"
+                    width={trackWidth}
+                    frameClassName="h-[160px]"
+                    roiRange={regionRoiRange}
+                    roiTitle={roiTitle}
+                    viewportInteraction={viewportInteraction}
+                  >
+                    <ParentalOriginChart
+                      url={`${api.defaults.baseURL}/bed/${encodeURIComponent(member.sample_id)}/apcad_segregation?chrom=${encodeURIComponent(chrom)}&start=${regionStartParam}&end=${regionEndParam}&limit=200000&format=json`}
+                      sampleId={member.sample_id}
+                      chrom={chrom}
+                      regionStart={region.start}
+                      regionEnd={region.end}
+                      width={trackWidth}
+                      height={PARENTAL_ORIGIN_TRACK_HEIGHT}
+                    />
+                  </ViewerTrackBlock>
+                )}
                 {trackVisibility.variants && availability[member.sample_id]?.variants && (
                   <ViewerTrackBlock
                     label="SVs"

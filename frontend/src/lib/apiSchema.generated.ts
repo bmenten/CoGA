@@ -108,7 +108,9 @@ export interface AuditLogPageOut {
 
 /**
  * One APCAD site or PCF segment: the row with the parent it is inherited from
- * (``paternal`` or ``maternal``; ``und`` where that is not known).
+ * (``paternal`` or ``maternal``; ``und`` where that is not known). A segregation site's
+ * origin is its heterozygous parent, and its value the embryo's fraction of the allele the
+ * other parent does not carry (``family_package_tracks._parse_segregation_row``).
  */
 export interface BedApcadRecordOut {
   chr: string;
@@ -118,9 +120,9 @@ export interface BedApcadRecordOut {
   origin: string;
 }
 
-/** A BED read of an APCAD or PCF track: each row with its origin. */
+/** A BED read of an APCAD, PCF or segregation track: each row with its origin. */
 export interface BedApcadTrackOut {
-  bed_type: "apcad" | "apcad_pcf";
+  bed_type: "apcad" | "apcad_pcf" | "apcad_segregation";
   items: BedApcadRecordOut[];
 }
 
@@ -3601,6 +3603,7 @@ export interface TrackAvailabilityOut {
   apcad_sources: string[];
   apcad: boolean;
   apcad_pcf: boolean;
+  apcad_segregation: boolean;
   variants: boolean;
   small_variants: boolean;
   haplotypes: boolean;

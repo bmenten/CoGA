@@ -714,6 +714,17 @@ def _validate_apcad_dataset(
                     files=files,
                     sample_id=sample_id,
                 )
+            # The embryo's segregation table (nf-cmgg/copgtm), read beside its APCAD.
+            if entry.get("segregation"):
+                _require_file(
+                    root=root,
+                    dataset_type="apcad",
+                    value=entry.get("segregation"),
+                    field_name="segregation",
+                    errors=errors,
+                    files=files,
+                    sample_id=sample_id,
+                )
             _check_apcad_sample_vcf_columns(
                 root=root,
                 sample_id=sample_id,
@@ -800,12 +811,24 @@ def _check_apcad_table_sample(
     entry: dict[str, Any],
     errors: list[FamilyImportValidationIssue],
 ) -> None:
-    """The PGT pipeline's APCAD table of an embryo names the embryo in its ``Indiv`` column:
-    a table naming another (an embryo's file under its sibling's entry) is refused, as a
-    per-sample VCF without the sample's column is, before anything is written. Its first
-    record is read; a table without that column, or one that cannot be read here, is left
-    to the import."""
-    value = entry.get("file") or entry.get("bed")
+    """The PGT pipeline's APCAD table of an embryo, and its segregation table, name the embryo
+    in their ``Indiv`` column: a table naming another (an embryo's file under its sibling's
+    entry) is refused, as a per-sample VCF without the sample's column is, before anything is
+    written. Each one's first record is read; a table without that column, or one that cannot
+    be read here, is left to the import."""
+    for kind, value in (("APCAD table", entry.get("file") or entry.get("bed")), ("Segregation table", entry.get("segregation"))):
+        _check_table_names_sample(root=root, sample_id=sample_id, entry=entry, kind=kind, value=value, errors=errors)
+
+
+def _check_table_names_sample(
+    *,
+    root: Path,
+    sample_id: str,
+    entry: dict[str, Any],
+    kind: str,
+    value: Any,
+    errors: list[FamilyImportValidationIssue],
+) -> None:
     if not isinstance(value, str) or not value.lower().endswith(".csv"):
         return
     path = _package_path_or_none(root, value)
@@ -828,7 +851,7 @@ def _check_apcad_table_sample(
         errors.append(
             _issue(
                 "apcad_table_sample_mismatch",
-                f"APCAD table {value} is {named}'s (its Indiv column), not {sample_id}'s; "
+                f"{kind} {value} is {named}'s (its Indiv column), not {sample_id}'s; "
                 "name the right file, or the table's sample with vcf_sample",
                 dataset="apcad",
                 sample_id=sample_id,
