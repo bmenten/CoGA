@@ -67,6 +67,10 @@ VALID_BED_TYPES = {"coverage", "apcad", "apcad_pcf", "segments"}
 # ``apcad`` dataset, and a BED holds none of what its rows mean.
 READ_ONLY_BED_TYPES = {"apcad_segregation"}
 
+# The segregation table's site groups: the heterozygous parent (2 the mother, 3 the father) and
+# the other parent's homozygous allele (A alternate, B reference).
+_SEGREGATION_GROUPS = frozenset({"2A", "2B", "3A", "3B"})
+
 # The source of a track read from a BED file by ``upload_bed_data``: the single-file BED
 # upload's, and a package's coverage BED's (its ``coverage`` dataset), which replace each
 # other. A sample can carry other callers' tracks of the same types (WisecondorX, QDNAseq,
@@ -462,6 +466,12 @@ def _serialize_bed_record(track_type: str, row: dict[str, Any]) -> dict[str, Any
     }
     if track_type in {"apcad", "apcad_pcf", "apcad_segregation"}:
         payload["origin"] = row.get("origin") or "und"
+    if track_type == "apcad_segregation":
+        # The site's group (2A, 2B, 3A, 3B), the last part of its record id: the view draws the
+        # embryo's own allele fraction again from the stored value with it, as the PGT pipeline's
+        # plots do (``family_package_tracks._parse_segregation_row``).
+        group = str(row.get("record_id") or "").rsplit(":", 1)[-1]
+        payload["group"] = group if group in _SEGREGATION_GROUPS else None
     return payload
 
 

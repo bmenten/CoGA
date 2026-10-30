@@ -108,9 +108,7 @@ export interface AuditLogPageOut {
 
 /**
  * One APCAD site or PCF segment: the row with the parent it is inherited from
- * (``paternal`` or ``maternal``; ``und`` where that is not known). A segregation site's
- * origin is its heterozygous parent, and its value the embryo's fraction of the allele the
- * other parent does not carry (``family_package_tracks._parse_segregation_row``).
+ * (``paternal`` or ``maternal``; ``und`` where that is not known).
  */
 export interface BedApcadRecordOut {
   chr: string;
@@ -120,9 +118,9 @@ export interface BedApcadRecordOut {
   origin: string;
 }
 
-/** A BED read of an APCAD, PCF or segregation track: each row with its origin. */
+/** A BED read of an APCAD or PCF track: each row with its origin. */
 export interface BedApcadTrackOut {
-  bed_type: "apcad" | "apcad_pcf" | "apcad_segregation";
+  bed_type: "apcad" | "apcad_pcf";
   items: BedApcadRecordOut[];
 }
 
@@ -136,6 +134,29 @@ export interface BedRecordOut {
   start: number;
   end: number;
   value: number | null;
+}
+
+/**
+ * One site of an embryo's segregation table: its origin is its heterozygous parent, its value
+ * the embryo's fraction of the allele the other parent does not carry
+ * (``family_package_tracks._parse_segregation_row``), and its group the PGT pipeline's: 2A or
+ * 2B where the mother is heterozygous, 3A or 3B where the father is, A where the other parent
+ * is homozygous for the alternate allele and B for the reference. The embryo's own allele
+ * fraction is the value (B) or one minus it (A). None for a record id without a group.
+ */
+export interface BedSegregationRecordOut {
+  chr: string;
+  start: number;
+  end: number;
+  value: number | null;
+  origin: string;
+  group: string | null;
+}
+
+/** A BED read of an embryo's segregation track: each site with its origin and group. */
+export interface BedSegregationTrackOut {
+  bed_type: "apcad_segregation";
+  items: BedSegregationRecordOut[];
 }
 
 /** A BED read of a coverage or segments track. */

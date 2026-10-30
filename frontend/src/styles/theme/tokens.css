@@ -106,6 +106,10 @@
   --color-apcad-paternal: var(--color-haplotype-father-dark);
   --color-apcad-maternal: var(--color-haplotype-mother-dark);
   --color-apcad-default: var(--color-gray);
+  /* The parental-origin view: a site where the other parent is homozygous for the reference
+     allele (B); the alternate (A) takes the heterozygous parent's colour. Apart from both
+     parents' colours for colour-blind vision too (ΔE 16 and 35). */
+  --color-segregation-reference: #e0a030;
 
   --color-coverage-gain: #556f87;
   --color-coverage-loss: #8d3f44;

@@ -444,7 +444,9 @@ describe('ChromosomeViewWorkspace', () => {
     });
 
     expect(screen.getByTestId('parental-origin-chart')).toBeInTheDocument();
-    const { url } = parentalOriginChartMock.mock.calls[0][0] as { url: string };
+    const { urls, chroms } = parentalOriginChartMock.mock.calls[0][0] as { urls: string[]; chroms: string[] };
+    expect(chroms).toEqual(['1']);
+    const [url] = urls;
     expect(new URL(url, 'http://test').pathname).toMatch(/\/bed\/EMB1\/apcad_segregation$/);
     expect(new URL(url, 'http://test').searchParams.get('chrom')).toBe('1');
   });

@@ -2395,7 +2395,7 @@
   "title": "Genome visualisation",
   "summary": "From a candidate to its context: the genome and chromosome views, Circos and IGV, and how the small-variant and structural-variant tracks are drawn.",
   "quickLinks": [],
-  "text": "Tablesareforfindingcandidates;viewersareforcheckingthemintheirgenomiccontext.Fromthefamilypage:Genomeview—chromosomes1–22,XandYwiththeirvariantsandtracks.Themitochondrion,toosmalltoseethere,isinthechromosomeview(chrM)andonthemtDNAanalysispage.Chromosomeview—onechromosomewithcoverage,segments,APCAD,haplotypesandvarianttracks.ClickingtheROIonthefamilypageopensitherewith1Mboneachside.Circosplot—genome-widestructuralrelationshipsataglance,drawnonchromosomes1–22,XandYofthefamily'sassembly.Foranassemblyitcannotdraw,thepagesayswhyanddrawsnothing.IGVviewer—thereadsatalocus,onthegenomeofthefamily'sassembly.Foranassemblyithasnogenomefor,thepagesayssoandopensnone,ratherthananotherassembly'sgenome.TheIGVandViewlinksonavariantroworcard,andtheGenomeandCircosbuttonsabovethestructural-varianttable,openinanewbrowsertab,soyourfilteredliststaysasitwas.Thesmall-varianttrackInthechromosomevieweachsmallvariantisdrawnbyitsclass,withalegendonthetrack:MarkMeaningReddiamondClinVarpathogenicorlikelypathogenicOrangetriangleHIGHimpactGreendotMODERATEimpactGreydotLOWimpactorotherHollowbluesquareClinVarbenignorlikelybenignAvariantwithaconflictingoruncertainClinVarrecordisdrawnbyitsimpact.Areviewtagdrawsaringinthetag'scolouraroundthemark;themarkitselfdoesnotchange.Hoveramarkforitsimpact,ClinVarstatusandparentalorigin.Whenthesampleshownhasaparentinthefamily,thetrackhasthreerows:variantsinheritedfromthefather(top),fromthemother(bottom),andofunknownorigin(middle:homozygous,denovoorambiguous).Theorigincomesfromtheparents'genotypeswhenbotharethere,otherwisefromthephasedgenotype.Withoutaparentinthefamilythereisonerow.Viewersshowonlywhatwasimported.Acoverage,segment,APCADorhaplotypetrackappearswhenthatdatawasloadedforthesample,soanemptytrackusuallymeansthelayerismissing,notthattheviewerfailed.Whenaviewholdstoomanyvariantstodraw,thetracksaysso:zoominorfilter.CoverageisdrawnonetrackperCNVcaller,ontheaxisofwhatthetrackholds.Thecallers'log2ratiossharethelog2-ratioaxis,withthegainandlosscoloursandthecaller'ssegments.Readdepthisdrawnonadepthaxisfrom0,withoutthosecoloursorsegments:acoverageBEDdeclaredasreaddepth,andaHiFiCNVdepthfilewithoutautosomaldepth,whichgivesnobaselinetotakearatioagainst,soitsdepthsarekeptasread(thetrack'sheadersaysso).AcoverageBEDsayswhatitholdswhenitisloaded;onethatdoesnotisdrawnonitsownrangewithoutanaxis,anditsheaderwarnsthatitisreadasneitherdepthnoralog2ratio.InaPGTfamily,judgeeachembryo'saneuploidyandlarge(>10Mb)structuralvariantsyourself,onitssegment,copy-number(coverage)andAPCADtracks.CoGAshowsthetracksbutmakesnoaneuploidycall.Forananeuploidchromosome,tickParentalorigin(aneuploidy)underTracksinthechromosomeview.ItisofferedforanembryowhosePGTpipelinerunwroteitssegregationtable,andisoffuntilyouaskforit.Itdrawstwopanels:thesiteswherethemotherisheterozygousandthefatherhomozygous,andthereverse.Eachsiteisdrawnattheembryo'sfractionoftheallelethehomozygousparentdoesnotcarry,againstguidelinesat0,⅓,½and⅔:Onaparent'spanelReading0and½oneofthatparent'shomologs(disomy)⅓alone,nothingat0bothofthatparent'shomologs(heterodisomy)0and⅔twocopiesofoneofthatparent'shomologs(isodisomy)0and⅓thatparentgaveonecopyofthree:theextracopyistheotherparent'sAstripundereachpanelshows,perwindow,theshareofitssitesat0:nearnothingwherebothofthatparent'shomologsarepresent.Readtheresultagainstthecentromereontheideogramabove:heterodisomyatthecentromerepointstoanerrorinmeiosisI;isodisomyatthecentromere,turningtoheterodisomypastacrossover,pointstomeiosisII;isodisomyalongthewholechromosomepointstoamitoticerror,usuallyasamosaic,wherethebandsmovebetween½and⅔.Thepipelinekeepsonlysitestheembryowasreaddeeplyat,soatrisomicchromosomehasmanymoresitesthantheothers,andamonosomyalmostnone.CoGAdrawsthesitesandmakesnocallfromthem.ThePGThaplotypetrackisexplainedunderHaplotypesegregation.Thestructural-varianttracksThegenomeandchromosomeviewsdraweverySVthatthestructural-variantlistshows,inoneofsixrows:RowSVsdrawnthereDELDeletionsofanysubtype(DEL:ME),andCNVsthatremoveacopyDUPDuplicationsofanysubtype(DUP:TANDEM),andCNVsthataddacopyINVInversionsINSInsertionsofanysubtype(INS:ME)BNDBreakendsandtranslocations(TRA)OtherAnyothertype,andCNVsthatchangenocopynumber,ingreyACNVisplacedbythecopynumberstoredforthesample'scall,astheSVrankingscoresit:amalehasonecopyofchrXandchrYoutsidethepseudo-autosomalregions,andaCNVwithoutastoredcopynumbercountsasaloss.HoveranSVforitstypeasthecallerwroteit,aCNV'scopy-numberchange,andthecall'scopynumber(CN).TheCircosplotdrawseachSVthesameway,fromthecallsofthewholefamily.",
+  "text": "Tablesareforfindingcandidates;viewersareforcheckingthemintheirgenomiccontext.Fromthefamilypage:Genomeview—chromosomes1–22,XandYwiththeirvariantsandtracks.Themitochondrion,toosmalltoseethere,isinthechromosomeview(chrM)andonthemtDNAanalysispage.Chromosomeview—onechromosomewithcoverage,segments,APCAD,haplotypesandvarianttracks.ClickingtheROIonthefamilypageopensitherewith1Mboneachside.Circosplot—genome-widestructuralrelationshipsataglance,drawnonchromosomes1–22,XandYofthefamily'sassembly.Foranassemblyitcannotdraw,thepagesayswhyanddrawsnothing.IGVviewer—thereadsatalocus,onthegenomeofthefamily'sassembly.Foranassemblyithasnogenomefor,thepagesayssoandopensnone,ratherthananotherassembly'sgenome.TheIGVandViewlinksonavariantroworcard,andtheGenomeandCircosbuttonsabovethestructural-varianttable,openinanewbrowsertab,soyourfilteredliststaysasitwas.Thesmall-varianttrackInthechromosomevieweachsmallvariantisdrawnbyitsclass,withalegendonthetrack:MarkMeaningReddiamondClinVarpathogenicorlikelypathogenicOrangetriangleHIGHimpactGreendotMODERATEimpactGreydotLOWimpactorotherHollowbluesquareClinVarbenignorlikelybenignAvariantwithaconflictingoruncertainClinVarrecordisdrawnbyitsimpact.Areviewtagdrawsaringinthetag'scolouraroundthemark;themarkitselfdoesnotchange.Hoveramarkforitsimpact,ClinVarstatusandparentalorigin.Whenthesampleshownhasaparentinthefamily,thetrackhasthreerows:variantsinheritedfromthefather(top),fromthemother(bottom),andofunknownorigin(middle:homozygous,denovoorambiguous).Theorigincomesfromtheparents'genotypeswhenbotharethere,otherwisefromthephasedgenotype.Withoutaparentinthefamilythereisonerow.Viewersshowonlywhatwasimported.Acoverage,segment,APCADorhaplotypetrackappearswhenthatdatawasloadedforthesample,soanemptytrackusuallymeansthelayerismissing,notthattheviewerfailed.Whenaviewholdstoomanyvariantstodraw,thetracksaysso:zoominorfilter.CoverageisdrawnonetrackperCNVcaller,ontheaxisofwhatthetrackholds.Thecallers'log2ratiossharethelog2-ratioaxis,withthegainandlosscoloursandthecaller'ssegments.Readdepthisdrawnonadepthaxisfrom0,withoutthosecoloursorsegments:acoverageBEDdeclaredasreaddepth,andaHiFiCNVdepthfilewithoutautosomaldepth,whichgivesnobaselinetotakearatioagainst,soitsdepthsarekeptasread(thetrack'sheadersaysso).AcoverageBEDsayswhatitholdswhenitisloaded;onethatdoesnotisdrawnonitsownrangewithoutanaxis,anditsheaderwarnsthatitisreadasneitherdepthnoralog2ratio.InaPGTfamily,judgeeachembryo'saneuploidyandlarge(>10Mb)structuralvariantsyourself,onitssegment,copy-number(coverage)andAPCADtracks.CoGAshowsthetracksbutmakesnoaneuploidycall.Forananeuploidy,tickParentalorigin(aneuploidy)underTracks,inthegenomeviewandinthechromosomeview.ItisofferedforanembryowhosePGTpipelinerunwroteitssegregationtable,andisoffuntilyouaskforit.Itdrawstheembryo'ssitesasthepipeline'sownplotsdo,intwopanels:Motherheterozygous(thepipeline'sgroup2:themotherheterozygous,thefatherhomozygous)andFatherheterozygous(group3).Eachsiteisattheembryo'sallelefraction,from0to1,colouredbytheotherparent'shomozygousallele:amberforthereference(2B,3B),theheterozygousparent'scolourforthealternate(2A,3A).Thegenomeviewdrawseverychromosomesidebyside,soananeuploidonestandsoutagainsttheothers;thechromosomeviewdrawstheregioninview.Readeachpanelagainstitsguidelines:Onaparent'spanelReadingbandsat0,½and1oneofthatparent'shomologs(disomy)only⅓and⅔,nothingat0or1bothofthatparent'shomologs(heterodisomy)0,⅓,⅔and1twocopiesofoneofitshomologs(isodisomy),or,inatrisomy,thepaneloftheparentwhogaveonecopyofthreeReadtheresultagainstthecentromereonthechromosomeview'sideogram:heterodisomyatthecentromerepointstoanerrorinmeiosisI;isodisomyatthecentromere,turningtoheterodisomypastacrossover,pointstomeiosisII;isodisomyalongthewholechromosomepointstoamitoticerror,usuallyasamosaic,wherethebandssitbetweenthoseofadisomyandatrisomy.Whichparentgavetheextracopyofanisodisomictrisomy,theAPCADtrackshows.Thepipelinekeepsonlysitestheembryowasreaddeeplyat,soatrisomicchromosomehasmanymoresitesthantheothers,andamonosomyalmostnone.CoGAdrawsthesitesandmakesnocallfromthem.ThePGThaplotypetrackisexplainedunderHaplotypesegregation.Thestructural-varianttracksThegenomeandchromosomeviewsdraweverySVthatthestructural-variantlistshows,inoneofsixrows:RowSVsdrawnthereDELDeletionsofanysubtype(DEL:ME),andCNVsthatremoveacopyDUPDuplicationsofanysubtype(DUP:TANDEM),andCNVsthataddacopyINVInversionsINSInsertionsofanysubtype(INS:ME)BNDBreakendsandtranslocations(TRA)OtherAnyothertype,andCNVsthatchangenocopynumber,ingreyACNVisplacedbythecopynumberstoredforthesample'scall,astheSVrankingscoresit:amalehasonecopyofchrXandchrYoutsidethepseudo-autosomalregions,andaCNVwithoutastoredcopynumbercountsasaloss.HoveranSVforitstypeasthecallerwroteit,aCNV'scopy-numberchange,andthecall'scopynumber(CN).TheCircosplotdrawseachSVthesameway,fromthecallsofthewholefamily.",
   "paragraphs": [
    "Tables are for finding candidates; viewers are for checking them in their genomic context. From the family page:",
    "The IGV and View links on a variant row or card, and the Genome and Circos buttons above the structural-variant table, open in a new browser tab, so your filtered list stays as it was.",
@@ -2404,9 +2404,9 @@
    "When the sample shown has a parent in the family, the track has three rows: variants inherited from the father (top), from the mother (bottom), and of unknown origin (middle: homozygous, de novo or ambiguous). The origin comes from the parents' genotypes when both are there, otherwise from the phased genotype. Without a parent in the family there is one row.",
    "Coverage is drawn one track per CNV caller, on the axis of what the track holds. The callers' log2 ratios share the log2-ratio axis, with the gain and loss colours and the caller's segments. Read depth is drawn on a depth axis from 0, without those colours or segments: a coverage BED declared as read depth, and a HiFiCNV depth file without autosomal depth, which gives no baseline to take a ratio against, so its depths are kept as read (the track's header says so). A coverage BED says what it holds when it is loaded; one that does not is drawn on its own range without an axis, and its header warns that it is read as neither depth nor a log2 ratio.",
    "In a PGT family, judge each embryo's aneuploidy and large (>10 Mb) structural variants yourself, on its segment, copy-number (coverage) and APCAD tracks. CoGA shows the tracks but makes no aneuploidy call.",
-   "For an aneuploid chromosome, tick Parental origin (aneuploidy) under Tracks in the chromosome view. It is offered for an embryo whose PGT pipeline run wrote its segregation table, and is off until you ask for it. It draws two panels: the sites where the mother is heterozygous and the father homozygous, and the reverse. Each site is drawn at the embryo's fraction of the allele the homozygous parent does not carry, against guide lines at 0, ⅓, ½ and ⅔:",
-   "A strip under each panel shows, per window, the share of its sites at 0: near nothing where both of that parent's homologs are present. Read the result against the centromere on the ideogram above:",
-   "The pipeline keeps only sites the embryo was read deeply at, so a trisomic chromosome has many more sites than the others, and a monosomy almost none. CoGA draws the sites and makes no call from them.",
+   "For an aneuploidy, tick Parental origin (aneuploidy) under Tracks, in the genome view and in the chromosome view. It is offered for an embryo whose PGT pipeline run wrote its segregation table, and is off until you ask for it. It draws the embryo's sites as the pipeline's own plots do, in two panels: Mother heterozygous (the pipeline's group 2: the mother heterozygous, the father homozygous) and Father heterozygous (group 3). Each site is at the embryo's allele fraction, from 0 to 1, coloured by the other parent's homozygous allele: amber for the reference (2B, 3B), the heterozygous parent's colour for the alternate (2A, 3A). The genome view draws every chromosome side by side, so an aneuploid one stands out against the others; the chromosome view draws the region in view. Read each panel against its guide lines:",
+   "Read the result against the centromere on the chromosome view's ideogram:",
+   "Which parent gave the extra copy of an isodisomic trisomy, the APCAD track shows. The pipeline keeps only sites the embryo was read deeply at, so a trisomic chromosome has many more sites than the others, and a monosomy almost none. CoGA draws the sites and makes no call from them.",
    "The PGT haplotype track is explained under Haplotype segregation.",
    "The genome and chromosome views draw every SV that the structural-variant list shows, in one of six rows:",
    "A CNV is placed by the copy number stored for the sample's call, as the SV ranking scores it: a male has one copy of chrX and chrY outside the pseudo-autosomal regions, and a CNV without a stored copy number counts as a loss. Hover an SV for its type as the caller wrote it, a CNV's copy-number change, and the call's copy number (CN). The Circos plot draws each SV the same way, from the calls of the whole family."
@@ -2494,7 +2494,7 @@
    ],
    [
     "td",
-    "0 and ½"
+    "bands at 0, ½ and 1"
    ],
    [
     "td",
@@ -2502,7 +2502,7 @@
    ],
    [
     "td",
-    "⅓ alone, nothing at 0"
+    "only ⅓ and ⅔, nothing at 0 or 1"
    ],
    [
     "td",
@@ -2510,19 +2510,11 @@
    ],
    [
     "td",
-    "0 and ⅔"
+    "0, ⅓, ⅔ and 1"
    ],
    [
     "td",
-    "two copies of one of that parent's homologs (isodisomy)"
-   ],
-   [
-    "td",
-    "0 and ⅓"
-   ],
-   [
-    "td",
-    "that parent gave one copy of three: the extra copy is the other parent's"
+    "two copies of one of its homologs (isodisomy), or, in a trisomy, the panel of the parent who gave one copy of three"
    ],
    [
     "li",
@@ -2534,7 +2526,7 @@
    ],
    [
     "li",
-    "isodisomy along the whole chromosome points to a mitotic error, usually as a mosaic, where the bands move between ½ and ⅔."
+    "isodisomy along the whole chromosome points to a mitotic error, usually as a mosaic, where the bands sit between those of a disomy and a trisomy."
    ],
    [
     "h3",
@@ -2645,6 +2637,14 @@
    [
     "em",
     "Tracks"
+   ],
+   [
+    "strong",
+    "Mother heterozygous"
+   ],
+   [
+    "strong",
+    "Father heterozygous"
    ],
    [
     "a",

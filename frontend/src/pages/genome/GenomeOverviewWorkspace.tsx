@@ -11,6 +11,7 @@ import {
 import { cssVar } from '../../lib/colors';
 import CoverageSegmentsChart from '../../components/visualizations/CoverageSegmentsChart';
 import ApcadChart from '../../components/visualizations/ApcadChart';
+import ParentalOriginChart from '../../components/visualizations/ParentalOriginChart';
 import SvTrack from '../../components/visualizations/SvTrack';
 import GenomeHaplotypeTrack from '../../components/visualizations/GenomeHaplotypeTrack';
 import HaplotypeLegend from '../../components/visualizations/HaplotypeLegend';
@@ -51,6 +52,8 @@ interface GenomeTrackAvailability {
   apcadSources: string[];
   apcad: boolean;
   apcadPcf: boolean;
+  /** An embryo's segregation table (nf-cmgg/copgtm), for the parental-origin view. */
+  apcadSegregation?: boolean;
   haplotypes: boolean;
   sv: boolean;
   repeatExpansions: boolean;
@@ -63,6 +66,7 @@ interface GenomeRegionSelection {
 }
 
 const NO_MIXED_HOMOLOG_EMBRYOS = new Map<string, string>();
+const GENOME_PARENTAL_ORIGIN_PANEL_HEIGHT = 110;
 
 interface GenomeOverviewWorkspaceProps {
   familyId: string;
@@ -99,6 +103,7 @@ interface GenomeOverviewWorkspaceProps {
     ) => { coverageUrls: string[]; segmentsUrls: string[] };
     apcad: Record<string, string[]>;
     apcadPcf: Record<string, string[]>;
+    apcadSegregation?: Record<string, string[]>;
     haplotypes: Record<string, string[]>;
     sv: Record<string, string>;
   };
@@ -439,6 +444,26 @@ const GenomeOverviewWorkspace: React.FC<GenomeOverviewWorkspaceProps> = ({
                       )}
                     </ViewerTrackBlock>
                   )}
+                {trackVisibility.parentalOrigin && availability[member.sample_id]?.apcadSegregation && (
+                  <ViewerTrackBlock
+                    label="Parental origin"
+                    width={trackWidth}
+                    frameClassName="mb-2 h-auto"
+                    roiRange={genomeRoiRange}
+                    roiTitle={roiTitle}
+                  >
+                    {layout && (
+                      <ParentalOriginChart
+                        urls={urlMaps.apcadSegregation?.[member.sample_id] ?? []}
+                        sampleId={member.sample_id}
+                        chroms={layout.chroms}
+                        layout={layout}
+                        width={trackWidth}
+                        panelHeight={GENOME_PARENTAL_ORIGIN_PANEL_HEIGHT}
+                      />
+                    )}
+                  </ViewerTrackBlock>
+                )}
                 {trackVisibility.sv && availability[member.sample_id]?.sv && (
                   <ViewerTrackBlock
                     label="SVs"

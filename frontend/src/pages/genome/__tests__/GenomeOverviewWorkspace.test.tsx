@@ -99,6 +99,7 @@ const renderWithoutTracks = (overrides: Partial<ComponentProps<typeof GenomeOver
           sv: false,
           haplotypes: false,
           repeatExpansions: false,
+          parentalOrigin: false,
         }}
         availability={{}}
         variantFilters={{}}
@@ -222,6 +223,7 @@ describe('GenomeOverviewWorkspace', () => {
             sv: false,
             haplotypes: false,
             repeatExpansions: false,
+            parentalOrigin: false,
           }}
           availability={{
             PROBAND: {
@@ -363,6 +365,7 @@ describe('GenomeOverviewWorkspace', () => {
             haplotypes: false,
             sv: false,
             repeatExpansions: false,
+            parentalOrigin: false,
           }}
           availability={{
             PROBAND: {
@@ -459,6 +462,7 @@ describe('GenomeOverviewWorkspace', () => {
             haplotypes: false,
             sv: false,
             repeatExpansions: false,
+            parentalOrigin: false,
           }}
           availability={{
             PROBAND: {
@@ -541,6 +545,7 @@ describe('GenomeOverviewWorkspace', () => {
               haplotypes: false,
               sv: false,
               repeatExpansions: false,
+              parentalOrigin: false,
             }}
             availability={{
               PROBAND: {

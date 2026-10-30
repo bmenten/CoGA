@@ -44,7 +44,7 @@ import { formatChromosomeLabel, normalizeChrom } from '../../lib/chromosomes';
 import { CHROMS, formatBp, formatRoiCoordinates } from './viewerShared';
 
 const TRACK_HEIGHT = 120;
-const PARENTAL_ORIGIN_TRACK_HEIGHT = 160;
+const PARENTAL_ORIGIN_PANEL_HEIGHT = 120;
 const NO_PHASE_CORRECTIONS: HaplotypePhaseCorrection[] = [];
 const VARIANT_TRACK_HEIGHT = 80;
 // Combined haplotype + phased-marker track: two lanes (paternal / maternal),
@@ -615,19 +615,21 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
                   <ViewerTrackBlock
                     label="Parental origin"
                     width={trackWidth}
-                    frameClassName="h-[160px]"
+                    frameClassName="h-auto"
                     roiRange={regionRoiRange}
                     roiTitle={roiTitle}
                     viewportInteraction={viewportInteraction}
                   >
                     <ParentalOriginChart
-                      url={`${api.defaults.baseURL}/bed/${encodeURIComponent(member.sample_id)}/apcad_segregation?chrom=${encodeURIComponent(chrom)}&start=${regionStartParam}&end=${regionEndParam}&limit=200000&format=json`}
+                      urls={[
+                        `${api.defaults.baseURL}/bed/${encodeURIComponent(member.sample_id)}/apcad_segregation?chrom=${encodeURIComponent(chrom)}&start=${regionStartParam}&end=${regionEndParam}&limit=200000&format=json`,
+                      ]}
                       sampleId={member.sample_id}
-                      chrom={chrom}
+                      chroms={[chrom]}
                       regionStart={region.start}
                       regionEnd={region.end}
                       width={trackWidth}
-                      height={PARENTAL_ORIGIN_TRACK_HEIGHT}
+                      panelHeight={PARENTAL_ORIGIN_PANEL_HEIGHT}
                     />
                   </ViewerTrackBlock>
                 )}

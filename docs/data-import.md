@@ -698,12 +698,14 @@ table imports in seconds. An embryo without one is read from its trio VCF, as be
 site at which only one parent carries the alternate allele. A table whose `Indiv` column names
 another sample than its entry's fails validation (`apcad_table_sample_mismatch`). Beside the
 table, an embryo's entry names its segregation table (`segregation:`,
-`apcad/EMBRYO1_APCAD_segregation_data.csv`, which Discover writes where the run has one): the
+`apcad/EMBRYO1_APCAD_segregation_data.csv`, which Discover writes where the run has one, but not
+into a manifest that already declares the `apcad` dataset, whose entries it keeps as they are:
+there, add the line to each embryo's entry by hand): the
 sites where one parent is heterozygous and the other homozygous (`source` 2A/2B: the mother
 heterozygous; 3A/3B: the father; A, the homozygous parent carries the alternate allele), read
 into the embryo's `apcad_segregation` track. Each site is stored at the embryo's fraction of
 the allele the homozygous parent does not carry (`raw_AF` for B, one minus it for A), with the
-heterozygous parent as its origin. The chromosome view draws them as the *Parental origin*
+heterozygous parent as its origin; a read serves each site's group beside it. The genome and chromosome views draw them as the *Parental origin*
 track, which tells heterodisomy from isodisomy on an aneuploid chromosome. The table is checked
 with the APCAD files, before any track is replaced; one without a site of group 2 or 3 is
 refused, and one whose `Indiv` names another embryo fails validation like the APCAD table. The

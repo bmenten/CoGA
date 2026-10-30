@@ -205,11 +205,20 @@ class BedRecordOut(BaseModel):
 
 class BedApcadRecordOut(BedRecordOut):
     """One APCAD site or PCF segment: the row with the parent it is inherited from
-    (``paternal`` or ``maternal``; ``und`` where that is not known). A segregation site's
-    origin is its heterozygous parent, and its value the embryo's fraction of the allele the
-    other parent does not carry (``family_package_tracks._parse_segregation_row``)."""
+    (``paternal`` or ``maternal``; ``und`` where that is not known)."""
 
     origin: str
+
+
+class BedSegregationRecordOut(BedApcadRecordOut):
+    """One site of an embryo's segregation table: its origin is its heterozygous parent, its value
+    the embryo's fraction of the allele the other parent does not carry
+    (``family_package_tracks._parse_segregation_row``), and its group the PGT pipeline's: 2A or
+    2B where the mother is heterozygous, 3A or 3B where the father is, A where the other parent
+    is homozygous for the alternate allele and B for the reference. The embryo's own allele
+    fraction is the value (B) or one minus it (A). None for a record id without a group."""
+
+    group: Optional[str] = None
 
 
 class BedTrackOut(BaseModel):
@@ -220,14 +229,23 @@ class BedTrackOut(BaseModel):
 
 
 class BedApcadTrackOut(BaseModel):
-    """A BED read of an APCAD, PCF or segregation track: each row with its origin."""
+    """A BED read of an APCAD or PCF track: each row with its origin."""
 
-    bed_type: Literal["apcad", "apcad_pcf", "apcad_segregation"]
+    bed_type: Literal["apcad", "apcad_pcf"]
     items: List[BedApcadRecordOut]
 
 
+class BedSegregationTrackOut(BaseModel):
+    """A BED read of an embryo's segregation track: each site with its origin and group."""
+
+    bed_type: Literal["apcad_segregation"]
+    items: List[BedSegregationRecordOut]
+
+
 # What a BED read answers: the track type it read decides the shape of its rows.
-BedReadOut = Annotated[Union[BedTrackOut, BedApcadTrackOut], Field(discriminator="bed_type")]
+BedReadOut = Annotated[
+    Union[BedTrackOut, BedApcadTrackOut, BedSegregationTrackOut], Field(discriminator="bed_type")
+]
 
 
 class BedUploadResult(BaseModel):

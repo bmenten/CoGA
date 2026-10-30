@@ -6,8 +6,9 @@ default), the shared SV counts were a plain mapping, and a dozen routes answered
 untyped (#1020, #1027). Each now names a model (``backend/app/schemas``), which the frontend
 reads through its generated type:
 
-* the BED reads, ``BedTrackOut`` (coverage, segments) or ``BedApcadTrackOut`` (APCAD, PCF:
-  each row with its ``origin``), by the track type read; the uploads, ``BedUploadResult`` and
+* the BED reads, ``BedTrackOut`` (coverage, segments), ``BedApcadTrackOut`` (APCAD, PCF:
+  each row with its ``origin``) or ``BedSegregationTrackOut`` (an embryo's segregation sites:
+  each with its ``origin`` and ``group``), by the track type read; the uploads, ``BedUploadResult`` and
   ``StructuralVariantUploadResult``;
 * the shared SV counts, ``SharedStructuralVariantCountsOut``;
 * the administrator's QC-profile, QC-cut-off, family-projects, NIPT-artifact and deletion
@@ -41,8 +42,8 @@ from backend.app.services.family_metadata_context import SampleMetadataContext
 
 # Each operation that had no model, the status of its answer and the models it names.
 MODELS: dict[tuple[str, str], tuple[str, set[str]]] = {
-    ("get", "/api/bed/{sample_id}/{bed_type}"): ("200", {"BedTrackOut", "BedApcadTrackOut"}),
-    ("get", "/api/bed/{sample_id}/{bed_type}/batch"): ("200", {"BedTrackOut", "BedApcadTrackOut"}),
+    ("get", "/api/bed/{sample_id}/{bed_type}"): ("200", {"BedTrackOut", "BedApcadTrackOut", "BedSegregationTrackOut"}),
+    ("get", "/api/bed/{sample_id}/{bed_type}/batch"): ("200", {"BedTrackOut", "BedApcadTrackOut", "BedSegregationTrackOut"}),
     ("post", "/api/bed/upload/{sample_id}/{bed_type}"): ("200", {"BedUploadResult"}),
     ("post", "/api/structural-variants/upload/{sample_id}"): ("200", {"StructuralVariantUploadResult"}),
     ("get", "/api/families/{family_id}/shared-structural-variant-counts"): (
@@ -154,6 +155,11 @@ STORE = {
     "segments": [_row("1", 0, 5000, -0.4), _row("1", 5000, 9000, None)],
     "apcad": [_row("1", 10, 11, 0.98, "paternal"), _row("1", 20, 21, None, None)],
     "apcad_pcf": [_row("1", 0, 9000, 0.5, "maternal"), _row("2", 0, 4000, 0.1, "und")],
+    # An embryo's segregation sites, each with its group in its record id.
+    "apcad_segregation": [
+        {**_row("9", 999, 1000, 0.34, "maternal"), "record_id": "9:1000:2B"},
+        {**_row("9", 1999, 2000, 0.3, "paternal"), "record_id": "9:2000:3A"},
+    ],
 }
 DOWNSAMPLED = [{"chr": "1", "start": 30, "end": 31, "value": 0.02, "origin": "maternal"}]
 
@@ -253,6 +259,17 @@ READS = {
         {"chrom": ["1"], "window": 1000},
         {"bed_type": "apcad", "items": [_item("1", 30, 31, 0.02, origin="maternal")]},
     ),
+    "apcad_segregation": (
+        "/api/bed/EMB1/apcad_segregation",
+        {"chrom": "9"},
+        {
+            "bed_type": "apcad_segregation",
+            "items": [
+                _item("9", 999, 1000, 0.34, origin="maternal", group="2B"),
+                _item("9", 1999, 2000, 0.3, origin="paternal", group="3A"),
+            ],
+        },
+    ),
     "apcad_pcf-batch": (
         "/api/bed/PROBAND/apcad_pcf/batch",
         {"chrom": ["1", "2"]},
@@ -276,7 +293,7 @@ def test_a_bed_read_answers_the_json_it_answered(client, read: str) -> None:
 def test_a_bed_reads_answer_is_what_its_model_describes(client, read: str) -> None:
     from pydantic import TypeAdapter
 
-    from backend.app.schemas import BedApcadTrackOut, BedReadOut, BedTrackOut
+    from backend.app.schemas import BedApcadTrackOut, BedReadOut, BedSegregationTrackOut, BedTrackOut
 
     path, params, _expected = READS[read]
     body = client.get(path, params=params).json()
@@ -284,7 +301,14 @@ def test_a_bed_reads_answer_is_what_its_model_describes(client, read: str) -> No
     parsed = adapter.validate_python(body)
     # Validated and written back, the answer is itself: no field renamed, dropped or added.
     assert adapter.dump_python(parsed, mode="json") == body
-    assert isinstance(parsed, BedApcadTrackOut if body["bed_type"].startswith("apcad") else BedTrackOut)
+    expected_model = (
+        BedSegregationTrackOut
+        if body["bed_type"] == "apcad_segregation"
+        else BedApcadTrackOut
+        if body["bed_type"].startswith("apcad")
+        else BedTrackOut
+    )
+    assert isinstance(parsed, expected_model)
 
 
 # --------------------------------------------------------------------------- the health probes
