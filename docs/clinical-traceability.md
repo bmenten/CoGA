@@ -187,7 +187,23 @@ trail: when it shows only the most recent events it says so, on screen and at th
 every printed page, and **Show older events** reads the next page. Two people saving
 the same review cannot silently overwrite each other: a save that carries the
 `expected_updated_at` it loaded is refused with 409 `review_conflict` when the review changed
-in between.
+in between. Saves of one variant's review wait for each other (a transaction-scoped lock per
+variant), so the check sees every earlier save, and a save is never stamped with an
+`updated_at` earlier than the version it replaces.
+
+A compound-het pair save (`compound_het` with a `partner_variant_id`) writes the partner's
+review as well, and breaking up a pair either variant was in rewrites the review of each of its
+variants. Each of those reviews is locked as a save of it is, all in one order (so two pair
+saves cannot wait on each other), and read only under its lock: a partner review saved in the
+meantime is kept, never written back from a copy read before it. Until this was fixed, a pair
+save racing a partner's save could put the partner's earlier review back: its class, ACMG
+criteria and note lost, its `updated_at` moved back. The partner's version is checked like the
+variant's own: a pair save that carries `compound_het.partner_expected_updated_at` (the
+partner review's `updated_at` as loaded, null for none) is refused with the same 409
+`review_conflict`, which names the partner (`variant_id`) and carries its current review. A
+pair that changed between the save's look-up and its locks is refused the same way. A refused
+save writes nothing, so it leaves no clinical audit event; the request log records the 409 as
+it does every refused save.
 
 ## Evidence drift
 

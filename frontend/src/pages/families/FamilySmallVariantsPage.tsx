@@ -2,7 +2,11 @@ import React, { useId, useMemo, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../../lib/api';
-import { isReviewConflict, withReviewVersion } from '../../lib/reviewConcurrency';
+import {
+  isReviewConflict,
+  withPartnerReviewVersion,
+  withReviewVersion,
+} from '../../lib/reviewConcurrency';
 import { getErrorMessage } from '../../lib/errorMessage';
 import FamilyCaseHeader, { FamilyFact } from './FamilyCaseHeader';
 import FilterCollapseToggle from './FilterCollapseToggle';
@@ -38,6 +42,7 @@ import {
   buildOptimisticReview,
   buildSmallVariantReviewPath,
   fetchFamilyReviewTags,
+  findLoadedVariantReview,
   hasReviewContent,
   quickTagTogglePayload,
   searchReadsReviews,
@@ -281,7 +286,17 @@ const FamilySmallVariantsPage: React.FC = () => {
         throw new Error('Family id is required');
       }
       const reviewPath = buildSmallVariantReviewPath(familyId, variant._id);
-      const body = withReviewVersion(payload, variant.review);
+      // A pair save writes the partner's review too: it names the version the list loaded.
+      const partnerId = payload.compound_het?.partner_variant_id;
+      const partnerReview = partnerId
+        ? findLoadedVariantReview(
+            queryClient
+              .getQueriesData<SmallVariantPage>({ queryKey: ['family', familyId, 'small-variants'] })
+              .map(([, page]) => page),
+            partnerId,
+          )
+        : undefined;
+      const body = withReviewVersion(withPartnerReviewVersion(payload, partnerReview), variant.review);
       const res = projectId
         ? await api.put(reviewPath, body, { params: { project_id: projectId } })
         : await api.put(reviewPath, body);
@@ -300,7 +315,7 @@ const FamilySmallVariantsPage: React.FC = () => {
       });
       return { snapshots };
     },
-    onSuccess: ({ review, variantId }) => {
+    onSuccess: ({ review, variantId }, { payload }) => {
       queryClient
         .getQueriesData<SmallVariantPage>({ queryKey: ['family', familyId, 'small-variants'] })
         .forEach(([queryKey]) => {
@@ -313,11 +328,15 @@ const FamilySmallVariantsPage: React.FC = () => {
         message: 'Variant review saved.',
       });
       // The card shows the saved review already. The list is searched again only when its
-      // filters read reviews (a tag or note can add or drop a variant there); other cached
-      // searches are marked stale and searched again when next shown.
+      // filters read reviews (a tag or note can add or drop a variant there), or when a pair
+      // save changed the partner's review too; other cached searches are marked stale and
+      // searched again when next shown.
       void queryClient.invalidateQueries({
         queryKey: ['family', familyId, 'small-variants'],
-        refetchType: searchReadsReviews(requestQueryString) ? 'active' : 'none',
+        refetchType:
+          payload.compound_het?.partner_variant_id || searchReadsReviews(requestQueryString)
+            ? 'active'
+            : 'none',
       });
     },
     onError: (error, _variables, context) => {

@@ -160,6 +160,8 @@ export type SmallVariantReviewSavePayload = {
   note?: string;
   compound_het?: {
     partner_variant_id?: string;
+    // The partner's review version as loaded (withPartnerReviewVersion): the pair save writes it too.
+    partner_expected_updated_at?: string | null;
     classification?: string;
     tags: string[];
     note?: string;

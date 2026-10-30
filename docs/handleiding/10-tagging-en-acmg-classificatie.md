@@ -25,7 +25,9 @@ Per variant en per familie legt een review vast: de **klasse** (bv. "VUS - class
 
 **Gelijktijdig bewerken.** Slaat een reviewer op tegen een review die intussen door iemand anders werd gewijzigd, dan weigert de server (`409`) en stuurt hij de actuele versie mee, zodat niemand ongemerkt het werk van een ander overschrijft. Dat geldt voor small variants en structurele varianten.
 
-**Waar in de code:** `backend/app/services/small_variant_review_pg.py`; de controle op gelijktijdige wijzigingen in `_raise_on_stale_review` (`backend/app/services/review_pg_utils.py`).
+Een opgeslagen compound-heterozygoot paar schrijft ook de review van de partnervariant, en een paar dat daarbij uiteenvalt herschrijft de review van elk van zijn varianten. Al die reviews worden vergrendeld zoals bij het opslaan van die review zelf, in één vaste volgorde, en pas daarna gelezen: een partnerreview die intussen werd opgeslagen (bv. als klasse 5 met een nieuwe notitie) blijft behouden en wordt nooit teruggezet naar een eerder gelezen kopie. De versie van de partner wordt gecontroleerd zoals die van de variant zelf (`compound_het.partner_expected_updated_at`); is de partner intussen gewijzigd, dan weigert de server met dezelfde `409`, die de partner noemt. `updated_at` gaat nooit terug in de tijd.
+
+**Waar in de code:** `backend/app/services/small_variant_review_pg.py` (het paar in `_lock_pair_save_reviews`); de controle op gelijktijdige wijzigingen in `_raise_on_stale_review` (`backend/app/services/review_pg_utils.py`).
 
 ### Welke tags bestaan
 

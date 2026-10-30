@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Iterable, Sequence, TypeVar
 
 from fastapi import HTTPException
@@ -57,10 +57,32 @@ def _as_utc(value: Any) -> datetime | None:
     return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
 
 
+def _save_time(*reviews: dict[str, Any] | None) -> datetime:
+    """The time a save stamps on the reviews it writes: now, never before one they hold.
+
+    ``updated_at`` is the version a later save is checked against (#513). Read under the
+    reviews' locks it is in the past, but a clock that stepped back would make a save older
+    than the review it replaces; it is then stamped a microsecond after that review.
+    """
+    now = datetime.now(timezone.utc)
+    held = [
+        stamp
+        for stamp in (_as_utc((review or {}).get("updated_at")) for review in reviews)
+        if stamp is not None
+    ]
+    latest = max(held, default=None)
+    if latest is not None and latest >= now:
+        return latest + timedelta(microseconds=1)
+    return now
+
+
 def _raise_on_stale_review(
     payload: Any,
     existing: dict[str, Any] | None,
     serialize: Callable[[dict[str, Any]], Any],
+    *,
+    expected_field: str = "expected_updated_at",
+    partner_variant_id: str | None = None,
 ) -> None:
     """Refuse a save made against a review that has changed since the client loaded it.
 
@@ -68,10 +90,14 @@ def _raise_on_stale_review(
     being told (#513). The client sends the ``updated_at`` it loaded (null for "no
     review yet"); anything else now stored means someone saved in between, and the
     409 carries the current review so the client can show it instead of overwriting.
+
+    A compound-het pair save writes its partner's review too, and checks it the same way
+    from ``expected_field`` (``partner_expected_updated_at``); the 409 then names the
+    partner (``variant_id``) and carries the partner's current review.
     """
-    if "expected_updated_at" not in payload.model_fields_set:
+    if expected_field not in payload.model_fields_set:
         return
-    expected = _as_utc(payload.expected_updated_at)
+    expected = _as_utc(getattr(payload, expected_field))
     current = _as_utc((existing or {}).get("updated_at")) if existing else None
     if existing is None and expected is None:
         return
@@ -79,19 +105,24 @@ def _raise_on_stale_review(
         return
     current_review = serialize(existing) if existing is not None else None
     who = (existing or {}).get("updated_by") or "someone"
-    raise HTTPException(
-        status_code=409,
-        detail={
-            "code": "review_conflict",
-            "message": (
-                f"This review was changed by {who} after you opened it; your changes were not "
-                "saved. The current review has been loaded."
-                if existing is not None
-                else "This review was removed after you opened it; your changes were not saved."
-            ),
-            "current": jsonable_encoder(current_review, by_alias=True) if current_review else None,
-        },
+    subject = (
+        f"The review of the compound-het partner {partner_variant_id}"
+        if partner_variant_id
+        else "This review"
     )
+    detail: dict[str, Any] = {
+        "code": "review_conflict",
+        "message": (
+            f"{subject} was changed by {who} after you opened it; your changes were not "
+            "saved. The current review has been loaded."
+            if existing is not None
+            else f"{subject} was removed after you opened it; your changes were not saved."
+        ),
+        "current": jsonable_encoder(current_review, by_alias=True) if current_review else None,
+    }
+    if partner_variant_id:
+        detail["variant_id"] = partner_variant_id
+    raise HTTPException(status_code=409, detail=detail)
 
 
 def _has_stored_record(value: Any) -> bool:

@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import Any, Sequence
 from uuid import uuid4
 
 from fastapi import HTTPException
+from fastapi.encoders import jsonable_encoder
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -35,6 +35,7 @@ from .review_pg_utils import (
     _raise_on_stale_review,
     _merge_tag_metadata,
     _normalize_tags,
+    _save_time,
 )
 from .small_variant_review_acmg import (
     freeze_evidence_snapshot,
@@ -42,6 +43,7 @@ from .small_variant_review_acmg import (
     _deserialize_acmg,
 )
 from .small_variant_review_repository import (
+    _fetch_compound_het_group_rows,
     _fetch_review_row,
     _fetch_review_rows_for_variants,
     _insert_review_row,
@@ -273,6 +275,82 @@ async def get_small_variant_review_map(
     }
 
 
+async def _reviews_a_pair_save_writes(
+    session: AsyncSession,
+    *,
+    family_uuid: str,
+    variant_ids: Sequence[str],
+) -> tuple[set[str], dict[str, dict[str, Any]]]:
+    """The variants whose reviews a compound-het pair save may write, and the reviews of
+    ``variant_ids`` (the saved variant and its partner) as stored.
+
+    Those are the two variants, and every variant of a pair either is in: the save breaks
+    such a pair up, and ``_clear_compound_het_group`` rewrites each of its reviews.
+    """
+    writes = set(variant_ids)
+    reviews: dict[str, dict[str, Any]] = {}
+    for variant_id in variant_ids:
+        review = await _fetch_review_row(session, family_uuid=family_uuid, variant_id=variant_id)
+        if review is None:
+            continue
+        reviews[variant_id] = review
+        group_id = review.get("compound_het_group_id")
+        if group_id:
+            members = await _fetch_compound_het_group_rows(
+                session, family_uuid=family_uuid, group_id=str(group_id)
+            )
+            writes.update(str(member["variant_id"]) for member in members)
+    return writes, reviews
+
+
+async def _lock_pair_save_reviews(
+    session: AsyncSession,
+    *,
+    family_uuid: str,
+    variant_id: str,
+    partner_variant_id: str | None,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    """Lock every review a compound-het pair save writes; return the variant's and the
+    partner's review, read under their locks.
+
+    A pair save writes the partner's review as well as the variant's, and breaking up a pair
+    rewrites the review of each of its variants. Each such review is locked as a save of it
+    locks it, so no save of it runs between the read here and this save's write: the partner
+    review someone saved meanwhile is read, never overwritten by a copy read before it. The
+    reviews are looked up first and locked in one order, so two pair saves never each hold a
+    lock the other waits for. Read again under the locks, a pair save that now writes a
+    review it did not lock (a pair changed in between) is refused like a stale save.
+    """
+    variant_ids = [variant_id] + ([partner_variant_id] if partner_variant_id else [])
+    planned, _ = await _reviews_a_pair_save_writes(
+        session, family_uuid=family_uuid, variant_ids=variant_ids
+    )
+    for locked_variant_id in sorted(planned):
+        await _lock_review(session, scope="svr", family_uuid=family_uuid, variant_id=locked_variant_id)
+    writes, reviews = await _reviews_a_pair_save_writes(
+        session, family_uuid=family_uuid, variant_ids=variant_ids
+    )
+    existing = reviews.get(variant_id)
+    if not writes <= planned:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "review_conflict",
+                "message": (
+                    "A compound-het pair of this variant or its partner was changed while this "
+                    "review was being saved; your changes were not saved. The current review "
+                    "has been loaded."
+                ),
+                "current": (
+                    jsonable_encoder(_serialize_review(existing), by_alias=True)
+                    if existing is not None
+                    else None
+                ),
+            },
+        )
+    return existing, reviews.get(partner_variant_id) if partner_variant_id else None
+
+
 def _pair_removed(variant_id: str, holder: dict[str, Any]) -> CompoundHetPairChange:
     """The removal of the compound-het pair review a variant's review row holds."""
     return CompoundHetPairChange(
@@ -333,25 +411,53 @@ async def upsert_small_variant_review(
     normalized_tags = _normalize_tags(payload.tags)
     normalized_note = (payload.note or "").strip() or None
     normalized_classification = (payload.classification or "").strip() or None
-    now = datetime.now(timezone.utc)
+    compound_het_requested = "compound_het" in payload.model_fields_set
+    compound_het_payload: SmallVariantCompoundHetReviewUpdate | None = (
+        payload.compound_het if compound_het_requested else None
+    )
+    compound_het_partner_id = (
+        (compound_het_payload.partner_variant_id or "").strip() or None
+        if compound_het_payload is not None
+        else None
+    )
+    partner_existing: dict[str, Any] | None = None
     # One save of this variant's review at a time; the version check below then sees
     # every earlier save, so two reviewers can no longer overwrite each other (#513).
-    await _lock_review(session, scope="svr", family_uuid=context.family_uuid, variant_id=variant_id)
-    existing = await _fetch_review_row(
-        session,
-        family_uuid=context.family_uuid,
-        variant_id=variant_id,
-    )
+    if compound_het_requested:
+        # A pair save writes the partner's review, and the reviews of any pair it breaks
+        # up, as well: each is locked too, and the partner's checked like the variant's.
+        existing, partner_existing = await _lock_pair_save_reviews(
+            session,
+            family_uuid=context.family_uuid,
+            variant_id=variant_id,
+            partner_variant_id=(
+                compound_het_partner_id if compound_het_partner_id != variant_id else None
+            ),
+        )
+    else:
+        await _lock_review(session, scope="svr", family_uuid=context.family_uuid, variant_id=variant_id)
+        existing = await _fetch_review_row(
+            session,
+            family_uuid=context.family_uuid,
+            variant_id=variant_id,
+        )
     _raise_on_stale_review(payload, existing, _serialize_review)
+    if compound_het_payload is not None and compound_het_partner_id not in (None, variant_id):
+        _raise_on_stale_review(
+            compound_het_payload,
+            partner_existing,
+            _serialize_review,
+            expected_field="partner_expected_updated_at",
+            partner_variant_id=compound_het_partner_id,
+        )
+    # Taken under the locks, after the reads: a review this save writes is never stamped
+    # earlier than the version it replaces.
+    now = _save_time(existing, partner_existing)
     await _refuse_unknown_added_tags(normalized_tags, (existing or {}).get("tags"))
     compound_het_data: dict[str, Any] | None = None
     # The compound-het pair reviews this save records, removes or changes, each as the
     # review row of one of its variants held it: audited with the save (SEC-7).
     pair_changes: list[CompoundHetPairChange] = []
-    compound_het_requested = "compound_het" in payload.model_fields_set
-    compound_het_payload: SmallVariantCompoundHetReviewUpdate | None = (
-        payload.compound_het if compound_het_requested else None
-    )
 
     # ACMG classification: recompute the class/points server-side from the
     # submitted criteria. When not part of this request, preserve any existing blob.
@@ -376,7 +482,6 @@ async def upsert_small_variant_review(
         )
         normalized_compound_het_tags = _normalize_tags(compound_het_payload.tags)
         normalized_compound_het_note = (compound_het_payload.note or "").strip() or None
-        compound_het_partner_id = (compound_het_payload.partner_variant_id or "").strip() or None
         await _refuse_unknown_added_tags(
             normalized_compound_het_tags, (existing or {}).get("compound_het_tags")
         )
@@ -403,11 +508,8 @@ async def upsert_small_variant_review(
                     status_code=400,
                     detail="Compound-het review requires both variants to be heterozygous in an affected family member",
                 )
-            partner_existing = await _fetch_review_row(
-                session,
-                family_uuid=context.family_uuid,
-                variant_id=compound_het_partner_id,
-            )
+            # partner_existing was read under the partner's lock (_lock_pair_save_reviews):
+            # the partner's own review below is written back as it is stored now.
             existing_group_id = existing.get("compound_het_group_id") if existing else None
             partner_group_id = partner_existing.get("compound_het_group_id") if partner_existing else None
             target_group_id = None
