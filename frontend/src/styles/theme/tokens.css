@@ -76,13 +76,18 @@
   --color-variant-inv: #666884;
   --color-variant-bnd: #44625e;
 
-  /* Parental homologs — muted slate-blue (paternal P1/P2) and sage-green
-     (maternal M1/M2), in the project's desaturated palette. Dark = homolog 1,
-     light = homolog 2. */
-  --color-haplotype-father-dark: #2f5575;
-  --color-haplotype-father-light: #8aa9c9;
-  --color-haplotype-mother-dark: #386a55;
-  --color-haplotype-mother-light: #8cc0a4;
+  /* Parental homologs — a calm blue (paternal P1/P2) and a teal green (maternal
+     M1/M2). Dark = homolog 1, light = homolog 2. The two parents differ in hue and
+     in lightness (the teal is the lighter), so they stay apart as the APCAD's faint
+     dots too: every pair of the four is at least ΔE 18.9 apart (OKLab ×100) for
+     normal vision and 15.6 for colour-blind vision, and the teal stays apart from the
+     risk lines' red and orange under red-green colour blindness, where a warmer
+     green fell onto the red. The slate blue and sage green before were 9.7 and 8.8
+     apart. */
+  --color-haplotype-father-dark: #2b55a0;
+  --color-haplotype-father-light: #7f98d9;
+  --color-haplotype-mother-dark: #1f8a70;
+  --color-haplotype-mother-light: #90d1b0;
   /* Risk alleles, marked by a thin line under the homolog fill. */
   --color-haplotype-affected: #c61f2d;
   --color-haplotype-carrier: #d9822e;
