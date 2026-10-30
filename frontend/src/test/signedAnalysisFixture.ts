@@ -343,6 +343,8 @@ export const SIGNED_PGT_ANALYSIS = {
         paternal_markers_right: 12,
         maternal_markers_left: 8,
         maternal_markers_right: 9,
+        paternal_discordance: 0.01,
+        maternal_discordance: 0.02,
       },
       qc_verdict: {
         status: 'warning',
@@ -352,6 +354,7 @@ export const SIGNED_PGT_ANALYSIS = {
           { measure: 'mendel_rate', value: 0.025, threshold: 0.02 },
         ],
       },
+      mixed_homologs: [],
     },
     {
       sample: 'E2',
@@ -363,6 +366,7 @@ export const SIGNED_PGT_ANALYSIS = {
       recombinations: [30550000],
       qc: null,
       qc_verdict: { status: 'not_counted', sides: ['paternal'], findings: [] },
+      mixed_homologs: [],
     },
     {
       sample: 'E3',
@@ -385,8 +389,11 @@ export const SIGNED_PGT_ANALYSIS = {
         paternal_markers_right: 20,
         maternal_markers_left: 17,
         maternal_markers_right: 18,
+        paternal_discordance: 0,
+        maternal_discordance: 0,
       },
       qc_verdict: { status: 'pass', sides: ['paternal'], findings: [] },
+      mixed_homologs: [],
     },
     { call: 'not a call' },
   ],
@@ -404,12 +411,26 @@ export const SIGNED_PGT_ANALYSIS = {
     recombination_flank: 250000,
     phase_switch_uncertainty: 2000000,
     // The phasing-QC thresholds each embryo's verdict was made against (pgt_embryo_qc.py).
-    qc_thresholds: { min_informative_sites: 50, max_mendel_rate: 0.02, min_markers_per_flank: 6 },
+    qc_thresholds: {
+      min_informative_sites: 50,
+      max_mendel_rate: 0.02,
+      min_markers_per_flank: 6,
+      max_marker_discordance: 0.1,
+      min_discordance_markers: 20,
+    },
   },
 };
 
-// The QC counts a record holds from before the markers on each flank of the ROI were counted apart.
-const FLANK_COUNTS = ['paternal_markers_left', 'paternal_markers_right', 'maternal_markers_left', 'maternal_markers_right'];
+// The QC counts a record holds from before the markers on each flank of the ROI were counted apart
+// (and before their discordance was measured).
+const FLANK_COUNTS = [
+  'paternal_markers_left',
+  'paternal_markers_right',
+  'maternal_markers_left',
+  'maternal_markers_right',
+  'paternal_discordance',
+  'maternal_discordance',
+];
 const withoutFlankCounts = (qc: unknown) =>
   qc && typeof qc === 'object' ? Object.fromEntries(Object.entries(qc).filter(([key]) => !FLANK_COUNTS.includes(key))) : qc;
 
@@ -421,7 +442,7 @@ export const SIGNED_PGT_ANALYSIS_BEFORE_QC_VERDICT = {
   embryos: SIGNED_PGT_ANALYSIS.embryos.map((embryo) =>
     Object.fromEntries(
       Object.entries(embryo)
-        .filter(([key]) => key !== 'qc_verdict')
+        .filter(([key]) => key !== 'qc_verdict' && key !== 'mixed_homologs')
         .map(([key, value]) => [key, key === 'qc' ? withoutFlankCounts(value) : value]),
     ),
   ),

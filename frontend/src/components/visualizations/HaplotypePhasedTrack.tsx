@@ -161,6 +161,10 @@ interface Props {
   /** This member's phase switches the blocks undid on this chromosome (a parent's),
    * marked on its lanes with what they mean on hover. */
   phaseCorrections?: HaplotypePhaseCorrection[];
+  /** The PGT analysis leaves this embryo uncalled: its markers at the ROI mix both of a
+   * parent's homologs, which its blocks cannot show (pgt_embryo_qc.py). The warning the family
+   * page gives; the track then reads no risk state from the blocks either. */
+  mixedHomologsWarning?: string | null;
 }
 
 const BAND_THICKNESS = 4;
@@ -198,6 +202,7 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
   familyMembers = EMPTY_MEMBERS,
   riskRegion,
   showMarkers = false,
+  mixedHomologsWarning = null,
   phaseCorrections = EMPTY_CORRECTIONS,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -602,7 +607,7 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
   const hasSegments = segments.length > 0;
   const riskState = useMemo(
     () =>
-      hasSegments && !blocksOutdated
+      hasSegments && !blocksOutdated && !(analysisRegion && mixedHomologsWarning)
         ? interpretSampleHaplotypeRisk({
             model: diseaseModel,
             samples: haplotypeData?.samples || [],
@@ -610,7 +615,7 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
             region: analysisRegion,
           })
         : 'uninformative',
-    [hasSegments, blocksOutdated, diseaseModel, haplotypeData?.samples, currentMember, analysisRegion],
+    [hasSegments, blocksOutdated, mixedHomologsWarning, diseaseModel, haplotypeData?.samples, currentMember, analysisRegion],
   );
 
   const handleMouseMove = (event: React.MouseEvent<HTMLCanvasElement>) => {
@@ -773,7 +778,8 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
     return (
       `${subject}${hasSegments ? '' : ': no data'}` +
       `; risk state${riskScope}: ${segregationStateLabel(riskState).toLowerCase()}${markerNote}` +
-      (blocksOutdated ? `; ${BLOCKS_OUTDATED_WARNING}` : '')
+      (blocksOutdated ? `; ${BLOCKS_OUTDATED_WARNING}` : '') +
+      (analysisRegion && mixedHomologsWarning ? `; ${mixedHomologsWarning}` : '')
     );
   })();
 
@@ -801,6 +807,11 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
       {hasRegion && !isLoading && !haplotypeError && blocksOutdated && (
         <div className="viz-marker-truncated viz-marker-error" role="note" title={BLOCKS_OUTDATED_WARNING}>
           Outdated blocks: no risk state
+        </div>
+      )}
+      {hasRegion && !isLoading && !haplotypeError && analysisRegion && mixedHomologsWarning && (
+        <div className="viz-marker-truncated viz-marker-error" role="note" title={mixedHomologsWarning}>
+          Both homologs of a parent: no risk state
         </div>
       )}
       {showMarkers && markersError && !haplotypeError && (

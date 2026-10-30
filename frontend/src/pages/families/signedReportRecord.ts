@@ -26,6 +26,7 @@ import {
   describeQcFindings,
   describeQcSides,
   formatQcRate,
+  mixedHomologsWarning,
   segregationStateLabel,
   sexUnknownWarning,
 } from '../../lib/embryoSegregation';
@@ -697,6 +698,9 @@ export interface SignedPgtEmbryoQc {
   paternalMarkersRight: number | null;
   maternalMarkersLeft: number | null;
   maternalMarkersRight: number | null;
+  /** The share of each side's markers off one homolog, or two either side of one crossover. */
+  paternalDiscordance: number | null;
+  maternalDiscordance: number | null;
 }
 
 /** An embryo's phasing QC at the ROI checked against the thresholds, as the record froze it. */
@@ -715,6 +719,8 @@ export interface SignedPgtQcThresholds {
   minInformativeSites: number | null;
   maxMendelRate: number | null;
   minMarkersPerFlank: number | null;
+  maxMarkerDiscordance: number | null;
+  minDiscordanceMarkers: number | null;
 }
 
 export interface SignedPgtEmbryo {
@@ -729,6 +735,9 @@ export interface SignedPgtEmbryo {
   qc: SignedPgtEmbryoQc | null;
   /** Null: not assessed, or a record signed before CoGA checked the QC against thresholds. */
   qcVerdict: SignedPgtQcVerdict | null;
+  /** The parental sides whose markers at the ROI mixed both of that parent's homologs: the
+   * embryo was not called. */
+  mixedHomologs: ('paternal' | 'maternal')[];
 }
 
 export interface SignedPgtMember {
@@ -1607,6 +1616,8 @@ const parseQcThresholds = (value: unknown): SignedPgtQcThresholds | null =>
         minInformativeSites: number(value.min_informative_sites),
         maxMendelRate: number(value.max_mendel_rate),
         minMarkersPerFlank: number(value.min_markers_per_flank),
+        maxMarkerDiscordance: number(value.max_marker_discordance),
+        minDiscordanceMarkers: number(value.min_discordance_markers),
       }
     : null;
 
@@ -1678,9 +1689,14 @@ const parsePgtAnalysis = (value: Json): SignedPgtAnalysis => {
               paternalMarkersRight: number(qc.paternal_markers_right),
               maternalMarkersLeft: number(qc.maternal_markers_left),
               maternalMarkersRight: number(qc.maternal_markers_right),
+              paternalDiscordance: number(qc.paternal_discordance),
+              maternalDiscordance: number(qc.maternal_discordance),
             }
           : null,
         qcVerdict: parseQcVerdict(embryo.qc_verdict),
+        mixedHomologs: (Array.isArray(embryo.mixed_homologs) ? embryo.mixed_homologs : []).flatMap((side) =>
+          side === 'paternal' || side === 'maternal' ? [side] : [],
+        ),
       };
     }),
     members: objects(value.members).map((member) => ({
@@ -2716,6 +2732,16 @@ export const describeInherited = (inherited: SignedPgtInherited[]): string | nul
 export const describeNoCall = (embryo: SignedPgtEmbryo, analysis: SignedPgtAnalysis): string | null => {
   if (embryo.call !== 'uninformative') return null;
   if (analysis.blocksOutdated) return BLOCKS_OUTDATED_WARNING;
+  if (embryo.mixedHomologs.length) {
+    return mixedHomologsWarning(
+      embryo.mixedHomologs.map((side) => ({
+        side,
+        discordance: (side === 'paternal' ? embryo.qc?.paternalDiscordance : embryo.qc?.maternalDiscordance) ?? null,
+        markers: (side === 'paternal' ? embryo.qc?.paternalMarkers : embryo.qc?.maternalMarkers) ?? null,
+      })),
+      analysis.qcThresholds?.maxMarkerDiscordance ?? null,
+    );
+  }
   if (embryo.sexDependent) return sexUnknownWarning(embryo.sexDependent);
   if (embryo.roiNotCovered) {
     return 'This embryo’s haplotype does not cover the ROI on the parental side the call needs (missing data), so no call can be made.';
@@ -2745,7 +2771,11 @@ export const describeEmbryoQc = (qc: SignedPgtEmbryoQc): string => {
     qc.paternalMarkersLeft,
     qc.paternalMarkersRight,
     'paternal',
-  )}, ${describeSideMarkers(qc.maternalMarkers, qc.maternalMarkersLeft, qc.maternalMarkersRight, 'maternal')}`;
+  )}, ${describeSideMarkers(qc.maternalMarkers, qc.maternalMarkersLeft, qc.maternalMarkersRight, 'maternal')}${
+    qc.paternalDiscordance !== null && qc.maternalDiscordance !== null
+      ? `; markers off one homolog ${formatQcRate(qc.paternalDiscordance)} paternal, ${formatQcRate(qc.maternalDiscordance)} maternal`
+      : ''
+  }`;
 };
 
 /**
@@ -2765,6 +2795,23 @@ export const describeQcThresholds = (thresholds: SignedPgtQcThresholds): string 
   ].filter((part): part is string => Boolean(part));
   return parts.length ? joinWithAnd(parts) : 'thresholds the record does not state';
 };
+
+/**
+ * The one QC measure that decides a call rather than warning beside it, as the record froze it:
+ * "An embryo whose markers at the ROI, on a parental side the call reads, were more than 10% off
+ * one homolog (or two either side of one crossover), over at least 20 of them, was not called:
+ * it may carry both of that parent's homologs." Null for a record that does not hold it.
+ */
+export const describeMixedHomologsRule = (thresholds: SignedPgtQcThresholds): string | null =>
+  thresholds.maxMarkerDiscordance === null
+    ? null
+    : `An embryo whose markers at the ROI, on a parental side the call reads, were more than ${formatQcRate(
+        thresholds.maxMarkerDiscordance,
+      )} off one homolog (or two either side of one crossover)${
+        thresholds.minDiscordanceMarkers !== null
+          ? `, over at least ${thresholds.minDiscordanceMarkers.toLocaleString()} of them`
+          : ''
+      }, was not called: it may carry both of that parent's homologs, as in a trisomy, which its haplotype blocks cannot show.`;
 
 /**
  * An embryo's QC verdict as signed: that its phasing QC at the ROI met the thresholds, did not

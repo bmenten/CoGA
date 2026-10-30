@@ -41,6 +41,11 @@ its warnings, its QC at the ROI and that QC's verdict against the thresholds. Ne
   it in the ROI markers before you rely on it. These thresholds are provisional, to be confirmed by
   the laboratory director and QA. At an X-linked locus a man is counted with his one X: a son against
   his mother alone.
+- **⚠ both homologs** — the embryo's markers at the ROI mix both of a parent's homologs, as where it
+  carries both (a trisomy of that chromosome). Its haplotype blocks show only one of them, so the embryo
+  is not called: it reads *Uninformative*, and its haplotype tracks show no risk state. The tooltip gives
+  the share of markers off one homolog. Read its copy-number and APCAD tracks. The threshold (more than
+  10%, over at least 20 markers, on a parent's side the call reads) is provisional too.
 - **⚠ QC not counted** — no phasing QC was counted at the ROI, so the call was not checked against the
   thresholds; the tooltip says why.
 - **⚠ recombination** — a haplotype change inside the ROI or within 250 kb of it; the call may not hold

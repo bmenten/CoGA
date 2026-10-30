@@ -3,7 +3,7 @@
 // an ROI no risk haplotype is drawn and no risk state is claimed.
 import { render, screen, waitFor } from '@testing-library/react';
 import { QueryClientProvider } from '@tanstack/react-query';
-import type { ReactElement } from 'react';
+import React, { type ReactElement } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createTestQueryClient } from '../../test/createTestQueryClient';
@@ -137,6 +137,25 @@ describe('GenomeHaplotypeTrack risk haplotype (#588)', () => {
     expect(overlayMock).not.toHaveBeenCalled();
     expect(container.querySelector('[data-risk-state]')?.getAttribute('data-risk-state')).toBe('uninformative');
     expect(screen.getByRole('note')).toHaveTextContent('Outdated blocks: no risk state');
+    expect(screen.getByRole('note')).toHaveAttribute('title', warning);
+  });
+
+  // The PGT analysis leaves an embryo uncalled whose markers at the ROI mix both of a parent's
+  // homologs: its blocks show one, so the track reads no risk state from them either.
+  it("reads no risk state for an embryo whose markers mix both of a parent's homologs, and says why", async () => {
+    const warning = "This embryo's markers at the ROI mix both of the father's homologs: no call is made.";
+    const { container } = renderWithClient(
+      React.cloneElement(track({ chr: '1', start: 400, end: 600 }), { mixedHomologsWarning: warning }),
+    );
+
+    expect(
+      await screen.findByRole('img', {
+        name: `Haplotypes of CHILD across 2 chromosomes; risk state at chr1:400–600: uninformative; ${warning}`,
+      }),
+    ).toBeInTheDocument();
+    // Read from the blocks alone, the child is affected / at risk.
+    expect(container.querySelector('[data-risk-state]')?.getAttribute('data-risk-state')).toBe('uninformative');
+    expect(screen.getByRole('note')).toHaveTextContent('Both homologs of a parent: no risk state');
     expect(screen.getByRole('note')).toHaveAttribute('title', warning);
   });
 

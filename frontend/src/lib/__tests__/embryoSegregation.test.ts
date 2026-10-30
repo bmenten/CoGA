@@ -5,6 +5,7 @@ import {
   describeQcSides,
   embryoClassificationsFromAnalysis,
   formatQcRate,
+  mixedHomologsWarning,
   qcVerdictWarning,
   segregationStateLabel,
   sexUnknownWarning,
@@ -23,6 +24,7 @@ const embryo = (overrides: Partial<PgtEmbryoOut>): PgtEmbryoOut => ({
   recombinations: [],
   qc: null,
   qc_verdict: null,
+  mixed_homologs: [],
   ...overrides,
 });
 
@@ -50,7 +52,13 @@ const analysis = (embryos: PgtEmbryoOut[], overrides: Partial<PgtAnalysisOut> = 
     window_flank: 1_000_000,
     recombination_flank: 250_000,
     phase_switch_uncertainty: 2_000_000,
-    qc_thresholds: { min_informative_sites: 50, max_mendel_rate: 0.02, min_markers_per_flank: 6 },
+    qc_thresholds: {
+      min_informative_sites: 50,
+      max_mendel_rate: 0.02,
+      min_markers_per_flank: 6,
+      max_marker_discordance: 0.1,
+      min_discordance_markers: 20,
+    },
   },
   ...overrides,
 });
@@ -85,6 +93,8 @@ describe('embryoClassificationsFromAnalysis', () => {
       qcVerdict: null,
       qcNotCountedReason: 'the embryo is not recorded as a child of the couple',
       blocksOutdated: false,
+      mixedHomologs: [],
+      maxMarkerDiscordance: 0.1,
     });
     expect(out.get('E_GAP')).toMatchObject({ state: 'uninformative', uninformative: true, roiNotCovered: true });
     expect(out.get('E_SEX')?.sexDependent).toEqual({ ifMale: 'affected_or_at_risk', ifFemale: 'carrier' });
@@ -233,6 +243,51 @@ describe('the embryo call wording', () => {
   it('gives both calls when the call depends on an unrecorded sex', () => {
     expect(sexUnknownWarning({ ifMale: 'affected_or_at_risk', ifFemale: 'carrier' })).toBe(
       "This embryo's sex is not recorded, and the call depends on it: affected / at risk if male, carrier if female. Record the sex to resolve it.",
+    );
+  });
+});
+
+describe('markers mixing both homologs of a parent', () => {
+  const qc = {
+    informative_sites: 200,
+    mendel_errors: 0,
+    mendel_rate: 0,
+    paternal_markers: 120,
+    maternal_markers: 80,
+    paternal_markers_left: 60,
+    paternal_markers_right: 60,
+    maternal_markers_left: 40,
+    maternal_markers_right: 40,
+    paternal_discordance: 0.01,
+    maternal_discordance: 0.475,
+  };
+
+  it('reads the mixed sides with their discordance and the threshold the analysis states', () => {
+    const out = embryoClassificationsFromAnalysis(
+      analysis([embryo({ sample: 'E_TRI', call: 'uninformative', qc, mixed_homologs: ['maternal'] })]),
+    );
+    const tri = out.get('E_TRI')!;
+    expect(tri.uninformative).toBe(true);
+    expect(tri.mixedHomologs).toEqual([{ side: 'maternal', discordance: 0.475, markers: 80 }]);
+    expect(tri.maxMarkerDiscordance).toBe(0.1);
+    expect(out.get('E_TRI')).toBeDefined();
+    expect(embryoClassificationsFromAnalysis(analysis([embryo({ sample: 'E1' })])).get('E1')!.mixedHomologs).toEqual([]);
+  });
+
+  it('says whose homologs mix, how far, and what to read instead', () => {
+    expect(mixedHomologsWarning([{ side: 'maternal', discordance: 0.475, markers: 80 }], 0.1)).toBe(
+      "This embryo's markers at the ROI mix both of the mother's homologs (47.5% of 80 markers off one homolog, or two either side of one crossover; above 10%): it may carry both, as in a trisomy of this chromosome, which its haplotype blocks cannot show, so no call is made. Read its copy-number and APCAD tracks.",
+    );
+    expect(
+      mixedHomologsWarning(
+        [
+          { side: 'paternal', discordance: 0.2, markers: 30 },
+          { side: 'maternal', discordance: null, markers: null },
+        ],
+        null,
+      ),
+    ).toBe(
+      "This embryo's markers at the ROI mix both of the father's and the mother's homologs (the father's 20% of 30 markers off one homolog, or two either side of one crossover): it may carry both, as in a trisomy of this chromosome, which its haplotype blocks cannot show, so no call is made. Read its copy-number and APCAD tracks.",
     );
   });
 });

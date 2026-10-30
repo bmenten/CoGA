@@ -227,7 +227,9 @@ pull request updates this list only when it adds clinical behaviour that no area
   table, a report that says when it is incomplete); PGT embryo calls that are uninformative
   without supporting data, and that carry a warning when their phasing QC at the ROI falls below
   its provisional thresholds over the ROI and 1 Mb on each side (informative sites, Mendelian
-  error rate, markers on each flank of the ROI on each side the call reads), and the
+  error rate, markers on each flank of the ROI on each side the call reads), that are not
+  called where their markers at the ROI mix both of a parent's homologs (a trisomy the blocks
+  cannot show), and the
   risk-haplotype display, with a parent's phase switches undone where the embryos switch
   together, a relative of unknown degree coloured along the genome when it is the linked
   member's parent or child and otherwise at the ROI where both flanks name the haplotype

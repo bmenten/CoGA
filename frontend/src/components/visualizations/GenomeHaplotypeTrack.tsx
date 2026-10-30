@@ -63,6 +63,10 @@ interface Props {
   familyMembers?: HaplotypeMemberLike[];
   riskRegion?: HaplotypeRiskRegion | null;
   chroms?: string[];
+  /** The PGT analysis leaves this embryo uncalled: its markers at the ROI mix both of a
+   * parent's homologs, which its blocks cannot show (pgt_embryo_qc.py). The warning the family
+   * page gives; the track then reads no risk state from the blocks either. */
+  mixedHomologsWarning?: string | null;
 }
 
 const GenomeHaplotypeTrack: React.FC<Props> = ({
@@ -80,6 +84,7 @@ const GenomeHaplotypeTrack: React.FC<Props> = ({
   disorder = 'dominant',
   inheritanceModel,
   familyMembers = EMPTY_MEMBERS,
+  mixedHomologsWarning = null,
   riskRegion,
   chroms = NUCLEAR_CHROMOSOMES,
 }) => {
@@ -267,7 +272,7 @@ const GenomeHaplotypeTrack: React.FC<Props> = ({
     () =>
       !analysisRegion
         ? null
-        : segments.length > 0 && !blocksOutdated
+        : segments.length > 0 && !blocksOutdated && !mixedHomologsWarning
           ? interpretSampleHaplotypeRisk({
               model: diseaseModel,
               samples: samplesArray,
@@ -275,7 +280,7 @@ const GenomeHaplotypeTrack: React.FC<Props> = ({
               region: analysisRegion,
             })
           : 'uninformative',
-    [segments, blocksOutdated, diseaseModel, samplesArray, currentMember, analysisRegion],
+    [segments, blocksOutdated, mixedHomologsWarning, diseaseModel, samplesArray, currentMember, analysisRegion],
   );
 
   // A failed load has no risk state — not "uninformative", which is a real outcome — and
@@ -294,7 +299,8 @@ const GenomeHaplotypeTrack: React.FC<Props> = ({
     if (!analysisRegion || !riskState) return `${shown}; risk state: not assessed, no region of interest`;
     const riskScope = `${formatChromosomeLabel(String(analysisRegion.chr))}:${analysisRegion.start.toLocaleString()}–${analysisRegion.end.toLocaleString()}`;
     const outdatedNote = blocksOutdated ? `; ${BLOCKS_OUTDATED_WARNING}` : '';
-    return `${shown}; risk state at ${riskScope}: ${segregationStateLabel(riskState).toLowerCase()}${outdatedNote}`;
+    const mixedNote = mixedHomologsWarning ? `; ${mixedHomologsWarning}` : '';
+    return `${shown}; risk state at ${riskScope}: ${segregationStateLabel(riskState).toLowerCase()}${outdatedNote}${mixedNote}`;
   })();
 
   return (
@@ -312,6 +318,11 @@ const GenomeHaplotypeTrack: React.FC<Props> = ({
       {!isLoading && !isError && blocksOutdated && (
         <div className="viz-marker-truncated viz-marker-error" role="note" title={BLOCKS_OUTDATED_WARNING}>
           Outdated blocks: no risk state
+        </div>
+      )}
+      {!isLoading && !isError && analysisRegion && mixedHomologsWarning && (
+        <div className="viz-marker-truncated viz-marker-error" role="note" title={mixedHomologsWarning}>
+          Both homologs of a parent: no risk state
         </div>
       )}
     </div>

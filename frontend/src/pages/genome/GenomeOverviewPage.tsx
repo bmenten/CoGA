@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
+import { useMixedHomologEmbryos } from '../../lib/useMixedHomologEmbryos';
 import api from '../../lib/api';
 import type { ApiFamilyRecord } from '../../lib/apiTypes';
 import type { ChromosomeSizeOut, FamilyTrackAvailabilityOut } from '../../lib/apiSchema.generated';
@@ -390,6 +391,12 @@ const GenomeOverviewPage: React.FC = () => {
   }, [availability, orderedMembers]);
 
   const visibleRoi = useMemo(() => roiOnAssembly(data?.roi, assemblyId), [assemblyId, data?.roi]);
+  // Embryos the PGT analysis leaves uncalled because their markers at the ROI mix both of a
+  // parent's homologs: their tracks read no risk state from their blocks either.
+  const mixedHomologEmbryos = useMixedHomologEmbryos(
+    familyId || data?.family_id || '',
+    Boolean(visibleRoi) && orderedMembers.some((member) => String(member.role || '').toLowerCase() === 'embryo'),
+  );
   const inheritanceModel = (data?.metadata?.pgt as { inheritance_model?: string | null } | undefined)
     ?.inheritance_model;
 
@@ -530,6 +537,7 @@ const GenomeOverviewPage: React.FC = () => {
         backDest={routePath`/families/${familyId}/structural-variants${raw(backSearch ? `?${backSearch}` : '')}`}
         visibleRoi={visibleRoi}
         inheritanceModel={inheritanceModel}
+        mixedHomologEmbryos={mixedHomologEmbryos}
         genomeRoiRange={genomeRoiRange}
         navigateToChromosome={(chrom, region) => {
           const params = new URLSearchParams(resolvedSearch);

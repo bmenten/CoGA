@@ -59,6 +59,7 @@ import {
   describePgtInheritance,
   describePgtInputs,
   describePgtMembers,
+  describeMixedHomologsRule,
   describeQcThresholds,
   describeRepeatLocusCalls,
   describeRepeatThresholds,
@@ -801,6 +802,7 @@ const PgtAnalysisSection: React.FC<{ record: SignedReport; version: number }> = 
                 Each embryo’s phasing QC at the ROI was checked against these thresholds:{' '}
                 {describeQcThresholds(analysis.qcThresholds)}. A call that did not meet them carries a warning and
                 stands as called.
+                {describeMixedHomologsRule(analysis.qcThresholds) ? ` ${describeMixedHomologsRule(analysis.qcThresholds)}` : null}
               </p>
             ) : null}
             {analysis.embryos.length ? (

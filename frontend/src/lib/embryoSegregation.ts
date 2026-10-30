@@ -21,11 +21,16 @@
  *     across the locus is less certain, and an embryo's own crossover there may be hidden;
  *   - qcVerdict: the embryo's phasing QC at the ROI checked against the thresholds
  *     (backend/app/services/pgt_embryo_qc.py). A QC that does not meet them, or that was not
- *     counted, is a warning beside the call: the call stands and the analyst decides.
+ *     counted, is a warning beside the call: the call stands and the analyst decides;
+ *   - mixedHomologs: the embryo's markers at the ROI mix both homologs of a parent the call
+ *     reads, as where it carries both (a trisomy), which its blocks cannot show: it is not
+ *     called (uninformative), the one QC measure that changes a call.
  *
  * This is DERIVED FROM THE ANALYSIS — it is not entered by an analyst or user.
  */
 import type { PgtAnalysisOut, PgtEmbryoQcFindingOut, PgtEmbryoQcVerdictOut } from './apiSchema.generated';
+
+type PgtParentSide = 'paternal' | 'maternal';
 import type { HaplotypeRiskAssessment, HaplotypeRiskState } from './haplotypeRisk';
 import type { HaplotypePhaseCorrection } from './haplotypePhaseCorrections';
 
@@ -52,6 +57,19 @@ export interface EmbryoClassification {
   /** The haplotype blocks were built for another pedigree or other sexes (CLIN-66): every
    * embryo is uninformative until the phased genotypes are imported again. */
   blocksOutdated: boolean;
+  /** The parental sides whose markers at the ROI mix both of that parent's homologs: the
+   * embryo may carry both (a trisomy), which its blocks cannot show, so it is not called. */
+  mixedHomologs: MixedHomologs[];
+  /** The discordance above which a side's markers are read as mixing both homologs. */
+  maxMarkerDiscordance: number | null;
+}
+
+/** A parental side whose markers at the ROI mix both of that parent's homologs. */
+export interface MixedHomologs {
+  side: PgtParentSide;
+  /** The share of the side's markers off one homolog, or two either side of one crossover. */
+  discordance: number | null;
+  markers: number | null;
 }
 
 /** Why the embryos are uninformative while their haplotype blocks are outdated (CLIN-66), in
@@ -90,6 +108,12 @@ export const embryoClassificationsFromAnalysis = (analysis: PgtAnalysisOut): Map
                 qcVerdict: embryo.qc_verdict ?? null,
                 qcNotCountedReason: qcNotCountedReason(analysis.inputs.markers_truncated),
                 blocksOutdated: analysis.inputs.blocks_outdated ?? false,
+                mixedHomologs: (embryo.mixed_homologs ?? []).map((side) => ({
+                  side,
+                  discordance: embryo.qc ? (side === 'paternal' ? embryo.qc.paternal_discordance : embryo.qc.maternal_discordance) ?? null : null,
+                  markers: embryo.qc ? (side === 'paternal' ? embryo.qc.paternal_markers : embryo.qc.maternal_markers) ?? null : null,
+                })),
+                maxMarkerDiscordance: analysis.rules.qc_thresholds.max_marker_discordance ?? null,
               },
             ],
           ],
@@ -176,6 +200,31 @@ export const qcVerdictWarning = (verdict: PgtEmbryoQcVerdictOut | null, notCount
   return (
     `The phasing QC at the ROI does not meet its thresholds: ${describeQcFindings(verdict)}. ` +
     'The call stands: review the ROI markers before relying on it.'
+  );
+};
+
+/**
+ * Why an embryo whose markers at the ROI mix both homologs of a parent is not called, in the
+ * words the family page and the signed record share: "This embryo's markers at the ROI mix both
+ * of the mother's homologs (47.5% of 120 markers off one homolog, or two either side of one
+ * crossover; above 10%): …". With both parents' sides mixed, each share names its parent.
+ */
+export const mixedHomologsWarning = (mixed: MixedHomologs[], maximum: number | null): string => {
+  const parent = (side: PgtParentSide): string => (side === 'paternal' ? "the father's" : "the mother's");
+  const measured = mixed
+    .filter((entry) => entry.discordance !== null && entry.markers !== null)
+    .map(
+      (entry) =>
+        `${mixed.length > 1 ? `${parent(entry.side)} ` : ''}${formatQcRate(entry.discordance!)} of ${count(entry.markers!, 'marker', 'markers')}`,
+    );
+  const detail = measured.length
+    ? ` (${measured.join(', ')} off one homolog, or two either side of one crossover${maximum !== null ? `; above ${formatQcRate(maximum)}` : ''})`
+    : '';
+  const whose = mixed.length > 1 ? "the father's and the mother's" : mixed.length ? parent(mixed[0].side) : "a parent's";
+  return (
+    `This embryo's markers at the ROI mix both of ${whose} homologs${detail}: ` +
+    'it may carry both, as in a trisomy of this chromosome, which its haplotype blocks cannot show, so no call is made. ' +
+    'Read its copy-number and APCAD tracks.'
   );
 };
 

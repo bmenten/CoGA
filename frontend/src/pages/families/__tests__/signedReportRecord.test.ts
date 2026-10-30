@@ -32,6 +32,7 @@ import {
   describeNiptFetalSex,
   describeNiptFunnel,
   describeNiptVariant,
+  describeMixedHomologsRule,
   describeNoCall,
   describeNotCompared,
   describePgtInheritance,
@@ -1354,6 +1355,8 @@ describe('the PGT embryo results', () => {
       paternalMarkersRight: 12,
       maternalMarkersLeft: 8,
       maternalMarkersRight: 9,
+      paternalDiscordance: 0.01,
+      maternalDiscordance: 0.02,
     });
     expect(e2).toMatchObject({ roiNotCovered: true, recombinations: [30550000], qc: null });
     expect(analysis.sources.map((source) => source.sample)).toEqual(['E1', 'FATHER']);
@@ -1372,11 +1375,19 @@ describe('the PGT embryo results', () => {
     expect(describeInherited(e3.inherited)).toBe('M2 and P1 (29,000,000–32,000,000)');
     expect(describeInherited([])).toBeNull();
     expect(describeEmbryoQc(e1.qc!)).toBe(
-      '40 informative sites, Mendelian error rate 2.5% (1 of 40); informative markers 22 paternal (10 left, 12 right of the ROI), 18 maternal (8 left, 9 right of the ROI)',
+      '40 informative sites, Mendelian error rate 2.5% (1 of 40); informative markers 22 paternal (10 left, 12 right of the ROI), 18 maternal (8 left, 9 right of the ROI); markers off one homolog 1% paternal, 2% maternal',
     );
     // A record from before the flanks were counted apart gives the totals alone.
     expect(
-      describeEmbryoQc({ ...e1.qc!, paternalMarkersLeft: null, paternalMarkersRight: null, maternalMarkersLeft: null, maternalMarkersRight: null }),
+      describeEmbryoQc({
+        ...e1.qc!,
+        paternalMarkersLeft: null,
+        paternalMarkersRight: null,
+        maternalMarkersLeft: null,
+        maternalMarkersRight: null,
+        paternalDiscordance: null,
+        maternalDiscordance: null,
+      }),
     ).toBe('40 informative sites, Mendelian error rate 2.5% (1 of 40); informative markers 22 paternal, 18 maternal');
     expect(describeNoCall(e1, analysis)).toBeNull();
     expect(describeNoCall(e2, analysis)).toBe(
@@ -1409,6 +1420,35 @@ describe('the PGT embryo results', () => {
     expect(recorded(pgtRecord(SIGNED_PGT_ANALYSIS)).blocksOutdated).toBe(false);
   });
 
+  it("says an embryo was not called where its markers mixed both of a parent's homologs", () => {
+    const [first, ...rest] = SIGNED_PGT_ANALYSIS.embryos;
+    const mixed = recorded(
+      pgtRecord({
+        ...SIGNED_PGT_ANALYSIS,
+        embryos: [
+          {
+            ...first,
+            call: 'uninformative',
+            mixed_homologs: ['paternal', 'not a side'],
+            qc: { ...(first as { qc: Record<string, unknown> }).qc, paternal_discordance: 0.3 },
+          },
+          ...rest,
+        ],
+      }),
+    );
+    const [e1] = mixed.embryos;
+    expect(e1.mixedHomologs).toEqual(['paternal']);
+    expect(describeNoCall(e1, mixed)).toBe(
+      "This embryo's markers at the ROI mix both of the father's homologs (30% of 22 markers off one homolog, or two either side of one crossover; above 10%): it may carry both, as in a trisomy of this chromosome, which its haplotype blocks cannot show, so no call is made. Read its copy-number and APCAD tracks.",
+    );
+    expect(describeMixedHomologsRule(mixed.qcThresholds!)).toBe(
+      "An embryo whose markers at the ROI, on a parental side the call reads, were more than 10% off one homolog (or two either side of one crossover), over at least 20 of them, was not called: it may carry both of that parent's homologs, as in a trisomy, which its haplotype blocks cannot show.",
+    );
+    // A record from before the measure holds neither.
+    const before = recorded(pgtRecord(SIGNED_PGT_ANALYSIS_BEFORE_QC_VERDICT));
+    expect(before.embryos[0].mixedHomologs).toEqual([]);
+  });
+
   it('says why an embryo is not called: no disease haplotype, or its unrecorded sex', () => {
     const unresolved = recorded(
       pgtRecord({ ...SIGNED_PGT_ANALYSIS, disease_haplotype_resolved: false, disease_haplotypes: [] }),
@@ -1435,7 +1475,13 @@ describe('the PGT embryo results', () => {
     const analysis = recorded(pgtRecord(SIGNED_PGT_ANALYSIS));
     const [e1, e2, e3, unread] = analysis.embryos;
 
-    expect(analysis.qcThresholds).toEqual({ minInformativeSites: 50, maxMendelRate: 0.02, minMarkersPerFlank: 6 });
+    expect(analysis.qcThresholds).toEqual({
+      minInformativeSites: 50,
+      maxMendelRate: 0.02,
+      minMarkersPerFlank: 6,
+      maxMarkerDiscordance: 0.1,
+      minDiscordanceMarkers: 20,
+    });
     expect(e1.qcVerdict).toEqual({
       status: 'warning',
       sides: ['paternal'],
@@ -1491,7 +1537,15 @@ describe('the PGT embryo results', () => {
     );
     expect(e2.qcVerdict).toBeNull();
     expect(describeQcThresholds(analysis.qcThresholds!)).toBe('at least 50 informative sites');
-    expect(describeQcThresholds({ minInformativeSites: null, maxMendelRate: null, minMarkersPerFlank: null })).toBe(
+    expect(
+      describeQcThresholds({
+        minInformativeSites: null,
+        maxMendelRate: null,
+        minMarkersPerFlank: null,
+        maxMarkerDiscordance: null,
+        minDiscordanceMarkers: null,
+      }),
+    ).toBe(
       'thresholds the record does not state',
     );
   });

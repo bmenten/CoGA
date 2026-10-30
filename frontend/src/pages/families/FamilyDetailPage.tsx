@@ -7,6 +7,7 @@ import { describePhaseCorrection, phaseCorrectionsFromMetadata } from '../../lib
 import { useEmbryoSegregation } from '../../lib/useEmbryoSegregation';
 import {
   BLOCKS_OUTDATED_WARNING,
+  mixedHomologsWarning,
   qcVerdictWarning,
   segregationStateLabel,
   sexUnknownWarning,
@@ -1410,6 +1411,16 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                               {segregationStateLabel(embryoClass.state)}
                             </InfoTip>
                           )}
+                          {/* The markers at the ROI mix both homologs of a parent the call reads:
+                              the embryo may carry both (a trisomy), so it is not called. */}
+                          {embryoClass && embryoClass.mixedHomologs.length > 0 && (
+                            <InfoTip
+                              className="segregation-warning"
+                              label={mixedHomologsWarning(embryoClass.mixedHomologs, embryoClass.maxMarkerDiscordance)}
+                            >
+                              ⚠ both homologs
+                            </InfoTip>
+                          )}
                           {/* The phasing QC at the ROI does not meet its thresholds, or was not
                               counted: a warning beside the call, which stands (pgt_embryo_qc.py). */}
                           {qcWarning && (
@@ -1447,7 +1458,8 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                           )}
                           {embryoClass?.uninformative &&
                             !embryoClass.recombinationNearRoi &&
-                            !embryoClass.sexDependent && (
+                            !embryoClass.sexDependent &&
+                            !embryoClass.mixedHomologs.length && (
                               <InfoTip
                                 className="segregation-warning"
                                 label={

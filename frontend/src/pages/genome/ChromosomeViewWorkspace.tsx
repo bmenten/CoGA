@@ -17,6 +17,7 @@ import Ideogram from '../../components/visualizations/Ideogram';
 import ZoomedIdeogram from '../../components/visualizations/ZoomedIdeogram';
 import VariantTrack from '../../components/visualizations/VariantTrack';
 import HaplotypePhasedTrack from '../../components/visualizations/HaplotypePhasedTrack';
+import { useMixedHomologEmbryos } from '../../lib/useMixedHomologEmbryos';
 import HaplotypeLegend from '../../components/visualizations/HaplotypeLegend';
 import GeneTrack from '../../components/visualizations/GeneTrack';
 import BlacklistTrack from '../../components/visualizations/BlacklistTrack';
@@ -257,6 +258,12 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
   );
   const haplotypeRiskRegion =
     visibleRoi && normalizeChrom(visibleRoi.chr) === normalizeChrom(chrom) ? visibleRoi : null;
+  // Embryos the PGT analysis leaves uncalled because their markers at the ROI mix both of a
+  // parent's homologs: their tracks read no risk state from their blocks either.
+  const mixedHomologEmbryos = useMixedHomologEmbryos(
+    familyDisplayId,
+    Boolean(haplotypeRiskRegion) && familyMembers.some((member) => String(member.role || '').toLowerCase() === 'embryo'),
+  );
   // Per-marker parent-of-origin requires a trio: both parents present, and the
   // marker track is only meaningful for the children (non-parent members).
   const parentRole = (role?: string | null) => {
@@ -722,6 +729,7 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
                           riskRegion={haplotypeRiskRegion}
                           showMarkers={showMarkers}
                           phaseCorrections={phaseCorrectionsBySample.get(member.sample_id) ?? NO_PHASE_CORRECTIONS}
+                          mixedHomologsWarning={mixedHomologEmbryos.get(member.sample_id) ?? null}
                         />
                       </ViewerTrackBlock>
                     );
