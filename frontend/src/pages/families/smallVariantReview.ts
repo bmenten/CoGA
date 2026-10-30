@@ -92,6 +92,26 @@ export const buildOptimisticReview = (
   return hasReviewContent(nextReview) ? nextReview : null;
 };
 
+/**
+ * A variant's review as the loaded small-variant lists hold it: null when a list holds the
+ * variant without a review, undefined when none holds the variant. A compound-het pair save sends
+ * its partner's version from here.
+ */
+export const findLoadedVariantReview = (
+  pages: Array<SmallVariantPage | undefined>,
+  variantId: string,
+): SmallVariantReview | null | undefined => {
+  for (const page of pages) {
+    const variant =
+      page?.variants.find((entry) => entry._id === variantId) ??
+      page?.variant_groups
+        ?.flatMap((group) => group.variants)
+        .find((entry) => entry._id === variantId);
+    if (variant) return variant.review ?? null;
+  }
+  return undefined;
+};
+
 export const withUpdatedVariantReview = (
   variant: SmallVariant,
   variantId: string,

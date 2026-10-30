@@ -26,6 +26,12 @@ class SmallVariantCompoundHetReviewOut(BaseModel):
 
 class SmallVariantCompoundHetReviewUpdate(BaseModel):
     partner_variant_id: Optional[str] = None
+    # The pair save writes the partner's review too, so it is checked like the variant's own
+    # (#513): the partner review's ``updated_at`` as the client loaded it, or null when it
+    # loaded none. On a mismatch the save is refused with 409 and the partner's current
+    # review. Left out, the partner's version is not checked; its review is still read
+    # under its lock, so the save never writes an older copy of it back.
+    partner_expected_updated_at: Optional[datetime] = None
     classification: Optional[str] = None
     tags: List[str] = Field(default_factory=list)
     note: Optional[str] = None

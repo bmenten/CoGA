@@ -3321,6 +3321,7 @@ export interface SmallVariantCompoundHetReviewOut {
 
 export interface SmallVariantCompoundHetReviewUpdate {
   partner_variant_id?: string | null;
+  partner_expected_updated_at?: string | null;
   classification?: string | null;
   tags?: string[];
   note?: string | null;
