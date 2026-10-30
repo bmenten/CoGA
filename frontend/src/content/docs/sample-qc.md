@@ -236,6 +236,19 @@ look second or third degree, or a pair with too few shared sites).
 **NIPT cards.** For a cfDNA family the page adds *Paternity*, *Fetal sex* and *cfDNA category QC*
 cards, and the parent-sex rows appear in the per-sample table.
 
+**Sequencing & embryo QC.** The sequencing QC each sample's pipeline reported, one row per sample that
+has any and one column per measure: the mean depth and Qualimap's alignment metrics, and for a PGT
+embryo the numbers the PGT pipeline's dashboard shows: its allele drop-out (**ADO**) and drop-in
+(**ADI**), from Picard (`picard/<family>_ADO_ADI.csv`), and its Mendelian concordance with its parents
+before and after imputation, from RTG Tools (`rtgtools/<family>_cohort_concordance.csv` and
+`_imputed_concordance.csv`), read when the package's `qc` dataset is imported. Each value is judged
+against the family's cut-offs (**Admin → Sequencing QC thresholds**): one outside them shows its
+verdict beside it (*32.1% · Warning*), and the last column holds the sample's worst verdict, as the
+**Seq. QC** chip of the family page does. A value without a cut-off is shown and not judged (*Not
+run*); the text above the table names those measures. These are not sample-integrity checks: they do
+not change the page's overall verdict and do not stop sign-out. The signed report records every value
+with its verdict.
+
 ---
 
 ## Sign-out and limits

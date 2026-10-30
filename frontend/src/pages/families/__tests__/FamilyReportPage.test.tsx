@@ -1303,6 +1303,8 @@ describe('FamilyReportPage', () => {
           verdict: 'warn',
           metrics: [
             { metric_key: 'mean_coverage', label: 'Mean coverage', unit: '×', value: 18, warn_value: 20, error_value: 10, verdict: 'warn' },
+            // A value without a cut-off: shown as frozen, not judged.
+            { metric_key: 'pgt.allele_dropout_rate', label: 'Allele drop-out (ADO)', unit: '%', value: 17.46, warn_value: null, error_value: null, verdict: 'skip' },
           ],
           breached: ['mean_coverage'],
         },
@@ -1449,7 +1451,9 @@ describe('FamilyReportPage', () => {
       const checks = screen.getByRole('heading', { name: 'Checks at sign-out' }).closest('section')!;
       expect(checks).toHaveTextContent('Overall: Pass (Trio WGS).');
       expect(checks).toHaveTextContent('Sex of PROBAND: Pass — Recorded and inferred sex agree.');
-      expect(checks).toHaveTextContent('PROBAND: Warning — Mean coverage 18 × (Warning; warning 20 ×, fail 10 ×)');
+      expect(checks).toHaveTextContent(
+        'PROBAND: Warning — Mean coverage 18 × (Warning; warning 20 ×, fail 10 ×); Allele drop-out (ADO) 17.5%',
+      );
       expect(checks).toHaveTextContent('The family’s data had imported completely.');
       expect(screen.getByText(/No reported classification had changed evidence/)).toHaveTextContent(
         'No reported classification had changed evidence when this version was signed (1 checked).',

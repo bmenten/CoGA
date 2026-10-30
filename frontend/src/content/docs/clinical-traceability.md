@@ -167,8 +167,9 @@ the clinical report in the EPD refers to:
   frozen with that pair review;
 - the reported structural variants and CNVs, with their classification, CNV criteria, tags, note and
   frozen evidence;
-- the drift state, the Sample QC verdict, and the sequencing-QC verdicts with the cut-offs they were
-  judged against;
+- the drift state, the Sample QC verdict, and the sequencing-QC values and verdicts with the cut-offs
+  they were judged against (the signed version lists every value, a PGT embryo's ADO, ADI and
+  concordance included, not only those outside a cut-off);
 - whether the family's data imported completely, and if not, which datasets failed;
 - what the analysis looked at: each reported variant's **description** as you reviewed it (gene,
   transcript, HGVS c. and p., consequence and each sample's genotype; for a structural variant its type,

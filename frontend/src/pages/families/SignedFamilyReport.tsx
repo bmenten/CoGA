@@ -32,7 +32,7 @@ import {
 import {
   ANALYTICAL_SIGN_OFF_STATEMENT,
   coverageTrackCaller,
-  describeBreachedMetric,
+  describeSignedQcMetric,
   describeCatalogue,
   describeCnvKnowledgebase,
   describeCompoundHetPair,
@@ -1076,9 +1076,7 @@ const SignedChecks: React.FC<{ record: SignedReport }> = ({ record }) => {
                 {sequencingQc.samples.map((sample) => (
                   <li key={sample.sampleId}>
                     {sample.sampleId}: {qcStatusLabel(sample.verdict)}
-                    {sample.breached.length
-                      ? ` — ${sample.breached.map(describeBreachedMetric).join('; ')}`
-                      : ''}
+                    {sample.metrics.length ? ` — ${sample.metrics.map(describeSignedQcMetric).join('; ')}` : ''}
                   </li>
                 ))}
               </ul>

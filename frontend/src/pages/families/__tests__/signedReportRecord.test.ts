@@ -7,6 +7,7 @@ import {
   ANALYTICAL_SIGN_OFF_STATEMENT,
   coverageTrackCaller,
   describeBreachedMetric,
+  describeSignedQcMetric,
   describeCatalogue,
   describeCnvKnowledgebase,
   describeCompoundHetPair,
@@ -258,15 +259,23 @@ describe('parseSignedReport', () => {
     expect(record.sampleQc?.notes).toEqual(['Genotypes from the trio callset.']);
     expect(record.qcAcknowledgement).toEqual({ acknowledged: true, reason: 'Rate explained by low coverage.' });
     expect(record.sequencingQc?.profileLabel).toBe('WGS default');
-    // Only the metrics outside their cut-offs.
+    // Every metric the record holds, and apart the ones outside their cut-offs.
+    const coverage = { label: 'Mean coverage', value: 18, unit: '×', verdict: 'warn', warnValue: 20, errorValue: 10, direction: 'lower_is_worse' };
     expect(record.sequencingQc?.samples).toEqual([
       {
         sampleId: 'P1',
         verdict: 'warn',
-        breached: [
-          { label: 'Mean coverage', value: 18, unit: '×', verdict: 'warn', warnValue: 20, errorValue: 10, direction: 'lower_is_worse' },
+        metrics: [
+          coverage,
+          { label: 'Q30', value: 93, unit: '%', verdict: 'pass', warnValue: 85, errorValue: 80, direction: null },
         ],
+        breached: [coverage],
       },
+    ]);
+    // A breached value with its verdict and limits, one within them as its value alone.
+    expect(record.sequencingQc!.samples[0].metrics.map(describeSignedQcMetric)).toEqual([
+      'Mean coverage 18 × (Warning; warning 20 ×, fail 10 ×)',
+      'Q30 93.0%',
     ]);
     expect(record.importIncomplete).toBeNull();
     expect(record.importUnfinished).toEqual([]);

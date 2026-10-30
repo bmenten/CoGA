@@ -28,6 +28,12 @@ The page first works out what kind of case it is and runs only the checks that f
 - **Relatedness matrix** — each pair's inferred relationship, kinship and IBS0. A pair that contradicts
   the pedigree, including parents who look related, is outlined: red for a fail, amber for a warning.
 - **NIPT cards** — paternity, fetal sex and the category check, for a cfDNA family.
+- **Sequencing & embryo QC** — each sample's sequencing QC as its pipeline reported it, one column per
+  measure: mean depth and alignment, and for a PGT embryo its allele drop-out (ADO) and drop-in (ADI)
+  and its Mendelian concordance with its parents before and after imputation, the numbers of the
+  pipeline's dashboard. A value outside the lab's cut-off shows its verdict; one without a cut-off is
+  shown, not judged. These do not change the overall verdict or stop sign-out; the signed report
+  records every value.
 
 > **What to do with a warning or a fail.** A fail points to a real problem: re-check the sample sheet,
 > the pedigree and the genotypes before you interpret. A warning usually means too little data to decide
