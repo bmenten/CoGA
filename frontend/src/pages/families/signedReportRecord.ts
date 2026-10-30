@@ -398,6 +398,8 @@ export interface SignedSequencingQcMetric {
 export interface SignedSequencingQcSample {
   sampleId: string;
   verdict: string | null;
+  /** Every metric the record holds for the sample, as measured, with its verdict. */
+  metrics: SignedSequencingQcMetric[];
   /** The metrics outside their cut-offs (a warning or a fail). */
   breached: SignedSequencingQcMetric[];
 }
@@ -1263,22 +1265,23 @@ const parseSequencingQc = (value: unknown): SignedSequencingQc | null => {
       .sort()
       .map((sampleId): SignedSequencingQcSample => {
         const evaluation = isObject(samples[sampleId]) ? (samples[sampleId] as Json) : {};
-        const metrics = Array.isArray(evaluation.metrics) ? (evaluation.metrics as unknown[]) : [];
+        const recorded = Array.isArray(evaluation.metrics) ? (evaluation.metrics as unknown[]) : [];
+        const metrics = recorded.filter(isObject).map(
+          (metric): SignedSequencingQcMetric => ({
+            label: text(metric.label) ?? text(metric.metric_key) ?? 'metric',
+            value: number(metric.value),
+            unit: text(metric.unit) ?? '',
+            verdict: text(metric.verdict) ?? 'unknown',
+            warnValue: number(metric.warn_value),
+            errorValue: number(metric.error_value),
+            direction: text(metric.direction),
+          }),
+        );
         return {
           sampleId,
           verdict: text(evaluation.verdict),
-          breached: metrics
-            .filter(isObject)
-            .filter((metric) => metric.verdict === 'warn' || metric.verdict === 'fail')
-            .map((metric) => ({
-              label: text(metric.label) ?? text(metric.metric_key) ?? 'metric',
-              value: number(metric.value),
-              unit: text(metric.unit) ?? '',
-              verdict: text(metric.verdict) ?? 'unknown',
-              warnValue: number(metric.warn_value),
-              errorValue: number(metric.error_value),
-              direction: text(metric.direction),
-            })),
+          metrics,
+          breached: metrics.filter((metric) => metric.verdict === 'warn' || metric.verdict === 'fail'),
         };
       }),
   };
@@ -2638,6 +2641,24 @@ export const describeBreachedMetric = (metric: SignedSequencingQcMetric): string
         })}`
       : '';
   return `${metric.label}${value} (${qcStatusLabel(metric.verdict)}${limits.length ? `; ${limits.join(', ')}` : ''})`;
+};
+
+/**
+ * A metric as the record froze it: a breached one with its verdict and limits
+ * (`describeBreachedMetric`), any other as its value alone ("Allele drop-out (ADO) 17.5%"), so
+ * the signed version shows the numbers it was judged on, a value without a cut-off included.
+ */
+export const describeSignedQcMetric = (metric: SignedSequencingQcMetric): string => {
+  if (metric.verdict === 'warn' || metric.verdict === 'fail') return describeBreachedMetric(metric);
+  if (metric.value === null) return metric.label;
+  return `${metric.label} ${formatQcMetricValue({
+    value: metric.value,
+    unit: metric.unit,
+    verdict: metric.verdict,
+    warn_value: metric.warnValue,
+    error_value: metric.errorValue,
+    direction: metric.direction,
+  })}`;
 };
 
 // --- Wording of the PGT embryo results ---------------------------------------------

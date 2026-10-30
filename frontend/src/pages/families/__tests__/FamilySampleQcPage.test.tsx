@@ -242,6 +242,112 @@ describe('FamilySampleQcPage', () => {
     expect(pedigreeTooltip(container, 'CHILD')).toBe('Sex male (matches record)');
   });
 
+  // The PGT pipeline's per-embryo QC, which its dashboard shows: read from its Picard and RTG
+  // Tools tables at import and served on each member, judged against the family's cut-offs.
+  it("shows each member's sequencing and embryo QC, with what was judged and what was not", async () => {
+    const metric = (key: string, label: string, unit: string, value: number, extra: Record<string, unknown> = {}) => ({
+      metric_key: key,
+      label,
+      unit,
+      direction: key === 'pgt.allele_dropout_rate' || key === 'pgt.allele_dropin_rate' ? 'higher_is_worse' : 'lower_is_worse',
+      value,
+      warn_value: null,
+      error_value: null,
+      verdict: 'skip',
+      ...extra,
+    });
+    const embryoQc = (ado: Record<string, unknown>, verdict: string) => ({
+      verdict,
+      profile_label: 'PGT',
+      breached: verdict === 'skip' ? [] : ['pgt.allele_dropout_rate'],
+      metrics: [
+        metric('depth.mean_depth', 'Mean depth', 'x', 9.8),
+        metric('pgt.allele_dropout_rate', 'Allele drop-out (ADO)', '%', ado.value as number, ado),
+        metric('pgt.allele_dropin_rate', 'Allele drop-in (ADI)', '%', 3.2),
+        metric('pgt.mendelian_concordance', 'Mendelian concordance before imputation', '%', 34.9),
+        metric('pgt.mendelian_concordance_imputed', 'Mendelian concordance after imputation', '%', 98.2),
+      ],
+    });
+    mockApi(
+      {
+        family_id: 'FAM1',
+        overall_status: 'pass',
+        application: 'pgt',
+        application_label: 'PGT',
+        application_summary: '',
+        genotype_source: 'glimpse2',
+        paternity_check: null,
+        autosomal_sites: 90000,
+        notes: [],
+        sex_checks: [],
+        relatedness_checks: [],
+        mendelian_checks: [],
+      },
+      {
+        ...TRIO_FAMILY,
+        members: [
+          {
+            sample_id: 'FATHER',
+            role: 'father',
+            affected: false,
+            sex: 'male',
+            sequencing_qc: { verdict: 'skip', profile_label: 'PGT', breached: [], metrics: [metric('depth.mean_depth', 'Mean depth', 'x', 0.9)] },
+          },
+          { sample_id: 'MOTHER', role: 'mother', affected: false, sex: 'female', sequencing_qc: null },
+          {
+            sample_id: 'EMB1',
+            role: 'embryo',
+            affected: false,
+            sex: 'female',
+            sequencing_qc: embryoQc({ value: 17.5 }, 'skip'),
+          },
+          {
+            sample_id: 'EMB2',
+            role: 'embryo',
+            affected: false,
+            sex: 'male',
+            sequencing_qc: embryoQc({ value: 32.1, warn_value: 30, verdict: 'warn' }, 'warn'),
+          },
+        ],
+      },
+    );
+
+    renderPage();
+
+    const heading = await screen.findByRole('heading', { name: 'Sequencing & embryo QC' });
+    const section = heading.closest('section') as HTMLElement;
+    const table = within(section).getByRole('table');
+    // The dashboard's measures, by its short names; one column per metric any member has.
+    expect(within(table).getAllByRole('columnheader').map((cell) => cell.textContent)).toEqual([
+      'Sample',
+      'Role',
+      'Mean depth',
+      'ADO',
+      'ADI',
+      'Concordance before imputation',
+      'Concordance after imputation',
+      'QC',
+    ]);
+    const row = (sample: string) =>
+      within(table).getByText(sample, { selector: 'td' }).closest('tr') as HTMLElement;
+    // A member without QC has no row; a parent has no embryo measures.
+    expect(within(table).queryByText('MOTHER')).not.toBeInTheDocument();
+    expect(within(row('FATHER')).getAllByRole('cell').map((cell) => cell.textContent)).toEqual([
+      'FATHER', 'father', '0.9x', '-', '-', '-', '-', 'Not run',
+    ]);
+    expect(within(row('EMB1')).getAllByRole('cell').map((cell) => cell.textContent)).toEqual([
+      'EMB1', 'embryo', '9.8x', '17.5%', '3.2%', '34.9%', '98.2%', 'Not run',
+    ]);
+    // A breached value carries its verdict; the row its verdict.
+    expect(within(row('EMB2')).getByText('32.1% · Warning')).toBeInTheDocument();
+    expect(within(row('EMB2')).getAllByRole('cell').at(-1)?.textContent).toBe('Warning');
+    // What the values were judged against, and which were shown without a cut-off.
+    expect(section).toHaveTextContent('Judged against the cut-offs of PGT.');
+    expect(section).toHaveTextContent(
+      'No cut-off is set for Mean depth, ADI, Concordance before imputation, Concordance after imputation: those values are shown, not judged.',
+    );
+  });
+
   it('never marks a sex the genotypes could not confirm as a match (TF-06 H4)', async () => {
     const noChrX = 'No chrX genotypes available for sex inference.';
     const indeterminate = 'Could not infer sex (8.0% chrX het over 500 sites).';

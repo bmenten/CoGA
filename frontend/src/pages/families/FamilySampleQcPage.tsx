@@ -22,6 +22,7 @@ import { apiPath } from '../../lib/apiPath';
 import { formatResolvedReferenceLabel, useFamilyReference } from '../../lib/reference';
 import { parsePedigree } from '../../lib/pedigree';
 import { routePath } from '../../lib/routePath';
+import SequencingQcTable from './SequencingQcTable';
 
 // A check that could not run makes the overall a warning, so "skip" means no check ran.
 const OVERALL_COPY: Record<QcStatus, string> = {
@@ -563,6 +564,8 @@ const FamilySampleQcPage: React.FC = () => {
           />
         </section>
       ) : null}
+
+      <SequencingQcTable members={members} />
 
       {relatednessSamples.length ? (
         <section className="surface-card space-y-2">
