@@ -88,3 +88,16 @@ async def test_fetch_bed_records_for_chroms_applies_per_chromosome_limit(monkeyp
 # its `fetch_interval_track_rows`-backed window path were removed, so the two
 # tests that exercised them are gone. Coverage windowing (`_windowed_coverage_rows`)
 # is still covered by the tests above.
+
+
+def test_a_segregation_site_is_served_with_its_group_and_an_apcad_site_without() -> None:
+    # The parental-origin view draws the embryo's own allele fraction from the stored value
+    # and the group (B: the value; A: one minus it), as the PGT pipeline's plots do.
+    from backend.app.services.bed_service import _serialize_bed_record
+
+    row = {"chr": "9", "start": 999, "end": 1000, "value": 0.3, "origin": "maternal", "record_id": "9:1000:2A"}
+    assert _serialize_bed_record("apcad_segregation", row) == {
+        "chr": "9", "start": 999, "end": 1000, "value": 0.3, "origin": "maternal", "group": "2A",
+    }
+    assert _serialize_bed_record("apcad_segregation", {**row, "record_id": "9:1000:1A"})["group"] is None
+    assert "group" not in _serialize_bed_record("apcad", {**row, "record_id": "rs1"})

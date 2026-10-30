@@ -49,29 +49,32 @@ read as neither depth nor a log2 ratio.
 In a PGT family, judge each embryo's aneuploidy and large (>10 Mb) structural variants yourself, on its
 segment, copy-number (coverage) and APCAD tracks. CoGA shows the tracks but makes no aneuploidy call.
 
-For an aneuploid chromosome, tick **Parental origin (aneuploidy)** under *Tracks* in the chromosome view.
-It is offered for an embryo whose PGT pipeline run wrote its segregation table, and is off until you ask
-for it. It draws two panels: the sites where the mother is heterozygous and the father homozygous, and
-the reverse. Each site is drawn at the embryo's fraction of the allele the homozygous parent does not
-carry, against guide lines at 0, ⅓, ½ and ⅔:
+For an aneuploidy, tick **Parental origin (aneuploidy)** under *Tracks*, in the genome view and in the
+chromosome view. It is offered for an embryo whose PGT pipeline run wrote its segregation table, and is
+off until you ask for it. It draws the embryo's sites as the pipeline's own plots do, in two panels:
+**Mother heterozygous** (the pipeline's group 2: the mother heterozygous, the father homozygous) and
+**Father heterozygous** (group 3). Each site is at the embryo's allele fraction, from 0 to 1, coloured by
+the other parent's homozygous allele: amber for the reference (2B, 3B), the heterozygous parent's
+colour for the alternate (2A, 3A). The genome view draws every chromosome side by side, so an aneuploid
+one stands out against the others; the chromosome view draws the region in view. Read each panel against
+its guide lines:
 
 | On a parent's panel | Reading |
 | --- | --- |
-| 0 and ½ | one of that parent's homologs (disomy) |
-| ⅓ alone, nothing at 0 | both of that parent's homologs (heterodisomy) |
-| 0 and ⅔ | two copies of one of that parent's homologs (isodisomy) |
-| 0 and ⅓ | that parent gave one copy of three: the extra copy is the other parent's |
+| bands at 0, ½ and 1 | one of that parent's homologs (disomy) |
+| only ⅓ and ⅔, nothing at 0 or 1 | both of that parent's homologs (heterodisomy) |
+| 0, ⅓, ⅔ and 1 | two copies of one of its homologs (isodisomy), or, in a trisomy, the panel of the parent who gave one copy of three |
 
-A strip under each panel shows, per window, the share of its sites at 0: near nothing where both of
-that parent's homologs are present. Read the result against the centromere on the ideogram above:
+Read the result against the centromere on the chromosome view's ideogram:
 
 - heterodisomy at the centromere points to an error in meiosis I;
 - isodisomy at the centromere, turning to heterodisomy past a crossover, points to meiosis II;
 - isodisomy along the whole chromosome points to a mitotic error, usually as a mosaic, where the bands
-  move between ½ and ⅔.
+  sit between those of a disomy and a trisomy.
 
-The pipeline keeps only sites the embryo was read deeply at, so a trisomic chromosome has many more
-sites than the others, and a monosomy almost none. CoGA draws the sites and makes no call from them.
+Which parent gave the extra copy of an isodisomic trisomy, the APCAD track shows. The pipeline keeps only
+sites the embryo was read deeply at, so a trisomic chromosome has many more sites than the others, and a
+monosomy almost none. CoGA draws the sites and makes no call from them.
 
 The PGT haplotype track is explained under [Haplotype segregation](#haplotype-segregation).
 

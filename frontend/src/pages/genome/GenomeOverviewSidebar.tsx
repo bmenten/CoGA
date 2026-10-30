@@ -10,6 +10,9 @@ export interface GenomeTrackVisibility {
   sv: boolean;
   haplotypes: boolean;
   repeatExpansions: boolean;
+  /** An embryo's parental origin from the PGT pipeline's segregation table: off until asked
+   * for, as it matters only for an aneuploidy. */
+  parentalOrigin: boolean;
 }
 
 export type GenomeTrackKey = keyof GenomeTrackVisibility;
@@ -34,6 +37,7 @@ const TRACK_LABELS: Record<GenomeTrackKey, string> = {
   sv: 'SVs',
   haplotypes: 'Haplotypes',
   repeatExpansions: 'Repeat expansions',
+  parentalOrigin: 'Parental origin (aneuploidy)',
 };
 
 const GenomeOverviewSidebar: React.FC<GenomeOverviewSidebarProps> = ({

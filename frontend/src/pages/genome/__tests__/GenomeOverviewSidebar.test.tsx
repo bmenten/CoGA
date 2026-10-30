@@ -44,6 +44,7 @@ const renderSidebar = (overrides: Partial<Props> = {}): Props => {
       sv: false,
       haplotypes: true,
       repeatExpansions: false,
+      parentalOrigin: false,
     },
     chromSelected: { ...allChroms(true), Y: false },
     onToggleSample: vi.fn(),

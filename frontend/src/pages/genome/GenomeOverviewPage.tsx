@@ -76,6 +76,8 @@ const GenomeOverviewPage: React.FC = () => {
     sv: true,
     haplotypes: true,
     repeatExpansions: true,
+    // Only for an aneuploidy: the analyst turns it on.
+    parentalOrigin: false,
   });
   const [layout, setLayout] = useState<Layout | null>(null);
   const [chromSelected, setChromSelected] = useState<Record<string, boolean>>(() =>
@@ -223,6 +225,7 @@ const GenomeOverviewPage: React.FC = () => {
         coverageTrackUrls: () => ({ coverageUrls: [], segmentsUrls: [] }),
         apcad: {},
         apcadPcf: {},
+        apcadSegregation: {},
         haplotypes: {},
         sv: {},
       };
@@ -230,7 +233,7 @@ const GenomeOverviewPage: React.FC = () => {
 
     const buildBatchBedUrl = (
       sampleId: string,
-      bedType: 'coverage' | 'segments' | 'apcad' | 'apcad_pcf',
+      bedType: 'coverage' | 'segments' | 'apcad' | 'apcad_pcf' | 'apcad_segregation',
       extra: Record<string, string>,
     ) => {
       const params = new URLSearchParams();
@@ -242,6 +245,7 @@ const GenomeOverviewPage: React.FC = () => {
 
     const apcad: Record<string, string[]> = {};
     const apcadPcf: Record<string, string[]> = {};
+    const apcadSegregation: Record<string, string[]> = {};
     const haplotypes: Record<string, string[]> = {};
     const sv: Record<string, string> = {};
 
@@ -253,6 +257,8 @@ const GenomeOverviewPage: React.FC = () => {
           limit: String(apcadPointLimit),
         }),
       ];
+      // Every site of the embryo's segregation table, for the parental-origin view.
+      apcadSegregation[member.sample_id] = [buildBatchBedUrl(member.sample_id, 'apcad_segregation', { limit: '200000' })];
       apcadPcf[member.sample_id] = [
         buildBatchBedUrl(member.sample_id, 'apcad_pcf', {
           limit: String(segmentLimit),
@@ -286,7 +292,7 @@ const GenomeOverviewPage: React.FC = () => {
       ],
     });
 
-    return { coverageTrackUrls, apcad, apcadPcf, haplotypes, sv };
+    return { coverageTrackUrls, apcad, apcadPcf, apcadSegregation, haplotypes, sv };
   }, [
     apcadPointLimit,
     baseVariantParams,
@@ -350,6 +356,7 @@ const GenomeOverviewPage: React.FC = () => {
             apcad: entry.apcad,
             apcadSources: entry.apcad_sources ?? [],
             apcadPcf: !!entry.apcad_pcf,
+            apcadSegregation: !!entry.apcad_segregation,
             haplotypes: entry.haplotypes,
             sv: entry.variants,
             repeatExpansions: entry.repeat_expansions,
@@ -367,6 +374,7 @@ const GenomeOverviewPage: React.FC = () => {
           apcad: boolean;
           apcadSources: string[];
           apcadPcf: boolean;
+          apcadSegregation: boolean;
           haplotypes: boolean;
           sv: boolean;
           repeatExpansions: boolean;
@@ -386,6 +394,7 @@ const GenomeOverviewPage: React.FC = () => {
       if (entry.sv) tracks.add('sv');
       if (entry.haplotypes) tracks.add('haplotypes');
       if (entry.repeatExpansions) tracks.add('repeatExpansions');
+      if (entry.apcadSegregation) tracks.add('parentalOrigin');
     });
     return Array.from(tracks);
   }, [availability, orderedMembers]);
