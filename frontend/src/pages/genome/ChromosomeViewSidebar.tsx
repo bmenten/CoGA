@@ -9,6 +9,9 @@ export interface ChromosomeTrackVisibility {
   haplotypes: boolean;
   phasedMarkers: boolean;
   repeatExpansions: boolean;
+  /** An embryo's parental origin from the PGT pipeline's segregation table: off until asked
+   * for, as it matters only for an aneuploid chromosome. */
+  parentalOrigin: boolean;
 }
 
 export type ChromosomeTrackKey = keyof ChromosomeTrackVisibility;

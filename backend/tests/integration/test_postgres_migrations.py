@@ -593,6 +593,8 @@ def test_a_database_at_an_older_revision_gets_only_the_revisions_it_lacks(caplog
     assert any(message.startswith("Running upgrade 0002 -> 0003") for message in messages)
     assert "'relative'::text" in checks["family_relationships_relationship_type_check"]
     assert "'target_coverage'::text" in checks["sample_interval_track_sources_track_type_check"]
+    # Revision 0012: an embryo's segregation table, for the parental-origin view.
+    assert "'apcad_segregation'::text" in checks["sample_interval_track_sources_track_type_check"]
     assert "'not_assessed'::text" in checks["repeat_expansions_status_check"]
 
 

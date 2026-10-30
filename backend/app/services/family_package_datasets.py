@@ -99,7 +99,7 @@ from .family_package_qc import (
     record_sample_qc_metadata as _record_sample_qc_metadata,
 )
 from .family_package_registration import UNRESOLVED_SNV_SOURCE, _interval_track_count, _paraphase_count, _register_only, _repeat_expansion_count
-from .family_package_tracks import _delete_sample_interval_source, _import_apcad_track_file, _import_bigwig_interval_track, _import_copy_number_track, _import_pcf_segment_file, _import_wisecondorx_track
+from .family_package_tracks import _delete_sample_interval_source, _import_apcad_track_file, _import_bigwig_interval_track, _import_copy_number_track, _import_pcf_segment_file, _import_segregation_table, _import_wisecondorx_track
 from .family_package_validation import _manifest_hpo_rows, _manifest_individuals, _pcf_role_path
 from .structural_variant_ingest import SkippedRecords
 from .family_package_variants import ParaphaseValueError, _iter_cnv_structural_records, _iter_mito_sv_records, _iter_needlr_per_sample_records, _iter_needlr_structural_records, _merge_sv_records_by_id, _mito_sv_rows_after_import, _paraphase_rows_for_sample, _replace_sample_paraphase_rows, _update_sv_file_metadata, needlr_query_ids
@@ -1259,10 +1259,31 @@ async def _import_apcad_dataset(job: DatasetImportJob) -> FamilyImportDatasetSum
     # dataset with the earlier embryos' tracks replaced (SAFE-3). The check reads a file up to
     # the embryo's first value (a VCF without a record, read as a BED, whole), so a file is
     # read twice only that far.
+    # An embryo's segregation table (nf-cmgg/copgtm), where its entry names one, goes into a
+    # track of its own beside the APCAD: checked with the APCAD files, before any track is
+    # replaced, and replaced with its embryo's APCAD.
+    segregation_paths = {
+        sample_id: path
+        for sample_id, raw_entry, _bed_path in sample_files
+        if (path := _resolve_package_path(bundle.root, raw_entry.get("segregation"))) is not None
+    }
     for sample_id, raw_entry, bed_path in sample_files:
         await import_sample_file(sample_id, raw_entry, bed_path, check_only=True)
+        if sample_id in segregation_paths:
+            with _refusal_naming(
+                f"The segregation table of {sample_id} ({_display_path(bundle.root, segregation_paths[sample_id])})"
+            ):
+                await _import_segregation_table(
+                    session, sample_context=sample_contexts[sample_id], path=segregation_paths[sample_id], check_only=True
+                )
     for sample_id, raw_entry, bed_path in sample_files:
-        sample_results[sample_id] = await import_sample_file(sample_id, raw_entry, bed_path)
+        result = await import_sample_file(sample_id, raw_entry, bed_path)
+        if sample_id in segregation_paths:
+            segregation = await _import_segregation_table(
+                session, sample_context=sample_contexts[sample_id], path=segregation_paths[sample_id]
+            )
+            result = {**result, "segregation": segregation} if isinstance(result, dict) else {"apcad": result, "segregation": segregation}
+        sample_results[sample_id] = result
         files_read.next_file()
         if reporter is not None:
             await reporter({})

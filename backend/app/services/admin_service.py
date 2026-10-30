@@ -103,7 +103,7 @@ _EVERY_CLICKHOUSE_STORE = (
     DataReach(INTERVAL_TRACK_DATA),
 )
 
-BED_TRACK_TYPES = ("coverage", "segments", "apcad", "apcad_pcf", "haplotype", "target_coverage")
+BED_TRACK_TYPES = ("coverage", "segments", "apcad", "apcad_pcf", "apcad_segregation", "haplotype", "target_coverage")
 SAMPLE_TRACK_TYPES = (*BED_TRACK_TYPES, "structural_variants", "repeat_expansions")
 FAMILY_TRACK_TYPES = ("small_variants", "structural_variants", "repeat_expansions", *BED_TRACK_TYPES)
 

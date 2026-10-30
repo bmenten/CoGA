@@ -193,6 +193,8 @@ _PROVENANCE_PATH_KEYS = frozenset(
         *(role for required, optional in LONG_READ_DATASET_ROLES.values() for role in (*required, *optional)),
         # The mtDNA-Server table a mito entry reads its sample's rows from, without a chrM VCF.
         "table",
+        # An embryo's segregation table (nf-cmgg/copgtm), read beside its APCAD.
+        "segregation",
         # The PGT pipeline's (nf-cmgg/copgtm) family files: its QC tables and its reading
         # of the affected haplotype.
         *QC_FAMILY_ROLES,

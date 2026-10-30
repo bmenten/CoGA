@@ -22,7 +22,7 @@ from .family_metadata_context import (
     SampleMetadataContext,
 )
 
-from .family_package_common import APCAD_PCF_SOURCE, APCAD_PCF_TRACK_TYPE, APCAD_SOURCE, ParsedPed, _coerce_finite_float, _coerce_int, _is_vcf_file, _jsonb_safe, _missing_scalar, _normalize_header_key, _open_package_text, _parse_format, _parse_vcf_info, whole_package_text_handle
+from .family_package_common import APCAD_PCF_SOURCE, APCAD_PCF_TRACK_TYPE, APCAD_SEGREGATION_TRACK_TYPE, APCAD_SOURCE, ParsedPed, _coerce_finite_float, _coerce_int, _is_vcf_file, _jsonb_safe, _missing_scalar, _normalize_header_key, _open_package_text, _parse_format, _parse_vcf_info, whole_package_text_handle
 from .clickhouse_column_bounds import UINT64, column_int
 from .import_progress import bytes_read_on_disk, file_size, read_stats
 
@@ -1412,6 +1412,117 @@ async def _import_pcf_segment_file(
             "origin": origin,
             "uploaded_from": "family_package",
         },
+    )
+    await session.commit()
+    return result
+
+
+# The segregation table's site groups (nf-cmgg/copgtm): 2, the mother heterozygous and the
+# father homozygous, for the reference allele (B) or the alternate one (A); 3, the father
+# heterozygous and the mother homozygous, alike. The parent whose two homologs a site tells
+# apart is the heterozygous one.
+_SEGREGATION_GROUP_ORIGIN = {"2": "maternal", "3": "paternal"}
+
+
+def _parse_segregation_row(
+    row: dict[str, Any],
+    *,
+    sample_context: SampleMetadataContext,
+    path: Path,
+    line_no: int,
+) -> dict[str, Any] | None:
+    """A site of the segregation table as the row it is stored as; None for a row left out (a
+    group other than 2A, 2B, 3A or 3B, or no allele fraction).
+
+    Its value is the embryo's fraction of the allele the homozygous parent does not carry: the
+    embryo's alternate-allele fraction (``raw_AF``) where that parent is homozygous for the
+    reference allele (B), one minus it where for the alternate (A). So it reads alike for both:
+    0 or 1/2 for an embryo with one homolog of the heterozygous parent, 1/3 where it carries
+    both of them beside one of the other parent's (heterodisomy), 0 or 2/3 where it carries two
+    copies of one (isodisomy). Its origin is the heterozygous parent."""
+    group = (_pcf_value(row, "source") or "").strip().upper()
+    origin = _SEGREGATION_GROUP_ORIGIN.get(group[:1]) if len(group) == 2 and group[1] in "AB" else None
+    chrom = _pcf_value(row, "CHROM", "chr", "chromosome")
+    pos = _coordinate(_pcf_value(row, "POS", "position"))
+    fraction = _coerce_finite_float(_pcf_value(row, "raw_AF"))
+    if origin is None or chrom is None or pos is None or fraction is None or not 0 <= fraction <= 1:
+        return None
+    normalized_chrom = normalize_chromosome(chrom)
+    metadata = {
+        "source": APCAD_SOURCE,
+        "filename": path.name,
+        "line_no": line_no,
+        "uploaded_from": "family_package",
+        "group": group,
+        "raw_af": fraction,
+        "dp": _coerce_int(_pcf_value(row, "gt_DP", "DP")),
+        "qual": _coerce_finite_float(_pcf_value(row, "QUAL")),
+        "filter": _pcf_value(row, "FILTER"),
+        "ref": _pcf_value(row, "REF"),
+        "alt": _pcf_value(row, "ALT"),
+        "sample_id": _pcf_value(row, "Indiv"),
+    }
+    return {
+        "sample_id": sample_context.sample_uuid,
+        "family_id": sample_context.family_uuid,
+        "assembly_id": sample_context.assembly_id or "",
+        "assembly_name": sample_context.assembly_name or "",
+        "track_type": APCAD_SEGREGATION_TRACK_TYPE,
+        "source": APCAD_SOURCE,
+        "chr": normalized_chrom,
+        "start": max(0, pos - 1),
+        "end": pos,
+        "record_id": f"{normalized_chrom}:{pos}:{group}",
+        "value": fraction if group[1] == "B" else 1 - fraction,
+        "origin": origin,
+        "metadata_json": json.dumps(_jsonb_safe(metadata)),
+    }
+
+
+def _segregation_rows(
+    handle: Iterable[str], *, sample_context: SampleMetadataContext, path: Path
+) -> Iterator[dict[str, Any] | None]:
+    """Each row of a segregation table (CSV with a header) as the row it is stored as, None for
+    a row left out."""
+    reader = csv.DictReader(handle)
+    for raw_row in reader:
+        yield _parse_segregation_row(raw_row, sample_context=sample_context, path=path, line_no=reader.line_num)
+
+
+async def _import_segregation_table(
+    session: AsyncSession,
+    *,
+    sample_context: SampleMetadataContext,
+    path: Path,
+    check_only: bool = False,
+) -> dict[str, int]:
+    """Replace the embryo's ``apcad_segregation`` track with its segregation table. A table
+    without a site of group 2 or 3 is refused (``EmptyTrackFileError``, SAFE-29); with
+    ``check_only`` it is read up to its first site and nothing is deleted or stored, as the
+    ``apcad`` dataset reads every table before it replaces any track."""
+    if not sample_context.assembly_name:
+        raise RuntimeError("Cannot import a segregation table without an assembly name")
+    async with _open_package_text(path) as handle:
+        rows = _segregation_rows(handle, sample_context=sample_context, path=path)
+        first, left_out = _first_stored_row(rows)
+        if first is None:
+            raise EmptyTrackFileError(
+                f"The segregation table {path.name} holds no site; its track was not replaced"
+            )
+        if check_only:
+            return {}
+        await _delete_sample_interval_source(
+            session, sample_context=sample_context, track_type=APCAD_SEGREGATION_TRACK_TYPE, source=APCAD_SOURCE
+        )
+        result = await _store_track_rows(session, chain([first], rows), left_out=left_out)
+    await upsert_interval_track_source(
+        session,
+        sample_context=sample_context,
+        track_type=APCAD_SEGREGATION_TRACK_TYPE,
+        source=APCAD_SOURCE,
+        filename=path.name,
+        row_count=result["inserted"],
+        metadata={"source": APCAD_SOURCE, "filename": path.name, "uploaded_from": "family_package"},
     )
     await session.commit()
     return result

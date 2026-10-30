@@ -34,6 +34,14 @@ vi.mock('../../../components/visualizations/ApcadChart', () => ({
   default: () => <div data-testid="apcad-chart" />,
 }));
 
+const parentalOriginChartMock = vi.fn();
+vi.mock('../../../components/visualizations/ParentalOriginChart', () => ({
+  default: (props: unknown) => {
+    parentalOriginChartMock(props);
+    return <div data-testid="parental-origin-chart" />;
+  },
+}));
+
 vi.mock('../../../components/visualizations/Ideogram', () => ({
   default: () => <div data-testid="ideogram" />,
 }));
@@ -141,6 +149,7 @@ const renderWorkspace = (
             haplotypes: false,
             phasedMarkers: false,
             repeatExpansions: false,
+            parentalOrigin: false,
           }}
           variantFilters={{}}
           sampleFilterMap={{}}
@@ -298,6 +307,7 @@ describe('ChromosomeViewWorkspace', () => {
               haplotypes: false,
             phasedMarkers: false,
               repeatExpansions: false,
+              parentalOrigin: false,
             }}
             variantFilters={{}}
             sampleFilterMap={{}}
@@ -357,6 +367,7 @@ describe('ChromosomeViewWorkspace', () => {
         haplotypes: false,
         phasedMarkers: false,
         repeatExpansions: false,
+        parentalOrigin: false,
       },
     });
 
@@ -394,6 +405,77 @@ describe('ChromosomeViewWorkspace', () => {
     );
   });
 
+  it("draws an embryo's parental origin from its segregation table only when asked for", () => {
+    const member = { sample_id: 'EMB1', role: 'embryo', affected: false, sex: 'female' };
+    const availability = {
+      EMB1: {
+        coverage: false,
+        coverageSources: [],
+        coverageNormalizations: {},
+        coverageContents: {},
+        apcadSources: [],
+        apcad: false,
+        apcadPcf: false,
+        apcadSegregation: true,
+        variants: false,
+        smallVariants: false,
+        haplotypes: false,
+        repeatExpansions: false,
+      },
+    };
+    const visibility = {
+      coverage: false,
+      apcad: false,
+      variants: false,
+      smallVariants: false,
+      haplotypes: false,
+      phasedMarkers: false,
+      repeatExpansions: false,
+      parentalOrigin: true,
+    };
+    parentalOriginChartMock.mockClear();
+
+    renderWorkspace(vi.fn(), {
+      familyMembers: [member],
+      visibleMembers: [member],
+      membersWithData: [member],
+      availability,
+      trackVisibility: visibility,
+    });
+
+    expect(screen.getByTestId('parental-origin-chart')).toBeInTheDocument();
+    const { url } = parentalOriginChartMock.mock.calls[0][0] as { url: string };
+    expect(new URL(url, 'http://test').pathname).toMatch(/\/bed\/EMB1\/apcad_segregation$/);
+    expect(new URL(url, 'http://test').searchParams.get('chrom')).toBe('1');
+  });
+
+  it('draws no parental origin while the toggle is off', () => {
+    const member = { sample_id: 'EMB1', role: 'embryo', affected: false, sex: 'female' };
+    renderWorkspace(vi.fn(), {
+      familyMembers: [member],
+      visibleMembers: [member],
+      membersWithData: [member],
+      availability: {
+        EMB1: {
+          coverage: false,
+          coverageSources: [],
+          coverageNormalizations: {},
+          coverageContents: {},
+          apcadSources: [],
+          apcad: false,
+          apcadPcf: false,
+          apcadSegregation: true,
+          variants: false,
+          smallVariants: false,
+          haplotypes: false,
+          repeatExpansions: false,
+        },
+      },
+    });
+
+    expect(screen.queryByTestId('parental-origin-chart')).toBeNull();
+  });
+
   it('encodes the caller it asks the coverage and segments for (ENG-7)', () => {
     // A caller's name went into the BED URLs as written: one with an `&` or a `#` would have
     // ended the parameter there.
@@ -426,6 +508,7 @@ describe('ChromosomeViewWorkspace', () => {
         haplotypes: false,
         phasedMarkers: false,
         repeatExpansions: false,
+        parentalOrigin: false,
       },
     });
 

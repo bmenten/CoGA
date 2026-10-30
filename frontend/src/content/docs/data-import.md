@@ -184,6 +184,7 @@ FAM001/
                   samplesheet_FAM001_10x.csv, the run's own name)
   qdnaseq/        EMBRYO1_cnv.csv                              CNV bins and segments
   apcad/          EMBRYO1_APCAD_parental_data.csv              APCAD: the sites the run read, when it writes them
+  apcad/          EMBRYO1_APCAD_segregation_data.csv           the sites where one parent is heterozygous
   split_trio/     filter_trio/EMBRYO1.trio_filtered.vcf.gz     APCAD otherwise, one trio per embryo
   apcad/          EMBRYO1_pcf_{mat,pat}_data.csv               PCF segments, when the run writes them
   mito/           variants.annotated.txt                       mtDNA-Server calls of every sample
@@ -212,7 +213,9 @@ added index, under `family.add_members`) wins. The ROI comes from the pipeline r
 read from their CSV table only; a run that only draws them in an HTML plot gets no PCF track. APCAD is
 read from the run's table of the sites it read for each embryo (`_APCAD_parental_data.csv`: the
 embryo's `raw_AF` and the parent in `source`), the points the laboratory's own plots rest on; an embryo
-without one from its trio VCF. The run's mtDNA-Server table (`mito/variants.annotated.txt`) gives each
+without one from its trio VCF. Beside it, the run's segregation table (`_APCAD_segregation_data.csv`,
+the sites where one parent is heterozygous) goes into the embryo's *Parental origin* track of the
+chromosome view. The run's mtDNA-Server table (`mito/variants.annotated.txt`) gives each
 member it holds rows for its chrM calls: Discover matches the table's `ID` (the sample's chrM BAM) to
 the member.
 

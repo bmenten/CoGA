@@ -71,6 +71,7 @@ const TRACK_LABELS: Record<ChromosomeTrackKey, string> = {
   smallVariants: 'Small variants',
   haplotypes: 'Haplotypes',
   phasedMarkers: 'Phased markers',
+  parentalOrigin: 'Parental origin (aneuploidy)',
   repeatExpansions: 'Repeat expansions',
 };
 
@@ -103,6 +104,8 @@ const ChromosomeViewPage: React.FC = () => {
     haplotypes: true,
     phasedMarkers: true,
     repeatExpansions: true,
+    // Only for an aneuploid chromosome: the analyst turns it on.
+    parentalOrigin: false,
   });
   const chrom = normalizeChrom(chromParam || '1');
   const [region, setRegion] = useState<{ start: number; end: number }>({
@@ -301,6 +304,7 @@ const ChromosomeViewPage: React.FC = () => {
             apcad: entry.apcad,
             apcadSources: entry.apcad_sources ?? [],
             apcadPcf: !!entry.apcad_pcf,
+            apcadSegregation: !!entry.apcad_segregation,
             variants: entry.variants,
             smallVariants: entry.small_variants,
             haplotypes: entry.haplotypes,
@@ -317,6 +321,7 @@ const ChromosomeViewPage: React.FC = () => {
           apcad: boolean;
           apcadSources: string[];
           apcadPcf: boolean;
+          apcadSegregation: boolean;
           variants: boolean;
           smallVariants: boolean;
           haplotypes: boolean;
@@ -341,6 +346,7 @@ const ChromosomeViewPage: React.FC = () => {
         tracks.add('phasedMarkers');
       }
       if (entry.repeatExpansions) tracks.add('repeatExpansions');
+      if (entry.apcadSegregation) tracks.add('parentalOrigin');
     });
     return Array.from(tracks);
   }, [availability, orderedMembers]);

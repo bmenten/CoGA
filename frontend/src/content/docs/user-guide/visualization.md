@@ -49,6 +49,30 @@ read as neither depth nor a log2 ratio.
 In a PGT family, judge each embryo's aneuploidy and large (>10 Mb) structural variants yourself, on its
 segment, copy-number (coverage) and APCAD tracks. CoGA shows the tracks but makes no aneuploidy call.
 
+For an aneuploid chromosome, tick **Parental origin (aneuploidy)** under *Tracks* in the chromosome view.
+It is offered for an embryo whose PGT pipeline run wrote its segregation table, and is off until you ask
+for it. It draws two panels: the sites where the mother is heterozygous and the father homozygous, and
+the reverse. Each site is drawn at the embryo's fraction of the allele the homozygous parent does not
+carry, against guide lines at 0, ⅓, ½ and ⅔:
+
+| On a parent's panel | Reading |
+| --- | --- |
+| 0 and ½ | one of that parent's homologs (disomy) |
+| ⅓ alone, nothing at 0 | both of that parent's homologs (heterodisomy) |
+| 0 and ⅔ | two copies of one of that parent's homologs (isodisomy) |
+| 0 and ⅓ | that parent gave one copy of three: the extra copy is the other parent's |
+
+A strip under each panel shows, per window, the share of its sites at 0: near nothing where both of
+that parent's homologs are present. Read the result against the centromere on the ideogram above:
+
+- heterodisomy at the centromere points to an error in meiosis I;
+- isodisomy at the centromere, turning to heterodisomy past a crossover, points to meiosis II;
+- isodisomy along the whole chromosome points to a mitotic error, usually as a mosaic, where the bands
+  move between ½ and ⅔.
+
+The pipeline keeps only sites the embryo was read deeply at, so a trisomic chromosome has many more
+sites than the others, and a monosomy almost none. CoGA draws the sites and makes no call from them.
+
 The PGT haplotype track is explained under [Haplotype segregation](#haplotype-segregation).
 
 ### The structural-variant tracks

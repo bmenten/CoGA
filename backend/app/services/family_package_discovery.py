@@ -294,6 +294,10 @@ NAMING_SCHEMES: dict[str, dict[str, Any]] = {
                 # deep enough), with the embryo's allele fraction and the parent each
                 # alternate allele came from: read in place of the embryo's trio VCF.
                 "parental_table": ["apcad/{sample_id}_APCAD_parental_data.csv"],
+                # And the sites where one parent is heterozygous, with the embryo's allele
+                # fraction: read beside the APCAD, for the parental-origin view of an
+                # aneuploid chromosome.
+                "segregation_table": ["apcad/{sample_id}_APCAD_segregation_data.csv"],
             },
             "pcf": {
                 # The PGT pipeline (nf-cmgg/copgtm) keeps its PCF output beside the
@@ -1318,9 +1322,9 @@ def _apcad_dataset_availability(
         family_id=family_id,
         sample_ids=sample_ids,
         dataset_type="apcad",
-        patterns={"file": patterns["parental_table"]},
+        patterns={"file": patterns["parental_table"], "segregation": patterns.get("segregation_table", [])},
         required_roles=("file",),
-        optional_roles=(),
+        optional_roles=("segregation",),
     )
     if table_item.complete or trio_item.complete:
         # One file per embryo (nf-cmgg/copgtm). The pipeline's table of the sites its APCAD
@@ -1333,12 +1337,17 @@ def _apcad_dataset_availability(
         files = [
             file
             for file in (*table_item.files, *trio_item.files)
-            if file.exists and (file.sample_id in tables if file.role == "file" else file.sample_id in trios)
+            if file.exists
+            and (file.sample_id in tables if file.role in ("file", "segregation") else file.sample_id in trios)
         ]
+        segregation = [sample_id for sample_id, entry in tables.items() if entry.get("segregation")]
         read_as = [
             f"the pipeline's APCAD table for {len(tables)} embryo(s)" if tables else "",
             f"a trio VCF for {len(trios)} embryo(s)" if trios else "",
         ]
+        if segregation:
+            read_as[0] += f", with its segregation table for {len(segregation)}"
+
         item = FamilyManifestDatasetAvailability(
             dataset_type="apcad",
             enabled=True,
