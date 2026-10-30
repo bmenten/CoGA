@@ -4,7 +4,7 @@ import asyncio
 import json
 import logging
 from datetime import datetime, timezone
-from typing import Any, Sequence
+from typing import Any, Mapping, Sequence
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -335,6 +335,32 @@ def _apcad_band_targets(het_count: int, homo_count: int, budget: int) -> tuple[i
     return het_target, homo_target
 
 
+def _apcad_chromosome_budgets(site_counts: Mapping[str, int], budget: int) -> dict[str, int]:
+    """Split a ~``budget`` APCAD point budget over the chromosomes in proportion to the
+    sites each one holds, so every chromosome keeps its own density of points per Mb.
+
+    One quality-ranked budget across the genome does not: joint calling gives a
+    chromosome's markers higher ``qual`` wherever any sample of the cohort carries extra
+    reads there (one embryo's trisomy raised a whole chromosome's ``qual`` for every
+    embryo), and a genome-wide ranking then draws that chromosome denser than the others
+    while its stored sites are not. A track that fits the budget keeps every site; else
+    each chromosome gets its floor share and the points left over go to the largest
+    remainders (in the order given on a tie), so the shares add up to ``budget`` exactly.
+    A chromosome whose share rounds to nothing is left out.
+    """
+    budget = max(1, int(budget))
+    counts = {chrom: int(count) for chrom, count in site_counts.items() if int(count) > 0}
+    total = sum(counts.values())
+    if total <= budget:
+        return counts
+    shares = {chrom: budget * count // total for chrom, count in counts.items()}
+    remainders = {chrom: budget * count % total for chrom, count in counts.items()}
+    left_over = budget - sum(shares.values())
+    for chrom in sorted(counts, key=lambda name: remainders[name], reverse=True)[:left_over]:
+        shares[chrom] += 1
+    return {chrom: share for chrom, share in shares.items() if share > 0}
+
+
 async def fetch_apcad_downsampled(
     assembly_name: str,
     *,
@@ -366,10 +392,12 @@ async def fetch_apcad_downsampled(
       which a source without VCF provenance, such as the bigWig track, never has); drop the low-quality
       VQSR-tranche markers. The per-marker ``qual`` score is also available in
       ``metadata_json`` if a stricter numeric threshold is ever wanted.
-    - Band-aware, quality-ranked budget: keep the heterozygous (BAF mid-band)
-      markers — the phasing signal — up to the budget, while reserving part of it for
-      the homozygous bands so they stay visible; within each band keep the highest
-      VCF ``qual`` markers (not a spatial sample), so the points shown are the most
+    - Per-chromosome, band-aware, quality-ranked budget: split the budget over the
+      chromosomes in proportion to the sites each holds, so every chromosome keeps its
+      own density; within a chromosome keep the heterozygous (BAF mid-band) markers —
+      the phasing signal — up to its share, while reserving part of it for the
+      homozygous bands so they stay visible; within each band keep the highest VCF
+      ``qual`` markers (not a spatial sample), so the points shown are the most
       confident ones.
     """
     await ensure_clickhouse_interval_table(assembly_name)
@@ -419,18 +447,24 @@ async def fetch_apcad_downsampled(
 
     band_where = f"{where} AND ({origin_clause})" if origin_clause else where
     counts = await _execute(
-        f"SELECT countIf({het_expr}) AS het, countIf({homo_expr}) AS homo "
-        f"FROM {table} WHERE {band_where}",
+        f"SELECT chrom, countIf({het_expr}) AS het, countIf({homo_expr}) AS homo "
+        f"FROM {table} WHERE {band_where} GROUP BY chrom ORDER BY chrom",
         params,
     )
-    het_count, homo_count = (int(counts[0][0]), int(counts[0][1])) if counts else (0, 0)
-    if het_count == 0 and homo_count == 0:
+    band_counts = {str(chrom): (int(het), int(homo)) for chrom, het, homo in counts}
+    # The budget is split over the chromosomes first, in proportion to their sites, and
+    # only then over the bands and by quality within each chromosome: ranked across the
+    # genome, a chromosome joint calling scored higher would be drawn denser than its
+    # sites are (see `_apcad_chromosome_budgets`).
+    chromosome_budgets = _apcad_chromosome_budgets(
+        {chrom: het + homo for chrom, (het, homo) in band_counts.items()}, budget
+    )
+    if not chromosome_budgets:
         return []
 
-    het_target, homo_target = _apcad_band_targets(het_count, homo_count, budget)
-
     # Keep the highest-quality markers in each band (qual = per-marker VCF confidence)
-    # rather than a spatial sample. One ranked, LIMITed subquery per band, unioned.
+    # rather than a spatial sample. One ranked, LIMITed subquery per chromosome and
+    # band, unioned; the chromosome leads the sort key, so each reads only its own.
     qual_expr = "JSONExtractFloat(metadata_json, 'qual')"
     # Deterministic spatial tiebreaker. Ranking by quality alone is only a ranking
     # while there *is* a quality to rank by: a track whose markers carry no `qual`
@@ -445,17 +479,22 @@ async def fetch_apcad_downsampled(
     # makes the previously arbitrary tie order reproducible.
     order_expr = f"{qual_expr} DESC, cityHash64(chrom, start)"
 
-    def _band_query(band_expr: str, target: int) -> str:
+    def _band_query(chrom_param: str, band_expr: str, target: int) -> str:
         return (
             f"SELECT chrom AS chr, start, end, value, origin FROM {table} "
-            f"WHERE {band_where} AND ({band_expr}) ORDER BY {order_expr} LIMIT {int(target)}"
+            f"WHERE {band_where} AND chrom = %({chrom_param})s AND ({band_expr}) "
+            f"ORDER BY {order_expr} LIMIT {int(target)}"
         )
 
     subqueries: list[str] = []
-    if het_target > 0:
-        subqueries.append(_band_query(het_expr, het_target))
-    if homo_target > 0:
-        subqueries.append(_band_query(homo_expr, homo_target))
+    for index, (chrom, chrom_budget) in enumerate(chromosome_budgets.items()):
+        chrom_param = f"apcad_chrom_{index}"
+        params[chrom_param] = chrom
+        het_target, homo_target = _apcad_band_targets(*band_counts[chrom], chrom_budget)
+        if het_target > 0:
+            subqueries.append(_band_query(chrom_param, het_expr, het_target))
+        if homo_target > 0:
+            subqueries.append(_band_query(chrom_param, homo_expr, homo_target))
     if not subqueries:
         return []
 

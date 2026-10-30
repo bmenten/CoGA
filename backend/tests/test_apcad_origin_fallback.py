@@ -36,7 +36,8 @@ class RecordingClickHouse:
         if "LIMIT 1" in query and "SELECT 1" in query:
             return [(1,)] if self._has_phased else []
         if "countIf" in query:
-            return [(self._het, self._homo)]
+            # Counted per chromosome: no row at all where nothing matches.
+            return [("1", self._het, self._homo)] if self._het or self._homo else []
         # A band query: one row is enough to see which origin came back.
         origin = "paternal" if self._has_phased else "und"
         return [("1", 100, 101, 0.5, origin)]
