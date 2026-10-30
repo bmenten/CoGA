@@ -273,7 +273,59 @@ def test_each_embryo_gets_its_qc_verdict_checked_on_the_side_its_call_reads(monk
         "min_informative_sites": 50,
         "max_mendel_rate": 0.02,
         "min_markers_per_flank": 6,
+        "max_marker_discordance": 0.1,
+        "min_discordance_markers": 20,
     }
+
+
+
+def _interleaved(*, paternal: bool, maternal: bool, count: int = 40) -> list[PhasedMarker]:
+    """Markers over the window whose homolog alternates on the sides given (both of that
+    parent's homologs, as imputation reads an embryo that carries both) and stays 1 on the
+    others."""
+    return [
+        PhasedMarker(
+            pos=29_600_000 + index * 40_000,
+            hap1=index % 2 if paternal else 1,
+            hap2=index % 2 if maternal else 1,
+        )
+        for index in range(count)
+    ]
+
+
+def test_markers_mixing_both_homologs_of_the_parent_the_call_reads_leave_the_embryo_uncalled(
+    monkeypatch,
+) -> None:
+    markers = _markers()
+    risk = markers.samples[1]
+    risk.markers = _interleaved(paternal=True, maternal=False)
+    _patch_reads(monkeypatch, markers=markers)
+    out = asyncio.run(pgt_analysis.family_pgt_analysis(_session(), _context()))
+
+    risk_out = out.embryos[1]
+    assert risk_out.sample == "E_RISK"
+    # Its blocks read the father's risk homolog, but its markers carry both of his homologs:
+    # it may carry both, which the blocks cannot show, so no call is made.
+    assert (risk_out.call, risk_out.mixed_homologs) == ("uninformative", ["paternal"])
+    assert risk_out.qc.paternal_discordance == pytest.approx(19 / 40)
+    assert risk_out.qc.maternal_discordance == 0.0
+    # What the blocks read is still served, for the analyst to see.
+    assert ("paternal", "1") in [(h.origin, h.homolog) for h in risk_out.inherited]
+
+
+def test_markers_mixing_both_homologs_of_a_parent_the_call_does_not_read_leave_the_call(
+    monkeypatch,
+) -> None:
+    markers = _markers()
+    risk = markers.samples[1]
+    risk.markers = _interleaved(paternal=False, maternal=True)
+    _patch_reads(monkeypatch, markers=markers)
+    out = asyncio.run(pgt_analysis.family_pgt_analysis(_session(), _context()))
+
+    risk_out = out.embryos[1]
+    # A dominant paternal haplotype: the mother's side is not read, so it does not gate the call.
+    assert (risk_out.call, risk_out.mixed_homologs) == ("affected_or_at_risk", [])
+    assert risk_out.qc.maternal_discordance == pytest.approx(19 / 40)
 
 
 def test_an_embryo_whose_qc_meets_every_threshold_passes(monkeypatch) -> None:

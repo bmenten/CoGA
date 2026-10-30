@@ -112,6 +112,12 @@ class PgtEmbryoQcOut(BaseModel):
     paternal_markers_right: int = 0
     maternal_markers_left: int = 0
     maternal_markers_right: int = 0
+    # The share of each side's markers in the window that disagree with the best reading of
+    # them as one homolog of that parent, or as two with one crossover between
+    # (``pgt_embryo_qc.marker_discordance``): near 0 where the embryo carries one homolog of the
+    # parent, high where its markers mix both, as where it carries both (a trisomy).
+    paternal_discordance: float = 0.0
+    maternal_discordance: float = 0.0
 
 
 class PgtEmbryoQcFindingOut(BaseModel):
@@ -158,6 +164,11 @@ class PgtEmbryoOut(BaseModel):
     # That QC against the thresholds of ``rules.qc_thresholds``. None: the embryo was not
     # called (no ROI, or no haplotypes were read).
     qc_verdict: Optional[PgtEmbryoQcVerdictOut] = None
+    # The parental sides the call reads whose markers at the ROI mix both of that parent's
+    # homologs (``qc`` discordance above ``rules.qc_thresholds.max_marker_discordance``, over
+    # at least ``min_discordance_markers`` markers): the embryo may carry both, as in a
+    # trisomy, which its blocks cannot show, so it is not called (``call`` uninformative).
+    mixed_homologs: List[PgtParentSide] = Field(default_factory=list)
 
 
 class PgtHaplotypeSourceOut(BaseModel):
@@ -195,6 +206,10 @@ class PgtQcThresholdsOut(BaseModel):
     # Fewer markers than this on either flank of the ROI, on a parental side the call reads,
     # is a warning.
     min_markers_per_flank: int
+    # A parental side the call reads whose markers' discordance is above this, over at least
+    # ``min_discordance_markers`` of them, mixes both homologs: the embryo is not called.
+    max_marker_discordance: float
+    min_discordance_markers: int
 
 
 class PgtRulesOut(BaseModel):

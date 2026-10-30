@@ -7,8 +7,9 @@ marked one-copy in males or not), and the parents' phase corrections. It calls e
 with ``pgt_embryo_calls`` and adds each embryo's phasing QC at the ROI (the informative sites,
 Mendelian errors and markers the ROI marker review counts over the same window, the markers left
 and right of the ROI apart, REQ-PGT-004), that QC's verdict against the
-thresholds of ``pgt_embryo_qc`` (a warning beside the call, never a gate), and the inputs'
-identity: the haplotype files each member's blocks were built from, and a digest of the
+thresholds of ``pgt_embryo_qc`` (a warning beside the call, never a gate), whether each side's
+markers there mix both of a parent's homologs (then the embryo is not called: it may carry both,
+as in a trisomy, which its blocks cannot show), and the inputs' identity: the haplotype files each member's blocks were built from, and a digest of the
 blocks read.
 
 The family page shows these calls (``GET /families/{family_id}/pgt-analysis``), and a sign-out
@@ -58,7 +59,7 @@ from .pgt_embryo_calls import (
     phase_corrections_near,
     resolve_inheritance_model,
 )
-from .pgt_embryo_qc import QC_THRESHOLDS, embryo_qc_verdict
+from .pgt_embryo_qc import QC_THRESHOLDS, embryo_qc_verdict, marker_discordance, mixed_homolog_sides
 from .phased_marker_service import get_family_phased_markers_response
 
 RULES = PgtRulesOut(
@@ -211,17 +212,20 @@ def _embryo(
     row: Mapping[str, Any], call: EmbryoCall, qc: PgtEmbryoQcOut | None
 ) -> PgtEmbryoOut:
     assessment = call.assessment
+    # Markers that mix both of a parent's homologs at the ROI: whatever the blocks say, the
+    # embryo may carry both, so it is not called (``pgt_embryo_qc``, the one gate).
+    mixed = mixed_homolog_sides(qc, call.sides, RULES.qc_thresholds)
     return PgtEmbryoOut(
         sample=call.sample,
         sex=_text(row.get("sex")),
-        call=assessment.state,
+        call="uninformative" if mixed else assessment.state,
         roi_not_covered=assessment.roi_not_covered,
         sex_dependent=(
             PgtSexDependentCallOut(
                 if_male=assessment.sex_dependent.if_male,
                 if_female=assessment.sex_dependent.if_female,
             )
-            if assessment.sex_dependent is not None
+            if assessment.sex_dependent is not None and not mixed
             else None
         ),
         inherited=sorted(
@@ -240,6 +244,7 @@ def _embryo(
         qc=qc,
         # Against the thresholds the analysis states in its rules.
         qc_verdict=embryo_qc_verdict(qc, call.sides, RULES.qc_thresholds),
+        mixed_homologs=mixed,
     )
 
 
@@ -247,8 +252,9 @@ async def _embryo_qc(
     context: FamilyMetadataContext, roi: PgtRegionOfInterestOut, window: PgtWindowOut
 ) -> tuple[dict[str, PgtEmbryoQcOut], bool]:
     """Each child's phasing QC over the window the call reads (the ROI and its flanks), as the
-    ROI marker review reads it, with the markers left and right of the ROI apart, and whether
-    the window held more sites than that read takes (then none is counted)."""
+    ROI marker review reads it, with the markers left and right of the ROI apart and the
+    discordance of each side's markers, and whether the window held more sites than that read
+    takes (then none is counted)."""
     markers = await get_family_phased_markers_response(
         context, chr=window.chrom, start=window.start, end=window.end
     )
@@ -256,8 +262,9 @@ async def _embryo_qc(
     for sample in markers.samples:
         if sample.qc is None:
             continue
-        paternal = [marker.pos for marker in sample.markers if marker.hap1 is not None]
-        maternal = [marker.pos for marker in sample.markers if marker.hap2 is not None]
+        ordered = sorted(sample.markers, key=lambda marker: marker.pos)
+        paternal = [marker.pos for marker in ordered if marker.hap1 is not None]
+        maternal = [marker.pos for marker in ordered if marker.hap2 is not None]
         by_sample[sample.sample] = PgtEmbryoQcOut(
             informative_sites=sample.qc.informative_sites,
             mendel_errors=sample.qc.mendel_errors,
@@ -268,6 +275,12 @@ async def _embryo_qc(
             paternal_markers_right=sum(1 for pos in paternal if pos > roi.end),
             maternal_markers_left=sum(1 for pos in maternal if pos < roi.start),
             maternal_markers_right=sum(1 for pos in maternal if pos > roi.end),
+            paternal_discordance=marker_discordance(
+                [marker.hap1 for marker in ordered if marker.hap1 is not None]
+            ),
+            maternal_discordance=marker_discordance(
+                [marker.hap2 for marker in ordered if marker.hap2 is not None]
+            ),
         )
     return by_sample, bool(markers.truncated)
 

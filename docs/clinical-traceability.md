@@ -348,7 +348,10 @@ in the EPD refers to the signed version by its report code (*The report code* be
     ROI with the extent of their blocks, the block boundaries inside the ROI or within 250 kb of
     it (recombinations), its phasing QC at the ROI as the ROI marker review counts it over the
     same window (informative sites, Mendelian errors and their rate, and the sites read on each
-    parent's side, in all and on each flank of the ROI), and that QC's verdict against the thresholds of `services/pgt_embryo_qc.py`
+    parent's side, in all and on each flank of the ROI, and the share of each side's markers off
+    one homolog, or two either side of one crossover), the parental sides whose markers mix both
+    of that parent's homologs (`mixed_homologs`: the embryo was then not called, since it may
+    carry both, as in a trisomy, which its blocks cannot show), and that QC's verdict against the thresholds of `services/pgt_embryo_qc.py`
     (`qc_verdict`: `pass`; `warning`, naming each measure that does not meet its threshold with
     its value and the threshold; or `not_counted` when no QC was counted, which is no pass), with
     the parental sides whose markers were checked, the sides the call reads. Its inputs: the

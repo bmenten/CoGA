@@ -2119,7 +2119,7 @@ describe('FamilyReportPage', () => {
         "⚠ Phase corrected: 3 of 3 children switched together on the father's side between 30.40 Mb and 30.45 Mb, a switch in the father's phasing rather than crossovers. The father's two haplotypes are swapped from 30.40 Mb. This is inside or close to the ROI",
       );
       expect(pgt).toHaveTextContent(
-        'E1 (female): Affected / at risk. Inherited at the ROI: M1 and P2 (29,000,000–32,000,000). QC at the ROI: 40 informative sites, Mendelian error rate 2.5% (1 of 40); informative markers 22 paternal (10 left, 12 right of the ROI), 18 maternal (8 left, 9 right of the ROI).',
+        'E1 (female): Affected / at risk. Inherited at the ROI: M1 and P2 (29,000,000–32,000,000). QC at the ROI: 40 informative sites, Mendelian error rate 2.5% (1 of 40); informative markers 22 paternal (10 left, 12 right of the ROI), 18 maternal (8 left, 9 right of the ROI); markers off one homolog 1% paternal, 2% maternal.',
       );
       expect(pgt).toHaveTextContent(
         'E2 (und): Uninformative. This embryo’s haplotype does not cover the ROI on the parental side the call needs (missing data), so no call can be made. ⚠ Recombination inside the ROI or within 250,000 bp of it, at 30,550,000. QC at the ROI: not counted (the embryo is not recorded as a child of the couple).',
@@ -2182,16 +2182,16 @@ describe('FamilyReportPage', () => {
 
       const pgt = await pgtSection();
       expect(pgt).toHaveTextContent(
-        'Each embryo’s phasing QC at the ROI was checked against these thresholds: at least 50 informative sites, a Mendelian error rate of at most 2% and at least 6 markers on each flank of the ROI, on each parental side the call reads. A call that did not meet them carries a warning and stands as called.',
+        "Each embryo’s phasing QC at the ROI was checked against these thresholds: at least 50 informative sites, a Mendelian error rate of at most 2% and at least 6 markers on each flank of the ROI, on each parental side the call reads. A call that did not meet them carries a warning and stands as called. An embryo whose markers at the ROI, on a parental side the call reads, were more than 10% off one homolog (or two either side of one crossover), over at least 20 of them, was not called: it may carry both of that parent's homologs, as in a trisomy, which its haplotype blocks cannot show.",
       );
       expect(pgt).toHaveTextContent(
-        "E1 (female): Affected / at risk. Inherited at the ROI: M1 and P2 (29,000,000–32,000,000). QC at the ROI: 40 informative sites, Mendelian error rate 2.5% (1 of 40); informative markers 22 paternal (10 left, 12 right of the ROI), 18 maternal (8 left, 9 right of the ROI). ⚠ The phasing QC at the ROI did not meet its thresholds (markers checked on the father's side): 40 informative sites (fewer than 50); Mendelian error rate 2.5% (above 2%).",
+        "E1 (female): Affected / at risk. Inherited at the ROI: M1 and P2 (29,000,000–32,000,000). QC at the ROI: 40 informative sites, Mendelian error rate 2.5% (1 of 40); informative markers 22 paternal (10 left, 12 right of the ROI), 18 maternal (8 left, 9 right of the ROI); markers off one homolog 1% paternal, 2% maternal. ⚠ The phasing QC at the ROI did not meet its thresholds (markers checked on the father's side): 40 informative sites (fewer than 50); Mendelian error rate 2.5% (above 2%).",
       );
       expect(pgt).toHaveTextContent(
         'QC at the ROI: not counted (the embryo is not recorded as a child of the couple). ⚠ The call was not checked against the QC thresholds.',
       );
       expect(pgt).toHaveTextContent(
-        "E3 (female): Unaffected. Inherited at the ROI: M2 and P1 (29,000,000–32,000,000). QC at the ROI: 120 informative sites, Mendelian error rate 0.0% (0 of 120); informative markers 40 paternal (20 left, 20 right of the ROI), 35 maternal (17 left, 18 right of the ROI). The phasing QC at the ROI met its thresholds (markers checked on the father's side).",
+        "E3 (female): Unaffected. Inherited at the ROI: M2 and P1 (29,000,000–32,000,000). QC at the ROI: 120 informative sites, Mendelian error rate 0.0% (0 of 120); informative markers 40 paternal (20 left, 20 right of the ROI), 35 maternal (17 left, 18 right of the ROI); markers off one homolog 0% paternal, 0% maternal. The phasing QC at the ROI met its thresholds (markers checked on the father's side).",
       );
       // On the printout too: the verdict is part of the record.
       expect(pgt.closest('.no-print')).toBeNull();

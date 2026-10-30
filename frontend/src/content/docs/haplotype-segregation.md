@@ -237,6 +237,9 @@ These warnings can sit next to the badge:
 
 - **⚠ phasing QC** — the embryo's phasing QC at the ROI does not meet its thresholds (see [Phasing QC
   at the ROI](#phasing-qc-at-the-roi)). Its tooltip names each measure, its value and its threshold.
+- **⚠ both homologs** — the embryo's markers at the ROI mix both of a parent's homologs, so it is not
+  called (see [Markers that mix both of a parent's homologs](#markers-that-mix-both-of-a-parents-homologs)).
+  Its tooltip gives the share of markers off one homolog and the threshold.
 - **⚠ QC not counted** — no phasing QC was counted at the ROI (the embryo is not recorded as a child of
   the couple, or the ROI and its flanks hold more sites than the marker review reads), so the call was
   not checked against the thresholds. That is not a pass.
@@ -284,6 +287,32 @@ is not checked, so it cannot raise a warning about evidence the call does not us
 disease haplotype no side is read, and only the informative sites and the Mendelian error rate are
 checked. The thresholds are set in `backend/app/services/pgt_embryo_qc.py`; a change there changes what
 the family page warns about and what a signed version freezes.
+
+### Markers that mix both of a parent's homologs
+
+An embryo's haplotype blocks show one homolog of each parent wherever it is. An embryo that carries
+both of one parent's homologs at the ROI, as in a trisomy of that chromosome from an error in the first
+meiotic division, gets blocks just as clean, of one of them, and would be called as not carrying the
+other, which it does. What shows it is the embryo's own markers. With one homolog of a parent they
+agree with it at nearly every site, or with two either side of a crossover. With both, the imputation,
+which reads every embryo as two copies, assigns the sites to either homolog, and they mix.
+
+So each side's markers over the ROI and 1 Mb on each side get a **discordance**: the share of them off
+the best reading of the window as one homolog, or two with one crossover between, so that a crossover
+alone does not raise it. Where it is **above 10%, over at least 20 markers, on a parent's side the call
+reads**, the embryo is not called: it reads *Uninformative* with **⚠ both homologs**, whatever its
+blocks say, and its haplotype tracks show no risk state. This is the one QC measure that changes a call
+rather than warning beside it (the owner's decision of 2026-10-30): a call made from one homolog when
+the embryo carries both could be a false *Unaffected*. Read the embryo's copy-number and APCAD tracks,
+as for any aneuploidy. **Sign out report** freezes each side's discordance and the threshold.
+
+It is a safety net under your aneuploidy review, not an aneuploidy detector. A trisomy with two copies
+of the same homolog (from an error in the second meiotic division near the centromere, or after
+fertilisation) leaves the markers in agreement; a trisomy of another chromosome is not looked at; and
+a low-level mosaic may stay under the threshold. The threshold is provisional, like the others: on a
+real PGT family's embryos, a chromosome with one homolog of a parent stayed well under 10% wherever
+it had markers, while a chromosome carrying both of the mother's homologs read above it nearly
+everywhere. The laboratory director and QA are to confirm it.
 
 **At an X-linked locus.** On chrX outside the pseudo-autosomal regions a man has one X, and the QC
 counts read him so: his call, written as one allele (`1`) or as the same allele twice (`1|1`), is that

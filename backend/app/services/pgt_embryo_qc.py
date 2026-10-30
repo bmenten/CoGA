@@ -3,7 +3,8 @@ place, and the verdict (REQ-PGT-005; TF-01 §3.3).
 
 The owner decided on 2026-10-20 that an embryo call gets a clear warning when its phasing QC at
 the ROI falls below a threshold: the call stays shown, and the analyst decides. So this is a
-warning, never a gate: no call is withheld or changed, and no sign-out is refused on it.
+warning, never a gate: no call is withheld or changed, and no sign-out is refused on it,
+but for the one gate below.
 ``pgt_analysis`` gives each called embryo the verdict made here, the family page shows it
 beside the call, and a sign-out freezes it, with the thresholds in force
 (``pgt_analysis.RULES``), into the signed record.
@@ -31,6 +32,22 @@ apart from its rate:
   haplotype was resolved on, and for a son at chrX outside the PARs his mother's. A side the
   call does not read (the other parent's in a dominant family, a donor's) is not checked, so
   it cannot raise a warning about evidence the call does not use.
+
+One measure is a gate, not a warning: the markers of a side that mix both of that parent's
+homologs (``mixed_homolog_sides``, the owner's decision of 2026-10-30). An embryo's haplotype
+blocks show one homolog of each parent wherever it is; an embryo that carries both of one
+parent's homologs at the ROI, as in a trisomy of that chromosome from a meiosis I error, gets
+blocks just as clean, of one of them, and a call that it does not carry the other, which it
+does. What shows it is the embryo's own markers: with one homolog they agree with it, or with
+two either side of a crossover, at nearly every site; with both, imputation forced into two
+copies assigns the sites to either homolog, and they mix. Their discordance
+(``marker_discordance``) is the share of a side's markers off the best reading of the window as
+one homolog, or two with one crossover between, so a crossover alone does not raise it. Above
+``MAX_MARKER_DISCORDANCE`` on a side the call reads, the embryo is not called
+(``pgt_analysis``: uninformative), whatever the blocks say: the analyst reads its copy number
+and APCAD tracks, as for any aneuploidy (REQ-PGT-008). It is a safety net under that review,
+not an aneuploidy detector: an isodisomic trisomy (two copies of one homolog) leaves the markers
+in agreement, and a trisomy away from the ROI is not looked at.
 
 PROVISIONAL VALUES. The thresholds below are proposed by the developers, with the reasoning
 given beside each; the laboratory director and QA are to confirm or change them before
@@ -80,10 +97,22 @@ MIN_INFORMATIVE_SITES = 50
 # recommendations assume (they ask for more markers where drop-out is higher).
 MIN_MARKERS_PER_FLANK = 6
 
+# The discordance of a side's markers above which the embryo is taken to carry both of that
+# parent's homologs, and not called. Measured over 2 Mb windows on every autosome of a real PGT
+# family's embryos (not in the repository): an embryo with one homolog of a parent stayed well
+# under 10% wherever it had markers, a crossover in the window included, imputation runs and
+# all; a chromosome that carried both of the mother's homologs (a meiotic trisomy) read above
+# 10% in nearly every window, the father's side of the same chromosome near 0. Below the
+# minimum number of markers a side is not judged: a few discordant sites are noise.
+MAX_MARKER_DISCORDANCE = 0.10
+MIN_DISCORDANCE_MARKERS = 20
+
 QC_THRESHOLDS = PgtQcThresholdsOut(
     min_informative_sites=MIN_INFORMATIVE_SITES,
     max_mendel_rate=MAX_MENDEL_RATE,
     min_markers_per_flank=MIN_MARKERS_PER_FLANK,
+    max_marker_discordance=MAX_MARKER_DISCORDANCE,
+    min_discordance_markers=MIN_DISCORDANCE_MARKERS,
 )
 
 _SIDES: tuple[Origin, Origin] = ("paternal", "maternal")
@@ -140,3 +169,47 @@ def embryo_qc_verdict(
                     )
                 )
     return PgtEmbryoQcVerdictOut(status="warning" if findings else "pass", sides=checked, findings=findings)
+
+
+def marker_discordance(homologs: Sequence[int]) -> float:
+    """The share of a side's markers, in position order, that disagree with the best reading of
+    them as one homolog, or as two with one crossover between: 0 for an embryo that carries one
+    homolog of the parent (a crossover in the window included), up to one half where its
+    markers mix both homologs evenly. 0 without markers."""
+    total = len(homologs)
+    if not total:
+        return 0.0
+    ones = [0]
+    for homolog in homologs:
+        ones.append(ones[-1] + (1 if homolog else 0))
+    best = total
+    for split in range(total + 1):
+        left_ones = ones[split]
+        right_ones = ones[total] - left_ones
+        off = min(left_ones, split - left_ones) + min(right_ones, total - split - right_ones)
+        best = min(best, off)
+    return best / total
+
+
+def mixed_homolog_sides(
+    qc: PgtEmbryoQcOut | None,
+    sides: Sequence[Origin],
+    thresholds: PgtQcThresholdsOut | None = None,
+) -> list[Origin]:
+    """The parental sides the call reads whose markers at the ROI mix both of that parent's
+    homologs: a discordance above ``max_marker_discordance`` over at least
+    ``min_discordance_markers`` markers. Without a QC none is judged."""
+    limits = thresholds or QC_THRESHOLDS
+    if qc is None:
+        return []
+    measured: dict[Origin, tuple[int, float]] = {
+        "paternal": (qc.paternal_markers, qc.paternal_discordance),
+        "maternal": (qc.maternal_markers, qc.maternal_discordance),
+    }
+    return [
+        side
+        for side in _SIDES
+        if side in sides
+        and measured[side][0] >= limits.min_discordance_markers
+        and measured[side][1] > limits.max_marker_discordance
+    ]

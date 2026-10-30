@@ -362,6 +362,8 @@ def test_each_embryo_call_carries_its_qc_verdict_and_the_record_freezes_it(pgt) 
         "min_informative_sites": 50,
         "max_mendel_rate": 0.02,
         "min_markers_per_flank": 6,
+        "max_marker_discordance": 0.1,
+        "min_discordance_markers": 20,
     }
     embryos = _embryos(analysis)
     names = pgt["names"]
@@ -382,12 +384,17 @@ def test_each_embryo_call_carries_its_qc_verdict_and_the_record_freezes_it(pgt) 
                 {"measure": "paternal_markers", "value": 4, "threshold": 6, "flank": "right"},
             ],
         }, embryo
+        # Seven markers on the father's side, under the 20 the mixed-homolog gate judges.
+        assert (embryo["mixed_homologs"], embryo["qc"]["paternal_discordance"]) == ([], 0.0), embryo
     # The signed record freezes the verdicts and the thresholds with the embryos' results.
     held = _ok(pgt, "detail")["snapshot"]["pgt_analysis"]
     assert [embryo["qc_verdict"] for embryo in held["embryos"]] == [
         embryo["qc_verdict"] for embryo in analysis["embryos"]
     ]
     assert held["rules"]["qc_thresholds"] == analysis["rules"]["qc_thresholds"]
+    assert [embryo["mixed_homologs"] for embryo in held["embryos"]] == [
+        embryo["mixed_homologs"] for embryo in analysis["embryos"]
+    ]
 
 
 def test_a_pgt_record_signed_before_the_qc_verdict_still_verifies_reads_and_matches(pgt) -> None:

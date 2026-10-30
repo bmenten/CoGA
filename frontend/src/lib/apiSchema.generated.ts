@@ -2302,6 +2302,7 @@ export interface PgtEmbryoOut {
   recombinations: number[];
   qc: PgtEmbryoQcOut | null;
   qc_verdict: PgtEmbryoQcVerdictOut | null;
+  mixed_homologs: ("paternal" | "maternal")[];
 }
 
 /**
@@ -2329,6 +2330,8 @@ export interface PgtEmbryoQcOut {
   paternal_markers_right: number;
   maternal_markers_left: number;
   maternal_markers_right: number;
+  paternal_discordance: number;
+  maternal_discordance: number;
 }
 
 /**
@@ -2403,6 +2406,8 @@ export interface PgtQcThresholdsOut {
   min_informative_sites: number;
   max_mendel_rate: number;
   min_markers_per_flank: number;
+  max_marker_discordance: number;
+  min_discordance_markers: number;
 }
 
 /** The family's region of interest, as set on the family page: the embryos are called there. */

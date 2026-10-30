@@ -716,6 +716,8 @@ def test_a_pgt_familys_record_freezes_the_analysis_the_family_page_shows(monkeyp
         "min_informative_sites": 50,
         "max_mendel_rate": 0.02,
         "min_markers_per_flank": 6,
+        "max_marker_discordance": 0.1,
+        "min_discordance_markers": 20,
     }
     # Every section without an application, and the PGT one: this family is no NIPT family.
     assert set(sections) == {

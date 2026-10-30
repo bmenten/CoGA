@@ -6,7 +6,10 @@ at the ROI falls below a threshold, the call staying shown for the analyst to de
 the ROI checked apart. ``pgt_embryo_qc`` holds the thresholds (provisional, to be confirmed by
 the laboratory director and QA) and makes the verdict: these tests pin each threshold at, just
 below and just above its value, the sides and flanks whose markers are checked, the order and
-content of the findings, and that a QC that was not counted is no pass.
+content of the findings, and that a QC that was not counted is no pass. On 2026-10-30 the owner
+also decided that an embryo whose markers at the ROI mix both of a parent's homologs, as where it
+carries both (a trisomy), is not called: these tests pin how that discordance is measured (a
+crossover alone does not raise it) and when a side counts as mixed.
 """
 
 from __future__ import annotations
@@ -67,6 +70,8 @@ def test_the_provisional_thresholds_are_the_ones_proposed() -> None:
         "min_informative_sites": 50,
         "max_mendel_rate": 0.02,
         "min_markers_per_flank": 6,
+        "max_marker_discordance": 0.1,
+        "min_discordance_markers": 20,
     }
     # The analysis states these, in one place: its rules hold the same object.
     assert pgt_analysis.RULES.qc_thresholds is qc_check.QC_THRESHOLDS
@@ -177,7 +182,13 @@ def test_every_measure_outside_its_threshold_is_named_in_a_fixed_order() -> None
 def test_the_verdict_is_made_against_the_thresholds_it_is_given() -> None:
     # The analysis states the thresholds in its rules and makes each verdict against that same
     # object, so the record names the thresholds its verdicts rest on.
-    stricter = PgtQcThresholdsOut(min_informative_sites=300, max_mendel_rate=0.01, min_markers_per_flank=50)
+    stricter = PgtQcThresholdsOut(
+        min_informative_sites=300,
+        max_mendel_rate=0.01,
+        min_markers_per_flank=50,
+        max_marker_discordance=0.1,
+        min_discordance_markers=20,
+    )
     verdict = qc_check.embryo_qc_verdict(_qc(sites=200, errors=3, paternal=(40, 60), maternal=60), BOTH, stricter)
     assert _findings(verdict) == [
         ("informative_sites", 200, 300),
@@ -193,3 +204,66 @@ def test_a_qc_that_was_not_counted_is_no_pass() -> None:
     # the couple's child: the call could not be checked, which is not a pass.
     verdict = qc_check.embryo_qc_verdict(None, ("paternal",))
     assert (verdict.status, verdict.sides, verdict.findings) == ("not_counted", ["paternal"], [])
+
+
+# --- Markers that mix both of a parent's homologs -----------------------------------------
+
+
+def test_one_homolog_has_no_discordance() -> None:
+    assert qc_check.marker_discordance([0] * 40) == 0.0
+    assert qc_check.marker_discordance([1] * 40) == 0.0
+
+
+def test_a_crossover_alone_raises_no_discordance() -> None:
+    # Two homologs either side of one crossover: the reading the measure allows for.
+    assert qc_check.marker_discordance([0] * 25 + [1] * 15) == 0.0
+
+
+def test_markers_off_the_best_reading_are_the_discordance() -> None:
+    # One homolog with 2 stray markers in 40, then a crossover: 2 of 40 off the best reading.
+    markers = [0] * 10 + [1] + [0] * 9 + [1] * 19 + [0]
+    assert qc_check.marker_discordance(markers) == pytest.approx(2 / 40)
+
+
+def test_both_homologs_interleaved_read_as_nearly_half_mixed() -> None:
+    # Imputation forced into two copies assigns an embryo's sites to either homolog it carries.
+    # The one crossover the reading allows absorbs a marker: 19 of 40 are off it.
+    assert qc_check.marker_discordance([0, 1] * 20) == pytest.approx(19 / 40)
+    assert qc_check.marker_discordance([0, 0, 1] * 20) == pytest.approx(19 / 60)
+
+
+def test_no_markers_no_discordance() -> None:
+    assert qc_check.marker_discordance([]) == 0.0
+
+
+def _mixed(maternal: float, *, markers: int = 40, paternal: float = 0.0, sides=BOTH):
+    """A QC with ``markers`` on each side (all left of the ROI) and the discordances given."""
+    qc = _qc(paternal=(markers, 0), maternal=(markers, 0)).model_copy(
+        update={"paternal_discordance": paternal, "maternal_discordance": maternal}
+    )
+    return qc_check.mixed_homolog_sides(qc, sides)
+
+
+@pytest.mark.parametrize(
+    ("discordance", "mixed"),
+    [(0.0, []), (0.10, []), (0.11, ["maternal"]), (0.5, ["maternal"])],
+)
+def test_a_side_mixes_both_homologs_above_ten_percent(discordance: float, mixed: list[str]) -> None:
+    # At exactly the maximum the side is read as one homolog.
+    assert _mixed(discordance) == mixed
+
+
+def test_a_side_with_too_few_markers_is_not_judged() -> None:
+    # 19 markers: a few discordant sites are noise.
+    assert _mixed(0.5, markers=19) == []
+    assert _mixed(0.5, markers=20) == ["maternal"]
+
+
+def test_only_the_sides_the_call_reads_are_judged_for_mixing() -> None:
+    assert _mixed(0.5, sides=("paternal",)) == []
+    assert _mixed(0.5, paternal=0.5, sides=("paternal",)) == ["paternal"]
+    assert _mixed(0.5, paternal=0.5) == ["paternal", "maternal"]
+
+
+def test_without_a_qc_no_side_is_judged_for_mixing() -> None:
+    assert qc_check.mixed_homolog_sides(None, BOTH) == []

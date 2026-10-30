@@ -247,6 +247,12 @@ per-change approval, and records the first review before the RC tag.
   QA confirm the values and the 1 Mb window.
   Since #914 a man's one X counts outside the PARs; the validation could include an X-linked
   locus with men's calls written once and written twice (#914, #927).
+  Since 2026-10-30 (the owner's decision) one measure decides rather than warns: an embryo
+  whose markers at the ROI, on a parent's side the call reads, are more than 10 % off one
+  homolog (or two either side of one crossover), over at least 20 markers, mixes both of
+  that parent's homologs and is not called, since it may carry both (a trisomy) while its
+  blocks show one. The 10 % and the 20 markers are provisional too; the validation could
+  include embryos with a trisomy of the ROI chromosome, meiotic and mitotic, and mosaics.
 - **SEC-6 · The request audit holds clinical content with no retention period.**
   `audit_log_events` stores request bodies in an append-only table, and since #893 the
   UI-event log is append-only too, so neither can be cleaned up without a controlled

@@ -808,6 +808,7 @@ describe('FamilyDetailPage', () => {
       recombinations: [],
       qc: null,
       qc_verdict: null,
+      mixed_homologs: [],
       ...embryo,
     })),
     inputs: { haplotype_sources: [], blocks_read: 0, blocks_digest: null, markers_truncated: false, blocks_outdated: false },
@@ -815,7 +816,13 @@ describe('FamilyDetailPage', () => {
       window_flank: 1_000_000,
       recombination_flank: 250_000,
       phase_switch_uncertainty: 2_000_000,
-      qc_thresholds: { min_informative_sites: 50, max_mendel_rate: 0.02, min_markers_per_flank: 6 },
+      qc_thresholds: {
+        min_informative_sites: 50,
+        max_mendel_rate: 0.02,
+        min_markers_per_flank: 6,
+        max_marker_discordance: 0.1,
+        min_discordance_markers: 20,
+      },
     },
     ...overrides,
   });
@@ -844,6 +851,48 @@ describe('FamilyDetailPage', () => {
 
   const rowOf = async (sampleId: string) =>
     (await screen.findByRole('button', { name: sampleId })).closest('tr') as HTMLElement;
+
+  it("leaves an embryo uncalled where its markers mix both of a parent's homologs, and says why", async () => {
+    localStorage.setItem('role', 'viewer');
+    mockApiState.members = [
+      { sample_id: 'FATHER', role: 'father', affected: true, sex: 'male' },
+      { sample_id: 'E1', role: 'embryo', affected: false, sex: 'female' },
+    ];
+    const restore = renderWithAnalysis(
+      pgtAnalysis([
+        {
+          sample: 'E1',
+          call: 'uninformative',
+          mixed_homologs: ['paternal'],
+          qc: {
+            informative_sites: 300,
+            mendel_errors: 0,
+            mendel_rate: 0,
+            paternal_markers: 120,
+            maternal_markers: 110,
+            paternal_markers_left: 60,
+            paternal_markers_right: 60,
+            maternal_markers_left: 55,
+            maternal_markers_right: 55,
+            paternal_discordance: 0.3,
+            maternal_discordance: 0.01,
+          },
+          qc_verdict: { status: 'pass', sides: ['paternal'], findings: [] },
+        },
+      ]),
+    );
+    try {
+      const e1 = await rowOf('E1');
+      expect(await within(e1).findByText('Uninformative')).toHaveClass('segregation-badge--uninformative');
+      expect(
+        within(e1).getByRole('button', { name: /mix both of the father's homologs \(30% of 120 markers .*above 10%\)/ }),
+      ).toHaveTextContent('⚠ both homologs');
+      // The reason is the markers, not an unresolved haplotype: no second, wrong reason.
+      expect(within(e1).queryByText('⚠ uninformative')).not.toBeInTheDocument();
+    } finally {
+      restore();
+    }
+  });
 
   // #607 — the embryos' recombination and uninformative warnings come with the calls: a
   // failed request is not an embryo without warnings.

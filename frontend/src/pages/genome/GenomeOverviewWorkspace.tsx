@@ -62,6 +62,8 @@ interface GenomeRegionSelection {
   end: number;
 }
 
+const NO_MIXED_HOMOLOG_EMBRYOS = new Map<string, string>();
+
 interface GenomeOverviewWorkspaceProps {
   familyId: string;
   familyDisplayId: string;
@@ -77,6 +79,9 @@ interface GenomeOverviewWorkspaceProps {
   backDest: string;
   visibleRoi: ApiFamilyRegionOfInterest | null;
   inheritanceModel?: string | null;
+  /** The embryos the PGT analysis leaves uncalled for markers that mix both of a parent's
+   * homologs at the ROI, with the family page's warning (`useMixedHomologEmbryos`). */
+  mixedHomologEmbryos?: Map<string, string>;
   genomeRoiRange: ViewerRoiRange | null;
   navigateToChromosome: (chrom: string, region?: { start: number; end: number }) => void;
   familyMembers: ApiFamilyMember[];
@@ -253,6 +258,7 @@ const GenomeOverviewWorkspace: React.FC<GenomeOverviewWorkspaceProps> = ({
   trackAreaRef,
   backDest,
   visibleRoi,
+  mixedHomologEmbryos = NO_MIXED_HOMOLOG_EMBRYOS,
   inheritanceModel,
   genomeRoiRange,
   navigateToChromosome,
@@ -497,6 +503,7 @@ const GenomeOverviewWorkspace: React.FC<GenomeOverviewWorkspaceProps> = ({
                           inheritanceModel={resolvedHaplotypeInheritanceModel}
                           familyMembers={familyMembers}
                           riskRegion={visibleRoi}
+                          mixedHomologsWarning={mixedHomologEmbryos.get(member.sample_id) ?? null}
                           layout={layout}
                           width={trackWidth}
                           height={GENOME_HAPLOTYPE_TRACK_HEIGHT}
