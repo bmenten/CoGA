@@ -314,38 +314,47 @@ describe('FamilySampleQcPage', () => {
 
     renderPage();
 
-    const heading = await screen.findByRole('heading', { name: 'Sequencing & embryo QC' });
+    const heading = await screen.findByRole('heading', { name: 'Family members & per-sample checks' });
     const section = heading.closest('section') as HTMLElement;
+    // One table: each member's integrity checks and, under their own heading, its sequencing QC.
+    expect(within(section).getAllByRole('table')).toHaveLength(1);
     const table = within(section).getByRole('table');
-    // The dashboard's measures, by its short names; one column per metric any member has.
     expect(within(table).getAllByRole('columnheader').map((cell) => cell.textContent)).toEqual([
+      'Sample integrity',
+      'Sequencing & embryo QC',
       'Sample',
       'Role',
+      'Recorded sex',
+      'Genetic sex',
+      'Mendelian errors',
+      'Sample status',
+      // The dashboard's measures, by its short names; one column per metric any member has.
       'Mean depth',
       'ADO',
       'ADI',
       'Concordance before imputation',
       'Concordance after imputation',
-      'QC',
+      'Seq. QC',
     ]);
-    const row = (sample: string) =>
-      within(table).getByText(sample, { selector: 'td' }).closest('tr') as HTMLElement;
-    // A member without QC has no row; a parent has no embryo measures.
-    expect(within(table).queryByText('MOTHER')).not.toBeInTheDocument();
-    expect(within(row('FATHER')).getAllByRole('cell').map((cell) => cell.textContent)).toEqual([
-      'FATHER', 'father', '0.9x', '-', '-', '-', '-', 'Not run',
-    ]);
-    expect(within(row('EMB1')).getAllByRole('cell').map((cell) => cell.textContent)).toEqual([
-      'EMB1', 'embryo', '9.8x', '17.5%', '3.2%', '34.9%', '98.2%', 'Not run',
-    ]);
-    // A breached value carries its verdict; the row its verdict.
-    expect(within(row('EMB2')).getByText('32.1% · Warning')).toBeInTheDocument();
-    expect(within(row('EMB2')).getAllByRole('cell').at(-1)?.textContent).toBe('Warning');
+    const sequencing = (sample: string) =>
+      within(memberRow(sample))
+        .getAllByRole('cell')
+        .slice(6)
+        .map((cell) => cell.textContent);
+    // A member without QC keeps its row, with no values; a parent has no embryo measures.
+    expect(sequencing('MOTHER')).toEqual(['-', '-', '-', '-', '-', '-']);
+    expect(sequencing('FATHER')).toEqual(['0.9x', '-', '-', '-', '-', 'Not run']);
+    expect(sequencing('EMB1')).toEqual(['9.8x', '17.5%', '3.2%', '34.9%', '98.2%', 'Not run']);
+    // A breached value carries its verdict; the row its sequencing-QC verdict.
+    expect(within(memberRow('EMB2')).getByText('32.1% · Warning')).toBeInTheDocument();
+    expect(sequencing('EMB2').at(-1)).toBe('Warning');
     // What the values were judged against, and which were shown without a cut-off.
     expect(section).toHaveTextContent('Judged against the cut-offs of PGT.');
     expect(section).toHaveTextContent(
       'No cut-off is set for Mean depth, ADI, Concordance before imputation, Concordance after imputation: those values are shown, not judged.',
     );
+    // The sequencing QC does not make the page's verdict: the integrity checks do.
+    expect(screen.queryByRole('heading', { name: 'Sequencing & embryo QC' })).not.toBeInTheDocument();
   });
 
   it('never marks a sex the genotypes could not confirm as a match (TF-06 H4)', async () => {

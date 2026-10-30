@@ -146,6 +146,19 @@
   white-space: nowrap;
 }
 
+/* The per-sample table's column groups (sample integrity, sequencing & embryo QC), above their
+   columns' heads. */
+.qc-column-group {
+  text-align: left;
+  border-bottom: 1px solid var(--color-border);
+}
+
+/* A measure's head wraps onto a second line rather than widening its column. */
+.analysis-table th.qc-column-head--wrap {
+  white-space: normal;
+  max-width: 7rem;
+}
+
 .qc-genotype-sex--match {
   color: #15803d;
 }

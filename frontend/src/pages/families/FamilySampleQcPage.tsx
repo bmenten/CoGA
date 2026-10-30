@@ -22,7 +22,7 @@ import { apiPath } from '../../lib/apiPath';
 import { formatResolvedReferenceLabel, useFamilyReference } from '../../lib/reference';
 import { parsePedigree } from '../../lib/pedigree';
 import { routePath } from '../../lib/routePath';
-import SequencingQcTable from './SequencingQcTable';
+import { SequencingQcCell, sequencingQcColumns, sequencingQcNote } from './sequencingQcColumns';
 
 // A check that could not run makes the overall a warning, so "skip" means no check ran.
 const OVERALL_COPY: Record<QcStatus, string> = {
@@ -171,6 +171,15 @@ const QcRingLegend: React.FC = () => (
   </ul>
 );
 
+// The integrity columns after Sample and Role: recorded and genetic sex, Mendelian errors, status.
+const INTEGRITY_COLUMNS = 4;
+
+/**
+ * One row per member: its sample-integrity checks and, beside them under their own heading, its
+ * sequencing and embryo QC (`sequencingQcColumns`), one column per measure any member has, and
+ * its sequencing-QC verdict. The two groups are judged apart: only the integrity checks make the
+ * ring and the page's verdict.
+ */
 const SampleQcTable: React.FC<{
   members: ApiFamilyRecord['members'];
   sexChecks: ApiSampleIntegritySexCheck[];
@@ -179,11 +188,23 @@ const SampleQcTable: React.FC<{
 }> = ({ members, sexChecks, mendelianChecks, perSample }) => {
   const sexById = new Map(sexChecks.map((c) => [c.sample_id, c]));
   const mendelByChild = new Map(mendelianChecks.map((c) => [c.child, c]));
+  const sequencingColumns = sequencingQcColumns(members);
 
   return (
     <div className="data-table-shell overflow-x-auto">
       <table className="analysis-table family-members-table">
         <thead>
+          {sequencingColumns.length ? (
+            <tr>
+              <th colSpan={2} aria-hidden="true" />
+              <th colSpan={INTEGRITY_COLUMNS} scope="colgroup" className="qc-column-group">
+                Sample integrity
+              </th>
+              <th colSpan={sequencingColumns.length + 1} scope="colgroup" className="qc-column-group">
+                Sequencing &amp; embryo QC
+              </th>
+            </tr>
+          ) : null}
           <tr>
             <th>Sample</th>
             <th>Role</th>
@@ -191,6 +212,12 @@ const SampleQcTable: React.FC<{
             <th>Genetic sex</th>
             <th>Mendelian errors</th>
             <th>Sample status</th>
+            {sequencingColumns.map((column) => (
+              <th key={column.key} title={column.label} className="qc-column-head--wrap">
+                {column.name}
+              </th>
+            ))}
+            {sequencingColumns.length ? <th>Seq. QC</th> : null}
           </tr>
         </thead>
         <tbody>
@@ -253,6 +280,22 @@ const SampleQcTable: React.FC<{
                     <StatusChip status={ring?.status ?? 'skip'} />
                   )}
                 </td>
+                {sequencingColumns.map((column) => (
+                  <td key={column.key}>
+                    <SequencingQcCell
+                      metric={member.sequencing_qc?.metrics.find((metric) => metric.metric_key === column.key)}
+                    />
+                  </td>
+                ))}
+                {sequencingColumns.length ? (
+                  <td>
+                    {member.sequencing_qc ? (
+                      <StatusChip status={member.sequencing_qc.verdict} />
+                    ) : (
+                      <span className="dashboard-link-note">-</span>
+                    )}
+                  </td>
+                ) : null}
               </tr>
             );
           })}
@@ -466,6 +509,7 @@ const FamilySampleQcPage: React.FC = () => {
   const overall = overallStatus(qc);
   const members = family?.members ?? [];
   const pedRows = parsePedigree(family?.pedigree);
+  const hasSequencingQc = sequencingQcColumns(members).length > 0;
   const hasPedigree = members.length > 0 || pedRows.length > 0;
 
   const relatednessSamples = Array.from(
@@ -553,9 +597,12 @@ const FamilySampleQcPage: React.FC = () => {
         </section>
       ) : null}
 
-      {members.length && (qc.sex_checks.length || qc.mendelian_checks.length) ? (
+      {members.length && (qc.sex_checks.length || qc.mendelian_checks.length || hasSequencingQc) ? (
         <section className="surface-card space-y-2">
           <h2 className="section-title">Family members &amp; per-sample checks</h2>
+          {hasSequencingQc ? (
+            <p className="table-subtle">{sequencingQcNote(members, sequencingQcColumns(members))}</p>
+          ) : null}
           <SampleQcTable
             members={members}
             sexChecks={qc.sex_checks}
@@ -564,8 +611,6 @@ const FamilySampleQcPage: React.FC = () => {
           />
         </section>
       ) : null}
-
-      <SequencingQcTable members={members} />
 
       {relatednessSamples.length ? (
         <section className="surface-card space-y-2">
