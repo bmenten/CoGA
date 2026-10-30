@@ -9,17 +9,24 @@ beside the call, and a sign-out freezes it, with the thresholds in force
 (``pgt_analysis.RULES``), into the signed record.
 
 The measures are those of the embryo's phasing QC at the ROI as the ROI marker review counts
-them (``phased_marker_service.compute_phased_markers``, ``pgt_analysis._embryo_qc``); the
-Mendelian error count is not checked apart from its rate:
+them (``phased_marker_service.compute_phased_markers``, ``pgt_analysis._embryo_qc``), over the
+window the call reads: the ROI and ``pgt_embryo_calls.ROI_WINDOW_FLANK`` (1 Mb) on each side of
+it. The owner decided on 2026-10-30 to count them there, and the markers on each flank apart: a
+run of the PGT pipeline gives the variant itself as its ROI, in which no marker lies, so every
+embryo was warned of 0 markers, while Mendelian errors or a missing parental allele near the ROI,
+which weaken a call, went unseen. The Mendelian error count is not checked
+apart from its rate:
 
-* informative sites: the ROI's sites where both parents and the embryo have a phased genotype
+* informative sites: the window's sites where both parents and the embryo have a phased genotype
   (for a son on chrX outside the PARs, whose one X is his mother's, she and he), the sites the
   Mendelian error rate is read on;
 * the Mendelian error rate: the share of those sites whose genotype the embryo cannot have from
   these parents. A raised rate points to a sample swap, a wrong pedigree, contamination, or a
   deletion or uniparental segment at the locus, any of which can make a haplotype call wrong;
-* the markers on each parental side the call reads: the ROI's sites where the homolog the
-  embryo inherited from that parent is read, the evidence the call on that side rests on. Only
+* the markers on each parental side the call reads, on each flank of the ROI: the sites left of
+  the ROI (below its start) and right of it (above its end) where the homolog the embryo
+  inherited from that parent is read, the evidence the call on that side rests on. The ROI's own
+  sites count on neither flank. Only
   the sides the call reads are checked (``pgt_embryo_calls.call_sides``): the side(s) a disease
   haplotype was resolved on, and for a son at chrX outside the PARs his mother's. A side the
   call does not read (the other parent's in a dominant family, a donor's) is not checked, so
@@ -43,11 +50,12 @@ from ..schemas import (
     PgtEmbryoQcFindingOut,
     PgtEmbryoQcOut,
     PgtEmbryoQcVerdictOut,
+    PgtQcFlank,
     PgtQcThresholdsOut,
 )
 from .pgt_embryo_calls import Origin
 
-# The Mendelian error rate at the ROI above which a call is warned. 2% is where CoGA's
+# The Mendelian error rate in the window above which a call is warned. 2% is where CoGA's
 # genome-wide Sample QC starts to warn (``sample_integrity_qc.MENDEL_WARN_RATE``) and what the
 # haplotype track already marks for a child in the region in view (``MENDEL_WARN_RATE`` in
 # HaplotypePhasedTrack.tsx): above it a child's rate is read as a signal (a swap, a wrong
@@ -55,31 +63,31 @@ from .pgt_embryo_calls import Origin
 # track has it.
 MAX_MENDEL_RATE = 0.02
 
-# The informative sites at the ROI below which a call is warned. 50 = 1 / MAX_MENDEL_RATE: with
+# The informative sites in the window below which a call is warned. 50 = 1 / MAX_MENDEL_RATE: with
 # fewer sites a single Mendelian error already puts the rate above 2%, so the rate cannot tell
 # one genotyping error from a swap; and with no error among 50 sites, a rate of about 6% or more
 # is excluded with 95% confidence (rule of three, 3/50), near the 5% at which the Sample QC
 # fails a child. The Sample QC's own floor for a genome-wide rate is 200 sites
-# (``sample_integrity_qc.MIN_MENDEL_SITES``); at the ROI fewer sites can be had.
+# (``sample_integrity_qc.MIN_MENDEL_SITES``); around the ROI fewer sites can be had.
 MIN_INFORMATIVE_SITES = 50
 
-# The markers on each parental side the call reads below which a call is warned. The ESHRE PGT
-# Consortium's good practice recommendations for monogenic disorders (Carvalho et al., Hum
-# Reprod Open 2020, hoaa018) ask for at least six informative SNPs (or two STRs) on each side of
-# the locus when the embryo is read from linked markers alone, as CoGA's haplotype call reads
-# it. Two differences are for the laboratory director to weigh: CoGA counts the markers over the
-# ROI as a whole, not on each flank of the locus, and it reads imputed low-pass genotypes, not
-# the amplified loci with under 5% allele drop-out those recommendations assume (they ask for
-# more markers where drop-out is higher).
-MIN_MARKERS_PER_SIDE = 6
+# The markers on each flank of the ROI, on each parental side the call reads, below which a call
+# is warned. The ESHRE PGT Consortium's good practice recommendations for monogenic disorders
+# (Carvalho et al., Hum Reprod Open 2020, hoaa018) ask for at least six informative SNPs (or two
+# STRs) on each side of the locus when the embryo is read from linked markers alone, as CoGA's
+# haplotype call reads it. One difference is for the laboratory director to weigh: CoGA reads
+# imputed low-pass genotypes, not the amplified loci with under 5% allele drop-out those
+# recommendations assume (they ask for more markers where drop-out is higher).
+MIN_MARKERS_PER_FLANK = 6
 
 QC_THRESHOLDS = PgtQcThresholdsOut(
     min_informative_sites=MIN_INFORMATIVE_SITES,
     max_mendel_rate=MAX_MENDEL_RATE,
-    min_markers_per_side=MIN_MARKERS_PER_SIDE,
+    min_markers_per_flank=MIN_MARKERS_PER_FLANK,
 )
 
 _SIDES: tuple[Origin, Origin] = ("paternal", "maternal")
+_FLANKS: tuple[PgtQcFlank, PgtQcFlank] = ("left", "right")
 
 
 def embryo_qc_verdict(
@@ -92,11 +100,11 @@ def embryo_qc_verdict(
     ``thresholds`` defaults to ``QC_THRESHOLDS``, the object the analysis states in its rules,
     so the record names the thresholds its verdicts were made against. ``sides`` are the
     parental sides the call reads; their markers are checked, the other side's are not.
-    Without a QC (``None``: the ROI held more sites than the marker review reads, or the embryo
-    is not recorded as the couple's child) the verdict is ``not_counted``: the call could not be
-    checked, which is not a pass. Each measure outside its threshold is a finding, in a fixed
-    order: the informative sites, the Mendelian error rate, then the markers on the father's and
-    on the mother's side.
+    Without a QC (``None``: the window held more sites than the marker review reads, or the
+    embryo is not recorded as the couple's child) the verdict is ``not_counted``: the call could
+    not be checked, which is not a pass. Each measure outside its threshold is a finding, in a
+    fixed order: the informative sites, the Mendelian error rate, then the markers on the
+    father's and on the mother's side, each left of the ROI and then right of it.
     """
     limits = thresholds or QC_THRESHOLDS
     checked = [side for side in _SIDES if side in sides]
@@ -113,13 +121,22 @@ def embryo_qc_verdict(
         findings.append(
             PgtEmbryoQcFindingOut(measure="mendel_rate", value=qc.mendel_rate, threshold=limits.max_mendel_rate)
         )
-    for side, markers in (("paternal", qc.paternal_markers), ("maternal", qc.maternal_markers)):
-        if side in checked and markers < limits.min_markers_per_side:
-            findings.append(
-                PgtEmbryoQcFindingOut(
-                    measure="paternal_markers" if side == "paternal" else "maternal_markers",
-                    value=markers,
-                    threshold=limits.min_markers_per_side,
+    flank_markers: dict[tuple[Origin, PgtQcFlank], int] = {
+        ("paternal", "left"): qc.paternal_markers_left,
+        ("paternal", "right"): qc.paternal_markers_right,
+        ("maternal", "left"): qc.maternal_markers_left,
+        ("maternal", "right"): qc.maternal_markers_right,
+    }
+    for side in checked:
+        for flank in _FLANKS:
+            markers = flank_markers[(side, flank)]
+            if markers < limits.min_markers_per_flank:
+                findings.append(
+                    PgtEmbryoQcFindingOut(
+                        measure="paternal_markers" if side == "paternal" else "maternal_markers",
+                        value=markers,
+                        threshold=limits.min_markers_per_flank,
+                        flank=flank,
+                    )
                 )
-            )
     return PgtEmbryoQcVerdictOut(status="warning" if findings else "pass", sides=checked, findings=findings)

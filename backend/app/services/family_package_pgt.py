@@ -5,8 +5,9 @@ The pipeline's PED (``ped/combined.ped``) holds the couple and the embryos, the 
 with the sex ngs-bits read off their reads. It does not say which members are embryos,
 and it lacks the index: the relative whose haplotypes tell the affected parent's two
 haplotypes apart. Both are in the samplesheet the pipeline ran from, which it copies to
-``dashboard/samplesheet.csv`` (``id,fam,role,...``, role ``embryo``, ``father``,
-``mother`` or ``index``) beside ``dashboard/pedigree.csv``
+``dashboard/`` (``id,fam,role,...``, role ``embryo``, ``father``, ``mother`` or
+``index``): as ``samplesheet.csv``, or, in newer runs, under the name of the file the run
+read (``samplesheet_<family>_<depth>.csv``), beside ``dashboard/pedigree.csv``
 (``fam,father_id,mother_id,index_id,embryo_id``).
 
 Discovery turns them into the manifest's ``family`` block: the embryos get the embryo
@@ -24,13 +25,16 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
+import re
 from typing import Any
 
 from fastapi import HTTPException
+import pysam
 
 from ..core.coga_logging import scrub_log
 from ..schemas import FamilyImportValidationIssue
-from .family_package_common import ParsedPed, _issue, package_path_within
+from .data_scope import normalize_chromosome
+from .family_package_common import ParsedPed, _issue, _resolve_package_path, package_path_within
 from .family_package_qc import _csv_rows, parse_king_kin0_text, parse_ngsbits_sample_gender_text
 from .sample_integrity_qc import KINSHIP_FIRST_DEGREE, KINSHIP_SECOND_DEGREE, KINSHIP_THIRD_DEGREE
 from .upload_safety import read_path_text_bounded
@@ -41,6 +45,8 @@ logger = logging.getLogger(__name__)
 
 PGT_SAMPLESHEET = "dashboard/samplesheet.csv"
 PGT_PEDIGREE = "dashboard/pedigree.csv"
+# Newer runs keep the samplesheet under the name of the file they read (``samplesheet_<family>_<depth>.csv``).
+_PGT_SAMPLESHEET_GLOB = "samplesheet*.csv"
 
 _PIPELINE_ROLES = frozenset({"embryo", "father", "mother", "index"})
 
@@ -74,15 +80,40 @@ def _rows_by_header(text_value: str) -> list[dict[str, str]]:
     return [dict(zip(header, row)) for row in rows[1:]]
 
 
+def pgt_samplesheet_path(root: Path) -> str | None:
+    """The package path of the samplesheet the pipeline copied to ``dashboard/``:
+    ``samplesheet.csv``, else the file the run read (the ``input`` of its newest
+    ``params_*.json``), else the only ``samplesheet*.csv`` there. None when there is none,
+    or several and the run names none of them."""
+    folder = root / "dashboard"
+    if (folder / "samplesheet.csv").is_file():
+        return PGT_SAMPLESHEET
+    if not folder.is_dir():
+        return None
+    names = sorted(path.name for path in folder.glob(_PGT_SAMPLESHEET_GLOB) if path.is_file())
+    latest = _latest_params(root)
+    run_input = latest[1].get("input") if latest is not None else None
+    if isinstance(run_input, str) and run_input.strip():
+        # The run's own path (on the cluster it ran on): only its file name is the package's.
+        name = run_input.strip().replace("\\", "/").rsplit("/", 1)[-1]
+        if name in names:
+            return f"dashboard/{name}"
+    return f"dashboard/{names[0]}" if len(names) == 1 else None
+
+
 def read_pgt_pipeline_roles(root: Path) -> dict[str, str]:
-    """``{sample_id: pipeline role}`` from the pipeline's samplesheet and pedigree.
+    """``{sample_id: pipeline role}`` from the pipeline's samplesheet
+    (:func:`pgt_samplesheet_path`) and pedigree.
 
     The samplesheet names every sample's role; the pedigree adds its embryo and index
     columns, so a package carrying only one of the two files is read as well. Empty when
     the package has neither, which is how a package from another pipeline is recognised.
     """
     roles: dict[str, str] = {}
-    samplesheet = _read_package_file(root, PGT_SAMPLESHEET, kind="PGT samplesheet")
+    samplesheet_path = pgt_samplesheet_path(root)
+    samplesheet = (
+        _read_package_file(root, samplesheet_path, kind="PGT samplesheet") if samplesheet_path else None
+    )
     if samplesheet:
         for row in _rows_by_header(samplesheet):
             sample_id = (row.get("id") or row.get("sample") or "").strip()
@@ -219,6 +250,8 @@ def pgt_family_block(
       (``family.relationships.relatives``) of the parent it is related to, or of the
       affected parent. The warning says which, and on what.
     """
+    # The file the roles came from, for the warnings: the samplesheet, or the pedigree alone.
+    sheet = pgt_samplesheet_path(root) or PGT_PEDIGREE
     members_by_id = {member.iid: member for member in ped.members}
     fathers = {member.pid for member in ped.members if member.pid not in {"", "0"}}
     mothers = {member.mid for member in ped.members if member.mid not in {"", "0"}}
@@ -245,7 +278,7 @@ def pgt_family_block(
                 warnings.append(
                     _issue(
                         "pgt_sample_not_in_ped",
-                        f"{PGT_SAMPLESHEET} lists {role} {sample_id}, which is not in the PED; "
+                        f"{sheet} lists {role} {sample_id}, which is not in the PED; "
                         "it is not imported",
                         sample_id=sample_id,
                     )
@@ -261,7 +294,7 @@ def pgt_family_block(
             if link is not None and link[0] == "child":
                 entry.update({"father": father, "mother": mother, "role": "proband"})
                 message = (
-                    f"Index {sample_id} ({PGT_SAMPLESHEET}) is not in the PED; it is added under "
+                    f"Index {sample_id} ({sheet}) is not in the PED; it is added under "
                     f"family.add_members as the couple's child, the proband{sex_note}, because KING "
                     "measured it first-degree to both parents."
                 )
@@ -274,7 +307,7 @@ def pgt_family_block(
                     else "the affected parent the run traced, as KING did not measure it related to either parent"
                 )
                 message = (
-                    f"Index {sample_id} ({PGT_SAMPLESHEET}) is not in the PED; it is added under "
+                    f"Index {sample_id} ({sheet}) is not in the PED; it is added under "
                     f"family.add_members as a relative{sex_note}, linked under "
                     f"family.relationships.relatives to {' and '.join(link[1])} by an unknown "
                     f"degree: {basis}. Its haplotype is coloured along the genome if it turns "
@@ -285,7 +318,7 @@ def pgt_family_block(
             else:
                 entry["role"] = "relative"
                 message = (
-                    f"Index {sample_id} ({PGT_SAMPLESHEET}) is not in the PED; it is added under "
+                    f"Index {sample_id} ({sheet}) is not in the PED; it is added under "
                     f"family.add_members as a relative without parents{sex_note}. Declare how it "
                     "is related under family.relationships before writing the manifest, or on the "
                     "family page after the import: until then its haplotype stays grey and is not "
@@ -340,7 +373,7 @@ def pgt_family_block(
             warnings.append(
                 _issue(
                     "pgt_role_mismatch",
-                    f"{PGT_SAMPLESHEET} lists {sample_id} as the {role}, but the PED gives it "
+                    f"{sheet} lists {sample_id} as the {role}, but the PED gives it "
                     "no children; the PED is used",
                     sample_id=sample_id,
                 )
@@ -418,3 +451,50 @@ def pgt_run_context(
             )
         warnings.append(_issue("pgt_affected_parent", message, sample_id=parent))
     return roi_value, traced_parent, warnings
+
+
+# A region as the run's ``roi`` parameter writes it (``chr7:1000-2000``). A gene name is
+# resolved when the family is registered, and is not read here.
+_ROI_REGION = re.compile(r"^\s*([^\s:]+)\s*:\s*[\d,]+\s*-\s*[\d,]+\s*$")
+
+
+def _chromosome_order(contig: str) -> tuple[int, int, str]:
+    # An index lists its sequences as text sorts (chr1, chr10, ...): numbered ones go in number order.
+    name = normalize_chromosome(contig)
+    return (0, int(name), "") if name.isdigit() else (1, 0, name)
+
+
+def pgt_roi_phasing_issue(
+    root: Path, *, roi: str | None, family_vcf: str | None, index: str | None
+) -> FamilyImportValidationIssue | None:
+    """A warning when the phased family VCF holds no record on the ROI's chromosome, as its
+    index lists them: the embryos cannot then be called at the ROI. The PGT pipeline goes on
+    when it fails to phase a chromosome (SHAPEIT5 on chrX, say), and that chromosome is
+    left out of the VCF. None when the ROI is not a region, or the index cannot be read."""
+    match = _ROI_REGION.match(roi or "")
+    if match is None or not family_vcf:
+        return None
+    try:
+        vcf_path = _resolve_package_path(root, family_vcf)
+        index_path = _resolve_package_path(root, index)
+    except HTTPException:
+        return None
+    if vcf_path is None or not vcf_path.is_file():
+        return None
+    try:
+        with pysam.TabixFile(str(vcf_path), index=str(index_path) if index_path is not None else None) as tabix:
+            contigs = list(tabix.contigs)
+    except (OSError, ValueError):
+        return None
+    roi_chromosome = normalize_chromosome(match.group(1)).upper()
+    if not contigs or roi_chromosome in {normalize_chromosome(contig).upper() for contig in contigs}:
+        return None
+    contigs.sort(key=_chromosome_order)
+    return _issue(
+        "haplotypes_roi_chromosome_missing",
+        f"The phased family VCF ({family_vcf}) holds no record on {match.group(1)}, where the ROI "
+        f"({roi.strip() if roi else ''}) lies, so no embryo can be called at the ROI: it holds "
+        f"{', '.join(contigs)}. A failed phasing step leaves its chromosome out; the run's "
+        "pipeline_info/execution_trace_*.txt lists the failed tasks.",
+        dataset="haplotypes",
+    )

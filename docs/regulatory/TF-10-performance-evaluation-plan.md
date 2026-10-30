@@ -226,8 +226,9 @@ pull request updates this list only when it adds clinical behaviour that no area
   in the other, the audited artifact list and its import from the pipeline's recurrent
   table, a report that says when it is incomplete); PGT embryo calls that are uninformative
   without supporting data, and that carry a warning when their phasing QC at the ROI falls below
-  its provisional thresholds (informative sites, Mendelian error rate, markers on each side the
-  call reads), and the risk-haplotype display, with a parent's phase switches undone where the embryos switch
+  its provisional thresholds over the ROI and 1 Mb on each side (informative sites, Mendelian
+  error rate, markers on each flank of the ROI on each side the call reads), and the
+  risk-haplotype display, with a parent's phase switches undone where the embryos switch
   together, a relative of unknown degree coloured along the genome when it is the linked
   member's parent or child and otherwise at the ROI where both flanks name the haplotype
   it shares, relatives and a donor family's embryos coloured on chrX by their recorded sex

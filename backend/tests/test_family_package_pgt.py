@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import pysam
 import pytest
 import yaml
 
@@ -380,6 +381,54 @@ def test_discovery_reports_a_samplesheet_sample_the_ped_lacks(tmp_path: Path) ->
     assert "EMB9" not in result.sample_ids
 
 
+def _rename_samplesheet(root: Path, name: str) -> Path:
+    sheet = root / "dashboard/samplesheet.csv"
+    return sheet.rename(sheet.with_name(name))
+
+
+def test_a_samplesheet_kept_under_the_runs_own_name_is_read(tmp_path: Path) -> None:
+    # Newer runs copy the samplesheet under the name of the file they read.
+    root = _write_copgtm_package(tmp_path / FAMILY)
+    sheet = _rename_samplesheet(root, f"samplesheet_{FAMILY}_10x.csv")
+    sheet.write_text(sheet.read_text(encoding="utf-8") + f"EMB9,{FAMILY},embryo,,,,\n", encoding="utf-8")
+
+    result = _discover(root)
+
+    assert result.valid is True, result.errors
+    assert yaml.safe_load(result.manifest_yaml)["family"]["members"] == {
+        "EMB1": {"role": "embryo"},
+        "EMB2": {"role": "embryo"},
+    }
+    warnings = {warning.code: warning for warning in result.warnings}
+    # The warnings name the file the roles came from.
+    assert f"Index {INDEX} (dashboard/samplesheet_{FAMILY}_10x.csv)" in warnings["pgt_index_added"].message
+    # A sample only the samplesheet lists: it was read, not the pedigree alone.
+    assert warnings["pgt_sample_not_in_ped"].message.startswith(
+        f"dashboard/samplesheet_{FAMILY}_10x.csv lists embryo EMB9"
+    )
+
+
+def test_of_several_samplesheets_the_one_the_run_read_is_used(tmp_path: Path) -> None:
+    root = _write_copgtm_package(tmp_path / FAMILY)
+    sheet = _rename_samplesheet(root, f"samplesheet_{FAMILY}_10x.csv")
+    # An older sheet that names another embryo, beside the one the run read.
+    _write(
+        root / f"dashboard/samplesheet_{FAMILY}_1x.csv",
+        sheet.read_text(encoding="utf-8") + f"EMB8,{FAMILY},embryo,,,,\n",
+    )
+    sheet.write_text(sheet.read_text(encoding="utf-8") + f"EMB9,{FAMILY},embryo,,,,\n", encoding="utf-8")
+    assert family_package_pgt.pgt_samplesheet_path(root) is None
+    _write(
+        root / "pipeline_info/params_2026-01-03_10-00-00.json",
+        f'{{"affected_parent": "{MOTHER}", "roi": "chr7:1000-2000", "input": "/hpc/user/samplesheet_{FAMILY}_10x.csv"}}',
+    )
+
+    result = _discover(root)
+
+    missing = [warning.sample_id for warning in result.warnings if warning.code == "pgt_sample_not_in_ped"]
+    assert missing == ["EMB9"]
+
+
 def _write_index_kinship(root: Path, *, father: float, mother: float) -> None:
     _write(
         root / f"king/{FAMILY}.kin0",
@@ -639,6 +688,49 @@ def test_a_phased_vcf_sample_the_family_lacks_fails_validation_before_anything_i
         ("dataset_vcf_sample_unknown", "haplotypes")
     ]
     assert INDEX in validation.errors[0].message
+
+
+def _write_indexed_phased_vcf(root: Path, *, chromosomes: tuple[str, ...]) -> None:
+    """The phased family VCF, bgzipped and tabix-indexed, with one record on each of ``chromosomes``."""
+    plain = root / f"phasing/shapeit_filter/{FAMILY}_shapeit_rephased_final.vcf"
+    plain.parent.mkdir(parents=True, exist_ok=True)
+    samples = (INDEX, FATHER, MOTHER, *EMBRYOS)
+    plain.write_text(
+        "##fileformat=VCFv4.2\n"
+        + "".join(f"##contig=<ID={chromosome}>\n" for chromosome in chromosomes)
+        + '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
+        + "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t"
+        + "\t".join(samples)
+        + "\n"
+        + "".join(
+            f"{chromosome}\t1500\t.\tA\tG\t.\t.\t.\tGT\t" + "\t".join("0|1" for _ in samples) + "\n"
+            for chromosome in chromosomes
+        ),
+        encoding="utf-8",
+    )
+    pysam.tabix_index(str(plain), preset="vcf", force=True)
+
+
+def test_a_phased_vcf_without_the_rois_chromosome_is_reported(tmp_path: Path) -> None:
+    # The pipeline goes on when it fails to phase a chromosome, and leaves it out.
+    root = _write_copgtm_package(tmp_path / FAMILY)
+    _write_indexed_phased_vcf(root, chromosomes=("chr1", "chr2"))
+
+    discovered = [warning for warning in _discover(root).warnings if warning.dataset == "haplotypes"]
+    _write_discovered_manifest(root)
+    validation = family_package_validation.validate_family_package(root)
+
+    for warnings in (discovered, validation.warnings):
+        missing = [warning for warning in warnings if warning.code == "haplotypes_roi_chromosome_missing"]
+        assert len(missing) == 1
+        assert "holds no record on chr7, where the ROI (chr7:1000-2000) lies" in missing[0].message
+        assert "it holds chr1, chr2" in missing[0].message
+    assert validation.valid is True, validation.errors
+
+    _write_indexed_phased_vcf(root, chromosomes=("chr1", "chr7"))
+    assert "haplotypes_roi_chromosome_missing" not in {
+        warning.code for warning in family_package_validation.validate_family_package(root).warnings
+    }
 
 
 def test_a_trio_vcf_without_the_embryos_column_fails_and_without_a_parents_warns(tmp_path: Path) -> None:

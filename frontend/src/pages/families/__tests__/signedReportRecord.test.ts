@@ -1335,7 +1335,17 @@ describe('the PGT embryo results', () => {
       ['an embryo', null],
     ]);
     const [e1, e2] = analysis.embryos;
-    expect(e1.qc).toEqual({ informativeSites: 40, mendelErrors: 1, mendelRate: 0.025, paternalMarkers: 22, maternalMarkers: 18 });
+    expect(e1.qc).toEqual({
+      informativeSites: 40,
+      mendelErrors: 1,
+      mendelRate: 0.025,
+      paternalMarkers: 22,
+      maternalMarkers: 18,
+      paternalMarkersLeft: 10,
+      paternalMarkersRight: 12,
+      maternalMarkersLeft: 8,
+      maternalMarkersRight: 9,
+    });
     expect(e2).toMatchObject({ roiNotCovered: true, recombinations: [30550000], qc: null });
     expect(analysis.sources.map((source) => source.sample)).toEqual(['E1', 'FATHER']);
     expect(analysis).toMatchObject({ blocksRead: 6, blocksDigest: 'abcdef0123456789', markersTruncated: false, recombinationFlank: 250000 });
@@ -1353,8 +1363,12 @@ describe('the PGT embryo results', () => {
     expect(describeInherited(e3.inherited)).toBe('M2 and P1 (29,000,000–32,000,000)');
     expect(describeInherited([])).toBeNull();
     expect(describeEmbryoQc(e1.qc!)).toBe(
-      '40 informative sites, Mendelian error rate 2.5% (1 of 40); informative markers 22 paternal, 18 maternal',
+      '40 informative sites, Mendelian error rate 2.5% (1 of 40); informative markers 22 paternal (10 left, 12 right of the ROI), 18 maternal (8 left, 9 right of the ROI)',
     );
+    // A record from before the flanks were counted apart gives the totals alone.
+    expect(
+      describeEmbryoQc({ ...e1.qc!, paternalMarkersLeft: null, paternalMarkersRight: null, maternalMarkersLeft: null, maternalMarkersRight: null }),
+    ).toBe('40 informative sites, Mendelian error rate 2.5% (1 of 40); informative markers 22 paternal, 18 maternal');
     expect(describeNoCall(e1, analysis)).toBeNull();
     expect(describeNoCall(e2, analysis)).toBe(
       'This embryo’s haplotype does not cover the ROI on the parental side the call needs (missing data), so no call can be made.',
@@ -1412,13 +1426,13 @@ describe('the PGT embryo results', () => {
     const analysis = recorded(pgtRecord(SIGNED_PGT_ANALYSIS));
     const [e1, e2, e3, unread] = analysis.embryos;
 
-    expect(analysis.qcThresholds).toEqual({ minInformativeSites: 50, maxMendelRate: 0.02, minMarkersPerSide: 6 });
+    expect(analysis.qcThresholds).toEqual({ minInformativeSites: 50, maxMendelRate: 0.02, minMarkersPerFlank: 6 });
     expect(e1.qcVerdict).toEqual({
       status: 'warning',
       sides: ['paternal'],
       findings: [
-        { measure: 'informative_sites', value: 40, threshold: 50 },
-        { measure: 'mendel_rate', value: 0.025, threshold: 0.02 },
+        { measure: 'informative_sites', value: 40, threshold: 50, flank: null },
+        { measure: 'mendel_rate', value: 0.025, threshold: 0.02, flank: null },
       ],
       unreadableFindings: 0,
     });
@@ -1427,7 +1441,7 @@ describe('the PGT embryo results', () => {
     expect(unread.qcVerdict).toBeNull();
 
     expect(describeQcThresholds(analysis.qcThresholds!)).toBe(
-      'at least 50 informative sites, a Mendelian error rate of at most 2% and at least 6 markers on each parental side the call reads',
+      'at least 50 informative sites, a Mendelian error rate of at most 2% and at least 6 markers on each flank of the ROI, on each parental side the call reads',
     );
     expect(describeSignedQcVerdict(e1.qcVerdict!)).toBe(
       "⚠ The phasing QC at the ROI did not meet its thresholds (markers checked on the father's side): 40 informative sites (fewer than 50); Mendelian error rate 2.5% (above 2%).",
@@ -1449,7 +1463,11 @@ describe('the PGT embryo results', () => {
             qc_verdict: {
               status: 'warning',
               sides: ['paternal', 'maternal', 'a side'],
-              findings: [{ measure: 'maternal_markers', value: 2, threshold: 6 }, { measure: 'a measure', value: 1 }, 'not a finding'],
+              findings: [
+                { measure: 'maternal_markers', value: 2, threshold: 6, flank: 'left' },
+                { measure: 'a measure', value: 1 },
+                'not a finding',
+              ],
             },
           },
           { sample: 'E2', call: 'carrier', qc_verdict: { status: 'a status' } },
@@ -1460,11 +1478,11 @@ describe('the PGT embryo results', () => {
     const [e1, e2] = analysis.embryos;
     expect(e1.qcVerdict).toMatchObject({ sides: ['paternal', 'maternal'], unreadableFindings: 2 });
     expect(describeSignedQcVerdict(e1.qcVerdict!)).toBe(
-      "⚠ The phasing QC at the ROI did not meet its thresholds (markers checked on both parents' sides): 2 markers on the mother's side (fewer than 6). 2 measures of it cannot be read here; the downloaded record holds them as stored.",
+      "⚠ The phasing QC at the ROI did not meet its thresholds (markers checked on both parents' sides): 2 markers on the mother's side left of the ROI (fewer than 6). 2 measures of it cannot be read here; the downloaded record holds them as stored.",
     );
     expect(e2.qcVerdict).toBeNull();
     expect(describeQcThresholds(analysis.qcThresholds!)).toBe('at least 50 informative sites');
-    expect(describeQcThresholds({ minInformativeSites: null, maxMendelRate: null, minMarkersPerSide: null })).toBe(
+    expect(describeQcThresholds({ minInformativeSites: null, maxMendelRate: null, minMarkersPerFlank: null })).toBe(
       'thresholds the record does not state',
     );
   });

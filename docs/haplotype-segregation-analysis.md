@@ -100,19 +100,21 @@ capped at 500,000 sites (`PHASED_FETCH_LIMIT`, `phased_marker_service.py`), beyo
 overlay is hidden.
 
 An embryo call's phasing QC at the ROI is checked against three thresholds, in one place
-(`backend/app/services/pgt_embryo_qc.py`). A call that does not meet one gets a warning beside it,
-never a gate (the owner's decision of 2026-10-20); the values are **provisional**, to be confirmed by
-the laboratory director and QA, and the in-app reference lists them for the lab (*Phasing QC at the
-ROI*):
+(`backend/app/services/pgt_embryo_qc.py`), counted over the window the call reads: the ROI and
+`ROI_WINDOW_FLANK` (1 Mb) on each side, with each parent's markers left and right of the ROI apart
+(the owner's decision of 2026-10-30: a PGT pipeline run gives the variant itself as its ROI, in which
+no marker lies). A call that does not meet one gets a warning beside it, never a gate (the owner's
+decision of 2026-10-20); the values are **provisional**, to be confirmed by the laboratory director
+and QA, and the in-app reference lists them for the lab (*Phasing QC at the ROI*):
 
 | Constant | Value | Role |
 | --- | --- | --- |
-| `MIN_INFORMATIVE_SITES` | 50 | sites at the ROI where both parents and the embryo are genotyped (a son on chrX outside the PARs: his mother and he); fewer is a warning (1 / `MAX_MENDEL_RATE`: with fewer, one Mendelian error is above the maximum rate) |
-| `MAX_MENDEL_RATE` | 0.02 | a Mendelian error rate at the ROI above it is a warning (the Sample QC's warning rate, and the haplotype track's) |
-| `MIN_MARKERS_PER_SIDE` | 6 | sites where the homolog inherited from a parent is read, on each side the call reads (`pgt_embryo_calls.call_sides`); fewer is a warning (ESHRE PGT Consortium 2020: six informative SNPs on each side of the locus for markers-only testing) |
+| `MIN_INFORMATIVE_SITES` | 50 | sites in the window where both parents and the embryo are genotyped (a son on chrX outside the PARs: his mother and he); fewer is a warning (1 / `MAX_MENDEL_RATE`: with fewer, one Mendelian error is above the maximum rate) |
+| `MAX_MENDEL_RATE` | 0.02 | a Mendelian error rate in the window above it is a warning (the Sample QC's warning rate, and the haplotype track's) |
+| `MIN_MARKERS_PER_FLANK` | 6 | sites where the homolog inherited from a parent is read, on each flank of the ROI (left, below its start; right, above its end; the ROI's own sites on neither), on each side the call reads (`pgt_embryo_calls.call_sides`); fewer on either flank is a warning (ESHRE PGT Consortium 2020: six informative SNPs on each side of the locus for markers-only testing) |
 
-`embryo_qc_verdict` makes the verdict (`pass`, `warning` with each measure outside its threshold, or
-`not_counted` when no QC was counted at the ROI); `pgt_analysis` adds it to each called embryo and
+`embryo_qc_verdict` makes the verdict (`pass`, `warning` with each measure outside its threshold and,
+for a parent's markers, the `flank`, or `not_counted` when no QC was counted); `pgt_analysis` adds it to each called embryo and
 serves the thresholds in `rules.qc_thresholds`, and a sign-out freezes both.
 
 ## Where this lives

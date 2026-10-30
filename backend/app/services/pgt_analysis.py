@@ -4,8 +4,9 @@
 model, its members' roles, sexes and statuses, the haplotype blocks over the ROI and 1 Mb on
 each side as ``GET /families/{family_id}/haplotypes`` serves them (lineage-tagged, each block
 marked one-copy in males or not), and the parents' phase corrections. It calls each embryo
-with ``pgt_embryo_calls`` and adds each embryo's phasing QC at the ROI (the informative sites
-and Mendelian errors the ROI marker review counts, REQ-PGT-004), that QC's verdict against the
+with ``pgt_embryo_calls`` and adds each embryo's phasing QC at the ROI (the informative sites,
+Mendelian errors and markers the ROI marker review counts over the same window, the markers left
+and right of the ROI apart, REQ-PGT-004), that QC's verdict against the
 thresholds of ``pgt_embryo_qc`` (a warning beside the call, never a gate), and the inputs'
 identity: the haplotype files each member's blocks were built from, and a digest of the
 blocks read.
@@ -243,23 +244,30 @@ def _embryo(
 
 
 async def _embryo_qc(
-    context: FamilyMetadataContext, roi: PgtRegionOfInterestOut
+    context: FamilyMetadataContext, roi: PgtRegionOfInterestOut, window: PgtWindowOut
 ) -> tuple[dict[str, PgtEmbryoQcOut], bool]:
-    """Each child's phasing QC over the ROI, as the ROI marker review reads it, and whether
-    the ROI held more sites than that read takes (then none is counted)."""
+    """Each child's phasing QC over the window the call reads (the ROI and its flanks), as the
+    ROI marker review reads it, with the markers left and right of the ROI apart, and whether
+    the window held more sites than that read takes (then none is counted)."""
     markers = await get_family_phased_markers_response(
-        context, chr=roi.chrom, start=max(0, roi.start), end=roi.end
+        context, chr=window.chrom, start=window.start, end=window.end
     )
     by_sample: dict[str, PgtEmbryoQcOut] = {}
     for sample in markers.samples:
         if sample.qc is None:
             continue
+        paternal = [marker.pos for marker in sample.markers if marker.hap1 is not None]
+        maternal = [marker.pos for marker in sample.markers if marker.hap2 is not None]
         by_sample[sample.sample] = PgtEmbryoQcOut(
             informative_sites=sample.qc.informative_sites,
             mendel_errors=sample.qc.mendel_errors,
             mendel_rate=sample.qc.mendel_rate,
-            paternal_markers=sum(1 for marker in sample.markers if marker.hap1 is not None),
-            maternal_markers=sum(1 for marker in sample.markers if marker.hap2 is not None),
+            paternal_markers=len(paternal),
+            maternal_markers=len(maternal),
+            paternal_markers_left=sum(1 for pos in paternal if pos < roi.start),
+            paternal_markers_right=sum(1 for pos in paternal if pos > roi.end),
+            maternal_markers_left=sum(1 for pos in maternal if pos < roi.start),
+            maternal_markers_right=sum(1 for pos in maternal if pos > roi.end),
         )
     return by_sample, bool(markers.truncated)
 
@@ -310,7 +318,7 @@ async def family_pgt_analysis(session: AsyncSession, context: FamilyMetadataCont
         return analysis
     region = Region(roi.chrom, roi.start, roi.end)
     model, calls = call_embryos(members=rows, samples=samples, inheritance_model=recorded, region=region)
-    qc_by_sample, truncated = await _embryo_qc(context, roi)
+    qc_by_sample, truncated = await _embryo_qc(context, roi, window)
     call_by_sample = {call.sample: call for call in calls}
     analysis.disease_haplotype_resolved = model.informative
     analysis.disease_haplotypes = [

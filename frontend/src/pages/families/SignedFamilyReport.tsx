@@ -828,7 +828,7 @@ const PgtAnalysisSection: React.FC<{ record: SignedReport; version: number }> = 
                         : embryo.call && !analysis.blocksOutdated
                           ? ` QC at the ROI: not counted (${
                               analysis.markersTruncated
-                                ? 'the ROI holds more sites than the marker review reads'
+                                ? 'the ROI and its flanks hold more sites than the marker review reads'
                                 : 'the embryo is not recorded as a child of the couple'
                             }).`
                           : ''}

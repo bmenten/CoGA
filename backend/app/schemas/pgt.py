@@ -15,6 +15,8 @@ from pydantic import BaseModel, Field
 PgtRiskState = Literal["affected_or_at_risk", "carrier", "unaffected_non_carrier", "uninformative"]
 PgtParentSide = Literal["paternal", "maternal"]
 PgtQcMeasure = Literal["informative_sites", "mendel_rate", "paternal_markers", "maternal_markers"]
+# The side of the ROI a marker count was read on: left, below its start; right, above its end.
+PgtQcFlank = Literal["left", "right"]
 
 
 class PgtRegionOfInterestOut(BaseModel):
@@ -95,14 +97,21 @@ class PgtSexDependentCallOut(BaseModel):
 
 
 class PgtEmbryoQcOut(BaseModel):
-    """The embryo's phasing QC at the ROI, as the ROI marker review counts it (REQ-PGT-004)."""
+    """The embryo's phasing QC at the ROI, as the ROI marker review counts it (REQ-PGT-004):
+    over the window the call reads, the ROI and ``rules.window_flank`` on each side of it."""
 
     informative_sites: int = 0
     mendel_errors: int = 0
     mendel_rate: float = 0.0
-    # The ROI's sites where the homolog inherited from each parent is read.
+    # The window's sites where the homolog inherited from each parent is read.
     paternal_markers: int = 0
     maternal_markers: int = 0
+    # Of those, the ones on each flank of the ROI: left, below its start; right, above its end.
+    # The ROI's own sites are on neither.
+    paternal_markers_left: int = 0
+    paternal_markers_right: int = 0
+    maternal_markers_left: int = 0
+    maternal_markers_right: int = 0
 
 
 class PgtEmbryoQcFindingOut(BaseModel):
@@ -112,6 +121,8 @@ class PgtEmbryoQcFindingOut(BaseModel):
     measure: PgtQcMeasure
     value: Union[int, float]
     threshold: Union[int, float]
+    # For a parent's markers, the flank of the ROI they were counted on.
+    flank: Optional[PgtQcFlank] = None
 
 
 class PgtEmbryoQcVerdictOut(BaseModel):
@@ -141,7 +152,7 @@ class PgtEmbryoOut(BaseModel):
     inherited: List[PgtInheritedHaplotypeOut] = Field(default_factory=list)
     # Where the embryo's blocks change inside the ROI or within the recombination flank.
     recombinations: List[int] = Field(default_factory=list)
-    # None when not counted: no ROI, the ROI held more sites than the marker review reads
+    # None when not counted: no ROI, the window held more sites than the marker review reads
     # (``inputs.markers_truncated``), or the embryo is not recorded as the couple's child.
     qc: Optional[PgtEmbryoQcOut] = None
     # That QC against the thresholds of ``rules.qc_thresholds``. None: the embryo was not
@@ -169,7 +180,7 @@ class PgtInputsOut(BaseModel):
     # (CLIN-66, ``pgt_analysis.blocks_outdated``): every embryo is then uninformative until the
     # phased genotypes are imported again.
     blocks_outdated: bool = False
-    # The ROI held more sites than the marker review reads, so no embryo QC was counted.
+    # The window held more sites than the marker review reads, so no embryo QC was counted.
     markers_truncated: bool = False
 
 
@@ -177,12 +188,13 @@ class PgtQcThresholdsOut(BaseModel):
     """The thresholds each embryo's phasing QC at the ROI is checked against
     (``pgt_embryo_qc``). Provisional: the laboratory director and QA are to confirm them."""
 
-    # Fewer sites at the ROI where both parents and the embryo are genotyped is a warning.
+    # Fewer sites in the window where both parents and the embryo are genotyped is a warning.
     min_informative_sites: int
     # A Mendelian error rate above this is a warning.
     max_mendel_rate: float
-    # Fewer markers than this on a parental side the call reads is a warning.
-    min_markers_per_side: int
+    # Fewer markers than this on either flank of the ROI, on a parental side the call reads,
+    # is a warning.
+    min_markers_per_flank: int
 
 
 class PgtRulesOut(BaseModel):

@@ -24,6 +24,7 @@ from .hpo_service import (
 
 from .family_package_common import CORE_DATASETS, HAPLOTYPE_ORIGIN_ROLES, IDENTIFIER_ISSUE_CODES, LONG_READ_DATASET_ROLES, PCF_ROLE_KEYS, QC_FAMILY_ROLES, FamilyPackageBundle, ManifestDataset, PackageManifest, ParsedPed, SUPPORTED_DATASETS, _display_path, _is_uncompressed_vcf, _issue, _package_path_or_none, _resolve_package_path, _vcf_index_candidates, family_id_issue, read_vcf_sample_columns, sample_id_issues, vcf_holds_a_data_line
 from .family_package_manifest import _manifest_added_member_entries, _manifest_added_ped_rows, _manifest_derived_statuses, _manifest_pgt_metadata, _manifest_relationship_issues, _manifest_roi_value, _normalize_manifest_samples, _parse_ped_text_strict
+from .family_package_pgt import pgt_roi_phasing_issue
 from .family_package_source import _ensure_authorized_package_path, _find_manifest, _parse_manifest, manifest_link_out_of_package, manifest_outside_package_issue, package_folder_link_issues, package_folder_path, staged_package_source
 from .family_package_nipt import nipt_vcf_column_issue
 from .nipt import MONOGENIC_NIPT_ANALYSIS_TYPE
@@ -1796,6 +1797,13 @@ def _validate_and_load_package(
                     analysis_type=manifest.analysis_type,
                 )
             )
+        haplotypes = manifest.datasets.get("haplotypes")
+        if roi_query and haplotypes is not None and haplotypes.enabled:
+            roi_issue = pgt_roi_phasing_issue(
+                root, roi=roi_query, family_vcf=haplotypes.family_vcf, index=haplotypes.index
+            )
+            if roi_issue is not None:
+                warnings.append(roi_issue)
         phenotype_summary = _validate_manifest_hpo_annotations(
             root=root,
             manifest=manifest,

@@ -3658,7 +3658,17 @@ _PGT_ANALYSIS = {
             "sex_dependent": None,
             "inherited": [{"origin": "paternal", "homolog": "1", "start": 0, "end": 30}],
             "recombinations": [],
-            "qc": {"informative_sites": 40, "mendel_errors": 0, "mendel_rate": 0.0, "paternal_markers": 3, "maternal_markers": 2},
+            "qc": {
+                "informative_sites": 40,
+                "mendel_errors": 0,
+                "mendel_rate": 0.0,
+                "paternal_markers": 6,
+                "maternal_markers": 2,
+                "paternal_markers_left": 3,
+                "paternal_markers_right": 3,
+                "maternal_markers_left": 1,
+                "maternal_markers_right": 1,
+            },
         }
     ],
     "inputs": {"haplotype_sources": [], "blocks_read": 4, "blocks_digest": "d" * 64, "markers_truncated": False},
@@ -3817,9 +3827,9 @@ def test_signout_check_reads_a_changed_qc_verdict_or_threshold_as_a_change(monke
 
     # The laboratory lowers the marker threshold after sign-out: the verdict the record froze
     # is no longer the one CoGA gives, and the check says so.
-    relaxed = _with_qc_verdict(_PGT_ANALYSIS, min_markers_per_side=3)
+    relaxed = _with_qc_verdict(_PGT_ANALYSIS, min_markers_per_flank=3)
     assert relaxed["embryos"][0]["qc_verdict"] != signed_analysis["embryos"][0]["qc_verdict"]
-    assert relaxed["rules"]["qc_thresholds"]["min_markers_per_side"] == 3
+    assert relaxed["rules"]["qc_thresholds"]["min_markers_per_flank"] == 3
     _with_sections(monkeypatch, pgt_analysis=relaxed)
     out = asyncio.run(
         rss.compare_report_with_latest_signout(_CheckSession(_signed_row(signed)), family_id="FAM1", user=_user())

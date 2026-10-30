@@ -2,7 +2,8 @@
 
 ``pgt_analysis.family_pgt_analysis`` reads the family's ROI, inheritance model and members,
 the haplotype blocks over the ROI and 1 Mb on each side as the haplotype endpoint serves
-them, and each child's phasing QC at the ROI as the ROI marker review counts it; it calls the
+them, and each child's phasing QC over that same window as the ROI marker review counts it,
+the markers left and right of the ROI apart; it calls the
 embryos (``pgt_embryo_calls``) and names its inputs. The reads are stubbed here; the real
 ones run in ``e2e/test_e2e_signed_pgt_analysis.py``.
 """
@@ -119,16 +120,21 @@ def _haplotypes(order: str = "as stored") -> HaplotypeResponse:
 
 def _markers(*, truncated: bool = False) -> PhasedMarkerResponse:
     if truncated:
-        return PhasedMarkerResponse(chr="7", start=30_500_000, end=30_600_000, truncated=True, covered=[1, 2])
+        return PhasedMarkerResponse(chr="7", start=29_500_000, end=31_600_000, truncated=True, covered=[1, 2])
     return PhasedMarkerResponse(
         chr="7",
-        start=30_500_000,
-        end=30_600_000,
+        start=29_500_000,
+        end=31_600_000,
         samples=[
             PhasedMarkerSample(sample="FATHER", reference=True),
             PhasedMarkerSample(
                 sample="E_RISK",
-                markers=[PhasedMarker(pos=30_510_000, hap1=1, hap2=None), PhasedMarker(pos=30_520_000, hap1=1, hap2=0)],
+                # One paternal marker left of the ROI, one inside it, one right of it.
+                markers=[
+                    PhasedMarker(pos=30_400_000, hap1=1, hap2=None),
+                    PhasedMarker(pos=30_510_000, hap1=1, hap2=0),
+                    PhasedMarker(pos=30_700_000, hap1=1, hap2=None),
+                ],
                 qc=PhasedSampleQc(informative_sites=40, mendel_errors=1, mendel_rate=0.025),
             ),
             PhasedMarkerSample(
@@ -181,9 +187,9 @@ def test_each_embryo_is_called_at_the_roi_from_the_blocks_the_haplotype_view_rea
     asked = _patch_reads(monkeypatch)
     out = asyncio.run(pgt_analysis.family_pgt_analysis(_session(), _context()))
 
-    # The blocks are read over the ROI and 1 Mb on each side, the QC over the ROI itself.
+    # The blocks and the QC are read over the same window: the ROI and 1 Mb on each side.
     assert asked["haplotypes"] == ("7", 29_500_000, 31_600_000)
-    assert asked["markers"] == ("7", 30_500_000, 30_600_000)
+    assert asked["markers"] == ("7", 29_500_000, 31_600_000)
     assert out.region_of_interest is not None and out.region_of_interest.label == "GENE1"
     assert (out.window.chrom, out.window.start, out.window.end) == ("7", 29_500_000, 31_600_000)
     assert (out.inheritance_model.recorded, out.inheritance_model.applied, out.inheritance_model.mode) == (
@@ -206,7 +212,14 @@ def test_each_embryo_is_called_at_the_roi_from_the_blocks_the_haplotype_view_rea
     assert risk.recombinations == [30_550_000] and clear.recombinations == []
     # The phasing QC the ROI marker review shows for each embryo.
     assert risk.qc is not None and (risk.qc.informative_sites, risk.qc.mendel_errors, risk.qc.mendel_rate) == (40, 1, 0.025)
-    assert (risk.qc.paternal_markers, risk.qc.maternal_markers) == (2, 1)
+    assert (risk.qc.paternal_markers, risk.qc.maternal_markers) == (3, 1)
+    # Left and right of the ROI apart; a marker inside the ROI is on neither flank.
+    assert (
+        risk.qc.paternal_markers_left,
+        risk.qc.paternal_markers_right,
+        risk.qc.maternal_markers_left,
+        risk.qc.maternal_markers_right,
+    ) == (1, 1, 0, 0)
     assert clear.qc is not None and (clear.qc.paternal_markers, clear.qc.maternal_markers) == (0, 1)
     # The father's phase correction next to the ROI; the mother's far away is not named.
     assert [(c.parent, c.position) for c in out.phase_corrections] == [("FATHER", 30_400_000)]
@@ -223,12 +236,12 @@ def test_each_embryo_is_called_at_the_roi_from_the_blocks_the_haplotype_view_rea
         1_000_000, 250_000, 2_000_000)
 
 
-def _verdict(embryo) -> tuple[str, list[str], list[tuple[str, float, float]]]:
+def _verdict(embryo) -> tuple[str, list[str], list[tuple[str, float, float, str | None]]]:
     verdict = embryo.qc_verdict
     return (
         verdict.status,
         verdict.sides,
-        [(finding.measure, finding.value, finding.threshold) for finding in verdict.findings],
+        [(finding.measure, finding.value, finding.threshold, finding.flank) for finding in verdict.findings],
     )
 
 
@@ -241,16 +254,25 @@ def test_each_embryo_gets_its_qc_verdict_checked_on_the_side_its_call_reads(monk
     assert _verdict(risk) == (
         "warning",
         ["paternal"],
-        [("informative_sites", 40, 50), ("mendel_rate", 0.025, 0.02), ("paternal_markers", 2, 6)],
+        [
+            ("informative_sites", 40, 50, None),
+            ("mendel_rate", 0.025, 0.02, None),
+            ("paternal_markers", 1, 6, "left"),
+            ("paternal_markers", 1, 6, "right"),
+        ],
     )
-    assert _verdict(clear) == ("warning", ["paternal"], [("informative_sites", 38, 50), ("paternal_markers", 0, 6)])
+    assert _verdict(clear) == (
+        "warning",
+        ["paternal"],
+        [("informative_sites", 38, 50, None), ("paternal_markers", 0, 6, "left"), ("paternal_markers", 0, 6, "right")],
+    )
     # The call stands: a warning beside it, never a change to it.
     assert (risk.call, clear.call) == ("affected_or_at_risk", "unaffected_non_carrier")
     # The thresholds in force travel with the analysis.
     assert out.rules.qc_thresholds.model_dump() == {
         "min_informative_sites": 50,
         "max_mendel_rate": 0.02,
-        "min_markers_per_side": 6,
+        "min_markers_per_flank": 6,
     }
 
 
@@ -258,7 +280,12 @@ def test_an_embryo_whose_qc_meets_every_threshold_passes(monkeypatch) -> None:
     markers = _markers()
     risk = markers.samples[1]
     risk.qc = PhasedSampleQc(informative_sites=60, mendel_errors=1, mendel_rate=1 / 60)
-    risk.markers = [PhasedMarker(pos=30_510_000 + index, hap1=1, hap2=None) for index in range(6)]
+    # Six paternal markers on each flank of the ROI.
+    risk.markers = [
+        PhasedMarker(pos=position + index, hap1=1, hap2=None)
+        for position in (30_400_000, 30_700_000)
+        for index in range(6)
+    ]
     _patch_reads(monkeypatch, markers=markers)
     out = asyncio.run(pgt_analysis.family_pgt_analysis(_session(), _context()))
 
@@ -319,7 +346,7 @@ def test_a_record_holding_the_qc_verdict_is_compared_whole(monkeypatch) -> None:
     current = _current(monkeypatch)
     assert pgt_analysis.comparable_with_record(current, current) == (current, [])
     # A threshold or verdict that changed since the record was signed is not hidden.
-    moved = {**current, "rules": {**current["rules"], "qc_thresholds": {**current["rules"]["qc_thresholds"], "min_markers_per_side": 3}}}
+    moved = {**current, "rules": {**current["rules"], "qc_thresholds": {**current["rules"]["qc_thresholds"], "min_markers_per_flank": 3}}}
     assert pgt_analysis.comparable_with_record(current, moved) == (moved, [])
 
 
@@ -475,7 +502,7 @@ def _x_haplotypes() -> HaplotypeResponse:
 
 @pytest.mark.parametrize("written", ["one allele", "twice"])
 def test_at_an_x_linked_roi_a_man_one_x_raises_no_qc_warning(monkeypatch, written) -> None:
-    # 60 sites in the ROI. The mother is heterozygous at each (homolog 1 carries the ALT); the
+    # 60 sites around the ROI, 30 on each flank. The mother is heterozygous at each (homolog 1 carries the ALT); the
     # father's one X carries the REF at half of them and the ALT at the other half. The son
     # and his affected brother carry her homolog 1, the daughter her father's X and her
     # mother's homolog 0. Read as two copies, the men's calls written once left no site, and
@@ -485,7 +512,13 @@ def test_at_an_x_linked_roi_a_man_one_x_raises_no_qc_warning(monkeypatch, writte
 
     members = ["FATHER", "MOTHER", "INDEX", "E_SON", "E_DAUGHTER"]
     rows = [
-        (31_000_000 + 1_000 * i, "A", "G", members, [man(f), "0|1", man("1"), man("1"), f"{f}|0"])
+        (
+            (30_970_000 + 1_000 * i) if i < 30 else (31_110_000 + 1_000 * (i - 30)),
+            "A",
+            "G",
+            members,
+            [man(f), "0|1", man("1"), man("1"), f"{f}|0"],
+        )
         for i, f in enumerate(["0", "1"] * 30)
     ]
 
@@ -513,4 +546,5 @@ def test_at_an_x_linked_roi_a_man_one_x_raises_no_qc_warning(monkeypatch, writte
         assert (embryo.qc.informative_sites, embryo.qc.mendel_errors, embryo.qc.mendel_rate) == (60, 0, 0.0)
         # Each reads its mother's homolog at every site; no father's homolog is told apart.
         assert (embryo.qc.paternal_markers, embryo.qc.maternal_markers) == (0, 60)
+        assert (embryo.qc.maternal_markers_left, embryo.qc.maternal_markers_right) == (30, 30)
         assert _verdict(embryo) == ("pass", ["maternal"], [])

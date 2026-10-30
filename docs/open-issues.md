@@ -237,11 +237,14 @@ per-change approval, and records the first review before the RC tag.
 - **CLIN-61 · The PGT phasing-QC thresholds are provisional.** Since #908, as the owner
   decided on 2026-10-20, an embryo call carries a warning, never a block, when its phasing
   QC at the ROI has fewer than 50 informative sites, a Mendelian error rate above 2 % or
-  fewer than 6 markers on a parent's side the call reads (counted over the whole region and
-  on imputed data, where ESHRE counts each side of the gene); signed records freeze these
-  values. At exactly 2 % the Sample QC warns and the haplotype track does not; the verdict
-  follows the track. The laboratory director and QA confirm the values, and whether a small
-  ROI should include its flanks, as the warning will fire often there.
+  fewer than 6 markers on a parent's side the call reads (on imputed data, where ESHRE's
+  counts assume amplified loci); signed records freeze these values. Since 2026-10-30 (the
+  owner's decision) the QC is counted over the window the call reads, the ROI and 1 Mb on
+  each side, and the markers on each flank of the ROI apart: a PGT pipeline run gives the
+  variant itself as its ROI, so every embryo was warned of 0 markers, while Mendelian errors
+  near the ROI went unseen. At exactly 2 % the Sample QC warns and
+  the haplotype track does not; the verdict follows the track. The laboratory director and
+  QA confirm the values and the 1 Mb window.
   Since #914 a man's one X counts outside the PARs; the validation could include an X-linked
   locus with men's calls written once and written twice (#914, #927).
 - **SEC-6 · The request audit holds clinical content with no retention period.**

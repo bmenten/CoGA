@@ -182,7 +182,8 @@ the clinical report in the EPD refers to:
 - in a PGT family, the **embryo calls** at the region of interest, the calls the family page shows: the
   ROI, the inheritance model, the disease haplotype, and for each embryo its call, the haplotypes it
   inherited at the ROI, its warnings (missing data, an unrecorded sex, a recombination or a parent's
-  phase correction near the ROI), its QC at the ROI (informative sites and Mendelian error rate) and
+  phase correction near the ROI), its QC over the ROI and 1 Mb on each side (informative sites,
+  Mendelian error rate and the markers on each flank) and
   that QC's verdict against the thresholds in force (met; not met, with each measure, its value and
   its threshold; or not counted), with those thresholds, and the haplotype file the calls were read
   from. A monogenic NIPT family's fetus, which the import reads as an embryo when its sex and status

@@ -50,7 +50,7 @@ const analysis = (embryos: PgtEmbryoOut[], overrides: Partial<PgtAnalysisOut> = 
     window_flank: 1_000_000,
     recombination_flank: 250_000,
     phase_switch_uncertainty: 2_000_000,
-    qc_thresholds: { min_informative_sites: 50, max_mendel_rate: 0.02, min_markers_per_side: 6 },
+    qc_thresholds: { min_informative_sites: 50, max_mendel_rate: 0.02, min_markers_per_flank: 6 },
   },
   ...overrides,
 });
@@ -125,7 +125,7 @@ describe('embryoClassificationsFromAnalysis', () => {
     const warning: PgtEmbryoQcVerdictOut = {
       status: 'warning',
       sides: ['paternal'],
-      findings: [{ measure: 'paternal_markers', value: 3, threshold: 6 }],
+      findings: [{ measure: 'paternal_markers', value: 3, threshold: 6, flank: 'left' }],
     };
     const out = embryoClassificationsFromAnalysis(
       analysis([embryo({ sample: 'E_LOW', call: 'affected_or_at_risk', qc_verdict: warning })], {
@@ -136,7 +136,7 @@ describe('embryoClassificationsFromAnalysis', () => {
     expect(out.get('E_LOW')).toMatchObject({
       state: 'affected_or_at_risk',
       qcVerdict: warning,
-      qcNotCountedReason: 'the ROI holds more sites than the marker review reads',
+      qcNotCountedReason: 'the ROI and its flanks hold more sites than the marker review reads',
     });
   });
 });
@@ -152,29 +152,34 @@ describe('the phasing-QC warning', () => {
   });
 
   it('names each measure that does not meet its threshold, with its value and the threshold', () => {
-    expect(describeQcFinding({ measure: 'informative_sites', value: 6, threshold: 50 })).toBe(
+    expect(describeQcFinding({ measure: 'informative_sites', value: 6, threshold: 50, flank: null })).toBe(
       '6 informative sites (fewer than 50)',
     );
-    expect(describeQcFinding({ measure: 'informative_sites', value: 1, threshold: 50 })).toBe(
+    expect(describeQcFinding({ measure: 'informative_sites', value: 1, threshold: 50, flank: null })).toBe(
       '1 informative site (fewer than 50)',
     );
-    expect(describeQcFinding({ measure: 'mendel_rate', value: 1 / 6, threshold: 0.02 })).toBe(
+    expect(describeQcFinding({ measure: 'mendel_rate', value: 1 / 6, threshold: 0.02, flank: null })).toBe(
       'Mendelian error rate 16.7% (above 2%)',
     );
-    expect(describeQcFinding({ measure: 'paternal_markers', value: 3, threshold: 6 })).toBe(
-      "3 markers on the father's side (fewer than 6)",
+    // A parent's markers are counted on each flank of the ROI, and the finding says which.
+    expect(describeQcFinding({ measure: 'paternal_markers', value: 3, threshold: 6, flank: 'left' })).toBe(
+      "3 markers on the father's side left of the ROI (fewer than 6)",
     );
-    expect(describeQcFinding({ measure: 'maternal_markers', value: 1, threshold: 6 })).toBe(
-      "1 marker on the mother's side (fewer than 6)",
+    expect(describeQcFinding({ measure: 'maternal_markers', value: 1, threshold: 6, flank: 'right' })).toBe(
+      "1 marker on the mother's side right of the ROI (fewer than 6)",
+    );
+    // A record from before the flanks were counted apart names none.
+    expect(describeQcFinding({ measure: 'paternal_markers', value: 3, threshold: 6, flank: null })).toBe(
+      "3 markers on the father's side (fewer than 6)",
     );
   });
 
   it('never shows a rate just above the maximum as the maximum itself', () => {
     // 2 errors in 99 sites is 2.02%: read to one decimal it would say "2.0% (above 2%)".
-    expect(describeQcFinding({ measure: 'mendel_rate', value: 2 / 99, threshold: 0.02 })).toBe(
+    expect(describeQcFinding({ measure: 'mendel_rate', value: 2 / 99, threshold: 0.02, flank: null })).toBe(
       'Mendelian error rate 2.02% (above 2%)',
     );
-    expect(describeQcFinding({ measure: 'mendel_rate', value: 0.020004, threshold: 0.02 })).toBe(
+    expect(describeQcFinding({ measure: 'mendel_rate', value: 0.020004, threshold: 0.02, flank: null })).toBe(
       'Mendelian error rate 2.0004% (above 2%)',
     );
     expect(formatQcRate(0.0125)).toBe('1.25%');
@@ -192,14 +197,14 @@ describe('the phasing-QC warning', () => {
       qcVerdictWarning(
         verdict({
           findings: [
-            { measure: 'informative_sites', value: 6, threshold: 50 },
-            { measure: 'paternal_markers', value: 3, threshold: 6 },
+            { measure: 'informative_sites', value: 6, threshold: 50, flank: null },
+            { measure: 'paternal_markers', value: 3, threshold: 6, flank: 'right' },
           ],
         }),
         'the embryo is not recorded as a child of the couple',
       ),
     ).toBe(
-      "The phasing QC at the ROI does not meet its thresholds: 6 informative sites (fewer than 50); 3 markers on the father's side (fewer than 6). " +
+      "The phasing QC at the ROI does not meet its thresholds: 6 informative sites (fewer than 50); 3 markers on the father's side right of the ROI (fewer than 6). " +
         'The call stands: review the ROI markers before relying on it.',
     );
   });
