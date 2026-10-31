@@ -133,4 +133,10 @@
   --color-stain-gvar: #e0e0e0;
   --color-stain-acen: #e60000;
   --color-stain-stalk: #94a3b8;
+
+  /* DNA bases in the genome browsers' convention (A green, C blue, G orange), deepened so
+     that white letters on them stay legible; the sign-in page's wordmark uses them. */
+  --color-base-a: #2e7d32;
+  --color-base-c: #1f5fa8;
+  --color-base-g: #b45f06;
 }
