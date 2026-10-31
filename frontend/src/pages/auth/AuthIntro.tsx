@@ -99,6 +99,11 @@ const DELETION: [number, number] = [196, 262];
 const DUPLICATION: [number, number] = [466, 544];
 const INVERSION: [number, number] = [598, 642];
 const SV_ROW = 120;
+const SV_CALLS: Array<['del' | 'dup' | 'inv', [number, number]]> = [
+  ['del', DELETION],
+  ['dup', DUPLICATION],
+  ['inv', INVERSION],
+];
 // A bin's scatter around its segment's depth: a fixed pseudo-random value in [-1, 1].
 const scatter = (bin: number) => {
   const value = Math.sin(bin * 12.9898) * 43758.5453;
@@ -142,20 +147,21 @@ const inExon = (x: number) =>
 // variant and a diamond an indel; each stands on its exon, or on the intron line.
 type VariantClass = 'pathogenic' | 'vus' | 'benign';
 const VARIANTS: Array<[number, number, VariantClass, 'snv' | 'indel']> = [
-  [85, 146, 'pathogenic', 'snv'],
-  [131, 158, 'vus', 'indel'],
-  [289, 152, 'benign', 'snv'],
-  [444, 150, 'vus', 'snv'],
-  [527, 142, 'pathogenic', 'indel'],
-  [586, 160, 'benign', 'snv'],
-  [655, 150, 'benign', 'indel'],
+  [85, 160, 'pathogenic', 'snv'],
+  [131, 166, 'vus', 'indel'],
+  [289, 163, 'benign', 'snv'],
+  [444, 163, 'vus', 'snv'],
+  [527, 158, 'pathogenic', 'indel'],
+  [586, 168, 'benign', 'snv'],
+  [655, 164, 'benign', 'indel'],
 ];
 
 /**
  * A genome-browser motif: chromosome 8's real G-banded ideogram with band 8q24.21 selected,
  * and below it that region as CoGA shows it: a coverage track with a deletion, a
- * duplication and an inversion, variants marked by class, and two genes with their exons. Drawn with classes only (no inline
- * styles), and hidden from assistive technology: it says nothing the text beside it does not.
+ * duplication and an inversion and their calls, variants marked by class, and two genes with
+ * their exons. Drawn with classes only (no inline styles), and hidden from assistive
+ * technology: it says nothing the text beside it does not.
  */
 const GenomeMotif: React.FC = () => {
   const regionStart = round(toX(REGION[0]) - 1);
@@ -229,14 +235,20 @@ const GenomeMotif: React.FC = () => {
           y2={LEVEL[call]}
         />
       ))}
-      <path
-        className="auth-motif-inversion-cross"
-        d={`M${INVERSION[0]},${LEVEL.neutral - 12} L${INVERSION[1]},${LEVEL.neutral + 12} M${INVERSION[0]},${LEVEL.neutral + 12} L${INVERSION[1]},${LEVEL.neutral - 12}`}
-      />
 
-      <rect className="auth-motif-call auth-motif-call--del" x={DELETION[0]} y={SV_ROW} width={DELETION[1] - DELETION[0]} height="5" rx="1.5" />
-      <rect className="auth-motif-call auth-motif-call--dup" x={DUPLICATION[0]} y={SV_ROW} width={DUPLICATION[1] - DUPLICATION[0]} height="5" rx="1.5" />
-      <rect className="auth-motif-call auth-motif-call--inv" x={INVERSION[0]} y={SV_ROW} width={INVERSION[1] - INVERSION[0]} height="5" rx="1.5" />
+      {/* Each call under the coverage, with a dashed line from the dots down to it at either end. */}
+      {SV_CALLS.map(([type, [start, end]]) => {
+        const top = (type === 'dup' ? LEVEL.gain : LEVEL.neutral) - 7;
+        return (
+          <g key={type}>
+            <path
+              className="auth-motif-breakpoint"
+              d={`M${start},${top} V${SV_ROW} M${end},${top} V${SV_ROW}`}
+            />
+            <rect className={`auth-motif-call auth-motif-call--${type}`} x={start} y={SV_ROW} width={end - start} height="5" rx="1.5" />
+          </g>
+        );
+      })}
       <path
         className="auth-motif-call-cross"
         d={`M${INVERSION[0]},${SV_ROW} L${INVERSION[1]},${SV_ROW + 5} M${INVERSION[0]},${SV_ROW + 5} L${INVERSION[1]},${SV_ROW}`}

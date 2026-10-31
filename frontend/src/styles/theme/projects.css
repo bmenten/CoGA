@@ -258,8 +258,16 @@
   stroke: var(--color-coverage-gain);
 }
 
-/* The SV calls under the coverage, in the SV track's type colours; an inversion, which
-   leaves the depth flat, is drawn as CoGA draws it (outlined) and crossed, over the dots too. */
+/* The SV calls under the coverage, in the SV track's type colours, each joined to the dots by
+   a dashed line at either end; an inversion, which leaves the depth flat, is drawn as CoGA
+   draws it (outlined) and crossed. */
+.auth-motif-breakpoint {
+  fill: none;
+  stroke: var(--color-axis);
+  stroke-width: 0.8;
+  stroke-dasharray: 2 2;
+}
+
 .auth-motif-call--del {
   fill: var(--color-variant-del);
 }
@@ -274,16 +282,11 @@
   stroke-width: 1.2;
 }
 
-.auth-motif-call-cross,
-.auth-motif-inversion-cross {
+.auth-motif-call-cross {
   fill: none;
   stroke: var(--color-variant-inv);
   stroke-width: 1.2;
   stroke-linecap: round;
-}
-
-.auth-motif-inversion-cross {
-  stroke-width: 1.4;
 }
 
 .auth-motif-gene {
