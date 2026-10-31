@@ -25,7 +25,6 @@
   --fs-md: 0.875rem;
   --fs-lg: 1rem;
   --fs-xl: 1.125rem;
-  --fs-2xl: 1.375rem;
 
   /* Buttons, inputs and selects share one height; the small one is for controls in a table row. */
   --control-height: 1.75rem;
@@ -134,9 +133,10 @@
   --color-stain-acen: #e60000;
   --color-stain-stalk: #94a3b8;
 
-  /* DNA bases in the genome browsers' convention (A green, C blue, G orange), deepened so
-     that white letters on them stay legible; the sign-in page's wordmark uses them. */
-  --color-base-a: #2e7d32;
-  --color-base-c: #1f5fa8;
-  --color-base-g: #b45f06;
+  /* The logo's letters (frontend/src/assets/CoGA_3.png): C crimson, o slate, G purple,
+     A teal. */
+  --color-logo-c: #d91338;
+  --color-logo-o: #212d3c;
+  --color-logo-g: #51418b;
+  --color-logo-a: #067c84;
 }
