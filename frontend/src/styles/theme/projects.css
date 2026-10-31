@@ -13,7 +13,7 @@
   grid-template-columns: minmax(0, 1fr);
   gap: 1.25rem;
   align-items: center;
-  width: min(52rem, 100%);
+  width: min(70rem, 100%);
 }
 
 .auth-card {
@@ -26,7 +26,7 @@
 
 .auth-intro {
   display: grid;
-  gap: 0.5rem;
+  gap: 0.75rem;
   justify-self: center;
   max-width: 22rem;
   text-align: center;
@@ -35,62 +35,99 @@
 .auth-intro-title {
   display: grid;
   justify-items: center;
-  gap: 0.375rem;
-  font-size: var(--fs-xl);
-  line-height: 1.3;
-  font-weight: 600;
-  color: var(--color-heading);
+  gap: 0.25rem;
 }
 
-/* The name in sequence-track letters: C, G and A on their base colours, the o between them
-   a plain letter, as a genome browser draws the reference sequence at base resolution. */
-.auth-wordmark-letters {
-  display: inline-flex;
-  align-items: flex-end;
-  gap: 0.1875rem;
-  font-family: var(--font-mono);
-  font-size: 1.75rem;
+/* The logo's wordmark (README): C, o, G and A each in its colour, the A without a crossbar,
+   over a strand with base pairs at the C, the G and the A. */
+.auth-wordmark-logo {
+  display: block;
+  width: 8.5rem;
+  height: auto;
+}
+
+.auth-wordmark-letter {
+  font-family: var(--font-sans);
+  font-size: 58px;
+  font-weight: 500;
+  text-anchor: middle;
+  fill: currentColor;
+}
+
+.auth-wordmark-letter--c {
+  color: var(--color-logo-c);
+}
+
+.auth-wordmark-letter--o {
+  color: var(--color-logo-o);
+}
+
+.auth-wordmark-letter--g {
+  color: var(--color-logo-g);
+}
+
+.auth-wordmark-letter--a {
+  color: var(--color-logo-a);
+}
+
+.auth-wordmark-a {
+  fill: none;
+  stroke: var(--color-logo-a);
+  stroke-width: 6.5;
+  stroke-linecap: butt;
+  stroke-linejoin: round;
+}
+
+.auth-wordmark-strand {
+  fill: none;
+  stroke: url(#auth-wordmark-strand);
+  stroke-width: 2.25;
+  stroke-linecap: round;
+}
+
+.auth-wordmark-stop--c {
+  stop-color: var(--color-logo-c);
+}
+
+.auth-wordmark-stop--g {
+  stop-color: var(--color-logo-g);
+}
+
+.auth-wordmark-stop--a {
+  stop-color: var(--color-logo-a);
+}
+
+.auth-wordmark-pair {
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+/* The name under the wordmark, as in the logo: spaced capitals, the initials in their
+   letters' colours. */
+.auth-intro-name {
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--color-logo-o);
+}
+
+.auth-intro-name span {
   font-weight: 700;
-  line-height: 1;
-}
-
-.auth-wordmark-base {
-  display: inline-grid;
-  place-items: center;
-  width: 1.15em;
-  height: 1.3em;
-  border-radius: 0.2em;
-  color: var(--color-white);
-}
-
-.auth-wordmark-base--a {
-  background: var(--color-base-a);
-}
-
-.auth-wordmark-base--c {
-  background: var(--color-base-c);
-}
-
-.auth-wordmark-base--g {
-  background: var(--color-base-g);
-}
-
-.auth-wordmark-o {
-  padding: 0 0.05em 0.12em;
-  color: var(--color-signature-red);
 }
 
 .auth-intro-copy {
   font-size: var(--fs-md);
-  line-height: 1.5;
+  line-height: 1.55;
   color: var(--color-secondary);
 }
 
-/* Three short points under the copy, each led by a thin signature-red rule. */
+/* Four short points under the copy, each led by a thin signature-red rule. */
 .auth-intro-points {
   display: none;
-  gap: 0.375rem;
-  margin: 0.125rem 0 0;
+  gap: 0.75rem 1.5rem;
+  margin: 0;
   padding: 0;
   list-style: none;
   font-size: var(--fs-sm);
@@ -104,6 +141,7 @@
 }
 
 .auth-intro-points strong {
+  display: block;
   font-weight: 600;
   color: var(--color-heading);
 }
@@ -123,12 +161,11 @@
   justify-self: center;
   width: 100%;
   height: auto;
-  margin-bottom: 0.25rem;
 }
 
 .auth-motif-label {
   font-family: var(--font-sans);
-  font-size: 7.5px;
+  font-size: 10px;
   font-weight: 600;
   fill: var(--color-text-muted);
 }
@@ -165,28 +202,28 @@
 .auth-motif-outline {
   fill: none;
   stroke: var(--color-heading);
-  stroke-width: 0.6;
+  stroke-width: 0.7;
   stroke-linejoin: round;
 }
 
 .auth-motif-region {
   fill: var(--color-signature-red-soft);
   stroke: var(--color-signature-red);
-  stroke-width: 1.2;
+  stroke-width: 1.4;
 }
 
 .auth-motif-zoom {
   fill: none;
   stroke: var(--color-signature-red);
-  stroke-width: 0.6;
-  stroke-dasharray: 2 2;
+  stroke-width: 0.7;
+  stroke-dasharray: 3 3;
   opacity: 0.7;
 }
 
 .auth-motif-panel {
   fill: var(--color-surface-muted);
   stroke: var(--color-border);
-  stroke-width: 0.6;
+  stroke-width: 0.7;
 }
 
 .auth-motif-coverage-area {
@@ -202,7 +239,7 @@
 .auth-motif-coverage {
   fill: none;
   stroke: var(--color-coverage-gain);
-  stroke-width: 1;
+  stroke-width: 1.2;
   stroke-linejoin: round;
 }
 
@@ -212,13 +249,13 @@
 
 .auth-motif-gene {
   stroke: var(--color-gene-stroke);
-  stroke-width: 1;
+  stroke-width: 1.2;
 }
 
 .auth-motif-strand {
   fill: none;
   stroke: var(--color-gene-stroke);
-  stroke-width: 0.8;
+  stroke-width: 1;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
@@ -227,45 +264,50 @@
   fill: var(--color-gene-fill);
 }
 
-/* A variant's flag on its pole, coloured by its classification. */
-.auth-motif-pole {
+/* A variant: a circle (SNV) or a diamond (indel) on a stem, coloured by its classification. */
+.auth-motif-stem {
   stroke: var(--color-axis);
-  stroke-width: 0.8;
+  stroke-width: 1;
 }
 
-.auth-motif-flag--pathogenic .auth-motif-pennant {
+.auth-motif-marker {
+  stroke: var(--color-surface);
+  stroke-width: 1;
+}
+
+.auth-motif-variant--pathogenic .auth-motif-marker {
   fill: var(--color-signature-red);
 }
 
 /* The amber of a finding that is neither pathogenic nor benign (findings.css). */
-.auth-motif-flag--vus .auth-motif-pennant {
+.auth-motif-variant--vus .auth-motif-marker {
   fill: #b47d2d;
 }
 
-.auth-motif-flag--benign .auth-motif-pennant {
+.auth-motif-variant--benign .auth-motif-marker {
   fill: var(--color-accent);
 }
 
 @media (min-width: 768px) {
   .auth-layout {
     grid-template-columns: minmax(0, 1fr) 22rem;
-    gap: 2.5rem;
+    gap: 3rem;
   }
 
   .auth-intro {
     justify-self: stretch;
-    max-width: 26rem;
+    max-width: 44rem;
     text-align: left;
   }
 
   .auth-intro-title {
     justify-items: start;
-    font-size: var(--fs-2xl);
   }
 
   .auth-motif {
     display: block;
     justify-self: start;
+    margin-bottom: 0.25rem;
   }
 
   .auth-intro-points {
@@ -278,6 +320,13 @@
 
   .auth-card {
     width: 100%;
+  }
+}
+
+/* Wide enough for the points side by side, two by two. */
+@media (min-width: 1024px) {
+  .auth-intro-points {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
