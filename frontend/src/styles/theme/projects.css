@@ -226,25 +226,64 @@
   stroke-width: 0.7;
 }
 
-.auth-motif-coverage-area {
+/* The coverage track as CoGA draws it: a dot per bin in its segment's colour, and the
+   segments as lines. */
+.auth-motif-bin--neutral {
+  fill: var(--color-coverage-neutral);
+}
+
+.auth-motif-bin--loss {
+  fill: var(--color-coverage-loss);
+}
+
+.auth-motif-bin--gain {
   fill: var(--color-coverage-gain);
-  opacity: 0.16;
 }
 
-.auth-motif-deletion-area {
-  fill: var(--color-coverage-loss);
-  opacity: 0.22;
+.auth-motif-segment {
+  stroke-width: 1.4;
+  stroke-linecap: round;
 }
 
-.auth-motif-coverage {
-  fill: none;
+.auth-motif-segment--neutral {
+  stroke: var(--color-coverage-neutral);
+  opacity: 0.6;
+}
+
+.auth-motif-segment--loss {
+  stroke: var(--color-coverage-loss);
+}
+
+.auth-motif-segment--gain {
   stroke: var(--color-coverage-gain);
-  stroke-width: 1.2;
-  stroke-linejoin: round;
 }
 
-.auth-motif-deletion {
-  fill: var(--color-coverage-loss);
+/* The SV calls under the coverage, in the SV track's type colours; an inversion, which
+   leaves the depth flat, is drawn as CoGA draws it (outlined) and crossed, over the dots too. */
+.auth-motif-call--del {
+  fill: var(--color-variant-del);
+}
+
+.auth-motif-call--dup {
+  fill: var(--color-variant-dup);
+}
+
+.auth-motif-call--inv {
+  fill: var(--color-surface);
+  stroke: var(--color-variant-inv);
+  stroke-width: 1.2;
+}
+
+.auth-motif-call-cross,
+.auth-motif-inversion-cross {
+  fill: none;
+  stroke: var(--color-variant-inv);
+  stroke-width: 1.2;
+  stroke-linecap: round;
+}
+
+.auth-motif-inversion-cross {
+  stroke-width: 1.4;
 }
 
 .auth-motif-gene {
