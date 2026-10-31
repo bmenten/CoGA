@@ -29,9 +29,10 @@ Owner: ‹CMGG software lead› · Review cadence: each release, and on every De
 ([`scripts/frontend-audit-allowlist.json`](scripts/frontend-audit-allowlist.json)) is empty,
 so the production gate blocks on **any** high or critical advisory. Its one past exemption,
 the react-router RSC-mode CSRF bypass **GHSA-qwww-vcr4-c8h2**, was retired by the upgrade to
-react-router 8 (#389). The last production finding, `body-parser` **GHSA-27r3-jxmh-p828**
-(high, through express), was fixed on 2026-10-26 by the lockfile update to 2.4.0, within the
-range express 5.3.0 accepts.
+react-router 8 (#389). The last production finding, `follow-redirects` **GHSA-mrwp-f3q8-3g9p**
+(high, through axios), was fixed on 2026-10-31 by the lockfile update to 1.16.2, within the
+range axios 1.20.0 accepts; before it, `body-parser` **GHSA-27r3-jxmh-p828** (high, through
+express) was fixed on 2026-10-26 by the update to 2.4.0.
 
 ### 1c. Frontend dev/build tree — report-only
 
