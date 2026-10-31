@@ -11,8 +11,15 @@
   refers 1:1 to that analysis; CoGA's sign-out is the analyst's analytical sign-off, never the
   medical one. The technical file is in `docs/regulatory/`. Weigh every change for its
   clinical-safety, traceability and security consequences, not engineering merit alone.
-- The **data is synthetic** — there is no production PHI and no legacy code or data to
-  preserve. Build cleanly; ignore old datasets.
+- The **repository's data is synthetic** — there is no production PHI and no legacy code or
+  data to preserve. Build cleanly; ignore old datasets.
+- The folders under `data/` that `.gitignore` excludes (`data/families/` and the like) may
+  hold **real patient data** on a developer's machine. Nothing from them reaches git, GitHub or
+  any outside service: no file, family or sample ID, gene, region or value, not in a test, a
+  doc, a commit message or a branch name. Tests and docs use synthetic IDs (`PROBAND`,
+  `MOTHER`, `FATHER1`, `EMB1`).
+- Anything that reaches GitHub (files, commits, PRs, issues) names roles, never people: "the
+  owner", "QA". The register of who holds each role is kept in the CMGG quality system.
 - **All actions in the interface are auditable** — queries and significant UI events flow
   through the durable audit/telemetry pipeline. The clinical audit trail and the report
   sign-out records are append-only and hash-chained; do not weaken these guarantees.
@@ -42,6 +49,14 @@
   under `/api`. New endpoints follow the same pattern, enforce **project-scoped RBAC**
   (`services/access_control.py`, `services/family_metadata_context.py`) and use the right
   storage dependency.
+- A record outside the caller's projects answers 404 exactly like an unknown one
+  (`RecordNotVisible`), never 403. A UUID from a path, query or body is read with
+  `require_uuid` / `canonical_uuid` (`core/sql.py`); a family or sample ID follows
+  `services/family_identifiers.py` (printable, no whitespace).
+- Logs carry no values: log an exception with `describe_error` / `describe_traceback`
+  (`core/coga_logging.py`), never its text, which can repeat SQL parameters and patient data.
+  A clinical note or a signed-record section that could not be built holds a fixed sentence,
+  never the error's text.
 - Clinical and business logic lives in `backend/app/services/`. The clinical-critical
   modules (scoring, variant search, storage and review, data and knowledgebase import,
   traceability and sign-out, sample integrity) are the ones listed under `[tool.mypy]` in
@@ -67,6 +82,12 @@
   data-integrity guarantees. A new append-only table needs its `*_block_mutation` trigger, the
   `REVOKE` in `05_grants.sql`, and its entry in
   `backend/tests/integration/test_app_role_privileges.py`.
+- ClickHouse has no transactions, so every writer of a family's variants holds
+  `lock_family_variant_writes` (`services/family_variant_write_lock.py`) from before its first
+  read of the rows until its transaction ends (`docs/database.md`, "One write at a time per
+  family"). It deletes with `ALTER TABLE … DELETE … SETTINGS mutations_sync = 1` and never stores
+  a `sign = -1` row: the `entries` readers filter `sign = 1` without `FINAL` and rely on it
+  ("Deletes are synchronous").
 
 ## Frontend & Integration
 
@@ -81,15 +102,31 @@
   cascade order: put a rule in the module of the feature it styles, and never reorder the imports.
 - The in-app docs are Markdown under `frontend/src/content/docs/` and render at `/docs`; the
   user-guide text is pinned by `UserGuideContent.test.tsx`.
+- A new section of the signed record is also parsed in
+  `frontend/src/pages/families/signedReportRecord.ts` and rendered in `SignedFamilyReport.tsx`;
+  otherwise the signed view silently leaves it out. The steps are in
+  `docs/clinical-traceability.md`, "Adding a section to the signed record".
 
 ## Security & Testing
 
 - Follow `docs/security-posture.md`: project-scoped RBAC, append-only audit, encryption and
   TLS, rate limiting.
+- The secret scan (gitleaks) reads every commit of every pushed branch, so a key- or
+  token-shaped literal in a test fails it even after a later commit removes it. Build such
+  values at runtime (`base64.b64encode(bytes(range(32))).decode()`).
 - Before you finish, run the checks in `CONTRIBUTING.md`, section "Before you open a PR". In
   short: `ruff check .`, `mypy` and `python -m pytest` from the repository root; in
   `frontend/`, `npm run tsc`, `npm run lint` and `npx vitest run` — run both tsc and vitest,
   because each misses what the other catches.
+- `python -m pytest` alone runs the unit suite: without `RUN_INTEGRATION=1` and a running
+  Postgres and ClickHouse the integration and end-to-end tests are skipped. Run them as
+  `docs/testing.md` ("How to run") shows, integration and end-to-end as separate runs (in one
+  process they hit event-loop errors), and say which suites you ran. Run the backend and
+  frontend suites one after the other, not at the same time: timing-sensitive tests fail under
+  the combined load.
+- Branch from `main` as `type/short-description` and write Conventional Commits
+  (`CONTRIBUTING.md`, "Branches and commits"). The PR description states the change's level
+  (patch, minor or major) and why ("Change classification").
 - A new or deleted test file needs its row in `docs/testing.md`
   (`./scripts/check-test-catalogue.sh`). After editing a handleiding chapter, run
   `python docs/handleiding/build_site.py` and commit the rebuilt HTML.
