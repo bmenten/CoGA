@@ -647,6 +647,16 @@ before its own transaction locks that row (its record of what it brings), which 
 write would wait for. A deletion of the family's data writes its mark the same way, under its
 locks and before its transaction updates or deletes the family row (SAFE-31).
 
+### Deletes are synchronous
+
+The `entries` tables are `CollapsingMergeTree(sign)`, but CoGA never uses the collapse: no
+writer stores a `sign = -1` row. Every delete or rewrite of a family's rows runs `ALTER TABLE …
+DELETE … SETTINGS mutations_sync = 1`, which returns once the old rows are gone, so the readers
+that filter `sign = 1` without `FINAL` (the family views, the variant explorer,
+`count_cfdna_carriers`) never see a stale row. A new writer deletes synchronously before it
+inserts. One that stored cancel rows, or a replacement that relies on a merge to drop the old
+row, would need `FINAL` on all of those reads.
+
 ### Row identity
 
 A stored row is one callset's call of one variant, in one family and one project. When
