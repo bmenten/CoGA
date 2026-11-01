@@ -9,6 +9,7 @@ export type FamilyModuleKey =
   | 'small-variants'
   | 'structural-variants'
   | 'repeat-expansions'
+  | 'pgs'
   | 'paraphase'
   | 'mitochondrial-dna'
   | 'nipt'
@@ -44,6 +45,7 @@ const FamilyModuleNav: React.FC<{
       withProject: true,
     },
     { key: 'repeat-expansions', label: 'Repeat expansions', available: presence.hasRepeatExpansions, withProject: false },
+    { key: 'pgs', label: 'Exploratory PGS', available: true, withProject: true },
     { key: 'paraphase', label: 'Paraphase', available: presence.hasParaphase, withProject: false },
     { key: 'mitochondrial-dna', label: 'mtDNA analysis', available: presence.hasMitoDna, withProject: true },
     { key: 'nipt', label: 'Monogenic NIPT', available: isMonogenicNipt, withProject: false },

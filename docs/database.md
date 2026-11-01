@@ -761,3 +761,30 @@ created on first use, and an `SNV_INDEL/entries` table created with the narrower
 is widened then ([ClickHouse Tables](#clickhouse-tables)). The full startup order is in
 [application-scheme.md](application-scheme.md), "Startup and background work"; the reference
 data it loads is listed in [data-import.md](data-import.md), section 1.
+
+## Exploratory PGS (revision 0013)
+
+The separate [exploratory PGS module](exploratory-pgs.md) is excluded from clinical sign-out.
+Its tables are defined in `04_traceability.sql` and protected by `05_grants.sql`.
+
+| Table | Holds |
+| --- | --- |
+| `pgs_models` | Curated PGS IDs and their current archive state; no delete API |
+| `pgs_model_versions` | Append-only versioned scoring text and resolved weights, study/source, GRCh38 build, original/resolved checksums and reference provenance |
+| `pgs_sources` | Append-only successful full-WGS import snapshots: immutable family/project identities, complete source location/checksum, sample list, storage version and genotype-content fingerprint, absence assumption |
+| `pgs_runs` | Durable calculation queue with pinned source/model versions and requester identity, status, timestamps and fixed failure/interruption reasons |
+| `pgs_results` | Append-only raw scores or explicit incomplete results, per-individual QC counts, calculation version and assumptions, linked to the exact run/source/version |
+
+Model publication queues no historical calculations. Only successful declared full-WGS
+imports and manual family requests queue work. A running job holds its run row `FOR UPDATE`
+and shared family variant-write locks until all results and its completed state commit
+together. An unlocked running job older than ten minutes is interrupted, never retried.
+Cancellation rolls back results and records an interruption. A content fingerprint (count,
+sum and XOR of genotype-row hashes) supplements the mutation token to detect direct row
+loss/changes. Unavailable/changed storage blocks scoring and keeps historical values visible.
+
+The three append-only PGS tables have their own `*_block_mutation` triggers and revoked
+UPDATE/DELETE/TRUNCATE privileges. Their immutable identities have no mutable family, project
+or account FK; deleting those records retains historical evidence. Every read resolves the
+current family and selected project permissions first, so retained rows cannot reveal a
+deleted or inaccessible family's values. PGS content never enters a signed clinical record.

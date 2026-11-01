@@ -184,6 +184,13 @@ export interface Body_import_nipt_artifacts_endpoint_api_admin_nipt_artifacts_im
   assay_key?: string;
 }
 
+export interface Body_publish_pgs_version_api_admin_pgs_models__pgs_id__versions_post {
+  version: string;
+  study: string;
+  source_url: string;
+  file: string;
+}
+
 export interface Body_token_api_auth_token_post {
   grant_type?: string | null;
   username: string;
@@ -800,6 +807,18 @@ export interface FamilyParaphaseTableOut {
   samples: FamilyMemberOut[];
   genes: ParaphaseGeneResultOut[];
   genes_count: number;
+}
+
+export interface FamilyPgsOut {
+  project_id: string;
+  source_state: string;
+  sources: PgsSourceOut[];
+  runs: PgsRunOut[];
+  results: PgsResultOut[];
+  versions: PgsVersionOut[];
+  pending_version_ids: string[];
+  can_calculate: boolean;
+  notices: string[];
 }
 
 export interface FamilyPhenotypeMatchOut {
@@ -2289,6 +2308,72 @@ export interface PedFamilyResult {
 
 export interface PedUploadResult {
   families: PedFamilyResult[];
+}
+
+export interface PgsArchiveIn {
+  archived: boolean;
+}
+
+export interface PgsCatalogueOut {
+  shortlist: string[];
+  versions: PgsVersionOut[];
+}
+
+export interface PgsResultOut {
+  id: string;
+  run_id: string;
+  source_id: string;
+  version_id: string;
+  sample_id: string;
+  raw_score: number | null;
+  status: "complete" | "incomplete";
+  qc: Record<string, number>;
+  calculation_version: string;
+  assumptions: Record<string, string | boolean>;
+  created_at: string;
+  current_source: boolean;
+}
+
+export interface PgsRunOut {
+  id: string;
+  source_id: string;
+  version_ids: string[];
+  status: "queued" | "running" | "completed" | "failed" | "interrupted";
+  error: string | null;
+  requested_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+export interface PgsSourceOut {
+  id: string;
+  import_job_id: string | null;
+  package_path: string;
+  relative_vcf: string;
+  sha256: string;
+  storage_version: string;
+  storage_fingerprint: string;
+  file_size: number;
+  file_mtime_ns: number;
+  samples: string[];
+  absent_record_is_hom_ref: boolean;
+  imported_at: string;
+}
+
+export interface PgsVersionOut {
+  id: string;
+  pgs_id: string;
+  version: string;
+  revision: number;
+  archived: boolean;
+  study: string;
+  source_url: string;
+  genome_build: "GRCh38";
+  weights_sha256: string;
+  resolved_sha256: string;
+  reference: Record<string, string>;
+  variant_count: number;
+  created_at: string;
 }
 
 /** The PGT analysis at the family's ROI: the disease haplotype and each embryo's call. */

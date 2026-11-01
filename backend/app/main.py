@@ -45,6 +45,7 @@ from .services.family_package_import import (
     family_package_import_worker,
     stop_family_package_import_worker,
 )
+from .services.pgs_service import pgs_worker, stop_pgs_worker
 from .services.repeat_expansion_pg import seed_builtin_repeat_catalog
 from .services.reference_metadata_service import seed_builtin_reference_tracks
 from .services.reference_source_service import (
@@ -119,9 +120,12 @@ async def lifespan(app: FastAPI):
         for _ in range(settings.family_import_worker_count)
     ]
 
+    pgs_stop = asyncio.Event()
+    pgs_task = asyncio.create_task(pgs_worker(pgs_stop))
     try:
         yield
     finally:
+        await stop_pgs_worker(pgs_task, pgs_stop)
         await stop_gene_reference_worker(worker_task, worker_stop)
         for family_import_worker_task in family_import_worker_tasks:
             await stop_family_package_import_worker(

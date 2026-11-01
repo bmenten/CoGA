@@ -493,3 +493,97 @@ DROP TRIGGER IF EXISTS family_structure_versions_immutable ON family_structure_v
 CREATE TRIGGER family_structure_versions_immutable
     BEFORE UPDATE OR DELETE ON family_structure_versions
     FOR EACH ROW EXECUTE FUNCTION family_structure_versions_block_mutation();
+
+-- Loaded by the baseline and revision 0013. Exploratory records never enter sign-out.
+CREATE TABLE IF NOT EXISTS pgs_models (
+    pgs_id text PRIMARY KEY CHECK (pgs_id ~ '^PGS[0-9]{6}$'),
+    archived boolean NOT NULL DEFAULT false
+);
+CREATE TABLE IF NOT EXISTS pgs_model_versions (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    pgs_id text NOT NULL REFERENCES pgs_models(pgs_id),
+    version text NOT NULL,
+    revision integer NOT NULL CHECK (revision > 0),
+    study text NOT NULL,
+    source_url text NOT NULL,
+    genome_build text NOT NULL DEFAULT 'GRCh38' CHECK (genome_build = 'GRCh38'),
+    weights_sha256 text NOT NULL,
+    resolved_sha256 text NOT NULL,
+    reference jsonb NOT NULL,
+    weights_text text NOT NULL,
+    weights jsonb NOT NULL,
+    variant_count integer NOT NULL CHECK (variant_count > 0),
+    created_at timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (pgs_id, version),
+    UNIQUE (pgs_id, revision)
+);
+CREATE TABLE IF NOT EXISTS pgs_sources (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    family_uuid uuid NOT NULL,
+    family_identifier text NOT NULL,
+    project_id uuid NOT NULL,
+    import_job_id uuid,
+    package_path text NOT NULL,
+    relative_vcf text NOT NULL,
+    sha256 text NOT NULL,
+    storage_version text NOT NULL,
+    storage_fingerprint text NOT NULL,
+    samples jsonb NOT NULL,
+    absent_record_is_hom_ref boolean NOT NULL,
+    file_size bigint NOT NULL,
+    file_mtime_ns bigint NOT NULL,
+    imported_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS pgs_sources_family ON pgs_sources(family_uuid, project_id, imported_at DESC);
+CREATE TABLE IF NOT EXISTS pgs_runs (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    family_uuid uuid NOT NULL,
+    family_identifier text NOT NULL,
+    project_id uuid NOT NULL,
+    source_id uuid NOT NULL REFERENCES pgs_sources(id),
+    version_ids jsonb NOT NULL,
+    requested_by uuid NOT NULL,
+    status text NOT NULL DEFAULT 'queued'
+        CHECK (status IN ('queued', 'running', 'completed', 'failed', 'interrupted')),
+    error text,
+    requested_at timestamptz NOT NULL DEFAULT now(),
+    started_at timestamptz,
+    finished_at timestamptz
+);
+CREATE INDEX IF NOT EXISTS pgs_runs_queue ON pgs_runs(status, requested_at);
+CREATE TABLE IF NOT EXISTS pgs_results (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    run_id uuid NOT NULL REFERENCES pgs_runs(id),
+    source_id uuid NOT NULL REFERENCES pgs_sources(id),
+    version_id uuid NOT NULL REFERENCES pgs_model_versions(id),
+    sample_id text NOT NULL,
+    raw_score double precision,
+    status text NOT NULL CHECK (status IN ('complete', 'incomplete')),
+    qc jsonb NOT NULL,
+    calculation_version text NOT NULL,
+    assumptions jsonb NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (run_id, version_id, sample_id),
+    CHECK ((status = 'complete') = (raw_score IS NOT NULL))
+);
+
+-- No cascade-mutated columns: these records keep their original identifiers even after
+-- a family/project/account is deleted. Access always resolves a *current* family/project.
+CREATE OR REPLACE FUNCTION pgs_model_versions_block_mutation() RETURNS trigger AS $$
+BEGIN RAISE EXCEPTION 'PGS model versions are append-only'; END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS pgs_model_versions_no_mutation ON pgs_model_versions;
+CREATE TRIGGER pgs_model_versions_no_mutation BEFORE UPDATE OR DELETE ON pgs_model_versions
+    FOR EACH ROW EXECUTE FUNCTION pgs_model_versions_block_mutation();
+CREATE OR REPLACE FUNCTION pgs_sources_block_mutation() RETURNS trigger AS $$
+BEGIN RAISE EXCEPTION 'PGS WGS sources are append-only'; END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS pgs_sources_no_mutation ON pgs_sources;
+CREATE TRIGGER pgs_sources_no_mutation BEFORE UPDATE OR DELETE ON pgs_sources
+    FOR EACH ROW EXECUTE FUNCTION pgs_sources_block_mutation();
+CREATE OR REPLACE FUNCTION pgs_results_block_mutation() RETURNS trigger AS $$
+BEGIN RAISE EXCEPTION 'PGS results are append-only'; END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS pgs_results_no_mutation ON pgs_results;
+CREATE TRIGGER pgs_results_no_mutation BEFORE UPDATE OR DELETE ON pgs_results
+    FOR EACH ROW EXECUTE FUNCTION pgs_results_block_mutation();

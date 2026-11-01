@@ -528,7 +528,25 @@ async def _execute_family_package_import_local(
                 session, family_id=family_context.family_id, mark=import_mark
             )
             raise
-        return await _import_family_datasets(
+        # Bind the original complete WGS file before the variant loader can filter it.
+        # PGS bookkeeping is separate from the clinical import and never fails that import.
+        from .pgs_service import register_full_wgs
+        from .pgs_scoring import sha256_file
+        from .family_package_common import _resolve_package_path
+        from ..core.coga_logging import describe_error
+
+        pgs_checksum = None
+        declaration = bundle.manifest.metadata.get("pgs")
+        if isinstance(declaration, dict) and declaration.get("full_wgs") is True:
+            try:
+                snv = bundle.manifest.datasets.get("snv")
+                path = _resolve_package_path(bundle.root, snv.family_vcf if snv else None)
+                if path is not None:
+                    pgs_checksum = await asyncio.to_thread(sha256_file, path)
+            except Exception as exc:  # noqa: BLE001 - optional PGS bookkeeping; sanitized type only
+                logger.warning("PGS source precheck failed: %s", describe_error(exc))
+                logs.append("Exploratory PGS source could not be verified; no PGS calculation will run.")
+        result = await _import_family_datasets(
             session,
             bundle=bundle,
             validation=validation,
@@ -543,6 +561,19 @@ async def _execute_family_package_import_local(
             import_mark=import_mark,
             user=user,
         )
+        if result.completed and not result.error and pgs_checksum is not None:
+            try:
+                async with session.begin_nested():
+                    await register_full_wgs(
+                        session, bundle=bundle, context=family_context, project_id=project_id,
+                        user=user, datasets=result.datasets, job_id=job_id,
+                        expected_sha256=pgs_checksum,
+                    )
+                await session.commit()
+            except Exception as exc:  # noqa: BLE001 - optional PGS bookkeeping; sanitized type only
+                logger.warning("PGS source registration failed: %s", describe_error(exc))
+                result.logs.append("Exploratory PGS source was not registered; verify its full-WGS declaration and import again.")
+        return result
 
 
 async def _import_family_datasets(

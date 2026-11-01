@@ -71,3 +71,4 @@ REVOKE UPDATE, DELETE, TRUNCATE ON
     audit_log_events, clinical_audit_events, report_signouts, integrity_anchors,
     qc_threshold_changes, family_structure_versions, ui_events
     FROM coga_app;
+REVOKE UPDATE, DELETE, TRUNCATE ON pgs_model_versions, pgs_sources, pgs_results FROM coga_app;

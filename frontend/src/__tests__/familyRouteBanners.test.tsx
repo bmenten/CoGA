@@ -152,6 +152,7 @@ const PAGE_DATA: Record<string, PageData> = {
     },
   },
   '/families/:familyId/repeat-expansions': { api: { '/families/F1/repeat-expansions': { samples: [], loci: [] } } },
+  '/families/:familyId/pgs': { api: { '/families/F1/pgs': { project_id: 'p1', source_state: 'GRCh38_required', sources: [], runs: [], results: [], versions: [], pending_version_ids: [], can_calculate: false, notices: [] } } },
   '/families/:familyId/paraphase': { api: { '/families/F1/paraphase': { samples: [], genes: [] } } },
   '/families/:familyId/mitochondrial-dna': {
     api: {

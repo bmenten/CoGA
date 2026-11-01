@@ -1949,3 +1949,14 @@ a list for a capture panel takes the panel's key, the `assay_panel` of its cfDNA
 
 Synthetic demo families and their loader are described in [demo/README.md](../demo/README.md);
 the helper scripts are listed in [scripts/README.md](../scripts/README.md).
+
+## Optional exploratory PGS after a full-WGS import
+
+A successful GRCh38 import can queue exploratory raw GT scores for the active, versioned
+PGS models. This is opt-in: the package must declare that it contains a complete joint
+full-WGS VCF and explicitly record whether an absent variant record may mean homozygous
+REF. Clinical display filters never supply this assumption; explicit no-calls and filtered
+records must remain in the source file. See the manifest example, eligibility/QC rules and
+manual retrospective workflow in [Exploratory PGS](exploratory-pgs.md). Scores and model
+history are visible on the family's separate Exploratory PGS page and are excluded from
+clinical interpretation and sign-out. Adding a model queues no historical calculations.
