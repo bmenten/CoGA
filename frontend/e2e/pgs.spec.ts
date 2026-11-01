@@ -33,15 +33,15 @@ test('administers PGS, imports full WGS, shows QC and history, and recalculates 
   const project = projects.find((p: { assembly_name?: string }) => p.assembly_name === 'GRCh38') || projects[0];
   const projectId: string = typeof project._id === 'object' ? project._id.$oid : project._id;
 
+  // Synthetic setup retains the version API; the admin UI now imports by Catalog ID.
   async function publish(label: string, text: string) {
+    const response = await page.request.post('/api/admin/pgs/models/PGS005091/versions', { headers: auth,
+      multipart: { version: label, study: 'Synthetic browser study; not real weights',
+        source_url: 'https://www.pgscatalog.org/score/PGS005091/',
+        file: { name: 'synthetic.tsv', mimeType: 'text/tab-separated-values', buffer: Buffer.from(text) } } });
+    expect(response.ok()).toBeTruthy();
     await page.goto('/admin/reference/pgs');
-    await page.getByLabel('PGS ID', { exact: true }).fill('PGS005091');
-    await page.getByLabel('Version label').fill(label);
-    await page.getByLabel('Study citation').fill('Synthetic browser study; not real weights');
-    await page.getByLabel('Source URL').fill('https://www.pgscatalog.org/score/PGS005091/');
-    await page.getByLabel('Scoring file').setInputFiles({ name: 'synthetic.tsv', mimeType: 'text/tab-separated-values', buffer: Buffer.from(text) });
-    await page.getByRole('button', { name: 'Save model version' }).click();
-    await expect(page.getByRole('status')).toContainText('Existing families are not recalculated automatically');
+    await expect(page.getByRole('article', { name: 'PGS005091 model' })).toBeVisible();
   }
 
   await publish(`browser-v1-${suffix}`, weights);
@@ -85,7 +85,7 @@ test('administers PGS, imports full WGS, shows QC and history, and recalculates 
   await expect(page.getByRole('button', { name: 'Archive PGS005091' })).toBeVisible();
 });
 
-test('imports a Catalog ID from admin and shows the complete metadata and reference status', async ({ page }) => {
+test('imports a Catalog ID from admin and shows the complete metadata and reference status', async ({ page }, testInfo) => {
   let imported = false;
   const pgs = 'PGS900009';
   const version = { id: 'synthetic-catalog-version', pgs_id: pgs, version: 'catalog-synthetic', revision: 1,
@@ -93,7 +93,7 @@ test('imports a Catalog ID from admin and shows the complete metadata and refere
     genome_build: 'GRCh38', weights_sha256: 'synthetic-weights', resolved_sha256: 'synthetic-resolved',
     variant_count: 2, created_at: '2026-11-01T00:00:00Z', reference: { reference: 'unresolved' },
     scoring_status: 'needs_reference', scoring_error: 'Every locus needs ref_allele or an indexed GRCh38 FASTA.',
-    catalog_metadata: { record: { name: 'Synthetic catalog model', trait_reported: 'Synthetic trait', license: 'Synthetic licence', publication: { title: 'Synthetic study' } },
+    catalog_metadata: { record: { name: 'Synthetic catalog model', trait_reported: 'Synthetic trait', license: 'Synthetic licence', publication: { title: 'Synthetic publication on polygenic score construction', firstauthor: 'Synthetic research team', journal: 'Synthetic journal', date_publication: '2025-04-01', doi: '10.1234/synthetic-study', PMID: 123456 }, method_name: 'Synthetic additive method', date_release: '2026-01-01' },
       retrieved_at: '2026-11-01T00:00:00Z', download_sha256: 'synthetic-download' } };
   await page.route('**/api/pgs/models', (route) => route.fulfill({ json: { shortlist: ['PGS005091'], versions: imported ? [version] : [] } }));
   await page.route('**/api/admin/pgs/catalog-imports', async (route) => {
@@ -112,11 +112,24 @@ test('imports a Catalog ID from admin and shows the complete metadata and refere
   await expect(page.getByRole('link', { name: 'Find a score in the PGS Catalog' })).toHaveAttribute('href', 'https://www.pgscatalog.org/');
   await page.getByLabel('Catalog PGS ID').fill(pgs);
   await page.getByRole('button', { name: 'Import GRCh38 from Catalog' }).click();
-  await expect(page.getByText('PGS900009 — Active')).toBeVisible();
-  await page.getByText('catalog-synthetic · GRCh38 · 2 loci · Reference required').click();
-  await expect(page.getByText(/Trait: Synthetic trait/)).toBeVisible();
-  await expect(page.getByText('Every locus needs ref_allele or an indexed GRCh38 FASTA.')).toBeVisible();
-  await page.getByText('Catalog metadata: study, traits, ancestry, licence and scoring-file header').click();
-  await expect(page.getByText(/Synthetic licence/)).toBeVisible();
+  const card = page.getByRole('article', { name: 'PGS900009 model' });
+  await expect(card).toBeVisible();
+  await expect(card.getByRole('heading', { name: pgs })).toBeVisible();
+  await expect(card.getByText('Synthetic trait', { exact: true }).first()).toBeVisible();
+  await expect(card.getByRole('link', { name: 'Synthetic publication on polygenic score construction' }).first()).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Manual model version upload' })).toHaveCount(0);
+  await expect(page.locator('input[type="file"]')).toHaveCount(0);
+  await expect(page.locator('pre')).toHaveCount(0);
+  await page.screenshot({ path: testInfo.outputPath('catalogue-desktop.png'), fullPage: true });
+  await card.getByText('Model details and version history (1)').click();
+  await expect(card.getByText('Synthetic licence', { exact: true })).toBeVisible();
+  await expect(card.getByText('Every locus needs ref_allele or an indexed GRCh38 FASTA.')).toBeVisible();
+  await card.getByText('Sources and checksums').click();
+  await expect(card.getByText('synthetic-download', { exact: true })).toBeVisible();
   await expect(page.getByRole('status')).toContainText('Existing families are not recalculated automatically');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(card.getByRole('heading', { name: pgs })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.screenshot({ path: testInfo.outputPath('catalogue-mobile.png'), fullPage: true });
 });

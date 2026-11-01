@@ -37,8 +37,13 @@ model; CoGA never silently falls back to an older version.
 Consecutive imports of unchanged metadata/weights/reference preparation reuse the current
 version. New contents or a Catalog rollback to earlier contents append a current revision;
 previous weights/results remain immutable. Importing a model does not queue family scores.
-Check the displayed licence before using a score. Manual TSV/TSV.gz upload remains available
-with an explicit version, study and HTTPS source URL; invalid manual files are refused.
+The model catalogue shows each PGS ID and score name, reported trait and study citation
+without opening technical records. The summary distinguishes ready, blocked and archived
+models. Expand a model to read its version history, method, ontology traits, training ancestry,
+licence and named source/checksum fields. No raw JSON is shown in administration.
+Check the displayed licence before using a score. The admin page imports by Catalog ID;
+its manual file-upload form has been removed. Historical custom versions remain visible
+with their stored study citation and source, even when Catalog metadata is absent.
 No approximate, partial, local liftover or strand-complement matching is applied.
 
 Supported columns: `chr_name`, `chr_position`, `effect_allele`, `effect_weight`, optional
@@ -290,3 +295,36 @@ byte equal to `pysam.faidx`/HTSlib's index, and independent random-access reads 
 The genome and generated index remain outside git. Full backend end-to-end/browser suites
 were not repeated for this deployment-only follow-up; earlier verification records above
 cover the unchanged PGS administration and family interface.
+
+
+## Administration catalogue verification — 2026-11-01
+
+Change classification: **minor** — a clearer exploratory administration workflow, with
+Catalog-ID import as the UI entry point and no calculation or clinical sign-out change.
+The manual upload form is removed from administration; its existing API remains available
+for historical/custom integrations and synthetic test setup. Complete stored metadata,
+immutable model versions and historical results remain intact.
+
+The catalogue now groups versions by PGS ID and selects the highest revision explicitly.
+Each card shows the score name, trait, publication/citation with DOI/PMID links, readiness,
+archive state, build, locus count and release date. Expand history for version labels,
+methods, original build, training ancestry/cohort count, licence and named reference/source
+checksums. Missing metadata is marked as not reported; raw JSON is not rendered.
+
+Verified in the isolated tracked-source copy, with synthetic inputs only:
+
+| Check | Result |
+| --- | --- |
+| Full backend unit suite | 6,993 passed; 1,190 datastore-dependent tests skipped in this unit run |
+| Focused admin and heading tests | 10 passed |
+| Full frontend with coverage | 204 files, 2,523 passed; lines 89.42%, statements 88.13%, branches 78.86%, functions 85.79% |
+| Chromium browser journeys | 2 passed; real synthetic full-WGS import/scoring/history flow with API-seeded models, plus Catalog ID import/card refresh and readable history on desktop/mobile using synthetic Catalog responses |
+| Visual inspection | Desktop and 390-pixel mobile screenshots inspected; no raw JSON or manual upload form; no horizontal overflow |
+| Ruff / mypy / TypeScript / ESLint | Passed; mypy checked 55 source files |
+| API types / test catalogue / handleiding sync | Passed |
+| Production dependency audit | Passed; no high/critical findings |
+
+The final status-colour/mobile-screenshot adjustment was also checked by rerunning the
+Catalog browser journey. The backend integration and full backend end-to-end suites were
+not repeated for this UI change; the browser family journey uses real temporary Postgres,
+ClickHouse, HTTP endpoints and workers, with no real family-data folders mounted.
