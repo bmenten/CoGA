@@ -1,6 +1,6 @@
 """Public API contracts for the separate exploratory PGS module."""
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -19,6 +19,9 @@ class PgsVersionOut(BaseModel):
     reference: dict[str, str]
     variant_count: int
     created_at: datetime
+    catalog_metadata: dict[str, Any] = Field(default_factory=dict)
+    scoring_status: Literal["ready", "needs_reference", "unsupported"] = "ready"
+    scoring_error: str | None = None
 
 
 class PgsCatalogueOut(BaseModel):
@@ -28,6 +31,26 @@ class PgsCatalogueOut(BaseModel):
 
 class PgsArchiveIn(BaseModel):
     archived: bool
+
+
+class PgsCatalogImportIn(BaseModel):
+    pgs_id: str = Field(pattern=r"^PGS[0-9]{6}$")
+
+
+class PgsCatalogImportOut(BaseModel):
+    id: str
+    pgs_id: str
+    status: Literal["queued", "running", "completed", "failed", "interrupted"]
+    version_id: str | None = None
+    error: str | None = None
+    requested_at: datetime
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+
+
+class PgsCatalogImportsOut(BaseModel):
+    jobs: list[PgsCatalogImportOut]
+    reference_configured: bool
 
 
 class PgsSourceOut(BaseModel):

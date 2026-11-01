@@ -930,13 +930,18 @@ technical-file requirement) update [TF-09b](regulatory/TF-09b-requirements-trace
 | --- | --- |
 | [`backend/tests/test_pgs_scoring.py`](../backend/tests/test_pgs_scoring.py) | GT arithmetic, REF effects, independent REF resolution through explicit alleles/indexed FASTA, all absent-record/no-call/filter/mismatch/sample/duplicate boundaries, model refusal and source checksums, using synthetic inputs |
 | [`backend/tests/e2e/test_e2e_family_pgs.py`](../backend/tests/e2e/test_e2e_family_pgs.py) | Real HTTP model lifecycle and full-WGS background import, automatic score/QC publication, no automatic retrospective calculation, manual versions, history, archive/reactivation, project rights, cancellation and genotype/source invalidation |
-| [`frontend/src/pages/admin/__tests__/AdminPgsPage.test.tsx`](../frontend/src/pages/admin/__tests__/AdminPgsPage.test.tsx) | Version upload with study/source, archive/reactivation, retained versions, retrospective-calculation notice and failed loading |
+| [`frontend/src/pages/admin/__tests__/AdminPgsPage.test.tsx`](../frontend/src/pages/admin/__tests__/AdminPgsPage.test.tsx) | Catalog link and ID-only import, job completion/model refresh, metadata/reference status, version upload with study/source, archive/reactivation, retained versions, retrospective-calculation notice and failed loading |
 | [`frontend/src/pages/families/__tests__/FamilyPgsPage.test.tsx`](../frontend/src/pages/families/__tests__/FamilyPgsPage.test.tsx) | Archived score history, QC/provenance, manual family calculation, incomplete results, unavailable-source blocking and retry |
-| [`frontend/e2e/pgs.spec.ts`](../frontend/e2e/pgs.spec.ts) | Browser model upload, real synthetic full-WGS import, raw scores and QC, pending versions, manual recalculation, provenance and archive/reactivation |
+| [`frontend/e2e/pgs.spec.ts`](../frontend/e2e/pgs.spec.ts) | Browser Catalog ID form and automatic model refresh with synthetic API responses; model upload, real synthetic full-WGS import, raw scores and QC, pending versions, manual recalculation, provenance and archive/reactivation |
 
-For PGS-only verification, run `python -m pytest backend/tests/test_pgs_scoring.py -q`,
-then `RUN_INTEGRATION=1 python -m pytest backend/tests/e2e/test_e2e_family_pgs.py -q`,
+For PGS-only verification, run `python -m pytest backend/tests/test_pgs_scoring.py backend/tests/test_pgs_catalog_service.py -q`,
+then `RUN_INTEGRATION=1 python -m pytest backend/tests/e2e/test_e2e_family_pgs.py backend/tests/e2e/test_e2e_pgs_catalog_import.py -q`,
 and the frontend suites as above. The browser journey uses the seeded administrator
 (`scripts/seed_playwright_e2e.py`) and synthetic files below the import roots. With a
 container backend, `PGS_E2E_HOST_PACKAGE_ROOT` and `PGS_E2E_SERVER_PACKAGE_ROOT` may map
 a temporary host folder to its container mount; no real data folder is required.
+
+| Test file | Verifies |
+| --- | --- |
+| [`backend/tests/test_pgs_catalog_service.py`](../backend/tests/test_pgs_catalog_service.py) | Official PGS/build/URL isolation, bounded downloads/decompression, complete file/count validation and retained Catalog metadata, using synthetic HTTP transport |
+| [`backend/tests/e2e/test_e2e_pgs_catalog_import.py`](../backend/tests/e2e/test_e2e_pgs_catalog_import.py) | Real HTTP/DB acquisition jobs, metadata preservation, current-version idempotency and rollbacks, reference/readiness and unsupported models, administrator rights/revocation, cancellation/orphans and no retrospective scoring |

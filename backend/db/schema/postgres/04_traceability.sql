@@ -513,10 +513,36 @@ CREATE TABLE IF NOT EXISTS pgs_model_versions (
     weights_text text NOT NULL,
     weights jsonb NOT NULL,
     variant_count integer NOT NULL CHECK (variant_count > 0),
+    catalog_metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+    scoring_status text NOT NULL DEFAULT 'ready' CHECK (scoring_status IN ('ready', 'needs_reference', 'unsupported')),
+    scoring_error text,
     created_at timestamptz NOT NULL DEFAULT now(),
     UNIQUE (pgs_id, version),
     UNIQUE (pgs_id, revision)
 );
+-- Existing immutable versions keep their weights and acquire only defaulted metadata.
+ALTER TABLE pgs_model_versions ADD COLUMN IF NOT EXISTS catalog_metadata jsonb NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE pgs_model_versions ADD COLUMN IF NOT EXISTS scoring_status text NOT NULL DEFAULT 'ready'
+    CHECK (scoring_status IN ('ready', 'needs_reference', 'unsupported'));
+ALTER TABLE pgs_model_versions ADD COLUMN IF NOT EXISTS scoring_error text;
+ALTER TABLE pgs_model_versions DROP CONSTRAINT IF EXISTS pgs_model_versions_prepared_check,
+    ADD CONSTRAINT pgs_model_versions_prepared_check CHECK (
+        (scoring_status = 'ready' AND jsonb_array_length(weights) = variant_count)
+        OR (scoring_status <> 'ready' AND jsonb_array_length(weights) = 0)
+    );
+CREATE TABLE IF NOT EXISTS pgs_catalog_imports (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    pgs_id text NOT NULL CHECK (pgs_id ~ '^PGS[0-9]{6}$'),
+    requested_by uuid NOT NULL,
+    status text NOT NULL DEFAULT 'queued'
+        CHECK (status IN ('queued', 'running', 'completed', 'failed', 'interrupted')),
+    version_id uuid REFERENCES pgs_model_versions(id),
+    error text,
+    requested_at timestamptz NOT NULL DEFAULT now(),
+    started_at timestamptz,
+    finished_at timestamptz
+);
+CREATE INDEX IF NOT EXISTS pgs_catalog_imports_queue ON pgs_catalog_imports(status, requested_at);
 CREATE TABLE IF NOT EXISTS pgs_sources (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     family_uuid uuid NOT NULL,

@@ -788,3 +788,18 @@ UPDATE/DELETE/TRUNCATE privileges. Their immutable identities have no mutable fa
 or account FK; deleting those records retains historical evidence. Every read resolves the
 current family and selected project permissions first, so retained rows cannot reveal a
 deleted or inaccessible family's values. PGS content never enters a signed clinical record.
+
+### Catalog PGS acquisition (revision 0014)
+
+`pgs_catalog_imports` is a durable administrator-only queue for downloading one PGS ID's
+official harmonized GRCh38 scoring file and metadata. It retains requester identity,
+status, timestamps, resulting version ID and fixed error/interruption reason. A run-row
+lock guards publication; the model version and completed job commit atomically.
+
+`pgs_model_versions` additionally stores immutable `catalog_metadata`, `scoring_status`
+(`ready`, `needs_reference`, `unsupported`) and `scoring_error`. Historic versions receive
+only the defaults; their weights/results do not change. A prepared-state constraint requires
+all declared weights for a ready version and zero resolved weights for a blocked version;
+the complete original scoring text is preserved in both cases. Family jobs select only the
+latest active ready version per PGS ID. A newer blocked version never selects an older one
+implicitly. No model acquisition triggers retrospective family calculation.

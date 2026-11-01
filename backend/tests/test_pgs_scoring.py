@@ -61,6 +61,13 @@ def test_negative_zero_weights_have_a_stable_jsonb_checksum_representation():
     assert repr(weights[0].weight) == "0.0"
 
 
+@pytest.mark.parametrize("column", ["is_interaction", "dosage_0_weight", "dosage_2_weight"])
+def test_catalog_non_additive_columns_are_never_scored_as_simple_gt(column):
+    model = MODEL.replace("effect_weight", f"effect_weight\t{column}").replace("0.5\n", "0.5\t1\n").replace("-1\n", "-1\t0\n")
+    with pytest.raises(PgsInputError, match="Non-additive"):
+        parse_weights(model, "PGS005091")
+
+
 def test_other_allele_need_not_be_ref_and_multiallelic_gt_is_resolved_by_base():
     weights = [Weight("1", 10, "A", "C", "T", 2)]
     assert calculate("1\t10\t.\tA\tT,C\t50\tPASS\t.\tGT\t1/2\n", weights=weights)[0]["raw_score"] == 2

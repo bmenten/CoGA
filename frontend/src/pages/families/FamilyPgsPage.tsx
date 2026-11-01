@@ -95,7 +95,7 @@ const FamilyPgsPage: React.FC = () => {
               <p>Weights SHA-256: <code>{version?.weights_sha256}</code>. Resolved weights: <code>{version?.resolved_sha256}</code>.</p>
               <p>WGS: {source?.package_path}/{source?.relative_vcf}. SHA-256: <code>{source?.sha256}</code>.</p>
               <p>Import job: {source?.import_job_id || 'Synchronous import'}. Genotype storage version: {source?.storage_version}. Fingerprint: {source?.storage_fingerprint}. Calculation: {result.calculation_version}.</p>
-              <pre className="overflow-auto">{JSON.stringify({ assumptions: result.assumptions, reference: version?.reference }, null, 2)}</pre>
+              <pre className="overflow-auto">{JSON.stringify({ assumptions: result.assumptions, reference: version?.reference, catalog: version?.catalog_metadata }, null, 2)}</pre>
             </details>;
           })}
         </section>

@@ -97,6 +97,8 @@ MODULE_FLOORS: dict[str, float] = {
 # job alone under-reports because real datastores exercise them.
 COMBINED_GLOBAL_FLOOR = 80.0  # (83.4)
 COMBINED_FLOORS: dict[str, float] = {
+    "backend/app/services/pgs_catalog_service.py": 80.0,  # bounded public downloads + real import lifecycle
+
     "backend/app/services/pgs_service.py": 79.0,  # real synthetic HTTP/import/storage lifecycle
 
     "backend/app/services/annotation_manifest_service.py": 92.0,  # (95.6)

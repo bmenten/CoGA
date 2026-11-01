@@ -62,7 +62,12 @@ async def exercise(root: Path, monkeypatch):
             async def snapshot():
                 response = await ac.get(f"/api/families/{family}/pgs", params={"project_id": project})
                 assert response.status_code == 200, response.text
-                return response.json()
+                data = response.json()
+                # Other imported Catalog models can coexist in the same test database.
+                # This lifecycle's arithmetic/history oracle concerns PGS005091 only.
+                own_versions = {v["id"] for v in data["versions"] if v["pgs_id"] == "PGS005091"}
+                data["results"] = [r for r in data["results"] if r["version_id"] in own_versions]
+                return data
 
             async def run_import(*, dry_run=False, expected="completed"):
                 response = await ac.post("/api/family-imports", json={"folder_path": str(root), "project_id": project,

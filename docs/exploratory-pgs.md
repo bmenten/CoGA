@@ -12,11 +12,33 @@ candidates, not a set of downloaded or validated models:
 `PGS005091`, `PGS000013`, `PGS000024`, `PGS012555`, `PGS004930`, `PGS000004`,
 `PGS000662`, `PGS000310`, `PGS002804`, `PGS003724`, `PGS000327`, `PGS002790`.
 
-Upload a scoring TSV or TSV.gz and record a distinct version label, the study citation and
-an HTTPS source URL. CoGA makes no network requests to fetch model weights. Include the
-study's citation and check the scoring file's licence before using it. Unsupported files
-are refused in full; presence in the shortlist does not establish suitability for this
-implementation. No approximate, partial, liftover or strand-complement matching is applied.
+Use the link to the public [PGS Catalog](https://www.pgscatalog.org/) to find a score, then
+enter its PGS ID and choose **Import GRCh38 from Catalog**. Any valid Catalog PGS ID may be
+imported; the shortlist is only a set of suggestions. A durable background job downloads
+the official harmonized GRCh38 `.txt.gz` (a gzip-compressed TSV) and its complete score API
+metadata. No local search engine or copy of the Catalog search interface is maintained.
+Only the public PGS ID leaves CoGA; no family, sample, genotype or caller credentials are sent.
+
+CoGA preserves the full scoring text, file headers, study/publication, DOI/PMID, traits,
+ancestry descriptions and development/training cohorts, method, licence, release dates,
+original/harmonized builds, URLs, retrieval time and compressed/API/weight checksums.
+The Catalog's original build may be GRCh37 while the imported harmonized coordinates are
+GRCh38. Metadata remains descriptive; ancestry descriptions never adjust scores.
+
+A complete valid download is saved even when reference resolution or model support is
+missing. Its version is marked `needs_reference` or `unsupported`, with the reason visible
+in administration. No subset of its variants is published as a usable score. A `ready`
+version must contain every declared weight, enforced in Postgres as well as by the parser.
+Configure the indexed GRCh38 FASTA once for files without explicit REF and import the ID
+again to append a prepared version. An unsupported newer version blocks selection of that
+model; CoGA never silently falls back to an older version.
+
+Consecutive imports of unchanged metadata/weights/reference preparation reuse the current
+version. New contents or a Catalog rollback to earlier contents append a current revision;
+previous weights/results remain immutable. Importing a model does not queue family scores.
+Check the displayed licence before using a score. Manual TSV/TSV.gz upload remains available
+with an explicit version, study and HTTPS source URL; invalid manual files are refused.
+No approximate, partial, local liftover or strand-complement matching is applied.
 
 Supported columns: `chr_name`, `chr_position`, `effect_allele`, `effect_weight`, optional
 `other_allele` and `ref_allele`. Coordinates must be explicitly declared by
@@ -35,7 +57,7 @@ New versions append weights and metadata. The SHA-256 of the decompressed UTF-8 
 text and a separate SHA-256 of resolved weights identify the exact model. A duplicate
 version label returns 409. Publishing a version queues no retrospective work. Archiving
 stops selection for future requests; reactivation makes its latest version selectable.
-Already queued jobs retain their pinned versions. All historical versions and values
+Already queued jobs retain their pinned versions, and must still be ready for scoring. All historical versions and values
 remain visible, including when a model is archived.
 
 ## Full-WGS import contract
@@ -107,8 +129,8 @@ scores from earlier imports and model versions, marking historical imports separ
 
 ## Integrity and interrupted tasks
 
-Sources and results are append-only, with mutation-blocking triggers and restricted-role
-grants. The HTTP audit and global UI telemetry cover the new controls and routes. None of
+Sources, model versions (including Catalog metadata) and results are append-only, with
+mutation-blocking triggers and restricted-role grants. The HTTP audit and global UI telemetry cover the new controls and routes. None of
 the PGS tables participates in the clinical sign-out snapshot or clinical interpretation.
 
 Runs are durable Postgres jobs, processed by a lifespan-managed worker. A run holds its
@@ -177,3 +199,53 @@ original scores stay in history. Real database tests verify mutation-blocking gr
 triggers, cancellation, orphan-run recovery, revoked project access, dry runs, failed
 imports, source changes/deletion, direct genotype row deletion without a version bump,
 unavailable genotype storage, and exclusion from the clinical report snapshot.
+
+## Catalog import integrity
+
+`pgs_catalog_imports` records queued/running/completed/failed/interrupted acquisition jobs.
+The existing PGS worker processes them before family calculations. A running import keeps
+its row lock until the complete model version and completed job commit together; failed,
+cancelled or unauthorized jobs publish no partial versions. The requester must remain an
+active administrator at execution and publication. Unlocked running jobs older than ten
+minutes become interrupted, while a live row lock prevents false recovery; retry is manual.
+Duplicate pending requests for one PGS ID share a job.
+
+Metadata is fetched only from `https://www.pgscatalog.org/rest/score/<PGS ID>/`. Downloads
+must match the exact official EBI GRCh38 path for that ID; redirects, alternate hosts,
+credentials, ports and query strings are refused. Transfer size, decompressed size and
+time are bounded. Gzip integrity, PGS ID, harmonized build, column structure and full
+variant counts are checked before publication. Tests use synthetic HTTP responses and
+synthetic weights, including IDs outside the shortlist; no live Catalog or patient data
+is embedded in fixtures.
+
+
+## Catalog import verification — 2026-11-01
+
+Follow-up to the initial PGS module: administration now links to the public Catalog and
+imports by PGS ID, without replicating Catalog search. Verification used the same isolated
+tracked-source copy, temporary databases and synthetic family data described above.
+
+| Check | Result |
+| --- | --- |
+| Backend unit suite | 6,952 passed; 1,188 datastore-dependent tests skipped in this unit run |
+| Focused migration and restricted-role integration tests | 31 passed, including upgrade from 0013 with historical weights unchanged, with frozen and pre-RC baselines |
+| Focused real backend PGS and Catalog lifecycle tests | 2 passed; real Postgres/ClickHouse and HTTP routes, with synthetic upstream Catalog responses |
+| Catalog acquisition / PGS lifecycle line coverage | 90% / 82% in the focused lifecycle run |
+| Frontend with coverage | 204 files, 2,519 tests passed; lines 89.4%, statements 88.11%, branches 78.78%, functions 85.76% |
+| Chromium browser journeys | 2 passed: full real family import/scoring/history flow; Catalog ID form, automatic model refresh, metadata and reference status using synthetic API responses |
+| Ruff / mypy / TypeScript / ESLint | Passed; mypy checked 54 source files |
+| Generated API types / test catalogue / handleiding sync | Passed |
+| Frontend production dependency audit | Passed with registry access; no high/critical findings |
+
+The Catalog lifecycle test covers complete weights and metadata, IDs outside the shortlist,
+unchanged-import reuse, updated weights and a Catalog rollback, reference preparation,
+unsupported models, failed downloads, revoked administrator rights before/after preparation,
+cancellation, locked/live and orphan jobs, and absence of retrospective scoring jobs.
+The full integration and backend end-to-end suites recorded above were not rerun for this
+follow-up; the focused suites exercise the changed migration and PGS paths.
+
+A separate read-only public format check validated the official PGS000004 score API response
+and harmonized GRCh38 file (313 rows). No public score was installed into family data or
+committed as a fixture. The complete model includes unsupported variant types and lacks
+explicit REF; acquisition and readiness are deliberately separate so these properties cannot
+produce a silently reduced or incorrectly oriented score.

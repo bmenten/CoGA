@@ -2314,6 +2314,26 @@ export interface PgsArchiveIn {
   archived: boolean;
 }
 
+export interface PgsCatalogImportIn {
+  pgs_id: string;
+}
+
+export interface PgsCatalogImportOut {
+  id: string;
+  pgs_id: string;
+  status: "queued" | "running" | "completed" | "failed" | "interrupted";
+  version_id: string | null;
+  error: string | null;
+  requested_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+export interface PgsCatalogImportsOut {
+  jobs: PgsCatalogImportOut[];
+  reference_configured: boolean;
+}
+
 export interface PgsCatalogueOut {
   shortlist: string[];
   versions: PgsVersionOut[];
@@ -2374,6 +2394,9 @@ export interface PgsVersionOut {
   reference: Record<string, string>;
   variant_count: number;
   created_at: string;
+  catalog_metadata: Record<string, unknown>;
+  scoring_status: "ready" | "needs_reference" | "unsupported";
+  scoring_error: string | null;
 }
 
 /** The PGT analysis at the family's ROI: the disease haplotype and each embryo's call. */

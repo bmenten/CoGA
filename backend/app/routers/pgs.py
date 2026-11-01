@@ -5,11 +5,23 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..core.postgres import get_postgres_session
 from ..dependencies import get_current_admin_user, get_current_user
 from ..pgs_schemas import FamilyPgsOut, PgsArchiveIn, PgsCatalogueOut, PgsRunOut, PgsVersionOut
+from ..pgs_schemas import PgsCatalogImportIn, PgsCatalogImportOut, PgsCatalogImportsOut
 from ..services.access_control import CurrentUser
 from ..services import pgs_service
+from ..services import pgs_catalog_service
 from ..services.upload_safety import decode_upload_text
 
 router = APIRouter(tags=["exploratory_pgs"])
+
+
+@router.get("/admin/pgs/catalog-imports", response_model=PgsCatalogImportsOut)
+async def get_catalog_imports(session: AsyncSession = Depends(get_postgres_session), user: CurrentUser = Depends(get_current_admin_user)) -> PgsCatalogImportsOut:
+    return await pgs_catalog_service.list_imports(session)
+
+
+@router.post("/admin/pgs/catalog-imports", response_model=PgsCatalogImportOut, status_code=202)
+async def import_catalog_score(payload: PgsCatalogImportIn, session: AsyncSession = Depends(get_postgres_session), user: CurrentUser = Depends(get_current_admin_user)) -> PgsCatalogImportOut:
+    return await pgs_catalog_service.queue_import(session, payload.pgs_id, user)
 
 
 @router.get("/pgs/models", response_model=PgsCatalogueOut)

@@ -31,6 +31,10 @@ class PgsInputError(ValueError):
     """Fixed, non-identifying message suitable for a job's error record."""
 
 
+class PgsReferenceError(PgsInputError):
+    """A model cannot be prepared until its reference alleles are available."""
+
+
 @dataclass(frozen=True, slots=True)
 class Weight:
     chrom: str
@@ -81,7 +85,8 @@ def parse_weights(value: str, pgs_id: str, fasta_path: str | None = None) -> tup
         raise PgsInputError("The scoring file must explicitly declare GRCh38 coordinates.")
     if not {"effect_allele", "effect_weight"} <= fields:
         raise PgsInputError("The scoring file needs effect_allele and additive effect_weight.")
-    if fields & {"is_dominant", "is_recessive", "is_haplotype", "is_diplotype", "interaction"}:
+    if fields & {"is_dominant", "is_recessive", "is_haplotype", "is_diplotype", "interaction", "is_interaction",
+                 "dosage_0_weight", "dosage_1_weight", "dosage_2_weight"}:
         raise PgsInputError("Non-additive models are not supported.")
     if not harmonized and not {"chr_name", "chr_position"} <= fields:
         raise PgsInputError("The scoring file needs GRCh38 chromosome and position columns.")
@@ -92,8 +97,11 @@ def parse_weights(value: str, pgs_id: str, fasta_path: str | None = None) -> tup
 
         path = Path(fasta_path)
         if not Path(f"{path}.fai").is_file():
-            raise PgsInputError("An indexed GRCh38 FASTA is required; its .fai is missing.")
-        fasta = pysam.FastaFile(str(path))
+            raise PgsReferenceError("An indexed GRCh38 FASTA is required; its .fai is missing.")
+        try:
+            fasta = pysam.FastaFile(str(path))
+        except OSError as exc:
+            raise PgsReferenceError("The configured indexed GRCh38 FASTA is unavailable.") from exc
         provenance = {"reference": "indexed GRCh38 FASTA", "fasta_sha256": sha256_file(path),
                       "fai_sha256": sha256_file(Path(f"{path}.fai"))}
     weights: list[Weight] = []
@@ -127,7 +135,7 @@ def parse_weights(value: str, pgs_id: str, fasta_path: str | None = None) -> tup
                     raise PgsInputError("ref_allele disagrees with the GRCh38 FASTA.")
                 ref = reference
             if ref not in BASES:
-                raise PgsInputError("Every locus needs ref_allele or an indexed GRCh38 FASTA.")
+                raise PgsReferenceError("Every locus needs ref_allele or an indexed GRCh38 FASTA.")
             if effect not in BASES or (other is not None and other not in BASES) or effect == other:
                 raise PgsInputError("Only single-base, distinct effect/other alleles are supported.")
             if (chrom, pos) in seen:

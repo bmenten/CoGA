@@ -7,6 +7,7 @@ import hashlib
 import json
 import logging
 from pathlib import Path
+import re
 from typing import Any
 from urllib.parse import urlparse
 
@@ -28,7 +29,7 @@ from .family_package_common import FamilyPackageBundle, _resolve_package_path
 from .family_package_source import _ensure_authorized_package_path, staged_package_source_async
 from .family_variant_write_lock import try_share_family_variant_writes
 from .metadata_service import get_accessible_family_mapping, get_current_user_by_id
-from .pgs_scoring import CALCULATION_VERSION, SHORTLIST, PgsInputError, Weight, parse_weights, score_file, sha256_file, weight_dicts
+from .pgs_scoring import CALCULATION_VERSION, SHORTLIST, PgsInputError, PgsReferenceError, Weight, parse_weights, score_file, sha256_file, weight_dicts
 
 logger = logging.getLogger(__name__)
 NOTICE = "Exploratory raw PGS only. No clinical interpretation, ancestry correction or clinical sign-out."
@@ -37,7 +38,7 @@ INTERRUPTED = "Calculation interrupted; no partial results were published. Reque
 _VERSIONS = """
     SELECT v.id::text, v.pgs_id, v.version, v.revision, m.archived, v.study, v.source_url,
            v.genome_build, v.weights_sha256, v.resolved_sha256, v.reference,
-           v.variant_count, v.created_at
+           v.variant_count, v.created_at, v.catalog_metadata, v.scoring_status, v.scoring_error
     FROM pgs_model_versions v JOIN pgs_models m USING (pgs_id)
     ORDER BY v.pgs_id, v.revision DESC
 """
@@ -75,38 +76,77 @@ async def genotype_fingerprint(family_uuid: str, project: str) -> str:
     return "ch-gt-v1:" + ":".join(str(int(v)) for v in rows[0])
 
 
-async def publish_version(session: AsyncSession, *, pgs_id: str, version: str, study: str,
-                          source_url: str, weights_text: str) -> PgsVersionOut:
+def active_versions(versions: list[PgsVersionOut]) -> list[PgsVersionOut]:
+    """Only the latest version of a model may be selected; never fall back silently."""
+    latest: dict[str, PgsVersionOut] = {}
+    for version in versions:
+        latest.setdefault(version.pgs_id, version)
+    return [v for v in latest.values() if not v.archived and v.scoring_status == "ready"]
+
+
+async def publish_version(session: AsyncSession, *, pgs_id: str, version: str | None, study: str,
+                          source_url: str, weights_text: str, catalog_metadata: dict[str, Any] | None = None,
+                          commit: bool = True) -> PgsVersionOut:
     url = urlparse(source_url)
-    if pgs_id not in SHORTLIST:
-        raise HTTPException(400, "Choose a PGS from the curated shortlist.")
-    if not version.strip() or len(version) > 100 or not study.strip() or len(study) > 4000:
+    if re.fullmatch(r"PGS[0-9]{6}", pgs_id) is None:
+        raise HTTPException(400, "Enter a valid PGS ID (PGS followed by six digits).")
+    if (version is not None and (not version.strip() or len(version) > 100)) or not study.strip() or len(study) > 4000:
         raise HTTPException(400, "A version label and study citation are required.")
     if url.scheme != "https" or not url.netloc or url.username or url.password or len(source_url) > 2000:
         raise HTTPException(400, "Provide an HTTPS source URL without credentials.")
+    scoring_status = "ready"
+    scoring_error = None
     try:
         weights, reference = await asyncio.to_thread(parse_weights, weights_text, pgs_id, settings.pgs_reference_fasta or None)
     except PgsInputError as exc:
-        raise HTTPException(400, str(exc)) from exc
+        if not catalog_metadata:
+            raise HTTPException(400, str(exc)) from exc
+        # Preserve a complete catalog file and all metadata even when it cannot be scored.
+        # Such a version never enters a scoring queue and contains no partial weight set.
+        weights, reference = [], {"reference": "unresolved"}
+        scoring_status = "needs_reference" if isinstance(exc, PgsReferenceError) else "unsupported"
+        scoring_error = str(exc)
     resolved = weight_dicts(weights)
+    weights_sha = hashlib.sha256(weights_text.encode()).hexdigest()
+    resolved_sha = hashlib.sha256(json.dumps(resolved, sort_keys=True).encode()).hexdigest()
+    if version is None:
+        if not catalog_metadata:
+            raise HTTPException(400, "A version label is required.")
+        material = weights_sha + resolved_sha + scoring_status + str(catalog_metadata["record_sha256"])
+        version = "catalog-" + hashlib.sha256(material.encode()).hexdigest()[:24]
+    version = version.strip()
     await session.execute(text("INSERT INTO pgs_models(pgs_id) VALUES (:pgs) ON CONFLICT DO NOTHING"), {"pgs": pgs_id})
     await session.execute(text("SELECT pgs_id FROM pgs_models WHERE pgs_id = :pgs FOR UPDATE"), {"pgs": pgs_id})
+    latest = (await session.execute(text("SELECT version, revision FROM pgs_model_versions WHERE pgs_id = :pgs ORDER BY revision DESC LIMIT 1"),
+                                    {"pgs": pgs_id})).mappings().first()
+    if catalog_metadata and latest and (latest["version"] == version or latest["version"].startswith(version + "-r")):
+        return next(v for v in (await catalogue(session)).versions if v.pgs_id == pgs_id and v.version == latest["version"])
     duplicate = (await session.execute(text("SELECT 1 FROM pgs_model_versions WHERE pgs_id = :pgs AND version = :version"),
                                        {"pgs": pgs_id, "version": version.strip()})).first()
     if duplicate:
-        raise HTTPException(409, "That model version already exists; publish a new version label.")
+        if catalog_metadata:
+            # A Catalog rollback to previously seen content is a new current revision,
+            # while consecutive identical imports reuse the latest immutable version.
+            version += f"-r{int(latest['revision']) + 1 if latest else 1}"
+        else:
+            raise HTTPException(409, "That model version already exists; publish a new version label.")
     await session.execute(text("""
         INSERT INTO pgs_model_versions(pgs_id, version, revision, study, source_url, weights_sha256,
-                                       resolved_sha256, reference, weights_text, weights, variant_count)
+                                       resolved_sha256, reference, weights_text, weights, variant_count,
+                                       catalog_metadata, scoring_status, scoring_error)
         SELECT :pgs, :version, COALESCE(MAX(revision), 0) + 1, :study, :url, :checksum,
-               :resolved_checksum, CAST(:reference AS jsonb), :original, CAST(:weights AS jsonb), :count
+               :resolved_checksum, CAST(:reference AS jsonb), :original, CAST(:weights AS jsonb), :count,
+               CAST(:catalog AS jsonb), :scoring_status, :scoring_error
         FROM pgs_model_versions WHERE pgs_id = :pgs
     """), {"pgs": pgs_id, "version": version.strip(), "study": study.strip(), "url": source_url,
-            "checksum": hashlib.sha256(weights_text.encode()).hexdigest(),
-            "resolved_checksum": hashlib.sha256(json.dumps(resolved, sort_keys=True).encode()).hexdigest(),
+            "checksum": weights_sha,
+            "resolved_checksum": resolved_sha,
             "reference": json.dumps(reference), "original": weights_text,
-            "weights": json.dumps(resolved), "count": len(weights)})
-    await session.commit()
+            "weights": json.dumps(resolved),
+            "count": len(weights) if not catalog_metadata else int(catalog_metadata["scoring_file"]["variant_count"]),
+            "catalog": json.dumps(catalog_metadata or {}), "scoring_status": scoring_status, "scoring_error": scoring_error})
+    if commit:
+        await session.commit()
     return next(v for v in (await catalogue(session)).versions if v.pgs_id == pgs_id and v.version == version.strip())
 
 
@@ -198,15 +238,17 @@ async def family_pgs(session: AsyncSession, family_id: str, user: CurrentUser, p
         ORDER BY r.created_at DESC, r.sample_id
     """), params)).mappings().all()
     results = [PgsResultOut(**dict(r), current_source=state == "ready" and r["source_id"] == sources[0].id) for r in result_rows]
-    latest: dict[str, PgsVersionOut] = {}
-    for version in versions:
-        if not version.archived:
-            latest.setdefault(version.pgs_id, version)
+    latest = {v.pgs_id: v for v in active_versions(versions)}
     covered = {r.version_id for r in results if r.current_source}
     pending = [v.id for v in latest.values() if v.id not in covered]
     notices = [NOTICE]
     if pending:
         notices.append("New or uncalculated model versions are available. Existing families are not recalculated automatically; request calculation for this family.")
+    blocked: dict[str, PgsVersionOut] = {}
+    for version in versions:
+        blocked.setdefault(version.pgs_id, version)
+    if any(not v.archived and v.scoring_status != "ready" for v in blocked.values()):
+        notices.append("Some imported model versions are not ready for GT scoring: reference validation or unsupported model features require attention in administration.")
     if state != "ready":
         notices.append("PGS calculation is unavailable: " + state.replace("_", " ") + ". Historical results remain visible.")
     return FamilyPgsOut(project_id=project, source_state=state, sources=sources, runs=runs, results=results,
@@ -237,10 +279,7 @@ async def queue_family(session: AsyncSession, family_id: str, user: CurrentUser,
         raise HTTPException(409, "A successful, unchanged GRCh38 full-WGS import and active models are required.")
     if any(run.status in {"queued", "running"} for run in snapshot.runs):
         raise HTTPException(409, "A PGS calculation is already queued or running for this family.")
-    latest: dict[str, str] = {}
-    for version in snapshot.versions:
-        if not version.archived:
-            latest.setdefault(version.pgs_id, version.id)
+    latest = {v.pgs_id: v.id for v in active_versions(snapshot.versions)}
     run_id = await _enqueue(session, context, project, snapshot.sources[0].id, list(latest.values()), user.id)
     await session.commit()
     return next(r for r in (await family_pgs(session, family_id, user, project)).runs if r.id == run_id)
@@ -289,10 +328,7 @@ async def register_full_wgs(session: AsyncSession, *, bundle: FamilyPackageBundl
             "path": bundle.source_uri or str(root), "relative": str(path.relative_to(root)),
             "checksum": checksum, "token": token, "fingerprint": fingerprint, "samples": json.dumps(sorted(context.sample_name_to_uuid)),
             "assume": declaration["absent_record_is_hom_ref"], "size": stat.st_size, "mtime": stat.st_mtime_ns})).scalar_one()
-    active: dict[str, str] = {}
-    for v in (await catalogue(session)).versions:
-        if not v.archived:
-            active.setdefault(v.pgs_id, v.id)
+    active = {v.pgs_id: v.id for v in active_versions((await catalogue(session)).versions)}
     if active:
         await _enqueue(session, context, project, str(source), list(active.values()), user.id)
     # The caller commits the source and its jobs together. Publishing a model never queues.
@@ -351,8 +387,10 @@ async def calculate_run(run_id: str) -> None:
                 raise PgsInputError("The import, family members or genotype storage changed; import full WGS again.")
             models: dict[str, list[Weight]] = {}
             for version in run["version_ids"]:
-                stored = (await session.execute(text("SELECT weights, resolved_sha256 FROM pgs_model_versions WHERE id = CAST(:id AS uuid)"),
+                stored = (await session.execute(text("SELECT weights, resolved_sha256, scoring_status FROM pgs_model_versions WHERE id = CAST(:id AS uuid)"),
                                                 {"id": require_uuid(version, "PGS version not found", status_code=404)})).mappings().one()
+                if stored["scoring_status"] != "ready":
+                    raise PgsInputError("A selected model version is not ready for GT scoring.")
                 if hashlib.sha256(json.dumps(stored["weights"], sort_keys=True).encode()).hexdigest() != stored["resolved_sha256"]:
                     raise PgsInputError("The stored model weights failed their checksum check.")
                 models[version] = [Weight(**item) for item in stored["weights"]]
@@ -397,8 +435,12 @@ async def calculate_run(run_id: str) -> None:
 
 
 async def pgs_worker(stop: asyncio.Event) -> None:
+    from .pgs_catalog_service import process_next_import
+
     while not stop.is_set():
         try:
+            if await process_next_import():
+                continue
             async with get_postgres_sessionmaker()() as session:
                 run_id = await claim_run(session)
             if run_id:

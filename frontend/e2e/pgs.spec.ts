@@ -35,7 +35,7 @@ test('administers PGS, imports full WGS, shows QC and history, and recalculates 
 
   async function publish(label: string, text: string) {
     await page.goto('/admin/reference/pgs');
-    await page.getByLabel('PGS ID').selectOption('PGS005091');
+    await page.getByLabel('PGS ID', { exact: true }).fill('PGS005091');
     await page.getByLabel('Version label').fill(label);
     await page.getByLabel('Study citation').fill('Synthetic browser study; not real weights');
     await page.getByLabel('Source URL').fill('https://www.pgscatalog.org/score/PGS005091/');
@@ -56,18 +56,19 @@ test('administers PGS, imports full WGS, shows QC and history, and recalculates 
     { timeout: 60_000 }).toBe('completed');
   const familyPath = `/families/${family}/pgs?project_id=${encodeURIComponent(projectId)}`;
   await page.goto(familyPath);
-  await expect(page.getByText('Incomplete — no raw score')).toBeVisible({ timeout: 30_000 });
-  await expect(page.getByText('-1.500000000', { exact: true })).toBeVisible();
-  await expect(page.getByText(/no call: 1/)).toBeVisible();
-  await expect(page.getByText(/total: 2; called: 1; assumed ref: 1/).first()).toBeVisible();
-  const oldRows = await page.locator('tbody tr').count();
+  const scoreRows = page.locator('tbody tr').filter({ hasText: 'PGS005091 /' });
+  await expect(scoreRows.getByText('Incomplete — no raw score')).toBeVisible({ timeout: 30_000 });
+  await expect(scoreRows.getByText('-1.500000000', { exact: true })).toBeVisible();
+  await expect(scoreRows.getByText(/no call: 1/)).toBeVisible();
+  await expect(scoreRows.getByText(/total: 2; called: 1; assumed ref: 1/).first()).toBeVisible();
+  const oldRows = await scoreRows.count();
 
   await publish(`browser-v2-${suffix}`, weights.replace('0.5', '1.0'));
   await page.goto(familyPath);
   await expect(page.getByText(/model version\(s\) await calculation/)).toBeVisible();
-  await expect(page.locator('tbody tr')).toHaveCount(oldRows);
+  await expect(scoreRows).toHaveCount(oldRows);
   await page.getByRole('button', { name: 'Calculate active models for this family' }).click();
-  await expect(page.locator('tbody tr')).toHaveCount(oldRows + 3, { timeout: 30_000 });
+  await expect(scoreRows).toHaveCount(oldRows + 3, { timeout: 30_000 });
   await expect(page.getByText(`PGS005091 / browser-v1-${suffix}`).first()).toBeVisible();
   await expect(page.getByText(`PGS005091 / browser-v2-${suffix}`).first()).toBeVisible();
   await page.getByText(new RegExp(`Provenance: ${proband} / PGS005091 / browser-v2-${suffix}`)).click();
@@ -78,8 +79,44 @@ test('administers PGS, imports full WGS, shows QC and history, and recalculates 
   await expect(page.getByRole('button', { name: 'Reactivate PGS005091' })).toBeVisible();
   await page.goto(familyPath);
   await expect(page.getByText(`PGS005091 / browser-v1-${suffix} (archived)`).first()).toBeVisible();
-  await expect(page.locator('tbody tr')).toHaveCount(oldRows + 3);
+  await expect(scoreRows).toHaveCount(oldRows + 3);
   await page.goto('/admin/reference/pgs');
   await page.getByRole('button', { name: 'Reactivate PGS005091' }).click();
   await expect(page.getByRole('button', { name: 'Archive PGS005091' })).toBeVisible();
+});
+
+test('imports a Catalog ID from admin and shows the complete metadata and reference status', async ({ page }) => {
+  let imported = false;
+  const pgs = 'PGS900009';
+  const version = { id: 'synthetic-catalog-version', pgs_id: pgs, version: 'catalog-synthetic', revision: 1,
+    archived: false, study: 'Synthetic browser study', source_url: 'https://ftp.ebi.ac.uk/pub/databases/spot/pgs/scores/PGS900009/ScoringFiles/Harmonized/PGS900009_hmPOS_GRCh38.txt.gz',
+    genome_build: 'GRCh38', weights_sha256: 'synthetic-weights', resolved_sha256: 'synthetic-resolved',
+    variant_count: 2, created_at: '2026-11-01T00:00:00Z', reference: { reference: 'unresolved' },
+    scoring_status: 'needs_reference', scoring_error: 'Every locus needs ref_allele or an indexed GRCh38 FASTA.',
+    catalog_metadata: { record: { name: 'Synthetic catalog model', trait_reported: 'Synthetic trait', license: 'Synthetic licence', publication: { title: 'Synthetic study' } },
+      retrieved_at: '2026-11-01T00:00:00Z', download_sha256: 'synthetic-download' } };
+  await page.route('**/api/pgs/models', (route) => route.fulfill({ json: { shortlist: ['PGS005091'], versions: imported ? [version] : [] } }));
+  await page.route('**/api/admin/pgs/catalog-imports', async (route) => {
+    const job = { id: 'synthetic-job', pgs_id: pgs, status: 'completed', version_id: version.id,
+      error: null, requested_at: '2026-11-01T00:00:00Z', started_at: null, finished_at: null };
+    if (route.request().method() === 'POST') {
+      expect(route.request().postDataJSON()).toEqual({ pgs_id: pgs });
+      imported = true;
+      await route.fulfill({ status: 202, json: { ...job, status: 'queued', version_id: null } });
+    } else {
+      await route.fulfill({ json: { jobs: imported ? [job] : [], reference_configured: false } });
+    }
+  });
+  await login(page);
+  await page.goto('/admin/reference/pgs');
+  await expect(page.getByRole('link', { name: 'Find a score in the PGS Catalog' })).toHaveAttribute('href', 'https://www.pgscatalog.org/');
+  await page.getByLabel('Catalog PGS ID').fill(pgs);
+  await page.getByRole('button', { name: 'Import GRCh38 from Catalog' }).click();
+  await expect(page.getByText('PGS900009 — Active')).toBeVisible();
+  await page.getByText('catalog-synthetic · GRCh38 · 2 loci · Reference required').click();
+  await expect(page.getByText(/Trait: Synthetic trait/)).toBeVisible();
+  await expect(page.getByText('Every locus needs ref_allele or an indexed GRCh38 FASTA.')).toBeVisible();
+  await page.getByText('Catalog metadata: study, traits, ancestry, licence and scoring-file header').click();
+  await expect(page.getByText(/Synthetic licence/)).toBeVisible();
+  await expect(page.getByRole('status')).toContainText('Existing families are not recalculated automatically');
 });

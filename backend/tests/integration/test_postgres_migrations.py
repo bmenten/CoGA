@@ -414,6 +414,7 @@ def test_a_new_database_ends_with_exactly_the_schema_the_baseline_files_create(
     expected, actual, ledger = _run(_body)
 
     assert actual == expected, _differences(expected, actual)
+
     assert ledger == [head_revision()]
     # The fingerprint is not empty: the comparison covers the whole schema.
     assert len(expected["columns"]) > 500 and len(expected["triggers"]) >= 5
@@ -423,6 +424,53 @@ def test_a_new_database_ends_with_exactly_the_schema_the_baseline_files_create(
     assert not {
         row[2] for row in expected["table_privileges"] if row[0] == "alembic_version" and row[1] == "coga_app"
     } - {"SELECT"}
+
+
+@_MODES
+def test_pgs_catalog_upgrade_keeps_historical_weights_and_adds_only_defaults(monkeypatch, reapply_baselines: bool) -> None:
+    """A real revision-0013 table upgrades with immutable weights intact, including frozen baselines."""
+    import json
+    import hashlib
+    from backend.app.core import postgres_migrations
+    from backend.app.core.postgres_migrations import apply_postgres_schema, head_revision
+
+    monkeypatch.setattr(postgres_migrations, "REAPPLY_BASELINES_ON_EVERY_RUN", reapply_baselines)
+    async def body(database):
+        engine = _engine(database)
+        try:
+            async with engine.begin() as conn:
+                await apply_postgres_schema(conn)
+                await conn.exec_driver_sql("DROP TABLE pgs_catalog_imports")
+                await conn.exec_driver_sql("ALTER TABLE pgs_model_versions DROP CONSTRAINT pgs_model_versions_prepared_check, DROP COLUMN catalog_metadata, DROP COLUMN scoring_status, DROP COLUMN scoring_error")
+                await conn.execute(text("UPDATE alembic_version SET version_num = '0013'"))
+                await conn.execute(text("INSERT INTO pgs_models(pgs_id) VALUES ('PGS900010')"))
+                weights = [{"chrom": "1", "pos": 10, "ref": "A", "effect": "G", "other": "A", "weight": 0.5}]
+                await conn.execute(text("""
+                    INSERT INTO pgs_model_versions(pgs_id, version, revision, study, source_url,
+                        weights_sha256, resolved_sha256, reference, weights_text, weights, variant_count)
+                    VALUES ('PGS900010', 'historical', 1, 'Synthetic study', 'https://example.org/study',
+                        :checksum, :checksum, '{}'::jsonb, 'synthetic weights', CAST(:weights AS jsonb), 1)
+                """), {"checksum": hashlib.sha256(b"synthetic weights").hexdigest(), "weights": json.dumps(weights)})
+                before = (await conn.execute(text("SELECT to_jsonb(v) FROM pgs_model_versions v"))).scalar_one()
+            async with engine.begin() as conn:
+                revision = await apply_postgres_schema(conn)
+                after = (await conn.execute(text("SELECT to_jsonb(v) FROM pgs_model_versions v"))).scalar_one()
+                privileges = (await conn.execute(text("SELECT has_table_privilege('coga_app', 'pgs_catalog_imports', 'INSERT')"))).scalar_one()
+        finally:
+            await engine.dispose()
+        reference = await _create_database()
+        try:
+            await _apply_baseline_files(reference)
+            expected, actual = await _fingerprint(reference), await _fingerprint(database)
+        finally:
+            await _drop_database(reference)
+        return revision, before, after, privileges, expected, actual
+    revision, before, after, privileges, expected, actual = _run(body)
+    assert (revision.before, revision.after) == ('0013', head_revision())
+    assert {k: v for k, v in after.items() if k not in {'catalog_metadata', 'scoring_status', 'scoring_error'}} == before
+    assert after['catalog_metadata'] == {} and after['scoring_status'] == 'ready' and after['scoring_error'] is None
+    assert privileges is True
+    assert actual == expected, _differences(expected, actual)
 
 
 @_MODES

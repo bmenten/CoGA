@@ -16,7 +16,7 @@ const renderPage = () => render(<QueryClientProvider client={createTestQueryClie
 describe('exploratory PGS administration', () => {
   beforeEach(() => {
     vi.resetAllMocks();
-    api.get.mockResolvedValue({ data: { shortlist: ['PGS005091', 'PGS000013'], versions: [version] } });
+    api.get.mockImplementation((url: string) => Promise.resolve({ data: url.endsWith('/catalog-imports') ? { jobs: [], reference_configured: false } : { shortlist: ['PGS005091', 'PGS000013'], versions: [version] } }));
     api.post.mockResolvedValue({ data: version });
     api.put.mockResolvedValue({ data: {} });
   });
@@ -54,5 +54,26 @@ describe('exploratory PGS administration', () => {
     api.get.mockRejectedValue(new Error('Unavailable'));
     renderPage();
     expect(await screen.findByRole('alert')).toHaveTextContent('Unavailable');
+  });
+  it('links to the Catalog and imports any PGS ID with its metadata in the background', async () => {
+    let imported = false;
+    const catalogVersion = { ...version, id: 'catalog-v1', pgs_id: 'PGS900001', scoring_status: 'needs_reference',
+      scoring_error: 'Every locus needs ref_allele or an indexed GRCh38 FASTA.',
+      catalog_metadata: { record: { name: 'Synthetic catalog model', trait_reported: 'Synthetic trait', license: 'Synthetic licence' },
+        retrieved_at: '2026-11-01', download_sha256: 'download-checksum' } };
+    api.get.mockImplementation((url: string) => Promise.resolve({ data: url.endsWith('/catalog-imports')
+      ? { reference_configured: false, jobs: imported ? [{ id: 'job1', pgs_id: 'PGS900001', status: 'completed', version_id: 'catalog-v1' }] : [] }
+      : { shortlist: ['PGS005091'], versions: imported ? [catalogVersion, version] : [version] } }));
+    api.post.mockImplementation(() => { imported = true; return Promise.resolve({ data: { id: 'job1', status: 'queued' } }); });
+    renderPage();
+    expect(screen.getByRole('link', { name: 'Find a score in the PGS Catalog' })).toHaveAttribute('href', 'https://www.pgscatalog.org/');
+    fireEvent.change(screen.getByLabelText('Catalog PGS ID'), { target: { value: 'pgs900001' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Import GRCh38 from Catalog' }));
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith('/admin/pgs/catalog-imports', { pgs_id: 'PGS900001' }));
+    expect(await screen.findByText('PGS900001 — Active')).toBeInTheDocument();
+    expect(screen.getByText(/Reference required/)).toBeInTheDocument();
+    expect(screen.getByText(/Trait: Synthetic trait/)).toBeInTheDocument();
+    expect(screen.getByText(/Synthetic licence/)).toBeInTheDocument();
+    expect(screen.getByText(/Existing families are not recalculated automatically/)).toBeInTheDocument();
   });
 });
