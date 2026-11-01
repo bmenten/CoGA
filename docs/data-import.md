@@ -31,6 +31,44 @@ Genes, cytobands and the annotation layers belong to one genome assembly. A view
 stays empty, or a gene search that finds nothing, usually means the assembly's reference
 data is missing.
 
+### GRCh38 sequence prepared at deployment
+
+Compose (including the VM stack) runs the one-shot `reference-init` service before the
+backend. It downloads GENCODE release 50's primary-assembly GRCh38 FASTA, verifies a fixed
+SHA-256, decompresses it, builds a five-column HTSlib-compatible `.fai` index, and checks
+both assets against fixed SHA-256 pins and the GRCh38 autosome lengths. A complete version
+directory appears atomically under `data/ref-data/genomes/GRCh38/gencode-v50/`:
+
+- `GRCh38.primary_assembly.genome.fa`
+- `GRCh38.primary_assembly.genome.fa.fai`
+- `reference.json` (provider, release, build, URL and compressed/asset checksums)
+
+`PGS_REFERENCE_FASTA` points to
+`/data/ref-data/genomes/GRCh38/gencode-v50/GRCh38.primary_assembly.genome.fa` inside the
+backend. The sequence is about 3.15 GB uncompressed; allow at least 5 GB free during first
+preparation. Verified cached files are reused; interrupted temporary downloads never
+become a usable version. An existing cache with incorrect checksums stops preparation
+without overwriting it. Remove that corrupt version directory and deploy again to repair it.
+
+For GCP, `terraform_data.grch38_reference` runs the same stdlib-only Python preparer on
+the deploy machine and publishes the FASTA, index and provenance to the reference bucket
+before the backend rolls out. The deploy account needs object read/create access there.
+The runtime service account stays `objectViewer`, and its mount stays read-only. GCS
+provider checksums and sizes are checked before reusing a published bundle; the provenance
+file is published last. A failed or partial upload stops rollout and can be resumed by the
+next apply. Neither a cold API start nor model publication downloads or indexes a genome.
+
+For a direct Python installation, run
+`python backend/app/reference_fasta.py --directory data/ref-data` and set
+`PGS_REFERENCE_FASTA` to the resulting absolute FASTA path. `--archive <file.fa.gz>` supports
+an offline copy of the **same pinned** official gzip; it does not relax checksum validation.
+An alternative indexed GRCh38 FASTA can still be selected explicitly with the setting.
+This sequence is currently used only to resolve exploratory PGS REF alleles.
+
+The source is GENCODE's [primary GRCh38 assembly](https://www.gencodegenes.org/human/)
+from its versioned release-50 URL, rather than the all-regions assembly with alternate loci.
+The index follows [HTSlib's FAI format](https://www.htslib.org/doc/faidx.html).
+
 ### What startup loads
 
 Each time the backend starts it fills in what is missing. A table that already holds rows

@@ -29,8 +29,9 @@ A complete valid download is saved even when reference resolution or model suppo
 missing. Its version is marked `needs_reference` or `unsupported`, with the reason visible
 in administration. No subset of its variants is published as a usable score. A `ready`
 version must contain every declared weight, enforced in Postgres as well as by the parser.
-Configure the indexed GRCh38 FASTA once for files without explicit REF and import the ID
-again to append a prepared version. An unsupported newer version blocks selection of that
+Deployment prepares the indexed GRCh38 FASTA automatically for files without explicit REF.
+If a model was imported before that reference was available, import its ID again to append
+a prepared version. An unsupported newer version blocks selection of that
 model; CoGA never silently falls back to an older version.
 
 Consecutive imports of unchanged metadata/weights/reference preparation reuse the current
@@ -48,8 +49,13 @@ per position are supported. Odds ratios are not automatically log-transformed. T
 declared `variants_number`, if present, must match. Haplotypes, interactions and non-additive
 models are refused.
 
-Every locus needs an explicit `ref_allele`, or set `PGS_REFERENCE_FASTA` to an indexed GRCh38
-FASTA with an existing `.fai`. The server never creates that index. It resolves and freezes
+Every locus needs an explicit `ref_allele` or an indexed GRCh38 FASTA. Compose/VM and
+Terraform prepare a pinned GENCODE reference automatically, stored with the other reference
+data. `PGS_REFERENCE_FASTA` is wired to
+`/data/ref-data/genomes/GRCh38/gencode-v50/GRCh38.primary_assembly.genome.fa`; its `.fai`
+and `reference.json` sit beside it. See [reference preparation](data-import.md#grch38-sequence-prepared-at-deployment)
+for caching, checksums and direct Python/offline setup. Model publication never builds an
+index or starts a genome download. It resolves and freezes
 REF at publication; when both sources exist they must agree. `other_allele` is **never**
 assumed to be REF, and may differ from REF. FASTA and index checksums are retained.
 
@@ -249,3 +255,38 @@ and harmonized GRCh38 file (313 rows). No public score was installed into family
 committed as a fixture. The complete model includes unsupported variant types and lacks
 explicit REF; acquisition and readiness are deliberately separate so these properties cannot
 produce a silently reduced or incorrectly oriented score.
+
+
+## GRCh38 deployment verification — 2026-11-01
+
+Change classification: **minor** — automatic reference preparation for the existing
+exploratory PGS calculation, with no clinical output or sign-out change. Compose/VM
+preparation and GCP pre-rollout publication use the same pinned sequence/index.
+
+| Check | Result |
+| --- | --- |
+| Full backend unit suite | 6,993 passed; 1,190 datastore-dependent tests skipped in this unit run |
+| Focused reference and deployment configuration tests | 97 passed; reference-preparer line coverage 97%, with a 94% coverage floor |
+| Real application startup against temporary Postgres/ClickHouse | 1 passed |
+| Frontend with coverage | 204 files, 2,519 tests passed; all coverage gates passed |
+| Ruff / mypy / TypeScript / ESLint | Passed; mypy checked 55 source files |
+| Compose development and VM configuration | Both validated |
+| Infrastructure formatting and validation | Passed with OpenTofu 1.12.3, Google provider 8.9.0 and TLS provider 4.4.2; initialization disabled the remote state backend |
+| Generated API types / test catalogue / handleiding rebuild and sync | Passed |
+| Frontend production dependency audit | Passed; no high/critical findings |
+
+The synthetic deployment tests exercise the download, checksum/size/deadline refusals,
+gzip integrity, independent HTSlib index comparison and random access, atomic cache
+publication, reuse, orphan cleanup without following symlinks, GCS publication/checksum
+checks and partial-upload recovery, denied access and rollout-failure propagation. A
+prepared synthetic reference is then used to resolve REF and calculate a GT score. GCS
+HTTP responses and gcloud uploads are synthetic; no cloud deployment was performed.
+
+A separate public-data check downloaded the complete GENCODE release-50 GRCh38 primary
+assembly archive (845,635,028 bytes), matched its MD5 against the official `MD5SUMS`, and
+recorded the compressed and decompressed SHA-256 pins in `backend/app/reference_fasta.py`.
+The 3,151,417,447-byte FASTA has 194 contigs. Its generated 6,482-byte index is byte for
+byte equal to `pysam.faidx`/HTSlib's index, and independent random-access reads succeeded.
+The genome and generated index remain outside git. Full backend end-to-end/browser suites
+were not repeated for this deployment-only follow-up; earlier verification records above
+cover the unchanged PGS administration and family interface.

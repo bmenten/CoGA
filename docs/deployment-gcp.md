@@ -614,6 +614,25 @@ gcloud storage cp -r data/ref-data/* "gs://${REFDATA}/"
 gcloud storage cp dbNSFP5.4_gene.gz "gs://${REFDATA}/"
 ```
 
+The **GRCh38 FASTA and index are automatic**: `terraform_data.grch38_reference` runs
+`backend/app/reference_fasta.py` before every new backend image rolls out. On the first
+apply it downloads and validates the pinned GENCODE release-50 primary assembly, builds
+its `.fai`, and uploads the complete assets to
+`gs://<refdata bucket>/genomes/GRCh38/gencode-v50/`, with `reference.json` last. Subsequent
+applies verify the published object checksums/sizes and reuse the bundle. The Cloud Run
+backend receives `PGS_REFERENCE_FASTA` pointing into that same mounted directory.
+
+The machine running `terraform apply` needs Python 3 (stdlib only), authenticated `gcloud`,
+outbound HTTPS to EBI and Google Storage, and at least 5 GB free temporary disk for the
+first preparation. The deploy account needs `storage.objects.get` and
+`storage.objects.create` on refdata (the account that can upload reference files); the
+API's account retains only `roles/storage.objectViewer`. No application or database
+credentials are passed to the preparer. A failed download, wrong checksum, denied bucket
+access or incomplete upload stops the new backend rollout. Partial uploads can be resumed
+by re-running the apply. No reference download is repeated on API cold starts. See
+[data-import.md](data-import.md#grch38-sequence-prepared-at-deployment) for source pins and
+offline preparation.
+
 If the HPO ontology is missing there, the startup bootstrap downloads the same pinned
 release to a temporary directory, and imports it only if its SHA-256 is the vendored
 file's ([data/ref-data/hpo/README.md](../data/ref-data/hpo/README.md#the-download-fallback)).

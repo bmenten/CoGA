@@ -16,6 +16,9 @@ services:
   clickhouse:
     logging: *logging
 
+  reference-init:
+    logging: *logging
+
   backend:
     logging: *logging
 

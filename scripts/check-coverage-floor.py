@@ -62,6 +62,7 @@ MODULE_FLOORS: dict[str, float] = {
     "backend/app/services/panel_use_audit.py": 97.0,
     # (100.0 measured locally when they were added: the PGT embryo calls the family page
     # shows and a sign-out freezes, REG-2)
+    "backend/app/reference_fasta.py": 94.0,  # atomic pinned deployment assets, synthetic HTTP/GCS
     "backend/app/services/pgs_scoring.py": 88.0,  # GT/REF/QC boundaries, synthetic unit data
     "backend/app/services/pgt_analysis.py": 97.0,
     "backend/app/services/pgt_embryo_calls.py": 97.0,

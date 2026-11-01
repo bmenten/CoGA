@@ -134,6 +134,15 @@ them as it is: ask ICT, through ICT self-service, for that app registration in t
 tenant. The sign-in ICT documents for web applications is CAS (`login.ugent.be`); CoGA has no
 CAS client, so if ICT offers only CAS, a VM for testing keeps the password sign-in.
 
+**The GRCh38 FASTA is prepared automatically.** The one-shot `reference-init` service
+runs before the backend and persists the pinned GENCODE primary assembly, its `.fai` index
+and checksum provenance under `/srv/coga/data/ref-data/genomes/GRCh38/gencode-v50/`.
+The backend receives the matching `PGS_REFERENCE_FASTA` path automatically. Allow at least
+5 GB free for the first preparation (about 3.15 GB remains cached). Later starts verify and
+reuse it; a failed download or checksum stops the backend from starting on an incomplete
+reference. Follow preparation with `docker compose logs -f reference-init`. The service
+receives only the reference-data mount and no application secrets or family data.
+
 **The dbNSFP gene file** is not in the repository (its download needs a registration,
 [data-import.md](data-import.md)). Copy `dbNSFP5.4_gene.gz` to `/srv/coga/data/ref-data/`; without
 it the first gene reference sync does not run.

@@ -945,3 +945,9 @@ a temporary host folder to its container mount; no real data folder is required.
 | --- | --- |
 | [`backend/tests/test_pgs_catalog_service.py`](../backend/tests/test_pgs_catalog_service.py) | Official PGS/build/URL isolation, bounded downloads/decompression, complete file/count validation and retained Catalog metadata, using synthetic HTTP transport |
 | [`backend/tests/e2e/test_e2e_pgs_catalog_import.py`](../backend/tests/e2e/test_e2e_pgs_catalog_import.py) | Real HTTP/DB acquisition jobs, metadata preservation, current-version idempotency and rollbacks, reference/readiness and unsupported models, administrator rights/revocation, cancellation/orphans and no retrospective scoring |
+
+## GRCh38 reference deployment verification
+
+| Test file | Verifies |
+| --- | --- |
+| [`backend/tests/test_reference_fasta.py`](../backend/tests/test_reference_fasta.py) | Pinned GRCh38 deployment download, bounded decompression, HTSlib-equivalent index/random access, atomic local cache, checksum refusal, GCS object/provenance publication and retry, cached deployment, credentials isolation, and REF resolution/GT scoring with a prepared synthetic genome |

@@ -57,7 +57,7 @@ services:
     # storage_backend, so override back to root here to keep that writable. Cloud Run
     # uses the image default (non-root) with read-only refdata + GCS-API PHI storage.
     user: root
-    build:
+    build: &backend-build
       context: .
       dockerfile: backend/Dockerfile
       target: production
@@ -74,6 +74,7 @@ services:
       POSTGRES_HOST: postgres
       CLICKHOUSE_HOST: clickhouse
       CLICKHOUSE_HTTP_PORT: 8123
+      PGS_REFERENCE_FASTA: ${PGS_REFERENCE_FASTA:-/data/ref-data/genomes/GRCh38/gencode-v50/GRCh38.primary_assembly.genome.fa}
       # The backend sits behind the frontend's /api proxy, which sends one clean
       # X-Forwarded-For: take the client from there (#520).
       TRUSTED_PROXY_HOPS: ${BACKEND_TRUSTED_PROXY_HOPS:-1}
@@ -101,10 +102,22 @@ services:
       start_period: 600s
       start_interval: 5s
     depends_on:
+      reference-init:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       clickhouse:
         condition: service_healthy
+
+  # Download/verify/index once before the API starts. Only public reference data is
+  # mounted; no app credentials or family data are passed to this one-shot process.
+  reference-init:
+    build: *backend-build
+    user: root
+    restart: "no"
+    command: ["python", "-m", "app.reference_fasta"]
+    volumes:
+      - ./data/ref-data:/data/ref-data
 
   frontend:
     build:
