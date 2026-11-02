@@ -90,6 +90,20 @@ async def exercise(tmp_path, monkeypatch):
             unsupported = await version(await imported("PGS900003"))
             assert unsupported["scoring_status"] == "unsupported"
             assert unsupported["variant_count"] == 2
+            # Oversized models retain complete source and metadata, never partial weights.
+            file_state["weights"] = WEIGHTS
+            with monkeypatch.context() as patch:
+                patch.setattr(catalog.settings, "pgs_max_variants", 1)
+                limited = await version(await imported("PGS900009"))
+            assert limited["scoring_status"] == "unsupported" and limited["variant_count"] == 2
+            assert "PGS_MAX_VARIANTS=1" in limited["scoring_error"]
+            async with sm() as session:
+                kept = (await session.execute(text("SELECT weights_text, weights, catalog_metadata FROM pgs_model_versions WHERE id = CAST(:id AS uuid)"), {"id": limited["id"]})).mappings().one()
+                assert kept["weights_text"] == WEIGHTS.replace("PGS900001", "PGS900009")
+                assert kept["weights"] == [] and kept["catalog_metadata"]["scoring_file"]["variant_count"] == 2
+            # Raising the tested budget appends a usable revision; history is preserved.
+            prepared_limit = await version(await imported("PGS900009"))
+            assert prepared_limit["scoring_status"] == "ready" and prepared_limit["id"] != limited["id"]
             file_state["missing"] = True
             failed = await imported("PGS900004")
             assert failed["status"] == "failed" and failed["version_id"] is None

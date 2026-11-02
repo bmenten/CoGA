@@ -29,7 +29,7 @@ from .family_package_common import FamilyPackageBundle, _resolve_package_path
 from .family_package_source import _ensure_authorized_package_path, staged_package_source_async
 from .family_variant_write_lock import try_share_family_variant_writes
 from .metadata_service import get_accessible_family_mapping, get_current_user_by_id
-from .pgs_scoring import CALCULATION_VERSION, SHORTLIST, PgsInputError, PgsReferenceError, Weight, parse_weights, score_file, sha256_file, weight_dicts
+from .pgs_scoring import CALCULATION_VERSION, SHORTLIST, PgsInputError, PgsReferenceError, prepare_weights, serialize_weights, load_weights, score_file, sha256_file, sha256_text
 
 logger = logging.getLogger(__name__)
 NOTICE = "Exploratory raw PGS only. No clinical interpretation, ancestry correction or clinical sign-out."
@@ -97,18 +97,20 @@ async def publish_version(session: AsyncSession, *, pgs_id: str, version: str | 
     scoring_status = "ready"
     scoring_error = None
     try:
-        weights, reference = await asyncio.to_thread(parse_weights, weights_text, pgs_id, settings.pgs_reference_fasta or None)
+        if catalog_metadata and int(catalog_metadata["scoring_file"]["variant_count"]) > settings.pgs_max_variants:
+            raise PgsInputError(f"This complete model exceeds PGS_MAX_VARIANTS={settings.pgs_max_variants:,}; its full weights and metadata are retained, but it cannot be scored within the configured memory budget.")
+        resolved_json, resolved_sha, prepared_count, reference = await asyncio.to_thread(
+            prepare_weights, weights_text, pgs_id, settings.pgs_reference_fasta or None, settings.pgs_max_variants)
     except PgsInputError as exc:
         if not catalog_metadata:
             raise HTTPException(400, str(exc)) from exc
         # Preserve a complete catalog file and all metadata even when it cannot be scored.
         # Such a version never enters a scoring queue and contains no partial weight set.
-        weights, reference = [], {"reference": "unresolved"}
+        resolved_json, resolved_sha = serialize_weights([])
+        prepared_count, reference = 0, {"reference": "unresolved"}
         scoring_status = "needs_reference" if isinstance(exc, PgsReferenceError) else "unsupported"
         scoring_error = str(exc)
-    resolved = weight_dicts(weights)
-    weights_sha = hashlib.sha256(weights_text.encode()).hexdigest()
-    resolved_sha = hashlib.sha256(json.dumps(resolved, sort_keys=True).encode()).hexdigest()
+    weights_sha = await asyncio.to_thread(sha256_text, weights_text)
     if version is None:
         if not catalog_metadata:
             raise HTTPException(400, "A version label is required.")
@@ -142,8 +144,8 @@ async def publish_version(session: AsyncSession, *, pgs_id: str, version: str | 
             "checksum": weights_sha,
             "resolved_checksum": resolved_sha,
             "reference": json.dumps(reference), "original": weights_text,
-            "weights": json.dumps(resolved),
-            "count": len(weights) if not catalog_metadata else int(catalog_metadata["scoring_file"]["variant_count"]),
+            "weights": resolved_json,
+            "count": prepared_count if not catalog_metadata else int(catalog_metadata["scoring_file"]["variant_count"]),
             "catalog": json.dumps(catalog_metadata or {}), "scoring_status": scoring_status, "scoring_error": scoring_error})
     if commit:
         await session.commit()
@@ -385,23 +387,28 @@ async def calculate_run(run_id: str) -> None:
             source = PgsSourceOut(**dict(sources[0]))
             if await _source_state(session, context, source, project) != "ready":
                 raise PgsInputError("The import, family members or genotype storage changed; import full WGS again.")
-            models: dict[str, list[Weight]] = {}
-            for version in run["version_ids"]:
-                stored = (await session.execute(text("SELECT weights, resolved_sha256, scoring_status FROM pgs_model_versions WHERE id = CAST(:id AS uuid)"),
-                                                {"id": require_uuid(version, "PGS version not found", status_code=404)})).mappings().one()
-                if stored["scoring_status"] != "ready":
-                    raise PgsInputError("A selected model version is not ready for GT scoring.")
-                if hashlib.sha256(json.dumps(stored["weights"], sort_keys=True).encode()).hexdigest() != stored["resolved_sha256"]:
-                    raise PgsInputError("The stored model weights failed their checksum check.")
-                models[version] = [Weight(**item) for item in stored["weights"]]
             if "://" not in source.package_path:
                 await asyncio.to_thread(_ensure_authorized_package_path, Path(source.package_path))
             async with staged_package_source_async(source.package_path) as staged:
                 path = await asyncio.to_thread(_resolve_package_path, Path(staged.root), source.relative_vcf)
                 if path is None:
                     raise PgsInputError("The WGS source is no longer available within its import package.")
-                results = await asyncio.to_thread(score_file, path, source.sha256, models, source.samples,
-                                                  assume_ref=source.absent_record_is_hom_ref)
+                results = []
+                # Process one pinned model at a time instead of retaining every model's
+                # decoded JSON and weight objects together. Publication remains atomic.
+                for version in run["version_ids"]:
+                    params = {"id": require_uuid(version, "PGS version not found", status_code=404)}
+                    metadata = (await session.execute(text("SELECT variant_count, scoring_status FROM pgs_model_versions WHERE id = CAST(:id AS uuid)"), params)).mappings().one()
+                    if metadata["scoring_status"] != "ready":
+                        raise PgsInputError("A selected model version is not ready for GT scoring.")
+                    if metadata["variant_count"] > settings.pgs_max_variants:
+                        raise PgsInputError("A selected model exceeds PGS_MAX_VARIANTS; increase only with sufficient tested memory headroom.")
+                    stored = (await session.execute(text("SELECT weights, resolved_sha256 FROM pgs_model_versions WHERE id = CAST(:id AS uuid)"), params)).mappings().one()
+                    weights = await asyncio.to_thread(load_weights, stored["weights"], stored["resolved_sha256"])
+                    del stored
+                    results.extend(await asyncio.to_thread(score_file, path, source.sha256, {version: weights}, source.samples,
+                                                           assume_ref=source.absent_record_is_hom_ref))
+                    del weights
             # The transaction still holds the run row and shared variant-write locks.
             # Re-read flags/requester: permissions and imports can change during a long scan.
             user = await get_current_user_by_id(session, str(run["requested_by"]))

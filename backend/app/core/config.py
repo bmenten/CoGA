@@ -367,6 +367,9 @@ class Settings(BaseSettings):
     # Indexed GRCh38 FASTA for PGS weights without explicit ref_allele. Compose and
     # Terraform set the managed reference-data path; a direct Python run may opt in.
     pgs_reference_fasta: str = Field(default="", alias="PGS_REFERENCE_FASTA")
+    # Bound Python/JSONB preparation on a local 8-GiB stack. Large files are kept
+    # whole but not prepared; raise only with tested memory headroom.
+    pgs_max_variants: int = Field(default=2_000_000, ge=1, alias="PGS_MAX_VARIANTS")
     max_upload_bytes: int = Field(
         default=1024 * 1024 * 1024, ge=1, alias="MAX_UPLOAD_BYTES"
     )

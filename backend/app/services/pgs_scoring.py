@@ -10,9 +10,11 @@ import csv
 from dataclasses import asdict, dataclass
 import gzip
 import hashlib
+import json
 import math
 from pathlib import Path
 import re
+import tempfile
 from typing import Any, Iterable, TextIO
 
 CALCULATION_VERSION = "coga-pgs-gt-v1"
@@ -21,6 +23,9 @@ SHORTLIST = (
     "PGS000662", "PGS000310", "PGS002804", "PGS003724", "PGS000327", "PGS002790",
 )
 BASES = frozenset("ACGT")
+_BASE_VALUES = {base: base for base in BASES}
+_CHROM_VALUES = {str(i): str(i) for i in range(1, 23)}
+_LINE_END = re.compile(r"\r\n|[\n\r\v\f\x1c-\x1e\x85\u2028\u2029]")
 GRCH38_LENGTHS = (248956422, 242193529, 198295559, 190214555, 181538259, 170805979,
                  159345973, 145138636, 138394717, 133797422, 135086622, 133275309,
                  114364328, 107043718, 101991189, 90338345, 83257441, 80373285,
@@ -55,29 +60,43 @@ def sha256_file(path: Path) -> str:
 
 def _chrom(value: str) -> str:
     value = value.removeprefix("chr")
-    if value not in {str(i) for i in range(1, 23)}:
+    if value not in _CHROM_VALUES:
         raise PgsInputError("Only autosomal GRCh38 SNV models are supported.")
-    return value
+    return _CHROM_VALUES[value]
 
 
-def parse_weights(value: str, pgs_id: str, fasta_path: str | None = None) -> tuple[list[Weight], dict[str, str]]:
+def text_lines(value: str) -> Iterable[str]:
+    """Like splitlines(), without allocating a second copy of every model row."""
+    start = 0
+    for ending in _LINE_END.finditer(value):
+        yield value[start:ending.start()]
+        start = ending.end()
+    if start < len(value):
+        yield value[start:]
+
+
+def sha256_text(value: str) -> str:
+    digest = hashlib.sha256()
+    for start in range(0, len(value), 1 << 20):
+        digest.update(value[start:start + (1 << 20)].encode())
+    return digest.hexdigest()
+
+
+def parse_weights(value: str, pgs_id: str, fasta_path: str | None = None, max_variants: int | None = None) -> tuple[list[Weight], dict[str, str]]:
     """PGS Catalog harmonized or explicit GRCh38 TSV; reject unsupported models in full.
 
     other_allele is never used to infer REF. Resolved references are saved with the version,
     so historical scoring never depends on a later FASTA or index change.
     """
     comments: dict[str, str] = {}
-    rows = []
-    for line in value.splitlines():
+    for line in text_lines(value):
         if line.startswith("#"):
             key, sep, item = line[1:].partition("=")
             if sep:
                 comments[key.strip()] = item.strip()
-        elif line.strip():
-            rows.append(line)
     if comments.get("pgs_id", pgs_id) != pgs_id:
         raise PgsInputError("The scoring file names another PGS ID.")
-    reader = csv.DictReader(rows, delimiter="\t")
+    reader = csv.DictReader((line for line in text_lines(value) if line.strip() and not line.startswith("#")), delimiter="\t")
     fields = set(reader.fieldnames or [])
     harmonized = {"hm_chr", "hm_pos"} <= fields
     build = comments.get("HmPOS_build") if harmonized else comments.get("genome_build")
@@ -105,9 +124,11 @@ def parse_weights(value: str, pgs_id: str, fasta_path: str | None = None) -> tup
         provenance = {"reference": "indexed GRCh38 FASTA", "fasta_sha256": sha256_file(path),
                       "fai_sha256": sha256_file(Path(f"{path}.fai"))}
     weights: list[Weight] = []
-    seen: set[tuple[str, int]] = set()
+    seen: set[int] = set()
     try:
         for row in reader:
+            if max_variants is not None and len(weights) >= max_variants:
+                raise PgsInputError(f"The model exceeds PGS_MAX_VARIANTS={max_variants:,}; no partial weight set is usable.")
             if None in row or any(v is None for v in row.values()):
                 raise PgsInputError("A scoring-file row has missing or extra columns.")
             chrom = _chrom(row["hm_chr" if harmonized else "chr_name"])
@@ -138,10 +159,12 @@ def parse_weights(value: str, pgs_id: str, fasta_path: str | None = None) -> tup
                 raise PgsReferenceError("Every locus needs ref_allele or an indexed GRCh38 FASTA.")
             if effect not in BASES or (other is not None and other not in BASES) or effect == other:
                 raise PgsInputError("Only single-base, distinct effect/other alleles are supported.")
-            if (chrom, pos) in seen:
+            locus = (int(chrom) << 32) | pos
+            if locus in seen:
                 raise PgsInputError("Duplicate model positions are not supported.")
-            seen.add((chrom, pos))
-            weights.append(Weight(chrom, pos, ref, effect, other, effect_weight))
+            seen.add(locus)
+            weights.append(Weight(chrom, pos, _BASE_VALUES[ref], _BASE_VALUES[effect],
+                                  _BASE_VALUES[other] if other is not None else None, effect_weight))
     finally:
         if fasta is not None:
             fasta.close()
@@ -159,6 +182,55 @@ def parse_weights(value: str, pgs_id: str, fasta_path: str | None = None) -> tup
 
 def weight_dicts(weights: Iterable[Weight]) -> list[dict[str, Any]]:
     return [asdict(weight) for weight in weights]
+
+
+def serialize_weights(weights: Iterable[Weight]) -> tuple[str, str]:
+    """Keep the historical canonical checksum without a second full list of dicts.
+
+    Spool JSON to disk: StringIO itself can expand large ASCII input to UTF-32.
+    Only the final PostgreSQL parameter string is materialized in memory.
+    """
+    digest = hashlib.sha256()
+    encoder = json.JSONEncoder(sort_keys=True, allow_nan=False)
+    with tempfile.TemporaryFile(mode="w+t", encoding="utf-8", newline="") as stream:
+        def write(part: str) -> None:
+            stream.write(part)
+            digest.update(part.encode())
+        write("[")
+        for i, weight in enumerate(weights):
+            if i:
+                write(", ")
+            write(encoder.encode({"chrom": weight.chrom, "pos": weight.pos, "ref": weight.ref,
+                                  "effect": weight.effect, "other": weight.other, "weight": weight.weight}))
+        write("]")
+        stream.seek(0)
+        return stream.read(), digest.hexdigest()
+
+
+def prepare_weights(value: str, pgs_id: str, fasta_path: str | None, max_variants: int) -> tuple[str, str, int, dict[str, str]]:
+    weights, reference = parse_weights(value, pgs_id, fasta_path, max_variants)
+    payload, checksum = serialize_weights(weights)
+    return payload, checksum, len(weights), reference
+
+
+def load_weights(rows: list[dict[str, Any]], expected_checksum: str) -> list[Weight]:
+    """Verify stored rows incrementally, preserving every historical checksum."""
+    digest = hashlib.sha256(b"[")
+    encoder = json.JSONEncoder(sort_keys=True, allow_nan=False)
+    weights = []
+    for i, row in enumerate(rows):
+        if i:
+            digest.update(b", ")
+        digest.update(encoder.encode(row).encode())
+        weight = Weight(**row)
+        weights.append(Weight(_CHROM_VALUES.get(weight.chrom, weight.chrom), weight.pos,
+                              _BASE_VALUES.get(weight.ref, weight.ref), _BASE_VALUES.get(weight.effect, weight.effect),
+                              _BASE_VALUES.get(weight.other, weight.other) if weight.other is not None else None,
+                              weight.weight))
+    digest.update(b"]")
+    if digest.hexdigest() != expected_checksum:
+        raise PgsInputError("The stored model weights failed their checksum check.")
+    return weights
 
 
 def _call(record: list[str], sample_index: int, weight: Weight) -> tuple[str, int]:
@@ -187,13 +259,13 @@ def _call(record: list[str], sample_index: int, weight: Weight) -> tuple[str, in
 
 
 def score_vcf(stream: TextIO, models: dict[str, list[Weight]], samples: list[str], *, assume_ref: bool) -> list[dict[str, Any]]:
-    """Stream one complete VCF once for every selected version and sample.
+    """Stream one complete VCF for the supplied versions and samples.
 
     Retain only model positions; duplicates/split loci abstain. A missing sample in the
     header is never eligible for the absent-record assumption, even at an absent locus.
     """
-    positions = {(w.chrom, w.pos) for weights in models.values() for w in weights}
-    records: dict[tuple[str, int], list[str] | None] = {}
+    positions = {(int(w.chrom) << 32) | w.pos for weights in models.values() for w in weights}
+    records: dict[int, list[str] | None] = {}
     columns: list[str] | None = None
     for line in stream:
         if line.startswith("##"):
@@ -218,8 +290,13 @@ def score_vcf(stream: TextIO, models: dict[str, list[Weight]], samples: list[str
             pos = int(parts[1])
         except ValueError as exc:
             raise PgsInputError("The WGS VCF contains an invalid position.") from exc
-        key = (parts[0].removeprefix("chr"), pos)
+        chrom = parts[0].removeprefix("chr")
+        if chrom not in _CHROM_VALUES or not 1 <= pos <= GRCH38_LENGTHS[int(chrom) - 1]:
+            continue
+        key = (int(chrom) << 32) | pos
         if key in positions:
+            for unused in (0, 1, 2, 5, 7):
+                parts[unused] = ""
             records[key] = None if key in records else parts
     if columns is None:
         raise PgsInputError("The WGS VCF has no sample header.")
@@ -228,24 +305,25 @@ def score_vcf(stream: TextIO, models: dict[str, list[Weight]], samples: list[str
     for version_id, weights in models.items():
         for sample in samples:
             qc: Counter[str] = Counter()
-            terms: list[float] = []
-            for weight in weights:
-                key = (weight.chrom, weight.pos)
-                if sample not in sample_indexes:
-                    status, dosage = "missing_sample", 0
-                elif key not in records:
-                    status = "assumed_ref" if assume_ref else "missing_record"
-                    dosage = 2 if weight.effect == weight.ref else 0
-                elif records[key] is None:
-                    status, dosage = "ambiguous_record", 0
-                else:
-                    record = records[key]
-                    assert record is not None
-                    status, dosage = _call(record, sample_indexes[sample], weight)
-                qc[status] += 1
-                if status in {"called", "assumed_ref"}:
-                    terms.append(weight.weight * dosage)
-            total = math.fsum(terms)
+            def contributions(weights: list[Weight] = weights, sample: str = sample,
+                              qc: Counter[str] = qc) -> Iterable[float]:
+                for weight in weights:
+                    key = (int(weight.chrom) << 32) | weight.pos
+                    if sample not in sample_indexes:
+                        status, dosage = "missing_sample", 0
+                    elif key not in records:
+                        status = "assumed_ref" if assume_ref else "missing_record"
+                        dosage = 2 if weight.effect == weight.ref else 0
+                    elif records[key] is None:
+                        status, dosage = "ambiguous_record", 0
+                    else:
+                        record = records[key]
+                        assert record is not None
+                        status, dosage = _call(record, sample_indexes[sample], weight)
+                    qc[status] += 1
+                    if status in {"called", "assumed_ref"}:
+                        yield weight.weight * dosage
+            total = math.fsum(contributions())
             if not math.isfinite(total):
                 raise PgsInputError("The score exceeds the supported numeric range.")
             complete = qc["called"] + qc["assumed_ref"] == len(weights)

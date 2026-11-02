@@ -155,6 +155,19 @@ async def exercise(root: Path, monkeypatch):
             assert (await ac.post(f"/api/families/{family}/pgs/calculate", params={"project_id": project})).status_code == 404
             app.dependency_overrides.pop(get_current_user)
 
+            # Lowering the configured memory budget fails cleanly before loading
+            # stored model weights; existing scores and history remain unchanged.
+            await ac.post(f"/api/families/{family}/pgs/calculate", params={"project_id": project})
+            async with sm() as session:
+                limited = await pgs.claim_run(session)
+            with monkeypatch.context() as patch:
+                patch.setattr(pgs.settings, "pgs_max_variants", 1)
+                await pgs.calculate_run(limited)
+            limited_data = await snapshot()
+            assert limited_data["runs"][0]["status"] == "failed"
+            assert "PGS_MAX_VARIANTS" in limited_data["runs"][0]["error"]
+            assert len(limited_data["results"]) == 6
+
             # An interrupted run rolls back every result, and can be requested again.
             await ac.post(f"/api/families/{family}/pgs/calculate", params={"project_id": project})
             async with sm() as session:

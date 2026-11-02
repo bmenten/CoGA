@@ -54,6 +54,21 @@ per position are supported. Odds ratios are not automatically log-transformed. T
 declared `variants_number`, if present, must match. Haplotypes, interactions and non-additive
 models are refused.
 
+Preparation and calculation are limited to **2,000,000 weights per model** by default
+(`PGS_MAX_VARIANTS`). Complete Catalog downloads above this limit keep their full original
+weights and metadata with an `unsupported` status and an explicit explanation. No subset
+is prepared or scored. Raise this setting only after testing memory headroom on the target
+host, then import the ID again to append a prepared revision. Lowering the limit also
+prevents calculation of an already prepared larger model; its historical scores remain
+visible. This limit bounds model processing; total memory also depends on VCF samples,
+annotations and concurrent services.
+
+Large-model processing avoids full copies of TSV rows and resolved weight dictionaries;
+canonical JSON is spooled through a temporary file. This preserves the historical resolved
+weights checksum. Calculation loads and verifies one pinned model at a time, scanning the
+original WGS file for each model and retaining only its required genotype columns. Results
+are still published together after every model and source check succeeds.
+
 Every locus needs an explicit `ref_allele` or an indexed GRCh38 FASTA. Compose/VM and
 Terraform prepare a pinned GENCODE reference automatically, stored with the other reference
 data. `PGS_REFERENCE_FASTA` is wired to
@@ -328,3 +343,39 @@ The final status-colour/mobile-screenshot adjustment was also checked by rerunni
 Catalog browser journey. The backend integration and full backend end-to-end suites were
 not repeated for this UI change; the browser family journey uses real temporary Postgres,
 ClickHouse, HTTP endpoints and workers, with no real family-data folders mounted.
+
+
+## Memory and availability verification — 2026-11-02
+
+Change classification: **patch** — bound resource use in the exploratory module and keep
+its API available during large-model processing. Score arithmetic, QC outcomes, historical
+canonical checksums and clinical sign-out content remain unchanged. The default
+`PGS_MAX_VARIANTS=2000000` is an explicit preparation/calculation limit; complete larger
+Catalog files and their metadata remain stored with a visible explanation.
+
+Large imports previously allocated full lists of TSV rows, weight dictionaries and JSON
+copies. In a development container, an OOM-killed API worker could leave the reload
+supervisor running with an unresponsive listening socket. Restarting that backend restores
+the worker. Unlocked abandoned PGS jobs become `interrupted`; retry the Catalog ID manually
+once the resource issue is resolved. Existing versions and score history are preserved.
+
+Verified with synthetic data in an isolated tracked-source checkout:
+
+| Check | Result |
+| --- | --- |
+| Focused PGS unit tests | 69 passed, including checksum equivalence, complete-model limit enforcement, GT/QC equivalence and compensated-sum precision |
+| Full backend unit suite | 7,005 passed; 1,190 datastore-dependent tests skipped in this unit run |
+| Real HTTP/Postgres/ClickHouse PGS flows | 2 passed: Catalog acquisition/version history/rights/interruption and complete full-WGS import/calculation/QC/history/sign-out exclusion; oversized models retain all original weights without any prepared subset |
+| Bounded-memory regression | 400,000 synthetic weights prepared within a 256-MiB address-space budget; corrected peak RSS 169.7 MiB in the comparison run; previous processing exceeded that budget |
+| Annotated-VCF memory regression | 4,000 synthetic GT records with about 280 MiB of unrelated INFO annotations streamed within the same 256-MiB budget; complete score and QC preserved |
+| Full frontend with coverage | 204 files, 2,523 passed with two workers; lines 89.42%, statements 88.13%, branches 78.86%, functions 85.79% |
+| Ruff / mypy / TypeScript / ESLint | Passed; mypy checked 55 source files |
+| API types / test catalogue / handleiding sync / production dependency audit | Passed |
+
+An earlier unrestricted frontend run had scattered test and worker time-outs; the complete
+repeat with `--maxWorkers=2` passed without source or timeout changes. Full backend
+integration/end-to-end suites and browser journeys were not repeated for this backend-only
+fix; the two real-datastore PGS flows above cover the affected workflow. Local recovery was
+also checked operationally: frontend-proxied health returned HTTP 200, the queued Catalog
+import completed, the temporary recovery lock was released, and no new backend OOM event
+occurred. No real family data was used in tests or included in this record.

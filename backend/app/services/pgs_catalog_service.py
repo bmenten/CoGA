@@ -5,7 +5,6 @@ import asyncio
 import csv
 from datetime import datetime, timezone
 import hashlib
-import io
 import json
 import logging
 from pathlib import Path
@@ -25,7 +24,7 @@ from ..pgs_schemas import PgsCatalogImportOut, PgsCatalogImportsOut
 from .access_control import CurrentUser, is_admin_user
 from .bounded_download import download_bounded_bytes, gunzip_bounded
 from .metadata_service import get_current_user_by_id
-from .pgs_scoring import PgsInputError
+from .pgs_scoring import PgsInputError, text_lines
 from .pgs_service import publish_version
 
 logger = logging.getLogger(__name__)
@@ -52,7 +51,7 @@ def scoring_header(value: str, pgs_id: str, expected_count: object) -> dict[str,
     header: dict[str, str] = {}
     count = 0
     fields: list[str] | None = None
-    for line in io.StringIO(value):
+    for line in text_lines(value):
         if line.startswith("#"):
             key, separator, content = line[1:].partition("=")
             if separator:
@@ -113,6 +112,7 @@ async def fetch_catalog(pgs_id: str) -> tuple[str, dict[str, Any]]:
         decoded = await asyncio.to_thread(gunzip_bounded, compressed,
                                           max_bytes=settings.max_decompressed_upload_bytes, source="PGS scoring file")
         value = decoded.decode("utf-8")
+        del decoded
         info = await asyncio.to_thread(scoring_header, value, pgs_id, record.get("variants_number"))
     metadata = {
         "provider": "PGS Catalog", "record": record,
