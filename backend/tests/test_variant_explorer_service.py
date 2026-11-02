@@ -546,11 +546,28 @@ def _explorer_panel(panel: PanelFilterConstraints, **filters: Any) -> tuple[list
 
 
 def _family_panel(panel: PanelFilterConstraints) -> tuple[str | None, dict[str, Any]]:
-    """The family page's panel condition, with its parameters, for the same panel."""
+    """The family page's panel condition, with its parameters, for the same panel, less what
+    narrows it to the family's own variants: the explorer reads every family's at once.
+
+    The family page reads the gene index for the keys of the family's rows only
+    (``_small_family_key_condition``); that bound, and its parameters, are taken out here
+    after checking that the family page has it."""
     params: dict[str, Any] = {}
     condition = _small_panel_filter_condition(
         _FAMILY, SmallVariantQueryFilters(page=1, page_size=100), panel, params=params
     )
+    if condition is not None and panel.genes:
+        head = " AND identity(gi.key) IN (SELECT fk.key FROM "
+        start = condition.index(head)
+        depth, index = 1, start + len(head)
+        while depth:
+            depth += {"(": 1, ")": -1}.get(condition[index], 0)
+            index += 1
+        bound = condition[start:index]
+        assert "fk.family_guid = %(annotation_family_guid)s" in bound
+        condition = condition.replace(bound, "")
+        assert params.pop("annotation_family_guid") == _FAMILY.family_uuid
+        assert params.pop("annotation_project_ids") == tuple(_FAMILY.project_ids)
     return condition, params
 
 
