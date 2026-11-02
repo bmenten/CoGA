@@ -21,6 +21,7 @@ class _RecordingAsyncClient:
         self.queries: list[tuple[str, object]] = []
         self.commands: list[tuple[str, object]] = []
         self.inserts: list[tuple[str, str | None, list[tuple[object, ...]], list[str]]] = []
+        self.insert_settings: list[dict[str, object] | None] = []
 
     async def query(self, query: str, parameters=None):
         self.queries.append((query, parameters))
@@ -30,8 +31,9 @@ class _RecordingAsyncClient:
         self.commands.append((query, parameters))
         return {"command": query, "parameters": parameters}
 
-    async def insert(self, *, table: str, database: str | None, data, column_names: list[str]):
+    async def insert(self, *, table: str, database: str | None, data, column_names: list[str], settings=None):
         self.inserts.append((table, database, list(data), column_names))
+        self.insert_settings.append(settings)
         return {"inserted": len(data)}
 
     async def close(self) -> None:
@@ -107,6 +109,7 @@ async def test_execute_clickhouse_routes_insert_to_insert_api(monkeypatch: pytes
             ["key", "variantId", "calls.sampleId"],
         )
     ]
+    assert client.insert_settings == [{"async_insert": 0}]
     assert client.queries == []
     assert client.commands == []
 
@@ -148,8 +151,9 @@ async def test_execute_clickhouse_retries_insert_after_request_body_write_failur
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     class _FailingInsertClient(_RecordingAsyncClient):
-        async def insert(self, *, table: str, database: str | None, data, column_names: list[str]):
+        async def insert(self, *, table: str, database: str | None, data, column_names: list[str], settings=None):
             self.inserts.append((table, database, list(data), column_names))
+            self.insert_settings.append(settings)
             raise RuntimeError("Network Error: [Errno None] Can not write request body")
 
     created: list[_RecordingAsyncClient] = []
@@ -182,6 +186,8 @@ async def test_execute_clickhouse_retries_insert_after_request_body_write_failur
             ["key", "variantId", "calls.sampleId"],
         )
     ]
+    # The retry is as synchronous as the first attempt.
+    assert created[0].insert_settings == created[1].insert_settings == [{"async_insert": 0}]
 
 
 @pytest.mark.asyncio

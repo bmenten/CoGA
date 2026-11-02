@@ -660,11 +660,28 @@ row, would need `FINAL` on all of those reads.
 ### Inserts are synchronous
 
 ClickHouse buffers an insert by default (`async_insert = 1`, waiting for it) and answers only
-once a timer of 50 to 200 ms has flushed the buffer. The variant tables' writer
-(`clickhouse_variant_storage._execute`) sends each insert with `async_insert = 0`, so it is
-stored as one part when it returns: an import writes a batch of a thousand records to five
-tables, one batch at a time, and each batch waited for that timer once per table. The rows
-stored are the same either way.
+once a timer of 50 to 200 ms has flushed the buffer. CoGA sends every insert with
+`async_insert = 0`, so it is stored as one part when it returns. The setting is the default of
+`core/clickhouse.insert_clickhouse`, the one function that hands rows to the driver
+(`execute_clickhouse` passes it an `INSERT … VALUES` with its rows, and no other module takes
+the driver's client). Every writer sends its rows in batches, one batch at a time, and each
+batch had waited for that timer:
+
+| Writer | What it inserts |
+| --- | --- |
+| `clickhouse_variant_storage` | the small-variant and SV tables, a batch of a thousand records to each of five tables; the family's data version, one row per write; the family summaries; a per-sample upload's rewrite of `entries` |
+| `clickhouse_interval_tracks.insert_interval_track_rows` | the interval tracks: a package's coverage, segments, APCAD, PCF and segregation tracks 50,000 rows at a time (`family_package_tracks.INTERVAL_INSERT_BATCH_ROWS`); a BED upload, a capture panel's target coverage, the haplotype blocks and the lineage, each in one insert |
+
+The rows stored are the same either way, and so are the parts: a single client's insert that
+waited for the buffer was flushed in a part of its own. Two kinds of insert never used the
+buffer: one whose rows exceed `async_insert_max_data_size` (10 MiB), and an `INSERT … SELECT`
+(an import's snapshot and its restore, the gene-index rebuild).
+
+A writer's own `settings` go over the default. `{"async_insert": 1}` would suit tiny inserts
+sent by many requests at once, which ClickHouse can gather into one part. No writer passes
+it: ClickHouse is written only by imports, uploads and the lineage precompute, which runs
+after a pedigree edit, one insert per edit. A writer that needs the buffer is listed here
+with the reason.
 
 ### Row identity
 
