@@ -223,10 +223,16 @@ def _parse_insert_query(query: str) -> tuple[str, str | None, list[str]]:
 async def insert_clickhouse(
     query: str,
     data: list[tuple[Any, ...]],
+    *,
+    settings: dict[str, Any] | None = None,
 ) -> Any:
+    """Insert ``data`` as ``query`` names it; ``settings`` are ClickHouse settings for this
+    insert alone."""
     if not data:
         return None
     table, database, columns = _parse_insert_query(query)
+    # Passed only when given: an insert without settings is sent as it always was.
+    extra: dict[str, Any] = {"settings": settings} if settings is not None else {}
     for attempt in range(2):
         client = await get_clickhouse_client()
         try:
@@ -235,6 +241,7 @@ async def insert_clickhouse(
                 database=None,
                 data=data,
                 column_names=columns,
+                **extra,
             )
         except Exception as exc:
             if attempt == 0 and _is_retryable_error(exc, _INSERT_RETRY_ERROR_MARKERS):

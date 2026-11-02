@@ -201,6 +201,12 @@ class StoredStructuralVariantRow:
     record: StructuralVariantRecord
 
 
+# What separates the terms of a ClinVar value (``_status_terms``) and of a consequence
+# (``_annotation_terms``), compiled once: they are read for every annotation stored.
+_STATUS_TERM_SEPARATORS = re.compile(r"[,;&|/]+")
+_ANNOTATION_TERM_SEPARATORS = re.compile(r"[,|&;/]+")
+
+
 def _casefold(value: Any) -> str:
     return str(value or "").strip().casefold()
 
@@ -259,7 +265,7 @@ def _status_terms(value: Any) -> set[str]:
         return terms
     return {
         normalized
-        for part in re.split(r"[,;&|/]+", str(value or ""))
+        for part in _STATUS_TERM_SEPARATORS.split(str(value or ""))
         if (normalized := _normalized_status_term(part))
     }
 
@@ -343,7 +349,7 @@ def _annotation_terms(value: Any) -> set[str]:
         return terms
     return {
         _casefold(term)
-        for term in re.split(r"[,|&;/]+", str(value))
+        for term in _ANNOTATION_TERM_SEPARATORS.split(str(value))
         if term.strip() and term.strip() != "."
     }
 
