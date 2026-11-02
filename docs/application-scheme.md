@@ -159,11 +159,54 @@ Measured on synthetic data with Postgres and ClickHouse faked (each ClickHouse w
 
 The results were the same before and after: the frozen Sample QC, every row written and every
 progress report, and the record's Sample QC and NIPT section. What is left of a stall is a
-garbage collection, which stops every thread. Not done: a genome-scale import or query
-benchmark; worker processes (the import and refresh workers still run in the API's process);
-the Variant Explorer's unfiltered page, which aggregates every carrier (#841); the ranked
-view's limit of 5,000 SVs, which a family with more than 50,000 SVs reaches more often since
-#906.
+garbage collection, which stops every thread. Not done: a genome-scale query benchmark; worker
+processes (the import and refresh workers still run in the API's process); the Variant
+Explorer's unfiltered page, which aggregates every carrier (#841); the ranked view's limit of
+5,000 SVs, which a family with more than 50,000 SVs reaches more often since #906.
+
+### Small-variant import
+
+A whole-genome SNV import took 2 h 49 min (the public GIAB HG002 long-read package: 10.76
+million records, 5.37 million stored, about 530 a second). It was profiled with a synthetic,
+seeded VCF shaped like that callset: one sample, DeepVariant's RefCall and NoCall records
+(half of them) left out, VEP CSQ entries (2.8 per stored record). The import ran through the
+package import as the import worker runs it, into Postgres 16 and ClickHouse 26.8 containers of
+its own. Of a 200,000-record import (100,000 stored, 50 s), reading the lines and their CSQ
+entries took 12 s, building the five tables' rows 19 s and the inserts 18 s, one after the
+other. Three changes, none to what is stored:
+
+- each annotation is read once for its `annotations` row and its variant's `annotation_index`
+  and `gene_index` rows, and serialized once for both hashes (before, its population
+  frequencies were read ten times and it was serialized twice);
+- a CSQ or ANN entry is read by the alias tables narrowed to the fields its header declares, and
+  a record's INFO without an annotation field is not read;
+- the variant tables are written as synchronous inserts ([database.md](database.md#inserts-are-synchronous)):
+  each batch had waited for ClickHouse's async-insert timer once per table.
+
+Main and the change on the same 1,000,000-record file (500,004 records stored), on a shared
+10-core machine that other work was loading:
+
+| | Before | After |
+| --- | --- | --- |
+| Time | 394 s | 179 s |
+| CPU time of the process | 238 s | 127 s |
+| Records stored a second | 1,270 | 2,790 |
+| ClickHouse's time answering the inserts | 107 s, 45 s of it async-insert flushes | 27 s |
+| Event-loop lag, 99th percentile / longest | 51 ms / 594 ms | 35 ms / 357 ms |
+
+Every table held the same rows before and after: the count and a checksum of each, with the
+run's family and project UUIDs and the write times left out. The progress reports, the
+dataset's summary and the job log were the same too. The check fixes `PYTHONHASHSEED`: the
+annotation index's effect and ClinVar term arrays are gathered from Python sets, so their order
+follows the process's hash seed, before as after.
+
+What is left is CPU in the API's process. The imports and the requests share its one GIL, so all
+imports together use one core, whatever `FAMILY_IMPORT_WORKER_COUNT` says. The next step is to
+run the import workers in processes of their own. A worker already claims its job, beats its
+heartbeat and stops through Postgres, and the family's write lock is a Postgres lock. What that
+step needs: an entrypoint without the API, a worker count the API can set to 0 (it must be at
+least 1 today), and a service of its own in the deployment. A process pool inside one import
+would speed up that import alone, and would end the reader's one-batch bound (above).
 
 ## Main code areas
 

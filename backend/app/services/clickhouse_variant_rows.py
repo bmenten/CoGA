@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import json
 import logging
 from typing import Any, Iterable, Sequence
@@ -68,13 +69,24 @@ def _small_annotation_version(value: Any = None) -> str:
     return _DEFAULT_SMALL_ANNOTATION_VERSION
 
 
-def _annotation_payload_hash(annotation: dict[str, Any]) -> int:
-    payload = json.dumps(annotation, sort_keys=True, separators=(",", ":"), default=str)
-    return _stable_uint64("small_annotation", payload)
+def _annotation_canonical_json(annotation: Any) -> str:
+    """The annotation as its hashes read it: JSON with sorted keys and no spaces."""
+    return json.dumps(annotation, sort_keys=True, separators=(",", ":"), default=str)
 
 
-def _annotation_set_hash(annotations: Sequence[dict[str, Any]]) -> int:
-    payload = json.dumps(list(annotations or []), sort_keys=True, separators=(",", ":"), default=str)
+def _annotation_payload_hash(annotation: dict[str, Any], payload: str | None = None) -> int:
+    """The hash of one annotation; ``payload`` is its canonical JSON, when made already."""
+    return _stable_uint64("small_annotation", _annotation_canonical_json(annotation) if payload is None else payload)
+
+
+def _annotation_set_hash(annotations: Sequence[dict[str, Any]], payloads: Sequence[str] | None = None) -> int:
+    """The hash of a variant's annotations. ``payloads`` are their canonical JSON, one per
+    annotation, when made already: the list's JSON is theirs joined, as ``json.dumps``
+    writes a list with these separators, so each annotation is serialized once."""
+    if payloads is None:
+        payload = _annotation_canonical_json(list(annotations or []))
+    else:
+        payload = f"[{','.join(payloads)}]"
     return _stable_uint64("small_annotation_set", payload)
 
 
@@ -133,9 +145,12 @@ def _annotation_gnomad_over_5_percent(annotations: Sequence[dict[str, Any]]) -> 
     return any(value > 0.05 for annotation in annotations for value in _candidate_values(annotation))
 
 
-def _population_float(annotation: dict[str, Any], *keys: str) -> float | None:
+def _population_float(
+    annotation: dict[str, Any], population_frequencies: dict[str, float], *keys: str
+) -> float | None:
+    """``population_frequencies`` is the annotation's (``_annotation_population_frequencies``),
+    read once for its five frequencies."""
     values = [_annotation_float(annotation, *keys)]
-    population_frequencies = _annotation_population_frequencies(annotation)
     for key in keys:
         values.append(population_frequencies.get(key))
     # Highest frequency across the direct annotation value and all population
@@ -156,6 +171,126 @@ def _clean_text(value: Any) -> str:
     return str(value or "").strip()
 
 
+@dataclass(slots=True)
+class _AnnotationColumns:
+    """One annotation's values as the ``annotations`` table stores them. The variant's
+    ``annotation_index`` row and ``gene_index`` rows hold the same values gathered over its
+    annotations, so each annotation is read once for all three tables (the read of an
+    annotation is most of a whole-genome import's row building). Not frozen, which would
+    make each of the millions built slower; nothing changes one once built."""
+
+    gene: str
+    gene_id: str
+    transcript_id: str
+    hgvsc: str
+    hgvsp: str
+    impact: str
+    # As read, unsorted: the annotation index gathers them in this order, the annotations
+    # row stores them sorted.
+    effect_terms: set[str]
+    clinvar_terms: set[str]
+    canonical: bool
+    mane_select: bool
+    mane_plus_clinical: bool
+    lof: str
+    gnomad_af: float | None
+    gnomad_exomes_af: float | None
+    gnomad_genomes_af: float | None
+    gnomad_popmax_af: float | None
+    topmed_af: float | None
+    gnomad_ac: int | None
+    gnomad_hom_count: int | None
+    gnomad_hemi_count: int | None
+    cadd_phred: float | None
+    revel: float | None
+    spliceai_max: float | None
+    sift: str
+    polyphen: str
+
+
+def _annotation_columns(annotation: dict[str, Any]) -> _AnnotationColumns:
+    population_frequencies = _annotation_population_frequencies(annotation)
+    return _AnnotationColumns(
+        gene=_casefold(_annotation_gene(annotation)),
+        gene_id=_casefold(_annotation_gene_id(annotation)),
+        transcript_id=_clean_text(_annotation_text(annotation, "transcript_id", "transcriptId")),
+        hgvsc=_clean_text(_annotation_text(annotation, "hgvsc")),
+        hgvsp=_clean_text(_annotation_text(annotation, "hgvsp")),
+        impact=_casefold(_annotation_text(annotation, "impact")),
+        effect_terms=_annotation_terms(_annotation_effect(annotation)),
+        clinvar_terms=_status_terms(_annotation_clinvar(annotation)),
+        canonical=_annotation_bool(annotation, "canonical"),
+        mane_select=_annotation_bool(annotation, "mane_select", "maneSelect"),
+        mane_plus_clinical=_annotation_bool(annotation, "mane_plus_clinical", "manePlusClinical"),
+        lof=_casefold(_annotation_text(annotation, "lof") or ""),
+        gnomad_af=_population_float(annotation, population_frequencies, "gnomad_af", "gnomadAf"),
+        gnomad_exomes_af=_population_float(annotation, population_frequencies, "gnomad_exomes_af", "gnomadExomesAf"),
+        gnomad_genomes_af=_population_float(
+            annotation, population_frequencies, "gnomad_genomes_af", "gnomadGenomesAf"
+        ),
+        gnomad_popmax_af=_population_float(annotation, population_frequencies, "gnomad_popmax_af", "gnomadPopmaxAf"),
+        topmed_af=_population_float(annotation, population_frequencies, "topmed_af", "topmedAf"),
+        gnomad_ac=_annotation_count(annotation, "gnomad_ac"),
+        gnomad_hom_count=_annotation_count(annotation, "gnomad_hom_count", "gnomadHomCount"),
+        gnomad_hemi_count=_annotation_count(annotation, "gnomad_hemi_count"),
+        cadd_phred=_annotation_float32(annotation, "cadd_phred", "caddPhred"),
+        revel=_annotation_float32(annotation, "revel"),
+        spliceai_max=column_float32(_annotation_spliceai_max(annotation)),
+        sift=_casefold(_annotation_text(annotation, "sift", "siftPrediction")),
+        polyphen=_casefold(_annotation_text(annotation, "polyphen", "polyphenPrediction")),
+    )
+
+
+def _annotation_row_from_columns(
+    *,
+    variant_key: int,
+    variant_id: str,
+    annotation_version: str,
+    annotation_set_hash: int,
+    annotation_hash: int,
+    chrom: str,
+    pos: int,
+    record: SmallVariantRecord,
+    columns: _AnnotationColumns,
+) -> tuple[Any, ...]:
+    return (
+        variant_key,
+        variant_id,
+        annotation_version,
+        annotation_set_hash,
+        annotation_hash,
+        chrom,
+        pos,
+        record.ref,
+        record.alt,
+        columns.gene,
+        columns.gene_id,
+        columns.transcript_id,
+        columns.hgvsc,
+        columns.hgvsp,
+        columns.impact,
+        sorted(columns.effect_terms),
+        sorted(columns.clinvar_terms),
+        columns.canonical,
+        columns.mane_select,
+        columns.mane_plus_clinical,
+        columns.lof,
+        columns.gnomad_af,
+        columns.gnomad_exomes_af,
+        columns.gnomad_genomes_af,
+        columns.gnomad_popmax_af,
+        columns.topmed_af,
+        columns.gnomad_ac,
+        columns.gnomad_hom_count,
+        columns.gnomad_hemi_count,
+        columns.cadd_phred,
+        columns.revel,
+        columns.spliceai_max,
+        columns.sift,
+        columns.polyphen,
+    )
+
+
 def _small_annotation_row(
     *,
     variant_key: int,
@@ -165,41 +300,16 @@ def _small_annotation_row(
     record: SmallVariantRecord,
     annotation: dict[str, Any],
 ) -> tuple[Any, ...]:
-    return (
-        variant_key,
-        variant_id,
-        annotation_version,
-        annotation_set_hash,
-        _annotation_payload_hash(annotation),
-        normalize_chromosome(record.chr),
-        int(record.start),
-        record.ref,
-        record.alt,
-        _casefold(_annotation_gene(annotation)),
-        _casefold(_annotation_gene_id(annotation)),
-        _clean_text(_annotation_text(annotation, "transcript_id", "transcriptId")),
-        _clean_text(_annotation_text(annotation, "hgvsc")),
-        _clean_text(_annotation_text(annotation, "hgvsp")),
-        _casefold(_annotation_text(annotation, "impact")),
-        sorted(_annotation_terms(_annotation_effect(annotation))),
-        sorted(_status_terms(_annotation_clinvar(annotation))),
-        _annotation_bool(annotation, "canonical"),
-        _annotation_bool(annotation, "mane_select", "maneSelect"),
-        _annotation_bool(annotation, "mane_plus_clinical", "manePlusClinical"),
-        _casefold(_annotation_text(annotation, "lof") or ""),
-        _population_float(annotation, "gnomad_af", "gnomadAf"),
-        _population_float(annotation, "gnomad_exomes_af", "gnomadExomesAf"),
-        _population_float(annotation, "gnomad_genomes_af", "gnomadGenomesAf"),
-        _population_float(annotation, "gnomad_popmax_af", "gnomadPopmaxAf"),
-        _population_float(annotation, "topmed_af", "topmedAf"),
-        _annotation_count(annotation, "gnomad_ac"),
-        _annotation_count(annotation, "gnomad_hom_count", "gnomadHomCount"),
-        _annotation_count(annotation, "gnomad_hemi_count"),
-        _annotation_float32(annotation, "cadd_phred", "caddPhred"),
-        _annotation_float32(annotation, "revel"),
-        column_float32(_annotation_spliceai_max(annotation)),
-        _casefold(_annotation_text(annotation, "sift", "siftPrediction")),
-        _casefold(_annotation_text(annotation, "polyphen", "polyphenPrediction")),
+    return _annotation_row_from_columns(
+        variant_key=variant_key,
+        variant_id=variant_id,
+        annotation_version=annotation_version,
+        annotation_set_hash=annotation_set_hash,
+        annotation_hash=_annotation_payload_hash(annotation),
+        chrom=normalize_chromosome(record.chr),
+        pos=int(record.start),
+        record=record,
+        columns=_annotation_columns(annotation),
     )
 
 
@@ -209,70 +319,46 @@ def _small_annotation_index_row(
     variant_id: str,
     annotation_version: str,
     annotation_set_hash: int,
+    chrom: str,
+    pos: int,
     record: SmallVariantRecord,
     annotations: Sequence[dict[str, Any]],
+    columns: Sequence[_AnnotationColumns],
 ) -> tuple[Any, ...]:
-    annotation_list = [annotation for annotation in annotations if isinstance(annotation, dict)]
-    gene_symbols = _string_list(_casefold(_annotation_gene(annotation)) for annotation in annotation_list)
-    gene_ids = _string_list(_casefold(_annotation_gene_id(annotation)) for annotation in annotation_list)
-    hgvsc_values = _string_list(
-        _clean_text(_annotation_text(annotation, "hgvsc"))
-        for annotation in annotation_list
-    )
-    hgvsp_values = _string_list(
-        _clean_text(_annotation_text(annotation, "hgvsp"))
-        for annotation in annotation_list
-    )
-    impacts = _string_list(
-        _casefold(_annotation_text(annotation, "impact"))
-        for annotation in annotation_list
-    )
-    effects = _string_list(
-        term
-        for annotation in annotation_list
-        for term in _annotation_terms(_annotation_effect(annotation))
-    )
-    clinvar_terms = _string_list(
-        term
-        for annotation in annotation_list
-        for term in _status_terms(_annotation_clinvar(annotation))
-    )
-    lof_terms = {
-        _casefold(_annotation_text(annotation, "lof") or "")
-        for annotation in annotation_list
-    }
+    """The variant's ``annotation_index`` row, from the ``columns`` of its ``annotations``
+    (one per annotation, in their order)."""
     return (
         variant_key,
         variant_id,
         annotation_version,
         annotation_set_hash,
-        normalize_chromosome(record.chr),
-        int(record.start),
+        chrom,
+        pos,
         record.ref,
         record.alt,
-        record.rsid or _annotation_rsid(annotation_list),
-        gene_symbols,
-        gene_ids,
-        hgvsc_values,
-        hgvsp_values,
-        impacts,
-        effects,
-        clinvar_terms,
-        any(_annotation_bool(annotation, "canonical") for annotation in annotation_list),
-        any(_annotation_bool(annotation, "mane_select", "maneSelect") for annotation in annotation_list),
-        any(_annotation_bool(annotation, "mane_plus_clinical", "manePlusClinical") for annotation in annotation_list),
-        any(term not in {"", ".", "na", "n/a"} for term in lof_terms),
-        _max_or_none(_population_float(annotation, "gnomad_af", "gnomadAf") for annotation in annotation_list),
-        _max_or_none(_population_float(annotation, "gnomad_exomes_af", "gnomadExomesAf") for annotation in annotation_list),
-        _max_or_none(_population_float(annotation, "gnomad_genomes_af", "gnomadGenomesAf") for annotation in annotation_list),
-        _max_or_none(_population_float(annotation, "gnomad_popmax_af", "gnomadPopmaxAf") for annotation in annotation_list),
-        _max_or_none(_population_float(annotation, "topmed_af", "topmedAf") for annotation in annotation_list),
-        _max_or_none(_annotation_count(annotation, "gnomad_ac") for annotation in annotation_list),
-        _max_or_none(_annotation_count(annotation, "gnomad_hom_count", "gnomadHomCount") for annotation in annotation_list),
-        _max_or_none(_annotation_count(annotation, "gnomad_hemi_count") for annotation in annotation_list),
-        _max_or_none(_annotation_float32(annotation, "cadd_phred", "caddPhred") for annotation in annotation_list),
-        _max_or_none(_annotation_float32(annotation, "revel") for annotation in annotation_list),
-        _max_or_none(column_float32(_annotation_spliceai_max(annotation)) for annotation in annotation_list),
+        record.rsid or _annotation_rsid(annotations),
+        _string_list(column.gene for column in columns),
+        _string_list(column.gene_id for column in columns),
+        _string_list(column.hgvsc for column in columns),
+        _string_list(column.hgvsp for column in columns),
+        _string_list(column.impact for column in columns),
+        _string_list(term for column in columns for term in column.effect_terms),
+        _string_list(term for column in columns for term in column.clinvar_terms),
+        any(column.canonical for column in columns),
+        any(column.mane_select for column in columns),
+        any(column.mane_plus_clinical for column in columns),
+        any(term not in {"", ".", "na", "n/a"} for term in {column.lof for column in columns}),
+        _max_or_none(column.gnomad_af for column in columns),
+        _max_or_none(column.gnomad_exomes_af for column in columns),
+        _max_or_none(column.gnomad_genomes_af for column in columns),
+        _max_or_none(column.gnomad_popmax_af for column in columns),
+        _max_or_none(column.topmed_af for column in columns),
+        _max_or_none(column.gnomad_ac for column in columns),
+        _max_or_none(column.gnomad_hom_count for column in columns),
+        _max_or_none(column.gnomad_hemi_count for column in columns),
+        _max_or_none(column.cadd_phred for column in columns),
+        _max_or_none(column.revel for column in columns),
+        _max_or_none(column.spliceai_max for column in columns),
     )
 
 
@@ -282,19 +368,18 @@ def _small_annotation_gene_index_rows(
     variant_id: str,
     annotation_version: str,
     annotation_set_hash: int,
+    chrom: str,
+    pos: int,
     record: SmallVariantRecord,
-    annotations: Sequence[dict[str, Any]],
+    columns: Sequence[_AnnotationColumns],
 ) -> list[tuple[Any, ...]]:
-    annotation_list = [annotation for annotation in annotations if isinstance(annotation, dict)]
     gene_terms = _string_list(
         [
             *(_casefold(symbol) for symbol in record.gene_symbols),
-            *(_casefold(_annotation_gene(annotation)) for annotation in annotation_list),
-            *(_casefold(_annotation_gene_id(annotation)) for annotation in annotation_list),
+            *(column.gene for column in columns),
+            *(column.gene_id for column in columns),
         ]
     )
-    chrom = normalize_chromosome(record.chr)
-    pos = int(record.start)
     return [
         (
             variant_key,
@@ -421,7 +506,23 @@ def _small_variant_entry_rows(
         )
         variant_key = record.variant_key or small_variant_key(assembly_name, variant_id)
         record_annotation_version = active_annotation_version
-        record_annotation_set_hash = _annotation_set_hash(record.annotations)
+        chrom = normalize_chromosome(record.chr)
+        pos = int(record.start)
+        # Each annotation serialized and read once (_AnnotationColumns): its JSON gives its
+        # own hash and the set's, its values its annotations row and the variant's index rows.
+        payloads = [_annotation_canonical_json(annotation) for annotation in record.annotations]
+        record_annotation_set_hash = _annotation_set_hash(record.annotations, payloads)
+        row_annotations: list[Any] = record.annotations or [{}]
+        row_payloads = payloads if record.annotations else [_annotation_canonical_json({})]
+        row_columns = [_annotation_columns(annotation) for annotation in row_annotations]
+        # The index rows read the annotations that are mappings, as before; with none, the
+        # annotations row of an empty annotation is no annotation of the variant.
+        index_columns = [
+            columns
+            for annotation, columns in zip(record.annotations, row_columns)
+            if isinstance(annotation, dict)
+        ]
+        index_annotations = [annotation for annotation in record.annotations if isinstance(annotation, dict)]
         gene_symbols = _string_list(record.gene_symbols or _annotation_gene_symbols(record.annotations))
         rsid = record.rsid or _annotation_rsid(record.annotations)
         filters = _string_list(record.filters)
@@ -432,8 +533,8 @@ def _small_variant_entry_rows(
                 variant_id,
                 record_annotation_version,
                 record_annotation_set_hash,
-                normalize_chromosome(record.chr),
-                int(record.start),
+                chrom,
+                pos,
                 record.ref,
                 record.alt,
                 rsid,
@@ -446,8 +547,11 @@ def _small_variant_entry_rows(
                 variant_id=variant_id,
                 annotation_version=record_annotation_version,
                 annotation_set_hash=record_annotation_set_hash,
+                chrom=chrom,
+                pos=pos,
                 record=record,
-                annotations=record.annotations,
+                annotations=index_annotations,
+                columns=index_columns,
             )
         )
         annotation_gene_index_rows.extend(
@@ -456,21 +560,28 @@ def _small_variant_entry_rows(
                 variant_id=variant_id,
                 annotation_version=record_annotation_version,
                 annotation_set_hash=record_annotation_set_hash,
+                chrom=chrom,
+                pos=pos,
                 record=record,
-                annotations=record.annotations,
+                columns=index_columns,
             )
         )
-        for annotation in record.annotations or [{}]:
+        for annotation, payload, columns in zip(row_annotations, row_payloads, row_columns):
             annotation_rows.append(
-                _small_annotation_row(
+                _annotation_row_from_columns(
                     variant_key=variant_key,
                     variant_id=variant_id,
                     annotation_version=record_annotation_version,
                     annotation_set_hash=record_annotation_set_hash,
+                    annotation_hash=_annotation_payload_hash(annotation, payload),
+                    chrom=chrom,
+                    pos=pos,
                     record=record,
-                    annotation=annotation,
+                    columns=columns,
                 )
             )
+        gnomad_over_5_percent = _annotation_gnomad_over_5_percent(record.annotations)
+        xpos = _xpos(record.chr, record.start)
         sample_ids = [call.sample for call in record.calls]
         sample_gts = [call.gt for call in record.calls]
         sample_gqs = [_small_call_gq(call) for call in record.calls]
@@ -490,14 +601,14 @@ def _small_variant_entry_rows(
                     record_annotation_set_hash,
                     project_id,
                     family_uuid,
-                    _xpos(record.chr, record.start),
-                    normalize_chromosome(record.chr),
-                    int(record.start),
+                    xpos,
+                    chrom,
+                    pos,
                     record.ref,
                     record.alt,
                     record.source or "",
                     rsid,
-                    _annotation_gnomad_over_5_percent(record.annotations),
+                    gnomad_over_5_percent,
                     bool(gene_symbols),
                     gene_symbols,
                     filters,

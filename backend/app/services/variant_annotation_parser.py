@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from functools import lru_cache
 import re
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 
 @dataclass
@@ -13,6 +14,9 @@ class AnnotationHeaderState:
 
 _NULL_VALUES = {"", ".", "NA", "N/A", "null", "None"}
 _TRUE_VALUES = {"YES", "TRUE", "1"}
+# The numbers a value holds (``_parse_float``, ``_parse_int``), compiled once.
+_FLOAT_PATTERN = re.compile(r"-?\d+(?:\.\d+)?(?:e-?\d+)?", re.IGNORECASE)
+_INTEGER_PATTERN = re.compile(r"-?\d+")
 
 _ANN_ALIASES = {
     "gene": ["SYMBOL", "Gene_Name", "GENE", "gene"],
@@ -105,6 +109,91 @@ _SCORE_ALIASES = {
     "alpha_missense_pathogenicity": ["am_pathogenicity", "AlphaMissense_pathogenicity"],
 }
 
+# Each value of _ANN_ALIASES an entry sets only when it has one, except these flags, which
+# an entry without one clears from what the record's INFO set (_normalize_annotation_entry).
+_FLAG_KEYS = frozenset({"canonical", "mane_select", "mane_plus_clinical"})
+
+_Aliases = Sequence[str]
+_CountAliases = tuple[_Aliases, _Aliases, _Aliases]
+
+
+@dataclass(frozen=True)
+class _AliasTables:
+    """The alias tables an annotation is read by, field name to the keys it may be under.
+
+    ``_ALL_ALIASES`` reads any mapping (a record's INFO, a VEP TSV row). The entries of one
+    CSQ or ANN header are read by its own tables (``_header_alias_tables``): each narrowed
+    to the keys that header declares, as no entry holds any other. An entry reads the same
+    by either, faster by its own: a whole-genome VCF has millions of entries, and most
+    aliases name a field its header does not declare."""
+
+    ann: tuple[tuple[str, _Aliases], ...]
+    score: tuple[tuple[str, _Aliases], ...]
+    count: tuple[tuple[str, _CountAliases], ...]
+    extra_count: tuple[tuple[str, _CountAliases], ...]
+    splice: tuple[tuple[str, _Aliases], ...]
+    population: tuple[tuple[str, _Aliases], ...]
+
+
+_ALL_ALIASES = _AliasTables(
+    ann=tuple(_ANN_ALIASES.items()),
+    score=tuple(_SCORE_ALIASES.items()),
+    count=tuple(_COUNT_ALIASES.items()),
+    extra_count=tuple(_EXTRA_COUNT_ALIASES.items()),
+    splice=tuple(_SPLICE_ALIASES.items()),
+    population=tuple(_POPULATION_ALIASES.items()),
+)
+# Every key an annotation is read from, by its aliases or by name (SpliceAI_pred).
+_ANNOTATION_KEYS = frozenset(
+    [alias for _key, aliases in _ALL_ALIASES.ann for alias in aliases]
+    + [alias for _key, aliases in _ALL_ALIASES.score for alias in aliases]
+    + [alias for _key, lists in _ALL_ALIASES.count for aliases in lists for alias in aliases]
+    + [alias for _key, lists in _ALL_ALIASES.extra_count for aliases in lists for alias in aliases]
+    + [alias for _key, aliases in _ALL_ALIASES.splice for alias in aliases]
+    + [alias for _key, aliases in _ALL_ALIASES.population for alias in aliases]
+    + ["SpliceAI_pred"]
+)
+
+
+def _declared(aliases: _Aliases, fields: frozenset[str]) -> tuple[str, ...]:
+    return tuple(alias for alias in aliases if alias in fields)
+
+
+def _narrowed(
+    table: tuple[tuple[str, _Aliases], ...], fields: frozenset[str], *, keep: frozenset[str] = frozenset()
+) -> tuple[tuple[str, _Aliases], ...]:
+    """``table`` with each key's aliases among ``fields``, and only the keys with one, or in
+    ``keep``."""
+    narrowed = ((key, _declared(aliases, fields)) for key, aliases in table)
+    return tuple((key, aliases) for key, aliases in narrowed if aliases or key in keep)
+
+
+def _narrowed_counts(
+    table: tuple[tuple[str, _CountAliases], ...], fields: frozenset[str]
+) -> tuple[tuple[str, _CountAliases], ...]:
+    result: list[tuple[str, _CountAliases]] = []
+    for key, (combined, exome, genome) in table:
+        aliases = (_declared(combined, fields), _declared(exome, fields), _declared(genome, fields))
+        if any(aliases):
+            result.append((key, aliases))
+    return tuple(result)
+
+
+@lru_cache(maxsize=16)
+def _header_alias_tables(fields: tuple[str, ...]) -> _AliasTables:
+    """The alias tables of the entries of a CSQ or ANN header declaring ``fields``: each
+    field's aliases that the header declares, in their order, and only the fields with one
+    -- and the flags, which an entry without one clears."""
+    declared = frozenset(fields)
+    return _AliasTables(
+        ann=_narrowed(_ALL_ALIASES.ann, declared, keep=_FLAG_KEYS),
+        score=_narrowed(_ALL_ALIASES.score, declared),
+        count=_narrowed_counts(_ALL_ALIASES.count, declared),
+        extra_count=_narrowed_counts(_ALL_ALIASES.extra_count, declared),
+        splice=_narrowed(_ALL_ALIASES.splice, declared),
+        population=_narrowed(_ALL_ALIASES.population, declared),
+    )
+
 
 def _clean_value(value: Any) -> Any:
     if isinstance(value, str):
@@ -146,7 +235,7 @@ def _parse_float(value: Any) -> Optional[float]:
         return None
     if isinstance(value, (int, float)):
         return float(value)
-    numbers = re.findall(r"-?\d+(?:\.\d+)?(?:e-?\d+)?", str(value), flags=re.IGNORECASE)
+    numbers = _FLOAT_PATTERN.findall(str(value))
     if not numbers:
         return None
     try:
@@ -165,7 +254,7 @@ def _parse_int(value: Any) -> Optional[int]:
         return value
     if isinstance(value, float):
         return int(value)
-    numbers = re.findall(r"-?\d+", str(value))
+    numbers = _INTEGER_PATTERN.findall(str(value))
     if not numbers:
         return None
     try:
@@ -202,15 +291,22 @@ def _parse_spliceai_pred(value: Any) -> Dict[str, float]:
     return result
 
 
-def _first_value(mapping: Dict[str, Any], aliases: List[str]) -> Any:
+def _first_value(mapping: Dict[str, Any], aliases: Sequence[str]) -> Any:
+    # _clean_value of each alias's value, written out: this runs for every alias of every
+    # field of every annotation entry, and most aliases are absent or empty.
     for alias in aliases:
-        value = _clean_value(mapping.get(alias))
-        if value is not None:
-            return value
+        value = mapping.get(alias)
+        if value is None:
+            continue
+        if isinstance(value, str):
+            value = value.strip()
+            if value in _NULL_VALUES:
+                continue
+        return value
     return None
 
 
-def _gnomad_count(mapping: Dict[str, Any], aliases: tuple[List[str], List[str], List[str]]) -> Optional[int]:
+def _gnomad_count(mapping: Dict[str, Any], aliases: _CountAliases) -> Optional[int]:
     """gnomAD's count in ``mapping``: its combined count, else its exome and genome counts
     added, either alone when the other is missing; None when it holds none (CLIN-67)."""
     combined_aliases, exome_aliases, genome_aliases = aliases
@@ -259,17 +355,18 @@ def update_annotation_header_state(state: AnnotationHeaderState, line: str) -> N
 def _annotation_entries(
     info: Dict[str, str],
     state: AnnotationHeaderState,
-) -> List[Dict[str, str]]:
+) -> tuple[List[str], List[Dict[str, str]]]:
     """The record's ``CSQ`` entries (VEP), else its ``ANN`` entries (snpEff), each as a
-    field -> value map by the field list its header declares; none without either."""
+    field -> value map by the field list its header declares, with that list; none without
+    either."""
     for fields, key in ((state.csq_fields, "CSQ"), (state.ann_fields, "ANN")):
         if fields and info.get(key):
-            return [
+            return fields, [
                 {field: value for field, value in zip(fields, entry.split("|"))}
                 for entry in info[key].split(",")
                 if entry
             ]
-    return []
+    return [], []
 
 
 def _apply_numeric_and_population_aliases(
@@ -278,6 +375,7 @@ def _apply_numeric_and_population_aliases(
     *,
     extra_seed: Dict[str, Any],
     population_seed: Dict[str, float],
+    tables: _AliasTables = _ALL_ALIASES,
 ) -> None:
     """Apply the score/count/extra-count/splice/population alias loops, the
     gnomad_af derivation, and the spliceai_max computation to `annotation`
@@ -285,32 +383,32 @@ def _apply_numeric_and_population_aliases(
     _normalize_annotation_entry (seeds carry the base annotation's extra and
     population_frequencies). The per-caller _ANN_ALIASES handling and final
     pruning stay with each caller."""
-    for key, aliases in _SCORE_ALIASES.items():
+    for key, aliases in tables.score:
         value = _parse_float(_first_value(source, aliases))
         if value is not None:
             annotation[key] = value
 
-    for key, count_aliases in _COUNT_ALIASES.items():
+    for key, count_aliases in tables.count:
         value = _gnomad_count(source, count_aliases)
         if value is not None:
             annotation[key] = value
 
     extra = dict(extra_seed)
-    for key, count_aliases in _EXTRA_COUNT_ALIASES.items():
+    for key, count_aliases in tables.extra_count:
         value = _gnomad_count(source, count_aliases)
         if value is not None:
             extra[key] = value
     if extra:
         annotation["extra"] = extra
 
-    for key, aliases in _SPLICE_ALIASES.items():
+    for key, aliases in tables.splice:
         value = _spliceai_delta(_parse_float(_first_value(source, aliases)))
         if value is not None:
             annotation[key] = value
     annotation.update(_parse_spliceai_pred(source.get("SpliceAI_pred")))
 
     population_frequencies = dict(population_seed)
-    for key, aliases in _POPULATION_ALIASES.items():
+    for key, aliases in tables.population:
         value = _parse_float(_first_value(source, aliases))
         if value is not None:
             population_frequencies[key] = value
@@ -342,8 +440,11 @@ def _apply_numeric_and_population_aliases(
 
 def _base_info_annotation(info: Dict[str, str]) -> Dict[str, Any]:
     annotation: Dict[str, Any] = {}
+    if info.keys().isdisjoint(_ANNOTATION_KEYS):
+        # No key it is read from (most records: INFO holds CSQ alone), so nothing is set.
+        return annotation
 
-    for key, aliases in _ANN_ALIASES.items():
+    for key, aliases in _ALL_ALIASES.ann:
         value = _first_value(info, aliases)
         if key == "canonical":
             parsed = _parse_bool(value)
@@ -363,10 +464,11 @@ def _base_info_annotation(info: Dict[str, str]) -> Dict[str, Any]:
 def _normalize_annotation_entry(
     raw_entry: Dict[str, str],
     base_annotation: Dict[str, Any],
+    tables: _AliasTables = _ALL_ALIASES,
 ) -> Dict[str, Any]:
     annotation = dict(base_annotation)
 
-    for key, aliases in _ANN_ALIASES.items():
+    for key, aliases in tables.ann:
         value = _first_value(raw_entry, aliases)
         if key == "canonical":
             parsed = _parse_bool(value)
@@ -388,6 +490,7 @@ def _normalize_annotation_entry(
         annotation,
         extra_seed=annotation.get("extra", {}),
         population_seed=base_annotation.get("population_frequencies", {}),
+        tables=tables,
     )
 
     return {key: value for key, value in annotation.items() if value not in (None, {}, [])}
@@ -398,11 +501,12 @@ def extract_small_variant_annotations(
     state: AnnotationHeaderState,
 ) -> List[Dict[str, Any]]:
     base_annotation = _base_info_annotation(info)
-    raw_entries = _annotation_entries(info, state)
+    fields, raw_entries = _annotation_entries(info, state)
 
     if raw_entries:
+        tables = _header_alias_tables(tuple(fields))
         annotations = [
-            _normalize_annotation_entry(raw_entry, base_annotation)
+            _normalize_annotation_entry(raw_entry, base_annotation, tables)
             for raw_entry in raw_entries
         ]
         return [annotation for annotation in annotations if annotation]

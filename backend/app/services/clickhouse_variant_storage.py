@@ -5,7 +5,7 @@ import logging
 import secrets
 from typing import Any, Collection, Iterable, Sequence
 
-from ..core.clickhouse import execute_clickhouse
+from ..core.clickhouse import execute_clickhouse, insert_clickhouse
 from ..core.config import settings
 from .clickhouse_variant_queries import (
     IMPUTED_SMALL_VARIANT_SOURCES,
@@ -93,11 +93,19 @@ _CALLSET_SORT_KEYS: dict[str, tuple[str, ...]] = {
 }
 
 
+# How the variant tables are written: each insert stored when it returns. ClickHouse
+# buffers an insert by default (``async_insert``) and, waiting for it, returns only when a
+# timer of 50 to 200 ms flushes the buffer; every batch of an import waited for that timer
+# once per table it writes. The rows come in batches of a thousand records, one batch at a
+# time, which is what an insert of its own is for; what is stored is the same.
+_SYNCHRONOUS_INSERT: dict[str, Any] = {"async_insert": 0}
+
+
 async def _execute(query: str, params: dict[str, Any] | None = None, data: Sequence[tuple[Any, ...]] | None = None) -> Any:
     if data is not None:
         if not data:
             return None
-        return await execute_clickhouse(query, list(data))
+        return await insert_clickhouse(query, list(data), settings=_SYNCHRONOUS_INSERT)
     return await execute_clickhouse(query, params or {})
 
 

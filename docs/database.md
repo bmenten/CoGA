@@ -657,6 +657,15 @@ that filter `sign = 1` without `FINAL` (the family views, the variant explorer,
 inserts. One that stored cancel rows, or a replacement that relies on a merge to drop the old
 row, would need `FINAL` on all of those reads.
 
+### Inserts are synchronous
+
+ClickHouse buffers an insert by default (`async_insert = 1`, waiting for it) and answers only
+once a timer of 50 to 200 ms has flushed the buffer. The variant tables' writer
+(`clickhouse_variant_storage._execute`) sends each insert with `async_insert = 0`, so it is
+stored as one part when it returns: an import writes a batch of a thousand records to five
+tables, one batch at a time, and each batch waited for that timer once per table. The rows
+stored are the same either way.
+
 ### Row identity
 
 A stored row is one callset's call of one variant, in one family and one project. When
