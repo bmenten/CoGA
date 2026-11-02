@@ -19,6 +19,9 @@ services:
   backend:
     logging: *logging
 
+  import-worker:
+    logging: *logging
+
   frontend:
     logging: *logging
     # Loopback only: the reverse proxy is the one way in. Docker publishes ports past the

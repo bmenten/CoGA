@@ -24,7 +24,10 @@ and [`backend/app/routers/metrics.py`](../backend/app/routers/metrics.py).
   ```
 
 - **One process per instance.** Each backend instance runs one uvicorn process and answers for
-  itself, so every instance is scraped (a sidecar does that by construction).
+  itself, so every instance is scraped (a sidecar does that by construction). An import-worker
+  process ([application-scheme.md](application-scheme.md#import-worker-processes)) serves no
+  metrics: the import jobs' series are read from Postgres at each scrape, so they cover the jobs
+  of every process, and a job left `queued` because no worker runs shows in its staleness.
 - **A scrape is a request like any other.** The request audit log records it.
 
 ## In the deployment

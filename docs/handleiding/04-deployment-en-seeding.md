@@ -6,14 +6,14 @@ Een paar begrippen. Een **container** is een afgeschermd draaiend softwarepakket
 
 ## Van nul naar een draaiende stack
 
-CoGA bestaat uit vier containers: Postgres (metadata en reviewtoestand), ClickHouse (de variantopslag), de FastAPI-backend en de React-frontend.
+CoGA bestaat uit vijf containers: Postgres (metadata en reviewtoestand), ClickHouse (de variantopslag), de FastAPI-backend, de importworker (dezelfde backend-image, die de pakketimports uitvoert) en de React-frontend.
 
 ### De Docker-opstelling
 
-`docker-compose.yml` beschrijft de vier diensten. Enkele keuzes zijn belangrijk voor traceerbaarheid en robuustheid:
+`docker-compose.yml` beschrijft de vijf diensten. Enkele keuzes zijn belangrijk voor traceerbaarheid en robuustheid:
 
 - **Vastgezette images.** De databank-images zijn niet alleen met een tag maar met een **digest** (`@sha256:…`) vastgelegd, zodat elke machine exact hetzelfde image gebruikt.
-- **Gezondheid en volgorde.** De backend start pas als Postgres en ClickHouse gezond zijn, de frontend pas als de backend gezond is. De backend krijgt ruim de tijd, omdat hij bij het opstarten het schema toepast en referentiedata laadt.
+- **Gezondheid en volgorde.** De backend start pas als Postgres en ClickHouse gezond zijn, de frontend en de importworker pas als de backend gezond is. De backend krijgt ruim de tijd, omdat hij bij het opstarten het schema toepast en referentiedata laadt; de importworker migreert zelf niets en controleert alleen de schemarevisie.
 - **Rustig afsluiten.** ClickHouse krijgt een ruime afsluittermijn. Wordt het midden in een schrijfactie afgebroken, dan kunnen dataonderdelen beschadigd raken.
 - **Build-identiteit.** De backend-image krijgt `APP_VERSION` en `GIT_SHA` mee bij het bouwen. Een lokale build is geen release: zonder `APP_VERSION` meldt de image de versie uit `VERSION` met `dev` erbij (`0.1.0-dev`). `.env.example` waarschuwt dat je die niet in `.env` zet: anders overschrijft de runtime de ingebakken waarde en vervalst hij de versie die in elk ondertekend rapport wordt bevroren. Buiten ontwikkeling start de backend niet zonder `GIT_SHA` (7 tot 40 hexadecimale tekens), omdat elk ondertekend rapport die commit vermeldt. De image bevat van `scripts/` alleen wat de backend zelf draait: `clinical_cnv_knowledgebase.py` (de heropbouw vanuit Admin) en `import_dgv.py` (een import door de beheerder); de testseeders, waarvan er één een aanmelding met een standaardwachtwoord aanmaakt, blijven erbuiten.
 
@@ -109,11 +109,21 @@ FastAPI kent een *lifespan*: een functie die één keer draait bij het opstarten
 5. Wachten tot ClickHouse bereikbaar is en het ClickHouse-schema toepassen. Heeft een varianttabel een sorteersleutel zonder de callset, of mist `SNV_INDEL/entries` de kolommen per call `calls.filters` en `calls.metrics`, dan start de backend niet (hoofdstuk 3).
 6. De back-uptabellen verwijderen van `overwrite`-imports die geen lopende import meer bezit, achtergelaten door een import waarvan het proces stopte (hoofdstuk 6); een fout hierbij houdt de start niet tegen.
 7. De integriteitsbewaking van ClickHouse starten: kort na het opstarten en daarna op een vast interval controleert die de varianttabellen, en bij beschadiging logt ze een fout (hoofdstuk 11).
-8. De worker voor de gen-referentie en de workers voor de pakketimport starten (aantal via `FAMILY_IMPORT_WORKER_COUNT`).
+8. De worker voor de gen-referentie en de workers voor de pakketimport starten (aantal via `FAMILY_IMPORT_WORKER_COUNT`). Met `0` start de backend geen importworkers en laat hij de jobs aan importworkerprocessen over, zoals onder Docker Compose (hieronder).
 
 Bij het afsluiten stopt de backend al deze workers netjes en sluit hij de databankverbindingen.
 
 **Waar in de code:** de functie `lifespan` in `backend/app/main.py`; in het Engels beschreven in `docs/application-scheme.md`, sectie *Startup and background work*.
+
+### De importworker in een eigen proces
+
+Een Python-proces gebruikt één processorkern voor al zijn werk, hoeveel workers het ook draait. Draaiden alle importworkers in de backend, dan deelden alle imports van een grote reeks families die ene kern, en ook de event loop die de verzoeken van de gebruikers beantwoordt. Daarom kan `python -m app.import_worker` de importworkers in een eigen proces draaien, zonder API: het beantwoordt geen verzoeken en luistert op geen poort. Docker Compose draait het als de dienst `import-worker`, uit dezelfde image en met dezelfde instellingen en dezelfde map `/data` als de backend, en geeft de backend zelf geen importworker (`FAMILY_IMPORT_WORKER_COUNT=0`). Elke replica is één proces, dat `FAMILY_IMPORT_WORKER_COUNT` jobs tegelijk draait (standaard 1); `IMPORT_WORKER_REPLICAS` (standaard 1) bepaalt hoeveel replica's er draaien, en zo hoeveel families tegelijk worden geïmporteerd, elk op een eigen kern. Op Google Cloud draaien de imports nog in de backend: `terraform/` heeft geen aparte workerdienst.
+
+Bij het opstarten controleert het proces wat de backend controleert voor zijn workers starten, en doet het niets anders: het wacht op Postgres en start niet als de databank een andere schemarevisie heeft (het migreert nooit), wacht op ClickHouse, maakt de databank aan als die ontbreekt en weigert varianttabellen met een oudere rij-identiteit, verwijdert de back-uptabellen van `overwrite`-imports waarvan geen lopende import eigenaar is, en start dan zijn workers. Op SIGTERM (`docker compose stop`) of SIGINT stopt het zijn workers zoals de backend dat bij het afsluiten doet, sluit het de databankverbindingen en eindigt het met code 0; een import die liep, stopt waar hij is, en de volgende worker neemt de job over zodra zijn heartbeat tien minuten oud is (hoofdstuk 6). Een start die mislukt, of een worker die vanzelf stopt, eindigt met code 1, en Compose start het proces opnieuw.
+
+Wat de workers van alle processen delen, loopt via Postgres en geldt dus over processen en hosts heen: het opnemen van een job (`FOR UPDATE SKIP LOCKED`), zijn heartbeat, die de klok van de databank zet en beoordeelt, het beëindigen van een job met een verouderde heartbeat, en de schrijfsloten op de varianten van een familie (advisory locks op de eigen verbinding van de import). Een worker logt elke job die hij opneemt, met zijn worker-id, dat met het proces-id begint: het record van een job noemt zijn worker alleen zolang de job loopt. In de ontwikkelopstelling herlaadt de importworker niet bij een codewijziging, zodat een bewerking geen lopende import stopt: `docker compose restart import-worker` neemt een wijziging over.
+
+**Waar in de code:** `backend/app/import_worker.py`; de dienst `import-worker` in `docker-compose.yml` en `docker-compose.dev.yml`; in het Engels beschreven in `docs/application-scheme.md`, sectie *Import-worker processes*.
 
 ## Google Cloud met Terraform
 
