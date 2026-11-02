@@ -2452,17 +2452,6 @@ def _small_variant_where_clauses(
         # exclude_imputed=False so they continue to see every callset.
         params["imputed_sources"] = tuple(IMPUTED_SMALL_VARIANT_SOURCES)
         where_clauses.append("lowerUTF8(e.source) NOT IN %(imputed_sources)s")
-    if rsid:
-        params["rsid"] = rsid
-        annotation_rsid_condition = _small_annotation_key_membership_condition(
-            context,
-            filters,
-            params=params,
-            condition="positionCaseInsensitive(ifNull(ai.rsid, ''), %(rsid)s) > 0",
-        )
-        where_clauses.append(
-            f"(positionCaseInsensitive(ifNull(e.rsid, ''), %(rsid)s) > 0 OR {annotation_rsid_condition})"
-        )
     if filters.chromosome:
         where_clauses.append("e.chrom IN %(chromosomes)s")
         params["chromosomes"] = _chromosome_options(filters.chromosome)
@@ -2482,6 +2471,19 @@ def _small_variant_where_clauses(
         where_clauses.append("e.xpos BETWEEN %(xpos_start)s AND %(xpos_end)s")
         params["xpos_start"] = _xpos(filters.chromosome, xpos_start)
         params["xpos_end"] = _xpos(filters.chromosome, xpos_end)
+    # After the locus, which the annotation subquery's scope and its family keys repeat
+    # (``_small_annotation_scope_clauses``, ``_small_family_key_condition``).
+    if rsid:
+        params["rsid"] = rsid
+        annotation_rsid_condition = _small_annotation_key_membership_condition(
+            context,
+            filters,
+            params=params,
+            condition="positionCaseInsensitive(ifNull(ai.rsid, ''), %(rsid)s) > 0",
+        )
+        where_clauses.append(
+            f"(positionCaseInsensitive(ifNull(e.rsid, ''), %(rsid)s) > 0 OR {annotation_rsid_condition})"
+        )
     return where_clauses, params
 
 
@@ -2957,6 +2959,55 @@ def _small_annotation_scope_clauses(
     return clauses
 
 
+def _small_family_key_condition(
+    context: _SearchAssembly,
+    filters: SmallVariantQueryFilters,
+    *,
+    params: dict[str, Any],
+    alias: str,
+) -> str | None:
+    """On the family page, "the annotation row ``alias`` is of a variant the family carries":
+    its key is the key of one of the rows the search reads. None for a search that is not a
+    family's (the Variant Explorer's reads every family's variants at once).
+
+    The annotation tables are shared by every family on the assembly. An annotation subquery
+    (``_small_annotation_*_membership_condition``) without this clause gathers every matching
+    variant of the whole cohort into the set its ``IN`` tests, whatever the family's size: a
+    frequency filter alone gathered almost every variant stored, 1.6 GiB for 8 M variants, and
+    at a few hundred genomes would pass the 4 GB a query may hold
+    (``clickhouse/users.d/memory-guards.xml``). With it the set holds at most the family's own
+    variants: 0.9 GiB for a whole-genome family of 5.4 M rows on that data, in half the time,
+    and no more as other families are added. A narrow filter (rare and of high or moderate
+    impact) gathered few variants either way; it now also holds the family's keys, about
+    240 MiB for that family, at the same speed.
+
+    The key is tested through ``identity``, which ClickHouse does not match to an index:
+    ``key`` is in the primary key of the annotation tables and has a bloom filter, so a plain
+    ``IN`` keeps a second copy of the set to test the index with (480 instead of 170 MiB for
+    that family), and the keys of a whole genome fall in nearly every granule, so the index
+    would skip none.
+
+    It keeps the same rows, provided it reads every row the search reads: the family's rows
+    (``sign = 1``) in the family's projects and within the search's locus, each a clause the
+    search's own WHERE holds (``_small_variant_where_clauses``), as the panel's region join
+    reads them (``_small_family_region_condition``). A row the search reads then has its key
+    here, so it is in the narrowed set exactly when it was in the whole one, also for a
+    ``NOT IN``. A clause left out would make the set larger, never change a row. Every
+    subquery of one search writes the same text here, and ClickHouse builds its set once."""
+    if not isinstance(context, FamilyMetadataContext) or not context.assembly_name:
+        return None
+    params["annotation_family_guid"] = context.family_uuid
+    rows_where = ["fk.family_guid = %(annotation_family_guid)s", "fk.sign = 1"]
+    if context.project_ids:
+        params["annotation_project_ids"] = tuple(context.project_ids)
+        rows_where.append("fk.project_guid IN %(annotation_project_ids)s")
+    rows_where.extend(_small_annotation_scope_clauses(filters, params=params, alias="fk"))
+    if filters.chromosome and "xpos_start" in params and "xpos_end" in params:
+        rows_where.append("fk.xpos BETWEEN %(xpos_start)s AND %(xpos_end)s")
+    entries_table = _small_table_name(context.assembly_name, "entries")
+    return f"identity({alias}.key) IN (SELECT fk.key FROM {entries_table} AS fk WHERE {' AND '.join(rows_where)})"
+
+
 def _small_annotation_gene_membership_condition(
     context: _SearchAssembly,
     filters: SmallVariantQueryFilters,
@@ -2979,6 +3030,9 @@ def _small_annotation_gene_membership_condition(
     gene_index_table = _small_annotation_gene_index_table_name(context.assembly_name)
     scope_clauses = _small_annotation_scope_clauses(filters, params=params, alias="gi")
     index_where = [*scope_clauses, f"gi.gene_term IN %({terms_param})s"]
+    family_keys = _small_family_key_condition(context, filters, params=params, alias="gi")
+    if family_keys:
+        index_where.append(family_keys)
     return (
         "(e.key, e.annotation_version, e.annotationSetHash) IN ("
         f"SELECT gi.key, gi.annotation_version, gi.annotationSetHash FROM {gene_index_table} AS gi "
@@ -3001,6 +3055,9 @@ def _small_annotation_key_membership_condition(
     scope_clauses = _small_annotation_scope_clauses(filters, params=params)
     operator = "NOT IN" if negate else "IN"
     index_where = [*scope_clauses, f"({condition})"]
+    family_keys = _small_family_key_condition(context, filters, params=params, alias="ai")
+    if family_keys:
+        index_where.append(family_keys)
     return (
         f"(e.key, e.annotation_version, e.annotationSetHash) {operator} ("
         f"SELECT ai.key, ai.annotation_version, ai.annotationSetHash FROM {annotation_index_table} AS ai "
@@ -3023,6 +3080,9 @@ def _small_annotation_row_membership_condition(
     scope_clauses = _small_annotation_scope_clauses(filters, params=params, alias="a")
     operator = "NOT IN" if negate else "IN"
     annotation_where = [*scope_clauses, f"({condition})"]
+    family_keys = _small_family_key_condition(context, filters, params=params, alias="a")
+    if family_keys:
+        annotation_where.append(family_keys)
     return (
         f"(e.key, e.annotation_version, e.annotationSetHash) {operator} ("
         f"SELECT a.key, a.annotation_version, a.annotationSetHash FROM {annotations_table} AS a "
