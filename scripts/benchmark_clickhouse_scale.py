@@ -1301,6 +1301,9 @@ def markdown(results: dict[str, Any]) -> str:
     )
     lines.append("")
     for step in results["steps"]:
+        if "skipped" in step:
+            lines += [f"## {step['genomes']} genomes: not run, {step['skipped']}", ""]
+            continue
         lines.append(
             f"## {step['genomes']} genomes ({step['trios']} trios, {step['singletons']} singletons): "
             f"{step['distinct_variants']:,} distinct variants, {step['entries_rows']:,} entries rows"

@@ -106,6 +106,23 @@ def test_the_generator_binds_no_parameters() -> None:
     assert all("%(" not in statement for statement in statements)
 
 
+def test_the_summary_names_a_step_the_disk_left_out() -> None:
+    results = {
+        "meta": {
+            "server": {
+                "clickhouse_version": "26.8",
+                "server_cpus": 10,
+                "os_memory_total": 8 * 1024**3,
+                "per_query_memory_cap": 4_000_000_000,
+            },
+            "model": {"variant_scale": 1.0},
+        },
+        "steps": [{"genomes": 250, "skipped": "needs about 23 GiB with 30 GiB free"}],
+    }
+
+    assert "## 250 genomes: not run, needs about 23 GiB with 30 GiB free" in bench.markdown(results)
+
+
 class _Server:
     def __init__(self, databases: list[str], tables: list[str]) -> None:
         self.database = "coga_scale_benchmark"
