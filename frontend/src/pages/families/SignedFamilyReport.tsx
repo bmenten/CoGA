@@ -10,7 +10,6 @@ import { formatSoftwareVersion, useReportBuild } from '../../lib/appVersion';
 import { formatCnvPoints } from '../../lib/cnvAcmg/format';
 import { sexUnknownWarning } from '../../lib/embryoSegregation';
 import { isNotFoundError } from '../../lib/errorMessage';
-import { describePhaseCorrection } from '../../lib/haplotypePhaseCorrections';
 import PageState from '../../components/PageState';
 import FamilyPageHeader from './FamilyPageHeader';
 import ReportSoftwareIdentity from './ReportSoftwareIdentity';
@@ -65,6 +64,7 @@ import {
   describeRepeatThresholds,
   describeReportSections,
   describeSignedDrift,
+  describeSignedPhaseCorrections,
   describeSignedQcVerdict,
   describeSignedStructuralDrift,
   describeSmallVariantDescription,
@@ -770,6 +770,7 @@ const PgtAnalysisSection: React.FC<{ record: SignedReport; version: number }> = 
       {(analysis) => {
         const roi = analysis.roi;
         const disease = describeDiseaseHaplotypes(analysis);
+        const phaseCorrections = describeSignedPhaseCorrections(analysis);
         const members = describePgtMembers(analysis.members);
         return (
           <>
@@ -790,11 +791,9 @@ const PgtAnalysisSection: React.FC<{ record: SignedReport; version: number }> = 
                 The family had no region of interest when version {version} was signed, so no embryo was called.
               </p>
             )}
-            {analysis.phaseCorrections.length ? (
+            {phaseCorrections ? (
               <p className="report-paragraph" role="note">
-                ⚠ {analysis.phaseCorrections.map(describePhaseCorrection).join(' ')} This is inside or close to the
-                ROI: where the phase switched is known only to within the children’s switches, so each call across the
-                locus is less certain, and an embryo’s own crossover there may not show.
+                {phaseCorrections}
               </p>
             ) : null}
             {analysis.qcThresholds && analysis.embryos.some((embryo) => embryo.qcVerdict) ? (

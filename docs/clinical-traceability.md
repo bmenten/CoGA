@@ -772,7 +772,9 @@ record (*Not in the signed record: version N was signed before CoGA recorded …
 empty, and one frozen as unavailable as not captured, with its reason. A list of a section that
 the view cannot read (a value that is no list, an entry not of the list's kind) is left out, and
 the section says so (*Part of … cannot be read here (N lists or entries): it is left out below,
-and the downloaded record holds it as stored*); it used to read as empty (TRACE-17). A reported
+and the downloaded record holds it as stored*); it used to read as empty (TRACE-17). A parents'
+phase correction near the ROI that it cannot read is said where that warning stands (*A phase
+correction the record holds cannot be read here; …*), never dropped unsaid. A reported
 variant without a description it can read, in a record holding descriptions it cannot read,
 names both causes rather than one. A record without
 `pgt_analysis` says so only when its Sample QC read the family as a PGT family
