@@ -11,6 +11,8 @@ import {
   normalizeProjectIds,
   phenotypeLabel,
   roleLabel,
+  trackSourceLabel,
+  trackSources,
 } from './dataManagementTypes';
 import { apiPath } from '../../lib/apiPath';
 import { formatCount } from '../../lib/format';
@@ -293,6 +295,11 @@ const DataInventoryDetail: React.FC<DataInventoryDetailProps> = ({
                       {SAMPLE_TRACK_ORDER.map((trackType) => {
                         const count = sample.track_counts[trackType] ?? 0;
                         const actionKey = `sample-track:${sample.sample_id}:${trackType}`;
+                        const trackLabel = TRACK_LABELS[trackType].toLowerCase();
+                        // A track type several callers filled (a long-read sample's coverage
+                        // from HiFiCNV, WisecondorX and QDNAseq) is deleted per caller too.
+                        const sources = trackSources(sample.track_source_counts, trackType);
+                        const perSource = sources.length > 1;
                         return (
                           <td key={trackType}>
                             <div className="admin-track-inline">
@@ -301,21 +308,64 @@ const DataInventoryDetail: React.FC<DataInventoryDetailProps> = ({
                                 type="button"
                                 className="button-secondary admin-track-inline-action"
                                 disabled={count === 0 || busyKey === actionKey}
+                                aria-label={
+                                  perSource
+                                    ? `Delete every caller's ${trackLabel} of ${sample.sample_id}`
+                                    : `Delete ${trackLabel} of ${sample.sample_id}`
+                                }
                                 onClick={() =>
                                   onRunAction(
                                     actionKey,
-                                    `Delete ${TRACK_LABELS[trackType].toLowerCase()} for sample ${sample.sample_id}? This permanently removes the stored ${TRACK_LABELS[trackType].toLowerCase()} track for this sample.`,
+                                    perSource
+                                      ? `Delete ${trackLabel} from every caller (${sources
+                                          .map(({ source }) => trackSourceLabel(source))
+                                          .join(', ')}) for sample ${sample.sample_id}? This permanently removes every stored ${trackLabel} track for this sample.`
+                                      : `Delete ${trackLabel} for sample ${sample.sample_id}? This permanently removes the stored ${trackLabel} track for this sample.`,
                                     () =>
                                       api.delete(apiPath`/admin/data/samples/${sample.sample_id}/${trackType}`, {
                                         params: { confirm: true },
                                       }),
-                                    `Deleted ${TRACK_LABELS[trackType].toLowerCase()} for sample ${sample.sample_id}.`,
+                                    `Deleted ${trackLabel} for sample ${sample.sample_id}.`,
                                   )
                                 }
                               >
-                                Delete
+                                {perSource ? 'Delete all' : 'Delete'}
                               </button>
                             </div>
+                            {perSource && (
+                              <ul className="admin-track-source-list" aria-label={`${TRACK_LABELS[trackType]} per caller`}>
+                                {sources.map(({ source, count: sourceCount }) => {
+                                  const sourceLabel = trackSourceLabel(source);
+                                  const sourceKey = `${actionKey}:${source}`;
+                                  return (
+                                    <li key={source} className="admin-track-inline">
+                                      <span className="admin-track-source-label">{sourceLabel}</span>
+                                      <span className="admin-track-inline-count">{formatCount(sourceCount)}</span>
+                                      <button
+                                        type="button"
+                                        className="button-secondary admin-track-inline-action"
+                                        disabled={busyKey === actionKey || busyKey === sourceKey}
+                                        aria-label={`Delete ${sourceLabel} ${trackLabel} of ${sample.sample_id}`}
+                                        onClick={() =>
+                                          onRunAction(
+                                            sourceKey,
+                                            `Delete the ${sourceLabel} ${trackLabel} for sample ${sample.sample_id}? This permanently removes the stored ${sourceLabel} ${trackLabel} track for this sample; the other callers' ${trackLabel} stay.`,
+                                            () =>
+                                              api.delete(
+                                                apiPath`/admin/data/samples/${sample.sample_id}/${trackType}`,
+                                                { params: { confirm: true, source } },
+                                              ),
+                                            `Deleted the ${sourceLabel} ${trackLabel} for sample ${sample.sample_id}.`,
+                                          )
+                                        }
+                                      >
+                                        Delete
+                                      </button>
+                                    </li>
+                                  );
+                                })}
+                              </ul>
+                            )}
                           </td>
                         );
                       })}

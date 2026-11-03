@@ -13,6 +13,14 @@ class SampleInventoryOut(BaseModel):
     sex: str
     projects: List[str] = Field(default_factory=list)
     track_counts: Dict[str, int] = Field(default_factory=dict)
+    track_source_counts: Dict[str, Dict[str, int]] = Field(
+        default_factory=dict,
+        description=(
+            "Interval track type → source (the caller that wrote it) → rows. A sample can hold "
+            "one track type from several callers; each is deleted on its own with the delete's "
+            "`source`."
+        ),
+    )
     total_records: int = 0
 
 

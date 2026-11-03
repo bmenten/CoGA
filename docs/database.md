@@ -628,7 +628,7 @@ process. Readers take no lock. A write that needs both takes the small-variant l
 | PED overwrite of an existing family; a structure change that clears the family's data | both |
 | package import, from before its snapshot until it has finished or restored the family | both |
 | per-sample repeat-expansion and interval-track uploads (`POST /repeat-expansions/upload/{sample_id}`, `POST /bed/upload/{sample_id}/{bed_type}`): the import's restore rewrites those rows too | both |
-| admin delete of a sample's interval track or repeat calls (`DELETE /admin/data/samples/{sample_id}/{track type}`, `…/repeat_expansions`): the import's restore rewrites those rows too, and would undo the delete | both |
+| admin delete of a sample's interval track, every caller's or (`?source=…`) one caller's, or its repeat calls (`DELETE /admin/data/samples/{sample_id}/{track type}`, `…/repeat_expansions`): the import's restore rewrites those rows too, and would undo the delete | both |
 | the demo loader (`scripts/load_demo_quartet.py`), for each upload it makes | as the upload's route |
 
 The package import commits after its datasets, so it holds its locks on a Postgres connection

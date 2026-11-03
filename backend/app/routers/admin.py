@@ -745,6 +745,13 @@ async def delete_sample_data(
     sample_id: str,
     data_type: str,
     confirm: bool = False,
+    source: str | None = Query(
+        default=None,
+        description=(
+            "Delete only this caller's interval track (`track_source_counts` names them), "
+            "keeping the other callers' of the same type."
+        ),
+    ),
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_admin_user),
 ) -> Dict:
@@ -753,6 +760,7 @@ async def delete_sample_data(
         sample_id,
         data_type,
         confirm,
+        source=source,
     )
 
 

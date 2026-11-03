@@ -49,6 +49,9 @@ the [admin dashboard](/admin), grouped in six areas.
   is also written to the family's **Clinical audit trail**, a family's deletion as its last entry).
   Deleting a family asks for its name, typed out, and the reason it goes, which its last entry
   records; without a reason it is not deleted.
+  A data layer that more than one caller filled, such as a long-read sample's coverage from
+  HiFiCNV, WisecondorX and QDNAseq, or its segments, lists each caller with its own **Delete**:
+  that deletes the one caller's track and keeps the others; **Delete all** deletes every caller's.
   Deleting a sample takes out only
   its own calls: the other members' small variants stay as they were, in every callset. A file kept in a
   storage bucket is not downloaded here; **Verify** checks it against the bucket's record of it instead of

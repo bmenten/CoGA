@@ -932,6 +932,41 @@ async def interval_counts_by_sample(
     return counts
 
 
+async def interval_source_counts_by_sample(
+    session: AsyncSession,
+    sample_uuids: Sequence[str],
+) -> dict[str, dict[str, dict[str, int]]]:
+    """Sample uuid → track type → source → the rows Postgres records for it.
+
+    A sample can hold one track type from several callers at once (a long-read sample's
+    coverage from HiFiCNV, WisecondorX and QDNAseq), and the inventory deletes each caller's
+    track on its own. A sample, or a track type, with no rows is left out."""
+    if not sample_uuids:
+        return {}
+    # One uuid[] parameter, not one per sample (an expanding IN): asyncpg takes at most 32,767
+    # per statement, and the data inventory counts every one (DATA-6).
+    result = await session.execute(
+        text(
+            """
+            SELECT
+                sample_id::text AS sample_uuid,
+                track_type,
+                source,
+                COALESCE(SUM(row_count), 0) AS count
+            FROM sample_interval_track_sources
+            WHERE sample_id = ANY(CAST(:sample_uuids AS uuid[]))
+            GROUP BY sample_id, track_type, source
+            """
+        ),
+        {"sample_uuids": uuid_values(list(sample_uuids))},
+    )
+    counts: dict[str, dict[str, dict[str, int]]] = {}
+    for row in result.mappings().all():
+        by_type = counts.setdefault(row["sample_uuid"], {})
+        by_type.setdefault(row["track_type"], {})[str(row["source"])] = int(row["count"])
+    return counts
+
+
 async def interval_track_normalizations_by_sample(
     session: AsyncSession,
     *,

@@ -26,7 +26,13 @@ upload route into real Postgres and ClickHouse:
 * a segments BED uploaded without overwrite is stored beside the WisecondorX and HiFiCNV
   segments (before: refused, 409);
 * a coverage BED uploaded with overwrite replaces the BED's coverage alone;
-* the track availability lists every caller's track.
+* the track availability lists every caller's track;
+* the admin's data inventory counts each caller's track of the sample, and its delete of one
+  caller's track (``DELETE /admin/data/samples/{sample}/{type}?source=…``) deletes that track
+  alone, rows and record: WisecondorX's coverage goes and HiFiCNV's, QDNAseq's and the BED's
+  stay; HiFiCNV's segments go and WisecondorX's and the BED's stay (before: only every
+  caller's track of a type went at once). A source on a type that is not an interval track
+  is refused (400), and nothing goes.
 
 Everything runs in ONE event loop, with an in-process ``httpx.ASGITransport`` client for the
 API (see test_e2e_api_contract.py for why).
@@ -272,6 +278,24 @@ async def _exercise(base: Path, family_id: str) -> dict[str, Any]:
 
         response = await ac.get(f"/api/families/{family_id}/track-availability")
         out["availability"] = {"status": response.status_code, "json": response.json()}
+
+        response = await ac.get(f"/api/admin/data/families/{family_id}")
+        out["inventory"] = {"status": response.status_code, "json": response.json()}
+
+        async def delete(name: str, data_type: str, source: str) -> None:
+            response = await ac.delete(
+                f"/api/admin/data/samples/{sample}/{data_type}",
+                params={"confirm": "true", "source": source},
+            )
+            out["steps"][name] = {
+                "status": response.status_code,
+                "json": response.json(),
+                **await tracks(),
+            }
+
+        await delete("delete_wisecondorx_coverage", "coverage", "wisecondorx")
+        await delete("delete_hificnv_segments", "segments", "hificnv")
+        await delete("delete_sv_source", "structural_variants", "hificnv")
     return out
 
 
@@ -366,3 +390,50 @@ def test_the_track_availability_lists_every_callers_track(run) -> None:
         ["hificnv", "web", "wisecondorx"],
         ["apcad", "hificnv"],
     )
+
+
+# After the uploads: the BED upload's segments beside the callers', and its coverage replaced.
+_UPLOADED = {**_PACKAGE_2, ("segments", "web"): 2, ("coverage", "web"): 1}
+
+
+def test_the_admin_inventory_counts_each_callers_track_of_the_sample(run) -> None:
+    assert run["inventory"]["status"] == 200, run["inventory"]
+    (served,) = [s for s in run["inventory"]["json"]["samples"] if s["sample_id"] == run["sample"]]
+    by_source: dict[tuple[str, str], int] = {
+        (track_type, source): count
+        for track_type, sources in served["track_source_counts"].items()
+        for source, count in sources.items()
+    }
+    assert by_source == _UPLOADED
+    # The type's count is every caller's rows together.
+    assert served["track_counts"]["coverage"] == sum(
+        count for (track_type, _source), count in _UPLOADED.items() if track_type == "coverage"
+    )
+
+
+def test_deleting_one_callers_coverage_keeps_the_other_callers_coverage(run) -> None:
+    step = run["steps"]["delete_wisecondorx_coverage"]
+    assert (step["status"], step["json"]) == (200, {"deleted": 3})
+    expected = {key: rows for key, rows in _UPLOADED.items() if key != ("coverage", "wisecondorx")}
+    assert step["rows"] == expected
+    assert step["records"] == expected
+
+
+def test_deleting_one_callers_segments_keeps_the_other_callers_segments(run) -> None:
+    step = run["steps"]["delete_hificnv_segments"]
+    assert (step["status"], step["json"]) == (200, {"deleted": 1})
+    expected = {
+        key: rows
+        for key, rows in _UPLOADED.items()
+        if key not in {("coverage", "wisecondorx"), ("segments", "hificnv")}
+    }
+    assert step["rows"] == expected
+    assert step["records"] == expected
+
+
+def test_a_source_on_a_type_that_is_not_an_interval_track_is_refused(run) -> None:
+    step = run["steps"]["delete_sv_source"]
+    assert step["status"] == 400, step["json"]
+    assert step["json"]["detail"] == "Only an interval track is deleted per source"
+    # Nothing goes: the tracks are as the step before left them.
+    assert step["rows"] == run["steps"]["delete_hificnv_segments"]["rows"]
