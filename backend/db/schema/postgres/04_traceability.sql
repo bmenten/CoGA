@@ -494,56 +494,8 @@ CREATE TRIGGER family_structure_versions_immutable
     BEFORE UPDATE OR DELETE ON family_structure_versions
     FOR EACH ROW EXECUTE FUNCTION family_structure_versions_block_mutation();
 
--- Loaded by the baseline and revision 0013. Exploratory records never enter sign-out.
-CREATE TABLE IF NOT EXISTS pgs_models (
-    pgs_id text PRIMARY KEY CHECK (pgs_id ~ '^PGS[0-9]{6}$'),
-    archived boolean NOT NULL DEFAULT false
-);
-CREATE TABLE IF NOT EXISTS pgs_model_versions (
-    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    pgs_id text NOT NULL REFERENCES pgs_models(pgs_id),
-    version text NOT NULL,
-    revision integer NOT NULL CHECK (revision > 0),
-    study text NOT NULL,
-    source_url text NOT NULL,
-    genome_build text NOT NULL DEFAULT 'GRCh38' CHECK (genome_build = 'GRCh38'),
-    weights_sha256 text NOT NULL,
-    resolved_sha256 text NOT NULL,
-    reference jsonb NOT NULL,
-    weights_text text NOT NULL,
-    weights jsonb NOT NULL,
-    variant_count integer NOT NULL CHECK (variant_count > 0),
-    catalog_metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
-    scoring_status text NOT NULL DEFAULT 'ready' CHECK (scoring_status IN ('ready', 'needs_reference', 'unsupported')),
-    scoring_error text,
-    created_at timestamptz NOT NULL DEFAULT now(),
-    UNIQUE (pgs_id, version),
-    UNIQUE (pgs_id, revision)
-);
--- Existing immutable versions keep their weights and acquire only defaulted metadata.
-ALTER TABLE pgs_model_versions ADD COLUMN IF NOT EXISTS catalog_metadata jsonb NOT NULL DEFAULT '{}'::jsonb;
-ALTER TABLE pgs_model_versions ADD COLUMN IF NOT EXISTS scoring_status text NOT NULL DEFAULT 'ready'
-    CHECK (scoring_status IN ('ready', 'needs_reference', 'unsupported'));
-ALTER TABLE pgs_model_versions ADD COLUMN IF NOT EXISTS scoring_error text;
-ALTER TABLE pgs_model_versions DROP CONSTRAINT IF EXISTS pgs_model_versions_prepared_check,
-    ADD CONSTRAINT pgs_model_versions_prepared_check CHECK (
-        (scoring_status = 'ready' AND jsonb_array_length(weights) = variant_count)
-        OR (scoring_status <> 'ready' AND jsonb_array_length(weights) = 0)
-    );
-CREATE TABLE IF NOT EXISTS pgs_catalog_imports (
-    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    pgs_id text NOT NULL CHECK (pgs_id ~ '^PGS[0-9]{6}$'),
-    requested_by uuid NOT NULL,
-    status text NOT NULL DEFAULT 'queued'
-        CHECK (status IN ('queued', 'running', 'completed', 'failed', 'interrupted')),
-    version_id uuid REFERENCES pgs_model_versions(id),
-    error text,
-    requested_at timestamptz NOT NULL DEFAULT now(),
-    started_at timestamptz,
-    finished_at timestamptz
-);
-CREATE INDEX IF NOT EXISTS pgs_catalog_imports_queue ON pgs_catalog_imports(status, requested_at);
-CREATE TABLE IF NOT EXISTS pgs_sources (
+-- Verified WGS source snapshots used exclusively by ancestry PCA.
+CREATE TABLE IF NOT EXISTS wgs_sources (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     family_uuid uuid NOT NULL,
     family_identifier text NOT NULL,
@@ -558,58 +510,59 @@ CREATE TABLE IF NOT EXISTS pgs_sources (
     absent_record_is_hom_ref boolean NOT NULL,
     file_size bigint NOT NULL,
     file_mtime_ns bigint NOT NULL,
+    raw_file_id uuid,
+    qualification jsonb NOT NULL DEFAULT '{}'::jsonb,
     imported_at timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS pgs_sources_family ON pgs_sources(family_uuid, project_id, imported_at DESC);
-CREATE TABLE IF NOT EXISTS pgs_runs (
+CREATE INDEX IF NOT EXISTS wgs_sources_family ON wgs_sources(family_uuid, project_id, imported_at DESC);
+CREATE OR REPLACE FUNCTION wgs_sources_block_mutation() RETURNS trigger AS $$
+BEGIN RAISE EXCEPTION 'WGS sources are append-only'; END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS wgs_sources_no_mutation ON wgs_sources;
+CREATE TRIGGER wgs_sources_no_mutation BEFORE UPDATE OR DELETE ON wgs_sources
+    FOR EACH ROW EXECUTE FUNCTION wgs_sources_block_mutation();
+
+-- Ancestry uses verified, project-scoped full-WGS sources. Reference
+-- axes and published projections are immutable and never enter clinical sign-out.
+CREATE TABLE IF NOT EXISTS ancestry_reference_panels (
+    sha256 text PRIMARY KEY CHECK (sha256 ~ '^[0-9a-f]{64}$'),
+    snapshot jsonb NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS ancestry_runs (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     family_uuid uuid NOT NULL,
     family_identifier text NOT NULL,
     project_id uuid NOT NULL,
-    source_id uuid NOT NULL REFERENCES pgs_sources(id),
-    version_ids jsonb NOT NULL,
+    source_id uuid NOT NULL REFERENCES wgs_sources(id),
+    reference_sha256 text NOT NULL REFERENCES ancestry_reference_panels(sha256),
     requested_by uuid NOT NULL,
-    status text NOT NULL DEFAULT 'queued'
-        CHECK (status IN ('queued', 'running', 'completed', 'failed', 'interrupted')),
+    status text NOT NULL DEFAULT 'queued' CHECK (status IN ('queued','running','completed','failed','interrupted')),
     error text,
     requested_at timestamptz NOT NULL DEFAULT now(),
     started_at timestamptz,
     finished_at timestamptz
 );
-CREATE INDEX IF NOT EXISTS pgs_runs_queue ON pgs_runs(status, requested_at);
-CREATE TABLE IF NOT EXISTS pgs_results (
-    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    run_id uuid NOT NULL REFERENCES pgs_runs(id),
-    source_id uuid NOT NULL REFERENCES pgs_sources(id),
-    version_id uuid NOT NULL REFERENCES pgs_model_versions(id),
-    sample_id text NOT NULL,
-    raw_score double precision,
-    status text NOT NULL CHECK (status IN ('complete', 'incomplete')),
-    qc jsonb NOT NULL,
+CREATE INDEX IF NOT EXISTS ancestry_runs_queue ON ancestry_runs(status, requested_at);
+CREATE INDEX IF NOT EXISTS ancestry_runs_family ON ancestry_runs(family_uuid, project_id, requested_at DESC);
+CREATE TABLE IF NOT EXISTS ancestry_results (
+    run_id uuid PRIMARY KEY REFERENCES ancestry_runs(id),
+    source_id uuid NOT NULL REFERENCES wgs_sources(id),
+    reference_sha256 text NOT NULL REFERENCES ancestry_reference_panels(sha256),
+    samples jsonb NOT NULL,
     calculation_version text NOT NULL,
     assumptions jsonb NOT NULL,
-    created_at timestamptz NOT NULL DEFAULT now(),
-    UNIQUE (run_id, version_id, sample_id),
-    CHECK ((status = 'complete') = (raw_score IS NOT NULL))
+    created_at timestamptz NOT NULL DEFAULT now()
 );
-
--- No cascade-mutated columns: these records keep their original identifiers even after
--- a family/project/account is deleted. Access always resolves a *current* family/project.
-CREATE OR REPLACE FUNCTION pgs_model_versions_block_mutation() RETURNS trigger AS $$
-BEGIN RAISE EXCEPTION 'PGS model versions are append-only'; END;
+CREATE OR REPLACE FUNCTION ancestry_reference_panels_block_mutation() RETURNS trigger AS $$
+BEGIN RAISE EXCEPTION 'Ancestry reference panels are append-only'; END;
 $$ LANGUAGE plpgsql;
-DROP TRIGGER IF EXISTS pgs_model_versions_no_mutation ON pgs_model_versions;
-CREATE TRIGGER pgs_model_versions_no_mutation BEFORE UPDATE OR DELETE ON pgs_model_versions
-    FOR EACH ROW EXECUTE FUNCTION pgs_model_versions_block_mutation();
-CREATE OR REPLACE FUNCTION pgs_sources_block_mutation() RETURNS trigger AS $$
-BEGIN RAISE EXCEPTION 'PGS WGS sources are append-only'; END;
+DROP TRIGGER IF EXISTS ancestry_reference_panels_no_mutation ON ancestry_reference_panels;
+CREATE TRIGGER ancestry_reference_panels_no_mutation BEFORE UPDATE OR DELETE ON ancestry_reference_panels
+    FOR EACH ROW EXECUTE FUNCTION ancestry_reference_panels_block_mutation();
+CREATE OR REPLACE FUNCTION ancestry_results_block_mutation() RETURNS trigger AS $$
+BEGIN RAISE EXCEPTION 'Ancestry results are append-only'; END;
 $$ LANGUAGE plpgsql;
-DROP TRIGGER IF EXISTS pgs_sources_no_mutation ON pgs_sources;
-CREATE TRIGGER pgs_sources_no_mutation BEFORE UPDATE OR DELETE ON pgs_sources
-    FOR EACH ROW EXECUTE FUNCTION pgs_sources_block_mutation();
-CREATE OR REPLACE FUNCTION pgs_results_block_mutation() RETURNS trigger AS $$
-BEGIN RAISE EXCEPTION 'PGS results are append-only'; END;
-$$ LANGUAGE plpgsql;
-DROP TRIGGER IF EXISTS pgs_results_no_mutation ON pgs_results;
-CREATE TRIGGER pgs_results_no_mutation BEFORE UPDATE OR DELETE ON pgs_results
-    FOR EACH ROW EXECUTE FUNCTION pgs_results_block_mutation();
+DROP TRIGGER IF EXISTS ancestry_results_no_mutation ON ancestry_results;
+CREATE TRIGGER ancestry_results_no_mutation BEFORE UPDATE OR DELETE ON ancestry_results
+    FOR EACH ROW EXECUTE FUNCTION ancestry_results_block_mutation();

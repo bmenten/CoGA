@@ -924,30 +924,22 @@ python -m pytest -q --co | tail -1
 When a test file is added, add a row to the relevant section here and (if it verifies a
 technical-file requirement) update [TF-09b](regulatory/TF-09b-requirements-traceability-matrix.md).
 
-## Exploratory PGS verification
+## Standalone ancestry verification
 
 | Test file | Verifies |
 | --- | --- |
-| [`backend/tests/test_pgs_scoring.py`](../backend/tests/test_pgs_scoring.py) | GT arithmetic, REF effects, independent REF resolution through explicit alleles/indexed FASTA, all absent-record/no-call/filter/mismatch/sample/duplicate boundaries, model refusal and source checksums, using synthetic inputs |
-| [`backend/tests/e2e/test_e2e_family_pgs.py`](../backend/tests/e2e/test_e2e_family_pgs.py) | Real HTTP model lifecycle and full-WGS background import, automatic score/QC publication, no automatic retrospective calculation, manual versions, history, archive/reactivation, project rights, cancellation and genotype/source invalidation |
-| [`frontend/src/pages/admin/__tests__/AdminPgsPage.test.tsx`](../frontend/src/pages/admin/__tests__/AdminPgsPage.test.tsx) | Catalog ID import without a manual upload form, immediate trait/study/DOI/PMID display, formatted metadata and checksums without raw JSON, current-version selection and summary counts, historical/custom versions, archive/reactivation, retrospective-calculation notice, empty/error states and malformed optional metadata |
-| [`frontend/src/pages/families/__tests__/FamilyPgsPage.test.tsx`](../frontend/src/pages/families/__tests__/FamilyPgsPage.test.tsx) | Archived score history, QC/provenance, manual family calculation, incomplete results, unavailable-source blocking and retry |
-| [`frontend/e2e/pgs.spec.ts`](../frontend/e2e/pgs.spec.ts) | Browser Catalog ID form, readable model cards, history and source fields on desktop/mobile with synthetic API responses; API-seeded model versions, real synthetic full-WGS import, raw scores and QC, pending versions, manual recalculation, provenance and archive/reactivation |
+| [`backend/tests/test_ancestry_projection.py`](../backend/tests/test_ancestry_projection.py) | Independent four-PC arithmetic, frozen public basis, missing/reference policy and every malformed/filter/duplicate/allele boundary |
+| [`backend/tests/test_ancestry_worker.py`](../backend/tests/test_ancestry_worker.py) | Independent worker lifecycle and absence of PGS routes and API contracts |
+| [`backend/tests/test_wgs_sources.py`](../backend/tests/test_wgs_sources.py) | Bounded WGS evidence, independent SHA-256 byte-order oracle, sample-order independence and explicit unfiltered GT policy |
+| [`backend/tests/e2e/test_e2e_family_ancestry.py`](../backend/tests/e2e/test_e2e_family_ancestry.py) | Real family-package WGS registration, worker publication, independent PCA oracle, history, cancellation, revoked access, source changes and clinical sign-out exclusion |
+| [`backend/tests/e2e/test_e2e_wgs_upload_source.py`](../backend/tests/e2e/test_e2e_wgs_upload_source.py) | Retained-upload verification, source registration/idempotency without variant rewrites, actor rights, independent ancestry results and genotype/source invalidation |
+| [`frontend/src/pages/families/__tests__/FamilyAncestryPage.test.tsx`](../frontend/src/pages/families/__tests__/FamilyAncestryPage.test.tsx) | Standalone ancestry/source page, project-scoped paths, unavailable families and no scoring/catalogue calls |
+| [`frontend/src/pages/families/__tests__/FamilyAncestryPanel.test.tsx`](../frontend/src/pages/families/__tests__/FamilyAncestryPanel.test.tsx) | Public PCA axes/points, usable projections, source/reference history, population visibility and manual ancestry calculation |
+| [`frontend/e2e/ancestry.spec.ts`](../frontend/e2e/ancestry.spec.ts) | Production frontend/CSP: retained WGS registration, ancestry calculation, public/family points, axis/population/zoom controls, mobile containment and absent PGS API/navigation |
 
-For PGS-only verification, run `python -m pytest backend/tests/test_pgs_scoring.py backend/tests/test_pgs_catalog_service.py -q`,
-then `RUN_INTEGRATION=1 python -m pytest backend/tests/e2e/test_e2e_family_pgs.py backend/tests/e2e/test_e2e_pgs_catalog_import.py -q`,
-and the frontend suites as above. The browser journey uses the seeded administrator
-(`scripts/seed_playwright_e2e.py`) and synthetic files below the import roots. With a
-container backend, `PGS_E2E_HOST_PACKAGE_ROOT` and `PGS_E2E_SERVER_PACKAGE_ROOT` may map
-a temporary host folder to its container mount; no real data folder is required.
-
-| Test file | Verifies |
-| --- | --- |
-| [`backend/tests/test_pgs_catalog_service.py`](../backend/tests/test_pgs_catalog_service.py) | Official PGS/build/URL isolation, bounded downloads/decompression, complete file/count validation and retained Catalog metadata, using synthetic HTTP transport |
-| [`backend/tests/e2e/test_e2e_pgs_catalog_import.py`](../backend/tests/e2e/test_e2e_pgs_catalog_import.py) | Real HTTP/DB acquisition jobs, metadata preservation, current-version idempotency and rollbacks, reference/readiness and unsupported models, administrator rights/revocation, cancellation/orphans and no retrospective scoring |
-
-## GRCh38 reference deployment verification
-
-| Test file | Verifies |
-| --- | --- |
-| [`backend/tests/test_reference_fasta.py`](../backend/tests/test_reference_fasta.py) | Pinned GRCh38 deployment download, bounded decompression, HTSlib-equivalent index/random access, atomic local cache, checksum refusal, GCS object/provenance publication and retry, cached deployment, credentials isolation, and REF resolution/GT scoring with a prepared synthetic genome |
+The Postgres migration suite also tests upgrade from the retired 0018 schema with both
+baseline-replay modes, preserving source identities and every ancestry snapshot while
+removing all local PGS tables/functions; a conflicting source rolls the upgrade back
+without deleting any history. Its historical SQL fixture is test-only and is
+never loaded by the application. Restricted-role tests retain the mutation guards on
+WGS sources, ancestry and clinical records. See [ancestry-pca.md](ancestry-pca.md).

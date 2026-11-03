@@ -75,6 +75,7 @@ from .family_variant_write_lock import (
     lock_family_variant_writes,
 )
 from .genotypes import genotype_notation_refusal, is_vcf_genotype
+from .wgs_evidence import WgsEvidence
 from .haplotype_block_builder import HaplotypeBlockBuilder
 from .haplotype_phase_correction import FAMILY_METADATA_KEY as PHASE_CORRECTIONS_KEY, PhaseCorrection
 from .import_progress import bytes_read_on_disk, read_stats
@@ -720,6 +721,7 @@ class _SmallVariantFileRead:
     skipped_malformed: int = 0
     skipped_filtered: int = 0
     skipped_by_filter: int = 0
+    wgs_evidence: WgsEvidence = field(default_factory=WgsEvidence)
 
 
 async def upload_family_small_variant_file(
@@ -990,6 +992,8 @@ async def upload_family_small_variant_file(
                 variant_batch.clear()
 
             for line_number, line in enumerate(_iter_upload_text_lines(file, kind="VCF"), start=1):
+                if line.startswith("#"):
+                    read.wgs_evidence.header(line)
                 if line.startswith("##INFO"):
                     update_annotation_header_state(read.annotation_state, line.strip())
                 elif (
@@ -1042,6 +1046,7 @@ async def upload_family_small_variant_file(
                 if progress is not None and records_read - last_reported >= SMALL_VARIANT_PROGRESS_INTERVAL:
                     yield report_read_progress
                 fields = line.strip().split("\t")
+                read.wgs_evidence.observe(fields)
                 if len(fields) < 10:
                     continue
                 if samples_scope and not read.sample_names:
@@ -1324,6 +1329,7 @@ async def upload_family_small_variant_file(
             "annotation_version": annotation_version,
             "annotation_provenance": annotation_provenance,
             "insert_batch_size": SMALL_VARIANT_UPLOAD_BATCH_SIZE,
+            "wgs_assessment": read.wgs_evidence.summary(),
         }
         if progress is not None:
             await progress(result)

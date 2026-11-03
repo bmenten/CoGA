@@ -58,8 +58,7 @@ const FamilySmallVariantsPage = lazy(
 const FamilyRepeatExpansionsPage = lazy(
   () => import('./pages/families/FamilyRepeatExpansionsPage')
 );
-const FamilyPgsPage = lazy(() => import('./pages/families/FamilyPgsPage'));
-const AdminPgsPage = lazy(() => import('./pages/admin/AdminPgsPage'));
+const FamilyAncestryPage = lazy(() => import('./pages/families/FamilyAncestryPage'));
 const FamilyParaphasePage = lazy(
   () => import('./pages/families/FamilyParaphasePage')
 );
@@ -217,8 +216,8 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
                 element={routeElement(<FamilyRepeatExpansionsPage />)}
               />
               <Route
-                path="/families/:familyId/pgs"
-                element={routeElement(<FamilyPgsPage />)}
+                path="/families/:familyId/ancestry"
+                element={routeElement(<FamilyAncestryPage />)}
               />
               <Route
                 path="/families/:familyId/paraphase"
@@ -309,10 +308,6 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
                 <Route
                   path="/admin/reference/monarch"
                   element={routeElement(<MonarchDataAdminPage />)}
-                />
-                <Route
-                  path="/admin/reference/pgs"
-                  element={routeElement(<AdminPgsPage />)}
                 />
                 <Route
                   path="/admin/reference/repeat-loci"

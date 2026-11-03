@@ -119,12 +119,6 @@ resource "google_cloud_run_v2_service" "backend" {
         value = tostring(var.trusted_proxy_hops)
       }
 
-      # Prepared and verified by terraform_data.grch38_reference before this rollout.
-      env {
-        name  = "PGS_REFERENCE_FASTA"
-        value = "/data/ref-data/genomes/GRCh38/gencode-v50/GRCh38.primary_assembly.genome.fa"
-      }
-
       # --- Object storage (PHI family data) ---
       # Defaults to local; flip var.storage_backend to "gcs" once the PHI bucket is
       # populated. GCS_BUCKET is always wired so activation is a single var change.
@@ -386,7 +380,6 @@ resource "google_cloud_run_v2_service" "backend" {
   }
 
   depends_on = [
-    terraform_data.grch38_reference,
     google_secret_manager_secret_iam_member.backend,
     google_secret_manager_secret_iam_member.backend_metrics_token,
     # With the restricted DB role, a new image serves only after its schema is applied.

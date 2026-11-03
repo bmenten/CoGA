@@ -48,11 +48,6 @@ const adminGroups: AdminGroup[] = [
           'Gene–disease and disease–phenotype associations from the Monarch knowledge graph: view the loaded release and update to the latest.',
       },
       {
-        label: 'Exploratory PGS',
-        to: '/admin/reference/pgs',
-        description: 'Version, archive and reactivate exploratory polygenic score models.',
-      },
-      {
         label: 'Repeat catalogue',
         to: '/admin/reference/repeat-loci',
         description:

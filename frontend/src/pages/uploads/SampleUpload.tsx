@@ -66,6 +66,9 @@ const SampleUpload: FC = () => {
   const [familyFormat, setFamilyFormat] = useState('auto');
   const [familyStatus, setFamilyStatus] = useState('');
   const [familyLoading, setFamilyLoading] = useState(false);
+  const [fullWgs, setFullWgs] = useState(false);
+  const [assumeReference, setAssumeReference] = useState(false);
+  const [allowUnfiltered, setAllowUnfiltered] = useState(false);
 
   const [variantFile, setVariantFile] = useState<File | null>(null);
   const [variantSample, setVariantSample] = useState('');
@@ -104,6 +107,8 @@ const SampleUpload: FC = () => {
                 params: {
                   overwrite,
                   source_format: familyFormat,
+                  ...(fullWgs ? { full_wgs: true, absent_record_is_hom_ref: assumeReference,
+                    allow_unfiltered: allowUnfiltered } : {}),
                 },
                 headers: { 'Content-Type': 'multipart/form-data' },
               }
@@ -112,9 +117,9 @@ const SampleUpload: FC = () => {
             confirm:
               'Small variants already exist for this family. Overwrite the existing family small variants and haplotypes?',
             done: (data) =>
-              `Imported ${data.inserted} small variants via ${data.source_format}${data.haplotypes_inserted ? ` and created ${data.haplotypes_inserted} haplotype blocks` : ''}.`,
+              `Imported ${data.inserted} small variants via ${data.source_format}${data.haplotypes_inserted ? ` and created ${data.haplotypes_inserted} haplotype blocks` : ''}.${data.wgs_registration_notice ? ` ${data.wgs_registration_notice}` : ''}`,
             replaced: (data) =>
-              `Replaced family small variants with ${data.inserted} records via ${data.source_format}${data.haplotypes_inserted ? ` and ${data.haplotypes_inserted} haplotype blocks` : ''}.`,
+              `Replaced family small variants with ${data.inserted} records via ${data.source_format}${data.haplotypes_inserted ? ` and ${data.haplotypes_inserted} haplotype blocks` : ''}.${data.wgs_registration_notice ? ` ${data.wgs_registration_notice}` : ''}`,
             failed: 'Family small-variant upload failed.',
             cancelled: 'Family small-variant upload cancelled.',
           }
@@ -262,7 +267,7 @@ const SampleUpload: FC = () => {
             </label>
             <label className="field-label">
               Parser
-              <select value={familyFormat} onChange={(e) => setFamilyFormat(e.target.value)}>
+              <select value={familyFormat} onChange={(e) => { setFamilyFormat(e.target.value); if (e.target.value === 'glimpse2') setFullWgs(false); }}>
                 <option value="auto">Auto detect</option>
                 <option value="clair3">Clair3 / phased family VCF</option>
                 <option value="glimpse2">GLIMPSE2 / haplotype VCF</option>
@@ -276,6 +281,21 @@ const SampleUpload: FC = () => {
                 onChange={(e) => setFamilyFile(e.target.files?.[0] || null)}
               />
             </label>
+            <label className="field-label"><span><input type="checkbox" checked={fullWgs}
+              disabled={familyFormat === 'glimpse2' || familyLoading}
+              onChange={(event) => setFullWgs(event.target.checked)} /> Register this complete WGS callset for ancestry</span></label>
+            {fullWgs && <>
+              <p>Use only for a complete directly called GRCh38 whole-genome VCF. CoGA verifies the retained file, sample IDs and imported genotypes after upload.</p>
+              <label className="field-label">Absent positions
+                <select value={assumeReference ? 'reference' : 'unknown'} onChange={(event) => setAssumeReference(event.target.value === 'reference')}>
+                  <option value="unknown">Keep unknown</option>
+                  <option value="reference">Assume homozygous reference (explicit WGS assumption)</option>
+                </select>
+              </label>
+              <label className="field-label"><span><input type="checkbox" checked={allowUnfiltered}
+                onChange={(event) => setAllowUnfiltered(event.target.checked)} /> Allow unfiltered calls (FILTER=.) for exploratory calculations</span></label>
+              <p>Both assumptions are retained with the source and results. Failed filters and no-calls remain excluded.</p>
+            </>}
             <button
               type="submit"
               className="form-button"

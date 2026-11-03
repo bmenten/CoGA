@@ -75,7 +75,7 @@ async def _exercise(family_id: str) -> dict:
     )
     vcf = _VCF.format(father=father, mother=mother, proband=proband).encode()
 
-    out: dict = {}
+    out: dict = {"sample_names": [father, mother, proband]}
     transport = ASGITransport(app=app, raise_app_exceptions=False)
     async with AsyncClient(transport=transport, base_url="http://e2e") as ac:
         token = await _harness.login_admin_token(ac)
@@ -144,6 +144,15 @@ _EXPECTED_BODY = {
         "assembly": {"version": "GRCh38", "detail": "from VCF ##reference"},
     },
     "insert_batch_size": 1000,
+    "wgs_assessment": {
+        "record_count": 3, "samples": [], "autosomes": ["1"], "autosomal_bin_count": 1,
+        "filter_counts": {"PASS": 2, "LowQual": 1}, "declared_builds": ["GRCh38"],
+        "genome_wide_candidate": False, "imputed": False, "gvcf": False, "curated_callset": False, "has_gt": True,
+        "malformed_records": 0,
+        "warnings": ["Genome-wide coverage cannot be established from this VCF's distribution; confirm its assay and completeness."],
+    },
+    "wgs_source_registered": False,
+    "wgs_registration_notice": None,
 }
 
 
@@ -156,7 +165,8 @@ def test_successful_upload_answers_200_with_its_result(run) -> None:
     # Before the fix: 500, raised while FastAPI validated the result against
     # Dict[str, int | str], after the rows had been committed.
     assert first["status"] == 200, first["text"]
-    assert first["json"] == _EXPECTED_BODY
+    assert first["json"] == {**_EXPECTED_BODY, "wgs_assessment": {
+        **_EXPECTED_BODY["wgs_assessment"], "samples": run["sample_names"]}}
 
 
 def test_rows_of_the_upload_are_stored(run) -> None:
@@ -172,4 +182,5 @@ def test_repeat_upload_is_refused_until_overwrite(run) -> None:
     assert run["repeat"]["status"] == 409, run["repeat"]["text"]
     overwrite = run["overwrite"]
     assert overwrite["status"] == 200, overwrite["text"]
-    assert overwrite["json"] == _EXPECTED_BODY
+    assert overwrite["json"] == {**_EXPECTED_BODY, "wgs_assessment": {
+        **_EXPECTED_BODY["wgs_assessment"], "samples": run["sample_names"]}}

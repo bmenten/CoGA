@@ -64,7 +64,7 @@ export default defineConfig({
       timeout: 120_000,
       env: {
         APP_ENV: 'test',
-        FAMILY_IMPORT_ROOTS: process.env.FAMILY_IMPORT_ROOTS || process.env.PGS_E2E_SERVER_PACKAGE_ROOT || process.env.PGS_E2E_HOST_PACKAGE_ROOT || path.join(tmpdir(), 'coga-pgs-browser-e2e'),
+        FAMILY_IMPORT_ROOTS: process.env.FAMILY_IMPORT_ROOTS || path.join(tmpdir(), 'coga-browser-e2e'),
         REFERENCE_BOOTSTRAP_ENABLED: 'false',
         HPO_BOOTSTRAP_ON_STARTUP: 'false',
         GENE_REFERENCE_BOOTSTRAP_ON_STARTUP: 'false',

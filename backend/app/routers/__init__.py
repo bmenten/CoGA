@@ -1,7 +1,7 @@
 """Aggregated FastAPI routers for the application."""
 
 from . import (
-    pgs,
+    ancestry,
     health,
     auth,
     ped,
@@ -33,7 +33,7 @@ from . import (
 )
 
 all_routers = [
-    pgs.router,
+    ancestry.router,
     health.router,
     auth.router,
     ped.router,

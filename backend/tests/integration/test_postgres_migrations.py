@@ -379,6 +379,91 @@ def _run(coroutine_factory):
     return asyncio.run(_main())
 
 
+@pytest.mark.parametrize('reapply', [False, True])
+@pytest.mark.parametrize('conflicting_source', [False, True])
+def test_remove_local_pgs_preserves_ancestry_sources_and_snapshots(monkeypatch, reapply, conflicting_source):
+    import json
+    from pathlib import Path
+    from sqlalchemy.exc import DBAPIError
+    from backend.app.core import postgres_migrations
+    from backend.app.core.postgres_migrations import apply_postgres_schema, head_revision
+
+    monkeypatch.setattr(postgres_migrations, 'REAPPLY_BASELINES_ON_EVERY_RUN', reapply)
+
+    async def body(database):
+        engine = _engine(database)
+        try:
+            async with engine.begin() as conn:
+                await apply_postgres_schema(conn)
+            async with engine.begin() as conn:
+                # Restore only the retired schema fixture, as an existing 0018
+                # database had it. Foreign keys follow this rename automatically.
+                await conn.exec_driver_sql('ALTER TABLE wgs_sources RENAME TO pgs_sources')
+                await conn.exec_driver_sql('ALTER INDEX wgs_sources_pkey RENAME TO pgs_sources_pkey')
+                await conn.exec_driver_sql('ALTER INDEX wgs_sources_family RENAME TO pgs_sources_family')
+                await conn.exec_driver_sql('ALTER TRIGGER wgs_sources_no_mutation ON pgs_sources RENAME TO pgs_sources_no_mutation')
+                fixture = Path(__file__).with_name('fixtures') / 'retired_pgs_0018.sql'
+                # Use the same bounded SQL statement parser as the production baselines.
+                from backend.app.core.postgres import _split_sql_script
+                for statement in _split_sql_script(fixture.read_text()):
+                    await conn.exec_driver_sql(statement)
+                await conn.exec_driver_sql("UPDATE alembic_version SET version_num='0018'")
+                await conn.exec_driver_sql("INSERT INTO pgs_models(pgs_id) VALUES ('PGS900001')")
+                version = (await conn.exec_driver_sql("""INSERT INTO pgs_model_versions
+                    (pgs_id,version,revision,study,source_url,weights_sha256,resolved_sha256,reference,weights_text,weights,variant_count)
+                    VALUES ('PGS900001','synthetic',1,'Synthetic study','https://example.org/model','synthetic','synthetic','{}','synthetic','[{}]',1)
+                    RETURNING id""")).scalar_one()
+                source = (await conn.exec_driver_sql("""INSERT INTO pgs_sources
+                    (family_uuid,family_identifier,project_id,package_path,relative_vcf,sha256,storage_version,storage_fingerprint,samples,
+                     absent_record_is_hom_ref,file_size,file_mtime_ns,qualification)
+                    VALUES(gen_random_uuid(),'SYNTHETIC',gen_random_uuid(),'/synthetic','family.vcf','synthetic','1','synthetic',
+                           '["PROBAND","MOTHER"]',true,123,456,'{"allow_unfiltered":true}') RETURNING id""")).scalar_one()
+                run = (await conn.execute(text("""INSERT INTO pgs_runs(family_uuid,family_identifier,project_id,source_id,version_ids,requested_by,status)
+                    SELECT family_uuid,family_identifier,project_id,id,CAST(:versions AS jsonb),gen_random_uuid(),'completed'
+                    FROM pgs_sources WHERE id=:source RETURNING id"""), {'versions':json.dumps([str(version)]),'source':source})).scalar_one()
+                await conn.execute(text("""INSERT INTO pgs_results(run_id,source_id,version_id,sample_id,status,raw_score,qc,calculation_version,assumptions)
+                    VALUES(:run,:source,:version,'PROBAND','complete',1.25,'{}','synthetic','{}')"""), {'run':run,'source':source,'version':version})
+                sha = 'a'*64
+                await conn.execute(text("INSERT INTO ancestry_reference_panels(sha256,snapshot) VALUES(:sha,'{}')"), {'sha':sha})
+                ancestry_run = (await conn.execute(text("""INSERT INTO ancestry_runs(family_uuid,family_identifier,project_id,source_id,reference_sha256,requested_by,status)
+                    SELECT family_uuid,family_identifier,project_id,id,:sha,gen_random_uuid(),'completed'
+                    FROM pgs_sources WHERE id=:source RETURNING id"""), {'sha':sha,'source':source})).scalar_one()
+                await conn.execute(text("""INSERT INTO ancestry_results(run_id,source_id,reference_sha256,samples,calculation_version,assumptions)
+                    VALUES(:run,:source,:sha,CAST(:samples AS jsonb),'coga-ancestry-pca-v1','{}')"""),
+                    {'run':ancestry_run,'source':source,'sha':sha,'samples':json.dumps([{'sample_id':'PROBAND','pcs':[1,2,3,4]}])})
+                before_source = (await conn.execute(text('SELECT to_jsonb(s) FROM pgs_sources s WHERE id=:id'), {'id':source})).scalar_one()
+                before_ancestry = (await conn.exec_driver_sql('SELECT to_jsonb(a) FROM ancestry_results a')).all()
+                if conflicting_source:
+                    await conn.exec_driver_sql('CREATE TABLE wgs_sources (LIKE pgs_sources INCLUDING ALL)')
+                    await conn.exec_driver_sql('INSERT INTO wgs_sources SELECT * FROM pgs_sources')
+                    await conn.exec_driver_sql("UPDATE wgs_sources SET sha256='conflicting-synthetic-checksum'")
+            if conflicting_source:
+                with pytest.raises(DBAPIError, match='WGS source preservation failed'):
+                    async with engine.begin() as conn:
+                        await apply_postgres_schema(conn)
+                async with engine.connect() as conn:
+                    assert (await conn.exec_driver_sql('SELECT version_num FROM alembic_version')).scalar_one() == '0018'
+                    assert (await conn.execute(text('SELECT to_jsonb(s) FROM pgs_sources s WHERE id=:id'), {'id':source})).scalar_one() == before_source
+                    assert (await conn.exec_driver_sql('SELECT to_jsonb(a) FROM ancestry_results a')).all() == before_ancestry
+                    assert (await conn.exec_driver_sql('SELECT raw_score FROM pgs_results')).scalar_one() == 1.25
+                return
+            async with engine.begin() as conn:
+                await apply_postgres_schema(conn)
+                assert (await conn.exec_driver_sql('SELECT version_num FROM alembic_version')).scalar_one() == head_revision()
+                assert (await conn.execute(text('SELECT to_jsonb(s) FROM wgs_sources s WHERE id=:id'), {'id':source})).scalar_one() == before_source
+                assert (await conn.exec_driver_sql('SELECT to_jsonb(a) FROM ancestry_results a')).all() == before_ancestry
+                assert (await conn.exec_driver_sql("SELECT count(*) FROM pg_tables WHERE schemaname='public' AND tablename LIKE 'pgs_%'")).scalar_one() == 0
+                assert (await conn.exec_driver_sql("SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND (proname LIKE 'pgs_%' OR proname='delete_unused_pgs_model')")).scalar_one() == 0
+                assert not (await conn.exec_driver_sql("SELECT has_table_privilege('coga_app','wgs_sources','DELETE')")).scalar_one()
+            async with engine.begin() as conn:
+                await apply_postgres_schema(conn)
+                assert (await conn.execute(text('SELECT to_jsonb(s) FROM wgs_sources s WHERE id=:id'), {'id':source})).scalar_one() == before_source
+        finally:
+            await engine.dispose()
+
+    _run(body)
+
+
 # Until the release candidate every run re-applies the baselines first; after its freeze only
 # the revisions run, and revision 0001 applies the baselines to a new database. Both must end at
 # the same schema.
@@ -424,53 +509,6 @@ def test_a_new_database_ends_with_exactly_the_schema_the_baseline_files_create(
     assert not {
         row[2] for row in expected["table_privileges"] if row[0] == "alembic_version" and row[1] == "coga_app"
     } - {"SELECT"}
-
-
-@_MODES
-def test_pgs_catalog_upgrade_keeps_historical_weights_and_adds_only_defaults(monkeypatch, reapply_baselines: bool) -> None:
-    """A real revision-0013 table upgrades with immutable weights intact, including frozen baselines."""
-    import json
-    import hashlib
-    from backend.app.core import postgres_migrations
-    from backend.app.core.postgres_migrations import apply_postgres_schema, head_revision
-
-    monkeypatch.setattr(postgres_migrations, "REAPPLY_BASELINES_ON_EVERY_RUN", reapply_baselines)
-    async def body(database):
-        engine = _engine(database)
-        try:
-            async with engine.begin() as conn:
-                await apply_postgres_schema(conn)
-                await conn.exec_driver_sql("DROP TABLE pgs_catalog_imports")
-                await conn.exec_driver_sql("ALTER TABLE pgs_model_versions DROP CONSTRAINT pgs_model_versions_prepared_check, DROP COLUMN catalog_metadata, DROP COLUMN scoring_status, DROP COLUMN scoring_error")
-                await conn.execute(text("UPDATE alembic_version SET version_num = '0013'"))
-                await conn.execute(text("INSERT INTO pgs_models(pgs_id) VALUES ('PGS900010')"))
-                weights = [{"chrom": "1", "pos": 10, "ref": "A", "effect": "G", "other": "A", "weight": 0.5}]
-                await conn.execute(text("""
-                    INSERT INTO pgs_model_versions(pgs_id, version, revision, study, source_url,
-                        weights_sha256, resolved_sha256, reference, weights_text, weights, variant_count)
-                    VALUES ('PGS900010', 'historical', 1, 'Synthetic study', 'https://example.org/study',
-                        :checksum, :checksum, '{}'::jsonb, 'synthetic weights', CAST(:weights AS jsonb), 1)
-                """), {"checksum": hashlib.sha256(b"synthetic weights").hexdigest(), "weights": json.dumps(weights)})
-                before = (await conn.execute(text("SELECT to_jsonb(v) FROM pgs_model_versions v"))).scalar_one()
-            async with engine.begin() as conn:
-                revision = await apply_postgres_schema(conn)
-                after = (await conn.execute(text("SELECT to_jsonb(v) FROM pgs_model_versions v"))).scalar_one()
-                privileges = (await conn.execute(text("SELECT has_table_privilege('coga_app', 'pgs_catalog_imports', 'INSERT')"))).scalar_one()
-        finally:
-            await engine.dispose()
-        reference = await _create_database()
-        try:
-            await _apply_baseline_files(reference)
-            expected, actual = await _fingerprint(reference), await _fingerprint(database)
-        finally:
-            await _drop_database(reference)
-        return revision, before, after, privileges, expected, actual
-    revision, before, after, privileges, expected, actual = _run(body)
-    assert (revision.before, revision.after) == ('0013', head_revision())
-    assert {k: v for k, v in after.items() if k not in {'catalog_metadata', 'scoring_status', 'scoring_error'}} == before
-    assert after['catalog_metadata'] == {} and after['scoring_status'] == 'ready' and after['scoring_error'] is None
-    assert privileges is True
-    assert actual == expected, _differences(expected, actual)
 
 
 @_MODES

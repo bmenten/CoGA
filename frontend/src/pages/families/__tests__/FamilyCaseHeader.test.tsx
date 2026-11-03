@@ -101,7 +101,7 @@ describe('FamilyCaseHeader', () => {
       expect(within(nav).getAllByRole('link').map((link) => link.textContent)).toEqual([
         'Small variants',
         'Repeat expansions',
-        'Exploratory PGS',
+        'Ancestry',
       ]),
     );
     expect(within(nav).getByRole('link', { name: 'Repeat expansions' })).toHaveAttribute('aria-current', 'page');
@@ -161,7 +161,7 @@ describe('FamilyCaseHeader', () => {
       'Small variants',
       'Structural variants',
       'Repeat expansions',
-      'Exploratory PGS',
+      'Ancestry',
       'mtDNA analysis',
       'Genome',
       'Variant summary',

@@ -24,6 +24,57 @@ export interface AlignmentManifestEntryOut {
   index_url: string;
 }
 
+export interface AncestryAnalysisOut {
+  run_id: string;
+  source_id: string;
+  reference_sha256: string;
+  samples: AncestrySampleOut[];
+  calculation_version: string;
+  assumptions: Record<string, string | boolean | number>;
+  created_at: string;
+  current_source: boolean;
+  current_reference: boolean;
+}
+
+export interface AncestryReferenceOut {
+  sha256: string;
+  name: string;
+  genome_build: "GRCh38";
+  source_url: string;
+  source_revision: string;
+  method: string;
+  variant_count: number;
+  sample_count: number;
+  explained_variance: number[];
+  populations: Record<string, string>;
+  points: AncestryReferencePoint[];
+}
+
+export interface AncestryReferencePoint {
+  id: string;
+  population: string;
+  pcs: number[];
+}
+
+export interface AncestryRunOut {
+  id: string;
+  source_id: string;
+  reference_sha256: string;
+  status: "queued" | "running" | "completed" | "failed" | "interrupted";
+  error: string | null;
+  requested_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+export interface AncestrySampleOut {
+  sample_id: string;
+  status: "projected" | "insufficient_data";
+  pcs: number[] | null;
+  call_rate: number;
+  qc: Record<string, number>;
+}
+
 /** The annotation/reference version manifest for a family (report provenance). */
 export interface AnnotationManifestOut {
   family_id: string;
@@ -182,13 +233,6 @@ export interface Body_import_nipt_artifacts_endpoint_api_admin_nipt_artifacts_im
   file: string;
   assembly_id: string;
   assay_key?: string;
-}
-
-export interface Body_publish_pgs_version_api_admin_pgs_models__pgs_id__versions_post {
-  version: string;
-  study: string;
-  source_url: string;
-  file: string;
 }
 
 export interface Body_token_api_auth_token_post {
@@ -478,6 +522,17 @@ export interface DgvVariantOut {
   observed_gains: number | null;
   observed_losses: number | null;
   source: string | null;
+}
+
+export interface FamilyAncestryOut {
+  project_id: string;
+  source_state: string;
+  can_calculate: boolean;
+  active_reference_sha256: string | null;
+  reference: AncestryReferenceOut | null;
+  analysis: AncestryAnalysisOut | null;
+  runs: AncestryRunOut[];
+  notices: string[];
 }
 
 /**
@@ -807,18 +862,6 @@ export interface FamilyParaphaseTableOut {
   samples: FamilyMemberOut[];
   genes: ParaphaseGeneResultOut[];
   genes_count: number;
-}
-
-export interface FamilyPgsOut {
-  project_id: string;
-  source_state: string;
-  sources: PgsSourceOut[];
-  runs: PgsRunOut[];
-  results: PgsResultOut[];
-  versions: PgsVersionOut[];
-  pending_version_ids: string[];
-  can_calculate: boolean;
-  notices: string[];
 }
 
 export interface FamilyPhenotypeMatchOut {
@@ -2310,95 +2353,6 @@ export interface PedUploadResult {
   families: PedFamilyResult[];
 }
 
-export interface PgsArchiveIn {
-  archived: boolean;
-}
-
-export interface PgsCatalogImportIn {
-  pgs_id: string;
-}
-
-export interface PgsCatalogImportOut {
-  id: string;
-  pgs_id: string;
-  status: "queued" | "running" | "completed" | "failed" | "interrupted";
-  version_id: string | null;
-  error: string | null;
-  requested_at: string;
-  started_at: string | null;
-  finished_at: string | null;
-}
-
-export interface PgsCatalogImportsOut {
-  jobs: PgsCatalogImportOut[];
-  reference_configured: boolean;
-}
-
-export interface PgsCatalogueOut {
-  shortlist: string[];
-  versions: PgsVersionOut[];
-}
-
-export interface PgsResultOut {
-  id: string;
-  run_id: string;
-  source_id: string;
-  version_id: string;
-  sample_id: string;
-  raw_score: number | null;
-  status: "complete" | "incomplete";
-  qc: Record<string, number>;
-  calculation_version: string;
-  assumptions: Record<string, string | boolean>;
-  created_at: string;
-  current_source: boolean;
-}
-
-export interface PgsRunOut {
-  id: string;
-  source_id: string;
-  version_ids: string[];
-  status: "queued" | "running" | "completed" | "failed" | "interrupted";
-  error: string | null;
-  requested_at: string;
-  started_at: string | null;
-  finished_at: string | null;
-}
-
-export interface PgsSourceOut {
-  id: string;
-  import_job_id: string | null;
-  package_path: string;
-  relative_vcf: string;
-  sha256: string;
-  storage_version: string;
-  storage_fingerprint: string;
-  file_size: number;
-  file_mtime_ns: number;
-  samples: string[];
-  absent_record_is_hom_ref: boolean;
-  imported_at: string;
-}
-
-export interface PgsVersionOut {
-  id: string;
-  pgs_id: string;
-  version: string;
-  revision: number;
-  archived: boolean;
-  study: string;
-  source_url: string;
-  genome_build: "GRCh38";
-  weights_sha256: string;
-  resolved_sha256: string;
-  reference: Record<string, string>;
-  variant_count: number;
-  created_at: string;
-  catalog_metadata: Record<string, unknown>;
-  scoring_status: "ready" | "needs_reference" | "unsupported";
-  scoring_error: string | null;
-}
-
 /** The PGT analysis at the family's ROI: the disease haplotype and each embryo's call. */
 export interface PgtAnalysisOut {
   region_of_interest: PgtRegionOfInterestOut | null;
@@ -3602,6 +3556,9 @@ export interface SmallVariantUploadResult {
   annotation_version: string;
   annotation_provenance: Record<string, Record<string, unknown>>;
   insert_batch_size: number;
+  wgs_assessment: Record<string, unknown> | null;
+  wgs_source_registered: boolean;
+  wgs_registration_notice: string | null;
 }
 
 export interface SpeciesCreate {
@@ -4006,4 +3963,41 @@ export interface VariantPriorityOut {
 export interface VersionOut {
   version: string;
   git_sha: string;
+}
+
+export interface WgsSourceCandidateOut {
+  file_id: string;
+  file_name: string;
+  file_size: number | null;
+  assessment: Record<string, unknown>;
+}
+
+export interface WgsSourceDeclaration {
+  file_id: string;
+  full_wgs: true;
+  genome_build: "GRCh38";
+  absent_record_is_hom_ref: boolean;
+  allow_unfiltered?: boolean;
+}
+
+export interface WgsSourceOut {
+  id: string;
+  import_job_id: string | null;
+  package_path: string;
+  relative_vcf: string;
+  sha256: string;
+  storage_version: string;
+  storage_fingerprint: string;
+  file_size: number;
+  file_mtime_ns: number;
+  samples: string[];
+  absent_record_is_hom_ref: boolean;
+  imported_at: string;
+  raw_file_id: string | null;
+  qualification: Record<string, unknown>;
+}
+
+export interface WgsSourcesOut {
+  candidates: WgsSourceCandidateOut[];
+  can_register: boolean;
 }

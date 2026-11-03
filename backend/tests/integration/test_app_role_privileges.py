@@ -46,9 +46,9 @@ _APPEND_ONLY = (
     "qc_threshold_changes",
     "family_structure_versions",
     "ui_events",
-    "pgs_model_versions",
-    "pgs_sources",
-    "pgs_results",
+    "wgs_sources",
+    "ancestry_reference_panels",
+    "ancestry_results",
 )
 
 # A syntactically-valid UPDATE per table (a real column); the privilege check fires before
@@ -61,9 +61,9 @@ _UPDATE_SQL = {
     "qc_threshold_changes": "UPDATE qc_threshold_changes SET reason = reason",
     "family_structure_versions": "UPDATE family_structure_versions SET version = version",
     "ui_events": "UPDATE ui_events SET label = label",
-    "pgs_model_versions": "UPDATE pgs_model_versions SET version = version",
-    "pgs_sources": "UPDATE pgs_sources SET sha256 = sha256",
-    "pgs_results": "UPDATE pgs_results SET raw_score = raw_score",
+    "wgs_sources": "UPDATE wgs_sources SET sha256=sha256",
+    "ancestry_reference_panels": "UPDATE ancestry_reference_panels SET snapshot = snapshot",
+    "ancestry_results": "UPDATE ancestry_results SET samples = samples",
 }
 
 # Every table with an append-only guard: each follows the ``<table>_block_mutation()``

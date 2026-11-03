@@ -1,8 +1,9 @@
 from typing import Any, Dict, List
 
-from fastapi import APIRouter, Depends, File, Query, Response, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import text
 
 from ..core.csv_export import csv_document, export_response_headers
 from ..core.postgres import get_postgres_session
@@ -29,6 +30,8 @@ from ..services.family_metadata_context import FamilyMetadataContext, SampleMeta
 from ..services.access_control import CurrentUser, changes_only_own_data
 from ..services.panel_use_audit import record_family_panel_use
 from ..services.raw_import_files_pg import record_upload_file_obj
+from ..wgs_schemas import WgsSourceDeclaration
+from ..services import wgs_source_service
 from ..services.small_variant_review_pg import (
     get_small_variant_review_summary,
     upsert_small_variant_review as upsert_small_variant_review_record,
@@ -95,9 +98,21 @@ async def upload_family_small_variants(
     # a row is written: the value becomes the rows' source, which scopes every later
     # overwrite and delete.
     source_format: SmallVariantFormat = "auto",
+    full_wgs: bool = False,
+    absent_record_is_hom_ref: bool | None = None,
+    allow_unfiltered: bool = False,
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_admin_user),
 ) -> SmallVariantUploadResult:
+    if full_wgs and absent_record_is_hom_ref is None:
+        raise HTTPException(400, "A full-WGS declaration requires an explicit policy for absent records.")
+    if not full_wgs and (absent_record_is_hom_ref is not None or allow_unfiltered):
+        raise HTTPException(400, "Exploratory genotype assumptions require a full-WGS declaration.")
+    if full_wgs:
+        from ..services.variant_upload_service import _detect_small_variant_format_from_upload
+
+        if _detect_small_variant_format_from_upload(file, source_format) != "clair3":
+            raise HTTPException(400, "Only a directly called nuclear VCF can be declared a full-WGS source.")
     context = await build_family_metadata_context(
         session,
         family_identifier=family_id,
@@ -120,7 +135,31 @@ async def upload_family_small_variants(
         sample_uuid=None,
         scope="family",
         dataset="small_variants",
+        metadata={"callset": result["source_format"], "wgs_assessment": result.get("wgs_assessment"),
+                  "wgs_declaration": {"full_wgs": full_wgs, "absent_record_is_hom_ref": absent_record_is_hom_ref,
+                                      "allow_unfiltered": allow_unfiltered}},
     )
+    if not full_wgs and (result.get("wgs_assessment") or {}).get("genome_wide_candidate"):
+        result["wgs_registration_notice"] = "Genome-wide variant distribution detected. Confirm the retained WGS source on the Ancestry page to enable ancestry; no variant reimport is needed."
+    if full_wgs:
+        latest = (await session.execute(text("""
+            SELECT id::text FROM raw_import_files
+            WHERE family_id = CAST(:family AS uuid) AND file_name = :name
+              AND scope = 'family' AND dataset = 'small_variants' AND managed = TRUE
+            ORDER BY created_at DESC, id DESC LIMIT 1
+        """), {"family": context.family_uuid, "name": file.filename or "upload"})).scalar_one_or_none()
+        if latest is None:
+            result["wgs_registration_notice"] = "Variants imported, but the source file was not retained; WGS registration could not finish."
+        else:
+            try:
+                await wgs_source_service.register(session, family_id, user, None, WgsSourceDeclaration(
+                    file_id=latest, full_wgs=True, genome_build="GRCh38",
+                    absent_record_is_hom_ref=absent_record_is_hom_ref is True, allow_unfiltered=allow_unfiltered))
+                result["wgs_source_registered"] = True
+                result["wgs_registration_notice"] = "WGS source verified and registered for ancestry."
+            except HTTPException as exc:
+                await session.rollback()
+                result["wgs_registration_notice"] = "Variants imported; WGS registration requires attention: " + str(exc.detail)
     return SmallVariantUploadResult.model_validate(result)
 
 

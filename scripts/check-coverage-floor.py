@@ -62,8 +62,6 @@ MODULE_FLOORS: dict[str, float] = {
     "backend/app/services/panel_use_audit.py": 97.0,
     # (100.0 measured locally when they were added: the PGT embryo calls the family page
     # shows and a sign-out freezes, REG-2)
-    "backend/app/reference_fasta.py": 94.0,  # atomic pinned deployment assets, synthetic HTTP/GCS
-    "backend/app/services/pgs_scoring.py": 88.0,  # GT/REF/QC boundaries, synthetic unit data
     "backend/app/services/pgt_analysis.py": 97.0,
     "backend/app/services/pgt_embryo_calls.py": 97.0,
     # (100.0 measured locally when it was added: the phasing-QC thresholds and verdict of an
@@ -98,9 +96,10 @@ MODULE_FLOORS: dict[str, float] = {
 # job alone under-reports because real datastores exercise them.
 COMBINED_GLOBAL_FLOOR = 80.0  # (83.4)
 COMBINED_FLOORS: dict[str, float] = {
-    "backend/app/services/pgs_catalog_service.py": 80.0,  # bounded public downloads + real import lifecycle
 
-    "backend/app/services/pgs_service.py": 79.0,  # real synthetic HTTP/import/storage lifecycle
+    "backend/app/services/wgs_evidence.py": 80.0,  # bounded VCF evidence + independent call fingerprint
+    "backend/app/services/wgs_source_storage.py": 80.0,  # scoped ancestry sources and lifecycle
+    "backend/app/services/wgs_source_service.py": 80.0,  # retained-file/GT checks + real HTTP registration lifecycle
 
     "backend/app/services/annotation_manifest_service.py": 92.0,  # (95.6)
     "backend/app/services/clickhouse_family_variants.py": 82.0,  # (85.7)

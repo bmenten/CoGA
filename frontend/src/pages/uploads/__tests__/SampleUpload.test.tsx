@@ -24,6 +24,9 @@ const servedFamilyUpload: SmallVariantUploadResult = {
   annotation_version: 'vcf_info',
   annotation_provenance: { deepvariant: { version: '1.10.0' } },
   insert_batch_size: 1000,
+  wgs_assessment: null,
+  wgs_source_registered: false,
+  wgs_registration_notice: null,
 };
 
 const submitFamilyUpload = () => {
@@ -111,6 +114,22 @@ describe('SampleUpload', () => {
 
     expect(await screen.findByText('Imported 3 small variants via clair3.')).toBeInTheDocument();
     expect(screen.queryByText(/upload failed/i)).not.toBeInTheDocument();
+  });
+
+  it('registers WGS with explicit policies and displays the verification outcome', async () => {
+    mockedPost.mockResolvedValue({ data: { ...servedFamilyUpload,
+      wgs_source_registered: true, wgs_registration_notice: 'WGS source verified and registered for ancestry.' } });
+    render(<MemoryRouter><SampleUpload /></MemoryRouter>);
+    fireEvent.click(screen.getByLabelText(/Register this complete WGS callset/));
+    expect(screen.getByLabelText('Absent positions')).toHaveValue('unknown');
+    expect(screen.getByLabelText(/Allow unfiltered calls/)).not.toBeChecked();
+    fireEvent.change(screen.getByLabelText('Absent positions'), { target: { value: 'reference' } });
+    fireEvent.click(screen.getByLabelText(/Allow unfiltered calls/));
+    submitFamilyUpload();
+    await waitFor(() => expect(mockedPost).toHaveBeenCalledWith('/families/FAM1/small-variants/upload', expect.any(FormData),
+      expect.objectContaining({ params: { overwrite: false, source_format: 'auto', full_wgs: true,
+        absent_record_is_hom_ref: true, allow_unfiltered: true } })));
+    expect(await screen.findByText(/WGS source verified and registered/)).toBeInTheDocument();
   });
 
   it('replaces the family small variants on confirm after a 409', async () => {

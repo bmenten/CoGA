@@ -322,6 +322,9 @@ class SmallVariantUploadResult(BaseModel):
     # merged into the family's annotation manifest.
     annotation_provenance: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
     insert_batch_size: int
+    wgs_assessment: Optional[Dict[str, Any]] = None
+    wgs_source_registered: bool = False
+    wgs_registration_notice: Optional[str] = None
 
 
 class StructuralVariantUploadResult(BaseModel):

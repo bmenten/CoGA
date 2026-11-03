@@ -618,7 +618,7 @@ describe('FamilyDetailPage', () => {
     expect(within(analyses).getAllByRole('link').map((link) => link.textContent?.trim())).toEqual([
       'Small variants',
       'Structural variants',
-      'Exploratory PGS',
+      'Ancestry',
       'Variant summary',
     ]);
     for (const link of within(analyses).getAllByRole('link')) {

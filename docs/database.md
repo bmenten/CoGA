@@ -762,44 +762,34 @@ is widened then ([ClickHouse Tables](#clickhouse-tables)). The full startup orde
 [application-scheme.md](application-scheme.md), "Startup and background work"; the reference
 data it loads is listed in [data-import.md](data-import.md), section 1.
 
-## Exploratory PGS (revision 0013)
+### Verified WGS sources for ancestry (revision 0019)
 
-The separate [exploratory PGS module](exploratory-pgs.md) is excluded from clinical sign-out.
-Its tables are defined in `04_traceability.sql` and protected by `05_grants.sql`.
+`wgs_sources` holds append-only, project-scoped source snapshots for ancestry: source
+location/checksum, sample list, genotype-storage version/fingerprint, file size/mtime,
+explicit absent-position/unfiltered policies and verification evidence. A retained upload
+is linked by `raw_file_id`; a family-package source retains its import job and location.
+These records establish reproducibility, not callable sequencing coverage. Mutations are
+blocked by trigger and the application role cannot UPDATE/DELETE/TRUNCATE.
+
+Revision 0019 removes all local PGS model, import, run, score and dismissal tables/functions.
+It first copies the former shared source records into `wgs_sources`, verifies all fields,
+and repoints both ancestry foreign keys while preserving source UUIDs. Ancestry snapshots,
+reference panels, clinical records and audit history are retained. The same final schema
+is used for new installations; there is no local PGS compatibility flag or worker.
+
+### Exploratory ancestry PCA (revision 0015)
 
 | Table | Holds |
 | --- | --- |
-| `pgs_models` | Curated PGS IDs and their current archive state; no delete API |
-| `pgs_model_versions` | Append-only versioned scoring text and resolved weights, study/source, GRCh38 build, original/resolved checksums and reference provenance |
-| `pgs_sources` | Append-only successful full-WGS import snapshots: immutable family/project identities, complete source location/checksum, sample list, storage version and genotype-content fingerprint, absence assumption |
-| `pgs_runs` | Durable calculation queue with pinned source/model versions and requester identity, status, timestamps and fixed failure/interruption reasons |
-| `pgs_results` | Append-only raw scores or explicit incomplete results, per-individual QC counts, calculation version and assumptions, linked to the exact run/source/version |
+| `ancestry_reference_panels` | Append-only public reference metadata, PC variance, population labels and reference coordinates, keyed by the model NPZ SHA-256 |
+| `ancestry_runs` | Project-scoped durable jobs pinning the verified `wgs_sources` record, reference checksum and requester; queued/running/completed/failed/interrupted states |
+| `ancestry_results` | One append-only atomic snapshot per completed run: each individual's four PCs or insufficient-data state, marker QC, calculation version and assumptions |
 
-Model publication queues no historical calculations. Only successful declared full-WGS
-imports and manual family requests queue work. A running job holds its run row `FOR UPDATE`
-and shared family variant-write locks until all results and its completed state commit
-together. An unlocked running job older than ten minutes is interrupted, never retried.
-Cancellation rolls back results and records an interruption. A content fingerprint (count,
-sum and XOR of genotype-row hashes) supplements the mutation token to detect direct row
-loss/changes. Unavailable/changed storage blocks scoring and keeps historical values visible.
-
-The three append-only PGS tables have their own `*_block_mutation` triggers and revoked
-UPDATE/DELETE/TRUNCATE privileges. Their immutable identities have no mutable family, project
-or account FK; deleting those records retains historical evidence. Every read resolves the
-current family and selected project permissions first, so retained rows cannot reveal a
-deleted or inaccessible family's values. PGS content never enters a signed clinical record.
-
-### Catalog PGS acquisition (revision 0014)
-
-`pgs_catalog_imports` is a durable administrator-only queue for downloading one PGS ID's
-official harmonized GRCh38 scoring file and metadata. It retains requester identity,
-status, timestamps, resulting version ID and fixed error/interruption reason. A run-row
-lock guards publication; the model version and completed job commit atomically.
-
-`pgs_model_versions` additionally stores immutable `catalog_metadata`, `scoring_status`
-(`ready`, `needs_reference`, `unsupported`) and `scoring_error`. Historic versions receive
-only the defaults; their weights/results do not change. A prepared-state constraint requires
-all declared weights for a ready version and zero resolved weights for a blocked version;
-the complete original scoring text is preserved in both cases. Family jobs select only the
-latest active ready version per PGS ID. A newer blocked version never selects an older one
-implicitly. No model acquisition triggers retrospective family calculation.
+The reference and result tables have mutation-blocking triggers and revoked
+UPDATE/DELETE/TRUNCATE rights. The worker validates source, permission, family-member,
+genotype-version/fingerprint and import-state checks and shared variant-write locks.
+Reference replacement after queueing fails that run instead of silently moving its axes.
+Cancellation and failure publish no partial result. Stale unlocked running jobs become
+interrupted after ten minutes. Historical runs retain their own reference coordinates;
+reads resolve current project/family access and never mix different reference axes.
+These records do not enter clinical sign-out.
