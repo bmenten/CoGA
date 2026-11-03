@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Sequence
+from typing import Any, Collection, Sequence
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.sql import rows_matched
 from .review_pg_utils import _json_payload, _normalize_tags
 from .small_variant_review_acmg import _acmg_json_or_none, _json_or_none
 
@@ -203,13 +204,19 @@ def _review_row_params(fields: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+class ReviewRowNotStored(RuntimeError):
+    """An update of a review row the store does not hold: it would store nothing."""
+
+
 async def _update_review_row(
     session: AsyncSession,
     *,
     review_id: str,
     fields: dict[str, Any],
 ) -> None:
-    await session.execute(
+    # An update that matches no row stores nothing: raised, so the save does not go on to
+    # record its change on the clinical audit trail and commit it as if it had been stored.
+    result = await session.execute(
         text(
             """
             UPDATE small_variant_reviews
@@ -242,6 +249,8 @@ async def _update_review_row(
         ),
         {**_review_row_params(fields), "review_id": review_id},
     )
+    if rows_matched(result) != 1:
+        raise ReviewRowNotStored("The review row to update is not stored")
 
 
 async def _insert_review_row(
@@ -319,7 +328,16 @@ async def _clear_compound_het_group(
     *,
     family_uuid: str,
     group_id: str,
+    written_by_save: Collection[str] = (),
 ) -> None:
+    """Break up a compound-het pair: each review of it loses the pair, and one that held
+    nothing else is deleted.
+
+    The reviews of ``written_by_save`` are left as they are: the save that breaks the pair up
+    writes each of them next, its compound-het fields included. Deleted here, the review that
+    held only the pair was gone when the save wrote it, and the save's tags and note were
+    lost while the clinical audit trail recorded them.
+    """
     if not group_id:
         return
     documents = await _fetch_compound_het_group_rows(
@@ -329,6 +347,8 @@ async def _clear_compound_het_group(
     )
     clear_payload = _compound_het_clear_payload()
     for document in documents:
+        if document.get("variant_id") in written_by_save:
+            continue
         updated_document = {**document, **clear_payload}
         if _review_document_has_any_content(updated_document):
             await _update_review_row(

@@ -292,8 +292,10 @@ def _patch_pair_store(monkeypatch, store: _PairStore) -> None:
     async def _group(session, *, family_uuid, group_id):
         return [dict(row) for row in store.rows.values() if row.get("compound_het_group_id") == group_id]
 
-    async def _clear(session, *, family_uuid, group_id):
+    async def _clear(session, *, family_uuid, group_id, written_by_save=()):
         for row in await _group(session, family_uuid=family_uuid, group_id=group_id):
+            if row["variant_id"] in written_by_save:
+                continue  # the save writes it itself
             store.writes.append(row["variant_id"])
             store.rows[row["variant_id"]] = {**row, "compound_het_group_id": None, "compound_het_partner_variant_ids": []}
 

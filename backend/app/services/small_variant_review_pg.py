@@ -351,6 +351,24 @@ async def _lock_pair_save_reviews(
     return existing, reviews.get(partner_variant_id) if partner_variant_id else None
 
 
+async def _commit_stored_review(
+    session: AsyncSession,
+    *,
+    family_uuid: str,
+    variant_id: str,
+) -> SmallVariantReviewOut:
+    """Commit a save, and return the variant's review as stored.
+
+    The review is read back in the save's transaction, before the commit: a save that did not
+    store it is refused and commits nothing, the clinical audit events it wrote included.
+    """
+    stored = await _fetch_review_row(session, family_uuid=family_uuid, variant_id=variant_id)
+    if stored is None:
+        raise HTTPException(status_code=500, detail="Review update failed")
+    await session.commit()
+    return _serialize_review(stored)
+
+
 def _pair_removed(variant_id: str, holder: dict[str, Any]) -> CompoundHetPairChange:
     """The removal of the compound-het pair review a variant's review row holds."""
     return CompoundHetPairChange(
@@ -521,7 +539,8 @@ async def upsert_small_variant_review(
             ):
                 target_group_id = existing_group_id
             # A pair either variant was in with another variant is broken up, each group
-            # once: its removal is audited under the variant whose review held it.
+            # once: its removal is audited under the variant whose review held it. The two
+            # reviews this save writes below are left to that write.
             cleared_group_ids: list[str] = []
             for group_id, holder_id, holder in (
                 (existing_group_id, variant_id, existing),
@@ -542,6 +561,7 @@ async def upsert_small_variant_review(
                     session,
                     family_uuid=context.family_uuid,
                     group_id=str(group_id),
+                    written_by_save=(variant_id, compound_het_partner_id),
                 )
 
             target_group_id = target_group_id or uuid4().hex
@@ -627,10 +647,13 @@ async def upsert_small_variant_review(
                 )
             if existing and existing.get("compound_het_group_id"):
                 pair_changes.append(_pair_removed(variant_id, existing))
+                # The variant's own review is left to the write below, which keeps it for
+                # the tags and note this save gives it, or deletes it.
                 await _clear_compound_het_group(
                     session,
                     family_uuid=context.family_uuid,
                     group_id=existing["compound_het_group_id"],
+                    written_by_save=(variant_id,),
                 )
             compound_het_data = _compound_het_clear_payload()
     elif compound_het_requested:
@@ -640,6 +663,7 @@ async def upsert_small_variant_review(
                 session,
                 family_uuid=context.family_uuid,
                 group_id=existing["compound_het_group_id"],
+                written_by_save=(variant_id,),
             )
         compound_het_data = _compound_het_clear_payload()
 
@@ -695,15 +719,7 @@ async def upsert_small_variant_review(
                 fields=data,
             )
             await _audit(cleared_state)
-            await session.commit()
-            updated = await _fetch_review_row(
-                session,
-                family_uuid=context.family_uuid,
-                variant_id=variant_id,
-            )
-            if updated is None:
-                raise HTTPException(status_code=500, detail="Review update failed")
-            return _serialize_review(updated)
+            return await _commit_stored_review(session, family_uuid=context.family_uuid, variant_id=variant_id)
         if existing is not None:
             await _delete_review_row(session, existing["id"])
             await _audit(cleared_state)
@@ -752,15 +768,7 @@ async def upsert_small_variant_review(
                 fields=merged,
             )
             await _audit(new_state)
-            await session.commit()
-            updated = await _fetch_review_row(
-                session,
-                family_uuid=context.family_uuid,
-                variant_id=variant_id,
-            )
-            if updated is None:
-                raise HTTPException(status_code=500, detail="Review update failed")
-            return _serialize_review(updated)
+            return await _commit_stored_review(session, family_uuid=context.family_uuid, variant_id=variant_id)
         await _delete_review_row(session, existing["id"])
         await _audit(new_state)
         await session.commit()
@@ -777,14 +785,6 @@ async def upsert_small_variant_review(
             created_at=now,
         )
         await _audit(new_state)
-        await session.commit()
-        created = await _fetch_review_row(
-            session,
-            family_uuid=context.family_uuid,
-            variant_id=variant_id,
-        )
-        if created is None:
-            raise HTTPException(status_code=500, detail="Review update failed")
-        return _serialize_review(created)
+        return await _commit_stored_review(session, family_uuid=context.family_uuid, variant_id=variant_id)
 
     return SmallVariantReviewOut(variant_id=variant_id, tags=[])

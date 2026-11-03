@@ -83,7 +83,7 @@ def _save(monkeypatch, rows: dict[str, dict[str, Any]], payload: SmallVariantRev
         row = rows.get(variant_id)
         return copy.deepcopy(row) if row is not None else None
 
-    async def clear_group(_session: Any, *, family_uuid: str, group_id: str) -> None:
+    async def clear_group(_session: Any, *, family_uuid: str, group_id: str, written_by_save: Any = ()) -> None:
         cleared.append(group_id)
 
     async def insert(_session: Any, *, family_uuid: str, fields: dict[str, Any], created_at: Any) -> None:
