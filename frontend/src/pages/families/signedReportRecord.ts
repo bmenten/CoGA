@@ -32,7 +32,7 @@ import {
 } from '../../lib/embryoSegregation';
 import { formatCount, joinWithAnd } from '../../lib/format';
 import type { HaplotypeRiskState } from '../../lib/haplotypeRisk';
-import type { HaplotypePhaseCorrection } from '../../lib/haplotypePhaseCorrections';
+import { describePhaseCorrection, type HaplotypePhaseCorrection } from '../../lib/haplotypePhaseCorrections';
 import { COUNT_UNIT_MARK } from '../../lib/repeatStatus';
 import { FATHER_STATE_LABELS, depth, niptEvidenceSummary, pct, readsText } from './niptClassification';
 import { formatAlleleFrequency } from './reportNarrative';
@@ -764,6 +764,9 @@ export interface SignedPgtAnalysis {
   diseaseHaplotypeResolved: boolean;
   diseaseHaplotypes: SignedPgtDiseaseHaplotype[];
   phaseCorrections: HaplotypePhaseCorrection[];
+  /** Phase corrections the record holds that cannot be read here (kept in the downloaded
+   * record): the warning beside the calls says so rather than leaving them out (TRACE-17). */
+  unreadablePhaseCorrections: number;
   embryos: SignedPgtEmbryo[];
   members: SignedPgtMember[];
   sources: SignedPgtSource[];
@@ -1621,11 +1624,42 @@ const parseQcThresholds = (value: unknown): SignedPgtQcThresholds | null =>
       }
     : null;
 
+/**
+ * The parents' phase corrections near the ROI as frozen (`PgtPhaseCorrectionOut`), well formed as
+ * the backend reads one (pgt_embryo_calls.py, `phase_correction`): a parent, a chromosome and a
+ * position, the rest defaulted.
+ */
+const parsePhaseCorrections = (value: unknown): { corrections: HaplotypePhaseCorrection[]; unreadable: number } => {
+  // Each correction that cannot be read is counted below (`unreadablePhaseCorrections`); a value
+  // that is no list is noted as malformed.
+  const entries = list(value);
+  const corrections = entries.flatMap((correction): HaplotypePhaseCorrection[] => {
+    if (!isObject(correction)) return [];
+    const parent = text(correction.parent);
+    const chrom = text(correction.chr);
+    const position = number(correction.position);
+    if (!parent || !chrom || position === null) return [];
+    return [
+      {
+        parent,
+        side: correction.side === 'mother' ? 'mother' : 'father',
+        chr: chrom,
+        position,
+        end: number(correction.end) ?? position,
+        children_switching: number(correction.children_switching) ?? 0,
+        children: number(correction.children) ?? 0,
+      },
+    ];
+  });
+  return { corrections, unreadable: entries.length - corrections.length };
+};
+
 const parsePgtAnalysis = (value: Json): SignedPgtAnalysis => {
   const roi = isObject(value.region_of_interest) ? value.region_of_interest : null;
   const inheritance = isObject(value.inheritance_model) ? value.inheritance_model : {};
   const inputs = isObject(value.inputs) ? value.inputs : {};
   const rules = isObject(value.rules) ? value.rules : {};
+  const phaseCorrections = parsePhaseCorrections(value.phase_corrections);
   return {
     roi: roi
       ? {
@@ -1643,23 +1677,8 @@ const parsePgtAnalysis = (value: Json): SignedPgtAnalysis => {
       homolog: text(haplotype.homolog),
       kind: text(haplotype.kind),
     })),
-    phaseCorrections: objects(value.phase_corrections).flatMap((correction): HaplotypePhaseCorrection[] => {
-      const parent = text(correction.parent);
-      const chrom = text(correction.chr);
-      const position = number(correction.position);
-      if (!parent || !chrom || position === null) return [];
-      return [
-        {
-          parent,
-          side: correction.side === 'mother' ? 'mother' : 'father',
-          chr: chrom,
-          position,
-          end: number(correction.end) ?? position,
-          children_switching: number(correction.children_switching) ?? 0,
-          children: number(correction.children) ?? 0,
-        },
-      ];
-    }),
+    phaseCorrections: phaseCorrections.corrections,
+    unreadablePhaseCorrections: phaseCorrections.unreadable,
     embryos: objects(value.embryos).map((embryo) => {
       const sexDependent = isObject(embryo.sex_dependent) ? embryo.sex_dependent : null;
       const ifMale = riskState(sexDependent?.if_male);
@@ -2704,6 +2723,27 @@ export const describeDiseaseHaplotypes = (analysis: SignedPgtAnalysis): string |
         ),
       )
     : null;
+
+/**
+ * The warning of the parents' phase corrections near the ROI, as the record froze them: each in
+ * the haplotype track's words (`describePhaseCorrection`), and any the record holds that cannot
+ * be read here counted, so the warning is never left out unsaid (TRACE-17). Null: none frozen.
+ */
+export const describeSignedPhaseCorrections = (analysis: SignedPgtAnalysis): string | null => {
+  const unreadable = analysis.unreadablePhaseCorrections;
+  if (!analysis.phaseCorrections.length && !unreadable) return null;
+  const parts = analysis.phaseCorrections.map(describePhaseCorrection);
+  if (unreadable) {
+    parts.push(
+      unreadable === 1
+        ? 'A phase correction the record holds cannot be read here; the downloaded record holds it as stored.'
+        : `${unreadable} phase corrections the record holds cannot be read here; the downloaded record holds them as stored.`,
+    );
+  }
+  return `⚠ ${parts.join(
+    ' ',
+  )} This is inside or close to the ROI: where the phase switched is known only to within the children’s switches, so each call across the locus is less certain, and an embryo’s own crossover there may not show.`;
+};
 
 /** The model the calls used: "AD", or "not recorded; CoGA assumed AR". */
 export const describePgtInheritance = (analysis: SignedPgtAnalysis): string =>

@@ -2241,6 +2241,31 @@ describe('FamilyReportPage', () => {
       print.mockRestore();
     });
 
+    // TRACE-17: a phase correction the record holds but this view cannot read is said where its
+    // warning stands, rather than the warning being left out.
+    it('says where the phase-correction warning stands that the record holds a correction it cannot read', async () => {
+      const [correction] = SIGNED_PGT_ANALYSIS.phase_corrections;
+      mockSignedCase({
+        snapshot: {
+          ...SIGNED_SNAPSHOT,
+          ...SIGNED_ANALYSIS,
+          sample_qc: PGT_SAMPLE_QC,
+          pgt_analysis: { ...SIGNED_PGT_ANALYSIS, phase_corrections: [{ ...correction, chr: null }] },
+        },
+      });
+      renderPage();
+
+      const pgt = await pgtSection();
+      const warning = within(pgt).getByText(/phase correction the record holds/);
+      expect(warning).toHaveAttribute('role', 'note');
+      expect(warning).toHaveTextContent(
+        '⚠ A phase correction the record holds cannot be read here; the downloaded record holds it as stored. This is inside or close to the ROI: where the phase switched is known only to within the children’s switches, so each call across the locus is less certain, and an embryo’s own crossover there may not show.',
+      );
+      expect(pgt).not.toHaveTextContent('Phase corrected:');
+      // Said with the warning, not again as a part of the section that cannot be read.
+      expect(pgt).not.toHaveTextContent('Part of the PGT embryo results cannot be read here');
+    });
+
     // CLIN-66: blocks built for another pedigree or other sexes call no embryo, and the record says why.
     it('says the embryos were not called from blocks built for another pedigree', async () => {
       const outdated = {

@@ -45,6 +45,7 @@ import {
   describeReportSections,
   describeSignedDrift,
   describeSignedCountUnitWarning,
+  describeSignedPhaseCorrections,
   describeSignedQcVerdict,
   describeSignedStructuralDrift,
   describeSmallVariantDescription,
@@ -1555,6 +1556,55 @@ describe('the PGT embryo results', () => {
     );
     // A record signed before the check holds none: read as current blocks.
     expect(recorded(pgtRecord(SIGNED_PGT_ANALYSIS)).blocksOutdated).toBe(false);
+  });
+
+  // TRACE-17: a phase correction near the ROI that this view cannot read is counted where its
+  // warning stands, never dropped as if the record held none.
+  it('counts a phase correction it cannot read, and says so in the warning', () => {
+    const [correction] = SIGNED_PGT_ANALYSIS.phase_corrections;
+    const STANDS =
+      'This is inside or close to the ROI: where the phase switched is known only to within the children’s switches, so each call across the locus is less certain, and an embryo’s own crossover there may not show.';
+    const READ =
+      "Phase corrected: 3 of 3 children switched together on the father's side between 30.40 Mb and 30.45 Mb, a switch in the father's phasing rather than crossovers. The father's two haplotypes are swapped from 30.40 Mb.";
+    const corrections = (phaseCorrections: unknown) =>
+      pgtRecord({ ...SIGNED_PGT_ANALYSIS, phase_corrections: phaseCorrections }).pgtAnalysis;
+
+    // Without its parent, its chromosome or its position, or not an entry at all.
+    const mixed = corrections([
+      correction,
+      { ...correction, parent: null },
+      { ...correction, chr: '' },
+      { ...correction, position: '30400000' },
+      'a correction',
+    ]);
+    if (mixed.state !== 'recorded') throw new Error('not recorded');
+    expect(mixed.value.phaseCorrections).toEqual([correction]);
+    expect(mixed.value.unreadablePhaseCorrections).toBe(4);
+    // Counted with the warning, not a second time for the section.
+    expect(mixed).not.toHaveProperty('malformed');
+    expect(describeSignedPhaseCorrections(mixed.value)).toBe(
+      `⚠ ${READ} 4 phase corrections the record holds cannot be read here; the downloaded record holds them as stored. ${STANDS}`,
+    );
+
+    // None it can read: the warning still stands, saying what it cannot show.
+    const unread = corrections([{ ...correction, position: null }]);
+    if (unread.state !== 'recorded') throw new Error('not recorded');
+    expect(unread.value.phaseCorrections).toEqual([]);
+    expect(describeSignedPhaseCorrections(unread.value)).toBe(
+      `⚠ A phase correction the record holds cannot be read here; the downloaded record holds it as stored. ${STANDS}`,
+    );
+
+    // A well-formed record reads as before; none frozen, no warning.
+    const read = recorded(pgtRecord(SIGNED_PGT_ANALYSIS));
+    expect(read.unreadablePhaseCorrections).toBe(0);
+    expect(describeSignedPhaseCorrections(read)).toBe(`⚠ ${READ} ${STANDS}`);
+    expect(describeSignedPhaseCorrections(recorded(pgtRecord({ ...SIGNED_PGT_ANALYSIS, phase_corrections: [] })))).toBeNull();
+
+    // A value that is no list is counted for the section, as any list of it is.
+    const notList = corrections('corrected');
+    expect(notList).toMatchObject({ state: 'recorded', malformed: 1 });
+    if (notList.state !== 'recorded') throw new Error('not recorded');
+    expect(notList.value).toMatchObject({ phaseCorrections: [], unreadablePhaseCorrections: 0 });
   });
 
   it("says an embryo was not called where its markers mixed both of a parent's homologs", () => {
