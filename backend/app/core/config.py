@@ -531,7 +531,10 @@ class Settings(BaseSettings):
     family_import_roots: Annotated[list[str], NoDecode] = Field(
         default_factory=lambda: ["/data/families"], alias="FAMILY_IMPORT_ROOTS"
     )
-    family_import_worker_count: int = Field(default=1, ge=1, le=8, alias="FAMILY_IMPORT_WORKER_COUNT")
+    # The package-import workers this process runs, each one job at a time: the API's, and each
+    # import-worker process's (python -m app.import_worker). 0 in the API leaves every job to
+    # import-worker processes, as docker-compose.yml does; such a process refuses 0.
+    family_import_worker_count: int = Field(default=1, ge=0, le=8, alias="FAMILY_IMPORT_WORKER_COUNT")
     # Reverse proxies in front of the backend that each append to X-Forwarded-For; the
     # client address is taken that many entries from the right (#520). 0 leaves it to
     # uvicorn. Google's external Application Load Balancer appends two (client, LB).

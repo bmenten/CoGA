@@ -1411,6 +1411,14 @@ async def family_package_import_worker(stop_event: asyncio.Event | None = None) 
             if job_row is None:
                 await asyncio.sleep(FAMILY_IMPORT_WORKER_POLL_SECONDS)
                 continue
+            # Which worker, of which process, took which job: the job's record names its
+            # worker only until the job ends.
+            logger.info(
+                "Package-import worker %s claimed job %s (it was %s)",
+                worker_id,
+                job_row["id"],
+                job_row.get("claimed_from"),
+            )
             await handle_claimed_family_import_job(job_row, worker_id=worker_id)
         except asyncio.CancelledError:
             raise

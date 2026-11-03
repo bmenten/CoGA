@@ -56,6 +56,15 @@ production images instead: no reload, and the built frontend served by
 and its footer links **Report a problem** only when `VITE_PROBLEM_REPORT_URL` is set; the
 Vite dev server links the GitHub issue form when it is not.
 
+The package imports run in the `import-worker` service, a process of its own
+([application-scheme.md](application-scheme.md#import-worker-processes)); the backend runs
+none. It runs the same mounted code, but is not reloaded when that changes, so that an edit
+does not stop a running import: take a change with `docker compose restart import-worker`
+(an import it was running stops where it is, and its job is ended as interrupted once its
+heartbeat is ten minutes old). A backend run outside Docker (below) runs the imports itself,
+unless `FAMILY_IMPORT_WORKER_COUNT=0`; then run `python -m app.import_worker` from `backend/`
+beside it.
+
 The first start downloads the GRCh38 cytobands (UCSC) and GENCODE gene annotations, so it
 needs internet access. Everything the backend does at startup is listed in
 [application-scheme.md](application-scheme.md#startup-and-background-work).
@@ -123,6 +132,7 @@ Check the containers and their logs:
 ```bash
 docker compose ps
 docker compose logs backend --tail=100
+docker compose logs import-worker --tail=100
 docker compose logs postgres --tail=100
 docker compose logs clickhouse --tail=100
 ```

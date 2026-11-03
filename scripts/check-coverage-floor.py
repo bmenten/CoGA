@@ -31,6 +31,9 @@ GLOBAL_FLOOR = 74.0  # (77.6)
 # the type-check gate lists ([tool.mypy] files in pyproject.toml) needs a floor here or in
 # COMBINED_FLOORS; main() fails when one has neither.
 MODULE_FLOORS: dict[str, float] = {
+    # (97.3 measured locally when it was added: the import-worker process, which runs the
+    # package imports without the API)
+    "backend/app/import_worker.py": 94.0,
     "backend/app/services/acmg_points.py": 97.0,  # (100.0)
     "backend/app/services/annotation_manifest_service.py": 91.0,  # (94.5)
     "backend/app/services/assembly_scope.py": 97.0,  # (100.0)
