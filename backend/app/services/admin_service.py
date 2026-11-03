@@ -29,6 +29,7 @@ from .clickhouse_interval_tracks import (
     delete_interval_tracks,
     interval_counts_by_family,
     interval_counts_by_sample,
+    interval_source_counts_by_sample,
 )
 from .clickhouse_variant_storage import (
     SmallVariantsNotRestored,
@@ -627,6 +628,10 @@ async def get_family_data_inventory_detail(
         session,
         [row["sample_uuid"] for row in sample_rows],
     )
+    sample_interval_source_counts = await interval_source_counts_by_sample(
+        session,
+        [row["sample_uuid"] for row in sample_rows],
+    )
     repeat_counts = await _repeat_counts_by_family(session, [family_row["family_uuid"]])
     sample_repeat_counts = await _repeat_counts_by_sample(
         session,
@@ -674,6 +679,7 @@ async def get_family_data_inventory_detail(
                 sex=sample_row["sex"],
                 projects=_string_list(family_row.get("project_ids")),
                 track_counts=track_counts,
+                track_source_counts=sample_interval_source_counts.get(sample_row["sample_uuid"], {}),
                 total_records=sum(track_counts.values()),
             )
         )
@@ -855,17 +861,20 @@ async def _delete_interval_track_type(
     assembly_names: list[str],
     sample_uuid: str,
     data_type: str,
+    source: str | None = None,
 ) -> int:
     for assembly_name in assembly_names:
         await delete_interval_tracks(
             assembly_name,
             sample_uuid=sample_uuid,
             track_type=data_type,
+            source=source,
         )
     return await delete_interval_track_sources(
         session,
         sample_uuid=sample_uuid,
         track_type=data_type,
+        source=source,
     )
 
 
@@ -874,10 +883,19 @@ async def delete_sample_data_by_type(
     sample_id: str,
     data_type: str,
     confirm: bool,
+    source: str | None = None,
 ) -> dict[str, Any]:
+    """Delete one kind of a sample's data. ``source`` narrows an interval track to one
+    caller's (a long-read sample's WisecondorX coverage, say, keeping its HiFiCNV and QDNAseq
+    coverage); without it every caller's track of the type goes."""
     sample_row = await _sample_row_or_404(session, sample_id)
     if not confirm:
         raise HTTPException(status_code=400, detail="Confirmation required")
+    if source is not None:
+        if data_type not in BED_TRACK_TYPES:
+            raise HTTPException(status_code=400, detail="Only an interval track is deleted per source")
+        if not source.strip() or source != source.strip():
+            raise HTTPException(status_code=400, detail="Invalid source")
     if data_type in BED_TRACK_TYPES or data_type == "repeat_expansions":
         # From before the delete until the commit below, as the single-file uploads of a
         # sample's tracks and repeat calls hold them: a package import's restore rewrites
@@ -900,6 +918,7 @@ async def delete_sample_data_by_type(
             assembly_names=[context.assembly_name for context in contexts if context.assembly_name],
             sample_uuid=sample_row["sample_uuid"],
             data_type=data_type,
+            source=source,
         )
         await session.commit()
         return {"deleted": deleted}

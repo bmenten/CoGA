@@ -320,6 +320,21 @@
   color: var(--color-heading);
 }
 
+/* One row per caller under a track type several callers filled. */
+.admin-track-source-list {
+  display: grid;
+  gap: 0.1875rem;
+  margin: 0.25rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.admin-track-source-label {
+  min-width: 5.5rem;
+  font-size: var(--fs-xs);
+  color: var(--color-text-muted);
+}
+
 .admin-track-inline-action,
 .admin-sample-delete-action {
   min-height: var(--control-height-sm);

@@ -3235,6 +3235,8 @@ export interface SampleInventoryOut {
   sex: string;
   projects: string[];
   track_counts: Record<string, number>;
+  /** Interval track type → source (the caller that wrote it) → rows. A sample can hold one track type from several callers; each is deleted on its own with the delete's `source`. */
+  track_source_counts: Record<string, Record<string, number>>;
   total_records: number;
 }
 

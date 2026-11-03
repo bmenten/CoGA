@@ -55,6 +55,11 @@ const familyDetail = {
         structural_variants: 610,
         repeat_expansions: 0,
       },
+      // A long-read sample's coverage from two callers; its segments from one.
+      track_source_counts: {
+        coverage: { wisecondorx: 500, qdnaseq: 1500 },
+        segments: { wisecondorx: 9 },
+      },
       total_records: 3080,
     },
     {
@@ -272,6 +277,43 @@ describe('DataManagementPage', () => {
 
     expect(dialog).not.toBeInTheDocument();
     expect(api.delete).not.toHaveBeenCalled();
+  });
+
+  it('deletes one caller\'s track of a sample, keeping the other callers\' tracks of that type', async () => {
+    mockResponses();
+    (api.delete as unknown as Mock).mockResolvedValue({ data: { deleted: 500 } });
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    renderPage();
+    await selectFamily();
+
+    // Each caller's coverage of S1, in the order the genome view stacks them, with its rows.
+    const callers = await screen.findByRole('list', { name: 'Coverage bins per caller' });
+    expect([...callers.querySelectorAll('li')].map((item) => item.textContent)).toEqual([
+      'WisecondorX500Delete',
+      'QDNAseq1,500Delete',
+    ]);
+    // One caller's segments: deleted as a whole, without a list per caller.
+    expect(screen.queryByRole('list', { name: 'Segments per caller' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Delete segments of S1' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete WisecondorX coverage bins of S1' }));
+
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining("the other callers' coverage bins stay"));
+    await waitFor(() =>
+      expect(api.delete).toHaveBeenCalledWith('/admin/data/samples/S1/coverage', {
+        params: { confirm: true, source: 'wisecondorx' },
+      }),
+    );
+    expect(await screen.findByText('Deleted the WisecondorX coverage bins for sample S1.')).toBeInTheDocument();
+
+    // Every caller's coverage at once is still one action.
+    fireEvent.click(screen.getByRole('button', { name: "Delete every caller's coverage bins of S1" }));
+    await waitFor(() =>
+      expect(api.delete).toHaveBeenLastCalledWith('/admin/data/samples/S1/coverage', {
+        params: { confirm: true },
+      }),
+    );
+    confirm.mockRestore();
   });
 
   it('invalidates shared project and family catalogs after saving family project access', async () => {

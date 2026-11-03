@@ -1,3 +1,5 @@
+import { coverageSourceLabel, orderCoverageSources } from '../../lib/coverageSources';
+
 // The responses these pages read are the generated types (FamilyInventoryDetailOut,
 // ClickHouseVariantAssemblyListOut, FamilyRawFilesOut, …). What stays here is the page's own
 // vocabulary: the track keys the backend counts, in the order the page shows them.
@@ -60,6 +62,25 @@ export const TRACK_LABELS: Record<FamilyTrackType, string> = {
   structural_variants: 'Structural variants',
   repeat_expansions: 'Repeat expansions',
   small_variants: 'Small variants',
+};
+
+/** The caller that wrote a track, as the inventory names it: a BED loaded by hand is `web`. */
+export const trackSourceLabel = (source: string): string =>
+  source === 'web' ? 'BED upload' : coverageSourceLabel(source);
+
+/**
+ * The callers whose `trackType` track a sample holds, each with its rows, in the order the
+ * genome view stacks them (`track_source_counts` of the sample's inventory).
+ */
+export const trackSources = (
+  sourceCounts: Record<string, Record<string, number>> | undefined,
+  trackType: SampleTrackType,
+): { source: string; count: number }[] => {
+  const counts = sourceCounts?.[trackType] ?? {};
+  return orderCoverageSources(Object.keys(counts)).map((source) => ({
+    source,
+    count: counts[source] ?? 0,
+  }));
 };
 
 export const phenotypeLabel = (affected: boolean): string =>
