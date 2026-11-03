@@ -1398,7 +1398,10 @@ compare one ([security-posture.md](security-posture.md#1-authentication--rbac)).
 - `POST /ped/manual`: an analyst of the project, or an admin, creates a family from typed-in
   members; a reader of the project is refused (403).
 - `POST /ped/upload`: admins upload a PED file, with an optional region of interest,
-  inheritance model and carrier lists.
+  inheritance model and carrier lists. A member another member names as its father or mother
+  takes that role; the first affected member no member names as a parent is the proband,
+  wherever the parents' rows stand (with none affected, the first member not named as a
+  parent), as a package's PED is read; every other member is a sibling.
 - Only admins can replace an existing family or sample (`overwrite=true`).
 - Replacing a family deletes it and its small variants and structural variants. Its phenotypes
   go with it, each recorded as removed on the family's clinical audit trail before the family is

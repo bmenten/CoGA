@@ -4,7 +4,10 @@
   first structure version on the family's chain, with its ``pedigree`` audit event (SEC-7).
 * The PED's phenotype column reads 1 as unaffected, 2 as affected and 0 or -9 as unknown; a
   carrier status is kept apart from the clinical status. A PED upload records the family's
-  inheritance model and its obligate and proven carriers.
+  inheritance model and its obligate and proven carriers. Its proband is the first affected
+  member no member names as a parent, wherever the parents' rows stand; with none affected, the
+  first member not named as a parent. A parent is never the proband; every other member is a
+  sibling.
 * The Family Builder (manual family creation) threads the family's and the samples' metadata
   into the family it creates, and takes only the metadata its page sends: a monogenic NIPT
   family and its cfDNA sample. Every other key or value is refused with 400 before anything
@@ -344,12 +347,102 @@ async def test_a_ped_upload_records_the_inheritance_model_and_each_carrier(monke
     assert (by_id["FATHER1"]["carrier_status"], by_id["FATHER1"]["carrier_type"]) == ("carrier", "obligate")
     assert (by_id["CHILD1"]["carrier_status"], by_id["CHILD1"]["carrier_type"]) == ("unknown", None)
     assert (by_id["FATHER1"]["role"], by_id["MOTHER1"]["role"]) == ("father", "mother")
-    assert {key: by_id["CHILD1"][key] for key in ("father_id", "mother_id", "sex", "clinical_status", "affected")} == {
+    assert {
+        key: by_id["CHILD1"][key] for key in ("role", "father_id", "mother_id", "sex", "clinical_status", "affected")
+    } == {
+        "role": "proband",
         "father_id": "FATHER1",
         "mother_id": "MOTHER1",
         "sex": "female",
         "clinical_status": "affected",
         "affected": True,
+    }
+
+
+async def _uploaded_roles(monkeypatch: pytest.MonkeyPatch, ped: str) -> dict[str, str]:
+    written = _no_database(monkeypatch)
+    upload = UploadFile(file=io.BytesIO(ped.encode()), filename="family.ped")
+    await ped_service.upload_ped_data(
+        _CommitSession(),  # type: ignore[arg-type]
+        upload,
+        False,
+        _FakeUser(),  # type: ignore[arg-type]
+        None,
+    )
+    [_replaced, created] = written
+    return {member["sample_id"]: member["role"] for member in created["created"]["members"]}
+
+
+_TRIO_PARENTS = "FAM1 FATHER1 0 0 1 1\nFAM1 MOTHER1 0 0 2 1\n"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("ped", "roles"),
+    [
+        pytest.param(
+            _TRIO_PARENTS + "FAM1 PROBAND FATHER1 MOTHER1 1 2\n",
+            {"FATHER1": "father", "MOTHER1": "mother", "PROBAND": "proband"},
+            id="parents-first",
+        ),
+        pytest.param(
+            "FAM1 PROBAND FATHER1 MOTHER1 1 2\n" + _TRIO_PARENTS,
+            {"PROBAND": "proband", "FATHER1": "father", "MOTHER1": "mother"},
+            id="child-first",
+        ),
+        pytest.param(
+            "FAM1 PROBAND FATHER1 MOTHER1 1 2\nFAM1 FATHER1 0 0 1 1\nFAM1 SIB1 FATHER1 MOTHER1 2 1\n"
+            "FAM1 MOTHER1 0 0 2 1\n",
+            {"PROBAND": "proband", "FATHER1": "father", "SIB1": "sibling", "MOTHER1": "mother"},
+            id="rows-mixed",
+        ),
+        pytest.param(
+            "FAM1 PROBAND 0 0 2 2\n",
+            {"PROBAND": "proband"},
+            id="single-sample",
+        ),
+    ],
+)
+async def test_a_ped_upload_makes_the_affected_child_the_proband_wherever_its_row_stands(
+    monkeypatch: pytest.MonkeyPatch, ped: str, roles: dict[str, str]
+) -> None:
+    """A member another member names as a parent is the father or mother; the first affected
+    member no one names as a parent is the proband, whether the parents' rows come before or
+    after it; any other member is a sibling."""
+    assert await _uploaded_roles(monkeypatch, ped) == roles
+
+
+@pytest.mark.asyncio
+async def test_a_ped_upload_without_an_affected_child_takes_the_first_child_for_the_proband(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # An affected parent stays the father: a parent is never the proband.
+    ped = "FAM1 FATHER1 0 0 1 2\nFAM1 MOTHER1 0 0 2 1\nFAM1 CHILD1 FATHER1 MOTHER1 2 1\nFAM1 CHILD2 FATHER1 MOTHER1 1 0\n"
+
+    assert await _uploaded_roles(monkeypatch, ped) == {
+        "FATHER1": "father",
+        "MOTHER1": "mother",
+        "CHILD1": "proband",
+        "CHILD2": "sibling",
+    }
+
+
+@pytest.mark.asyncio
+async def test_a_ped_upload_of_several_children_makes_the_first_affected_one_the_proband(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The unaffected child listed before it is a sibling, as is the second affected child.
+    ped = (
+        "FAM1 SIB1 FATHER1 MOTHER1 2 1\nFAM1 PROBAND FATHER1 MOTHER1 1 2\nFAM1 SIB2 FATHER1 MOTHER1 2 2\n"
+        + _TRIO_PARENTS
+    )
+
+    assert await _uploaded_roles(monkeypatch, ped) == {
+        "SIB1": "sibling",
+        "PROBAND": "proband",
+        "SIB2": "sibling",
+        "FATHER1": "father",
+        "MOTHER1": "mother",
     }
 
 
