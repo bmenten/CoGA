@@ -55,25 +55,6 @@ class _Session:
         return _Result(self._row)
 
 
-def test_update_panel_data_rejects_generated_panels() -> None:
-    # Editing genes by hand is only for locally-curated panels.
-    row = {
-        "id": str(uuid.uuid4()),
-        "name": "Mendeliome",
-        "version": 3,
-        "source": "mendeliome",
-        "description": None,
-    }
-    with pytest.raises(HTTPException) as excinfo:
-        asyncio.run(
-            pms.update_panel_data(
-                _Session(row), row["id"], GenePanelUpdate(genes=["BRCA1"]), _admin()
-            )
-        )
-    assert excinfo.value.status_code == 400
-    assert "generated/imported" in excinfo.value.detail
-
-
 def test_update_panel_data_404_when_missing() -> None:
     with pytest.raises(HTTPException) as excinfo:
         asyncio.run(
@@ -575,6 +556,7 @@ def test_the_mendeliome_is_archived_when_built_and_again_only_when_its_genes_cha
 
 @pytest.mark.parametrize("source", ["mendeliome", "panelapp"])
 def test_a_generated_or_imported_panel_is_never_edited_into_a_version(source: str) -> None:
+    # Editing genes by hand is only for locally-curated panels.
     admin = _admin()
     db = _PanelDb(admin)
     panel_id = db.add_panel(name="Generated", source=source, version=4, genes=["BRCA1"])
@@ -583,6 +565,7 @@ def test_a_generated_or_imported_panel_is_never_edited_into_a_version(source: st
         _edit(db, admin, panel_id, ["BRCA1", "TTN"])
 
     assert refused.value.status_code == 400
+    assert "generated/imported" in refused.value.detail
     assert db.versions == []
     assert db.writes() == []
     assert (db.panels[panel_id]["version"], db.genes[panel_id]) == (4, ["BRCA1"])

@@ -46,6 +46,8 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import text
 
+from backend.tests.e2e._harness import ensure_postgres_schema
+
 pytestmark = pytest.mark.integration
 
 REPO = Path(__file__).resolve().parents[3]
@@ -182,7 +184,7 @@ async def _collect(base: Path) -> dict:
     from httpx import ASGITransport, AsyncClient
 
     from backend.app.core.clickhouse import init_clickhouse_schema
-    from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
+    from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.main import app
     from backend.app.services.clickhouse_variant_storage import (
         count_family_small_variants,
@@ -193,7 +195,7 @@ async def _collect(base: Path) -> dict:
     from backend.app.services.family_variant_write_lock import try_share_family_variant_writes
     from backend.tests.e2e import _harness
 
-    await init_postgres_schema()
+    await ensure_postgres_schema()
     await init_clickhouse_schema()
     await ensure_clickhouse_variant_tables(_harness.ASSEMBLY)
     sm = get_postgres_sessionmaker()

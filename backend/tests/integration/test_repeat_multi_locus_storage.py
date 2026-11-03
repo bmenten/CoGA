@@ -25,13 +25,9 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import text
 
-pytestmark = pytest.mark.integration
+from backend.tests.integration._datastores import TRGT_VCF_HEADER, repeat_family_context, trgt_family
 
-_HEADER = (
-    "##fileformat=VCFv4.2\n"
-    "##trgtVersion=5.0.0\n"
-    "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t{column}\n"
-)
+pytestmark = pytest.mark.integration
 
 # TRID ARX: (region start, end) on GRCh38. PRTS_ARX and EIEE1_ARX as STRchive places them, and
 # a region between ARX and the next gene that overlaps neither.
@@ -48,7 +44,7 @@ def _arx_vcf(column: str) -> str:
         f"chrX\t{start}\t.\tGCG\t<TR>\t.\t.\tTRID=ARX;END={end};MOTIFS=GCN;STRUC=<TR>\tGT:AL:MC\t1/2:24,51:8,17\n"
         for start, end in _ARX_CALLS.values()
     )
-    return _HEADER.format(column=column) + records
+    return TRGT_VCF_HEADER.format(column=column) + records
 
 
 def test_the_next_start_removes_strchive_rows_the_shipped_release_does_not_list(monkeypatch) -> None:
@@ -106,7 +102,6 @@ def test_the_next_start_removes_strchive_rows_the_shipped_release_does_not_list(
 def test_a_gene_name_trid_is_stored_and_read_against_the_tract_its_call_lies_on(monkeypatch) -> None:
     from backend.app.core.postgres import close_postgres_engine, get_postgres_sessionmaker, init_postgres_schema
     from backend.app.services import repeat_expansion_pg
-    from backend.app.services.family_metadata_context import FamilyMetadataContext, SampleMetadataContext
     from backend.app.services.repeat_expansion_pg import (
         get_family_repeat_expansion_table_response,
         get_sample_repeat_expansion_track_response,
@@ -127,38 +122,11 @@ def test_a_gene_name_trid_is_stored_and_read_against_the_tract_its_call_lies_on(
         try:
             async with sessionmaker() as session:
                 await seed_builtin_repeat_catalog(session)
-                family_uuid = str(
-                    (
-                        await session.execute(
-                            text("INSERT INTO families (family_id) VALUES (:f) RETURNING id::text"), {"f": label}
-                        )
-                    ).scalar_one()
-                )
-                sample_id = f"{label}-WOMAN"
-                sample_uuid = str(
-                    (
-                        await session.execute(
-                            text(
-                                "INSERT INTO samples (sample_id, family_id, sex) "
-                                "VALUES (:s, CAST(:f AS uuid), 'female') RETURNING id::text"
-                            ),
-                            {"s": sample_id, "f": family_uuid},
-                        )
-                    ).scalar_one()
-                )
-                await session.commit()
+                family_uuid, contexts = await trgt_family(session, label, {"WOMAN": "female"})
+                sample_id = contexts["WOMAN"].sample_id
                 await ingest_trgt_text(
                     session,
-                    sample_context=SampleMetadataContext(
-                        sample_uuid=sample_uuid,
-                        sample_id=sample_id,
-                        family_uuid=family_uuid,
-                        family_id=label,
-                        sex="female",
-                        project_ids=[],
-                        assembly_id=None,
-                        assembly_name="GRCh38",
-                    ),
+                    sample_context=contexts["WOMAN"],
                     text_value=_arx_vcf(sample_id),
                     metadata={"source": "trgt", "filename": "woman.vcf"},
                 )
@@ -166,19 +134,7 @@ def test_a_gene_name_trid_is_stored_and_read_against_the_tract_its_call_lies_on(
                     int(row.start): (str(row.locus_id), str(row.status), row.pathogenic_min, row.reason)
                     for row in (await session.execute(stored_query, {"f": family_uuid})).all()
                 }
-                context = FamilyMetadataContext(
-                    family_uuid=family_uuid,
-                    family_id=label,
-                    project_ids=[],
-                    sample_rows=[
-                        {"sample_uuid": sample_uuid, "sample_id": sample_id, "role": "proband", "affected": True, "sex": "female"}
-                    ],
-                    sample_uuid_to_name={sample_uuid: sample_id},
-                    sample_name_to_uuid={sample_id: sample_uuid},
-                    affected_sample_names=[sample_id],
-                    assembly_id=None,
-                    assembly_name="GRCh38",
-                )
+                context = repeat_family_context(family_uuid, label, [(contexts["WOMAN"], "proband", True)])
                 table = await get_family_repeat_expansion_table_response(session, context=context)
                 read_by_table = {
                     row.start: (row.locus_id, row.calls[sample_id].status, row.pathogenic_min, row.calls[sample_id].note)

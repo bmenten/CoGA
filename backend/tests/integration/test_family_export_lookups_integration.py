@@ -33,6 +33,8 @@ from uuid import uuid4
 
 import pytest
 
+from backend.tests.integration._datastores import fresh_assembly, fresh_species, run_closing_stores
+
 pytestmark = pytest.mark.integration
 
 _ASSEMBLY = "GRCh38"
@@ -65,24 +67,6 @@ def _gene_id(index: int) -> str:
     return f"ENSGDATA3{index:05d}"
 
 
-def _run(coroutine_factory) -> None:
-    """Run under its own loop, then close the module-global ClickHouse client and Postgres
-    engine, which bind to the loop (the next asyncio.run would otherwise hit a closed one)."""
-    import asyncio
-
-    from backend.app.core.clickhouse import close_clickhouse_client
-    from backend.app.core.postgres import close_postgres_engine
-
-    async def _wrapped() -> None:
-        try:
-            await coroutine_factory()
-        finally:
-            await close_clickhouse_client()
-            await close_postgres_engine()
-
-    asyncio.run(_wrapped())
-
-
 async def _seed_postgres(session_factory) -> dict[str, str]:
     """A family with the reviews of ``_REVIEWED`` (small variants and SVs) and of one
     variant no lookup asks for, and an assembly whose gene_info holds the constraint (pLI)
@@ -92,24 +76,8 @@ async def _seed_postgres(session_factory) -> dict[str, str]:
 
     tag = uuid4().hex[:12]
     async with session_factory() as session:
-        species = (
-            await session.execute(
-                text(
-                    "INSERT INTO species (name, common_name, tax_id) "
-                    "VALUES (:n, 'test', :t) RETURNING id::text"
-                ),
-                {"n": f"family-export {tag}", "t": uuid4().int % 2_000_000_000},
-            )
-        ).scalar_one()
-        assembly = (
-            await session.execute(
-                text(
-                    "INSERT INTO assemblies (species_id, assembly_name, version, release_date) "
-                    "VALUES (CAST(:s AS uuid), :a, 'v1', '2020-01-01') RETURNING id::text"
-                ),
-                {"s": species, "a": f"FAMILYEXPORT{tag}"},
-            )
-        ).scalar_one()
+        species = await fresh_species(session, f"family-export {tag}")
+        assembly = await fresh_assembly(session, species, f"FAMILYEXPORT{tag}")
         label = f"family-export-{tag}"
         family = (
             await session.execute(
@@ -200,7 +168,7 @@ def test_the_lookups_take_more_ids_than_a_statement_has_parameters() -> None:
         assert list(second_hits) == [_gene(_PAST_THE_LIMIT)]
         assert second_hits[_gene(_PAST_THE_LIMIT)]["sv_count"] == 1
 
-    _run(_scenario)
+    run_closing_stores(_scenario)
 
 
 def test_no_ids_read_no_rows() -> None:
@@ -221,7 +189,7 @@ def test_no_ids_read_no_rows() -> None:
             )
         assert rows == []
 
-    _run(_scenario)
+    run_closing_stores(_scenario)
 
 
 def _small_record(index: int):
@@ -390,4 +358,4 @@ def test_a_family_export_past_its_cap_is_cut_at_the_cap_and_says_so(monkeypatch)
         assert [i for i, row in enumerate(sv_rows) if row["Tags"] == "report"] == [0, _PAST_THE_LIMIT]
         assert len(sv_seen["export"].rows) == _EXPORT_CAP
 
-    _run(_scenario)
+    run_closing_stores(_scenario)

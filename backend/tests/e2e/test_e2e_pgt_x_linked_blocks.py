@@ -28,6 +28,8 @@ from uuid import uuid4
 
 import pytest
 
+from backend.tests.e2e._harness import capture, ensure_postgres_schema
+
 pytestmark = pytest.mark.integration
 
 _FORMAT = "GT:DP:GP"
@@ -122,26 +124,17 @@ def _write_package(root: Path, family_id: str) -> dict[str, str]:
     return names
 
 
-def _cap(resp) -> dict:
-    out = {"status": resp.status_code, "text": resp.text}
-    try:
-        out["json"] = resp.json()
-    except ValueError:  # pragma: no cover
-        out["json"] = None
-    return out
-
-
 async def _collect(root: Path, family_id: str) -> dict:
     from httpx import ASGITransport, AsyncClient
 
     from backend.app.core.clickhouse import init_clickhouse_schema
-    from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
+    from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.main import app
     from backend.app.services import family_package_import as package_import
     from backend.app.services.clickhouse_variant_storage import ensure_clickhouse_variant_tables
     from backend.tests.e2e import _harness
 
-    await init_postgres_schema()
+    await ensure_postgres_schema()
     await init_clickhouse_schema()
     await ensure_clickhouse_variant_tables(_harness.ASSEMBLY)
     sessionmaker = get_postgres_sessionmaker()
@@ -161,10 +154,10 @@ async def _collect(root: Path, family_id: str) -> dict:
     async with AsyncClient(transport=transport, base_url="http://e2e") as ac:
         ac.headers["Authorization"] = f"Bearer {await _harness.login_admin_token(ac)}"
         family = f"/api/families/{family_id}"
-        out["responses"]["haplotypes"] = _cap(
+        out["responses"]["haplotypes"] = capture(
             await ac.get(f"{family}/haplotypes", params={"chr": "X", "start": 0, "end": 40_000_000})
         )
-        out["responses"]["analysis"] = _cap(await ac.get(f"{family}/pgt-analysis"))
+        out["responses"]["analysis"] = capture(await ac.get(f"{family}/pgt-analysis"))
     return out
 
 

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   buildGnomadSvRegionHref,
+  buildLiteraturePubmedHref,
   buildSmallVariantNavigation,
   buildReviewTagTooltip,
   buildSvSecondHitHref,
@@ -612,5 +613,39 @@ describe('the mitochondrion in a small variant locus', () => {
   it('keeps every other name as written', () => {
     expect(formatLocus(smallVariant({ _id: '7-100', chr: '7', start: 100, end: 101, type: 'SNV' }))).toBe('chr7:100-101');
     expect(formatLocus(smallVariant({ _id: 'un-5', chr: 'chrUn_KI270742v1', start: 5, end: 5, type: 'SNV' }))).toBe('chrUn_KI270742v1:5-5');
+  });
+});
+
+// The literature link on a variant card: a PubMed search anchored on the gene (OR its protein
+// change), AND the patient's HPO terms as an OR group of quoted phrases, each term once.
+describe('buildLiteraturePubmedHref', () => {
+  const searchTerm = (href: string | null): string | null => {
+    if (href === null) return null;
+    const url = new URL(href);
+    expect(`${url.origin}${url.pathname}`).toBe('https://pubmed.ncbi.nlm.nih.gov/');
+    return url.searchParams.get('term');
+  };
+
+  it('returns null without a gene', () => {
+    expect(buildLiteraturePubmedHref({ gene: '' })).toBeNull();
+    expect(buildLiteraturePubmedHref({ gene: '  ', proteinChange: 'p.Arg100Ter', hpoLabels: ['Seizure'] })).toBeNull();
+  });
+
+  it('searches the gene alone when there is nothing else', () => {
+    expect(searchTerm(buildLiteraturePubmedHref({ gene: ' SCN1A ', proteinChange: ' ', hpoLabels: [' '] }))).toBe('SCN1A');
+  });
+
+  it('anchors on the gene and ORs the protein change', () => {
+    expect(searchTerm(buildLiteraturePubmedHref({ gene: 'SCN1A', proteinChange: 'p.Arg100Ter' }))).toBe(
+      '(SCN1A OR p.Arg100Ter)',
+    );
+  });
+
+  it('ANDs an OR group of quoted HPO phenotype terms', () => {
+    const href = buildLiteraturePubmedHref({
+      gene: 'SCN1A',
+      hpoLabels: ['Seizure', 'Intellectual disability', 'Seizure'],
+    });
+    expect(searchTerm(href)).toBe('SCN1A AND ("Seizure" OR "Intellectual disability")');
   });
 });

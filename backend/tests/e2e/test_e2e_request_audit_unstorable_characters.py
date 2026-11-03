@@ -27,6 +27,8 @@ from uuid import uuid4
 
 import pytest
 
+from backend.tests.e2e._harness import ensure_postgres_schema
+
 pytestmark = pytest.mark.integration
 
 _PROJECTS = "/api/projects"
@@ -69,12 +71,12 @@ async def _exercise(run: str) -> dict:
     from httpx import ASGITransport, AsyncClient
     from sqlalchemy import text
 
-    from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
+    from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.main import app
     from backend.app.services.audit_log_pg import AuditLogEventPayload, _write_audit_log_batch
     from backend.tests.e2e import _harness
 
-    await init_postgres_schema()
+    await ensure_postgres_schema()
     sessionmaker = get_postgres_sessionmaker()
     async with sessionmaker() as session:
         _admin, shared_project_id, _assembly_id = await _harness.ensure_e2e_project(session)

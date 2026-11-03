@@ -31,7 +31,6 @@ from backend.app.services.clickhouse_variant_ids import small_variant_key
 from backend.app.services.clickhouse_variant_storage import (
     SMALL_VARIANT_ENTRY_COLUMNS,
     small_variant_entry_with_calls,
-    small_variant_entry_without_samples,
 )
 from backend.app.services.family_metadata_context import FamilyMetadataContext, SampleMetadataContext
 from backend.app.services.family_package_common import DatasetLeftMissing, ManifestDataset, VcfSampleColumnError
@@ -92,15 +91,8 @@ def _by_identity(rows: list[dict[str, Any]]) -> dict[tuple[str, int], dict[str, 
     return by_identity
 
 
-def test_entry_without_samples_drops_only_their_calls() -> None:
-    entry = _entry("p1", 73, {"MOTHER": ("1/1", 1.0), "PROBAND": ("1/1", 1.0)})
-    kept = small_variant_entry_without_samples(entry, {"PROBAND", "proband-uuid"})
-    assert kept is not None
-    assert _calls(kept) == {"MOTHER": ("1/1", 1.0)}
-    assert {k: v for k, v in kept.items() if not k.startswith("calls.")} == {
-        k: v for k, v in entry.items() if not k.startswith("calls.")
-    }
-    assert small_variant_entry_without_samples(entry, {"MOTHER", "PROBAND"}) is None
+# Dropping the replaced samples' calls from a row (``small_variant_entry_without_samples``) is
+# test_small_variant_delete_keeps_every_call.py's: the sample delete removes them the same way.
 
 
 def test_entry_with_calls_keeps_its_fields_and_sorts_the_calls_by_sample() -> None:

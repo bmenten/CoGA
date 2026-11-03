@@ -24,20 +24,12 @@ from pathlib import Path
 import pytest
 import yaml
 
+from backend.tests.e2e._harness import capture
+
 pytestmark = pytest.mark.integration
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "golden_trio"
 FAMILY = "FAM_TRIO"
-
-
-def _cap(resp, *, as_json: bool = True) -> dict:
-    out = {"status": resp.status_code, "text": resp.text}
-    if as_json and resp.status_code < 400:
-        try:
-            out["json"] = resp.json()
-        except ValueError:  # pragma: no cover - capture for the failing assertion
-            out["json"] = None
-    return out
 
 
 async def _collect_api_responses(root: Path) -> dict:
@@ -56,69 +48,69 @@ async def _collect_api_responses(root: Path) -> dict:
 
     # Unauthenticated request must be rejected.
     async with AsyncClient(transport=transport, base_url=base) as anon:
-        r["anon"] = _cap(await anon.get(f"/api/families/{FAMILY}/small-variants"))
+        r["anon"] = capture(await anon.get(f"/api/families/{FAMILY}/small-variants"))
 
     async with AsyncClient(transport=transport, base_url=base) as ac:
         token = await _harness.login_admin_token(ac)
         ac.headers["Authorization"] = f"Bearer {token}"
         aid = facts["assembly_id"]
 
-        r["family"] = _cap(await ac.get(f"/api/families/{FAMILY}"))
-        r["small_full"] = _cap(await ac.get(f"/api/families/{FAMILY}/small-variants", params={"page": 1, "page_size": 100}))
-        r["small_paged"] = _cap(await ac.get(f"/api/families/{FAMILY}/small-variants", params={"page": 1, "page_size": 2}))
-        r["comp_het"] = _cap(await ac.get(f"/api/families/{FAMILY}/small-variants", params={"inheritance": "compound_het"}))
+        r["family"] = capture(await ac.get(f"/api/families/{FAMILY}"))
+        r["small_full"] = capture(await ac.get(f"/api/families/{FAMILY}/small-variants", params={"page": 1, "page_size": 100}))
+        r["small_paged"] = capture(await ac.get(f"/api/families/{FAMILY}/small-variants", params={"page": 1, "page_size": 2}))
+        r["comp_het"] = capture(await ac.get(f"/api/families/{FAMILY}/small-variants", params={"inheritance": "compound_het"}))
         # #534: a frequency ceiling below the ClinVar-pathogenic GENE_PATH variant
         # (gnomAD AF 1e-5). With the override the variant must survive the ClickHouse
         # filter, not only the Python matcher; without it, it must not.
         freq_ceiling = {"page": 1, "page_size": 100, "max_gnomad_af": 0.000001}
-        r["freq_rescue_on"] = _cap(
+        r["freq_rescue_on"] = capture(
             await ac.get(
                 f"/api/families/{FAMILY}/small-variants",
                 params={**freq_ceiling, "clinvar_overrides_frequency": "true"},
             )
         )
-        r["freq_rescue_off"] = _cap(
+        r["freq_rescue_off"] = capture(
             await ac.get(
                 f"/api/families/{FAMILY}/small-variants",
                 params={**freq_ceiling, "clinvar_overrides_frequency": "false"},
             )
         )
 
-        r["sv"] = _cap(await ac.get(f"/api/families/{FAMILY}/structural-variants"))
+        r["sv"] = capture(await ac.get(f"/api/families/{FAMILY}/structural-variants"))
         # CLIN-40: the NeedlR breakend's mate is on 5:3000000 (its ALT, N]chr5:3000000]).
-        r["sv_by_mate"] = _cap(
+        r["sv_by_mate"] = capture(
             await ac.get(
                 f"/api/families/{FAMILY}/structural-variants",
                 params={"remote_chr": "5", "remote_start": 3_000_000},
             )
         )
-        r["sv_by_other_mate"] = _cap(
+        r["sv_by_other_mate"] = capture(
             await ac.get(f"/api/families/{FAMILY}/structural-variants", params={"remote_chr": "7"})
         )
-        r["sv_track"] = _cap(await ac.get(f"/api/families/{FAMILY}/structural-variants", params={"track_mode": "true"}))
-        r["sv_lengths"] = _cap(await ac.get(f"/api/families/{FAMILY}/structural-variant-lengths"))
-        r["shared"] = _cap(await ac.get(f"/api/families/{FAMILY}/shared-structural-variant-counts"))
+        r["sv_track"] = capture(await ac.get(f"/api/families/{FAMILY}/structural-variants", params={"track_mode": "true"}))
+        r["sv_lengths"] = capture(await ac.get(f"/api/families/{FAMILY}/structural-variant-lengths"))
+        r["shared"] = capture(await ac.get(f"/api/families/{FAMILY}/shared-structural-variant-counts"))
 
-        r["bed_json"] = _cap(await ac.get("/api/bed/PROBAND/coverage", params={"chrom": "1", "format": "json"}))
-        r["bed_default"] = _cap(await ac.get("/api/bed/PROBAND/coverage", params={"chrom": "1"}))
-        r["bed_text"] = _cap(await ac.get("/api/bed/PROBAND/coverage", params={"chrom": "1", "format": "text"}), as_json=False)
-        r["bed_bad"] = _cap(await ac.get("/api/bed/PROBAND/not-a-track", params={"chrom": "1"}), as_json=False)
-        r["bed_empty"] = _cap(await ac.get("/api/bed/PROBAND/coverage", params={"chrom": "22", "format": "json"}), as_json=False)
+        r["bed_json"] = capture(await ac.get("/api/bed/PROBAND/coverage", params={"chrom": "1", "format": "json"}))
+        r["bed_default"] = capture(await ac.get("/api/bed/PROBAND/coverage", params={"chrom": "1"}))
+        r["bed_text"] = capture(await ac.get("/api/bed/PROBAND/coverage", params={"chrom": "1", "format": "text"}))
+        r["bed_bad"] = capture(await ac.get("/api/bed/PROBAND/not-a-track", params={"chrom": "1"}))
+        r["bed_empty"] = capture(await ac.get("/api/bed/PROBAND/coverage", params={"chrom": "22", "format": "json"}))
 
-        r["hap"] = _cap(await ac.get(f"/api/families/{FAMILY}/haplotypes", params={"chr": "1"}))
-        r["hap_batch"] = _cap(await ac.get(f"/api/families/{FAMILY}/haplotypes/batch", params={"chr": ["1"]}))
-        r["track_avail"] = _cap(await ac.get(f"/api/families/{FAMILY}/track-availability"))
+        r["hap"] = capture(await ac.get(f"/api/families/{FAMILY}/haplotypes", params={"chr": "1"}))
+        r["hap_batch"] = capture(await ac.get(f"/api/families/{FAMILY}/haplotypes/batch", params={"chr": ["1"]}))
+        r["track_avail"] = capture(await ac.get(f"/api/families/{FAMILY}/track-availability"))
 
-        r["exp_denovo"] = _cap(await ac.get("/api/variant-explorer/small-variants", params={"assembly_id": aid, "gene": "GENE_DENOVO"}))
-        r["exp_mnv"] = _cap(await ac.get("/api/variant-explorer/small-variants", params={"assembly_id": aid, "gene": "GENE_MNV"}))
+        r["exp_denovo"] = capture(await ac.get("/api/variant-explorer/small-variants", params={"assembly_id": aid, "gene": "GENE_DENOVO"}))
+        r["exp_mnv"] = capture(await ac.get("/api/variant-explorer/small-variants", params={"assembly_id": aid, "gene": "GENE_MNV"}))
 
         # carriers for the de novo variant
         denovo = next(
-            (v for v in r["exp_denovo"].get("json", {}).get("variants", []) if v["variant_id"] == "1-3000-G-A"),
+            (v for v in (r["exp_denovo"]["json"] or {}).get("variants", []) if v["variant_id"] == "1-3000-G-A"),
             None,
         )
         if denovo is not None:
-            r["carriers"] = _cap(await ac.get(f"/api/variant-explorer/small-variants/{denovo['key']}/carriers"))
+            r["carriers"] = capture(await ac.get(f"/api/variant-explorer/small-variants/{denovo['key']}/carriers"))
 
         # keyset pagination over GENE_CH's two variants (page_size=1)
         seen: list[str] = []
@@ -128,7 +120,7 @@ async def _collect_api_responses(root: Path) -> dict:
             params = {"assembly_id": aid, "gene": "GENE_CH", "page_size": 1, "sort": "total_samples", "order": "desc"}
             if cursor:
                 params["cursor"] = cursor
-            page = _cap(await ac.get("/api/variant-explorer/small-variants", params=params))
+            page = capture(await ac.get("/api/variant-explorer/small-variants", params=params))
             pages += 1
             if page["status"] != 200 or pages > 10:
                 r["keyset_error"] = page

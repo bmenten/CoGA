@@ -49,28 +49,14 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import text
 
+from backend.tests.e2e._harness import DRIFT_AND_QC_ACKNOWLEDGED, capture, ensure_postgres_schema, gate_refusal
+from backend.tests.e2e._import_jobs import claim_import_job
+
 pytestmark = pytest.mark.integration
 
-_ACK = "e2e validation"
-# The drift and Sample-QC gates come first; they are acknowledged in every attempt here.
-_OTHER_GATES = {
-    "acknowledge_drift": True,
-    "drift_acknowledgement_reason": _ACK,
-    "acknowledge_qc": True,
-    "qc_acknowledgement_reason": _ACK,
-}
 _VARIANTS = 4
 _DIRECT = {"source": "clair3", "samples": None}
 _IMPUTED = {"source": "glimpse2", "samples": None}
-
-
-def _cap(resp) -> dict:
-    out: dict[str, Any] = {"status": resp.status_code, "text": resp.text}
-    try:
-        out["json"] = resp.json()
-    except ValueError:  # pragma: no cover
-        out["json"] = None
-    return out
 
 
 def _write_package(root: Path, family_id: str, *, imputed: bool) -> Path:
@@ -104,7 +90,7 @@ async def _collect(base: Path, mp: pytest.MonkeyPatch) -> dict:
     from httpx import ASGITransport, AsyncClient
 
     from backend.app.core.clickhouse import init_clickhouse_schema
-    from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
+    from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.main import app
     from backend.app.services import family_package_import as package_import
     from backend.app.services import variant_upload_service
@@ -114,7 +100,7 @@ async def _collect(base: Path, mp: pytest.MonkeyPatch) -> dict:
     )
     from backend.tests.e2e import _harness
 
-    await init_postgres_schema()
+    await ensure_postgres_schema()
     await init_clickhouse_schema()
     await ensure_clickhouse_variant_tables(_harness.ASSEMBLY)
     sm = get_postgres_sessionmaker()
@@ -206,16 +192,7 @@ async def _collect(base: Path, mp: pytest.MonkeyPatch) -> dict:
                 job_id = str(resp.json()["_id"])
                 jobs.append(job_id)
                 worker = f"e2e-auto-{uuid4().hex[:8]}"
-                async with sm() as s:
-                    await s.execute(
-                        text(
-                            "UPDATE family_import_jobs SET status = 'validating', worker_id = :w, "
-                            "started_at = now(), heartbeat_at = now() "
-                            "WHERE id = CAST(:j AS uuid) AND status = 'queued'"
-                        ),
-                        {"j": job_id, "w": worker},
-                    )
-                    await s.commit()
+                await claim_import_job(job_id, worker)
                 failing["backup"] = failing["write"] = fails
                 try:
                     await package_import.run_family_import_job(job_id=job_id, worker_id=worker)
@@ -223,8 +200,8 @@ async def _collect(base: Path, mp: pytest.MonkeyPatch) -> dict:
                     failing["backup"] = failing["write"] = False
                 step: dict[str, Any] = {"job_id": job_id, "job": await job(job_id), "family": await family()}
                 if sign_out:
-                    step["signout"] = _cap(
-                        await _harness.sign_out(ac, f"/api/families/{family_id}/report/sign-out", _OTHER_GATES)
+                    step["signout"] = capture(
+                        await _harness.sign_out(ac, f"/api/families/{family_id}/report/sign-out", DRIFT_AND_QC_ACKNOWLEDGED)
                     )
                 out["steps"][name] = step
 
@@ -261,14 +238,6 @@ def snap(tmp_path_factory, request) -> dict:
     return _harness.run_async(lambda: _collect(base, mp))
 
 
-def _refused(step: dict) -> dict:
-    resp = step["signout"]
-    assert resp["status"] == 409, resp["text"]
-    detail = resp["json"]["detail"]
-    assert detail["gate"] == "import_incomplete", detail
-    return detail
-
-
 def test_an_update_of_imputed_genotypes_imports_them_beside_the_direct_calls(snap) -> None:
     first, step = snap["steps"]["1_direct"], snap["steps"]["2_imputed_update"]
     assert first["job"]["status"] == "completed", first["job"]["error"]
@@ -298,7 +267,7 @@ def test_a_failed_import_of_imputed_genotypes_leaves_the_direct_calls(snap) -> N
     flag = step["family"]["flag"]
     assert flag["failed_datasets"] == ["snv"]
     assert flag["failed_scopes"] == {"snv": [{"scope": _IMPUTED, "job_id": step["job_id"]}]}
-    assert _refused(step)["import_incomplete"]["failed_datasets"] == ["snv"]
+    assert gate_refusal(step["signout"], "import_incomplete")["import_incomplete"]["failed_datasets"] == ["snv"]
 
 
 def test_a_later_failure_for_the_other_callset_keeps_both(snap) -> None:
@@ -314,7 +283,7 @@ def test_a_later_failure_for_the_other_callset_keeps_both(snap) -> None:
         ]
     }
     assert flag["failed_jobs"] == {"snv": step["job_id"]}
-    _refused(step)
+    gate_refusal(step["signout"], "import_incomplete")
 
 
 def test_the_direct_calls_imported_again_leave_the_imputed_genotypes_flagged(snap) -> None:
@@ -329,7 +298,7 @@ def test_the_direct_calls_imported_again_leave_the_imputed_genotypes_flagged(sna
     assert (flag["failed_jobs"], flag["job_id"]) == ({"snv": imputed["job_id"]}, imputed["job_id"])
     note = next(line for line in step["job"]["logs"] if "stays flagged import-incomplete" in line)
     assert f"snv in import job {imputed['job_id']}" in note
-    detail = _refused(step)
+    detail = gate_refusal(step["signout"], "import_incomplete")
     assert detail["import_incomplete"]["failed_jobs"] == {"snv": imputed["job_id"]}
     assert f"recorded in import job {imputed['job_id']}" in detail["message"]
 

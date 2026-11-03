@@ -24,14 +24,22 @@ All samples and values are synthetic.
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 
 import pytest
 
 from backend.app.services import repeat_expansion_pg
-from backend.app.services.family_metadata_context import FamilyMetadataContext, SampleMetadataContext
 from backend.app.services.repeat_expansion_catalog import BUILTIN_REPEAT_LOCI
+from backend.tests._repeat_fakes import (
+    RowsSession,
+    allele_statuses,
+    catalogue_after_a_start,
+    family_context,
+    import_lookup,
+    seed_a_start,
+    trgt_insert_params,
+    upserts,
+)
 
 N, I, P = "normal", "intermediate", "pathogenic"
 
@@ -131,111 +139,19 @@ def test_the_cases_below_are_the_built_in_rows_whose_thresholds_changed() -> Non
 # ---- Through the catalogue a start seeds and the import's TRID lookup ---------------------------
 
 
-class _RecordingSession:
-    def __init__(self) -> None:
-        self.statements: list[tuple[str, dict]] = []
-        self.committed = False
-
-    async def execute(self, statement, params=None):
-        self.statements.append((str(statement), params or {}))
-
-    async def commit(self) -> None:
-        self.committed = True
-
-
-class _Result:
-    def __init__(self, rows):
-        self._rows = rows
-
-    def mappings(self):
-        return self
-
-    def all(self):
-        return self._rows
-
-
-class _CatalogueSession:
-    """Answers the import's catalogue query with the given ``repeat_loci`` rows."""
-
-    def __init__(self, rows: list[dict]) -> None:
-        self.rows = rows
-
-    async def execute(self, statement, params=None):
-        return _Result(self.rows)
-
-
-async def _seed_a_start(monkeypatch) -> _RecordingSession:
-    # The shipped STRchive file, not one an environment variable may point at.
-    monkeypatch.setattr(repeat_expansion_pg.settings, "trgt_strchive_loci_path", None)
-    session = _RecordingSession()
-    await repeat_expansion_pg.seed_builtin_repeat_catalog(session)
-    return session
-
-
-def _upserts(session: _RecordingSession) -> list[tuple[str, dict]]:
-    """The seed's upserts; its last statement removes STRchive rows of another release (CLIN-31)."""
-    return [(sql, params) for sql, params in session.statements if "locus_id" in params]
-
-
-async def _catalogue_after_a_start(monkeypatch) -> dict[str, dict]:
-    """The ``repeat_loci`` rows a start leaves, by locus_id, as the import's catalogue query
-    returns them. The seed upserts by ``locus_id``, so the last write of a locus is its row."""
-    session = await _seed_a_start(monkeypatch)
-    rows: dict[str, dict] = {}
-    for _sql, params in _upserts(session):
-        rows[params["locus_id"]] = {
-            **{
-                column: params[column]
-                for column in (
-                    "locus_id",
-                    "gene",
-                    "display_name",
-                    "disease",
-                    "inheritance",
-                    "motif",
-                    "motif_index",
-                    "warning_min",
-                    "pathogenic_min",
-                    "notes",
-                )
-            },
-            "aliases": json.loads(params["aliases_json"]),
-            "metadata": json.loads(params["metadata_json"]),
-        }
-    return {locus_id: rows[locus_id] for locus_id in sorted(rows)}
-
-
-async def _import_lookup(monkeypatch) -> dict[str, dict]:
-    rows = await _catalogue_after_a_start(monkeypatch)
-    return await repeat_expansion_pg._build_repeat_locus_lookup(_CatalogueSession(list(rows.values())))
-
-
 def _call(lookup: dict[str, dict], *, trid: str, strchive: dict, count: int) -> dict:
     """A woman's TRGT call at the locus: a normal allele of 5 repeats and one of ``count``.
 
     The record is the same under either TRID: STRchive's coordinates and motif."""
     motif = str(strchive["motif"])
     start = int(strchive["metadata"]["start_hg38"])
-    return repeat_expansion_pg._build_trgt_insert_params(
-        sample_context=SampleMetadataContext(
-            sample_uuid="sample-uuid",
-            sample_id="sample",
-            family_uuid="family-uuid",
-            family_id="FAM1",
-            sex="female",
-            project_ids=["project-uuid"],
-            assembly_id="assembly-uuid",
-            assembly_name="GRCh38",
-        ),
-        locus_lookup=lookup,
-        chrom=str(strchive["metadata"]["chrom"]),
-        pos=str(start),
-        ref=motif,
+    return trgt_insert_params(
+        lookup,
         info_field=f"TRID={trid};END={start + len(motif) * count};MOTIFS={motif}",
-        format_field="GT:AL:MC",
         sample_field=f"1/2:{5 * len(motif)},{count * len(motif)}:5,{count}",
-        header_sample="sample",
-        metadata={},
+        chrom=str(strchive["metadata"]["chrom"]),
+        pos=start,
+        ref=motif,
     )
 
 
@@ -245,7 +161,7 @@ def _call(lookup: dict[str, dict], *, trid: str, strchive: dict, count: int) -> 
 async def test_each_side_of_every_changed_threshold_reads_the_same_under_either_trid(
     monkeypatch, locus: ChangedLocus, trid_kind: str
 ) -> None:
-    lookup = await _import_lookup(monkeypatch)
+    lookup = await import_lookup(monkeypatch)
     strchive = lookup[locus.strchive_trid.lower()]
     trid = locus.gene_trid if trid_kind == "gene name" else locus.strchive_trid
 
@@ -254,7 +170,7 @@ async def test_each_side_of_every_changed_threshold_reads_the_same_under_either_
     for count in locus.statuses:
         params = _call(lookup, trid=trid, strchive=strchive, count=count)
         assert params["locus_id"] == trid  # the row the TRID resolved to
-        assert [allele["status"] for allele in json.loads(params["alleles_json"])][0] == N
+        assert allele_statuses(params)[0] == N
         statuses[count] = str(params["status"])
         stored_thresholds.add((params["warning_min"], params["pathogenic_min"]))
 
@@ -267,37 +183,26 @@ async def test_each_side_of_every_changed_threshold_reads_the_same_under_either_
 async def test_each_start_writes_strchives_thresholds_over_those_an_earlier_start_stored(monkeypatch) -> None:
     """A database seeded with the old built-in rows gets STRchive's thresholds on its next start:
     the upsert by locus_id sets both columns from the row, so BEAN1's NULL replaces a stored 300."""
-    session = await _seed_a_start(monkeypatch)
-    upserts = {params["locus_id"]: (" ".join(sql.split()), params) for sql, params in _upserts(session)}
+    session = await seed_a_start(monkeypatch)
+    upserted = {params["locus_id"]: (sql, params) for sql, params in upserts(session)}
 
     for locus in CHANGED_LOCI:
-        sql, params = upserts[locus.gene_trid]
+        sql, params = upserted[locus.gene_trid]
         assert "ON CONFLICT (locus_id) DO UPDATE" in sql
         assert "warning_min = EXCLUDED.warning_min" in sql
         assert "pathogenic_min = EXCLUDED.pathogenic_min" in sql
-        strchive = upserts[locus.strchive_trid][1]
+        strchive = upserted[locus.strchive_trid][1]
         assert (params["warning_min"], params["pathogenic_min"]) == locus.now
         assert (strchive["warning_min"], strchive["pathogenic_min"]) == locus.now
-    assert upserts["BEAN1"][1]["warning_min"] is None
+    assert upserted["BEAN1"][1]["warning_min"] is None
     assert session.committed
 
 
 # ---- The family table ---------------------------------------------------------------------------
 
 
-def _context() -> FamilyMetadataContext:
-    sample_uuid = "00000000-0000-4000-8000-000000000003"
-    return FamilyMetadataContext(
-        family_uuid="00000000-0000-4000-8000-0000000000f3",
-        family_id="FAM1",
-        project_ids=["project-uuid"],
-        sample_rows=[{"sample_uuid": sample_uuid, "sample_id": "WOMAN1", "role": "proband", "affected": False, "sex": "female"}],
-        sample_uuid_to_name={sample_uuid: "WOMAN1"},
-        sample_name_to_uuid={"WOMAN1": sample_uuid},
-        affected_sample_names=[],
-        assembly_id="assembly-uuid",
-        assembly_name="GRCh38",
-    )
+def _context():
+    return family_context(("00000000-0000-4000-8000-000000000003", "WOMAN1", "proband", False, "female"))
 
 
 @pytest.mark.parametrize("locus", CHANGED_LOCI, ids=LOCUS_IDS)
@@ -308,43 +213,36 @@ async def test_the_family_table_reads_a_call_stored_under_the_old_row_with_strch
     """A call imported under the old built-in row keeps its stored status (the genome tracks show
     it until the calls are imported again); the family table classifies it again against the row
     a start leaves."""
-    builtin = (await _catalogue_after_a_start(monkeypatch))[locus.gene_trid]
+    builtin = (await catalogue_after_a_start(monkeypatch))[locus.gene_trid]
     count, status_before = locus.flip
+    # The query takes the thresholds from the catalogue row it matched.
+    stored = {
+        "sample_uuid": "00000000-0000-4000-8000-000000000003",
+        "locus_id": locus.gene_trid,
+        "gene": builtin["gene"],
+        "display_name": builtin["display_name"],
+        "disease": builtin["disease"],
+        "inheritance": builtin["inheritance"],
+        "chr": "1",
+        "start": 1000,
+        "end": 1100,
+        "motif": builtin["motif"],
+        "genotype": "1/2",
+        "allele_count": 2,
+        "alleles": [
+            {"repeat_count": 5, "status": N},
+            {"repeat_count": count, "status": status_before},
+        ],
+        "warning_min": builtin["warning_min"],
+        "pathogenic_min": builtin["pathogenic_min"],
+        "benign_min": builtin["metadata"].get("benign_min"),
+        "benign_max": builtin["metadata"].get("benign_max"),
+        "pathogenic_max": builtin["metadata"].get("pathogenic_max"),
+        "premutation_min": builtin["metadata"].get("premutation_min"),
+        "status": status_before,
+    }
 
-    class _TableSession:
-        async def execute(self, statement, params=None):
-            # The query takes the thresholds from the catalogue row it matched.
-            return _Result(
-                [
-                    {
-                        "sample_uuid": "00000000-0000-4000-8000-000000000003",
-                        "locus_id": locus.gene_trid,
-                        "gene": builtin["gene"],
-                        "display_name": builtin["display_name"],
-                        "disease": builtin["disease"],
-                        "inheritance": builtin["inheritance"],
-                        "chr": "1",
-                        "start": 1000,
-                        "end": 1100,
-                        "motif": builtin["motif"],
-                        "genotype": "1/2",
-                        "allele_count": 2,
-                        "alleles": [
-                            {"repeat_count": 5, "status": N},
-                            {"repeat_count": count, "status": status_before},
-                        ],
-                        "warning_min": builtin["warning_min"],
-                        "pathogenic_min": builtin["pathogenic_min"],
-                        "benign_min": builtin["metadata"].get("benign_min"),
-                        "benign_max": builtin["metadata"].get("benign_max"),
-                        "pathogenic_max": builtin["metadata"].get("pathogenic_max"),
-                        "premutation_min": builtin["metadata"].get("premutation_min"),
-                        "status": status_before,
-                    }
-                ]
-            )
-
-    table = await repeat_expansion_pg.get_family_repeat_expansion_table_response(_TableSession(), context=_context())
+    table = await repeat_expansion_pg.get_family_repeat_expansion_table_response(RowsSession([stored]), context=_context())
 
     [row] = table.loci
     assert (row.warning_min, row.pathogenic_min) == locus.now
@@ -359,16 +257,11 @@ async def test_the_family_table_takes_both_thresholds_from_the_catalogue_row_it_
     catalogue row's, NULL included: BEAN1's intermediate threshold is gone, and a call stored
     with the old 300 must not bring it back. Only a call no catalogue row matches falls back to
     its stored thresholds. (integration/test_repeat_status_storage.py runs the query.)"""
-    captured: list[str] = []
+    session = RowsSession([])
 
-    class _Session:
-        async def execute(self, statement, params=None):
-            captured.append(" ".join(str(statement).split()))
-            return _Result([])
+    await repeat_expansion_pg.get_family_repeat_expansion_table_response(session, context=_context())
 
-    await repeat_expansion_pg.get_family_repeat_expansion_table_response(_Session(), context=_context())
-
-    [sql] = captured
+    [sql] = session.statements
     for column in ("warning_min", "pathogenic_min"):
         assert (
             f"CASE WHEN catalog.locus_id IS NULL THEN repeat_expansions.{column} "

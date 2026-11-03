@@ -30,6 +30,8 @@ from typing import Any
 
 import pytest
 
+from backend.tests.e2e._harness import capture
+
 pytestmark = pytest.mark.integration
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "golden_trio"
@@ -62,15 +64,6 @@ def _flag(failed: list[str], jobs: dict[str, str], job_id: str) -> dict[str, Any
         "job_id": job_id,
         "failed_jobs": jobs,
     }
-
-
-def _cap(resp) -> dict:
-    out = {"status": resp.status_code, "text": resp.text}
-    try:
-        out["json"] = resp.json()
-    except ValueError:  # pragma: no cover
-        out["json"] = None
-    return out
 
 
 def _fingerprint(captured: dict) -> str | None:
@@ -143,17 +136,17 @@ async def _collect(root: Path) -> dict:
         ac.headers["Authorization"] = f"Bearer {await _harness.login_admin_token(ac)}"
         try:
             # The drift dialog: one reported variant without a classification.
-            r["tag_first"] = _cap(await ac.put(f"{family}/small-variants/{FIRST}/review", json={"tags": ["report"]}))
-            r["drift_shown"] = _cap(await ac.post(sign_out, json={}))
+            r["tag_first"] = capture(await ac.put(f"{family}/small-variants/{FIRST}/review", json={"tags": ["report"]}))
+            r["drift_shown"] = capture(await ac.post(sign_out, json={}))
 
             # A second variant is tagged for the report while the dialog is open.
-            r["tag_second"] = _cap(await ac.put(f"{family}/small-variants/{SECOND}/review", json={"tags": ["report"]}))
+            r["tag_second"] = capture(await ac.put(f"{family}/small-variants/{SECOND}/review", json={"tags": ["report"]}))
             written["before"] = await _written(family_uuid)
-            r["drift_changed"] = _cap(
+            r["drift_changed"] = capture(
                 await ac.post(sign_out, json={**_DRIFT, "drift_concerns_fingerprint": _fingerprint(r["drift_shown"])})
             )
-            r["no_fingerprint"] = _cap(await ac.post(sign_out, json=_DRIFT))
-            r["malformed_fingerprint"] = _cap(
+            r["no_fingerprint"] = capture(await ac.post(sign_out, json=_DRIFT))
+            r["malformed_fingerprint"] = capture(
                 await ac.post(sign_out, json={**_DRIFT, "drift_concerns_fingerprint": "not-a-fingerprint"})
             )
             written["after_refusals"] = await _written(family_uuid)
@@ -161,18 +154,18 @@ async def _collect(root: Path) -> dict:
             # The drift acknowledged as it is now; the Sample QC, when it gates, as it lists it.
             drift = {**_DRIFT, "drift_concerns_fingerprint": _fingerprint(r["drift_changed"])}
             await _set_import_flag(family_uuid, _flag(["snv"], {"snv": _JOB_1}, _JOB_1))
-            r["after_drift"] = _cap(await ac.post(sign_out, json=drift))
+            r["after_drift"] = capture(await ac.post(sign_out, json=drift))
             acknowledged = dict(drift)
             if ((r["after_drift"]["json"] or {}).get("detail") or {}).get("gate") == "sample_qc":
                 acknowledged.update(_QC, qc_concerns_fingerprint=_fingerprint(r["after_drift"]))
-                r["import_shown"] = _cap(await ac.post(sign_out, json=acknowledged))
+                r["import_shown"] = capture(await ac.post(sign_out, json=acknowledged))
             else:
                 r["import_shown"] = r["after_drift"]
 
             # Another import fails, for the SV calls, while the import dialog is open.
             await _set_import_flag(family_uuid, _flag(["snv", "sv_needlr"], {"snv": _JOB_1, "sv_needlr": _JOB_2}, _JOB_2))
             written["before_import_refusal"] = await _written(family_uuid)
-            r["import_changed"] = _cap(
+            r["import_changed"] = capture(
                 await ac.post(
                     sign_out,
                     json={
@@ -191,10 +184,10 @@ async def _collect(root: Path) -> dict:
                 **_IMPORT,
                 "import_incomplete_concerns_fingerprint": _fingerprint(r["import_changed"]),
             }
-            r["signout"] = _cap(await ac.post(sign_out, json=final))
+            r["signout"] = capture(await ac.post(sign_out, json=final))
             if ((r["signout"]["json"] or {}).get("detail") or {}).get("gate") == "unreviewed_findings":
                 r["unreviewed_shown"] = r["signout"]
-                r["signout"] = _cap(
+                r["signout"] = capture(
                     await ac.post(
                         sign_out,
                         json={
@@ -206,15 +199,18 @@ async def _collect(root: Path) -> dict:
                 )
             written["after_signout"] = await _written(family_uuid)
             version = (r["signout"]["json"] or {}).get("version")
-            r["detail"] = _cap(await ac.get(f"{family}/report/sign-outs/{version}"))
-            r["audit"] = _cap(await ac.get(f"{family}/clinical-audit", params={"limit": 50}))
+            r["detail"] = capture(await ac.get(f"{family}/report/sign-outs/{version}"))
+            r["audit"] = capture(await ac.get(f"{family}/clinical-audit", params={"limit": 50}))
         finally:
             # Nothing tagged and no flag left for the modules that run after this one.
             await _set_import_flag(family_uuid, None)
             for variant in (FIRST, SECOND):
-                r[f"untag_{variant}"] = _cap(
+                r[f"untag_{variant}"] = capture(
                     await ac.put(f"{family}/small-variants/{variant}/review", json={"tags": [], "note": None})
                 )
+            r["left_tagged"] = capture(
+                await ac.get(f"{family}/small-variants", params={"review_tag": "report", "page": 1, "page_size": 100})
+            )
     return out
 
 
@@ -349,3 +345,7 @@ def test_the_fingerprints_shown_last_sign_out_and_the_audit_event_records_them(r
 def test_the_module_leaves_nothing_tagged_for_the_report(run) -> None:
     for variant in (FIRST, SECOND):
         assert run["responses"][f"untag_{variant}"]["status"] == 200, run["responses"][f"untag_{variant}"]
+    # The family's report list, read back afterwards, is empty.
+    left = run["responses"]["left_tagged"]
+    assert left["status"] == 200, left["text"]
+    assert left["json"]["variants"] == []

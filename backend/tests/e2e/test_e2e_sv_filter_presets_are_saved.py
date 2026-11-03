@@ -28,6 +28,8 @@ from uuid import uuid4
 
 import pytest
 
+from backend.tests.e2e._harness import capture, ensure_postgres_schema
+
 pytestmark = pytest.mark.integration
 
 # The search the SV page saves, as buildStructuralPresetPayload serialises it
@@ -44,13 +46,6 @@ _CHANGED_SEARCH = {
     "sample_filters": {},
     "sample_templates": {"E2E_SV_PROBAND": "proband"},
 }
-
-
-def _cap(resp) -> dict:
-    out = {"status": resp.status_code, "text": resp.text}
-    if resp.status_code < 400 and resp.content:
-        out["json"] = resp.json()
-    return out
 
 
 async def _stored(session, prefix: str) -> list[dict]:
@@ -85,12 +80,12 @@ async def _exercise(run: str) -> dict:
     from sqlalchemy import text
 
     from backend.app.core.config import settings
-    from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
+    from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.dependencies import get_password_hash
     from backend.app.main import app
     from backend.tests.e2e import _harness
 
-    await init_postgres_schema()
+    await ensure_postgres_schema()
     sessionmaker = get_postgres_sessionmaker()
     families = {"a": f"E2E_SVPRESET_A_{run}", "b": f"E2E_SVPRESET_B_{run}"}
     viewer_email, viewer_password = f"e2e-svpreset-viewer-{run}@example.com", f"viewer-password-{run}"
@@ -150,29 +145,29 @@ async def _exercise(run: str) -> dict:
             ac.headers["Authorization"] = f"Bearer {await _harness.login_admin_token(ac)}"
 
             # The SV page's Save: the name and description typed, the scope the form sets.
-            out["family_saved"] = _cap(
+            out["family_saved"] = capture(
                 await ac.post(
                     presets["a"],
                     json={"name": names["shared"], "description": "Rare deletions", "scope": "family", **_SEARCH},
                 )
             )
-            out["family_resaved"] = _cap(
+            out["family_resaved"] = capture(
                 await ac.post(presets["a"], json={"name": f" {names['shared']} ", "scope": "family", **_CHANGED_SEARCH})
             )
-            out["global_saved"] = _cap(
+            out["global_saved"] = capture(
                 await ac.post(
                     presets["a"],
                     json={"name": names["shared"], "description": "Every family", "scope": "global", **_SEARCH},
                 )
             )
-            out["default_saved"] = _cap(await ac.post(presets["b"], json={"name": names["default"], **_SEARCH}))
+            out["default_saved"] = capture(await ac.post(presets["b"], json={"name": names["default"], **_SEARCH}))
             out["refused"] = {
-                "unknown_scope": _cap(
+                "unknown_scope": capture(
                     await ac.post(presets["a"], json={"name": names["refused"], "scope": "project", **_SEARCH})
                 ),
-                "blank_name": _cap(await ac.post(presets["a"], json={"name": "   ", "scope": "family", **_SEARCH})),
+                "blank_name": capture(await ac.post(presets["a"], json={"name": "   ", "scope": "family", **_SEARCH})),
             }
-            out["listed"] = {key: _cap(await ac.get(path)) for key, path in presets.items()}
+            out["listed"] = {key: capture(await ac.get(path)) for key, path in presets.items()}
             async with sessionmaker() as session:
                 out["stored"] = await _stored(session, prefix)
                 out["blank_stored"] = (
@@ -192,18 +187,18 @@ async def _exercise(run: str) -> dict:
             global_preset = (out["global_saved"].get("json") or {}).get("_id", str(uuid4()))
             default_preset = (out["default_saved"].get("json") or {}).get("_id", str(uuid4()))
             out["viewer"] = {
-                "listed": _cap(await viewer.get(presets["a"])),
-                "delete": _cap(await viewer.delete(f"{presets['a']}/{family_preset}")),
+                "listed": capture(await viewer.get(presets["a"])),
+                "delete": capture(await viewer.delete(f"{presets['a']}/{family_preset}")),
             }
 
             out["deleted"] = {
-                "family_through_other_family": _cap(await ac.delete(f"{presets['b']}/{family_preset}")),
-                "family": _cap(await ac.delete(f"{presets['a']}/{family_preset}")),
-                "family_again": _cap(await ac.delete(f"{presets['a']}/{family_preset}")),
-                "global_through_other_family": _cap(await ac.delete(f"{presets['b']}/{global_preset}")),
-                "default": _cap(await ac.delete(f"{presets['b']}/{default_preset}")),
+                "family_through_other_family": capture(await ac.delete(f"{presets['b']}/{family_preset}")),
+                "family": capture(await ac.delete(f"{presets['a']}/{family_preset}")),
+                "family_again": capture(await ac.delete(f"{presets['a']}/{family_preset}")),
+                "global_through_other_family": capture(await ac.delete(f"{presets['b']}/{global_preset}")),
+                "default": capture(await ac.delete(f"{presets['b']}/{default_preset}")),
             }
-            out["listed_after"] = {key: _cap(await ac.get(path)) for key, path in presets.items()}
+            out["listed_after"] = {key: capture(await ac.get(path)) for key, path in presets.items()}
             async with sessionmaker() as session:
                 out["stored_after"] = await _stored(session, prefix)
     finally:

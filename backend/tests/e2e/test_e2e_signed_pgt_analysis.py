@@ -33,90 +33,10 @@ from uuid import uuid4
 
 import pytest
 
+from backend.tests.e2e._harness import capture, ensure_postgres_schema
+from backend.tests.e2e._pgt_package import SIGN_OUT_BODY, write_pgt_package
+
 pytestmark = pytest.mark.integration
-
-_FORMAT = "GT:DP:AD:AF:GP:PS"
-# Between sites, so the ROI holds six of them whatever the bounds: 1,005,000 to 1,010,000.
-ROI = "1:1004500-1010500"
-SIGN_OUT_BODY = {
-    "acknowledge_drift": True,
-    "drift_acknowledgement_reason": "e2e: nothing reported",
-    "acknowledge_qc": True,
-    "qc_acknowledgement_reason": "e2e: synthetic genotypes at twenty sites",
-}
-
-
-def _cell(gt: str) -> str:
-    # A phased genotype with GLIMPSE2's posteriors and one phase set.
-    return f"{gt}:30:15,15:0.5:0.9,0.05,0.05:1"
-
-
-def _write_pgt_package(root: Path, family_id: str) -> dict[str, str]:
-    """A PGT package: the father (affected), the mother, their affected child (the index)
-    and two embryos. At even sites the father is heterozygous and the mother not, at odd
-    sites the other way round, so each child's inherited homolog is read on both sides. The
-    index and E_RISK inherit the father's homolog 1, E_CLEAR his homolog 0."""
-    names = {role: f"{role}_{family_id}" for role in ("FATHER", "MOTHER", "INDEX", "E_RISK", "E_CLEAR")}
-    father, mother = names["FATHER"], names["MOTHER"]
-    root.mkdir(parents=True, exist_ok=True)
-    (root / "family.ped").write_text(
-        "\n".join(
-            [
-                f"{family_id}\t{father}\t0\t0\t1\t2",
-                f"{family_id}\t{mother}\t0\t0\t2\t1",
-                f"{family_id}\t{names['INDEX']}\t{father}\t{mother}\t2\t2",
-                f"{family_id}\t{names['E_RISK']}\t{father}\t{mother}\t2\t0",
-                f"{family_id}\t{names['E_CLEAR']}\t{father}\t{mother}\t1\t0",
-            ]
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-    (root / "manifest.yaml").write_text(
-        "schema_version: 1\n"
-        f"family_id: {family_id}\n"
-        "ped: family.ped\n"
-        f"roi: \"{ROI}\"\n"
-        "metadata:\n"
-        "  pgt:\n"
-        "    inheritance_model: AD\n"
-        "family:\n"
-        "  members:\n"
-        f"    {names['E_RISK']}: {{role: embryo}}\n"
-        f"    {names['E_CLEAR']}: {{role: embryo}}\n"
-        "datasets:\n"
-        "  haplotypes:\n"
-        "    family_vcf: haplotypes/family.glimpse2.vcf\n"
-        "    source_format: glimpse2\n",
-        encoding="utf-8",
-    )
-    columns = [names[role] for role in ("FATHER", "MOTHER", "INDEX", "E_RISK", "E_CLEAR")]
-    header = [
-        "##fileformat=VCFv4.2",
-        '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">',
-        '##FORMAT=<ID=DP,Number=1,Type=Integer,Description="Depth">',
-        '##FORMAT=<ID=AD,Number=R,Type=Integer,Description="Allele depths">',
-        '##FORMAT=<ID=AF,Number=A,Type=Float,Description="Allele frequency">',
-        '##FORMAT=<ID=GP,Number=G,Type=Float,Description="Genotype posteriors">',
-        '##FORMAT=<ID=PS,Number=1,Type=Integer,Description="Phase set">',
-        "#" + "\t".join(["CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO", "FORMAT", *columns]),
-    ]
-    rows = []
-    for index in range(20):
-        position = 1_000_000 + index * 1_000
-        if index % 2 == 0:
-            # The father's homolog 1 carries the ALT allele: the index and E_RISK have it.
-            genotypes = ["0|1", "0|0", "1|0", "1|0", "0|0"]
-        else:
-            # The mother's homolog 1 carries it: E_RISK inherited it, the others her homolog 0.
-            genotypes = ["0|0", "0|1", "0|0", "0|1", "0|0"]
-        rows.append(
-            "\t".join(["1", str(position), ".", "A", "G", "60", "PASS", ".", _FORMAT, *map(_cell, genotypes)])
-        )
-    vcf = root / "haplotypes" / "family.glimpse2.vcf"
-    vcf.parent.mkdir(parents=True, exist_ok=True)
-    vcf.write_text("\n".join(header + rows) + "\n", encoding="utf-8")
-    return names
 
 
 async def _outsider_client(transport, run: str):
@@ -148,27 +68,18 @@ async def _outsider_client(transport, run: str):
     return client
 
 
-def _cap(resp) -> dict:
-    out = {"status": resp.status_code, "text": resp.text}
-    try:
-        out["json"] = resp.json()
-    except ValueError:  # pragma: no cover
-        out["json"] = None
-    return out
-
-
 async def _collect(root: Path, family_id: str) -> dict:
     from httpx import ASGITransport, AsyncClient
 
     from backend.app.core.clickhouse import init_clickhouse_schema
-    from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
+    from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.main import app
     from backend.app.services import family_package_import as package_import
     from backend.app.services import report_signout_service as rss
     from backend.app.services.clickhouse_variant_storage import ensure_clickhouse_variant_tables
     from backend.tests.e2e import _harness
 
-    await init_postgres_schema()
+    await ensure_postgres_schema()
     await init_clickhouse_schema()
     await ensure_clickhouse_variant_tables(_harness.ASSEMBLY)
     sessionmaker = get_postgres_sessionmaker()
@@ -189,14 +100,14 @@ async def _collect(root: Path, family_id: str) -> dict:
     async with AsyncClient(transport=transport, base_url="http://e2e") as ac:
         ac.headers["Authorization"] = f"Bearer {await _harness.login_admin_token(ac)}"
         family = f"/api/families/{family_id}"
-        r["family"] = _cap(await ac.get(family))
-        r["analysis"] = _cap(await ac.get(f"{family}/pgt-analysis"))
-        r["signout"] = _cap(await _harness.sign_out(ac, f"{family}/report/sign-out", SIGN_OUT_BODY))
+        r["family"] = capture(await ac.get(family))
+        r["analysis"] = capture(await ac.get(f"{family}/pgt-analysis"))
+        r["signout"] = capture(await _harness.sign_out(ac, f"{family}/report/sign-out", SIGN_OUT_BODY))
         version = (r["signout"]["json"] or {}).get("version")
-        r["detail"] = _cap(await ac.get(f"{family}/report/sign-outs/{version}"))
-        r["check"] = _cap(await ac.get(f"{family}/report/sign-out-check"))
-        r["analysis_after"] = _cap(await ac.get(f"{family}/pgt-analysis"))
-        r["chain"] = _cap(
+        r["detail"] = capture(await ac.get(f"{family}/report/sign-outs/{version}"))
+        r["check"] = capture(await ac.get(f"{family}/report/sign-out-check"))
+        r["analysis_after"] = capture(await ac.get(f"{family}/pgt-analysis"))
+        r["chain"] = capture(
             await ac.get("/api/admin/integrity/verify", params={"table": "report_signouts", "family_id": family_id})
         )
 
@@ -211,13 +122,13 @@ async def _collect(root: Path, family_id: str) -> dict:
         mp = pytest.MonkeyPatch()
         mp.setattr(rss, "build_report_snapshot", _old_build)
         try:
-            r["old_signout"] = _cap(await _harness.sign_out(ac, f"{family}/report/sign-out", SIGN_OUT_BODY))
+            r["old_signout"] = capture(await _harness.sign_out(ac, f"{family}/report/sign-out", SIGN_OUT_BODY))
         finally:
             mp.undo()
         old_version = (r["old_signout"]["json"] or {}).get("version")
-        r["old_detail"] = _cap(await ac.get(f"{family}/report/sign-outs/{old_version}"))
-        r["old_check"] = _cap(await ac.get(f"{family}/report/sign-out-check"))
-        r["old_chain"] = _cap(
+        r["old_detail"] = capture(await ac.get(f"{family}/report/sign-outs/{old_version}"))
+        r["old_check"] = capture(await ac.get(f"{family}/report/sign-out-check"))
+        r["old_chain"] = capture(
             await ac.get("/api/admin/integrity/verify", params={"table": "report_signouts", "family_id": family_id})
         )
 
@@ -235,20 +146,20 @@ async def _collect(root: Path, family_id: str) -> dict:
         mp = pytest.MonkeyPatch()
         mp.setattr(rss, "build_report_snapshot", _pre_verdict_build)
         try:
-            r["pre_verdict_signout"] = _cap(await _harness.sign_out(ac, f"{family}/report/sign-out", SIGN_OUT_BODY))
+            r["pre_verdict_signout"] = capture(await _harness.sign_out(ac, f"{family}/report/sign-out", SIGN_OUT_BODY))
         finally:
             mp.undo()
         pre_verdict_version = (r["pre_verdict_signout"]["json"] or {}).get("version")
-        r["pre_verdict_detail"] = _cap(await ac.get(f"{family}/report/sign-outs/{pre_verdict_version}"))
-        r["pre_verdict_check"] = _cap(await ac.get(f"{family}/report/sign-out-check"))
-        r["pre_verdict_chain"] = _cap(
+        r["pre_verdict_detail"] = capture(await ac.get(f"{family}/report/sign-outs/{pre_verdict_version}"))
+        r["pre_verdict_check"] = capture(await ac.get(f"{family}/report/sign-out-check"))
+        r["pre_verdict_chain"] = capture(
             await ac.get("/api/admin/integrity/verify", params={"table": "report_signouts", "family_id": family_id})
         )
 
         outsider = await _outsider_client(transport, uuid4().hex[:10])
         try:
-            r["outsider"] = _cap(await outsider.get(f"{family}/pgt-analysis"))
-            r["outsider_unknown"] = _cap(await outsider.get(f"/api/families/NO_SUCH_{family_id}/pgt-analysis"))
+            r["outsider"] = capture(await outsider.get(f"{family}/pgt-analysis"))
+            r["outsider_unknown"] = capture(await outsider.get(f"/api/families/NO_SUCH_{family_id}/pgt-analysis"))
         finally:
             await outsider.aclose()
     return out
@@ -261,7 +172,7 @@ def pgt(tmp_path_factory, request) -> dict:
 
     base = tmp_path_factory.mktemp("e2e_pgt_record")
     family_id = f"FAM_PGT_{uuid4().hex[:8]}"
-    names = _write_pgt_package(base / family_id, family_id)
+    names = write_pgt_package(base / family_id, family_id)
     mp = pytest.MonkeyPatch()
     mp.setattr(settings, "family_import_roots", [str(base)])
     request.addfinalizer(mp.undo)

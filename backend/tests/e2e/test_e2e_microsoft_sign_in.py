@@ -31,6 +31,8 @@ from uuid import uuid4
 
 import pytest
 
+from backend.tests.e2e._harness import ensure_postgres_schema
+
 pytestmark = pytest.mark.integration
 
 
@@ -39,7 +41,7 @@ async def _exercise(run: str, directory) -> dict[str, Any]:
     from sqlalchemy import text
 
     from backend.app.core.config import settings
-    from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
+    from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.dependencies import get_password_hash
     from backend.app.main import app
     from backend.tests.e2e import _harness
@@ -51,7 +53,7 @@ async def _exercise(run: str, directory) -> dict[str, Any]:
     colleague_oid, intruder_oid = str(uuid4()), str(uuid4())
     out: dict[str, Any] = {}
 
-    await init_postgres_schema()
+    await ensure_postgres_schema()
     sessionmaker = get_postgres_sessionmaker()
     async with sessionmaker() as session:
         admin, shared_project_id, _assembly_id = await _harness.ensure_e2e_project(session)

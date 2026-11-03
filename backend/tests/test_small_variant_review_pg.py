@@ -1,3 +1,12 @@
+"""Small-variant review persistence (``services/small_variant_review_pg.py``).
+
+A review list selects every field a review is served with and binds its variant ids as one
+array (DATA-3); the summary counts a review that holds only an ACMG record; clearing a review,
+and a re-classification that changes only a criterion's strength, are on the clinical audit
+trail in the save's transaction; a tag the review holds is kept whatever became of its
+definition, and only a tag the save adds is checked.
+"""
+
 from __future__ import annotations
 
 import asyncio

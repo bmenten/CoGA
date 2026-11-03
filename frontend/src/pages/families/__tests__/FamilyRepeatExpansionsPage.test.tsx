@@ -1,10 +1,14 @@
-import { QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 import FamilyRepeatExpansionsPage, { formatCutoff } from '../FamilyRepeatExpansionsPage';
-import { createTestQueryClient } from '../../../test/createTestQueryClient';
+import { renderFamilyRoute } from '../../../test/familyRoute';
+import {
+  expectFailedRequestRetried,
+  expectFamilyNotFound,
+  familyNotFound,
+  serverError,
+} from '../../../test/requestFailures';
 
 const apiMock = vi.hoisted(() => ({
   get: vi.fn(),
@@ -44,6 +48,10 @@ const showEveryLocus = async () => {
   const filter = (await screen.findByLabelText('Aberrant only')) as HTMLInputElement;
   if (filter.checked) fireEvent.click(filter);
 };
+
+/** The page of family F1, at `url`. */
+const renderPage = (url = '/families/F1/repeat-expansions') =>
+  renderFamilyRoute('/families/:familyId/repeat-expansions', url, <FamilyRepeatExpansionsPage />);
 
 describe('FamilyRepeatExpansionsPage', () => {
   it('renders family calls stacked in one column and keeps cutoffs at the far right', async () => {
@@ -155,20 +163,7 @@ describe('FamilyRepeatExpansionsPage', () => {
       return Promise.resolve({ data: [] });
     });
 
-    const queryClient = createTestQueryClient();
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={['/families/F1/repeat-expansions']}>
-          <Routes>
-            <Route
-              path="/families/:familyId/repeat-expansions"
-              element={<FamilyRepeatExpansionsPage />}
-            />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderPage();
 
     await waitFor(() => {
       expect(screen.getByRole('heading', { name: /trgt repeat expansions/i })).toBeInTheDocument();
@@ -318,15 +313,7 @@ describe('FamilyRepeatExpansionsPage — review status (#535)', () => {
       return Promise.resolve({ data: [] });
     });
 
-    render(
-      <QueryClientProvider client={createTestQueryClient()}>
-        <MemoryRouter initialEntries={['/families/F1/repeat-expansions']}>
-          <Routes>
-            <Route path="/families/:familyId/repeat-expansions" element={<FamilyRepeatExpansionsPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderPage();
 
     expect((await screen.findAllByText(/Review: outside catalogued ranges/)).length).toBeGreaterThan(0);
     await showEveryLocus();
@@ -392,15 +379,7 @@ describe('FamilyRepeatExpansionsPage — review status (#535)', () => {
       return Promise.resolve({ data: [] });
     });
 
-    render(
-      <QueryClientProvider client={createTestQueryClient()}>
-        <MemoryRouter initialEntries={['/families/F1/repeat-expansions']}>
-          <Routes>
-            <Route path="/families/:familyId/repeat-expansions" element={<FamilyRepeatExpansionsPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderPage();
 
     expect(await screen.findByText('90 / 300')).toBeInTheDocument();
     expect(screen.getByText(note)).toBeInTheDocument();
@@ -462,15 +441,7 @@ describe('FamilyRepeatExpansionsPage — review status (#535)', () => {
       return Promise.resolve({ data: [] });
     });
 
-    render(
-      <QueryClientProvider client={createTestQueryClient()}>
-        <MemoryRouter initialEntries={['/families/F1/repeat-expansions']}>
-          <Routes>
-            <Route path="/families/:familyId/repeat-expansions" element={<FamilyRepeatExpansionsPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderPage();
 
     expect((await screen.findAllByText('Review: two chrX alleles in a male')).length).toBeGreaterThan(0);
     expect(screen.queryByText(/outside catalogued ranges/)).not.toBeInTheDocument();
@@ -549,15 +520,7 @@ describe('FamilyRepeatExpansionsPage — FMR1 premutation', () => {
       return Promise.resolve({ data: [] });
     });
 
-    render(
-      <QueryClientProvider client={createTestQueryClient()}>
-        <MemoryRouter initialEntries={['/families/F1/repeat-expansions']}>
-          <Routes>
-            <Route path="/families/:familyId/repeat-expansions" element={<FamilyRepeatExpansionsPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderPage();
 
     expect((await screen.findAllByText('Premutation')).length).toBeGreaterThan(0);
     expect(screen.queryByText('Grey zone')).not.toBeInTheDocument();
@@ -626,15 +589,7 @@ describe('FamilyRepeatExpansionsPage — a locus without thresholds (CLIN-26)', 
       }
       return Promise.resolve({ data: [] });
     });
-    render(
-      <QueryClientProvider client={createTestQueryClient()}>
-        <MemoryRouter initialEntries={['/families/F1/repeat-expansions']}>
-          <Routes>
-            <Route path="/families/:familyId/repeat-expansions" element={<FamilyRepeatExpansionsPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderPage();
   };
   const callsNotAssessed = () =>
     screen
@@ -866,15 +821,7 @@ describe('FamilyRepeatExpansionsPage — a count near a boundary while the count
       }
       return Promise.resolve({ data: [] });
     });
-    render(
-      <QueryClientProvider client={createTestQueryClient()}>
-        <MemoryRouter initialEntries={['/families/F1/repeat-expansions']}>
-          <Routes>
-            <Route path="/families/:familyId/repeat-expansions" element={<FamilyRepeatExpansionsPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderPage();
   };
   const callsNearABoundary = () =>
     screen
@@ -1042,20 +989,6 @@ describe('repeat cutoff labels', () => {
 
 // #610 — any failure read "Family not found", a server error included.
 describe('FamilyRepeatExpansionsPage — failed requests (#610)', () => {
-  const serverError = () =>
-    Promise.reject(
-      Object.assign(new Error('Request failed with status code 500'), { response: { status: 500 } }),
-    );
-  const renderPage = () =>
-    render(
-      <QueryClientProvider client={createTestQueryClient()}>
-        <MemoryRouter initialEntries={['/families/F1/repeat-expansions']}>
-          <Routes>
-            <Route path="/families/:familyId/repeat-expansions" element={<FamilyRepeatExpansionsPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
 
   it('says the repeat expansions could not be loaded, not that the family was not found', async () => {
     let failedRequests = 0;
@@ -1071,28 +1004,18 @@ describe('FamilyRepeatExpansionsPage — failed requests (#610)', () => {
     });
     renderPage();
 
-    expect(await screen.findByRole('heading', { name: 'Repeat expansions could not be loaded' })).toBeInTheDocument();
-    expect(
-      screen.getByText('Request failed with status code 500 This is a failed request, not a missing family.'),
-    ).toBeInTheDocument();
-    expect(screen.queryByText('Family not found')).not.toBeInTheDocument();
-    const before = failedRequests;
-    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
-    await waitFor(() => expect(failedRequests).toBeGreaterThan(before));
+    await expectFailedRequestRetried({
+      heading: 'Repeat expansions could not be loaded',
+      message: 'Request failed with status code 500',
+      requests: () => failedRequests,
+    });
   });
 
   it('keeps "Family not found" for a family the API does not know', async () => {
-    apiMock.get.mockImplementation(() =>
-      Promise.reject(
-        Object.assign(new Error('Request failed with status code 404'), {
-          response: { status: 404, data: { detail: 'Family not found' } },
-        }),
-      ),
-    );
+    apiMock.get.mockImplementation(familyNotFound);
     renderPage();
 
-    expect(await screen.findByRole('heading', { name: 'Family not found' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
+    await expectFamilyNotFound();
   });
 });
 
@@ -1140,15 +1063,7 @@ describe('FamilyRepeatExpansionsPage — the narrow locus column', () => {
       }
       return Promise.resolve({ data: [] });
     });
-    render(
-      <QueryClientProvider client={createTestQueryClient()}>
-        <MemoryRouter initialEntries={['/families/F1/repeat-expansions']}>
-          <Routes>
-            <Route path="/families/:familyId/repeat-expansions" element={<FamilyRepeatExpansionsPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderPage();
   };
 
   it('cuts a long motif to its first 10 nt with the full motif in the DOM and its tooltip', async () => {

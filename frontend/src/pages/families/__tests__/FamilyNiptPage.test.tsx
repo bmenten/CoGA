@@ -1,10 +1,9 @@
-import { QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 import FamilyNiptPage from '../FamilyNiptPage';
 import { createTestQueryClient } from '../../../test/createTestQueryClient';
+import { renderFamilyRoute } from '../../../test/familyRoute';
 import {
   INCOMPLETE_IMPORT_METADATA,
   findAssemblyScopeBanner,
@@ -36,15 +35,7 @@ const FETAL_FRACTION = {
 
 const renderPage = (familyId: string) => {
   const queryClient = createTestQueryClient();
-  return render(
-    <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={[`/families/${familyId}/nipt`]}>
-        <Routes>
-          <Route path="/families/:familyId/nipt" element={<FamilyNiptPage />} />
-        </Routes>
-      </MemoryRouter>
-    </QueryClientProvider>,
-  );
+  return renderFamilyRoute('/families/:familyId/nipt', `/families/${familyId}/nipt`, <FamilyNiptPage />, queryClient);
 };
 
 describe('FamilyNiptPage', () => {
@@ -534,15 +525,7 @@ describe('FamilyNiptPage', () => {
     };
 
     const renderAt = (path: string) =>
-      render(
-        <QueryClientProvider client={createTestQueryClient()}>
-          <MemoryRouter initialEntries={[path]}>
-            <Routes>
-              <Route path="/families/:familyId/nipt" element={<FamilyNiptPage />} />
-            </Routes>
-          </MemoryRouter>
-        </QueryClientProvider>,
-      );
+      renderFamilyRoute('/families/:familyId/nipt', path, <FamilyNiptPage />);
 
     const variantSearches = () =>
       apiMock.get.mock.calls

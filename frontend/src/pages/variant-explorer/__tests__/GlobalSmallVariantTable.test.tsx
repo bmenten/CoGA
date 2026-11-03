@@ -7,50 +7,15 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 import { describe, expect, it, vi } from 'vitest';
 
-import type { SmallVariantTagDefinition } from '../../families/smallVariantSearch';
+import { REVIEW_TAG, globalVariantRow as makeVariant } from '../../../test/globalVariants';
 import { tagDefinition } from '../../../test/tagDefinitions';
 import GlobalSmallVariantTable from '../GlobalSmallVariantTable';
 import type { GlobalVariantSort } from '../globalSmallVariantSearch';
 import type { CarrierModalMode, GlobalVariantRow } from '../types';
 
-const makeVariant = (overrides: Partial<GlobalVariantRow> = {}): GlobalVariantRow => ({
-  key: '101',
-  variant_id: '13-32316461-G-A',
-  chr: '13',
-  pos: 32316461,
-  ref: 'G',
-  alt: 'A',
-  rsid: null,
-  type: 'SNV',
-  gene: 'BRCA2',
-  gene_symbols: ['BRCA2'],
-  impact: 'MODERATE',
-  consequence: 'missense_variant',
-  effects: ['missense_variant'],
-  hgvsc: 'c.7007G>A',
-  hgvsp: 'p.Arg2336His',
-  clinvar: 'Pathogenic',
-  classification: null,
-  tags: [],
-  total_samples: 5,
-  het_samples: 3,
-  hom_samples: 2,
-  total_families: 4,
-  last_seen: null,
-  ...overrides,
-});
-
-const TAGS: SmallVariantTagDefinition[] = [
-  tagDefinition({
-    key: 'review',
-    label: 'Review',
-    group: 'collaboration',
-    color: '#2563eb',
-    sort_order: 10,
-    scope: 'system',
-    is_custom: false,
-  }),
-];
+// A variant is BRCA2's missense carried by 5 samples (3 het, 2 hom) in 4 families
+// (globalVariantRow), unless a test says otherwise; the only tag defined is Review.
+const TAGS = [REVIEW_TAG];
 
 const renderTable = (props: Partial<ComponentProps<typeof GlobalSmallVariantTable>> = {}) => {
   const onSort = vi.fn<(sort: GlobalVariantSort) => void>();

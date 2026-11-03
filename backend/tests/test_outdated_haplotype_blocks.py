@@ -24,6 +24,7 @@ from backend.app.schemas import HaplotypeResponse
 from backend.app.services import bed_service, pgt_analysis, variant_upload_service
 from backend.app.services.family_metadata_context import FamilyMetadataContext
 from backend.app.services.haplotype_block_builder import HaplotypeBlockBuilder, haplotype_block_basis
+from backend.tests._pgt_session_fakes import AnsweringSession
 
 _MEMBERS = [
     {"sample_id": "FATHER", "role": "father", "sex": "male", "affected": True, "clinical_status": "affected"},
@@ -168,35 +169,10 @@ def test_a_family_without_blocks_has_none_outdated() -> None:
     assert pgt_analysis.blocks_outdated(_context(), []) is False
 
 
-class _Result:
-    def __init__(self, rows: list[dict[str, Any]]) -> None:
-        self._rows = rows
-
-    def mappings(self) -> "_Result":
-        return self
-
-    def all(self) -> list[dict[str, Any]]:
-        return list(self._rows)
-
-    def first(self) -> dict[str, Any] | None:
-        return self._rows[0] if self._rows else None
-
-
-class _Session:
-    def __init__(self, sources: list[dict[str, Any]]) -> None:
-        self.sources = sources
-
-    async def execute(self, statement: Any, params: Any = None) -> _Result:
-        sql = str(statement)
-        if "FROM families" in sql:
-            return _Result(
-                [{"roi_query": "GENE1", "roi_label": "GENE1", "roi_source": "gene", "roi_chr": "7",
-                  "roi_start": 30_500_000, "roi_end": 30_600_000, "pgt": {"inheritance_model": "AD"}}]
-            )
-        if "FROM sample_interval_track_sources" in sql:
-            assert "pedigree_basis" in sql
-            return _Result(self.sources)
-        return _Result([])
+def _reads_the_basis(session: AnsweringSession) -> bool:
+    """Whether the record of the blocks was read with what they were built for."""
+    reads = [sql for sql, _params in session.executed if "FROM sample_interval_track_sources" in sql]
+    return bool(reads) and all("pedigree_basis" in sql for sql in reads)
 
 
 def test_no_embryo_is_called_from_outdated_blocks(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -214,9 +190,19 @@ def test_no_embryo_is_called_from_outdated_blocks(monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr(pgt_analysis, "get_family_haplotypes_response", haplotypes)
     monkeypatch.setattr(pgt_analysis, "get_family_phased_markers_response", no_markers)
     built = haplotype_block_basis(_context(), _CALLSET)
+    session = AnsweringSession(
+        {
+            "FROM families": [
+                {"roi_query": "GENE1", "roi_label": "GENE1", "roi_source": "gene", "roi_chr": "7",
+                 "roi_start": 30_500_000, "roi_end": 30_600_000, "pgt": {"inheritance_model": "AD"}}
+            ],
+            "FROM sample_interval_track_sources": _sources(built),
+        }
+    )
 
-    out = asyncio.run(pgt_analysis.family_pgt_analysis(_Session(_sources(built)), _context(_with("E2", sex="female"))))
+    out = asyncio.run(pgt_analysis.family_pgt_analysis(session, _context(_with("E2", sex="female"))))
 
+    assert _reads_the_basis(session)
     assert out.inputs.blocks_outdated is True
     assert [(embryo.sample, embryo.call, embryo.qc_verdict) for embryo in out.embryos] == [
         ("E1", "uninformative", None),
@@ -281,17 +267,6 @@ async def test_a_precompute_of_blocks_written_again_is_not_served(monkeypatch: p
 # ---- The haplotype tracks (part 2) ------------------------------------------------------------------
 
 
-class _SourcesSession:
-    """Answers the record of each member's blocks, as Postgres keeps it."""
-
-    def __init__(self, sources: list[dict[str, Any]]) -> None:
-        self.sources = sources
-
-    async def execute(self, statement: Any, params: Any = None) -> _Result:
-        assert "FROM sample_interval_track_sources" in str(statement)
-        return _Result(self.sources)
-
-
 def _no_blocks(monkeypatch: pytest.MonkeyPatch) -> None:
     async def rows(*args: Any, **kwargs: Any) -> list[dict[str, Any]]:
         return []
@@ -310,10 +285,12 @@ async def test_the_haplotype_tracks_are_told_when_the_blocks_are_outdated(
     monkeypatch: pytest.MonkeyPatch, now: FamilyMetadataContext, outdated: bool
 ) -> None:
     _no_blocks(monkeypatch)
-    session = _SourcesSession(_sources(haplotype_block_basis(_context(), _CALLSET)))
+    # The record of each member's blocks, as Postgres keeps it: the only statement the tracks run.
+    session = AnsweringSession({"FROM sample_interval_track_sources": _sources(haplotype_block_basis(_context(), _CALLSET))})
 
     region = await bed_service.get_family_haplotypes_response(session, context=now, chr="7", start=1, end=2)
     genome = await bed_service.get_family_haplotypes_batch_response(session, context=now, chromosomes=["7"])
 
+    assert session.executed and all("FROM sample_interval_track_sources" in sql for sql, _params in session.executed)
     # Before, the tracks read every member's risk state from them whatever had changed.
     assert (region.blocks_outdated, genome.blocks_outdated) == (outdated, outdated)

@@ -35,6 +35,8 @@ from uuid import uuid4
 
 import pytest
 
+from backend.tests.e2e._harness import ensure_postgres_schema, status_and_body
+
 pytestmark = pytest.mark.integration
 
 READ_ONLY = (
@@ -62,13 +64,6 @@ OWN_DATA = {
     ("POST", "/api/ui-events"),
 }
 READS = ("GET", "HEAD", "OPTIONS")
-
-
-def _answer(resp: Any) -> tuple[int, Any]:
-    try:
-        return resp.status_code, resp.json()
-    except ValueError:
-        return resp.status_code, resp.text[:200]
 
 
 def _routes(routes: Any) -> Iterator[Any]:
@@ -206,7 +201,7 @@ async def _exercise(run: str) -> dict[str, Any]:
     from sqlalchemy.exc import DBAPIError
 
     from backend.app.core.clickhouse import init_clickhouse_schema
-    from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
+    from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.dependencies import get_current_admin_user, get_current_user, get_password_hash
     from backend.app.main import app
     from backend.app.services.clinical_audit_service import verify_clinical_audit_chain
@@ -218,7 +213,7 @@ async def _exercise(run: str) -> dict[str, Any]:
     # Made at run time: the repository holds no password-shaped literal.
     password = uuid4().hex
 
-    await init_postgres_schema()
+    await ensure_postgres_schema()
     await init_clickhouse_schema()
     sessionmaker = get_postgres_sessionmaker()
     async with sessionmaker() as session:
@@ -302,7 +297,7 @@ async def _exercise(run: str) -> dict[str, Any]:
             kept = await admin.put(f"/api/projects/{projects['B']}", json={"user_ids": [users["r"], users["p"], users["q"]]})
             out["kept"] = (kept.status_code, sorted(kept.json().get("reader_user_ids", [])))
             # A reader must be a member.
-            out["outsider_reader"] = _answer(
+            out["outsider_reader"] = status_and_body(
                 await admin.put(f"/api/projects/{projects['B']}", json={"reader_user_ids": [str(uuid4())]})
             )
 
@@ -338,7 +333,7 @@ async def _exercise(run: str) -> dict[str, Any]:
                         expected = "read-only"
                     request = _request(spec, method, key[1], values)
                     url = request.pop("url")
-                    swept[key] = {"expected": expected, "answer": _answer(await reader.request(method, url, **request))}
+                    swept[key] = {"expected": expected, "answer": status_and_body(await reader.request(method, url, **request))}
             out["swept"] = swept
 
             # --- reading stays as it is ----------------------------------------------------
@@ -363,18 +358,18 @@ async def _exercise(run: str) -> dict[str, Any]:
             added = await reader.post(
                 f"/api/families/{family_a}/members/{sample_a}/hpo", json={"hpo_id": SEIZURE, "note": "since birth"}
             )
-            out["added"] = _answer(added)
+            out["added"] = status_and_body(added)
             annotation_id = added.json().get("id")
-            out["changed"] = _answer(await reader.put(f"/api/families/{family_a}/hpo/{annotation_id}", json={"status": "absent"}))
+            out["changed"] = status_and_body(await reader.put(f"/api/families/{family_a}/hpo/{annotation_id}", json={"status": "absent"}))
             out["removed"] = (await reader.delete(f"/api/families/{family_a}/hpo/{annotation_id}")).status_code
-            out["trail"] = _answer(await reader.get(f"/api/families/{family_a}/clinical-audit"))
+            out["trail"] = status_and_body(await reader.get(f"/api/families/{family_a}/clinical-audit"))
 
             # --- a reader only ---------------------------------------------------------------
             out["me"] = (await pure_reader.get("/api/auth/me")).json().get("reader_projects")
             out["pure_reader_projects"] = {
                 project["_id"]: project.get("read_only") for project in (await pure_reader.get("/api/projects/")).json()
             }
-            out["pure_reader_hpo"] = _answer(
+            out["pure_reader_hpo"] = status_and_body(
                 await pure_reader.post(f"/api/families/{family_b}/members/{sample_b}/hpo", json={"hpo_id": SEIZURE})
             )
             out["pure_reader_events"] = (

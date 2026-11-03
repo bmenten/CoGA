@@ -43,18 +43,10 @@ from uuid import uuid4
 import pytest
 
 from backend.tests._bgzf import bgzip_cut_after
+from backend.tests.e2e._harness import ensure_postgres_schema
+from backend.tests.e2e._trio_uploads import TRIO_VCF_HEADER, trio_calls
 
 pytestmark = pytest.mark.integration
-
-_HEADER = "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t{father}\t{mother}\t{child}\n"
-
-
-def _calls(count: int, *, start: int = 10_000) -> str:
-    """``count`` records of the directly called callset on chr1."""
-    return "".join(
-        f"1\t{start + index * 100}\t.\tA\tG\t50\tPASS\t.\tGT:GQ:DP\t0/1:40:30\t0/0:40:31\t0/1:40:29\n"
-        for index in range(count)
-    )
 
 
 def _imputed(count: int, *, start: int = 20_000) -> str:
@@ -77,7 +69,7 @@ async def _exercise(family_id: str) -> dict[str, Any]:
     from sqlalchemy import text
 
     from backend.app.core.clickhouse import init_clickhouse_schema
-    from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
+    from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.main import app
     from backend.app.services import variant_upload_service
     from backend.app.services.clickhouse_interval_tracks import count_interval_track_rows
@@ -87,7 +79,7 @@ async def _exercise(family_id: str) -> dict[str, Any]:
     )
     from backend.tests.e2e import _harness
 
-    await init_postgres_schema()
+    await ensure_postgres_schema()
     await init_clickhouse_schema()
     await ensure_clickhouse_variant_tables(_harness.ASSEMBLY)
     sessionmaker = get_postgres_sessionmaker()
@@ -96,7 +88,7 @@ async def _exercise(family_id: str) -> dict[str, Any]:
 
     father, mother, child = (f"{role}_{family_id}" for role in ("FATHER", "MOTHER", "CHILD"))
     names = {"father": father, "mother": mother, "child": child}
-    header = _HEADER.format(**names)
+    header = TRIO_VCF_HEADER.format(**names)
     ped = (
         f"{family_id}\t{father}\t0\t0\t1\t1\n"
         f"{family_id}\t{mother}\t0\t0\t2\t1\n"
@@ -199,27 +191,27 @@ async def _exercise(family_id: str) -> dict[str, Any]:
             }
 
         await ped_upload("ped", ped, overwrite=False)
-        await upload("clair3", header + _calls(3), callset="clair3", overwrite=False)
+        await upload("clair3", header + trio_calls(3), callset="clair3", overwrite=False)
         await upload("glimpse2", header + _imputed(4), callset="glimpse2", overwrite=False)
 
         await upload(
             "unknown_sample",
-            header.replace(f"\t{child}\n", "\tNOT_IN_THIS_FAMILY\n") + _calls(5),
+            header.replace(f"\t{child}\n", "\tNOT_IN_THIS_FAMILY\n") + trio_calls(5),
             callset="clair3",
             overwrite=True,
         )
-        await upload("cut_short", _cut_short(header + _calls(2_000)), callset="clair3", overwrite=True)
+        await upload("cut_short", _cut_short(header + trio_calls(2_000)), callset="clair3", overwrite=True)
         # Two BGZF blocks, cut where the first ends: whole gzip, short of its end-of-file block.
         await upload(
-            "bgzf_cut", bgzip_cut_after((header + _calls(2_000)).encode(), 1), callset="clair3", overwrite=True
+            "bgzf_cut", bgzip_cut_after((header + trio_calls(2_000)).encode(), 1), callset="clair3", overwrite=True
         )
         # Each record's POS unreadable: none can be stored.
         await upload(
-            "no_record", header + _calls(3).replace("1\t10", "1\tx10"), callset="clair3", overwrite=True
+            "no_record", header + trio_calls(3).replace("1\t10", "1\tx10"), callset="clair3", overwrite=True
         )
         await upload("imputed_cut_short", _cut_short(header + _imputed(2_000)), callset="glimpse2", overwrite=True)
 
-        await upload("clair3_again", header + _calls(5), callset="clair3", overwrite=True)
+        await upload("clair3_again", header + trio_calls(5), callset="clair3", overwrite=True)
         await upload("glimpse2_again", header + _imputed(6, start=30_000), callset="glimpse2", overwrite=True)
 
         # ClickHouse failing after the first batch of the write (simulated): the callset's
@@ -237,12 +229,12 @@ async def _exercise(family_id: str) -> dict[str, Any]:
         mp.setattr(variant_upload_service, "SMALL_VARIANT_UPLOAD_BATCH_SIZE", 1)
         mp.setattr(variant_upload_service, "insert_small_variant_records", failing_insert)
         try:
-            await upload("write_fails", header + _calls(4), callset="clair3", overwrite=True)
+            await upload("write_fails", header + trio_calls(4), callset="clair3", overwrite=True)
         finally:
             mp.undo()
         response = await ac.get(f"/api/families/{family_id}")
         out["family_page"] = {"status": response.status_code, "json": response.json()}
-        await upload("uploaded_again", header + _calls(4), callset="clair3", overwrite=False)
+        await upload("uploaded_again", header + trio_calls(4), callset="clair3", overwrite=False)
 
         before_ped = await state()
         await ped_upload("ped_with_header", "#FID IID PAT MAT SEX PHENOTYPE\n" + ped, overwrite=True)

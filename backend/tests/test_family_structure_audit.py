@@ -19,7 +19,7 @@ exercised by ``integration/test_family_structure_chain_integration.py``.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -42,6 +42,7 @@ from app.services import family_structure_audit as audit
 from app.services import family_structure_service as structure
 from app.services import integrity_anchor_service
 from app.services.access_control import CurrentUser
+from app.services.hash_chain import chain_row_hash
 from backend.tests._deletion_mark_fakes import UnmarkedDeletion
 
 FAMILY = "FAM-SEC7"
@@ -245,6 +246,40 @@ def test_couples_and_relatives_added_removed_or_changed_are_named() -> None:
     assert (was["relatives"], now["relatives"]) == ([], [{"member": "R1", "related_to": "M1", "metadata": {}}])
 
 
+def test_stored_json_text_and_links_to_no_member_are_read_as_the_pedigree_holds_them() -> None:
+    # A link's metadata a driver hands back as JSON text reads as the object it is (and text
+    # that is no JSON as none); a parent link to a child that is no member is no part of it.
+    members, relationships = _trio()
+    members.append(_member("R1", "relative", "female"))
+    relative_of_the_father = {
+        "relationship_type": "relative",
+        "sample_id_a": "F1",
+        "sample_id_b": "R1",
+        "role_a": "relative",
+        "role_b": "relative",
+        "metadata": {},
+    }
+    relationships[2] = {**relationships[2], "metadata": json.dumps({"context": "consanguineous"})}
+    relationships += [_parent("F1", "GONE", "father"), _parent("X1", "R1", "parent"), relative_of_the_father]
+    before = audit.pedigree_state(members, relationships)
+    assert before["couples"] == [{"partners": ["F1", "M1"], "metadata": {"context": "consanguineous"}}]
+    assert sorted(before["members"]) == ["F1", "M1", "P1", "R1"]
+
+    changed = [dict(link) for link in relationships]
+    changed[2]["metadata"] = "{not json"
+    changed += [_parent("X2", "R1", "parent"), {**relative_of_the_father, "sample_id_a": "M1"}]
+    after = audit.pedigree_state(members, changed)
+
+    assert after["couples"] == [{"partners": ["F1", "M1"], "metadata": {}}]
+    # Each change named once: the other parents listed, the couple, and the relative added
+    # beside the one through the father, which did not change.
+    assert audit.diff_pedigree(before, after)[0] == [
+        "R1: other parents X1 → X1, X2",
+        "couple F1 + M1 changed",
+        "relative R1 (through M1) added",
+    ]
+
+
 def test_the_carrier_fields_are_named_without_quoting_the_evidence() -> None:
     before = audit.pedigree_state(*_trio())
     members, relationships = _trio()
@@ -435,7 +470,31 @@ async def test_a_deleted_version_breaks_the_chain() -> None:
     result = await audit.verify_family_structure_chain(database, FAMILY)  # type: ignore[arg-type]
 
     assert result.verified is False
+    assert (result.rows_checked, result.first_bad_row) == (1, str(database.versions[1]["id"]))
     assert result.reason == "prev_hash does not match the predecessor row_hash (row deleted or reordered)"
+
+
+@pytest.mark.asyncio
+async def test_a_version_written_while_the_clock_is_behind_the_chain_head_still_follows_it() -> None:
+    # A clock that stepped back (or two versions in one microsecond): the version is stamped a
+    # microsecond after the head, so the chain's order is the order it was written in.
+    database = _ChainDatabase(_snapshot(*_trio()))
+    await audit.append_structure_version(
+        database, family_uuid="fam-uuid", family_identifier=FAMILY, snapshot=database.snapshot  # type: ignore[arg-type]
+    )
+    head = database.versions[0]
+    head["created_at"] = datetime.now(timezone.utc) + timedelta(hours=1)
+    head["row_hash"] = chain_row_hash(None, audit.structure_chain_payload(head))
+
+    await audit.append_structure_version(
+        database, family_uuid="fam-uuid", family_identifier=FAMILY, snapshot=database.snapshot  # type: ignore[arg-type]
+    )
+
+    following = database.versions[1]
+    assert following["created_at"] == head["created_at"] + timedelta(microseconds=1)
+    assert following["prev_hash"] == head["row_hash"]
+    verified = await audit.verify_family_structure_chain(database, FAMILY)  # type: ignore[arg-type]
+    assert (verified.verified, verified.rows_checked) == (True, 2)
 
 
 @pytest.mark.asyncio

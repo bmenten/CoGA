@@ -35,6 +35,8 @@ from uuid import uuid4
 
 import pytest
 
+from backend.tests.e2e._harness import capture, ensure_postgres_schema, ok_json, write_file
+
 pytestmark = pytest.mark.integration
 
 MT_LENGTH = 16_569
@@ -46,22 +48,15 @@ SIGN_OUT_BODY = {
 }
 
 
-def _write(root: Path, name: str, text: str) -> str:
-    path = root / name
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")
-    return name
-
-
 def _package(root: Path, family_id: str, s1: str, s2: str) -> Path:
     root.mkdir(parents=True)
-    _write(root, "family.ped", f"{family_id}\t{s1}\t0\t0\t2\t1\n{family_id}\t{s2}\t0\t0\t1\t1\n")
+    write_file(root, "family.ped", f"{family_id}\t{s1}\t0\t0\t2\t1\n{family_id}\t{s2}\t0\t0\t1\t1\n")
     beds = {
-        s1: _write(root, f"coverage/{s1}.bed", f"chrM\t0\t{MT_LENGTH}\t300\n"),
-        s2: _write(root, f"coverage/{s2}.bed", f"chrM\t0\t{MT_LENGTH}\t0.2\n"),
+        s1: write_file(root, f"coverage/{s1}.bed", f"chrM\t0\t{MT_LENGTH}\t300\n"),
+        s2: write_file(root, f"coverage/{s2}.bed", f"chrM\t0\t{MT_LENGTH}\t0.2\n"),
     }
-    bins = _write(root, f"wisecondorx/{s2}_bins.bed", f"chrM\t0\t{MT_LENGTH}\t0.1\n")
-    segments = _write(root, f"wisecondorx/{s2}_segments.bed", f"chrM\t0\t{MT_LENGTH}\t0.1\n")
+    bins = write_file(root, f"wisecondorx/{s2}_bins.bed", f"chrM\t0\t{MT_LENGTH}\t0.1\n")
+    segments = write_file(root, f"wisecondorx/{s2}_segments.bed", f"chrM\t0\t{MT_LENGTH}\t0.1\n")
     lines = [
         "schema_version: 1",
         f"family_id: {family_id}",
@@ -76,31 +71,22 @@ def _package(root: Path, family_id: str, s1: str, s2: str) -> Path:
         # No `content`: imported as unknown, never read as depth.
         f"      {s2}: {{bed: {beds[s2]}}}",
     ]
-    _write(root, "manifest.yaml", "\n".join(lines) + "\n")
+    write_file(root, "manifest.yaml", "\n".join(lines) + "\n")
     return root
-
-
-def _cap(resp) -> dict[str, Any]:
-    out: dict[str, Any] = {"status": resp.status_code, "text": resp.text}
-    try:
-        out["json"] = resp.json()
-    except ValueError:  # pragma: no cover
-        out["json"] = None
-    return out
 
 
 async def _exercise(base: Path, family_id: str) -> dict[str, Any]:
     from httpx import ASGITransport, AsyncClient
 
     from backend.app.core.clickhouse import init_clickhouse_schema
-    from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
+    from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.main import app
     from backend.app.services import family_package_import as package_import
     from backend.app.services import report_signout_service as rss
     from backend.app.services.clickhouse_variant_storage import ensure_clickhouse_variant_tables
     from backend.tests.e2e import _harness
 
-    await init_postgres_schema()
+    await ensure_postgres_schema()
     await init_clickhouse_schema()
     await ensure_clickhouse_variant_tables(_harness.ASSEMBLY)
     sessionmaker = get_postgres_sessionmaker()
@@ -133,31 +119,31 @@ async def _exercise(base: Path, family_id: str) -> dict[str, Any]:
         ac.headers["Authorization"] = f"Bearer {await _harness.login_admin_token(ac)}"
 
         async def chain() -> dict[str, Any]:
-            return _cap(
+            return capture(
                 await ac.get("/api/admin/integrity/verify", params={"table": "report_signouts", "family_id": family_id})
             )
 
         # The depth check these tracks feed.
-        r["mtdna"] = _cap(await ac.get(f"{family}/mitochondrial-dna"))
+        r["mtdna"] = capture(await ac.get(f"{family}/mitochondrial-dna"))
 
-        r["signout"] = _cap(await _harness.sign_out(ac, f"{family}/report/sign-out", SIGN_OUT_BODY))
+        r["signout"] = capture(await _harness.sign_out(ac, f"{family}/report/sign-out", SIGN_OUT_BODY))
         version = (r["signout"]["json"] or {}).get("version")
-        r["detail"] = _cap(await ac.get(f"{family}/report/sign-outs/{version}"))
-        r["check"] = _cap(await ac.get(f"{family}/report/sign-out-check"))
+        r["detail"] = capture(await ac.get(f"{family}/report/sign-outs/{version}"))
+        r["check"] = capture(await ac.get(f"{family}/report/sign-out-check"))
         r["chain"] = await chain()
 
         # S2's BED uploaded again, declared as read depth.
-        r["upload"] = _cap(
+        r["upload"] = capture(
             await ac.post(
                 f"/api/bed/upload/{s2}/coverage",
                 params={"overwrite": "true", "content": "read_depth"},
                 files={"file": (f"{s2}.depth.bed", f"chrM\t0\t{MT_LENGTH}\t450\n".encode(), "text/plain")},
             )
         )
-        r["check_after_upload"] = _cap(await ac.get(f"{family}/report/sign-out-check"))
-        r["signout_after_upload"] = _cap(await _harness.sign_out(ac, f"{family}/report/sign-out", SIGN_OUT_BODY))
+        r["check_after_upload"] = capture(await ac.get(f"{family}/report/sign-out-check"))
+        r["signout_after_upload"] = capture(await _harness.sign_out(ac, f"{family}/report/sign-out", SIGN_OUT_BODY))
         version = (r["signout_after_upload"]["json"] or {}).get("version")
-        r["detail_after_upload"] = _cap(await ac.get(f"{family}/report/sign-outs/{version}"))
+        r["detail_after_upload"] = capture(await ac.get(f"{family}/report/sign-outs/{version}"))
 
         # A record signed by a build from before the section: its key left out.
         real_build = rss.build_report_snapshot
@@ -170,12 +156,12 @@ async def _exercise(base: Path, family_id: str) -> dict[str, Any]:
         mp = pytest.MonkeyPatch()
         mp.setattr(rss, "build_report_snapshot", _old_build)
         try:
-            r["old_signout"] = _cap(await _harness.sign_out(ac, f"{family}/report/sign-out", SIGN_OUT_BODY))
+            r["old_signout"] = capture(await _harness.sign_out(ac, f"{family}/report/sign-out", SIGN_OUT_BODY))
         finally:
             mp.undo()
         version = (r["old_signout"]["json"] or {}).get("version")
-        r["old_detail"] = _cap(await ac.get(f"{family}/report/sign-outs/{version}"))
-        r["old_check"] = _cap(await ac.get(f"{family}/report/sign-out-check"))
+        r["old_detail"] = capture(await ac.get(f"{family}/report/sign-outs/{version}"))
+        r["old_check"] = capture(await ac.get(f"{family}/report/sign-out-check"))
         r["old_chain"] = await chain()
     return out
 
@@ -192,12 +178,6 @@ def run(tmp_path_factory) -> dict[str, Any]:
         return _harness.run_async(lambda: _exercise(base, f"SIGNEDCOV_{uuid4().hex[:8].upper()}"))
     finally:
         mp.undo()
-
-
-def _ok(run: dict[str, Any], key: str) -> Any:
-    resp = run["responses"][key]
-    assert resp["status"] == 200, (key, resp["status"], resp["text"][:2000])
-    return resp["json"]
 
 
 def _tracks(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
@@ -217,7 +197,7 @@ def test_the_family_imports_with_a_declared_and_an_undeclared_coverage_bed(run) 
 
 def test_the_depth_check_reads_the_track_of_read_depth_and_names_the_others(run) -> None:
     s1, s2 = run["samples"]["S1"], run["samples"]["S2"]
-    mtdna = _ok(run, "mtdna")
+    mtdna = ok_json(run, "mtdna")
     coverage = {sample["sample_id"]: sample["coverage"] for sample in mtdna["samples"]}
     assert (coverage[s1]["mean_depth"], coverage[s1]["source"]) == (300.0, "coverage BED")
     assert coverage[s2]["mean_depth"] is None
@@ -233,7 +213,7 @@ def test_the_depth_check_reads_the_track_of_read_depth_and_names_the_others(run)
 
 def test_the_record_freezes_what_each_coverage_track_holds_and_where_it_came_from(run) -> None:
     s1, s2 = run["samples"]["S1"], run["samples"]["S2"]
-    detail = _ok(run, "detail")
+    detail = ok_json(run, "detail")
     tracks = _tracks(detail["snapshot"])
     # Per sample and caller, in a fixed order: what the depth check above read each as.
     assert [(track["sample"], track["source"], track["content"]) for track in tracks] == [
@@ -256,12 +236,12 @@ def test_the_record_freezes_what_each_coverage_track_holds_and_where_it_came_fro
     assert (s2_bins["file"], s2_bins["loaded_from"], s2_bins["declared"]) == (f"{s2}_bins.bed", "package", None)
     # Bound into the content hash, which the stored record still matches, and the chain.
     assert detail["verified"] is True
-    assert _ok(run, "chain")["verified"] is True
+    assert ok_json(run, "chain")["verified"] is True
     assert _section_gaps(detail["not_captured"]) == []
 
 
 def test_the_check_matches_the_record_right_after_it_was_signed(run) -> None:
-    check = _ok(run, "check")
+    check = ok_json(run, "check")
     # Through the JSONB round trip the section compares equal to the one built again.
     assert check["matches"] is True, check
     assert check["not_compared"] == []
@@ -270,11 +250,11 @@ def test_the_check_matches_the_record_right_after_it_was_signed(run) -> None:
 
 def test_a_coverage_bed_declared_again_since_sign_out_is_named_and_frozen_by_the_next(run) -> None:
     s2 = run["samples"]["S2"]
-    _ok(run, "upload")
-    check = _ok(run, "check_after_upload")
+    ok_json(run, "upload")
+    check = ok_json(run, "check_after_upload")
     assert check["matches"] is False
     assert check["changed_sections"] == ["coverage_tracks"]
-    tracks = _tracks(_ok(run, "detail_after_upload")["snapshot"])
+    tracks = _tracks(ok_json(run, "detail_after_upload")["snapshot"])
     [s2_bed] = [track for track in tracks if (track["sample"], track["source"]) == (s2, "web")]
     assert s2_bed["content"] == "read_depth"
     [upload] = s2_bed["files"]
@@ -282,16 +262,16 @@ def test_a_coverage_bed_declared_again_since_sign_out_is_named_and_frozen_by_the
 
 
 def test_a_record_signed_before_the_section_still_verifies_reads_and_is_not_called_not_captured(run) -> None:
-    old = _ok(run, "old_signout")
-    detail = _ok(run, "old_detail")
+    old = ok_json(run, "old_signout")
+    detail = ok_json(run, "old_detail")
     assert detail["version"] == old["version"]
     assert "coverage_tracks" not in detail["snapshot"]
     assert detail["verified"] is True
-    assert _ok(run, "old_chain")["verified"] is True
+    assert ok_json(run, "old_chain")["verified"] is True
     # Nothing it predates is called "not captured": the signed view says it is not held.
     assert _section_gaps(detail["not_captured"]) == []
     # The check compares what it holds, and names the section it predates as not compared.
-    check = _ok(run, "old_check")
+    check = ok_json(run, "old_check")
     assert check["version"] == old["version"]
     assert check["not_compared"] == ["coverage_tracks"]
     assert check["matches"] is True, check

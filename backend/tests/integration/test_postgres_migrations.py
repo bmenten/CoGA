@@ -63,11 +63,18 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
-from uuid import uuid4
 
 import pytest
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncConnection, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncConnection
+
+from backend.tests.integration._datastores import (
+    TRGT_VCF_HEADER,
+    create_database,
+    database_engine,
+    drop_database,
+    trgt_sample_context,
+)
 
 pytestmark = pytest.mark.integration
 
@@ -208,35 +215,18 @@ _OLD_CHECKS = {
     ),
 }
 
-_HEADER = (
-    "##fileformat=VCFv4.2\n"
-    "##trgtVersion=5.0.0\n"
-    "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t{column}\n"
-)
 # A TRID no catalogue row names: a locus without thresholds.
 _UNCATALOGUED_TRID = "chr2_1000000_1000030_CAG"
 
 
 def _uncatalogued_call_vcf(column: str) -> str:
-    return _HEADER.format(column=column) + (
+    return TRGT_VCF_HEADER.format(column=column) + (
         f"chr2\t1000000\t.\tCAG\t<TR>\t.\t.\tTRID={_UNCATALOGUED_TRID};END=1000900;MOTIFS=CAG;"
         f"STRUC=<TR>\tGT:AL:MC\t1/2:36,900:12,300\n"
     )
 
 
-def _database_url(database: str):
-    from backend.app.core.config import settings
-
-    return settings.postgres_dsn.set(database=database)
-
-
-def _engine(database: str, **kwargs):
-    from backend.app.core.config import settings
-
-    return create_async_engine(
-        _database_url(database), connect_args=settings.postgres_connect_args, **kwargs
-    )
-
+_engine = database_engine
 
 # The configured database, where the test databases are created and dropped from. Read before
 # a test points the settings at a database of its own (``_run``).
@@ -244,25 +234,11 @@ _ADMIN_DATABASE: list[str] = []
 
 
 async def _create_database() -> str:
-    name = f"coga_migration_test_{uuid4().hex[:12]}"
-    assert re.fullmatch(r"[a-z0-9_]+", name)  # an identifier, safe to write into the DDL
-    admin = _engine(_ADMIN_DATABASE[-1], isolation_level="AUTOCOMMIT")
-    try:
-        async with admin.connect() as conn:
-            await conn.exec_driver_sql(f'CREATE DATABASE "{name}"')
-    finally:
-        await admin.dispose()
-    return name
+    return await create_database(_ADMIN_DATABASE[-1])
 
 
 async def _drop_database(name: str) -> None:
-    assert re.fullmatch(r"[a-z0-9_]+", name)
-    admin = _engine(_ADMIN_DATABASE[-1], isolation_level="AUTOCOMMIT")
-    try:
-        async with admin.connect() as conn:
-            await conn.exec_driver_sql(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
-    finally:
-        await admin.dispose()
+    await drop_database(_ADMIN_DATABASE[-1], name)
 
 
 async def _apply_baseline_files(database: str) -> None:
@@ -431,7 +407,6 @@ def test_a_database_from_before_the_ledger_is_brought_under_it_keeps_its_rows_an
 ) -> None:
     from backend.app.core import postgres
     from backend.app.core.config import settings
-    from backend.app.services.family_metadata_context import SampleMetadataContext
     from backend.app.services.repeat_expansion_pg import ingest_trgt_text
 
     try:  # a version without the ledger has no such module; its start is tested the same way
@@ -504,15 +479,8 @@ def test_a_database_from_before_the_ledger_is_brought_under_it_keeps_its_rows_an
             async with sessionmaker() as session:
                 await ingest_trgt_text(
                     session,
-                    sample_context=SampleMetadataContext(
-                        sample_uuid=samples["FAM-OLD-MOTHER"],
-                        sample_id="FAM-OLD-MOTHER",
-                        family_uuid=family,
-                        family_id="FAM-OLD",
-                        sex="female",
-                        project_ids=[],
-                        assembly_id=None,
-                        assembly_name="GRCh38",
+                    sample_context=trgt_sample_context(
+                        samples["FAM-OLD-MOTHER"], "FAM-OLD-MOTHER", family, "FAM-OLD", "female"
                     ),
                     text_value=_uncatalogued_call_vcf("FAM-OLD-MOTHER"),
                     metadata={"source": "trgt", "filename": "mother.vcf"},

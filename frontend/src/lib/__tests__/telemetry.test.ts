@@ -693,4 +693,90 @@ describe('UI telemetry', () => {
       expect(sentLabels(postMock, 1)).toEqual(['Open the dashboard']);
     });
   });
+
+  // What the page's click and submit listeners record of an action: what was acted on (its
+  // kind, its name, its audit ID and a link's target) and where. Only a click on a control
+  // or on an element marked for audit is recorded. Before this test only a plain button's
+  // click ran in one; a link's, a role's, a marked element's, a submit input's and a form's
+  // submission did not.
+  describe('what a click or a submit records', () => {
+    const recorded = async (act: () => void) => {
+      const { api, startUiTelemetry, flushUiEvents } = await load();
+      stops.push(startUiTelemetry());
+      act();
+      await flushUiEvents();
+      return api.post.mock.calls.length ? sentEvents(api.post, 0) : [];
+    };
+    const place = (html: string): HTMLElement => {
+      const holder = document.createElement('div');
+      holder.innerHTML = html;
+      document.body.appendChild(holder);
+      return holder.firstElementChild as HTMLElement;
+    };
+
+    afterEach(() => {
+      document.body.innerHTML = '';
+      window.history.replaceState(null, '', '/');
+    });
+
+    it.each([
+      [
+        'a link, with where it leads',
+        '<a href="/families/F1" id="open-family">Open <b>F1</b></a>',
+        { category: 'link', label: 'Open F1', target_id: 'open-family', href: '/families/F1' },
+      ],
+      [
+        'an element by its role, named by its label',
+        '<div role="tab" aria-label="Small variants" data-audit-id="tab-small-variants">SV</div>',
+        { category: 'tab', label: 'Small variants', target_id: 'tab-small-variants' },
+      ],
+      [
+        'an element marked for audit, as marked',
+        '<span data-audit-id="apcad-chart" data-audit-category="chart" data-audit-label="APCAD chart">…</span>',
+        { category: 'chart', label: 'APCAD chart', target_id: 'apcad-chart' },
+      ],
+      ['a submit input, by its value', '<input type="submit" value="Sign out" />', { category: 'submit', label: 'Sign out' }],
+      ['a button input, by its value', '<input type="button" value="Retry" />', { category: 'button', label: 'Retry' }],
+    ])('records a click on %s, and where it was made', async (_label, html, expected) => {
+      window.history.replaceState(null, '', '/families/F1/genome?chrom=7');
+      const events = await recorded(() => place(html).click());
+
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({ event_type: 'click', path: '/families/F1/genome?chrom=7', ...expected });
+    });
+
+    it('records a click inside a control as a click on the control', async () => {
+      const button = place('<button type="button" id="sign-off">Sign <span>off</span></button>');
+      const events = await recorded(() => (button.querySelector('span') as HTMLElement).click());
+
+      expect(events).toEqual([expect.objectContaining({ category: 'button', label: 'Sign off', target_id: 'sign-off' })]);
+    });
+
+    it('records no click on what is not a control', async () => {
+      const text = place('<p>Family F1 <em>three members</em></p>');
+      const events = await recorded(() => {
+        text.click();
+        (text.querySelector('em') as HTMLElement).click();
+        document.body.click();
+      });
+
+      expect(events).toEqual([]);
+    });
+
+    it('records a form submitted, by its name and ID', async () => {
+      window.history.replaceState(null, '', '/families/F1/small-variants');
+      const form = place('<form aria-label="Variant filters" data-audit-id="sv-filters"></form>') as HTMLFormElement;
+      const events = await recorded(() => form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+
+      expect(events).toEqual([
+        expect.objectContaining({
+          event_type: 'submit',
+          category: 'form',
+          label: 'Variant filters',
+          target_id: 'sv-filters',
+          path: '/families/F1/small-variants',
+        }),
+      ]);
+    });
+  });
 });

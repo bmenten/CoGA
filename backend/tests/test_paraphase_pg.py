@@ -1,3 +1,19 @@
+"""Paraphase's paralogous-gene calls (``paraphase_pg``).
+
+The SMN metrics (copy numbers, read counts, haplotype groups) and the extra fields a region
+names; the medical-region catalogue (aliases, clinical fields, a copy-number norm for every
+region, a configured file read first and one that does not read passed over, a malformed norm
+left unassessed); a copy-number change judged against each region's own norm times the copies
+the sample's sex gives it (a man's single X is no loss; with no sex on a sex chromosome nothing
+is called normal); and the clinical status a region's rule calls (SMN1, STRC and HBA by their
+copy number, each band at its boundary), or review for an allele-dependent region with a change.
+All values are synthetic.
+"""
+
+import json
+
+import pytest
+
 from backend.app.services import paraphase_pg
 
 
@@ -161,3 +177,136 @@ def test_paraphase_catalog_gives_every_region_a_copy_number_norm() -> None:
         assert region["chromosome"] in {"X", "autosome"}
         for low, high in region["expected_copy_number"].values():
             assert 0 <= low <= high
+
+
+# --- the clinical status a region's rule calls -----------------------------------------------------
+# The shipped catalogue calls three regions by a copy-number rule: SMN1/SMN2 (spinal muscular
+# atrophy) on the SMN1 copy number, STRC on the gene's, the alpha-globin cluster (HBA) on the
+# total. Each band at its boundary, and what no band holds.
+
+
+def _shipped_region(region_id: str) -> dict:
+    paraphase_pg.load_paraphase_medical_regions.cache_clear()
+    regions = paraphase_pg.load_paraphase_medical_regions()
+    [region] = [region for region in regions if region["region_id"] == region_id]
+    return region
+
+
+@pytest.mark.parametrize(
+    ("region_id", "field", "value", "status"),
+    [
+        ("smn1_smn2", "smn1_cn", 0, "pathogenic"),
+        ("smn1_smn2", "smn1_cn", 1, "carrier"),
+        ("smn1_smn2", "smn1_cn", 2, "normal"),
+        ("smn1_smn2", "smn1_cn", 4, "normal"),
+        # A copy number between the bands is called by none of them.
+        ("smn1_smn2", "smn1_cn", 1.5, "review"),
+        ("smn1_smn2", "smn1_cn", None, "no_call"),
+        ("strc", "gene_cn", 0, "pathogenic"),
+        ("strc", "gene_cn", 1, "carrier"),
+        ("strc", "gene_cn", 2, "normal"),
+        ("hba", "total_cn", 0, "pathogenic"),
+        ("hba", "total_cn", 1, "pathogenic"),
+        ("hba", "total_cn", 2, "carrier"),
+        ("hba", "total_cn", 3, "carrier"),
+        ("hba", "total_cn", 4, "normal"),
+    ],
+)
+def test_a_regions_status_rule_calls_it_by_its_copy_number(
+    region_id: str, field: str, value: float | None, status: str
+) -> None:
+    region = _shipped_region(region_id)
+    assert region["status_rule"]["field"] == field
+    metrics = [paraphase_pg._metric(field, value)]
+
+    assert paraphase_pg._clinical_status(region, metrics, copy_number_signal=False, fusion_count=None) == status
+
+
+def test_a_rule_whose_field_paraphase_did_not_report_is_a_no_call() -> None:
+    region = _shipped_region("smn1_smn2")
+    metrics = [paraphase_pg._metric("smn2_cn", 3)]
+    assert paraphase_pg._clinical_status(region, metrics, copy_number_signal=False, fusion_count=None) == "no_call"
+
+
+def test_a_rule_condition_that_names_no_number_never_holds() -> None:
+    region = {
+        "status_rule": {"field": "gene_cn", "pathogenic": {"eq": "zero"}, "carrier": {"lt": 2}, "normal": {"gt": 1}},
+    }
+
+    def status(value: float) -> str | None:
+        metrics = [paraphase_pg._metric("gene_cn", value)]
+        return paraphase_pg._clinical_status(region, metrics, copy_number_signal=False, fusion_count=None)
+
+    # Pathogenic is never called on a condition it cannot read.
+    assert status(0) == "carrier"
+    assert status(1) == "carrier"
+    assert status(2) == "normal"
+    # No region, or one without a rule or a clinical block, has no status.
+    assert paraphase_pg._clinical_status(None, [], copy_number_signal=True, fusion_count=1) is None
+    assert paraphase_pg._clinical_status({"region_id": "x"}, [], copy_number_signal=True, fusion_count=1) is None
+
+
+def test_an_allele_dependent_region_puts_a_change_or_a_fusion_up_for_review() -> None:
+    f8 = paraphase_pg._paraphase_region_for_gene("f8")
+    normal = paraphase_pg._extract_copy_number_metrics({"total_cn": 3}, {"total_cn": 3})
+    assert paraphase_pg._clinical_status(f8, normal, copy_number_signal=True, fusion_count=None) == "review"
+    assert paraphase_pg._clinical_status(f8, normal, copy_number_signal=False, fusion_count=1) == "review"
+    assert paraphase_pg._clinical_status(f8, normal, copy_number_signal=False, fusion_count=0) == "none"
+
+
+# --- the catalogue a start reads ----------------------------------------------------------------------
+
+
+def test_a_malformed_copy_number_expectation_leaves_that_field_unassessed() -> None:
+    block = paraphase_pg._expected_copy_number_block(
+        {"total_cn": 2, "gene_cn": [1, 3], "reversed": [3, 1], "short": [1], "text": "two", "none": None}
+    )
+    assert block == {"total_cn": (2.0, 2.0), "gene_cn": (1.0, 3.0)}
+    assert paraphase_pg._expected_copy_number_block(["total_cn", 2]) == {}
+
+
+def test_an_exploratory_smn_deletion_copy_is_a_change() -> None:
+    # Without a catalogue region the SMN exon 7-8 deletion copies keep their norm of none.
+    assert not _signal(None, [paraphase_pg._metric("smn_del78_cn", 0)], chromosome="autosome", sex="female")
+    assert _signal(None, [paraphase_pg._metric("smn2_del78_cn", 1)], chromosome="autosome", sex="female")
+
+
+@pytest.fixture
+def _no_cached_catalogue():
+    paraphase_pg.load_paraphase_medical_regions.cache_clear()
+    yield
+    paraphase_pg.load_paraphase_medical_regions.cache_clear()
+
+
+@pytest.mark.usefixtures("_no_cached_catalogue")
+def test_a_configured_catalogue_is_read_and_an_unreadable_one_is_passed_over(monkeypatch, tmp_path) -> None:
+    configured = tmp_path / "regions.json"
+    configured.write_text(
+        json.dumps(
+            {
+                "regions": [
+                    "not a region",
+                    {"region_id": "", "display_name": ""},
+                    {
+                        "region_id": "synthetic",
+                        "genes": ["syn1"],
+                        "expected_copy_number": {"gene_cn": 1},
+                        "disorders": [{"name": "Synthetic disorder"}, {"omim_url": "no name"}],
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(paraphase_pg.settings, "paraphase_medical_regions_path", str(configured))
+
+    [region] = paraphase_pg.load_paraphase_medical_regions()
+    assert (region["region_id"], region["display_name"], region["genes"]) == ("synthetic", "synthetic", ["SYN1"])
+    assert (region["chromosome"], region["clinical_priority"], region["clinical"]) == ("autosome", 999, None)
+    assert region["disorders"] == [{"name": "Synthetic disorder", "omim_url": None}]
+
+    # A file that does not read as a catalogue is passed over for the shipped one.
+    configured.write_text("{not json", encoding="utf-8")
+    paraphase_pg.load_paraphase_medical_regions.cache_clear()
+    regions = paraphase_pg.load_paraphase_medical_regions()
+    assert {"smn1_smn2", "hba", "strc"} <= {region["region_id"] for region in regions}

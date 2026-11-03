@@ -147,6 +147,58 @@ def test_single_parent_markers_paternal_lane_only():
     assert qc["C"].informative_sites == 4 and qc["C"].mendel_errors == 0
 
 
+def test_single_parent_qc_counts_a_child_sharing_no_allele_with_the_known_parent_as_an_error():
+    # With one known parent the only Mendelian error is an embryo sharing no allele with
+    # them; an unphased embryo call is not read.
+    rows = _rows(
+        (100, {"F": "0|1", "C": "0|0"}),
+        (200, {"F": "1|1", "C": "0|0"}),  # no allele of his: an error
+        (300, {"F": "0|0", "C": "1|1"}),  # idem
+        (400, {"F": "0|1", "C": "0/1"}),  # unphased: not counted
+    )
+    out, qc = compute_phased_markers(
+        rows, father="F", mother=None, children=["C"], father_shade={0: 0, 1: 1}, mother_shade={}
+    )
+    assert (qc["C"].informative_sites, qc["C"].mendel_errors) == (3, 2)
+    assert [(m.pos, m.hap1, m.hap2) for m in out["C"]] == [(100, 0, None)]
+
+
+def test_a_donor_family_s_markers_are_read_for_the_known_parent_s_children(monkeypatch):
+    # The embryos have one recorded parent: his children are the ones the review reads.
+    rows = [
+        (1000, "A", "G", ["FATHER", "E1"], ["0|1", "0|0"]),
+        (2000, "C", "T", ["FATHER", "E1"], ["0|1", "1|1"]),
+    ]
+
+    async def _fake_fetch(context, *, chrom, start, end, limit):
+        return rows
+
+    async def _fake_shade_maps(context, *, chr, father, mother, start, end):
+        assert (father, mother) == ("FATHER", None)
+        return {0: 0, 1: 1}, {}
+
+    monkeypatch.setattr(phased_marker_service, "fetch_imputed_phased_genotypes", _fake_fetch)
+    monkeypatch.setattr(phased_marker_service, "_parent_block_shade_maps", _fake_shade_maps)
+    context = FamilyMetadataContext(
+        family_uuid="fam-uuid",
+        family_id="fam",
+        project_ids=[],
+        sample_rows=[_sample("FATHER", "father"), _sample("E1", "embryo")],
+        sample_uuid_to_name={},
+        sample_name_to_uuid={"FATHER": "f-uuid", "E1": "e-uuid"},
+        affected_sample_names=[],
+        assembly_id="assembly-uuid",
+        assembly_name="GRCh38",
+        relationship_rows=[_parent_child("FATHER", "E1", "father")],
+    )
+
+    response = asyncio.run(get_family_phased_markers_response(context, chr="1", start=0, end=10_000))
+
+    embryo = next(sample for sample in response.samples if sample.sample == "E1")
+    assert [(m.pos, m.hap1, m.hap2) for m in embryo.markers] == [(1000, 0, None), (2000, 1, None)]
+    assert embryo.qc is not None and (embryo.qc.informative_sites, embryo.qc.mendel_errors) == (2, 0)
+
+
 def _rows(*variants):
     """variants: (pos, {sample: gt}) -> the (pos, sample_ids, gts) tuple shape."""
     return [(pos, list(gt.keys()), list(gt.values())) for pos, gt in variants]
@@ -397,8 +449,9 @@ def test_untruncated_fetch_keeps_markers_and_is_not_flagged(monkeypatch):
     assert response.covered is None
     assert len(response.sites) == 2
     child = next(s for s in response.samples if s.sample == "CHILD")
-    # The child inherited the paternal homolog at the second (informative) site.
-    assert any(m.hap1 is not None for m in child.markers)
+    # The father's homolog the child inherited at each site (0, then 1); the mother is
+    # homozygous, so her side tells nothing.
+    assert [(m.pos, m.hap1, m.hap2) for m in child.markers] == [(1000, 0, None), (2000, 1, None)]
     # QC is surfaced for the child: both sites are jointly informative, neither is a
     # Mendelian inconsistency.
     assert child.qc is not None

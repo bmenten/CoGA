@@ -32,6 +32,16 @@ describe('cnvAcmg score', () => {
     expect(result.pointTotal).toBe(1.15);
     expect(result.classKey).toBe('cnv_class_5');
   });
+
+  it('scores a criterion it does not know as nothing, never as NaN, which would read as benign', () => {
+    // A saved selection whose code the criteria no longer hold: the rest is scored alone.
+    const result = computeCnvClassification('gain', [
+      { code: '2A', points: 1.0, accepted: true, autoSuggested: false },
+      { code: 'NOT-A-CODE', points: -0.9, accepted: true, autoSuggested: false },
+    ]);
+    expect(result.pointTotal).toBe(1);
+    expect(result.classKey).toBe('cnv_class_5');
+  });
 });
 
 describe('formatCnvPoints', () => {

@@ -31,8 +31,10 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from sqlalchemy import text
 import yaml
+
+from backend.tests.e2e._harness import capture, ensure_postgres_schema
+from backend.tests.e2e._import_jobs import issue_codes, row_counts, run_import_job
 
 pytestmark = pytest.mark.integration
 
@@ -69,82 +71,14 @@ def _loop(at: Path) -> None:
     other.symlink_to(at.name)
 
 
-def _cap(resp: Any) -> dict[str, Any]:
-    out: dict[str, Any] = {"status": resp.status_code, "text": resp.text}
-    try:
-        out["json"] = resp.json()
-    except ValueError:  # a 500 answers in text
-        out["json"] = None
-    return out
-
-
-async def _counts() -> dict[str, int]:
-    from backend.app.core.postgres import get_postgres_sessionmaker
-
-    async with get_postgres_sessionmaker()() as session:
-        row = (
-            await session.execute(
-                text(
-                    "SELECT (SELECT count(*) FROM families) AS families, "
-                    "(SELECT count(*) FROM samples) AS samples, "
-                    "(SELECT count(*) FROM family_import_jobs) AS jobs"
-                )
-            )
-        ).mappings().one()
-    return dict(row)
-
-
-async def _job(job_id: str) -> dict[str, Any]:
-    from backend.app.core.postgres import get_postgres_sessionmaker
-
-    async with get_postgres_sessionmaker()() as session:
-        row = (
-            await session.execute(
-                text(
-                    "SELECT status, family_id, error, validation_errors, completed_at IS NOT NULL AS ended "
-                    "FROM family_import_jobs WHERE id = CAST(:j AS uuid)"
-                ),
-                {"j": job_id},
-            )
-        ).mappings().one()
-    return dict(row)
-
-
-async def _run_job(ac: Any, folder: Path, project_id: str) -> dict[str, Any]:
-    """Queue an import of ``folder`` as the page does, claim it as the worker does, run it."""
-    from backend.app.core.postgres import get_postgres_sessionmaker
-    from backend.app.services import family_package_import
-
-    resp = await ac.post(
-        "/api/family-imports",
-        json={"folder_path": str(folder), "project_id": project_id, "dry_run": False, "conflict_mode": "cancel"},
-    )
-    assert resp.status_code == 200, resp.text
-    job_id = str(resp.json()["_id"])
-    async with get_postgres_sessionmaker()() as session:
-        await session.execute(
-            text(
-                "UPDATE family_import_jobs SET status = 'validating', worker_id = :w, "
-                "started_at = now(), heartbeat_at = now() WHERE id = CAST(:j AS uuid) AND status = 'queued'"
-            ),
-            {"j": job_id, "w": _WORKER},
-        )
-        await session.commit()
-    try:
-        await family_package_import.run_family_import_job(job_id=job_id, worker_id=_WORKER)
-    except Exception as exc:  # noqa: BLE001 - the worker logs it and goes on
-        return {**await _job(job_id), "raised": type(exc).__name__}
-    return await _job(job_id)
-
-
 async def _collect(base: Path) -> dict[str, Any]:
     from httpx import ASGITransport, AsyncClient
 
-    from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
+    from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.main import app
     from backend.tests.e2e import _harness
 
-    await init_postgres_schema()
+    await ensure_postgres_schema()
     async with get_postgres_sessionmaker()() as session:
         _admin, project_id, _assembly_id = await _harness.ensure_e2e_project(session)
 
@@ -175,7 +109,7 @@ async def _collect(base: Path) -> dict[str, Any]:
     (imports / "FAMPATH7").symlink_to(archived)
 
     out: dict[str, Any] = {
-        "before": await _counts(),
+        "before": await row_counts(),
         "decoy_before": decoy.read_text(),
         "foreign": str(foreign.resolve()),
         "archived": str(archived.resolve()),
@@ -186,25 +120,25 @@ async def _collect(base: Path) -> dict[str, Any]:
         ac.headers["Authorization"] = f"Bearer {token}"
 
         for name, folder in (("linked", linked), ("tilde", tilde), ("parent", parent)):
-            out[f"discover_{name}"] = _cap(
+            out[f"discover_{name}"] = capture(
                 await ac.post("/api/family-imports/manifest/discover", json={"folder_path": str(folder)})
             )
         for name, folder in (("linked", linked), ("tilde", tilde), ("looping", looping)):
-            out[f"validate_{name}"] = _cap(await ac.post("/api/family-imports/validate", json={"folder_path": str(folder)}))
-        out["write_linked"] = _cap(
+            out[f"validate_{name}"] = capture(await ac.post("/api/family-imports/validate", json={"folder_path": str(folder)}))
+        out["write_linked"] = capture(
             await ac.post(
                 "/api/family-imports/manifest/write",
                 json={"folder_path": str(linked), "manifest_yaml": _manifest("FAMPATH1"), "overwrite": True},
             )
         )
         for name, folder in (("linked", linked), ("tilde", tilde), ("looping", looping)):
-            out[f"job_{name}"] = await _run_job(ac, folder, project_id)
-        out["packages"] = _cap(await ac.get("/api/family-imports/packages"))
-        out["validate_linked_folder"] = _cap(
+            out[f"job_{name}"] = await run_import_job(ac, folder, project_id, _WORKER)
+        out["packages"] = capture(await ac.get("/api/family-imports/packages"))
+        out["validate_linked_folder"] = capture(
             await ac.post("/api/family-imports/validate", json={"folder_path": str(imports / "FAMPATH5")})
         )
     out["decoy_after"] = decoy.read_text()
-    out["after"] = await _counts()
+    out["after"] = await row_counts()
     return out
 
 
@@ -220,15 +154,11 @@ def snap(tmp_path_factory: pytest.TempPathFactory, request: pytest.FixtureReques
     return _harness.run_async(lambda: _collect(base))
 
 
-def _codes(response: dict[str, Any]) -> list[str]:
-    return [issue["code"] for issue in response["json"]["errors"]]
-
-
 def test_a_manifest_through_a_symlink_out_of_the_package_is_refused(snap: dict[str, Any]) -> None:
     for name in ("discover_linked", "validate_linked"):
         response = snap[name]
         assert response["status"] == 200, (name, response["text"])
-        assert _codes(response) == ["manifest_outside_package"], (name, response["json"])
+        assert issue_codes(response) == ["manifest_outside_package"], (name, response["json"])
     assert snap["discover_linked"]["json"]["manifest_yaml"] == ""
     write = snap["write_linked"]
     assert write["status"] == 400, write["text"]
@@ -291,7 +221,7 @@ def test_the_package_list_leaves_out_a_package_folder_linked_out_of_the_import_r
     # Typed, the folder is refused, as it was.
     validate = snap["validate_linked_folder"]
     assert validate["status"] == 200, validate["text"]
-    assert _codes(validate) == ["package_folder_not_allowed"]
+    assert issue_codes(validate) == ["package_folder_not_allowed"]
 
 
 def test_nothing_of_a_refused_package_was_written(snap: dict[str, Any]) -> None:

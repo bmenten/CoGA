@@ -59,3 +59,8 @@ def test_sql_hemizygous_positions_match_python(assembly: str) -> None:
         if bool(flag) != (hemizygous_chromosome(assembly, chrom, int(pos)) is not None)
     ]
     assert not mismatches, f"SQL and Python disagree: {mismatches}"
+    # Not a vacuous agreement: outside the PARs chrX is hemizygous in either spelling, an
+    # autosome and the mitochondrion are not.
+    flags = {(chrom, int(pos)): bool(flag) for chrom, pos, flag in rows}
+    assert (flags[("X", 31_500_000)], flags[("chrX", 2_781_480)]) == (True, True)
+    assert (flags[("chr1", 31_500_000)], flags[("1", 2_787_000)], flags[("chrM", 3_243)]) == (False, False, False)

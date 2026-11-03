@@ -4,6 +4,7 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
 import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import CircosPlotPage from '../CircosPlotPage';
 import api from '../../../lib/api';
+import { checkboxLabels } from '../../../test/checkboxLists';
 import { createTestQueryClient } from '../../../test/createTestQueryClient';
 import {
   INCOMPLETE_IMPORT_METADATA,
@@ -165,8 +166,7 @@ describe('CircosPlotPage', () => {
 
     await screen.findByTestId('circos-plot');
     expect(drawnChromosomes().map((chrom: { chr: string }) => chrom.chr)).toEqual(withoutY);
-    const listed = screen.getAllByRole('checkbox').map((box) => box.closest('label')?.textContent);
-    expect(listed).toEqual(withoutY.map((name) => `chr${name}`));
+    expect(checkboxLabels(document.body)).toEqual(withoutY.map((name) => `chr${name}`));
   });
 
   // The plot draws the family's SVs like any family page shows its data: a partly imported

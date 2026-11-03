@@ -30,7 +30,6 @@ from __future__ import annotations
 import asyncio
 from contextlib import suppress
 import copy
-from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
@@ -52,7 +51,6 @@ from backend.app.services import (
     ped_service,
     variant_upload_service,
 )
-from backend.app.services.access_control import CurrentUser
 from backend.app.services.clickhouse_variant_ids import small_variant_key
 from backend.app.services.clickhouse_variant_records import (
     StoredStructuralVariantRow,
@@ -75,6 +73,7 @@ from backend.app.services.family_variant_write_lock import (
     watch_family_variant_holds,
 )
 from backend.tests._deletion_mark_fakes import UnmarkedDeletion
+from backend.tests._family_structure_fakes import admin_user
 
 _FAMILY = "family-uuid"
 _SAMPLES = {"PROBAND": "uuid-proband", "MOTHER": "uuid-mother", "FATHER": "uuid-father"}
@@ -418,16 +417,6 @@ def _sample_context(sample: str) -> SampleMetadataContext:
         project_ids=["project-uuid"],
         assembly_id="assembly-uuid",
         assembly_name="GRCh38",
-    )
-
-
-def _admin_user() -> CurrentUser:
-    return CurrentUser(
-        id="00000000-0000-0000-0000-000000000001",
-        username="admin",
-        email="admin@example.com",
-        role="admin",
-        created_at=datetime.now(timezone.utc),
     )
 
 
@@ -882,7 +871,7 @@ async def test_a_ped_overwrite_locks_each_replaced_family_in_one_order_before_de
         session,  # type: ignore[arg-type]
         ["FAM_B", "FAM_A"],
         True,
-        _admin_user(),
+        admin_user(),
         via="ped_upload",
     )
 
@@ -966,7 +955,7 @@ async def test_an_import_shell_delete_takes_both_locks_before_deleting(monkeypat
     await family_package_registration._delete_family_shell(
         postgres.session("import"),  # type: ignore[arg-type]
         _family_context(),
-        phenotype_import=PhenotypeImport(user=_admin_user(), via="package_import"),
+        phenotype_import=PhenotypeImport(user=admin_user(), via="package_import"),
     )
 
     # The phenotypes the family goes with are recorded under its locks, before anything goes.
@@ -1113,7 +1102,7 @@ async def test_the_package_import_holds_the_familys_locks_from_its_snapshot_unti
         folder_path=tmp_path / "FAM",
         project_id="project-uuid",
         dry_run=False,
-        user=_admin_user(),
+        user=admin_user(),
         conflict_mode="overwrite",
     )
     await asyncio.wait_for(upload, timeout=1)
@@ -1363,6 +1352,78 @@ async def test_a_hold_ends_after_a_check_in_flight(monkeypatch: pytest.MonkeyPat
     answer.set()
     await asyncio.wait_for(asyncio.gather(checking, run), 1)
     assert statements == ["check", "rollback"]
+
+
+@pytest.mark.asyncio
+async def test_a_check_waiting_behind_another_runs_nothing_on_a_hold_that_ended_meanwhile(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Two heartbeats' checks of one hold: the second waits for the first, and the block ends
+    # while it waits. It finds the hold over and sends nothing on a connection being ended.
+    postgres = _Postgres()
+    statements: list[str] = []
+    answer = asyncio.Event()
+    session = _checked_session(postgres, statements, answer=answer)
+    monkeypatch.setattr(family_variant_write_lock, "get_postgres_sessionmaker", lambda: lambda: session)
+    inside, done = asyncio.Event(), asyncio.Event()
+
+    async def import_run() -> None:
+        async with hold_family_variant_writes(_FAMILY):
+            inside.set()
+            await done.wait()
+
+    with watch_family_variant_holds() as check:
+        run = asyncio.create_task(import_run())
+    await asyncio.wait_for(inside.wait(), 1)
+    first = asyncio.create_task(check())
+    await asyncio.sleep(0.01)
+    second = asyncio.create_task(check())
+    await asyncio.sleep(0.01)
+    done.set()
+    await asyncio.sleep(0.01)
+    assert statements == ["check"]
+    answer.set()
+    await asyncio.wait_for(asyncio.gather(first, second, run), 1)
+    # One check, then the block's rollback: the second check ran no SELECT 1.
+    assert statements == ["check", "rollback"]
+
+
+@pytest.mark.asyncio
+async def test_a_check_passes_over_a_hold_that_ended_while_it_checked_another(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A worker importing two families checks both holds in turn; the second import ends
+    # while the first hold's check runs.
+    postgres = _Postgres()
+    statements: list[str] = []
+    answer = asyncio.Event()
+    sessions = iter(
+        [_checked_session(postgres, statements, answer=answer), _checked_session(postgres, statements)]
+    )
+    monkeypatch.setattr(family_variant_write_lock, "get_postgres_sessionmaker", lambda: lambda: next(sessions))
+    first_inside, second_inside, second_done, first_done = (asyncio.Event() for _ in range(4))
+
+    async def import_run(family_uuid: str, inside: asyncio.Event, done: asyncio.Event) -> None:
+        async with hold_family_variant_writes(family_uuid):
+            inside.set()
+            await done.wait()
+
+    with watch_family_variant_holds() as check:
+        first = asyncio.create_task(import_run(_FAMILY, first_inside, first_done))
+        await asyncio.wait_for(first_inside.wait(), 1)
+        second = asyncio.create_task(import_run("other-family", second_inside, second_done))
+    await asyncio.wait_for(second_inside.wait(), 1)
+    checking = asyncio.create_task(check())
+    await asyncio.sleep(0.01)
+    second_done.set()
+    await asyncio.wait_for(second, 1)
+    answer.set()
+    await asyncio.wait_for(checking, 1)
+    # The first hold checked once; the second, ended, not at all (only its rollback).
+    assert statements == ["check", "rollback"]
+    first_done.set()
+    await asyncio.wait_for(first, 1)
+    assert statements == ["check", "rollback", "rollback"]
 
 
 # --- The sign-out, the one reader that shares the locks -------------------------------

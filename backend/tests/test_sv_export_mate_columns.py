@@ -21,7 +21,7 @@ from __future__ import annotations
 import csv
 import io
 from datetime import datetime, timezone
-from typing import Any, Callable
+from typing import Callable
 
 import pytest
 from fastapi.testclient import TestClient
@@ -40,9 +40,10 @@ from backend.app.services.family_metadata_context import FamilyMetadataContext, 
 from backend.app.services.family_package_common import ParsedPed, PedMember
 from backend.app.services.family_package_variants import _iter_needlr_structural_records
 from backend.app.services.structural_variant_ingest import iter_structural_variant_records
+from backend.tests._sv_fakes import SV_SEARCH, stub_sv_postgres_lookups
 
 _EXPORT = "/api/families/FAM001/structural-variants/export"
-_M = "backend.app.services.clickhouse_family_variants."
+_M = SV_SEARCH
 _SAMPLES = ("PROBAND", "FATHER", "MOTHER")
 _USER = CurrentUser(
     id="u1",
@@ -215,15 +216,6 @@ def export(monkeypatch: pytest.MonkeyPatch) -> Callable[..., list[list[str]]]:
     async def summary(_context, _filters) -> tuple[int, dict]:
         return len(records), {}
 
-    async def no_review_ids(*_args: Any, **_kwargs: Any) -> set[str]:
-        return set()
-
-    async def nothing(*_args: Any, **_kwargs: Any) -> dict:
-        return {}
-
-    async def no_phenotypes(*_args: Any, **_kwargs: Any) -> tuple[list[str], dict[str, str]]:
-        return [], {}
-
     async def family_context(_session, *, family_identifier, user, project_id=None):
         assert family_identifier == "FAM001"
         return _family()
@@ -236,10 +228,7 @@ def export(monkeypatch: pytest.MonkeyPatch) -> Callable[..., list[list[str]]]:
 
     monkeypatch.setattr(_M + "_fetch_structural_variant_rows", fetch_rows)
     monkeypatch.setattr(_M + "_fetch_structural_variant_summary", summary)
-    monkeypatch.setattr(_M + "list_matching_structural_variant_review_ids", no_review_ids)
-    monkeypatch.setattr(_M + "get_structural_variant_review_map", nothing)
-    monkeypatch.setattr(_M + "_fetch_structural_cytoband_map", nothing)
-    monkeypatch.setattr(_M + "_affected_present_hpo", no_phenotypes)
+    stub_sv_postgres_lookups(monkeypatch)
     monkeypatch.setattr(sv_router, "build_family_metadata_context", family_context)
     monkeypatch.setitem(app.dependency_overrides, get_postgres_session, no_session)
     monkeypatch.setitem(app.dependency_overrides, get_current_user, user)

@@ -8,6 +8,7 @@ import { describe, expect, it, vi } from 'vitest';
 import GenomeOverviewSidebar, { type GenomeTrackKey } from '../GenomeOverviewSidebar';
 import { NUCLEAR_CHROMOSOMES } from '../../../lib/chromosomes';
 import type { ApiFamilyMember } from '../../../lib/apiTypes';
+import { checkboxLabels, sectionHeaded } from '../../../test/checkboxLists';
 
 type Props = ComponentProps<typeof GenomeOverviewSidebar>;
 
@@ -58,21 +59,10 @@ const renderSidebar = (overrides: Partial<Props> = {}): Props => {
   return props;
 };
 
-const section = (title: string): HTMLElement => {
-  const element = screen.getByRole('heading', { name: title }).closest('section');
-  if (!element) throw new Error(`no ${title} section`);
-  return element;
-};
-
-const checkboxLabels = (container: HTMLElement) =>
-  within(container)
-    .getAllByRole('checkbox')
-    .map((box) => box.closest('label')?.textContent);
-
 describe('GenomeOverviewSidebar', () => {
   it('lists one checkbox per sample, ticked from the selection — a sample missing from it is unticked', () => {
     renderSidebar();
-    const samples = section('Samples');
+    const samples = sectionHeaded('Samples');
 
     expect(checkboxLabels(samples)).toEqual(['S1', 'S2', 'S3']);
     expect(within(samples).getByRole('checkbox', { name: 'S1' })).toBeChecked();
@@ -94,12 +84,12 @@ describe('GenomeOverviewSidebar', () => {
   it('offers only the tracks the family has data for, in the order given', () => {
     renderSidebar({ availableTracks: ['sv', 'coverage', 'repeatExpansions'] });
 
-    expect(checkboxLabels(section('Tracks'))).toEqual(['SVs', 'Coverage', 'Repeat expansions']);
+    expect(checkboxLabels(sectionHeaded('Tracks'))).toEqual(['SVs', 'Coverage', 'Repeat expansions']);
   });
 
   it('ticks each track from the visibility state', () => {
     renderSidebar();
-    const tracks = section('Tracks');
+    const tracks = sectionHeaded('Tracks');
 
     expect(within(tracks).getByRole('checkbox', { name: 'Coverage' })).toBeChecked();
     expect(within(tracks).getByRole('checkbox', { name: 'Segments' })).not.toBeChecked();
@@ -126,7 +116,7 @@ describe('GenomeOverviewSidebar', () => {
   // and the chromosome view's list and the mtDNA page show it (owner decision, 2026-10-28; ENG-20).
   it('lists chr1–chr22, chrX and chrY, not chrM, ticked from the chromosome selection', () => {
     renderSidebar();
-    const chromosomes = section('Chromosomes');
+    const chromosomes = sectionHeaded('Chromosomes');
 
     expect(checkboxLabels(chromosomes)).toEqual([
       ...Array.from({ length: 22 }, (_, index) => `chr${index + 1}`),

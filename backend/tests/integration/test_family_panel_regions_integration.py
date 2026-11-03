@@ -28,33 +28,26 @@ job sets it.
 from __future__ import annotations
 
 import asyncio
-from itertools import product
 from typing import Any
 
 import pytest
 
+from backend.tests.integration._panel_region_cases import (
+    CHROMOSOMES as _CHROMOSOMES,
+)
+from backend.tests.integration._panel_region_cases import (
+    WINDOW as _WINDOW,
+)
+from backend.tests.integration._panel_region_cases import (
+    each_region_bounds,
+    small_variant_shapes,
+    window_edge_regions,
+)
+
 pytestmark = pytest.mark.integration
 
-_WINDOW = 1 << 16
-_CHROMOSOMES = ["1", "chr1", "X", "chrX", "M", "MT", "chrM", "GL000192.1"]
 _FAMILY = "eng15-family"
 _PROJECTS = ["eng15-project-a", "eng15-project-b"]
-
-
-def _positions() -> list[int]:
-    """Positions on each side of three window boundaries, and a few in between."""
-    positions: set[int] = {1, 2, 1000, 30_000}
-    for boundary in (_WINDOW, 2 * _WINDOW, 2092 * _WINDOW):
-        positions.update(boundary + offset for offset in range(-6, 7))
-    return sorted(positions)
-
-
-def _shapes() -> list[tuple[str, int, int]]:
-    """(chromosome as stored, position, REF length): every chromosome and position with REFs
-    of 1 to 50 bases, and a few REFs longer than one and than two windows."""
-    shapes = list(product(_CHROMOSOMES, _positions(), [1, 2, 5, 50]))
-    shapes += product(["1", "GL000192.1"], [1, _WINDOW - 3, _WINDOW + 1, 2 * _WINDOW - 2], [_WINDOW + 1, 2 * _WINDOW + 7])
-    return shapes
 
 
 def _rows() -> list[tuple[int, str, int, int, str, str, int, int]]:
@@ -70,7 +63,7 @@ def _rows() -> list[tuple[int, str, int, int, str, str, int, int]]:
         (_FAMILY, "eng15-other-project", 1),
         (_FAMILY, _PROJECTS[0], -1),
     ]
-    for index, (chromosome, position, length) in enumerate(_shapes()):
+    for index, (chromosome, position, length) in enumerate(small_variant_shapes()):
         family_rows = [placements[index % 2], *placements[2:]]
         for family, project, sign in family_rows:
             rows.append((len(rows) + 1, chromosome, position, length, family, project, sign, _xpos(chromosome, position)))
@@ -80,18 +73,8 @@ def _rows() -> list[tuple[int, str, int, int, str, str, int, int]]:
 def _regions() -> list[Any]:
     from backend.app.services.clickhouse_variant_records import Region
 
-    window_2092 = 2092 * _WINDOW
     return [
-        Region(chr="chr1", start=_WINDOW, end=_WINDOW + 2),  # starts on a boundary
-        Region(chr="1", start=2 * _WINDOW - 3, end=2 * _WINDOW - 1),  # ends before one
-        Region(chr="1", start=2 * _WINDOW - 1, end=2 * _WINDOW - 1),  # one base
-        Region(chr="1", start=_WINDOW + 2, end=_WINDOW),  # reversed
-        Region(chr="chr1", start=_WINDOW, end=_WINDOW + 2),  # repeated
-        Region(chr="X", start=window_2092 - 4, end=window_2092 + 1),  # across a boundary
-        Region(chr="chrM", start=900, end=1_100),  # M, read as MT
-        Region(chr="MT", start=_WINDOW - 1, end=_WINDOW - 1),
-        Region(chr="GL000192.1", start=1, end=3 * _WINDOW + 5),  # several windows
-        Region(chr="", start=1, end=10),  # no chromosome: left out
+        *window_edge_regions(),
         # Regions that share bases, as a gene's transcript loci do (a gene reference of one
         # row per transcript): merged into one before they are bound.
         Region(chr="1", start=900, end=1_200),
@@ -103,19 +86,6 @@ def _regions() -> list[Any]:
         Region(chr="MT", start=29_990, end=29_999),  # touching only: not merged
         Region(chr="chrM", start=30_000, end=30_001),
     ]
-
-
-def _each_region_bounds(regions: Any) -> tuple[list[str], list[int], list[int]]:
-    """The regions each read on their own (match key, start and end in order, each once),
-    unmerged: the reference the merged regions must answer alike."""
-    from backend.app.services.clickhouse_variant_queries import _chromosome_match_key
-
-    kept = dict.fromkeys(
-        (_chromosome_match_key(region.chr), min(region.start, region.end), max(region.start, region.end))
-        for region in regions
-        if _chromosome_match_key(region.chr)
-    )
-    return [c for c, _s, _e in kept], [s for _c, s, _e in kept], [e for _c, _s, e in kept]
 
 
 def _rows_subquery(params: dict[str, Any]) -> str:
@@ -191,7 +161,7 @@ def test_the_family_region_join_keeps_exactly_what_the_per_row_test_keeps() -> N
         )
         # The reference: each region tested on its own, not merged with those it shares bases with.
         with pytest.MonkeyPatch.context() as each:
-            each.setattr(queries, "_small_region_bounds", _each_region_bounds)
+            each.setattr(queries, "_small_region_bounds", each_region_bounds)
             each_region = _small_region_filter_condition(_regions(), prefix="each_region", params=params)
         assert per_row is not None and joined is not None and each_region is not None
         assert len(params["panel_region_starts"]) < len(params["each_region_starts"])

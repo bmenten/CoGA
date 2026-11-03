@@ -40,20 +40,7 @@ from backend.app.schemas import (
 from backend.app.services import report_signout_service as rss
 from backend.app.services import signed_record_sections as srs
 from backend.app.services.pgt_embryo_qc import QC_THRESHOLDS, embryo_qc_verdict
-
-
-class _Result:
-    def __init__(self, rows: list[dict[str, Any]]) -> None:
-        self._rows = rows
-
-    def mappings(self) -> "_Result":
-        return self
-
-    def all(self) -> list[dict[str, Any]]:
-        return list(self._rows)
-
-    def first(self) -> dict[str, Any] | None:
-        return self._rows[0] if self._rows else None
+from backend.tests._query_results import MappingRows as _Result
 
 
 class _Session:

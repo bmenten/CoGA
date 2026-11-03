@@ -79,6 +79,69 @@ const LocationProbe = () => {
   return <div data-testid="location-search">{location.pathname}{location.search}</div>;
 };
 
+const MOTHER = { sample_id: 'MOTHER', role: 'mother', affected: false, sex: 'female' };
+const PROBAND = { sample_id: 'PROBAND', role: 'proband', affected: true, sex: 'male' };
+const FATHER = { sample_id: 'FATHER', role: 'father', affected: false, sex: 'male' };
+
+/** What the track availability says a sample has: nothing, but the tracks a test names. */
+const tracks = (...present: Array<'coverage' | 'apcad' | 'variants' | 'small_variants' | 'haplotypes'>) => ({
+  coverage: present.includes('coverage'),
+  apcad: present.includes('apcad'),
+  variants: present.includes('variants'),
+  small_variants: present.includes('small_variants'),
+  haplotypes: present.includes('haplotypes'),
+});
+const EVERY_TRACK = tracks('coverage', 'apcad', 'variants', 'small_variants', 'haplotypes');
+
+const failure = () => Promise.reject(Object.assign(new Error('HTTP 500'), { response: { status: 500 } }));
+
+/**
+ * Serves family F1 (project p1) with `members`, the length of `chromosome` on GRCh38, and the
+ * tracks each sample has. A test replaces the length or the availability answer to fail it.
+ * Any other GET answers an empty object.
+ */
+const serve = ({
+  members,
+  roi = null,
+  chromosome = { chr: '1', size: 1000 },
+  samples = {},
+  lengthReply = () => Promise.resolve({ data: chromosome }),
+  availabilityReply = () => Promise.resolve({ data: { samples } }),
+}: {
+  members: Array<typeof PROBAND>;
+  roi?: Record<string, unknown> | null;
+  chromosome?: { chr: string; size: number };
+  samples?: Record<string, ReturnType<typeof tracks>>;
+  lengthReply?: () => Promise<unknown>;
+  availabilityReply?: () => Promise<unknown>;
+}) => {
+  (api.get as unknown as Mock).mockImplementation((url: string) => {
+    if (url === '/families/F1') {
+      return Promise.resolve({ data: { family_id: 'F1', members, projects: ['p1'], roi } });
+    }
+    if (url === `/chromosomes/GRCh38/${chromosome.chr}`) return lengthReply();
+    if (url.startsWith('/families/F1/track-availability?')) return availabilityReply();
+    return Promise.resolve({ data: {} });
+  });
+};
+
+const renderPage = (entry: string) =>
+  render(
+    <QueryClientProvider client={createTestQueryClient()}>
+      <MemoryRouter initialEntries={[entry]}>
+        <LocationProbe />
+        <Routes>
+          <Route path="/families/:familyId/chromosome/:chrom" element={<ChromosomeViewPage />} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+
+const requested = () => (api.get as unknown as Mock).mock.calls.map(([url]) => String(url));
+const availabilityRequests = () => requested().filter((url) => url.startsWith('/families/F1/track-availability?'));
+const lastWorkspaceProps = () => workspaceSpy.mock.calls.at(-1)?.[0];
+const visibleSamples = () => lastWorkspaceProps()?.visibleMembers.map((member: MemberProp) => member.sample_id);
+
 describe('ChromosomeViewPage', () => {
   beforeEach(() => {
     referenceMock.value = GRCH38_REFERENCE;
@@ -86,78 +149,21 @@ describe('ChromosomeViewPage', () => {
   });
 
   it('sorts members proband-first, keeps query region, and forwards ROI plus sample filters', async () => {
-    (api.get as unknown as Mock).mockImplementation((url: string) => {
-      if (url === '/families/F1') {
-        return Promise.resolve({
-          data: {
-            family_id: 'F1',
-            members: [
-              { sample_id: 'MOTHER', role: 'mother', affected: false, sex: 'female' },
-              { sample_id: 'PROBAND', role: 'proband', affected: true, sex: 'male' },
-              { sample_id: 'FATHER', role: 'father', affected: false, sex: 'male' },
-            ],
-            projects: ['p1'],
-            roi: {
-              query: 'BRCA1',
-              label: 'BRCA1',
-              source: 'gene',
-              assembly_id: 'asm1',
-              chr: '1',
-              start: 140,
-              end: 180,
-            },
-          },
-        });
-      }
-      if (url === '/chromosomes/GRCh38/1') {
-        return Promise.resolve({ data: { chr: '1', size: 1000 } });
-      }
-      if (url.startsWith('/families/F1/track-availability?')) {
-        return Promise.resolve({
-          data: {
-            samples: {
-              PROBAND: {
-                coverage: true,
-                apcad: true,
-                variants: true,
-                small_variants: true,
-                haplotypes: true,
-              },
-              MOTHER: {
-                coverage: false,
-                apcad: false,
-                variants: false,
-                small_variants: false,
-                haplotypes: false,
-              },
-              FATHER: {
-                coverage: true,
-                apcad: false,
-                variants: true,
-                small_variants: false,
-                haplotypes: false,
-              },
-            },
-          },
-        });
-      }
-      return Promise.resolve({ data: {} });
+    serve({
+      members: [MOTHER, PROBAND, FATHER],
+      roi: {
+        query: 'BRCA1',
+        label: 'BRCA1',
+        source: 'gene',
+        assembly_id: 'asm1',
+        chr: '1',
+        start: 140,
+        end: 180,
+      },
+      samples: { PROBAND: EVERY_TRACK, MOTHER: tracks(), FATHER: tracks('coverage', 'variants') },
     });
 
-    const queryClient = createTestQueryClient();
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter
-          initialEntries={['/families/F1/chromosome/1?start=100&end=200&origin=small&project_id=p1&sample_filter=PROBAND:het']}
-        >
-          <LocationProbe />
-          <Routes>
-            <Route path="/families/:familyId/chromosome/:chrom" element={<ChromosomeViewPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderPage('/families/F1/chromosome/1?start=100&end=200&origin=small&project_id=p1&sample_filter=PROBAND:het');
 
     await waitFor(() => expect(screen.getByTestId('chromosome-sidebar')).toBeInTheDocument());
     await waitFor(() => expect(screen.getByTestId('chromosome-workspace')).toHaveTextContent('100:200'));
@@ -167,21 +173,14 @@ describe('ChromosomeViewPage', () => {
     expect(screen.getByTestId('location-search')).toHaveTextContent('start=100');
     expect(screen.getByTestId('location-search')).toHaveTextContent('end=200');
 
-    const availabilityCall = (api.get as unknown as Mock).mock.calls
-      .map(([url]) => String(url))
-      .find((url) => url.startsWith('/families/F1/track-availability?'));
+    const [availabilityCall] = availabilityRequests();
     expect(availabilityCall).toContain('chrom=1');
     expect(availabilityCall).toContain('start=100');
     expect(availabilityCall).toContain('end=200');
     expect(availabilityCall).toContain('sample_filter=PROBAND%3Ahet');
 
-    const lastWorkspaceProps = workspaceSpy.mock.calls.at(-1)?.[0];
-    expect(lastWorkspaceProps.visibleMembers.map((member: MemberProp) => member.sample_id)).toEqual([
-      'PROBAND',
-      'FATHER',
-      'MOTHER',
-    ]);
-    expect(lastWorkspaceProps.backDest).toBe('/families/F1/small-variants?origin=small&sample_filter=PROBAND%3Ahet&project_id=p1');
+    expect(visibleSamples()).toEqual(['PROBAND', 'FATHER', 'MOTHER']);
+    expect(lastWorkspaceProps().backDest).toBe('/families/F1/small-variants?origin=small&sample_filter=PROBAND%3Ahet&project_id=p1');
 
     fireEvent.click(screen.getByRole('button', { name: 'Select region' }));
 
@@ -189,10 +188,7 @@ describe('ChromosomeViewPage', () => {
     expect(screen.getByTestId('location-search')).toHaveTextContent('start=120');
     expect(screen.getByTestId('location-search')).toHaveTextContent('end=180');
 
-    const latestAvailabilityCall = (api.get as unknown as Mock).mock.calls
-      .map(([url]) => String(url))
-      .filter((url) => url.startsWith('/families/F1/track-availability?'))
-      .at(-1);
+    const latestAvailabilityCall = availabilityRequests().at(-1);
     expect(latestAvailabilityCall).toContain('start=120');
     expect(latestAvailabilityCall).toContain('end=180');
   });
@@ -215,15 +211,7 @@ describe('ChromosomeViewPage', () => {
         : Promise.resolve({ data: {} }),
     );
 
-    render(
-      <QueryClientProvider client={createTestQueryClient()}>
-        <MemoryRouter initialEntries={['/families/F1/chromosome/1']}>
-          <Routes>
-            <Route path="/families/:familyId/chromosome/:chrom" element={<ChromosomeViewPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderPage('/families/F1/chromosome/1');
 
     expect(await screen.findByText('Reference could not be loaded')).toBeInTheDocument();
     expect(screen.queryByText('Reference not linked')).not.toBeInTheDocument();
@@ -234,99 +222,49 @@ describe('ChromosomeViewPage', () => {
   // #607 — the page hands a failed availability request to the workspace as a failure,
   // which it says instead of "No BED data for selected samples".
   it('passes a failed track-availability request on as a failure, and retries it', async () => {
-    let availabilityRequests = 0;
-    (api.get as unknown as Mock).mockImplementation((url: string) => {
-      if (url === '/families/F1') {
-        return Promise.resolve({
-          data: {
-            family_id: 'F1',
-            members: [{ sample_id: 'PROBAND', role: 'proband', affected: true, sex: 'male' }],
-            projects: ['p1'],
-            roi: null,
-          },
-        });
-      }
-      if (url === '/chromosomes/GRCh38/1') {
-        return Promise.resolve({ data: { chr: '1', size: 1000 } });
-      }
-      if (url.startsWith('/families/F1/track-availability?')) {
-        availabilityRequests += 1;
-        return Promise.reject(Object.assign(new Error('HTTP 500'), { response: { status: 500 } }));
-      }
-      return Promise.resolve({ data: {} });
+    let availabilityAsked = 0;
+    serve({
+      members: [PROBAND],
+      availabilityReply: () => {
+        availabilityAsked += 1;
+        return failure();
+      },
     });
 
-    render(
-      <QueryClientProvider client={createTestQueryClient()}>
-        <MemoryRouter initialEntries={['/families/F1/chromosome/1?start=100&end=200']}>
-          <Routes>
-            <Route path="/families/:familyId/chromosome/:chrom" element={<ChromosomeViewPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderPage('/families/F1/chromosome/1?start=100&end=200');
 
-    await waitFor(() => expect(workspaceSpy.mock.calls.at(-1)?.[0].tracksFailure).toBeTruthy());
-    const requestsBefore = availabilityRequests;
-    act(() => workspaceSpy.mock.calls.at(-1)?.[0].tracksFailure.retry());
-    await waitFor(() => expect(availabilityRequests).toBeGreaterThan(requestsBefore));
+    await waitFor(() => expect(lastWorkspaceProps()?.tracksFailure).toBeTruthy());
+    const requestsBefore = availabilityAsked;
+    act(() => lastWorkspaceProps()?.tracksFailure.retry());
+    await waitFor(() => expect(availabilityAsked).toBeGreaterThan(requestsBefore));
   });
 
   // #610 — without the chromosome's length the viewer waited for good on a region that
   // never came; the failure is handed on to be said in place of the tracks.
   it('passes a failed chromosome-length request on as a failure, not an endless load', async () => {
-    let lengthRequests = 0;
-    (api.get as unknown as Mock).mockImplementation((url: string) => {
-      if (url === '/families/F1') {
-        return Promise.resolve({
-          data: {
-            family_id: 'F1',
-            members: [{ sample_id: 'PROBAND', role: 'proband', affected: true, sex: 'male' }],
-            projects: ['p1'],
-            roi: null,
-          },
-        });
-      }
-      if (url === '/chromosomes/GRCh38/1') {
-        lengthRequests += 1;
-        return Promise.reject(Object.assign(new Error('HTTP 500'), { response: { status: 500 } }));
-      }
-      return Promise.resolve({ data: {} });
+    let lengthAsked = 0;
+    serve({
+      members: [PROBAND],
+      lengthReply: () => {
+        lengthAsked += 1;
+        return failure();
+      },
+      availabilityReply: () => Promise.resolve({ data: {} }),
     });
 
-    render(
-      <QueryClientProvider client={createTestQueryClient()}>
-        <MemoryRouter initialEntries={['/families/F1/chromosome/1']}>
-          <Routes>
-            <Route path="/families/:familyId/chromosome/:chrom" element={<ChromosomeViewPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderPage('/families/F1/chromosome/1');
 
-    await waitFor(() =>
-      expect(workspaceSpy.mock.calls.at(-1)?.[0].tracksFailure?.what).toBe('the length of chr1'),
-    );
-    expect(workspaceSpy.mock.calls.at(-1)?.[0].showViewerLoading).toBe(false);
-    const requestsBefore = lengthRequests;
-    act(() => workspaceSpy.mock.calls.at(-1)?.[0].tracksFailure.retry());
-    await waitFor(() => expect(lengthRequests).toBeGreaterThan(requestsBefore));
+    await waitFor(() => expect(lastWorkspaceProps()?.tracksFailure?.what).toBe('the length of chr1'));
+    expect(lastWorkspaceProps()?.showViewerLoading).toBe(false);
+    const requestsBefore = lengthAsked;
+    act(() => lastWorkspaceProps()?.tracksFailure.retry());
+    await waitFor(() => expect(lengthAsked).toBeGreaterThan(requestsBefore));
   });
 
   it('says the family could not be loaded, not that it was not found', async () => {
-    (api.get as unknown as Mock).mockImplementation(() =>
-      Promise.reject(Object.assign(new Error('HTTP 500'), { response: { status: 500 } })),
-    );
+    (api.get as unknown as Mock).mockImplementation(failure);
 
-    render(
-      <QueryClientProvider client={createTestQueryClient()}>
-        <MemoryRouter initialEntries={['/families/F1/chromosome/1']}>
-          <Routes>
-            <Route path="/families/:familyId/chromosome/:chrom" element={<ChromosomeViewPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderPage('/families/F1/chromosome/1');
 
     expect(await screen.findByRole('heading', { name: 'Family could not be loaded' })).toBeInTheDocument();
     expect(screen.queryByText('Family not found')).not.toBeInTheDocument();
@@ -334,286 +272,83 @@ describe('ChromosomeViewPage', () => {
   });
 
   it('honors repeated sample params when initializing visible members', async () => {
-    (api.get as unknown as Mock).mockImplementation((url: string) => {
-      if (url === '/families/F1') {
-        return Promise.resolve({
-          data: {
-            family_id: 'F1',
-            members: [
-              { sample_id: 'MOTHER', role: 'mother', affected: false, sex: 'female' },
-              { sample_id: 'PROBAND', role: 'proband', affected: true, sex: 'male' },
-              { sample_id: 'FATHER', role: 'father', affected: false, sex: 'male' },
-            ],
-            projects: ['p1'],
-            roi: null,
-          },
-        });
-      }
-      if (url === '/chromosomes/GRCh38/1') {
-        return Promise.resolve({ data: { chr: '1', size: 1000 } });
-      }
-      if (url.startsWith('/families/F1/track-availability?')) {
-        return Promise.resolve({
-          data: {
-            samples: {
-              PROBAND: {
-                coverage: true,
-                apcad: true,
-                variants: true,
-                small_variants: true,
-                haplotypes: true,
-              },
-              MOTHER: {
-                coverage: true,
-                apcad: false,
-                variants: false,
-                small_variants: false,
-                haplotypes: false,
-              },
-              FATHER: {
-                coverage: true,
-                apcad: false,
-                variants: true,
-                small_variants: false,
-                haplotypes: false,
-              },
-            },
-          },
-        });
-      }
-      return Promise.resolve({ data: {} });
+    serve({
+      members: [MOTHER, PROBAND, FATHER],
+      samples: { PROBAND: EVERY_TRACK, MOTHER: tracks('coverage'), FATHER: tracks('coverage', 'variants') },
     });
 
-    const queryClient = createTestQueryClient();
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter
-          initialEntries={['/families/F1/chromosome/1?sample=PROBAND&sample=FATHER&project_id=p1']}
-        >
-          <LocationProbe />
-          <Routes>
-            <Route path="/families/:familyId/chromosome/:chrom" element={<ChromosomeViewPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderPage('/families/F1/chromosome/1?sample=PROBAND&sample=FATHER&project_id=p1');
 
     await waitFor(() =>
       expect(screen.getByTestId('chromosome-workspace')).toHaveTextContent('0:1000|PROBAND,FATHER|'),
     );
 
-    const lastWorkspaceProps = workspaceSpy.mock.calls.at(-1)?.[0];
-    expect(lastWorkspaceProps.visibleMembers.map((member: MemberProp) => member.sample_id)).toEqual([
-      'PROBAND',
-      'FATHER',
-    ]);
+    expect(visibleSamples()).toEqual(['PROBAND', 'FATHER']);
     expect(screen.getByTestId('location-search')).toHaveTextContent('sample=PROBAND');
     expect(screen.getByTestId('location-search')).toHaveTextContent('sample=FATHER');
   });
 
   it('normalizes mitochondrial chromosome routes for track and IGV links', async () => {
-    (api.get as unknown as Mock).mockImplementation((url: string) => {
-      if (url === '/families/F1') {
-        return Promise.resolve({
-          data: {
-            family_id: 'F1',
-            members: [
-              { sample_id: 'PROBAND', role: 'proband', affected: true, sex: 'female' },
-            ],
-            projects: ['p1'],
-            roi: null,
-          },
-        });
-      }
-      if (url === '/chromosomes/GRCh38/MT') {
-        return Promise.resolve({ data: { chr: 'MT', size: 16_569 } });
-      }
-      if (url.startsWith('/families/F1/track-availability?')) {
-        return Promise.resolve({
-          data: {
-            samples: {
-              PROBAND: {
-                coverage: true,
-                apcad: false,
-                variants: false,
-                small_variants: true,
-                haplotypes: false,
-              },
-            },
-          },
-        });
-      }
-      return Promise.resolve({ data: {} });
+    serve({
+      members: [{ ...PROBAND, sex: 'female' }],
+      chromosome: { chr: 'MT', size: 16_569 },
+      samples: { PROBAND: tracks('coverage', 'small_variants') },
     });
 
-    const queryClient = createTestQueryClient();
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={['/families/F1/chromosome/chrM?start=3200&end=3300&project_id=p1']}>
-          <Routes>
-            <Route path="/families/:familyId/chromosome/:chrom" element={<ChromosomeViewPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderPage('/families/F1/chromosome/chrM?start=3200&end=3300&project_id=p1');
 
     await waitFor(() => expect(screen.getByTestId('chromosome-workspace')).toHaveTextContent('3200:3300'));
 
-    const chromosomeCall = (api.get as unknown as Mock).mock.calls
-      .map(([url]) => String(url))
-      .find((url) => url.startsWith('/chromosomes/GRCh38/'));
+    const chromosomeCall = requested().find((url) => url.startsWith('/chromosomes/GRCh38/'));
     expect(chromosomeCall).toBe('/chromosomes/GRCh38/MT');
 
     // The track-availability request can fire after the workspace first renders
     // (separate query), so poll for it rather than reading mock.calls once — this
     // was an intermittent CI failure (availabilityCall undefined under load).
-    await waitFor(() => {
-      const availabilityCall = (api.get as unknown as Mock).mock.calls
-        .map(([url]) => String(url))
-        .find((url) => url.startsWith('/families/F1/track-availability?'));
-      expect(availabilityCall).toContain('chrom=MT');
-    });
+    await waitFor(() => expect(availabilityRequests()[0]).toContain('chrom=MT'));
 
-    const lastWorkspaceProps = workspaceSpy.mock.calls.at(-1)?.[0];
-    expect(lastWorkspaceProps.chrom).toBe('MT');
-    expect(decodeURIComponent(lastWorkspaceProps.igvHref)).toContain('locus=chrM:3200-3300');
+    expect(lastWorkspaceProps().chrom).toBe('MT');
+    expect(decodeURIComponent(lastWorkspaceProps().igvHref)).toContain('locus=chrM:3200-3300');
   });
 
   it('checks small-variant availability at any zoom (no span gate)', async () => {
-    (api.get as unknown as Mock).mockImplementation((url: string) => {
-      if (url === '/families/F1') {
-        return Promise.resolve({
-          data: {
-            family_id: 'F1',
-            members: [
-              { sample_id: 'PROBAND', role: 'proband', affected: true, sex: 'male' },
-            ],
-            projects: ['p1'],
-            roi: null,
-          },
-        });
-      }
-      if (url === '/chromosomes/GRCh38/1') {
-        return Promise.resolve({ data: { chr: '1', size: 10_000_000 } });
-      }
-      if (url.startsWith('/families/F1/track-availability?')) {
-        return Promise.resolve({
-          data: {
-            samples: {
-              PROBAND: {
-                coverage: true,
-                apcad: false,
-                variants: false,
-                small_variants: true,
-                haplotypes: false,
-              },
-            },
-          },
-        });
-      }
-      return Promise.resolve({ data: {} });
+    serve({
+      members: [PROBAND],
+      chromosome: { chr: '1', size: 10_000_000 },
+      samples: { PROBAND: tracks('coverage', 'small_variants') },
     });
 
-    const queryClient = createTestQueryClient();
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={['/families/F1/chromosome/1?project_id=p1']}>
-          <Routes>
-            <Route path="/families/:familyId/chromosome/:chrom" element={<ChromosomeViewPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderPage('/families/F1/chromosome/1?project_id=p1');
 
     await waitFor(() => expect(screen.getByTestId('chromosome-workspace')).toBeInTheDocument());
 
-    await waitFor(() => {
-      const availabilityCall = (api.get as unknown as Mock).mock.calls
-        .map(([url]) => String(url))
-        .find((url) => url.startsWith('/families/F1/track-availability?'));
-      expect(availabilityCall).toContain('include_small_variants=true');
-    });
-    const lastWorkspaceProps = workspaceSpy.mock.calls.at(-1)?.[0];
-    expect(lastWorkspaceProps.availability.PROBAND.smallVariants).toBe(true);
+    await waitFor(() => expect(availabilityRequests()[0]).toContain('include_small_variants=true'));
+    expect(lastWorkspaceProps().availability.PROBAND.smallVariants).toBe(true);
   });
 
   it('keeps a sample unselected after the region changes', async () => {
-    (api.get as unknown as Mock).mockImplementation((url: string) => {
-      if (url === '/families/F1') {
-        return Promise.resolve({
-          data: {
-            family_id: 'F1',
-            members: [
-              { sample_id: 'MOTHER', role: 'mother', affected: false, sex: 'female' },
-              { sample_id: 'PROBAND', role: 'proband', affected: true, sex: 'male' },
-              { sample_id: 'FATHER', role: 'father', affected: false, sex: 'male' },
-            ],
-            projects: ['p1'],
-            roi: null,
-          },
-        });
-      }
-      if (url === '/chromosomes/GRCh38/1') {
-        return Promise.resolve({ data: { chr: '1', size: 1000 } });
-      }
-      if (url.startsWith('/families/F1/track-availability?')) {
-        return Promise.resolve({
-          data: {
-            samples: {
-              PROBAND: { coverage: true, apcad: true, variants: true, small_variants: true, haplotypes: true },
-              MOTHER: { coverage: true, apcad: true, variants: true, small_variants: true, haplotypes: true },
-              FATHER: { coverage: true, apcad: true, variants: true, small_variants: true, haplotypes: true },
-            },
-          },
-        });
-      }
-      return Promise.resolve({ data: {} });
+    serve({
+      members: [MOTHER, PROBAND, FATHER],
+      samples: { PROBAND: EVERY_TRACK, MOTHER: EVERY_TRACK, FATHER: EVERY_TRACK },
     });
 
-    const queryClient = createTestQueryClient();
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={['/families/F1/chromosome/1?project_id=p1']}>
-          <Routes>
-            <Route path="/families/:familyId/chromosome/:chrom" element={<ChromosomeViewPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderPage('/families/F1/chromosome/1?project_id=p1');
 
     // No ?sample= filter → all three members start selected.
-    await waitFor(() =>
-      expect(workspaceSpy.mock.calls.at(-1)?.[0].visibleMembers.map((m: MemberProp) => m.sample_id)).toEqual([
-        'PROBAND',
-        'FATHER',
-        'MOTHER',
-      ]),
-    );
+    await waitFor(() => expect(visibleSamples()).toEqual(['PROBAND', 'FATHER', 'MOTHER']));
 
     // Unselect MOTHER via the sidebar's toggle callback.
     const toggleSample = sidebarSpy.mock.calls.at(-1)?.[0].onToggleSample as (id: string) => void;
     await act(async () => {
       toggleSample('MOTHER');
     });
-    await waitFor(() =>
-      expect(workspaceSpy.mock.calls.at(-1)?.[0].visibleMembers.map((m: MemberProp) => m.sample_id)).toEqual([
-        'PROBAND',
-        'FATHER',
-      ]),
-    );
+    await waitFor(() => expect(visibleSamples()).toEqual(['PROBAND', 'FATHER']));
 
     // Change the displayed region — this rebuilds location.search.
     fireEvent.click(screen.getByRole('button', { name: 'Select region' }));
     await waitFor(() => expect(screen.getByTestId('chromosome-workspace')).toHaveTextContent('120:180'));
 
     // MOTHER must stay unselected (regression: it used to be re-selected here).
-    expect(workspaceSpy.mock.calls.at(-1)?.[0].visibleMembers.map((m: MemberProp) => m.sample_id)).toEqual([
-      'PROBAND',
-      'FATHER',
-    ]);
+    expect(visibleSamples()).toEqual(['PROBAND', 'FATHER']);
   });
 });

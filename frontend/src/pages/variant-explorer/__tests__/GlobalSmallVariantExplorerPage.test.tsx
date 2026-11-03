@@ -8,8 +8,7 @@ import { MemoryRouter } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createTestQueryClient } from '../../../test/createTestQueryClient';
-import { tagDefinition } from '../../../test/tagDefinitions';
-import type { SmallVariantTagDefinition } from '../../families/smallVariantSearch';
+import { REVIEW_TAG, globalVariantRow } from '../../../test/globalVariants';
 import GlobalSmallVariantExplorerPage from '../GlobalSmallVariantExplorerPage';
 import type {
   GlobalVariantPage,
@@ -41,46 +40,20 @@ const ASSEMBLIES: VariantExplorerAssembly[] = [
   },
 ];
 
-const TAGS: SmallVariantTagDefinition[] = [
-  tagDefinition({
-    key: 'review',
-    label: 'Review',
-    group: 'collaboration',
-    color: '#2563eb',
-    sort_order: 10,
-    scope: 'system',
-    is_custom: false,
-  }),
-];
+const TAGS = [REVIEW_TAG];
 
 const PANELS = [{ _id: 'panel-1', name: 'Hereditary cancer' }];
 
-const makeVariant = (overrides: Partial<GlobalVariantRow>): GlobalVariantRow => ({
-  key: '101',
-  variant_id: '13-32316461-G-A',
-  chr: '13',
-  pos: 32316461,
-  ref: 'G',
-  alt: 'A',
-  rsid: null,
-  type: 'SNV',
-  gene: 'BRCA2',
-  gene_symbols: ['BRCA2'],
-  impact: 'MODERATE',
-  consequence: 'missense_variant',
-  effects: ['missense_variant'],
-  hgvsc: 'c.7007G>A',
-  hgvsp: null,
-  clinvar: 'Pathogenic',
-  classification: null,
-  tags: [],
-  total_samples: 1,
-  het_samples: 1,
-  hom_samples: 0,
-  total_families: 1,
-  last_seen: null,
-  ...overrides,
-});
+// A variant carried by one heterozygous sample, without an HGVS.p, unless a test says otherwise.
+const makeVariant = (overrides: Partial<GlobalVariantRow>): GlobalVariantRow =>
+  globalVariantRow({
+    hgvsp: null,
+    total_samples: 1,
+    het_samples: 1,
+    hom_samples: 0,
+    total_families: 1,
+    ...overrides,
+  });
 
 // Distinct counts, so each count button in the row has its own name.
 const BRCA2 = makeVariant({

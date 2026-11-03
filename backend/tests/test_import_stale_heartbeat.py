@@ -39,7 +39,7 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager
 import copy
-from datetime import datetime, timezone
+from datetime import datetime
 import json
 import logging
 from pathlib import Path
@@ -58,39 +58,12 @@ from backend.app.services import family_package_jobs as jobs
 from backend.app.services import family_package_registration as registration
 from backend.app.services import sv_gene_index_service, variant_ranking_cache
 from backend.app.services.access_control import CurrentUser
-from backend.app.services.family_metadata_context import FamilyMetadataContext
+from backend.tests._family_import_fakes import admin_user, two_sample_context
 
 FAMILY = "FAM001"
 FAMILY_UUID = "family-uuid"
 JOB = "00000000-0000-0000-0000-0000000000b7"
 WORKER = "worker-1"
-
-
-def _admin() -> CurrentUser:
-    return CurrentUser(
-        id="00000000-0000-0000-0000-000000000001",
-        username="admin@example.com",
-        email="admin@example.com",
-        role="admin",
-        created_at=datetime.now(timezone.utc),
-    )
-
-
-def _context() -> FamilyMetadataContext:
-    return FamilyMetadataContext(
-        family_uuid=FAMILY_UUID,
-        family_id=FAMILY,
-        project_ids=["project-uuid"],
-        sample_rows=[
-            {"sample_uuid": "uuid-S1", "sample_id": "S1", "sex": "male", "role": "proband", "affected": True},
-            {"sample_uuid": "uuid-S2", "sample_id": "S2", "sex": "female", "role": "mother", "affected": False},
-        ],
-        sample_uuid_to_name={"uuid-S1": "S1", "uuid-S2": "S2"},
-        sample_name_to_uuid={"S1": "uuid-S1", "S2": "uuid-S2"},
-        affected_sample_names=["S1"],
-        assembly_id="assembly-uuid",
-        assembly_name="GRCh38",
-    )
 
 
 async def _until(condition: Callable[[], bool], timeout: float = 5.0) -> None:
@@ -123,7 +96,7 @@ class _Store:
             "dry_run": False,
             "worker_id": WORKER,
             "requested_by": "admin@example.com",
-            "requested_by_id": _admin().id,
+            "requested_by_id": admin_user().id,
             "metadata": {"requested_family_id": None, "conflict_mode": "update"},
             "logs": [],
             "dataset_summaries": [],
@@ -341,13 +314,13 @@ def job(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> _Store:
     store = _Store(root)
 
     async def user(_session: Any, _user_id: str) -> CurrentUser:
-        return _admin()
+        return admin_user()
 
     async def register(session: Any, *, import_mark: Any = None, **_kwargs: Any) -> Any:
         await registration._mark_family_import_unfinished(
             session, family_uuid=FAMILY_UUID, mark=import_mark
         )
-        return _context(), False
+        return two_sample_context(), False
 
     @asynccontextmanager
     async def hold(_family_uuid: str, **_kwargs: Any):
@@ -777,7 +750,7 @@ async def _overwrite_import(job: _Store, job_id: str = JOB) -> Any:
         folder_path=job.job["submitted_path"],
         project_id="project-uuid",
         dry_run=False,
-        user=_admin(),
+        user=admin_user(),
         conflict_mode="overwrite",
         job_id=job_id,
     )
@@ -867,7 +840,7 @@ async def _import(job: _Store, job_id: str = JOB, conflict_mode: str = "overwrit
         folder_path=job.job["submitted_path"],
         project_id="project-uuid",
         dry_run=False,
-        user=_admin(),
+        user=admin_user(),
         conflict_mode=conflict_mode,
         job_id=job_id,
     )

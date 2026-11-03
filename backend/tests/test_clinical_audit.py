@@ -1,3 +1,13 @@
+"""The clinical audit trail of a family's reviews (``services/clinical_audit_service.py``).
+
+What a review save writes on the trail: the diff of a small-variant review (classification
+with every stored ACMG criterion, tags, note), of a structural-variant / CNV review (the
+reviewer's classification and the ClinGen scoring), one event per change and none for an
+unchanged re-save; the events written, each hash-chained onto its family's chain under the
+family's lock and verified by re-walking it; and the trail served a page at a time (AUDIT-1).
+The chain on real Postgres is in ``integration/test_hash_chain_integration.py``.
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -10,6 +20,8 @@ import pytest
 from fastapi import HTTPException
 
 from backend.app.services import clinical_audit_service as cas
+from backend.app.services.hash_chain import chain_row_hash
+from backend.tests._query_results import MappingRows as _Rows
 
 
 def test_diff_classification_change_labels_from_to() -> None:
@@ -42,13 +54,19 @@ def test_diff_criteria_only_change() -> None:
     }
     events = cas.diff_review_changes(existing, new)
     assert len(events) == 1 and events[0]["action"] == "classification"
-    assert "criteria updated" in events[0]["summary"]
+    assert events[0]["summary"] == "ACMG criteria updated (Likely pathogenic (class 4)): PP3 accepted"
 
 
 def test_diff_tags_added_and_removed() -> None:
     events = cas.diff_review_changes({"tags": ["report"]}, {"tags": ["acmg_class_4"]})
-    event = next(e for e in events if e["action"] == "tags")
-    assert "added acmg_class_4" in event["summary"] and "removed report" in event["summary"]
+    assert events == [
+        {
+            "action": "tags",
+            "summary": "Tags added acmg_class_4; removed report",
+            "before": {"tags": ["report"]},
+            "after": {"tags": ["acmg_class_4"]},
+        }
+    ]
 
 
 def test_diff_note_lifecycle() -> None:
@@ -80,21 +98,32 @@ def test_diff_new_review_records_every_aspect() -> None:
     assert {e["action"] for e in events} == {"classification", "tags", "note"}
 
 
+class _NoChainHead:
+    def mappings(self):
+        return self
+
+    def first(self):
+        return None  # no chain head -> this is the first chained row for the family
+
+
+class _InsertRecorder:
+    """Records the parameters of every statement; the family's chain is empty."""
+
+    def __init__(self) -> None:
+        self.calls: list[dict | None] = []
+
+    async def execute(self, _stmt, params=None):
+        self.calls.append(params)
+        return _NoChainHead()
+
+    def inserts(self) -> list[dict]:
+        # Each record_clinical_event also runs an advisory lock and a chain-head read, so
+        # these are the INSERT calls (the ones carrying the event content).
+        return [call for call in self.calls if call and "action" in call]
+
+
 def test_record_review_changes_writes_one_insert_per_change() -> None:
-    calls: list[dict] = []
-
-    class _Result:
-        def mappings(self):
-            return self
-
-        def first(self):
-            return None  # no chain head -> this is the first chained row for the family
-
-    class _Session:
-        async def execute(self, _stmt, params=None):
-            calls.append(params)
-            return _Result()
-
+    session = _InsertRecorder()
     user = types.SimpleNamespace(
         username="alice", email="a@x.org", id="00000000-0000-0000-0000-000000000001"
     )
@@ -112,7 +141,7 @@ def test_record_review_changes_writes_one_insert_per_change() -> None:
     }
     asyncio.run(
         cas.record_review_changes(
-            _Session(),
+            session,
             family_uuid="u1",
             family_identifier="FAM1",
             variant_id="1-1-A-G",
@@ -121,9 +150,7 @@ def test_record_review_changes_writes_one_insert_per_change() -> None:
             new_state=new,
         )
     )
-    # Each record_clinical_event now also runs an advisory-lock + chain-head read, so
-    # filter to the INSERT calls (the ones carrying the event content).
-    inserts = [c for c in calls if c and "action" in c]
+    inserts = session.inserts()
     assert len(inserts) == 3  # classification, tags, note
     assert {c["action"] for c in inserts} == {"classification", "tags", "note"}
     assert all(c["actor"] == "alice" and c["variant_id"] == "1-1-A-G" for c in inserts)
@@ -304,24 +331,11 @@ def test_structural_diff_deleted_review_records_every_aspect() -> None:
 
 
 def test_record_structural_review_changes_marks_the_events_as_sv() -> None:
-    calls: list[dict] = []
-
-    class _Result:
-        def mappings(self):
-            return self
-
-        def first(self):
-            return None
-
-    class _Session:
-        async def execute(self, _stmt, params=None):
-            calls.append(params)
-            return _Result()
-
+    session = _InsertRecorder()
     user = types.SimpleNamespace(username="bob", email="b@x.org", id=None)
     asyncio.run(
         cas.record_structural_review_changes(
-            _Session(),
+            session,
             family_uuid="u1",
             family_identifier="FAM1",
             variant_id="1-1000-2000-DEL---",
@@ -330,11 +344,110 @@ def test_record_structural_review_changes_marks_the_events_as_sv() -> None:
             new_state=_sv_review(classification="Pathogenic", note="n"),
         )
     )
-    inserts = [c for c in calls if c and "action" in c]
+    inserts = session.inserts()
     assert [c["action"] for c in inserts] == ["classification", "note"]
     assert all(json.loads(c["metadata"]) == {"modality": "sv"} for c in inserts)
     assert all(c["actor"] == "bob" and c["variant_id"] == "1-1000-2000-DEL---" for c in inserts)
     assert all(c["row_hash"] for c in inserts)
+
+
+# --- the chain each family's events are written on (#261) -------------------------------------
+
+
+class _AuditTrail:
+    """``clinical_audit_events`` as Postgres keeps it: the rows written, each JSONB value read
+    back decoded from its text, a family's chain in (created_at, id) order."""
+
+    def __init__(self) -> None:
+        self.rows: list[dict] = []
+        self.locks: list[str] = []
+
+    def chain(self, family_identifier: str | None) -> list[dict]:
+        return sorted(
+            (row for row in self.rows if row["family_identifier"] == family_identifier and row["row_hash"]),
+            key=lambda row: (row["created_at"], row["id"]),
+        )
+
+    async def execute(self, statement, params=None):
+        sql = " ".join(str(statement).split())
+        params = dict(params or {})
+        if "pg_advisory_xact_lock" in sql:
+            self.locks.append(params["k"])
+            return _Rows([])
+        if sql.startswith("SELECT created_at, row_hash FROM clinical_audit_events"):
+            return _Rows(self.chain(params["family_identifier"])[-1:])
+        if sql.startswith("INSERT INTO clinical_audit_events"):
+            row = dict(params)
+            for key in ("before", "after", "metadata"):
+                row[key] = json.loads(row[key]) if row[key] is not None else None
+            self.rows.append(row)
+            return _Rows([])
+        if "FROM clinical_audit_events" in sql and "ORDER BY created_at ASC, id ASC" in sql:
+            return _Rows(self.chain(params["family_identifier"]))
+        raise AssertionError(f"unexpected SQL: {sql}")
+
+
+async def _event(trail: _AuditTrail, family_identifier: str | None, summary: str) -> None:
+    await cas.record_clinical_event(
+        trail,  # type: ignore[arg-type]
+        family_uuid=None,
+        family_identifier=family_identifier,
+        variant_id="1-1-A-G",
+        actor="analyst-a",
+        actor_id=None,
+        action="note",
+        summary=summary,
+        before={"note": None},
+        after={"note": summary},
+    )
+
+
+def test_each_event_links_to_its_familys_chain_head_and_the_chain_verifies() -> None:
+    trail = _AuditTrail()
+
+    async def write() -> None:
+        for family, summary in (("FAM1", "first"), ("FAM2", "other family"), ("FAM1", "second"), (None, "orphan")):
+            await _event(trail, family, summary)
+
+    asyncio.run(write())
+
+    # Under the family's own lock; an event without a family on the orphan chain.
+    assert trail.locks == ["cae:FAM1", "cae:FAM2", "cae:FAM1", "cae:orphan"]
+    first, second = trail.chain("FAM1")
+    assert (first["summary"], first["prev_hash"]) == ("first", None)
+    assert (second["summary"], second["prev_hash"]) == ("second", first["row_hash"])
+    assert second["row_hash"] == chain_row_hash(first["row_hash"], cas._clinical_chain_payload(second))
+    for family, rows in (("FAM1", 2), ("FAM2", 1), (None, 1)):
+        verified = asyncio.run(cas.verify_clinical_audit_chain(trail, family))  # type: ignore[arg-type]
+        assert (verified.verified, verified.rows_checked) == (True, rows), family
+
+    # An event edited afterwards breaks its family's chain at that event.
+    second["summary"] = "second, edited"
+    tampered = asyncio.run(cas.verify_clinical_audit_chain(trail, "FAM1"))  # type: ignore[arg-type]
+    assert (tampered.verified, tampered.first_bad_row, tampered.reason) == (
+        False,
+        second["id"],
+        "row_hash mismatch (row content tampered)",
+    )
+
+
+def test_an_event_written_while_the_clock_is_behind_the_chain_head_still_follows_it() -> None:
+    # A clock that stepped back (or two events in one microsecond): the event is stamped a
+    # microsecond after the head, so the chain's order is the order it was written in.
+    trail = _AuditTrail()
+    asyncio.run(_event(trail, "FAM1", "first"))
+    head = trail.rows[0]
+    head["created_at"] = datetime.now(timezone.utc) + timedelta(hours=1)
+    head["row_hash"] = chain_row_hash(None, cas._clinical_chain_payload(head))
+
+    asyncio.run(_event(trail, "FAM1", "second"))
+
+    following = trail.rows[1]
+    assert following["created_at"] == head["created_at"] + timedelta(microseconds=1)
+    assert [row["summary"] for row in trail.chain("FAM1")] == ["first", "second"]
+    assert following["prev_hash"] == head["row_hash"]
+    verified = asyncio.run(cas.verify_clinical_audit_chain(trail, "FAM1"))  # type: ignore[arg-type]
+    assert (verified.verified, verified.rows_checked) == (True, 2)
 
 
 # --- every change to the stored ACMG record is recorded (small variants) ----------------------
@@ -431,6 +544,17 @@ def test_diff_an_unchanged_resave_of_the_full_record_writes_nothing() -> None:
     record = _acmg(LP, PS3, PM2, ("PM1", "moderate", False, "considered", True), point_total=6)
     reordered = _acmg(LP, ("PM1", "moderate", False, "considered", True), PM2, PS3, point_total=6)
     assert cas.diff_review_changes(record, reordered) == []
+
+
+def test_diff_a_strength_first_set_reads_from_none_and_unreadable_criteria_are_left_out() -> None:
+    # A criterion stored without a code, or not as an object, holds nothing a reviewer chose:
+    # it is no part of the audited record. A strength set where none was reads "none →".
+    event = _classification_event(
+        {**_acmg(LP), "acmg": {"criteria": [{"code": "PM2", "strength": None, "accepted": True}, {"code": ""}, "PS3"]}},
+        _acmg(LP, PM2),
+    )
+    assert event["summary"] == "ACMG criteria updated (Likely pathogenic (class 4)): PM2 none → moderate"
+    assert [c["code"] for c in event["before"]["criteria_detail"]] == ["PM2"]
 
 
 def test_diff_many_changes_are_shortened_in_the_summary_but_all_recorded() -> None:
@@ -533,20 +657,6 @@ def _event_row(n: int, *, total: int) -> dict:
         "before": None,
         "after": {"n": n},
     }
-
-
-class _Rows:
-    def __init__(self, rows: list[dict]) -> None:
-        self._rows = rows
-
-    def mappings(self):
-        return self
-
-    def all(self) -> list[dict]:
-        return list(self._rows)
-
-    def first(self) -> dict | None:
-        return self._rows[0] if self._rows else None
 
 
 class _TrailSession:

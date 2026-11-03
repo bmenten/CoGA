@@ -29,6 +29,8 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy import text
 
+from backend.tests.integration._datastores import fresh_assembly, fresh_species
+
 pytestmark = pytest.mark.integration
 
 _NEW_INDEX = "idx_clinical_cnv_kb_jobs_one_active"
@@ -57,22 +59,8 @@ async def _seed_assembly(sm) -> tuple[str, str]:
     """A species and assembly of the test's own; deleting the species removes its jobs."""
     name = f"cnv-kb-{uuid4()}"
     async with sm() as s:
-        species = (
-            await s.execute(
-                text(
-                    "INSERT INTO species (name, common_name, tax_id) "
-                    "VALUES (:n, 'test', :t) RETURNING id::text"
-                ),
-                {"n": name, "t": uuid4().int % 2_000_000_000},
-            )
-        ).scalar_one()
-        await s.execute(
-            text(
-                "INSERT INTO assemblies (species_id, assembly_name, version, release_date) "
-                "VALUES (CAST(:s AS uuid), :a, 'v1', '2020-01-01')"
-            ),
-            {"s": species, "a": name},
-        )
+        species = await fresh_species(s, name)
+        await fresh_assembly(s, species, name)
         # The rule is global and the integration database is shared: start with no active job.
         await s.execute(text("DELETE FROM clinical_cnv_kb_jobs WHERE status IN ('queued', 'running')"))
         await s.commit()

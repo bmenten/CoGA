@@ -26,7 +26,6 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 import copy
 import dataclasses
-from datetime import datetime, timezone
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -44,8 +43,7 @@ from backend.app.services import (
     sv_gene_index_service,
     variant_ranking_cache,
 )
-from backend.app.services.access_control import CurrentUser
-from backend.app.services.family_metadata_context import FamilyMetadataContext, SampleMetadataContext
+from backend.app.services.family_metadata_context import SampleMetadataContext
 from backend.app.services.family_package_common import (
     APCAD_PCF_SOURCE,
     APCAD_PCF_TRACK_TYPE,
@@ -57,6 +55,7 @@ from backend.app.services.family_package_common import (
     ParsedPed,
 )
 from backend.app.services.nipt_target_coverage import TARGET_COVERAGE_SOURCE, TARGET_COVERAGE_TRACK_TYPE
+from backend.tests._family_import_fakes import admin_user, two_sample_context
 
 FAMILY = "FAM001"
 SAMPLES = ("S1", "S2")
@@ -196,25 +195,8 @@ def stores(monkeypatch: pytest.MonkeyPatch) -> _Stores:
 # --- a dataset of the package, imported as the import loop runs its importer --------------
 
 
-def _family_context() -> FamilyMetadataContext:
-    return FamilyMetadataContext(
-        family_uuid="family-uuid",
-        family_id=FAMILY,
-        project_ids=["project-uuid"],
-        sample_rows=[
-            {"sample_uuid": _uuid("S1"), "sample_id": "S1", "sex": "male", "role": "proband", "affected": True},
-            {"sample_uuid": _uuid("S2"), "sample_id": "S2", "sex": "female", "role": "mother", "affected": False},
-        ],
-        sample_uuid_to_name={_uuid(sample): sample for sample in SAMPLES},
-        sample_name_to_uuid={sample: _uuid(sample) for sample in SAMPLES},
-        affected_sample_names=["S1"],
-        assembly_id="assembly-uuid",
-        assembly_name="GRCh38",
-    )
-
-
 def _samples() -> dict[str, SampleMetadataContext]:
-    return registration._family_sample_contexts(_family_context())
+    return registration._family_sample_contexts(two_sample_context())
 
 
 def _file(root: Path, name: str, text: str = _BED) -> str:
@@ -242,7 +224,7 @@ def _job(
         ),
         dataset=dataset,
         summary=FamilyImportDatasetSummary(dataset_type=dataset_type, status="valid"),
-        family_context=_family_context(),
+        family_context=two_sample_context(),
         sample_contexts=_samples(),
         conflict_mode="update",
     )
@@ -729,16 +711,6 @@ def test_a_skip_is_not_counted_as_importing_a_dataset_again() -> None:
 # --- through the import: the family's import-incomplete flag ----------------------------------
 
 
-def _admin() -> CurrentUser:
-    return CurrentUser(
-        id="00000000-0000-0000-0000-000000000001",
-        username="admin@example.com",
-        email="admin@example.com",
-        role="admin",
-        created_at=datetime.now(timezone.utc),
-    )
-
-
 @pytest.fixture
 def package(stores: _Stores, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     """FAM001's package, coverage for S1 and S2, imported into the existing family by the
@@ -778,7 +750,7 @@ def package(stores: _Stores, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
 
     async def register(session: Any, *, import_mark: Any = None, **_kwargs: Any):
         await registration._mark_family_import_unfinished(session, family_uuid="family-uuid", mark=import_mark)
-        return _family_context(), False
+        return two_sample_context(), False
 
     @asynccontextmanager
     async def hold(_family_uuid: str, **_kwargs: Any):
@@ -804,7 +776,7 @@ async def _update(stores: _Stores, root: Path) -> Any:
         folder_path=root,
         project_id="project-uuid",
         dry_run=False,
-        user=_admin(),
+        user=admin_user(),
         conflict_mode="update",
         job_id="job-2",
     )

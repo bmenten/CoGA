@@ -1,6 +1,7 @@
-import { describe, expect, it, vi } from 'vitest';
+import type { InternalAxiosRequestConfig } from 'axios';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { endExpiredSession, hasAuthorizationHeader, normalizeApiTransportError, shouldAttachStoredToken } from '../api';
+import api, { endExpiredSession, hasAuthorizationHeader, normalizeApiTransportError, shouldAttachStoredToken } from '../api';
 import { getAuthToken, persistSession } from '../auth';
 
 describe('api auth header handling', () => {
@@ -56,5 +57,52 @@ describe('an expired session', () => {
       endExpiredSession({ pathname, search: '', hash: '', replace });
     }
     expect(replace).not.toHaveBeenCalled();
+  });
+});
+
+// The API client's own handling of an answer, through its interceptors: until this test only
+// the functions they call ran in a test, not the wiring.
+describe('a request through the API client', () => {
+  const answers = vi.fn<(config: InternalAxiosRequestConfig) => Promise<never>>();
+  let adapter: typeof api.defaults.adapter;
+
+  beforeEach(() => {
+    adapter = api.defaults.adapter;
+    api.defaults.adapter = answers;
+    // A sign-in page: the expired session is ended without navigating away, which jsdom cannot.
+    window.history.replaceState(null, '', '/login');
+    persistSession('session-token', 'analyst', 'viewer');
+  });
+
+  afterEach(() => {
+    api.defaults.adapter = adapter;
+    answers.mockReset();
+    window.history.replaceState(null, '', '/');
+  });
+
+  const refusedWith = (status: number) =>
+    answers.mockImplementation(async (config) => {
+      throw Object.assign(new Error(`Request failed with status code ${status}`), { config, response: { status } });
+    });
+
+  it("carries the session's token, and ends the session only when the API refuses it (401)", async () => {
+    refusedWith(500);
+    await expect(api.get('/families')).rejects.toMatchObject({ response: { status: 500 } });
+    expect(answers.mock.calls[0][0].headers.Authorization).toBe('Bearer session-token');
+    expect(getAuthToken()).toBe('session-token');
+
+    refusedWith(401);
+    await expect(api.get('/families')).rejects.toMatchObject({ response: { status: 401 } });
+    expect(getAuthToken()).toBeNull();
+  });
+
+  it('says the API cannot be reached when a request gets no answer', async () => {
+    answers.mockImplementation(async (config) => {
+      throw Object.assign(new Error('Network Error'), { config, request: {} });
+    });
+
+    await expect(api.get('/families')).rejects.toThrow(/^Unable to reach the API at /);
+    // Not an answer from the API: the session stays.
+    expect(getAuthToken()).toBe('session-token');
   });
 });

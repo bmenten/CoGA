@@ -2,9 +2,11 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { ComponentProps } from 'react';
 import { MemoryRouter } from 'react-router';
-import { describe, expect, it, vi, type Mock } from 'vitest';
+import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import ChromosomeViewWorkspace from '../ChromosomeViewWorkspace';
 import api from '../../../lib/api';
+import type { ApiFamilyMember, ApiFamilyRegionOfInterest } from '../../../lib/apiTypes';
+import type { HaplotypePhaseCorrection } from '../../../lib/haplotypePhaseCorrections';
 import { createTestQueryClient } from '../../../test/createTestQueryClient';
 import {
   INCOMPLETE_IMPORT_METADATA,
@@ -12,7 +14,15 @@ import {
   findImportIncompleteBanner,
 } from '../../../test/familyPageBanners';
 
-const coverageSegmentsChartMock = vi.hoisted(() => vi.fn());
+// The props each mocked track was last drawn with, by sample.
+const { coverageSegmentsChartMock, trackProps } = vi.hoisted(() => ({
+  coverageSegmentsChartMock: vi.fn(),
+  trackProps: {
+    smallVariants: new Map<string, Record<string, unknown>>(),
+    haplotypes: new Map<string, Record<string, unknown>>(),
+    svs: new Map<string, Record<string, unknown>>(),
+  },
+}));
 
 vi.mock('../../../lib/api', () => ({
   default: {
@@ -51,11 +61,17 @@ vi.mock('../../../components/visualizations/ZoomedIdeogram', () => ({
 }));
 
 vi.mock('../../../components/visualizations/VariantTrack', () => ({
-  default: () => <div data-testid="variant-track" />,
+  default: (props: { sampleId: string }) => {
+    trackProps.svs.set(props.sampleId, props);
+    return <div data-testid="variant-track" />;
+  },
 }));
 
 vi.mock('../../../components/visualizations/HaplotypePhasedTrack', () => ({
-  default: () => <div data-testid="haplotype-track" />,
+  default: (props: { sampleId: string }) => {
+    trackProps.haplotypes.set(props.sampleId, props);
+    return <div data-testid="haplotype-track" />;
+  },
 }));
 
 vi.mock('../../../components/visualizations/GeneTrack', () => ({
@@ -75,7 +91,10 @@ vi.mock('../../../components/visualizations/SegmentalDuplicationTrack', () => ({
 }));
 
 vi.mock('../../../components/visualizations/SmallVariantTrack', () => ({
-  default: () => <div data-testid="small-variant-track" />,
+  default: (props: { sampleId: string }) => {
+    trackProps.smallVariants.set(props.sampleId, props);
+    return <div data-testid="small-variant-track" />;
+  },
 }));
 
 vi.mock('../../../components/visualizations/RepeatExpansionTrack', () => ({
@@ -90,7 +109,9 @@ vi.mock('../ViewerMemberSection', () => ({
   default: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
 
-vi.mock('../ViewerTrackBlock', () => ({
+vi.mock('../ViewerTrackBlock', async (importOriginal) => ({
+  // TrackMeta, the filters a variant track's head lists, as drawn.
+  ...(await importOriginal<typeof import('../ViewerTrackBlock')>()),
   default: ({ children, label, meta }: { children: React.ReactNode; label: string; meta?: React.ReactNode }) => (
     <section aria-label={label}>
       <h2>{label}</h2>
@@ -100,10 +121,45 @@ vi.mock('../ViewerTrackBlock', () => ({
   ),
 }));
 
-const renderWorkspace = (
-  onJumpToRegion = vi.fn(),
-  overrides: Partial<ComponentProps<typeof ChromosomeViewWorkspace>> = {},
-) => {
+type Props = ComponentProps<typeof ChromosomeViewWorkspace>;
+
+/** The tracks the sidebar shows: none, unless a test turns one on. */
+const tracksShown = (fields: Partial<Props['trackVisibility']> = {}): Props['trackVisibility'] => ({
+  coverage: false,
+  apcad: false,
+  variants: false,
+  smallVariants: false,
+  haplotypes: false,
+  phasedMarkers: false,
+  repeatExpansions: false,
+  parentalOrigin: false,
+  ...fields,
+});
+
+/** What the track availability says a sample has: nothing, but the fields a test sets. */
+const sampleAvailability = (fields: Partial<Props['availability'][string]> = {}): Props['availability'][string] => ({
+  coverage: false,
+  coverageSources: [],
+  coverageNormalizations: {},
+  coverageContents: {},
+  apcadSources: [],
+  apcad: false,
+  apcadPcf: false,
+  variants: false,
+  smallVariants: false,
+  haplotypes: false,
+  repeatExpansions: false,
+  ...fields,
+});
+
+/** Shows `members`, each with data, on the tracks the test turns on. */
+const withMembers = (members: ApiFamilyMember[]): Partial<Props> => ({
+  familyMembers: members,
+  visibleMembers: members,
+  membersWithData: members,
+});
+
+const renderWorkspace = (overrides: Partial<Props> = {}) => {
   const queryClient = createTestQueryClient();
 
   render(
@@ -136,21 +192,12 @@ const renderWorkspace = (
           onZoom={vi.fn()}
           onRegionSelect={vi.fn()}
           onRoiZoom={vi.fn()}
-          onJumpToRegion={onJumpToRegion}
+          onJumpToRegion={vi.fn()}
           familyMembers={[]}
           visibleMembers={[]}
           membersWithData={[]}
           availability={{}}
-          trackVisibility={{
-            coverage: false,
-            apcad: false,
-            variants: false,
-            smallVariants: false,
-            haplotypes: false,
-            phasedMarkers: false,
-            repeatExpansions: false,
-            parentalOrigin: false,
-          }}
+          trackVisibility={tracksShown()}
           variantFilters={{}}
           sampleFilterMap={{}}
           detailWindow={5000}
@@ -165,14 +212,20 @@ const renderWorkspace = (
   );
 };
 
+const PROBAND_S1: ApiFamilyMember = { sample_id: 'S1', role: 'proband', affected: true, sex: 'male' };
+const EMBRYO: ApiFamilyMember = { sample_id: 'EMB1', role: 'embryo', affected: false, sex: 'female' };
+
 describe('ChromosomeViewWorkspace', () => {
+  beforeEach(() => {
+    Object.values(trackProps).forEach((drawn) => drawn.clear());
+  });
+
   // #607 — which tracks a sample has decides which are mounted: a failed availability
   // request is not a sample without data.
   it('says the track availability failed, not that the samples have no data', () => {
     const retry = vi.fn();
-    const member = { sample_id: 'S1', role: 'proband', affected: true, sex: 'male' };
-    renderWorkspace(vi.fn(), {
-      visibleMembers: [member],
+    renderWorkspace({
+      visibleMembers: [PROBAND_S1],
       tracksFailure: {
         what: 'which tracks each sample has',
         error: new Error('Request failed with status code 500'),
@@ -189,9 +242,7 @@ describe('ChromosomeViewWorkspace', () => {
   });
 
   it('says a sample without tracks has no data once availability is known', () => {
-    renderWorkspace(vi.fn(), {
-      visibleMembers: [{ sample_id: 'S1', role: 'proband', affected: true, sex: 'male' }],
-    });
+    renderWorkspace({ visibleMembers: [PROBAND_S1] });
 
     expect(screen.getByText('No BED data for selected samples.')).toBeInTheDocument();
   });
@@ -199,7 +250,7 @@ describe('ChromosomeViewWorkspace', () => {
   // The view draws the family's data like any family page: a partly imported family, or one
   // off the validated scope, is said so in its header.
   it('warns in its header that the import is incomplete and the assembly is not validated', async () => {
-    renderWorkspace(vi.fn(), {
+    renderWorkspace({
       assembly: 'GRCh37',
       assemblyValidated: false,
       familyMetadata: INCOMPLETE_IMPORT_METADATA,
@@ -211,7 +262,7 @@ describe('ChromosomeViewWorkspace', () => {
   });
 
   it('shows neither warning for a complete family inside the validated scope', () => {
-    renderWorkspace(vi.fn(), { assemblyValidated: true, familyMetadata: {} });
+    renderWorkspace({ assemblyValidated: true, familyMetadata: {} });
 
     expect(screen.queryByText('Import incomplete.')).not.toBeInTheDocument();
     expect(screen.queryByText('Not validated for clinical use.')).not.toBeInTheDocument();
@@ -222,7 +273,7 @@ describe('ChromosomeViewWorkspace', () => {
   // the API reads as M, chrM and chrMT alike.
   it('names each chromosome in its list as the header does, the mitochondrion chrM', () => {
     const onChromChange = vi.fn();
-    renderWorkspace(vi.fn(), { chrom: 'MT', region: { start: 0, end: 16_569 }, onChromChange });
+    renderWorkspace({ chrom: 'MT', region: { start: 0, end: 16_569 }, onChromChange });
 
     const list = screen.getByRole('combobox', { name: 'Chromosome' });
     expect(within(list).getAllByRole('option').map((option) => option.textContent)).toEqual([
@@ -239,87 +290,20 @@ describe('ChromosomeViewWorkspace', () => {
   });
 
   it('requests coverage and segments for the active chromosome window', () => {
-    const queryClient = createTestQueryClient();
-    const member = {
-      sample_id: 'S1',
-      role: 'proband',
-      affected: true,
-      sex: 'male',
-    };
-
-    coverageSegmentsChartMock.mockClear();
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter>
-          <ChromosomeViewWorkspace
-            familyId="F1"
-            familyDisplayId="F1"
-            chrom="1"
-            speciesName="Homo sapiens"
-            assemblyVersion="p14"
-            assembly="GRCh38"
-            assemblyId="asm1"
-            projectId="p1"
-            trackAreaRef={{ current: null }}
-            region={{ start: 1_000_000, end: 2_000_000 }}
-            trackWidth={1200}
-            backDest="/families/F1/structural-variants"
-            genomeViewHref="/families/F1/genome"
-            igvHref="/families/F1/igv"
-            chromInfoSize={248_956_422}
-            visibleRoi={null}
-            inheritanceModel={null}
-            chromosomeRoiRange={null}
-            regionRoiRange={null}
-            onChromChange={vi.fn()}
-            onRegionStartChange={vi.fn()}
-            onRegionEndChange={vi.fn()}
-            onResetRange={vi.fn()}
-            onPan={vi.fn()}
-            onZoom={vi.fn()}
-            onRegionSelect={vi.fn()}
-            onRoiZoom={vi.fn()}
-            onJumpToRegion={vi.fn()}
-            familyMembers={[member]}
-            visibleMembers={[member]}
-            membersWithData={[member]}
-            availability={{
-              S1: {
-                coverage: true,
-                coverageSources: ['hificnv'],
-                coverageNormalizations: { hificnv: ['log2_ratio_to_autosomal_median'] },
-                coverageContents: { hificnv: 'log2_ratio' },
-                apcadSources: [],
-                apcad: false,
-                apcadPcf: false,
-                variants: false,
-                smallVariants: false,
-                haplotypes: false,
-                repeatExpansions: false,
-              },
-            }}
-            trackVisibility={{
-              coverage: true,
-              apcad: false,
-              variants: false,
-              smallVariants: false,
-              haplotypes: false,
-            phasedMarkers: false,
-              repeatExpansions: false,
-              parentalOrigin: false,
-            }}
-            variantFilters={{}}
-            sampleFilterMap={{}}
-            detailWindow={5000}
-            binLimit={500}
-            apcadPointLimit={2000}
-            segmentLimit={500}
-            showViewerLoading={false}
-          />
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderWorkspace({
+      region: { start: 1_000_000, end: 2_000_000 },
+      inheritanceModel: null,
+      ...withMembers([PROBAND_S1]),
+      availability: {
+        S1: sampleAvailability({
+          coverage: true,
+          coverageSources: ['hificnv'],
+          coverageNormalizations: { hificnv: ['log2_ratio_to_autosomal_median'] },
+          coverageContents: { hificnv: 'log2_ratio' },
+        }),
+      },
+      trackVisibility: tracksShown({ coverage: true }),
+    });
 
     const props = coverageSegmentsChartMock.mock.calls[0][0] as {
       coverageUrls: string[];
@@ -337,38 +321,17 @@ describe('ChromosomeViewWorkspace', () => {
   // does not declare what it holds on its own range, without an axis, and never with the
   // segments, which are log2 ratios.
   it('draws each coverage track on the axis of what it holds, and says why where that is not a log2 ratio', () => {
-    const member = { sample_id: 'S1', role: 'proband', affected: true, sex: 'male' };
-    coverageSegmentsChartMock.mockClear();
-
-    renderWorkspace(vi.fn(), {
-      familyMembers: [member],
-      visibleMembers: [member],
-      membersWithData: [member],
+    renderWorkspace({
+      ...withMembers([PROBAND_S1]),
       availability: {
-        S1: {
+        S1: sampleAvailability({
           coverage: true,
           coverageSources: ['web', 'wisecondorx', 'hificnv'],
           coverageNormalizations: { hificnv: ['none'] },
           coverageContents: { hificnv: 'read_depth', web: 'unknown', wisecondorx: 'log2_ratio' },
-          apcadSources: [],
-          apcad: false,
-          apcadPcf: false,
-          variants: false,
-          smallVariants: false,
-          haplotypes: false,
-          repeatExpansions: false,
-        },
+        }),
       },
-      trackVisibility: {
-        coverage: true,
-        apcad: false,
-        variants: false,
-        smallVariants: false,
-        haplotypes: false,
-        phasedMarkers: false,
-        repeatExpansions: false,
-        parentalOrigin: false,
-      },
+      trackVisibility: tracksShown({ coverage: true }),
     });
 
     // Every caller keeps its row, in display order, and is drawn ...
@@ -406,41 +369,10 @@ describe('ChromosomeViewWorkspace', () => {
   });
 
   it("draws an embryo's parental origin from its segregation table only when asked for", () => {
-    const member = { sample_id: 'EMB1', role: 'embryo', affected: false, sex: 'female' };
-    const availability = {
-      EMB1: {
-        coverage: false,
-        coverageSources: [],
-        coverageNormalizations: {},
-        coverageContents: {},
-        apcadSources: [],
-        apcad: false,
-        apcadPcf: false,
-        apcadSegregation: true,
-        variants: false,
-        smallVariants: false,
-        haplotypes: false,
-        repeatExpansions: false,
-      },
-    };
-    const visibility = {
-      coverage: false,
-      apcad: false,
-      variants: false,
-      smallVariants: false,
-      haplotypes: false,
-      phasedMarkers: false,
-      repeatExpansions: false,
-      parentalOrigin: true,
-    };
-    parentalOriginChartMock.mockClear();
-
-    renderWorkspace(vi.fn(), {
-      familyMembers: [member],
-      visibleMembers: [member],
-      membersWithData: [member],
-      availability,
-      trackVisibility: visibility,
+    renderWorkspace({
+      ...withMembers([EMBRYO]),
+      availability: { EMB1: sampleAvailability({ apcadSegregation: true }) },
+      trackVisibility: tracksShown({ parentalOrigin: true }),
     });
 
     expect(screen.getByTestId('parental-origin-chart')).toBeInTheDocument();
@@ -452,27 +384,9 @@ describe('ChromosomeViewWorkspace', () => {
   });
 
   it('draws no parental origin while the toggle is off', () => {
-    const member = { sample_id: 'EMB1', role: 'embryo', affected: false, sex: 'female' };
-    renderWorkspace(vi.fn(), {
-      familyMembers: [member],
-      visibleMembers: [member],
-      membersWithData: [member],
-      availability: {
-        EMB1: {
-          coverage: false,
-          coverageSources: [],
-          coverageNormalizations: {},
-          coverageContents: {},
-          apcadSources: [],
-          apcad: false,
-          apcadPcf: false,
-          apcadSegregation: true,
-          variants: false,
-          smallVariants: false,
-          haplotypes: false,
-          repeatExpansions: false,
-        },
-      },
+    renderWorkspace({
+      ...withMembers([EMBRYO]),
+      availability: { EMB1: sampleAvailability({ apcadSegregation: true }) },
     });
 
     expect(screen.queryByTestId('parental-origin-chart')).toBeNull();
@@ -481,37 +395,16 @@ describe('ChromosomeViewWorkspace', () => {
   it('encodes the caller it asks the coverage and segments for (ENG-7)', () => {
     // A caller's name went into the BED URLs as written: one with an `&` or a `#` would have
     // ended the parameter there.
-    const member = { sample_id: 'S1', role: 'proband', affected: true, sex: 'male' };
-    coverageSegmentsChartMock.mockClear();
-    renderWorkspace(vi.fn(), {
-      familyMembers: [member],
-      visibleMembers: [member],
-      membersWithData: [member],
+    renderWorkspace({
+      ...withMembers([PROBAND_S1]),
       availability: {
-        S1: {
+        S1: sampleAvailability({
           coverage: true,
           coverageSources: ['cnv&kit#2'],
-          coverageNormalizations: {},
           coverageContents: { 'cnv&kit#2': 'log2_ratio' },
-          apcadSources: [],
-          apcad: false,
-          apcadPcf: false,
-          variants: false,
-          smallVariants: false,
-          haplotypes: false,
-          repeatExpansions: false,
-        },
+        }),
       },
-      trackVisibility: {
-        coverage: true,
-        apcad: false,
-        variants: false,
-        smallVariants: false,
-        haplotypes: false,
-        phasedMarkers: false,
-        repeatExpansions: false,
-        parentalOrigin: false,
-      },
+      trackVisibility: tracksShown({ coverage: true }),
     });
 
     const [[props]] = coverageSegmentsChartMock.mock.calls as [[{ coverageUrls: string[]; segmentsUrls?: string[] }]];
@@ -519,6 +412,137 @@ describe('ChromosomeViewWorkspace', () => {
       const params = new URL(url, 'http://test').searchParams;
       expect([params.get('source'), params.get('format')]).toEqual(['cnv&kit#2', 'json']);
     }
+  });
+
+  // A child's small variants are drawn on three rows: inherited from the father, from the
+  // mother, or not determined. A parent's, with no parent of its own in the family, on one.
+  // The SV and small-variant tracks read the search's filters, and each sample's own genotype
+  // filter.
+  it("splits a child's small variants by parental origin, a parent's not, with each sample's own filter", () => {
+    const father: ApiFamilyMember = { sample_id: 'FATHER1', role: 'father', affected: false, sex: 'male' };
+    const mother: ApiFamilyMember = { sample_id: 'MOTHER', role: 'mother', affected: false, sex: 'female' };
+    const proband: ApiFamilyMember = { sample_id: 'PROBAND', role: 'proband', affected: true, sex: 'female' };
+    const available = sampleAvailability({ smallVariants: true, variants: true });
+    renderWorkspace({
+      ...withMembers([proband, father, mother]),
+      availability: { PROBAND: available, FATHER1: available, MOTHER: available },
+      trackVisibility: tracksShown({ smallVariants: true, variants: true }),
+      variantFilters: { impact: 'HIGH' },
+      sampleFilterMap: { PROBAND: 'het' },
+    });
+
+    expect(trackProps.smallVariants.get('PROBAND')).toMatchObject({
+      paternalSampleId: 'FATHER1',
+      maternalSampleId: 'MOTHER',
+      height: 45,
+      filters: { impact: 'HIGH', sample_filter: 'het' },
+    });
+    for (const parent of ['FATHER1', 'MOTHER']) {
+      expect(trackProps.smallVariants.get(parent)).toMatchObject({
+        paternalSampleId: null,
+        maternalSampleId: null,
+        height: 20,
+      });
+      expect(trackProps.smallVariants.get(parent)?.filters).toEqual({ impact: 'HIGH' });
+      expect(trackProps.svs.get(parent)?.filters).toEqual({ impact: 'HIGH' });
+    }
+    expect(trackProps.svs.get('PROBAND')?.filters).toEqual({ impact: 'HIGH', sample_filter: 'het' });
+  });
+
+  // A parent's phase switches the haplotype import undid are marked on that parent's track
+  // only, and only on their chromosome. The ROI is the risk region of a chromosome it lies on,
+  // and an embryo the PGT analysis leaves uncalled for markers that mix both of a parent's
+  // homologs is warned of it on its track, as on the family page.
+  describe('the haplotype tracks', () => {
+    const father: ApiFamilyMember = { sample_id: 'FATHER1', role: 'father', affected: true, sex: 'male' };
+    const mother: ApiFamilyMember = { sample_id: 'MOTHER', role: 'mother', affected: false, sex: 'female' };
+    const correction = (parent: string, side: 'father' | 'mother', chr: string): HaplotypePhaseCorrection => ({
+      parent,
+      side,
+      chr,
+      position: 30_400_000,
+      end: 30_450_000,
+      children_switching: 3,
+      children: 3,
+    });
+    const ROI: ApiFamilyRegionOfInterest = {
+      query: 'GENE1',
+      label: 'GENE1',
+      source: 'gene',
+      chr: 'chr1',
+      start: 30_500_000,
+      end: 30_600_000,
+    };
+    // EMB1's markers at the ROI mix both of the father's homologs.
+    const PGT_ANALYSIS = {
+      disease_haplotype_resolved: true,
+      phase_corrections: [],
+      inputs: { markers_truncated: false },
+      rules: { qc_thresholds: { max_marker_discordance: 0.1 } },
+      embryos: [
+        {
+          sample: 'EMB1',
+          call: 'uninformative',
+          recombinations: [],
+          roi_not_covered: false,
+          sex_dependent: null,
+          qc_verdict: null,
+          mixed_homologs: ['paternal'],
+          qc: { paternal_discordance: 0.3, paternal_markers: 40 },
+        },
+      ],
+    };
+    const renderHaplotypes = (members: ApiFamilyMember[], overrides: Partial<Props> = {}) => {
+      // The reference tracks (genes, DGV, …) ask for their own data: none here.
+      (api.get as unknown as Mock).mockImplementation((url: string) =>
+        Promise.resolve({ data: url === '/families/F1/pgt-analysis' ? PGT_ANALYSIS : [] }),
+      );
+      renderWorkspace({
+        ...withMembers(members),
+        availability: Object.fromEntries(
+          members.map((member) => [member.sample_id, sampleAvailability({ haplotypes: true })]),
+        ),
+        trackVisibility: tracksShown({ haplotypes: true, phasedMarkers: true }),
+        phaseCorrections: [
+          correction('FATHER1', 'father', 'chr1'),
+          correction('FATHER1', 'father', '2'),
+          correction('MOTHER', 'mother', '1'),
+        ],
+        ...overrides,
+      });
+    };
+
+    it('marks each parent’s own phase corrections on this chromosome, and warns of an embryo’s mixed homologs at the ROI', async () => {
+      renderHaplotypes([father, mother, EMBRYO], { visibleRoi: ROI });
+
+      expect(trackProps.haplotypes.get('FATHER1')?.phaseCorrections).toEqual([correction('FATHER1', 'father', 'chr1')]);
+      expect(trackProps.haplotypes.get('MOTHER')?.phaseCorrections).toEqual([correction('MOTHER', 'mother', '1')]);
+      expect(trackProps.haplotypes.get('EMB1')?.phaseCorrections).toEqual([]);
+      for (const sample of ['FATHER1', 'MOTHER', 'EMB1']) {
+        // Both parents are present, so the phased markers are drawn on every track.
+        expect(trackProps.haplotypes.get(sample)).toMatchObject({ riskRegion: ROI, showMarkers: true, height: 40 });
+      }
+      await waitFor(() =>
+        expect(trackProps.haplotypes.get('EMB1')?.mixedHomologsWarning).toMatch(
+          /^This embryo's markers at the ROI mix both of the father's homologs/,
+        ),
+      );
+      expect(trackProps.haplotypes.get('FATHER1')?.mixedHomologsWarning).toBeNull();
+      expect(api.get).toHaveBeenCalledWith('/families/F1/pgt-analysis');
+    });
+
+    it('reads no risk region from an ROI on another chromosome, nor the PGT analysis', () => {
+      renderHaplotypes([father, mother, EMBRYO], { visibleRoi: { ...ROI, chr: '7' } });
+
+      expect(trackProps.haplotypes.get('EMB1')).toMatchObject({ riskRegion: null, mixedHomologsWarning: null });
+      expect(api.get).not.toHaveBeenCalledWith('/families/F1/pgt-analysis');
+    });
+
+    it('draws no phased markers without both parents', () => {
+      renderHaplotypes([father, EMBRYO]);
+
+      expect(trackProps.haplotypes.get('EMB1')).toMatchObject({ showMarkers: false, height: 20, riskRegion: null });
+    });
   });
 
   it('jumps to a resolved gene window', async () => {
@@ -552,7 +576,7 @@ describe('ChromosomeViewWorkspace', () => {
       return Promise.resolve({ data: {} });
     });
 
-    renderWorkspace(onJumpToRegion);
+    renderWorkspace({ onJumpToRegion });
 
     fireEvent.change(screen.getByLabelText('Jump to gene or locus'), {
       target: { value: 'BRCA1' },
@@ -589,7 +613,7 @@ describe('ChromosomeViewWorkspace', () => {
     const onJumpToRegion = vi.fn();
     (api.get as unknown as Mock).mockResolvedValue({ data: [] });
 
-    renderWorkspace(onJumpToRegion);
+    renderWorkspace({ onJumpToRegion });
 
     fireEvent.change(screen.getByLabelText('Jump to gene or locus'), {
       target: { value: 'chr5:10,000-20,000' },
@@ -605,5 +629,54 @@ describe('ChromosomeViewWorkspace', () => {
     );
 
     expect(api.get as unknown as Mock).not.toHaveBeenCalledWith('/genes/profile', expect.anything());
+  });
+
+  // A locus whose end lies before its start is no locus: it is looked up as a gene, and a
+  // lookup that fails says why, and jumps nowhere.
+  it('says why a gene or locus could not be resolved, and stays where it is', async () => {
+    const onJumpToRegion = vi.fn();
+    (api.get as unknown as Mock).mockImplementation((url: string) =>
+      url === '/genes/profile'
+        ? Promise.reject({ response: { status: 404, data: { detail: 'No gene chr5:20000-10000 in GRCh38' } } })
+        : Promise.resolve({ data: [] }),
+    );
+    renderWorkspace({ onJumpToRegion });
+
+    fireEvent.change(screen.getByLabelText('Jump to gene or locus'), { target: { value: 'chr5:20000-10000' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Go' }));
+
+    expect(await screen.findByText('No gene chr5:20000-10000 in GRCh38')).toHaveClass('status-note--error');
+    expect(onJumpToRegion).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Go' })).toBeEnabled();
+  });
+
+  it('pans and zooms from its buttons once the chromosome length is known, and switches the drag mode', () => {
+    const onPan = vi.fn();
+    const onZoom = vi.fn();
+    renderWorkspace({ onPan, onZoom });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Pan left' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Zoom out' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Pan right' }));
+    expect(onPan.mock.calls).toEqual([[-1], [1]]);
+    expect(onZoom.mock.calls).toEqual([[2], [0.5]]);
+
+    const pan = screen.getByRole('button', { name: 'Pan' });
+    const zoom = screen.getByRole('button', { name: 'Zoom' });
+    expect(pan).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByText('Drag to pan')).toBeInTheDocument();
+    fireEvent.click(zoom);
+    expect(zoom).toHaveAttribute('aria-pressed', 'true');
+    expect(pan).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByText('Drag to select region')).toBeInTheDocument();
+  });
+
+  it('offers no pan or zoom before the chromosome length is known', () => {
+    renderWorkspace({ chromInfoSize: undefined });
+
+    for (const name of ['Pan left', 'Zoom out', 'Zoom in', 'Pan right']) {
+      expect(screen.getByRole('button', { name })).toBeDisabled();
+    }
   });
 });

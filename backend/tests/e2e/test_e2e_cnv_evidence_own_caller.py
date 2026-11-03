@@ -39,6 +39,8 @@ from uuid import uuid4
 import pytest
 import yaml
 
+from backend.tests.e2e._harness import capture, ensure_postgres_schema
+
 pytestmark = pytest.mark.integration
 
 _SHARED = "1-7000-12000-DEL---"
@@ -120,21 +122,12 @@ async def _set_seeded_gene(assembly_id: str | None) -> None:
         await session.commit()
 
 
-def _cap(resp) -> dict:
-    out = {"status": resp.status_code, "text": resp.text}
-    try:
-        out["json"] = resp.json()
-    except ValueError:
-        pass
-    return out
-
-
 async def _exercise(base: Path, suffix: str) -> dict:
     from httpx import ASGITransport, AsyncClient
     from sqlalchemy import text
 
     from backend.app.core.clickhouse import init_clickhouse_schema
-    from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
+    from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.main import app
     from backend.app.services import family_package_import as package_import
     from backend.app.services.clickhouse_variant_storage import ensure_clickhouse_variant_tables
@@ -146,7 +139,7 @@ async def _exercise(base: Path, suffix: str) -> dict:
     _write_package(base / family_id, family_id, samples)
     out: dict = {"samples": samples}
 
-    await init_postgres_schema()
+    await ensure_postgres_schema()
     await init_clickhouse_schema()
     await ensure_clickhouse_variant_tables(_harness.ASSEMBLY)
     sessionmaker = get_postgres_sessionmaker()
@@ -197,7 +190,7 @@ async def _exercise(base: Path, suffix: str) -> dict:
             drift = f"/api/families/{family_id}/classification-drift"
 
             async def _upload(support: int, *, overwrite: bool) -> dict:
-                return _cap(
+                return capture(
                     await ac.post(
                         f"/api/structural-variants/upload/{proband}",
                         params={"overwrite": str(overwrite).lower(), "source_format": "sniffles"},
@@ -206,13 +199,13 @@ async def _exercise(base: Path, suffix: str) -> dict:
                 )
 
             async def _classify(variant_id: str, **extra) -> dict:
-                return _cap(await ac.put(f"{svs}/{variant_id}/review", json={**_SCORING, **extra}))
+                return capture(await ac.put(f"{svs}/{variant_id}/review", json={**_SCORING, **extra}))
 
             async def _drift() -> dict:
-                return _cap(await ac.get(drift))
+                return capture(await ac.get(drift))
 
             out["upload"] = await _upload(14, overwrite=False)
-            out["svs"] = _cap(await ac.get(svs, params={"page_size": 50}))
+            out["svs"] = capture(await ac.get(svs, params={"page_size": 50}))
 
             # Made on the NeedlR row; then the Sniffles call changes.
             out["needlr_save"] = await _classify(_SHARED, source="needlr")
@@ -222,7 +215,7 @@ async def _exercise(base: Path, suffix: str) -> dict:
             out["needlr_drift_after_upload_change"] = await _drift()
 
             # Made on the Sniffles row; then the Sniffles call changes again.
-            out["sniffles_svs"] = _cap(await ac.get(svs, params={"page_size": 50}))
+            out["sniffles_svs"] = capture(await ac.get(svs, params={"page_size": 50}))
             out["sniffles_save"] = await _classify(_SHARED, source="sniffles")
             out["sniffles_snapshot"] = await _snapshot(_SHARED)
             out["sniffles_drift"] = await _drift()

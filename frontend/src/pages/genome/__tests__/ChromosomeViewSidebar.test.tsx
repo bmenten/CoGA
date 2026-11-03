@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import ChromosomeViewSidebar, { type ChromosomeTrackKey } from '../ChromosomeViewSidebar';
 import type { ApiFamilyMember } from '../../../lib/apiTypes';
+import { checkboxLabels, sectionHeaded } from '../../../test/checkboxLists';
 
 type Props = ComponentProps<typeof ChromosomeViewSidebar>;
 
@@ -55,21 +56,10 @@ const renderSidebar = (overrides: Partial<Props> = {}): Props => {
   return props;
 };
 
-const section = (title: string): HTMLElement => {
-  const element = screen.getByRole('heading', { name: title }).closest('section');
-  if (!element) throw new Error(`no ${title} section`);
-  return element;
-};
-
-const checkboxLabels = (container: HTMLElement) =>
-  within(container)
-    .getAllByRole('checkbox')
-    .map((box) => box.closest('label')?.textContent);
-
 describe('ChromosomeViewSidebar', () => {
   it('lists one checkbox per sample, ticked from the selection — a sample missing from it is unticked', () => {
     renderSidebar();
-    const samples = section('Samples');
+    const samples = sectionHeaded('Samples');
 
     expect(checkboxLabels(samples)).toEqual(['S1', 'S2', 'S3']);
     expect(within(samples).getByRole('checkbox', { name: 'S1' })).toBeChecked();
@@ -93,7 +83,7 @@ describe('ChromosomeViewSidebar', () => {
       trackLabels: { ...TRACK_LABELS, variants: 'Structural variants' },
     });
 
-    expect(checkboxLabels(section('Tracks'))).toEqual([
+    expect(checkboxLabels(sectionHeaded('Tracks'))).toEqual([
       'Phased markers',
       'Coverage',
       'Structural variants',
@@ -102,7 +92,7 @@ describe('ChromosomeViewSidebar', () => {
 
   it('ticks each track from the visibility state', () => {
     renderSidebar();
-    const tracks = section('Tracks');
+    const tracks = sectionHeaded('Tracks');
 
     expect(within(tracks).getByRole('checkbox', { name: 'Coverage' })).toBeChecked();
     expect(within(tracks).getByRole('checkbox', { name: 'APCAD' })).not.toBeChecked();

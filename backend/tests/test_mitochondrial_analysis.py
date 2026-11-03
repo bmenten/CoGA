@@ -1,10 +1,27 @@
+"""The family's mtDNA workspace (``mitochondrial_analysis``).
+
+The response lists each member's haplogroup, mtDNA QC verdict (against the lab's configured
+limits) and coverage, and each chrM variant with its annotation, its review, each member's
+heteroplasmy and its maternal transmission, read along the proband's maternal line from the
+parents the pedigree links to the proband (a mother without data, or none linked, is "not
+assessed"); a ClinVar record of conflicting classifications reads uncertain, never pathogenic;
+the chrM structural variants with each sample's heteroplasmy; and a count-only presence. The
+coverage it reads (one track of read depth per sample) is in test_coverage_readers_read_depth.py.
+All samples and values are synthetic.
+"""
+
 from __future__ import annotations
 
 import pytest
 
-from backend.app.schemas import SmallVariantReviewOut
+from backend.app.schemas import MitoDNACoverageOut, SmallVariantReviewOut
 from backend.app.services import mitochondrial_analysis
-from backend.app.services.clickhouse_variant_records import SmallVariantCall, SmallVariantRecord
+from backend.app.services.clickhouse_variant_records import (
+    SmallVariantCall,
+    SmallVariantRecord,
+    StructuralVariantCall,
+    StructuralVariantRecord,
+)
 from backend.app.services.family_metadata_context import FamilyMetadataContext
 
 
@@ -324,6 +341,14 @@ async def test_family_mitochondrial_analysis_count_only_coverage_without_variant
         ({"clinvar": "Uncertain_significance"}, "uncertain"),
         ({"mitomap_status": "Cfrm"}, "reported"),
         ({}, "unknown"),
+        # The other statuses the reader tells apart, and a key in other capitals.
+        ({"clinvar": "Likely_benign"}, "likely_benign"),
+        ({"CLINVAR": "Benign"}, "benign"),
+        ({"mitomap_status": "Polymorphism"}, "polymorphism"),
+        ({"status": "common"}, "polymorphism"),
+        ({"classification": "VUS"}, "uncertain"),
+        ({"variant_status": "Confirmed"}, "reported"),
+        ({"variant_status": "unclassified"}, "unknown"),
     ],
 )
 def test_clinical_significance_reads_a_conflicting_record_as_uncertain(
@@ -374,6 +399,27 @@ def _three_generation_context() -> FamilyMetadataContext:
     )
 
 
+async def _response(monkeypatch: pytest.MonkeyPatch, context: FamilyMetadataContext, records):
+    """The response over ``records``, with no coverage track and no QC limit configured."""
+
+    async def fake_fetch_mt_records(_context):
+        return records
+
+    async def fake_coverage_by_sample(_session, _context):
+        return {}, []
+
+    async def fake_thresholds(_session, *, family_uuid):
+        return {"profile_key": "default", "profile_label": "Default", "thresholds": {}}
+
+    monkeypatch.setattr(mitochondrial_analysis, "_fetch_mt_records", fake_fetch_mt_records)
+    monkeypatch.setattr(mitochondrial_analysis, "_coverage_by_sample", fake_coverage_by_sample)
+    monkeypatch.setattr(mitochondrial_analysis, "resolve_family_qc_thresholds", fake_thresholds)
+    return await mitochondrial_analysis.get_family_mitochondrial_analysis_response(
+        None,  # type: ignore[arg-type]
+        context=context,
+    )
+
+
 # The transmission is read along the proband's maternal line, with the parents the pedigree
 # links to the proband. By role, the paternal grandmother was a "mother": a variant she and the
 # proband carry read as maternally transmitted, and the mt ACMG evaluator could offer PP1.
@@ -404,25 +450,7 @@ async def test_maternal_transmission_follows_the_mother_the_pedigree_links_to_th
         for sample_id in context.sample_name_to_uuid
     ]
 
-    async def fake_fetch_mt_records(_context):
-        return [record]
-
-    async def fake_coverage_by_sample(_session, _context):
-        return {}, []
-
-    async def fake_thresholds(_session, *, family_uuid):
-        return {"profile_key": "default", "profile_label": "Default", "thresholds": {}}
-
-    monkeypatch.setattr(mitochondrial_analysis, "_fetch_mt_records", fake_fetch_mt_records)
-    monkeypatch.setattr(mitochondrial_analysis, "_coverage_by_sample", fake_coverage_by_sample)
-    monkeypatch.setattr(mitochondrial_analysis, "resolve_family_qc_thresholds", fake_thresholds)
-
-    response = await mitochondrial_analysis.get_family_mitochondrial_analysis_response(
-        None,  # type: ignore[arg-type]
-        context=context,
-    )
-
-    assert response.variants[0].maternal_transmission == expected
+    assert await _transmissions(monkeypatch, context, [record]) == [expected]
 
 
 @pytest.mark.asyncio
@@ -431,8 +459,6 @@ async def test_mtdna_response_lists_chrm_structural_variants_with_each_samples_h
 ) -> None:
     """The chrM SV callset was found but never imported or shown: a large heteroplasmic
     deletion went unseen."""
-    from backend.app.services.clickhouse_variant_records import StructuralVariantCall, StructuralVariantRecord
-
     context = _three_generation_context()
     deletion = StructuralVariantRecord(
         variant_key=1,
@@ -465,22 +491,7 @@ async def test_mtdna_response_lists_chrm_structural_variants_with_each_samples_h
         mitochondrial_analysis, "_fetch_mt_structural_variants", fake_fetch_mt_structural_variants
     )
 
-    async def fake_fetch_mt_records(_context):
-        return []
-
-    async def fake_coverage_by_sample(_session, _context):
-        return {}, []
-
-    async def fake_thresholds(_session, *, family_uuid):
-        return {"profile_key": "default", "profile_label": "Default", "thresholds": {}}
-
-    monkeypatch.setattr(mitochondrial_analysis, "_fetch_mt_records", fake_fetch_mt_records)
-    monkeypatch.setattr(mitochondrial_analysis, "_coverage_by_sample", fake_coverage_by_sample)
-    monkeypatch.setattr(mitochondrial_analysis, "resolve_family_qc_thresholds", fake_thresholds)
-    response = await mitochondrial_analysis.get_family_mitochondrial_analysis_response(
-        None,  # type: ignore[arg-type]
-        context=context,
-    )
+    response = await _response(monkeypatch, context, [])
 
     [sv] = response.structural_variants
     assert (sv.sv_type, sv.start, sv.end, sv.length) == ("DEL", 8470, 13447, 4977)
@@ -491,22 +502,7 @@ async def test_mtdna_response_lists_chrm_structural_variants_with_each_samples_h
 
 
 async def _transmissions(monkeypatch: pytest.MonkeyPatch, context, records) -> list[str]:
-    async def fake_fetch_mt_records(_context):
-        return records
-
-    async def fake_coverage_by_sample(_session, _context):
-        return {}, []
-
-    async def fake_thresholds(_session, *, family_uuid):
-        return {"profile_key": "default", "profile_label": "Default", "thresholds": {}}
-
-    monkeypatch.setattr(mitochondrial_analysis, "_fetch_mt_records", fake_fetch_mt_records)
-    monkeypatch.setattr(mitochondrial_analysis, "_coverage_by_sample", fake_coverage_by_sample)
-    monkeypatch.setattr(mitochondrial_analysis, "resolve_family_qc_thresholds", fake_thresholds)
-    response = await mitochondrial_analysis.get_family_mitochondrial_analysis_response(
-        None,  # type: ignore[arg-type]
-        context=context,
-    )
+    response = await _response(monkeypatch, context, records)
     return [variant.maternal_transmission for variant in response.variants]
 
 
@@ -571,3 +567,172 @@ async def test_couple_without_a_proband_has_no_maternal_line(monkeypatch: pytest
     record.calls = [_call("MOM", "0/1"), _call("DAD", "0/0")]
 
     assert await _transmissions(monkeypatch, context, [record]) == ["no_proband"]
+
+
+@pytest.mark.asyncio
+async def test_a_variant_nobody_carries_has_no_transmission_to_read(monkeypatch: pytest.MonkeyPatch) -> None:
+    context = _three_generation_context()
+    record = _mt_record()
+    record.calls = [_call(sample_id, "0/0") for sample_id in ("PROBAND", "MOM", "DAD")]
+
+    assert await _transmissions(monkeypatch, context, [record]) == ["no_alt_calls"]
+
+
+def test_an_sv_without_a_length_is_as_long_as_its_span() -> None:
+    record = StructuralVariantRecord(
+        variant_key=1,
+        variant_id="SV-M-8470-13447-DEL",
+        chr="M",
+        start=8470,
+        end=13447,
+        sv_type="DEL",
+        source="mito_sv",
+        remote_chr=None,
+        remote_start=None,
+        remote_end=None,
+        sv_len=None,
+        filters=[],
+        gene_symbols=[],
+        annotations=[{"sample": "PROBAND", "heteroplasmy": "0.35"}, {"heteroplasmy": 0.9}],
+        calls=[StructuralVariantCall(sample="PROBAND", gt="0/1", qual=None, read_support=None, filter=None)],
+    )
+
+    sv = mitochondrial_analysis._structural_variant_out(record, member_by_sample={})
+
+    assert sv.length == 4977
+    # A heteroplasmy is read for the sample its annotation names, never for none.
+    assert {sample: call.heteroplasmy for sample, call in sv.calls.items()} == {"PROBAND": 0.35}
+
+
+# --- each call's heteroplasmy -------------------------------------------------------------------
+# HOMOPLASMY_THRESHOLD is 0.95 and HETEROPLASMY_THRESHOLD 0.02: the class at and either side of
+# each, from the call's allele fraction, else from its allele depths, else from its genotype.
+
+
+@pytest.mark.parametrize(
+    ("call", "zygosity", "display"),
+    [
+        (SmallVariantCall(sample="S", gt="0/1", gq=None, dp=400, af=[0.95], ad=[], ps=None), "homoplasmic", "95.0%"),
+        (SmallVariantCall(sample="S", gt="0/1", gq=None, dp=400, af=[0.949], ad=[], ps=None), "heteroplasmic", "94.9%"),
+        (SmallVariantCall(sample="S", gt="0/1", gq=None, dp=400, af=[0.02], ad=[], ps=None), "heteroplasmic", "2.0%"),
+        (SmallVariantCall(sample="S", gt="0/1", gq=None, dp=400, af=[0.019], ad=[], ps=None), "low_level", "1.9%"),
+        (SmallVariantCall(sample="S", gt="0/0", gq=None, dp=400, af=[0.0], ad=[], ps=None), "reference", "0.0%"),
+        # The highest fraction of a multi-allelic call.
+        (SmallVariantCall(sample="S", gt="1/2", gq=None, dp=400, af=[0.3, 0.6], ad=[], ps=None), "heteroplasmic", "60.0%"),
+        # No fraction: the alternate reads over the depth, the depth the reads' sum without DP.
+        (SmallVariantCall(sample="S", gt="0/1", gq=None, dp=None, af=[], ad=[90, 10], ps=None), "heteroplasmic", "10.0%"),
+        (SmallVariantCall(sample="S", gt="0/1", gq=None, dp=200, af=[], ad=[100, 100], ps=None), "heteroplasmic", "50.0%"),
+        # Neither: the genotype.
+        (SmallVariantCall(sample="S", gt="1", gq=None, dp=None, af=[], ad=[], ps=None), "homoplasmic", "1"),
+        (SmallVariantCall(sample="S", gt="0/1", gq=None, dp=None, af=[], ad=[], ps=None), "heteroplasmic", "0/1"),
+        (SmallVariantCall(sample="S", gt="0/0", gq=None, dp=30, af=[], ad=[], ps=None), "reference", "ref"),
+        (SmallVariantCall(sample="S", gt="./.", gq=None, dp=None, af=[], ad=[], ps=None), "no_call", "no-call"),
+    ],
+    ids=[
+        "at homoplasmy", "just below homoplasmy", "at heteroplasmy", "just below heteroplasmy", "a fraction of 0",
+        "multi-allelic", "from the reads", "from the reads and DP", "haploid genotype", "het genotype",
+        "reference genotype", "no call",
+    ],
+)
+def test_a_calls_heteroplasmy_reads_its_fraction_else_its_reads_else_its_genotype(
+    call: SmallVariantCall, zygosity: str, display: str
+) -> None:
+    assert mitochondrial_analysis._zygosity(call) == zygosity
+    assert mitochondrial_analysis._call_display(call) == display
+
+
+# --- the pipeline's own QC verdict, and the lab's limits ------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("stored", "status"),
+    [
+        ("PASSED", "pass"),
+        ("ok", "pass"),
+        ("Failed", "fail"),
+        ("error", "fail"),
+        ("Review", "warn"),
+        ("warning", "warn"),
+        ("not run", "skip"),
+        ("n/a", "skip"),
+        # A verdict this module does not know, or none, claims nothing.
+        ("maybe", "skip"),
+        ("", "skip"),
+    ],
+)
+def test_the_pipelines_qc_verdict_is_read_as_one_of_the_qc_statuses(stored: str, status: str) -> None:
+    qc = mitochondrial_analysis._sample_qc({"mtdna": {"qc_status": stored}}, MitoDNACoverageOut())
+    assert qc.status == status
+
+
+_LIMITS = {
+    "mtdna.contamination": {"warn_value": 0.01, "error_value": 0.03},
+    "mtdna.mean_depth": {"warn_value": 300.0, "error_value": 250.0},
+}
+
+
+def test_a_failed_pipeline_verdict_is_not_passed_by_the_lab_s_limits() -> None:
+    qc = mitochondrial_analysis._sample_qc(
+        {"mtdna": {"qc_status": "fail", "contamination": 0.001}}, MitoDNACoverageOut(mean_depth=1_000.0), _LIMITS
+    )
+    assert (qc.status, qc.notes) == ("fail", [])
+
+
+def test_a_failed_limit_is_not_lowered_to_a_warning_by_another() -> None:
+    # Contamination above its error limit, the depth under its warning limit only.
+    qc = mitochondrial_analysis._sample_qc(
+        {"mtdna": {"contamination": 0.05}}, MitoDNACoverageOut(mean_depth=280.0), _LIMITS
+    )
+    assert qc.status == "fail"
+    assert qc.notes == [
+        "Contamination estimate is at or above the configured limit of 0.03.",
+        "Mean mtDNA depth is below the configured limit of 300.0x.",
+    ]
+    # The pipeline's own pass does not hide a failed limit either.
+    qc = mitochondrial_analysis._sample_qc(
+        {"mtdna": {"qc_status": "pass"}}, MitoDNACoverageOut(mean_depth=200.0), _LIMITS
+    )
+    assert qc.status == "fail"
+
+
+def test_without_a_limit_or_a_verdict_a_sample_is_not_claimed_to_pass() -> None:
+    qc = mitochondrial_analysis._sample_qc({}, MitoDNACoverageOut(mean_depth=1_000.0), {})
+    assert qc.status == "skip"
+    # The depth recorded with the sample is read when no coverage track gives one.
+    qc = mitochondrial_analysis._sample_qc({"mtdna": {"mean_depth": "200"}}, MitoDNACoverageOut(), _LIMITS)
+    assert (qc.status, qc.mean_depth) == ("fail", 200.0)
+
+
+# --- the stored values it reads -------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("stored", "read"),
+    [
+        ({"mtdna": {"haplogroup": "H1"}}, {"mtdna": {"haplogroup": "H1"}}),
+        ('{"mtdna": {"haplogroup": "H1"}}', {"mtdna": {"haplogroup": "H1"}}),
+        (b'{"mtdna": {"haplogroup": "H1"}}', {"mtdna": {"haplogroup": "H1"}}),
+        ("not json", {}),
+        ('["a list"]', {}),
+        ("", {}),
+        (None, {}),
+    ],
+    ids=["mapping", "JSON text", "JSON bytes", "not JSON", "not an object", "empty", "none"],
+)
+def test_a_samples_stored_metadata_is_read_as_a_mapping_or_as_none(stored, read) -> None:
+    assert mitochondrial_analysis._metadata_dict(stored) == read
+
+
+def test_the_coverage_of_rows_without_a_usable_depth_is_empty() -> None:
+    assert mitochondrial_analysis._coverage_from_rows([], "web") == MitoDNACoverageOut()
+    # Rows without a value, or covering no base of chrM: counted as rows, read as no depth.
+    rows = [{"start": 0, "end": 100, "value": None}, {"start": 16_569, "end": 16_600, "value": 50.0}]
+    assert mitochondrial_analysis._coverage_from_rows(rows, "web") == MitoDNACoverageOut(regions=2)
+
+
+@pytest.mark.asyncio
+async def test_a_family_without_an_assembly_reads_no_chrm_variants() -> None:
+    context = _family_context()
+    context.assembly_name = None
+    assert await mitochondrial_analysis._fetch_mt_records(context) == []
+    assert await mitochondrial_analysis._fetch_mt_structural_variants(context) == []

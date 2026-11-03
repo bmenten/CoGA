@@ -75,6 +75,17 @@ def test_the_scope_may_be_one_of_several_the_token_carries(directory: FakeDirect
     assert identity.object_id
 
 
+def test_a_name_or_address_that_is_blank_or_no_text_is_none(directory: FakeDirectory) -> None:
+    # The account takes its address and names from these: a blank one, or one that is not
+    # text, is no value rather than one to store.
+    identity = _verify(
+        directory,
+        directory.access_token(email=["a.user@example.org"], preferred_username="  ", given_name=7, name=" A User "),
+    )
+    assert (identity.email, identity.preferred_username, identity.given_name) == (None, None, None)
+    assert identity.name == "A User"
+
+
 @pytest.mark.parametrize(
     ("claims", "reason"),
     [
@@ -217,6 +228,54 @@ def test_the_last_keys_serve_while_microsoft_is_unreachable(
 def test_without_keys_an_unreachable_directory_refuses_the_token(directory: FakeDirectory) -> None:
     directory.unreachable = True
     _refused(directory, directory.access_token(), "the directory's signing keys could not be read (ConnectError)")
+
+
+def test_a_made_up_key_is_refused_while_microsoft_is_unreachable_and_not_asked_for_again(
+    directory: FakeDirectory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert _verify(directory, directory.access_token()).object_id
+    keys = azure._signing_keys
+    assert keys is not None
+    monkeypatch.setattr(
+        keys,
+        "unknown_kid_fetched_at",
+        keys.unknown_kid_fetched_at - azure._SIGNING_KEYS_REFETCH_INTERVAL_SECONDS - 1,
+    )
+    directory.unreachable = True
+    stranger = FakeDirectory()
+    fetches = len(directory.fetched)
+
+    for _ in range(2):
+        _refused(
+            directory,
+            directory.access_token(signing=stranger.signing, kid=stranger.kid),
+            "signed with a key the directory does not publish",
+        )
+    # Tried once, then not again within the interval; the keys it holds still serve.
+    assert len(directory.fetched) == fetches + 1
+    assert _verify(directory, directory.access_token()).object_id
+
+
+def test_a_key_set_without_an_rsa_signing_key_is_refused(
+    directory: FakeDirectory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    published = directory.key_set()["keys"]
+    monkeypatch.setattr(
+        directory,
+        "key_set",
+        lambda: {
+            "keys": [
+                {**published[0], "use": "enc"},
+                {**published[0], "kty": "EC"},
+                {key: value for key, value in published[0].items() if key != "kid"},
+            ]
+        },
+    )
+    _refused(
+        directory,
+        directory.access_token(),
+        "the directory's signing keys could not be read (the directory publishes no RSA signing key)",
+    )
 
 
 def test_a_configuration_that_names_another_issuer_or_key_set_is_not_used(

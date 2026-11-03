@@ -17,6 +17,7 @@ import pytest
 
 from backend.app.services import panel_use_audit as pua
 from backend.app.services.family_variant_filters import StructuralVariantQueryFilters
+from backend.tests._query_results import MappingRows as _Rows
 
 _PANEL_ID = "33333333-3333-3333-3333-333333333333"
 
@@ -37,20 +38,6 @@ def _panel_row(**overrides: Any) -> dict[str, Any]:
         "gene_count": 120,
         **overrides,
     }
-
-
-class _Rows:
-    def __init__(self, rows: list[dict[str, Any]]) -> None:
-        self.rows = rows
-
-    def mappings(self) -> "_Rows":
-        return self
-
-    def first(self) -> Any:
-        return self.rows[0] if self.rows else None
-
-    def all(self) -> list[dict[str, Any]]:
-        return list(self.rows)
 
 
 class _Session:

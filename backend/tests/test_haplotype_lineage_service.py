@@ -5,20 +5,28 @@ affected paternal grandmother (stored with the overloaded role ``mother``) must
 show one haplotype matching the affected father's shared homolog and the other
 greyed, instead of the old two-green rendering.
 """
+import asyncio
+import logging
+import random
+
 import pytest
 
+from backend.app.services import bed_service, clickhouse_family_variants, haplotype_lineage_service
+from backend.app.services.family_metadata_context import FamilyMetadataContext
 from backend.app.services.haplotype_lineage_service import (
     GREY,
     MATERNAL,
     MIN_HOMOLOG_MARGIN,
     MIN_INFORMATIVE_PER_MB,
     PATERNAL,
+    RELATIVE_LOCUS_FLANK,
     UNKNOWN,
     UNTRANSMITTED,
     HomologAssignment,
     HomologResolver,
     MatchResult,
     NuclearCore,
+    _colour_across,
     _core_homologs,
     _homolog_consistency,
     _segment_relative_blocks,
@@ -28,6 +36,10 @@ from backend.app.services.haplotype_lineage_service import (
     founder_shade_map,
     identify_core,
     match_shared_homolog,
+    parent_or_child_links,
+    relative_link_matches,
+    relative_links,
+    relative_share_at_locus,
 )
 
 
@@ -104,6 +116,12 @@ def test_build_pedigree_edges():
     assert ped.children_of["F"] == {"E1"}
     assert ped.children_of["GM"] == {"F"}
     assert ped.neighbors("F") == {"GM", "E1"}
+    # A link of a member to itself, or naming no member, is no edge.
+    broken = build_pedigree(
+        THREE_GEN_MEMBERS,
+        [*THREE_GEN_RELATIONSHIPS, _parent_child("E1", "E1", "father"), _parent_child("", "E1", "mother")],
+    )
+    assert (broken.parents_of, broken.children_of) == (ped.parents_of, ped.children_of)
 
 
 def test_identify_core_excludes_grandmother():
@@ -135,6 +153,42 @@ def test_identify_core_single_parent_donor_family():
     assert core.mother is None
     assert core.children == {"E1", "E2"}
     assert "GM" not in core.members
+
+
+def test_identify_core_without_embryos_is_the_couple_sharing_the_most_children():
+    # A family without embryos (a WGS trio and the father's parents): the index couple is
+    # the one with the most children together, not the grandparents with their one.
+    members = [
+        _member("GF", "father"), _member("GM", "mother"), _member("F", "father"), _member("M", "mother"),
+        _member("C1", "proband", affected=True), _member("C2", "sibling"),
+    ]
+    rels = [
+        _parent_child("GF", "F", "father"), _parent_child("GM", "F", "mother"),
+        *(_parent_child(parent, child, role) for child in ("C1", "C2") for parent, role in (("F", "father"), ("M", "mother"))),
+    ]
+    core = identify_core(build_pedigree(members, rels))
+    assert (core.father, core.mother, core.children, core.members) == ("F", "M", {"C1", "C2"}, {"F", "M", "C1", "C2"})
+
+
+def test_identify_core_says_when_two_couples_share_as_many_children(caplog):
+    # The grandparents' one child and the couple's one: the first couple found is taken, and
+    # a warning says the colouring may rest on the wrong couple.
+    members = [_member("GF", "father"), _member("GM", "mother"), _member("F", "father"), _member("M", "mother"),
+               _member("C1", "proband")]
+    rels = [_parent_child("GF", "F", "father"), _parent_child("GM", "F", "mother"),
+            _parent_child("F", "C1", "father"), _parent_child("M", "C1", "mother")]
+    with caplog.at_level(logging.WARNING, logger=haplotype_lineage_service.logger.name):
+        core = identify_core(build_pedigree(members, rels))
+    assert (core.father, core.mother, core.children) == ("GF", "GM", {"F"})
+    assert "ambiguous nuclear core" in caplog.text
+
+
+def test_identify_core_without_a_shared_child_takes_the_first_father_and_mother():
+    # Single-parent data without embryos: each parent's own children.
+    members = [_member("F", "father"), _member("M", "mother"), _member("C1", "proband"), _member("C2", "sibling")]
+    rels = [_parent_child("F", "C1", "father"), _parent_child("M", "C2", "mother")]
+    core = identify_core(build_pedigree(members, rels))
+    assert (core.father, core.mother, core.children) == ("F", "M", {"C1", "C2"})
 
 
 def _single_parent_genotypes():
@@ -423,40 +477,16 @@ def test_annotate_lineage_missing_father_shade_does_not_emit_raw_index_colour():
         region_end=3300,
     )
     # The grandmother is still matched (IBD from genotypes), but the anchor homolog
-    # she shares has no founder shade -> her shared lane must be grey, not coloured.
+    # she shares has no founder shade -> her shared lane must be grey, not coloured: no
+    # founder shade leaked through as a raw index.
+    assert out["GM"]
     for seg in out["GM"]:
-        assert seg["hap1_lineage"] in (UNTRANSMITTED,)
-        assert seg["hap2_lineage"] in (UNTRANSMITTED,)
-        # No founder shade leaked through as a raw index.
+        assert (seg["hap1_lineage"], seg["hap2_lineage"]) == (UNTRANSMITTED, UNTRANSMITTED)
 
 
-def test_annotate_lineage_does_not_ibd_colour_x_chromosome():
-    """H5(D): non-autosomal chromosomes break the diploid two-homolog IBD assumption
-    (hemizygous X, no Y recombination). Relatives on chrX are left grey rather than
-    mis-coloured with autosomal logic. The nuclear core keeps its role tags."""
-    segments_by_name = {
-        "F": _parent_segments("0", "1", chrom="X", end=3300),
-        "M": _parent_segments("0", "1", chrom="X", end=3300),
-        "E1": [{"chr": "X", "start": 1000, "end": 3300, "hap1": "0", "hap2": "0", "ps": None}],
-        "GM": [{"chr": "X", "start": 1, "end": 9999, "hap1": "1", "hap2": "0", "ps": None}],
-    }
-    # Same informative genotypes, but on chrX.
-    genotype_rows = [(pos, ids, gts) for (pos, ids, gts) in _three_gen_genotypes()]
-    out = annotate_lineage(
-        sample_rows=THREE_GEN_MEMBERS,
-        relationship_rows=THREE_GEN_RELATIONSHIPS,
-        segments_by_name=segments_by_name,
-        genotype_rows=genotype_rows,
-        chrom="X",
-        region_start=1000,
-        region_end=3300,
-    )
-    # Core still role-tagged.
-    assert all(s["hap1_lineage"] == PATERNAL for s in out["F"])
-    # Grandmother NOT IBD-coloured on X: both lanes grey (unknown), never paternal.
-    for seg in out["GM"]:
-        assert seg["hap1_lineage"] != PATERNAL
-        assert seg["hap2_lineage"] != PATERNAL
+# H5(D), relatives on chrX left grey rather than mis-coloured with autosomal logic, is
+# test_haplotype_lineage_chrx.py::test_chry_chrm_and_chrx_of_an_assembly_whose_pars_are_not_known_stay_grey
+# (the father's mother among them, the core keeping its role tags).
 
 
 def test_grey_assignment_constant():
@@ -555,20 +585,41 @@ def test_segment_relative_blocks_splits_at_a_crossover():
 
 
 def test_segment_relative_blocks_single_block_without_recombination():
+    # The relative's homolog 0 is the shared one throughout (relative het, anchor hom 0),
+    # and anchor-informative sites pin the anchor's homolog 0 throughout: one block, the
+    # shared lane in the anchor's dark shade, the other grey.
     positions = [1_000_000 + i * 10_000 for i in range(40)]
     rel_alleles = {p: (0, 1) for p in positions}
     anc_alleles = {p: (0, 0) for p in positions}
+    for pos in positions:
+        anc_alleles[pos + 5_000] = (0, 1)  # anchor het
+        rel_alleles[pos + 5_000] = (0, 0)  # relative hom 0 -> the shared anchor homolog is idx 0
+    region_end = max(rel_alleles) + 1
     blocks, _assignment, _resolver = _segment_relative_blocks(
         chrom="1",
-        positions=positions,
+        positions=sorted(rel_alleles),
         rel_alleles=rel_alleles,
         anc_alleles=anc_alleles,
+        anchor_homologs=HomologResolver.from_flat({0: HomologAssignment(PATERNAL, 0), 1: HomologAssignment(PATERNAL, 1)}),
+        match=MatchResult(relative_idx=0, anchor_idx=0, informative=80, confidence=1.0),
+        region_start=1_000_000,
+        region_end=region_end,
+    )
+    [block] = blocks
+    assert (block["start"], block["end"]) == (1_000_000, region_end)
+    assert (block["hap1"], block["hap1_lineage"], block["hap2_lineage"]) == ("0", PATERNAL, UNTRANSMITTED)
+    # Without the anchor-informative sites the shade is not resolved: still one block, grey.
+    unpinned, _assignment, _resolver = _segment_relative_blocks(
+        chrom="1",
+        positions=positions,
+        rel_alleles={p: (0, 1) for p in positions},
+        anc_alleles={p: (0, 0) for p in positions},
         anchor_homologs=HomologResolver.from_flat({0: HomologAssignment(PATERNAL, 0), 1: HomologAssignment(PATERNAL, 1)}),
         match=MatchResult(relative_idx=0, anchor_idx=0, informative=40, confidence=1.0),
         region_start=1_000_000,
         region_end=positions[-1] + 1,
     )
-    assert len(blocks) == 1
+    assert [(seg["hap1_lineage"], seg["hap2_lineage"]) for seg in unpinned] == [(UNTRANSMITTED, UNTRANSMITTED)]
 
 
 def test_segment_relative_blocks_greys_shared_lane_when_anchor_shade_unresolved():
@@ -781,14 +832,6 @@ def test_homolog_resolver_position_lookup():
 
 # --- relatives of unknown degree ---------------------------------------------------
 
-import random  # noqa: E402
-
-from backend.app.services.haplotype_lineage_service import (  # noqa: E402
-    parent_or_child_links,
-    relative_link_matches,
-    relative_links,
-)
-
 _CHROM_LENGTH = 60_000_000
 _SITE_STEP = 5_000
 
@@ -982,12 +1025,25 @@ def test_a_child_of_both_linked_parents_gets_a_lane_from_each():
     assert sum(block["end"] - block["start"] for block in relative if {block["hap1_lineage"], block["hap2_lineage"]} == {PATERNAL, MATERNAL}) > 0.9 * _CHROM_LENGTH
 
 
+def _relative_context(roi=None) -> FamilyMetadataContext:
+    """The family of ``_RELATIVE_MEMBERS`` as the views read it (sample UUIDs ``<name>-uuid``)."""
+    names = [member["sample_id"] for member in _RELATIVE_MEMBERS]
+    return FamilyMetadataContext(
+        family_uuid="family-uuid",
+        family_id="FAM1",
+        project_ids=[],
+        sample_rows=_RELATIVE_MEMBERS,
+        sample_uuid_to_name={f"{name}-uuid": name for name in names},
+        sample_name_to_uuid={name: f"{name}-uuid" for name in names},
+        affected_sample_names=["M", "R"],
+        assembly_id="assembly-uuid",
+        assembly_name="GRCh38",
+        relationship_rows=_RELATIVE_RELATIONSHIPS,
+        roi=roi,
+    )
+
+
 def test_a_window_colours_a_relative_of_unknown_degree_from_the_genome_wide_precompute(monkeypatch):
-    import asyncio
-
-    from backend.app.services import bed_service, clickhouse_family_variants
-    from backend.app.services.family_metadata_context import FamilyMetadataContext
-
     rows = _simulated_relative_rows(seed=11, shares=((0, _CHROM_LENGTH, 1),))
 
     async def fetch(context, *, chrom, start, end, limit):
@@ -1004,19 +1060,7 @@ def test_a_window_colours_a_relative_of_unknown_degree_from_the_genome_wide_prec
 
     monkeypatch.setattr(clickhouse_family_variants, "fetch_imputed_phased_genotypes", fetch)
     monkeypatch.setattr(bed_service, "_fetch_precomputed_lineage", stored_lineage)
-    names = [member["sample_id"] for member in _RELATIVE_MEMBERS]
-    context = FamilyMetadataContext(
-        family_uuid="family-uuid",
-        family_id="FAM1",
-        project_ids=[],
-        sample_rows=_RELATIVE_MEMBERS,
-        sample_uuid_to_name={f"{name}-uuid": name for name in names},
-        sample_name_to_uuid={name: f"{name}-uuid" for name in names},
-        affected_sample_names=["M", "R"],
-        assembly_id="assembly-uuid",
-        assembly_name="GRCh38",
-        relationship_rows=_RELATIVE_RELATIONSHIPS,
-    )
+    context = _relative_context()
     window = {"chr": "1", "start": 24_000_000, "end": 26_000_000, "ps": None}
     stored = {
         "F-uuid": [{**window, "hap1": "0", "hap2": "1"}],
@@ -1041,12 +1085,6 @@ def test_a_window_colours_a_relative_of_unknown_degree_from_the_genome_wide_prec
 
 
 # --- a more distant relative of unknown degree, read at the ROI ---------------------
-
-from backend.app.services.haplotype_lineage_service import (  # noqa: E402
-    RELATIVE_LOCUS_FLANK,
-    _colour_across,
-    relative_share_at_locus,
-)
 
 _ROI = (30_000_000, 30_200_000)
 _LOCUS_LENGTH = 40_000_000
@@ -1182,18 +1220,12 @@ def test_an_anchor_whose_colour_changes_across_the_window_gives_none():
 
 
 def test_the_genome_wide_precompute_reads_a_distant_relative_at_the_roi(monkeypatch):
-    import asyncio
-
-    from backend.app.services import bed_service, clickhouse_family_variants
-    from backend.app.services.family_metadata_context import FamilyMetadataContext
-
     rows = _locus_rows(3, shares=((20_000_000, 40_000_000, 1),))
 
     async def fetch(context, *, chrom, start, end, limit):
         return [row for row in rows if start <= row[0] <= end]
 
     monkeypatch.setattr(clickhouse_family_variants, "fetch_imputed_phased_genotypes", fetch)
-    names = [member["sample_id"] for member in _RELATIVE_MEMBERS]
     whole = {"chr": "1", "start": 0, "end": _LOCUS_LENGTH, "ps": None}
     segments = {
         "F": [{**whole, "hap1": "0", "hap2": "1"}],
@@ -1203,20 +1235,7 @@ def test_the_genome_wide_precompute_reads_a_distant_relative_at_the_roi(monkeypa
     }
 
     def relative(roi):
-        context = FamilyMetadataContext(
-            family_uuid="family-uuid",
-            family_id="FAM1",
-            project_ids=[],
-            sample_rows=_RELATIVE_MEMBERS,
-            sample_uuid_to_name={f"{name}-uuid": name for name in names},
-            sample_name_to_uuid={name: f"{name}-uuid" for name in names},
-            affected_sample_names=["M", "R"],
-            assembly_id="assembly-uuid",
-            assembly_name="GRCh38",
-            relationship_rows=_RELATIVE_RELATIONSHIPS,
-            roi=roi,
-        )
-        blocks = asyncio.run(bed_service._compute_genomewide_lineage(context, segments_by_name=segments))["R"]
+        blocks = asyncio.run(bed_service._compute_genomewide_lineage(_relative_context(roi), segments_by_name=segments))["R"]
         return _coloured_spans(blocks, "hap1") + _coloured_spans(blocks, "hap2")
 
     # One chromosome cannot show a parent or child, so R is read at the ROI only.

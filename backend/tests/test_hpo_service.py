@@ -1,4 +1,20 @@
+"""The HPO service (``hpo_service``): the ontology's parsing and closure, the admin summary and
+term list, a family's phenotype annotations, the table-availability probe, and the ontology
+file's path.
+
+The ontology is read from OBO or from the OBO Graphs JSON HPO also publishes, with the same
+terms, synonyms (alternative ids among them), obsolete terms and their replacements, and
+parent edges. The table-availability probe is cached once the tables are there, and asked
+again while they are not (they may appear after the schema is applied). An annotation write
+without the HPO tables is refused (503); a read falls back to the bare annotation. The startup
+download and the release a file states are tested in ``test_hpo_download_pin.py`` and
+``test_hpo_sync_release_from_file.py``; a family's phenotype import in
+``test_hpo_family_annotation_import.py``.
+"""
+
+import json
 import os
+from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -13,11 +29,29 @@ from backend.app.services.hpo_service import (
     list_hpo_admin_terms,
     parse_hpo_obo_text,
     parse_hpo_ontology_release_metadata_text,
+    parse_hpo_ontology_text,
     parse_hpo_tsv_text,
     parse_manifest_inline_hpo,
 )
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
+FAMILY_UUID = "11111111-1111-1111-1111-111111111111"
+ANNOTATION_ID = "22222222-2222-2222-2222-222222222222"
+# An annotation as the table holds it, read without the HPO term table: the label is the id.
+ANNOTATION_ROW = {
+    "id": ANNOTATION_ID,
+    "sample_id": "PROBAND",
+    "hpo_id": "HP:0001250",
+    "label": "HP:0001250",
+    "definition": None,
+    "status": "present",
+    "onset": None,
+    "evidence": None,
+    "source": "manual",
+    "note": None,
+    "created_at": "2026-01-01T00:00:00Z",
+    "updated_at": "2026-01-01T00:00:00Z",
+}
 
 
 class _FakeMappings:
@@ -59,6 +93,33 @@ class _FakeSession:
         return self._results.pop(0)
 
 
+class _CapturingSession:
+    """Answers the table probe with ``probe`` first, when given, then every statement with
+    ``rows``; ``sql`` and ``params`` are the last statement's after the probe."""
+
+    def __init__(self, rows: list[dict], *, probe: dict | None = None) -> None:
+        self._rows = rows
+        self._probe = probe
+        self.sql = ""
+        self.params: dict = {}
+
+    async def execute(self, sql, params=None):
+        if self._probe is not None:
+            probe, self._probe = self._probe, None
+            return _FakeResult([probe])
+        self.sql = str(sql)
+        self.params = dict(params or {})
+        return _FakeResult(self._rows)
+
+
+async def _tables_missing(*_args: object, **_kwargs: object) -> bool:
+    return False
+
+
+async def _tables_available(*_args: object, **_kwargs: object) -> bool:
+    return True
+
+
 def test_parse_hpo_obo_terms_synonyms_and_closure() -> None:
     ontology = parse_hpo_obo_text((FIXTURE_DIR / "hpo-mini.obo").read_text(encoding="utf-8"))
 
@@ -90,6 +151,178 @@ def test_parse_hpo_obo_release_metadata() -> None:
     assert metadata.release_date.isoformat() == "2026-02-16"
 
 
+# What the OBO file below states, as the OBO Graphs JSON states it too.
+_OBO_WITH_OBSOLETE_TERMS = """format-version: 1.2
+data-version: hp/releases/2026-02-16
+
+[Term]
+id: HP:0000118
+name: Phenotypic abnormality
+
+[Term]
+id: HP:0001250
+name: Seizure
+def: "A \\"seizure\\" is an intermittent abnormality." []
+alt_id: HP:0002279
+synonym: "Epileptic seizure" EXACT []
+is_a: HP:0000118 ! Phenotypic abnormality
+relationship: part_of HP:0000118 ! Phenotypic abnormality
+
+[Term]
+id: HP:0000001
+name: Fits
+is_obsolete: true
+replaced_by: HP:0001250
+
+[Term]
+id: HP:0009999
+def: "A term without a name is not read." []
+
+[Typedef]
+id: HP:0000005
+name: A typedef, not a term
+"""
+
+
+def test_parse_hpo_obo_reads_obsolete_terms_alternative_ids_and_relationships() -> None:
+    ontology = parse_hpo_obo_text(_OBO_WITH_OBSOLETE_TERMS)
+
+    # A term without a name, and a typedef stanza, are not terms.
+    assert set(ontology.terms) == {"HP:0000118", "HP:0001250", "HP:0000001"}
+    seizure = ontology.terms["HP:0001250"]
+    assert seizure.definition == 'A "seizure" is an intermittent abnormality.'
+    # An alternative id is found as a synonym, and kept as what it is.
+    assert seizure.synonyms == ["Epileptic seizure", "HP:0002279"]
+    assert seizure.metadata == {"alt_ids": ["HP:0002279"]}
+    assert (seizure.is_obsolete, seizure.replaced_by) == (False, None)
+    obsolete = ontology.terms["HP:0000001"]
+    assert (obsolete.is_obsolete, obsolete.replaced_by) == (True, "HP:0001250")
+    assert [(edge.child_id, edge.relation, edge.parent_id) for edge in ontology.edges] == [
+        ("HP:0001250", "is_a", "HP:0000118"),
+        ("HP:0001250", "part_of", "HP:0000118"),
+    ]
+
+
+def _obo_graphs_json() -> str:
+    def iri(hpo_id: str) -> str:
+        return "http://purl.obolibrary.org/obo/" + hpo_id.replace(":", "_")
+
+    return json.dumps(
+        {
+            "graphs": [
+                {
+                    "id": "http://purl.obolibrary.org/obo/hp.json",
+                    "meta": {"version": "http://purl.obolibrary.org/obo/hp/releases/2026-02-16/hp.json"},
+                    "nodes": [
+                        {"id": iri("HP:0000118"), "lbl": "Phenotypic abnormality", "type": "CLASS"},
+                        {
+                            "id": iri("HP:0001250"),
+                            "lbl": "Seizure",
+                            "type": "CLASS",
+                            "meta": {
+                                "definition": {"val": "An intermittent abnormality."},
+                                "synonyms": [
+                                    {"pred": "hasExactSynonym", "val": "Epileptic seizure"},
+                                    {"pred": "hasExactSynonym", "val": "Epileptic seizure"},
+                                ],
+                            },
+                        },
+                        {"id": iri("HP:0000001"), "lbl": "Fits", "type": "CLASS", "meta": {"deprecated": True}},
+                        # Not an HPO term, and an HPO term without a label: neither is read.
+                        {"id": "http://purl.obolibrary.org/obo/UBERON_0000955", "lbl": "brain"},
+                        {"id": iri("HP:0009999")},
+                    ],
+                    "edges": [
+                        {"sub": iri("HP:0001250"), "pred": "is_a", "obj": iri("HP:0000118")},
+                        {
+                            "sub": iri("HP:0001250"),
+                            "pred": "http://purl.obolibrary.org/obo/BFO_0000050",
+                            "obj": iri("HP:0000118"),
+                        },
+                        {"sub": iri("HP:0001250"), "pred": "is_a", "obj": "http://purl.obolibrary.org/obo/UBERON_0000955"},
+                    ],
+                }
+            ]
+        }
+    )
+
+
+def test_parse_hpo_json_reads_the_terms_and_edges_the_obo_states() -> None:
+    ontology = parse_hpo_ontology_text(_obo_graphs_json(), source_format="json")
+
+    assert set(ontology.terms) == {"HP:0000118", "HP:0001250", "HP:0000001"}
+    seizure = ontology.terms["HP:0001250"]
+    assert (seizure.label, seizure.definition, seizure.synonyms) == (
+        "Seizure",
+        "An intermittent abnormality.",
+        ["Epileptic seizure"],
+    )
+    assert ontology.terms["HP:0000001"].is_obsolete is True
+    assert ontology.terms["HP:0000118"].is_obsolete is False
+    # The relation is the predicate's last path segment; an edge to a term outside HPO is not read.
+    assert [(edge.child_id, edge.relation, edge.parent_id) for edge in ontology.edges] == [
+        ("HP:0001250", "is_a", "HP:0000118"),
+        ("HP:0001250", "BFO_0000050", "HP:0000118"),
+    ]
+    # The same closure as from the OBO file's is_a and part_of edges.
+    obo = parse_hpo_obo_text(_OBO_WITH_OBSOLETE_TERMS)
+    assert {(a, b) for a, b, _depth in compute_hpo_closure(ontology.terms, ontology.edges)} == {
+        (a, b) for a, b, _depth in compute_hpo_closure(obo.terms, obo.edges)
+    }
+
+
+def test_parse_hpo_json_release_metadata_reads_the_graphs_version() -> None:
+    metadata = parse_hpo_ontology_release_metadata_text(_obo_graphs_json(), source_format="json")
+
+    assert "hp/releases/2026-02-16" in (metadata.release_version or "")
+    assert metadata.release_date == date(2026, 2, 16)
+    # A file that is no JSON states no release.
+    unreadable = parse_hpo_ontology_release_metadata_text("{not json", source_format="json")
+    assert (unreadable.release_version, unreadable.release_date) == (None, None)
+
+
+# ---- The table-availability probe ----------------------------------------------------------------
+#
+# Probed once and cached while the tables are there; asked again while they are not, since
+# they may appear after the schema is applied. (The root conftest resets the cache between
+# tests.)
+
+
+class _ProbeSession:
+    def __init__(self, row: dict) -> None:
+        self._row = row
+        self.count = 0
+
+    async def execute(self, sql, params=None):
+        self.count += 1
+        return _FakeResult([self._row])
+
+
+@pytest.mark.asyncio
+async def test_postgres_tables_available_caches_positive() -> None:
+    session = _ProbeSession({"hpo_term": True})
+
+    assert await hpo_service._postgres_tables_available(session, ("hpo_term",)) is True
+    assert session.count == 1
+    # Second call is served from the cache — no second probe.
+    assert await hpo_service._postgres_tables_available(session, ("hpo_term",)) is True
+    assert session.count == 1
+
+
+@pytest.mark.asyncio
+async def test_postgres_tables_available_reprobes_when_absent() -> None:
+    session = _ProbeSession({"hpo_missing": False})
+
+    assert await hpo_service._postgres_tables_available(session, ("hpo_missing",)) is False
+    assert session.count == 1
+    # Absent tables are not cached (they may appear after schema init) -> re-probe.
+    assert await hpo_service._postgres_tables_available(session, ("hpo_missing",)) is False
+    assert session.count == 2
+
+
+# ---- The admin summary and term list -------------------------------------------------------------
+
+
 @pytest.mark.asyncio
 async def test_hpo_admin_summary_reports_not_loaded_when_schema_missing() -> None:
     session = _FakeSession([_FakeResult([{"hpo_term": False}])])
@@ -112,10 +345,7 @@ async def test_hpo_admin_summary_names_the_ontology_file_the_backend_is_configur
     assert Settings.model_fields["hpo_ontology_path"].default == "/data/ref-data/hpo/hp.obo"
     monkeypatch.setattr(hpo_service.settings, "hpo_ontology_path", "/srv/ref-data/hpo/hp.obo")
 
-    async def tables_available(*_args: object, **_kwargs: object) -> bool:
-        return True
-
-    monkeypatch.setattr(hpo_service, "_postgres_tables_available", tables_available)
+    monkeypatch.setattr(hpo_service, "_postgres_tables_available", _tables_available)
     loaded = await get_hpo_admin_summary(
         _FakeSession(
             [
@@ -138,10 +368,7 @@ async def test_hpo_admin_summary_names_the_ontology_file_the_backend_is_configur
     # The response model carries it, so the endpoint does not drop it.
     assert HpoAdminSummaryOut(**loaded).ontology_path == "/srv/ref-data/hpo/hp.obo"
 
-    async def tables_missing(*_args: object, **_kwargs: object) -> bool:
-        return False
-
-    monkeypatch.setattr(hpo_service, "_postgres_tables_available", tables_missing)
+    monkeypatch.setattr(hpo_service, "_postgres_tables_available", _tables_missing)
     empty = await get_hpo_admin_summary(_FakeSession([]))
     # Also before any ontology is installed, when the path matters most.
     assert empty["ontology_path"] == "/srv/ref-data/hpo/hp.obo"
@@ -163,14 +390,11 @@ async def test_hpo_admin_summary_describes_the_ontology_that_is_loaded(
     imported_at = datetime(2026, 9, 1, 8, 0, tzinfo=timezone.utc)
     reads: list[object] = []
 
-    async def tables_available(*_args: object, **_kwargs: object) -> bool:
-        return True
-
     async def loaded(session: object) -> dict:
         reads.append(session)
         return {"release_version": None, "release_date": None, "imported_at": imported_at}
 
-    monkeypatch.setattr(hpo_service, "_postgres_tables_available", tables_available)
+    monkeypatch.setattr(hpo_service, "_postgres_tables_available", _tables_available)
     monkeypatch.setattr(hpo_service, "get_loaded_hpo_release", loaded)
     session = _FakeSession([_FakeResult([{"total_terms": 2, "active_terms": 2, "obsolete_terms": 0}])])
     summary = await get_hpo_admin_summary(session)
@@ -183,25 +407,37 @@ async def test_hpo_admin_summary_describes_the_ontology_that_is_loaded(
     assert summary["last_sync_date"] == imported_at
 
 
+# ---- A family's annotations without the HPO tables -----------------------------------------------
+
+_PAYLOAD = SimpleNamespace(hpo_id="HP:0001250", status="present", onset=None, evidence=None, source=None, note=None)
+_ANALYST = SimpleNamespace(id=None, username="analyst")
+
+
 @pytest.mark.asyncio
-async def test_create_individual_hpo_annotation_returns_service_unavailable_when_hpo_schema_is_missing(
-    monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.parametrize(
+    ("write", "target"),
+    [
+        (hpo_service.create_individual_hpo_annotation, {"sample_id": "PROBAND"}),
+        (hpo_service.update_individual_hpo_annotation, {"annotation_id": ANNOTATION_ID}),
+    ],
+    ids=["create", "update"],
+)
+async def test_an_annotation_write_returns_service_unavailable_when_hpo_schema_is_missing(
+    monkeypatch: pytest.MonkeyPatch, write, target: dict
 ) -> None:
+    from fastapi import HTTPException
+
     session = _FakeSession([])
+    monkeypatch.setattr(hpo_service, "_postgres_tables_available", _tables_missing)
 
-    async def fake_tables_available(*_args: object, **_kwargs: object) -> bool:
-        return False
-
-    monkeypatch.setattr(hpo_service, "_postgres_tables_available", fake_tables_available)
-
-    with pytest.raises(Exception) as exc_info:
-        await hpo_service.create_individual_hpo_annotation(
+    with pytest.raises(HTTPException) as exc_info:
+        await write(
             session,
-            family_uuid="11111111-1111-1111-1111-111111111111",
+            family_uuid=FAMILY_UUID,
             family_identifier="FAM1",
-            sample_id="PROBAND",
-            payload=SimpleNamespace(hpo_id="HP:0001250", status="present", onset=None, evidence=None, source=None, note=None),
-            user=SimpleNamespace(id=None, username="analyst"),
+            payload=_PAYLOAD,
+            user=_ANALYST,
+            **target,
         )
 
     assert exc_info.value.status_code == 503
@@ -210,63 +446,32 @@ async def test_create_individual_hpo_annotation_returns_service_unavailable_when
 
 @pytest.mark.asyncio
 async def test_mark_family_hpo_annotations_stale_uses_typed_json_parameters() -> None:
-    captured: dict[str, object] = {}
-
-    class _CapturingSession:
-        async def execute(self, sql, params=None):
-            captured["sql"] = str(sql)
-            captured["params"] = dict(params or {})
-            return _FakeResult([{}])
+    session = _CapturingSession([{}])
 
     await hpo_service.mark_family_hpo_annotations_stale(
-        _CapturingSession(),
-        family_uuid="11111111-1111-1111-1111-111111111111",
+        session,
+        family_uuid=FAMILY_UUID,
         sample_id="PROBAND",
         reason="hpo_annotation_created",
     )
 
-    assert "reason', CAST(:reason AS text)" in captured["sql"]
-    assert "sample_id', CAST(:sample_id AS text)" in captured["sql"]
-    assert captured["params"]["reason"] == "hpo_annotation_created"
-    assert captured["params"]["sample_id"] == "PROBAND"
+    assert "reason', CAST(:reason AS text)" in session.sql
+    assert "sample_id', CAST(:sample_id AS text)" in session.sql
+    assert session.params["reason"] == "hpo_annotation_created"
+    assert session.params["sample_id"] == "PROBAND"
 
 
 @pytest.mark.asyncio
 async def test_annotation_by_id_returns_basic_annotation_when_hpo_term_table_is_missing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    session = _FakeSession(
-        [
-            _FakeResult(
-                [
-                    {
-                        "id": "22222222-2222-2222-2222-222222222222",
-                        "sample_id": "PROBAND",
-                        "hpo_id": "HP:0001250",
-                        "label": "HP:0001250",
-                        "definition": None,
-                        "status": "present",
-                        "onset": None,
-                        "evidence": None,
-                        "source": "manual",
-                        "note": None,
-                        "created_at": "2026-01-01T00:00:00Z",
-                        "updated_at": "2026-01-01T00:00:00Z",
-                    }
-                ]
-            )
-        ]
-    )
-
-    async def fake_tables_available(*_args: object, **_kwargs: object) -> bool:
-        return False
-
-    monkeypatch.setattr(hpo_service, "_postgres_tables_available", fake_tables_available)
+    session = _FakeSession([_FakeResult([dict(ANNOTATION_ROW)])])
+    monkeypatch.setattr(hpo_service, "_postgres_tables_available", _tables_missing)
 
     annotation = await hpo_service._annotation_by_id(
         session,
-        family_uuid="11111111-1111-1111-1111-111111111111",
-        annotation_id="22222222-2222-2222-2222-222222222222",
+        family_uuid=FAMILY_UUID,
+        annotation_id=ANNOTATION_ID,
     )
 
     assert annotation is not None
@@ -275,111 +480,50 @@ async def test_annotation_by_id_returns_basic_annotation_when_hpo_term_table_is_
 
 
 @pytest.mark.asyncio
-async def test_update_individual_hpo_annotation_returns_service_unavailable_when_hpo_schema_is_missing(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    session = _FakeSession([])
-
-    async def fake_tables_available(*_args: object, **_kwargs: object) -> bool:
-        return False
-
-    monkeypatch.setattr(hpo_service, "_postgres_tables_available", fake_tables_available)
-
-    with pytest.raises(Exception) as exc_info:
-        await hpo_service.update_individual_hpo_annotation(
-            session,
-            family_uuid="11111111-1111-1111-1111-111111111111",
-            family_identifier="FAM1",
-            annotation_id="22222222-2222-2222-2222-222222222222",
-            payload=SimpleNamespace(hpo_id="HP:0001250", status="present", onset=None, evidence=None, source=None, note=None),
-            user=SimpleNamespace(id=None, username="analyst"),
-        )
-
-    assert exc_info.value.status_code == 503
-    assert "HPO database schema is not available" in exc_info.value.detail
-
-
-@pytest.mark.asyncio
 async def test_list_family_hpo_annotations_falls_back_when_hpo_term_table_is_missing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    session = _FakeSession(
-        [
-            _FakeResult(
-                [
-                    {
-                        "id": "22222222-2222-2222-2222-222222222222",
-                        "sample_id": "PROBAND",
-                        "hpo_id": "HP:0001250",
-                        "label": "HP:0001250",
-                        "definition": None,
-                        "status": "present",
-                        "onset": None,
-                        "evidence": None,
-                        "source": "manual",
-                        "note": None,
-                        "created_at": "2026-01-01T00:00:00Z",
-                        "updated_at": "2026-01-01T00:00:00Z",
-                    }
-                ]
-            )
-        ]
-    )
-
-    async def fake_tables_available(*_args: object, **_kwargs: object) -> bool:
-        return False
-
-    monkeypatch.setattr(hpo_service, "_postgres_tables_available", fake_tables_available)
+    session = _FakeSession([_FakeResult([dict(ANNOTATION_ROW)])])
+    monkeypatch.setattr(hpo_service, "_postgres_tables_available", _tables_missing)
 
     annotations = await hpo_service.list_family_hpo_annotations(
         session,
-        family_uuid="11111111-1111-1111-1111-111111111111",
+        family_uuid=FAMILY_UUID,
     )
 
-    assert annotations == [
-        {
-            "id": "22222222-2222-2222-2222-222222222222",
-            "sample_id": "PROBAND",
-            "hpo_id": "HP:0001250",
-            "label": "HP:0001250",
-            "definition": None,
-            "status": "present",
-            "onset": None,
-            "evidence": None,
-            "source": "manual",
-            "note": None,
-            "created_at": "2026-01-01T00:00:00Z",
-            "updated_at": "2026-01-01T00:00:00Z",
-        }
-    ]
+    assert annotations == [ANNOTATION_ROW]
+
+
+# ---- The admin's term list and the term search ---------------------------------------------------
+
+_HPO_TABLES = {"hpo_term": True, "hpo_synonym": True, "hpo_edge": True}
+# A term as the admin list's query answers it: its synonyms and relatives as JSON text.
+_SEIZURE_ADMIN_ROW = {
+    "hpo_id": "HP:0001250",
+    "label": "Seizure",
+    "definition": "A seizure phenotype.",
+    "is_obsolete": False,
+    "replaced_by": None,
+    "release_version": "test",
+    "release_date": None,
+    "synonyms": '["Epileptic seizure"]',
+    "parents": '[{"hpo_id":"HP:0000118","label":"Phenotypic abnormality","relation":"is_a"}]',
+    "children": "[]",
+    "parent_count": 1,
+    "child_count": 0,
+    "match_rank": 0,
+}
+_ABNORMALITY_ROW = {
+    "hpo_id": "HP:0000001",
+    "label": "Abnormality",
+    "definition": None,
+    "is_obsolete": False,
+}
 
 
 @pytest.mark.asyncio
 async def test_hpo_admin_terms_normalizes_json_values() -> None:
-    session = _FakeSession(
-        [
-            _FakeResult([{"hpo_term": True, "hpo_synonym": True, "hpo_edge": True}]),
-            _FakeResult(
-                [
-                    {
-                        "hpo_id": "HP:0001250",
-                        "label": "Seizure",
-                        "definition": "A seizure phenotype.",
-                        "is_obsolete": False,
-                        "replaced_by": None,
-                        "release_version": "test",
-                        "release_date": None,
-                        "synonyms": '["Epileptic seizure"]',
-                        "parents": '[{"hpo_id":"HP:0000118","label":"Phenotypic abnormality","relation":"is_a"}]',
-                        "children": "[]",
-                        "parent_count": 1,
-                        "child_count": 0,
-                        "match_rank": 0,
-                    }
-                ]
-            ),
-        ]
-    )
+    session = _FakeSession([_FakeResult([_HPO_TABLES]), _FakeResult([dict(_SEIZURE_ADMIN_ROW)])])
 
     terms = await list_hpo_admin_terms(session, query="seizure", limit=100)
 
@@ -396,118 +540,46 @@ async def test_hpo_admin_terms_normalizes_json_values() -> None:
 
 @pytest.mark.asyncio
 async def test_search_hpo_terms_returns_default_order_when_query_blank() -> None:
-    captured: dict[str, object] = {}
+    session = _CapturingSession([dict(_ABNORMALITY_ROW)])
 
-    class _CapturingSession:
-        async def execute(self, sql, params=None):
-            captured["sql"] = str(sql)
-            captured["params"] = dict(params or {})
-            return _FakeResult(
-                [
-                    {
-                        "hpo_id": "HP:0000001",
-                        "label": "Abnormality",
-                        "definition": None,
-                        "is_obsolete": False,
-                    }
-                ]
-            )
+    result = await hpo_service.search_hpo_terms(session, query="", limit=10)
 
-    result = await hpo_service.search_hpo_terms(_CapturingSession(), query="", limit=10)
-
-    assert result == [
-        {
-            "hpo_id": "HP:0000001",
-            "label": "Abnormality",
-            "definition": None,
-            "is_obsolete": False,
-        }
-    ]
-    assert "CASE" not in captured["sql"]
-    assert "ORDER BY t.is_obsolete, t.label" in captured["sql"]
-    assert captured["params"]["limit"] == 10
+    assert result == [_ABNORMALITY_ROW]
+    assert "CASE" not in session.sql
+    assert "ORDER BY t.is_obsolete, t.label" in session.sql
+    assert session.params["limit"] == 10
 
 
 @pytest.mark.asyncio
 async def test_hpo_admin_terms_accepts_null_query_parameter() -> None:
-    captured: dict[str, object] = {}
+    session = _CapturingSession([dict(_ABNORMALITY_ROW)], probe=_HPO_TABLES)
 
-    class _CapturingSession:
-        def __init__(self):
-            self.call_count = 0
-
-        async def execute(self, sql, params=None):
-            self.call_count += 1
-            if self.call_count == 1:
-                return _FakeResult([{"hpo_term": True, "hpo_synonym": True, "hpo_edge": True}])
-
-            captured["sql"] = str(sql)
-            captured["params"] = dict(params or {})
-            return _FakeResult(
-                [
-                    {
-                        "hpo_id": "HP:0000001",
-                        "label": "Abnormality",
-                        "definition": None,
-                        "is_obsolete": False,
-                    }
-                ]
-            )
-
-    result = await list_hpo_admin_terms(_CapturingSession(), query=None, limit=10)
+    result = await list_hpo_admin_terms(session, query=None, limit=10)
 
     assert result[0]["hpo_id"] == "HP:0000001"
     assert result[0]["label"] == "Abnormality"
     assert result[0]["definition"] is None
     assert result[0]["is_obsolete"] is False
-    assert "CASE" not in captured["sql"]
-    assert "ORDER BY t.is_obsolete, t.label" in captured["sql"]
-    assert captured["params"]["limit"] == 10
+    assert "CASE" not in session.sql
+    assert "ORDER BY t.is_obsolete, t.label" in session.sql
+    assert session.params["limit"] == 10
 
 
 @pytest.mark.asyncio
 async def test_hpo_admin_terms_search_query_uses_ranked_matching() -> None:
-    captured: dict[str, object] = {}
+    session = _CapturingSession([dict(_SEIZURE_ADMIN_ROW)], probe=_HPO_TABLES)
 
-    class _CapturingSession:
-        def __init__(self):
-            self.call_count = 0
-
-        async def execute(self, sql, params=None):
-            self.call_count += 1
-            if self.call_count == 1:
-                return _FakeResult([{"hpo_term": True, "hpo_synonym": True, "hpo_edge": True}])
-
-            captured["sql"] = str(sql)
-            captured["params"] = dict(params or {})
-            return _FakeResult(
-                [
-                    {
-                        "hpo_id": "HP:0001250",
-                        "label": "Seizure",
-                        "definition": "A seizure phenotype.",
-                        "is_obsolete": False,
-                        "replaced_by": None,
-                        "release_version": "test",
-                        "release_date": None,
-                        "synonyms": '["Epileptic seizure"]',
-                        "parents": '[{"hpo_id":"HP:0000118","label":"Phenotypic abnormality","relation":"is_a"}]',
-                        "children": "[]",
-                        "parent_count": 1,
-                        "child_count": 0,
-                        "match_rank": 0,
-                    }
-                ]
-            )
-
-    terms = await list_hpo_admin_terms(_CapturingSession(), query="seizure", limit=10)
+    terms = await list_hpo_admin_terms(session, query="seizure", limit=10)
 
     assert terms[0]["hpo_id"] == "HP:0001250"
-    assert captured["params"]["query"] == "seizure"
-    assert captured["params"]["like_query"] == "%seizure%"
-    assert captured["params"]["prefix_query"] == "seizure%"
-    assert "CASE" in captured["sql"]
-    assert "WHERE lower(t.hpo_id) LIKE :like_query" in captured["sql"]
+    assert session.params["query"] == "seizure"
+    assert session.params["like_query"] == "%seizure%"
+    assert session.params["prefix_query"] == "seizure%"
+    assert "CASE" in session.sql
+    assert "WHERE lower(t.hpo_id) LIKE :like_query" in session.sql
+
+
+# ---- The startup import, a family's phenotype files, the ontology file's path --------------------
 
 
 @pytest.mark.asyncio

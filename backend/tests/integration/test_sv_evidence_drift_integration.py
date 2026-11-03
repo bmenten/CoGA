@@ -44,6 +44,7 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy import text
 from backend.tests._signout_dialogs import no_finding_reviews
+from backend.tests.integration._datastores import stored_signout_snapshot
 
 pytestmark = pytest.mark.integration
 
@@ -260,15 +261,6 @@ def test_sign_out_gates_on_the_drift_of_a_reported_cnvs_evidence(monkeypatch) ->
     async def _count(session, table: str) -> int:
         return (await session.execute(counts[table], {"f": label})).scalar_one()
 
-    async def _stored_snapshot(session, version: int) -> dict:
-        stored = (
-            await session.execute(
-                text("SELECT snapshot FROM report_signouts WHERE family_identifier = :f AND version = :v"),
-                {"f": label, "v": version},
-            )
-        ).scalar_one()
-        return json.loads(stored) if isinstance(stored, str) else stored
-
     async def _run() -> None:
         try:
             await init_postgres_schema()
@@ -401,7 +393,7 @@ def test_sign_out_gates_on_the_drift_of_a_reported_cnvs_evidence(monkeypatch) ->
                 v2 = await rss.sign_out_report(s, family_id=label, user=user)
             assert v2["version"] == 2 and v2["drift_acknowledged"] is False
             async with sm() as s:
-                stored = await _stored_snapshot(s, 2)
+                stored = await stored_signout_snapshot(s, label, 2)
             assert stored["structural_drift"] == {"checked": 1, "drifted_count": 0, "drifted": []}
             [reported] = stored["reported_structural_variants"]
             assert reported["evidence_snapshot"]["evidence_hash"] == frozen["evidence_hash"]
@@ -447,7 +439,7 @@ def test_sign_out_gates_on_the_drift_of_a_reported_cnvs_evidence(monkeypatch) ->
                 )
             assert v3["version"] == 3 and v3["drift_acknowledged"] is True
             async with sm() as s:
-                stored = await _stored_snapshot(s, 3)
+                stored = await stored_signout_snapshot(s, label, 3)
                 assert stored["structural_drift"]["drifted_count"] == 1
                 assert stored["structural_drift"]["drifted"][0]["evidence_to"]["gene_symbols"] == ["TCF4"]
                 assert stored["drift_acknowledgement_reason"] == _REASON

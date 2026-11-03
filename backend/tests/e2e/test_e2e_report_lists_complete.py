@@ -28,19 +28,14 @@ from pathlib import Path
 
 import pytest
 
+from backend.tests.e2e._harness import capture
+
 pytestmark = pytest.mark.integration
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "golden_trio"
 FAMILY = "FAM_TRIO"
 # frontend/src/pages/families/reportedListCompleteness.ts REPORT_LIST_PAGE_SIZE.
 _REPORT_PAGE_SIZE = 10_000
-
-
-def _cap(resp) -> dict:
-    out = {"status": resp.status_code, "text": resp.text}
-    if resp.status_code < 400:
-        out["json"] = resp.json()
-    return out
 
 
 async def _collect(root: Path) -> dict:
@@ -58,11 +53,11 @@ async def _collect(root: Path) -> dict:
         ac.headers["Authorization"] = f"Bearer {token}"
 
         # A Python-side filter matching every SV: the capped read holds the first SV only.
-        r["capped_control"] = _cap(await ac.get(svs, params={"min_length": 1, "page_size": 50}))
-        listed = r["capped_control"].get("json", {}).get("variants", [])
+        r["capped_control"] = capture(await ac.get(svs, params={"min_length": 1, "page_size": 50}))
+        listed = (r["capped_control"]["json"] or {}).get("variants", [])
         # The whole callset, in the order the capped read takes it.
-        r["all"] = _cap(await ac.get(svs, params={"page_size": 50}))
-        ordered = [variant["_id"] for variant in r["all"].get("json", {}).get("variants", [])]
+        r["all"] = capture(await ac.get(svs, params={"page_size": 50}))
+        ordered = [variant["_id"] for variant in (r["all"]["json"] or {}).get("variants", [])]
         reported = ordered[-1] if ordered else None
         out["reported"] = reported
         out["in_window"] = [variant["_id"] for variant in listed]
@@ -70,17 +65,17 @@ async def _collect(root: Path) -> dict:
             return out
 
         review_url = f"{svs}/{reported}/review"
-        r["tag"] = _cap(await ac.put(review_url, json={"tags": ["report"], "note": "E2E: reported"}))
+        r["tag"] = capture(await ac.put(review_url, json={"tags": ["report"], "note": "E2E: reported"}))
         try:
             report_params = {"review_tag": "report", "page_size": _REPORT_PAGE_SIZE}
-            r["report_svs"] = _cap(await ac.get(svs, params=report_params))
-            r["report_svs_ranked"] = _cap(await ac.get(svs, params={**report_params, "prioritize": True}))
-            r["report_small"] = _cap(
+            r["report_svs"] = capture(await ac.get(svs, params=report_params))
+            r["report_svs_ranked"] = capture(await ac.get(svs, params={**report_params, "prioritize": True}))
+            r["report_small"] = capture(
                 await ac.get(f"/api/families/{FAMILY}/small-variants", params=report_params)
             )
         finally:
-            r["untag"] = _cap(await ac.put(review_url, json={"tags": [], "note": None}))
-            r["after_untag"] = _cap(
+            r["untag"] = capture(await ac.put(review_url, json={"tags": [], "note": None}))
+            r["after_untag"] = capture(
                 await ac.get(svs, params={"review_tag": "report", "page_size": _REPORT_PAGE_SIZE})
             )
     return out

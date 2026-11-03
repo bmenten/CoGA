@@ -471,6 +471,47 @@ def test_the_override_refuses_every_other_local_token(
     assert [row.request_meta.get("emergency_sign_in") for row in _me_rows(audit_rows)] == [None]
 
 
+def test_the_override_refuses_the_emergency_admin_whose_account_is_gone_between_its_lookups(
+    client: TestClient,
+    azure: tuple[FakeDirectory, _Accounts],
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    audit_rows: list[Any],
+) -> None:
+    # The account is read twice, its sign-in record and then the user it signs in: one gone
+    # between the two is refused, not signed in as nobody.
+    monkeypatch.setattr(settings, "azure_admin_override", True)
+
+    async def gone(_session: Any, _email: str) -> None:
+        return None
+
+    monkeypatch.setattr(dependencies, "get_current_user_by_email", gone)
+
+    with caplog.at_level(logging.WARNING, logger=dependencies.__name__):
+        _assert_refused(_me(client, _local_token(EMERGENCY)))
+
+    assert _override_warnings(caplog) == []
+    assert [row.request_meta.get("emergency_sign_in") for row in _me_rows(audit_rows)] == [None]
+
+
+@pytest.mark.parametrize("override", [False, True], ids=["without-the-override", "with-the-override"])
+def test_with_azure_a_bearer_that_is_no_token_is_refused(
+    client: TestClient,
+    azure: tuple[FakeDirectory, _Accounts],
+    monkeypatch: pytest.MonkeyPatch,
+    override: bool,
+) -> None:
+    # Its header cannot be read, so neither check is picked: refused before the directory's
+    # keys are fetched or any account is looked up.
+    directory, accounts = azure
+    monkeypatch.setattr(settings, "azure_admin_override", override)
+
+    for bearer in ("not-a-token", "a.b.c"):
+        _assert_refused(_me(client, bearer))
+
+    assert directory.fetched == [] and accounts.identities == []
+
+
 def test_the_override_leaves_microsoft_tokens_alone(
     client: TestClient,
     azure: tuple[FakeDirectory, _Accounts],

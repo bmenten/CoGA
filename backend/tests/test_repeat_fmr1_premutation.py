@@ -21,12 +21,21 @@ import json
 import pytest
 
 from backend.app.services import repeat_expansion_pg
-from backend.app.services.family_metadata_context import FamilyMetadataContext, SampleMetadataContext
 from backend.app.services.repeat_expansion_catalog import BUILTIN_REPEAT_LOCI, PREMUTATION_MIN_BY_GENE
 from backend.app.services.repeat_expansion_pg import (
     REPEAT_STATUS_RANK,
     classify_repeat_count,
     summarize_repeat_status,
+)
+from backend.tests._repeat_fakes import (
+    RecordingSession,
+    RowsSession,
+    allele_statuses,
+    catalogue_after_a_start,
+    family_context,
+    import_lookup,
+    seed_a_start,
+    trgt_insert_params,
 )
 
 # STRchive's FXS_FMR1 ranges, with the premutation threshold the catalogue adds.
@@ -60,23 +69,9 @@ def test_the_catalogue_sets_the_fmr1_premutation_threshold() -> None:
     assert any(locus["gene"] == "FMR1" for locus in BUILTIN_REPEAT_LOCI)
 
 
-class _RecordingSession:
-    def __init__(self) -> None:
-        self.params: list[dict] = []
-        self.statements: list[tuple[str, dict]] = []
-        self.committed = False
-
-    async def execute(self, statement, params=None):
-        self.params.append(params or {})
-        self.statements.append((str(statement), params or {}))
-
-    async def commit(self) -> None:
-        self.committed = True
-
-
 @pytest.mark.asyncio
 async def test_every_catalogue_entry_of_fmr1_carries_the_threshold_and_no_other_locus_does() -> None:
-    session = _RecordingSession()
+    session = RecordingSession()
     strchive_fmr1 = {"locus_id": "FXS_FMR1", "gene": "FMR1", "metadata": {"source": "STRchive", "benign_max": 44}}
     builtin_fmr1 = next(locus for locus in BUILTIN_REPEAT_LOCI if locus["gene"] == "FMR1")
     htt = next(locus for locus in BUILTIN_REPEAT_LOCI if locus["gene"] == "HTT")
@@ -102,26 +97,15 @@ def _insert_status(*, sex: str, sample_field: str) -> str:
         "pathogenic_min": 201,
         "metadata": {"benign_min": 5, "benign_max": 44, "pathogenic_max": 2000, "premutation_min": 55},
     }
-    params = repeat_expansion_pg._build_trgt_insert_params(
-        sample_context=SampleMetadataContext(
-            sample_uuid="sample-uuid",
-            sample_id="sample",
-            family_uuid="family-uuid",
-            family_id="COUPLE1",
-            sex=sex,
-            project_ids=["project-uuid"],
-            assembly_id="assembly-uuid",
-            assembly_name="GRCh38",
-        ),
-        locus_lookup={"fxs_fmr1": locus},
-        chrom="chrX",
-        pos="147912049",
-        ref="CGG",
+    params = trgt_insert_params(
+        {"fxs_fmr1": locus},
         info_field="TRID=FXS_FMR1;END=147912111;MOTIFS=CGG",
-        format_field="GT:AL:MC",
         sample_field=sample_field,
-        header_sample="sample",
-        metadata={},
+        chrom="chrX",
+        pos=147912049,
+        ref="CGG",
+        sex=sex,
+        family_id="COUPLE1",
     )
     return str(params["status"])
 
@@ -137,60 +121,33 @@ def test_a_males_premutation_is_one_too() -> None:
 
 @pytest.mark.asyncio
 async def test_the_family_table_reads_the_premutation_from_the_catalogue() -> None:
-    class _Result:
-        def __init__(self, rows):
-            self._rows = rows
-
-        def mappings(self):
-            return self
-
-        def all(self):
-            return self._rows
-
-    class _TableSession:
-        async def execute(self, statement, params=None):
-            # Stored before the catalogue knew the premutation: the table reclassifies.
-            return _Result(
-                [
-                    {
-                        "sample_uuid": "00000000-0000-4000-8000-000000000001",
-                        "locus_id": "FXS_FMR1",
-                        "gene": "FMR1",
-                        "display_name": "FMR1",
-                        "disease": "Fragile X syndrome",
-                        "inheritance": "XD",
-                        "chr": "X",
-                        "start": 147912049,
-                        "end": 147912111,
-                        "motif": "CGG",
-                        "genotype": "1/2",
-                        "allele_count": 2,
-                        "alleles": [
-                            {"repeat_count": 30, "status": "normal"},
-                            {"repeat_count": 60, "status": "intermediate"},
-                        ],
-                        **FMR1,
-                        "premutation_min": 55,
-                        "status": "intermediate",
-                    }
-                ]
-            )
-
-    context = FamilyMetadataContext(
-        family_uuid="00000000-0000-4000-8000-0000000000f1",
-        family_id="COUPLE1",
-        project_ids=["project-uuid"],
-        sample_rows=[
-            {"sample_uuid": "00000000-0000-4000-8000-000000000001", "sample_id": "MOTHER1", "role": "mother", "affected": False, "sex": "female"}
+    # Stored before the catalogue knew the premutation: the table reclassifies.
+    stored = {
+        "sample_uuid": "00000000-0000-4000-8000-000000000001",
+        "locus_id": "FXS_FMR1",
+        "gene": "FMR1",
+        "display_name": "FMR1",
+        "disease": "Fragile X syndrome",
+        "inheritance": "XD",
+        "chr": "X",
+        "start": 147912049,
+        "end": 147912111,
+        "motif": "CGG",
+        "genotype": "1/2",
+        "allele_count": 2,
+        "alleles": [
+            {"repeat_count": 30, "status": "normal"},
+            {"repeat_count": 60, "status": "intermediate"},
         ],
-        sample_uuid_to_name={"00000000-0000-4000-8000-000000000001": "MOTHER1"},
-        sample_name_to_uuid={"MOTHER1": "00000000-0000-4000-8000-000000000001"},
-        affected_sample_names=[],
-        assembly_id="assembly-uuid",
-        assembly_name="GRCh38",
+        **FMR1,
+        "premutation_min": 55,
+        "status": "intermediate",
+    }
+    context = family_context(
+        ("00000000-0000-4000-8000-000000000001", "MOTHER1", "mother", False, "female"), family_id="COUPLE1"
     )
 
-    table = await repeat_expansion_pg.get_family_repeat_expansion_table_response(_TableSession(), context=context)
+    table = await repeat_expansion_pg.get_family_repeat_expansion_table_response(RowsSession([stored]), context=context)
 
     [locus] = table.loci
     assert locus.premutation_min == 55
@@ -209,87 +166,16 @@ async def test_the_family_table_reads_the_premutation_from_the_catalogue() -> No
 # through the import's lookup, so the TRID picks the row as it does at import.
 
 
-class _Result:
-    def __init__(self, rows):
-        self._rows = rows
-
-    def mappings(self):
-        return self
-
-    def all(self):
-        return self._rows
-
-
-class _CatalogueSession:
-    """Answers the import's catalogue query with the given ``repeat_loci`` rows."""
-
-    def __init__(self, rows: list[dict]) -> None:
-        self.rows = rows
-
-    async def execute(self, statement, params=None):
-        return _Result(self.rows)
-
-
-async def _catalogue_after_a_start(monkeypatch) -> list[dict]:
-    """The ``repeat_loci`` rows a start leaves, as the import's catalogue query returns them.
-
-    The seed upserts by ``locus_id``, so the last write of a locus is its row.
-    """
-    # The shipped STRchive file, not one an environment variable may point at.
-    monkeypatch.setattr(repeat_expansion_pg.settings, "trgt_strchive_loci_path", None)
-    session = _RecordingSession()
-    await repeat_expansion_pg.seed_builtin_repeat_catalog(session)
-    rows: dict[str, dict] = {}
-    # The upserts; the seed's last statement removes STRchive rows of another release (CLIN-31).
-    for params in (params for params in session.params if "locus_id" in params):
-        rows[params["locus_id"]] = {
-            **{
-                column: params[column]
-                for column in (
-                    "locus_id",
-                    "gene",
-                    "display_name",
-                    "disease",
-                    "inheritance",
-                    "motif",
-                    "motif_index",
-                    "warning_min",
-                    "pathogenic_min",
-                    "notes",
-                )
-            },
-            "aliases": json.loads(params["aliases_json"]),
-            "metadata": json.loads(params["metadata_json"]),
-        }
-    return [rows[locus_id] for locus_id in sorted(rows)]
-
-
-async def _import_lookup(monkeypatch) -> dict[str, dict]:
-    rows = await _catalogue_after_a_start(monkeypatch)
-    return await repeat_expansion_pg._build_repeat_locus_lookup(_CatalogueSession(rows))
-
-
 def _fmr1_call(lookup: dict[str, dict], *, trid: str, sex: str, sample_field: str) -> dict:
-    return repeat_expansion_pg._build_trgt_insert_params(
-        sample_context=SampleMetadataContext(
-            sample_uuid="sample-uuid",
-            sample_id="sample",
-            family_uuid="family-uuid",
-            family_id="COUPLE1",
-            sex=sex,
-            project_ids=["project-uuid"],
-            assembly_id="assembly-uuid",
-            assembly_name="GRCh38",
-        ),
-        locus_lookup=lookup,
-        chrom="chrX",
-        pos="147912049",
-        ref="CGG",
+    return trgt_insert_params(
+        lookup,
         info_field=f"TRID={trid};END=147912111;MOTIFS=CGG",
-        format_field="GT:AL:MC",
         sample_field=sample_field,
-        header_sample="sample",
-        metadata={},
+        chrom="chrX",
+        pos=147912049,
+        ref="CGG",
+        sex=sex,
+        family_id="COUPLE1",
     )
 
 
@@ -312,12 +198,12 @@ FMR1_TRIDS = ["FMR1", "FXS_FMR1"]
 )
 @pytest.mark.asyncio
 async def test_fmr1_ranges_hold_under_either_catalogue_row(monkeypatch, trid: str, count: int, status: str) -> None:
-    lookup = await _import_lookup(monkeypatch)
+    lookup = await import_lookup(monkeypatch)
 
     params = _fmr1_call(lookup, trid=trid, sex="female", sample_field=f"1/2:90,{3 * count}:30,{count}")
 
     assert params["locus_id"] == trid  # the row the TRID resolved to
-    assert [allele["status"] for allele in json.loads(params["alleles_json"])] == ["normal", status]
+    assert allele_statuses(params) == ["normal", status]
     assert params["status"] == status
 
 
@@ -332,7 +218,7 @@ async def test_fmr1_ranges_hold_under_either_catalogue_row(monkeypatch, trid: st
 async def test_a_males_single_x_allele_is_a_premutation_at_200_and_a_full_mutation_at_201(
     monkeypatch, trid: str, count: int, status: str, ploidy: str
 ) -> None:
-    lookup = await _import_lookup(monkeypatch)
+    lookup = await import_lookup(monkeypatch)
     sample_field = (
         f"1:{3 * count}:{count}" if ploidy == "hemizygous" else f"1/1:{3 * count},{3 * count}:{count},{count}"
     )
@@ -360,13 +246,9 @@ def test_the_built_in_fmr1_row_and_strchive_start_the_full_mutation_at_201() -> 
 @pytest.mark.asyncio
 async def test_each_start_rewrites_the_thresholds_an_earlier_start_stored(monkeypatch) -> None:
     """A database seeded with the old built-in row (200) gets 201 on its next start."""
-    monkeypatch.setattr(repeat_expansion_pg.settings, "trgt_strchive_loci_path", None)
-    session = _RecordingSession()
+    session = await seed_a_start(monkeypatch)
 
-    await repeat_expansion_pg.seed_builtin_repeat_catalog(session)
-
-    [(sql, params)] = [(sql, params) for sql, params in session.statements if params.get("locus_id") == "FMR1"]
-    upsert = " ".join(sql.split())
+    [(upsert, params)] = [(sql, params) for sql, params in session.statements if params.get("locus_id") == "FMR1"]
     assert "ON CONFLICT (locus_id) DO UPDATE" in upsert
     for column in ("warning_min", "pathogenic_min", "metadata"):
         assert f"{column} = EXCLUDED.{column}" in upsert
@@ -380,53 +262,33 @@ async def test_a_call_stored_as_a_full_mutation_at_200_reads_premutation_in_the_
     200-repeat allele imported under the old built-in row reads as a premutation once a start
     has rewritten the row. (The genome tracks show the status stored at import; importing the
     calls again corrects that.)"""
-    builtin = next(row for row in await _catalogue_after_a_start(monkeypatch) if row["locus_id"] == "FMR1")
+    builtin = (await catalogue_after_a_start(monkeypatch))["FMR1"]
+    # Stored with the old threshold; the query reads the thresholds from the catalogue.
+    stored = {
+        "sample_uuid": "00000000-0000-4000-8000-000000000002",
+        "locus_id": "FMR1",
+        "gene": "FMR1",
+        "display_name": "FMR1",
+        "disease": "Fragile X syndrome",
+        "inheritance": "X-linked",
+        "chr": "X",
+        "start": 147912049,
+        "end": 147912111,
+        "motif": "CGG",
+        "genotype": "1",
+        "allele_count": 1,
+        "alleles": [{"repeat_count": 200, "status": "pathogenic"}],
+        "warning_min": builtin["warning_min"],
+        "pathogenic_min": builtin["pathogenic_min"],
+        "benign_min": builtin["metadata"].get("benign_min"),
+        "benign_max": builtin["metadata"].get("benign_max"),
+        "pathogenic_max": builtin["metadata"].get("pathogenic_max"),
+        "premutation_min": builtin["metadata"].get("premutation_min"),
+        "status": "pathogenic",
+    }
+    context = family_context(("00000000-0000-4000-8000-000000000002", "SON1", "proband", False, "male"), family_id="TRIO1")
 
-    class _TableSession:
-        async def execute(self, statement, params=None):
-            # Stored with the old threshold; the query reads the thresholds from the catalogue.
-            return _Result(
-                [
-                    {
-                        "sample_uuid": "00000000-0000-4000-8000-000000000002",
-                        "locus_id": "FMR1",
-                        "gene": "FMR1",
-                        "display_name": "FMR1",
-                        "disease": "Fragile X syndrome",
-                        "inheritance": "X-linked",
-                        "chr": "X",
-                        "start": 147912049,
-                        "end": 147912111,
-                        "motif": "CGG",
-                        "genotype": "1",
-                        "allele_count": 1,
-                        "alleles": [{"repeat_count": 200, "status": "pathogenic"}],
-                        "warning_min": builtin["warning_min"],
-                        "pathogenic_min": builtin["pathogenic_min"],
-                        "benign_min": builtin["metadata"].get("benign_min"),
-                        "benign_max": builtin["metadata"].get("benign_max"),
-                        "pathogenic_max": builtin["metadata"].get("pathogenic_max"),
-                        "premutation_min": builtin["metadata"].get("premutation_min"),
-                        "status": "pathogenic",
-                    }
-                ]
-            )
-
-    context = FamilyMetadataContext(
-        family_uuid="00000000-0000-4000-8000-0000000000f2",
-        family_id="TRIO1",
-        project_ids=["project-uuid"],
-        sample_rows=[
-            {"sample_uuid": "00000000-0000-4000-8000-000000000002", "sample_id": "SON1", "role": "proband", "affected": False, "sex": "male"}
-        ],
-        sample_uuid_to_name={"00000000-0000-4000-8000-000000000002": "SON1"},
-        sample_name_to_uuid={"SON1": "00000000-0000-4000-8000-000000000002"},
-        affected_sample_names=[],
-        assembly_id="assembly-uuid",
-        assembly_name="GRCh38",
-    )
-
-    table = await repeat_expansion_pg.get_family_repeat_expansion_table_response(_TableSession(), context=context)
+    table = await repeat_expansion_pg.get_family_repeat_expansion_table_response(RowsSession([stored]), context=context)
 
     [locus] = table.loci
     assert locus.pathogenic_min == 201

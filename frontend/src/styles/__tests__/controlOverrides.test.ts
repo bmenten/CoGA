@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { themeText } from './themeSource';
+import { themeRules, themeTextWithoutComments } from './themeSource';
 
 /**
  * The shared form-control rule is written as
@@ -20,10 +20,8 @@ import { themeText } from './themeSource';
  * This asserts that every override of that rule carries enough specificity to win.
  */
 
-// Every module theme.css imports, in cascade order.
-const THEME = themeText()
-  // Comments sit between rules and would otherwise be read as part of the next selector.
-  .replace(/\/\*[\s\S]*?\*\//g, '');
+// Every module theme.css imports, in cascade order, without its comments.
+const THEME = themeTextWithoutComments();
 
 const SHARED_RULE = "input:not([type='checkbox']):not([type='radio'])";
 const SHARED_RULE_AT = THEME.indexOf(SHARED_RULE);
@@ -44,19 +42,12 @@ interface ControlRule {
 }
 
 /** Every rule that tries to resize a form control. */
-const controlOverrides = (): ControlRule[] => {
-  const rules: ControlRule[] = [];
-  const pattern = /([^{}]+)\{([^}]*)\}/g;
-  let match: RegExpExecArray | null;
-  while ((match = pattern.exec(THEME)) !== null) {
-    const [, selector, body] = match;
-    if (!/\binput\b/.test(selector)) continue;
+const controlOverrides = (): ControlRule[] =>
+  themeRules()
+    .filter(({ selectors }) => /\binput\b/.test(selectors))
     // Only rules that try to resize the control; colour-only rules are unaffected.
-    if (!/(min-)?height|padding/.test(body)) continue;
-    rules.push({ selector: selector.replace(/\s+/g, ' ').trim(), at: match.index });
-  }
-  return rules;
-};
+    .filter(({ body }) => /(min-)?height|padding/.test(body))
+    .map(({ selectors, at }) => ({ selector: selectors.replace(/\s+/g, ' ').trim(), at }));
 
 /**
  * Rough CSS specificity, counting `:not(...)` by its argument as the spec requires.

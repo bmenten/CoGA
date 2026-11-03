@@ -1,10 +1,8 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { QueryClientProvider } from '@tanstack/react-query';
-import { MemoryRouter, Route, Routes } from 'react-router';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, it, vi, type Mock } from 'vitest';
 
 import FamilyDetailPage from '../FamilyDetailPage';
-import { createTestQueryClient } from '../../../test/createTestQueryClient';
+import { renderFamilyRoute } from '../../../test/familyRoute';
 import api from '../../../lib/api';
 
 /**
@@ -236,6 +234,12 @@ vi.mock('../../../lib/api', () => ({
   },
 }));
 
+/** The page of family F1, at `url`. */
+const renderPage = (url = '/families/F1') => renderFamilyRoute('/families/:familyId', url, <FamilyDetailPage />);
+/** The family's structure editor (admin data management), the same page made editable. */
+const renderStructureEditor = () =>
+  renderFamilyRoute('/admin/data/families/:familyId/structure', '/admin/data/families/F1/structure', <FamilyDetailPage editable />);
+
 describe('FamilyDetailPage', () => {
   beforeEach(() => {
     localStorage.clear();
@@ -256,17 +260,7 @@ describe('FamilyDetailPage', () => {
   });
 
   it('shows the analysis-pipeline settings last, collapsed', async () => {
-    const queryClient = createTestQueryClient();
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={['/families/F1']}>
-          <Routes>
-            <Route path="/families/:familyId" element={<FamilyDetailPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderPage();
 
     // The pipeline block is recorded on the family at package import. The panel is a
     // closed <details> here, so its content is in the DOM but not shown until opened.
@@ -294,17 +288,7 @@ describe('FamilyDetailPage', () => {
         reviewed_by: null,
       },
     });
-    const queryClient = createTestQueryClient();
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={['/families/F1']}>
-          <Routes>
-            <Route path="/families/:familyId" element={<FamilyDetailPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderPage();
 
     const statusSelect = (await screen.findByLabelText('Family status')) as HTMLSelectElement;
     await waitFor(() => expect(statusSelect.value).toBe('analysis_in_progress'));
@@ -320,15 +304,7 @@ describe('FamilyDetailPage', () => {
   });
 
   const renderFamily = () =>
-    render(
-      <QueryClientProvider client={createTestQueryClient()}>
-        <MemoryRouter initialEntries={['/families/F1']}>
-          <Routes>
-            <Route path="/families/:familyId" element={<FamilyDetailPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderPage();
 
   const optionTexts = (select: HTMLElement) =>
     Array.from((select as HTMLSelectElement).options).map((option) => option.textContent);
@@ -392,17 +368,7 @@ describe('FamilyDetailPage', () => {
 
   it('lets admins edit the ROI from the family dashboard without structure edit controls', async () => {
     localStorage.setItem('role', 'admin');
-    const queryClient = createTestQueryClient();
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={['/families/F1']}>
-          <Routes>
-            <Route path="/families/:familyId" element={<FamilyDetailPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderPage();
 
     await waitFor(() => expect(screen.getByText(/Family F1/i)).toBeInTheDocument());
     await waitForVariantWorkspaceReady();
@@ -451,17 +417,7 @@ describe('FamilyDetailPage', () => {
 
   it('does not expose ROI edit controls to non-admin viewers', async () => {
     localStorage.setItem('role', 'viewer');
-    const queryClient = createTestQueryClient();
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={['/families/F1']}>
-          <Routes>
-            <Route path="/families/:familyId" element={<FamilyDetailPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderPage();
 
     await waitFor(() => expect(screen.getByText(/Family F1/i)).toBeInTheDocument());
     // ROI summary is visible, but the edit controls are admin-only.
@@ -472,126 +428,72 @@ describe('FamilyDetailPage', () => {
     expect(screen.queryByRole('button', { name: /save roi/i })).not.toBeInTheDocument();
   });
 
-  it('omits every variant workspace when no variant data is loaded', async () => {
-    mockApiState.smallVariantTotal = 0;
-    mockApiState.structuralVariantTotal = 0;
+  // A variant workspace is offered only where the family has its data: never a link, nor a
+  // button, to an empty one. The variant summary summarises the structural variants, so it has
+  // nothing to show for small variants only; a NIPT family's data is its NIPT analysis.
+  const WORKSPACES = {
+    small: /small variants/i,
+    structural: /structural variants/i,
+    repeats: /repeat expansions/i,
+    paraphase: /paraphase/i,
+    mtDNA: /mtDNA analysis/i,
+    nipt: /monogenic nipt/i,
+    summary: /variant summary/i,
+  };
+  it.each([
+    {
+      family: 'without variant data',
+      small: 0,
+      structural: 0,
+      analysisType: null,
+      offered: {},
+      noDataNote: true,
+    },
+    {
+      family: 'whose analysis type is monogenic_nipt',
+      small: 0,
+      structural: 0,
+      analysisType: 'monogenic_nipt',
+      offered: { nipt: '/families/F1/nipt' },
+      noDataNote: false,
+    },
+    {
+      family: 'with small variants only',
+      small: 2,
+      structural: 0,
+      analysisType: null,
+      offered: { small: '/families/F1/small-variants?project_id=p1' },
+      noDataNote: false,
+    },
+    {
+      family: 'with structural variants only',
+      small: 0,
+      structural: 2,
+      analysisType: null,
+      offered: { structural: '/families/F1/structural-variants?project_id=p1', summary: '/families/F1/variant-summary' },
+      noDataNote: false,
+    },
+  ] as const)('offers a family $family only the workspaces backed by its data', async ({ small, structural, analysisType, offered, noDataNote }) => {
+    mockApiState.smallVariantTotal = small;
+    mockApiState.structuralVariantTotal = structural;
+    mockApiState.analysisType = analysisType;
     localStorage.setItem('role', 'viewer');
-    const queryClient = createTestQueryClient();
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={['/families/F1']}>
-          <Routes>
-            <Route path="/families/:familyId" element={<FamilyDetailPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderPage();
 
     await waitFor(() => expect(screen.getByText(/Family F1/i)).toBeInTheDocument());
     await waitForVariantWorkspaceReady();
-    expect(screen.getByText(/No variant data is loaded for this family yet/i)).toBeInTheDocument();
-    // Workspaces with no underlying data are omitted entirely — neither a link nor a button.
-    for (const name of [
-      /small variants/i,
-      /structural variants/i,
-      /repeat expansions/i,
-      /paraphase/i,
-      /mtDNA analysis/i,
-      /monogenic nipt/i,
-      /variant summary/i,
-    ]) {
-      expect(screen.queryByRole('link', { name })).not.toBeInTheDocument();
-      expect(screen.queryByRole('button', { name })).not.toBeInTheDocument();
+    for (const [key, name] of Object.entries(WORKSPACES)) {
+      const href = (offered as Record<string, string>)[key];
+      if (href) {
+        expect(screen.getByRole('link', { name })).toHaveAttribute('href', href);
+      } else {
+        expect(screen.queryByRole('link', { name })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name })).not.toBeInTheDocument();
+      }
     }
-  });
-
-  it('offers the monogenic NIPT analysis to a family whose analysis type is monogenic_nipt', async () => {
-    mockApiState.smallVariantTotal = 0;
-    mockApiState.structuralVariantTotal = 0;
-    mockApiState.analysisType = 'monogenic_nipt';
-    localStorage.setItem('role', 'viewer');
-
-    render(
-      <QueryClientProvider client={createTestQueryClient()}>
-        <MemoryRouter initialEntries={['/families/F1']}>
-          <Routes>
-            <Route path="/families/:familyId" element={<FamilyDetailPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
-
-    await waitFor(() => expect(screen.getByText(/Family F1/i)).toBeInTheDocument());
-    await waitForVariantWorkspaceReady();
-    expect(screen.getByRole('link', { name: /monogenic nipt/i })).toHaveAttribute(
-      'href',
-      expect.stringContaining('/families/F1/nipt'),
-    );
-    // Its data is the NIPT analysis, so it is not told that no variant data is loaded.
-    expect(screen.queryByText(/No variant data is loaded for this family yet/i)).not.toBeInTheDocument();
-  });
-
-  it('shows only the variant workspaces backed by data and omits the rest', async () => {
-    mockApiState.smallVariantTotal = 2;
-    mockApiState.structuralVariantTotal = 0;
-    localStorage.setItem('role', 'viewer');
-    const queryClient = createTestQueryClient();
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={['/families/F1']}>
-          <Routes>
-            <Route path="/families/:familyId" element={<FamilyDetailPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
-
-    await waitFor(() => expect(screen.getByText(/Family F1/i)).toBeInTheDocument());
-    await waitForVariantWorkspaceReady();
-    // Small variants present -> the small-variants link is shown.
-    expect(screen.getByRole('link', { name: /small variants/i })).toHaveAttribute(
-      'href',
-      '/families/F1/small-variants?project_id=p1',
-    );
-    // No structural / repeat / paraphase / mtDNA data -> omitted entirely (no link, no button).
-    // The variant summary summarises the structural variants, so it has nothing to show
-    // for small variants only.
-    for (const name of [
-      /structural variants/i,
-      /repeat expansions/i,
-      /paraphase/i,
-      /mtDNA analysis/i,
-      /variant summary/i,
-    ]) {
-      expect(screen.queryByRole('link', { name })).not.toBeInTheDocument();
-      expect(screen.queryByRole('button', { name })).not.toBeInTheDocument();
-    }
-  });
-
-  it('offers the variant summary for a family with structural variants only', async () => {
-    mockApiState.smallVariantTotal = 0;
-    mockApiState.structuralVariantTotal = 2;
-    localStorage.setItem('role', 'viewer');
-
-    render(
-      <QueryClientProvider client={createTestQueryClient()}>
-        <MemoryRouter initialEntries={['/families/F1']}>
-          <Routes>
-            <Route path="/families/:familyId" element={<FamilyDetailPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
-
-    await waitFor(() => expect(screen.getByText(/Family F1/i)).toBeInTheDocument());
-    await waitForVariantWorkspaceReady();
-    expect(screen.getByRole('link', { name: 'Variant summary' })).toHaveAttribute(
-      'href',
-      '/families/F1/variant-summary',
-    );
-    expect(screen.queryByRole('link', { name: /small variants/i })).not.toBeInTheDocument();
+    // Told that no variant data is loaded only when none is, a NIPT analysis counting as data.
+    if (noDataNote) expect(screen.getByText(/No variant data is loaded for this family yet/i)).toBeInTheDocument();
+    else expect(screen.queryByText(/No variant data is loaded for this family yet/i)).not.toBeInTheDocument();
   });
 
   it('lays the analyses out as one row, curation below it and the family actions in the header', async () => {
@@ -599,15 +501,7 @@ describe('FamilyDetailPage', () => {
     mockApiState.structuralVariantTotal = 2;
     localStorage.setItem('role', 'viewer');
 
-    const { container } = render(
-      <QueryClientProvider client={createTestQueryClient()}>
-        <MemoryRouter initialEntries={['/families/F1']}>
-          <Routes>
-            <Route path="/families/:familyId" element={<FamilyDetailPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    const { container } = renderPage();
 
     await waitFor(() => expect(screen.getByText(/Family F1/i)).toBeInTheDocument());
     await waitForVariantWorkspaceReady();
@@ -645,15 +539,7 @@ describe('FamilyDetailPage', () => {
   it('counts the repeat reviews on a curation line of their own', async () => {
     mockApiState.repeatLociCount = 3;
     localStorage.setItem('role', 'viewer');
-    render(
-      <QueryClientProvider client={createTestQueryClient()}>
-        <MemoryRouter initialEntries={['/families/F1']}>
-          <Routes>
-            <Route path="/families/:familyId" element={<FamilyDetailPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderPage();
 
     const line = await screen.findByRole('group', { name: 'Repeat expansions curation' });
     await waitFor(() => expect(line).toHaveTextContent('Reviewed 2'));
@@ -669,15 +555,7 @@ describe('FamilyDetailPage', () => {
     mockApiState.structuralVariantTotal = 2;
     localStorage.setItem('role', 'viewer');
 
-    render(
-      <QueryClientProvider client={createTestQueryClient()}>
-        <MemoryRouter initialEntries={['/families/F1']}>
-          <Routes>
-            <Route path="/families/:familyId" element={<FamilyDetailPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderPage();
 
     await waitFor(() => expect(screen.getByText(/Family F1/i)).toBeInTheDocument());
     await waitForVariantWorkspaceReady();
@@ -695,15 +573,7 @@ describe('FamilyDetailPage', () => {
     mockApiState.repeatLociCount = 1;
     localStorage.setItem('role', 'viewer');
 
-    render(
-      <QueryClientProvider client={createTestQueryClient()}>
-        <MemoryRouter initialEntries={['/families/F1']}>
-          <Routes>
-            <Route path="/families/:familyId" element={<FamilyDetailPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderPage();
 
     // A repeat locus marked Report is on the report, so the family reaches it; Sample QC
     // reads the small-variant genotypes, which this family has none of.
@@ -719,15 +589,7 @@ describe('FamilyDetailPage', () => {
     mockApiState.smallVariantTotal = 2;
     localStorage.setItem('role', 'viewer');
 
-    render(
-      <QueryClientProvider client={createTestQueryClient()}>
-        <MemoryRouter initialEntries={['/families/F1']}>
-          <Routes>
-            <Route path="/families/:familyId" element={<FamilyDetailPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderPage();
 
     await waitFor(() => expect(screen.getByText(/Family F1/i)).toBeInTheDocument());
     await waitForVariantWorkspaceReady();
@@ -741,15 +603,7 @@ describe('FamilyDetailPage', () => {
 
   it('states the region on the title line and hides ROI markers off a PGT case', async () => {
     localStorage.setItem('role', 'viewer');
-    render(
-      <QueryClientProvider client={createTestQueryClient()}>
-        <MemoryRouter initialEntries={['/families/F1']}>
-          <Routes>
-            <Route path="/families/:familyId" element={<FamilyDetailPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderPage();
 
     await waitFor(() => expect(screen.getByText(/Family F1/i)).toBeInTheDocument());
 
@@ -769,15 +623,7 @@ describe('FamilyDetailPage', () => {
       { sample_id: 'S1', role: 'mother', affected: false, sex: 'female' },
       { sample_id: 'E1', role: 'embryo', affected: false, sex: 'unknown' },
     ];
-    render(
-      <QueryClientProvider client={createTestQueryClient()}>
-        <MemoryRouter initialEntries={['/families/F1']}>
-          <Routes>
-            <Route path="/families/:familyId" element={<FamilyDetailPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderPage();
 
     await waitFor(() => expect(screen.getByText(/Family F1/i)).toBeInTheDocument());
     expect(await screen.findByRole('link', { name: /review roi markers/i })).toHaveAttribute(
@@ -837,15 +683,7 @@ describe('FamilyDetailPage', () => {
           : Promise.resolve({ data: analysis })
         : working(url, config),
     );
-    render(
-      <QueryClientProvider client={createTestQueryClient()}>
-        <MemoryRouter initialEntries={['/families/F1']}>
-          <Routes>
-            <Route path="/families/:familyId" element={<FamilyDetailPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderPage();
     return () => get.mockImplementation(working);
   };
 
@@ -1178,15 +1016,7 @@ describe('FamilyDetailPage', () => {
           ? Promise.reject(Object.assign(new Error('HTTP 500'), { response: { status: 500 } }))
           : working(url, config),
       );
-      render(
-        <QueryClientProvider client={createTestQueryClient()}>
-          <MemoryRouter initialEntries={['/families/F1']}>
-            <Routes>
-              <Route path="/families/:familyId" element={<FamilyDetailPage />} />
-            </Routes>
-          </MemoryRouter>
-        </QueryClientProvider>,
-      );
+      renderPage();
       return () => get.mockImplementation(working);
     };
 
@@ -1307,17 +1137,7 @@ describe('FamilyDetailPage', () => {
       },
     ];
     localStorage.setItem('role', 'viewer');
-    const queryClient = createTestQueryClient();
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={['/families/F1']}>
-          <Routes>
-            <Route path="/families/:familyId" element={<FamilyDetailPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderPage();
 
     await waitFor(() => expect(screen.getByText(/Family F1/i)).toBeInTheDocument());
     expect(screen.queryByRole('heading', { name: /phenotypes/i })).not.toBeInTheDocument();
@@ -1346,17 +1166,7 @@ describe('FamilyDetailPage', () => {
       },
     ];
     localStorage.setItem('role', 'admin');
-    const queryClient = createTestQueryClient();
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={['/families/F1']}>
-          <Routes>
-            <Route path="/families/:familyId" element={<FamilyDetailPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderPage();
 
     await waitFor(() => expect(screen.getByText(/Family F1/i)).toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: 'S1' }));
@@ -1398,17 +1208,7 @@ describe('FamilyDetailPage', () => {
         warnings: ['Phenotype and carrier labels were updated; downstream interpretation views were marked stale without reloading raw datasets.'],
       },
     });
-    const queryClient = createTestQueryClient();
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={['/families/F1']}>
-          <Routes>
-            <Route path="/families/:familyId" element={<FamilyDetailPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderPage();
 
     await waitFor(() => expect(screen.getByText(/Family F1/i)).toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: 'S1' }));
@@ -1444,17 +1244,7 @@ describe('FamilyDetailPage', () => {
   it('asks before closing member details over unapplied edits, not once applied (#529)', async () => {
     localStorage.setItem('role', 'admin');
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
-    const queryClient = createTestQueryClient();
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={['/families/F1']}>
-          <Routes>
-            <Route path="/families/:familyId" element={<FamilyDetailPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderPage();
 
     await waitFor(() => expect(screen.getByText(/Family F1/i)).toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: 'S1' }));
@@ -1478,15 +1268,7 @@ describe('FamilyDetailPage', () => {
   // #528: the member dialog's own flows, recorded before it moved into its own component.
   const openS1AsAdmin = async () => {
     localStorage.setItem('role', 'admin');
-    render(
-      <QueryClientProvider client={createTestQueryClient()}>
-        <MemoryRouter initialEntries={['/families/F1']}>
-          <Routes>
-            <Route path="/families/:familyId" element={<FamilyDetailPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderPage();
     await waitFor(() => expect(screen.getByText(/Family F1/i)).toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: 'S1' }));
     const dialog = await screen.findByRole('dialog', { name: /family member details/i });
@@ -1561,15 +1343,7 @@ describe('FamilyDetailPage', () => {
   // sees them and the workflow fields but changes neither.
   const openS1As = async (role: string) => {
     localStorage.setItem('role', role);
-    render(
-      <QueryClientProvider client={createTestQueryClient()}>
-        <MemoryRouter initialEntries={['/families/F1']}>
-          <Routes>
-            <Route path="/families/:familyId" element={<FamilyDetailPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderPage();
     await waitFor(() => expect(screen.getByText(/Family F1/i)).toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: 'S1' }));
     const dialog = await screen.findByRole('dialog', { name: /family member details/i });
@@ -1677,17 +1451,7 @@ describe('FamilyDetailPage', () => {
 
   it('preserves the selected project in variant workspace links', async () => {
     localStorage.setItem('role', 'viewer');
-    const queryClient = createTestQueryClient();
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={['/families/F1?project_id=p1']}>
-          <Routes>
-            <Route path="/families/:familyId" element={<FamilyDetailPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderPage('/families/F1?project_id=p1');
 
     await waitFor(() => expect(screen.getByText(/Family F1/i)).toBeInTheDocument());
     await waitForVariantWorkspaceReady();
@@ -1745,17 +1509,7 @@ describe('FamilyDetailPage', () => {
         warnings: ['Relationship-dependent analyses should be rerun before clinical review.'],
       },
     });
-    const queryClient = createTestQueryClient();
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={['/admin/data/families/F1/structure']}>
-          <Routes>
-            <Route path="/admin/data/families/:familyId/structure" element={<FamilyDetailPage editable />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderStructureEditor();
 
     await waitFor(() => expect(screen.getByText(/Family F1/i)).toBeInTheDocument());
     // The structure-editor form renders a tick after the family name; await its
@@ -1831,17 +1585,7 @@ describe('FamilyDetailPage', () => {
     vi.mocked(api.put).mockResolvedValueOnce({
       data: { family: { _id: 'fam1', family_id: 'F1', members: mockApiState.members, projects: ['p1'], metadata: {} } },
     });
-    const queryClient = createTestQueryClient();
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={['/admin/data/families/F1/structure']}>
-          <Routes>
-            <Route path="/admin/data/families/:familyId/structure" element={<FamilyDetailPage editable />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderStructureEditor();
 
     const related = (await screen.findByLabelText('Related to, for INDEX1')) as HTMLSelectElement;
     await waitFor(() => expect(related.value).toBe('MOM'));

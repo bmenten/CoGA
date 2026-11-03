@@ -25,9 +25,8 @@ at once on a connection of its own).
 
 from __future__ import annotations
 
-import copy
 from io import BytesIO
-import json
+import logging
 from types import SimpleNamespace
 from typing import Any
 
@@ -46,6 +45,7 @@ from backend.app.services import (
     variant_upload_service,
 )
 from backend.app.services.family_metadata_context import FamilyMetadataContext, SampleMetadataContext
+from backend.tests._family_import_state_fakes import FamilyImportState
 
 _FAMILY = FamilyMetadataContext(
     family_uuid="family-uuid",
@@ -91,82 +91,26 @@ class _ProcessStopped(BaseException):
     memory): nothing after it runs, neither the rest of the request nor its clean-up."""
 
 
-class _Postgres:
-    """The family row's import state (``flag``: import_incomplete, ``unfinished``:
-    import_unfinished, ``imported``: imported_scopes), as the uploads read and write it. A
-    write is the transaction's until it commits; a rollback discards it. ``connection()`` is
-    the connection an upload writes its mark on: committed at once, and recorded among the
-    stores' ``events``."""
+class _Postgres(FamilyImportState):
+    """The family row's import state, as the uploads read and write it
+    (``_family_import_state_fakes``). ``connection()`` is the connection an upload writes its
+    mark on: committed at once, and recorded among the stores' ``events``."""
 
     def __init__(self, *, flag: Any = None, unfinished: Any = None, imported: Any = None) -> None:
-        self.committed: dict[str, Any] = {"flag": flag, "unfinished": unfinished, "imported": imported}
-        self.working = copy.deepcopy(self.committed)
-        self.commits = 0
+        super().__init__(flag=flag, unfinished=unfinished, imported=imported)
         self.events: list[tuple[Any, ...]] = []
         self.unavailable: str | None = None  # SQL that fails, as a database that went away
 
-    @staticmethod
-    def _apply(state: dict[str, Any], params: dict[str, Any]) -> None:
-        if "entry" in params:
-            state["unfinished"] = {**(state["unfinished"] or {}), params["import_key"]: json.loads(params["entry"])}
-            return
-        if set(params) == {"family_uuid", "import_key"}:  # an entry removed alone
-            left = dict(state["unfinished"] or {})
-            left.pop(params["import_key"], None)
-            state["unfinished"] = left or None
-            return
-        recorded = json.loads(params.get("imported_scopes", "null"))
-        if recorded is not None:
-            state["imported"] = recorded
-        if "unfinished" in params:
-            state["unfinished"] = json.loads(params["unfinished"])
-        if "flag" in params:
-            state["flag"] = json.loads(params["flag"])
-
     async def execute(self, statement, params=None):
-        sql = " ".join(str(statement).split())
-        if self.unavailable and self.unavailable in sql:
+        if self.unavailable and self.unavailable in " ".join(str(statement).split()):
             raise ConnectionError("database unavailable")
-        if sql.startswith("SELECT") and "FROM families" in sql:
-            row = {
-                "family_uuid": "family-uuid",
-                "flag": copy.deepcopy(self.working["flag"]),
-                "unfinished": copy.deepcopy(self.working["unfinished"]),
-                "imported_scopes": copy.deepcopy(self.working["imported"]),
-            }
-            return SimpleNamespace(mappings=lambda: SimpleNamespace(first=lambda: row))
-        assert sql.startswith("UPDATE families"), sql
-        self._apply(self.working, dict(params or {}))
-        return SimpleNamespace(rowcount=1)
+        return await super().execute(statement, params)
 
-    async def commit(self) -> None:
-        self.committed = copy.deepcopy(self.working)
-        self.commits += 1
-
-    async def rollback(self) -> None:
-        self.working = copy.deepcopy(self.committed)
+    def marked(self) -> None:
+        self.events.append(("mark",))
 
     def connection(self):
-        database = self
-
-        class _Connection:
-            async def __aenter__(self):
-                return self
-
-            async def __aexit__(self, *_exc) -> bool:
-                return False
-
-            async def execute(self, statement, params=None):
-                assert " ".join(str(statement).split()).startswith("UPDATE families")
-                for state in (database.committed, database.working):
-                    database._apply(state, dict(params or {}))
-                database.events.append(("mark",))
-                return SimpleNamespace(rowcount=1)
-
-            async def commit(self) -> None:
-                return None
-
-        return _Connection()
+        return self.mark_connection()
 
     def mark(self) -> tuple[str, dict[str, Any]]:
         """The one committed entry: an upload's mark."""
@@ -177,7 +121,8 @@ class _Postgres:
 class _ClickHouse:
     """The family's small-variant rows by callset and the sample's coverage track, written
     at once and kept whatever becomes of the request. With ``stop`` the next insert stops
-    the process; with ``fail`` it raises."""
+    the process; with ``fail`` it raises, and with ``fail_after`` so does each insert after
+    that many. With ``delete_fails`` a delete of the small variants raises."""
 
     def __init__(self, events: list[tuple[Any, ...]], *, clair3: int = 2, coverage: int = 3) -> None:
         self.events = events
@@ -185,18 +130,24 @@ class _ClickHouse:
         self.coverage = [f"bin-{index}" for index in range(coverage)]
         self.stop = False
         self.fail = False
+        self.fail_after: int | None = None
+        self.inserts = 0
+        self.delete_fails = False
 
     def _insert(self) -> None:
         if self.stop:
             raise _ProcessStopped()
-        if self.fail:
+        if self.fail or (self.fail_after is not None and self.inserts >= self.fail_after):
             raise RuntimeError("ClickHouse insert failed")
+        self.inserts += 1
 
     async def count(self, _assembly, _family, *, project_ids=None, source=None) -> int:
         return len(self.rows.get(source, []))
 
     async def delete(self, _assembly, _family, *, source=None) -> None:
         self.events.append(("delete", source))
+        if self.delete_fails:
+            raise RuntimeError("ClickHouse delete failed")
         self.rows[source] = []
 
     async def insert(self, _assembly, _family, _projects, records, **_kwargs) -> None:
@@ -383,6 +334,33 @@ async def test_a_small_variant_upload_that_cannot_mark_the_family_writes_nothing
         await _small_variants(database, _HEADER + _calls(3))
 
     assert database.events == [] and len(clickhouse.rows["clair3"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_a_small_variant_upload_whose_clean_up_fails_stays_marked_and_answers_with_its_own_error(
+    stores, monkeypatch, caplog
+) -> None:
+    # Nothing stored to replace; the second batch's insert fails, and so does the clean-up's
+    # delete of the first batch: the upload's rows are left partly written.
+    database = _Postgres()
+    clickhouse = stores(database, clair3=0)
+    monkeypatch.setattr(variant_upload_service, "SMALL_VARIANT_UPLOAD_BATCH_SIZE", 2)
+    clickhouse.fail_after = 1
+    clickhouse.delete_fails = True
+
+    with caplog.at_level(logging.WARNING, logger=variant_upload_service.__name__):
+        with pytest.raises(RuntimeError, match="ClickHouse insert failed"):
+            await _small_variants(database, _HEADER + _calls(3), overwrite=False)
+
+    # The upload's own error, never the clean-up's, which is logged; and the mark stays, so
+    # the family's sign-out is gated until the callset is brought again.
+    assert len(clickhouse.rows["clair3"]) == 2
+    assert database.events == [("mark",), ("insert", 2), ("delete", "clair3")]
+    key, mark = database.mark()
+    assert key.startswith("upload-")
+    assert mark["whole_family"] == [{"dataset": "snv", "scope": _CLAIR3}]
+    assert database.committed["flag"] is None
+    assert "Failed to clean up partial small-variant rows for family F1 after an upload error" in caplog.text
 
 
 # --- the interval-track (BED) upload ------------------------------------------------------

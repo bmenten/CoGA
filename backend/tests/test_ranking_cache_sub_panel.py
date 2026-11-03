@@ -34,20 +34,16 @@ tables, the gene reference and the family's variants.
 from __future__ import annotations
 
 import asyncio
-import json
 from typing import Any
 
 import pytest
 from fastapi import HTTPException
 
 from backend.app.services import clickhouse_family_variants as cfv
-from backend.app.services import variant_ranking_cache as vrc
 from backend.app.services.clickhouse_variant_queries import (
     _parse_interval_regions,
     _segregation_modes_by_variant,
-    _small_record_hits_gene_terms,
     _small_record_matches,
-    _variant_overlaps_regions,
 )
 from backend.app.services.clickhouse_variant_records import (
     PanelFilterConstraints,
@@ -58,8 +54,9 @@ from backend.app.services.clickhouse_variant_records import (
 from backend.app.services.family_metadata_context import FamilyMetadataContext
 from backend.app.services.family_variant_filters import SmallVariantQueryFilters
 from backend.app.services.variant_prioritization import MODE_COMPOUND_HET
+from backend.tests._ranking_cache_fakes import install_ranking_storage, panel_sql_match
 
-BROAD ="0b5e1c1e-0000-4000-8000-000000000001"
+BROAD = "0b5e1c1e-0000-4000-8000-000000000001"
 NARROW = "0b5e1c1e-0000-4000-8000-000000000002"
 OTHER = "0b5e1c1e-0000-4000-8000-000000000003"
 MENDELIOME = "0b5e1c1e-0000-4000-8000-000000000004"
@@ -158,19 +155,6 @@ def _trio_context() -> FamilyMetadataContext:
     )
 
 
-def _panel_sql_match(record: SmallVariantRecord, constraints: PanelFilterConstraints | None) -> bool:
-    """The panel part of the SQL filter (``_small_panel_filter_condition``): the variant's
-    gene symbols, or its position, whatever the panel's size. The real condition is checked
-    in test_clickhouse_family_variants.py (``test_small_panel_filter_keeps_the_regions_of_large_gene_panels``,
-    ``test_small_panel_filter_keeps_regions_for_normal_panels``) and, on ClickHouse, in
-    integration/test_small_variant_filter_parity_clickhouse.py."""
-    if constraints is None or not (constraints.genes or constraints.regions):
-        return True
-    if constraints.genes and _small_record_hits_gene_terms(record, constraints.genes):
-        return True
-    return _variant_overlaps_regions(record.chr, record.start, record.end, constraints.regions)
-
-
 class _World:
     """The panel tables, the gene reference, the family's variants and the cache rows."""
 
@@ -211,27 +195,12 @@ def world(monkeypatch: pytest.MonkeyPatch) -> _World:
     state = _World()
     m = "backend.app.services.clickhouse_family_variants."
 
-    async def _ped(*_a, **_k):
-        return {"structure_hash": "ped-1"}
-
     async def _panel_version(_session, panel_id):
         panel = state.panels.get(panel_id) if panel_id else None
         return f"{panel['version']}:" if panel else None
 
-    async def _none(*_a, **_k):
-        return None
-
-    async def _empty(*_a, **_k):
-        return {}
-
-    async def _refs(*_a, **_k):
-        return {"hpo_release": "2026-04-01", "hpo_imported_at": None, "gene_info_updated_at": None}
-
     async def _no_hpo(*_a, **_k):
         return ([], {})
-
-    async def _data_version(*_a, **_k):
-        return "1:111"
 
     async def _fetch_panel_constraints(_session, panel_id, *, assembly_id=None):
         panel = state.panels.get(panel_id)
@@ -262,7 +231,7 @@ def world(monkeypatch: pytest.MonkeyPatch) -> _World:
             record
             for record in state.records
             if (wanted is None or record.variant_id in wanted)
-            and _panel_sql_match(record, panel_constraints)
+            and panel_sql_match(record, panel_constraints)
             and _small_record_matches(
                 record,
                 filters,
@@ -273,60 +242,12 @@ def world(monkeypatch: pytest.MonkeyPatch) -> _World:
             )
         ]
 
-    async def _get_cached(_session, *, family_uuid, inputs_hash):
-        state.reads.append(inputs_hash)
-        return state.cache.get(inputs_hash)
-
-    async def _store(
-        _session,
-        *,
-        family_uuid,
-        inputs_hash,
-        total,
-        total_is_estimated,
-        ranking_truncated,
-        ranking,
-        provenance=None,
-        base_hash=None,
-        panel_id=None,
-    ):
-        # The JSON round trip the jsonb columns make.
-        state.cache[inputs_hash] = {
-            "inputs_hash": inputs_hash,
-            "base_hash": base_hash,
-            "panel_id": panel_id,
-            "total": total,
-            "total_is_estimated": total_is_estimated,
-            "ranking_truncated": ranking_truncated,
-            "ranking": json.loads(json.dumps(ranking)),
-            "provenance": json.loads(json.dumps(provenance or {})),
-            "computed_at": None,
-        }
-
-    async def _supersets(_session, *, family_uuid, base_hash):
-        # Without their rankings, as find_superset_candidates reads them (ENG-13).
-        rows = [
-            {key: value for key, value in row.items() if key != "ranking"}
-            for row in state.cache.values()
-            if row["base_hash"] == base_hash and not row["ranking_truncated"]
-        ]
-        return sorted(rows, key=lambda row: row["total"], reverse=True)
-
-    monkeypatch.setattr(vrc, "_pedigree_signature", _ped)
-    monkeypatch.setattr(vrc, "_panel_version", _panel_version)
-    monkeypatch.setattr(vrc, "_monarch_release", _none)
-    monkeypatch.setattr(vrc, "_reference_versions", _refs)
+    install_ranking_storage(monkeypatch, state.cache, panel_version=_panel_version, reads=state.reads)
     monkeypatch.setattr(m + "_affected_present_hpo", _no_hpo)
-    monkeypatch.setattr(m + "_family_small_variant_data_version", _data_version)
     monkeypatch.setattr(m + "_fetch_panel_constraints", _fetch_panel_constraints)
     monkeypatch.setattr(m + "_fetch_gene_regions", _fetch_gene_regions)
     monkeypatch.setattr(m + "_fetch_small_variant_rows", _fetch_rows)
-    monkeypatch.setattr(m + "get_cached_ranking", _get_cached)
-    monkeypatch.setattr(m + "store_ranking", _store)
-    monkeypatch.setattr(m + "find_superset_candidates", _supersets)
-    monkeypatch.setattr(m + "_fetch_gene_constraint_metric_map", _empty)
     monkeypatch.setattr(m + "_segregation_modes_by_variant", lambda *a, **k: {})
-    monkeypatch.setattr(m + "_hydrate_small_variant_outs", _none)
     return state
 
 

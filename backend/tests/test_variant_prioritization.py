@@ -73,7 +73,8 @@ def test_pathogenicity_clinvar_conflicting_is_not_scored_pathogenic() -> None:
         impact="MODERATE", clinvar="Conflicting_interpretations_of_pathogenicity",
         cadd_phred=20, revel=0.8, spliceai_max=0.1, lof=None,
     )
-    assert conflicting < 1.0
+    # The predictors' maximum (REVEL 0.8), as for a variant without a ClinVar record.
+    assert conflicting == pytest.approx(0.8)
     # A real likely-pathogenic assertion still overrides to 1.0...
     assert pathogenicity_score(
         impact="low", clinvar="Likely_pathogenic", cadd_phred=0, revel=0,
@@ -119,7 +120,13 @@ def test_alpha_missense_benign_class_caps_missense_score() -> None:
         impact="MODERATE", clinvar=None, cadd_phred=30, revel=None,
         spliceai_max=None, lof=None, alpha_missense_class="likely_benign",
     )
-    assert score <= 0.25
+    # CADD 30 alone reads 0.75: capped at 0.25.
+    assert score == 0.25
+    # A loss of function is not capped by it.
+    assert pathogenicity_score(
+        impact="HIGH", clinvar=None, cadd_phred=None, revel=None,
+        spliceai_max=None, lof="HC", alpha_missense_class="likely_benign",
+    ) == 0.85
 
 
 def test_alpha_missense_does_not_override_clinvar_pathogenic() -> None:
@@ -163,6 +170,14 @@ def test_out_of_range_gene_pli_is_ignored() -> None:
     assert with_garbage == base == 0.85
 
 
+@pytest.mark.parametrize(("gene_pli", "score"), [(0.9, 0.9), (1.0, 0.9), (0.89, 0.85), (None, 0.85)])
+def test_the_lof_constraint_floor_starts_at_a_pli_of_0_9(gene_pli: float | None, score: float) -> None:
+    assert pathogenicity_score(
+        impact="HIGH", clinvar=None, cadd_phred=None, revel=None,
+        spliceai_max=None, lof="HC", gene_pli=gene_pli,
+    ) == score
+
+
 def test_missense_z_adds_prior_for_missense_in_constrained_gene() -> None:
     plain = pathogenicity_score(
         impact="MODERATE", clinvar=None, cadd_phred=None, revel=None,
@@ -173,6 +188,15 @@ def test_missense_z_adds_prior_for_missense_in_constrained_gene() -> None:
         spliceai_max=None, lof=None, gene_missense_z=4.0,
     )
     assert constrained > plain
+    assert (plain, constrained) == (0.4, 0.6)
+
+
+@pytest.mark.parametrize(("gene_missense_z", "score"), [(3.0, 0.6), (2.99, 0.4)])
+def test_the_missense_prior_starts_at_a_missense_z_of_3(gene_missense_z: float, score: float) -> None:
+    assert pathogenicity_score(
+        impact="MODERATE", clinvar=None, cadd_phred=None, revel=None,
+        spliceai_max=None, lof=None, gene_missense_z=gene_missense_z,
+    ) == score
 
 
 def test_frequency_score_is_monotonic_decreasing() -> None:
@@ -182,6 +206,25 @@ def test_frequency_score_is_monotonic_decreasing() -> None:
     f_common = frequency_score(gnomad_popmax_af=0.1, gnomad_af=None)
     assert f_rare > f_mid > f_common
     assert f_common == 0.0
+
+
+@pytest.mark.parametrize(
+    ("popmax", "af", "score"),
+    [
+        (1e-6, None, 1.0),
+        (2e-6, None, 0.9),
+        (1e-4, None, 0.7),
+        (1e-3, None, 0.4),
+        (1e-2, None, 0.1),
+        (4.99e-2, None, 0.1),
+        (5e-2, None, 0.0),
+        # popmax first; the overall frequency only without it.
+        (None, 2e-2, 0.1),
+        (1e-5, 0.2, 0.9),
+    ],
+)
+def test_each_frequency_band_starts_at_its_threshold(popmax: float | None, af: float | None, score: float) -> None:
+    assert frequency_score(gnomad_popmax_af=popmax, gnomad_af=af) == score
 
 
 def test_segregation_weight_prefers_strong_modes() -> None:
@@ -259,6 +302,11 @@ def test_structural_pathogenicity_multi_gene_bump_is_capped() -> None:
     multi = structural_pathogenicity_score(sv_type="DEL", copy_change="loss", gene_count=5)
     assert multi > single
     assert multi <= 0.9
+    # The bump starts at three genes, and the cap holds for a loss of a constrained gene.
+    assert structural_pathogenicity_score(sv_type="DEL", copy_change="loss", gene_count=2) == single == 0.7
+    assert structural_pathogenicity_score(sv_type="DEL", copy_change="loss", gene_count=3) == pytest.approx(0.8)
+    assert multi == pytest.approx(0.8)
+    assert structural_pathogenicity_score(sv_type="DEL", copy_change="loss", gene_count=5, gene_pli=0.99) == 0.9
 
 
 # Each SV with the score its copy-number change gives it in a gene with a pLI of 0.99, by the
@@ -366,6 +414,18 @@ def test_phenomizer_score_unrelated_terms_is_low() -> None:
     )
     # Only the low-IC root is shared.
     assert score.score < 0.1
+
+
+def test_phenomizer_score_reads_the_most_informative_of_several_shared_ancestors() -> None:
+    # Two terms share three ancestors, two of them equally informative: the score is the
+    # IC of the most informative one, whatever order the shared set is read in. (With
+    # one best ancestor, whether a later, less informative one is passed over depended
+    # on set order, so on PYTHONHASHSEED; the tie takes that path in every order.)
+    ic = {"HP:root": 0.1, "HP:mid1": 3.0, "HP:mid2": 3.0, "HP:a": 5.0, "HP:b": 5.0}
+    shared = {"HP:root", "HP:mid1", "HP:mid2"}
+    ancestors = {"HP:a": {"HP:a"} | shared, "HP:b": {"HP:b"} | shared, **{term: {term} for term in shared}}
+    score = phenomizer_score(["HP:a"], ["HP:b"], ancestors=ancestors, ic=ic, max_ic=5.0)
+    assert score.score == pytest.approx(3.0 / 5.0)
 
 
 def test_cap_terms_by_ic_breaks_ic_ties_deterministically() -> None:

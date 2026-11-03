@@ -24,6 +24,8 @@ from uuid import uuid4
 
 import pytest
 
+from backend.tests.e2e._harness import ensure_postgres_schema
+
 pytestmark = pytest.mark.integration
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -69,7 +71,7 @@ async def _collect(nipt_root: Path, nipt_family_id: str) -> dict:
     from sqlalchemy import text
 
     from backend.app.core.clickhouse import init_clickhouse_schema
-    from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
+    from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.services import family_package_import as package_import
     from backend.app.services.clickhouse_variant_storage import (
         count_family_small_variants,
@@ -81,7 +83,7 @@ async def _collect(nipt_root: Path, nipt_family_id: str) -> dict:
     from backend.app.services.nipt_service import run_family_nipt_analysis
     from backend.tests.e2e import _harness
 
-    await init_postgres_schema()
+    await ensure_postgres_schema()
     await init_clickhouse_schema()
     await ensure_clickhouse_variant_tables(_harness.ASSEMBLY)
 

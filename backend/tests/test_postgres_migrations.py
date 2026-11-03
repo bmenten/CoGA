@@ -34,6 +34,7 @@ from backend.app.core.postgres_migrations import (
     head_revision,
     migration_script,
 )
+from backend.tests._lifespan import LifespanApp
 
 _SCHEMA_DIR = Path(__file__).resolve().parents[1] / "db" / "schema" / "postgres"
 
@@ -609,12 +610,8 @@ def _start_until_the_audit_writer(monkeypatch, *, migrates: bool, revision_error
     monkeypatch.setattr(app_main, "start_audit_log_worker", _step("start_audit_log_worker", _StopHere()))
     monkeypatch.setattr(app_main.settings, "postgres_run_schema_migrations_on_startup", migrates)
 
-    class _App:
-        class state:  # FastAPI's app.state, as the lifespan reads it
-            skip_startup_tasks = False
-
     async def _start() -> None:
-        async with app_main.lifespan(_App()):
+        async with app_main.lifespan(LifespanApp()):
             pytest.fail("the start must stop before the app serves")  # pragma: no cover
 
     with pytest.raises((_StopHere, SchemaRevisionMismatch)) as stopped:

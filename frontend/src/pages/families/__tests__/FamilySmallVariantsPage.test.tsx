@@ -1,9 +1,7 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router';
-import { QueryClientProvider } from '@tanstack/react-query';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import FamilySmallVariantsPage from '../FamilySmallVariantsPage';
-import { createTestQueryClient } from '../../../test/createTestQueryClient';
+import { renderFamilyRoute } from '../../../test/familyRoute';
 import { factText } from '../../../test/factText';
 
 const apiMock = vi.hoisted(() => ({
@@ -16,6 +14,31 @@ const apiMock = vi.hoisted(() => ({
 vi.mock('../../../lib/api', () => ({
   default: apiMock,
 }));
+
+/** A proband with both parents. */
+const TRIO = [
+  { sample_id: 'PROBAND', role: 'proband', affected: true, sex: 'female' },
+  { sample_id: 'MOM', role: 'mother', affected: false, sex: 'female' },
+  { sample_id: 'DAD', role: 'father', affected: false, sex: 'male' },
+];
+
+/** Family F1 with `members`, the gene panels given, no saved searches or tags, and no variants. */
+const serveEmptySearch = (members: unknown[], panels: unknown[] = []) =>
+  apiMock.get.mockImplementation((url: string) => {
+    if (url === '/families/F1') return Promise.resolve({ data: { members, projects: [] } });
+    if (url === '/panels') return Promise.resolve({ data: panels });
+    if (url === '/families/F1/small-variant-filter-presets' || url === '/families/F1/small-variant-tags') {
+      return Promise.resolve({ data: [] });
+    }
+    if (url.startsWith('/families/F1/small-variants?')) {
+      return Promise.resolve({ data: { variants: [], total: 0 } });
+    }
+    return Promise.resolve({ data: {} });
+  });
+
+/** The page of family F1, at `url`. */
+const renderPage = (url = '/families/F1/small-variants') =>
+  renderFamilyRoute('/families/:familyId/small-variants', url, <FamilySmallVariantsPage />);
 
 describe('FamilySmallVariantsPage', () => {
   beforeEach(() => {
@@ -185,17 +208,7 @@ describe('FamilySmallVariantsPage', () => {
 
   it('renders small-variant search controls and result display toggles', async () => {
     localStorage.setItem('role', 'admin');
-    const queryClient = createTestQueryClient();
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={['/families/F1/small-variants']}>
-          <Routes>
-            <Route path="/families/:familyId/small-variants" element={<FamilySmallVariantsPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>
-    );
+    renderPage();
 
     await waitFor(() => {
       expect(screen.getByRole('combobox', { name: /preset or saved search/i })).toBeInTheDocument();
@@ -275,17 +288,7 @@ describe('FamilySmallVariantsPage', () => {
       }
       return Promise.resolve({ data: { variants: [], total: 0 } });
     });
-    const queryClient = createTestQueryClient();
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={['/families/F1/small-variants']}>
-          <Routes>
-            <Route path="/families/:familyId/small-variants" element={<FamilySmallVariantsPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>
-    );
+    renderPage();
 
     await waitFor(() => {
       expect(apiMock.get).toHaveBeenCalledWith(
@@ -317,15 +320,7 @@ describe('FamilySmallVariantsPage', () => {
       return Promise.resolve({ data: [] });
     });
 
-    render(
-      <QueryClientProvider client={createTestQueryClient()}>
-        <MemoryRouter initialEntries={['/families/F1/small-variants']}>
-          <Routes>
-            <Route path="/families/:familyId/small-variants" element={<FamilySmallVariantsPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderPage();
 
     expect(await screen.findByText('Reference could not be loaded')).toBeInTheDocument();
     expect(screen.queryByText('Loading small variants')).not.toBeInTheDocument();
@@ -355,15 +350,7 @@ describe('FamilySmallVariantsPage', () => {
       return Promise.resolve({ data: [] });
     });
 
-    render(
-      <QueryClientProvider client={createTestQueryClient()}>
-        <MemoryRouter initialEntries={['/families/F1/small-variants']}>
-          <Routes>
-            <Route path="/families/:familyId/small-variants" element={<FamilySmallVariantsPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderPage();
 
     const failure = (await screen.findByRole('heading', { name: 'Family could not be loaded' })).closest(
       '.page-state',
@@ -395,15 +382,7 @@ describe('FamilySmallVariantsPage', () => {
       return Promise.resolve({ data: [] });
     });
 
-    render(
-      <QueryClientProvider client={createTestQueryClient()}>
-        <MemoryRouter initialEntries={['/families/F1/small-variants?page=1&panel_id=P1']}>
-          <Routes>
-            <Route path="/families/:familyId/small-variants" element={<FamilySmallVariantsPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderPage('/families/F1/small-variants?page=1&panel_id=P1');
 
     expect(await screen.findByText(/Could not load the gene panel list — this is not an empty result/)).toHaveTextContent(
       /Panels cannot be chosen, and the default Mendeliome scope is not applied/,
@@ -427,22 +406,12 @@ describe('FamilySmallVariantsPage', () => {
         }
         return Promise.resolve({ data: [] });
       });
-    const renderAt = (path: string) =>
-      render(
-        <QueryClientProvider client={createTestQueryClient()}>
-          <MemoryRouter initialEntries={[path]}>
-            <Routes>
-              <Route path="/families/:familyId/small-variants" element={<FamilySmallVariantsPage />} />
-            </Routes>
-          </MemoryRouter>
-        </QueryClientProvider>,
-      );
     const searches = () =>
       apiMock.get.mock.calls.filter(([url]) => String(url).startsWith('/families/F1/small-variants?'));
 
     it('is named under the field, and the search is not run', async () => {
       serveFamily();
-      renderAt('/families/F1/small-variants?page=1&gene=BRCA1');
+      renderPage('/families/F1/small-variants?page=1&gene=BRCA1');
       expect(await screen.findByText(factText('Showing 3'))).toBeInTheDocument();
       const before = searches().length;
 
@@ -459,7 +428,7 @@ describe('FamilySmallVariantsPage', () => {
 
     it('fails a search whose URL carries one, with its reason', async () => {
       serveFamily();
-      renderAt('/families/F1/small-variants?page=1&intervals=chr1%3A200-100');
+      renderPage('/families/F1/small-variants?page=1&intervals=chr1%3A200-100');
 
       expect(await screen.findByText('Unable to load small variants')).toBeInTheDocument();
       expect(screen.getByText("Interval 'chr1:200-100' ends before it starts.")).toBeInTheDocument();
@@ -508,17 +477,7 @@ describe('FamilySmallVariantsPage', () => {
       }
       return Promise.resolve({ data: {} });
     });
-    const queryClient = createTestQueryClient();
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={['/families/F1/small-variants']}>
-          <Routes>
-            <Route path="/families/:familyId/small-variants" element={<FamilySmallVariantsPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>
-    );
+    renderPage();
 
     // Thousands separated, matching the SNV/indel chips beside them.
     expect(await screen.findByText(factText('Showing 1,000+'))).toBeInTheDocument();
@@ -548,15 +507,7 @@ describe('FamilySmallVariantsPage', () => {
         }
         return Promise.resolve({ data: {} });
       });
-      render(
-        <QueryClientProvider client={createTestQueryClient()}>
-          <MemoryRouter initialEntries={['/families/F1/small-variants']}>
-            <Routes>
-              <Route path="/families/:familyId/small-variants" element={<FamilySmallVariantsPage />} />
-            </Routes>
-          </MemoryRouter>
-        </QueryClientProvider>,
-      );
+      renderPage();
     };
 
     it('says where a capped candidate read stopped, and counts what it read', async () => {
@@ -627,15 +578,7 @@ describe('FamilySmallVariantsPage', () => {
       return Promise.resolve({ data: {} });
     });
 
-    render(
-      <QueryClientProvider client={createTestQueryClient()}>
-        <MemoryRouter initialEntries={['/families/F1/small-variants']}>
-          <Routes>
-            <Route path="/families/:familyId/small-variants" element={<FamilySmallVariantsPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>
-    );
+    renderPage();
 
     expect(await screen.findByText(factText('All variants 135,791'))).toBeInTheDocument();
     expect(screen.getByText(factText('Showing 24,680'))).toBeInTheDocument();
@@ -647,50 +590,9 @@ describe('FamilySmallVariantsPage', () => {
   });
 
   it('applies CoGA quick filters without opening each section', async () => {
-    apiMock.get.mockImplementation((url: string) => {
-      if (url === '/families/F1') {
-        return Promise.resolve({
-          data: {
-            members: [
-              { sample_id: 'PROBAND', role: 'proband', affected: true, sex: 'female' },
-              { sample_id: 'MOM', role: 'mother', affected: false, sex: 'female' },
-              { sample_id: 'DAD', role: 'father', affected: false, sex: 'male' },
-            ],
-            projects: [],
-          },
-        });
-      }
-      if (url === '/panels') {
-        return Promise.resolve({
-          data: [{ _id: 'panel-1', name: 'Cardio panel' }],
-        });
-      }
-      if (url === '/families/F1/small-variant-filter-presets') {
-        return Promise.resolve({ data: [] });
-      }
-      if (url === '/families/F1/small-variant-tags') {
-        return Promise.resolve({ data: [] });
-      }
-      if (url.startsWith('/families/F1/small-variants?page=1&page_size=100')) {
-        return Promise.resolve({ data: { variants: [], total: 0 } });
-      }
-      if (url.startsWith('/families/F1/small-variants?page=1&page_size=1')) {
-        return Promise.resolve({ data: { variants: [], total: 0 } });
-      }
-      return Promise.resolve({ data: {} });
-    });
+    serveEmptySearch(TRIO, [{ _id: 'panel-1', name: 'Cardio panel' }]);
 
-    const queryClient = createTestQueryClient();
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={['/families/F1/small-variants']}>
-          <Routes>
-            <Route path="/families/:familyId/small-variants" element={<FamilySmallVariantsPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>
-    );
+    renderPage();
 
     await screen.findByRole('combobox', { name: /preset or saved search/i });
 
@@ -789,44 +691,9 @@ describe('FamilySmallVariantsPage', () => {
   });
 
   it('applies the Phenotype priority (Exomiser-style) preset', async () => {
-    apiMock.get.mockImplementation((url: string) => {
-      if (url === '/families/F1') {
-        return Promise.resolve({
-          data: {
-            members: [
-              { sample_id: 'PROBAND', role: 'proband', affected: true, sex: 'female' },
-              { sample_id: 'MOM', role: 'mother', affected: false, sex: 'female' },
-              { sample_id: 'DAD', role: 'father', affected: false, sex: 'male' },
-            ],
-            projects: [],
-          },
-        });
-      }
-      if (url === '/panels') {
-        return Promise.resolve({ data: [] });
-      }
-      if (url === '/families/F1/small-variant-filter-presets') {
-        return Promise.resolve({ data: [] });
-      }
-      if (url === '/families/F1/small-variant-tags') {
-        return Promise.resolve({ data: [] });
-      }
-      if (url.startsWith('/families/F1/small-variants')) {
-        return Promise.resolve({ data: { variants: [], total: 0 } });
-      }
-      return Promise.resolve({ data: {} });
-    });
+    serveEmptySearch(TRIO);
 
-    const queryClient = createTestQueryClient();
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={['/families/F1/small-variants']}>
-          <Routes>
-            <Route path="/families/:familyId/small-variants" element={<FamilySmallVariantsPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderPage();
 
     fireEvent.change(await screen.findByRole('combobox', { name: /preset or saved search/i }), {
       target: { value: 'built-in:phenotype_priority' },
@@ -857,16 +724,7 @@ describe('FamilySmallVariantsPage', () => {
   });
 
   it('shows the ClinVar-overrides-frequency chip by default and clears it on click', async () => {
-    const queryClient = createTestQueryClient();
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={['/families/F1/small-variants']}>
-          <Routes>
-            <Route path="/families/:familyId/small-variants" element={<FamilySmallVariantsPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderPage();
 
     await screen.findByRole('combobox', { name: /preset or saved search/i });
     const chip = await screen.findByRole('button', {
@@ -884,17 +742,7 @@ describe('FamilySmallVariantsPage', () => {
   });
 
   it('applies the review quick tag filter', async () => {
-    const queryClient = createTestQueryClient();
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={['/families/F1/small-variants']}>
-          <Routes>
-            <Route path="/families/:familyId/small-variants" element={<FamilySmallVariantsPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>
-    );
+    renderPage();
 
     await screen.findByRole('combobox', { name: /preset or saved search/i });
 
@@ -909,17 +757,7 @@ describe('FamilySmallVariantsPage', () => {
   });
 
   it('sorts the table by position, gene, and impact', async () => {
-    const queryClient = createTestQueryClient();
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={['/families/F1/small-variants']}>
-          <Routes>
-            <Route path="/families/:familyId/small-variants" element={<FamilySmallVariantsPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>
-    );
+    renderPage();
 
     fireEvent.click(await screen.findByRole('tab', { name: 'Table' }));
     await waitFor(() => {
@@ -938,17 +776,7 @@ describe('FamilySmallVariantsPage', () => {
   });
 
   it('does not duplicate quick review tags as extra pills in the result table', async () => {
-    const queryClient = createTestQueryClient();
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={['/families/F1/small-variants']}>
-          <Routes>
-            <Route path="/families/:familyId/small-variants" element={<FamilySmallVariantsPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>
-    );
+    renderPage();
 
     fireEvent.click(await screen.findByRole('tab', { name: 'Table' }));
     await screen.findByRole('columnheader', { name: /Chr/i });
@@ -962,17 +790,7 @@ describe('FamilySmallVariantsPage', () => {
   });
 
   it('highlights ClinVar pathogenic and benign variants in the table', async () => {
-    const queryClient = createTestQueryClient();
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={['/families/F1/small-variants']}>
-          <Routes>
-            <Route path="/families/:familyId/small-variants" element={<FamilySmallVariantsPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>
-    );
+    renderPage();
 
     fireEvent.click(await screen.findByRole('tab', { name: 'Table' }));
     await screen.findByRole('columnheader', { name: /Chr/i });
@@ -1075,17 +893,7 @@ describe('FamilySmallVariantsPage', () => {
       return Promise.resolve({ data: {} });
     });
 
-    const queryClient = createTestQueryClient();
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={['/families/F1/small-variants?inheritance=compound_het']}>
-          <Routes>
-            <Route path="/families/:familyId/small-variants" element={<FamilySmallVariantsPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>
-    );
+    renderPage('/families/F1/small-variants?inheritance=compound_het');
 
     await screen.findByText('Compound-het pairs');
     expect(screen.getAllByText('GENE1').length).toBeGreaterThan(0);
@@ -1095,17 +903,7 @@ describe('FamilySmallVariantsPage', () => {
   });
 
   it('saves the active applied search rather than unapplied draft edits', async () => {
-    const queryClient = createTestQueryClient();
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={['/families/F1/small-variants?impact=HIGH']}>
-          <Routes>
-            <Route path="/families/:familyId/small-variants" element={<FamilySmallVariantsPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>
-    );
+    renderPage('/families/F1/small-variants?impact=HIGH');
 
     await waitFor(() => {
       expect(apiMock.get).toHaveBeenCalledWith(
@@ -1139,48 +937,29 @@ describe('FamilySmallVariantsPage', () => {
     });
   });
 
-  it('exposes the expanded carrier screening preset only for couples and applies its query flag', async () => {
-    apiMock.get.mockImplementation((url: string) => {
-      if (url === '/families/F1') {
-        return Promise.resolve({
-          data: {
-            members: [
-              { sample_id: 'MOM', role: 'mother', affected: false, sex: 'female' },
-              { sample_id: 'DAD', role: 'father', affected: false, sex: 'male' },
-            ],
-            projects: [],
-          },
-        });
-      }
-      if (url === '/panels') {
-        return Promise.resolve({ data: [] });
-      }
-      if (url === '/families/F1/small-variant-filter-presets') {
-        return Promise.resolve({ data: [] });
-      }
-      if (url === '/families/F1/small-variant-tags') {
-        return Promise.resolve({ data: [] });
-      }
-      if (url.startsWith('/families/F1/small-variants?page=1&page_size=100')) {
-        return Promise.resolve({ data: { variants: [], total: 0 } });
-      }
-      if (url.startsWith('/families/F1/small-variants?page=1&page_size=1')) {
-        return Promise.resolve({ data: { variants: [], total: 0 } });
-      }
-      return Promise.resolve({ data: {} });
-    });
+  // The couple-based carrier preset is offered to a couple: two parents, or two members who are
+  // not parent and child (a family without members is offered none: see the first test).
+  it.each([
+    {
+      couple: 'two parents',
+      members: [
+        { sample_id: 'MOM', role: 'mother', affected: false, sex: 'female' },
+        { sample_id: 'DAD', role: 'father', affected: false, sex: 'male' },
+      ],
+      carriers: /both MOM and DAD carry a variant/i,
+    },
+    {
+      couple: 'two-member non-parental couple',
+      members: [
+        { sample_id: 'PARTNER1', role: 'proband', affected: false, sex: 'female' },
+        { sample_id: 'PARTNER2', role: 'sibling', affected: false, sex: 'male' },
+      ],
+      carriers: /both PARTNER1 and PARTNER2 carry a variant/i,
+    },
+  ])('exposes the expanded carrier screening preset to $couple and applies its query flag', async ({ members, carriers }) => {
+    serveEmptySearch(members);
 
-    const queryClient = createTestQueryClient();
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={['/families/F1/small-variants']}>
-          <Routes>
-            <Route path="/families/:familyId/small-variants" element={<FamilySmallVariantsPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>
-    );
+    renderPage();
 
     const presetSelect = await screen.findByRole('combobox', { name: /preset or saved search/i });
     expect(
@@ -1194,7 +973,7 @@ describe('FamilySmallVariantsPage', () => {
     expect(
       screen.getByLabelText(/Couple-based expanded carrier screening/i),
     ).toBeInTheDocument();
-    expect(screen.getByText(/both MOM and DAD carry a variant/i)).toBeInTheDocument();
+    expect(screen.getByText(carriers)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /apply filters/i }));
 
@@ -1211,115 +990,10 @@ describe('FamilySmallVariantsPage', () => {
     });
   });
 
-  it('exposes the expanded carrier screening preset for two-member non-parental couples', async () => {
-    apiMock.get.mockImplementation((url: string) => {
-      if (url === '/families/F1') {
-        return Promise.resolve({
-          data: {
-            members: [
-              { sample_id: 'PARTNER1', role: 'proband', affected: false, sex: 'female' },
-              { sample_id: 'PARTNER2', role: 'sibling', affected: false, sex: 'male' },
-            ],
-            projects: [],
-          },
-        });
-      }
-      if (url === '/panels') {
-        return Promise.resolve({ data: [] });
-      }
-      if (url === '/families/F1/small-variant-filter-presets') {
-        return Promise.resolve({ data: [] });
-      }
-      if (url === '/families/F1/small-variant-tags') {
-        return Promise.resolve({ data: [] });
-      }
-      if (url.startsWith('/families/F1/small-variants?page=1&page_size=100')) {
-        return Promise.resolve({ data: { variants: [], total: 0 } });
-      }
-      if (url.startsWith('/families/F1/small-variants?page=1&page_size=1')) {
-        return Promise.resolve({ data: { variants: [], total: 0 } });
-      }
-      return Promise.resolve({ data: {} });
-    });
-
-    const queryClient = createTestQueryClient();
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={['/families/F1/small-variants']}>
-          <Routes>
-            <Route path="/families/:familyId/small-variants" element={<FamilySmallVariantsPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>
-    );
-
-    const presetSelect = await screen.findByRole('combobox', { name: /preset or saved search/i });
-    expect(
-      within(presetSelect).getByRole('option', { name: /Expanded carrier screening/i }),
-    ).toBeInTheDocument();
-
-    fireEvent.change(presetSelect, {
-      target: { value: 'built-in:expanded_carrier_screening' },
-    });
-    fireEvent.click(screen.getByText('Inheritance'));
-    expect(
-      screen.getByLabelText(/Couple-based expanded carrier screening/i),
-    ).toBeInTheDocument();
-    expect(screen.getByText(/both PARTNER1 and PARTNER2 carry a variant/i)).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: /apply filters/i }));
-
-    await waitFor(() => {
-      expect(apiMock.get).toHaveBeenCalledWith(
-        expect.stringContaining('expanded_carrier_screening=true'),
-      );
-    });
-  });
-
   it('keeps phased heterozygous proband genotypes intact when applying a dominant preset', async () => {
-    apiMock.get.mockImplementation((url: string) => {
-      if (url === '/families/F1') {
-        return Promise.resolve({
-          data: {
-            members: [
-              { sample_id: 'PROBAND', role: 'proband', affected: true, sex: 'female' },
-              { sample_id: 'MOM', role: 'mother', affected: false, sex: 'female' },
-              { sample_id: 'DAD', role: 'father', affected: false, sex: 'male' },
-            ],
-            projects: [],
-          },
-        });
-      }
-      if (url === '/panels') {
-        return Promise.resolve({ data: [] });
-      }
-      if (url === '/families/F1/small-variant-filter-presets') {
-        return Promise.resolve({ data: [] });
-      }
-      if (url === '/families/F1/small-variant-tags') {
-        return Promise.resolve({ data: [] });
-      }
-      if (url.startsWith('/families/F1/small-variants?page=1&page_size=100')) {
-        return Promise.resolve({ data: { variants: [], total: 0 } });
-      }
-      if (url.startsWith('/families/F1/small-variants?page=1&page_size=1')) {
-        return Promise.resolve({ data: { variants: [], total: 0 } });
-      }
-      return Promise.resolve({ data: {} });
-    });
+    serveEmptySearch(TRIO);
 
-    const queryClient = createTestQueryClient();
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={['/families/F1/small-variants']}>
-          <Routes>
-            <Route path="/families/:familyId/small-variants" element={<FamilySmallVariantsPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>
-    );
+    renderPage();
 
     const presetSelect = await screen.findByRole('combobox', { name: /preset or saved search/i });
     fireEvent.change(presetSelect, {
@@ -1341,17 +1015,7 @@ describe('FamilySmallVariantsPage', () => {
   });
 
   it('applies the explicit compound-het inheritance filter flag', async () => {
-    const queryClient = createTestQueryClient();
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={['/families/F1/small-variants']}>
-          <Routes>
-            <Route path="/families/:familyId/small-variants" element={<FamilySmallVariantsPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>
-    );
+    renderPage();
 
     await screen.findByRole('combobox', { name: /preset or saved search/i });
     fireEvent.click(screen.getByText('Inheritance'));
@@ -1368,17 +1032,7 @@ describe('FamilySmallVariantsPage', () => {
   });
 
   it('submits variant-level review data from the review dialog without compound-het payload', async () => {
-    const queryClient = createTestQueryClient();
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={['/families/F1/small-variants']}>
-          <Routes>
-            <Route path="/families/:familyId/small-variants" element={<FamilySmallVariantsPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>
-    );
+    renderPage();
 
     fireEvent.click(await screen.findByRole('tab', { name: 'Table' }));
     await screen.findByRole('columnheader', { name: /Chr/i });
@@ -1417,19 +1071,9 @@ describe('FamilySmallVariantsPage', () => {
   const searchCalls = () =>
     apiMock.get.mock.calls.filter(([url]) => String(url).startsWith('/families/F1/small-variants?')).length;
 
-  const renderAt = (entry: string) =>
-    render(
-      <QueryClientProvider client={createTestQueryClient()}>
-        <MemoryRouter initialEntries={[entry]}>
-          <Routes>
-            <Route path="/families/:familyId/small-variants" element={<FamilySmallVariantsPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>
-    );
 
   it('saves a quick tag without searching the list again when its filters read no reviews', async () => {
-    renderAt('/families/F1/small-variants');
+    renderPage();
     fireEvent.click(await screen.findByRole('tab', { name: 'Table' }));
     await screen.findByRole('columnheader', { name: /Chr/i });
     const searchesBefore = searchCalls();
@@ -1444,7 +1088,7 @@ describe('FamilySmallVariantsPage', () => {
   });
 
   it('searches the list again after a review save when its filters read reviews, without covering it', async () => {
-    renderAt('/families/F1/small-variants?exclude_review_tag=excluded');
+    renderPage('/families/F1/small-variants?exclude_review_tag=excluded');
     fireEvent.click(await screen.findByRole('tab', { name: 'Table' }));
     await screen.findByRole('columnheader', { name: /Chr/i });
     const searchesBefore = searchCalls();
@@ -1471,17 +1115,7 @@ describe('FamilySmallVariantsPage', () => {
         },
       },
     });
-    const queryClient = createTestQueryClient();
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={['/families/F1/small-variants']}>
-          <Routes>
-            <Route path="/families/:familyId/small-variants" element={<FamilySmallVariantsPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>
-    );
+    renderPage();
 
     fireEvent.click(await screen.findByRole('tab', { name: 'Table' }));
     await screen.findByRole('columnheader', { name: /Chr/i });
@@ -1543,15 +1177,7 @@ describe('FamilySmallVariantsPage', () => {
     };
 
     const openAcmgFromTheList = async () => {
-      render(
-        <QueryClientProvider client={createTestQueryClient()}>
-          <MemoryRouter initialEntries={['/families/F1/small-variants']}>
-            <Routes>
-              <Route path="/families/:familyId/small-variants" element={<FamilySmallVariantsPage />} />
-            </Routes>
-          </MemoryRouter>
-        </QueryClientProvider>,
-      );
+      renderPage();
       fireEvent.click(await screen.findByRole('tab', { name: 'Table' }));
       await screen.findByRole('columnheader', { name: /Chr/i });
       const brca2Row = screen.getAllByRole('row').find((row) => within(row).queryByText('BRCA2'));
@@ -1655,16 +1281,7 @@ describe('FamilySmallVariantsPage', () => {
       return Promise.resolve({ data: {} });
     });
 
-    const queryClient = createTestQueryClient();
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={['/families/F1/small-variants']}>
-          <Routes>
-            <Route path="/families/:familyId/small-variants" element={<FamilySmallVariantsPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>
-    );
+    renderPage();
 
     // First page settles: results shown, no loading indicator.
     const nextButton = await screen.findByRole('button', { name: 'Next' });
@@ -1764,16 +1381,6 @@ describe('FamilySmallVariantsPage', () => {
       });
     };
 
-    const renderAt = (path: string) =>
-      render(
-        <QueryClientProvider client={createTestQueryClient()}>
-          <MemoryRouter initialEntries={[path]}>
-            <Routes>
-              <Route path="/families/:familyId/small-variants" element={<FamilySmallVariantsPage />} />
-            </Routes>
-          </MemoryRouter>
-        </QueryClientProvider>,
-      );
 
     const requests = (prefix: string) =>
       apiMock.get.mock.calls
@@ -1784,7 +1391,7 @@ describe('FamilySmallVariantsPage', () => {
 
     it('sends none of a NIPT saved search’s own filters, shows no chip or count for them, and names them once', async () => {
       serve();
-      renderAt('/families/F1/small-variants');
+      renderPage();
 
       await screen.findByRole('option', { name: 'NIPT de novo, confident' });
       fireEvent.change(screen.getByLabelText('Preset or saved search'), { target: { value: 'saved:preset-nipt' } });
@@ -1839,7 +1446,7 @@ describe('FamilySmallVariantsPage', () => {
 
     it('never sends the fetal de novo view a link carries, as itself or as de novo / dominant', async () => {
       serve();
-      renderAt('/families/F1/small-variants?inheritance=de_novo&prioritize=false');
+      renderPage('/families/F1/small-variants?inheritance=de_novo&prioritize=false');
 
       expect(await screen.findByText(factText('Showing 1'))).toBeInTheDocument();
       expect(listRequests().length).toBeGreaterThan(0);
@@ -1853,7 +1460,7 @@ describe('FamilySmallVariantsPage', () => {
 
     it('fails no search for another NIPT view a link carries, and names it with the not-inherited alleles', async () => {
       serve();
-      renderAt('/families/F1/small-variants?inheritance=paternal_dominant&include_not_inherited=true&prioritize=false');
+      renderPage('/families/F1/small-variants?inheritance=paternal_dominant&include_not_inherited=true&prioritize=false');
 
       expect(await screen.findByText(factText('Showing 1'))).toBeInTheDocument();
       expect(screen.queryByText(/Unsupported small-variant inheritance filter/)).not.toBeInTheDocument();
@@ -1871,7 +1478,7 @@ describe('FamilySmallVariantsPage', () => {
 
     it('still sends and chips a mode the list reads, and another spelling of one as that mode', async () => {
       serve();
-      renderAt('/families/F1/small-variants?inheritance=dominant&prioritize=false');
+      renderPage('/families/F1/small-variants?inheritance=dominant&prioritize=false');
 
       await waitFor(() => expect(listRequests().at(-1)?.get('inheritance')).toBe('de_novo_dominant'));
       expect(await screen.findByRole('button', { name: 'Inheritance: De novo / dominant' })).toBeInTheDocument();
@@ -1932,23 +1539,13 @@ describe('FamilySmallVariantsPage', () => {
       });
     };
 
-    const renderAt = (path: string) =>
-      render(
-        <QueryClientProvider client={createTestQueryClient()}>
-          <MemoryRouter initialEntries={[path]}>
-            <Routes>
-              <Route path="/families/:familyId/small-variants" element={<FamilySmallVariantsPage />} />
-            </Routes>
-          </MemoryRouter>
-        </QueryClientProvider>,
-      );
 
     const activeFilter = () => screen.getByText('Active filter:').closest('p') as HTMLElement;
     const advancedToggle = () => screen.getByRole('button', { name: /Advanced filters/ });
 
     it('names the default filter on a fresh open, with the categories collapsed', async () => {
       serveTrio();
-      renderAt('/families/F1/small-variants');
+      renderPage();
 
       await waitFor(() =>
         expect(activeFilter()).toHaveTextContent(
@@ -1976,7 +1573,7 @@ describe('FamilySmallVariantsPage', () => {
 
     it('marks the filter modified, keeps values while collapsed, and resets to the preset', async () => {
       serveTrio();
-      renderAt('/families/F1/small-variants');
+      renderPage();
       await waitFor(() => expect(within(activeFilter()).getByText('default')).toBeInTheDocument());
 
       fireEvent.click(advancedToggle());
@@ -2007,7 +1604,7 @@ describe('FamilySmallVariantsPage', () => {
 
     it('names a picked saved search, and no preset once the filters are cleared', async () => {
       serveTrio();
-      renderAt('/families/F1/small-variants');
+      renderPage();
       await screen.findByRole('option', { name: 'Dominant shortlist' });
 
       fireEvent.change(screen.getByLabelText('Preset or saved search'), {
@@ -2034,7 +1631,7 @@ describe('FamilySmallVariantsPage', () => {
 
     it('names no preset when the page opens on a search from the URL', async () => {
       serveTrio();
-      renderAt('/families/F1/small-variants?impact=HIGH');
+      renderPage('/families/F1/small-variants?impact=HIGH');
       await screen.findByText(factText('Showing 1'));
       expect(activeFilter()).toHaveTextContent('Active filter: custom (no preset loaded)');
     });

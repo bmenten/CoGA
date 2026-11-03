@@ -218,7 +218,7 @@ def test_the_list_is_the_familys_analysts_and_the_administrators(database: _Data
 
 def test_each_family_lists_the_analysts_of_its_own_projects(database: _Database) -> None:
     assert _list(database, "FAM_A", _user(ANA)) == [ANA, ADMIN]
-    assert _list(database, "FAM_B", _user(RITA)) == [MIXED, ADMIN]
+    assert _list(database, "FAM_B", _user(MIXED)) == [MIXED, ADMIN]
 
 
 def test_a_reader_reads_the_list(database: _Database) -> None:

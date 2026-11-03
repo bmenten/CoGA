@@ -38,6 +38,9 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import text
 
+from backend.tests.e2e._harness import ensure_postgres_schema, write_file
+from backend.tests.e2e._import_jobs import claim_import_job
+
 pytestmark = pytest.mark.integration
 
 _APCAD_HEADER = (
@@ -58,27 +61,20 @@ def _coverage_bed(bins: int) -> str:
     return "".join(f"chr1\t{index * 1000}\t{(index + 1) * 1000}\t{30 + index}\n" for index in range(bins))
 
 
-def _write(root: Path, name: str, content: str) -> str:
-    path = root / name
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
-    return name
-
-
 def _package(root: Path, family_id: str, files: dict[str, tuple[str, str]]) -> Path:
     """A package of the two embryos: each embryo's (APCAD VCF, coverage BED) contents."""
     root.mkdir(parents=True)
     embryos = list(files)
-    _write(root, "family.ped", "".join(f"{family_id}\t{embryo}\t0\t0\t2\t1\n" for embryo in embryos))
+    write_file(root, "family.ped", "".join(f"{family_id}\t{embryo}\t0\t0\t2\t1\n" for embryo in embryos))
     lines = ["schema_version: 1", f"family_id: {family_id}", "ped: family.ped", "datasets:"]
     lines += ["  apcad:", "    per_sample:"]
     for embryo, (apcad, _coverage) in files.items():
-        lines.append(f"      {embryo}: {{vcf: {_write(root, f'apcad/{embryo}.vcf', apcad)}}}")
+        lines.append(f"      {embryo}: {{vcf: {write_file(root, f'apcad/{embryo}.vcf', apcad)}}}")
     lines += ["  coverage:", "    per_sample:"]
     for embryo, (_apcad, coverage) in files.items():
-        name = _write(root, f"coverage/{embryo}.bed", coverage)
+        name = write_file(root, f"coverage/{embryo}.bed", coverage)
         lines.append(f"      {embryo}: {{bed: {name}, content: read_depth}}")
-    _write(root, "manifest.yaml", "\n".join(lines) + "\n")
+    write_file(root, "manifest.yaml", "\n".join(lines) + "\n")
     return root
 
 
@@ -86,14 +82,14 @@ async def _collect(base: Path, mp: pytest.MonkeyPatch) -> dict[str, Any]:
     from httpx import ASGITransport, AsyncClient
 
     from backend.app.core.clickhouse import init_clickhouse_schema
-    from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
+    from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.main import app
     from backend.app.services import family_package_import as package_import
     from backend.app.services.clickhouse_interval_tracks import count_interval_track_rows
     from backend.app.services.clickhouse_variant_storage import ensure_clickhouse_variant_tables
     from backend.tests.e2e import _harness
 
-    await init_postgres_schema()
+    await ensure_postgres_schema()
     await init_clickhouse_schema()
     await ensure_clickhouse_variant_tables(_harness.ASSEMBLY)
     sm = get_postgres_sessionmaker()
@@ -193,16 +189,7 @@ async def _collect(base: Path, mp: pytest.MonkeyPatch) -> dict[str, Any]:
                 job_id = str(resp.json()["_id"])
                 jobs.append(job_id)
                 worker = f"e2e-first-{uuid4().hex[:8]}"
-                async with sm() as s:
-                    await s.execute(
-                        text(
-                            "UPDATE family_import_jobs SET status = 'validating', worker_id = :w, "
-                            "started_at = now(), heartbeat_at = now() "
-                            "WHERE id = CAST(:j AS uuid) AND status = 'queued'"
-                        ),
-                        {"j": job_id, "w": worker},
-                    )
-                    await s.commit()
+                await claim_import_job(job_id, worker)
                 failing["backup"] = backup_fails
                 try:
                     await package_import.run_family_import_job(job_id=job_id, worker_id=worker)

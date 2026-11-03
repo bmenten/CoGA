@@ -21,6 +21,8 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import text
 
+from backend.tests.integration._datastores import fresh_assembly, fresh_species
+
 pytestmark = pytest.mark.integration
 
 
@@ -84,24 +86,8 @@ def test_auto_seed_lists_only_the_assays_recurrent_non_common_non_pathogenic_var
         )
 
     async def _seed_postgres(session) -> tuple[str, dict[str, str]]:
-        species = (
-            await session.execute(
-                text(
-                    "INSERT INTO species (name, common_name, tax_id) "
-                    "VALUES (:n, 'test', :t) RETURNING id::text"
-                ),
-                {"n": f"nipt-seed {tag} {uuid4()}", "t": uuid4().int % 2_000_000_000},
-            )
-        ).scalar_one()
-        assembly_id = (
-            await session.execute(
-                text(
-                    "INSERT INTO assemblies (species_id, assembly_name, version, release_date) "
-                    "VALUES (CAST(:s AS uuid), :a, 'v1', '2020-01-01') RETURNING id::text"
-                ),
-                {"s": species, "a": assembly_name},
-            )
-        ).scalar_one()
+        species = await fresh_species(session, f"nipt-seed {tag} {uuid4()}")
+        assembly_id = await fresh_assembly(session, species, assembly_name)
         sample_uuids: dict[str, str] = {}
         groups = [
             (default_cfdna, {"assay": "nipt_cfdna"}),

@@ -1,10 +1,8 @@
-import { QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 import FamilyIgvPage from '../FamilyIgvPage';
-import { createTestQueryClient } from '../../../test/createTestQueryClient';
+import { renderFamilyRoute } from '../../../test/familyRoute';
 import {
   INCOMPLETE_IMPORT_METADATA,
   findAssemblyScopeBanner,
@@ -63,19 +61,13 @@ vi.mock('../../../components/IgvViewer', () => ({
   ),
 }));
 
+/** The page of family F1, at `url`. */
+const renderPage = (url = '/families/F1/igv') =>
+  renderFamilyRoute('/families/:familyId/igv', url, <FamilyIgvPage />);
+
 describe('FamilyIgvPage', () => {
   it('uses project reference labels directly from /projects and resolves the IGV genome without extra metadata requests', async () => {
-    const queryClient = createTestQueryClient();
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={['/families/F1/igv?locus=chr1:10-20&project_id=p1']}>
-          <Routes>
-            <Route path="/families/:familyId/igv" element={<FamilyIgvPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderPage('/families/F1/igv?locus=chr1:10-20&project_id=p1');
 
     await waitFor(() => expect(screen.getByText(/IGV for family F1/i)).toBeInTheDocument());
     await waitFor(() =>
@@ -136,17 +128,7 @@ describe('FamilyIgvPage', () => {
       throw new Error(`Unexpected GET ${url}`);
     });
 
-    const queryClient = createTestQueryClient();
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={['/families/F1/igv?locus=chr1:10-20&project_id=p2']}>
-          <Routes>
-            <Route path="/families/:familyId/igv" element={<FamilyIgvPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderPage('/families/F1/igv?locus=chr1:10-20&project_id=p2');
 
     await waitFor(() =>
       expect(screen.getByText(/Homo sapiens • GRCh38 p14 • chr1:10-20/i)).toBeInTheDocument(),
@@ -187,15 +169,7 @@ describe('FamilyIgvPage', () => {
       throw new Error(`Unexpected GET ${url}`);
     });
     const backAt = async (backPath: string) => {
-      const { unmount } = render(
-        <QueryClientProvider client={createTestQueryClient()}>
-          <MemoryRouter initialEntries={[`/families/F1/igv?back_path=${encodeURIComponent(backPath)}`]}>
-            <Routes>
-              <Route path="/families/:familyId/igv" element={<FamilyIgvPage />} />
-            </Routes>
-          </MemoryRouter>
-        </QueryClientProvider>,
-      );
+      const { unmount } = renderPage(`/families/F1/igv?back_path=${encodeURIComponent(backPath)}`);
       const href = (await screen.findByRole('link', { name: 'Back' })).getAttribute('href');
       unmount();
       return href;
@@ -225,15 +199,7 @@ describe('FamilyIgvPage', () => {
       throw new Error(`Unexpected GET ${url}`);
     });
 
-    render(
-      <QueryClientProvider client={createTestQueryClient()}>
-        <MemoryRouter initialEntries={['/families/F1/igv']}>
-          <Routes>
-            <Route path="/families/:familyId/igv" element={<FamilyIgvPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderPage();
 
     const header = (await screen.findByRole('heading', { name: 'IGV for family F1' })).closest('.page-top-card');
     expect(header).toContainElement(await findImportIncompleteBanner());
@@ -259,15 +225,7 @@ describe('FamilyIgvPage', () => {
       }
       throw new Error(`Unexpected GET ${url}`);
     });
-    render(
-      <QueryClientProvider client={createTestQueryClient()}>
-        <MemoryRouter initialEntries={['/families/F1/igv']}>
-          <Routes>
-            <Route path="/families/:familyId/igv" element={<FamilyIgvPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderPage();
   };
 
   // The UCSC reference import names the T2T assembly `T2T CHM13v2.0`, with a space. IGV
@@ -300,15 +258,7 @@ describe('FamilyIgvPage', () => {
       throw new Error(`Unexpected GET ${url}`);
     });
 
-    render(
-      <QueryClientProvider client={createTestQueryClient()}>
-        <MemoryRouter initialEntries={['/families/F1/igv']}>
-          <Routes>
-            <Route path="/families/:familyId/igv" element={<FamilyIgvPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderPage();
 
     expect(await screen.findByRole('heading', { name: 'Family could not be loaded' })).toBeInTheDocument();
     expect(screen.queryByText('Family not found')).not.toBeInTheDocument();

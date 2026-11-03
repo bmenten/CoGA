@@ -9,6 +9,7 @@ import { MemoryRouter } from 'react-router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createTestQueryClient } from '../../../test/createTestQueryClient';
+import { globalVariantRow } from '../../../test/globalVariants';
 import VariantCarrierModal from '../VariantCarrierModal';
 import type { GlobalVariantRow, VariantCarriers } from '../types';
 
@@ -20,31 +21,14 @@ vi.mock('../../../lib/api', () => ({
 
 const CARRIERS_URL = '/variant-explorer/small-variants/4242/carriers';
 
-const VARIANT: GlobalVariantRow = {
+// BRCA2's missense, carried by 3 samples (2 het, 1 hom) in 2 families.
+const VARIANT: GlobalVariantRow = globalVariantRow({
   key: '4242',
-  variant_id: '13-32316461-G-A',
-  chr: '13',
-  pos: 32316461,
-  ref: 'G',
-  alt: 'A',
-  rsid: null,
-  type: 'SNV',
-  gene: 'BRCA2',
-  gene_symbols: ['BRCA2'],
-  impact: 'MODERATE',
-  consequence: 'missense_variant',
-  effects: ['missense_variant'],
-  hgvsc: 'c.7007G>A',
-  hgvsp: 'p.Arg2336His',
-  clinvar: 'Pathogenic',
-  classification: null,
-  tags: [],
   total_samples: 3,
   het_samples: 2,
   hom_samples: 1,
   total_families: 2,
-  last_seen: null,
-};
+});
 
 const CARRIERS: VariantCarriers = {
   key: '4242',

@@ -31,6 +31,8 @@ from pathlib import Path
 import pytest
 from sqlalchemy import text
 
+from backend.tests.e2e._harness import capture
+
 pytestmark = pytest.mark.integration
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "golden_trio"
@@ -42,13 +44,6 @@ _ANNOTATED = "1-9000-G-A"
 _RAW = "1-9500-T-C"
 _SIB_ONLY = "1-9700-A-C"
 _LEFT = "1-9900-C-G"
-
-
-def _cap(resp) -> dict:
-    out = {"status": resp.status_code, "text": resp.text}
-    if resp.status_code < 400:
-        out["json"] = resp.json()
-    return out
 
 
 def _call(sample: str, gt: str, *, ps: int | None = None, af=None, ad=None):
@@ -246,7 +241,7 @@ async def _exercise(root: Path) -> dict:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://e2e") as ac:
             token = await _harness.login_admin_token(ac)
             ac.headers["Authorization"] = f"Bearer {token}"
-            out["delete"] = _cap(await ac.delete("/api/admin/samples/SIB", params={"confirm": "true"}))
+            out["delete"] = capture(await ac.delete("/api/admin/samples/SIB", params={"confirm": "true"}))
         out["rows_after"] = await _entry_rows(family_uuid)
         out["entry_columns"] = await _entry_columns()
     finally:

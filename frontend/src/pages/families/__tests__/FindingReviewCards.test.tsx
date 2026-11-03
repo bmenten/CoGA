@@ -1,12 +1,10 @@
-import { QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import FamilyRepeatExpansionsPage from '../FamilyRepeatExpansionsPage';
 import FamilyParaphasePage from '../FamilyParaphasePage';
 import { differsFromStatus, findingQuickTagPayload } from '../findingReview';
-import { createTestQueryClient } from '../../../test/createTestQueryClient';
+import { renderFamilyRoute } from '../../../test/familyRoute';
 
 // The reviews of repeat loci and Paraphase regions on their cards
 // (docs/repeat-paraphase-review-design.md): quick tags, the dialog with the type's own scale and
@@ -97,15 +95,7 @@ const renderRepeats = (loci: unknown[], { readOnly = false } = {}) => {
     if (url === '/families/F1/small-variant-tags') return Promise.resolve({ data: TAGS });
     return Promise.resolve({ data: [] });
   });
-  render(
-    <QueryClientProvider client={createTestQueryClient()}>
-      <MemoryRouter initialEntries={['/families/F1/repeat-expansions']}>
-        <Routes>
-          <Route path="/families/:familyId/repeat-expansions" element={<FamilyRepeatExpansionsPage />} />
-        </Routes>
-      </MemoryRouter>
-    </QueryClientProvider>,
-  );
+  renderFamilyRoute('/families/:familyId/repeat-expansions', '/families/F1/repeat-expansions', <FamilyRepeatExpansionsPage />);
 };
 
 describe('reviews on the repeat locus cards', () => {
@@ -265,15 +255,7 @@ describe('reviews on the Paraphase region cards', () => {
       return Promise.resolve({ data: [] });
     });
     apiMock.put.mockResolvedValue({ data: review({ key: 'smn1', tags: ['review'] }) });
-    render(
-      <QueryClientProvider client={createTestQueryClient()}>
-        <MemoryRouter initialEntries={['/families/F1/paraphase']}>
-          <Routes>
-            <Route path="/families/:familyId/paraphase" element={<FamilyParaphasePage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderFamilyRoute('/families/:familyId/paraphase', '/families/F1/paraphase', <FamilyParaphasePage />);
     const card = (await screen.findByText('SMN1/SMN2')).closest('article') as HTMLElement;
 
     fireEvent.click(within(card).getByRole('button', { name: 'Review' }));

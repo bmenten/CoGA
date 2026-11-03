@@ -126,6 +126,113 @@ def test_a_stored_json_null_is_no_classification() -> None:
     assert review.acmg_unreadable is False
 
 
+# --- the reads: a review selection, the summary, the reviews of the SVs listed ------------------
+# The report lists its SVs with a review-tag search (``list_matching_structural_variant_review_ids``,
+# whose ids the SV search narrows its SQL to: test_sv_filter_before_cap.py); the SV page shows the
+# family's review counts and each listed SV's review.
+
+
+class _ReviewRows:
+    """A session holding the family's ``structural_variant_reviews`` rows; it records each
+    statement with its parameters."""
+
+    def __init__(self, rows: list[dict]) -> None:
+        self.rows = rows
+        self.executed: list[tuple[str, dict]] = []
+
+    async def execute(self, statement, params=None):
+        self.executed.append((" ".join(str(statement).split()), dict(params or {})))
+        rows = self.rows
+        return types.SimpleNamespace(mappings=lambda: types.SimpleNamespace(all=lambda: list(rows)))
+
+
+_REVIEWED = [
+    {"variant_id": "sv-a", "classification": "pathogenic", "tags": ["report"], "note": ""},
+    {"variant_id": "sv-b", "classification": None, "tags": [], "note": "Seen in a relative."},
+    {"variant_id": "sv-c", "classification": " benign ", "tags": ["artefact", " report "], "note": "  "},
+    {"variant_id": "sv-d", "classification": "", "tags": [" "], "note": None},
+    # A row without a variant id names no SV: never matched, never counted.
+    {"variant_id": "", "classification": "pathogenic", "tags": ["report"], "note": "orphan"},
+]
+
+
+def _matching(session: _ReviewRows, **selection) -> set[str]:
+    return asyncio.run(svr.list_matching_structural_variant_review_ids(session, family_uuid=FAMILY, **selection))
+
+
+@pytest.mark.parametrize(
+    ("selection", "expected"),
+    [
+        ({"classifications": ["pathogenic "]}, {"sv-a"}),
+        ({"classifications": ["benign"]}, {"sv-c"}),
+        ({"tags": ["report"]}, {"sv-a", "sv-c"}),
+        ({"has_notes": True}, {"sv-b"}),
+        # Every part of the selection must hold.
+        ({"classifications": ["pathogenic"], "tags": ["artefact"]}, set()),
+        ({"tags": ["report"], "has_notes": True}, set()),
+        ({"classifications": ["pathogenic", "benign"], "tags": ["report"]}, {"sv-a", "sv-c"}),
+    ],
+    ids=[
+        "classification-asked-with-a-space",
+        "classification-stored-with-spaces",
+        "tag",
+        "notes",
+        "classification-and-tag",
+        "tag-and-notes",
+        "classifications-and-tag",
+    ],
+)
+def test_a_review_selection_matches_the_svs_whose_review_meets_all_of_it(selection: dict, expected: set[str]) -> None:
+    session = _ReviewRows(_REVIEWED)
+    assert _matching(session, **selection) == expected
+    [(sql, params)] = session.executed
+    assert "FROM structural_variant_reviews WHERE family_id = CAST(:family_id AS uuid)" in sql
+    assert params == {"family_id": FAMILY}
+
+
+def test_a_blank_review_selection_selects_nothing_and_reads_nothing() -> None:
+    session = _ReviewRows(_REVIEWED)
+    assert _matching(session, classifications=[" "], tags=[""], has_notes=False) == set()
+    assert session.executed == []
+
+
+def test_the_review_summary_counts_the_reviewed_svs_their_notes_and_tags() -> None:
+    session = _ReviewRows(_REVIEWED)
+
+    summary = asyncio.run(svr.get_structural_variant_review_summary(session, family_uuid=FAMILY))
+
+    # sv-d holds nothing but blanks: not reviewed. The row without an id is not counted.
+    assert (summary.reviewed_variant_count, summary.note_count) == (3, 1)
+    assert summary.tag_counts == {"artefact": 1, "report": 2}
+    assert session.executed[0][1] == {"family_id": FAMILY}
+
+
+def test_the_reviews_of_the_listed_svs_are_read_with_their_ids_bound_as_one_array() -> None:
+    session = _ReviewRows(
+        [
+            {"variant_id": "sv-a", "classification": "pathogenic", "tags": ["report"], "note": None},
+            {"variant_id": None, "classification": "benign", "tags": [], "note": None},
+        ]
+    )
+
+    reviews = asyncio.run(
+        svr.get_structural_variant_review_map(session, family_uuid=FAMILY, variant_ids=[" sv-a ", "sv-b", " "])
+    )
+
+    assert list(reviews) == ["sv-a"]
+    assert (reviews["sv-a"].classification, reviews["sv-a"].tags) == ("pathogenic", ["report"])
+    # One text[] parameter, not one per id: an export reads up to 50,001 rows (DATA-3).
+    [(sql, params)] = session.executed
+    assert "variant_id = ANY(CAST(:variant_ids AS text[]))" in sql
+    assert params == {"family_id": FAMILY, "variant_ids": ["sv-a", "sv-b"]}
+
+
+def test_no_listed_sv_reads_no_review() -> None:
+    session = _ReviewRows(_REVIEWED)
+    assert asyncio.run(svr.get_structural_variant_review_map(session, family_uuid=FAMILY, variant_ids=["", " "])) == {}
+    assert session.executed == []
+
+
 # --- the save path ----------------------------------------------------------------------------
 
 
@@ -224,6 +331,15 @@ def test_an_empty_save_deletes_the_review() -> None:
 
     assert table.rows == {}
     assert (review.variant_id, review.tags, review.note) == ("sv1", [], None)
+
+
+def test_an_empty_save_of_an_sv_without_a_review_writes_and_records_nothing() -> None:
+    table = _ReviewTable()
+    review = _save(table, SmallVariantReviewUpdate(note="  "))
+
+    assert (review.variant_id, review.tags, review.note) == ("sv1", [], None)
+    assert table.rows == {} and table.audit == []
+    assert table.statements == ["SELECT LOCK", "SELECT"]
 
 
 # --- a save keeps the CNV scoring unless it sends one ---------------------------------------

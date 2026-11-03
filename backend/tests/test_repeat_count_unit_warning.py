@@ -33,7 +33,6 @@ from backend.app.dependencies import get_current_user
 from backend.app.main import app
 from backend.app.services import repeat_count_units, repeat_expansion_pg
 from backend.app.services.access_control import CurrentUser
-from backend.app.services.family_metadata_context import FamilyMetadataContext
 from backend.app.services.repeat_count_units import (
     COUNT_UNIT_MARGIN,
     KNOWN_COUNT_UNIT_DIFFERENCES,
@@ -42,6 +41,7 @@ from backend.app.services.repeat_count_units import (
     known_count_unit_difference,
 )
 from backend.app.services.repeat_expansion_pg import classify_repeat_count
+from backend.tests._repeat_fakes import Result, RowsSession, family_context
 
 # STRchive's ranges (data/ref-data/STRchive-loci.json), with the premutation threshold the
 # catalogue adds to FMR1.
@@ -225,47 +225,11 @@ PROBAND_UUID = "00000000-0000-4000-8000-000000000001"
 MOTHER_UUID = "00000000-0000-4000-8000-000000000002"
 
 
-def _context() -> FamilyMetadataContext:
-    return FamilyMetadataContext(
-        family_uuid="00000000-0000-4000-8000-0000000000f1",
-        family_id="FAM1",
-        project_ids=["project-uuid"],
-        sample_rows=[
-            {"sample_uuid": PROBAND_UUID, "sample_id": "PROBAND1", "role": "proband", "affected": True, "sex": "female"},
-            {"sample_uuid": MOTHER_UUID, "sample_id": "MOTHER1", "role": "mother", "affected": False, "sex": "female"},
-        ],
-        sample_uuid_to_name={PROBAND_UUID: "PROBAND1", MOTHER_UUID: "MOTHER1"},
-        sample_name_to_uuid={"PROBAND1": PROBAND_UUID, "MOTHER1": MOTHER_UUID},
-        affected_sample_names=["PROBAND1"],
-        assembly_id="assembly-uuid",
-        assembly_name="GRCh38",
+def _context():
+    return family_context(
+        (PROBAND_UUID, "PROBAND1", "proband", True, "female"),
+        (MOTHER_UUID, "MOTHER1", "mother", False, "female"),
     )
-
-
-class _Result:
-    def __init__(self, rows):
-        self._rows = rows
-
-    def mappings(self):
-        return self
-
-    def all(self):
-        return self._rows
-
-    def first(self):
-        return self._rows[0] if self._rows else None
-
-
-class _RowsSession:
-    """Answers every query with the given rows."""
-
-    def __init__(self, rows: list[dict]) -> None:
-        self.rows = rows
-        self.statements: list[str] = []
-
-    async def execute(self, statement, params=None):
-        self.statements.append(" ".join(str(statement).split()))
-        return _Result(self.rows)
 
 
 def _table_row(sample_uuid: str, counts: list[int], *, gene: str, locus: dict, status: str, **extra) -> dict:
@@ -307,7 +271,7 @@ async def test_the_family_table_marks_an_fmr1_count_of_53_and_not_one_of_40_whil
         _table_row(PROBAND_UUID, [40, 53], gene="FMR1", locus=FMR1, status="intermediate"),
         _table_row(MOTHER_UUID, [30, 40], gene="FMR1", locus=FMR1, status="normal"),
     ]
-    session = _RowsSession(rows)
+    session = RowsSession(rows)
 
     table = await repeat_expansion_pg.get_family_repeat_expansion_table_response(session, context=_context())
 
@@ -333,7 +297,7 @@ async def test_the_family_table_does_not_mark_a_count_at_a_validated_locus() -> 
         _table_row(PROBAND_UUID, [40, 53], gene="FMR1", locus=FMR1, status="intermediate", count_units_validated=True)
     ]
 
-    table = await repeat_expansion_pg.get_family_repeat_expansion_table_response(_RowsSession(rows), context=_context())
+    table = await repeat_expansion_pg.get_family_repeat_expansion_table_response(RowsSession(rows), context=_context())
 
     [locus] = table.loci
     assert locus.count_units_validated is True
@@ -346,7 +310,7 @@ async def test_the_family_table_does_not_mark_a_count_at_a_validated_locus() -> 
 async def test_the_family_table_marks_a_count_near_the_htt_threshold_and_names_what_is_known() -> None:
     rows = [_table_row(PROBAND_UUID, [18, 35], gene="HTT", locus=HTT, status="intermediate")]
 
-    table = await repeat_expansion_pg.get_family_repeat_expansion_table_response(_RowsSession(rows), context=_context())
+    table = await repeat_expansion_pg.get_family_repeat_expansion_table_response(RowsSession(rows), context=_context())
 
     [locus] = table.loci
     assert locus.count_units_note == KNOWN_COUNT_UNIT_DIFFERENCES["HTT"]
@@ -357,7 +321,7 @@ async def test_the_family_table_marks_a_count_near_the_htt_threshold_and_names_w
 async def test_the_family_table_names_nothing_for_a_gene_without_a_known_difference() -> None:
     rows = [_table_row(PROBAND_UUID, [12, 14], gene="ATXN1", locus={"warning_min": 36, "pathogenic_min": 39}, status="normal")]
 
-    table = await repeat_expansion_pg.get_family_repeat_expansion_table_response(_RowsSession(rows), context=_context())
+    table = await repeat_expansion_pg.get_family_repeat_expansion_table_response(RowsSession(rows), context=_context())
 
     [locus] = table.loci
     assert locus.count_units_note is None
@@ -393,7 +357,7 @@ def _stored(counts: list[int], *, status: str, **extra) -> dict:
 
 @pytest.mark.asyncio
 async def test_the_genome_track_marks_an_fmr1_count_of_53_as_the_family_table_does() -> None:
-    session = _RowsSession([_stored([30, 53], status="intermediate")])
+    session = RowsSession([_stored([30, 53], status="intermediate")])
 
     response = await repeat_expansion_pg.get_sample_repeat_expansion_track_response(
         session, context=_context(), sample_name="PROBAND1", chromosomes=["X"]
@@ -417,8 +381,8 @@ async def test_the_genome_track_marks_an_fmr1_count_of_53_as_the_family_table_do
 
 @pytest.mark.asyncio
 async def test_the_genome_track_does_not_mark_a_count_at_a_validated_locus_or_one_of_40() -> None:
-    validated = _RowsSession([_stored([30, 53], status="intermediate", count_units_validated=True)])
-    far = _RowsSession([_stored([30, 40], status="normal")])
+    validated = RowsSession([_stored([30, 53], status="intermediate", count_units_validated=True)])
+    far = RowsSession([_stored([30, 40], status="normal")])
 
     [item] = (
         await repeat_expansion_pg.get_sample_repeat_expansion_track_response(
@@ -445,7 +409,7 @@ async def test_the_genome_track_does_not_mark_a_call_stored_without_thresholds()
 
     [item] = (
         await repeat_expansion_pg.get_sample_repeat_expansion_track_response(
-            _RowsSession([uncatalogued]), context=_context(), sample_name="PROBAND1", chromosomes=["X"]
+            RowsSession([uncatalogued]), context=_context(), sample_name="PROBAND1", chromosomes=["X"]
         )
     ).items
     assert item.status == "not_assessed"
@@ -465,11 +429,6 @@ def _admin() -> CurrentUser:
     )
 
 
-class _One(_Result):
-    def one(self):
-        return self._rows[0]
-
-
 class _RecordSession:
     """The validation record's queries: the catalogue row, QA's previous record, the upsert;
     and the clinical audit event's (its chain lock, head and insert)."""
@@ -485,11 +444,11 @@ class _RecordSession:
         params = dict(params or {})
         self.statements.append((sql, params))
         if "FROM repeat_loci" in sql:
-            return _Result([self.locus] if self.locus else [])
+            return Result([self.locus] if self.locus else [])
         if sql.startswith("SELECT validated, reason FROM repeat_locus_count_units"):
-            return _Result([self.previous] if self.previous else [])
+            return Result([self.previous] if self.previous else [])
         if sql.startswith("INSERT INTO repeat_locus_count_units"):
-            return _One(
+            return Result(
                 [
                     {
                         "locus_id": params["locus_id"],
@@ -500,7 +459,7 @@ class _RecordSession:
                     }
                 ]
             )
-        return _Result([])
+        return Result([])
 
     async def commit(self) -> None:
         self.commits += 1
@@ -648,7 +607,16 @@ async def test_the_admin_list_names_each_locus_its_record_its_calls_and_the_hist
             "summary": "TRGT's counting units at HD_HTT (HTT): not validated → validated",
             "before": None,
             "after": json.dumps({"locus_id": "HD_HTT", "gene": "HTT", "validated": True, "reason": "checked"}),
-        }
+        },
+        # An event whose recorded state does not read: listed by its summary, validating nothing.
+        {
+            "created_at": datetime(2026, 10, 13, tzinfo=timezone.utc),
+            "actor": "qa-admin",
+            "action": "repeat_count_units_validated",
+            "summary": "TRGT's counting units at FMR1 (FMR1): not validated → validated",
+            "before": None,
+            "after": "{not json",
+        },
     ]
 
     class _ListSession:
@@ -656,8 +624,8 @@ async def test_the_admin_list_names_each_locus_its_record_its_calls_and_the_hist
             sql = " ".join(str(statement).split())
             if "FROM clinical_audit_events" in sql:
                 assert params["chain"] == "system:repeat-loci"
-                return _Result(changes)
-            return _Result(loci)
+                return Result(changes)
+            return Result(loci)
 
     listed = await repeat_count_units.list_repeat_locus_count_units(_ListSession())
 
@@ -667,13 +635,15 @@ async def test_the_admin_list_names_each_locus_its_record_its_calls_and_the_hist
     assert fmr1["known_difference"] == KNOWN_COUNT_UNIT_DIFFERENCES["FMR1"]
     assert (htt["validated"], htt["source"], htt["reason"]) == (True, "STRchive", "checked")
     assert htt["known_difference"] == KNOWN_COUNT_UNIT_DIFFERENCES["HTT"]
-    [change] = listed["changes"]
+    change, unreadable = listed["changes"]
     assert (change["locus_id"], change["validated"], change["reason"], change["changed_by"]) == (
         "HD_HTT",
         True,
         "checked",
         "qa-admin",
     )
+    assert (unreadable["locus_id"], unreadable["validated"], unreadable["reason"]) == (None, False, None)
+    assert unreadable["summary"] == "TRGT's counting units at FMR1 (FMR1): not validated → validated"
 
 
 # ---- The routes ----------------------------------------------------------------------------------

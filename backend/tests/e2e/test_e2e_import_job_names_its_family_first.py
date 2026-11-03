@@ -40,6 +40,9 @@ from typing import Any
 import pytest
 from sqlalchemy import text
 
+from backend.tests.e2e._harness import capture
+from backend.tests.e2e._import_jobs import claim_import_job
+
 pytestmark = pytest.mark.integration
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "golden_trio"
@@ -80,15 +83,6 @@ _REFUSE_EVERY_UPDATE = (
     "FOR EACH ROW EXECUTE FUNCTION "
     "e2e_refuse_import_job_update('validating', 'running', 'completed', 'failed')"
 )
-
-
-def _cap(resp) -> dict:
-    out: dict[str, Any] = {"status": resp.status_code, "text": resp.text}
-    try:
-        out["json"] = resp.json()
-    except ValueError:  # pragma: no cover
-        out["json"] = None
-    return out
 
 
 async def _refuse_job_updates(trigger: str | None) -> None:
@@ -137,22 +131,6 @@ async def _registered_at() -> str | None:
         ).scalar_one()
 
 
-async def _claim(job_id: str) -> None:
-    """Claim this job as the worker does (``claim_next_family_import_job``), by its id."""
-    from backend.app.core.postgres import get_postgres_sessionmaker
-
-    async with get_postgres_sessionmaker()() as session:
-        await session.execute(
-            text(
-                "UPDATE family_import_jobs SET status = 'validating', worker_id = :w, "
-                "started_at = now(), heartbeat_at = now(), completed_at = NULL, error = NULL "
-                "WHERE id = CAST(:j AS uuid) AND status = 'queued'"
-            ),
-            {"j": job_id, "w": _WORKER},
-        )
-        await session.commit()
-
-
 async def _collect(base: Path, mp: pytest.MonkeyPatch) -> dict:
     from httpx import ASGITransport, AsyncClient
 
@@ -181,7 +159,7 @@ async def _collect(base: Path, mp: pytest.MonkeyPatch) -> dict:
         run = current["run"]
         run["first_write"] = {
             "job": await _job(run["job"]),
-            "signout": _cap(await current["client"].post(current["signout_url"], json=_SIGNOUT_BODY)),
+            "signout": capture(await current["client"].post(current["signout_url"], json=_SIGNOUT_BODY)),
         }
         return await real_register(*args, **kwargs)
 
@@ -220,7 +198,7 @@ async def _collect(base: Path, mp: pytest.MonkeyPatch) -> dict:
                     "registered_before": await _registered_at(),
                 }
                 current["run"] = run
-                await _claim(job_id)
+                await claim_import_job(job_id, _WORKER)
                 await _refuse_job_updates(trigger)
                 try:
                     await family_package_import.run_family_import_job(job_id=job_id, worker_id=_WORKER)

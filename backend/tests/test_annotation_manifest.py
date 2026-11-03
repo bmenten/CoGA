@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import date, datetime, timezone
+import json
 import logging
 import types
 
@@ -139,6 +140,43 @@ def test_get_family_manifest_falls_back_to_family_metadata(monkeypatch) -> None:
     assert out["family_id"] == "FAM1" and out["assembly"] == "GRCh38"
     assert out["source"] == "manifest"
     assert any(m["key"] == "clinvar" and m["version"] == "2026-05" for m in out["modules"])
+
+
+@pytest.mark.parametrize(
+    ("stored", "source"),
+    [
+        # A driver without the jsonb codec hands the recorded modules back as JSON text.
+        (json.dumps({"clinvar": {"version": "2026-09"}}), "pipeline"),
+        # Text that is no JSON object holds nothing recorded: the import's manifest is read.
+        ("{not json", "manifest"),
+        (json.dumps(["clinvar"]), "manifest"),
+        ("  ", "manifest"),
+    ],
+    ids=["json-text", "not-json", "json-not-an-object", "blank"],
+)
+def test_a_recorded_manifest_read_back_as_text_is_read_as_the_object_it_is(monkeypatch, stored, source) -> None:
+    async def _context(session, *, family_identifier, user, project_id=None):
+        return types.SimpleNamespace(family_uuid="u1", family_id="FAM1", assembly_id=None, assembly_name="GRCh38")
+
+    async def _family(session, family_id, user):
+        return types.SimpleNamespace(metadata={"annotation_manifest": {"clinvar": "2026-05"}})
+
+    async def _row(session, family_uuid):
+        return {"modules": stored, "source": "pipeline", "recorded_at": None, "recorded_by": "importer"}
+
+    async def _no_platform(session, assembly_id):
+        return {}
+
+    monkeypatch.setattr(ams, "build_family_metadata_context", _context)
+    monkeypatch.setattr(ams, "get_family_record", _family)
+    monkeypatch.setattr(ams, "_family_manifest_row", _row)
+    monkeypatch.setattr(ams, "_platform_modules", _no_platform)
+
+    out = asyncio.run(ams.get_family_annotation_manifest(session=None, family_id="FAM1", user=None))
+
+    assert out["source"] == source
+    clinvar = next(module for module in out["modules"] if module["key"] == "clinvar")
+    assert clinvar["version"] == ("2026-09" if source == "pipeline" else "2026-05")
 
 
 def test_unknown_module_labels_are_not_renamed_by_title_casing() -> None:

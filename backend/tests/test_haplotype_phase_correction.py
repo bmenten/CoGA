@@ -119,6 +119,12 @@ def test_the_parents_alleles_are_swapped_from_each_correction_on() -> None:
     ]
     # The fetched rows themselves are left as called.
     assert rows[1][-1] == ["0|1", "1|0", "0|1"]
+    # A correction of a parent the rows do not hold, or one whose call is not phased, swaps
+    # nothing.
+    untouched = corrected_genotype_rows(
+        rows, [{"parent": "F", "chr": "1", "position": 350}, {"parent": "Z", "chr": "1", "position": 0}], chrom="1"
+    )
+    assert [row[-1] for row in untouched] == [row[-1] for row in rows]
 
 
 def test_only_well_formed_corrections_are_read_from_the_family() -> None:

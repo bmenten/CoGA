@@ -89,6 +89,8 @@ class _Session:
             )
         if sql.startswith("SELECT") and "FROM structural_variant_filter_presets" in sql:
             return _Result(self.listed)
+        if sql.startswith("DELETE FROM structural_variant_filter_presets"):
+            return _Result([])
         raise AssertionError(f"unexpected statement: {sql}")
 
     async def commit(self) -> None:
@@ -267,3 +269,54 @@ def test_another_users_preset_answers_as_an_unknown_one_and_is_kept(client_for) 
     assert response.json() == {"detail": "Preset not found"}
     assert not any(sql.startswith("DELETE") for sql, _params in session.executed)
     assert session.commits == 0
+
+
+# --- deleting a preset -------------------------------------------------------------------------
+# Only the owner deletes a preset: theirs for this family, or a reusable one from any family.
+# Any other preset answers as an unknown one, and nothing is deleted.
+
+OTHER_FAMILY_UUID = "00000000-0000-0000-0000-00000000f002"
+
+
+def _stored_preset(**overrides) -> dict:
+    return {"owner_id": USER.id, "scope": "family", "family_id": FAMILY_UUID, **overrides}
+
+
+@pytest.mark.parametrize(
+    "stored",
+    [_stored_preset(), _stored_preset(scope="global", family_id=None)],
+    ids=["the-familys", "a-reusable-one"],
+)
+def test_the_owner_deletes_their_preset(client_for, stored: dict) -> None:
+    session = _Session(listed=[stored])
+    with client_for(session) as client:
+        response = client.delete(f"{PRESETS}/{PRESET_ID}")
+
+    assert response.status_code == 204, response.text
+    deletes = [(sql, params) for sql, params in session.executed if sql.startswith("DELETE")]
+    assert deletes == [
+        ("DELETE FROM structural_variant_filter_presets WHERE id = CAST(:preset_id AS uuid)", {"preset_id": PRESET_ID})
+    ]
+    assert session.commits == 1
+
+
+@pytest.mark.parametrize(
+    ("preset_id", "stored"),
+    [
+        (PRESET_ID, []),  # no such preset
+        (PRESET_ID, [_stored_preset(family_id=OTHER_FAMILY_UUID)]),  # theirs, but another family's
+        ("not-a-preset-id", [_stored_preset()]),  # not an id: refused before it is read
+    ],
+    ids=["unknown", "another-familys", "malformed-id"],
+)
+def test_a_preset_the_caller_may_not_delete_here_answers_as_unknown(client_for, preset_id: str, stored: list) -> None:
+    session = _Session(listed=stored)
+    with client_for(session) as client:
+        response = client.delete(f"{PRESETS}/{preset_id}")
+
+    assert response.status_code == 404, response.text
+    assert response.json() == {"detail": "Preset not found"}
+    assert not any(sql.startswith("DELETE") for sql, _params in session.executed)
+    assert session.commits == 0
+    if preset_id != PRESET_ID:
+        assert session.executed == []

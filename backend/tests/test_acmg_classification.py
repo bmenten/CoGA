@@ -73,16 +73,10 @@ def test_ba1_forces_benign_regardless_of_points() -> None:
             {"code": "PVS1", "strength": "very_strong", "accepted": True},
         ]
     )
+    # PVS1's +8 still counts in the total; BA1 alone decides the class.
+    assert points == 8
     assert class_key == "acmg_class_1"
     assert label == "Benign - class 1"
-
-
-def test_unaccepted_criteria_do_not_score() -> None:
-    points, class_key, _ = acmg_points.compute_classification(
-        [{"code": "PVS1", "strength": "very_strong", "accepted": False}]
-    )
-    assert points == 0
-    assert class_key == "acmg_class_3"
 
 
 def test_normalize_recomputes_and_ignores_client_total() -> None:
@@ -108,12 +102,14 @@ def test_normalize_rejects_unknown_code() -> None:
     with pytest.raises(HTTPException) as exc:
         _normalize_acmg_payload(AcmgClassificationPayload(criteria=[crit("PX9", "supporting")]))
     assert exc.value.status_code == 400
+    assert exc.value.detail == "Unknown ACMG criterion: PX9"
 
 
 def test_normalize_rejects_invalid_strength() -> None:
     with pytest.raises(HTTPException) as exc:
         _normalize_acmg_payload(AcmgClassificationPayload(criteria=[crit("PM2", "ultra")]))
     assert exc.value.status_code == 400
+    assert exc.value.detail == "Invalid ACMG strength: ultra"
 
 
 # --- each criterion once, at a strength it takes (CLIN-3) ------------------------------------
@@ -173,6 +169,7 @@ def test_an_unaccepted_criterion_must_take_its_strength_too() -> None:
             AcmgClassificationPayload(criteria=[crit("PS3", "strong"), crit("BS1", "very_strong", accepted=False)])
         )
     assert refused.value.status_code == 400
+    assert refused.value.detail == "Invalid ACMG strength for BS1: very_strong"
 
 
 def test_a_stored_classification_the_save_rules_refuse_is_still_served() -> None:
@@ -289,6 +286,12 @@ def test_no_accepted_criteria_classifies_as_vus_not_pathogenic_or_benign() -> No
     empty_points, empty_class, _ = acmg_points.compute_classification([])
     assert empty_points == 0
     assert empty_class == "acmg_class_3"
+
+    # A very-strong pathogenic criterion alone, not accepted, scores nothing.
+    points, class_key, _ = acmg_points.compute_classification(
+        [{"code": "PVS1", "strength": "very_strong", "accepted": False}]
+    )
+    assert (points, class_key) == (0, "acmg_class_3")
 
     unconfirmed = [
         {"code": "PVS1", "strength": "very_strong", "accepted": False},

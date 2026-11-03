@@ -316,6 +316,92 @@ describe('DataManagementPage', () => {
     confirm.mockRestore();
   });
 
+  // Deleting a sample removes every track and variant record of it: only once confirmed, and a
+  // refusal says why.
+  it('deletes a sample only once confirmed, and says why a deletion was refused', async () => {
+    mockResponses();
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    (api.delete as unknown as Mock)
+      .mockRejectedValueOnce({ response: { status: 409, data: { detail: 'Sample S1 is in a signed analysis.' } } })
+      .mockResolvedValueOnce({ data: { ok: true } });
+    renderPage();
+    await selectFamily();
+
+    const [deleteS1] = await screen.findAllByRole('button', { name: 'Delete sample' });
+    fireEvent.click(deleteS1);
+    expect(confirm).toHaveBeenCalledWith(
+      'Delete sample S1, all of its tracks, and remove it from family F1? This permanently deletes every track and variant record for this sample.',
+    );
+    expect(api.delete).not.toHaveBeenCalled();
+
+    confirm.mockReturnValue(true);
+    fireEvent.click(deleteS1);
+    expect(await screen.findByText('Sample S1 is in a signed analysis.')).toHaveClass('status-note--error');
+
+    fireEvent.click(deleteS1);
+    expect(await screen.findByText('Deleted sample S1 and removed it from F1.')).toHaveClass('status-note--success');
+    expect(api.delete).toHaveBeenLastCalledWith('/admin/samples/S1', { params: { confirm: true } });
+    confirm.mockRestore();
+  });
+
+  it('says why the entire family could not be deleted, and keeps it selected', async () => {
+    mockResponses();
+    (api.delete as unknown as Mock).mockRejectedValue({
+      response: { status: 409, data: { detail: 'Family F1 has a signed analysis.' } },
+    });
+    renderPage();
+    await selectFamily();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete entire family' }));
+    fireEvent.change(screen.getByPlaceholderText('F1'), { target: { value: 'F1' } });
+    fireEvent.change(screen.getByRole('textbox', { name: /reason for the deletion/i }), {
+      target: { value: 'Duplicate' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    fireEvent.click(screen.getByRole('button', { name: /permanently delete F1/i }));
+
+    expect(await screen.findByText('Family F1 has a signed analysis.')).toHaveClass('status-note--error');
+    expect(screen.getByTestId('embedded-family-detail')).toHaveTextContent('Workspace F1');
+  });
+
+  it("downloads the family's pedigree as a PED file named after it", async () => {
+    mockResponses();
+    const original = { createObjectURL: window.URL.createObjectURL, revokeObjectURL: window.URL.revokeObjectURL };
+    const revokeObjectURL = vi.fn();
+    Object.assign(window.URL, { createObjectURL: vi.fn(() => 'blob:ped'), revokeObjectURL });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    try {
+      renderPage();
+      await selectFamily();
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Download PED' }));
+
+      await waitFor(() => expect(click).toHaveBeenCalledTimes(1));
+      expect(api.get).toHaveBeenCalledWith('/admin/families/F1/ped', { responseType: 'blob' });
+      expect((click.mock.contexts[0] as HTMLAnchorElement).download).toBe('F1.ped');
+      expect(revokeObjectURL).toHaveBeenCalledWith('blob:ped');
+    } finally {
+      Object.assign(window.URL, original);
+      click.mockRestore();
+    }
+  });
+
+  it("says the family's detail could not be loaded, not that it has no data", async () => {
+    mockResponses();
+    const served = (api.get as unknown as Mock).getMockImplementation()!;
+    (api.get as unknown as Mock).mockImplementation((url: string, config?: unknown) =>
+      url === '/admin/data/families/F1'
+        ? Promise.reject({ response: { status: 500, data: { detail: 'Inventory unavailable' } } })
+        : served(url, config),
+    );
+    renderPage();
+    await selectFamily();
+
+    expect(await screen.findByRole('heading', { name: 'Could not load family detail' })).toBeInTheDocument();
+    expect(screen.getByText('Inventory unavailable')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Delete sample' })).not.toBeInTheDocument();
+  });
+
   it('invalidates shared project and family catalogs after saving family project access', async () => {
     mockResponses();
     (api.put as unknown as Mock).mockResolvedValue({ data: { ok: true } });

@@ -49,20 +49,9 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import text
 
+from backend.tests.integration._datastores import run_closing_stores
+
 pytestmark = pytest.mark.integration
-
-
-def _run(make_coro) -> None:
-    from backend.app.core.postgres import close_postgres_engine, init_postgres_schema
-
-    async def _wrapped() -> None:
-        try:
-            await init_postgres_schema()
-            await make_coro()
-        finally:
-            await close_postgres_engine()
-
-    asyncio.run(_wrapped())
 
 
 async def _metadata(session, family_uuid: str) -> dict:
@@ -294,7 +283,7 @@ def test_the_unfinished_import_entries_are_written_and_removed_as_documented() -
             await s.execute(text("DELETE FROM families WHERE id = CAST(:f AS uuid)"), {"f": family_uuid})
             await s.commit()
 
-    _run(scenario)
+    run_closing_stores(scenario, init_schema=True)
 
 
 def test_a_restore_that_did_not_finish_marks_the_family_until_it_is_imported_again_in_full() -> None:
@@ -449,7 +438,7 @@ def test_a_restore_that_did_not_finish_marks_the_family_until_it_is_imported_aga
             await s.execute(text("DELETE FROM families WHERE id = CAST(:f AS uuid)"), {"f": family_uuid})
             await s.commit()
 
-    _run(scenario)
+    run_closing_stores(scenario, init_schema=True)
 
 
 def test_an_upload_records_what_it_brought_and_brings_it_again_with_overwrite() -> None:
@@ -617,7 +606,7 @@ def test_an_upload_records_what_it_brought_and_brings_it_again_with_overwrite() 
             await s.execute(text("DELETE FROM families WHERE id = CAST(:f AS uuid)"), {"f": family_uuid})
             await s.commit()
 
-    _run(scenario)
+    run_closing_stores(scenario, init_schema=True)
 
 
 def test_a_stale_job_is_run_again_only_if_its_import_had_written_nothing() -> None:
@@ -733,7 +722,7 @@ def test_a_stale_job_is_run_again_only_if_its_import_had_written_nothing() -> No
             )
             await s.commit()
 
-    _run(scenario)
+    run_closing_stores(scenario, init_schema=True)
 
 
 def test_the_heartbeat_is_stamped_and_judged_by_the_databases_clock(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -861,4 +850,4 @@ def test_the_heartbeat_is_stamped_and_judged_by_the_databases_clock(monkeypatch:
                 )
                 await s.commit()
 
-    _run(scenario)
+    run_closing_stores(scenario, init_schema=True)

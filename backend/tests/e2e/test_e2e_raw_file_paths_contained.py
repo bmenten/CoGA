@@ -37,6 +37,8 @@ from uuid import uuid4
 
 import pytest
 
+from backend.tests.e2e._harness import ensure_postgres_schema, place_file
+
 pytestmark = pytest.mark.integration
 
 OUTSIDE = (
@@ -45,18 +47,12 @@ OUTSIDE = (
 )
 
 
-def _place(path: Path, content: bytes) -> Path:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(content)
-    return path
-
-
 async def _exercise(run: str, base: Path) -> dict[str, Any]:
     from httpx import ASGITransport, AsyncClient
     from sqlalchemy import text
 
     from backend.app.core.clickhouse import init_clickhouse_schema
-    from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
+    from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.main import app
     from backend.app.services.clickhouse_variant_storage import ensure_clickhouse_variant_tables
     from backend.tests.e2e import _harness
@@ -65,13 +61,13 @@ async def _exercise(run: str, base: Path) -> dict[str, Any]:
     imports, data, elsewhere = base / "imports", base / "data", base / "elsewhere"
     package_folder = imports / f"run-{run}"
     files = {
-        "package": _place(package_folder / "trio.vcf.gz", b"package file"),
-        "upload": _place(data / "raw_imports" / family / "0a1b2c__trio.vcf", b"family upload"),
-        "former_upload": _place(data / "raw_imports" / f"FORMER_{run}" / "3d4e5f__trio.vcf", b"upload under a former ID"),
-        "sample_upload": _place(data / "raw_imports" / family / "6a7b8c__s2.vcf", b"sample upload"),
-        "secret": _place(elsewhere / "secret.txt", b"secret"),
-        "victim_family": _place(elsewhere / "victim-family.txt", b"named by a managed row of the family"),
-        "victim_sample": _place(elsewhere / "victim-sample.txt", b"named by a managed row of the sample"),
+        "package": place_file(package_folder / "trio.vcf.gz", b"package file"),
+        "upload": place_file(data / "raw_imports" / family / "0a1b2c__trio.vcf", b"family upload"),
+        "former_upload": place_file(data / "raw_imports" / f"FORMER_{run}" / "3d4e5f__trio.vcf", b"upload under a former ID"),
+        "sample_upload": place_file(data / "raw_imports" / family / "6a7b8c__s2.vcf", b"sample upload"),
+        "secret": place_file(elsewhere / "secret.txt", b"secret"),
+        "victim_family": place_file(elsewhere / "victim-family.txt", b"named by a managed row of the family"),
+        "victim_sample": place_file(elsewhere / "victim-sample.txt", b"named by a managed row of the sample"),
     }
     (package_folder / "linked-out.txt").symlink_to(files["secret"])
 
@@ -90,7 +86,7 @@ async def _exercise(run: str, base: Path) -> dict[str, Any]:
         "sample_elsewhere": (s2, True, str(files["victim_sample"]), "victim_sample"),
     }
 
-    await init_postgres_schema()
+    await ensure_postgres_schema()
     # The deletes run against the assembly's ClickHouse tables.
     await init_clickhouse_schema()
     await ensure_clickhouse_variant_tables(_harness.ASSEMBLY)

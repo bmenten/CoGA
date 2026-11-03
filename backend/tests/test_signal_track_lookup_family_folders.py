@@ -23,24 +23,17 @@ answer the same way. The remote-mode layout probe is tested in
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import os
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
-from fastapi import HTTPException
 import httpx
 import pytest
 
 from backend.app.core.config import settings
-from backend.app.core.postgres import get_postgres_session
 from backend.app.core.url_path import url_path
-from backend.app.dependencies import get_current_user
-from backend.app.main import app
-from backend.app.middleware import request_logging
 from backend.app.routers import signal_tracks
-from backend.app.services.access_control import CurrentUser
+from backend.tests._family_folder_app import ORIGIN, asgi_client, sign_in_a_viewer_who_reads
 
 KIND = "depth_bigwig"
 
@@ -223,8 +216,6 @@ def test_a_symlink_between_the_familys_own_folders_is_followed(data: Path) -> No
 # Through the app
 # --------------------------------------------------------------------------- #
 
-ORIGIN = "http://coga.test"
-
 
 @pytest.fixture()
 def recorded(data: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, dict[str, str]]:
@@ -233,40 +224,13 @@ def recorded(data: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, dict[str,
     and each sample's ``signal_tracks`` row records its path under the source ``hificnv``."""
     families: dict[str, dict[str, str]] = {}
 
-    async def family_record(session: Any, family_id: str, user: Any) -> Any:
-        if family_id not in families:
-            raise HTTPException(status_code=404, detail="Family not found")
-        return SimpleNamespace(members=[SimpleNamespace(sample_id=sample) for sample in families[family_id]])
-
     async def rows(session: Any, sample_ids: list[str]) -> list[tuple[str, dict[str, Any]]]:
         paths = {sample: path for members in families.values() for sample, path in members.items()}
         return [(sample, {"hificnv": {KIND: paths[sample]}}) for sample in sample_ids if sample in paths]
 
-    async def no_session():
-        yield None
-
-    async def a_viewer() -> CurrentUser:
-        return CurrentUser(
-            id="user-viewer",
-            username="viewer@example.com",
-            email="viewer@example.com",
-            role="viewer",
-            created_at=datetime.now(timezone.utc),
-        )
-
-    async def keep_audit_row(payload: Any) -> None:
-        return None
-
-    monkeypatch.setattr(signal_tracks, "get_family_record", family_record)
+    sign_in_a_viewer_who_reads(monkeypatch, families, signal_tracks)
     monkeypatch.setattr(signal_tracks, "_signal_track_rows", rows)
-    monkeypatch.setattr(request_logging, "write_audit_log_event", keep_audit_row)
-    monkeypatch.setitem(app.dependency_overrides, get_postgres_session, no_session)
-    monkeypatch.setitem(app.dependency_overrides, get_current_user, a_viewer)
     return families
-
-
-def _client() -> httpx.AsyncClient:
-    return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url=ORIGIN)
 
 
 async def _manifest(client: httpx.AsyncClient, family_id: str) -> list[dict[str, Any]]:
@@ -300,7 +264,7 @@ async def test_the_manifest_lists_and_the_route_serves_only_the_familys_own_trac
         "S5": "linked/S2.depth.bw",
     }
 
-    async with _client() as client:
+    async with asgi_client() as client:
         f1_entries = await _manifest(client, "F1")
         f2_entries = await _manifest(client, "F2")
         answered = {

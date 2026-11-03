@@ -17,42 +17,22 @@ and ``delete_interval_tracks``.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import Any
 
 import pytest
 
-from backend.app.schemas import FamilyOut, FamilyStructureUpdate
+from backend.app.schemas import FamilyStructureUpdate
 from backend.app.services import family_structure_service as service
-from backend.app.services.access_control import CurrentUser
 from backend.tests._deletion_mark_fakes import UnmarkedDeletion
+from backend.tests._family_structure_fakes import admin_user, fake_structure_reads, member_row
 
 DATA = {"small_variants": 120, "structural_variants": 4, "coverage": 2}
 
 
-def _user() -> CurrentUser:
-    return CurrentUser(
-        id="11111111-1111-1111-1111-111111111111",
-        username="admin@example.com",
-        email="admin@example.com",
-        role="admin",
-        created_at=datetime.now(timezone.utc),
-    )
-
-
 def _member(sample_id: str, *, role: str, sex: str) -> dict[str, Any]:
-    return {
-        "family_uuid": "fam-uuid",
-        "sample_uuid": f"uuid-{sample_id.lower()}",
-        "sample_id": sample_id,
-        "sex": sex,
-        "role": role,
-        "clinical_status": "unaffected",
-        "carrier_status": "unknown",
-        "carrier_type": None,
-        "carrier_evidence": {},
-        "active": True,
-    }
+    return member_row(
+        family_uuid="fam-uuid", sample_uuid=f"uuid-{sample_id.lower()}", sample_id=sample_id, role=role, sex=sex
+    )
 
 
 class _Transaction:
@@ -74,28 +54,13 @@ class _Transaction:
 def events(monkeypatch) -> list[str]:
     """What the structure change did, in order."""
     recorded: list[str] = []
-    members = {
-        service._sample_key("FATHER"): _member("FATHER", role="father", sex="male"),
-        service._sample_key("CHILD"): _member("CHILD", role="proband", sex="female"),
-    }
-
-    async def mapping(*_args, **_kwargs):
-        return {"id": "fam-uuid", "family_id": "FAM1"}
-
-    async def version(*_args, **_kwargs):
-        return 1
-
-    async def current_members(*_args, **_kwargs):
-        return {key: dict(row) for key, row in members.items()}
-
-    async def no_relationships(*_args, **_kwargs):
-        return []
-
-    async def counts(*_args, **_kwargs):
-        return dict(DATA)
-
-    async def assemblies(*_args, **_kwargs):
-        return {"GRCh38": ["project-1"]}
+    fake_structure_reads(
+        monkeypatch,
+        family_uuid="fam-uuid",
+        family_id="FAM1",
+        members=[_member("FATHER", role="father", sex="male"), _member("CHILD", role="proband", sex="female")],
+        data_counts=DATA,
+    )
 
     def record(name: str):
         async def done(*_args, **_kwargs) -> None:
@@ -103,24 +68,7 @@ def events(monkeypatch) -> list[str]:
 
         return done
 
-    async def family_record(*_args, **_kwargs):
-        return FamilyOut(
-            _id="fam-uuid",
-            family_id="FAM1",
-            created_at=datetime.now(timezone.utc),
-            members=[],
-            relationships=[],
-            projects=[],
-            metadata={},
-        )
-
     for name, value in {
-        "get_accessible_family_mapping": mapping,
-        "_fetch_current_structure_version": version,
-        "_fetch_family_member_rows": current_members,
-        "_fetch_current_relationship_rows": no_relationships,
-        "_family_genomic_data_counts": counts,
-        "_family_assembly_groups": assemblies,
         "lock_family_variant_writes": record("lock"),
         "delete_interval_track_sources": record("delete interval track sources"),
         "delete_family_small_variants": record("ClickHouse: delete small variants"),
@@ -128,8 +76,6 @@ def events(monkeypatch) -> list[str]:
         "delete_interval_tracks": record("ClickHouse: delete interval tracks"),
         "_update_member_row": record("update member"),
         "_record_family_structure_version": record("record structure version"),
-        "_pedigree_text_from_target": lambda **_kwargs: "",
-        "get_family_record": family_record,
         # Its mark is test_deletions_mark_the_family.py's (SAFE-31).
         "FamilyDeletion": UnmarkedDeletion,
     }.items():
@@ -142,7 +88,7 @@ async def _clear(events: list[str]):
         _Transaction(events),  # type: ignore[arg-type]
         family_id="FAM1",
         update=FamilyStructureUpdate(remove_members=["FATHER"], clear_existing_genomic_data=True),
-        user=_user(),
+        user=admin_user(),
     )
 
 

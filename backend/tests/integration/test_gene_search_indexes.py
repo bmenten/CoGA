@@ -18,6 +18,8 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import text
 
+from backend.tests.integration._datastores import fresh_assembly, fresh_species
+
 pytestmark = pytest.mark.integration
 
 _MARK_SYMBOL = "ZQXMARK"          # unique upper symbol (autocomplete prefix ZQX% → 1 row)
@@ -26,25 +28,8 @@ _MARK_TX = "NMTESTMARKXYZ"
 
 
 async def _seed(session) -> str:
-    tax = uuid4().int % 2_000_000_000
-    species = (
-        await session.execute(
-            text(
-                "INSERT INTO species (name, common_name, tax_id) "
-                "VALUES (:n, 'test', :t) RETURNING id::text"
-            ),
-            {"n": f"gene-search {uuid4()}", "t": tax},
-        )
-    ).scalar_one()
-    assembly = (
-        await session.execute(
-            text(
-                "INSERT INTO assemblies (species_id, assembly_name, version, release_date) "
-                "VALUES (CAST(:s AS uuid), :a, 'v1', '2020-01-01') RETURNING id::text"
-            ),
-            {"s": species, "a": f"gene-search-{uuid4()}"},
-        )
-    ).scalar_one()
+    species = await fresh_species(session, f"gene-search {uuid4()}")
+    assembly = await fresh_assembly(session, species, f"gene-search-{uuid4()}")
     # ~600 spread genes so a selective predicate beats both a seq scan and the assembly-region index.
     await session.execute(
         text(

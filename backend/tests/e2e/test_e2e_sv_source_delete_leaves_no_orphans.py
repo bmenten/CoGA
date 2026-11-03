@@ -37,7 +37,12 @@ import shutil
 from pathlib import Path
 
 import pytest
-from sqlalchemy import text
+
+from backend.tests.e2e._harness import (
+    annotation_manifest_modules,
+    capture,
+    restore_annotation_manifest_modules,
+)
 
 pytestmark = pytest.mark.integration
 
@@ -73,13 +78,6 @@ _SPECTRE = _sv_vcf(
     "##source=Spectre",
     "1\t30000\tSpectre.DEL.1\tN\t<DEL>\t.\tPASS\tSVTYPE=DEL;SVLEN=-1000;END=31000\tGT\t1/1",
 )
-
-
-def _cap(resp) -> dict:
-    out = {"status": resp.status_code, "text": resp.text}
-    if resp.status_code < 400:
-        out["json"] = resp.json()
-    return out
 
 
 def _other_family_records() -> list:
@@ -151,41 +149,6 @@ def _plain(value):
     return tuple(value) if isinstance(value, list) else value
 
 
-async def _manifest_modules(family_uuid: str) -> str | None:
-    from backend.app.core.postgres import get_postgres_sessionmaker
-
-    async with get_postgres_sessionmaker()() as session:
-        return (
-            await session.execute(
-                text(
-                    "SELECT modules::text FROM family_annotation_manifest "
-                    "WHERE family_id = CAST(:family_uuid AS uuid)"
-                ),
-                {"family_uuid": family_uuid},
-            )
-        ).scalar_one_or_none()
-
-
-async def _restore_manifest_modules(family_uuid: str, modules: str | None) -> None:
-    from backend.app.core.postgres import get_postgres_sessionmaker
-
-    async with get_postgres_sessionmaker()() as session:
-        if modules is None:
-            await session.execute(
-                text("DELETE FROM family_annotation_manifest WHERE family_id = CAST(:f AS uuid)"),
-                {"f": family_uuid},
-            )
-        else:
-            await session.execute(
-                text(
-                    "UPDATE family_annotation_manifest SET modules = CAST(:modules AS jsonb) "
-                    "WHERE family_id = CAST(:f AS uuid)"
-                ),
-                {"modules": modules, "f": family_uuid},
-            )
-        await session.commit()
-
-
 async def _remove_added_rows(family_uuid: str) -> None:
     """Remove what this module adds, with the deletes under test only. Idempotent."""
     from backend.app.services.clickhouse_variant_storage import delete_family_structural_variants
@@ -210,7 +173,7 @@ async def _exercise(root: Path) -> dict:
     family_uuid = facts["family_uuid"]
     # A run that failed half-way may have left its rows behind.
     await _remove_added_rows(family_uuid)
-    manifest_before = await _manifest_modules(family_uuid)
+    manifest_before = await annotation_manifest_modules(family_uuid)
     out: dict = {"facts": facts, "golden": await _sv_rows(family_uuid)}
 
     try:
@@ -222,7 +185,7 @@ async def _exercise(root: Path) -> dict:
             ac.headers["Authorization"] = f"Bearer {token}"
 
             async def upload(source_format: str, body: bytes, *, overwrite: bool = False) -> dict:
-                return _cap(
+                return capture(
                     await ac.post(
                         "/api/structural-variants/upload/PROBAND",
                         params={"overwrite": str(overwrite).lower(), "source_format": source_format},
@@ -243,7 +206,7 @@ async def _exercise(root: Path) -> dict:
             )
             out["after_delete"] = await _sv_rows(family_uuid)
             out["other_after_delete"] = await _sv_rows(_OTHER_FAMILY)
-            out["page_after_delete"] = _cap(
+            out["page_after_delete"] = capture(
                 await ac.get(
                     f"/api/families/{FAMILY}/structural-variants", params={"page_size": 100}
                 )
@@ -251,7 +214,7 @@ async def _exercise(root: Path) -> dict:
     finally:
         # Restore the fixture state for any module that runs later.
         await _remove_added_rows(family_uuid)
-        await _restore_manifest_modules(family_uuid, manifest_before)
+        await restore_annotation_manifest_modules(family_uuid, manifest_before)
         out["restored"] = await _harness.import_golden_trio(root)
         out["rows_restored"] = await _sv_rows(family_uuid)
         out["other_restored"] = await _sv_rows(_OTHER_FAMILY)

@@ -183,7 +183,10 @@ def test_empty_and_malformed_never_raise():
         "##fooCommand=",
         "not even a header",
     ]
-    assert isinstance(extract_header_provenance(junk).as_modules(), dict)
+    modules = extract_header_provenance(junk).as_modules()
+    # A version comes only from a line that states one: no junk line gives one.
+    assert all("version" not in module for module in modules.values()), modules
+    assert set(modules) <= {"gatk", "foo"}
 
 
 def test_merge_prefers_existing_then_fills_gaps():

@@ -36,6 +36,9 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import text
 
+from backend.tests.e2e._harness import capture, ensure_postgres_schema
+from backend.tests.e2e._import_jobs import claim_import_job
+
 pytestmark = pytest.mark.integration
 
 _VARIANTS = 3
@@ -45,13 +48,6 @@ _VARIANTS = 3
 _CHANGES = {"deactivated": {"is_active": False}, "demoted": {"role": "viewer"}}
 _NEXT_REQUEST = {"deactivated": 401, "demoted": 403}
 _ERRORS = {"deactivated": "REQUESTER_INACTIVE_ERROR", "demoted": "REQUESTER_NOT_ADMIN_ERROR"}
-
-
-def _cap(response) -> dict[str, Any]:
-    out: dict[str, Any] = {"status": response.status_code}
-    if response.content:
-        out["json"] = response.json()
-    return out
 
 
 def _write_package(root: Path, family_id: str) -> Path:
@@ -91,7 +87,7 @@ async def _exercise(base: Path, run: str) -> dict[str, Any]:
     from httpx import ASGITransport, AsyncClient
 
     from backend.app.core.clickhouse import init_clickhouse_schema
-    from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
+    from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.dependencies import get_password_hash
     from backend.app.main import app
     from backend.app.services import family_package_import as package_import
@@ -101,7 +97,7 @@ async def _exercise(base: Path, run: str) -> dict[str, Any]:
     )
     from backend.tests.e2e import _harness
 
-    await init_postgres_schema()
+    await ensure_postgres_schema()
     await init_clickhouse_schema()
     await ensure_clickhouse_variant_tables(_harness.ASSEMBLY)
     sessionmaker = get_postgres_sessionmaker()
@@ -190,16 +186,7 @@ async def _exercise(base: Path, run: str) -> dict[str, Any]:
         """Claim the queued job as the worker does, by its id, and run it; the error the run
         raises to the worker, if any."""
         worker = f"e2e-inactive-{uuid4().hex[:8]}"
-        async with sessionmaker() as session:
-            await session.execute(
-                text(
-                    "UPDATE family_import_jobs SET status = 'validating', worker_id = :w, "
-                    "started_at = now(), heartbeat_at = now() "
-                    "WHERE id = CAST(:j AS uuid) AND status = 'queued'"
-                ),
-                {"w": worker, "j": job_id},
-            )
-            await session.commit()
+        await claim_import_job(job_id, worker)
         try:
             await package_import.run_family_import_job(job_id=job_id, worker_id=worker)
         except RuntimeError as exc:
@@ -228,16 +215,16 @@ async def _exercise(base: Path, run: str) -> dict[str, Any]:
                 colleague = {"Authorization": f"Bearer {signed_in.json()['access_token']}"}
 
                 queued = await client.post("/api/family-imports", json=body, headers=colleague)
-                seen["queued"] = _cap(queued)
+                seen["queued"] = capture(queued)
                 job_id = str(queued.json()["_id"])
                 jobs.append(job_id)
 
                 # The e2e administrator deactivates the colleague, or sets their role to viewer,
                 # before the worker runs the job.
-                seen["changed"] = _cap(
+                seen["changed"] = capture(
                     await client.patch(f"/api/auth/users/{account['id']}", json=update, headers=administrator)
                 )
-                seen["colleague_next_request"] = _cap(
+                seen["colleague_next_request"] = capture(
                     await client.get(f"/api/family-imports/{job_id}", headers=colleague)
                 )
 
@@ -255,7 +242,7 @@ async def _exercise(base: Path, run: str) -> dict[str, Any]:
 
             # The same package, queued by the e2e administrator, active.
             control = await client.post("/api/family-imports", json=body, headers=administrator)
-            out["control_queued"] = _cap(control)
+            out["control_queued"] = capture(control)
             control_id = str(control.json()["_id"])
             jobs.append(control_id)
             out["control_raised"] = await claim_and_run(control_id)

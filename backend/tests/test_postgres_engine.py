@@ -34,10 +34,15 @@ def test_engine_uses_cloud_sql_connector_when_enabled(monkeypatch, captured_engi
     assert "connect_args" not in captured_engine
 
 
-def test_engine_uses_dsn_when_connector_disabled(monkeypatch, captured_engine):
+@pytest.mark.parametrize(("sslmode", "connect_args"), [("verify-full", {"ssl": "verify-full"}), ("disable", {})])
+def test_engine_uses_dsn_when_connector_disabled(monkeypatch, captured_engine, sslmode, connect_args):
     monkeypatch.setattr(pg.settings, "postgres_use_cloud_sql_connector", False)
+    monkeypatch.setattr(pg.settings, "postgres_sslmode", sslmode)
 
     pg.get_postgres_engine()
 
     assert "async_creator" not in captured_engine
-    assert "connect_args" in captured_engine
+    # The DSN's host, and the libpq SSL mode passed to asyncpg as `ssl`, none when disabled.
+    assert captured_engine["url"].startswith("postgresql+asyncpg://")
+    assert f"@{pg.settings.postgres_host}:{pg.settings.postgres_port}/" in captured_engine["url"]
+    assert captured_engine["connect_args"] == connect_args

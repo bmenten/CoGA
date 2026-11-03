@@ -72,7 +72,11 @@ test('renders loader while small variants are loading', () => {
   expect(screen.getByText(/loading small variants/i)).toBeInTheDocument();
 });
 
-test('requests broad regions and shows too many when over the cap (no span gate)', () => {
+// The span no longer gates the request — it fires at any zoom and the variant cap governs.
+test.each([
+  ['a broad region', 10_000_000],
+  ['a bounded region', 100],
+])('requests %s and shows too many when over the cap (no span gate)', (_label, regionEnd) => {
   useQueryMock.mockImplementation(({ queryKey }) =>
     queryKey[0] === 'small-variant-track-tags'
       ? { data: [], isLoading: false }
@@ -88,44 +92,13 @@ test('requests broad regions and shows too many when over the cap (no span gate)
       sampleId="S1"
       chrom="1"
       regionStart={0}
-      regionEnd={10_000_000}
+      regionEnd={regionEnd}
       width={100}
       height={20}
     />
   );
 
-  // The span no longer gates the request — it fires and the variant cap governs.
   expect(useQueryMock.mock.calls[0][0].enabled).toBe(true);
-  expect(screen.getByText(/too many variants to display/i)).toBeInTheDocument();
-});
-
-test('renders too many message when bounded track count reaches the limit', () => {
-  useQueryMock.mockImplementation(({ queryKey }) =>
-    queryKey[0] === 'small-variant-track-tags'
-      ? { data: [], isLoading: false }
-      : {
-          data: {
-            total: 10000,
-            total_is_estimated: true,
-            count_limit: 10000,
-            variants: [],
-          },
-          isLoading: false,
-        },
-  );
-
-  render(
-    <SmallVariantTrack
-      familyId="F1"
-      sampleId="S1"
-      chrom="1"
-      regionStart={0}
-      regionEnd={100}
-      width={100}
-      height={20}
-    />,
-  );
-
   expect(screen.getByText(/too many variants to display/i)).toBeInTheDocument();
 });
 

@@ -30,21 +30,14 @@ from typing import Any
 import pytest
 from sqlalchemy import text
 
+from backend.tests.e2e._harness import capture, ensure_postgres_schema
+
 pytestmark = pytest.mark.integration
 
 NUL, TAB, LF, ESC = "\x00", "\t", "\n", "\x1b"
 # IDs no other test uses: a sample ID is unique across families.
 FAMILY = "FAMEDIT01"
 FATHER, MOTHER, CHILD = "EDITFATHER01", "EDITMOTHER01", "EDITCHILD01"
-
-
-def _cap(resp: Any) -> dict[str, Any]:
-    out: dict[str, Any] = {"status": resp.status_code, "text": resp.text}
-    try:
-        out["json"] = resp.json()
-    except ValueError:  # pragma: no cover
-        out["json"] = None
-    return out
 
 
 async def _state() -> dict[str, Any]:
@@ -96,12 +89,12 @@ async def _collect() -> dict[str, Any]:
     from httpx import ASGITransport, AsyncClient
 
     from backend.app.core.clickhouse import init_clickhouse_schema
-    from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
+    from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.main import app
     from backend.app.services.clickhouse_variant_storage import ensure_clickhouse_variant_tables
     from backend.tests.e2e import _harness
 
-    await init_postgres_schema()
+    await ensure_postgres_schema()
     # A rename first asks ClickHouse whether variant calls still name the member, and is
     # refused when it cannot tell: the valid rename below needs the tables.
     await init_clickhouse_schema()
@@ -118,7 +111,7 @@ async def _collect() -> dict[str, Any]:
         ac.headers["Authorization"] = f"Bearer {token}"
 
         # overwrite: a second run against the same database starts from the same trio.
-        out["created"] = _cap(
+        out["created"] = capture(
             await ac.post(
                 "/api/ped/manual",
                 params={"overwrite": "true"},
@@ -138,11 +131,11 @@ async def _collect() -> dict[str, Any]:
         member = f"/api/families/{FAMILY}/members/{CHILD}"
         batch = f"/api/families/{FAMILY}/members/batch"
         structure = f"/api/families/{FAMILY}/structure"
-        out["rename_tab"] = _cap(await ac.put(member, json={"sample_id": f"EDITCHILD{TAB}02"}))
-        out["rename_nul"] = _cap(await ac.put(member, json={"sample_id": f"EDITCHILD{NUL}02"}))
-        out["rename_space"] = _cap(await ac.put(member, json={"sample_id": "EDITCHILD 02"}))
-        out["father_esc"] = _cap(await ac.put(member, json={"father_id": f"EDITFATHER{ESC}01"}))
-        out["batch_lf"] = _cap(
+        out["rename_tab"] = capture(await ac.put(member, json={"sample_id": f"EDITCHILD{TAB}02"}))
+        out["rename_nul"] = capture(await ac.put(member, json={"sample_id": f"EDITCHILD{NUL}02"}))
+        out["rename_space"] = capture(await ac.put(member, json={"sample_id": "EDITCHILD 02"}))
+        out["father_esc"] = capture(await ac.put(member, json={"father_id": f"EDITFATHER{ESC}01"}))
+        out["batch_lf"] = capture(
             await ac.put(
                 batch,
                 json={
@@ -154,13 +147,13 @@ async def _collect() -> dict[str, Any]:
             )
         )
         for name, sample_id in (("add_esc", f"EDITSIB{ESC}01"), ("add_nul", f"EDITSIB{NUL}01"), ("add_space", "EDITSIB 01")):
-            out[name] = _cap(
+            out[name] = capture(
                 await ac.put(structure, json={"add_members": [{"sample_id": sample_id, "sex": "female", "role": "sibling"}]})
             )
         out["after"] = await _state()
 
-        out["valid_rename"] = _cap(await ac.put(batch, json={"updates": [{"sample_id": CHILD, "new_sample_id": " EDITCHILD02 "}]}))
-        out["valid_add"] = _cap(
+        out["valid_rename"] = capture(await ac.put(batch, json={"updates": [{"sample_id": CHILD, "new_sample_id": " EDITCHILD02 "}]}))
+        out["valid_add"] = capture(
             await ac.put(structure, json={"add_members": [{"sample_id": " EDITSIB01 ", "sex": "female", "role": "sibling"}]})
         )
         out["valid"] = await _state()

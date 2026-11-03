@@ -34,13 +34,23 @@ from __future__ import annotations
 
 import asyncio
 from datetime import timedelta
-import logging
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 from uuid import uuid4
 
 import pytest
 from sqlalchemy import text
+
+from backend.tests.e2e._harness import DRIFT_AND_QC_ACKNOWLEDGED, capture, ensure_postgres_schema
+from backend.tests.e2e._import_jobs import (
+    WarningRecords,
+    claim_import_job,
+    end_stale_job_as_a_worker_does,
+    import_backups,
+    one_sample_package,
+    queue_import,
+    variant_write_locks_free,
+)
 
 pytestmark = pytest.mark.integration
 
@@ -48,86 +58,16 @@ _VARIANTS = 6
 _OVERWRITE_VARIANTS = 4
 _BATCH = 2  # the SNV loader flushes every _BATCH variants
 _TICK = 0.05
-_ACK = "e2e validation"
-# The drift and Sample-QC gates come first; they are acknowledged in every attempt here.
-_OTHER_GATES = {
-    "acknowledge_drift": True,
-    "drift_acknowledgement_reason": _ACK,
-    "acknowledge_qc": True,
-    "qc_acknowledgement_reason": _ACK,
-}
-
-
-def _cap(resp) -> dict:
-    out: dict[str, Any] = {"status": resp.status_code, "text": resp.text}
-    try:
-        out["json"] = resp.json()
-    except ValueError:  # pragma: no cover
-        out["json"] = None
-    return out
-
-
-def _write_package(
-    root: Path, family_id: str, *, variants: int = _VARIANTS, first_position: int = 100
-) -> Path:
-    """A one-sample package: a family VCF of ``variants`` SNVs and a coverage BED."""
-    sample = f"{family_id}_S1"  # sample ids are unique across families
-    root.mkdir(parents=True, exist_ok=True)
-    (root / "family.ped").write_text(f"{family_id}\t{sample}\t0\t0\t1\t2\n", encoding="utf-8")
-    (root / "snv").mkdir(exist_ok=True)
-    (root / "snv" / "family.vcf").write_text(
-        "##fileformat=VCFv4.2\n"
-        '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
-        f"#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t{sample}\n"
-        + "".join(
-            f"1\t{first_position + 100 * i}\t.\tA\tG\t60\tPASS\t.\tGT\t0/1\n" for i in range(variants)
-        ),
-        encoding="utf-8",
-    )
-    (root / "coverage").mkdir(exist_ok=True)
-    (root / "coverage" / "S1.bed").write_text(
-        "1\t0\t1000\t31.0\n1\t1000\t2000\t29.5\n1\t2000\t3000\t30.2\n", encoding="utf-8"
-    )
-    (root / "manifest.yaml").write_text(
-        f"schema_version: 1\nfamily_id: {family_id}\nped: family.ped\ndatasets:\n"
-        "  snv:\n    family_vcf: snv/family.vcf\n"
-        f"  coverage:\n    per_sample:\n      {sample}:\n        bed: coverage/S1.bed\n",
-        encoding="utf-8",
-    )
-    return root
-
-
-class _Warnings(logging.Handler):
-    """The warnings the import's module logs."""
-
-    def __init__(self) -> None:
-        super().__init__(level=logging.WARNING)
-        self.records: list[logging.LogRecord] = []
-
-    def emit(self, record: logging.LogRecord) -> None:
-        self.records.append(record)
-
-    def saying(self, words: str) -> list[str]:
-        return [record.getMessage() for record in self.records if words in record.getMessage()]
-
-
-async def _until(condition: Callable[[], bool], timeout: float = 30.0) -> None:
-    async def poll() -> None:
-        while not condition():
-            await asyncio.sleep(0.01)
-
-    await asyncio.wait_for(poll(), timeout)
 
 
 async def _collect(base: Path, mp: pytest.MonkeyPatch) -> dict:
     from httpx import ASGITransport, AsyncClient
 
     from backend.app.core.clickhouse import init_clickhouse_schema
-    from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
+    from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.main import app
     from backend.app.services import family_package_import as package_import
     from backend.app.services import variant_upload_service
-    from backend.app.services.clickhouse_family_snapshot import list_import_backup_tables
     from backend.app.services.clickhouse_interval_tracks import count_interval_track_source_rows
     from backend.app.services.clickhouse_variant_storage import (
         count_family_small_variants,
@@ -136,11 +76,10 @@ async def _collect(base: Path, mp: pytest.MonkeyPatch) -> dict:
     from backend.app.services.family_variant_write_lock import (
         SMALL_VARIANTS,
         family_variant_lock_key,
-        try_share_family_variant_writes,
     )
     from backend.tests.e2e import _harness
 
-    await init_postgres_schema()
+    await ensure_postgres_schema()
     await init_clickhouse_schema()
     await ensure_clickhouse_variant_tables(_harness.ASSEMBLY)
     sm = get_postgres_sessionmaker()
@@ -177,7 +116,7 @@ async def _collect(base: Path, mp: pytest.MonkeyPatch) -> dict:
 
     mp.setattr(package_import, "_beat_family_import_job", beat)
     mp.setattr(package_import, "FAMILY_IMPORT_LOCK_CHECK_SECONDS", _TICK)
-    warnings = _Warnings()
+    warnings = WarningRecords()
     package_import.logger.addHandler(warnings)
 
     async def job(job_id: str) -> dict[str, Any]:
@@ -214,15 +153,6 @@ async def _collect(base: Path, mp: pytest.MonkeyPatch) -> dict:
             "coverage_rows": coverage,
         }
 
-    async def backups(job_id: str) -> list[str]:
-        return [table.name for table in await list_import_backup_tables(owner=job_id)]
-
-    async def locks_free(family_uuid: str) -> bool:
-        async with sm() as s:
-            free = await try_share_family_variant_writes(s, family_uuid)
-            await s.rollback()
-        return free
-
     async def lock_holders(family_uuid: str) -> list[int]:
         """The backends that hold the family's small-variant write lock: the key is
         hashtext's int4, sign-extended, kept in an advisory lock's classid and objid."""
@@ -243,44 +173,6 @@ async def _collect(base: Path, mp: pytest.MonkeyPatch) -> dict:
             await s.commit()
         return bool(ended)
 
-    async def claim(job_id: str, worker: str) -> None:
-        async with sm() as s:
-            await s.execute(
-                text(
-                    "UPDATE family_import_jobs SET status = 'validating', worker_id = :w, "
-                    "started_at = now(), heartbeat_at = now(), completed_at = NULL, error = NULL "
-                    "WHERE id = CAST(:j AS uuid) AND status = 'queued'"
-                ),
-                {"j": job_id, "w": worker},
-            )
-            await s.commit()
-
-    async def ended_as_interrupted(job_id: str) -> dict[str, Any] | None:
-        """Ten minutes on, the heartbeat is stale, and a worker claims the job as the worker
-        loop does: the claim ends it as interrupted."""
-        async with sm() as s:
-            await s.execute(
-                text(
-                    "UPDATE family_import_jobs SET heartbeat_at = now() - interval '11 minutes' "
-                    "WHERE id = CAST(:j AS uuid)"
-                ),
-                {"j": job_id},
-            )
-            await s.commit()
-        reclaimer = f"e2e-reclaim-{uuid4().hex[:8]}"
-        for _ in range(50):
-            async with sm() as s:
-                claimed = await package_import.claim_next_family_import_job(s, worker_id=reclaimer)
-            if claimed is None:
-                return None
-            try:
-                await package_import.handle_claimed_family_import_job(claimed, worker_id=reclaimer)
-            except Exception:  # noqa: BLE001 - the worker logs it and goes on
-                pass
-            if claimed["id"] == job_id:
-                return {key: claimed[key] for key in ("status", "claimed_from")}
-        return None
-
     out: dict[str, Any] = {}
     jobs: list[str] = []
     transport = ASGITransport(app=app)
@@ -289,27 +181,19 @@ async def _collect(base: Path, mp: pytest.MonkeyPatch) -> dict:
             ac.headers["Authorization"] = f"Bearer {await _harness.login_admin_token(ac)}"
 
             async def queue(root: Path, conflict_mode: str, family_id: str | None = None) -> str:
-                body = {
-                    "folder_path": str(root),
-                    "project_id": project_id,
-                    "dry_run": False,
-                    "conflict_mode": conflict_mode,
-                }
-                if family_id:
-                    body["family_id"] = family_id
-                resp = await ac.post("/api/family-imports", json=body)
-                assert resp.status_code == 200, resp.text
-                jobs.append(str(resp.json()["_id"]))
+                jobs.append(
+                    await queue_import(ac, root, project_id, conflict_mode=conflict_mode, family_id=family_id)
+                )
                 return jobs[-1]
 
             async def sign_out(family_id: str, body: dict) -> dict:
                 # As the sign-out dialogs do: each acknowledgement with its refusal's fingerprint.
-                return _cap(await _harness.sign_out(ac, f"/api/families/{family_id}/report/sign-out", body))
+                return capture(await _harness.sign_out(ac, f"/api/families/{family_id}/report/sign-out", body))
 
             async def held_run(job_id: str) -> asyncio.Task:
                 """Claim the job and run it, held inside its SNV dataset."""
                 worker = f"e2e-self-stop-{uuid4().hex[:8]}"
-                await claim(job_id, worker)
+                await claim_import_job(job_id, worker)
                 hold.update(active=True, inside=asyncio.Event())
                 flushes.clear()
                 run = asyncio.create_task(
@@ -331,7 +215,7 @@ async def _collect(base: Path, mp: pytest.MonkeyPatch) -> dict:
             mp.setattr(package_import, "FAMILY_IMPORT_HEARTBEAT_SECONDS", _TICK)
             mp.setattr(package_import, "FAMILY_IMPORT_SELF_STOP", timedelta(seconds=0.5))
             fam = f"FAM_SELFSTOP_{uuid4().hex[:8].upper()}"
-            job_id = await queue(_write_package(base / fam, fam), "cancel")
+            job_id = await queue(one_sample_package(base / fam, fam, variants=_VARIANTS), "cancel")
             run = await held_run(job_id)
             record: dict[str, Any] = {"job_id": job_id}
             beats.update(written=False, failed=0)
@@ -341,36 +225,36 @@ async def _collect(base: Path, mp: pytest.MonkeyPatch) -> dict:
             record["flushed"] = len(flushes)
             record["job_after"] = await job(job_id)
             record["family_after"] = await family(fam)
-            record["locks_free"] = await locks_free(record["family_after"]["uuid"])
+            record["locks_free"] = await variant_write_locks_free(record["family_after"]["uuid"])
             record["stopped_log"] = warnings.saying("stopped itself where it was")
-            record["claimed"] = await ended_as_interrupted(job_id)
+            record["claimed"] = await end_stale_job_as_a_worker_does(job_id)
             record["job_after_claim"] = await job(job_id)
             out["beat_lost"] = record
 
             # 2. A complete family, and an overwrite of it whose lock connection is ended.
             mp.setattr(package_import, "FAMILY_IMPORT_HEARTBEAT_SECONDS", 3600.0)
             fam_ow = f"FAM_SELFSTOP_{uuid4().hex[:8].upper()}"
-            first = await queue(_write_package(base / fam_ow, fam_ow), "cancel")
+            first = await queue(one_sample_package(base / fam_ow, fam_ow, variants=_VARIANTS), "cancel")
             worker = f"e2e-self-stop-{uuid4().hex[:8]}"
-            await claim(first, worker)
+            await claim_import_job(first, worker)
             await package_import.run_family_import_job(job_id=first, worker_id=worker)
             record = {"first": await job(first), "family_before": await family(fam_ow)}
-            overwrite = _write_package(
+            overwrite = one_sample_package(
                 base / f"{fam_ow}_v2", fam_ow, variants=_OVERWRITE_VARIANTS, first_position=10_000
             )
             job_id = await queue(overwrite, "overwrite", fam_ow)
             record["job_id"] = job_id
             run = await held_run(job_id)
             uuid = record["family_before"]["uuid"]
-            record["backups_inside"] = await backups(job_id)
+            record["backups_inside"] = await import_backups(job_id)
             record["holders"] = await lock_holders(uuid)
             record["ended"] = [await end_backend(pid) for pid in record["holders"]]
             record["run"] = await outcome(run)
             record["job_after"] = await job(job_id)
             record["family_after"] = await family(fam_ow)
-            record["backups_after"] = await backups(job_id)
-            record["locks_free"] = await locks_free(uuid)
-            record["signout"] = await sign_out(fam_ow, _OTHER_GATES)
+            record["backups_after"] = await import_backups(job_id)
+            record["locks_free"] = await variant_write_locks_free(uuid)
+            record["signout"] = await sign_out(fam_ow, DRIFT_AND_QC_ACKNOWLEDGED)
             record["lost_log"] = warnings.saying("lost the connection that held its family")
             record["stopped_log"] = warnings.saying("Nothing was restored")
             out["locks_lost"] = record

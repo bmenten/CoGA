@@ -209,31 +209,24 @@ def test_a_qc_that_was_not_counted_is_no_pass() -> None:
 # --- Markers that mix both of a parent's homologs -----------------------------------------
 
 
-def test_one_homolog_has_no_discordance() -> None:
-    assert qc_check.marker_discordance([0] * 40) == 0.0
-    assert qc_check.marker_discordance([1] * 40) == 0.0
-
-
-def test_a_crossover_alone_raises_no_discordance() -> None:
-    # Two homologs either side of one crossover: the reading the measure allows for.
-    assert qc_check.marker_discordance([0] * 25 + [1] * 15) == 0.0
-
-
-def test_markers_off_the_best_reading_are_the_discordance() -> None:
-    # One homolog with 2 stray markers in 40, then a crossover: 2 of 40 off the best reading.
-    markers = [0] * 10 + [1] + [0] * 9 + [1] * 19 + [0]
-    assert qc_check.marker_discordance(markers) == pytest.approx(2 / 40)
-
-
-def test_both_homologs_interleaved_read_as_nearly_half_mixed() -> None:
-    # Imputation forced into two copies assigns an embryo's sites to either homolog it carries.
-    # The one crossover the reading allows absorbs a marker: 19 of 40 are off it.
-    assert qc_check.marker_discordance([0, 1] * 20) == pytest.approx(19 / 40)
-    assert qc_check.marker_discordance([0, 0, 1] * 20) == pytest.approx(19 / 60)
-
-
-def test_no_markers_no_discordance() -> None:
-    assert qc_check.marker_discordance([]) == 0.0
+@pytest.mark.parametrize(
+    ("markers", "discordance"),
+    [
+        pytest.param([0] * 40, 0.0, id="one homolog (0)"),
+        pytest.param([1] * 40, 0.0, id="one homolog (1)"),
+        # Two homologs either side of one crossover: the reading the measure allows for.
+        pytest.param([0] * 25 + [1] * 15, 0.0, id="a crossover alone raises none"),
+        # One homolog with 2 stray markers in 40, then a crossover: 2 of 40 off the best reading.
+        pytest.param([0] * 10 + [1] + [0] * 9 + [1] * 19 + [0], 2 / 40, id="markers off the best reading"),
+        # Imputation forced into two copies assigns an embryo's sites to either homolog it
+        # carries. The one crossover the reading allows absorbs a marker: 19 of 40 are off it.
+        pytest.param([0, 1] * 20, 19 / 40, id="both homologs interleaved: nearly half mixed"),
+        pytest.param([0, 0, 1] * 20, 19 / 60, id="both homologs interleaved, one in three"),
+        pytest.param([], 0.0, id="no markers, no discordance"),
+    ],
+)
+def test_the_marker_discordance(markers: list[int], discordance: float) -> None:
+    assert qc_check.marker_discordance(markers) == pytest.approx(discordance)
 
 
 def _mixed(maternal: float, *, markers: int = 40, paternal: float = 0.0, sides=BOTH):

@@ -35,6 +35,9 @@ import pytest
 from sqlalchemy import text
 import yaml
 
+from backend.tests.e2e._harness import capture, ensure_postgres_schema
+from backend.tests.e2e._import_jobs import claim_import_job
+
 pytestmark = pytest.mark.integration
 
 _WORKER = "e2e-nipt-column-worker"
@@ -89,15 +92,6 @@ def _manifest_naming_the_column(family_id: str) -> str:
     )
 
 
-def _cap(resp: Any) -> dict[str, Any]:
-    out: dict[str, Any] = {"status": resp.status_code, "text": resp.text}
-    try:
-        out["json"] = resp.json()
-    except ValueError:  # a 500 answers in text
-        out["json"] = None
-    return out
-
-
 async def _job(job_id: str) -> dict[str, Any]:
     from backend.app.core.postgres import get_postgres_sessionmaker
 
@@ -116,7 +110,6 @@ async def _job(job_id: str) -> dict[str, Any]:
 
 async def _run_job(ac: Any, folder: Path, project_id: str, *, dry_run: bool) -> dict[str, Any]:
     """Queue a job for ``folder`` as the page does, claim it as the worker does, run it."""
-    from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.services import family_package_import
 
     resp = await ac.post(
@@ -125,15 +118,7 @@ async def _run_job(ac: Any, folder: Path, project_id: str, *, dry_run: bool) -> 
     )
     assert resp.status_code == 200, resp.text
     job_id = str(resp.json()["_id"])
-    async with get_postgres_sessionmaker()() as session:
-        await session.execute(
-            text(
-                "UPDATE family_import_jobs SET status = 'validating', worker_id = :w, "
-                "started_at = now(), heartbeat_at = now() WHERE id = CAST(:j AS uuid) AND status = 'queued'"
-            ),
-            {"j": job_id, "w": _WORKER},
-        )
-        await session.commit()
+    await claim_import_job(job_id, _WORKER)
     try:
         await family_package_import.run_family_import_job(job_id=job_id, worker_id=_WORKER)
     except Exception as exc:  # noqa: BLE001 - the worker logs it and goes on
@@ -145,13 +130,13 @@ async def _collect(base: Path) -> dict[str, Any]:
     from httpx import ASGITransport, AsyncClient
 
     from backend.app.core.clickhouse import execute_clickhouse, init_clickhouse_schema
-    from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
+    from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.main import app
     from backend.app.services.clickhouse_variant_ids import _small_table_name
     from backend.app.services.clickhouse_variant_storage import ensure_clickhouse_variant_tables
     from backend.tests.e2e import _harness
 
-    await init_postgres_schema()
+    await ensure_postgres_schema()
     await init_clickhouse_schema()
     await ensure_clickhouse_variant_tables(_harness.ASSEMBLY)
     async with get_postgres_sessionmaker()() as session:
@@ -170,11 +155,11 @@ async def _collect(base: Path) -> dict[str, Any]:
         token = await _harness.login_admin_token(ac)
         ac.headers["Authorization"] = f"Bearer {token}"
 
-        out["discover"] = _cap(
+        out["discover"] = capture(
             await ac.post("/api/family-imports/manifest/discover", json={"folder_path": str(warned)})
         )
         drafted = (out["discover"]["json"] or {}).get("manifest_yaml") or ""
-        out["write"] = _cap(
+        out["write"] = capture(
             await ac.post(
                 "/api/family-imports/manifest/write",
                 json={"folder_path": str(warned), "manifest_yaml": drafted, "overwrite": False},
@@ -183,7 +168,7 @@ async def _collect(base: Path) -> dict[str, Any]:
         out["dry_run"] = await _run_job(ac, warned, project_id, dry_run=True)
         out["import"] = await _run_job(ac, warned, project_id, dry_run=False)
 
-        out["named_discover"] = _cap(
+        out["named_discover"] = capture(
             await ac.post("/api/family-imports/manifest/discover", json={"folder_path": str(quiet)})
         )
         out["named_dry_run"] = await _run_job(ac, quiet, project_id, dry_run=True)

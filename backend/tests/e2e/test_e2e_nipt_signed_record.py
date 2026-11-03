@@ -53,18 +53,15 @@ Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``e2e`` job sets 
 
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
-from uuid import uuid4
 
 import pytest
 
+from backend.tests.e2e._harness import capture, ok_json
+from backend.tests.e2e._nipt_demo import DEMO, import_demo, prepare_copy
+
 pytestmark = pytest.mark.integration
 
-_DEMO = Path(__file__).resolve().parents[3] / "demo" / "nipt_family"
-# The committed package hardcodes these ids, and sample ids are unique across families: each
-# run imports a copy with every id suffixed (as test_e2e_demo_smoke.py does).
-_TOKENS = ("FAM_NIPT_DEMO", "FATHER_NIPT", "CFDNA_NIPT", "FETUS_NIPT")
 DE_NOVO = "1-1001-A-G"  # GENE_DENOVO, category 1, in the fetal window
 # The demo's region of interest, which its README sets by hand: the span of its coverage BED.
 ROI = "1:1000-20000"
@@ -83,50 +80,10 @@ SIGN_OUT_BODY = {
 }
 
 
-def _cap(resp) -> dict:
-    out = {"status": resp.status_code, "text": resp.text}
-    try:
-        out["json"] = resp.json()
-    except ValueError:  # pragma: no cover
-        out["json"] = None
-    return out
-
-
 def _shown_fingerprint(refusal: dict) -> str | None:
     """The fingerprint of the concerns a captured refusal listed: what its dialog sends back."""
     detail = (refusal.get("json") or {}).get("detail")
     return detail.get("concerns_fingerprint") if isinstance(detail, dict) else None
-
-
-async def _import_demo(root: Path) -> dict:
-    from backend.app.core.clickhouse import init_clickhouse_schema
-    from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
-    from backend.app.services import family_package_import as package_import
-    from backend.app.services.clickhouse_variant_storage import ensure_clickhouse_variant_tables
-    from backend.tests.e2e import _harness
-
-    await init_postgres_schema()
-    await init_clickhouse_schema()
-    await ensure_clickhouse_variant_tables(_harness.ASSEMBLY)
-    sessionmaker = get_postgres_sessionmaker()
-    async with sessionmaker() as session:
-        admin, project_id, assembly_id = await _harness.ensure_e2e_project(session)
-    async with sessionmaker() as session:
-        result = await package_import.execute_family_package_import(
-            session,
-            folder_path=str(root),
-            project_id=project_id,
-            dry_run=False,
-            user=admin,
-            conflict_mode="overwrite",
-        )
-    return {
-        "completed": result.completed,
-        "error": result.error,
-        "dataset_status": {dataset.dataset_type: dataset.status for dataset in result.datasets},
-        "assembly_id": assembly_id,
-        "project_id": project_id,
-    }
 
 
 async def _add_reader(project_id: str, email: str) -> tuple[str, str]:
@@ -195,46 +152,6 @@ async def _signed_versions(family_id: str) -> int:
         ).scalar_one()
 
 
-def _prepare_copy(
-    parent: Path, *, fetus_status: str | None = None, roi: str | None = None, declare_coverage: bool = True
-) -> dict[str, str]:
-    """Copy the demo package under ``parent`` with every hardcoded id suffixed, and the maternal
-    plasma on an assay panel of this run's own; the new ids and the panel (``panel``). With
-    ``fetus_status``, the PED gives the fetus that status instead of the demo's (affected). With
-    ``roi``, the manifest gives the family that region of interest; without
-    ``declare_coverage``, the plasma's coverage BED declares nothing (TRACE-9)."""
-    suffix = uuid4().hex[:8]
-    ids = {token: f"{token}_{suffix}" for token in _TOKENS}
-    panel = f"e2e-nipt-signed-record-{suffix}"
-    root = parent / ids["FAM_NIPT_DEMO"]
-    shutil.copytree(_DEMO, root)
-    for name in ("manifest.yaml", "nipt_trio.ped", "nipt_combined.vcf"):
-        path = root / name
-        content = path.read_text(encoding="utf-8")
-        for old, new in ids.items():
-            content = content.replace(old, new)
-        if name == "nipt_trio.ped" and fetus_status is not None:
-            # The fetus's row: family, id, father, mother, sex (unknown) and status.
-            fetus = "\t".join((ids["FAM_NIPT_DEMO"], ids["FETUS_NIPT"], ids["FATHER_NIPT"], ids["CFDNA_NIPT"], "0"))
-            assert content.count(f"{fetus}\t2") == 1, content
-            content = content.replace(f"{fetus}\t2", f"{fetus}\t{fetus_status}")
-        if name == "manifest.yaml":
-            # The panel is the scope of the artifact list and of the de novo recurrence.
-            plasma = f"  {ids['CFDNA_NIPT']}:\n    assay: nipt_cfdna\n"
-            assert content.count(plasma) == 1, content
-            content = content.replace(plasma, f"{plasma}    assay_panel: {panel}\n")
-            if roi is not None:
-                ped = "ped: nipt_trio.ped\n"
-                assert content.count(ped) == 1, content
-                content = content.replace(ped, f'{ped}roi: "{roi}"\n')
-            if not declare_coverage:
-                declared = "        content: read_depth\n"
-                assert content.count(declared) == 1, content
-                content = content.replace(declared, "")
-        path.write_text(content, encoding="utf-8")
-    return {"root": str(root), "panel": panel, **ids}
-
-
 async def _collect(root: Path, family_id: str, panel: str) -> dict:
     from httpx import ASGITransport, AsyncClient
 
@@ -242,7 +159,7 @@ async def _collect(root: Path, family_id: str, panel: str) -> dict:
     from backend.app.services import report_signout_service as rss
     from backend.tests.e2e import _harness
 
-    out: dict = {"import": await _import_demo(root), "family": family_id, "responses": {}}
+    out: dict = {"import": await import_demo(root), "family": family_id, "responses": {}}
     r = out["responses"]
     transport = ASGITransport(app=app, raise_app_exceptions=False)
     async with AsyncClient(transport=transport, base_url="http://e2e") as ac:
@@ -253,28 +170,28 @@ async def _collect(root: Path, family_id: str, panel: str) -> dict:
 
         # The run's own artifact list: the demo's recurrent artifact, listed through the admin
         # API, and the list as it reads back, which the record is compared with.
-        r["artifact_added"] = _cap(
+        r["artifact_added"] = capture(
             await ac.post("/api/admin/nipt/artifacts", json={**scope, "variant_id": ARTIFACT, "label": "e2e recurrent artifact"})
         )
         artifact_id = (r["artifact_added"]["json"] or {}).get("id")
         reader_id = None
         try:
-            r["artifacts"] = _cap(await ac.get("/api/admin/nipt/artifacts", params=scope))
+            r["artifacts"] = capture(await ac.get("/api/admin/nipt/artifacts", params=scope))
             await _sign_out_and_read(ac, r, family, family_id, rss)
 
             # A reader in the family's project: the same sign-out, the one the NIPT page sends.
             reader_id, bearer = await _add_reader(out["import"]["project_id"], f"{panel}-reader@example.org")
             as_reader = {"Authorization": f"Bearer {bearer}"}
-            r["reader_family"] = _cap(await ac.get(family, headers=as_reader))
-            r["reader_signout"] = _cap(
+            r["reader_family"] = capture(await ac.get(family, headers=as_reader))
+            r["reader_signout"] = capture(
                 await _harness.sign_out(ac, f"{family}/report/sign-out", SIGN_OUT_BODY, headers=as_reader)
             )
             out["versions_after_reader"] = await _signed_versions(family_id)
         finally:
             # Nothing left in a scope another module could read, and no account.
             if artifact_id:
-                r["artifact_deleted"] = _cap(await ac.delete(f"/api/admin/nipt/artifacts/{artifact_id}"))
-            r["artifacts_after"] = _cap(await ac.get("/api/admin/nipt/artifacts", params=scope))
+                r["artifact_deleted"] = capture(await ac.delete(f"/api/admin/nipt/artifacts/{artifact_id}"))
+            r["artifacts_after"] = capture(await ac.get("/api/admin/nipt/artifacts", params=scope))
             if reader_id:
                 await _remove_user(reader_id)
     return out
@@ -286,38 +203,38 @@ async def _sign_out_and_read(ac, r: dict, family: str, family_id: str, rss) -> N
     from backend.tests.e2e import _harness
 
     # What the NIPT page shows: its coverage card asks for no gene or panel when it opens.
-    r["summary"] = _cap(await ac.get(f"{family}/nipt/summary"))
-    r["coverage"] = _cap(await ac.get(f"{family}/nipt/coverage"))
-    r["variants"] = _cap(await ac.get(f"{family}/nipt/variants", params={"page_size": 500}))
-    r["de_novo_view"] = _cap(await ac.get(f"{family}/nipt/variants", params={"inheritance": "de_novo"}))
+    r["summary"] = capture(await ac.get(f"{family}/nipt/summary"))
+    r["coverage"] = capture(await ac.get(f"{family}/nipt/coverage"))
+    r["variants"] = capture(await ac.get(f"{family}/nipt/variants", params={"page_size": 500}))
+    r["de_novo_view"] = capture(await ac.get(f"{family}/nipt/variants", params={"inheritance": "de_novo"}))
 
     # Two variants for the report, from the NIPT page's list, and the artifact the analysis
     # leaves out (tagged from the family's small-variant list: the NIPT list never shows it).
     for variant_id in (DE_NOVO, PATERNAL, ARTIFACT):
-        r[f"review_{variant_id}"] = _cap(
+        r[f"review_{variant_id}"] = capture(
             await ac.put(f"{family}/small-variants/{variant_id}/review", json={"tags": ["report"]})
         )
 
     # What the NIPT page lists before the sign-out (UI-4): "Show reported", the review tag
     # report with no other filter; within a view; the list without them; a tag none holds.
     nipt_variants = f"{family}/nipt/variants"
-    r["reported_view"] = _cap(await ac.get(nipt_variants, params={"review_tag": "report", "page_size": 500}))
-    r["reported_de_novo_view"] = _cap(
+    r["reported_view"] = capture(await ac.get(nipt_variants, params={"review_tag": "report", "page_size": 500}))
+    r["reported_de_novo_view"] = capture(
         await ac.get(nipt_variants, params={"review_tag": "report", "inheritance": "de_novo"})
     )
-    r["without_reported"] = _cap(await ac.get(nipt_variants, params={"exclude_review_tag": "report", "page_size": 500}))
-    r["unheld_tag_view"] = _cap(await ac.get(nipt_variants, params={"review_tag": "e2e-no-such-tag"}))
+    r["without_reported"] = capture(await ac.get(nipt_variants, params={"exclude_review_tag": "report", "page_size": 500}))
+    r["unheld_tag_view"] = capture(await ac.get(nipt_variants, params={"review_tag": "e2e-no-such-tag"}))
 
     # The gates, one by one: the drift of the unclassified reported variants, then the
     # Sample QC (the demo's paternity cannot be verified). Each acknowledgement carries the
     # fingerprint of the concerns its refusal listed, as its dialog sends it (TRACE-19).
-    r["refused_drift"] = _cap(await ac.post(f"{family}/report/sign-out", json={}))
+    r["refused_drift"] = capture(await ac.post(f"{family}/report/sign-out", json={}))
     drift_acknowledged = {
         **{key: SIGN_OUT_BODY[key] for key in ("acknowledge_drift", "drift_acknowledgement_reason")},
         "drift_concerns_fingerprint": _shown_fingerprint(r["refused_drift"]),
     }
-    r["refused_qc"] = _cap(await ac.post(f"{family}/report/sign-out", json=drift_acknowledged))
-    r["signout"] = _cap(
+    r["refused_qc"] = capture(await ac.post(f"{family}/report/sign-out", json=drift_acknowledged))
+    r["signout"] = capture(
         await ac.post(
             f"{family}/report/sign-out",
             json={
@@ -328,12 +245,12 @@ async def _sign_out_and_read(ac, r: dict, family: str, family_id: str, rss) -> N
         )
     )
     version = (r["signout"]["json"] or {}).get("version")
-    r["detail"] = _cap(await ac.get(f"{family}/report/sign-outs/{version}"))
-    r["check"] = _cap(await ac.get(f"{family}/report/sign-out-check"))
-    r["chain"] = _cap(
+    r["detail"] = capture(await ac.get(f"{family}/report/sign-outs/{version}"))
+    r["check"] = capture(await ac.get(f"{family}/report/sign-out-check"))
+    r["chain"] = capture(
         await ac.get("/api/admin/integrity/verify", params={"table": "report_signouts", "family_id": family_id})
     )
-    r["audit"] = _cap(await ac.get(f"{family}/clinical-audit", params={"limit": 50}))
+    r["audit"] = capture(await ac.get(f"{family}/clinical-audit", params={"limit": 50}))
 
     # A record signed by a build from before the NIPT section: its key left out.
     real_build = rss.build_report_snapshot
@@ -346,13 +263,13 @@ async def _sign_out_and_read(ac, r: dict, family: str, family_id: str, rss) -> N
     mp = pytest.MonkeyPatch()
     mp.setattr(rss, "build_report_snapshot", _old_build)
     try:
-        r["old_signout"] = _cap(await _harness.sign_out(ac, f"{family}/report/sign-out", SIGN_OUT_BODY))
+        r["old_signout"] = capture(await _harness.sign_out(ac, f"{family}/report/sign-out", SIGN_OUT_BODY))
     finally:
         mp.undo()
     old_version = (r["old_signout"]["json"] or {}).get("version")
-    r["old_detail"] = _cap(await ac.get(f"{family}/report/sign-outs/{old_version}"))
-    r["old_check"] = _cap(await ac.get(f"{family}/report/sign-out-check"))
-    r["old_chain"] = _cap(
+    r["old_detail"] = capture(await ac.get(f"{family}/report/sign-outs/{old_version}"))
+    r["old_check"] = capture(await ac.get(f"{family}/report/sign-out-check"))
+    r["old_chain"] = capture(
         await ac.get("/api/admin/integrity/verify", params={"table": "report_signouts", "family_id": family_id})
     )
 
@@ -366,14 +283,14 @@ async def _sign_out_and_read(ac, r: dict, family: str, family_id: str, rss) -> N
     mp = pytest.MonkeyPatch()
     mp.setattr(rss, "build_report_snapshot", _before_notes)
     try:
-        r["notes_old_signout"] = _cap(await _harness.sign_out(ac, f"{family}/report/sign-out", SIGN_OUT_BODY))
+        r["notes_old_signout"] = capture(await _harness.sign_out(ac, f"{family}/report/sign-out", SIGN_OUT_BODY))
     finally:
         mp.undo()
     notes_old_version = (r["notes_old_signout"]["json"] or {}).get("version")
-    r["notes_old_detail"] = _cap(await ac.get(f"{family}/report/sign-outs/{notes_old_version}"))
-    r["notes_old_check"] = _cap(await ac.get(f"{family}/report/sign-out-check"))
+    r["notes_old_detail"] = capture(await ac.get(f"{family}/report/sign-outs/{notes_old_version}"))
+    r["notes_old_check"] = capture(await ac.get(f"{family}/report/sign-out-check"))
     # The family ends on a record of today's build.
-    r["final_signout"] = _cap(await _harness.sign_out(ac, f"{family}/report/sign-out", SIGN_OUT_BODY))
+    r["final_signout"] = capture(await _harness.sign_out(ac, f"{family}/report/sign-out", SIGN_OUT_BODY))
 
 
 @pytest.fixture(scope="module")
@@ -381,11 +298,11 @@ def signed(tmp_path_factory, request) -> dict:
     from backend.app.core.config import settings
     from backend.tests.e2e import _harness
 
-    if not (_DEMO / "manifest.yaml").exists():
+    if not (DEMO / "manifest.yaml").exists():
         pytest.fail("the demo NIPT package is missing: it is committed (scripts/generate_nipt_demo.py rebuilds it)")
     # A region of interest for the coverage check, and a coverage BED that declares nothing: the
     # check names it as not read as depth (TRACE-9), the note the record freezes (TRACE-17).
-    copy = _prepare_copy(tmp_path_factory.mktemp("nipt_signed_record"), roi=ROI, declare_coverage=False)
+    copy = prepare_copy(tmp_path_factory.mktemp("nipt_signed_record"), roi=ROI, declare_coverage=False)
     root = Path(copy["root"])
     mp = pytest.MonkeyPatch()
     mp.setattr(settings, "family_import_roots", [str(root.parent)])
@@ -397,28 +314,22 @@ def signed(tmp_path_factory, request) -> dict:
     return out
 
 
-def _ok(signed: dict, key: str) -> dict:
-    resp = signed["responses"][key]
-    assert resp["status"] == 200, (key, resp["status"], resp["text"][:2000])
-    return resp["json"]
-
-
 def _nipt(signed: dict) -> dict:
-    return _ok(signed, "detail")["snapshot"]["nipt"]
+    return ok_json(signed, "detail")["snapshot"]["nipt"]
 
 
 # ------------------------------------------------------------------- the NIPT page
 
 
 def test_the_nipt_page_serves_the_verdicts_the_record_freezes(signed) -> None:
-    summary = _ok(signed, "summary")
+    summary = ok_json(signed, "summary")
     assert summary["fetal_fraction"]["ff_computed"] == pytest.approx(0.12, abs=0.01)
     qc = summary["qc"]
     assert qc["fetal_fraction_status"] == "pass"
     # No chrX site and no target table: neither signal tells the fetal sex, a warning.
     assert (qc["fetal_sex"]["call"], qc["fetal_sex"]["status"]) == ("indeterminate", "warn")
     assert qc["plasma_profile_status"] == "unknown"
-    [candidate] = _ok(signed, "de_novo_view")["variants"]
+    [candidate] = ok_json(signed, "de_novo_view")["variants"]
     assert candidate["_id"] == DE_NOVO and candidate["nipt"]["de_novo"]["label"] == "high"
 
 
@@ -427,7 +338,7 @@ def test_the_nipt_page_serves_the_verdicts_the_record_freezes(signed) -> None:
 
 def test_the_sample_qc_gate_holds_and_no_nipt_check_failed(signed) -> None:
     for variant_id in (DE_NOVO, PATERNAL, ARTIFACT):
-        _ok(signed, f"review_{variant_id}")
+        ok_json(signed, f"review_{variant_id}")
     refused_drift = signed["responses"]["refused_drift"]
     assert refused_drift["status"] == 409, refused_drift["text"]
     drift = refused_drift["json"]["detail"]
@@ -449,7 +360,7 @@ def test_the_sample_qc_gate_holds_and_no_nipt_check_failed(signed) -> None:
     # the acknowledged sign-out's audit event records the same groups: what the
     # acknowledgement covered (CLIN-58).
     assert not set(detail["warning_checks"]) & set(detail["unverifiable_checks"])
-    event = next(event for event in _ok(signed, "audit")["events"] if event["action"] == "sign_out")
+    event = next(event for event in ok_json(signed, "audit")["events"] if event["action"] == "sign_out")
     assert event["after"]["qc_failed"] == detail["failed_checks"]
     assert event["after"]["qc_unverifiable"] == detail["unverifiable_checks"]
     assert event["after"]["nipt_failed_checks"] == detail["nipt_failed_checks"]
@@ -465,7 +376,7 @@ def test_the_sample_qc_gate_holds_and_no_nipt_check_failed(signed) -> None:
 
 def test_the_record_holds_the_nipt_results_the_page_showed(signed) -> None:
     nipt = _nipt(signed)
-    summary = _ok(signed, "summary")
+    summary = ok_json(signed, "summary")
     assert nipt["samples"]["father"] == signed["ids"]["FATHER_NIPT"]
     assert nipt["samples"]["maternal_plasma"] == signed["ids"]["CFDNA_NIPT"]
     for field in ("ff", "ff_computed", "ff_median", "ci_low", "ci_high", "n_sites", "low_confidence"):
@@ -491,38 +402,38 @@ def test_the_record_holds_the_nipt_results_the_page_showed(signed) -> None:
 def test_the_record_holds_the_artifact_list_the_analysis_applied(signed) -> None:
     from backend.app.services.hash_chain import canonical_hash
 
-    _ok(signed, "artifact_added")
+    ok_json(signed, "artifact_added")
     # The list of the run's own assay panel, as the admin API read it back in the same run.
-    listed = sorted(entry["variant_id"] for entry in _ok(signed, "artifacts"))
+    listed = sorted(entry["variant_id"] for entry in ok_json(signed, "artifacts"))
     assert listed == [ARTIFACT]
     frozen = _nipt(signed)["inputs"]["artifact_list"]
     assert frozen["assay_key"] == signed["ids"]["panel"]
     assert (frozen["entries"], frozen["digest"]) == (len(listed), canonical_hash(listed))
     # The plasma carries the listed allele: the analysis left it out, as its funnel counts it,
     # and the family's annotation protects none of it.
-    assert frozen["removed"] == _ok(signed, "summary")["filter_counts"]["failed_artifact"] == 1
+    assert frozen["removed"] == ok_json(signed, "summary")["filter_counts"]["failed_artifact"] == 1
     assert frozen["kept"] == []
 
 
 def test_a_reader_is_refused_the_nipt_sign_out(signed) -> None:
     # The family reads as read-only to them: what the NIPT page and the report disable the
     # sign-out by (SEC-1).
-    assert _ok(signed, "reader_family")["read_only"] is True
+    assert ok_json(signed, "reader_family")["read_only"] is True
     refused = signed["responses"]["reader_signout"]
     assert (refused["status"], refused["json"]) == (403, {"detail": READ_ONLY}), refused["text"]
     # Nothing signed: the family holds the analyst's versions only.
-    assert signed["versions_after_reader"] == _ok(signed, "final_signout")["version"]
+    assert signed["versions_after_reader"] == ok_json(signed, "final_signout")["version"]
 
 
 def test_the_run_leaves_no_artifact_behind(signed) -> None:
-    assert _ok(signed, "artifact_deleted") == {"deleted": True}
-    assert _ok(signed, "artifacts_after") == []
+    assert ok_json(signed, "artifact_deleted") == {"deleted": True}
+    assert ok_json(signed, "artifacts_after") == []
 
 
 def test_each_reported_variant_is_frozen_as_the_nipt_variant_list_classifies_it(signed) -> None:
     frozen = {entry["variant_id"]: entry for entry in _nipt(signed)["variants"]}
     assert set(frozen) == {DE_NOVO, PATERNAL}
-    listed = {variant["_id"]: variant["nipt"] for variant in _ok(signed, "variants")["variants"]}
+    listed = {variant["_id"]: variant["nipt"] for variant in ok_json(signed, "variants")["variants"]}
     for variant_id, entry in frozen.items():
         for field in (
             "category", "maternal_state", "fetal_inheritance", "confidence", "observed_vaf", "expected_vaf",
@@ -533,7 +444,7 @@ def test_each_reported_variant_is_frozen_as_the_nipt_variant_list_classifies_it(
     assert frozen[DE_NOVO]["category"] == 1 and frozen[PATERNAL]["category"] == 7
     # The de novo candidate with its triage, as the de novo view gives it; the paternal allele
     # is no candidate.
-    [candidate] = _ok(signed, "de_novo_view")["variants"]
+    [candidate] = ok_json(signed, "de_novo_view")["variants"]
     assert frozen[DE_NOVO]["de_novo"]["label"] == candidate["nipt"]["de_novo"]["label"] == "high"
     assert frozen[DE_NOVO]["de_novo"]["score"] == candidate["nipt"]["de_novo"]["score"]
     assert frozen[PATERNAL]["de_novo"] is None
@@ -546,7 +457,7 @@ def test_each_reported_variant_is_frozen_as_the_nipt_variant_list_classifies_it(
 
 def test_the_nipt_page_listed_what_the_sign_out_froze(signed) -> None:
     # "Show reported": the review tag report and no other filter, read before the sign-out.
-    reported = _ok(signed, "reported_view")
+    reported = ok_json(signed, "reported_view")
     nipt = _nipt(signed)
     listed = {variant["_id"]: variant for variant in reported["variants"]}
     frozen = {entry["variant_id"]: entry for entry in nipt["variants"]}
@@ -562,31 +473,31 @@ def test_the_nipt_page_listed_what_the_sign_out_froze(signed) -> None:
 
 def test_the_review_tag_filter_keeps_and_leaves_out_exactly_the_tagged_variants(signed) -> None:
     # Within a view: the reported de novo candidate alone.
-    [candidate] = _ok(signed, "reported_de_novo_view")["variants"]
+    [candidate] = ok_json(signed, "reported_de_novo_view")["variants"]
     assert candidate["_id"] == DE_NOVO
     # Without the reported variants: every other variant the list held before they were tagged.
-    every = {variant["_id"] for variant in _ok(signed, "variants")["variants"]}
-    without = _ok(signed, "without_reported")
+    every = {variant["_id"] for variant in ok_json(signed, "variants")["variants"]}
+    without = ok_json(signed, "without_reported")
     assert {variant["_id"] for variant in without["variants"]} == every - {DE_NOVO, PATERNAL}
     assert without["total"] == len(every) - 2
     assert without["not_classified"] == []
     # A tag no review holds selects nothing.
-    unheld = _ok(signed, "unheld_tag_view")
+    unheld = ok_json(signed, "unheld_tag_view")
     assert (unheld["total"], unheld["variants"], unheld["not_classified"]) == (0, [], [])
 
 
 def test_the_record_verifies_and_still_matches_right_after_it_was_signed(signed) -> None:
-    detail = _ok(signed, "detail")
+    detail = ok_json(signed, "detail")
     assert detail["verified"] is True
-    assert detail["report_code"] == _ok(signed, "signout")["report_code"]
-    assert _ok(signed, "chain")["verified"] is True
-    check = _ok(signed, "check")
+    assert detail["report_code"] == ok_json(signed, "signout")["report_code"]
+    assert ok_json(signed, "chain")["verified"] is True
+    check = ok_json(signed, "check")
     assert check["matches"] is True, check
     assert check["not_compared"] == []
     assert [gap for gap in check["not_captured"] if gap["section"] == "nipt"] == []
     # The sign-out's audit event names the NIPT checks the acknowledgement covered: none.
     # Most recent first: the sign-out just made.
-    event = next(event for event in _ok(signed, "audit")["events"] if event["action"] == "sign_out")
+    event = next(event for event in ok_json(signed, "audit")["events"] if event["action"] == "sign_out")
     assert event["after"]["version"] == detail["version"]
     assert event["after"]["nipt_failed_checks"] == []
 
@@ -595,16 +506,16 @@ def test_the_record_verifies_and_still_matches_right_after_it_was_signed(signed)
 
 
 def test_a_record_without_the_nipt_section_still_verifies_and_is_named_not_compared(signed) -> None:
-    detail = _ok(signed, "old_detail")
+    detail = ok_json(signed, "old_detail")
     assert detail["verified"] is True
     assert "nipt" not in detail["snapshot"]
     assert [gap for gap in detail["not_captured"] if gap["section"] == "nipt"] == []
-    assert _ok(signed, "old_chain")["verified"] is True
-    check = _ok(signed, "old_check")
-    assert check["version"] == _ok(signed, "old_signout")["version"]
+    assert ok_json(signed, "old_chain")["verified"] is True
+    check = ok_json(signed, "old_check")
+    assert check["version"] == ok_json(signed, "old_signout")["version"]
     assert check["not_compared"] == ["nipt"]
     assert check["matches"] is True, check
-    assert _ok(signed, "notes_old_signout")["version"] == check["version"] + 1
+    assert ok_json(signed, "notes_old_signout")["version"] == check["version"] + 1
 
 
 # ---------------------------------- the notes of the coverage check over the tracks (TRACE-17)
@@ -615,7 +526,7 @@ def test_the_record_freezes_the_coverage_notes_the_nipt_page_showed(signed) -> N
     # when it opens, reads the plasma's coverage tracks over the family's ROI and names its
     # coverage BED, which declares nothing, as not read as depth. The record freezes the notes
     # word for word, with what the check ran for (the owner's decision of 2026-10-28).
-    coverage = _ok(signed, "coverage")
+    coverage = ok_json(signed, "coverage")
     plasma = signed["ids"]["CFDNA_NIPT"]
     assert coverage["coverage_notes"] == [
         f"{plasma}: the coverage BED does not declare whether it holds read depth or a log2 ratio; it is not "
@@ -636,18 +547,18 @@ def test_the_record_freezes_the_coverage_notes_the_nipt_page_showed(signed) -> N
 
 
 def test_a_record_signed_before_the_coverage_notes_names_them_not_compared(signed) -> None:
-    detail = _ok(signed, "notes_old_detail")
+    detail = ok_json(signed, "notes_old_detail")
     assert detail["verified"] is True
     assert "coverage_notes" not in detail["snapshot"]["nipt"]
-    check = _ok(signed, "notes_old_check")
-    assert check["version"] == _ok(signed, "notes_old_signout")["version"]
+    check = ok_json(signed, "notes_old_check")
+    assert check["version"] == ok_json(signed, "notes_old_signout")["version"]
     # The rest of its NIPT section still matches; the notes are not compared, never a change.
     assert (check["matches"], check["changed_sections"], check["not_compared"]) == (
         True,
         [],
         ["nipt.coverage_notes"],
     ), check
-    final = _ok(signed, "final_signout")
+    final = ok_json(signed, "final_signout")
     assert final["version"] == check["version"] + 1
     assert final["snapshot"]["nipt"]["coverage_notes"] == _nipt(signed)["coverage_notes"]
 
@@ -665,16 +576,16 @@ async def _collect_pair(root: Path, family_id: str) -> dict:
     from backend.app.main import app
     from backend.tests.e2e import _harness
 
-    out: dict = {"import": await _import_demo(root), "family": family_id, "responses": {}}
+    out: dict = {"import": await import_demo(root), "family": family_id, "responses": {}}
     r = out["responses"]
     transport = ASGITransport(app=app, raise_app_exceptions=False)
     async with AsyncClient(transport=transport, base_url="http://e2e") as ac:
         ac.headers["Authorization"] = f"Bearer {await _harness.login_admin_token(ac)}"
         family = f"/api/families/{family_id}"
-        r["family"] = _cap(await ac.get(family))
+        r["family"] = capture(await ac.get(family))
         # GENE_RECESS's paternal and maternal alleles as a compound-het pair, the pair review
         # tagged report and neither variant's own review: only the API sets a pair's tags.
-        r["pair_review"] = _cap(
+        r["pair_review"] = capture(
             await ac.put(
                 f"{family}/small-variants/{PATERNAL}/review",
                 json={"compound_het": {"partner_variant_id": MATERNAL, "tags": ["report"]}},
@@ -682,19 +593,19 @@ async def _collect_pair(root: Path, family_id: str) -> dict:
         )
         nipt_variants = f"{family}/nipt/variants"
         # "Show reported", its recessive view, and the count beside the button.
-        r["reported_view"] = _cap(await ac.get(nipt_variants, params={"review_tag": "report", "page_size": 500}))
-        r["reported_recessive_view"] = _cap(
+        r["reported_view"] = capture(await ac.get(nipt_variants, params={"review_tag": "report", "page_size": 500}))
+        r["reported_recessive_view"] = capture(
             await ac.get(nipt_variants, params={"review_tag": "report", "inheritance": "recessive_at_risk"})
         )
-        r["review_summary"] = _cap(await ac.get(f"{family}/small-variant-review-summary"))
+        r["review_summary"] = capture(await ac.get(f"{family}/small-variant-review-summary"))
         # The live report's list of the reported small variants.
-        r["live_report"] = _cap(await ac.get(f"{family}/small-variants", params={"review_tag": "report"}))
+        r["live_report"] = capture(await ac.get(f"{family}/small-variants", params={"review_tag": "report"}))
         # Through the dialogs, each acknowledgement with the fingerprint of what its refusal
         # listed (TRACE-19).
-        r["signout"] = _cap(await _harness.sign_out(ac, f"{family}/report/sign-out", SIGN_OUT_BODY))
+        r["signout"] = capture(await _harness.sign_out(ac, f"{family}/report/sign-out", SIGN_OUT_BODY))
         version = (r["signout"]["json"] or {}).get("version")
-        r["detail"] = _cap(await ac.get(f"{family}/report/sign-outs/{version}"))
-        r["check"] = _cap(await ac.get(f"{family}/report/sign-out-check"))
+        r["detail"] = capture(await ac.get(f"{family}/report/sign-outs/{version}"))
+        r["check"] = capture(await ac.get(f"{family}/report/sign-out-check"))
     return out
 
 
@@ -704,7 +615,7 @@ def pair_signed(tmp_path_factory, request) -> dict:
     from backend.tests.e2e import _harness
 
     # As a NIPT PED usually has it: the fetus's sex and status unknown.
-    copy = _prepare_copy(tmp_path_factory.mktemp("nipt_pair_record"), fetus_status="0")
+    copy = prepare_copy(tmp_path_factory.mktemp("nipt_pair_record"), fetus_status="0")
     root = Path(copy["root"])
     mp = pytest.MonkeyPatch()
     mp.setattr(settings, "family_import_roots", [str(root.parent)])
@@ -717,13 +628,13 @@ def pair_signed(tmp_path_factory, request) -> dict:
 
 
 def _pair_snapshot(pair_signed: dict) -> dict:
-    return _ok(pair_signed, "detail")["snapshot"]
+    return ok_json(pair_signed, "detail")["snapshot"]
 
 
 def test_a_nipt_fetus_of_unknown_status_is_imported_as_an_embryo(pair_signed) -> None:
     # The import reads a child of unknown sex whose status is unknown as an embryo, and the NIPT
     # trio takes that embryo for the fetus. No member is affected.
-    members = {member["sample_id"]: member for member in _ok(pair_signed, "family")["members"]}
+    members = {member["sample_id"]: member for member in ok_json(pair_signed, "family")["members"]}
     fetus = members[pair_signed["ids"]["FETUS_NIPT"]]
     assert (fetus["role"], fetus["affected"]) == ("embryo", False)
     assert not any(member["affected"] for member in members.values())
@@ -736,13 +647,13 @@ def test_a_nipt_record_holds_no_pgt_section_for_its_fetus(pair_signed) -> None:
     assert snapshot["sample_qc"]["application"] == "nipt"
     assert "nipt" in snapshot
     assert "pgt_analysis" not in snapshot
-    check = _ok(pair_signed, "check")
+    check = ok_json(pair_signed, "check")
     assert (check["matches"], check["changed_sections"], check["not_compared"]) == (True, [], []), check
 
 
 def test_a_pair_tagged_for_the_report_is_frozen_as_the_nipt_page_listed_it(pair_signed) -> None:
-    _ok(pair_signed, "pair_review")
-    reported = _ok(pair_signed, "reported_view")
+    ok_json(pair_signed, "pair_review")
+    reported = ok_json(pair_signed, "reported_view")
     listed = {variant["_id"]: variant for variant in reported["variants"]}
     assert set(listed) == {PATERNAL, MATERNAL}
     # The report tag is the pair's: neither variant's own review holds one.
@@ -778,7 +689,7 @@ def test_a_pair_tagged_for_the_report_is_frozen_as_the_nipt_page_listed_it(pair_
 def test_the_recessive_risk_frozen_is_the_one_the_reported_view_computes(pair_signed) -> None:
     # Both parents carry an allele of GENE_RECESS among the reported variants: the record's
     # recessive fetal risk (#900) is the one the NIPT page computes over "Show reported".
-    [gene] = _ok(pair_signed, "reported_recessive_view")["recessive_genes"]
+    [gene] = ok_json(pair_signed, "reported_recessive_view")["recessive_genes"]
     assert (gene["gene"], gene["maternal_variant_id"], gene["paternal_variant_id"]) == ("GENE_RECESS", MATERNAL, PATERNAL)
     [frozen] = _pair_snapshot(pair_signed)["nipt"]["recessive_genes"]
     assert (frozen["gene"], frozen["maternal_variant_id"], frozen["paternal_variant_id"]) == (
@@ -792,7 +703,7 @@ def test_the_recessive_risk_frozen_is_the_one_the_reported_view_computes(pair_si
 
 
 def test_the_live_report_and_the_reported_count_name_what_was_frozen(pair_signed) -> None:
-    live = {variant["_id"] for variant in _ok(pair_signed, "live_report")["variants"]}
+    live = {variant["_id"] for variant in ok_json(pair_signed, "live_report")["variants"]}
     frozen = {entry["variant_id"] for entry in _pair_snapshot(pair_signed)["reported_variants"]}
     assert live == frozen == {PATERNAL, MATERNAL}
-    assert _ok(pair_signed, "review_summary")["tag_counts"]["report"] == 2
+    assert ok_json(pair_signed, "review_summary")["tag_counts"]["report"] == 2

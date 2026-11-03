@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { themeText } from './themeSource';
+import { themeRules } from './themeSource';
 
 /**
  * The sequencing-QC chip of the family members table (ENG-10, #867). jsdom applies no
@@ -14,13 +14,12 @@ import { themeText } from './themeSource';
  *   Remove button beside it. It wraps inside its column instead.
  */
 
-const THEME = themeText().replace(/\/\*[\s\S]*?\*\//g, '');
+const RULES = themeRules();
 
 /** The declarations of every rule whose selector list holds `selector`, joined. */
 const declarationsFor = (selector: string): string =>
-  [...THEME.matchAll(/([^{}]+)\{([^}]*)\}/g)]
-    .filter(([, selectors]) => selectors.split(',').some((one) => one.replace(/\s+/g, ' ').trim() === selector))
-    .map(([, , body]) => body)
+  RULES.filter(({ selectors }) => selectors.split(',').some((one) => one.replace(/\s+/g, ' ').trim() === selector))
+    .map(({ body }) => body)
     .join(';');
 
 const declares = (body: string, property: string): boolean =>

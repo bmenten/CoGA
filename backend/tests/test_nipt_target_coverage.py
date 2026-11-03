@@ -39,6 +39,8 @@ def test_numbers_read_a_decimal_comma_and_thousands_separators() -> None:
     assert parse_number("1.183,91") == 1183.91
     assert parse_number("1194") == 1194.0
     assert parse_number("NA") is None and parse_number("") is None and parse_number(None) is None
+    # Text that is no number, and an infinite or NaN value, read as no value.
+    assert parse_number("1x3") is None and parse_number("inf") is None and parse_number("nan") is None
 
 
 def test_the_table_parses_its_targets() -> None:
@@ -60,6 +62,11 @@ def test_the_table_parses_its_targets() -> None:
 def test_a_table_without_its_columns_is_refused(tmp_path: Path) -> None:
     with pytest.raises(TargetCoverageFormatError):
         parse_target_coverage_table(["chromosome\tstart\tend\n"])
+    # Blank lines alone: no header, an empty table.
+    with pytest.raises(TargetCoverageFormatError, match="empty"):
+        parse_target_coverage_table(["\n", "  \n"])
+    # Blank lines between the rows are skipped.
+    assert len(parse_target_coverage_table([_HEADER, "\n", _line("chr7", 1000, 1200, "GENEA", "900", "880")])) == 1
     path = tmp_path / "coverage_S1.txt"
     path.write_text("#build\tchromosome\tstart\tend\tattribute\n")
     assert target_table_missing_columns(path) == ["mean"]
@@ -79,6 +86,11 @@ def test_a_stored_row_reads_back_as_the_table_row() -> None:
     }
     assert json.loads(stored["metadata_json"])["proportion_covered"] == 97.5
     assert target_row_from_track(stored) == row
+    # Metadata that does not parse is no metadata: the row keeps its stored mean and gene.
+    unreadable = target_row_from_track({**stored, "metadata_json": "{not json"})
+    assert (unreadable.gene, unreadable.mean, unreadable.median, unreadable.proportion_covered) == (
+        "GENEA", 900.5, None, None
+    )
 
 
 def _target(chrom: str, start: int, end: int, mean: float | None, *, gene: str = "GENEA", median: float | None = None, covered: float = 100.0) -> TargetCoverageRow:
@@ -177,4 +189,12 @@ def test_the_sex_profile_of_maternal_plasma() -> None:
     male_dna = sex_chromosome_coverage([*autosomes, _target("X", 0, 100, 700.0), _target("Y", 0, 100, 1250.0)])
     assert male_dna.profile == "male_like_not_maternal_plasma"
 
+    # chrY at a male level beside a female chrX: neither maternal plasma with a male fetus
+    # nor male DNA, to review; no fetal fraction is read off it.
+    high_y = sex_chromosome_coverage([*autosomes, _target("X", 0, 100, 1000.0), _target("Y", 0, 100, 600.0)])
+    assert (high_y.profile, high_y.fetal_fraction_estimate) == ("high_chrY_review", None)
+
     assert sex_chromosome_coverage(autosomes).profile == "no_chrY_targets"
+    # A target without a mean depth is left out of the means.
+    unmeasured = sex_chromosome_coverage([*autosomes, _target("X", 0, 100, 1300.0), _target("Y", 0, 100, None)])
+    assert (unmeasured.profile, unmeasured.y_targets) == ("no_chrY_targets", 0)

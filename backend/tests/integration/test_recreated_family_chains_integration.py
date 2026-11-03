@@ -33,7 +33,6 @@ conftest.py); the CI ``smoke`` job sets it.
 from __future__ import annotations
 
 import asyncio
-import base64
 from types import SimpleNamespace
 from typing import Any
 from uuid import uuid4
@@ -43,38 +42,9 @@ from sqlalchemy import text
 
 from backend.app.core.config import settings
 from backend.tests._signout_dialogs import no_finding_reviews
+from backend.tests.integration._datastores import admin_account, anchor_signing_seed
 
 pytestmark = pytest.mark.integration
-
-
-def _signing_seed() -> str:
-    """A fresh Ed25519 seed for the anchor, made when the test runs."""
-    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-    from cryptography.hazmat.primitives.serialization import Encoding, NoEncryption, PrivateFormat
-
-    raw = Ed25519PrivateKey.generate().private_bytes(Encoding.Raw, PrivateFormat.Raw, NoEncryption())
-    return base64.b64encode(raw).decode()
-
-
-async def _admin(session: Any, run: str) -> Any:
-    from datetime import datetime, timezone
-
-    from backend.app.services.access_control import CurrentUser
-
-    name = f"trace13-{run}"
-    user_id = (
-        await session.execute(
-            text(
-                "INSERT INTO users (username, hashed_password, role, email) "
-                "VALUES (:u, :h, 'admin', :e) RETURNING id::text"
-            ),
-            {"u": name, "h": "unusable", "e": f"{name}@example.org"},
-        )
-    ).scalar_one()
-    await session.commit()
-    return CurrentUser(
-        id=user_id, username=name, email=f"{name}@example.org", role="admin", created_at=datetime.now(timezone.utc)
-    )
 
 
 async def _rows(session: Any, sql: str, label: str) -> list[dict[str, Any]]:
@@ -99,7 +69,7 @@ def test_a_family_made_again_under_its_id_keeps_its_chains_verifiable(monkeypatc
     from backend.app.services.ped_service import create_manual_family_data
     from backend.app.services.report_code import report_code
 
-    monkeypatch.setattr(settings, "integrity_anchor_signing_key", _signing_seed())
+    monkeypatch.setattr(settings, "integrity_anchor_signing_key", anchor_signing_seed())
     run = uuid4().hex[:10]
     label = f"trace13-{run}"
 
@@ -141,7 +111,8 @@ def test_a_family_made_again_under_its_id_keeps_its_chains_verifiable(monkeypatc
             await init_postgres_schema()
             sm = get_postgres_sessionmaker()
             async with sm() as s:
-                user = await _admin(s, run)
+                user = await admin_account(s, f"trace13-{run}")
+                await s.commit()
 
             async def _make_family(life: str, *, overwrite: bool) -> None:
                 async with sm() as s:

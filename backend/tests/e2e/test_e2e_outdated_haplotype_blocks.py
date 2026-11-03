@@ -1,10 +1,10 @@
 """Blocks built for another pedigree call no embryo, from import to sign-out (E2E, CLIN-66).
 
 The haplotype blocks are built when the phased genotypes are imported, with the couple, the
-couple's children and the members' recorded sexes. Over the synthetic PGT family of
-``test_e2e_signed_pgt_analysis.py`` (an affected father, the mother, their affected child as the
-index and two embryos, a phased GLIMPSE2 family VCF on chr1, AD, an ROI on chr1), imported from a
-package and read through the API, this:
+couple's children and the members' recorded sexes. Over the synthetic PGT family that
+``test_e2e_signed_pgt_analysis.py`` signs out (``_pgt_package.py``: an affected father, the
+mother, their affected child as the index and two embryos, a phased GLIMPSE2 family VCF on chr1,
+AD, an ROI on chr1), imported from a package and read through the API, this:
 
 * reads the embryo calls right after the import: the blocks were built for the pedigree as it is
   (``inputs.blocks_outdated`` false), and the embryos are called;
@@ -28,31 +28,23 @@ from uuid import uuid4
 
 import pytest
 
-from backend.tests.e2e.test_e2e_signed_pgt_analysis import SIGN_OUT_BODY, _write_pgt_package
+from backend.tests.e2e._harness import capture, ensure_postgres_schema
+from backend.tests.e2e._pgt_package import SIGN_OUT_BODY, write_pgt_package
 
 pytestmark = pytest.mark.integration
-
-
-def _cap(resp) -> dict:
-    out = {"status": resp.status_code, "text": resp.text}
-    try:
-        out["json"] = resp.json()
-    except ValueError:  # pragma: no cover
-        out["json"] = None
-    return out
 
 
 async def _collect(root: Path, family_id: str, names: dict[str, str]) -> dict:
     from httpx import ASGITransport, AsyncClient
 
     from backend.app.core.clickhouse import init_clickhouse_schema
-    from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
+    from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.main import app
     from backend.app.services import family_package_import as package_import
     from backend.app.services.clickhouse_variant_storage import ensure_clickhouse_variant_tables
     from backend.tests.e2e import _harness
 
-    await init_postgres_schema()
+    await ensure_postgres_schema()
     await init_clickhouse_schema()
     await ensure_clickhouse_variant_tables(_harness.ASSEMBLY)
     sessionmaker = get_postgres_sessionmaker()
@@ -72,26 +64,26 @@ async def _collect(root: Path, family_id: str, names: dict[str, str]) -> dict:
     async with AsyncClient(transport=transport, base_url="http://e2e") as ac:
         ac.headers["Authorization"] = f"Bearer {await _harness.login_admin_token(ac)}"
         family = f"/api/families/{family_id}"
-        r["imported"] = _cap(await ac.get(f"{family}/pgt-analysis"))
+        r["imported"] = capture(await ac.get(f"{family}/pgt-analysis"))
         haplotypes = {"chr": "1", "start": 1_000_000, "end": 1_020_000}
-        r["tracks_imported"] = _cap(await ac.get(f"{family}/haplotypes", params=haplotypes))
+        r["tracks_imported"] = capture(await ac.get(f"{family}/haplotypes", params=haplotypes))
         # The mother becomes affected: a status the calls read when they are made.
-        r["status_edit"] = _cap(
+        r["status_edit"] = capture(
             await ac.put(f"{family}/members/{names['MOTHER']}", json={"clinical_status": "affected"})
         )
-        r["after_status"] = _cap(await ac.get(f"{family}/pgt-analysis"))
-        r["status_back"] = _cap(
+        r["after_status"] = capture(await ac.get(f"{family}/pgt-analysis"))
+        r["status_back"] = capture(
             await ac.put(f"{family}/members/{names['MOTHER']}", json={"clinical_status": "unaffected"})
         )
         # E_CLEAR's sex corrected after the import: the blocks were built with the old one.
-        r["sex_edit"] = _cap(await ac.put(f"{family}/members/{names['E_CLEAR']}", json={"sex": "female"}))
-        r["after_sex"] = _cap(await ac.get(f"{family}/pgt-analysis"))
-        r["tracks_after_sex"] = _cap(await ac.get(f"{family}/haplotypes", params=haplotypes))
-        r["genome_after_sex"] = _cap(await ac.get(f"{family}/haplotypes/batch", params={"chr": ["1"]}))
-        r["signout"] = _cap(await _harness.sign_out(ac, f"{family}/report/sign-out", SIGN_OUT_BODY))
+        r["sex_edit"] = capture(await ac.put(f"{family}/members/{names['E_CLEAR']}", json={"sex": "female"}))
+        r["after_sex"] = capture(await ac.get(f"{family}/pgt-analysis"))
+        r["tracks_after_sex"] = capture(await ac.get(f"{family}/haplotypes", params=haplotypes))
+        r["genome_after_sex"] = capture(await ac.get(f"{family}/haplotypes/batch", params={"chr": ["1"]}))
+        r["signout"] = capture(await _harness.sign_out(ac, f"{family}/report/sign-out", SIGN_OUT_BODY))
         version = (r["signout"]["json"] or {}).get("version")
-        r["detail"] = _cap(await ac.get(f"{family}/report/sign-outs/{version}"))
-        r["check"] = _cap(await ac.get(f"{family}/report/sign-out-check"))
+        r["detail"] = capture(await ac.get(f"{family}/report/sign-outs/{version}"))
+        r["check"] = capture(await ac.get(f"{family}/report/sign-out-check"))
     return out
 
 
@@ -102,7 +94,7 @@ def outdated(tmp_path_factory, request) -> dict:
 
     base = tmp_path_factory.mktemp("e2e_outdated_blocks")
     family_id = f"FAM_BLOCKS_{uuid4().hex[:8]}"
-    names = _write_pgt_package(base / family_id, family_id)
+    names = write_pgt_package(base / family_id, family_id)
     mp = pytest.MonkeyPatch()
     mp.setattr(settings, "family_import_roots", [str(base)])
     request.addfinalizer(mp.undo)

@@ -36,21 +36,17 @@ from uuid import uuid4
 
 import pytest
 
+from backend.tests.e2e._harness import capture, ensure_postgres_schema
+from backend.tests.e2e._import_jobs import claim_import_job
+
 pytestmark = pytest.mark.integration
-
-
-def _cap(response) -> dict[str, Any]:
-    out: dict[str, Any] = {"status": response.status_code}
-    if response.content:
-        out["json"] = response.json()
-    return out
 
 
 async def _exercise(run: str, directory, patch: pytest.MonkeyPatch) -> dict[str, Any]:
     from httpx import ASGITransport, AsyncClient
     from sqlalchemy import text
 
-    from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
+    from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.main import app
     from backend.app.services import family_package_import as package_import
     from backend.app.services.access_control import RecordNotVisible
@@ -68,7 +64,7 @@ async def _exercise(run: str, directory, patch: pytest.MonkeyPatch) -> dict[str,
     }
     out: dict[str, Any] = {"run": run, "old": old, "new": new, "names": names}
 
-    await init_postgres_schema()
+    await ensure_postgres_schema()
     sessionmaker = get_postgres_sessionmaker()
     async with sessionmaker() as session:
         _admin, project_id, _assembly_id = await _harness.ensure_e2e_project(session)
@@ -126,20 +122,20 @@ async def _exercise(run: str, directory, patch: pytest.MonkeyPatch) -> dict[str,
             # the e2e project, as an administrator queues imports.
             colleague = bearer(colleague_oid, old)
             me = await client.get("/api/auth/me", headers=colleague)
-            out["first_sign_in"] = _cap(me)
+            out["first_sign_in"] = capture(me)
             colleague_id = me.json()["id"]
             await make_member(colleague_id, "admin")
 
             out["saved"] = {
-                "small": _cap(
+                "small": capture(
                     await client.post(
                         small_in_family, json={"name": names["small"], "filters": {"impact": ["HIGH"]}}, headers=colleague
                     )
                 ),
-                "sv_family": _cap(
+                "sv_family": capture(
                     await client.post(sv, json={"name": names["sv_family"], "scope": "family"}, headers=colleague)
                 ),
-                "sv_global": _cap(
+                "sv_global": capture(
                     await client.post(sv, json={"name": names["sv_global"], "scope": "global"}, headers=colleague)
                 ),
             }
@@ -148,53 +144,45 @@ async def _exercise(run: str, directory, patch: pytest.MonkeyPatch) -> dict[str,
                 json={"folder_path": f"/data/families/{family_id}", "project_id": project_id, "dry_run": True},
                 headers=colleague,
             )
-            out["queued"] = _cap(queued)
+            out["queued"] = capture(queued)
             out["job_id"] = job_id = queued.json()["_id"]
 
             # The next sign-in carries a new address and user name; then a second colleague
             # signs in with the ones the first left behind, and is a viewer in the project.
             renamed = bearer(colleague_oid, new)
-            out["renamed"] = _cap(await client.get("/api/auth/me", headers=renamed))
+            out["renamed"] = capture(await client.get("/api/auth/me", headers=renamed))
             successor = bearer(successor_oid, old)
             me = await client.get("/api/auth/me", headers=successor)
-            out["successor_sign_in"] = _cap(me)
+            out["successor_sign_in"] = capture(me)
             successor_id = me.json()["id"]
             await make_member(successor_id, "viewer")
 
             out["colleague_lists"] = {
-                "small": _cap(await client.get(small, headers=renamed)),
-                "small_in_family": _cap(await client.get(small_in_family, headers=renamed)),
-                "sv": _cap(await client.get(sv, headers=renamed)),
-                "job": _cap(await client.get(f"/api/family-imports/{job_id}", headers=renamed)),
+                "small": capture(await client.get(small, headers=renamed)),
+                "small_in_family": capture(await client.get(small_in_family, headers=renamed)),
+                "sv": capture(await client.get(sv, headers=renamed)),
+                "job": capture(await client.get(f"/api/family-imports/{job_id}", headers=renamed)),
             }
             out["successor_lists"] = {
-                "small": _cap(await client.get(small, headers=successor)),
-                "sv": _cap(await client.get(sv, headers=successor)),
+                "small": capture(await client.get(small, headers=successor)),
+                "sv": capture(await client.get(sv, headers=successor)),
             }
             preset_ids = {key: (saved.get("json") or {}).get("_id", str(uuid4())) for key, saved in out["saved"].items()}
             out["successor_deletes"] = {
-                "small": _cap(await client.delete(f"{small}/{preset_ids['small']}", headers=successor)),
-                "sv_family": _cap(await client.delete(f"{sv}/{preset_ids['sv_family']}", headers=successor)),
-                "sv_global": _cap(await client.delete(f"{sv}/{preset_ids['sv_global']}", headers=successor)),
+                "small": capture(await client.delete(f"{small}/{preset_ids['small']}", headers=successor)),
+                "sv_family": capture(await client.delete(f"{sv}/{preset_ids['sv_family']}", headers=successor)),
+                "sv_global": capture(await client.delete(f"{sv}/{preset_ids['sv_global']}", headers=successor)),
             }
 
             # The worker runs the job (its claim, for this job alone).
             worker_id = f"e2e-sec32-{run}"
-            async with sessionmaker() as session:
-                await session.execute(
-                    text(
-                        "UPDATE family_import_jobs SET status = 'validating', worker_id = :w, "
-                        "started_at = now(), heartbeat_at = now() WHERE id = CAST(:id AS uuid)"
-                    ),
-                    {"w": worker_id, "id": job_id},
-                )
-                await session.commit()
+            await claim_import_job(job_id, worker_id)
             try:
                 await package_import.run_family_import_job(job_id=job_id, worker_id=worker_id)
             except Exception as exc:  # noqa: BLE001 - recorded for the assertions
                 out["run_error"] = str(exc)
             out["ran_as"] = [(user.id, user.email) for user in ran_as]
-            out["job_after_run"] = _cap(await client.get(f"/api/family-imports/{job_id}", headers=renamed))
+            out["job_after_run"] = capture(await client.get(f"/api/family-imports/{job_id}", headers=renamed))
 
             # Made a viewer, each colleague's own job list, as the service gives it.
             await make_member(colleague_id, "viewer")
@@ -216,13 +204,13 @@ async def _exercise(run: str, directory, patch: pytest.MonkeyPatch) -> dict[str,
                 out["other_job"] = await job_seen_by(other)
 
             out["colleague_deletes"] = {
-                "small": _cap(await client.delete(f"{small}/{preset_ids['small']}", headers=renamed)),
-                "sv_family": _cap(await client.delete(f"{sv}/{preset_ids['sv_family']}", headers=renamed)),
-                "sv_global": _cap(await client.delete(f"{sv}/{preset_ids['sv_global']}", headers=renamed)),
+                "small": capture(await client.delete(f"{small}/{preset_ids['small']}", headers=renamed)),
+                "sv_family": capture(await client.delete(f"{sv}/{preset_ids['sv_family']}", headers=renamed)),
+                "sv_global": capture(await client.delete(f"{sv}/{preset_ids['sv_global']}", headers=renamed)),
             }
             out["colleague_lists_after"] = {
-                "small": _cap(await client.get(small, headers=renamed)),
-                "sv": _cap(await client.get(sv, headers=renamed)),
+                "small": capture(await client.get(small, headers=renamed)),
+                "sv": capture(await client.get(sv, headers=renamed)),
             }
     finally:
         async with sessionmaker() as session:

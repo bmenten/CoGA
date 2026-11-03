@@ -34,7 +34,9 @@ from backend.app.services.family_package_common import (
 from backend.app.services.family_package_datasets import DatasetImportJob
 from backend.app.services.family_package_manifest import _normalize_manifest_samples
 from backend.app.services.family_package_nipt import (
+    _NIPT_VCF_GLOBS,
     NIPT_PATERNAL_KEEP_MIN_VAF,
+    _first_match,
     call_alt_fraction,
     discover_nipt_package_files,
     nipt_import_order,
@@ -345,6 +347,10 @@ def _bundle(root: Path, samples: Any = None) -> FamilyPackageBundle:
 def test_the_plasma_sample_is_the_tagged_one_else_the_mother(tmp_path: Path) -> None:
     assert nipt_package_cfdna_sample(_bundle(tmp_path, {"FATHER1": {}, "CFDNA1": {"assay": "nipt_cfdna"}})) == "CFDNA1"
     assert nipt_package_cfdna_sample(_bundle(tmp_path)) == "CFDNA1"
+    # Neither a tagged sample nor a PED mother: none, so no paternal file is filtered against one.
+    motherless = _bundle(tmp_path)
+    motherless.ped = _ped([("FATHER1", "0", "0", "1"), ("FETUS1", "FATHER1", "0", "0")])
+    assert nipt_package_cfdna_sample(motherless) is None
     assert nipt_import_order("CFDNA1", ["FATHER1", "CFDNA1"]) == ["CFDNA1", "FATHER1"]
     assert nipt_import_order(None, ["FATHER1", "CFDNA1"]) == ["FATHER1", "CFDNA1"]
 
@@ -380,6 +386,27 @@ def test_discover_finds_a_parent_pair_with_one_vcf_each(tmp_path: Path) -> None:
     assert (found.cfdna_sample_id, found.father_sample_id, found.fetus_sample_id) == ("CFDNA1", "FATHER1", "FETUS1")
     assert found.vcfs == {"CFDNA1": "CFDNA1.mutect2.vcf.gz", "FATHER1": "FATHER1.mutect2.vcf.gz"}
     assert found.coverage_tables == {"CFDNA1": "coverage_CFDNA1.txt"}
+
+
+def test_discover_looks_for_a_sample_s_files_inside_the_package_only(tmp_path: Path) -> None:
+    # Discover reads the header of the VCF it finds: it reads nothing outside the package.
+    package = tmp_path / "NIPTFAM1"
+    package.mkdir()
+    outside = tmp_path / "FATHER1.vcf.gz"
+    _write_gz(outside, _FATHER_VCF)
+    _write_gz(package / "FATHERX.vcf.gz", _FATHER_VCF)
+    # The sample's own file is found.
+    assert _first_match(package, _NIPT_VCF_GLOBS, "FATHERX") == package / "FATHERX.vcf.gz"
+    # A sample ID that is a pattern matches only itself, never another sample's file.
+    assert _first_match(package, _NIPT_VCF_GLOBS, "FATHER?") is None
+    # One that climbs out of the package, or is absolute, is not looked up.
+    assert _first_match(package, _NIPT_VCF_GLOBS, "../FATHER1") is None
+    assert _first_match(package, _NIPT_VCF_GLOBS, str(tmp_path / "FATHER1")) is None
+    # A NUL names no file.
+    assert _first_match(package, _NIPT_VCF_GLOBS, "FATHER\x001") is None
+    # A link from inside the package to a file outside it is no match.
+    (package / "LINKED.vcf.gz").symlink_to(outside)
+    assert _first_match(package, _NIPT_VCF_GLOBS, "LINKED") is None
 
 
 def test_discover_needs_both_parents_and_a_fetus_without_data(tmp_path: Path) -> None:
