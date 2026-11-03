@@ -3,7 +3,7 @@
 // monogenic NIPT. The markup is recorded (__snapshots__), so splitting the form into
 // section components must reproduce it exactly: every section, label, control, value
 // and summary. Update the snapshot only for an intended change to the form's markup.
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import type { ComponentProps } from 'react';
 import { MemoryRouter } from 'react-router';
 import { expect, test, vi } from 'vitest';
@@ -178,4 +178,198 @@ test('marks a deleted tag on the active review-tag and exclude chips', () => {
   expect(screen.getByRole('button', { name: 'Review tags: Probe X (deleted)' })).toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Exclude review tags: Probe X (deleted)' })).toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Review tags: Needs segregation' })).toBeInTheDocument();
+});
+
+// The Annotations, Frequency and Call quality sections, laid out as seqr's.
+const renderWith = (overrides: Record<string, unknown>) => {
+  const formProps = props(overrides);
+  render(
+    <MemoryRouter>
+      <SmallVariantFilterForm {...(formProps as unknown as ComponentProps<typeof SmallVariantFilterForm>)} />
+    </MemoryRouter>,
+  );
+  return formProps;
+};
+
+const listValue = (value: unknown) =>
+  new Set(
+    String(value)
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter(Boolean),
+  );
+
+test('a group box ticks all its consequence terms, half-ticked while some are', () => {
+  const { setDraftFilterValue } = renderWith({
+    draftFilters: { ...draft(), impact: '', effect: 'missense_variant, stop_lost' },
+  });
+  const group = screen.getByRole('checkbox', { name: 'Missense (whole group)' }) as HTMLInputElement;
+  expect(group.checked).toBe(false);
+  expect(group.indeterminate).toBe(true);
+  expect((screen.getByRole('checkbox', { name: 'Missense' }) as HTMLInputElement).checked).toBe(true);
+  expect((screen.getByRole('checkbox', { name: 'Start lost' }) as HTMLInputElement).checked).toBe(false);
+
+  fireEvent.click(group);
+  const [key, value] = setDraftFilterValue.mock.calls.at(-1) ?? [];
+  expect(key).toBe('effect');
+  expect(listValue(value)).toEqual(
+    new Set(['stop_lost', 'start_lost', 'protein_altering_variant', 'missense_variant']),
+  );
+});
+
+test('clearing a full group removes its terms and keeps the others', () => {
+  const { setDraftFilterValue } = renderWith({
+    draftFilters: {
+      ...draft(),
+      impact: '',
+      effect: 'inframe_insertion, inframe_deletion, stop_gained',
+    },
+  });
+  const group = screen.getByRole('checkbox', { name: 'In frame (whole group)' }) as HTMLInputElement;
+  expect(group.checked).toBe(true);
+  fireEvent.click(group);
+  expect(setDraftFilterValue).toHaveBeenLastCalledWith('effect', 'stop_gained');
+});
+
+// The search reads a term whatever its case (ENG-1), so the boxes do too; a term no box
+// offers stays listed, ticked, so it can be unticked.
+test('reads terms case aside and lists a term no box offers', () => {
+  const { setDraftFilterValue } = renderWith({
+    draftFilters: { ...draft(), impact: 'HIGH', effect: 'nmd_transcript_variant, feature_elongation' },
+  });
+  expect((screen.getByRole('checkbox', { name: 'NMD transcript variant' }) as HTMLInputElement).checked).toBe(true);
+  expect((screen.getByRole('checkbox', { name: 'HIGH' }) as HTMLInputElement).checked).toBe(true);
+  const held = screen.getByRole('checkbox', { name: 'feature_elongation' }) as HTMLInputElement;
+  expect(held.checked).toBe(true);
+  fireEvent.click(held);
+  expect(setDraftFilterValue).toHaveBeenLastCalledWith('effect', 'nmd_transcript_variant');
+});
+
+const AF_KEYS = [
+  'max_gnomad_genomes_af',
+  'max_gnomad_exomes_af',
+  'max_gnomad_popmax_af',
+  'max_gnomad_af',
+  'max_topmed_af',
+];
+
+test('the frequency header sets every population and shows what the set ones share', () => {
+  const { setDraftFilterValue } = renderWith({});
+  const header = screen.getByLabelText('Maximum AF, all populations') as HTMLSelectElement;
+  // The draft caps gnomAD combined alone: the header shows its value.
+  expect(header.value).toBe('0.01');
+  fireEvent.change(header, { target: { value: '0.001' } });
+  AF_KEYS.forEach((key) => expect(setDraftFilterValue).toHaveBeenCalledWith(key, '0.001'));
+
+  fireEvent.change(screen.getByLabelText('Maximum gnomAD homozygotes and hemizygotes'), {
+    target: { value: '10' },
+  });
+  expect(setDraftFilterValue).toHaveBeenCalledWith('max_gnomad_hom_count', '10');
+  expect(setDraftFilterValue).toHaveBeenCalledWith('max_gnomad_hemi_count', '10');
+});
+
+test('the frequency header reads mixed when the populations differ', () => {
+  renderWith({ draftFilters: { ...draft(), max_gnomad_af: '0.01', max_topmed_af: '0.05' } });
+  expect((screen.getByLabelText('Maximum AF, all populations') as HTMLSelectElement).value).toBe('mixed');
+});
+
+test('a frequency slider moves over seqr steps, its last step setting no maximum', () => {
+  const { setDraftFilterValue } = renderWith({
+    draftFilters: { ...draft(), max_gnomad_exomes_af: '0.003' },
+  });
+  // A value between two steps is shown as it is.
+  expect(screen.getByRole('slider', { name: 'gnomAD exomes maximum AF' })).toHaveAttribute('aria-valuetext', '0.003');
+  const topmed = screen.getByRole('slider', { name: 'TOPMed maximum AF' });
+  expect(topmed).toHaveAttribute('aria-valuetext', '1');
+  fireEvent.change(topmed, { target: { value: '5' } });
+  expect(setDraftFilterValue).toHaveBeenLastCalledWith('max_topmed_af', '0.01');
+  fireEvent.change(screen.getByRole('slider', { name: 'gnomAD combined maximum AF' }), {
+    target: { value: '11' },
+  });
+  expect(setDraftFilterValue).toHaveBeenLastCalledWith('max_gnomad_af', '');
+});
+
+const sampleCalls = (mock: { mock: { calls: unknown[][] } }) =>
+  mock.mock.calls.map(([sample, field, value]) => `${String(sample)}:${String(field)}=${String(value)}`);
+
+// seqr's "Affected only": on while the unaffected members have no minimum. A minimum such
+// as an allele balance would otherwise drop a de novo variant the parents' reference calls
+// cannot meet.
+test('sets the call minimums of the affected members only while Affected only is on', () => {
+  const formProps = renderWith({});
+  const { handleSampleFieldChange } = formProps;
+  const affectedOnly = screen.getByRole('switch', { name: 'Affected only' }) as HTMLInputElement;
+  expect(affectedOnly.checked).toBe(true);
+  // PROBAND holds GQ 20 and DP 10, no allele balance or alt reads: no quick choice.
+  expect((screen.getByLabelText('Quick call quality') as HTMLSelectElement).value).toBe('custom');
+
+  const { setDraftFilterValue } = formProps;
+  fireEvent.change(screen.getByLabelText('Quick call quality'), { target: { value: 'high_quality' } });
+  // As seqr's, High quality also keeps the variants whose calls passed their FILTER only.
+  expect(setDraftFilterValue).toHaveBeenCalledWith('pass_only', 'true');
+  expect(sampleCalls(handleSampleFieldChange)).toEqual([
+    'PROBAND:qual=20',
+    'PROBAND:af=0.2',
+    'PROBAND:dp=10',
+    'PROBAND:ad_alt=4',
+  ]);
+
+  handleSampleFieldChange.mockClear();
+  fireEvent.change(screen.getByRole('slider', { name: 'Genotype quality minimum' }), {
+    target: { value: '6' },
+  });
+  expect(sampleCalls(handleSampleFieldChange)).toEqual(['PROBAND:qual=30']);
+});
+
+test('Affected only off gives every member the minimums the affected members share', () => {
+  const { handleSampleFieldChange } = renderWith({});
+  fireEvent.click(screen.getByRole('switch', { name: 'Affected only' }));
+  expect(sampleCalls(handleSampleFieldChange)).toEqual([
+    'MOM:qual=20',
+    'DAD:qual=20',
+    'MOM:af=',
+    'DAD:af=',
+    'MOM:dp=10',
+    'DAD:dp=10',
+    'MOM:ad_alt=',
+    'DAD:ad_alt=',
+  ]);
+});
+
+test('reads Affected only off, and a minimum as mixed, when an unaffected member has one', () => {
+  renderWith({
+    sampleDraftFilters: {
+      PROBAND: { gt: ['het'], qual: '20', dp: '8', af: '0.75', ad_alt: '5' },
+      MOM: { gt: ['het'], qual: '15', dp: '8', af: '', ad_alt: '' },
+      DAD: { gt: ['het'], qual: '15', dp: '8', af: '', ad_alt: '' },
+    },
+  });
+  expect((screen.getByRole('switch', { name: 'Affected only' }) as HTMLInputElement).checked).toBe(false);
+  expect(screen.getByRole('slider', { name: 'Genotype quality minimum' })).toHaveAttribute('aria-valuetext', 'mixed');
+  expect(screen.getByRole('slider', { name: 'Depth minimum' })).toHaveAttribute('aria-valuetext', '8');
+  expect((screen.getByLabelText('MOM GQ ≥') as HTMLInputElement).value).toBe('15');
+});
+
+const HIGH_QUALITY_PROBAND = {
+  PROBAND: { gt: ['het'], qual: '20', dp: '10', af: '0.2', ad_alt: '4' },
+  MOM: { gt: [], qual: '', dp: '', af: '', ad_alt: '' },
+  DAD: { gt: [], qual: '', dp: '', af: '', ad_alt: '' },
+};
+
+test('the Filter value sets Pass variants only, which the quick choices read', () => {
+  const { setDraftFilterValue } = renderWith({ sampleDraftFilters: HIGH_QUALITY_PROBAND });
+  const quick = screen.getByLabelText('Quick call quality') as HTMLSelectElement;
+  // The High quality minimums without Pass variants only are no quick choice.
+  expect(quick.value).toBe('custom');
+  expect((screen.getByRole('radio', { name: 'Show all variants' }) as HTMLInputElement).checked).toBe(true);
+  fireEvent.click(screen.getByRole('radio', { name: 'Pass variants only' }));
+  expect(setDraftFilterValue).toHaveBeenLastCalledWith('pass_only', 'true');
+  fireEvent.change(quick, { target: { value: 'all_variants' } });
+  expect(setDraftFilterValue).toHaveBeenLastCalledWith('pass_only', '');
+});
+
+test('reads High quality with Pass variants only on', () => {
+  renderWith({ sampleDraftFilters: HIGH_QUALITY_PROBAND, draftFilters: { ...draft(), pass_only: 'true' } });
+  expect((screen.getByLabelText('Quick call quality') as HTMLSelectElement).value).toBe('high_quality');
+  expect((screen.getByRole('radio', { name: 'Pass variants only' }) as HTMLInputElement).checked).toBe(true);
 });

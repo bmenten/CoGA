@@ -34,6 +34,7 @@ import {
   AnnotationsFilterSection,
   InSilicoFilterSection,
   FrequencyFilterSection,
+  CallQualityFilterSection,
   LocationsFilterSection,
   ExcludeFilterSection,
   ReviewFilterSection,
@@ -282,16 +283,19 @@ const SmallVariantFilterForm = ({
     return chip.label;
   };
 
-  const activeSampleMemberCount = members.reduce((count, member) => {
+  const activeGenotypeMemberCount = members.filter((member) => {
     const sampleFilter = sampleDraftFilters[member.sample_id];
-    if (!sampleFilter) return count;
-    const genotypeActive =
-      sampleFilter.gt.length > 0 && sampleFilter.gt.length < ALL_GT_GROUPS.length;
-    const thresholdActive = Boolean(
-      sampleFilter.qual || sampleFilter.dp || sampleFilter.af || sampleFilter.ad_alt,
+    return Boolean(
+      sampleFilter && sampleFilter.gt.length > 0 && sampleFilter.gt.length < ALL_GT_GROUPS.length,
     );
-    return count + (genotypeActive || thresholdActive ? 1 : 0);
-  }, 0);
+  }).length;
+  const activeQualityMemberCount = members.filter((member) => {
+    const sampleFilter = sampleDraftFilters[member.sample_id];
+    return Boolean(
+      sampleFilter &&
+        (sampleFilter.qual || sampleFilter.dp || sampleFilter.af || sampleFilter.ad_alt),
+    );
+  }).length;
 
   const clinvarOptions = CLINVAR_OPTIONS.map((option) => ({
     value: option,
@@ -324,11 +328,6 @@ const SmallVariantFilterForm = ({
 
   const toggleSingleValueCheckbox = (key: keyof SmallFilterState, optionValue: string) => {
     setDraftFilterValue(key, draftFilters[key] === optionValue ? '' : optionValue);
-  };
-
-  const numericFilterEquals = (value: string, target: string) => {
-    if (!value.trim()) return false;
-    return Number(value) === Number(target);
   };
 
   // Selecting a preset populates the draft filters immediately (chips + sample
@@ -393,20 +392,6 @@ const SmallVariantFilterForm = ({
     handleReset();
   };
 
-  const setSampleQualityThresholds = (thresholds: {
-    qual: string;
-    dp: string;
-    af: string;
-    ad_alt: string;
-  }) => {
-    members.forEach((member) => {
-      handleSampleFieldChange(member.sample_id, 'qual', thresholds.qual);
-      handleSampleFieldChange(member.sample_id, 'dp', thresholds.dp);
-      handleSampleFieldChange(member.sample_id, 'af', thresholds.af);
-      handleSampleFieldChange(member.sample_id, 'ad_alt', thresholds.ad_alt);
-    });
-  };
-
   const setSampleGtGroups = (sampleId: string, targetGroups: ReadonlySet<GtGroupId>) => {
     const current = sampleDraftFilters[sampleId];
     if (!current) return;
@@ -429,7 +414,8 @@ const SmallVariantFilterForm = ({
 
   // What the section components read (#528).
   const form: FilterSectionForm = {
-    activeSampleMemberCount,
+    activeGenotypeMemberCount,
+    activeQualityMemberCount,
     carrierScreeningCouple,
     categoryCounts,
     categoryLabels,
@@ -443,14 +429,12 @@ const SmallVariantFilterForm = ({
     handleSectionToggle,
     members,
     niptInheritancePresets,
-    numericFilterEquals,
     offers,
     openSections,
     panels,
     sampleDraftFilters,
     selectedHeldTagOptions,
     setDraftFilterValue,
-    setSampleQualityThresholds,
     standardTagOptions,
     summarizeSection,
     toggleDraftFilterListValue,
@@ -461,7 +445,12 @@ const SmallVariantFilterForm = ({
   // The categories the form shows, as rendered below, and how many have a filter set.
   const visibleSections = (Object.keys(SECTION_FILTER_COUNTS) as (keyof OpenSections)[]).filter(
     (section) => {
-      if (section === 'phenotype' || section === 'svSecondHit' || section === 'inheritance') {
+      if (
+        section === 'phenotype' ||
+        section === 'svSecondHit' ||
+        section === 'inheritance' ||
+        section === 'callQuality'
+      ) {
         return familyAware;
       }
       if (section === 'categories') return mode === 'nipt';
@@ -679,6 +668,9 @@ const SmallVariantFilterForm = ({
           <InSilicoFilterSection form={form} />
 
           <FrequencyFilterSection form={form} />
+
+          {/* Per-member call minimums: a family's members only (as Inheritance). */}
+          {familyAware ? <CallQualityFilterSection form={form} /> : null}
 
           <LocationsFilterSection form={form} />
 

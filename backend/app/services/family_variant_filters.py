@@ -305,6 +305,11 @@ class SmallVariantQueryFilters:
     polyphen: str | None = None
     panel_id: str | None = None
     sample_filters: List[str] = field(default_factory=list)
+    # "Pass variants only": keep a variant only when every call that carries its ALT allele
+    # passed its caller's FILTER (PASS, or none set). A callset of one file per sample gives
+    # each call its own FILTER; a multi-sample VCF's record FILTER is every call's
+    # (``small_record_passes_caller_filters``; the owner's decision of 2026-11-03).
+    pass_only: bool = False
     overlap: bool = False
     # Restrict to variants whose gene is also hit by a structural variant (the cross-type
     # "second hit"). ``sv_hit_genes`` is resolved server-side from the family's SV→gene index

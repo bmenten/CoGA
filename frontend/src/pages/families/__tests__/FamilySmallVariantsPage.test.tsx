@@ -237,8 +237,11 @@ describe('FamilySmallVariantsPage', () => {
     fireEvent.click(screen.getByText('Pathogenicity'));
     expect(screen.getByText('ClinVar status')).toBeInTheDocument();
     fireEvent.click(screen.getByText('Frequency'));
-    expect(screen.getByText('gnomAD AF')).toBeInTheDocument();
+    expect(screen.getByText('gnomAD combined')).toBeInTheDocument();
     expect(screen.getAllByRole('slider').length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByText('Call quality'));
+    expect(screen.getByRole('switch', { name: 'Affected only' })).toBeInTheDocument();
+    expect(screen.getByRole('slider', { name: 'Genotype quality minimum' })).toBeInTheDocument();
     expect(screen.getByLabelText(/Canonical only/i)).toBeInTheDocument();
     expect(screen.getByText('Review and curation')).toBeInTheDocument();
     fireEvent.click(screen.getByText('Review and curation'));
@@ -602,8 +605,11 @@ describe('FamilySmallVariantsPage', () => {
     fireEvent.change(screen.getByLabelText(/Quick pathogenicity/i), {
       target: { value: 'not_benign' },
     });
-    fireEvent.change(screen.getByLabelText(/Quick frequency/i), {
-      target: { value: 'gnomad_rare' },
+    fireEvent.change(screen.getByLabelText('Maximum AF, all populations'), {
+      target: { value: '0.01' },
+    });
+    fireEvent.change(screen.getByLabelText('Maximum gnomAD homozygotes and hemizygotes'), {
+      target: { value: '10' },
     });
     fireEvent.change(screen.getByLabelText(/Quick exclude/i), {
       target: { value: 'excluded_and_benign' },
@@ -670,6 +676,8 @@ describe('FamilySmallVariantsPage', () => {
       expect(apiMock.get).toHaveBeenCalledWith(expect.stringContaining('panel_id=panel-1'));
       expect(apiMock.get).toHaveBeenCalledWith(expect.stringContaining('sample_filter=PROBAND'));
       expect(apiMock.get).toHaveBeenCalledWith(expect.stringContaining('%3A20%3A10%3A0.2%3A4'));
+      // High quality also keeps only the variants whose calls passed their FILTER, as seqr's.
+      expect(apiMock.get).toHaveBeenCalledWith(expect.stringContaining('pass_only=true'));
     });
     // Scoped to the request this click produced, not "any call ever made": the page's
     // default preset already bounds popmax, so a toHaveBeenCalledWith here would be
@@ -1560,7 +1568,7 @@ describe('FamilySmallVariantsPage', () => {
       // Collapsed, the toggle still says how many categories there are and how many are set.
       const toggle = advancedToggle();
       expect(toggle).toHaveAttribute('aria-expanded', 'false');
-      expect(toggle).toHaveTextContent(/\(10 categories, \d+ with filters set\)/);
+      expect(toggle).toHaveTextContent(/\(11 categories, \d+ with filters set\)/);
       const panel = document.getElementById(toggle.getAttribute('aria-controls') ?? '') as HTMLElement;
       expect(panel).not.toBeVisible();
       expect(screen.queryByRole('combobox', { name: 'Quick gene panel' })).not.toBeInTheDocument();

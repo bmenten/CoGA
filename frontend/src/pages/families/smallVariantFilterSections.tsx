@@ -1,7 +1,9 @@
 // The small-variant filter form's sections (#528): the shell each one shares, and one
 // component per section. Each reads what it needs from the form through
 // FilterSectionForm and computes its own summary count and quick filters.
-import type { ChangeEvent, ReactNode, SyntheticEvent } from 'react';
+import { useState } from 'react';
+import type { CSSProperties, ChangeEvent, ReactNode, SyntheticEvent } from 'react';
+import InfoIcon from '../../components/InfoIcon';
 import { joinFilterValues, parseCommaSeparatedValues } from '../../lib/sampleFilterState';
 import {
   COLLABORATION_QUICK_TAGS,
@@ -14,15 +16,11 @@ import {
   type GenePanel,
   type LocationProblems,
   type SmallFilterState,
+  type SmallVariantSampleFilter,
   type SmallVariantSearchState,
 } from './smallVariantSearch';
 import { GENOTYPE_GROUP_HINTS } from '../../lib/genotypes';
-import {
-  countNonEmpty,
-  formatPercentFilterValue,
-  normalizePercentValue,
-  stopSummaryInteraction,
-} from './variantFilterFormUtils';
+import { countNonEmpty, stopSummaryInteraction } from './variantFilterFormUtils';
 
 const TYPE_OPTIONS = ['', 'SNV', 'INDEL', 'MNV'];
 const REVIEW_QUICK_CLASSIFICATION_VALUES = [
@@ -33,42 +31,323 @@ const REVIEW_QUICK_CLASSIFICATION_VALUES = [
 const REVIEW_QUICK_CLASSIFICATION_FILTER = REVIEW_QUICK_CLASSIFICATION_VALUES.join(', ');
 const EXCLUDE_QUICK_CLINVAR_VALUES = ['Benign', 'Likely benign'] as const;
 const EXCLUDE_QUICK_CLINVAR_FILTER = EXCLUDE_QUICK_CLINVAR_VALUES.join(', ');
-const FREQUENCY_QUICK_GNOMAD_AF = '0.01';
-const FREQUENCY_QUICK_GNOMAD_COUNT = '10';
 const SIFT_OPTIONS = ['', 'deleterious', 'deleterious_low_confidence', 'tolerated'];
 const POLYPHEN_OPTIONS = ['', 'probably_damaging', 'possibly_damaging', 'benign'];
 const SIFT_VALUE_OPTIONS = SIFT_OPTIONS.filter((value) => value);
 const POLYPHEN_VALUE_OPTIONS = POLYPHEN_OPTIONS.filter((value) => value);
 
-const CONSEQUENCE_BY_IMPACT: Record<string, string[]> = {
-  HIGH: [
-    'frameshift_variant',
-    'stop_gained',
-    'stop_lost',
-    'start_lost',
-    'splice_acceptor_variant',
-    'splice_donor_variant',
+/** A term the Annotations section offers, with a short form of its definition. */
+type AnnotationOption = { value: string; label: string; hint: string };
+type AnnotationGroup = { id: string; label: string; options: readonly AnnotationOption[] };
+
+// The VEP consequence terms, grouped as seqr groups them: a row of the high- and
+// moderate-impact groups, a row of the coding and other groups, and the regulatory groups
+// in the last row. A group's own box ticks or clears all its terms. The hints are short
+// forms of the Sequence Ontology definitions.
+const CONSEQUENCE_GROUP_ROWS: readonly (readonly AnnotationGroup[])[] = [
+  [
+    {
+      id: 'nonsense',
+      label: 'Nonsense',
+      options: [
+        {
+          value: 'stop_gained',
+          label: 'Stop gained',
+          hint: 'A base change that creates a premature stop codon, shortening the protein.',
+        },
+      ],
+    },
+    {
+      id: 'essential_splice_site',
+      label: 'Essential splice site',
+      options: [
+        {
+          value: 'splice_donor_variant',
+          label: 'Splice donor variant',
+          hint: "Changes one of the two bases at the 5' end of an intron (the splice donor).",
+        },
+        {
+          value: 'splice_acceptor_variant',
+          label: 'Splice acceptor variant',
+          hint: "Changes one of the two bases at the 3' end of an intron (the splice acceptor).",
+        },
+      ],
+    },
+    {
+      id: 'frameshift',
+      label: 'Frameshift',
+      options: [
+        {
+          value: 'frameshift_variant',
+          label: 'Frameshift',
+          hint: 'Inserts or deletes a number of bases that is not a multiple of three, shifting the reading frame.',
+        },
+      ],
+    },
+    {
+      id: 'missense',
+      label: 'Missense',
+      options: [
+        {
+          value: 'stop_lost',
+          label: 'Stop lost',
+          hint: 'Changes the stop codon, so the protein is elongated.',
+        },
+        {
+          value: 'start_lost',
+          label: 'Start lost',
+          hint: 'Changes at least one base of the start codon.',
+        },
+        {
+          value: 'protein_altering_variant',
+          label: 'Protein altering',
+          hint: 'Changes the encoded protein in a way no more specific term describes.',
+        },
+        {
+          value: 'missense_variant',
+          label: 'Missense',
+          hint: 'Changes a codon so that it encodes another amino acid.',
+        },
+      ],
+    },
+    {
+      id: 'in_frame',
+      label: 'In frame',
+      options: [
+        {
+          value: 'inframe_insertion',
+          label: 'In-frame insertion',
+          hint: 'Inserts a multiple of three bases into the coding sequence.',
+        },
+        {
+          value: 'inframe_deletion',
+          label: 'In-frame deletion',
+          hint: 'Deletes a multiple of three bases from the coding sequence.',
+        },
+      ],
+    },
   ],
-  MODERATE: [
-    'missense_variant',
-    'inframe_insertion',
-    'inframe_deletion',
-    'protein_altering_variant',
+  [
+    {
+      id: 'synonymous',
+      label: 'Synonymous',
+      options: [
+        {
+          value: 'synonymous_variant',
+          label: 'Synonymous',
+          hint: 'Changes a codon without changing the amino acid it encodes.',
+        },
+        {
+          value: 'start_retained_variant',
+          label: 'Start retained',
+          hint: 'Changes the start codon, which still encodes a start.',
+        },
+        {
+          value: 'stop_retained_variant',
+          label: 'Stop retained',
+          hint: 'Changes the stop codon, which still encodes a stop.',
+        },
+      ],
+    },
+    {
+      id: 'extended_splice_site',
+      label: 'Extended splice site',
+      options: [
+        {
+          value: 'splice_donor_5th_base_variant',
+          label: 'Splice donor 5th base',
+          hint: 'Changes the fifth base of the intron after the splice donor.',
+        },
+        {
+          value: 'splice_region_variant',
+          label: 'Splice region',
+          hint: 'Within 1-3 bases of the exon or 3-8 bases of the intron at a splice site.',
+        },
+        {
+          value: 'splice_donor_region_variant',
+          label: 'Splice donor region',
+          hint: 'Between the third and the sixth base of the intron after the splice donor.',
+        },
+        {
+          value: 'splice_polypyrimidine_tract_variant',
+          label: 'Splice polypyrimidine tract',
+          hint: 'In the polypyrimidine tract, 3 to 17 bases before the splice acceptor.',
+        },
+        {
+          value: 'extended_intronic_splice_region_variant',
+          label: 'Extended intronic splice region',
+          hint: "Deeper in the intron near a splice site, as VEP's SpliceRegion plugin marks it in its extended mode.",
+        },
+      ],
+    },
+    {
+      id: 'other',
+      label: 'Other',
+      options: [
+        {
+          value: 'transcript_ablation',
+          label: 'Transcript ablation',
+          hint: 'Deletes the whole transcript.',
+        },
+        {
+          value: 'incomplete_terminal_codon_variant',
+          label: 'Incomplete terminal codon variant',
+          hint: 'Changes the last codon of a transcript whose end is incompletely annotated.',
+        },
+        {
+          value: 'coding_sequence_variant',
+          label: 'Coding sequence variant',
+          hint: 'Changes the coding sequence in a way no more specific term describes.',
+        },
+        {
+          value: 'mature_miRNA_variant',
+          label: 'Mature miRNA variant',
+          hint: 'Within the sequence of a mature microRNA.',
+        },
+        {
+          value: '5_prime_UTR_variant',
+          label: "5' UTR variant",
+          hint: "In the 5' untranslated region.",
+        },
+        {
+          value: '3_prime_UTR_variant',
+          label: "3' UTR variant",
+          hint: "In the 3' untranslated region.",
+        },
+        {
+          value: 'intron_variant',
+          label: 'Intron variant',
+          hint: 'Within an intron.',
+        },
+        {
+          value: 'upstream_gene_variant',
+          label: 'Upstream gene variant',
+          hint: "Upstream of a gene's transcript (within 5 kb, VEP's default).",
+        },
+        {
+          value: 'downstream_gene_variant',
+          label: 'Downstream gene variant',
+          hint: "Downstream of a gene's transcript (within 5 kb, VEP's default).",
+        },
+        {
+          value: 'NMD_transcript_variant',
+          label: 'NMD transcript variant',
+          hint: 'In a transcript that is a target of nonsense-mediated decay.',
+        },
+        {
+          value: 'non_coding_transcript_exon_variant',
+          label: 'Non-coding transcript exon variant',
+          hint: 'In an exon of a non-coding transcript.',
+        },
+        {
+          value: 'non_coding_transcript_variant',
+          label: 'Non-coding transcript variant',
+          hint: 'In a non-coding transcript.',
+        },
+        {
+          value: 'coding_transcript_variant',
+          label: 'Coding transcript variant',
+          hint: 'In a transcript of a protein-coding gene.',
+        },
+        {
+          value: 'intergenic_variant',
+          label: 'Intergenic variant',
+          hint: 'Between genes.',
+        },
+        {
+          value: 'sequence_variant',
+          label: 'Sequence variant',
+          hint: 'A change VEP describes with no more specific term.',
+        },
+      ],
+    },
   ],
-  LOW: ['synonymous_variant', 'splice_region_variant'],
-  MODIFIER: [
-    'coding_sequence_variant',
-    'splice_donor_5th_base_variant',
-    'splice_donor_region_variant',
-    'splice_polypyrimidine_tract_variant',
-    'intron_variant',
-    'motif_feature_variant',
-    'TF_binding_site_variant',
-    'regulatory_region_variant',
-    'upstream_gene_variant',
-    'downstream_gene_variant',
-    'non_coding_transcript_exon_variant',
-  ],
+];
+
+const REGULATORY_CONSEQUENCE_GROUPS: readonly AnnotationGroup[] = [
+  {
+    id: 'motif_feature',
+    label: 'Motif feature',
+    options: [
+      {
+        value: 'TFBS_ablation',
+        label: 'TFBS ablation',
+        hint: 'Deletes a transcription factor binding site.',
+      },
+      {
+        value: 'TFBS_amplification',
+        label: 'TFBS amplification',
+        hint: 'Amplifies a region that contains a transcription factor binding site.',
+      },
+      {
+        value: 'TF_binding_site_variant',
+        label: 'TF binding site variant',
+        hint: 'Within a transcription factor binding site that Ensembl annotates.',
+      },
+    ],
+  },
+  {
+    id: 'regulatory_feature',
+    label: 'Regulatory feature',
+    options: [
+      {
+        value: 'regulatory_region_variant',
+        label: 'Regulatory region variant',
+        hint: 'Within a regulatory region that Ensembl annotates.',
+      },
+      {
+        value: 'regulatory_region_ablation',
+        label: 'Regulatory region ablation',
+        hint: 'Deletes a regulatory region.',
+      },
+      {
+        value: 'regulatory_region_amplification',
+        label: 'Regulatory region amplification',
+        hint: 'Amplifies a region that contains a regulatory region.',
+      },
+    ],
+  },
+];
+
+const OFFERED_CONSEQUENCES = new Set(
+  [...CONSEQUENCE_GROUP_ROWS.flat(), ...REGULATORY_CONSEQUENCE_GROUPS].flatMap((group) =>
+    group.options.map((option) => option.value.toLowerCase()),
+  ),
+);
+
+// VEP's own impact rating of a transcript's consequence. The built-in presets filter on it.
+const VEP_IMPACT_OPTIONS: readonly AnnotationOption[] = [
+  {
+    value: 'HIGH',
+    label: 'HIGH',
+    hint: 'Assumed to disrupt the protein: stop gained, frameshift, essential splice site, start or stop lost.',
+  },
+  {
+    value: 'MODERATE',
+    label: 'MODERATE',
+    hint: 'May change the protein without disrupting it: missense, in-frame insertion or deletion.',
+  },
+  {
+    value: 'LOW',
+    label: 'LOW',
+    hint: 'Assumed mostly harmless: synonymous, splice region.',
+  },
+  {
+    value: 'MODIFIER',
+    label: 'MODIFIER',
+    hint: 'Non-coding, or no evidence of an impact: intronic, UTR, up- or downstream, intergenic.',
+  },
+];
+
+/** Whether a list filter holds the value, as the search reads it: case aside. */
+const holdsValue = (selected: readonly string[], value: string) =>
+  selected.some((entry) => entry.toLowerCase() === value.toLowerCase());
+
+/** A list filter with the values added, or with them removed when `checked` is false. */
+const withValues = (selected: readonly string[], values: readonly string[], checked: boolean) => {
+  const folded = new Set(values.map((value) => value.toLowerCase()));
+  const kept = selected.filter((entry) => !folded.has(entry.toLowerCase()));
+  return joinFilterValues(checked ? [...kept, ...values] : kept);
 };
 
 const countTextAreaEntries = (value: string) =>
@@ -146,6 +425,190 @@ const FilterSection = ({
   </details>
 );
 
+/** One position of a step slider; '' is the step that sets no limit. */
+type SliderStep = { value: string; label: string };
+
+const AF_SLIDER_STEPS: readonly SliderStep[] = [
+  ...['0', '0.0001', '0.0005', '0.001', '0.005', '0.01', '0.02', '0.03', '0.04', '0.05', '0.1'].map(
+    (value) => ({ value, label: value }),
+  ),
+  { value: '', label: '1' },
+];
+
+// A minimum of 0 sets no limit, so the first step of a quality slider clears the field.
+const countSteps = (max: number, every = 1): SliderStep[] =>
+  Array.from({ length: Math.floor(max / every) + 1 }, (_, index) => {
+    const count = index * every;
+    return { value: count === 0 ? '' : String(count), label: String(count) };
+  });
+
+const GQ_SLIDER_STEPS = countSteps(100, 5);
+const DP_SLIDER_STEPS = countSteps(50);
+const AD_SLIDER_STEPS = countSteps(20);
+// The allele fraction is kept as a fraction (0.2) and shown as a percent (20%).
+const AB_SLIDER_STEPS: readonly SliderStep[] = Array.from({ length: 101 }, (_, percent) => ({
+  value: percent === 0 ? '' : String(percent / 100),
+  label: `${percent}%`,
+}));
+
+/** The step a value sits on: its own step, else the nearest one. */
+const sliderStepIndex = (steps: readonly SliderStep[], value: string) => {
+  const trimmed = value.trim();
+  if (!trimmed) return Math.max(0, steps.findIndex((step) => step.value === ''));
+  const target = Number(trimmed);
+  let nearest = 0;
+  let nearestDistance = Number.POSITIVE_INFINITY;
+  steps.forEach((step, index) => {
+    if (step.value === '') return;
+    const distance = Math.abs(Number(step.value) - target);
+    if (distance < nearestDistance) {
+      nearest = index;
+      nearestDistance = distance;
+    }
+  });
+  return nearest;
+};
+
+/**
+ * A slider over fixed steps, as seqr's: the value it holds above the thumb, the first and
+ * last steps under the track. A value between two steps (from a saved search or a link) is
+ * shown as it is, with the thumb at the nearest step, and changes only when the thumb is
+ * moved. `value` null reads "mixed": the members it sets differ.
+ */
+const StepSlider = ({
+  name,
+  steps,
+  value,
+  onChange,
+}: {
+  name: string;
+  steps: readonly SliderStep[];
+  value: string | null;
+  onChange: (value: string) => void;
+}) => {
+  const index = value === null ? 0 : sliderStepIndex(steps, value);
+  const step = steps[index];
+  const onStep =
+    value !== null &&
+    (value.trim() === '' ? step.value === '' : step.value !== '' && Number(step.value) === Number(value));
+  const shown = value === null ? 'mixed' : onStep ? step.label : value.trim();
+  const position = steps.length > 1 ? index / (steps.length - 1) : 0;
+  return (
+    <div
+      className="variant-step-slider"
+      style={{ '--slider-position': String(position) } as CSSProperties}
+    >
+      <span className="variant-step-slider-value" aria-hidden="true">
+        {shown}
+      </span>
+      <input
+        type="range"
+        min={0}
+        max={steps.length - 1}
+        step={1}
+        value={index}
+        aria-label={name}
+        aria-valuetext={shown}
+        onChange={(event) => onChange(steps[Number(event.target.value)].value)}
+      />
+      <span className="variant-step-slider-ends" aria-hidden="true">
+        <span>{steps[0].label}</span>
+        <span>{steps[steps.length - 1].label}</span>
+      </span>
+    </div>
+  );
+};
+
+/** A column title with the "i" that explains it. */
+const ColumnTitle = ({ label, hint }: { label: string; hint: string }) => (
+  <span className="variant-filter-column-title">
+    {label}
+    <InfoIcon name={`About ${label}`} text={hint} />
+  </span>
+);
+
+/** A ticked-or-not term of the Annotations section, with the "i" that explains it. */
+const AnnotationCheckbox = ({
+  label,
+  hint,
+  checked,
+  onChange,
+}: {
+  label: string;
+  hint?: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) => (
+  <span className="variant-annotation-option">
+    <label className="analysis-checkbox variant-compact-checkbox">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+      />
+      {label}
+    </label>
+    {hint ? <InfoIcon name={`About ${label}`} text={hint} /> : null}
+  </span>
+);
+
+/**
+ * A column of the Annotations section: the group's terms, under a box that ticks or clears
+ * them all (half-ticked when some are) or, for a group of choices that are not one kind of
+ * consequence (the VEP impacts), under its title alone.
+ */
+const AnnotationGroupColumn = ({
+  group,
+  selected,
+  onChange,
+  wholeGroupBox = true,
+  className,
+}: {
+  group: AnnotationGroup;
+  selected: readonly string[];
+  onChange: (values: readonly string[], checked: boolean) => void;
+  wholeGroupBox?: boolean;
+  className?: string;
+}) => {
+  const values = group.options.map((option) => option.value);
+  const held = values.filter((value) => holdsValue(selected, value)).length;
+  return (
+    <div
+      className={`variant-annotation-group${className ? ` ${className}` : ''}`}
+      role="group"
+      aria-label={group.label}
+    >
+      {wholeGroupBox ? (
+        <label className="analysis-checkbox variant-annotation-group-title">
+          <input
+            type="checkbox"
+            aria-label={`${group.label} (whole group)`}
+            checked={held === values.length}
+            ref={(input) => {
+              if (input) input.indeterminate = held > 0 && held < values.length;
+            }}
+            onChange={(event) => onChange(values, event.target.checked)}
+          />
+          {group.label}
+        </label>
+      ) : (
+        <span className="variant-annotation-group-title">{group.label}</span>
+      )}
+      <div className="variant-annotation-options">
+        {group.options.map((option) => (
+          <AnnotationCheckbox
+            key={option.value}
+            label={option.label}
+            hint={option.hint}
+            checked={holdsValue(selected, option.value)}
+            onChange={(checked) => onChange([option.value], checked)}
+          />
+        ))}
+      </div>
+    </div>
+  );
+};
+
 export const DEFAULT_OPEN_SECTIONS = {
   phenotype: false,
   svSecondHit: false,
@@ -155,6 +618,7 @@ export const DEFAULT_OPEN_SECTIONS = {
   annotations: false,
   inSilico: false,
   frequency: false,
+  callQuality: false,
   locations: false,
   exclude: false,
   review: false,
@@ -188,15 +652,11 @@ export interface FilterSectionForm
     event: ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>,
   ) => void;
   toggleSingleValueCheckbox: (key: keyof SmallFilterState, optionValue: string) => void;
-  numericFilterEquals: (value: string, target: string) => boolean;
-  setSampleQualityThresholds: (thresholds: {
-    qual: string;
-    dp: string;
-    af: string;
-    ad_alt: string;
-  }) => void;
   updateInheritanceGenotypes: (strategy: (member: FamilyMember) => ReadonlySet<GtGroupId>) => void;
-  activeSampleMemberCount: number;
+  /** The members whose genotypes are narrowed (some, not all, genotype groups ticked). */
+  activeGenotypeMemberCount: number;
+  /** The members with a call-quality minimum set. */
+  activeQualityMemberCount: number;
   carrierScreeningCouple: ReturnType<typeof resolveCarrierScreeningCoupleMembers>;
   clinvarOptions: FilterOption[];
   standardTagOptions: FilterOption[];
@@ -213,20 +673,28 @@ export interface FilterSectionForm
  */
 export const SECTION_FILTER_COUNTS: Record<
   keyof OpenSections,
-  (form: Pick<FilterSectionForm, 'draftFilters' | 'activeSampleMemberCount' | 'offers'>) => number
+  (
+    form: Pick<
+      FilterSectionForm,
+      'draftFilters' | 'activeGenotypeMemberCount' | 'activeQualityMemberCount' | 'offers'
+    >,
+  ) => number
 > = {
   phenotype: ({ draftFilters }) => (draftFilters.prioritize === 'true' ? 1 : 0),
   svSecondHit: ({ draftFilters }) => (draftFilters.require_sv_second_hit === 'true' ? 1 : 0),
-  inheritance: ({ draftFilters, activeSampleMemberCount }) =>
-    activeSampleMemberCount +
+  inheritance: ({ draftFilters, activeGenotypeMemberCount }) =>
+    activeGenotypeMemberCount +
     (draftFilters.expanded_carrier_screening === 'true' ? 1 : 0) +
     countNonEmpty(draftFilters.inheritance, draftFilters.type, draftFilters.source, draftFilters.ps),
   categories: ({ draftFilters }) => parseCommaSeparatedValues(draftFilters.category).length,
   pathogenicity: ({ draftFilters }) => parseCommaSeparatedValues(draftFilters.clinvar).length,
+  // SpliceAI is set under Annotations, as in seqr; the search also reads it as an in-silico
+  // predictor (the In silico note says so).
   annotations: ({ draftFilters }) =>
     parseCommaSeparatedValues(draftFilters.impact).length +
     parseCommaSeparatedValues(draftFilters.effect).length +
     countNonEmpty(
+      draftFilters.min_spliceai,
       draftFilters.transcript,
       draftFilters.rsid,
       draftFilters.hgvsc,
@@ -239,7 +707,6 @@ export const SECTION_FILTER_COUNTS: Record<
     countNonEmpty(
       draftFilters.min_cadd,
       draftFilters.min_revel,
-      draftFilters.min_spliceai,
       draftFilters.sift,
       draftFilters.polyphen,
     ),
@@ -254,6 +721,8 @@ export const SECTION_FILTER_COUNTS: Record<
       draftFilters.max_gnomad_hom_count,
       draftFilters.max_gnomad_hemi_count,
     ),
+  callQuality: ({ draftFilters, activeQualityMemberCount }) =>
+    activeQualityMemberCount + (draftFilters.pass_only === 'true' ? 1 : 0),
   locations: ({ draftFilters }) =>
     countNonEmpty(draftFilters.panel_id) +
     (draftFilters.gene.trim() ? countTextAreaEntries(draftFilters.gene) : 0) +
@@ -372,13 +841,11 @@ export const InheritanceFilterSection = ({ form }: { form: FilterSectionForm }) 
     draftFilters,
     handleDraftFieldChange,
     handleGtToggle,
-    handleSampleFieldChange,
     handleSectionToggle,
     members,
     openSections,
     sampleDraftFilters,
     setDraftFilterValue,
-    setSampleQualityThresholds,
     summarizeSection,
     toggleSingleValueCheckbox,
     updateInheritanceGenotypes,
@@ -438,20 +905,6 @@ export const InheritanceFilterSection = ({ form }: { form: FilterSectionForm }) 
     }
   };
 
-  const applyCallQualityQuickFilter = (value: string) => {
-    if (value === 'all_variants') {
-      setSampleQualityThresholds({ qual: '', dp: '', af: '', ad_alt: '' });
-      return;
-    }
-    if (value === 'all_passing') {
-      setSampleQualityThresholds({ qual: '15', dp: '8', af: '0.18', ad_alt: '3' });
-      return;
-    }
-    if (value === 'high_quality') {
-      setSampleQualityThresholds({ qual: '20', dp: '10', af: '0.2', ad_alt: '4' });
-    }
-  };
-
   const selectedInheritanceQuickFilter = (() => {
     if (!draftFilters.inheritance) {
       return 'all';
@@ -467,40 +920,6 @@ export const InheritanceFilterSection = ({ form }: { form: FilterSectionForm }) 
     }
     if (draftFilters.inheritance === 'x_linked') {
       return 'x_linked';
-    }
-    return 'custom';
-  })();
-
-  const selectedCallQualityQuickFilter = (() => {
-    const allThresholds = members.map((member) => sampleDraftFilters[member.sample_id]);
-    if (
-      allThresholds.every(
-        (filter) => (filter?.qual ?? '') === '' && (filter?.dp ?? '') === '' && (filter?.af ?? '') === '' && (filter?.ad_alt ?? '') === '',
-      )
-    ) {
-      return 'all_variants';
-    }
-    if (
-      allThresholds.every(
-        (filter) =>
-          (filter?.qual ?? '') === '20' &&
-          (filter?.dp ?? '') === '10' &&
-          (filter?.af ?? '') === '0.2' &&
-          (filter?.ad_alt ?? '') === '4',
-      )
-    ) {
-      return 'high_quality';
-    }
-    if (
-      allThresholds.every(
-        (filter) =>
-          (filter?.qual ?? '') === '15' &&
-          (filter?.dp ?? '') === '8' &&
-          (filter?.af ?? '') === '0.18' &&
-          (filter?.ad_alt ?? '') === '3',
-      )
-    ) {
-      return 'all_passing';
     }
     return 'custom';
   })();
@@ -524,19 +943,6 @@ export const InheritanceFilterSection = ({ form }: { form: FilterSectionForm }) 
               <option value="recessive_homozygous">Recessive homozygous</option>
               <option value="compound_het">Compound heterozygous</option>
               <option value="x_linked">X-linked</option>
-              <option value="custom">Custom</option>
-            </select>
-          </label>
-          <label className="variant-summary-select-field">
-            <span>Quality</span>
-            <select
-              aria-label="Quick call quality"
-              value={selectedCallQualityQuickFilter}
-              onChange={(event) => applyCallQualityQuickFilter(event.target.value)}
-            >
-              <option value="all_variants">All</option>
-              <option value="high_quality">High</option>
-              <option value="all_passing">Passing</option>
               <option value="custom">Custom</option>
             </select>
           </label>
@@ -611,36 +1017,6 @@ export const InheritanceFilterSection = ({ form }: { form: FilterSectionForm }) 
                         {option.label}
                       </label>
                     ))}
-                  </div>
-                  <div className="analysis-filter-grid analysis-filter-grid--4">
-                    <input
-                      placeholder="GQ / QUAL ≥"
-                      value={filter?.qual ?? ''}
-                      onChange={(event) =>
-                        handleSampleFieldChange(sample, 'qual', event.target.value)
-                      }
-                    />
-                    <input
-                      placeholder="DP ≥"
-                      value={filter?.dp ?? ''}
-                      onChange={(event) =>
-                        handleSampleFieldChange(sample, 'dp', event.target.value)
-                      }
-                    />
-                    <input
-                      placeholder="AF ≥"
-                      value={filter?.af ?? ''}
-                      onChange={(event) =>
-                        handleSampleFieldChange(sample, 'af', event.target.value)
-                      }
-                    />
-                    <input
-                      placeholder="AD alt ≥"
-                      value={filter?.ad_alt ?? ''}
-                      onChange={(event) =>
-                        handleSampleFieldChange(sample, 'ad_alt', event.target.value)
-                      }
-                    />
                   </div>
                 </div>
               </div>
@@ -915,7 +1291,6 @@ export const AnnotationsFilterSection = ({ form }: { form: FilterSectionForm }) 
     openSections,
     setDraftFilterValue,
     summarizeSection,
-    toggleDraftFilterListValue,
   } = form;
   const annotationFilterCount = SECTION_FILTER_COUNTS.annotations(form);
   const selectedImpactValues = parseCommaSeparatedValues(draftFilters.impact);
@@ -942,21 +1317,28 @@ export const AnnotationsFilterSection = ({ form }: { form: FilterSectionForm }) 
     }
   };
 
-  const handleImpactCategoryToggle = (impact: string, checked: boolean) => {
-    const consequences = CONSEQUENCE_BY_IMPACT[impact] ?? [];
-    const impactSet = new Set(parseCommaSeparatedValues(draftFilters.impact));
-    const effectSet = new Set(parseCommaSeparatedValues(draftFilters.effect));
-
-    if (checked) {
-      impactSet.add(impact);
-      consequences.forEach((value) => effectSet.add(value));
-    } else {
-      impactSet.delete(impact);
-      consequences.forEach((value) => effectSet.delete(value));
-    }
-
-    setDraftFilterValue('impact', joinFilterValues(impactSet));
-    setDraftFilterValue('effect', joinFilterValues(effectSet));
+  const setEffects = (values: readonly string[], checked: boolean) =>
+    setDraftFilterValue('effect', withValues(selectedEffectValues, values, checked));
+  const setImpacts = (values: readonly string[], checked: boolean) =>
+    setDraftFilterValue('impact', withValues(selectedImpactValues, values, checked));
+  // A term or impact a saved search or a link holds that no box offers is listed, ticked,
+  // so it can be seen and unticked.
+  const heldEffectGroup: AnnotationGroup = {
+    id: 'held',
+    label: 'Other selected terms',
+    options: selectedEffectValues
+      .filter((value) => !OFFERED_CONSEQUENCES.has(value.toLowerCase()))
+      .map((value) => ({ value, label: value, hint: '' })),
+  };
+  const impactGroup: AnnotationGroup = {
+    id: 'impact',
+    label: 'VEP impact',
+    options: [
+      ...VEP_IMPACT_OPTIONS,
+      ...selectedImpactValues
+        .filter((value) => !VEP_IMPACT_OPTIONS.some((option) => holdsValue([option.value], value)))
+        .map((value) => ({ value, label: value, hint: '' })),
+    ],
   };
 
   const selectedAnnotationQuickFilter = (() => {
@@ -1001,9 +1383,9 @@ export const AnnotationsFilterSection = ({ form }: { form: FilterSectionForm }) 
               onChange={(event) => applyAnnotationQuickFilter(event.target.value)}
             >
               <option value="all">All</option>
-              <option value="high_impact">High</option>
-              <option value="moderate_to_high">Mod+High</option>
-              <option value="all_coding">Coding</option>
+              <option value="high_impact">High impact</option>
+              <option value="moderate_to_high">Moderate to high impact</option>
+              <option value="all_coding">All coding</option>
               <option value="custom">Custom</option>
             </select>
           </label>
@@ -1011,36 +1393,89 @@ export const AnnotationsFilterSection = ({ form }: { form: FilterSectionForm }) 
       }
     >
       <div className="variant-filter-dropdown-content">
-        <div className="variant-annotation-impact-groups">
-          {Object.entries(CONSEQUENCE_BY_IMPACT).map(([impact, consequences]) => (
-            <div key={impact} className="variant-annotation-impact-group">
-              <label className="analysis-checkbox variant-annotation-impact-title-row">
-                <input
-                  type="checkbox"
-                  checked={selectedImpactValues.includes(impact)}
-                  onChange={(event) =>
-                    handleImpactCategoryToggle(impact, event.target.checked)
-                  }
+        <p className="variant-filter-section-note">
+          A variant is kept when one of its transcripts has any of the ticked consequences or VEP
+          impacts, or reaches the SpliceAI minimum. The transcript filters and the identifiers below
+          must hold on that same transcript.
+        </p>
+        <div className="variant-annotation-layout">
+          {CONSEQUENCE_GROUP_ROWS.map((row) => (
+            <div key={row[0].id} className="variant-annotation-row">
+              {row.map((group) => (
+                <AnnotationGroupColumn
+                  key={group.id}
+                  group={group}
+                  selected={selectedEffectValues}
+                  onChange={setEffects}
+                  className={group.id === 'other' ? 'variant-annotation-group--wide' : undefined}
                 />
-                <span className="variant-annotation-impact-title">{impact}</span>
-              </label>
-              <div className="variant-checkbox-grid variant-checkbox-grid--small">
-                {consequences.map((consequence) => (
-                  <label
-                    key={consequence}
-                    className="analysis-checkbox variant-compact-checkbox"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selectedEffectValues.includes(consequence)}
-                      onChange={() => toggleDraftFilterListValue('effect', consequence)}
-                    />
-                    {consequence.replace(/_/g, ' ')}
-                  </label>
-                ))}
-              </div>
+              ))}
             </div>
           ))}
+          <div className="variant-annotation-row">
+            <div className="variant-annotation-group">
+              <label className="variant-annotation-field">
+                <ColumnTitle
+                  label="SpliceAI ≥"
+                  hint="Keeps a variant whose SpliceAI delta score (0 to 1) reaches this minimum, whatever its consequence. In silico reads it as one of its predictors too."
+                />
+                <input
+                  name="min_spliceai"
+                  inputMode="decimal"
+                  placeholder="e.g. 0.2"
+                  value={draftFilters.min_spliceai}
+                  onChange={handleDraftFieldChange}
+                />
+              </label>
+            </div>
+            {REGULATORY_CONSEQUENCE_GROUPS.map((group) => (
+              <AnnotationGroupColumn
+                key={group.id}
+                group={group}
+                selected={selectedEffectValues}
+                onChange={setEffects}
+              />
+            ))}
+            <AnnotationGroupColumn
+              group={impactGroup}
+              selected={selectedImpactValues}
+              onChange={setImpacts}
+              wholeGroupBox={false}
+            />
+            <div className="variant-annotation-group" role="group" aria-label="Transcripts">
+              <span className="variant-annotation-group-title">Transcripts</span>
+              <div className="variant-annotation-options">
+                <AnnotationCheckbox
+                  label="Canonical only"
+                  hint="Only the transcript VEP flags as canonical."
+                  checked={draftFilters.canonical_only === 'true'}
+                  onChange={(checked) => setDraftFilterValue('canonical_only', checked ? 'true' : '')}
+                />
+                <AnnotationCheckbox
+                  label="MANE only"
+                  hint="Only a MANE Select or MANE Plus Clinical transcript. VEP sets these on GRCh38 only."
+                  checked={draftFilters.mane_only === 'true'}
+                  onChange={(checked) => setDraftFilterValue('mane_only', checked ? 'true' : '')}
+                />
+                <AnnotationCheckbox
+                  label="LoF only"
+                  hint="Only a transcript with a loss-of-function (LoF) call in its annotation."
+                  checked={draftFilters.lof_only === 'true'}
+                  onChange={(checked) => setDraftFilterValue('lof_only', checked ? 'true' : '')}
+                />
+              </div>
+            </div>
+          </div>
+          {heldEffectGroup.options.length ? (
+            <div className="variant-annotation-row">
+              <AnnotationGroupColumn
+                group={heldEffectGroup}
+                selected={selectedEffectValues}
+                onChange={setEffects}
+                wholeGroupBox={false}
+              />
+            </div>
+          ) : null}
         </div>
 
         <div className="analysis-filter-grid analysis-filter-grid--4">
@@ -1070,39 +1505,6 @@ export const AnnotationsFilterSection = ({ form }: { form: FilterSectionForm }) 
             value={draftFilters.hgvsp}
             onChange={handleDraftFieldChange}
           />
-        </div>
-
-        <div className="variant-gt-toggle-row">
-          <label className="analysis-checkbox">
-            <input
-              type="checkbox"
-              checked={draftFilters.canonical_only === 'true'}
-              onChange={(event) =>
-                setDraftFilterValue('canonical_only', event.target.checked ? 'true' : '')
-              }
-            />
-            Canonical only
-          </label>
-          <label className="analysis-checkbox">
-            <input
-              type="checkbox"
-              checked={draftFilters.mane_only === 'true'}
-              onChange={(event) =>
-                setDraftFilterValue('mane_only', event.target.checked ? 'true' : '')
-              }
-            />
-            MANE only
-          </label>
-          <label className="analysis-checkbox">
-            <input
-              type="checkbox"
-              checked={draftFilters.lof_only === 'true'}
-              onChange={(event) =>
-                setDraftFilterValue('lof_only', event.target.checked ? 'true' : '')
-              }
-            />
-            LoF only
-          </label>
         </div>
       </div>
     </FilterSection>
@@ -1140,12 +1542,6 @@ export const InSilicoFilterSection = ({ form }: { form: FilterSectionForm }) => 
             value={draftFilters.min_revel}
             onChange={handleDraftFieldChange}
           />
-          <input
-            name="min_spliceai"
-            placeholder="SpliceAI ≥"
-            value={draftFilters.min_spliceai}
-            onChange={handleDraftFieldChange}
-          />
         </div>
         <div className="variant-inline-controls">
           <div>
@@ -1181,11 +1577,52 @@ export const InSilicoFilterSection = ({ form }: { form: FilterSectionForm }) => 
         </div>
         <p className="table-subtle">
           Variants matching any selected predictor are returned. Numeric thresholds are
-          interpreted as greater-than-or-equal filters.
+          interpreted as greater-than-or-equal filters. The SpliceAI minimum, set under
+          Annotations, counts as one of these predictors too.
         </p>
       </div>
     </FilterSection>
   );
+};
+
+// The population frequency maximums, as seqr's columns: one slider per population.
+const FREQUENCY_POPULATIONS: readonly {
+  key: keyof SmallFilterState;
+  label: string;
+  hint: string;
+}[] = [
+  {
+    key: 'max_gnomad_genomes_af',
+    label: 'gnomAD genomes',
+    hint: 'Maximum allele frequency in gnomAD genomes. A variant gnomAD genomes lacks passes.',
+  },
+  {
+    key: 'max_gnomad_exomes_af',
+    label: 'gnomAD exomes',
+    hint: 'Maximum allele frequency in gnomAD exomes. A variant gnomAD exomes lacks passes.',
+  },
+  {
+    key: 'max_gnomad_popmax_af',
+    label: 'gnomAD popmax',
+    hint: 'Maximum allele frequency in the gnomAD population where the variant is most common. A variant without it passes.',
+  },
+  {
+    key: 'max_gnomad_af',
+    label: 'gnomAD combined',
+    hint: "Maximum of gnomAD's combined allele frequency; without one, the higher of the exome and genome frequencies. A variant without either passes.",
+  },
+  {
+    key: 'max_topmed_af',
+    label: 'TOPMed',
+    hint: 'Maximum allele frequency in TOPMed. A variant TOPMed lacks passes.',
+  },
+];
+
+/** The value the fields share ('' when none is set), or null when the set ones differ. */
+const sharedFilterValue = (values: readonly string[]) => {
+  const set = values.map((value) => value.trim()).filter(Boolean);
+  if (!set.length) return '';
+  return set.every((value) => Number(value) === Number(set[0])) ? set[0] : null;
 };
 
 export const FrequencyFilterSection = ({ form }: { form: FilterSectionForm }) => {
@@ -1193,76 +1630,31 @@ export const FrequencyFilterSection = ({ form }: { form: FilterSectionForm }) =>
     draftFilters,
     handleDraftFieldChange,
     handleSectionToggle,
-    numericFilterEquals,
     openSections,
     setDraftFilterValue,
     summarizeSection,
   } = form;
   const frequencyFilterCount = SECTION_FILTER_COUNTS.frequency(form);
 
-  const setFrequencyFromPercent = (key: keyof SmallFilterState, percentValue: number) => {
-    if (!Number.isFinite(percentValue) || percentValue <= 0) {
-      setDraftFilterValue(key, '');
-      return;
-    }
-    const normalized = Math.min(10, Math.max(0, percentValue)) / 100;
-    setDraftFilterValue(key, normalized.toFixed(4).replace(/\.?0+$/, ''));
+  // The header sets every population at once, as seqr's does; it shows the value the set
+  // populations share, and "mixed" when they differ.
+  const sharedAf = sharedFilterValue(FREQUENCY_POPULATIONS.map(({ key }) => draftFilters[key]));
+  const afStepValues = AF_SLIDER_STEPS.filter((step) => step.value !== '').map((step) => step.value);
+  const headerAf =
+    sharedAf === null
+      ? 'mixed'
+      : (afStepValues.find((value) => sharedAf !== '' && Number(value) === Number(sharedAf)) ??
+        sharedAf);
+  const sharedHomHemi = sharedFilterValue([
+    draftFilters.max_gnomad_hom_count,
+    draftFilters.max_gnomad_hemi_count,
+  ]);
+  const setAllAf = (value: string) =>
+    FREQUENCY_POPULATIONS.forEach(({ key }) => setDraftFilterValue(key, value));
+  const setHomHemi = (value: string) => {
+    setDraftFilterValue('max_gnomad_hom_count', value);
+    setDraftFilterValue('max_gnomad_hemi_count', value);
   };
-
-  const applyFrequencyQuickFilter = (value: string) => {
-    if (value === 'all') {
-      setDraftFilterValue('max_gnomad_af', '');
-      setDraftFilterValue('max_gnomad_exomes_af', '');
-      setDraftFilterValue('max_gnomad_genomes_af', '');
-      setDraftFilterValue('max_gnomad_popmax_af', '');
-      setDraftFilterValue('max_topmed_af', '');
-      setDraftFilterValue('max_gnomad_ac', '');
-      setDraftFilterValue('max_gnomad_hom_count', '');
-      setDraftFilterValue('max_gnomad_hemi_count', '');
-      return;
-    }
-    if (value === 'gnomad_rare') {
-      setDraftFilterValue('max_gnomad_af', '');
-      setDraftFilterValue('max_gnomad_exomes_af', FREQUENCY_QUICK_GNOMAD_AF);
-      setDraftFilterValue('max_gnomad_genomes_af', FREQUENCY_QUICK_GNOMAD_AF);
-      // Popmax has to be constrained too. An annotation run that emits VEP's MAX_AF but
-      // no gnomAD exome/genome AF leaves those two filters comparing against a missing
-      // value, which the query treats as 0 — so a variant at popmax 1.0 passed a
-      // "gnomAD <1%" preset untouched.
-      setDraftFilterValue('max_gnomad_popmax_af', FREQUENCY_QUICK_GNOMAD_AF);
-      setDraftFilterValue('max_topmed_af', '');
-      setDraftFilterValue('max_gnomad_ac', '');
-      setDraftFilterValue('max_gnomad_hom_count', FREQUENCY_QUICK_GNOMAD_COUNT);
-      setDraftFilterValue('max_gnomad_hemi_count', FREQUENCY_QUICK_GNOMAD_COUNT);
-    }
-  };
-
-  const selectedFrequencyQuickFilter = (() => {
-    const allFrequencyValues = [
-      draftFilters.max_gnomad_af,
-      draftFilters.max_gnomad_exomes_af,
-      draftFilters.max_gnomad_genomes_af,
-      draftFilters.max_gnomad_popmax_af,
-      draftFilters.max_topmed_af,
-      draftFilters.max_gnomad_ac,
-      draftFilters.max_gnomad_hom_count,
-      draftFilters.max_gnomad_hemi_count,
-    ];
-    if (allFrequencyValues.every((value) => value.trim() === '')) return 'all';
-    if (
-      !draftFilters.max_gnomad_af.trim() &&
-      !draftFilters.max_topmed_af.trim() &&
-      !draftFilters.max_gnomad_ac.trim() &&
-      numericFilterEquals(draftFilters.max_gnomad_exomes_af, FREQUENCY_QUICK_GNOMAD_AF) &&
-      numericFilterEquals(draftFilters.max_gnomad_genomes_af, FREQUENCY_QUICK_GNOMAD_AF) &&
-      numericFilterEquals(draftFilters.max_gnomad_popmax_af, FREQUENCY_QUICK_GNOMAD_AF) &&
-      numericFilterEquals(draftFilters.max_gnomad_hom_count, FREQUENCY_QUICK_GNOMAD_COUNT) &&
-      numericFilterEquals(draftFilters.max_gnomad_hemi_count, FREQUENCY_QUICK_GNOMAD_COUNT)
-    ) {
-      return 'gnomad_rare';
-    }
-    return 'custom';
-  })();
   return (
     <FilterSection
       title="Frequency"
@@ -1272,78 +1664,104 @@ export const FrequencyFilterSection = ({ form }: { form: FilterSectionForm }) =>
       controls={
         <>
           <label className="variant-summary-select-field">
-            <span>Quick</span>
+            <span>AF</span>
             <select
-              aria-label="Quick frequency"
-              value={selectedFrequencyQuickFilter}
-              onChange={(event) => applyFrequencyQuickFilter(event.target.value)}
+              aria-label="Maximum AF, all populations"
+              value={headerAf}
+              onChange={(event) => setAllAf(event.target.value)}
             >
-              <option value="all">All</option>
-              <option value="gnomad_rare">gnomAD &lt;1%, H/H &lt;=10</option>
-              <option value="custom">Custom</option>
+              <option value="">Any</option>
+              {afStepValues.map((value) => (
+                <option key={value} value={value}>
+                  {value}
+                </option>
+              ))}
+              {headerAf !== 'mixed' && headerAf !== '' && !afStepValues.includes(headerAf) ? (
+                <option value={headerAf}>{headerAf}</option>
+              ) : null}
+              {headerAf === 'mixed' ? (
+                <option value="mixed" disabled>
+                  Mixed
+                </option>
+              ) : null}
             </select>
+          </label>
+          <label className="variant-summary-select-field variant-summary-input-field">
+            <span>AC</span>
+            <input
+              aria-label="Maximum gnomAD AC"
+              name="max_gnomad_ac"
+              inputMode="numeric"
+              value={draftFilters.max_gnomad_ac}
+              onChange={handleDraftFieldChange}
+            />
+          </label>
+          <label className="variant-summary-select-field variant-summary-input-field">
+            <span>H/H</span>
+            <input
+              aria-label="Maximum gnomAD homozygotes and hemizygotes"
+              inputMode="numeric"
+              placeholder={sharedHomHemi === null ? 'mixed' : undefined}
+              value={sharedHomHemi ?? ''}
+              onChange={(event) => setHomHemi(event.target.value)}
+            />
           </label>
         </>
       }
     >
       <div className="variant-filter-dropdown-content">
-        <div className="variant-frequency-slider-grid">
-          {[
-            ['max_gnomad_af', 'gnomAD AF'],
-            ['max_gnomad_popmax_af', 'gnomAD popmax AF'],
-            ['max_gnomad_exomes_af', 'gnomAD exomes AF'],
-            ['max_gnomad_genomes_af', 'gnomAD genomes AF'],
-            ['max_topmed_af', 'TOPMed AF'],
-          ].map(([key, label]) => (
-            <div key={key} className="variant-frequency-slider-row">
-              <div className="variant-frequency-slider-header">
-                <span>{label}</span>
-                <span>{formatPercentFilterValue(draftFilters[key as keyof SmallFilterState])}</span>
-              </div>
-              <input
-                type="range"
-                min={0}
-                max={10}
-                step={0.1}
-                value={normalizePercentValue(
-                  String(Number(draftFilters[key as keyof SmallFilterState] || '0') * 100),
-                )}
-                onChange={(event) =>
-                  setFrequencyFromPercent(
-                    key as keyof SmallFilterState,
-                    Number(event.target.value),
-                  )
-                }
+        <p className="variant-filter-section-note">
+          Filter on the allele frequency in each population (AF), and on gnomAD&apos;s allele count
+          (AC) and homozygote and hemizygote counts (H/H). A variant a population lacks passes its
+          maximum, as absent from it.
+        </p>
+        <div className="variant-frequency-columns">
+          {FREQUENCY_POPULATIONS.map(({ key, label, hint }) => (
+            <div key={key} className="variant-frequency-column">
+              <ColumnTitle label={label} hint={hint} />
+              <StepSlider
+                name={`${label} maximum AF`}
+                steps={AF_SLIDER_STEPS}
+                value={draftFilters[key]}
+                onChange={(value) => setDraftFilterValue(key, value)}
               />
-              <button
-                type="button"
-                className="button-secondary variant-frequency-clear"
-                onClick={() => setDraftFilterValue(key as keyof SmallFilterState, '')}
-              >
-                Clear
-              </button>
             </div>
           ))}
-        </div>
-        <div className="analysis-filter-grid analysis-filter-grid--4">
-          <input
-            name="max_gnomad_ac"
-            placeholder="gnomAD AC ≤"
-            value={draftFilters.max_gnomad_ac}
-            onChange={handleDraftFieldChange}
-          />
-          <input
-            name="max_gnomad_hom_count"
-            placeholder="gnomAD H/H ≤"
-            value={draftFilters.max_gnomad_hom_count}
-            onChange={handleDraftFieldChange}
-          />
-          <input
-            name="max_gnomad_hemi_count"
-            placeholder="gnomAD hemi ≤"
-            value={draftFilters.max_gnomad_hemi_count}
-            onChange={handleDraftFieldChange}
-          />
+          <div className="variant-frequency-column">
+            <ColumnTitle
+              label="gnomAD counts"
+              hint="gnomAD's totals: its combined count, else the exome and genome counts added. A variant without a count passes, as absent from gnomAD."
+            />
+            <div className="variant-frequency-counts">
+              <label className="variant-inline-field">
+                <span>AC ≤</span>
+                <input
+                  name="max_gnomad_ac"
+                  inputMode="numeric"
+                  value={draftFilters.max_gnomad_ac}
+                  onChange={handleDraftFieldChange}
+                />
+              </label>
+              <label className="variant-inline-field">
+                <span>Hom ≤</span>
+                <input
+                  name="max_gnomad_hom_count"
+                  inputMode="numeric"
+                  value={draftFilters.max_gnomad_hom_count}
+                  onChange={handleDraftFieldChange}
+                />
+              </label>
+              <label className="variant-inline-field">
+                <span>Hemi ≤</span>
+                <input
+                  name="max_gnomad_hemi_count"
+                  inputMode="numeric"
+                  value={draftFilters.max_gnomad_hemi_count}
+                  onChange={handleDraftFieldChange}
+                />
+              </label>
+            </div>
+          </div>
         </div>
         <label className="analysis-checkbox">
           <input
@@ -1358,6 +1776,276 @@ export const FrequencyFilterSection = ({ form }: { form: FilterSectionForm }) =>
           />
           <span>ClinVar pathogenic / likely pathogenic overrules the frequency filter</span>
         </label>
+      </div>
+    </FilterSection>
+  );
+};
+
+type QualityField = 'qual' | 'dp' | 'af' | 'ad_alt';
+
+// The per-member call-quality minimums, in seqr's order: genotype quality and allele balance
+// first. `af` is the allele fraction of the member's call (its allele balance).
+const QUALITY_FIELDS: readonly {
+  key: QualityField;
+  label: string;
+  column: string;
+  steps: readonly SliderStep[];
+  hint: string;
+}[] = [
+  {
+    key: 'qual',
+    label: 'Genotype quality',
+    column: 'GQ ≥',
+    steps: GQ_SLIDER_STEPS,
+    hint: "Minimum genotype quality (GQ) of the member's call.",
+  },
+  {
+    key: 'af',
+    label: 'Allele balance',
+    column: 'AB ≥',
+    steps: AB_SLIDER_STEPS,
+    hint: "Minimum share of the member's reads that carry the alternate allele (the call's allele fraction).",
+  },
+  {
+    key: 'dp',
+    label: 'Depth',
+    column: 'DP ≥',
+    steps: DP_SLIDER_STEPS,
+    hint: "Minimum read depth (DP) of the member's call.",
+  },
+  {
+    key: 'ad_alt',
+    label: 'Alt reads',
+    column: 'AD alt ≥',
+    steps: AD_SLIDER_STEPS,
+    hint: "Minimum number of the member's reads that carry the alternate allele (AD).",
+  },
+];
+
+type QualityThresholds = Record<QualityField, string>;
+
+// The quick choices, as seqr's: High quality and Passing also keep only the variants whose
+// calls passed their callers' FILTER (the owner's decision of 2026-11-03).
+const CALL_QUALITY_PRESETS: Record<'high_quality' | 'all_passing', QualityThresholds> = {
+  high_quality: { qual: '20', dp: '10', af: '0.2', ad_alt: '4' },
+  all_passing: { qual: '15', dp: '8', af: '0.18', ad_alt: '3' },
+};
+const NO_QUALITY_THRESHOLDS: QualityThresholds = { qual: '', dp: '', af: '', ad_alt: '' };
+
+const hasQualityThreshold = (filter: SmallVariantSampleFilter | undefined) =>
+  QUALITY_FIELDS.some(({ key }) => (filter?.[key] ?? '').trim() !== '');
+
+export const CallQualityFilterSection = ({ form }: { form: FilterSectionForm }) => {
+  const {
+    draftFilters,
+    handleSampleFieldChange,
+    handleSectionToggle,
+    members,
+    openSections,
+    sampleDraftFilters,
+    setDraftFilterValue,
+    summarizeSection,
+  } = form;
+  const passOnly = draftFilters.pass_only === 'true';
+  // seqr's "Affected only": the minimums apply to the affected members alone, so an
+  // unaffected parent's reference call is not held to an allele balance it cannot have. It
+  // reads off the draft: on while no unaffected member has a minimum and an affected one
+  // does; with no minimum set at all, as last chosen (on at first).
+  const [preferAffectedOnly, setPreferAffectedOnly] = useState(true);
+  const affectedMembers = members.filter((member) => member.affected);
+  const unaffectedMembers = members.filter((member) => !member.affected);
+  const canLimitToAffected = affectedMembers.length > 0 && unaffectedMembers.length > 0;
+  const holdsMinimum = (member: FamilyMember) => hasQualityThreshold(sampleDraftFilters[member.sample_id]);
+  const affectedOnly =
+    canLimitToAffected &&
+    !unaffectedMembers.some(holdsMinimum) &&
+    (affectedMembers.some(holdsMinimum) || preferAffectedOnly);
+  const targets = affectedOnly ? affectedMembers : members;
+
+  const valueOf = (member: FamilyMember, key: QualityField) =>
+    (sampleDraftFilters[member.sample_id]?.[key] ?? '').trim();
+  // The value the members a control sets share ('' when none), or null when they differ.
+  const sharedValue = (key: QualityField) => {
+    const values = targets.map((member) => valueOf(member, key));
+    return values.every((value) => value === values[0]) ? (values[0] ?? '') : null;
+  };
+  const setForMembers = (memberList: readonly FamilyMember[], key: QualityField, value: string) =>
+    memberList.forEach((member) => handleSampleFieldChange(member.sample_id, key, value));
+  const setThresholds = (thresholds: QualityThresholds) =>
+    QUALITY_FIELDS.forEach(({ key }) => setForMembers(targets, key, thresholds[key]));
+
+  const toggleAffectedOnly = (checked: boolean) => {
+    setPreferAffectedOnly(checked);
+    QUALITY_FIELDS.forEach(({ key }) => {
+      if (checked) {
+        setForMembers(unaffectedMembers, key, '');
+        return;
+      }
+      // Off: the minimums the affected members share now hold for every member.
+      const values = affectedMembers.map((member) => valueOf(member, key));
+      if (values.every((value) => value === values[0])) {
+        setForMembers(unaffectedMembers, key, values[0] ?? '');
+      }
+    });
+  };
+
+  const matches = (thresholds: QualityThresholds, withPassOnly: boolean) =>
+    passOnly === withPassOnly &&
+    targets.every((member) =>
+      QUALITY_FIELDS.every(({ key }) => {
+        const value = valueOf(member, key);
+        return thresholds[key] === '' ? value === '' : value !== '' && Number(value) === Number(thresholds[key]);
+      }),
+    ) && members.filter((member) => !targets.includes(member)).every((member) => !holdsMinimum(member));
+  const selectedQuickFilter = matches(NO_QUALITY_THRESHOLDS, false)
+    ? 'all_variants'
+    : matches(CALL_QUALITY_PRESETS.high_quality, true)
+      ? 'high_quality'
+      : matches(CALL_QUALITY_PRESETS.all_passing, true)
+        ? 'all_passing'
+        : 'custom';
+  const applyQuickFilter = (value: string) => {
+    if (value === 'all_variants') {
+      QUALITY_FIELDS.forEach(({ key }) => setForMembers(members, key, ''));
+      setDraftFilterValue('pass_only', '');
+      return;
+    }
+    if (value === 'high_quality' || value === 'all_passing') {
+      setThresholds(CALL_QUALITY_PRESETS[value]);
+      setDraftFilterValue('pass_only', 'true');
+    }
+  };
+
+  return (
+    <FilterSection
+      title="Call quality"
+      open={openSections.callQuality}
+      onToggle={handleSectionToggle('callQuality')}
+      meta={summarizeSection(SECTION_FILTER_COUNTS.callQuality(form), 'No filters')}
+      controls={
+        <>
+          <label className="variant-summary-select-field">
+            <span>Quality</span>
+            <select
+              aria-label="Quick call quality"
+              value={selectedQuickFilter}
+              onChange={(event) => applyQuickFilter(event.target.value)}
+            >
+              <option value="all_variants">All variants</option>
+              <option value="high_quality">High quality</option>
+              <option value="all_passing">Passing</option>
+              <option value="custom">Custom</option>
+            </select>
+          </label>
+        </>
+      }
+    >
+      <div className="variant-filter-dropdown-content">
+        <p className="variant-filter-section-note">
+          Minimum quality of each member&apos;s call: genotype quality (GQ), allele balance (AB, the
+          share of reads with the alternate allele), depth (DP) and alternate-allele reads (AD).
+          Set them here for the members at once, or per member below. Pass variants only keeps a
+          variant when every call that carries it passed its caller&apos;s FILTER.
+        </p>
+        <div className="variant-quality-columns">
+          <div className="variant-quality-column">
+            <ColumnTitle
+              label="Affected only"
+              hint="Apply the minimums to the affected members only; the unaffected members' calls are not held to them. Off, they hold for every member."
+            />
+            <label className="variant-switch">
+              <input
+                type="checkbox"
+                role="switch"
+                aria-label="Affected only"
+                checked={affectedOnly}
+                disabled={!canLimitToAffected}
+                onChange={(event) => toggleAffectedOnly(event.target.checked)}
+              />
+              <span className="variant-switch-track" aria-hidden="true" />
+            </label>
+          </div>
+          <div className="variant-quality-column" role="radiogroup" aria-label="Filter value">
+            <ColumnTitle
+              label="Filter value"
+              hint="Pass variants only keeps a variant when every member's call that carries it passed its caller's FILTER (PASS, or no filter set), whatever Affected only says. A callset of one file per sample reads each call's own FILTER, so a parent's reference call (RefCall) holds back nothing; a multi-sample VCF reads the FILTER of the site."
+            />
+            <div className="variant-radio-options">
+              <label className="analysis-checkbox">
+                <input
+                  type="radio"
+                  name="pass_only"
+                  checked={!passOnly}
+                  onChange={() => setDraftFilterValue('pass_only', '')}
+                />
+                Show all variants
+              </label>
+              <label className="analysis-checkbox">
+                <input
+                  type="radio"
+                  name="pass_only"
+                  checked={passOnly}
+                  onChange={() => setDraftFilterValue('pass_only', 'true')}
+                />
+                Pass variants only
+              </label>
+            </div>
+          </div>
+          {QUALITY_FIELDS.map(({ key, label, steps, hint }) => (
+            <div key={key} className="variant-quality-column">
+              <ColumnTitle label={label} hint={hint} />
+              <StepSlider
+                name={`${label} minimum`}
+                steps={steps}
+                value={sharedValue(key)}
+                onChange={(value) => setForMembers(targets, key, value)}
+              />
+            </div>
+          ))}
+        </div>
+        <div className="variant-quality-table-shell">
+          <table className="variant-quality-table">
+            <thead>
+              <tr>
+                <th scope="col">Member</th>
+                {QUALITY_FIELDS.map(({ key, column }) => (
+                  <th key={key} scope="col">
+                    {column}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {members.map((member) => {
+                const sample = member.sample_id;
+                const sexSymbol = member.sex === 'male' ? '♂' : member.sex === 'female' ? '♀' : '⚧';
+                return (
+                  <tr key={sample}>
+                    <th scope="row">
+                      <span className="variant-sample-title">
+                        {sexSymbol} {sample}
+                      </span>{' '}
+                      <span className="table-chip">{member.role}</span>{' '}
+                      <span className={`table-chip ${member.affected ? 'badge-chip--signature' : ''}`}>
+                        {member.affected ? 'affected' : 'unaffected'}
+                      </span>
+                    </th>
+                    {QUALITY_FIELDS.map(({ key, column }) => (
+                      <td key={key}>
+                        <input
+                          aria-label={`${sample} ${column}`}
+                          inputMode="decimal"
+                          value={sampleDraftFilters[sample]?.[key] ?? ''}
+                          onChange={(event) => handleSampleFieldChange(sample, key, event.target.value)}
+                        />
+                      </td>
+                    ))}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
     </FilterSection>
   );
