@@ -673,8 +673,9 @@ per-change approval, and records the first review before the RC tag.
   (TF-01).
 - **OPS-9 · Scale is unproven.** No genome-scale import or query benchmark on the real stack
   (every timing so far comes from synthetic data on a laptop); one uvicorn process, with the
-  import and refresh workers in the API process (the owner decides when to run the benchmark
-  and whether to move the workers into processes of their own); an unfiltered Variant
+  refresh worker in the API process, and on Google Cloud the import workers too (Docker
+  Compose runs the imports in import-worker processes of their own; `terraform/` has no such
+  service yet; the owner decides when to run the benchmark); an unfiltered Variant
   Explorer page took 33 to 43 s on a 2-million-variant synthetic cohort, as it aggregates
   every carrier (#841); since #906 the Mendeliome keeps every panel SV of a family with more
   than 50,000 SVs, so the ranked view's limit of 5,000 SVs is reached more often; the

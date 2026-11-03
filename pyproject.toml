@@ -33,6 +33,7 @@ select = ["E9", "E402", "F", "B023", "B904", "ASYNC", "BLE001", "RUF100"]
 [tool.mypy]
 python_version = "3.12"
 files = [
+    "backend/app/import_worker.py",
     "backend/app/services/acmg_points.py",
     "backend/app/services/annotation_manifest_service.py",
     "backend/app/services/assembly_scope.py",

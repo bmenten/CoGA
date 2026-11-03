@@ -144,6 +144,16 @@ report (TF-09b §3). **🔲 OWNER:** decide per application what the signed reco
 
 - **Frontend:** React, TypeScript, Vite, Tailwind.
 - **Backend:** FastAPI (Python), SQLAlchemy async, ClickHouse client.
+- **Processes:** the API runs as one uvicorn process per backend container. The family-package
+  imports run in import-worker processes of their own (`python -m app.import_worker`; the
+  `import-worker` service of Docker Compose), from the backend's image with its settings. Such
+  a process serves nothing, on no port, and each of its workers takes one queued import job at
+  a time; the API then runs no import itself (`FAMILY_IMPORT_WORKER_COUNT=0`). Without such processes, as in the Cloud Run
+  configuration in `terraform/`, the API runs the import workers itself. The claim of a job,
+  its heartbeat and the end of a job whose process stopped go through Postgres, and so do the
+  locks that let one write of a family's variants run at a time, whichever process runs it, so
+  the controls of §8 and TF-06 H16 hold across processes
+  ([application-scheme.md](../application-scheme.md#import-worker-processes)).
 - **Postgres:** authoritative for metadata, users/projects, review state, ACMG blobs, audit logs, repeat/Paraphase results, gene/HPO/panel cache, version manifest, sign-out snapshots.
 - **ClickHouse:** authoritative for variant payloads and interval tracks per assembly, plus cross-project genotype aggregates.
 - **Filesystem / object store:** reference FASTA and BAM/CRAM for visualization (presigned, access-checked).
@@ -183,7 +193,8 @@ management is governed by **TF-18**.
   **internet-facing** until the go-live switches are on; those switches and the other open
   security items are listed in [TF-13 §3](TF-13-cybersecurity.md).
 - **Docker Compose** is for local development and verification, on synthetic data only. The
-  databases and the API are bound to the host's loopback; only the web UI is published.
+  databases and the API are bound to the host's loopback; only the web UI is published. The
+  import workers run as a service of their own, which publishes no port (§7).
 - Authentication: users sign in with their institutional Microsoft account (Microsoft Entra ID /
   Azure AD, through MSAL with the authorization code flow and PKCE); the backend checks the RS256
   access token Entra ID issues for CoGA's API. One local emergency administrator signs in with a
