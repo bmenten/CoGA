@@ -11,16 +11,16 @@
 | Basis | IVDR Annex I §20 (information supplied with the device) |
 
 > The IFU is the controlled "information for safety." For an internal web application the
-> "label" is the in-app identification (version, manufacturer, in-house-IVD statement) and
-> this IFU is the reference manual, complemented by the in-app user guide (`/docs`) and the
-> in-app reference docs (`/docs/reference/<slug>`). Content is drawn from TF-01, TF-02, TF-06,
+> "label" is the in-app identification (version, manufacturer, in-house-IVD statement). This
+> IFU is the reference manual; the in-app user guide (`/docs`) and the in-app reference docs
+> (`/docs/reference/<slug>`) complement it. Content comes from TF-01, TF-02, TF-06,
 > TF-10/11, TF-13.
 
 ---
 
 ## 1. Device identification (label)
 - **Name:** CoGA — Comprehensive Genomic Analysis.
-- **Version / build:** ‹X.Y.Z (git ‹hash›)›, the version and short commit of the running build as `/api/version` reports it. The footer of every page shows it, and so does the footer of every report, family and NIPT alike: *Software: CoGA X.Y.Z (‹hash›)*. A report asks for it each time it opens, so its footer names the build that produced the page. If the version cannot be loaded, the report footer says so and a printout starts with *Incomplete*. The build that signed a version is frozen into that version and shown in its sign-out block.
+- **Version / build:** ‹X.Y.Z (git ‹hash›)›: the version and short commit of the running build, as `/api/version` reports it. The footer of every page and of every report (family and NIPT) shows it: *Software: CoGA X.Y.Z (‹hash›)*. A report fetches it each time it opens, so its footer names the build that produced the page. If the version cannot be loaded, the report footer says so and a printout starts with *Incomplete*. The build that signed a version is frozen into that version and shown in its sign-out block.
 - **Manufacturer:** Center for Medical Genetics Ghent (CMGG), Ghent University Hospital, C. Heymanslaan 10, 9000 Ghent — **in-house IVD per IVDR Article 5(5); not CE-marked; for internal CMGG use only.**
 - **In-app label:** the footer of every page, the sign-in page included, reads:
 
@@ -44,40 +44,46 @@ device. **For use by trained clinical laboratory professionals only**, in an ISO
 
 ## 3. Warnings, limitations & contraindications (from TF-01 §4)
 1. **Decision support only** — every result must be reviewed by a qualified professional; CoGA does not issue an autonomous diagnosis.
-2. **Sign-out in CoGA is the analytical sign-off, not the medical one** — **Sign out report** is the analyst's sign-off: it closes the analysis and freezes it into a signed version. The clinical report is drafted and medically signed in the hospital's electronic patient record (EPD), outside CoGA, and refers 1:1 to the signed version it rests on: one report, one signed version. An amended analysis is a new signed version; a report that rests on it refers to that version. CoGA does not see the EPD report and does not check it against the signed version (TF-01 §4 condition 8, [TF-02 §3](TF-02-device-description.md)).
-3. **Validated upstream pipeline required** — CoGA processes outputs of separately validated/accredited wet-lab and bioinformatics workflows; it does not detect all errors in its inputs.
+2. **Sign-out in CoGA is the analytical sign-off, not the medical one** — **Sign out report** is the analyst's sign-off: it closes the analysis and freezes it into a signed version. The clinical report is drafted and medically signed in the hospital's electronic patient record (EPD), outside CoGA. It refers 1:1 to the signed version it rests on: one report, one signed version. An amended analysis is a new signed version; a report that rests on it refers to that version. CoGA does not see the EPD report and does not check it against the signed version (TF-01 §4 condition 8, [TF-02 §3](TF-02-device-description.md)).
+3. **Validated upstream pipeline required** — CoGA processes outputs of separately validated or accredited wet-lab and bioinformatics workflows; it does not detect all errors in its inputs.
 4. **Screening vs diagnosis** — NIPT and carrier-screening results are screening; at-risk findings require confirmatory diagnostic testing.
-5. **Inferred genotypes** — NIPT fetal genotype and PGT embryo haplotype are inferred, not observed; **check the QC signals** (fetal fraction & CI, informative-marker count, Mendel-error rate, recombination proximity) before trusting a call.
-6. **Validated scope only** — use only within the validated panels/assays/assemblies/populations (TF-11); use outside is off-label. The validated reference assembly is **GRCh38**: a family on any other assembly is labelled *Not validated for clinical use* and its report cannot be signed out.
-7. **Sample identity & data integrity** — **review the Sample QC** before sign-out to confirm sample identity and rule out sample swaps (the checks are listed in TF-01 §4 condition 7); for mitochondrial cases, also compare the samples' mtDNA haplogroups. This is mandatory for family/trio and combined mtDNA/nuclear (mitochondrial) cases. CoGA blocks sign-out when a Sample QC check fails or cannot be verified, unless you record a reason. The Sample QC does not measure contamination: an excess of Mendelian errors, or heterozygous calls on a male's X outside the pseudo-autosomal regions, can be a sign of it, and a pass does not rule it out (TF-01 §4 condition 7).
-8. **Authorised personnel only** — only personnel the laboratory has authorised to sign out an analysis may do so in CoGA; the medical sign-off of the clinical report is given in the EPD, under its own signing rights. CoGA lets any analyst of the project sign out (a reader of the project cannot) and does not check that authority itself; it records who signed each version in the signed record and the audit trail (TF-06 H15).
+5. **Inferred genotypes** — the NIPT fetal genotype and the PGT embryo haplotype are inferred, not observed. **Check the QC signals** (fetal fraction & CI, informative-marker count, Mendel-error rate, recombination proximity) before trusting a call.
+6. **Validated scope only** — use CoGA only within the validated panels, assays, assemblies and populations (TF-11); use outside them is off-label. The validated reference assembly is **GRCh38**: a family on any other assembly is labelled *Not validated for clinical use* and its report cannot be signed out.
+7. **Sample identity & data integrity** — **review the Sample QC** before sign-out to confirm sample identity and rule out sample swaps (checks listed in TF-01 §4 condition 7). For mitochondrial cases, also compare the samples' mtDNA haplogroups. This review is mandatory for family/trio and combined mtDNA/nuclear (mitochondrial) cases. CoGA blocks sign-out when a Sample QC check fails or cannot be verified, unless you record a reason. The Sample QC does not measure contamination: an excess of Mendelian errors, or heterozygous calls on a male's X outside the pseudo-autosomal regions, can be a sign of it, and a pass does not rule it out (TF-01 §4 condition 7).
+8. **Authorised personnel only** — only personnel the laboratory has authorised to sign out an analysis may do so in CoGA. The medical sign-off of the clinical report is given in the EPD, under its own signing rights. CoGA lets any analyst of the project sign out (a reader of the project cannot) and does not check that authority itself. It records who signed each version in the signed record and the audit trail (TF-06 H15).
 9. **Not for** primary variant calling, somatic/oncology use, patient/home use, or non-accredited settings.
-10. **Ancestry PCA is exploratory** — the *Ancestry (exploratory)* page shows genetic similarity to public reference populations, not ancestry or ethnicity. It is outside the intended purpose and not validated: do not use it for any clinical interpretation or report. It is never part of the sign-out or of the signed record (TF-01 §4).
+10. **Ancestry PCA is exploratory** — the *Ancestry (exploratory)* page shows genetic similarity to public reference populations, not ancestry or ethnicity. It is outside the intended purpose and not validated: do not use it for any clinical interpretation or report. It is never part of the sign-out or the signed record (TF-01 §4).
 
 ## 4. Instructions for safe use (per application)
 ‹Step-by-step operating instructions per application, referencing the in-app user guide.
 For each: required inputs, how to set up the family/pedigree, how to run and read the
 analysis, and **how to interpret each QC/warning signal and what to do when it fires.**›
-- Monogenic NIPT — see the in-app reference *Monogenic NIPT (cfDNA)* (`/docs/reference/monogenic-nipt`); read the quality checks first (FF and CI, paternity, fetal sex, the maternal-plasma sample, target coverage): after a failed paternity check do not read the variants (another father, or a sample or file mix-up). Then read each variant's inheritance probability, not only its category, and the category-8 dropout; confirm a de novo candidate's absence in the father and its reads before acting on it.
-- PGT — see *Haplotype segregation analysis* (`/docs/reference/haplotype-segregation`); read informative markers, Mendel errors, recombination near ROI, "uninformative" results, donor-family limits. Judge each embryo's aneuploidy and large (>10 Mb) structural variants yourself, on its segment, copy-number and APCAD tracks in the genome overview and the chromosome view: CoGA makes no automatic aneuploidy call (TF-01 §3.3).
+- Monogenic NIPT — see the in-app reference *Monogenic NIPT (cfDNA)* (`/docs/reference/monogenic-nipt`). Read the quality checks first (FF and CI, paternity, fetal sex, the maternal-plasma sample, target coverage). After a failed paternity check, do not read the variants (another father, or a sample or file mix-up). Then read each variant's inheritance probability, not only its category, and the category-8 dropout. Before acting on a de novo candidate, confirm that it is absent in the father and check its reads.
+- PGT — see *Haplotype segregation analysis* (`/docs/reference/haplotype-segregation`). Read informative markers, Mendel errors, recombination near the ROI, "uninformative" results and donor-family limits. Judge each embryo's aneuploidy and large (>10 Mb) structural variants yourself, on its segment, copy-number and APCAD tracks in the genome overview and the chromosome view: CoGA makes no automatic aneuploidy call (TF-01 §3.3).
 - Carrier screening — couple-wise at-risk interpretation; reportable-variant confirmation.
 - Rare-disorder — multi-data-type review (SNV/SV/repeat/Paraphase/mtDNA); ACMG classification is overridable (*Semi-automatic ACMG classification*, `/docs/reference/acmg-classification`).
 - Mitochondrial (ONT adaptive sampling) — review the complete mtDNA (heteroplasmy %, maternal transmission, haplogroup) **and** the nuclear mito-gene panel together; **review the Sample QC and compare the samples' haplogroups** before sign-out.
 - All applications — Sample QC: *Sample-integrity QC* (`/docs/reference/sample-qc`); sign-out: *Report traceability & sign-out* (`/docs/reference/clinical-traceability`).
 
 ## 5. Interpretation of results & residual risks
-Outputs are candidates/pre-evaluations with QC. Residual risks the user must be aware of are
-listed per TF-06 (e.g. possibility of a missed variant if a filter is too aggressive,
-uninformative/ambiguous calls, drift if reference data changed). The provenance footer and
-drift indicators support correct interpretation. A signed case opens on its signed version,
-rendered and printed from the frozen record: that version is the signed-out analysis, the one
-the clinical report in the EPD refers to (§3 item 2). It holds each reported variant's
-description as the analyst reviewed it (gene, HGVS, consequence, genotypes), and in a PGT
-family the embryo calls, in a monogenic NIPT family the NIPT results (of its candidates, those
-tagged for the report). It does not hold the population frequencies and in silico predictions
-the live report shows, the segregation, or the gene and phenotype context; the page says so.
-The live report shows those from current data. It is labelled as not the signed version, on
-screen and in print, and says when it no longer matches the signed version.
+Outputs are candidates and pre-evaluations with QC. TF-06 lists the residual risks the user
+must know (e.g. a missed variant if a filter is too aggressive, uninformative or ambiguous
+calls, drift if reference data changed). The provenance footer and drift indicators support
+correct interpretation.
+
+A signed case opens on its signed version, rendered and printed from the frozen record. That
+version is the signed-out analysis, which the clinical report in the EPD refers to
+(§3 item 2). It holds:
+
+- each reported variant's description as the analyst reviewed it (gene, HGVS, consequence,
+  genotypes);
+- in a PGT family, the embryo calls;
+- in a monogenic NIPT family, the NIPT results (of its candidates, those tagged for the report).
+
+It does not hold the population frequencies and in silico predictions the live report shows,
+the segregation, or the gene and phenotype context; the page says so. The live report shows
+those from current data. It is labelled as not the signed version, on screen and in print,
+and says when it no longer matches the signed version.
 
 ## 6. Minimum IT & security requirements (IVDR Annex I §16.4)
 Operate CoGA only in the UZ Gent/CMGG Google Cloud project built from `terraform/`
@@ -90,9 +96,9 @@ a current Chrome or Edge, the Chromium browsers the browser tests use
 ([TF-09d](TF-09d-browser-e2e-verification.md)).
 
 ## 7. Manufacturer & support
-- Report a problem or incident as a **CMGGMC probleemmelding** ([TF-17 §2](TF-17-vigilance-capa.md)). **Report a problem**, in the footer of every page and on the *New features* page, opens that route. The route is set when the frontend is built: `VITE_PROBLEM_REPORT_URL`, which the Google Cloud build takes from the repository variable `COGA_PROBLEM_REPORT_URL` ([deployment-gcp.md §10](../deployment-gcp.md#10-cicd-the-normal-path)). A clinical build never links the public GitHub issue form: without the route, it shows no problem-report link. Do not report a clinical problem on GitHub ([SECURITY.md](../../SECURITY.md)). **🔲 OWNER:** give the CMGGMC route for `COGA_PROBLEM_REPORT_URL`, and name the CMGG support contact: ‹contact›.
+- Report a problem or incident as a **CMGGMC probleemmelding** ([TF-17 §2](TF-17-vigilance-capa.md)). **Report a problem**, in the footer of every page and on the *New features* page, opens that route. The route is set at frontend build time: `VITE_PROBLEM_REPORT_URL`, which the Google Cloud build takes from the repository variable `COGA_PROBLEM_REPORT_URL` ([deployment-gcp.md §10](../deployment-gcp.md#10-cicd-the-normal-path)). A clinical build never links the public GitHub issue form: without the route, it shows no problem-report link. Do not report a clinical problem on GitHub ([SECURITY.md](../../SECURITY.md)). **🔲 OWNER:** give the CMGGMC route for `COGA_PROBLEM_REPORT_URL`, and name the CMGG support contact: ‹contact›.
 - Reference: the in-app user guide (`/docs`), the in-app reference docs and this technical file.
 
 ## 8. Revision
-The IFU is updated on any change affecting intended purpose, limitations, validated scope,
-or operating requirements (TF-18), and its version tracks the device version.
+The IFU is updated on any change to intended purpose, limitations, validated scope or
+operating requirements (TF-18). Its version tracks the device version.

@@ -1,7 +1,7 @@
 # Development
 
-How to run CoGA on your own machine, reset it, and find out what went wrong. The data you
-work with locally is synthetic. The checks to run before a pull request are in
+How to run CoGA on your own machine, reset it, and find out what went wrong. Local data is
+synthetic. The checks to run before a pull request are in
 [CONTRIBUTING.md](../CONTRIBUTING.md#before-you-open-a-pr); the architecture is in
 [application-scheme.md](application-scheme.md).
 
@@ -9,9 +9,9 @@ work with locally is synthetic. The checks to run before a pull request are in
 
 - Docker with Docker Compose.
 - Python 3.12, the version CI and the backend image use.
-- Node.js 22, at least the version in `engines` in `frontend/package.json`. `.nvmrc` pins
-  only the major version, so `nvm use` can pick an older 22.x that you have installed; if npm
-  warns about the engine, run `nvm install 22`.
+- Node.js 22, at least the version in `engines` in `frontend/package.json`. `.nvmrc` pins only
+  the major version, so `nvm use` can pick an older 22.x you have installed; if npm warns about
+  the engine, run `nvm install 22`.
 
 ## First-time setup
 
@@ -23,11 +23,16 @@ cp .env.example .env
 `APP_ENV=development` in `.env`. The backend then accepts the placeholder passwords and keys,
 and serves the interactive API docs at <http://localhost:8000/docs>. With any other value it
 refuses to start until `SECRET_KEY`, `INTEGRITY_ANCHOR_SIGNING_KEY`, `POSTGRES_PASSWORD`,
-`CLICKHOUSE_PASSWORD` and `ADMIN_PASSWORD` hold real values, with the first two different;
-`.env.example` shows how to generate those two. It also refuses `AUDIT_LOG_MODE=off`, the
-local origins `.env.example` allows (`CORS_ORIGINS`, and the default `CORS_ORIGIN_REGEX`), and
-a build without its commit (`GIT_SHA`). The same check applies to anything that loads the
-backend settings on your machine, such as the demo loader.
+`CLICKHOUSE_PASSWORD` and `ADMIN_PASSWORD` hold real values, with the first two different
+(`.env.example` shows how to generate those two). It also refuses:
+
+- `AUDIT_LOG_MODE=off`;
+- the local origins `.env.example` allows (`CORS_ORIGINS`, and the default
+  `CORS_ORIGIN_REGEX`);
+- a build without its commit (`GIT_SHA`).
+
+The same check applies to anything that loads the backend settings on your machine, such as
+the demo loader.
 
 ## Run everything in Docker
 
@@ -45,25 +50,28 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build -d
   (native). Only the web app is reachable from other machines.
 
 The development stack mounts `backend/`, `frontend/`, `scripts/` and `data/` into the
-containers, so code changes apply without a rebuild, and it sets `APP_ENV=development` for
-the backend container. On macOS a bind mount is case-insensitive by default: two family IDs
-that differ only in case (`FAM1`, `fam1`) share every folder named after an ID, such as a
-family's data folders under `data/`. The ID rule leaves case alone, since production storage
-is case-sensitive (SEC-15); give such families IDs that differ otherwise when you test with
-them locally. Without the second file, `docker compose up --build -d` runs the
-production images instead: no reload, and the built frontend served by
-`frontend/server.mjs`. That frontend takes the `VITE_…` settings in `.env` when it is built,
-and its footer links **Report a problem** only when `VITE_PROBLEM_REPORT_URL` is set; the
-Vite dev server links the GitHub issue form when it is not.
+containers, so code changes apply without a rebuild, and sets `APP_ENV=development` for the
+backend container.
+
+On macOS a bind mount is case-insensitive by default. Two family IDs that differ only in case
+(`FAM1`, `fam1`) then share every folder named after an ID, such as a family's data folders
+under `data/`. The ID rule leaves case alone, since production storage is case-sensitive
+(SEC-15). To test with such families locally, give them IDs that differ in more than case.
+
+Without the second file, `docker compose up --build -d` runs the production images instead:
+no reload, and the built frontend served by `frontend/server.mjs`. That frontend takes the
+`VITE_…` settings in `.env` when it is built. Its footer links **Report a problem** only when
+`VITE_PROBLEM_REPORT_URL` is set; the Vite dev server links the GitHub issue form when it is
+not.
 
 The package imports run in the `import-worker` service, a process of its own
 ([application-scheme.md](application-scheme.md#import-worker-processes)); the backend runs
-none. It runs the same mounted code, but is not reloaded when that changes, so that an edit
-does not stop a running import: take a change with `docker compose restart import-worker`
-(an import it was running stops where it is, and its job is ended as interrupted once its
-heartbeat is ten minutes old). A backend run outside Docker (below) runs the imports itself,
-unless `FAMILY_IMPORT_WORKER_COUNT=0`; then run `python -m app.import_worker` from `backend/`
-beside it.
+none. The worker runs the same mounted code but does not reload when it changes, so an edit
+cannot stop a running import. To take a change, run `docker compose restart import-worker`.
+An import it was running stops where it is; its job is ended as interrupted once its heartbeat
+is ten minutes old. A backend run outside Docker (below) runs the imports itself, unless
+`FAMILY_IMPORT_WORKER_COUNT=0`; then run `python -m app.import_worker` from `backend/` beside
+it.
 
 The first start downloads the GRCh38 cytobands (UCSC) and GENCODE gene annotations, so it
 needs internet access. Everything the backend does at startup is listed in
@@ -77,8 +85,8 @@ Start only the databases in Docker:
 docker compose up -d postgres clickhouse
 ```
 
-Backend, from `backend/` (it reads the `.env` at the repository root, which points it at the
-databases on `localhost`):
+Backend, from `backend/`. It reads the `.env` at the repository root, which points it at the
+databases on `localhost`:
 
 ```bash
 cd backend
@@ -99,8 +107,8 @@ npm run dev
 ```
 
 The Vite dev server listens on <http://localhost:5173> and forwards `/api` to the backend on
-`localhost:8000` (set `VITE_DEV_API_PROXY_TARGET` to use another backend). Run npm commands
-from `frontend/`; it is the only Node package in the repository.
+`localhost:8000`; set `VITE_DEV_API_PROXY_TARGET` to use another backend. Run npm commands
+from `frontend/`, the only Node package in the repository.
 
 ## Load demo data
 
@@ -116,12 +124,12 @@ docker compose down -v   # stop and delete the local Postgres and ClickHouse dat
 
 After `down -v`, the next start creates an empty database again and re-runs the reference
 bootstrap. A Postgres schema change needs no reset: each start brings the local database to
-the current schema, keeping its data ([database.md](database.md#schema-migrations)).
+the current schema and keeps its data ([database.md](database.md#schema-migrations)).
 
 ### Upgrading the ClickHouse image
 
 When the ClickHouse image changes, the next start upgrades the `clickhouse_data` volume in
-place, and the older image may not read it afterwards. Stop the stack cleanly first
+place, and the older image may then fail to read it. Stop the stack cleanly first
 (`docker compose stop`; ClickHouse gets five minutes to finish its merges). The local data is
 synthetic and can be imported again; to keep it anyway, copy the volume before upgrading.
 
@@ -147,8 +155,8 @@ docker compose exec -T backend printenv | grep -E '^(APP_ENV|POSTGRES_(HOST|PORT
   and a secret still holds a placeholder; see [First-time setup](#first-time-setup).
 - **"Refusing to use ClickHouse variant tables whose rows are not identified by their
   callset"** — the local ClickHouse data holds variant tables with a different row identity.
-  Reset (`docker compose down -v`) and load the demo data again, or follow the recovery steps in
-  [database.md](database.md#row-identity), which keep the interval tracks.
+  Reset (`docker compose down -v`) and load the demo data again, or follow the recovery steps
+  in [database.md](database.md#row-identity), which keep the interval tracks.
 - **"Refusing to use ClickHouse variant tables created by an earlier version"** — an
   assembly's `SNV_INDEL/entries` table lacks the per-call columns `calls.filters` and
   `calls.metrics`. Reset or recover as above.
@@ -157,23 +165,24 @@ docker compose exec -T backend printenv | grep -E '^(APP_ENV|POSTGRES_(HOST|PORT
   (`docker compose down -v`). An older local database needs nothing: the next start brings it
   to the current schema and logs `Postgres schema migrated from revision … to …`
   ([database.md](database.md#schema-migrations)).
-- **"report_signouts holds … family ID(s) with a sign-out version taken twice"** — a family
-  in your local Postgres was deleted, made again under its ID and signed out in both, before
-  sign-out versions were numbered per family ID (TRACE-13). Its sign-out chain holds two records
-  under one version and does not verify reliably, and the database cannot take the index that
-  keeps a family ID's versions unique, so the migration stops and keeps everything as it was. The local data is synthetic: reset
-  (`docker compose down -v`) and load it again
+- **"report_signouts holds … family ID(s) with a sign-out version taken twice"** — a family in
+  your local Postgres was deleted, made again under its ID and signed out in both, before
+  sign-out versions were numbered per family ID (TRACE-13). Its sign-out chain holds two
+  records under one version and does not verify reliably. The database cannot take the index
+  that keeps a family ID's versions unique, so the migration stops and changes nothing. The
+  local data is synthetic: reset (`docker compose down -v`) and load it again
   ([database.md](database.md#04_traceabilitysql-provenance-audit-and-integrity)).
 - **The web app cannot reach the API** — the backend is still starting or keeps restarting;
   read its log.
-- **Families, samples or users look wrong** — that data is in Postgres; look for schema
-  errors near the start of the backend log.
-- **Variants do not list or import** — this usually sits in an assembly's ClickHouse tables.
-  An admin can check them under Administration → ClickHouse Tables & Operations
+- **Families, samples or users look wrong** — that data is in Postgres; look for schema errors
+  near the start of the backend log.
+- **Variants do not list or import** — the cause is usually in an assembly's ClickHouse
+  tables. An admin can check them under Administration → ClickHouse Tables & Operations
   (`/admin/operations/clickhouse`): table status, the last result of the scheduled integrity
   check, an integrity check to run now, and buttons to create missing tables, rebuild the
   small-variant gene index and optimize the tables. The API offers the same:
-  `GET /api/admin/clickhouse/variants` lists the assemblies,
-  `GET /api/admin/clickhouse/variants/integrity-monitor` returns the scheduled check's last
-  result per assembly, and under `/api/admin/clickhouse/variants/{assembly_name}/` are
-  `ensure`, `optimize` and `rebuild-small-variant-gene-index` (POST) and `integrity` (GET).
+  - `GET /api/admin/clickhouse/variants` lists the assemblies;
+  - `GET /api/admin/clickhouse/variants/integrity-monitor` returns the scheduled check's last
+    result per assembly;
+  - under `/api/admin/clickhouse/variants/{assembly_name}/` are `ensure`, `optimize` and
+    `rebuild-small-variant-gene-index` (POST) and `integrity` (GET).

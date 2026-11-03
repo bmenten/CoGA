@@ -12,12 +12,12 @@
 > Article 5(5)(d) requires the institution to justify in its documentation that the
 > specific needs of the target patient group **cannot be met, or cannot be met at the
 > appropriate level of performance, by an equivalent CE-marked device** available on the
-> market. For when this condition applies, see [README §1](README.md); CMGG prepares it now to
-> stay close to CE-IVDR readiness.
+> market. For when this condition applies, see [README §1](README.md); CMGG prepares it now,
+> to stay close to CE-IVDR readiness.
 >
-> **🔲 INPUT NEEDED:** the market survey below states the *structure* and CMGG's
-> position; the named-product evidence and dates must be supplied/confirmed by the
-> clinical and RA team before approval.
+> **🔲 INPUT NEEDED:** the market survey below gives the *structure* and CMGG's position;
+> the clinical and RA team must supply or confirm the named-product evidence and dates
+> before approval.
 
 ---
 
@@ -47,17 +47,20 @@
 
 No single CE-marked IVD device, nor a practical combination of them, meets the integrated,
 locally-validated needs of the five CMGG applications **at the appropriate level of
-performance**, because: (a) each application is tightly coupled to CMGG's separately
-validated and accredited upstream workflows and their specific outputs (APCAD/segment
-tracks, imputed/phased markers, two-sample cfDNA VCFs); (b) several analyses (monogenic-NIPT
-zygosity inference, shallow-WGS PGT haplotyping with simultaneous aneuploidy + large SV) are
-methodologically bespoke and not offered as validated CE-IVD products; and (c) the device's
-clinical performance will be established **against CMGG's own validated reference assays** (see
-[TF-10 Performance Evaluation Plan](TF-10-performance-evaluation-plan.md)), a baseline a
-generic third-party product cannot reproduce.
+performance**, because:
 
-CMGG therefore manufactures and uses CoGA under the Article 5(5) in-house exemption while
-voluntarily aligning to CE-IVDR documentation and performance standards.
+- (a) each application is tightly coupled to CMGG's separately validated and accredited
+  upstream workflows and their specific outputs (APCAD/segment tracks, imputed/phased markers,
+  two-sample cfDNA VCFs);
+- (b) several analyses (monogenic-NIPT zygosity inference, shallow-WGS PGT haplotyping with
+  simultaneous aneuploidy + large SV) are methodologically bespoke and not offered as
+  validated CE-IVD products; and
+- (c) the device's clinical performance will be established **against CMGG's own validated
+  reference assays** ([TF-10 Performance Evaluation Plan](TF-10-performance-evaluation-plan.md)),
+  a baseline a generic third-party product cannot reproduce.
+
+CMGG therefore manufactures and uses CoGA under the Article 5(5) in-house exemption, and
+voluntarily aligns to CE-IVDR documentation and performance standards.
 
 ## 4. Review
 

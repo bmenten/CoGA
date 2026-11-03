@@ -5,11 +5,10 @@ Related: [application-scheme.md](application-scheme.md) (storage boundary), [dat
 
 CoGA uses the [Monarch Initiative](https://monarchinitiative.org/) knowledge graph for gene → disease →
 HPO phenotype links, a live candidate-gene ranking, and the phenotype part of the variant ranking. What
-lab users need — what the graph links, the gene-profile associations, the candidate panel, how the
-ranking works and feeds PP4 — is in the in-app reference
+lab users need (what the graph links, the gene-profile associations, the candidate panel, how the
+ranking works and feeds PP4) is in the canonical in-app reference
 [`frontend/src/content/docs/monarch-integration.md`](../frontend/src/content/docs/monarch-integration.md)
-(shown at `/docs/reference/monarch-integration`). That page is the canonical home; this note covers the
-implementation.
+(shown at `/docs/reference/monarch-integration`). This note covers the implementation.
 
 ## Data sources
 
@@ -23,14 +22,14 @@ CoGA loads Monarch's pre-split, denormalised association TSVs (under
 | `disease_associations/disease_phenotype.all.tsv.gz` | disease → HPO | HPO annotations |
 
 The files carry `subject`, `subject_label`, `predicate`, `object`, `object_label`, `negated` and
-`primary_knowledge_source`. The gene files are filtered to `HGNC:` → `MONDO:` rows that are not negated
-(the noncausal file is cross-species). The release version comes from `metadata.yaml`. MONDO is the
-stored disease identifier; there are no OMIM or Orphanet cross-reference columns.
+`primary_knowledge_source`. The gene files are filtered to non-negated `HGNC:` → `MONDO:` rows (the
+noncausal file is cross-species). The release version comes from `metadata.yaml`. MONDO is the stored
+disease identifier; there are no OMIM or Orphanet cross-reference columns.
 
 ## Tables
 
-Both live in Postgres (baseline `backend/db/schema/postgres/02_reference.sql`); see
-[database.md](database.md) for the columns.
+Both are in Postgres (baseline `backend/db/schema/postgres/02_reference.sql`); columns in
+[database.md](database.md).
 
 - `monarch_gene_disease` — one row per `(hgnc_id, mondo_id)`. A pair asserted by several sources or
   predicates collapses to one row with aggregated `predicates` and `sources`, a representative
@@ -42,7 +41,7 @@ Both live in Postgres (baseline `backend/db/schema/postgres/02_reference.sql`); 
 
 - **Ingest** — `backend/app/services/monarch_ingest.py`. `refresh_monarch()` downloads the release once
   and replaces both tables in one transaction, so a failed refresh never leaves them on different
-  releases. Triggered by an administrator (**Admin → Monarch data**, `POST /api/admin/monarch/refresh`);
+  releases. An administrator triggers it (**Admin → Monarch data**, `POST /api/admin/monarch/refresh`);
   nothing runs at start-up. A refresh also re-versions the Mendeliome panel
   (`panel_metadata_service.regenerate_mendeliome`: genes with a `causes` or
   `gene_associated_with_condition` link) and invalidates the information-content cache.
@@ -51,10 +50,10 @@ Both live in Postgres (baseline `backend/db/schema/postgres/02_reference.sql`); 
   family's present HPO terms, expanded to their ancestors through `hpo_closure`.
 - **Candidate-gene panel** — `monarch_semsim.py` calls Monarch's `POST /v3/api/semsim/search` (group
   `Human Genes`, ancestor information content) with a 25 s timeout and a 1 h in-memory cache keyed by the
-  sorted term set; failures raise `MonarchSemsimError`, which the endpoint turns into a 502 the panel shows
-  as "unavailable". `GET /api/families/{family_id}/phenotype-match` sends the family's present HPO terms
-  (all members unless `sample_id` is given) and flags genes that exist in CoGA. Monarch returns at most
-  50 results.
+  sorted term set. A failure raises `MonarchSemsimError`; the endpoint turns it into a 502, which the
+  panel shows as "unavailable". `GET /api/families/{family_id}/phenotype-match` sends the family's present
+  HPO terms (all members unless `sample_id` is given) and flags genes that exist in CoGA. Monarch returns
+  at most 50 results.
 - **Local phenotype score** — `monarch_phenotype_score.py`: a Resnik best-match average between the
   affected members' present HPO terms and each gene's phenotype profile, normalised to 0–1, with
   information content derived from `monarch_disease_phenotype` through `hpo_closure` (cached
@@ -64,21 +63,23 @@ Both live in Postgres (baseline `backend/db/schema/postgres/02_reference.sql`); 
   × segregation weight) with the phenotype score, half and half; a gene without Monarch data scores 0 on
   the phenotype side. `GET /api/families/{family_id}/small-variants?prioritize=true` ranks at most 5,000
   candidates (`_PRIORITIZE_CANDIDATE_LIMIT`) and sets `ranking_truncated` when more matched. It ranks
-  what the same search keeps unranked: with compound-het or recessive pairing, or expanded carrier
-  screening, only the pairs' variants, the single variants and the couple's findings, each pair listed
-  at its better-ranked variant, and past the window it also sets `candidates_capped` (CLIN-44). Rankings
-  are cached; see [variant-ranking-cache.md](variant-ranking-cache.md).
+  only what the same search keeps unranked (CLIN-44): with compound-het or recessive pairing, or
+  expanded carrier screening, the pairs' variants, the single variants and the couple's findings. Each
+  pair is listed at its better-ranked variant; past the window it also sets `candidates_capped`.
+  Rankings are cached ([variant-ranking-cache.md](variant-ranking-cache.md)).
   `GET /api/families/{family_id}/structural-variants?prioritize=true` (not cached) scores an SV's
   pathogenicity from its event class, the genes it overlaps and their pLI
-  (`structural_pathogenicity_score`). A copy-number change is scored by its direction, by the rule of the
-  SNV + SV second hit (`sv_copy_change.copy_change`): a `DEL` of any subtype, or a `CNV` whose carriers'
-  copy number shows a loss (or that stores none), as a loss (0.7, at least 0.9 in a gene with pLI ≥ 0.9);
-  a `DUP` of any subtype, or a CNV gain, as a gain (0.5). Exact type names were matched before, so a
-  `DEL:ME`, a `DUP:TANDEM` and every CNV scored 0.4 (CLIN-47).
+  (`structural_pathogenicity_score`). A copy-number change is scored by its direction, with the rule of
+  the SNV + SV second hit (`sv_copy_change.copy_change`):
+  - loss (0.7, at least 0.9 in a gene with pLI ≥ 0.9): a `DEL` of any subtype, or a `CNV` whose
+    carriers' copy number shows a loss (or that stores none);
+  - gain (0.5): a `DUP` of any subtype, or a CNV gain.
+
+  Matching exact type names used to score a `DEL:ME`, a `DUP:TANDEM` and every CNV 0.4 (CLIN-47).
 - **ACMG PP4** — the ACMG dialog reads the variant's phenotype score (see
   [acmg-classification.md](acmg-classification.md)).
 
 ## Tests
 
-The ingest, semsim and scoring paths have backend tests, and the gene profile and the candidate panel
-have frontend tests; all are listed in [testing.md](testing.md).
+The ingest, semsim and scoring paths have backend tests; the gene profile and the candidate panel have
+frontend tests. All are listed in [testing.md](testing.md).

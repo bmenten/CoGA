@@ -1,15 +1,15 @@
 # Deploying CoGA on a virtual machine
 
 How to run the production stack on one Linux virtual machine, such as a VM in a university
-or hospital data centre: Docker Compose runs Postgres, ClickHouse, the backend and the
-frontend, and a reverse proxy on the VM terminates TLS. This is the setup for a **test or
-performance environment**. The Google Cloud deployment is in
+or hospital data centre. Docker Compose runs Postgres, ClickHouse, the backend, the import
+worker and the frontend; a reverse proxy on the VM terminates TLS. This is the setup for a
+**test or performance environment**. The Google Cloud deployment is in
 [deployment-gcp.md](deployment-gcp.md); local development in [development.md](development.md).
 
 ## Before you start
 
-- **Which data.** A test VM holds synthetic data only. Real patient data needs a DPIA and a
-  data-processing agreement covering that VM first, wherever it runs.
+- **Which data.** A test VM holds synthetic data only. Real patient data first needs a DPIA
+  and a data-processing agreement covering that VM, wherever it runs.
 - **Not the device.** The VM is outside the validated environment of the in-house IVD
   ([regulatory/README.md](regulatory/README.md)): nothing signed out there is a clinical
   record. It does run the backend's production checks, so a test there exercises the same
@@ -33,26 +33,26 @@ performance environment**. The Google Cloud deployment is in
 A staff member requests the VM through the ICT self-service portal (the virtual-server form,
 <https://helpdesk.ugent.be/webhosting/virtueel.php>), with the default Linux profile or a later
 PXE install of a supported, non-EOL distribution. Submitting the request accepts ICT's terms
-of use. ICT manages only the platform; the VM's administrator carries the rest, and ICT may
-switch off a VM that breaks the terms. What each term asks of a CoGA VM:
+of use. ICT manages only the platform; the VM's administrator is responsible for the rest, and
+ICT may switch off a VM that breaks the terms. What each term asks of a CoGA VM:
 
 | ICT term | What it means here |
 | --- | --- |
-| **Self-care**: the administrator is responsible for the OS, the licences and access control (authentication and authorization) inside the VM; ICT gives only the management console (vSphere Web Client, through Athena) | SSH keys, ufw, nginx and CoGA's own accounts and project access are yours (steps 2, 4 and 6). The dbNSFP licence (step 4) is yours too |
+| **Self-care**: the administrator is responsible for the OS, the licences and access control (authentication and authorization) inside the VM; ICT gives only the management console (vSphere Web Client, through Athena) | SSH keys, ufw, nginx, CoGA's own accounts and project access, and the dbNSFP licence are yours (steps 2, 4 and 6) |
 | **VMware tools** are mandatory; without them ICT may switch the VM off | install `open-vm-tools` (step 2) |
 | **Keep it up to date**; a VM with an outdated OS or missing security patches may be switched off | `unattended-upgrades` (step 2), a reboot when a kernel update needs one (stop the stack first, [step 9](#9-run-it)), and regular rebuilds so the images pick up their base images' fixes |
 | **Back-ups** are the administrator's; ICT's disaster-recovery back-ups restore the whole platform, not files inside a VM | back up to a network share from ICT's storage offering, not to the VM's own disk ([step 9](#9-run-it)) |
 | **Fair use**; a VM that uses resources unreasonably may be switched off | request the size you need (step 1), and raise `IMPORT_WORKER_REPLICAS` and the ClickHouse limits only as far as the VM's size allows ([step 10](#10-tuning-at-scale)) |
-| **Yearly confirmation**: an unused VM, or one outside the university's normal work, gets an e-mail; without an answer through ICT self-service within 30 days it is switched off for good | the request names a mailbox someone reads; answer the e-mail |
+| **Yearly confirmation**: an unused VM, or one outside the university's normal work, gets an e-mail; without an answer through ICT self-service within 30 days it is switched off for good | name a mailbox someone reads in the request; answer the e-mail |
 | **A successor administrator** must be reported through ICT self-service or HelpMe; a VM without an administrator is shut down | name the new administrator before you hand over |
 | **Security incidents**: ICT isolates or switches off the VM, and the department can be held co-liable for negligence | synthetic data only, loopback-only ports, and the firewall of step 2 |
 
 Give the VM a host name under `ugent.be`, and take its TLS certificate from ICT's certificate
-service (HARICA); ICT's single sign-on is open only to existing UGent DNS names served over
+service (HARICA): ICT's single sign-on is open only to existing UGent DNS names served over
 HTTPS.
 
-Since ICT may switch the VM off, make sure a shutdown stops ClickHouse cleanly (step 2) and
-that the back-ups are current.
+ICT may switch the VM off, so make sure a shutdown stops ClickHouse cleanly (step 2) and the
+back-ups are current.
 
 ## 2. Prepare the VM
 
@@ -76,11 +76,11 @@ such as Ghent University's it is mandatory.
 
    Then `sudo systemctl restart docker`.
 3. Open only SSH and the web ports: `sudo ufw allow 22,80,443/tcp && sudo ufw enable`. Docker
-   publishes container ports past ufw, which is why the override in step 5 binds the frontend to
+   publishes container ports past ufw, so the override in step 5 binds the frontend to
    loopback.
 4. Let a shutdown of the VM wait for ClickHouse. The stack gives ClickHouse five minutes to
-   stop; give the Docker service more, so the operating system does not cut it off, with
-   `sudo systemctl edit docker` and:
+   stop. Give the Docker service more, so the operating system does not cut it off: run
+   `sudo systemctl edit docker` and add:
 
    ```ini
    [Service]
@@ -124,19 +124,19 @@ chmod 600 .env
 
 **Sign-in.** Left empty, `AZURE_TENANT_ID` and `AZURE_CLIENT_ID` give every account a CoGA
 password. With an app registration in the organisation's Entra ID, users sign in with their
-Microsoft account instead, MFA included; IT creates the registration as
+Microsoft account instead, MFA included. IT creates the registration as
 [deployment-gcp.md §12.12](deployment-gcp.md#1212-microsoft-sign-in-azure-ad--microsoft-entra-id)
-describes, with the redirect URI `https://<host name>/login`, and the go-live steps there apply
-here too, with `AZURE_ADMIN_OVERRIDE` in `.env` for the Terraform variable.
+describes, with the redirect URI `https://<host name>/login`. The go-live steps there apply
+here too, with `AZURE_ADMIN_OVERRIDE` in `.env` in place of the Terraform variable.
 
 At Ghent University the UGent accounts are in Entra ID, so CoGA's Microsoft sign-in serves
 them as it is: ask ICT, through ICT self-service, for that app registration in the UGent
-tenant. The sign-in ICT documents for web applications is CAS (`login.ugent.be`); CoGA has no
-CAS client, so if ICT offers only CAS, a VM for testing keeps the password sign-in.
+tenant. The sign-in ICT documents for web applications is CAS (`login.ugent.be`). CoGA has no
+CAS client, so if ICT offers only CAS, a test VM keeps the password sign-in.
 
 **The dbNSFP gene file** is not in the repository (its download needs a registration,
-[data-import.md](data-import.md)). Copy `dbNSFP5.4_gene.gz` to `/srv/coga/data/ref-data/`; without
-it the first gene reference sync does not run.
+[data-import.md](data-import.md)). Copy `dbNSFP5.4_gene.gz` to `/srv/coga/data/ref-data/`;
+without it the first gene reference sync does not run.
 
 ## 5. Build and start
 
@@ -152,11 +152,11 @@ docker compose logs -f backend
 - [`docker-compose.vm.yml`](../docker-compose.vm.yml) binds the frontend to `127.0.0.1:3000`
   and rotates the containers' logs. Without it, port 3000 is open on every interface.
 - The first start downloads and loads the reference data, which takes several minutes. The
-  backend turns healthy when it is done, and the frontend and the import worker start after
-  it. The import worker (`import-worker`) runs the package imports; the backend runs none
+  backend turns healthy when it is done; the frontend and the import worker start after it.
+  The import worker (`import-worker`) runs the package imports; the backend runs none
   ([application-scheme.md](application-scheme.md#import-worker-processes)).
 
-To spare yourself the two `-f` options, set them once in `.env`:
+To skip the two `-f` options, set them once in `.env`:
 `COMPOSE_FILE=docker-compose.yml:docker-compose.vm.yml`.
 
 ## 6. Reverse proxy and TLS
@@ -226,9 +226,9 @@ Then sign in with `ADMIN_EMAIL` and `ADMIN_PASSWORD`, and as administrator:
 ## 8. Load test data
 
 - **Demo families** ([demo/README.md](../demo/README.md)): run the loader on the VM, in a
-  virtual environment with `backend/requirements.txt`. It reads `.env` and reaches the databases
-  on their loopback ports; with `APP_ENV=staging` it runs the backend's production checks, so
-  export `GIT_SHA` first.
+  virtual environment with `backend/requirements.txt`. It reads `.env` and reaches the
+  databases on their loopback ports. With `APP_ENV=staging` it runs the backend's production
+  checks, so export `GIT_SHA` first.
 - **Family packages** ([data-import.md](data-import.md)): copy them with `rsync` to
   `/srv/coga/data/families/`, which the backend sees as `/data/families` (`FAMILY_IMPORT_ROOTS`),
   and import them with Package Import. A long-read small-variant dataset takes hours to import.
@@ -246,10 +246,10 @@ export GIT_SHA="$(git rev-parse --short=12 HEAD)"
 docker compose -f docker-compose.yml -f docker-compose.vm.yml up --build -d
 ```
 
-**Stop** with `docker compose stop`, never by killing the containers or the VM: ClickHouse needs
-up to five minutes to finish its merges, and a cut-off flush corrupts parts that the next
-start then refuses to attach. A shutdown of the VM waits for it as well, once step 2 gave the
-Docker service the time.
+**Stop** with `docker compose stop`, never by killing the containers or the VM. ClickHouse
+needs up to five minutes to finish its merges, and a cut-off flush corrupts parts that the
+next start then refuses to attach. A shutdown of the VM also waits for it, once step 2 has
+given the Docker service the time.
 
 **Back up** Postgres every night, to a share off the VM (at Ghent University, a network share
 from ICT's storage offering, mounted here on `/mnt/backup`):
@@ -262,8 +262,8 @@ docker compose exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES
 Copy `.env` there too, kept as secret as on the VM: a restored database needs the keys it was
 written with, such as `INTEGRITY_ANCHOR_SIGNING_KEY`.
 
-ClickHouse holds the imported variants, which can be imported again from the packages. To keep
-them, take a snapshot of the data disk while ClickHouse is stopped, or copy the
+ClickHouse holds the imported variants, which can be imported again from the packages. To
+keep them, take a snapshot of the data disk while ClickHouse is stopped, or copy the
 `clickhouse_data` volume. Restore a backup at least once, into a throwaway stack.
 
 **Watch** with `docker compose ps` and `docker compose logs <service>`. With `METRICS_TOKEN`
@@ -272,7 +272,8 @@ set, a Prometheus on the VM scrapes `http://127.0.0.1:8000/metrics`
 `/api`.
 
 **Restrict the database role** to test the go-live configuration: the API then runs as
-`coga_app` and the migration runs apart ([db-runtime-role-runbook.md](db-runtime-role-runbook.md)).
+`coga_app`, and the migration runs separately
+([db-runtime-role-runbook.md](db-runtime-role-runbook.md)).
 
 ## 10. Tuning at scale
 
@@ -285,9 +286,9 @@ set, a Prometheus on the VM scrapes `http://127.0.0.1:8000/metrics`
 | [`clickhouse/users.d/memory-guards.xml`](../clickhouse/users.d/memory-guards.xml) | when GROUP BY and ORDER BY spill to disk; a change applies after `docker compose restart clickhouse` |
 
 `docker stats` shows each container's memory and CPU while you test. When the backend or an
-import worker is killed for lack of memory, `docker compose ps` shows it restarting and `dmesg`
-names the OOM kill. An import that a worker's restart stopped is ended as interrupted once its
-heartbeat is ten minutes old ([data-import.md](data-import.md#the-import-job)).
+import worker is killed for lack of memory, `docker compose ps` shows it restarting, and
+`dmesg` names the OOM kill. An import stopped by a worker's restart is ended as interrupted once
+its heartbeat is ten minutes old ([data-import.md](data-import.md#the-import-job)).
 
 ## Troubleshooting
 

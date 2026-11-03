@@ -14,17 +14,17 @@ statement about a person's origin.
 
 ## The WGS source
 
-The PCA reads one VCF of the family, which must be a complete, joint, directly called **GRCh38
-whole-genome** callset with diploid GT calls. CoGA cannot tell a whole genome from a subset by
-looking at its variants, so that it is one is your declaration:
+The PCA reads one family VCF: a complete, joint, directly called **GRCh38 whole-genome** callset with
+diploid GT calls. CoGA cannot tell a whole genome from a subset by its variants, so you declare that it
+is one:
 
 - **A retained upload.** On the page, choose one of the family's retained small-variant uploads,
   confirm it is a complete whole-genome callset, and choose the two policies below. CoGA checks
   the file's checksum, that its sample columns are exactly the family's samples, that it declares
   no other build and holds no imputed or gVCF records, and that its calls are the family's stored
   genotypes. It does not import the file again.
-- **A family package.** The package's manifest declares its family VCF, and the import registers
-  it once the import has completed:
+- **A family package.** The manifest declares the family VCF, and the import registers it once the
+  import has completed:
 
   ```json
   {"metadata": {"ancestry": {"full_wgs": true, "genome_build": "GRCh38",
@@ -64,8 +64,7 @@ observed calls, assumed reference calls and the markers left out, by reason.
 
 The axes never change: they were computed from the reference genomes alone, and family data never
 trains or turns them. A projected individual lies slightly closer to the centre than the reference
-genomes do (projection shrinkage), and five continental reference groups cannot resolve finer
-structure.
+genomes do (projection shrinkage). Five continental reference groups cannot resolve finer structure.
 
 ## The reference
 

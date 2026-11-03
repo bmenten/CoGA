@@ -1,20 +1,20 @@
 # Annotation and tool provenance
 
-For every family, CoGA records which versions of which tools and databases produced its
-data: the variant callers (DeepVariant, GATK, Sniffles, Spectre, TRGT, …), the annotation
+For every family, CoGA records which tool and database versions produced its data: the
+variant callers (DeepVariant, GATK, Sniffles, Spectre, TRGT, …), the annotation
 engine (VEP, snpEff, bcftools) and the reference databases it names (gnomAD, ClinVar,
 dbNSFP, SpliceAI, dbSNP, GENCODE, …). The versions are read from the input files at import,
 kept per family, shown on the filter pages and the report, and frozen into every sign-out.
 
 A result must be traceable to exactly what produced it (IVDR Annex I §16.1; see
 [TF-09](regulatory/TF-09-verification-validation.md), "Traceerbaarheid"). This record is the
-per-family annotation manifest described in
-[clinical-traceability.md](clinical-traceability.md); this page covers how it is captured.
+per-family annotation manifest of [clinical-traceability.md](clinical-traceability.md); this
+page covers how it is captured.
 
 ## What is captured
 
-The `##` header lines are parsed by
-[`vcf_header_provenance.py`](../backend/app/services/vcf_header_provenance.py).
+[`vcf_header_provenance.py`](../backend/app/services/vcf_header_provenance.py) parses the `##`
+header lines.
 
 | Input | Captured by | What is read |
 | --- | --- | --- |
@@ -24,40 +24,51 @@ The `##` header lines are parsed by
 | Copy-number calls (HiFiCNV), from a package's `cnv` dataset | `family_package_datasets._import_cnv_dataset` | each sample's VCF header: `##source=HiFiCNV v…`, recorded as the `cnv caller` (TRACE-8) |
 | The pipeline run record of a long-read or PGT package | `family_package_datasets._import_pipeline_info_dataset` | not a VCF: the Nextflow `software_versions.yaml` (the PGT pipeline's `copgtm_software_mqc_versions.yml`), recorded with `source='manifest'`. It names every tool behind the data, including tools whose outputs carry no version. The run parameters go to `families.metadata["pipeline"]`. |
 
-A version is read only from a line that states one: a `##<tool>Version` or
-`##<tool>_version` line, the `Version` field of a structured line (GATK's
-`##GATKCommandLine…=<…>`, quoted or, as GATK 3 writes it, not; Sentieon's
-`##SentieonCommandLine.…=<…>`; DRAGEN's `##DRAGENVersion=<…>`), the `##VEP=` line, or a
-version that `##source` states apart from the tool's name. A version line gives its first version-shaped word, one that starts with
-a digit, or with a `v` and a digit: `1.21+htslib-1.21`, `v1.4.1-0-g68e25e5`, and `5.1d` from
-SnpSift's `"SnpSift 5.1d (build …)"`. A value without one counts only as a single word with a
-digit that is not the tool's own name, such as the release tag `r0.8`. A command line
-(`##bcftools_viewCommand=view …`, `##SnpSiftCmd="SnpSift annotate …"`,
-`##trgtCommand=trgt genotype …`, the arguments inside GATK's structured line) gives no version;
-the tool's version line gives it, whether it comes before or after the command line.
+A version is read only from a line that states one:
+
+- a `##<tool>Version` or `##<tool>_version` line;
+- the `Version` field of a structured line: GATK's `##GATKCommandLine…=<…>` (quoted or, as
+  GATK 3 writes it, not), Sentieon's `##SentieonCommandLine.…=<…>`, DRAGEN's
+  `##DRAGENVersion=<…>`;
+- the `##VEP=` line;
+- a version that `##source` states apart from the tool's name (below).
+
+A version line gives its first version-shaped word: one that starts with a digit, or with a
+`v` and a digit (`1.21+htslib-1.21`, `v1.4.1-0-g68e25e5`, `5.1d` from SnpSift's
+`"SnpSift 5.1d (build …)"`). A value without such a word is a version only when it is a single
+word with a digit that is not the tool's own name, such as the release tag `r0.8`. A command
+line gives no version (`##bcftools_viewCommand=view …`, `##SnpSiftCmd="SnpSift annotate …"`,
+`##trgtCommand=trgt genotype …`, the arguments inside GATK's structured line); the tool's
+version line does, before or after it.
 
 `##source` names the tool that wrote the file, and a tool's name can end in a digit: `Clair3`,
 `GLIMPSE2`, `Mutect2` and `SHAPEIT5` are names, not a tool and its version. The line gives a
-version, as written, only where it states one apart from the name: after a `_` or `-` in its
-first word (`Sniffles2_2.2`, `cuteSV-1.0.13`), or as its second word (`pbsv 2.9.0`,
-`freeBayes v1.3.6`, `hificnv v1.0.1-4de7d40`, `GLIMPSE_phase v2.0.0`). A later word gives none:
-in `SHAPEIT5 phase_common 1.1` it is phase_common's own number, which SHAPEIT5 reports as
-release 5.1.1, and LoFreq writes its command line there. Nor does a number glued to the name
-(`shapeit4.1.3`, which SHAPEIT4 4.2.2 still writes). Strelka states its version on
-`##source_version`, which gives the version of the tool `##source` names when the header names
-one. Clair3's `##source=Clair3` and `##clair3_version` make one module, `clair3`, and Mutect2's
-`##source=Mutect2` and `##MutectVersion` one module, `mutect2`. A tool that names one of its
-programs there is that tool: `GLIMPSE_phase` (and GLIMPSE's ligate) is `glimpse`, Manta's
-`GenerateSVCandidates` is `manta`, and `DRAGEN_SNV` is `dragen`.
+version, as written, only where it states one apart from the name:
+
+- after a `_` or `-` in its first word (`Sniffles2_2.2`, `cuteSV-1.0.13`);
+- as its second word (`pbsv 2.9.0`, `freeBayes v1.3.6`, `hificnv v1.0.1-4de7d40`,
+  `GLIMPSE_phase v2.0.0`).
+
+A later word gives none: in `SHAPEIT5 phase_common 1.1` it is phase_common's own number
+(SHAPEIT5 reports it as release 5.1.1), and LoFreq writes its command line there. Nor does a number
+glued to the name (`shapeit4.1.3`, which SHAPEIT4 4.2.2 still writes). Further rules:
+
+- Strelka states its version on `##source_version`. It gives the version of the tool
+  `##source` names, when the header names one.
+- Clair3's `##source=Clair3` and `##clair3_version` make one module, `clair3`; Mutect2's
+  `##source=Mutect2` and `##MutectVersion` make one module, `mutect2`.
+- A tool that names one of its programs there is that tool: `GLIMPSE_phase` (and GLIMPSE's
+  ligate) is `glimpse`, Manta's `GenerateSVCandidates` is `manta`, and `DRAGEN_SNV` is
+  `dragen`.
 
 When one header names a tool at several versions (`##bcftools_viewVersion=1.10.2+htslib-1.10.2`
 and `##bcftools_normVersion=1.21+htslib-1.21`, two `##SnpEffVersion` lines, gnomAD's exome and
 genome releases on one `##VEP=` line), every version is kept, joined with `, ` as the pipeline
-run record joins them; the same version twice is listed once (TRACE-8). Before, the first was
-kept, and of several `##SnpEffVersion` lines the last.
+run record joins them; a repeated version is listed once (TRACE-8). Before, only the first was
+kept (of several `##SnpEffVersion` lines, the last).
 
-The parser is best-effort and never raises: a header it does not recognise yields less
-information, never an error, so capture cannot fail an import.
+The parser is best-effort and never raises: an unrecognised header yields less information,
+never an error, so capture cannot fail an import.
 
 ## How it is stored
 
@@ -71,47 +82,46 @@ One row per family in `family_annotation_manifest`
 | `recorded_by`, `recorded_at` | who or what wrote it, and when |
 | `assembly_id` | the family's assembly |
 
-The parser normalises module keys (`vep`, `deepvariant`, `gnomad`, `clinvar`, …), so the
-versions from different input files merge into one manifest. The variant caller is tagged
-with its input (`detail: "snv caller"`, `"sv caller"`, `"repeats caller"`), so a family can
-list several callers.
+The parser normalises module keys (`vep`, `deepvariant`, `gnomad`, `clinvar`, …), so versions
+from different input files merge into one manifest. The variant caller is tagged with its input
+(`detail: "snv caller"`, `"sv caller"`, `"repeats caller"`), so a family can list several
+callers.
 
-Different inputs can cite different releases of the same database: the SNV annotation may
-state GENCODE 49 while the SV annotator states GENCODE 45. Each module therefore keeps
-`by_modality` (for example `{"snv": "49", "sv": "45"}`) next to a single `version`, which is
-the latest write.
+Inputs can cite different releases of one database: the SNV annotation may state GENCODE 49,
+the SV annotator GENCODE 45. So each module keeps `by_modality` (for example
+`{"snv": "49", "sv": "45"}`) beside a single `version`, the latest write.
 
 ## The update rules
 
 All in `merge_vcf_header_provenance`
 ([annotation_manifest_service.py](../backend/app/services/annotation_manifest_service.py)):
 
-- **A re-import refreshes.** The newly read versions replace the old ones key by key.
-  Modules the new input does not mention are kept, so re-importing only the SV file does not
-  remove the SNV-derived versions. The manifest always reflects the latest import.
-- **A manual manifest is never overwritten.** Once an admin has replaced the manifest through
+- **A re-import refreshes.** Newly read versions replace the old ones key by key. Modules the
+  new input does not mention are kept, so re-importing only the SV file keeps the SNV-derived
+  versions. The manifest always reflects the latest import.
+- **A manual manifest is never overwritten.** Once an admin has replaced it through
   `PUT /families/{family_id}/annotation-manifest` (`source='manual'`), imports leave it alone.
-- **An import and a replacement take turns.** Both take the family's manifest lock before they
-  read the row, and an import holds it until it commits. A replacement cannot land between an
-  import's read and its write, and waits while an import of the same family is running.
-- **It commits with the data.** The write runs in a savepoint inside the import's transaction,
-  so the provenance is stored exactly when the data it describes is, and a provenance failure
-  cannot roll back an import.
-- **History lives in the sign-outs and the audit trail.** The table holds the current manifest
-  only. Each sign-out freezes a copy into its content-hashed snapshot, and each replacement is
-  written to the clinical audit trail with the manifest it replaced
+- **An import and a replacement take turns.** Both take the family's manifest lock before
+  reading the row; an import holds it until it commits. So a replacement cannot land between an
+  import's read and write, and waits while an import of the same family runs.
+- **It commits with the data.** The write runs in a savepoint inside the import's transaction:
+  the provenance is stored exactly when its data is, and a provenance failure cannot roll back
+  an import.
+- **History lives in the sign-outs and the audit trail.** The table holds only the current
+  manifest. Each sign-out freezes a copy into its content-hashed snapshot; each replacement goes
+  to the clinical audit trail with the manifest it replaced
   ([clinical-traceability.md](clinical-traceability.md)).
 
 The manifest names versions; it does not detect change. That is the job of the
-`annotationSetHash` that ClickHouse keeps per variant: it changes whenever a variant's
-annotation changes, and the drift check compares it with the hash frozen at classification
-time. The hash proves that something changed; the manifest says which versions are in use.
+`annotationSetHash` ClickHouse keeps per variant: it changes whenever the variant's annotation
+changes, and the drift check compares it with the hash frozen at classification. The hash
+proves that something changed; the manifest says which versions are in use.
 
 ## The reference modules
 
-Next to the pipeline versions, the manifest lists what CoGA itself loaded. `_platform_modules`
-(in the same service) reads these live each time the manifest is built, so a sign-out freezes
-the versions in use at that moment.
+Beside the pipeline versions, the manifest lists what CoGA itself loaded. `_platform_modules`
+(same service) reads these live at each build of the manifest, so a sign-out freezes the
+versions in use at that moment.
 
 | Module | What is read |
 | --- | --- |
@@ -124,32 +134,31 @@ Each lookup runs in its own savepoint, so a failure cannot break the sign-out ar
 failed lookup is listed as version `unavailable` with the detail `lookup failed`, never left
 out. A module with nothing loaded is left out.
 
-No table holds the HPO release. An import writes its release onto every term in the file, and
-a term that a newer release no longer lists keeps the release it came with. So the loaded
-release is the one on the most recently written term (`get_loaded_hpo_release` in
-`hpo_service.py`). It is not the highest release string, since an older release can be
-imported again, nor the latest one recorded. Each term also keeps the SHA-256 of the file
-it was imported from (`metadata.release_sha256`), which the startup import of the pinned file
-and the admin sync record (TRACE-18). The admin sync no longer imports a file without a
-`data-version` header; a term imported from one before has no release, and the module then
-reads `unavailable` with the detail `release not recorded`. The HPO admin page and the cached phenotype ranking
+No table holds the HPO release. An import writes its release onto every term in the file; a
+term that a newer release no longer lists keeps its old release. So the loaded release is the
+one on the most recently written term (`get_loaded_hpo_release` in `hpo_service.py`). It is
+not the highest release string (an older release can be imported again), nor the latest one
+recorded. Each term also keeps the SHA-256 of its source file (`metadata.release_sha256`),
+recorded by the startup import of the pinned file and by the admin sync (TRACE-18). The admin
+sync no longer imports a file without a `data-version` header. A term imported earlier from
+such a file has no release; the module then reads `unavailable` with the detail
+`release not recorded`. The HPO admin page and the cached phenotype ranking
 ([variant-ranking-cache.md](variant-ranking-cache.md)) read the release the same way.
 
 When the family's pipeline declares a module under the same key (for example `assembly` from a
-VCF `##reference` line), the pipeline's value is the one listed.
+VCF `##reference` line), the pipeline's value is listed.
 
 ## Where it is shown
 
 - **Filter pages.** `AnnotationProvenanceSummary.tsx` shows "Annotation versions" at the
-  bottom of the small-variant and structural-variant pages, each with its own input's
-  versions plus the shared reference modules, and the source (for example "from VCF
-  headers").
+  bottom of the small-variant and structural-variant pages: that input's versions, the shared
+  reference modules and the source (for example "from VCF headers").
 - **Report.** `FamilyReportPage.tsx` shows the full list ("Modules & versions"), with the
   per-input values where they differ (for example `GENCODE 49 (snv), 45 (sv)`); sign-out
   freezes it.
 - **API.** `GET /families/{family_id}/annotation-manifest` returns the merged list.
-  `PUT /families/{family_id}/annotation-manifest` lets an admin replace it; the replacement is
-  recorded as `source='manual'`, whatever `source` the request sends.
+  `PUT /families/{family_id}/annotation-manifest` lets an admin replace it, recorded as
+  `source='manual'` whatever `source` the request sends.
 
 ## Limitations
 
@@ -163,11 +172,11 @@ VCF `##reference` line), the pipeline's value is the one listed.
   shows up without a code change.
 - `##fileformat`, `##fileDate` and a bare command line (Sniffles' `##command=…`) are read but
   not stored: the manifest keeps only the modules (`HeaderProvenance.as_modules`).
-- A tool that a header names only in a command line, with no version line, has no version in
-  that header, and the manifest does not list it from that file. The package's pipeline run
-  record, or an admin's replacement, can state it.
-- Of several files of one dataset (a per-sample dataset's VCFs), the first file's version of
-  a tool is kept (`merge_module_maps`); within one header every version is.
+- A tool that a header names only in a command line, with no version line, has no version
+  there, and the manifest does not list it from that file. The package's pipeline run record,
+  or an admin's replacement, can state it.
+- Of several files of one dataset (a per-sample dataset's VCFs), the first file's version of a
+  tool is kept (`merge_module_maps`); within one header, every version is.
 
 ## Tests
 

@@ -11,11 +11,11 @@
 | Parent | [TF-09 V&V Plan](TF-09-verification-validation.md); traced in [TF-09b RTM](TF-09b-requirements-traceability-matrix.md) |
 | Standards | IEC 62304 §5.2; IVDR Annex I §16 |
 
-> The authoritative list of CoGA's software requirements, each with a stable ID. The
-> forward links (requirement → design → code → test → risk) live in the **RTM
-> ([TF-09b](TF-09b-requirements-traceability-matrix.md))**. This SRS was derived from the
-> per-feature design docs and a point-in-time inventory of the implementation and test
-> suites; it is maintained under change control ([TF-18](TF-18-change-configuration-management.md)).
+> The authoritative list of CoGA's software requirements, each with a stable ID. The forward
+> links (requirement → design → code → test → risk) are in the **RTM
+> ([TF-09b](TF-09b-requirements-traceability-matrix.md))**. This SRS derives from the
+> per-feature design docs and a point-in-time inventory of the implementation and test suites,
+> and is maintained under change control ([TF-18](TF-18-change-configuration-management.md)).
 
 ---
 
@@ -23,14 +23,15 @@
 
 - **ID scheme:** `REQ-<AREA>-NNN`. Areas: NIPT, CARR, PGT, DIAG, CLASS, TRACE, SEC, DATA, QC, MITO, PERF, UI, RPT.
 - **Criticality** (per requirement): **C** = a failure could contribute to a wrong clinical result; **B** = could mislead but is normally caught; **A** = no injury possible. This is not an IEC 62304 software safety class: the software as a whole is Class C, with no lower-class decomposition ([TF-07 §1](TF-07-software-lifecycle-plan.md)).
-- **Risk** column references the hazard IDs in the [Risk Management Plan (TF-06 §6)](TF-06-risk-management-plan.md); "—" means no hazard is linked yet ([TF-09 §3](TF-09-verification-validation.md)).
-- Every requirement is **verifiable**; the verifying evidence is in the RTM. Requirements
-  with weak/absent verification are listed in [TF-09b §3](TF-09b-requirements-traceability-matrix.md).
+- **Risk** column: the hazard IDs in the [Risk Management Plan (TF-06 §6)](TF-06-risk-management-plan.md); "—" means no hazard is linked yet ([TF-09 §3](TF-09-verification-validation.md)).
+- Every requirement is **verifiable**; the RTM holds the verifying evidence.
+  [TF-09b §3](TF-09b-requirements-traceability-matrix.md) lists the requirements with weak or
+  absent verification.
 
 ## 2. Scope & assumptions
 
 - Scope is the CoGA device per [TF-02](TF-02-device-description.md): from validated annotated VCF/tracks to the closed, frozen analysis the analyst signs out. The clinical report is drafted and medically signed in the EPD, outside the device, and refers 1:1 to that analysis ([TF-02 §3](TF-02-device-description.md)).
-- **Assumption:** inputs are produced by separately-validated upstream workflows; CoGA does not validate primary calling/annotation (TF-01 §4).
+- **Assumption:** inputs come from separately validated upstream workflows; CoGA does not validate primary calling/annotation (TF-01 §4).
 - Functional requirements are grouped by clinical application and cross-cutting module.
 
 ---
@@ -126,7 +127,7 @@
 | REQ-TRACE-010 | Refuse a variant-review save made against a review that has changed since the client loaded it (409 with the current review), rather than overwrite another reviewer's classification, criteria, tags or note; serialize concurrent saves of one variant. The same holds for a repeat-locus and a Paraphase-region review, and for every review a compound-het pair save writes besides the variant's own: the partner's review is locked, read under its lock and checked against the version the client loaded (409 naming the partner), and so is the review of each variant of a pair the save breaks up; a review's `updated_at` never goes back. | C | H9, H3 |
 | REQ-TRACE-011 | Record, per family, the analysis pipeline and engine version and the version of every tool and reference database behind its callset, and present them with the run configuration. | C | H8 |
 | REQ-TRACE-012 | Refuse sign-out while a Sample QC check has failed, or while the Sample QC cannot confirm a declared family relationship or a sample's identity, unless the analyst acknowledges it with a reason; freeze the QC result and the reason into the signed record and the audit trail. | C | H4 |
-| REQ-TRACE-013 | Refuse sign-out while a package import has left the family partly loaded — the import-incomplete flag is set, or an import that began writing the family did not finish (its process stopped part-way, so the entry it recorded before its first write of the family remains) — unless the analyst acknowledges it with a reason; freeze what the import left out (the failed datasets, the datasets an unfinished import had not finished, and the import job) and the reason into the signed record and the audit trail; warn on every family page while either is set. Clear the import-incomplete flag only as an import imports each failed dataset again, for the same samples and small-variant source, keeping an earlier import's failed datasets (each with its import job) when a later import fails too. Clear an unfinished import's entry only by an import that completes and imports its unfinished datasets again with overwrite, for the same samples and small-variant source. End, keeping its record, an import job whose process stopped after its import began writing the family, rather than run it again from the start. | C | H16 |
+| REQ-TRACE-013 | Refuse sign-out while a package import has left the family partly loaded — the import-incomplete flag is set, or an import that began writing the family did not finish (its process stopped part-way, so the entry it recorded before its first write of the family remains) — unless the analyst acknowledges it with a reason; freeze what the import left out (the failed datasets, the datasets an unfinished import had not finished, and the import job) and the reason into the signed record and the audit trail; warn on every family page while either is set. Clear the import-incomplete flag only as an import imports each failed dataset again, for the same samples and small-variant source, keeping an earlier import's failed datasets (each with its import job) when a later import fails too. Clear an unfinished import's entry only by an import that completes and imports its unfinished datasets again with overwrite, for the same samples and small-variant source. End an import job whose process stopped after its import began writing the family, keeping its record, rather than run it again from the start. | C | H16 |
 | REQ-TRACE-014 | Freeze, when a structural-variant or CNV classification (a CNV scoring) is saved, the evidence the CNV classifier reads — the SV's type, the genes it overlaps and their count, the pLI and the annotated inheritance — with its caller and locus, a hash of its annotation, and the versions of the SV callset and the reference gene loci behind it; refuse a scoring for an SV not in the family's data. Report each SV/CNV classification whose evidence changed (naming what moved), whose SV is no longer in the data, or whose frozen evidence cannot be read. Count these, and a reported SV/CNV with no frozen evidence, in the sign-out drift gate (REQ-TRACE-006) and freeze them into the signed record. | C | H8, H3 |
 | REQ-TRACE-015 | Freeze, when a repeat-locus or Paraphase-region review saves or changes a classification or adds the Report tag, the calls it rests on (for a repeat locus each member's call, alleles, near-boundary warnings, the locus's thresholds and QA's counting-units record; for a Paraphase region each member's result without its load time); keep them on a save of tags or a note alone. Compare them with the calls at sign-out, and count a review whose calls changed, are gone, were not frozen or cannot be read in the evidence-drift gate (REQ-TRACE-006), naming what changed. | C | H17, H8 |
 | REQ-TRACE-016 | Refuse sign-out while a repeat locus or Paraphase region holds an abnormal call without a review (repeat: pathogenic, premutation, review or not assessed, or a count near a boundary at a locus whose counting units are not validated; Paraphase: pathogenic, carrier or review), unless the analyst acknowledges the findings, listed, with a reason; freeze the list and the reason into the signed record and the audit trail. | C | H1 |
@@ -217,6 +218,6 @@ small-variant/SV (REQ-DIAG-001/003), classification (REQ-CLASS-*) and Sample QC 
 
 ## 5. Maintenance
 
-This SRS is revised whenever a change adds/alters a requirement (TF-18). New requirements take
-the next free ID in their area; retired requirements are marked deprecated, not deleted, to
-preserve traceability history.
+This SRS is revised whenever a change adds or alters a requirement (TF-18). A new requirement
+takes the next free ID in its area. A retired requirement is marked deprecated, not deleted, to
+keep its traceability history.
