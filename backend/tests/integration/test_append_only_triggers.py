@@ -1,6 +1,8 @@
 """Integration tests that FIRE the append-only triggers (real Postgres, smoke job).
 
-These prove the database-level immutability controls on six append-only tables —
+These prove the database-level immutability controls on six append-only tables (and on the
+three of the exploratory ancestry PCA, outside the intended purpose: ``wgs_sources``,
+``ancestry_reference_panels`` and ``ancestry_results``) —
 ``audit_log_events`` (the HTTP access log), ``clinical_audit_events`` (the clinical action
 log), ``report_signouts`` (frozen signed reports), ``qc_threshold_changes`` (the history of
 QC acceptance limits), ``family_structure_versions`` (the pedigree's history) and
@@ -56,6 +58,15 @@ async def _assert_blocked(sessionmaker, sql: str, params: dict, expect_substr: s
     assert expect_substr in str(exc_info.value)
 
 
+# A marker WGS source, and a fresh reference checksum (the panels' key, 64 hex digits).
+_WGS_SOURCE_MARKER = (
+    "(family_uuid, family_identifier, project_id, package_path, relative_vcf, sha256, storage_version, "
+    "storage_fingerprint, samples, absent_record_is_hom_ref, file_size, file_mtime_ns) VALUES "
+    "(gen_random_uuid(), 'p1-5-test', gen_random_uuid(), '/p1-5-test', 'marker.vcf', 'deadbeef', '0:0', "
+    "'marker', '[]'::jsonb, false, 0, 0)"
+)
+_MARKER_SHA256 = "md5(random()::text) || md5(random()::text)"
+
 # Per append-only table: a marker row's INSERT (returning its id), and an UPDATE of a value it
 # records, by its id. integrity_anchors is not fired here: a marker anchor would break the
 # anchor-chain verification that test_integrity_anchor_integration.py runs on the same database
@@ -94,7 +105,31 @@ _FIRED = {
         "INSERT INTO ui_events (event_type, label) VALUES ('click', 'p1-5-trigger-test') RETURNING id",
         "UPDATE ui_events SET label = 'tampered' WHERE id = :id",
     ),
+    # The exploratory ancestry PCA: what a projection read, the reference it used and what it
+    # found are not rewritten.
+    "wgs_sources": (
+        f"INSERT INTO wgs_sources {_WGS_SOURCE_MARKER} RETURNING id",
+        "UPDATE wgs_sources SET sha256 = 'tampered' WHERE id = :id",
+    ),
+    "ancestry_reference_panels": (
+        f"INSERT INTO ancestry_reference_panels (sha256, snapshot) VALUES ({_MARKER_SHA256}, '{{}}'::jsonb) "
+        "RETURNING sha256",
+        "UPDATE ancestry_reference_panels SET snapshot = '[]'::jsonb WHERE sha256 = :id",
+    ),
+    "ancestry_results": (
+        f"WITH s AS (INSERT INTO wgs_sources {_WGS_SOURCE_MARKER} RETURNING id), "
+        f"p AS (INSERT INTO ancestry_reference_panels (sha256, snapshot) VALUES ({_MARKER_SHA256}, '{{}}'::jsonb) "
+        "RETURNING sha256), "
+        "r AS (INSERT INTO ancestry_runs (family_uuid, family_identifier, project_id, source_id, reference_sha256, "
+        "requested_by) SELECT gen_random_uuid(), 'p1-5-test', gen_random_uuid(), s.id, p.sha256, gen_random_uuid() "
+        "FROM s, p RETURNING id, source_id, reference_sha256) "
+        "INSERT INTO ancestry_results (run_id, source_id, reference_sha256, samples, calculation_version, assumptions) "
+        "SELECT id, source_id, reference_sha256, '[]'::jsonb, 'marker', '{}'::jsonb FROM r RETURNING run_id",
+        "UPDATE ancestry_results SET calculation_version = 'tampered' WHERE run_id = :id",
+    ),
 }
+# The column a marker row is found by, where it is not ``id``.
+_KEY = {"ancestry_reference_panels": "sha256", "ancestry_results": "run_id"}
 _NOT_FIRED = {"integrity_anchors"}
 
 
@@ -124,6 +159,7 @@ def test_append_only_triggers_block_update_and_delete(schema, table: str) -> Non
     from backend.app.core.postgres import get_postgres_sessionmaker
 
     insert, update = _FIRED[table]
+    key = _KEY.get(table, "id")
 
     async def _run() -> None:
         sm = get_postgres_sessionmaker()
@@ -132,11 +168,11 @@ def test_append_only_triggers_block_update_and_delete(schema, table: str) -> Non
             await s.commit()
         await _assert_blocked(sm, update, {"id": row_id}, f"{table} is append-only; UPDATE is not permitted")
         await _assert_blocked(
-            sm, f"DELETE FROM {table} WHERE id = :id", {"id": row_id}, f"{table} is append-only; DELETE is not permitted"
+            sm, f"DELETE FROM {table} WHERE {key} = :id", {"id": row_id}, f"{table} is append-only; DELETE is not permitted"
         )
         # Both refused: the row is there as it was written.
         async with sm() as s:
-            assert (await s.execute(text(f"SELECT count(*) FROM {table} WHERE id = :id"), {"id": row_id})).scalar_one() == 1
+            assert (await s.execute(text(f"SELECT count(*) FROM {table} WHERE {key} = :id"), {"id": row_id})).scalar_one() == 1
 
     run_closing_stores(_run)
 

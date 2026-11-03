@@ -152,3 +152,13 @@ the other variant pages.
 **ACMG classify** on a variant from the **mtDNA analysis** page uses the mitochondrial rule set.
 
 [ACMG classification reference (including the CNV classifier)](/docs/reference/acmg-classification "further-reading")
+
+### Ancestry PCA (exploratory)
+
+**Exploratory — not for clinical use.** The **Ancestry (exploratory)** page places a family's
+individuals beside public reference populations on four principal components: genetic similarity,
+not an ancestry percentage or an ethnic identity. It is outside CoGA's intended purpose, has not been
+validated, and is never part of the sign-out or of the signed record. It reads one registered GRCh38
+whole-genome VCF of the family; the page says what it needs when the family has none.
+
+[Ancestry PCA reference](/docs/reference/ancestry-pca "further-reading")

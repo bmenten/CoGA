@@ -9,6 +9,7 @@ export type FamilyModuleKey =
   | 'small-variants'
   | 'structural-variants'
   | 'repeat-expansions'
+  | 'ancestry'
   | 'paraphase'
   | 'mitochondrial-dna'
   | 'nipt'
@@ -34,25 +35,78 @@ const FamilyModuleNav: React.FC<{
    *  calls (mtDNA analysis last), before the NIPT and the variant summary. */
   views?: React.ReactNode;
 }> = ({ familyId, projectId, presence, isMonogenicNipt, current, views }) => {
-  const projectSuffix = projectId ? `?project_id=${encodeURIComponent(projectId)}` : '';
-  const modules: { key: FamilyModuleKey; label: string; available: boolean; withProject: boolean }[] = [
-    { key: 'small-variants', label: 'Small variants', available: presence.hasSmallVariants, withProject: true },
+  const projectSuffix = projectId
+    ? `?project_id=${encodeURIComponent(projectId)}`
+    : '';
+  const modules: {
+    key: FamilyModuleKey;
+    label: string;
+    available: boolean;
+    withProject: boolean;
+  }[] = [
+    {
+      key: 'small-variants',
+      label: 'Small variants',
+      available: presence.hasSmallVariants,
+      withProject: true,
+    },
     {
       key: 'structural-variants',
       label: 'Structural variants',
       available: presence.hasStructuralVariants,
       withProject: true,
     },
-    { key: 'repeat-expansions', label: 'Repeat expansions', available: presence.hasRepeatExpansions, withProject: false },
-    { key: 'paraphase', label: 'Paraphase', available: presence.hasParaphase, withProject: false },
-    { key: 'mitochondrial-dna', label: 'mtDNA analysis', available: presence.hasMitoDna, withProject: true },
-    { key: 'nipt', label: 'Monogenic NIPT', available: isMonogenicNipt, withProject: false },
-    { key: 'variant-summary', label: 'Variant summary', available: presence.hasVariantSummary, withProject: false },
+    {
+      key: 'repeat-expansions',
+      label: 'Repeat expansions',
+      available: presence.hasRepeatExpansions,
+      withProject: false,
+    },
+    // Exploratory, outside the intended purpose: offered where there are small variants to
+    // read, never for a monogenic NIPT family (a cfDNA mixture is not an individual).
+    {
+      key: 'ancestry',
+      label: 'Ancestry (exploratory)',
+      available: presence.hasSmallVariants && !isMonogenicNipt,
+      withProject: true,
+    },
+    {
+      key: 'paraphase',
+      label: 'Paraphase',
+      available: presence.hasParaphase,
+      withProject: false,
+    },
+    {
+      key: 'mitochondrial-dna',
+      label: 'mtDNA analysis',
+      available: presence.hasMitoDna,
+      withProject: true,
+    },
+    {
+      key: 'nipt',
+      label: 'Monogenic NIPT',
+      available: isMonogenicNipt,
+      withProject: false,
+    },
+    {
+      key: 'variant-summary',
+      label: 'Variant summary',
+      available: presence.hasVariantSummary,
+      withProject: false,
+    },
   ];
-  const shown = modules.filter((module) => module.available || module.key === current);
-  const viewsBefore = shown.findIndex((module) => module.key === 'nipt' || module.key === 'variant-summary');
+  const shown = modules.filter(
+    (module) => module.available || module.key === current
+  );
+  const viewsBefore = shown.findIndex(
+    (module) => module.key === 'nipt' || module.key === 'variant-summary'
+  );
   const viewsGroup = views ? (
-    <span className="family-case-header-views" role="group" aria-label="Genome views">
+    <span
+      className="family-case-header-views"
+      role="group"
+      aria-label="Genome views"
+    >
       {views}
     </span>
   ) : null;
@@ -66,7 +120,9 @@ const FamilyModuleNav: React.FC<{
               <Link
                 to={routePath`/families/${familyId}/${module.key}${raw(module.withProject ? projectSuffix : '')}`}
                 className={`family-module-link hover:no-underline${
-                  module.key === 'variant-summary' ? ' family-module-link--end' : ''
+                  module.key === 'variant-summary'
+                    ? ' family-module-link--end'
+                    : ''
                 }`}
                 aria-current={module.key === current ? 'page' : undefined}
               >

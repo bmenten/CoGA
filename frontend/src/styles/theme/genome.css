@@ -821,3 +821,106 @@
 .igv-shell {
   min-height: 500px;
 }
+/* Exploratory ancestry PCA (FamilyAncestryPage), with exact coordinates and an accessible QC table. */
+.ancestry-heading,
+.ancestry-controls,
+.ancestry-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1.25rem;
+}
+.ancestry-heading {
+  justify-content: space-between;
+}
+.ancestry-section-head {
+  display: flex;
+  align-items: center;
+  gap: 0.3125rem;
+}
+.ancestry-legend {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.ancestry-controls label,
+.ancestry-history {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: var(--fs-sm);
+}
+.ancestry-controls select,
+.ancestry-history select {
+  max-width: 24rem;
+}
+.ancestry-legend label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: var(--fs-sm);
+}
+.ancestry-swatch {
+  display: inline-block;
+  width: 0.625rem;
+  height: 0.625rem;
+  border-radius: 50%;
+}
+.ancestry-individual-key {
+  font-weight: 600;
+  font-size: var(--fs-sm);
+}
+.ancestry-chart-scroll {
+  overflow-x: auto;
+}
+.ancestry-quality-table {
+  min-width: 58rem;
+}
+.ancestry-chart {
+  display: block;
+  width: 100%;
+  min-width: 640px;
+  background: var(--color-surface);
+}
+.ancestry-chart text {
+  fill: var(--color-text-muted);
+  font-size: 13px;
+}
+.ancestry-chart .ancestry-exploratory-mark {
+  fill: var(--color-text);
+  font-weight: 600;
+}
+.ancestry-grid {
+  stroke: var(--color-border);
+  stroke-opacity: 0.55;
+}
+.ancestry-family-point path {
+  fill: var(--color-surface);
+  stroke: var(--color-text);
+  stroke-width: 1.5px;
+}
+.ancestry-family-point .ancestry-point-focused {
+  stroke: var(--color-signature-red);
+  stroke-width: 2px;
+}
+.ancestry-chart .ancestry-point-label {
+  fill: var(--color-text-muted);
+  font-size: 10px;
+  font-weight: 400;
+  paint-order: stroke;
+  stroke: var(--color-surface);
+  stroke-width: 1.5px;
+  stroke-linejoin: round;
+}
+.ancestry-family-point:hover .ancestry-point-label {
+  fill: var(--color-text);
+}
+.ancestry-assumptions {
+  display: grid;
+  grid-template-columns: minmax(12rem, max-content) minmax(0, 1fr);
+  gap: 0.1875rem 0.75rem;
+  font-size: var(--fs-sm);
+}
+.ancestry-assumptions dt {
+  color: var(--color-text-muted);
+}

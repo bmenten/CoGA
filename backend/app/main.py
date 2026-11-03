@@ -46,6 +46,7 @@ from .services.family_package_import import (
     family_package_import_worker,
     stop_family_package_import_worker,
 )
+from .services.ancestry_service import ancestry_worker, stop_ancestry_worker
 from .services.repeat_expansion_pg import seed_builtin_repeat_catalog
 from .services.reference_metadata_service import seed_builtin_reference_tracks
 from .services.reference_source_service import (
@@ -129,9 +130,17 @@ async def lifespan(app: FastAPI):
             "are run by import-worker processes"
         )
 
+    # The exploratory ancestry PCA's jobs run where the package imports run: here only when
+    # this process runs import workers, otherwise in the import-worker processes.
+    ancestry_stop = asyncio.Event()
+    ancestry_task = (
+        asyncio.create_task(ancestry_worker(ancestry_stop)) if family_import_worker_tasks else None
+    )
     try:
         yield
     finally:
+        if ancestry_task is not None:
+            await stop_ancestry_worker(ancestry_task, ancestry_stop)
         await stop_gene_reference_worker(worker_task, worker_stop)
         for family_import_worker_task in family_import_worker_tasks:
             await stop_family_package_import_worker(

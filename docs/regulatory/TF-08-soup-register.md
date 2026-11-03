@@ -54,7 +54,7 @@ each release; it is not maintained by hand. **Reconciled with the lockfile on 20
 | pysam | 0.24.1 | VCF/BAM/CRAM access | H | Changelog |
 | pyBigWig | 0.3.26 | bigWig signal-track reading (HiFiCNV read depth and minor allele fraction) | M | Changelog |
 | prometheus-client | 0.26.0 | Prometheus exposition for `GET /metrics` (operations monitoring; outside the clinical path, no dependencies of its own) | L | Changelog |
-| pandas / numpy | 3.1.0 / 2.2.6 | CNV knowledgebase build, analysis | M | Changelog |
+| pandas / numpy | 3.1.0 / 2.2.6 | CNV knowledgebase build, analysis; numpy also the exploratory ancestry PCA (outside the intended purpose, TF-01 §4) | M | Changelog |
 | requests / httpx / beautifulsoup4 | 2.34.2 / 0.28.1 / 4.15.0 | External fetches, parsing | M | CVE watch |
 | intervaltree | 3.2.1 | Interval ops | M | — |
 | boto3 | 1.43.118 | S3 object store: presigned access (`STORAGE_BACKEND=s3`) | M | CVE |
@@ -145,6 +145,7 @@ change a prior classification ([clinical-traceability.md](../clinical-traceabili
 | STRchive disease-locus catalogue | Repeat-expansion loci and thresholds | pipeline manifest (`trgt_repeats`) + `repeat_loci` | Release pinned: the shipped `data/ref-data/STRchive-loci.json` (75 loci), SHA-256 `a0295e1fe3e2…` (`STRCHIVE_PINNED_LOCI_SHA256` in `core/config.py`); a start on any other file, or none, is refused, and `repeat_loci` holds that release's loci only ([data-import.md](../data-import.md#the-strchive-release)). The file names no upstream release; it is byte-identical to the `STRchive-loci-v2.18.0.json` STRchive published with release **v2.18.0** (2026-04-28) (`STRCHIVE_PINNED_RELEASE`), checked on 2026-10-20 against the loci file of every published STRchive release, with the owner's permission |
 | MITOMAP / Phylotree 17 (via mutserve) | mtDNA haplogroup + variant context | pipeline manifest; mutserve annotation TSV | Tool release |
 | Helix mtDB | mtDNA population frequency | mutserve annotation TSV | Bundled with the annotator |
+| 1000 Genomes phase 3 PCA reference (from peddy's public files) | The exploratory ancestry PCA only: outside the intended purpose (TF-01 §4), never in a sign-out | bundled `backend/app/data/ancestry/1000g-grch38-v1.npz` + JSON sidecar | Pinned: SHA-256 `802a3590063e…` (`DEFAULT_REFERENCE_SHA256` in `ancestry_projection.py`), built by `scripts/prepare_ancestry_reference.py` from peddy revision `1d340cd3e876…` (MIT, `PEDDY-LICENSE.txt`); 2,504 individuals, 9,569 SNPs ([ancestry-pca.md](../ancestry-pca.md)) |
 
 **The bundled ClinGen recurrent-CNV file (TRACE-3).**
 `data/ref-data/clinical_cnv_syndromes_hg38_bundle/ClinGen_recurrent_CNV_V2.1-hg38.bed`, which
