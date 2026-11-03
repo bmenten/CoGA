@@ -481,7 +481,8 @@ member of the directory who could sign in without being assigned to the lab's gr
   What an event loop reports to its exception handler (a task's exception that nobody
   retrieved, a callback that raised, a transport's error) is logged by
   `log_event_loop_exception`, which the lifespan installs on the loop uvicorn runs the app on;
-  every background worker runs there as a task. asyncio's own handler, and uvloop's, wrote
+  every background worker runs there as a task. An import-worker process
+  (`backend/app/import_worker.py`) installs it on its own loop, and writes the same JSON log. asyncio's own handler, and uvloop's, wrote
   each object's repr into the message: a task's holds its exception's message, and the
   callback's line quotes its arguments (uvloop; asyncio on Python 3.12). The line now gives
   asyncio's fixed message up to the first object it quotes (a message it does not know is not

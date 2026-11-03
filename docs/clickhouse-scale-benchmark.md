@@ -35,7 +35,8 @@ figure below comes from its results, measured on 2 and 3 November 2026.
   quiet machine, so 4 to 6 minutes every 6 hours at 1,000 genomes.
 - **The storage writer writes about 2,600 records a second since #1093** (1,100–1,400
   before), so writing a whole-genome trio takes about 40 minutes, and 1,000 genomes about
-  10 days of one core: the imports share the API's process.
+  10 days of one core's work, shared by the import-worker processes (`IMPORT_WORKER_REPLICAS`,
+  one core each).
 
 ## Hardware for 1,000 genomes
 
@@ -221,9 +222,10 @@ about 4 to 6 minutes, and longer under load (0.2 GB a second at the 250-genome s
 The storage writer (`insert_small_variant_records`), on trio records with six transcripts each,
 wrote 1,100 to 1,400 records a second before #1093 and 2,605 a second since (20,000 records in
 7.7 s, on the same loaded machine): about 40 minutes for the 6.3 M records of a whole-genome
-trio, and some 10 days for the 2.4 billion of 1,000 genomes, since every import runs in the
-API's one process ([application-scheme.md](application-scheme.md#small-variant-import), which
-measures the whole import). The writer writes a variant's shared rows (details,
+trio, and some 10 days of one core for the 2.4 billion of 1,000 genomes, which the
+[import-worker processes](application-scheme.md#import-worker-processes) share, each on a core
+of its own ([application-scheme.md](application-scheme.md#small-variant-import) measures the
+whole import). The writer writes a variant's shared rows (details,
 annotations and indexes) again for every family that carries it; ReplacingMergeTree folds
 them together when parts merge, so the tables above are the merged size, and at 1,000
 genomes the shared tables take in about 40 times more rows than they keep. This benchmark

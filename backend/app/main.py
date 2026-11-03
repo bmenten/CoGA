@@ -1,5 +1,6 @@
 import asyncio
 from contextlib import asynccontextmanager
+import logging
 from typing import cast
 
 from fastapi import APIRouter, FastAPI, Request, Response
@@ -60,6 +61,8 @@ from .services.clickhouse_integrity_monitor import (
 from .services.clickhouse_variant_storage import verify_clickhouse_variant_storage_identity
 from .services.ui_event_pg import start_ui_event_worker, stop_ui_event_worker
 
+logger = logging.getLogger(__name__)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -118,6 +121,13 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(family_package_import_worker(family_import_worker_stop))
         for _ in range(settings.family_import_worker_count)
     ]
+    if not family_import_worker_tasks:
+        # The jobs wait, queued, until an import-worker process takes them
+        # (backend/app/import_worker.py; docker-compose.yml runs one).
+        logger.info(
+            "No package-import workers in the API (FAMILY_IMPORT_WORKER_COUNT=0): import jobs "
+            "are run by import-worker processes"
+        )
 
     try:
         yield

@@ -30,8 +30,13 @@ flowchart LR
     IMPORT --> FS["Files or object storage<br/>FASTA, BAM/CRAM, package sources"]
     REF --> FS
 
-    JOBS["Startup + background workers<br/>schema, seeds, reference bootstrap,<br/>gene refresh, package import,<br/>audit + UI-event writers,<br/>ClickHouse integrity check"] --> PG
+    JOBS["Startup + background workers<br/>schema, seeds, reference bootstrap,<br/>gene refresh, audit + UI-event writers,<br/>ClickHouse integrity check"] --> PG
     JOBS --> CH
+
+    IMPORT -. "queued jobs" .-> WORKERS["Package-import workers<br/>in import-worker processes,<br/>or in the API's own"]
+    WORKERS --> PG
+    WORKERS --> CH
+    WORKERS --> FS
 ```
 
 ## Storage boundary
@@ -125,16 +130,73 @@ On start the backend (`backend/app/main.py`):
    ([database.md](database.md#clickhouse-tables)); and starts the scheduled ClickHouse
    integrity check;
 5. starts the gene-reference refresh worker and the family-package import workers
-   (`FAMILY_IMPORT_WORKER_COUNT`).
+   (`FAMILY_IMPORT_WORKER_COUNT`; with 0 it starts none and leaves the jobs to
+   [import-worker processes](#import-worker-processes), as Docker Compose does).
 
 All of this runs inside the one uvicorn process that serves the API.
 
+### Import-worker processes
+
+`python -m app.import_worker` ([import_worker.py](../backend/app/import_worker.py)) runs the
+family-package import workers in a process of its own, without the API: it serves nothing and
+listens on no port. Docker Compose runs it as the `import-worker` service, from the backend's
+image, with the backend's settings and its `/data`, and starts the API with no import worker
+(`FAMILY_IMPORT_WORKER_COUNT=0` on the `backend` service). Each replica is one process, which
+runs `FAMILY_IMPORT_WORKER_COUNT` jobs at a time (1 by default); `IMPORT_WORKER_REPLICAS` (1 by
+default) sets how many run. On Google Cloud the imports still run in the API's instances:
+`terraform/` has no worker service.
+
+On start it checks what the API's start checks before its workers run, and does nothing else:
+
+1. waits for Postgres and refuses to start unless the database is at this version's schema
+   revision. It never migrates; Compose starts it once the backend, which migrates, is healthy;
+2. waits for ClickHouse, creates the database when it is missing, and refuses variant tables
+   whose sort key leaves the callset out or that lack the per-call columns
+   ([Storage identity](#storage-identity));
+3. drops the backup tables of `overwrite` imports that no running import owns;
+4. starts its workers.
+
+On SIGTERM (`docker compose stop`) or SIGINT it stops its workers as the API's shutdown does,
+closes its database clients and exits 0. An import it was running stops where it is, and the
+next worker to look takes the job over once its heartbeat is stale
+([data-import.md](data-import.md#the-import-job)). A start that fails, or a worker that ends
+by itself, exits 1, and Compose starts the process again.
+
+What the workers of all processes share goes through Postgres, so it holds across processes
+and hosts as it does between the workers of one process: the claim of a job
+(`FOR UPDATE SKIP LOCKED`: one worker per job), its heartbeat, stamped and judged stale by the
+database's clock, the end of a job whose heartbeat went stale, and the family's variant-write
+locks, advisory locks on the import's own connection, which Postgres releases with it
+([database.md](database.md#one-write-at-a-time-per-family)). The context variable those locks
+keep only spares the import's own tasks from taking the locks they hold already; another
+process never sees it, and takes the locks. An import's self-stop and its check of the locks'
+connection run in its own process. The clinical audit trail and the pedigree's structure
+versions an import writes are written in its own transactions, each chain under its family's
+advisory lock; the request that queued the job is audited by the API. A worker logs each job
+it claims with its worker ID, which starts with its process ID: a job's record names its
+worker only while the job runs.
+
+Measured with two synthetic one-sample families of 30,000 records each (three VEP CSQ entries
+per record), imported at once into Postgres 16 and ClickHouse 26.8 containers. The machine had
+10 cores and was shared, with a load average of 11 to 15 from other work. There were three
+runs, in both orders:
+
+| Layout | Both families imported | CPU time of each process |
+| --- | --- | --- |
+| One process, two workers | 25 to 33 s (median 29 s) | 18 to 21 s |
+| Two processes, one worker each | 19 to 21 s (median 20.5 s) | 11 s |
+
+The one process used about two thirds of its one core and waited on the databases for the
+rest, which its two workers already overlap. The gain grows with the share of an import that
+is CPU work and with the cores left free.
+
 ## Performance
 
-The API and the import and refresh workers share that process's one event loop, so CPU work a
-request or an import runs on the loop holds every other request until it ends. These run in a
-worker thread instead (`asyncio.to_thread`), the queries and writes on the loop, each giving
-the result it gave on the loop (OPS-9):
+The API and the refresh worker share that process's one event loop, and so do the import
+workers when the API runs them ([import-worker processes](#import-worker-processes) run them
+apart), so CPU work a request or an import runs on the loop holds every other request until it
+ends. These run in a worker thread instead (`asyncio.to_thread`), the queries and writes on the
+loop, each giving the result it gave on the loop (OPS-9):
 
 - **Sample QC**: the read of the sampled sites' genotypes, their parse (each distinct genotype
   string parsed once) and the checks (relatedness over every pair, Mendelian, sex).
@@ -161,11 +223,11 @@ The results were the same before and after: the frozen Sample QC, every row writ
 progress report, and the record's Sample QC and NIPT section. What is left of a stall is a
 garbage collection, which stops every thread. How the ClickHouse storage and its queries
 scale towards 1,000 whole genomes, where they fail and the hardware they need is measured in
-[clickhouse-scale-benchmark.md](clickhouse-scale-benchmark.md). Not done: worker processes (the
-import and refresh workers still run in the API's process); the Variant Explorer's unfiltered
-page, which aggregates every carrier (#841) and which that benchmark finds the first query to
-fail; the ranked view's limit of 5,000 SVs, which a family with more than 50,000 SVs reaches
-more often since #906.
+[clickhouse-scale-benchmark.md](clickhouse-scale-benchmark.md). Not done: the refresh worker in
+a process of its own, and import-worker processes on Google Cloud, where the imports still run
+in the API's instances; the Variant Explorer's unfiltered page, which aggregates every carrier
+(#841) and which that benchmark finds the first query to fail; the ranked view's limit of 5,000
+SVs, which a family with more than 50,000 SVs reaches more often since #906.
 
 ### Small-variant import
 
@@ -203,13 +265,12 @@ dataset's summary and the job log were the same too. The check fixes `PYTHONHASH
 annotation index's effect and ClinVar term arrays are gathered from Python sets, so their order
 follows the process's hash seed, before as after.
 
-What is left is CPU in the API's process. The imports and the requests share its one GIL, so all
-imports together use one core, whatever `FAMILY_IMPORT_WORKER_COUNT` says. The next step is to
-run the import workers in processes of their own. A worker already claims its job, beats its
-heartbeat and stops through Postgres, and the family's write lock is a Postgres lock. What that
-step needs: an entrypoint without the API, a worker count the API can set to 0 (it must be at
-least 1 today), and a service of its own in the deployment. A process pool inside one import
-would speed up that import alone, and would end the reader's one-batch bound (above).
+What is left is CPU. The imports of one process share its one GIL, so they use one core
+together, whatever `FAMILY_IMPORT_WORKER_COUNT` says; in the API's process they share it with
+the requests too. So the import workers run in [import-worker processes](#import-worker-processes)
+of their own, one core each, and the API runs none (Docker Compose; not yet on Google Cloud).
+A process pool inside one import would speed up that import alone, and would end the reader's
+one-batch bound (above).
 
 ## Main code areas
 
@@ -227,6 +288,7 @@ Backend, under `backend/app/`:
   cross-project explorer; `services/variant_ranking_cache.py` — the phenotype-prioritised
   ranking cache.
 - `services/family_package_*.py` — the folder-based family-package import;
+  `import_worker.py` — its workers in a process of their own;
   `services/variant_upload_service.py` and `services/bed_service.py` — single-file uploads;
   `services/family_variant_write_lock.py` — one write at a time to each family's variants.
 - `services/acmg_points.py`, `services/cnv_acmg_points.py` — ACMG/AMP scoring for small

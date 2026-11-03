@@ -597,7 +597,9 @@ several GB. The import also parses the VEP table into a temporary database in `/
 reads each SV and CNV VCF whole into memory (up to `MAX_UPLOAD_BYTES`, 1 GiB, and
 `MAX_DECOMPRESSED_UPLOAD_BYTES`, 2 GiB once decompressed). Each import job stages its own
 copy and deletes it when the import ends, whether it succeeded or failed, and each backend
-instance runs up to `FAMILY_IMPORT_WORKER_COUNT` jobs at once (1 by default). A
+instance runs up to `FAMILY_IMPORT_WORKER_COUNT` jobs at once (1 by default), all on its one
+core: `terraform/` runs the imports in the API's instances, not in import-worker processes of
+their own as Docker Compose does ([application-scheme.md](application-scheme.md#import-worker-processes)). A
 **Validate package** run is a dry-run import job and stages the package the same way; only
 the API's `POST /api/family-imports/validate` stages a copy outside the jobs, and deletes it
 before it answers. Set `backend_memory` to fit the largest package without its alignments,

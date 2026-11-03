@@ -22,7 +22,7 @@ De hele import is alleen voor beheerders: elk endpoint van de router `/api/famil
 | `POST /family-imports` | Een import of dry-run in de wachtrij zetten (een `project_id` dat geen project noemt, krijgt `404` nog voor de job bestaat) |
 | `GET /family-imports` en `GET /family-imports/{job_id}` | De status volgen |
 
-De import zelf draait niet binnen het webverzoek maar in een **achtergrondworker**, zodat een groot pakket de server niet blokkeert. De worker neemt de volgende job, valideert het pakket, registreert de familie en importeert dan dataset per dataset.
+De import zelf draait niet binnen het webverzoek maar in een **achtergrondworker**, zodat een groot pakket de server niet blokkeert. De worker neemt de volgende job, valideert het pakket, registreert de familie en importeert dan dataset per dataset. Onder Docker Compose draaien de workers in een eigen proces, de dienst `import-worker`, en niet in de backend: zo krijgt elke import een eigen processorkern en houdt hij de verzoeken van de gebruikers niet op (hoofdstuk 4). Een job blijft `queued` zolang geen worker draait.
 
 **Waar in de code:** `backend/app/routers/family_imports.py`; de orkestratie en de worker in `backend/app/services/family_package_import.py`.
 
@@ -165,7 +165,7 @@ Een job gaat pas naar `running` als hij de familie heeft vastgelegd die hij impo
 
 **Voortgang en resterende tijd.** Elke dataset krijgt in zijn samenvatting een `progress`: wanneer hij begon en eindigde. De importers die tellen wat ze lezen (de small variants: de SNV-VCF, de SNV-bestanden van een long-read-koppel, de twee bestanden van een NIPT-paar en de geïmputeerde genotypes; en APCAD) melden ook hoeveel bytes van hun bestanden ze gelezen hebben, van een gzip-bestand de gecomprimeerde. Daaruit volgt het deel dat gelezen is, en de resterende tijd: de rest van de bestanden aan het tempo sinds de eerste melding. De tijd daarvoor telt niet mee, want dan leest de importer nog niets (een VEP-tabel inlezen, de rijen van een overwrite wissen). Een schatting komt er pas na een halve minuut lezen. Ze geldt voor de dataset die loopt; de datasets erna worden niet geschat, en de pagina zegt hoeveel er volgen.
 
-Een worker neemt een job atomair (`FOR UPDATE SKIP LOCKED`), zodat meerdere workers elkaar niet hinderen. Een lopende job schrijft elke minuut een levensteken (*heartbeat*). De klok van de databank zet het tijdstip en beoordeelt de leeftijd, zodat workers op hosts met een andere klok het eens zijn. Is het levensteken tien minuten oud, dan geldt het proces dat de job draaide als gestopt (een herstart, een crash, geen geheugen meer), en neemt de volgende worker de job over:
+Een worker neemt een job atomair (`FOR UPDATE SKIP LOCKED`), zodat meerdere workers elkaar niet hinderen, ook niet vanuit verschillende processen. Een lopende job schrijft elke minuut een levensteken (*heartbeat*). De klok van de databank zet het tijdstip en beoordeelt de leeftijd, zodat workers op hosts met een andere klok het eens zijn. Is het levensteken tien minuten oud, dan geldt het proces dat de job draaide als gestopt (een herstart, een crash, geen geheugen meer), en neemt de volgende worker de job over:
 
 - Was de import nog niet begonnen de familie te schrijven (de job stond nog op `validating`), dan draait de worker hem opnieuw van bij het begin. De logregels van de eerdere poging blijven staan.
 - Was hij dat wel (`running`), dan eindigt de job op `failed`, onderbroken, en draait hij niet opnieuw: een nieuwe run van bij het begin maakt niet ongedaan wat hij al schreef. Het log en de samenvatting per dataset blijven zoals de import ze achterliet.
@@ -231,6 +231,7 @@ De pagina *Package import* (`/package-import`) leidt door deze stappen. Ze gebru
 | --- | --- |
 | `backend/app/routers/family_imports.py` | De endpoints (alleen voor beheerders) |
 | `backend/app/services/family_package_import.py` | Orkestratie, worker en de fail-clean-regels |
+| `backend/app/import_worker.py` | De importworkers in een eigen proces, zonder API (`python -m app.import_worker`) |
 | `backend/app/services/family_package_source.py` · `backend/app/core/object_storage.py` | Allowlist, lokale map, S3 en GCS |
 | `backend/app/services/family_package_validation.py` | De dry-run-controles |
 | `backend/app/services/family_package_datasets.py` | De importfunctie per dataset |

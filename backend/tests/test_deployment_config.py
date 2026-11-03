@@ -65,6 +65,36 @@ def test_the_vm_override_publishes_nothing_beyond_loopback() -> None:
             assert str(mapping).startswith("127.0.0.1:"), f"{name} publishes {mapping} beyond the VM"
 
 
+def test_the_imports_run_in_a_service_of_their_own_from_the_backend_image() -> None:
+    # Every package import ran in the API's process, all of them on its one core and on the
+    # event loop that answers the requests. Compose runs them in import-worker processes
+    # (backend/app/import_worker.py) of the backend's image, with its settings and its /data,
+    # and the API with no import worker of its own.
+    services = _compose()["services"]
+    backend, worker = services["backend"], services["import-worker"]
+    assert worker["build"] == backend["build"], "the import worker is built from another image"
+    assert worker["command"] == ["python", "-m", "app.import_worker"]
+    assert (REPO / "backend" / "app" / "import_worker.py").is_file()
+    assert backend["environment"]["FAMILY_IMPORT_WORKER_COUNT"] == 0
+    assert worker["env_file"] == backend["env_file"]
+    for name in ("POSTGRES_HOST", "CLICKHOUSE_HOST", "CLICKHOUSE_HTTP_PORT"):
+        assert worker["environment"][name] == backend["environment"][name], name
+    assert "FAMILY_IMPORT_WORKER_COUNT" not in worker["environment"], "an import worker runs at least one"
+    assert worker["volumes"] == backend["volumes"]
+    assert worker["user"] == backend["user"]
+    assert "ports" not in worker, "the import worker serves nothing"
+    # Started once the backend has migrated the schema, which the worker only checks.
+    assert worker["depends_on"] == {"backend": {"condition": "service_healthy"}}
+    assert worker["deploy"]["replicas"] == "${IMPORT_WORKER_REPLICAS:-1}"
+
+    # The dev stack runs the worker from the dev image, on the code the backend runs.
+    dev = yaml.safe_load((REPO / "docker-compose.dev.yml").read_text())["services"]
+    assert dev["import-worker"]["build"]["target"] == dev["backend"]["build"]["target"] == "dev"
+    assert dev["import-worker"]["environment"]["APP_ENV"] == dev["backend"]["environment"]["APP_ENV"]
+    code = [volume for volume in dev["backend"]["volumes"] if str(volume).endswith(":/app")]
+    assert dev["import-worker"]["volumes"] == code
+
+
 def test_the_frontend_does_not_receive_the_backend_secrets() -> None:
     frontend = _compose()["services"]["frontend"]
     assert "env_file" not in frontend, "the frontend container must not get the whole .env"

@@ -42,7 +42,7 @@ switch off a VM that breaks the terms. What each term asks of a CoGA VM:
 | **VMware tools** are mandatory; without them ICT may switch the VM off | install `open-vm-tools` (step 2) |
 | **Keep it up to date**; a VM with an outdated OS or missing security patches may be switched off | `unattended-upgrades` (step 2), a reboot when a kernel update needs one (stop the stack first, [step 9](#9-run-it)), and regular rebuilds so the images pick up their base images' fixes |
 | **Back-ups** are the administrator's; ICT's disaster-recovery back-ups restore the whole platform, not files inside a VM | back up to a network share from ICT's storage offering, not to the VM's own disk ([step 9](#9-run-it)) |
-| **Fair use**; a VM that uses resources unreasonably may be switched off | request the size you need (step 1), and raise `FAMILY_IMPORT_WORKER_COUNT` and the ClickHouse limits only as far as the VM's size allows ([step 10](#10-tuning-at-scale)) |
+| **Fair use**; a VM that uses resources unreasonably may be switched off | request the size you need (step 1), and raise `IMPORT_WORKER_REPLICAS` and the ClickHouse limits only as far as the VM's size allows ([step 10](#10-tuning-at-scale)) |
 | **Yearly confirmation**: an unused VM, or one outside the university's normal work, gets an e-mail; without an answer through ICT self-service within 30 days it is switched off for good | the request names a mailbox someone reads; answer the e-mail |
 | **A successor administrator** must be reported through ICT self-service or HelpMe; a VM without an administrator is shut down | name the new administrator before you hand over |
 | **Security incidents**: ICT isolates or switches off the VM, and the department can be held co-liable for negligence | synthetic data only, loopback-only ports, and the firewall of step 2 |
@@ -119,7 +119,7 @@ chmod 600 .env
 | `FRONTEND_TRUSTED_PROXY_HOPS` | `1`: the reverse proxy sits in front of the frontend |
 | `ADMIN_EMAIL`, `SMTP_HOST` | the administrator's address and the relay, or leave `SMTP_HOST` unset |
 | `VITE_PROBLEM_REPORT_URL` | where testers report a problem, an `https://` or `mailto:` address |
-| `FAMILY_IMPORT_WORKER_COUNT` | 1 to 8; more workers import families in parallel |
+| `IMPORT_WORKER_REPLICAS` | the import-worker processes (1 by default); each imports one family at a time on a core of its own, so more of them import families in parallel ([step 10](#10-tuning-at-scale)) |
 | `METRICS_TOKEN` | optional, 32+ characters, to collect `/metrics` ([monitoring.md](monitoring.md)) |
 
 **Sign-in.** Left empty, `AZURE_TENANT_ID` and `AZURE_CLIENT_ID` give every account a CoGA
@@ -152,7 +152,9 @@ docker compose logs -f backend
 - [`docker-compose.vm.yml`](../docker-compose.vm.yml) binds the frontend to `127.0.0.1:3000`
   and rotates the containers' logs. Without it, port 3000 is open on every interface.
 - The first start downloads and loads the reference data, which takes several minutes. The
-  backend turns healthy when it is done, and the frontend starts after it.
+  backend turns healthy when it is done, and the frontend and the import worker start after
+  it. The import worker (`import-worker`) runs the package imports; the backend runs none
+  ([application-scheme.md](application-scheme.md#import-worker-processes)).
 
 To spare yourself the two `-f` options, set them once in `.env`:
 `COMPOSE_FILE=docker-compose.yml:docker-compose.vm.yml`.
@@ -278,12 +280,14 @@ set, a Prometheus on the VM scrapes `http://127.0.0.1:8000/metrics`
 | --- | --- |
 | `CLICKHOUSE_MAX_MEMORY_USAGE` | the per-query memory cap for the app's queries, over the memory guards' 4 GB |
 | `CLICKHOUSE_MAX_EXECUTION_TIME` | how long a query may run (110 s); large gene panels may need more |
-| `FAMILY_IMPORT_WORKER_COUNT` | parallel imports; watch the backend's memory as you raise it |
+| `IMPORT_WORKER_REPLICAS` | parallel imports: the import-worker processes, each on a core of its own and holding one import's memory; leave cores for the API and ClickHouse, and watch the memory as you raise it |
+| `FAMILY_IMPORT_WORKER_COUNT` | the imports each import-worker process runs at once (1 by default, up to 8); they share the process's one core, so raise the replicas instead |
 | [`clickhouse/users.d/memory-guards.xml`](../clickhouse/users.d/memory-guards.xml) | when GROUP BY and ORDER BY spill to disk; a change applies after `docker compose restart clickhouse` |
 
-`docker stats` shows each container's memory and CPU while you test. When the backend is
-killed for lack of memory, `docker compose ps` shows it restarting and `dmesg` names the OOM
-kill.
+`docker stats` shows each container's memory and CPU while you test. When the backend or an
+import worker is killed for lack of memory, `docker compose ps` shows it restarting and `dmesg`
+names the OOM kill. An import that a worker's restart stopped is ended as interrupted once its
+heartbeat is ten minutes old ([data-import.md](data-import.md#the-import-job)).
 
 ## Troubleshooting
 

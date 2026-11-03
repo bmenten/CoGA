@@ -415,11 +415,24 @@ still `validating` is taken up again after its worker stopped. It ends `failed`,
 with nothing of the family written; an active administrator queues the import again. An
 import already running when its account is deactivated or demoted runs to its end.
 
-Jobs run on background workers: one job at a time per backend process, or more with
-`FAMILY_IMPORT_WORKER_COUNT` (up to 8). A running job writes a heartbeat every minute. The
-database's clock stamps it and judges its age, so workers on hosts whose clocks differ agree
-on it. A job whose heartbeat is ten minutes old is taken for one whose process has stopped (a
-restart, a crash, running out of memory), and the next worker to look takes it over:
+Jobs run on background workers, each one job at a time, and every worker takes the oldest job
+left. Docker Compose runs them in the `import-worker` service, in processes of their own
+(`python -m app.import_worker`), and the API runs none
+([application-scheme.md](application-scheme.md#import-worker-processes)). A Python process uses
+one core for all its work, so `IMPORT_WORKER_REPLICAS` processes import that many families at
+once, each on its own core; each process runs `FAMILY_IMPORT_WORKER_COUNT` workers (1 by
+default, up to 8), which share its core. Without that service, as on Google Cloud, the API runs
+`FAMILY_IMPORT_WORKER_COUNT` workers itself, on its one core and the event loop that answers
+the requests. With 0 in the API and no import-worker process running, a job stays `queued`
+until one starts. While a job runs its record names its worker, whose ID starts with the
+process ID; a worker's log line `Package-import worker <worker> claimed job <job>` keeps that
+after the job ends. A process that stops (`docker compose stop`, a restart, a crash) stops the
+import it runs where it is, and its job is taken over as below.
+
+A running job writes a heartbeat every minute. The database's clock stamps it and judges its
+age, so workers in other processes, and on hosts whose clocks differ, agree on it. A job whose
+heartbeat is ten minutes old is taken for one whose process has stopped (a restart, a crash,
+running out of memory), and the next worker to look, in any process, takes it over:
 
 - If the import had not begun writing the family (the job was still `validating`), the
   worker runs it again from the start. The job keeps the earlier attempt's log lines.
@@ -1909,6 +1922,7 @@ a list for a capture panel takes the panel's key, the `assay_panel` of its cfDNA
 | `manifest_relationship_unknown_member` | A `family.relationships` entry names someone who is neither in the PED nor in `family.add_members`. |
 | "Sample '…' not found in family" (haplotypes) | The phased VCF has a sample the family lacks, such as a PGT index the PED does not hold; add it under `family.add_members`. |
 | `existing_family_or_samples` | The family or a sample exists; choose `update` or `overwrite`. |
+| A job stays `queued` | No worker is running: the API runs none (`FAMILY_IMPORT_WORKER_COUNT=0`, as with Docker Compose) and no import-worker process is up. Check `docker compose ps import-worker` and `docker compose logs import-worker`: a process that refuses to start says why (another schema revision, variant tables of an older row identity, `FAMILY_IMPORT_WORKER_COUNT` 0 for the worker). |
 | "Not run: the account that requested this import has been deactivated …", "Not run: the account that requested this import is no longer an administrator …", "Requesting user no longer exists" (a job) | The account that queued the job was deactivated, set to another role than administrator, or deleted, before a worker ran it, and a job runs only as an active administrator, the account that queued it. Nothing was written: queue the import again as an active administrator. |
 | "sample column(s) … match no sample in the family" | Set `vcf_sample` on the dataset. |
 | "… has no sample column for X: '…' is Y" | A per-sample file names another sample: point the entry at X's own file, or, if the file is X's after all, set `vcf_sample` on X's entry. An upload (TRGT, Sniffles, Spectre) takes X's own file. |

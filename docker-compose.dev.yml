@@ -11,6 +11,16 @@ services:
       - ./scripts:/app/scripts
     # No command: the dev image's own (backend/Dockerfile) starts uvicorn with --reload.
 
+  import-worker:
+    build:
+      target: dev
+    environment:
+      APP_ENV: development
+    # The code as the backend runs it, but not reloaded when it changes: a restart stops a
+    # running import where it is. Run `docker compose restart import-worker` to take a change.
+    volumes:
+      - ./backend:/app
+
   frontend:
     build:
       target: dev

@@ -57,7 +57,7 @@ services:
     # storage_backend, so override back to root here to keep that writable. Cloud Run
     # uses the image default (non-root) with read-only refdata + GCS-API PHI storage.
     user: root
-    build:
+    build: &backend-build
       context: .
       dockerfile: backend/Dockerfile
       target: production
@@ -77,6 +77,8 @@ services:
       # The backend sits behind the frontend's /api proxy, which sends one clean
       # X-Forwarded-For: take the client from there (#520).
       TRUSTED_PROXY_HOPS: ${BACKEND_TRUSTED_PROXY_HOPS:-1}
+      # The package imports run in the import-worker service below, not in the API.
+      FAMILY_IMPORT_WORKER_COUNT: 0
     # Loopback only (#520): the UI reaches the API through the frontend's /api proxy;
     # this port is for local tools and the /docs page.
     ports:
@@ -104,6 +106,37 @@ services:
       postgres:
         condition: service_healthy
       clickhouse:
+        condition: service_healthy
+
+  # The package imports, in processes of their own (backend/app/import_worker.py): the backend
+  # runs none, so an import's CPU work neither holds up the API's requests nor shares one core
+  # with the other imports. Each replica is one process, on one core, running
+  # FAMILY_IMPORT_WORKER_COUNT jobs at a time (1 unless .env says otherwise); a backfill
+  # imports IMPORT_WORKER_REPLICAS families at once. Same image, settings and /data as the
+  # backend; no port.
+  import-worker:
+    restart: unless-stopped
+    # As the backend: root, for the host-owned ./data the imports write to.
+    user: root
+    build: *backend-build
+    command: ["python", "-m", "app.import_worker"]
+    env_file:
+      - .env
+    environment:
+      POSTGRES_HOST: postgres
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_HTTP_PORT: 8123
+    volumes:
+      - ./data:/data
+    deploy:
+      replicas: ${IMPORT_WORKER_REPLICAS:-1}
+    # A stopped import ends where it is, after its file reader's batch: its job is taken over
+    # once its heartbeat is stale (docs/data-import.md, "The import job").
+    stop_grace_period: 30s
+    depends_on:
+      # Started once the backend is healthy: it has migrated the Postgres schema, which this
+      # process only checks, and created the ClickHouse database.
+      backend:
         condition: service_healthy
 
   frontend:
