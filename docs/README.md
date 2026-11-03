@@ -24,6 +24,7 @@ every document.
 
 - [application-scheme.md](application-scheme.md) — architecture: the parts, which database holds what, startup, the code map.
 - [database.md](database.md) — every Postgres and ClickHouse table.
+- [clickhouse-scale-benchmark.md](clickhouse-scale-benchmark.md) — the ClickHouse storage and its queries towards 1,000 whole genomes: where they fail, and the hardware they need.
 - [security-posture.md](security-posture.md) — access control, audit logging, encryption and the security checks.
 - [testing.md](testing.md) — what each test file covers, and the CI jobs.
 - [CONTRIBUTING.md](../CONTRIBUTING.md) — the checks to run before a pull request, and how changes are classified.
