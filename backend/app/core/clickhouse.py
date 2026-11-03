@@ -220,19 +220,28 @@ def _parse_insert_query(query: str) -> tuple[str, str | None, list[str]]:
     return table, database, columns
 
 
+# How every insert is sent: stored when it returns. ClickHouse buffers an insert by default
+# (``async_insert = 1``) and, waiting for it, answers only once a timer of 50 to 200 ms has
+# flushed the buffer. Every writer sends its rows in batches, one at a time, which is what
+# an insert of its own is for, so each batch waited for that timer; what is stored is the
+# same (docs/database.md, "Inserts are synchronous").
+_SYNCHRONOUS_INSERT: dict[str, Any] = {"async_insert": 0}
+
+
 async def insert_clickhouse(
     query: str,
     data: list[tuple[Any, ...]],
     *,
     settings: dict[str, Any] | None = None,
 ) -> Any:
-    """Insert ``data`` as ``query`` names it; ``settings`` are ClickHouse settings for this
-    insert alone."""
+    """Insert ``data`` as ``query`` names it, as a synchronous insert. ``settings`` are
+    ClickHouse settings for this insert alone, over that default: a writer of tiny inserts
+    from many concurrent requests could pass ``{"async_insert": 1}`` to have ClickHouse
+    gather them into one part. None does."""
     if not data:
         return None
     table, database, columns = _parse_insert_query(query)
-    # Passed only when given: an insert without settings is sent as it always was.
-    extra: dict[str, Any] = {"settings": settings} if settings is not None else {}
+    insert_settings = {**_SYNCHRONOUS_INSERT, **(settings or {})}
     for attempt in range(2):
         client = await get_clickhouse_client()
         try:
@@ -241,7 +250,7 @@ async def insert_clickhouse(
                 database=None,
                 data=data,
                 column_names=columns,
-                **extra,
+                settings=insert_settings,
             )
         except Exception as exc:
             if attempt == 0 and _is_retryable_error(exc, _INSERT_RETRY_ERROR_MARKERS):

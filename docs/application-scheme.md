@@ -270,6 +270,33 @@ of their own, one core each, and the API runs none (Docker Compose; not yet on G
 A process pool inside one import would speed up that import alone, and would end the reader's
 one-batch bound (above).
 
+### Interval-track import
+
+The interval tracks waited for ClickHouse's async-insert timer as the variant tables had, until
+every insert was sent synchronous ([database.md](database.md#inserts-are-synchronous)). A
+synthetic, seeded package went through the package import, into Postgres 16 and ClickHouse 26.8
+containers of its own. It held three long-read genomes, each with HiFiCNV's depth bigWig (1.5
+million 2 kb bins), MAF bigWig and copy-number bedGraph, a coverage BED (10 kb bins) and an
+APCAD BED (a million sites), and six shallow PGT samples with WisecondorX and QDNAseq bins
+(100 kb), WisecondorX segments and a small APCAD BED: 10.4 million rows in 213 inserts. Before,
+110 of those inserts went into the buffer; the others, over 10 MiB each, never had.
+
+Main and the change, three runs each, one after the other, on a shared 10-core machine that
+other work was loading (a load average of 12 to 20):
+
+| | Before (median) | After (median) |
+| --- | --- | --- |
+| Time | 287 s (238–373) | 211 s (169–236) |
+| CPU time of the process | 127 s | 123 s |
+| Time the import waited for the interval inserts | 105 s | 68 s |
+| ClickHouse's time answering them | 55 s, with 110 async-insert flushes | 30 s, no flush |
+
+The same package at a twentieth of its rows (520,254 rows in 42 inserts, 37 of them buffered
+before) took 25.8 s before and 16.2 s after. Every run stored the same rows: the count and a
+checksum of each track's rows per sample, with the run's family and sample UUIDs mapped to their
+IDs and the write times left out, and the same `sample_interval_track_sources` records, dataset
+summaries and job log. Each run made one part per insert, before as after.
+
 ## Main code areas
 
 Backend, under `backend/app/`:

@@ -256,16 +256,21 @@ def test_each_annotation_is_read_and_serialized_once_for_all_its_rows(monkeypatc
 
 @pytest.mark.asyncio
 async def test_the_variant_rows_are_written_as_synchronous_inserts(monkeypatch: pytest.MonkeyPatch) -> None:
+    from backend.app.core import clickhouse
+
     inserts: list[tuple[str, int, dict[str, Any] | None]] = []
 
-    async def insert(query: str, data: list[tuple[Any, ...]], *, settings: dict[str, Any] | None = None) -> None:
-        table = query.split("INSERT INTO", 1)[1].split("(", 1)[0].strip()
-        inserts.append((table, len(data), settings))
+    class Client:
+        async def insert(self, *, table: str, data: list[tuple[Any, ...]], settings: dict[str, Any] | None = None, **_kwargs: Any) -> None:
+            inserts.append((table, len(data), settings))
+
+    async def client() -> Client:
+        return Client()
 
     async def no_op(*_args: Any, **_kwargs: Any) -> None:
         return None
 
-    monkeypatch.setattr(clickhouse_variant_storage, "insert_clickhouse", insert)
+    monkeypatch.setattr(clickhouse, "get_clickhouse_client", client)
     monkeypatch.setattr(clickhouse_variant_storage, "ensure_clickhouse_variant_tables", no_op)
 
     await clickhouse_variant_storage.insert_small_variant_records(
@@ -280,30 +285,6 @@ async def test_the_variant_rows_are_written_as_synchronous_inserts(monkeypatch: 
         "gene_index`",
         "family_data_version`",
     ]
-    # Stored when the insert returns, not buffered until ClickHouse's async-insert timer.
+    # Stored when the insert returns, not buffered until ClickHouse's async-insert timer:
+    # insert_clickhouse sends every insert so (test_clickhouse_inserts_synchronous.py).
     assert all(settings == {"async_insert": 0} for _table, _rows, settings in inserts)
-
-
-@pytest.mark.asyncio
-async def test_an_insert_passes_its_settings_to_clickhouse(monkeypatch: pytest.MonkeyPatch) -> None:
-    from backend.app.core import clickhouse
-
-    calls: list[dict[str, Any]] = []
-
-    class Client:
-        async def insert(self, **kwargs: Any) -> str:
-            calls.append(kwargs)
-            return "summary"
-
-    async def client() -> Client:
-        return Client()
-
-    monkeypatch.setattr(clickhouse, "get_clickhouse_client", client)
-
-    query = "INSERT INTO coga.`GRCh38/SNV_INDEL/entries` (key, sign) VALUES"
-    assert await clickhouse.insert_clickhouse(query, [(1, 1)], settings={"async_insert": 0}) == "summary"
-    assert await clickhouse.insert_clickhouse(query, [(2, 1)]) == "summary"
-
-    assert [call.get("settings") for call in calls] == [{"async_insert": 0}, None]
-    assert "settings" not in calls[1]  # an insert without settings is sent as before
-    assert calls[0]["column_names"] == ["key", "sign"]
