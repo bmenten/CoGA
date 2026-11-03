@@ -297,6 +297,9 @@ def test_each_assembly_keeps_its_own_resolution(tables) -> None:
 
 
 def test_without_an_assembly_the_genes_alone_are_read_and_nothing_is_kept(tables) -> None:
+    # Without a resolved assembly no stored coordinates can be trusted: they belong to some
+    # assembly, not necessarily the family's (#515). The panel narrows by gene alone, and
+    # neither its stored regions nor the gene reference is read.
     tables.make_panel(PANEL, "GENE1")
     first, reads = _resolve(tables, assembly_id=None)
     assert reads == [GENES]

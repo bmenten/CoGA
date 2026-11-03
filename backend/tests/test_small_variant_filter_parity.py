@@ -21,6 +21,7 @@ from backend.app.services.clickhouse_variant_queries import (
     _small_variant_where_clauses,
     _variant_overlaps_regions,
     _xpos,
+    small_record_passes_caller_filters,
 )
 from backend.app.services.clickhouse_variant_records import (
     PanelFilterConstraints,
@@ -301,6 +302,70 @@ def test_the_rsid_filter_searches_the_variants_stored_rsid() -> None:
     assert _keeps(without_vcf_id, rsid="COSV55")
 
 
+# --- the callers' FILTER ("Pass variants only"; the owner's decision of 2026-11-03) -------
+
+
+def _call(sample: str, gt: str, *filters: str) -> SmallVariantCall:
+    return SmallVariantCall(sample=sample, gt=gt, gq=40.0, dp=30, af=[0.5], ad=[15, 15], ps=None, filters=list(filters))
+
+
+def test_pass_only_reads_a_multi_sample_vcf_by_its_site_filter() -> None:
+    # No call has a FILTER of its own: the record's is the site's, every call's. PASS, "."
+    # and no FILTER pass; any other value is a filter the site failed.
+    for filters, kept in (
+        (["PASS"], True),
+        ([], True),
+        (["."], True),
+        (["LowQual"], False),
+        (["LowQual;LowDP"], False),
+        (["PASS", "LowQual"], False),
+    ):
+        record = _record("11-100-C-T", filters=filters)
+        assert _keeps(record, pass_only=True) is kept, filters
+        assert small_record_passes_caller_filters(record) is kept, filters
+        assert _keeps(record), filters
+
+
+def test_pass_only_reads_each_call_that_carries_the_variant_by_its_own_filter() -> None:
+    # A callset of one file per sample keeps each call's FILTER; the record's lists every
+    # member's. A parent's reference or no-call record (DeepVariant's RefCall, NoCall) holds
+    # back no variant the parent does not carry: a de novo stays.
+    de_novo = _record(
+        "11-100-C-T",
+        filters=["PASS", "RefCall", "NoCall"],
+        calls=[_call("PROBAND", "0/1", "PASS"), _call("MOTHER", "0/0", "RefCall"), _call("FATHER", "./.", "NoCall")],
+    )
+    assert _keeps(de_novo, pass_only=True)
+    # A member's call that carries the variant and failed its caller's filter holds it back,
+    # whoever the member is.
+    carrier_failed = _record(
+        "11-100-C-T",
+        filters=["PASS", "LowQual"],
+        calls=[_call("PROBAND", "0/1", "PASS"), _call("MOTHER", "0/1", "LowQual")],
+    )
+    assert not _keeps(carrier_failed, pass_only=True)
+    assert _keeps(carrier_failed)
+    # A call without a FILTER of its own (the file wrote ".") was not filtered.
+    unfiltered_call = _record(
+        "11-100-C-T",
+        filters=["RefCall"],
+        calls=[_call("PROBAND", "1/1"), _call("MOTHER", "0/0", "RefCall")],
+    )
+    assert _keeps(unfiltered_call, pass_only=True)
+
+
+def test_the_sql_condition_of_pass_only() -> None:
+    clauses, params = _where(pass_only=True)
+    (condition,) = [clause for clause in clauses if "pass_only_filter_values" in clause]
+    assert condition.startswith("if(arrayExists(own -> notEmpty(own), e.calls.filters), ")
+    assert "e.calls.gt, e.calls.filters" in condition
+    assert "arrayAll(value -> value IN %(pass_only_filter_values)s, e.filters)" in condition
+    assert params["pass_only_filter_values"] == ("", ".", "PASS")
+    # The genotypes that carry the ALT allele, as the genotype filters read them.
+    assert "0/1" in params["pass_only_alt_genotypes"] and "0/0" not in params["pass_only_alt_genotypes"]
+    assert _where()[0] == [clause for clause in clauses if clause != condition]
+
+
 # --- the consequence --------------------------------------------------------------------
 
 
@@ -417,3 +482,13 @@ def test_a_region_is_read_from_its_lower_coordinate_to_its_higher_as_the_sql_rea
     assert _variant_overlaps_regions("1", 100, 100, [Region("1", 150, 50)])
     assert _variant_overlaps_regions("1", 40, 60, [Region("1", 150, 50)])
     assert not _variant_overlaps_regions("1", 151, 160, [Region("1", 150, 50)])
+
+
+def test_the_python_matcher_reads_a_numeric_flag_and_a_score_that_is_no_number() -> None:
+    # A transcript flag an annotator stores as a number, and a score that is no number, read
+    # as missing as ifNull reads NULL.
+    assert _keeps(_record("11-100-C-T", annotations=[{"gene": "GENE1", "canonical": 1}]), canonical_only=True)
+    assert not _keeps(_record("11-100-C-T", annotations=[{"gene": "GENE1", "canonical": 0}]), canonical_only=True)
+    unreadable = _record("11-100-C-T", annotations=[{"gene": "GENE1", "cadd_phred": "high"}])
+    assert not _keeps(unreadable, min_cadd=0.0)
+    assert _keeps(unreadable, min_cadd=-1.0)

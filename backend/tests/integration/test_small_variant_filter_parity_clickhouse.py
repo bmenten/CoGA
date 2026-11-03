@@ -42,7 +42,7 @@ Synthetic data only. Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 from uuid import uuid4
 
@@ -89,6 +89,8 @@ class _Call:
     ad: tuple[int, ...] | None = None
     af: tuple[float, ...] | None = None
     ps: int | None = None
+    # The call's own FILTER, which a callset of one file per sample keeps with each call.
+    filters: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -102,6 +104,9 @@ class _Variant:
     frequencies: dict[str, str] = field(default_factory=dict)
     rsid: str | None = None
     source: str = "clair3"
+    # The record's FILTER: a multi-sample VCF's site FILTER, or every FILTER value of a
+    # callset of one file per sample.
+    filters: tuple[str, ...] = ("PASS",)
 
 
 # The trio's genotypes: a de novo call, and calls the mother or the father passed on.
@@ -110,6 +115,13 @@ def _trio(proband: str, mother: str | None = "0/0", father: str = "0/0", **proba
     if mother is not None:
         calls[_MOTHER] = _Call(mother)
     return calls
+
+
+def _own_filters(calls: dict[str, _Call], **filters: tuple[str, ...]) -> dict[str, _Call]:
+    """The trio's calls as a callset of one file per sample gives them: each with its own
+    record's FILTER (``proband=``, ``mother=``, ``father=``)."""
+    members = {_PROBAND: "proband", _MOTHER: "mother", _FATHER: "father"}
+    return {sample: replace(call, filters=filters[members[sample]]) for sample, call in calls.items()}
 
 
 DE_NOVO_MISSENSE = "11-95100100-C-T"
@@ -148,7 +160,10 @@ _VARIANTS: dict[str, _Variant] = {
             "gnomADe_AF": "0.001", "gnomADg_AF": "0.0005", "gnomAD_AF_POPMAX": "0.002",
             "TOPMed_AF": "0.0005", "gnomAD_AC": "12", "gnomAD_nhomalt": "0",
         },
-        calls=_trio("0|1", ps=4321),
+        # One file per sample: the son's call passed; the parents' reference calls are
+        # DeepVariant's RefCall, which holds back no variant they do not carry.
+        calls=_own_filters(_trio("0|1", ps=4321), proband=("PASS",), mother=("RefCall",), father=("RefCall",)),
+        filters=("PASS", "RefCall"),
     ),
     # HIGH on a transcript that is neither MANE nor canonical; an intron variant on the MANE one.
     HIGH_OFF_MANE: _Variant(
@@ -191,7 +206,10 @@ _VARIANTS: dict[str, _Variant] = {
             )
         ],
         frequencies={"gnomADe_AF": "0.00002", "gnomAD_AC": "3", "gnomAD_nhomalt": "0"},
-        calls=_trio("0/1", mother="0/1"),
+        # One file per sample: the mother's call, which carries the variant, failed her
+        # caller's filter.
+        calls=_own_filters(_trio("0/1", mother="0/1"), proband=("PASS",), mother=("LowQual",), father=("RefCall",)),
+        filters=("PASS", "LowQual", "RefCall"),
     ),
     PATERNAL_DELETION: _Variant(
         csq=[_csq("inframe_deletion", "MODERATE", "SYNB", "ENST_SYNB_1", MANE_PLUS_CLINICAL="NM_SYNB.2")],
@@ -252,6 +270,8 @@ _VARIANTS: dict[str, _Variant] = {
     LOW_QUALITY: _Variant(
         csq=[_csq("missense_variant", "MODERATE", "SYNF", "ENST_SYNF_1", CANONICAL="YES")],
         calls=_trio("0/1", mother=None, gq=19.0, dp=20, ad=(11, 9), af=(0.45,)),
+        # A multi-sample VCF's site FILTER: every call's.
+        filters=("LowGQ",),
     ),
     # No AF: the allele fraction is read from the allele depths.
     FRACTION_FROM_DEPTHS: _Variant(
@@ -552,6 +572,8 @@ CASES: dict[str, _Case] = {
         },
         sample_filters=[f"{_PROBAND}:het", f"{_FATHER}:ref"],
     ),
+    # --- the callers' FILTER: every call that carries the variant passed ---
+    "pass only": _case(ALL - {LOW_QUALITY, MATERNAL_INSERTION}, pass_only=True),
     # --- review selections ---
     "review selection": _Case(
         filters={}, expected=frozenset({DE_NOVO_MISSENSE, HOMOZYGOUS}),
@@ -656,7 +678,9 @@ def _small_call(sample: str, call: _Call) -> Any:
     else:
         ad = [0, 30]
     af = list(call.af) if call.af is not None else [round(ad[1] / sum(ad), 2)]
-    return SmallVariantCall(sample=sample, gt=call.gt, gq=call.gq, dp=call.dp, af=af, ad=ad, ps=call.ps)
+    return SmallVariantCall(
+        sample=sample, gt=call.gt, gq=call.gq, dp=call.dp, af=af, ad=ad, ps=call.ps, filters=list(call.filters)
+    )
 
 
 def _records() -> list[Any]:
@@ -676,7 +700,7 @@ def _records() -> list[Any]:
                 alt=alt,
                 source=variant.source,
                 rsid=variant.rsid,
-                filters=["PASS"],
+                filters=list(variant.filters),
                 gene_symbols=[],
                 annotations=_annotations(variant),
                 calls=[_small_call(sample, call) for sample, call in variant.calls.items()],

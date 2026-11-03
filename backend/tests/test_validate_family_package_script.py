@@ -42,7 +42,8 @@ def test_a_folder_without_a_package_fails_with_its_reasons(tmp_path: Path) -> No
 
     assert code == 1
     assert result["valid"] is False
-    assert result["errors"], "an invalid package names what is wrong"
+    # An invalid package names what is wrong.
+    assert [error["code"] for error in result["errors"]] == ["manifest_missing"]
 
 
 def test_a_folder_outside_the_import_roots_is_refused(tmp_path: Path) -> None:

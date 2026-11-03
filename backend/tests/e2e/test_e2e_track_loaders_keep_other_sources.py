@@ -48,6 +48,8 @@ from uuid import uuid4
 
 import pytest
 
+from backend.tests.e2e._harness import ensure_postgres_schema, write_file
+
 pytestmark = pytest.mark.integration
 
 _CNV_VCF = (
@@ -83,26 +85,19 @@ def _write_bigwig(path: Path, values: list[float]) -> None:
     handle.close()
 
 
-def _write(root: Path, name: str, text: str) -> str:
-    path = root / name
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")
-    return name
-
-
 def _package_1(root: Path, family_id: str, sample: str) -> Path:
     """Every caller's tracks of the sample: WisecondorX bins (3) and segments (1), QDNAseq bins
     (4), a coverage BED (2), an APCAD file (2), and HiFiCNV's depth (3 bins), copy number (1)
     and minor allele fraction (5)."""
     root.mkdir(parents=True)
-    _write(root, "family.ped", f"{family_id}\t{sample}\t0\t0\t2\t2\n")
-    wcx_bins = _write(root, f"wisecondorx/{sample}_bins.bed", _bed(3, value=-0.1))
-    wcx_segments = _write(root, f"wisecondorx/{sample}_segments.bed", _bed(1, value=0.0))
-    qdnaseq_bins = _write(root, f"qdnaseq/{sample}_bins.bed", _bed(4, value=0.2))
-    coverage = _write(root, f"coverage/{sample}.bed", _bed(2))
-    apcad = _write(root, f"apcad/{sample}.apcad.bed", _bed(2, columns=6))
-    vcf = _write(root, f"cnv/{sample}.vcf", _CNV_VCF)
-    copy_number = _write(root, f"cnv/{sample}.copynum.bedgraph", "chr1\t0\t3000\t2\n")
+    write_file(root, "family.ped", f"{family_id}\t{sample}\t0\t0\t2\t2\n")
+    wcx_bins = write_file(root, f"wisecondorx/{sample}_bins.bed", _bed(3, value=-0.1))
+    wcx_segments = write_file(root, f"wisecondorx/{sample}_segments.bed", _bed(1, value=0.0))
+    qdnaseq_bins = write_file(root, f"qdnaseq/{sample}_bins.bed", _bed(4, value=0.2))
+    coverage = write_file(root, f"coverage/{sample}.bed", _bed(2))
+    apcad = write_file(root, f"apcad/{sample}.apcad.bed", _bed(2, columns=6))
+    vcf = write_file(root, f"cnv/{sample}.vcf", _CNV_VCF)
+    copy_number = write_file(root, f"cnv/{sample}.copynum.bedgraph", "chr1\t0\t3000\t2\n")
     _write_bigwig(root / "cnv" / f"{sample}.depth.bw", [20.0, 10.0, 40.0])
     _write_bigwig(root / "cnv" / f"{sample}.maf.bw", [0.1, 0.4, 0.25, 0.5, 0.3])
     lines = [
@@ -127,16 +122,16 @@ def _package_1(root: Path, family_id: str, sample: str) -> Path:
         f"      {sample}: {{vcf: {vcf}, copy_number_bedgraph: {copy_number},"
         f" depth_bigwig: cnv/{sample}.depth.bw, maf_bigwig: cnv/{sample}.maf.bw}}",
     ]
-    _write(root, "manifest.yaml", "\n".join(lines) + "\n")
+    write_file(root, "manifest.yaml", "\n".join(lines) + "\n")
     return root
 
 
 def _package_2(root: Path, family_id: str, sample: str) -> Path:
     """A new coverage BED (5) and a new APCAD file (3) of the sample."""
     root.mkdir(parents=True)
-    _write(root, "family.ped", f"{family_id}\t{sample}\t0\t0\t2\t2\n")
-    coverage = _write(root, f"coverage/{sample}.bed", _bed(5, value=0.3))
-    apcad = _write(root, f"apcad/{sample}.apcad.bed", _bed(3, columns=6))
+    write_file(root, "family.ped", f"{family_id}\t{sample}\t0\t0\t2\t2\n")
+    coverage = write_file(root, f"coverage/{sample}.bed", _bed(5, value=0.3))
+    apcad = write_file(root, f"apcad/{sample}.apcad.bed", _bed(3, columns=6))
     lines = [
         "schema_version: 1",
         f"family_id: {family_id}",
@@ -149,7 +144,7 @@ def _package_2(root: Path, family_id: str, sample: str) -> Path:
         "    per_sample:",
         f"      {sample}: {{bed: {apcad}}}",
     ]
-    _write(root, "manifest.yaml", "\n".join(lines) + "\n")
+    write_file(root, "manifest.yaml", "\n".join(lines) + "\n")
     return root
 
 
@@ -158,7 +153,7 @@ async def _exercise(base: Path, family_id: str) -> dict[str, Any]:
     from sqlalchemy import text
 
     from backend.app.core.clickhouse import init_clickhouse_schema
-    from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
+    from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.main import app
     from backend.app.services import family_package_import as package_import
     from backend.app.services.clickhouse_interval_tracks import (
@@ -168,7 +163,7 @@ async def _exercise(base: Path, family_id: str) -> dict[str, Any]:
     from backend.app.services.clickhouse_variant_storage import ensure_clickhouse_variant_tables
     from backend.tests.e2e import _harness
 
-    await init_postgres_schema()
+    await ensure_postgres_schema()
     await init_clickhouse_schema()
     await ensure_clickhouse_variant_tables(_harness.ASSEMBLY)
     sessionmaker = get_postgres_sessionmaker()

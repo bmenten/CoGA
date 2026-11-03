@@ -35,6 +35,8 @@ from uuid import uuid4
 
 import pytest
 
+from backend.tests.e2e._harness import ensure_postgres_schema, write_file
+
 pytestmark = pytest.mark.integration
 
 _WCX_HEADER = "chr\tstart\tend\tratio\tzscore\n"
@@ -44,22 +46,15 @@ _TRGT_HEADER = (
 _TRGT_CALL = "chr4\t3074876\t.\tA\t<STR>\t.\tPASS\tEND=3074933;TRID=HD_HTT;MOTIFS=CAG\tGT:MC\t0/1:18_40\n"
 
 
-def _write(root: Path, name: str, text: str) -> str:
-    path = root / name
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")
-    return name
-
-
 def _package(root: Path, family_id: str, sample: str, datasets: dict[str, dict[str, str]]) -> Path:
     """A package of the one-sample family with ``datasets``: dataset -> {role: (name, text)}."""
     root.mkdir(parents=True)
-    _write(root, "family.ped", f"{family_id}\t{sample}\t0\t0\t2\t2\n")
+    write_file(root, "family.ped", f"{family_id}\t{sample}\t0\t0\t2\t2\n")
     lines = ["schema_version: 1", f"family_id: {family_id}", "ped: family.ped", "datasets:"]
     for dataset, files in datasets.items():
-        entry = ", ".join(f"{role}: {_write(root, name, text)}" for role, (name, text) in files.items())
+        entry = ", ".join(f"{role}: {write_file(root, name, text)}" for role, (name, text) in files.items())
         lines += [f"  {dataset}:", "    per_sample:", f"      {sample}: {{{entry}}}"]
-    _write(root, "manifest.yaml", "\n".join(lines) + "\n")
+    write_file(root, "manifest.yaml", "\n".join(lines) + "\n")
     return root
 
 
@@ -68,14 +63,14 @@ async def _exercise(base: Path, family_id: str) -> dict[str, Any]:
     from sqlalchemy import text
 
     from backend.app.core.clickhouse import init_clickhouse_schema
-    from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
+    from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.main import app
     from backend.app.services import family_package_import as package_import
     from backend.app.services.clickhouse_interval_tracks import count_interval_track_rows
     from backend.app.services.clickhouse_variant_storage import ensure_clickhouse_variant_tables
     from backend.tests.e2e import _harness
 
-    await init_postgres_schema()
+    await ensure_postgres_schema()
     await init_clickhouse_schema()
     await ensure_clickhouse_variant_tables(_harness.ASSEMBLY)
     sessionmaker = get_postgres_sessionmaker()

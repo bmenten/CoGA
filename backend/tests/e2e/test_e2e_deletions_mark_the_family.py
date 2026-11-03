@@ -34,34 +34,16 @@ from uuid import uuid4
 
 import pytest
 
+from backend.tests.e2e._harness import DRIFT_AND_QC_ACKNOWLEDGED, ensure_postgres_schema
+from backend.tests.e2e._import_jobs import claim_import_job
+from backend.tests.e2e._trio_uploads import DEL_30000, SNIFFLES_HEADER, TRIO_VCF_HEADER, the_one_mark, trio_calls
+
 pytestmark = pytest.mark.integration
 
-_ACK = "e2e: the import gate is under test"
-_OTHER_GATES = {
-    "acknowledge_drift": True,
-    "drift_acknowledgement_reason": _ACK,
-    "acknowledge_qc": True,
-    "qc_acknowledgement_reason": _ACK,
-}
-_SNIFFLES_HEADER = (
-    "##fileformat=VCFv4.2\n"
-    "##source=Sniffles2_2.2\n"
-    "##contig=<ID=1,length=248956422>\n"
-    "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tSAMPLE\n"
-)
-_DEL_30000 = "1\t30000\tS.DEL.1\tN\t<DEL>\t40\tPASS\tSVTYPE=DEL;SVLEN=-1000;END=31000;SUPPORT=9\tGT\t{gt}\n"
 _SNIFFLES = {
-    "child": _SNIFFLES_HEADER + _DEL_30000.format(gt="0/1"),
-    "father": _SNIFFLES_HEADER + _DEL_30000.format(gt="1/1"),
+    "child": SNIFFLES_HEADER + DEL_30000.format(gt="0/1"),
+    "father": SNIFFLES_HEADER + DEL_30000.format(gt="1/1"),
 }
-_VCF_HEADER = "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t{father}\t{mother}\t{child}\n"
-
-
-def _calls(count: int) -> str:
-    return "".join(
-        f"1\t{10_000 + index * 100}\t.\tA\tG\t50\tPASS\t.\tGT:GQ:DP\t0/1:40:30\t0/0:40:31\t0/1:40:29\n"
-        for index in range(count)
-    )
 
 
 async def _deletion(family_id: str) -> dict[str, Any]:
@@ -69,7 +51,7 @@ async def _deletion(family_id: str) -> dict[str, Any]:
     from sqlalchemy import text
 
     from backend.app.core.clickhouse import init_clickhouse_schema
-    from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
+    from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.main import app
     from backend.app.services import clickhouse_variant_storage
     from backend.app.services.clickhouse_interval_tracks import count_interval_track_rows
@@ -80,7 +62,7 @@ async def _deletion(family_id: str) -> dict[str, Any]:
     )
     from backend.tests.e2e import _harness
 
-    await init_postgres_schema()
+    await ensure_postgres_schema()
     await init_clickhouse_schema()
     await ensure_clickhouse_variant_tables(_harness.ASSEMBLY)
     sessionmaker = get_postgres_sessionmaker()
@@ -162,13 +144,13 @@ async def _deletion(family_id: str) -> dict[str, Any]:
                 files={"file": (f"{family_id}.ped", ped.encode(), "text/plain")},
             ),
         )
-        header = _VCF_HEADER.format(**names)
+        header = TRIO_VCF_HEADER.format(**names)
         await step(
             "clair3",
             await ac.post(
                 f"/api/families/{family_id}/small-variants/upload",
                 params={"overwrite": "false", "source_format": "clair3"},
-                files={"file": (f"{family_id}.vcf", (header + _calls(4)).encode(), "text/plain")},
+                files={"file": (f"{family_id}.vcf", (header + trio_calls(4)).encode(), "text/plain")},
             ),
         )
         for role in ("child", "father"):
@@ -206,7 +188,7 @@ async def _deletion(family_id: str) -> dict[str, Any]:
         finally:
             mp.undo()
         await step("delete_fails", response)
-        await step("signout_marked", await _harness.sign_out(ac, f"/api/families/{family_id}/report/sign-out", _OTHER_GATES))
+        await step("signout_marked", await _harness.sign_out(ac, f"/api/families/{family_id}/report/sign-out", DRIFT_AND_QC_ACKNOWLEDGED))
         page = await ac.get(f"/api/families/{family_id}")
         out["family_page"] = {"status": page.status_code, "json": page.json()}
 
@@ -226,11 +208,6 @@ def run(tmp_path_factory) -> dict[str, Any]:
         return _harness.run_async(lambda: _deletion(f"DELMARK_{uuid4().hex[:8].upper()}"))
     finally:
         mp.undo()
-
-
-def _mark(step: dict[str, Any]) -> tuple[str, dict[str, Any]]:
-    [(key, entry)] = (step["unfinished"] or {}).items()
-    return key, entry
 
 
 def test_the_trio_and_its_data_are_uploaded(run) -> None:
@@ -253,7 +230,7 @@ def test_a_sample_deletion_that_fails_mid_way_leaves_the_family_marked_for_the_s
     assert failed["sniffles"] == [["child", "father"]]
     # Before: nothing marked the family. Now the deletion's mark lists exactly the child's
     # data: its coverage track, and its part of the direct calls.
-    key, mark = _mark(failed)
+    key, mark = the_one_mark(failed)
     assert key.startswith("deletion-")
     assert (mark["job_id"], mark["datasets"], mark["finished_datasets"]) == (None, ["bed_coverage", "snv"], [])
     child = run["names"]["child"]
@@ -271,7 +248,7 @@ def test_the_mark_refuses_sign_out_and_names_the_deletion(run) -> None:
     assert refused["status"] == 409, refused["text"]
     detail = json.loads(refused["text"])["detail"]
     assert detail["gate"] == "import_incomplete"
-    key, _entry = _mark(run["steps"]["delete_fails"])
+    key, _entry = the_one_mark(run["steps"]["delete_fails"])
     assert list(detail["import_unfinished"]) == [key]
     assert "a deletion of this family's data (" in detail["message"]
     assert "did not finish, so bed_coverage, snv may be partly written or missing" in detail["message"]
@@ -322,7 +299,7 @@ async def _refused_overwrite(base: Path, mp: pytest.MonkeyPatch) -> dict[str, An
     from sqlalchemy import text
 
     from backend.app.core.clickhouse import init_clickhouse_schema
-    from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
+    from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.main import app
     from backend.app.services import family_package_import as package_import
     from backend.app.services.clickhouse_variant_storage import (
@@ -331,7 +308,7 @@ async def _refused_overwrite(base: Path, mp: pytest.MonkeyPatch) -> dict[str, An
     )
     from backend.tests.e2e import _harness
 
-    await init_postgres_schema()
+    await ensure_postgres_schema()
     await init_clickhouse_schema()
     await ensure_clickhouse_variant_tables(_harness.ASSEMBLY)
     sm = get_postgres_sessionmaker()
@@ -403,16 +380,7 @@ async def _refused_overwrite(base: Path, mp: pytest.MonkeyPatch) -> dict[str, An
                 job_id = str(resp.json()["_id"])
                 jobs.append(job_id)
                 worker = f"e2e-refused-{uuid4().hex[:8]}"
-                async with sm() as s:
-                    await s.execute(
-                        text(
-                            "UPDATE family_import_jobs SET status = 'validating', worker_id = :w, "
-                            "started_at = now(), heartbeat_at = now() "
-                            "WHERE id = CAST(:j AS uuid) AND status = 'queued'"
-                        ),
-                        {"j": job_id, "w": worker},
-                    )
-                    await s.commit()
+                await claim_import_job(job_id, worker)
                 failing["backup"] = fails
                 try:
                     await package_import.run_family_import_job(job_id=job_id, worker_id=worker)

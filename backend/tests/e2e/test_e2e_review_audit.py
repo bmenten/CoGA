@@ -7,7 +7,19 @@ The IVDR-critical traceability path. Over the golden-trio data it:
   ignored) and persists note/tags;
 * asserts the review produced chained ``clinical_audit_events`` and that
   ``/api/admin/integrity/verify`` re-walks the chain to ``verified=true``;
-* signs the report out twice and asserts versioning + a verified sign-out chain.
+* signs the report out twice and asserts versioning + a verified sign-out chain;
+* records a compound-het pair on the golden GENE_CH pair (``1-4000-T-C`` +
+  ``1-5000-A-T``) from its first variant, gives the second variant tags and a note of its
+  own, then drops the pair with a save of the first (``{"compound_het": null}``): the
+  first variant's review, which held only the pair, is deleted, the second's keeps its own
+  tags and note without the pair, and the removal is on the clinical audit trail under the
+  variant whose review held it;
+* records the pair again, then saves its first variant with a tag, a note and
+  ``{"compound_het": null}``: the save stores the tag and note on that variant's review
+  without the pair, the second variant's review, which held only the pair, is deleted, and
+  the clinical audit trail records exactly that. The pair clear once deleted the saved
+  variant's own review first: the save answered 500, stored nothing, and committed the tag,
+  the note and the pair's removal to the trail.
 
 Chain tamper-evidence + append-only immutability are exercised on a THROWAWAY
 family via the direct audit service (``record_clinical_event``), so the
@@ -31,22 +43,16 @@ from uuid import uuid4
 
 import pytest
 
+from backend.tests.e2e._harness import capture
+
 pytestmark = pytest.mark.integration
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "golden_trio"
 FAMILY = "FAM_TRIO"
 # The P/LP golden SNV (gene GENE_PATH); ACMG class is reviewer-driven, asserted here.
 PLP_VARIANT_ID = "1-2000-C-T"
-
-
-def _cap(resp, *, as_json: bool = True) -> dict:
-    out = {"status": resp.status_code, "text": resp.text}
-    if as_json and resp.status_code < 400:
-        try:
-            out["json"] = resp.json()
-        except ValueError:  # pragma: no cover
-            out["json"] = None
-    return out
+# The golden GENE_CH pair, both heterozygous in the affected proband.
+CH_PAIR = ("1-4000-T-C", "1-5000-A-T")
 
 
 async def _tamper_checks() -> dict:
@@ -148,24 +154,23 @@ async def _collect(root: Path) -> dict:
                 "classification": "Benign - class 1",
             },
         }
-        r["review"] = _cap(
+        r["review"] = capture(
             await ac.put(f"/api/families/{FAMILY}/small-variants/{PLP_VARIANT_ID}/review", json=review_payload)
         )
         # The review as a variant list serves it: the list the tables, the report and the
         # ACMG dialog opened from a list read.
-        r["list_after_review"] = _cap(
+        r["list_after_review"] = capture(
             await ac.get(
                 f"/api/families/{FAMILY}/small-variants",
                 params={"review_tag": "report", "page_size": 50},
             )
         )
-        r["audit"] = _cap(await ac.get(f"/api/families/{FAMILY}/clinical-audit"))
-        r["integrity_clinical"] = _cap(
+        r["audit"] = capture(await ac.get(f"/api/families/{FAMILY}/clinical-audit"))
+        r["integrity_clinical"] = capture(
             await ac.get("/api/admin/integrity/verify", params={"table": "clinical_audit_events", "family_id": FAMILY})
         )
-        r["integrity_badtable"] = _cap(
-            await ac.get("/api/admin/integrity/verify", params={"table": "not_a_table", "family_id": FAMILY}),
-            as_json=False,
+        r["integrity_badtable"] = capture(
+            await ac.get("/api/admin/integrity/verify", params={"table": "not_a_table", "family_id": FAMILY})
         )
 
         signout_body = {
@@ -178,33 +183,108 @@ async def _collect(root: Path) -> dict:
             "unreviewed_findings_acknowledgement_reason": "e2e: the repeat and Paraphase calls are not reviewed",
         }
         signout_url = f"/api/families/{FAMILY}/report/sign-out"
-        r["signout1"] = _cap(await _harness.sign_out(ac, signout_url, signout_body))
-        r["signout2"] = _cap(await _harness.sign_out(ac, signout_url, signout_body))
-        r["integrity_signouts"] = _cap(
+        r["signout1"] = capture(await _harness.sign_out(ac, signout_url, signout_body))
+        r["signout2"] = capture(await _harness.sign_out(ac, signout_url, signout_body))
+        r["integrity_signouts"] = capture(
             await ac.get("/api/admin/integrity/verify", params={"table": "report_signouts", "family_id": FAMILY})
         )
         # #508: the report page asks whether its live content still matches the latest
         # sign-out. Straight after signing it must — through the real JSONB round-trip —
         # and after a reported review is edited it must not.
         check_url = f"/api/families/{FAMILY}/report/sign-out-check"
-        r["check_after_signout"] = _cap(await ac.get(check_url))
-        r["review_edit"] = _cap(
+        r["check_after_signout"] = capture(await ac.get(check_url))
+        r["review_edit"] = capture(
             await ac.put(
                 f"/api/families/{FAMILY}/small-variants/{PLP_VARIANT_ID}/review",
                 json={**review_payload, "note": "E2E: note edited after sign-out"},
             )
         )
-        r["check_after_edit"] = _cap(await ac.get(check_url))
+        r["check_after_edit"] = capture(await ac.get(check_url))
         # REQ-TRACE-007: the report page renders a signed version from this record alone, so
         # after the edit it must still hold what was signed.
         signed_version = (r["signout2"].get("json") or {}).get("version")
         if signed_version is not None:
-            r["signed_after_edit"] = _cap(
+            r["signed_after_edit"] = capture(
                 await ac.get(f"/api/families/{FAMILY}/report/sign-outs/{signed_version}")
             )
 
+        # A compound-het pair review removed by a later save: the pair is recorded on the
+        # GENE_CH pair from its first variant, the second variant gets a review of its own,
+        # and a save of the first that drops the pair rewrites each review of the pair.
+        reviews = f"/api/families/{FAMILY}/small-variants"
+        first, second = CH_PAIR
+        try:
+            r["pair_recorded"] = capture(
+                await ac.put(
+                    f"{reviews}/{first}/review",
+                    json={"compound_het": {"partner_variant_id": second, "note": "E2E: in trans"}},
+                )
+            )
+            r["second_own_review"] = capture(
+                await ac.put(f"{reviews}/{second}/review", json={"tags": ["review"], "note": "E2E: own note"})
+            )
+            out["pair_rows_before"] = await _pair_review_rows(facts["family_uuid"])
+            r["pair_removed"] = capture(await ac.put(f"{reviews}/{first}/review", json={"compound_het": None}))
+            out["pair_rows_after"] = await _pair_review_rows(facts["family_uuid"])
+            r["audit_after_pair"] = capture(
+                await ac.get(f"/api/families/{FAMILY}/clinical-audit", params={"limit": 50})
+            )
+        finally:
+            r["pair_cleared"] = capture(await ac.put(f"{reviews}/{second}/review", json={"tags": [], "note": None}))
+            out["pair_rows_at_end"] = await _pair_review_rows(facts["family_uuid"])
+
+        # A save that drops the pair and gives the variant a tag and a note of its own: the
+        # pair is recorded from its first variant, whose review then holds only the pair.
+        try:
+            r["pair_for_drop"] = capture(
+                await ac.put(f"{reviews}/{first}/review", json={"compound_het": {"partner_variant_id": second}})
+            )
+            out["drop_rows_before"] = await _pair_review_rows(facts["family_uuid"])
+            r["pair_dropped_with_tags"] = capture(
+                await ac.put(
+                    f"{reviews}/{first}/review",
+                    json={"tags": ["review"], "note": "E2E: own note", "compound_het": None},
+                )
+            )
+            out["drop_rows_after"] = await _pair_review_rows(facts["family_uuid"])
+            r["list_after_drop"] = capture(await ac.get(reviews, params={"review_tag": "review", "page_size": 50}))
+            r["audit_after_drop"] = capture(
+                await ac.get(f"/api/families/{FAMILY}/clinical-audit", params={"limit": 50})
+            )
+            r["integrity_after_drop"] = capture(
+                await ac.get(
+                    "/api/admin/integrity/verify", params={"table": "clinical_audit_events", "family_id": FAMILY}
+                )
+            )
+        finally:
+            r["drop_cleared"] = capture(await ac.put(f"{reviews}/{first}/review", json={"tags": [], "note": None}))
+            out["drop_rows_at_end"] = await _pair_review_rows(facts["family_uuid"])
+
     out["tamper"] = await _tamper_checks()
     return out
+
+
+async def _pair_review_rows(family_uuid: str) -> dict:
+    """The GENE_CH pair's review rows as Postgres holds them, by variant."""
+    from sqlalchemy import bindparam, text
+
+    from backend.app.core.postgres import get_postgres_sessionmaker
+
+    async with get_postgres_sessionmaker()() as session:
+        rows = (
+            await session.execute(
+                text(
+                    """
+                    SELECT variant_id, tags, note, compound_het_group_id,
+                           compound_het_partner_variant_ids, compound_het_note
+                    FROM small_variant_reviews
+                    WHERE family_id = CAST(:family AS uuid) AND variant_id IN :ids
+                    """
+                ).bindparams(bindparam("ids", expanding=True)),
+                {"family": family_uuid, "ids": list(CH_PAIR)},
+            )
+        ).mappings().all()
+    return {row["variant_id"]: dict(row) for row in rows}
 
 
 @pytest.fixture(scope="module")
@@ -352,3 +432,95 @@ def test_a_signed_version_still_holds_what_was_signed_after_an_edit(snap):
     assert reported[PLP_VARIANT_ID] == signed[PLP_VARIANT_ID]
     # What the record could not capture is named with it (a list, empty when complete).
     assert isinstance(body["not_captured"], list), body
+
+
+# ------------------------------------------------------------ compound-het pair reviews
+
+
+def test_a_save_that_drops_a_pair_rewrites_each_review_of_the_pair(snap):
+    for key in ("pair_recorded", "second_own_review", "pair_removed", "pair_cleared"):
+        assert _resp(snap, key)["status"] == 200, (key, _resp(snap, key)["text"])
+    first, second = CH_PAIR
+    # The pair recorded from its first variant is held by both variants' reviews; the
+    # second variant's own review keeps it.
+    before = snap["pair_rows_before"]
+    assert before[first]["compound_het_group_id"] is not None
+    assert before[first]["compound_het_group_id"] == before[second]["compound_het_group_id"]
+    assert before[first]["compound_het_partner_variant_ids"] == [second]
+    assert before[second]["compound_het_partner_variant_ids"] == [first]
+    assert before[first]["compound_het_note"] == before[second]["compound_het_note"] == "E2E: in trans"
+    assert (before[second]["tags"], before[second]["note"]) == (["review"], "E2E: own note")
+    # Dropped from the first variant: its review held the pair alone and goes; the
+    # second's is kept for its own tags and note, without the pair.
+    after = snap["pair_rows_after"]
+    assert set(after) == {second}, after
+    kept = after[second]
+    assert (kept["tags"], kept["note"]) == (["review"], "E2E: own note")
+    assert kept["compound_het_group_id"] is None, kept
+    assert not kept["compound_het_partner_variant_ids"], kept
+    assert kept["compound_het_note"] is None, kept
+    # Cleared at the end, the second variant's review goes too.
+    assert snap["pair_rows_at_end"] == {}
+
+
+def test_the_dropped_pair_is_on_the_clinical_audit_trail(snap):
+    resp = _resp(snap, "audit_after_pair")
+    assert resp["status"] == 200, resp["text"]
+    first, second = CH_PAIR
+    pair_events = [event for event in resp["json"]["events"] if event["action"] == "compound_het_pair"]
+    # Most recent first: the removal, filed under the variant whose review held the pair,
+    # then the pair as recorded.
+    assert [(event["variant_id"], event["before"] is None, event["after"] is None) for event in pair_events[:2]] == [
+        (first, False, True),
+        (first, True, False),
+    ], pair_events
+    assert pair_events[0]["summary"] == f"Compound-het pair with {second} removed", pair_events[0]
+
+
+def test_a_save_that_drops_the_pair_stores_the_tags_and_note_it_gives(snap):
+    for key in ("pair_for_drop", "pair_dropped_with_tags", "list_after_drop", "drop_cleared"):
+        assert _resp(snap, key)["status"] == 200, (key, _resp(snap, key)["text"])
+    first, second = CH_PAIR
+    before = snap["drop_rows_before"]
+    assert before[first]["compound_het_group_id"] is not None
+    assert before[first]["compound_het_group_id"] == before[second]["compound_het_group_id"]
+    assert (before[first]["tags"], before[first]["note"]) == ([], None)  # the review held only the pair
+    # The save stores the tag and note on the variant's review, without the pair; the
+    # partner's review held only the pair and is deleted.
+    after = snap["drop_rows_after"]
+    assert set(after) == {first}, after
+    kept = after[first]
+    assert (kept["tags"], kept["note"]) == (["review"], "E2E: own note")
+    assert kept["compound_het_group_id"] is None, kept
+    assert not kept["compound_het_partner_variant_ids"], kept
+    # Served so by the save and by the variant list.
+    [listed] = [v for v in _resp(snap, "list_after_drop")["json"]["variants"] if v["_id"] == first]
+    for served in (_resp(snap, "pair_dropped_with_tags")["json"], listed["review"]):
+        assert (served["tags"], served["note"], served["compound_het"]) == (["review"], "E2E: own note", None)
+    # Cleared at the end, the variant's review goes too.
+    assert snap["drop_rows_at_end"] == {}
+
+
+def test_the_trail_records_what_the_save_that_dropped_the_pair_stored(snap):
+    resp = _resp(snap, "audit_after_drop")
+    assert resp["status"] == 200, resp["text"]
+    first, second = CH_PAIR
+    # Most recent first: the drop save's three events, then the pair as recorded.
+    latest = resp["json"]["events"][:4]
+    events = [(event["variant_id"], event["action"], event["summary"]) for event in latest]
+    assert sorted(events[:3]) == sorted(
+        [
+            (first, "compound_het_pair", f"Compound-het pair with {second} removed"),
+            (first, "note", "Note added"),
+            (first, "tags", "Tags added review"),
+        ]
+    ), events
+    assert events[3][:2] == (first, "compound_het_pair") and "recorded" in events[3][2], events
+    # Each value the trail records as saved is the one the review row stores.
+    stored = snap["drop_rows_after"].get(first)
+    assert stored is not None, snap["drop_rows_after"]
+    for event in latest[:3]:
+        if event["action"] in ("tags", "note"):
+            assert event["after"] == {event["action"]: stored[event["action"]]}, (event, stored)
+    integrity = _resp(snap, "integrity_after_drop")
+    assert integrity["status"] == 200 and integrity["json"]["verified"] is True, integrity

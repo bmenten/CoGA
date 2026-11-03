@@ -99,6 +99,7 @@ describe('smallVariantSearch preset helpers', () => {
         sift: '',
         polyphen: '',
         panel_id: '',
+        pass_only: '',
         classification: '',
         review_tags: '',
         has_notes: '',
@@ -218,6 +219,16 @@ describe('smallVariantSearch preset helpers', () => {
     );
 
     expect(params.getAll('exclude_review_tag')).toEqual(['excluded', 'needs_rna']);
+  });
+
+  // The callers' FILTER (Call quality, "Pass variants only"): sent only when on.
+  it('serializes Pass variants only into the query string', () => {
+    const filters = createEmptySmallFilters();
+    const samples = { S1: defaultSampleFilter(), S2: defaultSampleFilter() };
+    expect(buildSmallVariantQueryParams(filters, samples, 1).has('pass_only')).toBe(false);
+    filters.pass_only = 'true';
+    expect(buildSmallVariantQueryParams(filters, samples, 1).get('pass_only')).toBe('true');
+    expect(deserializePresetFilters(serializePresetFilters(filters)).pass_only).toBe('true');
   });
 
   it('preserves project scope in the query string', () => {
@@ -613,6 +624,18 @@ describe('a NIPT search on the small-variant list', () => {
       'The small-variant list does not apply this search’s “De novo in the fetus” inheritance, maternal/fetal category, minimum-confidence, not-inherited-alleles and de novo priority filters.',
     );
     expect(describeUnappliedFilters('small-variant list', [])).toBeNull();
+  });
+
+  // The NIPT list reads no callers' FILTER: a saved search's Pass variants only is named there,
+  // and applied on the small-variant list.
+  it('names Pass variants only as a filter the NIPT list does not apply', () => {
+    const chips = buildActiveFilterChips({ ...createEmptySmallFilters(), pass_only: 'true' }, members, {});
+    const passOnly = chips.find((chip) => chip.label === 'Pass variants only');
+    expect(passOnly).toBeDefined();
+    expect(smallVariantAppliesFilterChip(passOnly!)).toBe(true);
+    expect(describeUnappliedFilters('NIPT list', chips.filter((chip) => !niptAppliesFilterChip(chip)))).toBe(
+      'The NIPT list does not apply this search’s pass-only filter.',
+    );
   });
 
   it('chips another spelling of a mode by that mode, and the NIPT page names it so', () => {

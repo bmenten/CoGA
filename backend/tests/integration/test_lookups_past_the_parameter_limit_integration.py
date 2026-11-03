@@ -22,6 +22,8 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import text
 
+from backend.tests.integration._datastores import fresh_assembly, fresh_species
+
 pytestmark = pytest.mark.integration
 
 # Items per lookup, and where the seeded one sits among them: past the 32,767 parameters
@@ -43,21 +45,8 @@ async def _seed(session, label: str) -> dict[str, str]:
     """A species, an assembly with one gene, a project, and a family of two members in it
     with a relationship, a repeat call and a coverage track for the proband."""
     seeded: dict[str, str] = {"label": label, "gene": f"DATA6{uuid4().hex[:10].upper()}"}
-    seeded["species"] = (
-        await session.execute(
-            text("INSERT INTO species (name, common_name, tax_id) VALUES (:n, 'test', :t) RETURNING id::text"),
-            {"n": f"data6 {label}", "t": uuid4().int % 2_000_000_000},
-        )
-    ).scalar_one()
-    seeded["assembly"] = (
-        await session.execute(
-            text(
-                "INSERT INTO assemblies (species_id, assembly_name, version, release_date) "
-                "VALUES (CAST(:s AS uuid), :a, 'v1', '2020-01-01') RETURNING id::text"
-            ),
-            {"s": seeded["species"], "a": f"data6-{label}"},
-        )
-    ).scalar_one()
+    seeded["species"] = await fresh_species(session, f"data6 {label}")
+    seeded["assembly"] = await fresh_assembly(session, seeded["species"], f"data6-{label}")
     await session.execute(
         text(
             "INSERT INTO genes (assembly_id, gene_id, hgnc_symbol, chr, start, \"end\", strand, biotype, "

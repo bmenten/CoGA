@@ -1,16 +1,67 @@
+"""Admin-only routes refuse anyone else at the route (REQ-SEC-002).
+
+``get_current_admin_user`` refuses a signed-in user who holds neither admin role with
+``403 Admin access required``. Every route that names it among its dependencies is walked from
+the app and asked by a viewer: each answers that 403 before it reads the database, so a guard
+that runs after something else fails here. Every route under ``/api/admin`` is an admin's, and
+the admin routes elsewhere that only read are listed, so a route that loses its admin guard
+fails the walk's catalogue; the routes that change something are catalogued in
+``test_project_access_levels.py``. The examples named are the panel and tag-definition
+changes (admin enforced at the route, not just in the service), the import of the NIPT-M
+pipeline's recurrent-artefact table (REQ-NIPT-016) and the replacement of a family's annotation
+manifest.
+"""
+
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 
+from backend.app import dependencies
 from backend.app.core.postgres import get_postgres_session
 from backend.app.dependencies import get_current_user
 from backend.app.main import app
 from backend.app.services.access_control import CurrentUser
+from backend.tests._app_routes import dependency_calls, filled_path, route_operations
+
+ADMIN_ONLY = (403, {"detail": "Admin access required"})
+ADMIN_OPERATIONS = sorted(
+    key
+    for key, route in route_operations().items()
+    if dependencies.get_current_admin_user in dependency_calls(route.dependant)
+)
+ADMIN_CHANGES = [key for key in ADMIN_OPERATIONS if key[0] != "GET"]
+ADMIN_READS = [key for key in ADMIN_OPERATIONS if key[0] == "GET"]
+# The admin routes outside /api/admin that only read. One that changes something is held by
+# test_project_access_levels.py::test_every_change_route_is_classified.
+ADMIN_READS_OUTSIDE_THE_ADMIN_PREFIX = {
+    ("GET", "/api/assemblies/reference-import/assemblies"),
+    ("GET", "/api/assemblies/reference-import/organisms"),
+    ("GET", "/api/assemblies/reference-import/recent"),
+    ("GET", "/api/auth/users"),
+    ("GET", "/api/family-imports"),
+    ("GET", "/api/family-imports/packages"),
+    ("GET", "/api/family-imports/{job_id}"),
+    ("GET", "/api/users"),
+}
+
+
+def _ids(operations: list[tuple[str, str]]) -> list[str]:
+    return [f"{method} {path}" for method, path in operations]
 
 
 class _FakeSession:
+    """Records every statement: a request refused at the role check runs none."""
+
+    def __init__(self) -> None:
+        self.statements: list[str] = []
+
+    async def execute(self, statement: Any, *_args: Any, **_kwargs: Any) -> None:
+        self.statements.append(str(statement))
+        raise AssertionError("a viewer's request reached the database")
+
     async def rollback(self) -> None:
         return None
 
@@ -30,8 +81,10 @@ def viewer_client(monkeypatch: pytest.MonkeyPatch):
         created_at=datetime.now(timezone.utc),
     )
 
+    session = _FakeSession()
+
     async def override_get_postgres_session():
-        yield _FakeSession()
+        yield session
 
     async def override_get_current_user():
         return viewer
@@ -39,32 +92,48 @@ def viewer_client(monkeypatch: pytest.MonkeyPatch):
     app.dependency_overrides[get_postgres_session] = override_get_postgres_session
     app.dependency_overrides[get_current_user] = override_get_current_user
     with TestClient(app) as client:
-        yield client
+        yield client, session
     app.dependency_overrides = original_overrides
 
 
-@pytest.mark.parametrize(
-    "method,path",
-    [
-        # Panel mutations (admin enforced at the route, not just in the service).
-        ("delete", "/api/panels/PANEL1"),
-        ("post", "/api/panels/mendeliome/regenerate"),
-        # Small-variant tag-definition mutations.
-        ("delete", "/api/families/FAM1/small-variant-tags/tagkey"),
-        # The NIPT artifact list: importing the NIPT-M pipeline's recurrent-artefact table.
-        ("post", "/api/admin/nipt/artifacts/import"),
-    ],
-)
-def test_admin_mutations_reject_a_viewer(viewer_client, method, path) -> None:
-    response = getattr(viewer_client, method)(path)
-    assert response.status_code == 403, f"{method} {path} -> {response.status_code}"
+def test_every_admin_route_is_walked_and_none_is_left_unguarded() -> None:
+    # Every route under /api/admin is an admin's.
+    under_the_prefix = {key for key in route_operations() if key[1].startswith("/api/admin/")}
+    assert under_the_prefix and under_the_prefix <= set(ADMIN_OPERATIONS)
+    # The others that only read are listed: one that lost its guard is missing here.
+    elsewhere = {key for key in ADMIN_READS if not key[1].startswith("/api/admin/")}
+    assert elsewhere == ADMIN_READS_OUTSIDE_THE_ADMIN_PREFIX
+    assert {
+        ("DELETE", "/api/panels/{panel_id}"),
+        ("POST", "/api/panels/mendeliome/regenerate"),
+        ("DELETE", "/api/families/{family_id}/small-variant-tags/{tag_key}"),
+        ("POST", "/api/admin/nipt/artifacts/import"),
+        ("PUT", "/api/families/{family_id}/annotation-manifest"),
+    } <= set(ADMIN_CHANGES)
+    # A floor, so a walk that found no route cannot pass.
+    assert len(ADMIN_CHANGES) >= 55 and len(ADMIN_READS) >= 30
+
+
+@pytest.mark.parametrize(("method", "path"), ADMIN_CHANGES, ids=_ids(ADMIN_CHANGES))
+def test_admin_mutations_reject_a_viewer(viewer_client, method: str, path: str) -> None:
+    client, session = viewer_client
+    response = client.request(method, filled_path(path))
+    assert (response.status_code, response.json()) == ADMIN_ONLY, f"{method} {path}"
+    assert session.statements == []
+
+
+@pytest.mark.parametrize(("method", "path"), ADMIN_READS, ids=_ids(ADMIN_READS))
+def test_admin_reads_reject_a_viewer(viewer_client, method: str, path: str) -> None:
+    client, session = viewer_client
+    response = client.request(method, filled_path(path))
+    assert (response.status_code, response.json()) == ADMIN_ONLY, f"{method} {path}"
+    assert session.statements == []
 
 
 def test_dead_sample_projects_route_is_removed(viewer_client) -> None:
     # The always-failing /admin/samples/{id}/projects route was removed entirely.
-    response = viewer_client.put(
-        "/api/admin/samples/SAMPLE1/projects", json={"project_ids": []}
-    )
+    client, _session = viewer_client
+    response = client.put("/api/admin/samples/SAMPLE1/projects", json={"project_ids": []})
     assert response.status_code == 404
 
 
@@ -91,7 +160,8 @@ def _record_manifest_writes(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
 
 def test_a_viewer_cannot_replace_a_family_annotation_manifest(viewer_client, monkeypatch) -> None:
     calls = _record_manifest_writes(monkeypatch)
-    response = viewer_client.put(_MANIFEST_PATH, json=_MANIFEST_BODY)
+    client, _session = viewer_client
+    response = client.put(_MANIFEST_PATH, json=_MANIFEST_BODY)
     assert response.status_code == 403
     assert response.json()["detail"] == "Admin access required"
     assert calls == []  # refused before the manifest service is reached

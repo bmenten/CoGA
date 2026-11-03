@@ -237,6 +237,7 @@ async def test_genomewide_read_falls_back_to_grey_when_no_precompute(monkeypatch
         segments_by_uuid={"u-gma": [{"chr": "1", "start": 1, "end": 9, "hap1": "0", "hap2": "1"}]},
         chromosomes=["1"],
     )
-    for seg in out.get("u-gma", []):
-        assert seg.get("hap1_lineage") not in ("paternal", "maternal")
-        assert seg.get("hap2_lineage") not in ("paternal", "maternal")
+    # Served (its stored block kept), grey on both lanes.
+    assert out["u-gma"] == [
+        {"chr": "1", "start": 1, "end": 9, "hap1": "0", "hap2": "1", "hap1_lineage": "unknown", "hap2_lineage": "unknown"}
+    ]

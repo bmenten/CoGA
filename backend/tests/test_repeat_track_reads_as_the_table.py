@@ -25,48 +25,17 @@ import pytest
 
 from backend.app.services import repeat_expansion_pg
 from backend.app.services.family_metadata_context import FamilyMetadataContext
+from backend.tests._repeat_fakes import RowsSession, family_context
 
 PROBAND = "00000000-0000-4000-8000-000000000001"
 FATHER = "00000000-0000-4000-8000-000000000002"
 
 
 def _context(*, proband_sex: str = "female") -> FamilyMetadataContext:
-    return FamilyMetadataContext(
-        family_uuid="00000000-0000-4000-8000-0000000000f1",
-        family_id="FAM1",
-        project_ids=["project-uuid"],
-        sample_rows=[
-            {"sample_uuid": PROBAND, "sample_id": "PROBAND1", "role": "proband", "affected": True, "sex": proband_sex},
-            {"sample_uuid": FATHER, "sample_id": "FATHER1", "role": "father", "affected": False, "sex": "male"},
-        ],
-        sample_uuid_to_name={PROBAND: "PROBAND1", FATHER: "FATHER1"},
-        sample_name_to_uuid={"PROBAND1": PROBAND, "FATHER1": FATHER},
-        affected_sample_names=["PROBAND1"],
-        assembly_id="assembly-uuid",
-        assembly_name="GRCh38",
+    return family_context(
+        (PROBAND, "PROBAND1", "proband", True, proband_sex),
+        (FATHER, "FATHER1", "father", False, "male"),
     )
-
-
-class _Result:
-    def __init__(self, rows: list[dict[str, Any]]) -> None:
-        self._rows = rows
-
-    def mappings(self) -> "_Result":
-        return self
-
-    def all(self) -> list[dict[str, Any]]:
-        return self._rows
-
-
-class _Session:
-    """Answers the table's and the track's query with the rows given: a call as the query
-    returns it, read against the catalogue row the query found."""
-
-    def __init__(self, rows: list[dict[str, Any]]) -> None:
-        self.rows = rows
-
-    async def execute(self, _statement: Any, _params: Any = None) -> _Result:
-        return _Result(self.rows)
 
 
 def _fmr1(counts: list[int], *, stored: str, sample: str = PROBAND) -> dict[str, Any]:
@@ -121,13 +90,13 @@ def _vwa1(counts: list[int], *, stored: str) -> dict[str, Any]:
 
 async def _table(rows: list[dict[str, Any]], **context: Any):
     return await repeat_expansion_pg.get_family_repeat_expansion_table_response(
-        _Session(rows), context=_context(**context)
+        RowsSession(rows), context=_context(**context)
     )
 
 
 async def _track(rows: list[dict[str, Any]], **context: Any):
     return await repeat_expansion_pg.get_sample_repeat_expansion_track_response(
-        _Session(rows), context=_context(**context), sample_name="PROBAND1", chromosomes=["X"]
+        RowsSession(rows), context=_context(**context), sample_name="PROBAND1", chromosomes=["X"]
     )
 
 

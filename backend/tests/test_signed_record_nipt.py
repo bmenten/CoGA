@@ -36,6 +36,7 @@ from backend.app.services.hash_chain import canonical_hash
 from backend.app.services.nipt_analysis import NIPT_MODEL_REFERENCE, NiptQualityThresholds
 from backend.app.services.nipt_target_coverage import TargetCoverageRow
 from backend.app.services.sample_integrity_qc import evaluate_nipt_category_qc
+from backend.tests._query_results import MappingRows as _Result
 
 FATHER = "FATHER1"
 PLASMA = "CFDNA1"
@@ -149,20 +150,6 @@ def _family(roi: FamilyRegionOfInterestOut | None = None) -> FamilyOut:
         metadata={"analysis_type": "monogenic_nipt"},
         roi=roi,
     )
-
-
-class _Result:
-    def __init__(self, rows: list[dict[str, Any]]) -> None:
-        self._rows = rows
-
-    def mappings(self) -> "_Result":
-        return self
-
-    def all(self) -> list[dict[str, Any]]:
-        return list(self._rows)
-
-    def first(self) -> dict[str, Any] | None:
-        return self._rows[0] if self._rows else None
 
 
 _LOADED = datetime(2026, 10, 1, 9, 0, tzinfo=timezone.utc)
@@ -610,12 +597,18 @@ async def _no_coverage_rows(_assembly, **_kwargs):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "roi_row",
+    [None, {**_ROI_ROW, "roi_start": None}, {**_ROI_ROW, "roi_query": ""}],
+    ids=["no-roi", "roi-without-coordinates", "roi-without-a-query"],
+)
 async def test_without_a_roi_the_coverage_check_runs_over_no_region_and_notes_nothing(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, roi_row: dict[str, Any] | None
 ) -> None:
     # The page's card then says there is no target region; no track is read, so none is named.
+    # A region of interest stored without its coordinates, or without its query, is none.
     track_reads = _wire(monkeypatch, targets=[], coverage=_NOT_DEPTH)
-    section = await _section([])
+    section = await _section([], _Session(roi=roi_row))
     page = await nipt_service.get_family_nipt_coverage(session=None, family_id="NIPTFAM1", user=None)  # type: ignore[arg-type]
     assert section["coverage_notes"] == {"gene": None, "panel": None, "regions": [], "notes": []}
     assert (page.regions.target_region_count, page.notes, track_reads) == (0, [], [])

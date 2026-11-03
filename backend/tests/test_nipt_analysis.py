@@ -11,6 +11,7 @@ from backend.app.services.nipt_analysis import (
     estimate_fetal_fraction,
     infer_fetal_sex,
     run_nipt_analysis,
+    trusted_father_state,
 )
 
 
@@ -90,6 +91,14 @@ def test_infer_fetal_sex_excludes_par_and_maternal_level_vaf() -> None:
     # A maternal-level VAF (~0.5) means the mother carries it -> uninformative.
     maternal = _x_sites(present=True, vaf=0.5)
     assert infer_fetal_sex(maternal, _ff(0.10), qc).inferred == "indeterminate"
+    # Nor does chrY carry the paternal-X signal.
+    chry = _x_sites(present=True, vaf=0.05)
+    for site in chry:
+        site.chrom = "Y"
+    assert (infer_fetal_sex(chry, _ff(0.10), qc).inferred, infer_fetal_sex(chry, _ff(0.10), qc).informative_sites) == (
+        "indeterminate",
+        0,
+    )
 
 
 def _site(
@@ -187,48 +196,52 @@ def test_fetal_fraction_excludes_father_hom_ref_and_high_vaf_sites() -> None:
     assert est.n_sites == 1
 
 
+@pytest.mark.parametrize(
+    "site",
+    [
+        pytest.param(_site("shallow", father_state="het", dp=19, alt=1, vaf=0.05), id="plasma depth below min_cf_dp"),
+        pytest.param(_site("weak", father_state="het", dp=400, alt=20, qual=10.0), id="a plasma call failing quality"),
+        pytest.param(
+            _site("x", father_state="het", dp=400, alt=20, is_autosomal=False, chrom="X", pos=31_000_000),
+            id="a sex chromosome",
+        ),
+        pytest.param(
+            _site("untrusted", father_state="het", dp=400, alt=20, father_qual=19.0), id="a father call below min_father_qual"
+        ),
+    ],
+)
+def test_a_fetal_fraction_site_is_a_deep_passing_autosomal_call_beside_a_trusted_father(site) -> None:
+    # Any of these read at FF/2 would pull the estimate; none is a category-7 site.
+    qc = NiptQualityThresholds()
+    assert estimate_fetal_fraction([site], qc).n_sites == 0
+    assert estimate_fetal_fraction([_site("cat7", father_state="het", dp=400, alt=20)], qc).n_sites == 1
+
+
 # --------------------------------------------------------------------------- #
 # 2. Per-category assignment
 # --------------------------------------------------------------------------- #
 
-def test_category_7_paternal_transmitted() -> None:
-    site = _site("v", father_state="het", dp=120, alt=6)  # VAF 0.05 = FF/2
-    c = classify_site(site, _ff(0.10), NiptQualityThresholds())
-    assert c.category == 7
-    assert c.fetal_inheritance == "paternal_transmitted"
-
-
-def test_category_1_de_novo() -> None:
-    site = _site("v", father_state="hom_ref", dp=200, alt=10)  # VAF 0.05, father hom-ref
-    c = classify_site(site, _ff(0.10), NiptQualityThresholds())
-    assert c.category == 1
-    assert c.fetal_inheritance == "de_novo"
-
-
-def test_category_3_maternal_het_inherited() -> None:
-    site = _site("v", father_state="hom_ref", dp=600, alt=300)  # VAF 0.50
-    c = classify_site(site, _ff(0.10), NiptQualityThresholds())
-    assert c.category == 3
-    assert c.maternal_state == "het"
-
-
-def test_category_2_maternal_het_not_inherited() -> None:
-    site = _site("v", father_state="hom_ref", dp=600, alt=270)  # VAF 0.45 = 0.5 - FF/2
-    c = classify_site(site, _ff(0.10), NiptQualityThresholds())
-    assert c.category == 2
-
-
-def test_category_4_maternal_het_hom_fetus() -> None:
-    # A hom-alt fetus needs an alt from the father too, so he carries one.
-    site = _site("v", father_state="het", dp=600, alt=330)  # VAF 0.55 = 0.5 + FF/2
-    c = classify_site(site, _ff(0.10), NiptQualityThresholds())
-    assert c.category == 4
-
-
-def test_category_6_shared_hom() -> None:
-    site = _site("v", father_state="hom_alt", dp=400, alt=400)  # VAF 1.0
-    c = classify_site(site, _ff(0.10), NiptQualityThresholds())
-    assert c.category == 6
+@pytest.mark.parametrize(
+    ("father_state", "dp", "alt", "category", "reading"),
+    [
+        # VAF 0.05 = FF/2 beside a carrier father.
+        pytest.param("het", 120, 6, 7, {"fetal_inheritance": "paternal_transmitted"}, id="7-paternal-transmitted"),
+        # VAF 0.05 beside a hom-ref father.
+        pytest.param("hom_ref", 200, 10, 1, {"fetal_inheritance": "de_novo"}, id="1-de-novo"),
+        # VAF 0.50.
+        pytest.param("hom_ref", 600, 300, 3, {"maternal_state": "het"}, id="3-maternal-het-inherited"),
+        # VAF 0.45 = 0.5 - FF/2.
+        pytest.param("hom_ref", 600, 270, 2, {}, id="2-maternal-het-not-inherited"),
+        # VAF 0.55 = 0.5 + FF/2: a hom-alt fetus needs an alt from the father too, so he carries one.
+        pytest.param("het", 600, 330, 4, {}, id="4-maternal-het-hom-fetus"),
+        # VAF 1.0.
+        pytest.param("hom_alt", 400, 400, 6, {}, id="6-shared-hom"),
+    ],
+)
+def test_category_assignment(father_state: str, dp: int, alt: int, category: int, reading: dict[str, str]) -> None:
+    c = classify_site(_site("v", father_state=father_state, dp=dp, alt=alt), _ff(0.10), NiptQualityThresholds())
+    assert c.category == category
+    assert {field: getattr(c, field) for field in reading} == reading
 
 
 def test_de_novo_below_alt_threshold_is_not_called() -> None:
@@ -386,6 +399,22 @@ def test_a_father_call_below_min_father_dp_is_treated_as_no_call() -> None:
     trusted = classify_site(_site("v", father_state="hom_ref", father_dp=20, dp=200, alt=10), ff, qc)
     assert trusted.category == 1
     assert "father_no_coverage" not in trusted.flags
+
+
+def test_a_father_call_below_min_father_qual_is_treated_as_no_call() -> None:
+    # As a thin call: a low-quality hom-ref call would turn his transmitted allele into a
+    # de novo.
+    qc = NiptQualityThresholds()
+    assert qc.min_father_qual == 20.0
+    ff = _ff(0.10)
+    weak = _site("v", father_state="hom_ref", father_qual=19.9, dp=200, alt=10)
+    assert trusted_father_state(weak, qc) == "missing"
+    weak_call = classify_site(weak, ff, qc)
+    assert "father_no_coverage" in weak_call.flags and weak_call.category != 1
+    # At min_father_qual the call is trusted and prunes as before.
+    trusted = _site("v", father_state="hom_ref", father_qual=20.0, dp=200, alt=10)
+    assert trusted_father_state(trusted, qc) == "hom_ref"
+    assert classify_site(trusted, ff, qc).category == 1
 
 
 def test_fetal_sex_needs_a_trusted_paternal_x_call() -> None:

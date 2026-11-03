@@ -76,7 +76,7 @@ const renderDashboard = () => {
   );
 };
 
-describe('Dashboard admin section', () => {
+describe('Dashboard', () => {
   beforeEach(() => {
     localStorage.clear();
   });
@@ -100,6 +100,8 @@ describe('Dashboard admin section', () => {
       'href',
       '/admin/monitoring/audit-logs',
     );
+    // And the toolbar's way into the admin area.
+    expect(screen.getByRole('link', { name: 'Admin' })).toHaveAttribute('href', '/admin');
     expect(screen.queryByRole('link', { name: /^tags$/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /preset filters/i })).not.toBeInTheDocument();
   });
@@ -108,55 +110,49 @@ describe('Dashboard admin section', () => {
     localStorage.setItem('role', 'viewer');
     renderDashboard();
     expect(screen.queryByText('Admin')).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Operational controls and setup' })).not.toBeInTheDocument();
+    // No link into the admin area at all: neither the toolbar's nor the section's.
+    expect(
+      screen.queryAllByRole('link').filter((link) => link.getAttribute('href')?.startsWith('/admin')),
+    ).toEqual([]);
   });
 
-  it('shows documentation link', () => {
+  // Every user's toolbar: the cross-family explorers, the panel catalogue, the family builder and
+  // the user guide.
+  it.each([
+    [/gene explorer/i, '/genes'],
+    [/variant explorer/i, '/variant-explorer'],
+    [/clinical cnv explorer/i, '/cnv-explorer'],
+    [/panel catalog/i, '/panels'],
+    [/family builder/i, '/family-builder'],
+    [/user guide/i, '/docs'],
+  ])('links a viewer to %s', (name, href) => {
     localStorage.setItem('role', 'viewer');
     renderDashboard();
-    const link = screen.getByRole('link', { name: /user guide/i });
-    expect(link).toHaveAttribute('href', '/docs');
+    expect(screen.getByRole('link', { name })).toHaveAttribute('href', href);
   });
 
-  it('keeps the new-features and issue-request links out of the dashboard toolbar', () => {
+  it('keeps release notes, issue requests, reference setup and the family workflow off the viewer’s dashboard', () => {
     localStorage.setItem('role', 'viewer');
     renderDashboard();
+
+    // The new-features and issue-request links are not in the dashboard toolbar.
     expect(screen.queryByRole('link', { name: /new features/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /issues & requests/i })).not.toBeInTheDocument();
-  });
-
-  it('keeps reference setup links out of the general viewer dashboard', () => {
-    localStorage.setItem('role', 'viewer');
-    renderDashboard();
+    // Nor is reference setup, an admin task.
     expect(screen.queryByRole('link', { name: /organisms/i })).not.toBeInTheDocument();
-  });
-
-  it('shows the panel catalog to non-admin users', () => {
-    localStorage.setItem('role', 'viewer');
-    renderDashboard();
-    expect(screen.getByRole('link', { name: /panel catalog/i })).toHaveAttribute('href', '/panels');
-  });
-
-  it('shows gene explorer navigation', () => {
-    localStorage.setItem('role', 'viewer');
-    renderDashboard();
-    const link = screen.getByRole('link', { name: /gene explorer/i });
-    expect(link).toHaveAttribute('href', '/genes');
+    // The top workspace card is the catalogue only.
+    expect(screen.queryByRole('heading', { name: /family workflow/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /browse families/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /^import family$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /upload sample data/i })).not.toBeInTheDocument();
   });
 
   it('links to the family intake workspace instead of embedding the form', () => {
     localStorage.setItem('role', 'admin');
     renderDashboard();
     expect(screen.queryByRole('heading', { name: /family builder/i })).not.toBeInTheDocument();
-  });
-
-  it('keeps the top workspace card focused on the catalog only', () => {
-    localStorage.setItem('role', 'viewer');
-    renderDashboard();
-
-    expect(screen.queryByRole('heading', { name: /family workflow/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: /browse families/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: /^import family$/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: /upload sample data/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Family builder' })).toHaveAttribute('href', '/family-builder');
   });
 
   it('shows the project catalog overview directly on the dashboard', async () => {
@@ -196,7 +192,10 @@ describe('Dashboard admin section', () => {
     expect(screen.getByTestId('unassigned-families')).toHaveTextContent('F2');
   });
 
-  it('shows the linked family when searching by a project sample id', async () => {
+  it.each([
+    ['a project sample id', 'S1'],
+    ['family id', 'F1'],
+  ])('shows the linked family when searching by %s', async (_by, search) => {
     localStorage.setItem('role', 'viewer');
     renderDashboard();
 
@@ -205,23 +204,7 @@ describe('Dashboard admin section', () => {
     );
 
     fireEvent.change(screen.getByRole('textbox', { name: /search projects, families, or samples/i }), {
-      target: { value: 'S1' },
-    });
-
-    await waitFor(() => expect(screen.getByRole('link', { name: 'F1' })).toBeInTheDocument());
-    expect(screen.getByRole('button', { name: /project one/i })).toBeInTheDocument();
-  });
-
-  it('shows the linked family when searching by family id', async () => {
-    localStorage.setItem('role', 'viewer');
-    renderDashboard();
-
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name: /project one/i })).toBeInTheDocument(),
-    );
-
-    fireEvent.change(screen.getByRole('textbox', { name: /search projects, families, or samples/i }), {
-      target: { value: 'F1' },
+      target: { value: search },
     });
 
     await waitFor(() => expect(screen.getByRole('link', { name: 'F1' })).toBeInTheDocument());

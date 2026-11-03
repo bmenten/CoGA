@@ -188,11 +188,32 @@ def test_sigterm_stops_the_workers_and_the_process_exits_0(monkeypatch) -> None:
     assert signal.getsignal(signal.SIGINT) is signal.default_int_handler
 
 
-def test_a_failed_start_exits_1(monkeypatch) -> None:
+def test_a_failed_start_exits_1(monkeypatch, caplog) -> None:
     recorder = _Recorder()
     _patch_process(monkeypatch, recorder, failing="wait_for_postgres")
+    caplog.set_level(logging.ERROR, logger=import_worker.logger.name)
 
     assert asyncio.run(import_worker._serve(1)) == import_worker.EXIT_FAILED
+    assert "family_package_import_worker" not in recorder.calls
+    assert [record.getMessage() for record in caplog.records] == ["Import worker process could not start"]
+    # The handlers go with the loop here too.
+    assert signal.getsignal(signal.SIGINT) is signal.default_int_handler
+
+
+def test_the_process_runs_as_many_workers_as_it_is_set_to(monkeypatch) -> None:
+    served: list[int] = []
+
+    async def serve(count: int) -> int:
+        served.append(count)
+        return import_worker.EXIT_STOPPED
+
+    monkeypatch.setattr(import_worker.settings, "family_import_worker_count", 3)
+    monkeypatch.setattr(import_worker, "configure_json_logging", lambda: None)
+    monkeypatch.setattr(import_worker, "_serve", serve)
+
+    # The process exits with what its run returns.
+    assert import_worker.main() == import_worker.EXIT_STOPPED
+    assert served == [3]
 
 
 def test_the_process_refuses_to_run_no_worker(monkeypatch, caplog) -> None:

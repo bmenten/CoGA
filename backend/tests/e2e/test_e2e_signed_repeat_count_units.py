@@ -37,6 +37,8 @@ from uuid import uuid4
 
 import pytest
 
+from backend.tests.e2e._harness import capture, ensure_postgres_schema, ok_json, write_file
+
 pytestmark = pytest.mark.integration
 
 LOCUS = "FXS_FMR1"
@@ -62,18 +64,11 @@ _TRGT = (
 )
 
 
-def _write(root: Path, name: str, text: str) -> str:
-    path = root / name
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")
-    return name
-
-
 def _package(root: Path, family_id: str, sample: str) -> Path:
     """The one-member family: a woman, her TRGT VCF with an FMR1 call of 30 and 53 repeats."""
     root.mkdir(parents=True)
-    _write(root, "family.ped", f"{family_id}\t{sample}\t0\t0\t2\t1\n")
-    trgt = _write(root, f"trgt/{sample}.vcf", _TRGT.format(column=f"{sample}_sort"))
+    write_file(root, "family.ped", f"{family_id}\t{sample}\t0\t0\t2\t1\n")
+    trgt = write_file(root, f"trgt/{sample}.vcf", _TRGT.format(column=f"{sample}_sort"))
     lines = [
         "schema_version: 1",
         f"family_id: {family_id}",
@@ -83,17 +78,8 @@ def _package(root: Path, family_id: str, sample: str) -> Path:
         "    per_sample:",
         f"      {sample}: {{file: {trgt}}}",
     ]
-    _write(root, "manifest.yaml", "\n".join(lines) + "\n")
+    write_file(root, "manifest.yaml", "\n".join(lines) + "\n")
     return root
-
-
-def _cap(resp) -> dict[str, Any]:
-    out: dict[str, Any] = {"status": resp.status_code, "text": resp.text}
-    try:
-        out["json"] = resp.json()
-    except ValueError:  # pragma: no cover
-        out["json"] = None
-    return out
 
 
 def _before_count_units(section: Any) -> None:
@@ -114,7 +100,7 @@ async def _exercise(base: Path, family_id: str) -> dict[str, Any]:
     from sqlalchemy import text
 
     from backend.app.core.clickhouse import init_clickhouse_schema
-    from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
+    from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.main import app
     from backend.app.services import family_package_import as package_import
     from backend.app.services import report_signout_service as rss
@@ -122,7 +108,7 @@ async def _exercise(base: Path, family_id: str) -> dict[str, Any]:
     from backend.app.services.repeat_expansion_pg import seed_builtin_repeat_catalog
     from backend.tests.e2e import _harness
 
-    await init_postgres_schema()
+    await ensure_postgres_schema()
     await init_clickhouse_schema()
     await ensure_clickhouse_variant_tables(_harness.ASSEMBLY)
     sessionmaker = get_postgres_sessionmaker()
@@ -171,24 +157,24 @@ async def _exercise(base: Path, family_id: str) -> dict[str, Any]:
             ac.headers["Authorization"] = f"Bearer {await _harness.login_admin_token(ac)}"
 
             async def sign_out(key: str) -> None:
-                r[key] = _cap(await _harness.sign_out(ac, f"{family}/report/sign-out", SIGN_OUT_BODY))
+                r[key] = capture(await _harness.sign_out(ac, f"{family}/report/sign-out", SIGN_OUT_BODY))
                 version = (r[key]["json"] or {}).get("version")
-                r[f"{key}_detail"] = _cap(await ac.get(f"{family}/report/sign-outs/{version}"))
+                r[f"{key}_detail"] = capture(await ac.get(f"{family}/report/sign-outs/{version}"))
 
-            r["table"] = _cap(await ac.get(f"{family}/repeat-expansions"))
+            r["table"] = capture(await ac.get(f"{family}/repeat-expansions"))
             await sign_out("signout")
-            r["check"] = _cap(await ac.get(f"{family}/report/sign-out-check"))
+            r["check"] = capture(await ac.get(f"{family}/report/sign-out-check"))
 
             # QA validates TRGT's counting units at FMR1 after sign-out.
-            r["validate"] = _cap(await ac.put(units, json={"validated": True, "reason": VALIDATION_REASON}))
-            r["table_validated"] = _cap(await ac.get(f"{family}/repeat-expansions"))
-            r["check_validated"] = _cap(await ac.get(f"{family}/report/sign-out-check"))
+            r["validate"] = capture(await ac.put(units, json={"validated": True, "reason": VALIDATION_REASON}))
+            r["table_validated"] = capture(await ac.get(f"{family}/repeat-expansions"))
+            r["check_validated"] = capture(await ac.get(f"{family}/report/sign-out-check"))
             await sign_out("signout_validated")
-            r["check_signed_validated"] = _cap(await ac.get(f"{family}/report/sign-out-check"))
+            r["check_signed_validated"] = capture(await ac.get(f"{family}/report/sign-out-check"))
 
             # And withdraws it.
-            r["withdraw"] = _cap(await ac.put(units, json={"validated": False, "reason": WITHDRAWAL_REASON}))
-            r["check_withdrawn"] = _cap(await ac.get(f"{family}/report/sign-out-check"))
+            r["withdraw"] = capture(await ac.put(units, json={"validated": False, "reason": WITHDRAWAL_REASON}))
+            r["check_withdrawn"] = capture(await ac.get(f"{family}/report/sign-out-check"))
 
             # A record signed by a build from before the warnings: the section without them.
             real_build = rss.build_report_snapshot
@@ -204,11 +190,11 @@ async def _exercise(base: Path, family_id: str) -> dict[str, Any]:
                 await sign_out("old_signout")
             finally:
                 mp.undo()
-            r["old_check"] = _cap(await ac.get(f"{family}/report/sign-out-check"))
-            r["chain"] = _cap(
+            r["old_check"] = capture(await ac.get(f"{family}/report/sign-out-check"))
+            r["chain"] = capture(
                 await ac.get("/api/admin/integrity/verify", params={"table": "report_signouts", "family_id": family_id})
             )
-            r["units_chain"] = _cap(
+            r["units_chain"] = capture(
                 await ac.get(
                     "/api/admin/integrity/verify",
                     params={"table": "clinical_audit_events", "family_id": "system:repeat-loci"},
@@ -247,12 +233,6 @@ def run(tmp_path_factory) -> dict[str, Any]:
         mp.undo()
 
 
-def _ok(run: dict[str, Any], key: str) -> Any:
-    resp = run["responses"][key]
-    assert resp["status"] == 200, (key, resp["status"], resp["text"][:2000])
-    return resp["json"]
-
-
 def _fmr1(section: dict[str, Any]) -> dict[str, Any]:
     [locus] = [locus for locus in section["loci"] if locus["locus_id"] == LOCUS]
     return locus
@@ -274,7 +254,7 @@ def test_the_family_imports_with_a_grey_zone_fmr1_count(run) -> None:
 
 
 def test_the_repeat_page_marks_the_53_while_the_locus_is_not_validated(run) -> None:
-    [locus] = [row for row in _ok(run, "table")["loci"] if row["locus_id"] == LOCUS]
+    [locus] = [row for row in ok_json(run, "table")["loci"] if row["locus_id"] == LOCUS]
     assert locus["count_units_validated"] is False
     alleles = locus["calls"][run["sample"]]["alleles"]
     assert [(allele["repeat_count"], allele["status"]) for allele in alleles] == [(30, "normal"), (53, "intermediate")]
@@ -282,7 +262,7 @@ def test_the_repeat_page_marks_the_53_while_the_locus_is_not_validated(run) -> N
 
 
 def test_the_record_freezes_the_warning_beside_the_call_and_the_locus_not_validated(run) -> None:
-    detail = _ok(run, "signout_detail")
+    detail = ok_json(run, "signout_detail")
     section = detail["snapshot"]["repeat_expansions"]
     assert section["count_unit_margin"] == 3
     locus = _fmr1(section)
@@ -297,7 +277,7 @@ def test_the_record_freezes_the_warning_beside_the_call_and_the_locus_not_valida
 
 
 def test_the_check_matches_the_record_right_after_it_was_signed(run) -> None:
-    check = _ok(run, "check")
+    check = ok_json(run, "check")
     # Through the JSONB round trip the section compares equal to the one built again.
     assert check["matches"] is True, check
     assert check["not_compared"] == []
@@ -305,10 +285,10 @@ def test_the_check_matches_the_record_right_after_it_was_signed(run) -> None:
 
 
 def test_a_validation_since_sign_out_reads_as_a_change(run) -> None:
-    validated = _ok(run, "validate")
+    validated = ok_json(run, "validate")
     assert (validated["locus_id"], validated["validated"], validated["reason"]) == (LOCUS, True, VALIDATION_REASON)
     # The repeat page no longer marks the 53; its status is the same.
-    [locus] = [row for row in _ok(run, "table_validated")["loci"] if row["locus_id"] == LOCUS]
+    [locus] = [row for row in ok_json(run, "table_validated")["loci"] if row["locus_id"] == LOCUS]
     assert locus["count_units_validated"] is True
     alleles = locus["calls"][run["sample"]]["alleles"]
     assert [allele["count_unit_warning"] for allele in alleles] == [None, None]
@@ -316,28 +296,28 @@ def test_a_validation_since_sign_out_reads_as_a_change(run) -> None:
     # The record held the 53 marked at a locus not validated: the check says the repeat
     # expansions changed since sign-out, and so did the findings without a review, which
     # listed the 53 near a boundary (REQ-TRACE-016).
-    check = _ok(run, "check_validated")
+    check = ok_json(run, "check_validated")
     assert check["matches"] is False
     assert check["changed_sections"] == ["unreviewed_findings", "repeat_expansions"]
     assert check["not_compared"] == []
 
 
 def test_the_next_record_freezes_the_validation_with_its_reason_by_whom_and_when(run) -> None:
-    detail = _ok(run, "signout_validated_detail")
+    detail = ok_json(run, "signout_validated_detail")
     locus = _fmr1(detail["snapshot"]["repeat_expansions"])
     units = locus["count_units"]
     assert (units["validated"], units["reason"]) == (True, VALIDATION_REASON)
-    assert units["updated_by"] == _ok(run, "validate")["updated_by"] and units["updated_by"]
+    assert units["updated_by"] == ok_json(run, "validate")["updated_by"] and units["updated_by"]
     assert units["updated_at"]
     assert [allele["count_unit_warning"] for allele in _alleles(locus, run["sample"])] == [None, None]
     assert detail["verified"] is True
-    assert _ok(run, "check_signed_validated")["matches"] is True
+    assert ok_json(run, "check_signed_validated")["matches"] is True
 
 
 def test_a_withdrawal_since_sign_out_reads_as_a_change(run) -> None:
-    withdrawn = _ok(run, "withdraw")
+    withdrawn = ok_json(run, "withdraw")
     assert (withdrawn["validated"], withdrawn["reason"]) == (False, WITHDRAWAL_REASON)
-    check = _ok(run, "check_withdrawn")
+    check = ok_json(run, "check_withdrawn")
     assert check["matches"] is False
     # The 53 is near a boundary again, so it is again a finding without a review.
     assert check["changed_sections"] == ["unreviewed_findings", "repeat_expansions"]
@@ -345,8 +325,8 @@ def test_a_withdrawal_since_sign_out_reads_as_a_change(run) -> None:
 
 
 def test_a_record_signed_before_the_warnings_still_verifies_reads_and_is_compared_on_what_it_holds(run) -> None:
-    old = _ok(run, "old_signout")
-    detail = _ok(run, "old_signout_detail")
+    old = ok_json(run, "old_signout")
+    detail = ok_json(run, "old_signout_detail")
     assert detail["version"] == old["version"]
     section = detail["snapshot"]["repeat_expansions"]
     assert "count_unit_margin" not in section
@@ -358,7 +338,7 @@ def test_a_record_signed_before_the_warnings_still_verifies_reads_and_is_compare
     assert _section_gaps(detail["not_captured"]) == []
     # Compared on what it holds: the calls match, and the warnings and QA's records are named
     # as not compared (the locus is withdrawn now, so the 53 is marked again).
-    check = _ok(run, "old_check")
+    check = ok_json(run, "old_check")
     assert check["version"] == old["version"]
     assert check["not_compared"] == ["repeat_expansions.count_units"]
     assert check["matches"] is True, check
@@ -366,5 +346,5 @@ def test_a_record_signed_before_the_warnings_still_verifies_reads_and_is_compare
 
 
 def test_the_sign_out_chain_and_the_records_chain_verify(run) -> None:
-    assert _ok(run, "chain")["verified"] is True
-    assert _ok(run, "units_chain")["verified"] is True
+    assert ok_json(run, "chain")["verified"] is True
+    assert ok_json(run, "units_chain")["verified"] is True

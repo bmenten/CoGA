@@ -37,6 +37,8 @@ from pathlib import Path
 
 import pytest
 
+from backend.tests.e2e._harness import capture
+
 pytestmark = pytest.mark.integration
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "golden_trio"
@@ -75,13 +77,6 @@ _MOTHER_SV_VCF = _sniffles_vcf(
     "MOTHER",
     ["1", "5800", "svupm1", "N", "<DUP>", "60", "PASS", "SVTYPE=DUP;END=6300;SVLEN=500;SUPPORT=10", "GT", "0/1"],
 )
-
-
-def _cap(resp) -> dict:
-    out = {"status": resp.status_code, "text": resp.text}
-    if resp.status_code < 400:
-        out["json"] = resp.json()
-    return out
 
 
 def _second_hits(page: dict) -> list[dict | None]:
@@ -155,28 +150,28 @@ async def _exercise(root: Path) -> dict:
 
             try:
                 # First opens: build the index from the imported SVs.
-                out["ch_before"] = _cap(await page("GENE_CH"))
-                out["brca2_before"] = _cap(await page("BRCA2"))
+                out["ch_before"] = capture(await page("GENE_CH"))
+                out["brca2_before"] = capture(await page("BRCA2"))
 
-                out["mother_upload"] = _cap(await upload("MOTHER", _MOTHER_SV_VCF))
-                out["brca2_with_maternal_dup"] = _cap(await page("BRCA2"))
+                out["mother_upload"] = capture(await upload("MOTHER", _MOTHER_SV_VCF))
+                out["brca2_with_maternal_dup"] = capture(await page("BRCA2"))
 
                 out["version_before"] = await sv_version()
 
-                out["delete"] = _cap(await ac.delete(_DELETE_PROBAND_SVS, params={"confirm": "true"}))
+                out["delete"] = capture(await ac.delete(_DELETE_PROBAND_SVS, params={"confirm": "true"}))
                 out["version_after_delete"] = await sv_version()
-                out["brca2_after_delete"] = _cap(await page("BRCA2"))
+                out["brca2_after_delete"] = capture(await page("BRCA2"))
 
-                out["upload"] = _cap(await upload("PROBAND", _PROBAND_SV_VCF))
+                out["upload"] = capture(await upload("PROBAND", _PROBAND_SV_VCF))
                 out["version_after_upload"] = await sv_version()
-                out["ch_after_upload"] = _cap(await page("GENE_CH"))
+                out["ch_after_upload"] = capture(await page("GENE_CH"))
             finally:
                 # Drop the uploaded deletion and duplication (each holds one sample's call);
                 # the re-import below restores the two samples' calls in the fixture's SVs.
-                out["cleanup_delete"] = _cap(
+                out["cleanup_delete"] = capture(
                     await ac.delete(_DELETE_PROBAND_SVS, params={"confirm": "true"})
                 )
-                out["cleanup_delete_mother"] = _cap(
+                out["cleanup_delete_mother"] = capture(
                     await ac.delete(_DELETE_MOTHER_SVS, params={"confirm": "true"})
                 )
     finally:

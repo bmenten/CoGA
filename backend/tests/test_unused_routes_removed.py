@@ -18,20 +18,12 @@ Through the app, signed in as an administrator; the BED reads go through the rea
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import Any
 
-from fastapi.testclient import TestClient
 import pytest
 
-from backend.app.core.postgres import get_postgres_session
-from backend.app.dependencies import get_current_user
 from backend.app.main import app
-from backend.app.middleware import request_logging
-from backend.app.routers import bed as bed_router
-from backend.app.services import bed_service
-from backend.app.services.access_control import CurrentUser
-from backend.app.services.family_metadata_context import SampleMetadataContext
+from backend.tests._bed_route_client import bed_route_client
 
 REMOVED = [
     ("get", "/api/assemblies/{species_id}"),
@@ -51,71 +43,22 @@ KEPT = [
     ("get", "/api/bed/{sample_id}/{bed_type}/batch"),
 ]
 PRESET = "00000000-0000-4000-8000-0000000000e5"
-SAMPLE = SampleMetadataContext(
-    sample_uuid="uuid-proband",
-    sample_id="PROBAND",
-    family_uuid="family-uuid",
-    family_id="FAM_BED",
-    sex="female",
-    project_ids=["project-uuid"],
-    assembly_id="assembly-uuid",
-    assembly_name="GRCh38",
-)
-
-
-class _FakeSession:
-    async def rollback(self) -> None:
-        return None
-
-
-async def _keep_audit_row(_payload: Any) -> None:
-    return None
 
 
 @pytest.fixture()
 def client(monkeypatch: pytest.MonkeyPatch):
-    """An administrator's client. The BED routes find the sample, and the interval store holds
-    one coverage row on chromosome 1; ``reads`` records each read of the store. The session
-    answers no statement, so a request that reaches a database read fails; the request audit
-    rows are kept, not written."""
-    original_overrides = dict(app.dependency_overrides)
-    app.state.skip_startup_tasks = True
-    admin = CurrentUser(
-        id="a1",
-        username="admin@example.org",
-        email="admin@example.org",
-        role="admin",
-        created_at=datetime.now(timezone.utc),
-    )
+    """An administrator's client (``_bed_route_client``). The BED routes find the sample, and
+    the interval store holds one coverage row on chromosome 1; ``reads`` records each read of
+    the store. The session answers no statement, so a request that reaches a database read
+    fails."""
     reads: list[str] = []
-
-    async def override_get_postgres_session():
-        yield _FakeSession()
-
-    async def override_get_current_user():
-        return admin
-
-    async def sample_context(_session: Any, *, sample_identifier: str, user: CurrentUser) -> SampleMetadataContext:
-        return SAMPLE
-
-    async def sources(_assembly: str, **_kwargs: Any) -> dict[str, list[str]]:
-        return {"PROBAND": ["web"]}
 
     async def rows(_assembly: str, *, track_type: str, **_kwargs: Any) -> list[dict[str, Any]]:
         reads.append(track_type)
         return [{"chr": "1", "start": 0, "end": 1000, "value": 400.0, "record_id": None, "origin": None}]
 
-    monkeypatch.setattr(bed_router, "build_sample_metadata_context", sample_context)
-    monkeypatch.setattr(bed_service, "get_interval_track_sources_by_sample", sources)
-    monkeypatch.setattr(bed_service, "fetch_interval_track_rows", rows)
-    monkeypatch.setattr(request_logging, "write_audit_log_event", _keep_audit_row)
-    app.dependency_overrides[get_postgres_session] = override_get_postgres_session
-    app.dependency_overrides[get_current_user] = override_get_current_user
-    try:
-        with TestClient(app) as test_client:
-            yield test_client, reads
-    finally:
-        app.dependency_overrides = original_overrides
+    with bed_route_client(monkeypatch, rows=rows) as test_client:
+        yield test_client, reads
 
 
 def test_the_routes_no_screen_calls_are_gone_from_the_api() -> None:

@@ -32,6 +32,8 @@ from uuid import uuid4
 
 import pytest
 
+from backend.tests.e2e._harness import ensure_postgres_schema, write_file
+
 pytestmark = pytest.mark.integration
 
 MT_LENGTH = 16_569
@@ -50,21 +52,14 @@ _MITO_CALLS = (
 )
 
 
-def _write(root: Path, name: str, text: str) -> str:
-    path = root / name
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")
-    return name
-
-
 def _package(root: Path, family_id: str, s1: str, s2: str) -> Path:
     root.mkdir(parents=True)
-    _write(root, "family.ped", f"{family_id}\t{s1}\t0\t0\t2\t1\n{family_id}\t{s2}\t0\t0\t1\t1\n")
-    vcfs = {sample: _write(root, f"mito/{sample}.vcf", _MITO_HEADER + _MITO_CALLS) for sample in (s1, s2)}
+    write_file(root, "family.ped", f"{family_id}\t{s1}\t0\t0\t2\t1\n{family_id}\t{s2}\t0\t0\t1\t1\n")
+    vcfs = {sample: write_file(root, f"mito/{sample}.vcf", _MITO_HEADER + _MITO_CALLS) for sample in (s1, s2)}
     # S1's BED holds 300x over chrM, S2's a value of no stated kind.
     beds = {
-        s1: _write(root, f"coverage/{s1}.bed", f"chrM\t0\t{MT_LENGTH}\t300\n"),
-        s2: _write(root, f"coverage/{s2}.bed", f"chrM\t0\t{MT_LENGTH}\t0.2\n"),
+        s1: write_file(root, f"coverage/{s1}.bed", f"chrM\t0\t{MT_LENGTH}\t300\n"),
+        s2: write_file(root, f"coverage/{s2}.bed", f"chrM\t0\t{MT_LENGTH}\t0.2\n"),
     }
     lines = [
         "schema_version: 1",
@@ -80,7 +75,7 @@ def _package(root: Path, family_id: str, s1: str, s2: str) -> Path:
         # No `content`: imported as unknown.
         f"      {s2}: {{bed: {beds[s2]}}}",
     ]
-    _write(root, "manifest.yaml", "\n".join(lines) + "\n")
+    write_file(root, "manifest.yaml", "\n".join(lines) + "\n")
     return root
 
 
@@ -89,13 +84,13 @@ async def _exercise(base: Path, family_id: str) -> dict[str, Any]:
     from sqlalchemy import text
 
     from backend.app.core.clickhouse import init_clickhouse_schema
-    from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
+    from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.main import app
     from backend.app.services import family_package_import as package_import
     from backend.app.services.clickhouse_variant_storage import ensure_clickhouse_variant_tables
     from backend.tests.e2e import _harness
 
-    await init_postgres_schema()
+    await ensure_postgres_schema()
     await init_clickhouse_schema()
     await ensure_clickhouse_variant_tables(_harness.ASSEMBLY)
     sessionmaker = get_postgres_sessionmaker()

@@ -25,6 +25,8 @@ from uuid import uuid4
 
 import pytest
 
+from backend.tests.e2e._harness import capture, ensure_postgres_schema
+
 pytestmark = pytest.mark.integration
 
 _COVERAGE_BED = b"1\t0\t1000\tbin1\t31.0\n1\t1000\t2000\tbin2\t29.5\n2\t0\t1000\tbin3\t30.0\n"
@@ -88,26 +90,17 @@ def _sniffles_vcf(sample: str, *records: str) -> bytes:
     ).encode()
 
 
-def _cap(resp: Any) -> dict[str, Any]:
-    out: dict[str, Any] = {"status": resp.status_code, "text": resp.text}
-    try:
-        out["json"] = resp.json()
-    except ValueError:
-        pass
-    return out
-
-
 async def _exercise(run: str) -> dict[str, Any]:
     from httpx import ASGITransport, AsyncClient
     from sqlalchemy import text
 
     from backend.app.core.clickhouse import init_clickhouse_schema
-    from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
+    from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.main import app
     from backend.app.services.clickhouse_variant_storage import ensure_clickhouse_variant_tables
     from backend.tests.e2e import _harness
 
-    await init_postgres_schema()
+    await ensure_postgres_schema()
     await init_clickhouse_schema()
     await ensure_clickhouse_variant_tables(_harness.ASSEMBLY)
     sessionmaker = get_postgres_sessionmaker()
@@ -127,7 +120,7 @@ async def _exercise(run: str) -> dict[str, Any]:
     try:
         async with AsyncClient(transport=transport, base_url="http://e2e") as ac:
             ac.headers["Authorization"] = f"Bearer {await _harness.login_admin_token(ac)}"
-            r["ped"] = _cap(
+            r["ped"] = capture(
                 await ac.post(
                     "/api/ped/upload",
                     params={"project_id": project_id},
@@ -142,7 +135,7 @@ async def _exercise(run: str) -> dict[str, Any]:
                 ("apcad", _APCAD_BED, {}),
                 ("apcad_pcf", _PCF_BED, {}),
             ):
-                r[f"upload_{bed_type}"] = _cap(
+                r[f"upload_{bed_type}"] = capture(
                     await ac.post(
                         f"/api/bed/upload/{child}/{bed_type}",
                         params={"overwrite": "false", **params},
@@ -150,67 +143,67 @@ async def _exercise(run: str) -> dict[str, Any]:
                     )
                 )
             for key, path, query in _BED_READS:
-                r[key] = _cap(await ac.get(f"/api/bed/{child}/{path}", params=query))
+                r[key] = capture(await ac.get(f"/api/bed/{child}/{path}", params=query))
 
             for key, sample, records in (
                 ("sv_child", child, (_SHARED_DELETION, _CHILDS_INSERTION)),
                 ("sv_father", father, (_SHARED_DELETION,)),
             ):
-                r[key] = _cap(
+                r[key] = capture(
                     await ac.post(
                         f"/api/structural-variants/upload/{sample}",
                         params={"overwrite": "false", "source_format": "sniffles"},
                         files={"file": (f"{sample}.sniffles.vcf", _sniffles_vcf(sample, *records), "text/plain")},
                     )
                 )
-            r["shared"] = _cap(await ac.get(f"/api/families/{family}/shared-structural-variant-counts"))
+            r["shared"] = capture(await ac.get(f"/api/families/{family}/shared-structural-variant-counts"))
 
             # --- the administrator's answers -------------------------------------------------
             profile = f"eng4_{run.lower()}"
-            r["qc_profile"] = _cap(
+            r["qc_profile"] = capture(
                 await ac.post("/api/admin/qc-thresholds/profiles", json={"label": f"ENG-4 {run}", "key": profile})
             )
             cut_off = {"metric_key": _METRIC, "reason": "e2e: the answer's model"}
-            r["qc_set"] = _cap(
+            r["qc_set"] = capture(
                 await ac.put(
                     f"/api/admin/qc-thresholds/{profile}", json={**cut_off, "warn_value": 30, "error_value": 20}
                 )
             )
-            r["qc_cleared"] = _cap(
+            r["qc_cleared"] = capture(
                 await ac.put(
                     f"/api/admin/qc-thresholds/{profile}", json={**cut_off, "warn_value": None, "error_value": None}
                 )
             )
-            r["projects"] = _cap(
+            r["projects"] = capture(
                 await ac.put(f"/api/admin/families/{family}/projects", json={"project_ids": [project_id]})
             )
             r["project_id"] = project_id
-            artifact = _cap(
+            artifact = capture(
                 await ac.post(
                     "/api/admin/nipt/artifacts",
                     json={"assembly_id": assembly_id, "variant_id": f"1-100-A-G-{run}", "assay_key": f"eng4_{run}"},
                 )
             )
             r["artifact"] = artifact
-            r["artifact_deleted"] = _cap(
+            r["artifact_deleted"] = capture(
                 await ac.delete(f"/api/admin/nipt/artifacts/{(artifact.get('json') or {}).get('id')}")
             )
-            r["segments_deleted"] = _cap(
+            r["segments_deleted"] = capture(
                 await ac.delete(f"/api/admin/data/samples/{child}/segments", params={"confirm": "true"})
             )
-            r["small_variants_deleted"] = _cap(
+            r["small_variants_deleted"] = capture(
                 await ac.delete(f"/api/admin/data/families/{family}/small_variants", params={"confirm": "true"})
             )
-            r["mother_deleted"] = _cap(await ac.delete(f"/api/admin/samples/{mother}", params={"confirm": "true"}))
-            r["family_deleted"] = _cap(
+            r["mother_deleted"] = capture(await ac.delete(f"/api/admin/samples/{mother}", params={"confirm": "true"}))
+            r["family_deleted"] = capture(
                 await ac.request(
                     "DELETE", f"/api/admin/families/{family}", params={"confirm": "true"}, json={"reason": "e2e"}
                 )
             )
 
             # --- the health probes -----------------------------------------------------------
-            r["health"] = _cap(await ac.get("/api/health"))
-            r["ready"] = _cap(await ac.get("/api/health/ready"))
+            r["health"] = capture(await ac.get("/api/health"))
+            r["ready"] = capture(await ac.get("/api/health/ready"))
     finally:
         async with sessionmaker() as session:
             await session.execute(text("DELETE FROM families WHERE family_id = :f"), {"f": family})

@@ -377,6 +377,30 @@ class _RecordingSession:
         return types.SimpleNamespace(mappings=lambda: types.SimpleNamespace(all=lambda: []))
 
 
+def test_a_panel_that_is_gone_or_no_panel_id_has_no_version() -> None:
+    # A cached ranking keyed on a deleted panel's version must not match a panel of none.
+    class _PanelRows:
+        def __init__(self, row) -> None:
+            self.row = row
+            self.params: list = []
+
+        async def execute(self, statement, params=None):
+            self.params.append(params)
+            return types.SimpleNamespace(mappings=lambda: types.SimpleNamespace(first=lambda: self.row))
+
+    panel_id = "0b5e1c1e-0000-4000-8000-000000000001"
+    gone = _PanelRows(None)
+    assert asyncio.run(vrc._panel_version(gone, panel_id)) is None
+    assert gone.params == [{"id": panel_id}]
+    imported = _PanelRows({"version": 3, "external_version": "2.1"})
+    assert asyncio.run(vrc._panel_version(imported, panel_id.upper())) == "3:2.1"
+    assert asyncio.run(vrc._panel_version(_PanelRows({"version": 2, "external_version": None}), panel_id)) == "2:"
+    # An id that is no UUID is no panel: the database is not asked.
+    unasked = _PanelRows({"version": 1, "external_version": None})
+    assert asyncio.run(vrc._panel_version(unasked, "panel-1")) is None
+    assert unasked.params == []
+
+
 def test_superset_candidates_carry_what_their_panel_held() -> None:
     # The superset path compares a row's record of its panel with the panel as it is now.
     session = _RecordingSession()

@@ -183,6 +183,8 @@ def test_no_resolved_disease_haplotype_makes_every_embryo_uninformative_for_that
     assert embryos[0].assessment == calls.Assessment("uninformative", roi_not_covered=False)
     # What it carries at the ROI is still read.
     assert len(embryos[0].inherited) == 2
+    # The call reads no side, so no side's phasing QC is checked (pgt_embryo_qc).
+    assert embryos[0].sides == ()
 
 
 def test_an_x_linked_embryo_of_unrecorded_sex_gets_both_calls() -> None:
@@ -320,19 +322,6 @@ def test_an_x_linked_recessive_call_of_unrecorded_sex_reads_the_sides_of_both_it
     by_sample = {member["sample_id"]: member for member in members}
     for sample in sides:
         assert calls.call_sides(model=model, samples=samples, member=by_sample[sample], region=X_REGION) == sides[sample]
-
-
-def test_a_call_without_a_resolved_disease_haplotype_reads_no_side() -> None:
-    members = [
-        {"sample_id": "PROBAND", "role": "proband", "affected": True, "sex": "female"},
-        {"sample_id": "E1", "role": "embryo", "affected": False, "sex": "female"},
-    ]
-    samples = [
-        {"sample": "PROBAND", "segments": [_block("1", "1")]},
-        {"sample": "E1", "segments": [_block("1", "0")]},
-    ]
-    model, embryos = calls.call_embryos(members=members, samples=samples, inheritance_model="AD", region=REGION)
-    assert model.informative is False and embryos[0].sides == ()
 
 
 def test_only_members_recorded_as_embryos_are_called() -> None:

@@ -46,6 +46,12 @@ from pathlib import Path
 import pytest
 from sqlalchemy import text
 
+from backend.tests.e2e._harness import (
+    annotation_manifest_modules,
+    capture,
+    restore_annotation_manifest_modules,
+)
+
 pytestmark = pytest.mark.integration
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "golden_trio"
@@ -84,13 +90,6 @@ def _mito_vcf(sample: str, *positions: int) -> bytes:
             f"chrM\t{pos}\t.\tA\tG\t50\tPASS\t.\tGT:DP:AD:VAF\t1/1:500:0,500:1\n" for pos in positions
         )
     ).encode()
-
-
-def _cap(resp) -> dict:
-    out = {"status": resp.status_code, "text": resp.text}
-    if resp.status_code < 400:
-        out["json"] = resp.json()
-    return out
 
 
 class _Reads:
@@ -178,41 +177,6 @@ async def _merge_parts() -> None:
         _small_table_name(_harness.ASSEMBLY, "entries"),
     ):
         await execute_clickhouse(f"OPTIMIZE TABLE {table} FINAL")
-
-
-async def _manifest_modules(family_uuid: str) -> str | None:
-    from backend.app.core.postgres import get_postgres_sessionmaker
-
-    async with get_postgres_sessionmaker()() as session:
-        return (
-            await session.execute(
-                text(
-                    "SELECT modules::text FROM family_annotation_manifest "
-                    "WHERE family_id = CAST(:family_uuid AS uuid)"
-                ),
-                {"family_uuid": family_uuid},
-            )
-        ).scalar_one_or_none()
-
-
-async def _restore_manifest_modules(family_uuid: str, modules: str | None) -> None:
-    from backend.app.core.postgres import get_postgres_sessionmaker
-
-    async with get_postgres_sessionmaker()() as session:
-        if modules is None:
-            await session.execute(
-                text("DELETE FROM family_annotation_manifest WHERE family_id = CAST(:f AS uuid)"),
-                {"f": family_uuid},
-            )
-        else:
-            await session.execute(
-                text(
-                    "UPDATE family_annotation_manifest SET modules = CAST(:modules AS jsonb) "
-                    "WHERE family_id = CAST(:f AS uuid)"
-                ),
-                {"modules": modules, "f": family_uuid},
-            )
-        await session.commit()
 
 
 async def _remove_added_rows(family_uuid: str) -> None:
@@ -315,7 +279,7 @@ async def _exercise(root: Path) -> dict:
     family_uuid = facts["family_uuid"]
     # A run that failed half-way may have left its rows behind.
     await _remove_added_rows(family_uuid)
-    manifest_before = await _manifest_modules(family_uuid)
+    manifest_before = await annotation_manifest_modules(family_uuid)
     async with get_postgres_sessionmaker()() as session:
         admin, _project_id, _assembly_id = await _harness.ensure_e2e_project(session)
     out: dict = {"facts": facts, "golden": await _sv_rows(family_uuid)}
@@ -334,7 +298,7 @@ async def _exercise(root: Path) -> dict:
             ac.headers["Authorization"] = f"Bearer {token}"
 
             async def upload(sample: str, body: bytes) -> dict:
-                return _cap(
+                return capture(
                     await ac.post(
                         f"/api/structural-variants/upload/{sample}",
                         params={"overwrite": "true", "source_format": "sniffles"},
@@ -343,7 +307,7 @@ async def _exercise(root: Path) -> dict:
                 )
 
             async def delete_svs(sample: str) -> dict:
-                return _cap(
+                return capture(
                     await ac.delete(
                         f"/api/admin/data/samples/{sample}/structural_variants",
                         params={"confirm": "true"},
@@ -376,7 +340,7 @@ async def _exercise(root: Path) -> dict:
             out["merged"] = await _sv_rows(family_uuid)
             out["final"] = await _sv_rows(family_uuid, final=True)
             out["mito_merged"] = await _mito_rows(family_uuid)
-            out["page"] = _cap(
+            out["page"] = capture(
                 await ac.get(f"/api/families/{FAMILY}/structural-variants", params={"page_size": 100})
             )
         out["lock"] = await _lock_checks(family_uuid)
@@ -384,7 +348,7 @@ async def _exercise(root: Path) -> dict:
         mp.undo()
         # Restore the fixture state for any module that runs later.
         await _remove_added_rows(family_uuid)
-        await _restore_manifest_modules(family_uuid, manifest_before)
+        await restore_annotation_manifest_modules(family_uuid, manifest_before)
         out["restored"] = await _harness.import_golden_trio(root)
         out["rows_restored"] = await _sv_rows(family_uuid)
     return out

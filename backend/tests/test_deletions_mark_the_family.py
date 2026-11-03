@@ -33,7 +33,6 @@ mark's commits at once on a connection of its own).
 from __future__ import annotations
 
 import copy
-from datetime import datetime, timezone
 from io import BytesIO
 import json
 from types import SimpleNamespace
@@ -42,7 +41,7 @@ from typing import Any
 from fastapi import HTTPException, UploadFile
 import pytest
 
-from backend.app.schemas import FamilyOut, FamilyStructureUpdate, ManualPedFamilyCreate, ManualPedMemberCreate
+from backend.app.schemas import FamilyStructureUpdate, ManualPedFamilyCreate, ManualPedMemberCreate
 from backend.app.services import (
     admin_service,
     clickhouse_variant_storage,
@@ -50,7 +49,6 @@ from backend.app.services import (
     family_structure_service,
     ped_service,
 )
-from backend.app.services.access_control import CurrentUser
 from backend.app.services.clickhouse_variant_records import (
     StoredStructuralVariantRow,
     StructuralVariantCall,
@@ -58,6 +56,7 @@ from backend.app.services.clickhouse_variant_records import (
 )
 from backend.app.services.family_metadata_context import FamilyMetadataContext
 from backend.app.services.family_package_common import SUPPORTED_DATASETS
+from backend.tests._family_structure_fakes import admin_user, fake_structure_reads, member_row
 
 _SAMPLES = ("S1", "S2", "S3")
 _FAMILY = FamilyMetadataContext(
@@ -965,16 +964,6 @@ async def test_a_manual_family_whose_commit_fails_leaves_the_replaced_family_mar
 # --- a structure change that clears the family's data ----------------------------------------
 
 
-def _admin_user() -> CurrentUser:
-    return CurrentUser(
-        id="11111111-1111-1111-1111-111111111111",
-        username="admin@example.com",
-        email="admin@example.com",
-        role="admin",
-        created_at=datetime.now(timezone.utc),
-    )
-
-
 @pytest.fixture
 def structure_change(monkeypatch, stores):
     """``PUT /families/F1/structure`` with ``clear_existing_genomic_data``, removing S3: what
@@ -983,39 +972,18 @@ def structure_change(monkeypatch, stores):
 
     def install(database: _Postgres, *, failing: str | None = None) -> _ClickHouse:
         clickhouse = stores(database)
-        members = {
-            family_structure_service._sample_key(sample): {
-                "family_uuid": "family-uuid",
-                "sample_uuid": f"uuid-{sample}",
-                "sample_id": sample,
-                "sex": "female",
-                "role": role,
-                "clinical_status": "unaffected",
-                "carrier_status": "unknown",
-                "carrier_type": None,
-                "carrier_evidence": {},
-                "active": True,
-            }
-            for sample, role in zip(_SAMPLES, ("proband", "sibling", "father"))
-        }
-
-        async def mapping(*_args, **_kwargs):
-            return {"id": "family-uuid", "family_id": "F1"}
-
-        async def version(*_args, **_kwargs):
-            return 1
-
-        async def current_members(*_args, **_kwargs):
-            return {key: dict(row) for key, row in members.items()}
-
-        async def no_relationships(*_args, **_kwargs):
-            return []
-
-        async def counts(*_args, **_kwargs):
-            return {"small_variants": 3, "structural_variants": 2, "coverage": 6}
-
-        async def assemblies(*_args, **_kwargs):
-            return {"GRCh38": ["project-1"]}
+        fake_structure_reads(
+            monkeypatch,
+            family_uuid="family-uuid",
+            family_id="F1",
+            members=[
+                member_row(
+                    family_uuid="family-uuid", sample_uuid=f"uuid-{sample}", sample_id=sample, role=role, sex="female"
+                )
+                for sample, role in zip(_SAMPLES, ("proband", "sibling", "father"))
+            ],
+            data_counts={"small_variants": 3, "structural_variants": 2, "coverage": 6},
+        )
 
         def write(name: str):
             async def run(*_args, **_kwargs) -> None:
@@ -1025,32 +993,13 @@ def structure_change(monkeypatch, stores):
 
             return run
 
-        async def family_record(*_args, **_kwargs):
-            return FamilyOut(
-                _id="family-uuid",
-                family_id="F1",
-                created_at=datetime.now(timezone.utc),
-                members=[],
-                relationships=[],
-                projects=[],
-                metadata={},
-            )
-
         async def no_lock(*_args, **_kwargs) -> None:
             return None
 
         for name, value in {
-            "get_accessible_family_mapping": mapping,
             "lock_family_pedigree": no_lock,
-            "_fetch_current_structure_version": version,
-            "_fetch_family_member_rows": current_members,
-            "_fetch_current_relationship_rows": no_relationships,
-            "_family_genomic_data_counts": counts,
-            "_family_assembly_groups": assemblies,
             "_update_member_row": write("update a member"),
             "_record_family_structure_version": write("record the structure version"),
-            "_pedigree_text_from_target": lambda **_kwargs: "",
-            "get_family_record": family_record,
         }.items():
             monkeypatch.setattr(family_structure_service, name, value)
         return clickhouse
@@ -1065,7 +1014,7 @@ async def _clear(database: _Postgres) -> Any:
             database,  # type: ignore[arg-type]
             family_id="F1",
             update=FamilyStructureUpdate(remove_members=["S3"], clear_existing_genomic_data=True),
-            user=_admin_user(),
+            user=admin_user(),
         ),
     )
 

@@ -29,6 +29,9 @@ from uuid import uuid4
 
 import pytest
 
+from backend.tests.e2e._harness import ensure_postgres_schema
+from backend.tests.e2e._vep_family import deepvariant_vep_header, single_sample_vcf, upload_family
+
 pytestmark = pytest.mark.integration
 
 # Chromosome 9 around 136.8 Mb: no other test writes there, and the explorer counts every
@@ -133,37 +136,24 @@ _CASES: dict[str, tuple[dict[str, Any], set[str]]] = {
     ),
 }
 
-_VCF_HEADER = (
-    "##fileformat=VCFv4.2\n"
-    "##DeepVariant_version=1.10.0\n"
-    "##reference=GRCh38\n"
-    f'##INFO=<ID=CSQ,Number=.,Type=String,Description="Consequence annotations from Ensembl VEP. Format: {_CSQ_FORMAT}">\n'
-    '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
-    '##FORMAT=<ID=GQ,Number=1,Type=Integer,Description="Genotype quality">\n'
-    '##FORMAT=<ID=DP,Number=1,Type=Integer,Description="Read depth">\n'
-    '##FORMAT=<ID=AD,Number=R,Type=Integer,Description="Allele depths">\n'
-)
+_VCF_HEADER = deepvariant_vep_header(_CSQ_FORMAT)
 
 
 def _vcf(sample: str) -> bytes:
-    lines = [_VCF_HEADER + f"#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t{sample}"]
-    for variant_id, entries in _VARIANTS.items():
-        chrom, pos, ref, alt = variant_id.split("-")
-        csq = ",".join(entries)
-        lines.append(f"{chrom}\t{pos}\t.\t{ref}\t{alt}\t50\tPASS\tCSQ={csq}\tGT:GQ:DP:AD\t0/1:40:30:15,15")
-    return ("\n".join(lines) + "\n").encode()
+    infos = {variant_id: "CSQ=" + ",".join(entries) for variant_id, entries in _VARIANTS.items()}
+    return single_sample_vcf(_VCF_HEADER, sample, infos, "0/1:40:30:15,15")
 
 
 async def _exercise(family_id: str) -> dict[str, Any]:
     from httpx import ASGITransport, AsyncClient
 
     from backend.app.core.clickhouse import init_clickhouse_schema
-    from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
+    from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.main import app
     from backend.app.services.clickhouse_variant_storage import ensure_clickhouse_variant_tables
     from backend.tests.e2e import _harness
 
-    await init_postgres_schema()
+    await ensure_postgres_schema()
     await init_clickhouse_schema()
     await ensure_clickhouse_variant_tables(_harness.ASSEMBLY)
     async with get_postgres_sessionmaker()() as session:
@@ -176,17 +166,9 @@ async def _exercise(family_id: str) -> dict[str, Any]:
         token = await _harness.login_admin_token(ac)
         ac.headers["Authorization"] = f"Bearer {token}"
 
-        ped = await ac.post(
-            "/api/ped/upload",
-            params={"project_id": project_id},
-            files={"file": (f"{family_id}.ped", f"{family_id}\t{proband}\t0\t0\t2\t2\n".encode(), "text/plain")},
+        out["setup"] = await upload_family(
+            ac, project_id, family_id, f"{family_id}\t{proband}\t0\t0\t2\t2\n", _vcf(proband)
         )
-        upload = await ac.post(
-            f"/api/families/{family_id}/small-variants/upload",
-            params={"overwrite": "false"},
-            files={"file": (f"{family_id}.vcf", _vcf(proband), "text/plain")},
-        )
-        out["setup"] = {"ped": (ped.status_code, ped.text), "upload": (upload.status_code, upload.text)}
 
         explorer_scope = {"assembly_id": assembly_id, **_LOCUS}
         for name, (filters, _expected) in _CASES.items():

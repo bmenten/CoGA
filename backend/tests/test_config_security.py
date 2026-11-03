@@ -6,15 +6,21 @@ from pydantic import ValidationError
 from app.core.config import Settings
 
 
-def test_settings_reject_insecure_defaults_outside_development() -> None:
-    with pytest.raises(ValidationError):
+def test_settings_reject_insecure_defaults_outside_development(monkeypatch) -> None:
+    # Over a deployment's configuration, so the placeholders alone are refused, and each is
+    # named: the seed admin's user name with its placeholder password too.
+    monkeypatch.delenv("ADMIN_USERNAME", raising=False)
+    with pytest.raises(ValidationError) as excinfo:
         Settings(
             _env_file=None,
-            APP_ENV="production",
-            SECRET_KEY="change-me",
-            POSTGRES_PASSWORD="change-me",
-            ADMIN_PASSWORD="change-me",
+            **{
+                **_VALID_PRODUCTION,
+                "SECRET_KEY": "change-me",
+                "POSTGRES_PASSWORD": "change-me",
+                "ADMIN_PASSWORD": "change-me",
+            },
         )
+    assert "weak secrets: ADMIN_PASSWORD, ADMIN_USERNAME, POSTGRES_PASSWORD, SECRET_KEY." in str(excinfo.value)
 
 
 def test_settings_allow_placeholder_defaults_in_test_env() -> None:
@@ -27,16 +33,11 @@ def test_settings_allow_placeholder_defaults_in_test_env() -> None:
 
 
 def test_settings_reject_audit_log_drop_allowed_in_production() -> None:
-    # Silently dropping accountability events is not permitted in production.
-    with pytest.raises(ValidationError):
-        Settings(
-            _env_file=None,
-            APP_ENV="production",
-            SECRET_KEY="x" * 48,
-            POSTGRES_PASSWORD="s3cure-pg-pass",
-            ADMIN_PASSWORD="s3cure-admin-pass",
-            AUDIT_LOG_DROP_ALLOWED=True,
-        )
+    # Silently dropping accountability events is not permitted in production: refused over a
+    # deployment's configuration, which starts without it.
+    with pytest.raises(ValidationError) as excinfo:
+        Settings(_env_file=None, **{**_VALID_PRODUCTION, "AUDIT_LOG_DROP_ALLOWED": True})
+    assert "AUDIT_LOG_DROP_ALLOWED=true is only permitted in development/test" in str(excinfo.value)
 
 
 def test_settings_allow_audit_log_drop_allowed_in_development() -> None:
@@ -148,6 +149,9 @@ def test_a_complete_production_configuration_starts() -> None:
         # Optional (migration only), but when it is given it must not be a placeholder.
         ("POSTGRES_APP_PASSWORD", "change-me", "POSTGRES_APP_PASSWORD"),
         ("POSTGRES_APP_PASSWORD", "   ", "POSTGRES_APP_PASSWORD"),
+        ("POSTGRES_PASSWORD", "change-me", "POSTGRES_PASSWORD"),
+        ("POSTGRES_PASSWORD", "admin", "POSTGRES_PASSWORD"),
+        ("ADMIN_PASSWORD", "change-me", "ADMIN_PASSWORD"),
     ],
 )
 def test_production_refuses_weak_or_missing_secrets(field, value, named) -> None:
@@ -338,3 +342,47 @@ def test_production_starts_with_a_separate_metrics_token_or_none(monkeypatch) ->
 
 def test_development_takes_any_metrics_token() -> None:
     assert Settings(_env_file=None, APP_ENV="development", METRICS_TOKEN="dev").metrics_token == "dev"
+
+
+# --- a setting outside the values it may take is refused, in every environment ---
+# A misspelt audit mode would otherwise leave the request audit log to the code's guess, and a
+# base back-off above its ceiling would make the first lock-out the longest.
+
+
+@pytest.mark.parametrize(
+    ("values", "named"),
+    [
+        ({"AUDIT_LOG_MODE": "verbose"}, "AUDIT_LOG_MODE must be one of: async, sync, off"),
+        (
+            {"AUDIT_LOG_QUERY_STRING_MODE": "values"},
+            "AUDIT_LOG_QUERY_STRING_MODE must be one of: none, keys, sanitized",
+        ),
+        ({"POSTGRES_USE_CLOUD_SQL_CONNECTOR": True}, "requires POSTGRES_INSTANCE_CONNECTION_NAME"),
+        (
+            {"LOGIN_RATE_LIMIT_BASE_BACKOFF_SECONDS": 120, "LOGIN_RATE_LIMIT_MAX_BACKOFF_SECONDS": 60},
+            "LOGIN_RATE_LIMIT_BASE_BACKOFF_SECONDS must be less than or equal to",
+        ),
+    ],
+    ids=["audit-log-mode", "audit-query-string-mode", "cloud-sql-without-its-instance", "back-off-above-its-ceiling"],
+)
+@pytest.mark.parametrize("app_env", ["test", "production"])
+def test_a_setting_outside_its_values_is_refused_in_every_environment(app_env, values, named) -> None:
+    base = _VALID_PRODUCTION if app_env == "production" else {"APP_ENV": app_env}
+    with pytest.raises(ValidationError) as excinfo:
+        Settings(_env_file=None, **{**base, **values})
+    assert named in str(excinfo.value)
+
+
+@pytest.mark.parametrize(
+    ("values", "read"),
+    [
+        ({"AUDIT_LOG_MODE": " SYNC "}, ("audit_log_mode", "sync")),
+        ({"AUDIT_LOG_MODE": ""}, ("audit_log_mode", "async")),
+        ({"AUDIT_LOG_QUERY_STRING_MODE": " Sanitized "}, ("audit_log_query_string_mode", "sanitized")),
+        ({"AUDIT_LOG_QUERY_STRING_MODE": ""}, ("audit_log_query_string_mode", "keys")),
+    ],
+    ids=["mode-in-any-case", "mode-empty", "query-mode-in-any-case", "query-mode-empty"],
+)
+def test_an_audit_mode_is_read_in_any_case_and_an_empty_one_is_the_default(values, read) -> None:
+    settings = Settings(_env_file=None, **{**_VALID_PRODUCTION, **values})
+    assert getattr(settings, read[0]) == read[1]

@@ -34,6 +34,8 @@ from pathlib import Path
 
 import pytest
 
+from backend.tests.e2e._harness import capture
+
 pytestmark = pytest.mark.integration
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "golden_trio"
@@ -71,13 +73,6 @@ _SEARCHES: dict[str, dict[str, object]] = {
 }
 
 
-def _cap(resp) -> dict:
-    out = {"status": resp.status_code, "text": resp.text}
-    if resp.status_code < 400:
-        out["json"] = resp.json()
-    return out
-
-
 async def _exercise(root: Path) -> dict:
     from httpx import ASGITransport, AsyncClient
 
@@ -95,7 +90,7 @@ async def _exercise(root: Path) -> dict:
         token = await _harness.login_admin_token(ac)
         ac.headers["Authorization"] = f"Bearer {token}"
 
-        out["upload"] = _cap(
+        out["upload"] = capture(
             await ac.post(
                 "/api/structural-variants/upload/PROBAND",
                 params={"overwrite": "false", "source_format": "sniffles"},
@@ -103,7 +98,7 @@ async def _exercise(root: Path) -> dict:
             )
         )
         for name, params in _SEARCHES.items():
-            out["searches"][name] = _cap(await ac.get(svs, params={"page_size": 100, **params}))
+            out["searches"][name] = capture(await ac.get(svs, params={"page_size": 100, **params}))
         export = await ac.get(f"{svs}/export", params={"min_length": 50})
         out["export"] = {"status": export.status_code, "text": export.text}
 

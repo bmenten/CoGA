@@ -17,20 +17,33 @@ const render = (ui: ReactElement) =>
 
 vi.mock('../../../lib/api');
 
+const renderLogin = () =>
+  render(
+    <MemoryRouter>
+      <LoginPage />
+    </MemoryRouter>
+  );
+
+/** Fills in the password sign-in, once the page offers it, and submits it. */
+const submitLogin = async (email: string, password: string) => {
+  await screen.findByPlaceholderText(/email/i);
+  fireEvent.change(screen.getByPlaceholderText(/email/i), { target: { value: email } });
+  fireEvent.change(screen.getByPlaceholderText(/password/i), { target: { value: password } });
+  fireEvent.click(screen.getByRole('button', { name: /login/i }));
+};
+
+const startSession = () => {
+  vi.resetAllMocks();
+  clearSession();
+  localStorage.clear();
+  queryClient = createTestQueryClient();
+};
+
 describe('LoginPage', () => {
-  beforeEach(() => {
-    vi.resetAllMocks();
-    clearSession();
-    localStorage.clear();
-    queryClient = createTestQueryClient();
-  });
+  beforeEach(startSession);
 
   it('renders login form inputs and button', async () => {
-    render(
-      <MemoryRouter>
-        <LoginPage />
-      </MemoryRouter>
-    );
+    renderLogin();
     expect(await screen.findByPlaceholderText(/email/i)).toBeInTheDocument();
     expect(screen.getByPlaceholderText(/password/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /login/i })).toBeInTheDocument();
@@ -55,19 +68,8 @@ describe('LoginPage', () => {
     (api.post as unknown as Mock).mockRejectedValue({
       response: { data: { detail: 'Incorrect email or password' } },
     });
-    render(
-      <MemoryRouter>
-        <LoginPage />
-      </MemoryRouter>
-    );
-    await screen.findByPlaceholderText(/email/i);
-    fireEvent.change(screen.getByPlaceholderText(/email/i), {
-      target: { value: 'admin@example.com' },
-    });
-    fireEvent.change(screen.getByPlaceholderText(/password/i), {
-      target: { value: 'wrong' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: /login/i }));
+    renderLogin();
+    await submitLogin('admin@example.com', 'wrong');
     expect(
       await screen.findByText(/incorrect email or password/i)
     ).toBeInTheDocument();
@@ -89,19 +91,8 @@ describe('LoginPage', () => {
         },
       },
     });
-    render(
-      <MemoryRouter>
-        <LoginPage />
-      </MemoryRouter>
-    );
-    await screen.findByPlaceholderText(/email/i);
-    fireEvent.change(screen.getByPlaceholderText(/email/i), {
-      target: { value: 'admin@example.com' },
-    });
-    fireEvent.change(screen.getByPlaceholderText(/password/i), {
-      target: { value: 'short' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: /login/i }));
+    renderLogin();
+    await submitLogin('admin@example.com', 'short');
     expect(
       await screen.findByText(/password: string should have at least 8 characters/i)
     ).toBeInTheDocument();
@@ -113,20 +104,8 @@ describe('LoginPage', () => {
       message: 'Network Error',
     });
 
-    render(
-      <MemoryRouter>
-        <LoginPage />
-      </MemoryRouter>
-    );
-
-    await screen.findByPlaceholderText(/email/i);
-    fireEvent.change(screen.getByPlaceholderText(/email/i), {
-      target: { value: 'admin@example.com' },
-    });
-    fireEvent.change(screen.getByPlaceholderText(/password/i), {
-      target: { value: 'admin' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: /login/i }));
+    renderLogin();
+    await submitLogin('admin@example.com', 'admin');
 
     expect(
       await screen.findByText(
@@ -149,20 +128,8 @@ describe('LoginPage', () => {
       },
     });
 
-    render(
-      <MemoryRouter>
-        <LoginPage />
-      </MemoryRouter>
-    );
-
-    await screen.findByPlaceholderText(/email/i);
-    fireEvent.change(screen.getByPlaceholderText(/email/i), {
-      target: { value: 'admin@example.com' },
-    });
-    fireEvent.change(screen.getByPlaceholderText(/password/i), {
-      target: { value: 'admin' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: /login/i }));
+    renderLogin();
+    await submitLogin('admin@example.com', 'admin');
 
     await waitFor(() =>
       expect(api.get).toHaveBeenCalledWith('/auth/me', {
@@ -181,64 +148,11 @@ describe('LoginPage', () => {
     (api.post as unknown as Mock).mockResolvedValue({ data: { access_token: 'token-456' } });
     (api.get as unknown as Mock).mockResolvedValue({ data: { email: 'next@example.com', role: 'viewer' } });
 
-    render(
-      <MemoryRouter>
-        <LoginPage />
-      </MemoryRouter>
-    );
-    await screen.findByPlaceholderText(/email/i);
-    fireEvent.change(screen.getByPlaceholderText(/email/i), { target: { value: 'next@example.com' } });
-    fireEvent.change(screen.getByPlaceholderText(/password/i), { target: { value: 'pw' } });
-    fireEvent.click(screen.getByRole('button', { name: /login/i }));
+    renderLogin();
+    await submitLogin('next@example.com', 'pw');
 
     await waitFor(() => expect(localStorage.getItem('token')).toBe('token-456'));
     expect(queryClient.getQueryData(['family', 'F1'])).toBeUndefined();
-  });
-
-  it('continues to the requested protected page after login', async () => {
-    (api.post as unknown as Mock).mockResolvedValue({
-      data: {
-        access_token: 'token-123',
-        role: 'viewer',
-      },
-    });
-    (api.get as unknown as Mock).mockResolvedValue({
-      data: {
-        email: 'viewer@example.com',
-        role: 'viewer',
-      },
-    });
-
-    render(
-      <MemoryRouter
-        initialEntries={[
-          '/login?next=/families/demo_family/small-variants%3Fpage%3D2',
-        ]}
-      >
-        <Routes>
-          <Route path="/login" element={<LoginPage />} />
-          <Route
-            path="/families/:familyId/small-variants"
-            element={<div>Small variant workspace</div>}
-          />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    expect(
-      screen.getByText(/sign in to continue to your requested page/i)
-    ).toBeInTheDocument();
-
-    await screen.findByPlaceholderText(/email/i);
-    fireEvent.change(screen.getByPlaceholderText(/email/i), {
-      target: { value: 'viewer@example.com' },
-    });
-    fireEvent.change(screen.getByPlaceholderText(/password/i), {
-      target: { value: 'viewer-password' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: /login/i }));
-
-    expect(await screen.findByText('Small variant workspace')).toBeInTheDocument();
   });
 });
 
@@ -250,13 +164,10 @@ describe('LoginPage', () => {
 // page's path, query string and hash as the browser holds them, percent-encoded, so a
 // backslash, whitespace, a control character, or a path that starts with anything but a
 // letter or a digit, a percent-encoded character included, comes from someone else.
+// A page of this site asked for is opened after the sign-in (the requested protected page:
+// a family page with its query string among them).
 describe('LoginPage: the page `next` asks for', () => {
-  beforeEach(() => {
-    vi.resetAllMocks();
-    clearSession();
-    localStorage.clear();
-    queryClient = createTestQueryClient();
-  });
+  beforeEach(startSession);
 
   // Where the user ended up, on any page but the login page.
   const LandedOn = () => {
@@ -283,14 +194,7 @@ describe('LoginPage: the page `next` asks for', () => {
     (api.get as unknown as Mock).mockResolvedValue({
       data: { email: `${role}@example.com`, role },
     });
-    await screen.findByPlaceholderText(/email/i);
-    fireEvent.change(screen.getByPlaceholderText(/email/i), {
-      target: { value: `${role}@example.com` },
-    });
-    fireEvent.change(screen.getByPlaceholderText(/password/i), {
-      target: { value: `${role}-password` },
-    });
-    fireEvent.click(screen.getByRole('button', { name: /login/i }));
+    await submitLogin(`${role}@example.com`, `${role}-password`);
   };
 
   // Each `next` as the login page reads it, decoded from its query string.

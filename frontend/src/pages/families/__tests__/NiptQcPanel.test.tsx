@@ -136,6 +136,73 @@ describe('NiptQcPanel', () => {
     expect(details().getByText('Warning')).toBeInTheDocument();
   });
 
+  // A fetal fraction the analysis could not estimate is said so, never written as a value; one
+  // without an interval is written without one.
+  it('says a fetal fraction it could not estimate is not estimated', () => {
+    const { unmount } = render(
+      <NiptQcPanel qc={{ ...qc, fetal_fraction_status: 'fail' }} fetalFraction={{ ...ff, ff_computed: null, ci_low: null, ci_high: null }} />,
+    );
+    expect(screen.getByText('Fetal fraction: not estimated')).toBeInTheDocument();
+    expect(screen.queryByText(/^Fetal fraction \d/)).not.toBeInTheDocument();
+    expect(overall()).toHaveTextContent('Fail');
+    unmount();
+
+    render(<NiptQcPanel qc={qc} fetalFraction={{ ...ff, ff_computed: 0.05, ci_low: 0.04, ci_high: null }} />);
+    expect(screen.getByText('Fetal fraction 5.0%')).toBeInTheDocument();
+  });
+
+  // What the analysis did not measure is left out, never written as zero, and a quality filter
+  // that left no call out says so.
+  it('leaves out what the analysis did not measure', () => {
+    const { container } = render(
+      <NiptQcPanel
+        qc={{
+          ...qc,
+          de_novo_window: null,
+          fetal_sex: { ...qc.fetal_sex, y_ratio: null, x_ratio: null, chry_fetal_fraction: 0.061 },
+          paternity: {
+            ...qc.paternity,
+            hom_alt_transmitted: 0,
+            hom_alt_not_transmitted: 0,
+            het_transmitted: 0,
+            het_not_transmitted: 0,
+            status: 'warn',
+            message: 'Too few paternal-informative sites.',
+          },
+          target_coverage: null,
+          quality_failures: { low_quality: 0 },
+        }}
+        fetalFraction={ff}
+      />,
+    );
+    const text = container.textContent ?? '';
+    expect(text).toContain('chrY coverage suggests about 6.1% (indicative: one chrY target).');
+    expect(text).not.toContain('Fetal window for de novo alleles');
+    expect(text).toContain('chrY coverage: no chrY signal.');
+    expect(text).not.toContain('chrY/autosomes');
+    expect(text).not.toContain('chrX/autosomes');
+    expect(text).not.toContain('paternal alleles seen');
+    expect(text).toContain('Too few paternal-informative sites.');
+    expect(screen.queryByText(/^Target coverage/)).not.toBeInTheDocument();
+    expect(text).toContain('No cfDNA call failed the quality filter.');
+    expect(text).not.toContain('Calls left out');
+  });
+
+  it('names a quality failure it has no words for as the backend wrote it, and a share of no targets as unknown', () => {
+    const { container } = render(
+      <NiptQcPanel
+        qc={{
+          ...qc,
+          quality_failures: { new_reason: 3 },
+          target_coverage: { ...qc.target_coverage!, targets: 0, below_critical: 0 },
+        }}
+        fetalFraction={ff}
+      />,
+    );
+    expect(container.textContent).toContain('Calls left out: 3 new_reason.');
+    expect(container.textContent).toContain('0 (—) below 300x');
+  });
+
   // The signed record freezes the backend's verdicts (nipt_quality_checks): the panel shows
   // those, never one of its own.
   it("shows the backend's verdicts on the fetal fraction and the fetal sex", () => {

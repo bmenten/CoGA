@@ -30,6 +30,9 @@ import pytest
 from sqlalchemy import text
 import yaml
 
+from backend.tests.e2e._harness import capture, ensure_postgres_schema
+from backend.tests.e2e._import_jobs import claim_import_job
+
 pytestmark = pytest.mark.integration
 
 _WORKER = "e2e-package-folder-links-worker"
@@ -47,15 +50,6 @@ def _long_read_sample(package: Path, sample_id: str, karyotype: str) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         with gzip.open(path, "wt") as handle:
             handle.write(f"{header}#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t{sample_id}\n")
-
-
-def _cap(resp: Any) -> dict[str, Any]:
-    out: dict[str, Any] = {"status": resp.status_code, "text": resp.text}
-    try:
-        out["json"] = resp.json()
-    except ValueError:  # a 500 answers in text
-        out["json"] = None
-    return out
 
 
 async def _counts() -> dict[str, int]:
@@ -81,15 +75,7 @@ async def _run_dry_run_job(ac: Any, folder: Path, project_id: str) -> dict[str, 
     )
     assert resp.status_code == 200, resp.text
     job_id = str(resp.json()["_id"])
-    async with get_postgres_sessionmaker()() as session:
-        await session.execute(
-            text(
-                "UPDATE family_import_jobs SET status = 'validating', worker_id = :w, "
-                "started_at = now(), heartbeat_at = now() WHERE id = CAST(:j AS uuid) AND status = 'queued'"
-            ),
-            {"j": job_id, "w": _WORKER},
-        )
-        await session.commit()
+    await claim_import_job(job_id, _WORKER)
     await family_package_import.run_family_import_job(job_id=job_id, worker_id=_WORKER)
     async with get_postgres_sessionmaker()() as session:
         row = (
@@ -107,11 +93,11 @@ async def _run_dry_run_job(ac: Any, folder: Path, project_id: str) -> dict[str, 
 async def _collect(base: Path) -> dict[str, Any]:
     from httpx import ASGITransport, AsyncClient
 
-    from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
+    from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.main import app
     from backend.tests.e2e import _harness
 
-    await init_postgres_schema()
+    await ensure_postgres_schema()
     async with get_postgres_sessionmaker()() as session:
         _admin, project_id, _assembly_id = await _harness.ensure_e2e_project(session)
 
@@ -144,18 +130,18 @@ async def _collect(base: Path) -> dict[str, Any]:
     async with AsyncClient(transport=transport, base_url="http://e2e") as ac:
         ac.headers["Authorization"] = f"Bearer {await _harness.login_admin_token(ac)}"
 
-        out["packages"] = _cap(await ac.get("/api/family-imports/packages"))
-        out["discover"] = _cap(await ac.post("/api/family-imports/manifest/discover", json={"folder_path": str(couple)}))
+        out["packages"] = capture(await ac.get("/api/family-imports/packages"))
+        out["discover"] = capture(await ac.post("/api/family-imports/manifest/discover", json={"folder_path": str(couple)}))
         manifest_yaml = (out["discover"]["json"] or {}).get("manifest_yaml") or ""
-        out["write"] = _cap(
+        out["write"] = capture(
             await ac.post(
                 "/api/family-imports/manifest/write",
                 json={"folder_path": str(couple), "manifest_yaml": manifest_yaml, "overwrite": False},
             )
         )
-        out["validate"] = _cap(await ac.post("/api/family-imports/validate", json={"folder_path": str(couple)}))
+        out["validate"] = capture(await ac.post("/api/family-imports/validate", json={"folder_path": str(couple)}))
         out["job"] = await _run_dry_run_job(ac, couple, project_id)
-        out["validate_ped"] = _cap(await ac.post("/api/family-imports/validate", json={"folder_path": str(trio)}))
+        out["validate_ped"] = capture(await ac.post("/api/family-imports/validate", json={"folder_path": str(trio)}))
     out["after"] = await _counts()
     return out
 

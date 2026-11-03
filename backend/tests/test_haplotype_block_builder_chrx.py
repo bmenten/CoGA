@@ -15,6 +15,11 @@ known, and her paternal side is her father's one X, the same in every daughter. 
 whose sex is not recorded is read as two copies. Every block lies in one stretch of chrX:
 PAR1, the X between the PARs, or PAR2, so a man's block outside the PARs is marked one copy.
 
+The haplotype responses (``bed_service``, the region and the genome view) mark each block
+where a male carries one copy: chrX or chrY outside the pseudo-autosomal regions of the
+family's assembly. The PGT embryo call reads a male as having one X only on such blocks, so
+inside a PAR, where a son also carries his father's copy, both lanes are read.
+
 These tests run the real builder on simulated families, and the embryo calls through the
 analysis the family page shows (``pgt_analysis``), with only the stores stubbed. Every
 identifier and genotype is synthetic.
@@ -38,6 +43,7 @@ from backend.app.services import (
 from backend.app.services.family_metadata_context import FamilyMetadataContext, SampleMetadataContext
 from backend.app.services.haplotype_block_builder import HaplotypeBlockBuilder
 from backend.app.services.sex_chromosomes import hemizygous_chromosome, hemizygous_interval
+from backend.tests._pgt_session_fakes import AnsweringSession
 
 MB = 1_000_000
 X_SIZE = 156_040_895  # GRCh38 chrX
@@ -201,28 +207,6 @@ def _homologs(rows: list[dict[str, Any]], name: str, first: int, last: int) -> t
 # --- The analysis the family page shows, from the blocks built here ------------------------
 
 
-class _Result:
-    def __init__(self, rows: list[dict[str, Any]]) -> None:
-        self._rows = rows
-
-    def mappings(self) -> "_Result":
-        return self
-
-    def all(self) -> list[dict[str, Any]]:
-        return list(self._rows)
-
-    def first(self) -> dict[str, Any] | None:
-        return self._rows[0] if self._rows else None
-
-
-class _Session:
-    def __init__(self, model: str) -> None:
-        self.family = {**ROI, "pgt": {"inheritance_model": model}}
-
-    async def execute(self, statement: Any, params: Any = None) -> _Result:
-        return _Result([self.family] if "FROM families" in str(statement) else [])
-
-
 def _analysis(
     monkeypatch: pytest.MonkeyPatch,
     context: FamilyMetadataContext,
@@ -253,7 +237,8 @@ def _analysis(
     monkeypatch.setattr(phased_marker_service, "fetch_interval_track_rows", fetch_blocks)
     monkeypatch.setattr(phased_marker_service, "fetch_imputed_phased_genotypes", fetch_genotypes)
     monkeypatch.setattr(clickhouse_family_variants, "fetch_imputed_phased_genotypes", fetch_genotypes)
-    return asyncio.run(pgt_analysis.family_pgt_analysis(_Session(model), context))  # type: ignore[arg-type]
+    session = AnsweringSession({"FROM families": [{**ROI, "pgt": {"inheritance_model": model}}]})
+    return asyncio.run(pgt_analysis.family_pgt_analysis(session, context))  # type: ignore[arg-type]
 
 
 def _calls(analysis) -> dict[str, str]:
@@ -594,3 +579,96 @@ def test_x_linked_dominant_from_the_mother_is_called_at_the_roi_not_in_par1(monk
     assert _calls(analysis) == {"E_SON": "unaffected_non_carrier", "E_DAUGHTER": "unaffected_non_carrier"}
     son = next(embryo for embryo in analysis.embryos if embryo.sample == "E_SON")
     assert all(homolog.homolog != disease.homolog for homolog in son.inherited if homolog.origin == "maternal")
+
+
+# --- The responses mark where a man has one copy -------------------------------------------
+
+
+def _response_context(assembly_name: str | None = "GRCh38") -> FamilyMetadataContext:
+    return FamilyMetadataContext(
+        family_uuid="fam-uuid",
+        family_id="PGT1",
+        project_ids=[],
+        sample_rows=[
+            {"sample_uuid": "u-dad", "sample_id": "DAD", "role": "father", "clinical_status": "affected"},
+            {"sample_uuid": "u-son", "sample_id": "SON", "role": "embryo", "clinical_status": "unknown"},
+        ],
+        sample_uuid_to_name={"u-dad": "DAD", "u-son": "SON"},
+        sample_name_to_uuid={"DAD": "u-dad", "SON": "u-son"},
+        affected_sample_names=["DAD"],
+        assembly_id="a1",
+        assembly_name=assembly_name,
+        relationship_rows=[],
+    )
+
+
+def _stored_block(sample_uuid: str, chrom: str, start: int, end: int) -> dict[str, Any]:
+    return {"sample_uuid": sample_uuid, "chr": chrom, "start": start, "end": end, "hap1": "0", "hap2": "1", "ps": None}
+
+
+# GRCh38: one block inside PAR1, one past it, one reaching into PAR2, one on an autosome.
+_STORED_BLOCKS = [
+    _stored_block("u-son", "X", 500_000, 650_000),
+    _stored_block("u-son", "X", 3_000_000, 40_000_000),
+    _stored_block("u-son", "X", 150_000_000, 156_000_000),
+    _stored_block("u-dad", "7", 1, 1_000_000),
+]
+_ONE_COPY = {
+    ("SON", "X", 500_000): False,
+    ("SON", "X", 3_000_000): True,
+    ("SON", "X", 150_000_000): False,
+    ("DAD", "7", 1): False,
+}
+
+
+def _serve_the_stored_blocks(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def rows(*args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+        return [dict(row) for row in _STORED_BLOCKS]
+
+    async def same(context: Any, *, segments_by_uuid: Any, **kwargs: Any) -> Any:
+        return segments_by_uuid
+
+    async def no_sources(session: Any, context: Any) -> list[dict[str, Any]]:
+        # What Postgres records of the blocks: test_outdated_haplotype_blocks.py covers it.
+        return []
+
+    monkeypatch.setattr(bed_service, "fetch_interval_track_rows", rows)
+    monkeypatch.setattr(bed_service, "_apply_haplotype_lineage", same)
+    monkeypatch.setattr(bed_service, "_apply_haplotype_lineage_genomewide", same)
+    monkeypatch.setattr(bed_service, "haplotype_source_rows", no_sources)
+
+
+def _one_copy_marks(response) -> dict[tuple[str, str, int], bool]:
+    return {
+        (sample.sample, segment.chr, segment.start): segment.hemizygous_in_males
+        for sample in response.samples
+        for segment in sample.segments
+    }
+
+
+@pytest.mark.asyncio
+async def test_the_region_response_marks_where_a_male_has_one_copy(monkeypatch: pytest.MonkeyPatch) -> None:
+    _serve_the_stored_blocks(monkeypatch)
+    response = await bed_service.get_family_haplotypes_response(
+        None, context=_response_context(), chr="X", start=0, end=156_030_895
+    )
+    assert _one_copy_marks(response) == _ONE_COPY
+
+
+@pytest.mark.asyncio
+async def test_the_genome_response_marks_where_a_male_has_one_copy(monkeypatch: pytest.MonkeyPatch) -> None:
+    _serve_the_stored_blocks(monkeypatch)
+    response = await bed_service.get_family_haplotypes_batch_response(
+        None, context=_response_context(), chromosomes=["X", "7"]
+    )
+    assert _one_copy_marks(response) == _ONE_COPY
+
+
+@pytest.mark.asyncio
+async def test_no_block_is_one_copy_where_the_assembly_s_pars_are_not_known(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Unknown bounds could put any block in a PAR: a male is read as having two copies.
+    _serve_the_stored_blocks(monkeypatch)
+    response = await bed_service.get_family_haplotypes_response(
+        None, context=_response_context("T2T-CHM13v2.0"), chr="X", start=0, end=156_030_895
+    )
+    assert set(_one_copy_marks(response).values()) == {False}

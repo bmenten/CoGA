@@ -21,7 +21,9 @@ import tomllib
 
 # Floors are set 3 points under the coverage the CI jobs measure at 02a7f73b with greenlets
 # followed (in brackets), rounded down and never lowered: the unit job's coverage.json and
-# the `coverage` job's combined report (#678).
+# the `coverage` job's combined report (#678). A bracket dated 2026-11-03 is the coverage the
+# test-suite review of that date measured, in a local replay of the unit, smoke and e2e jobs;
+# its floor was raised to 3 points under it. The local replay reads at most what CI reads.
 
 # Global floor for the whole backend/app package. Keep in step with --cov-fail-under in ci.yml
 # (backend/tests/test_ci_workflows.py fails when the two differ).
@@ -35,31 +37,34 @@ MODULE_FLOORS: dict[str, float] = {
     # package imports without the API)
     "backend/app/import_worker.py": 94.0,
     "backend/app/services/acmg_points.py": 97.0,  # (100.0)
-    "backend/app/services/annotation_manifest_service.py": 91.0,  # (94.5)
+    "backend/app/services/annotation_manifest_service.py": 94.0,  # (97.1, 2026-11-03)
     "backend/app/services/assembly_scope.py": 97.0,  # (100.0)
-    "backend/app/services/classification_drift_service.py": 95.0,  # (98.4)
-    "backend/app/services/clinical_audit_service.py": 92.0,  # (95.8)
-    "backend/app/services/clinical_cnv_kb_jobs.py": 94.0,  # (97.1)
-    "backend/app/services/cnv_acmg_points.py": 94.0,  # (97.7)
-    "backend/app/services/compound_het_phase.py": 95.0,  # (98.7)
+    "backend/app/services/classification_drift_service.py": 97.0,  # (100.0, 2026-11-03)
+    "backend/app/services/clickhouse_variant_storage.py": 95.0,  # (98.0, 2026-11-03; also floored combined)
+    "backend/app/services/clinical_audit_service.py": 96.0,  # (99.7, 2026-11-03)
+    "backend/app/services/clinical_cnv_kb_jobs.py": 96.0,  # (99.4, 2026-11-03)
+    "backend/app/services/cnv_acmg_points.py": 97.0,  # (100.0, 2026-11-03)
+    "backend/app/services/compound_het_phase.py": 97.0,  # (100.0, 2026-11-03)
     "backend/app/services/coverage_content.py": 97.0,  # (100.0, measured when added for TRACE-9)
     "backend/app/services/coverage_read_depth.py": 97.0,  # (100.0, measured when added for CLIN-46)
     "backend/app/services/family_identifiers.py": 97.0,  # (100.0)
-    "backend/app/services/family_structure_audit.py": 93.0,  # (96.7, measured when added for SEC-7)
+    "backend/app/services/family_package_jobs.py": 94.0,  # (97.3, 2026-11-03; also floored combined)
+    "backend/app/services/family_structure_audit.py": 95.0,  # (98.6, 2026-11-03; 96.7 when added for SEC-7)
     "backend/app/services/family_variant_filters.py": 96.0,  # (99.3)
     "backend/app/services/family_variant_write_lock.py": 97.0,  # (100.0)
     "backend/app/services/genotypes.py": 97.0,  # (100.0)
-    "backend/app/services/haplotype_lineage_service.py": 89.0,  # (92.7)
-    "backend/app/services/hash_chain.py": 94.0,  # (97.7)
-    "backend/app/services/mitochondrial_analysis.py": 72.0,  # (75.4)
-    "backend/app/services/monarch_semsim.py": 65.0,  # (68.8)
+    "backend/app/services/haplotype_lineage_service.py": 91.0,  # (94.6, 2026-11-03)
+    "backend/app/services/hash_chain.py": 97.0,  # (100.0, 2026-11-03)
+    "backend/app/services/integrity_anchor_service.py": 97.0,  # (100.0, 2026-11-03; also floored combined)
+    "backend/app/services/mitochondrial_analysis.py": 90.0,  # (93.0, 2026-11-03)
+    "backend/app/services/monarch_semsim.py": 97.0,  # (100.0, 2026-11-03)
     "backend/app/services/nipt_analysis.py": 94.0,  # (97.7)
     # (100.0 measured locally when it was added: the NIPT quality checks' verdicts, which
     # the NIPT page shows and the signed record freezes)
     "backend/app/services/nipt_quality_checks.py": 97.0,
-    "backend/app/services/nipt_service.py": 92.0,  # (95.9)
-    "backend/app/services/nipt_target_coverage.py": 93.0,  # (95.6)
-    "backend/app/services/nipt_triage.py": 93.0,  # (96.8)
+    "backend/app/services/nipt_service.py": 96.0,  # (99.0, 2026-11-03)
+    "backend/app/services/nipt_target_coverage.py": 95.0,  # (98.6, 2026-11-03)
+    "backend/app/services/nipt_triage.py": 96.0,  # (99.7, 2026-11-03)
     # (100.0 measured locally when it was added: the signed analysis record, the gene-panel
     # versions a family's searches applied)
     "backend/app/services/panel_use_audit.py": 97.0,
@@ -70,53 +75,53 @@ MODULE_FLOORS: dict[str, float] = {
     # (100.0 measured locally when it was added: the phasing-QC thresholds and verdict of an
     # embryo call, the owner's decision of 2026-10-20)
     "backend/app/services/pgt_embryo_qc.py": 97.0,
-    "backend/app/services/qc_threshold_service.py": 83.0,  # (86.2)
+    "backend/app/services/qc_threshold_service.py": 96.0,  # (99.5, 2026-11-03)
     # (97.6 measured locally when it was added: the repeat count-unit warning and QA's record)
-    "backend/app/services/repeat_count_units.py": 94.0,
+    "backend/app/services/repeat_count_units.py": 96.0,  # (99.1, 2026-11-03)
     # (100.0 measured locally when it was added: the report code the EPD report quotes)
     "backend/app/services/report_code.py": 97.0,
-    "backend/app/services/report_signout_service.py": 92.0,  # (95.7)
-    "backend/app/services/review_pg_utils.py": 87.0,  # (90.2)
-    "backend/app/services/sample_integrity_qc.py": 90.0,  # (93.4)
-    "backend/app/services/sample_integrity_service.py": 91.0,  # (94.4) feeds the sign-out gate
+    "backend/app/services/report_signout_service.py": 96.0,  # (99.9, 2026-11-03)
+    "backend/app/services/review_pg_utils.py": 97.0,  # (100.0, 2026-11-03)
+    "backend/app/services/sample_integrity_qc.py": 96.0,  # (99.1, 2026-11-03)
+    "backend/app/services/sample_integrity_service.py": 95.0,  # (98.6, 2026-11-03) feeds the sign-out gate
     # (100.0 measured locally when it was added: the NIPT section of the signed analysis
     # record)
     "backend/app/services/signed_record_nipt.py": 97.0,
     # (100.0 measured locally when it was added: what the signed analysis record freezes of
     # what the analysis looked at)
     "backend/app/services/signed_record_sections.py": 97.0,
-    "backend/app/services/small_variant_review_tags.py": 63.0,  # (66.5)
-    "backend/app/services/structural_variant_evidence.py": 74.0,  # (77.8)
-    "backend/app/services/structural_variant_review_pg.py": 59.0,  # (62.2) CNV ACMG persistence
+    "backend/app/services/small_variant_review_tags.py": 90.0,  # (93.8, 2026-11-03)
+    "backend/app/services/structural_variant_evidence.py": 97.0,  # (100.0, 2026-11-03)
+    "backend/app/services/structural_variant_review_pg.py": 95.0,  # (98.3, 2026-11-03) CNV ACMG persistence
     # (100.0 measured locally when it was added: CLIN-47, the copy-loss rule of the SV
     # second hit and the SV ranking)
     "backend/app/services/sv_copy_change.py": 97.0,
-    "backend/app/services/sv_gene_index_service.py": 82.0,  # (85.0)
-    "backend/app/services/variant_ranking_cache.py": 63.0,  # (66.7)
+    "backend/app/services/sv_gene_index_service.py": 96.0,  # (99.6, 2026-11-03)
+    "backend/app/services/variant_ranking_cache.py": 86.0,  # (89.5, 2026-11-03)
 }
 
 # The combined unit + smoke + e2e report (the ``coverage`` CI job), for the modules the unit
 # job alone under-reports because real datastores exercise them.
-COMBINED_GLOBAL_FLOOR = 80.0  # (83.4)
+COMBINED_GLOBAL_FLOOR = 89.0  # (92.7, 2026-11-03)
 COMBINED_FLOORS: dict[str, float] = {
-    "backend/app/services/annotation_manifest_service.py": 92.0,  # (95.6)
-    "backend/app/services/clickhouse_family_variants.py": 82.0,  # (85.7)
-    "backend/app/services/clickhouse_variant_storage.py": 92.0,  # (94.7)
-    "backend/app/services/clinical_audit_service.py": 95.0,  # (98.4)
-    "backend/app/services/family_package_datasets.py": 72.0,  # (75.8)
+    "backend/app/services/annotation_manifest_service.py": 95.0,  # (98.8, 2026-11-03)
+    "backend/app/services/clickhouse_family_variants.py": 90.0,  # (93.9, 2026-11-03)
+    "backend/app/services/clickhouse_variant_storage.py": 96.0,  # (99.2, 2026-11-03)
+    "backend/app/services/clinical_audit_service.py": 96.0,  # (99.7, 2026-11-03)
+    "backend/app/services/family_package_datasets.py": 83.0,  # (86.7, 2026-11-03)
     "backend/app/services/family_package_import.py": 93.0,  # (96.0)
-    "backend/app/services/family_package_jobs.py": 94.0,  # (97.2)
-    "backend/app/services/family_package_registration.py": 81.0,  # (84.2)
+    "backend/app/services/family_package_jobs.py": 96.0,  # (99.3, 2026-11-03)
+    "backend/app/services/family_package_registration.py": 85.0,  # (88.6, 2026-11-03)
     # (95.4 measured locally when it was added: the reviews of repeat loci and Paraphase
     # regions, whose saves and record the e2e tests exercise)
-    "backend/app/services/finding_review_pg.py": 92.0,
-    "backend/app/services/integrity_anchor_service.py": 79.0,  # (82.3)
-    "backend/app/services/report_signout_service.py": 96.0,  # (99.5)
-    "backend/app/services/small_variant_review_tags.py": 90.0,  # (93.1)
-    "backend/app/services/structural_variant_evidence.py": 93.0,  # (96.0)
-    "backend/app/services/structural_variant_review_pg.py": 69.0,  # (72.4) CNV ACMG persistence
-    "backend/app/services/sv_gene_index_service.py": 92.0,  # (95.5)
-    "backend/app/services/variant_ranking_cache.py": 84.0,  # (87.3)
+    "backend/app/services/finding_review_pg.py": 93.0,  # (96.0, 2026-11-03)
+    "backend/app/services/integrity_anchor_service.py": 97.0,  # (100.0, 2026-11-03)
+    "backend/app/services/report_signout_service.py": 97.0,  # (100.0, 2026-11-03)
+    "backend/app/services/small_variant_review_tags.py": 94.0,  # (97.9, 2026-11-03)
+    "backend/app/services/structural_variant_evidence.py": 97.0,  # (100.0, 2026-11-03)
+    "backend/app/services/structural_variant_review_pg.py": 95.0,  # (98.3, 2026-11-03) CNV ACMG persistence
+    "backend/app/services/sv_gene_index_service.py": 97.0,  # (100.0, 2026-11-03)
+    "backend/app/services/variant_ranking_cache.py": 97.0,  # (100.0, 2026-11-03)
 }
 
 

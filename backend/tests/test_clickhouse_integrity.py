@@ -1,3 +1,13 @@
+"""The ClickHouse integrity check of the variant tables, and the safe rebuild of the gene
+index (``clickhouse_variant_storage``), against a fake of ClickHouse.
+
+The check reports each table's ``CHECK TABLE`` result, the detached broken parts and the
+gene index's drift from the annotations: ``ok``, ``degraded``, ``corrupt`` or ``missing``. The
+result is read as the ClickHouse client returns it (one flattened row for every part): a table
+is judged on every part, not its first; a result that cannot be read never passes. The gene
+index is rebuilt into a shadow table, checked whole and counted, and only then swapped in.
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -68,22 +78,6 @@ def test_integrity_ok_when_clean(monkeypatch) -> None:
     assert report["status"] == "ok"
     assert report["gene_index_consistency"]["consistent"] is True
     assert all(t["passed"] for t in report["table_checks"] if t["exists"])
-
-
-def test_integrity_corrupt_on_failed_part(monkeypatch) -> None:
-    monkeypatch.setattr(
-        cvs, "_execute",
-        _integrity_execute(
-            existing=DATA_TABLES,
-            check_results={GENE_INDEX: [("part_a", True, ""), ("part_b", False, "CHECKSUM_DOESNT_MATCH")]},
-            detached=[], gene_keys=100, annotation_keys=100,
-        ),
-    )
-    report = asyncio.run(cvs.check_clickhouse_variant_integrity(DATASET))
-    assert report["status"] == "corrupt"
-    gi = next(t for t in report["table_checks"] if t["name"] == GENE_INDEX)
-    assert gi["passed"] is False and gi["failed_parts"] == 1
-    assert "CHECKSUM_DOESNT_MATCH" in gi["messages"][0]
 
 
 def test_integrity_degraded_on_detached_parts(monkeypatch) -> None:
@@ -184,18 +178,6 @@ def test_rebuild_aborts_without_swap_on_key_mismatch(monkeypatch) -> None:
     assert any(q.startswith("DROP TABLE IF EXISTS") for q in recorder)  # shadow still cleaned up
 
 
-def test_rebuild_aborts_on_corrupt_shadow(monkeypatch) -> None:
-    recorder: list[str] = []
-    _patch_rebuild_env(monkeypatch)
-    monkeypatch.setattr(
-        cvs, "_execute",
-        _rebuild_execute(recorder, check_rows=[("p", False, "UNKNOWN_CODEC")], rebuilt_keys=100, source_keys=100),
-    )
-    with pytest.raises(RuntimeError, match="corrupt"):
-        asyncio.run(cvs.rebuild_small_variant_gene_index(DATASET))
-    assert "EXCHANGE TABLES" not in " || ".join(recorder)
-
-
 # --- CHECK TABLE as the client returns it --------------------------------------
 # Captured from ClickHouse 26.8 through the app's client (clickhouse-connect): a table
 # without active parts, with one, and with three.
@@ -230,7 +212,8 @@ def test_a_failed_part_after_the_first_is_read_with_its_message() -> None:
 
 
 def test_output_that_is_not_a_part_list_is_not_read_as_one() -> None:
-    for rows in ([[1]], [["all_1_1_0", "yes", ""]], [["all_1_1_0", "1"]], [["", "1", ""]]):
+    # Rows of no fields at all are not read either.
+    for rows in ([[1]], [["all_1_1_0", "yes", ""]], [["all_1_1_0", "1"]], [["", "1", ""]], [1]):
         assert cvs._read_check_parts(rows) is None, rows
 
 
@@ -347,20 +330,24 @@ def test_an_unreadable_verdict_rests_on_a_fully_read_part_list(monkeypatch) -> N
     assert report["status"] == "corrupt"
 
 
-def test_the_rebuild_does_not_swap_in_an_index_with_a_corrupt_later_part(monkeypatch) -> None:
+@pytest.mark.parametrize(
+    ("check_rows", "named"),
+    [
+        ([("all_1_1_0", False, "UNKNOWN_CODEC")], "all_1_1_0: UNKNOWN_CODEC"),
+        # Read row by row, the flattened result was judged on its first part alone.
+        ([("all_1_1_0", True, ""), ("all_2_2_0", False, "UNKNOWN_CODEC")], "all_2_2_0: UNKNOWN_CODEC"),
+    ],
+    ids=["its-only-part", "a-later-part"],
+)
+def test_the_rebuild_does_not_swap_in_an_index_with_a_corrupt_part(monkeypatch, check_rows, named) -> None:
     recorder: list[str] = []
     _patch_rebuild_env(monkeypatch)
     monkeypatch.setattr(
         cvs,
         "_execute",
-        _rebuild_execute(
-            recorder,
-            check_rows=[("all_1_1_0", True, ""), ("all_2_2_0", False, "UNKNOWN_CODEC")],
-            rebuilt_keys=100,
-            source_keys=100,
-        ),
+        _rebuild_execute(recorder, check_rows=check_rows, rebuilt_keys=100, source_keys=100),
     )
-    with pytest.raises(RuntimeError, match=r"1 corrupt part\(s\) \(all_2_2_0: UNKNOWN_CODEC\)"):
+    with pytest.raises(RuntimeError, match=rf"1 corrupt part\(s\) \({named}\)"):
         asyncio.run(cvs.rebuild_small_variant_gene_index(DATASET))
     joined = " || ".join(recorder)
     assert "EXCHANGE TABLES" not in joined

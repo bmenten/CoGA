@@ -28,6 +28,8 @@ from uuid import uuid4
 
 import pytest
 
+from backend.tests.e2e._harness import capture, ok_json
+
 pytestmark = pytest.mark.integration
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "golden_trio"
@@ -44,15 +46,6 @@ SIGN_OUT_BODY = {
     "acknowledge_unreviewed_findings": True,
     "unreviewed_findings_acknowledgement_reason": "e2e: the repeat and Paraphase calls are not reviewed",
 }
-
-
-def _cap(resp) -> dict:
-    out = {"status": resp.status_code, "text": resp.text}
-    try:
-        out["json"] = resp.json()
-    except ValueError:  # pragma: no cover
-        out["json"] = None
-    return out
 
 
 def _swap_two_symbols(code: str) -> str:
@@ -113,19 +106,19 @@ async def _collect(root: Path) -> dict:
 
         # A panel applied, applied again, edited to version 2 and applied by another search.
         created = await ac.post("/api/panels/", json={"name": f"e2e-signed-record-{run}", "genes": ["GENE_PATH"]})
-        r["panel_created"] = _cap(created)
+        r["panel_created"] = capture(created)
         panel_id = created.json()["panel"]["_id"]
         out["panel_id"] = panel_id
-        r["search_v1"] = _cap(await ac.get(f"{family}/small-variants", params={"panel_id": panel_id}))
-        r["search_v1_again"] = _cap(
+        r["search_v1"] = capture(await ac.get(f"{family}/small-variants", params={"panel_id": panel_id}))
+        r["search_v1_again"] = capture(
             await ac.get(f"{family}/small-variants", params={"panel_id": panel_id, "count_only": "true"})
         )
-        r["panel_edited"] = _cap(await ac.put(f"/api/panels/{panel_id}", json={"genes": ["GENE_PATH", "BRCA2"]}))
-        r["search_v2"] = _cap(await ac.get(f"{family}/structural-variants", params={"panel_id": panel_id}))
-        r["audit"] = _cap(await ac.get(f"{family}/clinical-audit", params={"limit": 500}))
+        r["panel_edited"] = capture(await ac.put(f"/api/panels/{panel_id}", json={"genes": ["GENE_PATH", "BRCA2"]}))
+        r["search_v2"] = capture(await ac.get(f"{family}/structural-variants", params={"panel_id": panel_id}))
+        r["audit"] = capture(await ac.get(f"{family}/clinical-audit", params={"limit": 500}))
 
         # Two variants for the report: a small variant classified, an SV tagged.
-        r["review_small"] = _cap(
+        r["review_small"] = capture(
             await ac.put(
                 f"{family}/small-variants/{SMALL_VARIANT}/review",
                 json={
@@ -139,32 +132,32 @@ async def _collect(root: Path) -> dict:
                 },
             )
         )
-        r["review_sv"] = _cap(
+        r["review_sv"] = capture(
             await ac.put(f"{family}/structural-variants/{STRUCTURAL_VARIANT}/review", json={"tags": ["report"]})
         )
 
-        r["signout"] = _cap(await _harness.sign_out(ac, f"{family}/report/sign-out", SIGN_OUT_BODY))
+        r["signout"] = capture(await _harness.sign_out(ac, f"{family}/report/sign-out", SIGN_OUT_BODY))
         signed = r["signout"]["json"] or {}
         version = signed.get("version")
         code = signed.get("report_code")
         out["expected_code"] = report_code(FAMILY, version, signed.get("content_hash"))
-        r["detail"] = _cap(await ac.get(f"{family}/report/sign-outs/{version}"))
-        r["list"] = _cap(await ac.get(f"{family}/report/sign-outs"))
-        r["check"] = _cap(await ac.get(f"{family}/report/sign-out-check"))
-        r["chain"] = _cap(
+        r["detail"] = capture(await ac.get(f"{family}/report/sign-outs/{version}"))
+        r["list"] = capture(await ac.get(f"{family}/report/sign-outs"))
+        r["check"] = capture(await ac.get(f"{family}/report/sign-out-check"))
+        r["chain"] = capture(
             await ac.get("/api/admin/integrity/verify", params={"table": "report_signouts", "family_id": FAMILY})
         )
 
         # The code the EPD report quotes finds the record again.
-        r["lookup"] = _cap(await ac.get(f"/api/report-codes/{code}"))
-        r["lookup_typed"] = _cap(await ac.get(f"/api/report-codes/{code.lower().replace('-', ' ')}"))
-        r["lookup_typo"] = _cap(await ac.get(f"/api/report-codes/{_swap_two_symbols(code)}"))
+        r["lookup"] = capture(await ac.get(f"/api/report-codes/{code}"))
+        r["lookup_typed"] = capture(await ac.get(f"/api/report-codes/{code.lower().replace('-', ' ')}"))
+        r["lookup_typo"] = capture(await ac.get(f"/api/report-codes/{_swap_two_symbols(code)}"))
         unknown = report_code(FAMILY, 9999, "0" * 64)
-        r["lookup_unknown"] = _cap(await ac.get(f"/api/report-codes/{unknown}"))
+        r["lookup_unknown"] = capture(await ac.get(f"/api/report-codes/{unknown}"))
         viewer = await _viewer_client(transport, run)
         try:
-            r["lookup_hidden"] = _cap(await viewer.get(f"/api/report-codes/{code}"))
-            r["lookup_hidden_unknown"] = _cap(await viewer.get(f"/api/report-codes/{unknown}"))
+            r["lookup_hidden"] = capture(await viewer.get(f"/api/report-codes/{code}"))
+            r["lookup_hidden_unknown"] = capture(await viewer.get(f"/api/report-codes/{unknown}"))
         finally:
             await viewer.aclose()
 
@@ -180,28 +173,31 @@ async def _collect(root: Path) -> dict:
         mp = pytest.MonkeyPatch()
         mp.setattr(rss, "build_report_snapshot", _old_build)
         try:
-            r["old_signout"] = _cap(await _harness.sign_out(ac, f"{family}/report/sign-out", SIGN_OUT_BODY))
+            r["old_signout"] = capture(await _harness.sign_out(ac, f"{family}/report/sign-out", SIGN_OUT_BODY))
         finally:
             mp.undo()
         old = r["old_signout"]["json"] or {}
-        r["old_detail"] = _cap(await ac.get(f"{family}/report/sign-outs/{old.get('version')}"))
-        r["old_check"] = _cap(await ac.get(f"{family}/report/sign-out-check"))
-        r["old_lookup"] = _cap(await ac.get(f"/api/report-codes/{old.get('report_code')}"))
-        r["old_chain"] = _cap(
+        r["old_detail"] = capture(await ac.get(f"{family}/report/sign-outs/{old.get('version')}"))
+        r["old_check"] = capture(await ac.get(f"{family}/report/sign-out-check"))
+        r["old_lookup"] = capture(await ac.get(f"/api/report-codes/{old.get('report_code')}"))
+        r["old_chain"] = capture(
             await ac.get("/api/admin/integrity/verify", params={"table": "report_signouts", "family_id": FAMILY})
         )
         # The family ends on a record of today's build, for the modules that run after this one,
         # and with nothing tagged for the report: the golden trio's database is shared by the
         # modules of a run, and a module that lists the reported variants (as
         # test_e2e_report_lists_complete does) would otherwise find these two as well.
-        r["final_signout"] = _cap(await _harness.sign_out(ac, f"{family}/report/sign-out", SIGN_OUT_BODY))
-        r["untag_small"] = _cap(
+        r["final_signout"] = capture(await _harness.sign_out(ac, f"{family}/report/sign-out", SIGN_OUT_BODY))
+        r["untag_small"] = capture(
             await ac.put(f"{family}/small-variants/{SMALL_VARIANT}/review", json={"tags": [], "note": None})
         )
-        r["untag_sv"] = _cap(
+        r["untag_sv"] = capture(
             await ac.put(f"{family}/structural-variants/{STRUCTURAL_VARIANT}/review", json={"tags": [], "note": None})
         )
-        r["panel_removed"] = _cap(await ac.delete(f"/api/panels/{panel_id}"))
+        tagged_for_the_report = {"review_tag": "report", "page": 1, "page_size": 100}
+        r["left_tagged_small"] = capture(await ac.get(f"{family}/small-variants", params=tagged_for_the_report))
+        r["left_tagged_sv"] = capture(await ac.get(f"{family}/structural-variants", params=tagged_for_the_report))
+        r["panel_removed"] = capture(await ac.delete(f"/api/panels/{panel_id}"))
     return out
 
 
@@ -225,14 +221,8 @@ def signed(tmp_path_factory, request) -> dict:
     return out
 
 
-def _ok(signed: dict, key: str) -> dict:
-    resp = signed["responses"][key]
-    assert resp["status"] == 200, (key, resp["status"], resp["text"][:2000])
-    return resp["json"]
-
-
 def _snapshot(signed: dict) -> dict:
-    return _ok(signed, "detail")["snapshot"]
+    return ok_json(signed, "detail")["snapshot"]
 
 
 # ------------------------------------------------------------------- the panel searches
@@ -242,17 +232,20 @@ def test_the_module_leaves_nothing_tagged_for_the_report(signed) -> None:
     # Run before another module of the same run, its reported variants would be that module's too.
     assert signed["responses"]["untag_small"]["status"] == 200, signed["responses"]["untag_small"]
     assert signed["responses"]["untag_sv"]["status"] == 200, signed["responses"]["untag_sv"]
+    # The family's report lists, read back afterwards, are empty.
+    assert ok_json(signed, "left_tagged_small")["variants"] == []
+    assert ok_json(signed, "left_tagged_sv")["variants"] == []
 
 
 def test_each_panel_version_a_search_applied_is_on_the_clinical_audit_trail_once(signed) -> None:
     for key in ("panel_created",):
         assert signed["responses"][key]["status"] == 201, signed["responses"][key]["text"]
     for key in ("search_v1", "search_v1_again", "panel_edited", "search_v2"):
-        _ok(signed, key)
+        ok_json(signed, key)
     panel_id = signed["panel_id"]
     events = [
         event
-        for event in _ok(signed, "audit")["events"]
+        for event in ok_json(signed, "audit")["events"]
         if event["action"] == "panel_applied" and (event["after"] or {}).get("panel_id") == panel_id
     ]
     # Version 1 by the small-variant search (the second search recorded nothing), version 2
@@ -269,13 +262,13 @@ def test_each_panel_version_a_search_applied_is_on_the_clinical_audit_trail_once
 
 
 def test_the_sign_out_carries_a_report_code_made_from_the_record(signed) -> None:
-    signout = _ok(signed, "signout")
+    signout = ok_json(signed, "signout")
     assert signout["report_code"] == signed["expected_code"]
     assert len(signout["report_code"]) <= 16
-    detail = _ok(signed, "detail")
+    detail = ok_json(signed, "detail")
     assert detail["report_code"] == signout["report_code"]
     assert detail["verified"] is True
-    listed = {entry["version"]: entry for entry in _ok(signed, "list")["signouts"]}
+    listed = {entry["version"]: entry for entry in ok_json(signed, "list")["signouts"]}
     assert listed[signout["version"]]["report_code"] == signout["report_code"]
 
 
@@ -357,8 +350,8 @@ def test_the_record_holds_the_paraphase_results(signed) -> None:
 
 def test_the_record_verifies_and_still_matches_right_after_it_was_signed(signed) -> None:
     # Every new section reads back from JSONB as it was hashed.
-    assert _ok(signed, "chain")["verified"] is True
-    check = _ok(signed, "check")
+    assert ok_json(signed, "chain")["verified"] is True
+    check = ok_json(signed, "check")
     assert check["matches"] is True, check
     assert check["not_compared"] == []
     # Each section was read: none is named as not captured. (The e2e stack's HPO terms come
@@ -370,9 +363,9 @@ def test_the_record_verifies_and_still_matches_right_after_it_was_signed(signed)
 
 
 def test_the_report_code_finds_the_record_as_typed_back(signed) -> None:
-    signout = _ok(signed, "signout")
+    signout = ok_json(signed, "signout")
     for key in ("lookup", "lookup_typed"):
-        found = _ok(signed, key)
+        found = ok_json(signed, key)
         assert (found["family_id"], found["version"], found["report_code"]) == (
             FAMILY,
             signout["version"],
@@ -399,20 +392,20 @@ def test_an_unknown_code_and_one_outside_the_callers_projects_answer_alike(signe
 
 
 def test_a_record_without_the_sections_still_verifies_reads_and_is_found(signed) -> None:
-    old = _ok(signed, "old_signout")
-    detail = _ok(signed, "old_detail")
+    old = ok_json(signed, "old_signout")
+    detail = ok_json(signed, "old_detail")
     assert detail["verified"] is True
     assert not set(NEW_SECTIONS) & set(detail["snapshot"])
     assert "record_statement" not in detail["snapshot"]
     # Nothing it predates is called "not captured": the signed view says it is not held.
     assert [gap for gap in detail["not_captured"] if gap["section"].split(".")[0] in NEW_SECTIONS] == []
     assert detail["report_code"] == old["report_code"]
-    assert _ok(signed, "old_lookup")["version"] == old["version"]
-    assert _ok(signed, "old_chain")["verified"] is True
+    assert ok_json(signed, "old_lookup")["version"] == old["version"]
+    assert ok_json(signed, "old_chain")["verified"] is True
     # The check against it compares what it holds and names the sections it predates.
-    check = _ok(signed, "old_check")
+    check = ok_json(signed, "old_check")
     assert check["version"] == old["version"]
     assert set(NEW_SECTIONS) <= set(check["not_compared"])
     assert check["matches"] is True, check
-    final = _ok(signed, "final_signout")
+    final = ok_json(signed, "final_signout")
     assert final["version"] == old["version"] + 1 and final["report_code"] != old["report_code"]

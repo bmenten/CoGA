@@ -63,8 +63,10 @@ def hpo_api_client(monkeypatch: pytest.MonkeyPatch):
 
 def test_hpo_search_endpoint(hpo_api_client) -> None:
     client, monkeypatch = hpo_api_client
+    searched: list[dict] = []
 
     async def fake_search(*args, **kwargs):
+        searched.append(kwargs)
         return [
             {
                 "hpo_id": "HP:0001250",
@@ -80,12 +82,20 @@ def test_hpo_search_endpoint(hpo_api_client) -> None:
 
     assert search_response.status_code == 200
     assert search_response.json()[0]["hpo_id"] == "HP:0001250"
+    # The query as typed, and the default of 20 terms.
+    assert searched == [{"query": "seizure", "limit": 20}]
+    # An empty query, or more than 50 terms, is refused before the search.
+    assert client.get("/api/hpo/search?q=").status_code == 422
+    assert client.get("/api/hpo/search?q=seizure&limit=51").status_code == 422
+    assert len(searched) == 1
 
 
 def test_admin_hpo_terms_endpoint(hpo_api_client) -> None:
     client, monkeypatch = hpo_api_client
+    listed: list[dict] = []
 
     async def fake_admin_terms(*args, **kwargs):
+        listed.append(kwargs)
         return [
             {
                 "hpo_id": "HP:0001250",
@@ -109,6 +119,7 @@ def test_admin_hpo_terms_endpoint(hpo_api_client) -> None:
 
     assert response.status_code == 200
     assert response.json()[0]["hpo_id"] == "HP:0001250"
+    assert listed == [{"query": "seizure", "limit": 100}]
 
 
 def test_family_hpo_annotation_endpoints(hpo_api_client) -> None:
@@ -128,13 +139,17 @@ def test_family_hpo_annotation_endpoints(hpo_api_client) -> None:
         "updated_at": now,
     }
 
+    calls: list[tuple[str, dict]] = []
+
     async def fake_context(*args, **kwargs):
         return _FakeFamilyContext()
 
     async def fake_list(*args, **kwargs):
+        calls.append(("list", kwargs))
         return [annotation]
 
     async def fake_create(*args, **kwargs):
+        calls.append(("create", kwargs))
         return annotation
 
     monkeypatch.setattr(families_router, "build_family_metadata_context", fake_context)
@@ -151,6 +166,21 @@ def test_family_hpo_annotation_endpoints(hpo_api_client) -> None:
     assert list_response.json()[0]["sample_id"] == "PROBAND"
     assert create_response.status_code == 200
     assert create_response.json()["hpo_id"] == "HP:0001250"
+    # Each reaches the service for the family the context resolved, the member the path names
+    # and the term the body names.
+    (list_call, list_kwargs), (create_call, create_kwargs) = calls
+    assert (list_call, list_kwargs["family_uuid"], list_kwargs["sample_id"]) == (
+        "list",
+        _FakeFamilyContext.family_uuid,
+        None,
+    )
+    assert (create_call, create_kwargs["family_uuid"], create_kwargs["family_identifier"]) == (
+        "create",
+        _FakeFamilyContext.family_uuid,
+        "FAM1",
+    )
+    assert create_kwargs["sample_id"] == "PROBAND"
+    assert (create_kwargs["payload"].hpo_id, create_kwargs["payload"].status) == ("HP:0001250", "present")
 
 
 def test_family_member_management_endpoints(hpo_api_client) -> None:

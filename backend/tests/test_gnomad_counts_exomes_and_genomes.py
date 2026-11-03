@@ -11,15 +11,11 @@ else the exome and genome counts added, either alone when the other is missing.
 
 from __future__ import annotations
 
-from pathlib import Path
-import sys
 from typing import Any
 
 import pytest
 
-sys.path.append(str(Path(__file__).resolve().parents[1]))
-
-from app.services.variant_annotation_parser import (
+from backend.app.services.variant_annotation_parser import (
     AnnotationHeaderState,
     extract_small_variant_annotations,
     normalize_small_variant_annotation_entry,

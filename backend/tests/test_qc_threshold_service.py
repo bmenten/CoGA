@@ -299,20 +299,25 @@ async def test_a_duplicate_key_is_refused_rather_than_silently_reused() -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("label", ["", "   "])
-async def test_a_profile_needs_a_label(label: str) -> None:
+@pytest.mark.parametrize(
+    "label",
+    [
+        # A profile needs a label.
+        "",
+        "   ",
+        # One that yields no usable key: better a 400 than a profile nothing can reference.
+        "!!!",
+        "-",
+        "x",
+    ],
+    ids=["empty", "blank", "punctuation", "dash", "one-character"],
+)
+async def test_a_profile_needs_a_label_that_yields_a_usable_key(label: str) -> None:
+    session = _FakeProfileSession()
     with pytest.raises(HTTPException) as excinfo:
-        await create_qc_threshold_profile(_FakeProfileSession(), label=label)
+        await create_qc_threshold_profile(session, label=label)
     assert excinfo.value.status_code == 400
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("label", ["!!!", "-", "x"])
-async def test_a_label_that_yields_no_usable_key_is_refused(label: str) -> None:
-    # Better a 400 than a profile nothing can reference.
-    with pytest.raises(HTTPException) as excinfo:
-        await create_qc_threshold_profile(_FakeProfileSession(), label=label)
-    assert excinfo.value.status_code == 400
+    assert session.committed is False
 
 
 def test_the_seeded_profiles_ship_without_cut_offs() -> None:
@@ -822,3 +827,93 @@ async def test_the_profiles_list_each_profile_with_its_limits_and_flag_a_metric_
         "warn_value": 1.0,
         "error_value": None,
     }
+
+
+class _QueuedRowsSession:
+    """Answers each statement with the next list of rows; records the statements."""
+
+    def __init__(self, *answers: list[dict]) -> None:
+        self.answers = list(answers)
+        self.statements: list[tuple[str, dict]] = []
+
+    async def execute(self, statement, params=None):
+        self.statements.append((" ".join(str(statement).split()), dict(params or {})))
+        rows = self.answers.pop(0)
+
+        class _Result:
+            def mappings(self_inner):
+                class _Rows(list):
+                    def first(self_rows):
+                        return self_rows[0] if self_rows else None
+
+                return _Rows(rows)
+
+        return _Result()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("asked", "bound"), [(25, 25), ("7", 7), (0, 1), (-3, 1), (10_000, 500)])
+async def test_the_history_of_cut_off_edits_is_read_newest_first_with_a_bounded_limit(asked, bound) -> None:
+    from app.services.qc_threshold_service import list_qc_threshold_changes
+
+    change = {"profile_key": "default", "metric_key": "depth.mean_depth", "reason": "Per the validation report"}
+    session = _QueuedRowsSession([change])
+
+    assert await list_qc_threshold_changes(session, limit=asked) == [change]
+    [(sql, params)] = session.statements
+    # The limit is an int-coerced parameter between 1 and 500, never interpolated.
+    assert params == {"limit": bound}
+    assert sql.endswith("ORDER BY changed_at DESC LIMIT :limit")
+
+
+_PROFILE = {"key": "pgt", "label": "PGT", "id": "00000000-0000-0000-0000-000000000009"}
+_DEFAULT = {"key": "default", "label": "Default", "id": "00000000-0000-0000-0000-000000000001"}
+_LIMITS = [{"metric_key": "depth.mean_depth", "warn_value": 20.0, "error_value": 10.0}]
+
+
+@pytest.mark.asyncio
+async def test_a_family_is_judged_by_its_own_profile() -> None:
+    from app.services.qc_threshold_service import resolve_family_qc_thresholds
+
+    session = _QueuedRowsSession([_PROFILE], _LIMITS)
+
+    resolved = await resolve_family_qc_thresholds(session, family_uuid="family-uuid")
+
+    assert resolved == {
+        "profile_key": "pgt",
+        "profile_label": "PGT",
+        "thresholds": {"depth.mean_depth": {"warn_value": 20.0, "error_value": 10.0}},
+    }
+    assert session.statements[0][1] == {"family_uuid": "family-uuid"}
+    assert session.statements[1][1] == {"profile_id": _PROFILE["id"]}
+
+
+@pytest.mark.asyncio
+async def test_a_family_without_a_known_profile_is_judged_by_the_default_one() -> None:
+    from app.services.qc_threshold_service import resolve_family_qc_thresholds
+
+    # No profile, or one under a key no profile has: a typo does not opt a family out of
+    # its QC gate (REQ-QC-004).
+    session = _QueuedRowsSession([], [_DEFAULT], _LIMITS)
+
+    resolved = await resolve_family_qc_thresholds(session, family_uuid="family-uuid")
+
+    assert (resolved["profile_key"], resolved["thresholds"]) == (
+        "default",
+        {"depth.mean_depth": {"warn_value": 20.0, "error_value": 10.0}},
+    )
+    assert "WHERE is_default" in session.statements[1][0]
+    assert session.statements[2][1] == {"profile_id": _DEFAULT["id"]}
+
+
+@pytest.mark.asyncio
+async def test_without_any_profile_or_a_session_no_cut_off_applies() -> None:
+    from app.services.qc_threshold_service import resolve_family_qc_thresholds
+
+    nothing = {"profile_key": None, "profile_label": None, "thresholds": {}}
+    session = _QueuedRowsSession([], [])
+    assert await resolve_family_qc_thresholds(session, family_uuid="family-uuid") == nothing
+    # Every metric then evaluates to skip: never a pass of a gate that was not consulted.
+    assert len(session.statements) == 2
+    assert await resolve_family_qc_thresholds(None, family_uuid="family-uuid") == nothing
+    assert evaluate_sequencing_qc(HG002_QC, nothing["thresholds"])["verdict"] == "skip"

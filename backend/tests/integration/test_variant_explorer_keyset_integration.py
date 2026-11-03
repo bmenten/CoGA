@@ -19,28 +19,11 @@ from uuid import uuid4
 
 import pytest
 
+from backend.tests.integration._datastores import run_closing_stores
+
 pytestmark = pytest.mark.integration
 
 _ASSEMBLY = "GRCh38"
-
-
-def _run_with_ch_cleanup(run) -> None:
-    """Run a coroutine factory under its own loop, resetting the module-global ClickHouse
-    client and Postgres engine afterwards (both bind to the loop, so the next asyncio.run
-    would otherwise reuse a connection of a closed loop)."""
-    import asyncio as _asyncio
-
-    from backend.app.core.clickhouse import close_clickhouse_client
-    from backend.app.core.postgres import close_postgres_engine
-
-    async def _wrapped() -> None:
-        try:
-            await run()
-        finally:
-            await close_clickhouse_client()
-            await close_postgres_engine()
-
-    _asyncio.run(_wrapped())
 
 
 def _call(sample: str, gt: str):
@@ -131,4 +114,4 @@ def test_explorer_keyset_pagination_against_clickhouse(monkeypatch) -> None:
             # 5 rows at page_size 2 -> pages of 2 + 2 + 1; the short last page ends paging.
             assert pages == 3
 
-    _run_with_ch_cleanup(_run)
+    run_closing_stores(_run)

@@ -83,7 +83,7 @@ def _save(monkeypatch, rows: dict[str, dict[str, Any]], payload: SmallVariantRev
         row = rows.get(variant_id)
         return copy.deepcopy(row) if row is not None else None
 
-    async def clear_group(_session: Any, *, family_uuid: str, group_id: str) -> None:
+    async def clear_group(_session: Any, *, family_uuid: str, group_id: str, written_by_save: Any = ()) -> None:
         cleared.append(group_id)
 
     async def insert(_session: Any, *, family_uuid: str, fields: dict[str, Any], created_at: Any) -> None:
@@ -159,6 +159,27 @@ def test_the_diff_names_a_pair_recorded_changed_or_removed() -> None:
     assert clinical_audit_service.diff_compound_het_pair(before, dict(before)) is None
     assert clinical_audit_service.compound_het_pair_state(_pair_row(A, B, None)) is None
     assert clinical_audit_service.compound_het_pair_state(None) is None
+
+
+def test_the_diff_names_every_field_of_the_pair_that_changed() -> None:
+    # A pair given another partner, gene and phase, a tag taken off and the note cleared: each
+    # change is named, the pair by its partner now; a value gone reads "none".
+    before = clinical_audit_service.compound_het_pair_state(
+        _pair_row(A, B, "g1", compound_het_tags=["report", "review"], compound_het_note="trans")
+    )
+    assert before is not None
+    after = {**before, "partner_variant_ids": [X], "gene": "GENE2", "phase_status": "trans", "tags": ["review"], "note": None}
+    changed = clinical_audit_service.diff_compound_het_pair(before, after)
+    assert changed is not None and changed["summary"] == (
+        f"Compound-het pair with {X}: partner {B} → {X}; gene GENE1 → GENE2; phase unknown → trans; "
+        "tags removed report; note removed"
+    )
+    emptied = clinical_audit_service.diff_compound_het_pair(
+        before, {**before, "partner_variant_ids": [], "classification": None}
+    )
+    assert emptied is not None and emptied["summary"] == (
+        f"Compound-het pair with no partner: partner {B} → none; classification Likely pathogenic → none"
+    )
 
 
 # ------------------------------------------------------------------------------- the review save

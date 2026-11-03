@@ -1,23 +1,22 @@
+"""The TRGT import of repeat expansions (``repeat_expansion_pg``), and the family table's note on a
+man's two chrX alleles.
+
+The per-sample import stores a call with its interruption details, and the family import the call
+of each header sample the family holds; a STRchive file is read into catalogue rows; a per-sample upload reads the target's own column of a family
+VCF, or a single placeholder column, and refuses a file without one column for the target before
+any write (a package entry's ``vcf_sample`` confirms a column named after another sample). A man's
+chrX call keeps both alleles when they differ (a mosaic full mutation), flags two normal ones for
+review, and collapses one written twice; a PAR call and a woman's stay diploid. All samples and
+values are synthetic.
+"""
+
 import json
 
 import pytest
 
 from backend.app.services.family_metadata_context import SampleMetadataContext
 from backend.app.services import repeat_expansion_pg
-
-
-class _FakeQueryResult:
-    def __init__(self, rows):
-        self._rows = rows
-
-    def mappings(self):
-        return self
-
-    def first(self):
-        return self._rows[0] if self._rows else None
-
-    def all(self):
-        return self._rows
+from backend.tests._repeat_fakes import Result, RowsSession, family_context, trgt_insert_params
 
 
 class _RecordingSession:
@@ -30,8 +29,8 @@ class _RecordingSession:
         sql = str(statement)
         self.calls.append((sql, params))
         if "FROM repeat_loci" in sql:
-            return _FakeQueryResult(self.repeat_loci_rows)
-        return _FakeQueryResult([])
+            return Result(self.repeat_loci_rows)
+        return Result([])
 
     async def commit(self) -> None:
         self.committed = True
@@ -131,6 +130,56 @@ async def test_ingest_trgt_text_stores_triplet_interruption_details() -> None:
     ]
     assert alleles[1]["motif_spans"] == "0(0-120)_1(120-126)"
     assert alleles[1]["interruption_label"] == "CAG 40 + CAA 2"
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        # STRchive's list, an object keyed by locus, and either with entries no row can name.
+        [{"id": "HD_HTT", "gene": "HTT"}, {"id": "", "gene": "X"}, {"gene": "ATN1"}, "not an entry"],
+        {"HD_HTT": {"id": "HD_HTT", "gene": "HTT"}, "broken": {"id": "NO_GENE"}, "text": "not an entry"},
+    ],
+    ids=["list", "object"],
+)
+def test_a_strchive_file_yields_the_loci_it_names_with_a_gene(tmp_path, payload) -> None:
+    path = tmp_path / "STRchive-loci.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    assert [(entry["locus_id"], entry["gene"]) for entry in repeat_expansion_pg.load_strchive_repeat_loci(path)] == [
+        ("HD_HTT", "HTT")
+    ]
+
+
+def test_a_strchive_file_that_is_missing_or_no_catalogue_yields_no_locus(tmp_path) -> None:
+    assert repeat_expansion_pg.load_strchive_repeat_loci(tmp_path / "missing.json") == []
+    path = tmp_path / "STRchive-loci.json"
+    path.write_text(json.dumps("a string"), encoding="utf-8")
+    assert repeat_expansion_pg.load_strchive_repeat_loci(path) == []
+
+
+@pytest.mark.asyncio
+async def test_the_trid_lookup_reads_aliases_and_tracts_from_jsonb_text(monkeypatch) -> None:
+    """A driver without a jsonb codec returns the catalogue's aliases and metadata as text: the
+    TRID lookup names the same rows, and finds a gene's STRchive tracts, as from a list and a
+    mapping."""
+    from backend.tests._repeat_fakes import catalogue_after_a_start
+
+    rows = list((await catalogue_after_a_start(monkeypatch)).values())
+    as_text = [{**row, "aliases": json.dumps(row["aliases"]), "metadata": json.dumps(row["metadata"])} for row in rows]
+    # An alias list that is no JSON is one alias; a metadata text that is no JSON is none.
+    as_text.append({**rows[0], "locus_id": "SYN_LOCUS", "gene": "SYN1", "aliases": "SYN-ALIAS", "metadata": "{"})
+
+    parsed = await repeat_expansion_pg._build_repeat_locus_lookup(RowsSession(rows))  # type: ignore[arg-type]
+    from_text = await repeat_expansion_pg._build_repeat_locus_lookup(RowsSession(as_text))  # type: ignore[arg-type]
+
+    assert set(from_text) - set(parsed) == {"syn_locus", "syn1", "syn-alias"}
+    assert {key: row["locus_id"] for key, row in parsed.items()} == {
+        key: row["locus_id"] for key, row in from_text.items() if key not in {"syn_locus", "syn1", "syn-alias"}
+    }
+    assert {gene: [row["locus_id"] for row in tracts] for gene, tracts in from_text.tracts.items()} == {
+        gene: [row["locus_id"] for row in tracts] for gene, tracts in parsed.tracts.items()
+    }
+    assert [row["locus_id"] for row in from_text.tracts["arx"]] == ["EIEE1_ARX", "PRTS_ARX"]
 
 
 def test_load_strchive_repeat_loci_normalizes_catalog_entries(tmp_path) -> None:
@@ -264,7 +313,7 @@ class _UploadSession(_RecordingSession):
         sql = str(statement)
         if "OR sample_id IN" in sql:
             self.calls.append((sql, params))
-            return _FakeQueryResult([{"sample_id": sample} for sample in self.known_samples])
+            return Result([{"sample_id": sample} for sample in self.known_samples])
         return await super().execute(statement, params)
 
 
@@ -433,26 +482,15 @@ _FMR1_LOCUS = {
 
 
 def _fmr1_insert_params(*, sex: str, sample_field: str, chrom: str = "chrX", pos: str = "147912051") -> dict:
-    return repeat_expansion_pg._build_trgt_insert_params(
-        sample_context=SampleMetadataContext(
-            sample_uuid="sample-uuid",
-            sample_id="sample",
-            family_uuid="family-uuid",
-            family_id="demo_family",
-            sex=sex,
-            project_ids=["project-uuid"],
-            assembly_id="assembly-uuid",
-            assembly_name="GRCh38",
-        ),
-        locus_lookup={"fxs_fmr1": _FMR1_LOCUS},
+    return trgt_insert_params(
+        {"fxs_fmr1": _FMR1_LOCUS},
+        info_field="TRID=FXS_FMR1;END=147912110;MOTIFS=CGG",
+        sample_field=sample_field,
         chrom=chrom,
         pos=pos,
         ref="CGG",
-        info_field="TRID=FXS_FMR1;END=147912110;MOTIFS=CGG",
-        format_field="GT:AL:MC",
-        sample_field=sample_field,
-        header_sample="sample",
-        metadata={},
+        sex=sex,
+        family_id="demo_family",
     )
 
 
@@ -495,53 +533,32 @@ def test_male_chrx_par_locus_and_females_stay_diploid() -> None:
 
 @pytest.mark.asyncio
 async def test_repeat_table_notes_a_male_with_two_chrx_alleles() -> None:
-    from backend.app.services.family_metadata_context import FamilyMetadataContext
-
-    class _TableSession:
-        async def execute(self, statement, params=None):
-            return _FakeQueryResult(
-                [
-                    {
-                        "sample_uuid": "00000000-0000-4000-8000-000000000001",
-                        "locus_id": "FXS_FMR1",
-                        "gene": "FMR1",
-                        "display_name": "FMR1",
-                        "disease": "Fragile X syndrome",
-                        "inheritance": "XL",
-                        "chr": "X",
-                        "start": 147912051,
-                        "end": 147912110,
-                        "motif": "CGG",
-                        "genotype": "1/2",
-                        "allele_count": 2,
-                        "alleles": [
-                            {"repeat_count": 30, "status": "normal"},
-                            {"repeat_count": 32, "status": "normal"},
-                        ],
-                        "warning_min": 55,
-                        "pathogenic_min": 201,
-                        "status": "normal",
-                    }
-                ]
-            )
-
-    context = FamilyMetadataContext(
-        family_uuid="00000000-0000-4000-8000-0000000000f1",
-        family_id="demo_family",
-        project_ids=["project-uuid"],
-        sample_rows=[
-            {"sample_uuid": "00000000-0000-4000-8000-000000000001", "sample_id": "SON", "role": "proband", "affected": True, "sex": "male"}
+    stored = {
+        "sample_uuid": "00000000-0000-4000-8000-000000000001",
+        "locus_id": "FXS_FMR1",
+        "gene": "FMR1",
+        "display_name": "FMR1",
+        "disease": "Fragile X syndrome",
+        "inheritance": "XL",
+        "chr": "X",
+        "start": 147912051,
+        "end": 147912110,
+        "motif": "CGG",
+        "genotype": "1/2",
+        "allele_count": 2,
+        "alleles": [
+            {"repeat_count": 30, "status": "normal"},
+            {"repeat_count": 32, "status": "normal"},
         ],
-        sample_uuid_to_name={"00000000-0000-4000-8000-000000000001": "SON"},
-        sample_name_to_uuid={"SON": "00000000-0000-4000-8000-000000000001"},
-        affected_sample_names=["SON"],
-        assembly_id="assembly-uuid",
-        assembly_name="GRCh38",
+        "warning_min": 55,
+        "pathogenic_min": 201,
+        "status": "normal",
+    }
+    context = family_context(
+        ("00000000-0000-4000-8000-000000000001", "SON", "proband", True, "male"), family_id="demo_family"
     )
 
-    table = await repeat_expansion_pg.get_family_repeat_expansion_table_response(
-        _TableSession(), context=context
-    )
+    table = await repeat_expansion_pg.get_family_repeat_expansion_table_response(RowsSession([stored]), context=context)
 
     call = table.loci[0].calls["SON"]
     assert call.status == "review"

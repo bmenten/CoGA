@@ -478,6 +478,22 @@ def test_a_viewer_sets_no_role_and_an_unknown_role_is_refused(client: TestClient
     assert store.updates == []
 
 
+def test_project_access_is_not_set_with_the_account(client: TestClient, store: _Store, audit_rows: list[Any]) -> None:
+    # Project access is set on the project pages, member by member with their level (SEC-1):
+    # an account change that names projects is refused whole, its role change with it.
+    response = client.patch(
+        f"/api/auth/users/{LOCAL_VIEWER['id']}",
+        json={"projects": [str(uuid4())], "role": "admin"},
+        headers=_bearer(LOCAL_ADMIN["email"]),
+    )
+
+    assert (response.status_code, response.json()) == (400, {"detail": "Project access is managed from project settings"})
+    assert store.updates == []
+    assert store.by_id(LOCAL_VIEWER["id"])["role"] == "viewer"
+    (row,) = _rows(audit_rows, f"/api/auth/users/{LOCAL_VIEWER['id']}")
+    assert "account_change" not in row.request_meta
+
+
 def test_the_emergency_admin_is_activated_and_other_accounts_deactivated(
     client: TestClient, store: _Store
 ) -> None:

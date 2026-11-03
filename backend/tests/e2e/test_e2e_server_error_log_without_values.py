@@ -29,6 +29,8 @@ from uuid import uuid4
 
 import pytest
 
+from backend.tests.e2e._harness import ensure_postgres_schema
+
 pytestmark = pytest.mark.integration
 
 _ROUTE = "/api/e2e-server-error/{probe}"
@@ -52,10 +54,10 @@ async def _exercise(run: str, value: str) -> dict:
     from uvicorn.logging import DefaultFormatter
 
     from backend.app.core.coga_logging import JsonLogFormatter, install_server_error_redaction
-    from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
+    from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.middleware import request_logging
 
-    await init_postgres_schema()
+    await ensure_postgres_schema()
     sessionmaker = get_postgres_sessionmaker()
 
     app = FastAPI()

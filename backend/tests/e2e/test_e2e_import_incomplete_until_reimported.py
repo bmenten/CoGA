@@ -34,15 +34,14 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import text
 
+from backend.tests.e2e._harness import DRIFT_AND_QC_ACKNOWLEDGED, capture, ensure_postgres_schema, gate_refusal
+from backend.tests.e2e._import_jobs import claim_import_job
+
 pytestmark = pytest.mark.integration
 
-_ACK = "e2e validation"
-# The drift and Sample-QC gates come first; they are acknowledged in every attempt here.
-_OTHER_GATES = {
-    "acknowledge_drift": True,
-    "drift_acknowledgement_reason": _ACK,
-    "acknowledge_qc": True,
-    "qc_acknowledgement_reason": _ACK,
+# The drift, Sample-QC and unreviewed-findings gates, acknowledged in every attempt here.
+_GATES = {
+    **DRIFT_AND_QC_ACKNOWLEDGED,
     # The abnormal repeat and Paraphase calls are not reviewed here (REQ-TRACE-016).
     "acknowledge_unreviewed_findings": True,
     "unreviewed_findings_acknowledgement_reason": "e2e: the repeat and Paraphase calls are not reviewed",
@@ -59,15 +58,6 @@ _PARAPHASE = {
         "total_cn": 2,
     }
 }
-
-
-def _cap(resp) -> dict:
-    out: dict[str, Any] = {"status": resp.status_code, "text": resp.text}
-    try:
-        out["json"] = resp.json()
-    except ValueError:  # pragma: no cover
-        out["json"] = None
-    return out
 
 
 def _write_package(root: Path, family_id: str, **datasets: str) -> Path:
@@ -107,13 +97,13 @@ async def _collect(base: Path) -> dict:
     from httpx import ASGITransport, AsyncClient
 
     from backend.app.core.clickhouse import init_clickhouse_schema
-    from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
+    from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.main import app
     from backend.app.services import family_package_import as package_import
     from backend.app.services.clickhouse_variant_storage import ensure_clickhouse_variant_tables
     from backend.tests.e2e import _harness
 
-    await init_postgres_schema()
+    await ensure_postgres_schema()
     await init_clickhouse_schema()
     await ensure_clickhouse_variant_tables(_harness.ASSEMBLY)
     sm = get_postgres_sessionmaker()
@@ -163,20 +153,11 @@ async def _collect(base: Path) -> dict:
                 job_id = str(resp.json()["_id"])
                 jobs.append(job_id)
                 worker = f"e2e-flag-{uuid4().hex[:8]}"
-                async with sm() as s:
-                    await s.execute(
-                        text(
-                            "UPDATE family_import_jobs SET status = 'validating', worker_id = :w, "
-                            "started_at = now(), heartbeat_at = now() "
-                            "WHERE id = CAST(:j AS uuid) AND status = 'queued'"
-                        ),
-                        {"j": job_id, "w": worker},
-                    )
-                    await s.commit()
+                await claim_import_job(job_id, worker)
                 await package_import.run_family_import_job(job_id=job_id, worker_id=worker)
                 step: dict[str, Any] = {"job_id": job_id, "job": await job(job_id), "flag": await flag()}
-                step["signout"] = _cap(
-                    await _harness.sign_out(ac, f"/api/families/{family_id}/report/sign-out", _OTHER_GATES)
+                step["signout"] = capture(
+                    await _harness.sign_out(ac, f"/api/families/{family_id}/report/sign-out", _GATES)
                 )
                 out["steps"][name] = step
                 return job_id
@@ -211,21 +192,13 @@ def snap(tmp_path_factory, request) -> dict:
     return _harness.run_async(lambda: _collect(base))
 
 
-def _refused(step: dict) -> dict:
-    resp = step["signout"]
-    assert resp["status"] == 409, resp["text"]
-    detail = resp["json"]["detail"]
-    assert detail["gate"] == "import_incomplete", detail
-    return detail
-
-
 def test_a_partly_failed_import_flags_what_failed(snap) -> None:
     step = snap["steps"]["1_partial"]
     assert step["job"]["status"] == "failed"
     assert step["flag"]["failed_datasets"] == ["snv"]
     assert step["flag"]["imported_datasets"] == ["coverage"]
     assert step["flag"]["failed_jobs"] == {"snv": step["job_id"]}
-    assert _refused(step)["import_incomplete"]["failed_datasets"] == ["snv"]
+    assert gate_refusal(step["signout"], "import_incomplete")["import_incomplete"]["failed_datasets"] == ["snv"]
 
 
 def test_an_import_that_completes_without_the_failed_dataset_leaves_it_flagged(snap) -> None:
@@ -236,7 +209,7 @@ def test_an_import_that_completes_without_the_failed_dataset_leaves_it_flagged(s
     assert step["flag"]["failed_jobs"] == {"snv": first["job_id"]}
     note = next(line for line in step["job"]["logs"] if "stays flagged import-incomplete" in line)
     assert f"snv in import job {first['job_id']}" in note
-    assert _refused(step)["import_incomplete"]["failed_datasets"] == ["snv"]
+    assert gate_refusal(step["signout"], "import_incomplete")["import_incomplete"]["failed_datasets"] == ["snv"]
 
 
 def test_a_later_failure_keeps_the_earlier_one_with_its_job(snap) -> None:
@@ -245,7 +218,7 @@ def test_a_later_failure_keeps_the_earlier_one_with_its_job(snap) -> None:
     # Before: this failure's flag replaced the earlier one, and named Paraphase only.
     assert step["flag"]["failed_datasets"] == ["paraphase", "snv"]
     assert step["flag"]["failed_jobs"] == {"paraphase": step["job_id"], "snv": first["job_id"]}
-    message = _refused(step)["message"]
+    message = gate_refusal(step["signout"], "import_incomplete")["message"]
     assert f"snv in import job {first['job_id']}" in message
     assert f"paraphase in import job {step['job_id']}" in message
 

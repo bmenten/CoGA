@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import FamilyNiptReportPage from '../FamilyNiptReportPage';
 import { READ_ONLY_HINT } from '../../../lib/familyAccess';
 import { createTestQueryClient } from '../../../test/createTestQueryClient';
+import { renderFamilyRoute } from '../../../test/familyRoute';
 import { INCOMPLETE_IMPORT_METADATA, findImportIncompleteBanner } from '../../../test/familyPageBanners';
 
 const apiMock = vi.hoisted(() => ({
@@ -77,15 +78,7 @@ const niptVariant = (
 
 const renderPage = (search = '?panel_id=panel-1') => {
   const queryClient = createTestQueryClient();
-  return render(
-    <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={[`/families/NIPT001/nipt/report${search}`]}>
-        <Routes>
-          <Route path="/families/:familyId/nipt/report" element={<FamilyNiptReportPage />} />
-        </Routes>
-      </MemoryRouter>
-    </QueryClientProvider>,
-  );
+  return renderFamilyRoute('/families/:familyId/nipt/report', `/families/NIPT001/nipt/report${search}`, <FamilyNiptReportPage />, queryClient);
 };
 
 describe('FamilyNiptReportPage', () => {

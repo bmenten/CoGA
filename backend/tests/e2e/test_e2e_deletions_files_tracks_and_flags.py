@@ -37,15 +37,10 @@ from uuid import uuid4
 
 import pytest
 
+from backend.tests.e2e._harness import DRIFT_AND_QC_ACKNOWLEDGED, ensure_postgres_schema, place_file
+
 pytestmark = pytest.mark.integration
 
-_ACK = "e2e: the import gate is under test"
-_OTHER_GATES = {
-    "acknowledge_drift": True,
-    "drift_acknowledgement_reason": _ACK,
-    "acknowledge_qc": True,
-    "qc_acknowledgement_reason": _ACK,
-}
 
 # The commit of a transaction that deleted a sample or a family whose ID holds this fails: a
 # deferred trigger raises at COMMIT, after every statement of the deletion has run.
@@ -87,12 +82,6 @@ def _ped(family_id: str, names: dict[str, str]) -> bytes:
     ).encode()
 
 
-def _place(path: Path, content: bytes) -> Path:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(content)
-    return path
-
-
 async def _refuse_commits(refused: bool) -> None:
     """Put the trigger that refuses a deletion's commit in place, or take it away."""
     from backend.app.core.postgres import get_postgres_engine
@@ -111,11 +100,11 @@ async def _setup() -> tuple[Any, str]:
     """The schema, the assembly's ClickHouse tables and the e2e project: (sessionmaker,
     project id)."""
     from backend.app.core.clickhouse import init_clickhouse_schema
-    from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
+    from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.services.clickhouse_variant_storage import ensure_clickhouse_variant_tables
     from backend.tests.e2e import _harness
 
-    await init_postgres_schema()
+    await ensure_postgres_schema()
     await init_clickhouse_schema()
     await ensure_clickhouse_variant_tables(_harness.ASSEMBLY)
     sessionmaker = get_postgres_sessionmaker()
@@ -145,8 +134,8 @@ async def _files_after_commit(run: str, data: Path) -> dict[str, Any]:
     sessionmaker, project_id = await _setup()
     family, s1, s2 = (f"{_REFUSED}_{run}_{suffix}" for suffix in ("F", "S1", "S2"))
     files = {
-        "family": _place(data / "raw_imports" / family / "0a1b2c__family.vcf", b"family upload"),
-        "s2": _place(data / "raw_imports" / family / "3d4e5f__s2.vcf", b"S2 upload"),
+        "family": place_file(data / "raw_imports" / family / "0a1b2c__family.vcf", b"family upload"),
+        "s2": place_file(data / "raw_imports" / family / "3d4e5f__s2.vcf", b"S2 upload"),
     }
     out: dict[str, Any] = {"steps": {}}
 
@@ -496,7 +485,7 @@ async def _flags_cleared(run: str) -> dict[str, Any]:
                 )
                 await session.commit()
             sign_out = f"/api/families/{family}/report/sign-out"
-            await state("signout_flagged", await _harness.sign_out(ac, sign_out, _OTHER_GATES))
+            await state("signout_flagged", await _harness.sign_out(ac, sign_out, DRIFT_AND_QC_ACKNOWLEDGED))
             await state("child_deleted", await ac.delete(f"/api/admin/samples/{child}", params={"confirm": "true"}))
             await state(
                 "father_trgt",
@@ -506,7 +495,7 @@ async def _flags_cleared(run: str) -> dict[str, Any]:
                     files={"file": ("father.trgt.vcf", _trgt_vcf(father).encode(), "text/plain")},
                 ),
             )
-            await state("signout", await _harness.sign_out(ac, sign_out, _OTHER_GATES))
+            await state("signout", await _harness.sign_out(ac, sign_out, DRIFT_AND_QC_ACKNOWLEDGED))
     finally:
         await _drop_families(sessionmaker, [family])
     return out

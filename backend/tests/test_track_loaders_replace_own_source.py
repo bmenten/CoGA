@@ -33,7 +33,6 @@ from typing import Any, Mapping
 import pytest
 from fastapi import HTTPException, UploadFile
 
-from backend.app.schemas import FamilyImportDatasetSummary
 from backend.app.services import (
     bed_service,
     clickhouse_interval_tracks,
@@ -46,14 +45,18 @@ from backend.app.services.family_metadata_context import FamilyMetadataContext, 
 from backend.app.services.family_package_common import (
     APCAD_PCF_SOURCE,
     CNV_SOURCE,
-    FamilyPackageBundle,
     ManifestDataset,
-    PackageManifest,
-    ParsedPed,
+)
+from backend.tests._package_dataset_fakes import (
+    SAMPLES,
+    dataset_job,
+    family_context,
+    package_file as _file,
+    run_dataset as _run,
+    sample_uuid as _uuid,
 )
 
 FAMILY = "FAM022"
-SAMPLES = ("S1", "S2")
 # The sources the two loaders write, as stored and as the track availability serves them.
 WEB = "web"  # bed_service.BED_UPLOAD_SOURCE: a BED upload's, and a package's coverage BED's
 APCAD_SOURCE = "apcad"  # family_package_common.APCAD_SOURCE: the apcad dataset's
@@ -73,10 +76,6 @@ _OTHER_CALLERS = (
     ("apcad", CNV_SOURCE, 8),
     ("apcad_pcf", APCAD_PCF_SOURCE, 2),
 )
-
-
-def _uuid(sample_id: str) -> str:
-    return f"uuid-{sample_id}"
 
 
 # --- the two stores of a track ------------------------------------------------------------
@@ -185,20 +184,7 @@ def stores(monkeypatch: pytest.MonkeyPatch) -> _Stores:
 
 
 def _family_context() -> FamilyMetadataContext:
-    return FamilyMetadataContext(
-        family_uuid="family-uuid",
-        family_id=FAMILY,
-        project_ids=["project-uuid"],
-        sample_rows=[
-            {"sample_uuid": _uuid("S1"), "sample_id": "S1", "sex": "female", "role": "proband", "affected": True},
-            {"sample_uuid": _uuid("S2"), "sample_id": "S2", "sex": "male", "role": "father", "affected": False},
-        ],
-        sample_uuid_to_name={_uuid(sample): sample for sample in SAMPLES},
-        sample_name_to_uuid={sample: _uuid(sample) for sample in SAMPLES},
-        affected_sample_names=["S1"],
-        assembly_id="assembly-uuid",
-        assembly_name="GRCh38",
-    )
+    return family_context(FAMILY)
 
 
 def _sample(sample_id: str = "S1") -> SampleMetadataContext:
@@ -328,13 +314,6 @@ async def test_a_bed_upload_without_overwrite_replaces_a_record_whose_rows_are_g
 # --- the package's track datasets -------------------------------------------------------------
 
 
-def _file(root: Path, name: str, text: str) -> str:
-    path = root / name
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")
-    return name
-
-
 def _job(
     stores: _Stores,
     root: Path,
@@ -343,26 +322,7 @@ def _job(
     *,
     conflict_mode: str,
 ) -> family_package_datasets.DatasetImportJob:
-    family = _family_context()
-    return family_package_datasets.DatasetImportJob(
-        session=_Session(stores),  # type: ignore[arg-type]
-        bundle=FamilyPackageBundle(
-            root=root,
-            manifest_path=root / "manifest.yaml",
-            manifest=PackageManifest(ped="family.ped", datasets={dataset_type: dataset}),
-            ped_path=root / "family.ped",
-            ped=ParsedPed(family_ids=[FAMILY], members=[], sample_ids=list(SAMPLES), text=""),
-        ),
-        dataset=dataset,
-        summary=FamilyImportDatasetSummary(dataset_type=dataset_type, status="valid"),
-        family_context=family,
-        sample_contexts=registration._family_sample_contexts(family),
-        conflict_mode=conflict_mode,
-    )
-
-
-async def _run(job: family_package_datasets.DatasetImportJob) -> FamilyImportDatasetSummary:
-    return await family_package_datasets.DATASET_IMPORTERS[job.summary.dataset_type](job)
+    return dataset_job(_Session(stores), root, FAMILY, dataset_type, dataset, conflict_mode=conflict_mode)
 
 
 @pytest.mark.asyncio

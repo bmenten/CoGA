@@ -42,6 +42,8 @@ from uuid import uuid4
 
 import pytest
 
+from backend.tests.e2e._harness import capture, ensure_postgres_schema
+
 pytestmark = pytest.mark.integration
 
 # The *_id fields of a request body that name a record by its UUID, and those that hold an
@@ -81,16 +83,6 @@ PROJECT_NOT_FOUND = (404, {"detail": "Project not found"})
 # A position on chr1 no golden-trio or demo variant is near: the table import finds no
 # annotation that would keep an allele off the list.
 TABLE_POSITION = 248_950_000
-
-
-def _cap(resp: Any) -> dict[str, Any]:
-    out: dict[str, Any] = {"status": resp.status_code}
-    try:
-        out["json"] = resp.json()
-    except ValueError:
-        out["json"] = None
-        out["text"] = resp.text[:200]
-    return out
 
 
 def _status(answer: dict[str, Any]) -> tuple[int, Any]:
@@ -239,7 +231,7 @@ async def _sweep(ac: Any, run: str, records: dict[str, str]) -> list[dict[str, A
                         "operation": (method, path),
                         "field": field,
                         "form": form,
-                        **_cap(resp),
+                        **capture(resp),
                     }
                 )
     return probes
@@ -272,7 +264,7 @@ async def _collect(run: str) -> dict[str, Any]:
 
     from backend.app.core.clickhouse import init_clickhouse_schema
     from backend.app.core.config import settings
-    from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
+    from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.dependencies import get_password_hash
     from backend.app.main import app
     from backend.app.services.clickhouse_variant_storage import ensure_clickhouse_variant_tables
@@ -285,7 +277,7 @@ async def _collect(run: str) -> dict[str, Any]:
     viewer_email, viewer_password = f"e2e-body-viewer-{run}@example.com", f"viewer-password-{run}"
     audited_paths = ["/api/admin/nipt/artifacts", "/api/family-imports"]
 
-    await init_postgres_schema()
+    await ensure_postgres_schema()
     # The table import reads the assembly's annotation in ClickHouse.
     await init_clickhouse_schema()
     await ensure_clickhouse_variant_tables(_harness.ASSEMBLY)
@@ -378,16 +370,16 @@ async def _collect(run: str) -> dict[str, Any]:
             # --- the NIPT artifact list: each value, as the admin -----------------------
             assemblies = {**_refused(not_a_uuid), **_spellings(assembly_id)}
             for index, (name, value) in enumerate(assemblies.items()):
-                r["add"][name] = _cap(
+                r["add"][name] = capture(
                     await ac.post(
                         "/api/admin/nipt/artifacts",
                         json={"assembly_id": value, "assay_key": assay, "variant_id": f"1-100-A-G-{run}-{name}"},
                     )
                 )
-                r["seed"][name] = _cap(
+                r["seed"][name] = capture(
                     await ac.post("/api/admin/nipt/artifacts/auto-seed", json={"assembly_id": value, "assay_key": assay})
                 )
-                r["import"][name] = _cap(
+                r["import"][name] = capture(
                     await ac.post(
                         "/api/admin/nipt/artifacts/import",
                         data={"assembly_id": value, "assay_key": assay},
@@ -404,7 +396,7 @@ async def _collect(run: str) -> dict[str, Any]:
                 **_spellings(records["project"]),
             }
             for name, value in projects.items():
-                r["job"][name] = _cap(
+                r["job"][name] = capture(
                     await ac.post(
                         "/api/family-imports",
                         json={"folder_path": f"{folder}/{name}", "project_id": value, "dry_run": True},
@@ -413,18 +405,18 @@ async def _collect(run: str) -> dict[str, Any]:
 
             # --- the viewer: refused before the id is read ------------------------------
             for name, value in {"not_a_uuid": not_a_uuid, "unknown": str(uuid4()), "canonical": assembly_id}.items():
-                r["viewer"][f"add_{name}"] = _cap(
+                r["viewer"][f"add_{name}"] = capture(
                     await viewer.post(
                         "/api/admin/nipt/artifacts",
                         json={"assembly_id": value, "assay_key": assay, "variant_id": f"1-200-A-G-{run}-{name}"},
                     )
                 )
-                r["viewer"][f"seed_{name}"] = _cap(
+                r["viewer"][f"seed_{name}"] = capture(
                     await viewer.post(
                         "/api/admin/nipt/artifacts/auto-seed", json={"assembly_id": value, "assay_key": assay}
                     )
                 )
-                r["viewer"][f"import_{name}"] = _cap(
+                r["viewer"][f"import_{name}"] = capture(
                     await viewer.post(
                         "/api/admin/nipt/artifacts/import",
                         data={"assembly_id": value, "assay_key": assay},
@@ -432,7 +424,7 @@ async def _collect(run: str) -> dict[str, Any]:
                     )
                 )
             for name, value in {"not_a_uuid": not_a_uuid, "unknown": str(uuid4()), "canonical": records["project"]}.items():
-                r["viewer"][f"job_{name}"] = _cap(
+                r["viewer"][f"job_{name}"] = capture(
                     await viewer.post(
                         "/api/family-imports",
                         json={"folder_path": f"{folder}/viewer-{name}", "project_id": value, "dry_run": True},
@@ -440,7 +432,7 @@ async def _collect(run: str) -> dict[str, Any]:
                 )
 
             # --- what was written ---------------------------------------------------------
-            r["chain"] = _cap(
+            r["chain"] = capture(
                 await ac.get(
                     "/api/admin/integrity/verify",
                     params={"table": "clinical_audit_events", "family_id": NIPT_ARTIFACT_AUDIT_CHAIN},

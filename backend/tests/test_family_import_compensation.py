@@ -477,12 +477,28 @@ async def test_an_update_completes_no_earlier_imports_partial_data() -> None:
 
 
 @pytest.mark.asyncio
-async def test_a_clear_that_fails_leaves_the_marks_and_says_so() -> None:
+async def test_a_clear_that_fails_leaves_the_marks_and_says_so(caplog) -> None:
     class _Failing(_FakeSession):
+        committed = rolled_back = False
+
         async def execute(self, statement, params=None):
             raise RuntimeError("database unavailable")
 
-    assert await fpi._clear_family_import_incomplete(_Failing(), _ctx(), import_key="job-1") is None
+        async def commit(self) -> None:
+            self.committed = True
+
+        async def rollback(self) -> None:
+            self.rolled_back = True
+
+    session = _Failing()
+    caplog.set_level("WARNING", logger=registration.logger.name)
+
+    assert await fpi._clear_family_import_incomplete(session, _ctx(), import_key="job-1") is None
+    # Nothing is written: the flag and the entry stay, the safe side; the log names the family.
+    assert (session.committed, session.rolled_back) == (False, True)
+    assert [record.getMessage() for record in caplog.records] == [
+        "Failed to clear import-incomplete flag for family F1"
+    ]
 
 
 # --- a restore that did not finish: the whole family (SAFE-16) ----------------------------

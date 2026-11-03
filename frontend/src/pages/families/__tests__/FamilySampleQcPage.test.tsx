@@ -1,10 +1,9 @@
-import { QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 import FamilySampleQcPage from '../FamilySampleQcPage';
 import { createTestQueryClient } from '../../../test/createTestQueryClient';
+import { renderFamilyRoute } from '../../../test/familyRoute';
 import {
   INCOMPLETE_IMPORT_METADATA,
   findAssemblyScopeBanner,
@@ -50,15 +49,7 @@ const mockApi = (qcData: unknown, family: unknown = TRIO_FAMILY) => {
 
 const renderPage = () => {
   const queryClient = createTestQueryClient();
-  return render(
-    <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={['/families/FAM1/qc']}>
-        <Routes>
-          <Route path="/families/:familyId/qc" element={<FamilySampleQcPage />} />
-        </Routes>
-      </MemoryRouter>
-    </QueryClientProvider>,
-  );
+  return renderFamilyRoute('/families/:familyId/qc', '/families/FAM1/qc', <FamilySampleQcPage />, queryClient);
 };
 
 // The member's row in the per-sample table.

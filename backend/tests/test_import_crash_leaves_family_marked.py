@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -37,36 +36,9 @@ from backend.app.services import family_package_import as package_import
 from backend.app.services import family_package_registration as registration
 from backend.app.services import sv_gene_index_service, variant_ranking_cache
 from backend.app.services.access_control import CurrentUser
-from backend.app.services.family_metadata_context import FamilyMetadataContext
+from backend.tests._family_import_fakes import admin_user, two_sample_context
 
 FAMILY = "FAM001"
-
-
-def _admin() -> CurrentUser:
-    return CurrentUser(
-        id="00000000-0000-0000-0000-000000000001",
-        username="admin@example.com",
-        email="admin@example.com",
-        role="admin",
-        created_at=datetime.now(timezone.utc),
-    )
-
-
-def _context() -> FamilyMetadataContext:
-    return FamilyMetadataContext(
-        family_uuid="family-uuid",
-        family_id=FAMILY,
-        project_ids=["project-uuid"],
-        sample_rows=[
-            {"sample_uuid": "uuid-S1", "sample_id": "S1", "sex": "male", "role": "proband", "affected": True},
-            {"sample_uuid": "uuid-S2", "sample_id": "S2", "sex": "female", "role": "mother", "affected": False},
-        ],
-        sample_uuid_to_name={"uuid-S1": "S1", "uuid-S2": "S2"},
-        sample_name_to_uuid={"S1": "uuid-S1", "S2": "uuid-S2"},
-        affected_sample_names=["S1"],
-        assembly_id="assembly-uuid",
-        assembly_name="GRCh38",
-    )
 
 
 class _Family:
@@ -160,7 +132,7 @@ def family(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> _Family:
             session, family_uuid="family-uuid", mark=import_mark
         )
         state.events.append(("registered",))
-        return _context(), state.created  # type: ignore[attr-defined]
+        return two_sample_context(), state.created  # type: ignore[attr-defined]
 
     @asynccontextmanager
     async def hold(_family_uuid: str, **_kwargs: Any):
@@ -212,7 +184,7 @@ async def _import(family: _Family, *, conflict_mode: str = "update", job_id: str
         folder_path=family.root,  # type: ignore[attr-defined]
         project_id="project-uuid",
         dry_run=False,
-        user=_admin(),
+        user=admin_user(),
         conflict_mode=conflict_mode,
         job_id=job_id,
     )
@@ -603,7 +575,7 @@ def _job_row(logs: list[str]) -> dict[str, Any]:
         "submitted_path": "/data/families/FAM001",
         "project_id": "project-uuid",
         "dry_run": False,
-        "requested_by_id": _admin().id,
+        "requested_by_id": admin_user().id,
         "metadata": {"conflict_mode": "update", "requested_family_id": FAMILY},
         "logs": json.dumps(logs),
     }
@@ -613,7 +585,7 @@ def _run_job_with(monkeypatch: pytest.MonkeyPatch, row: dict[str, Any], execute:
     updates: list[dict] = []
 
     async def user(_session: Any, _user_id: str) -> CurrentUser:
-        return _admin()
+        return admin_user()
 
     async def update_job_progress(_session: Any, **kwargs: Any) -> bool:
         updates.append(kwargs)

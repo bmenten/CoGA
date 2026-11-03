@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from fastapi import HTTPException
 
 from backend.app.services import clickhouse_family_variants, nipt_artifact_pg
 from backend.app.services.nipt_artifact_pg import (
@@ -49,7 +50,10 @@ async def test_load_nipt_artifact_ids_returns_variant_id_set() -> None:
         assay_key="nipt_cfdna",
     )
     assert ids == {"1-100-A-G", "2-200-C-T"}
-    assert session.executed  # the query ran
+    # One query, scoped to the assembly and the assay.
+    [(statement, params)] = session.executed
+    assert "FROM nipt_artifact_variants" in statement
+    assert params == {"assembly_id": "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d", "assay_key": "nipt_cfdna"}
 
 
 @pytest.mark.asyncio
@@ -293,14 +297,16 @@ async def test_auto_seed_nipt_artifacts_missing_assembly_raises(
     monkeypatch.setattr(nipt_artifact_pg, "fetch_recurrent_small_variant_ids", fake_recurrent)
     session = _AutoSeedSession(None)
 
-    with pytest.raises(Exception) as excinfo:
+    with pytest.raises(HTTPException) as excinfo:
         await auto_seed_nipt_artifacts(
             session,  # type: ignore[arg-type]
             assembly_id="5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b",
             assay_key="nipt_cfdna",
             min_carrier_samples=5,
         )
-    assert "Assembly not found" in str(excinfo.value)
+    assert (excinfo.value.status_code, excinfo.value.detail) == (404, "Assembly not found")
+    # Nothing was seeded or committed.
+    assert (session.bulk_rows, session.commits) == (None, 0)
 
 
 @pytest.mark.asyncio
@@ -347,8 +353,6 @@ def test_parse_artifact_table_reads_a_plain_allele_list() -> None:
 
 
 def test_parse_artifact_table_refuses_a_table_without_alleles() -> None:
-    from fastapi import HTTPException
-
     with pytest.raises(HTTPException) as exc:
         nipt_artifact_pg.parse_artifact_table("gene\tcount\nGENEA\t3\n")
     assert exc.value.status_code == 400

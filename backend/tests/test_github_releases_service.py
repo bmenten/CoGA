@@ -39,7 +39,7 @@ async def test_get_github_release_catalog_returns_release_history(
                     "tag_name": "v1.4.0",
                     "name": "Pair-level compound het results",
                     "published_at": "2026-04-20T09:30:00Z",
-                    "html_url": "https://github.com/bmenten/coga/releases/tag/v1.4.0",
+                    "html_url": "https://github.com/example-org/coga/releases/tag/v1.4.0",
                     "prerelease": False,
                     "body": """
                     - Added pair-level compound-het search results
@@ -65,7 +65,7 @@ async def test_get_github_release_catalog_returns_release_history(
             return _FakeResponse()
 
     monkeypatch.setattr(github_releases_service.httpx, "AsyncClient", _FakeAsyncClient)
-    monkeypatch.setattr(settings, "github_repository", "bmenten/coga")
+    monkeypatch.setattr(settings, "github_repository", "example-org/coga")
     monkeypatch.setattr(settings, "github_api_token", "secret-token")
     monkeypatch.setattr(settings, "github_release_cache_ttl_seconds", 0)
     github_releases_service._cache.payload = None
@@ -74,10 +74,10 @@ async def test_get_github_release_catalog_returns_release_history(
     catalog = await github_releases_service.get_github_release_catalog(refresh=True)
 
     assert catalog.sync_status == "ok"
-    assert catalog.repository == "bmenten/coga"
+    assert catalog.repository == "example-org/coga"
     assert catalog.releases[0].version == "v1.4.0"
     assert "pair-level compound-het" in catalog.releases[0].summary
-    assert captured["url"] == "https://api.github.com/repos/bmenten/coga/releases"
+    assert captured["url"] == "https://api.github.com/repos/example-org/coga/releases"
     assert captured["params"] == {"per_page": 20}
     assert captured["timeout"] == 20.0
     assert captured["headers"]["Authorization"] == "Bearer secret-token"
@@ -107,7 +107,7 @@ async def test_get_github_release_catalog_reports_private_repo_sync_problem(
             return _FakeResponse()
 
     monkeypatch.setattr(github_releases_service.httpx, "AsyncClient", _FakeAsyncClient)
-    monkeypatch.setattr(settings, "github_repository", "bmenten/coga")
+    monkeypatch.setattr(settings, "github_repository", "example-org/coga")
     monkeypatch.setattr(settings, "github_api_token", None)
     monkeypatch.setattr(settings, "github_release_cache_ttl_seconds", 0)
     github_releases_service._cache.payload = None

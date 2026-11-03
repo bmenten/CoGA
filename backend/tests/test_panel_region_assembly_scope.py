@@ -2,8 +2,13 @@
 
 A panel is a gene list; its coordinates depend on the assembly. Before, one region per gene
 was kept across all assemblies (GRCh38 first, else T2T) with no assembly recorded, and every
-family's panel filter used them. The real-database behaviour (storage, the family filter and
-the schema upgrade) is covered by ``integration/test_panel_regions_per_assembly.py``.
+family's panel filter used them. Now a gene is resolved in every assembly that has it, each
+region is stored with its assembly, PanelApp's coordinates are kept for the assembly requested
+only, and the family filter (``_fetch_panel_constraints``) reads the panel's genes, the regions
+stored for the family's own assembly and the genes' loci in that assembly's gene reference.
+Without a resolved assembly it reads no coordinates at all, as no stored region can be trusted
+then (test_panel_resolution_cache.py). The real-database behaviour (storage, the family filter
+and the schema upgrade) is covered by ``integration/test_panel_regions_per_assembly.py``.
 """
 
 from __future__ import annotations
@@ -12,8 +17,11 @@ import asyncio
 import types
 from datetime import datetime, timezone
 
+import pytest
+
 from backend.app.schemas import GeneLocation, PanelAppImportRequest
 from backend.app.services import panel_metadata_service as pms
+from backend.app.services.clickhouse_family_variants import _fetch_panel_constraints
 from backend.app.services.panelapp_service import PanelAppImportContent
 
 GRCH38 = "11111111-1111-1111-1111-111111111111"
@@ -177,3 +185,57 @@ def test_panelapp_coordinates_for_an_unloaded_assembly_are_not_kept(monkeypatch)
     stored = {(row["gene"], row["assembly_id"]) for row in session.inserted_regions}
     assert stored == {("BRCA1", GRCH38), ("BRCA1", T2T), ("TTN", GRCH38)}
     assert "GRCh37 coordinates were not kept" in out.message
+
+
+# --- the family filter reads the family's own assembly ----------------------------------------
+
+
+class _MappingResult:
+    def __init__(self, rows: list[dict[str, object]]) -> None:
+        self._rows = rows
+
+    def mappings(self):
+        return self
+
+    def all(self) -> list[dict[str, object]]:
+        return self._rows
+
+    def scalar_one_or_none(self) -> object | None:
+        return self._rows[0] if self._rows else None
+
+
+class _PanelConstraintSession:
+    def __init__(self) -> None:
+        self.statements: list[str] = []
+
+    async def execute(self, statement, params: dict[str, object]):
+        sql = str(statement)
+        self.statements.append(sql)
+        if "FROM gene_panel_genes" in sql:
+            return _MappingResult([{"gene_symbol": "GENE1"}])
+        if "FROM gene_panel_regions" in sql:
+            return _MappingResult([{"gene": "GENE1", "chr": "1", "start": 10, "end": 20}])
+        if "FROM genes" in sql:
+            return _MappingResult([{"chr": "2", "start": 100, "end": 200}])
+        return _MappingResult([])
+
+
+@pytest.mark.asyncio
+async def test_panel_constraints_include_family_assembly_gene_regions() -> None:
+    session = _PanelConstraintSession()
+
+    constraints = await _fetch_panel_constraints(
+        session,
+        "d67e635c-7d98-4495-8b3c-153f5007561b",
+        assembly_id="5ddde908-e97d-4f60-95cb-3a6f9f8173d3",
+    )
+
+    assert constraints.genes == ("GENE1",)
+    assert [(region.chr, region.start, region.end) for region in constraints.regions] == [
+        ("1", 10, 20),
+        ("2", 100, 200),
+    ]
+    assert any("FROM genes" in statement for statement in session.statements)
+    # #515: stored regions are read for the family's own assembly only.
+    stored = next(s for s in session.statements if "FROM gene_panel_regions" in s)
+    assert "assembly_id = CAST(:assembly_id AS uuid)" in stored

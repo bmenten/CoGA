@@ -1,4 +1,6 @@
 import asyncio
+import gzip
+import io
 from io import BytesIO
 from pathlib import Path
 import tempfile
@@ -81,7 +83,10 @@ def test_iter_upload_text_lines_rejects_overlong_line(monkeypatch) -> None:
     upload = _line_upload(b"x" * 64)  # 64 bytes, no newline, cap 16
     with pytest.raises(HTTPException) as exc:
         list(_iter_upload_text_lines(upload, kind="VCF"))
-    assert exc.value.status_code == 413
+    assert (exc.value.status_code, exc.value.detail) == (
+        413,
+        "VCF file contains a line exceeding the maximum allowed length",
+    )
 
 
 def test_iter_upload_text_lines_allows_normal_lines(monkeypatch) -> None:
@@ -90,6 +95,111 @@ def test_iter_upload_text_lines_allows_normal_lines(monkeypatch) -> None:
     lines = list(_iter_upload_text_lines(upload, kind="VCF"))
     assert lines[0].startswith("##fileformat")
     assert lines[1].startswith("chr1")
+
+
+class _Unseekable:
+    """An upload that streams but cannot seek, as a pipe does."""
+
+    def __init__(self, data: bytes) -> None:
+        self._data = BytesIO(data)
+
+    def read(self, size: int = -1) -> bytes:
+        return self._data.read(size)
+
+    def seek(self, *_args) -> int:
+        raise io.UnsupportedOperation("seek")
+
+    def tell(self) -> int:
+        raise io.UnsupportedOperation("tell")
+
+
+def test_an_uploads_size_is_told_before_it_is_read() -> None:
+    upload = _line_upload(b"##fileformat=VCFv4.2\n")
+    upload.file.read(5)
+    # Its bytes, and the file put back at its start for the read.
+    assert variant_upload_service._upload_size(upload) == len(b"##fileformat=VCFv4.2\n")
+    assert upload.file.tell() == 0
+    assert variant_upload_service._upload_size(UploadFile(file=_Unseekable(b"##fileformat=VCFv4.2\n"))) is None
+
+
+@pytest.mark.parametrize(
+    "data",
+    [b"##fileformat=VCFv4.2\n", gzip.compress(b"##fileformat=VCFv4.2\n")],
+    ids=["plain", "gzip"],
+)
+def test_an_upload_that_cannot_seek_is_refused_by_its_read(data: bytes) -> None:
+    # The upload reads its file twice (a check, then the write), so it must seek. The BGZF
+    # end check cannot look at the end of such a file and leaves it to the read ...
+    upload = UploadFile(file=_Unseekable(data), filename="calls.vcf.gz")
+    assert variant_upload_service._refuse_bgzf_without_its_end(upload, kind="VCF") is None
+    # ... which refuses it before it reads a line.
+    with pytest.raises(HTTPException) as exc:
+        list(_iter_upload_text_lines(upload, kind="VCF"))
+    assert (exc.value.status_code, exc.value.detail) == (400, "VCF file is not seekable")
+
+
+@pytest.mark.asyncio
+async def test_an_upload_that_cannot_seek_replaces_nothing(monkeypatch) -> None:
+    deleted: list[object] = []
+
+    async def stored(*_args, **_kwargs) -> int:
+        return 5
+
+    async def delete(*args, **_kwargs) -> None:
+        deleted.append(args)
+
+    monkeypatch.setattr(variant_upload_service, "count_family_small_variants", stored)
+    monkeypatch.setattr(variant_upload_service, "delete_family_small_variants", delete)
+
+    with pytest.raises(HTTPException) as exc:
+        await variant_upload_service.upload_family_small_variant_file(
+            _NoopSession(),
+            context=SimpleNamespace(assembly_name="GRCh38", family_uuid="uuid-1", family_id="F1", project_ids=[]),
+            sample_contexts={},
+            file=UploadFile(file=_Unseekable(b"##fileformat=VCFv4.2\n"), filename="calls.vcf"),
+            overwrite=True,
+            format_hint="clair3",
+        )
+
+    assert (exc.value.status_code, exc.value.detail) == (400, "VCF file is not seekable")
+    assert deleted == []  # the stored callset is as it was
+
+
+class _Unread:
+    """An upload that fails the test when it is read."""
+
+    def read(self, *_args) -> bytes:
+        raise AssertionError("the upload was read")
+
+    def seek(self, *_args) -> int:
+        raise AssertionError("the upload was read")
+
+    def tell(self) -> int:
+        raise AssertionError("the upload was read")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("upload", ["small-variants", "structural-variants"])
+async def test_an_upload_to_a_family_without_one_assembly_is_refused_before_its_file_is_read(upload: str) -> None:
+    # The family's samples span projects of different assemblies: no table can take its
+    # calls, so the upload stops before it reads or stores anything.
+    family = SimpleNamespace(assembly_name=None, family_uuid="uuid-1", family_id="F1", project_ids=[])
+    file = UploadFile(file=_Unread(), filename="calls.vcf")
+    with pytest.raises(HTTPException) as exc:
+        if upload == "small-variants":
+            await variant_upload_service.upload_family_small_variant_file(
+                _NoopSession(), context=family, sample_contexts={}, file=file, overwrite=True, format_hint="clair3"
+            )
+        else:
+            await variant_upload_service.upload_structural_variant_file(
+                _NoopSession(),  # type: ignore[arg-type]
+                family_context=family,  # type: ignore[arg-type]
+                sample_context=SimpleNamespace(sample_id="S1", sample_uuid="uuid-S1"),  # type: ignore[arg-type]
+                file=file,
+                overwrite=True,
+                format_hint="sniffles",
+            )
+    assert (exc.value.status_code, exc.value.detail) == (400, "Could not resolve a single assembly for this family")
 
 
 class _NoopSession:
@@ -130,7 +240,10 @@ async def test_non_overwrite_conflict_does_not_delete_existing_rows(monkeypatch)
             overwrite=False,
             format_hint="clair3",
         )
-    assert exc.value.status_code == 409
+    assert (exc.value.status_code, exc.value.detail) == (
+        409,
+        "Small variants or haplotype blocks already exist for this family",
+    )
     assert deleted["called"] is False  # existing rows were NOT touched
 
 
@@ -143,49 +256,27 @@ def test_parse_qual_reads_float_and_treats_missing_as_none() -> None:
     assert _parse_qual("not-a-number") is None
 
 
-def test_haplotype_state_end_uses_next_variant_on_same_chromosome() -> None:
-    state = {
-        "start": 100,
-        "last_pos": 200,
-        "chr": "1",
-    }
-
+@pytest.mark.parametrize(
+    ("state", "next_chrom", "next_start", "chromosome_sizes", "end"),
+    [
+        # The next variant on the same chromosome.
+        ({"start": 100, "last_pos": 200, "chr": "1"}, "1", 500, {"1": 1_000}, 500),
+        # The previous chromosome's size, on a change of chromosome.
+        ({"start": 800, "last_pos": 950, "chr": "1"}, "2", 10, {"1": 1_000, "2": 2_000}, 1_000),
+        # The last variant, without a chromosome size.
+        ({"start": 800, "last_pos": 950, "chr": "1"}, None, None, {}, 951),
+    ],
+    ids=["next-variant-on-the-chromosome", "chromosome-size-on-a-change", "last-variant-without-a-size"],
+)
+def test_a_haplotype_state_ends_where_the_next_one_can_begin(
+    state, next_chrom, next_start, chromosome_sizes, end
+) -> None:
     assert _haplotype_state_end(
         state,
-        next_chrom="1",
-        next_start=500,
-        chromosome_sizes={"1": 1_000},
-    ) == 500
-
-
-def test_haplotype_state_end_uses_previous_chromosome_size_on_chromosome_change() -> None:
-    state = {
-        "start": 800,
-        "last_pos": 950,
-        "chr": "1",
-    }
-
-    assert _haplotype_state_end(
-        state,
-        next_chrom="2",
-        next_start=10,
-        chromosome_sizes={"1": 1_000, "2": 2_000},
-    ) == 1_000
-
-
-def test_haplotype_state_end_falls_back_to_last_variant_without_chromosome_size() -> None:
-    state = {
-        "start": 800,
-        "last_pos": 950,
-        "chr": "1",
-    }
-
-    assert _haplotype_state_end(
-        state,
-        next_chrom=None,
-        next_start=None,
-        chromosome_sizes={},
-    ) == 951
+        next_chrom=next_chrom,
+        next_start=next_start,
+        chromosome_sizes=chromosome_sizes,
+    ) == end
 
 
 def test_haplotype_blocks_follow_phase_set_not_individual_genotype_state() -> None:
@@ -232,6 +323,42 @@ def test_gt_only_clair3_vcf_is_not_detected_as_glimpse2() -> None:
 
     upload = UploadFile(file=BytesIO(vcf_text.encode()), filename="S1.vcf")
     assert _detect_small_variant_format_from_upload(upload, "auto") == "clair3"
+
+
+_SV_COLUMNS = "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS1\n"
+
+
+@pytest.mark.parametrize(
+    ("text", "filename", "expected"),
+    [
+        # Named by the header's source, whatever the file is called.
+        ("##fileformat=VCFv4.2\n##source=Spectre\n" + _SV_COLUMNS, "S1.vcf", "spectre"),
+        ("##fileformat=VCFv4.2\n##source=Sniffles2_2.2\n" + _SV_COLUMNS, "S1.vcf", "sniffles"),
+        # Else by the first record: Spectre writes a range where a position stands.
+        (_SV_COLUMNS + "1\t1000:1100\t.\tN\t<DEL>\t.\tPASS\tEND=5000\tGT\t0/1\n", "S1.vcf", "spectre"),
+        (_SV_COLUMNS + "1\t1000\t.\tN\t<DEL>\t.\tPASS\tEND=5000:5100\tGT\t0/1\n", "S1.vcf", "spectre"),
+        (_SV_COLUMNS + "1\t1000\t.\tN\t<DEL>\t.\tPASS\tSVTYPE=DEL;END=5000\tGT\t0/1\n", "S1.vcf", "sniffles"),
+        # A record of fewer than VCF's eight columns is a manual table, as a .tsv or .txt is.
+        ("1\t1000\t5000\tDEL\n", "S1.vcf", "manual"),
+        (_SV_COLUMNS + "1\t1000\t.\tN\t<DEL>\t.\tPASS\tEND=5000\tGT\t0/1\n", "S1_svs.tsv", "manual"),
+    ],
+    ids=["spectre-header", "sniffles-header", "spectre-position", "spectre-end", "sniffles-record", "short-record", "tsv"],
+)
+def test_an_sv_upload_without_a_named_format_is_told_by_its_file(text, filename, expected) -> None:
+    # The format names the source whose calls the upload reads and replaces: told wrong,
+    # an upload would replace another caller's calls.
+    assert variant_upload_service._detect_structural_variant_format(text, filename, "auto") == expected
+
+
+def test_an_sv_upload_names_a_format_of_its_own_or_holds_a_record() -> None:
+    assert variant_upload_service._detect_structural_variant_format("", "S1.vcf", "spectre") == "spectre"
+    with pytest.raises(HTTPException) as unsupported:
+        variant_upload_service._detect_structural_variant_format("", "S1.vcf", "needlr")  # type: ignore[arg-type]
+    assert unsupported.value.status_code == 400
+    assert "Unsupported structural-variant source_format" in unsupported.value.detail
+    with pytest.raises(HTTPException) as empty:
+        variant_upload_service._detect_structural_variant_format("##fileformat=VCFv4.2\n" + _SV_COLUMNS, "S1.vcf", "auto")
+    assert (empty.value.status_code, empty.value.detail) == (400, "No valid structural variant records found")
 
 
 def test_segregation_haplotype_switch_requires_repeated_evidence(

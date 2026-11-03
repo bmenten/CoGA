@@ -147,26 +147,9 @@ const requestedUrls = (): string[] => apiGetMock.mock.calls.map(([url]) => Strin
 beforeEach(() => {
   // Nothing answers: a track can only be named from what it asked for, not from data.
   apiGetMock.mockImplementation(() => new Promise(() => {}));
-  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(
-    () =>
-      ({
-        clearRect: vi.fn(),
-        fillRect: vi.fn(),
-        beginPath: vi.fn(),
-        moveTo: vi.fn(),
-        lineTo: vi.fn(),
-        stroke: vi.fn(),
-        fill: vi.fn(),
-        setLineDash: vi.fn(),
-        fillText: vi.fn(),
-        save: vi.fn(),
-        restore: vi.fn(),
-      }) as unknown as CanvasRenderingContext2D,
-  );
 });
 
 afterEach(() => {
-  vi.restoreAllMocks();
   apiGetMock.mockReset();
 });
 

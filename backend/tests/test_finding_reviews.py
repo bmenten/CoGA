@@ -10,10 +10,12 @@ unreviewed findings lists (B8, B12), and the clinical audit events of a save.
 from __future__ import annotations
 
 import asyncio
+import json
 from types import SimpleNamespace
 from typing import Any, get_args
 
 import pytest
+from fastapi import HTTPException
 from pydantic import ValidationError
 
 from backend.app.schemas import ParaphaseReviewUpdate, RepeatExpansionReviewUpdate
@@ -420,3 +422,182 @@ def test_the_events_name_the_finding_its_modality_assembly_and_evidence(monkeypa
     assert event["variant_id"] == "repeat:FXS_FMR1" and event["action"] == "classification"
     assert event["metadata"] == {"modality": "repeat", "assembly_id": "a1", "evidence_digest": "abc"}
     assert event["actor"] == "analyst" and event["family_identifier"] == "FAM1"
+
+
+# --- A save (upsert_finding_review) ----------------------------------------------------------
+#
+# The family's calls, the review row, the lock, the tag catalogue and the audit event are
+# faked at the module; the session records each statement it is given. A review that bears a
+# judgement freezes the calls it rests on when it first does so, when its classification
+# changes or when it gains the Report tag, and keeps them otherwise, so a later change of the
+# calls reads as drift (B5, B13). Real Postgres is in e2e/test_e2e_repeat_paraphase_reviews.py.
+
+_CALLS = {"locus_id": "FXS_FMR1", "calls": [{"sample": "MOTHER", "repeat_counts": [30, 60]}]}
+_CALLS_SINCE = {"locus_id": "FXS_FMR1", "calls": [{"sample": "MOTHER", "repeat_counts": [30, 62]}]}
+_FROZEN = {"captured_at": "2026-10-28T10:00:00+00:00", "evidence": _CALLS}
+
+
+def _stored(**fields: Any) -> dict[str, Any]:
+    return {**_row("FXS_FMR1", classification="premutation", evidence_snapshot=_FROZEN), "id": "r1", **fields}
+
+
+class _SaveSession:
+    def __init__(self) -> None:
+        self.statements: list[tuple[str, dict[str, Any]]] = []
+        self.commits = 0
+
+    async def execute(self, statement: Any, params: Any = None) -> Any:
+        self.statements.append((" ".join(str(statement).split()), dict(params or {})))
+        return None
+
+    async def commit(self) -> None:
+        self.commits += 1
+
+    def writes(self) -> list[tuple[str, dict[str, Any]]]:
+        return [(sql.split()[0], params) for sql, params in self.statements if sql.split()[0] in ("INSERT", "UPDATE", "DELETE")]
+
+
+def _save(
+    monkeypatch,
+    payload: RepeatExpansionReviewUpdate,
+    *,
+    existing: dict[str, Any] | None,
+    current: dict[str, Any] | None = _CALLS,
+    key: str = "FXS_FMR1",
+    assembly_id: str | None = "a1",
+    session: _SaveSession | None = None,
+) -> tuple[Any, _SaveSession, list[dict[str, Any]]]:
+    session = session or _SaveSession()
+    audited: list[dict[str, Any]] = []
+
+    async def _evidence(session_, kind, context, key_):
+        assert kind is frp.REPEAT and key_ == key.strip()
+        return current
+
+    async def _review_row(session_, kind, *, family_uuid, assembly_id, key):
+        return dict(existing) if existing is not None else None
+
+    async def _lock(session_, **kwargs):
+        session.statements.append((f"lock {kwargs['scope']} {kwargs['variant_id']}", {}))
+
+    async def _catalogue(session_, *, family_uuid, project_ids):
+        return [SimpleNamespace(key=tag) for tag in ("report", "review")]
+
+    async def _audit(session_, **kwargs):
+        audited.append({**kwargs, "commits_before": session.commits})
+
+    monkeypatch.setattr(frp, "_current_evidence", _evidence)
+    monkeypatch.setattr(frp, "_review_row", _review_row)
+    monkeypatch.setattr(frp, "_lock_review", _lock)
+    monkeypatch.setattr(frp, "list_small_variant_tag_definitions", _catalogue)
+    monkeypatch.setattr(frp, "record_finding_review_changes", _audit)
+    context = SimpleNamespace(family_uuid="f1", family_id="FAM1", assembly_id=assembly_id, project_ids=[])
+    saved = asyncio.run(
+        frp.upsert_finding_review(
+            session,  # type: ignore[arg-type]
+            kind=frp.REPEAT,
+            context=context,  # type: ignore[arg-type]
+            key=key,
+            payload=payload,
+            user=SimpleNamespace(id="u1", username="analyst"),  # type: ignore[arg-type]
+        )
+    )
+    return saved, session, audited
+
+
+def _snapshot_written(session: _SaveSession) -> Any:
+    [(_verb, params)] = session.writes()
+    return json.loads(params["snapshot_json"]) if params["snapshot_json"] else None
+
+
+def test_a_re_save_that_keeps_the_classification_updates_the_review_and_keeps_its_frozen_calls(monkeypatch) -> None:
+    # The calls changed since the review was saved: a note added keeps what it rests on, so
+    # the review now reads as drifted.
+    saved, session, audited = _save(
+        monkeypatch,
+        RepeatExpansionReviewUpdate(classification="premutation", note="Confirmed by PCR"),
+        existing=_stored(),
+        current=_CALLS_SINCE,
+    )
+
+    [(verb, params)] = session.writes()
+    assert (verb, params["review_id"], params["classification"], params["note"]) == (
+        "UPDATE",
+        "r1",
+        "premutation",
+        "Confirmed by PCR",
+    )
+    assert _snapshot_written(session) == _FROZEN
+    # Under the review's lock, before anything is written; audited before the one commit.
+    assert session.statements[0][0] == "lock rptr a1:FXS_FMR1"
+    [event] = audited
+    assert (event["existing"]["note"], event["new_state"]["note"]) == (None, "Confirmed by PCR")
+    assert event["evidence_digest"] == frp.evidence_digest(_FROZEN)
+    assert (event["commits_before"], session.commits) == (0, 1)
+    assert saved.drift is not None and saved.drift.status == "changed"
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        RepeatExpansionReviewUpdate(classification="pathogenic_expansion"),
+        RepeatExpansionReviewUpdate(classification="premutation", tags=["report"]),
+    ],
+    ids=["classification-changed", "report-tag-added"],
+)
+def test_a_changed_classification_or_a_report_tag_added_freezes_the_calls_again(monkeypatch, payload) -> None:
+    saved, session, audited = _save(monkeypatch, payload, existing=_stored(), current=_CALLS_SINCE)
+
+    frozen = _snapshot_written(session)
+    assert frozen["evidence"] == _CALLS_SINCE and frozen != _FROZEN
+    assert audited[0]["evidence_digest"] == frp.evidence_digest(frozen)
+    assert saved.drift is not None and saved.drift.status == "unchanged"
+
+
+def test_a_first_review_that_bears_a_judgement_is_inserted_with_the_calls_it_rests_on(monkeypatch) -> None:
+    saved, session, audited = _save(monkeypatch, RepeatExpansionReviewUpdate(classification="premutation"), existing=None)
+
+    [(verb, params)] = session.writes()
+    assert (verb, params["key"], params["assembly_id"]) == ("INSERT", "FXS_FMR1", "a1")
+    assert json.loads(params["snapshot_json"])["evidence"] == _CALLS
+    assert audited[0]["existing"] is None and session.commits == 1
+    # A review of a note alone freezes nothing: it bears no judgement.
+    _saved, session, _audited = _save(monkeypatch, RepeatExpansionReviewUpdate(note="Seen"), existing=None)
+    assert _snapshot_written(session) is None
+
+
+def test_a_save_that_says_nothing_deletes_the_review_with_its_audit_event(monkeypatch) -> None:
+    saved, session, audited = _save(monkeypatch, RepeatExpansionReviewUpdate(), existing=_stored())
+
+    assert session.writes() == [("DELETE", {"review_id": "r1"})]
+    [event] = audited
+    assert (event["new_state"], event["evidence_digest"], event["commits_before"]) == (None, None, 0)
+    assert (saved.key, saved.classification, session.commits) == ("FXS_FMR1", None, 1)
+    # Nothing to delete: nothing written, audited or committed.
+    _saved, session, audited = _save(monkeypatch, RepeatExpansionReviewUpdate(), existing=None)
+    assert (session.writes(), audited, session.commits) == ([], [], 0)
+
+
+@pytest.mark.parametrize(
+    ("save", "status", "detail"),
+    [
+        ({"key": "  "}, 400, "A repeat locus is required"),
+        (
+            {"assembly_id": None},
+            422,
+            "This family has no reference assembly, so a review of a repeat locus cannot say which calls it is "
+            "of. Link the family to a project with an assembly.",
+        ),
+        ({"current": None}, 404, "This family holds no call at that repeat locus"),
+        ({"payload": RepeatExpansionReviewUpdate(tags=["report", "probe_x"])}, 400, "Unknown review tag(s): probe_x"),
+    ],
+    ids=["no-locus", "no-assembly", "no-call-at-the-locus", "unknown-tag-added"],
+)
+def test_a_save_that_cannot_say_what_it_is_of_is_refused_and_writes_nothing(monkeypatch, save, status, detail) -> None:
+    payload = save.pop("payload", RepeatExpansionReviewUpdate(classification="premutation"))
+    session = _SaveSession()
+    with pytest.raises(HTTPException) as refused:
+        _save(monkeypatch, payload, existing=None, session=session, **save)
+
+    assert (refused.value.status_code, refused.value.detail) == (status, detail)
+    assert (session.writes(), session.commits) == ([], 0)

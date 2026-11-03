@@ -39,6 +39,8 @@ from uuid import uuid4
 
 import pytest
 
+from backend.tests.e2e._harness import capture, ensure_postgres_schema
+
 pytestmark = pytest.mark.integration
 
 _SEEDED_GENE_SOURCE = "e2e-sv-panel-any-size"
@@ -167,24 +169,17 @@ async def _seed_genes(assembly_id: str | None) -> int:
     return int(left)
 
 
-def _status(response: Any) -> dict[str, Any]:
-    out: dict[str, Any] = {"status": response.status_code, "text": response.text[:2000]}
-    if response.status_code == 200 and "json" in response.headers.get("content-type", ""):
-        out["json"] = response.json()
-    return out
-
-
 async def _exercise(base: Path, family_id: str) -> dict[str, Any]:
     from httpx import ASGITransport, AsyncClient
 
     from backend.app.core.clickhouse import init_clickhouse_schema
-    from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
+    from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.main import app
     from backend.app.services import family_package_import as package_import
     from backend.app.services.clickhouse_variant_storage import ensure_clickhouse_variant_tables
     from backend.tests.e2e import _harness
 
-    await init_postgres_schema()
+    await ensure_postgres_schema()
     await init_clickhouse_schema()
     await ensure_clickhouse_variant_tables(_harness.ASSEMBLY)
     sessionmaker = get_postgres_sessionmaker()
@@ -227,7 +222,7 @@ async def _exercise(base: Path, family_id: str) -> dict[str, Any]:
                 if created.status_code == 201:
                     panels[name] = created.json()["panel"]["_id"]
                     out["panels"][name] = (201, len(created.json()["panel"]["regions"]))
-            out["unfiltered"] = _status(await ac.get(svs, params={"page_size": 100}))
+            out["unfiltered"] = capture(await ac.get(svs, params={"page_size": 100}))
             for name, panel_id in panels.items():
                 answers = out["answers"].setdefault(name, {})
                 for path, (endpoint, params) in _PATHS.items():
@@ -235,10 +230,10 @@ async def _exercise(base: Path, family_id: str) -> dict[str, Any]:
                     query = {"panel_id": panel_id, **params}
                     if endpoint == "list":
                         query = {"page_size": 100, **query}
-                    answers[path] = _status(await ac.get(url, params=query))
+                    answers[path] = capture(await ac.get(url, params=query))
                 # Each member's genome track over chromosome 2, as the genome view asks for it.
                 for role in _RECORDS:
-                    answers[f"track {role}"] = _status(
+                    answers[f"track {role}"] = capture(
                         await ac.get(
                             svs,
                             params={
@@ -253,7 +248,7 @@ async def _exercise(base: Path, family_id: str) -> dict[str, Any]:
                             },
                         )
                     )
-                answers["track availability"] = _status(
+                answers["track availability"] = capture(
                     await ac.get(
                         f"/api/families/{family_id}/track-availability",
                         params={"panel_id": panel_id, "include_small_variants": "false"},

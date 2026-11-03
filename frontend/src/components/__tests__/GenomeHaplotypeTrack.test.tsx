@@ -1,7 +1,7 @@
 // The genome-wide haplotype track (#588): the risk haplotype is inferred at the ROI and
 // drawn only on the ROI's chromosome, where its homolog label means something; without
 // an ROI no risk haplotype is drawn and no risk state is claimed.
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import React, { type ReactElement } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -175,6 +175,82 @@ describe('GenomeHaplotypeTrack risk haplotype (#588)', () => {
   });
 });
 
+// #510 — a failed request must say so, never read as "no haplotype data", and never feed
+// the chromosomes that did load into a risk state. #529 — the canvas is a named image:
+// whose haplotypes, where, and the risk state its border shows, with where that state was
+// assessed.
+describe('GenomeHaplotypeTrack failures and its name (#510, #529)', () => {
+  const unaffectedChild = (urls: string[], chroms: string[]) => (
+    <GenomeHaplotypeTrack
+      urls={urls}
+      sampleId="E1"
+      role="child"
+      affected={false}
+      layout={LAYOUT}
+      chroms={chroms}
+    />
+  );
+  const CHR1 = '/api/families/F1/haplotypes/batch?chr=1';
+  const CHR2 = '/api/families/F1/haplotypes/batch?chr=2';
+
+  it('fails as a whole when any source fails, instead of computing risk from the rest', async () => {
+    trackFetchMock.mockImplementation(async (url: string) => {
+      if (url.includes('chr=2')) throw Object.assign(new Error('HTTP 500'), { response: { status: 500 } });
+      return { samples: [{ sample: 'E1', segments: [{ start: 0, end: 500, hap1: 'A', hap2: 'B' }] }] };
+    });
+    const { container } = renderWithClient(unaffectedChild([CHR1, CHR2], ['1', '2']));
+
+    expect(await screen.findByText(/Could not load haplotypes — this is not an empty result/)).toBeInTheDocument();
+    // No risk state is claimed from the one chromosome that did load.
+    expect(container.querySelector('[data-risk-state]')?.getAttribute('data-risk-state')).toBe('unavailable');
+    expect(screen.queryByText('No haplotype data')).not.toBeInTheDocument();
+  });
+
+  it('retries on request', async () => {
+    trackFetchMock.mockRejectedValueOnce(new Error('Network Error'));
+    trackFetchMock.mockResolvedValue({ samples: [] });
+    renderWithClient(unaffectedChild([CHR1], ['1']));
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Retry' }));
+    expect(await screen.findByText('No haplotype data')).toBeInTheDocument();
+    expect(trackFetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  // Without an ROI no risk state is assessed: `without an ROI draws no risk haplotype and
+  // claims no risk state` above. It used to be chr1's, whatever the disorder's locus (#588).
+  it('is named with whose haplotypes, where, and where the risk state was assessed (#529)', async () => {
+    trackFetchMock.mockResolvedValue({
+      samples: [{ sample: 'E1', segments: [{ chr: '1', start: 0, end: 500, hap1: 'A', hap2: 'B' }] }],
+    });
+    renderWithClient(
+      React.cloneElement(unaffectedChild([CHR1, CHR2], ['1', '2']), {
+        riskRegion: { chr: '2', start: 100, end: 200 },
+      }),
+    );
+    expect(
+      await screen.findByRole('img', {
+        name: 'Haplotypes of E1 across 2 chromosomes; risk state at chr2:100–200: uninformative',
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it('never names a failed or empty track by a risk state it does not have (#529, #510)', async () => {
+    trackFetchMock.mockRejectedValueOnce(Object.assign(new Error('HTTP 500'), { response: { status: 500 } }));
+    trackFetchMock.mockResolvedValue({ samples: [] });
+    renderWithClient(unaffectedChild([CHR1], ['1']));
+
+    expect(
+      await screen.findByRole('img', { name: 'Haplotypes of E1 on chr1: failed to load; risk state: unavailable' }),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(
+      await screen.findByRole('img', {
+        name: 'Haplotypes of E1 on chr1: no data; risk state: not assessed, no region of interest',
+      }),
+    ).toBeInTheDocument();
+  });
+});
+
 // ENG-20, left by #1023 and #1026: the track looked a block up in the layout under its stored
 // chromosome name, and the layout names a chromosome as normalizeChrom does (`1`, `X`), so a
 // block stored as `x` or `chrX` was not drawn. Latent: the blocks are stored without `chr`.
@@ -234,5 +310,76 @@ describe('GenomeHaplotypeTrack places a block however its chromosome is stored',
     ).toBeInTheDocument();
     // Both of her lanes, over the whole of chrX.
     await waitFor(() => expect(filled).toEqual([100, 100]));
+  });
+});
+
+// Where a child's haplotypes change between two blocks of a chromosome the track draws a dashed
+// line (a recombination), and a deleted haplotype ('.') is struck through: neither ran in a test.
+describe('GenomeHaplotypeTrack marks recombinations and deleted haplotypes', () => {
+  // Each line the last draw stroked, from its moveTo to its lineTo, and whether it was dashed.
+  let strokes: { from: [number, number]; to: [number, number]; dashed: boolean }[] = [];
+
+  beforeEach(() => {
+    strokes = [];
+    let dash: number[] = [];
+    let from: [number, number] = [0, 0];
+    let to: [number, number] = [0, 0];
+    vi.mocked(HTMLCanvasElement.prototype.getContext).mockImplementation(
+      () =>
+        ({
+          clearRect: () => {
+            strokes = [];
+          },
+          fillRect: vi.fn(),
+          beginPath: vi.fn(),
+          moveTo: (x: number, y: number) => {
+            from = [x, y];
+          },
+          lineTo: (x: number, y: number) => {
+            to = [x, y];
+          },
+          stroke: () => {
+            strokes.push({ from, to, dashed: dash.length > 0 });
+          },
+          setLineDash: (segments: number[]) => {
+            dash = segments;
+          },
+          fillText: vi.fn(),
+        }) as unknown as CanvasRenderingContext2D,
+    );
+  });
+
+  it('draws a dashed line where the haplotypes change, and strikes a deleted haplotype through', async () => {
+    // chr1 is x 0–100 on the 200 px track: the second block starts at x 50, its hap2 deleted.
+    trackFetchMock.mockResolvedValue({
+      samples: [
+        {
+          sample: 'CHILD',
+          segments: [
+            { chr: '1', start: 0, end: 500, hap1: '0', hap2: '1', ps: 1 },
+            { chr: '1', start: 500, end: 1000, hap1: '1', hap2: '.', ps: 1 },
+          ],
+        },
+      ],
+    });
+    renderWithClient(
+      <GenomeHaplotypeTrack
+        urls={['/api/families/F1/haplotypes/batch?chr=1']}
+        sampleId="CHILD"
+        role="proband"
+        affected={false}
+        sex="female"
+        layout={LAYOUT}
+        width={200}
+        height={20}
+        chroms={['1']}
+      />,
+    );
+
+    await waitFor(() => expect(strokes.length).toBeGreaterThan(0));
+    // The recombination: dashed, the full height of the track at x 50.
+    expect(strokes.filter(({ dashed }) => dashed)).toEqual([{ from: [50, 0], to: [50, 20], dashed: true }]);
+    // The deleted hap2 of the second block, on the lower lane (y 11–20), struck corner to corner.
+    expect(strokes.filter(({ dashed }) => !dashed)).toEqual([{ from: [50.75, 12], to: [99.25, 19], dashed: false }]);
   });
 });

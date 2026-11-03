@@ -31,6 +31,9 @@ from uuid import uuid4
 
 import pytest
 
+from backend.tests.e2e._harness import ensure_postgres_schema
+from backend.tests.e2e._vep_family import deepvariant_vep_header, single_sample_vcf, upload_family
+
 pytestmark = pytest.mark.integration
 
 # Chromosome 9 around 137.1 Mb: no other test writes there, and the explorer counts every
@@ -91,24 +94,12 @@ _EXPECTED: dict[str, set[str]] = {
 # Filler genes of the panel of more than 1,000 regions, one locus each on chromosome 21.
 _FILLERS = 1_000
 
-_VCF_HEADER = (
-    "##fileformat=VCFv4.2\n"
-    "##DeepVariant_version=1.10.0\n"
-    "##reference=GRCh38\n"
-    f'##INFO=<ID=CSQ,Number=.,Type=String,Description="Consequence annotations from Ensembl VEP. Format: {_CSQ_FORMAT}">\n'
-    '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
-    '##FORMAT=<ID=GQ,Number=1,Type=Integer,Description="Genotype quality">\n'
-    '##FORMAT=<ID=DP,Number=1,Type=Integer,Description="Read depth">\n'
-    '##FORMAT=<ID=AD,Number=R,Type=Integer,Description="Allele depths">\n'
-)
+_VCF_HEADER = deepvariant_vep_header(_CSQ_FORMAT)
 
 
 def _vcf(sample: str) -> bytes:
-    lines = [_VCF_HEADER + f"#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t{sample}"]
-    for variant_id, csq in _VARIANTS.items():
-        chrom, pos, ref, alt = variant_id.split("-")
-        lines.append(f"{chrom}\t{pos}\t.\t{ref}\t{alt}\t50\tPASS\tCSQ={csq}\tGT:GQ:DP:AD\t0/1:40:30:15,15")
-    return ("\n".join(lines) + "\n").encode()
+    infos = {variant_id: f"CSQ={csq}" for variant_id, csq in _VARIANTS.items()}
+    return single_sample_vcf(_VCF_HEADER, sample, infos, "0/1:40:30:15,15")
 
 
 def _panelapp_payload(panelapp_id: int, *, genes: list[str]) -> dict[str, Any]:
@@ -192,12 +183,12 @@ async def _exercise(family_id: str, panelapp_ids: dict[str, int]) -> dict[str, A
     from httpx import ASGITransport, AsyncClient
 
     from backend.app.core.clickhouse import init_clickhouse_schema
-    from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
+    from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.main import app
     from backend.app.services.clickhouse_variant_storage import ensure_clickhouse_variant_tables
     from backend.tests.e2e import _harness
 
-    await init_postgres_schema()
+    await ensure_postgres_schema()
     await init_clickhouse_schema()
     await ensure_clickhouse_variant_tables(_harness.ASSEMBLY)
     async with get_postgres_sessionmaker()() as session:
@@ -212,19 +203,9 @@ async def _exercise(family_id: str, panelapp_ids: dict[str, int]) -> dict[str, A
         token = await _harness.login_admin_token(ac)
         ac.headers["Authorization"] = f"Bearer {token}"
         try:
-            ped = await ac.post(
-                "/api/ped/upload",
-                params={"project_id": project_id},
-                files={
-                    "file": (f"{family_id}.ped", f"{family_id}\t{proband}\t0\t0\t2\t2\n".encode(), "text/plain")
-                },
+            out["setup"] = await upload_family(
+                ac, project_id, family_id, f"{family_id}\t{proband}\t0\t0\t2\t2\n", _vcf(proband)
             )
-            upload = await ac.post(
-                f"/api/families/{family_id}/small-variants/upload",
-                params={"overwrite": "false"},
-                files={"file": (f"{family_id}.vcf", _vcf(proband), "text/plain")},
-            )
-            out["setup"] = {"ped": (ped.status_code, ped.text), "upload": (upload.status_code, upload.text)}
             await _seed_genes(assembly_id)
 
             # PanelApp's panels, through CoGA's import: one of regions only, one of a gene

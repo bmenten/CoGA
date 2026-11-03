@@ -30,6 +30,8 @@ from pathlib import Path
 
 import pytest
 
+from backend.tests.e2e._harness import capture
+
 pytestmark = pytest.mark.integration
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "golden_trio"
@@ -37,13 +39,6 @@ _ASSEMBLY = "GRCh38"
 # An assembly no other test uses: its tables are created, and nothing is imported into it.
 _NO_DATA_ASSEMBLY = "E2EINTEGRITYNODATA"
 _MONITOR_LOGGER = "backend.app.services.clickhouse_integrity_monitor"
-
-
-def _cap(resp) -> dict:
-    out = {"status": resp.status_code, "text": resp.text}
-    if resp.status_code < 400:
-        out["json"] = resp.json()
-    return out
 
 
 class _Records(logging.Handler):
@@ -90,8 +85,8 @@ async def _exercise(root: Path) -> dict:
         async with AsyncClient(transport=transport, base_url="http://e2e") as ac:
             token = await _harness.login_admin_token(ac)
             ac.headers["Authorization"] = f"Bearer {token}"
-            imported = _cap(await ac.get(f"/api/admin/clickhouse/variants/{_ASSEMBLY}/integrity"))
-            no_data = _cap(
+            imported = capture(await ac.get(f"/api/admin/clickhouse/variants/{_ASSEMBLY}/integrity"))
+            no_data = capture(
                 await ac.get(f"/api/admin/clickhouse/variants/{_NO_DATA_ASSEMBLY}/integrity")
             )
 

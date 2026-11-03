@@ -307,6 +307,20 @@ def _resolve_manual_family_roles(
     return roles
 
 
+def _ped_upload_proband_id(members: list[dict[str, str]], *, parent_ids: set[str]) -> str | None:
+    """The proband of an uploaded PED family: its first affected member that no member names as
+    a parent, as a package's PED is read (``_ped_members_for_import``); with none affected, its
+    first member not named as a parent, as the Family Builder falls back
+    (``_resolve_manual_family_roles``). Where the parents' rows stand does not matter: a PED that
+    lists them first still gives its affected child the role. None when every member is a parent.
+    """
+    candidates = [member for member in members if member["iid"] not in parent_ids]
+    affected = (
+        member["iid"] for member in candidates if _pedigree_status_from_phenotype(member["phen"]) == "affected"
+    )
+    return next(affected, None) or next((member["iid"] for member in candidates), None)
+
+
 # The metadata the Family Builder may set, with the values each key may take: what its page sends
 # for a monogenic NIPT family and the mother's cfDNA sample (SAFE-12). Every other key is written
 # by an import or by an edit the audit trail records (a family's annotation manifest, a sample's
@@ -1023,15 +1037,17 @@ async def _upload_ped_data(
     for family_id, members in families.items():
         fathers = {member["pid"] for member in members if member["pid"] not in {"", "0"}}
         mothers = {member["mid"] for member in members if member["mid"] not in {"", "0"}}
+        proband_id = _ped_upload_proband_id(members, parent_ids=fathers | mothers)
         family_members: list[dict[str, Any]] = []
         for member in members:
             sample_id = member["iid"]
-            role = "proband"
             if sample_id in fathers:
                 role = "father"
             elif sample_id in mothers:
                 role = "mother"
-            elif family_members:
+            elif sample_id == proband_id:
+                role = "proband"
+            else:
                 role = "sibling"
             pedigree_status = _pedigree_status_from_phenotype(member["phen"])
             carrier_metadata = _carrier_annotations(

@@ -20,7 +20,10 @@ family's own rows, and its genes; the track availability offers a member's SV tr
 SVs the panel keeps; a panel and a gene filter both apply. The regions the SQL binds leave
 out only the regions inside another, which keeps every answer, an SV stored with its END
 before its POS included; merging the regions that share a base, as the small-variant
-condition does, would not.
+condition does, would not. The gene side of the rule also runs through the record filter on
+its own: a panel gene written in other capitals keeps an SV, another gene does not, and a
+search without a panel is not constrained by gene (merged from
+``test_structural_panel_gene_match.py``).
 """
 
 from __future__ import annotations
@@ -51,9 +54,10 @@ from backend.app.services.clickhouse_variant_records import (
 from backend.app.services.family_metadata_context import FamilyMetadataContext
 from backend.app.services.family_service import get_family_track_availability_for_user
 from backend.app.services.family_variant_filters import StructuralVariantQueryFilters
+from backend.tests._sv_fakes import SV_SEARCH, serve_stored_sv_rows, stub_sv_postgres_lookups
 
 _PANEL_ID = str(UUID(int=20261020))
-_M = "backend.app.services.clickhouse_family_variants."
+_M = SV_SEARCH
 
 # The panel's genes and the loci the gene reference gives them: SVPANA two transcripts in a
 # chain on chromosome 1, SVPANB one on chromosome 2.
@@ -136,67 +140,24 @@ def _family() -> FamilyMetadataContext:
     )
 
 
-def _stored_row(record: StructuralVariantRecord, key: int) -> tuple[Any, ...]:
-    """``record`` as ClickHouse returns it to the SV candidate read."""
-    return (
-        key,
-        record.variant_id,
-        record.chr,
-        record.start,
-        record.end,
-        record.sv_type,
-        record.source,
-        None,
-        None,
-        record.sv_len,
-        list(record.filters),
-        "",
-        list(record.gene_symbols),
-        [call.sample for call in record.calls],
-        [call.gt for call in record.calls],
-        [call.qual for call in record.calls],
-        [call.read_support for call in record.calls],
-        [call.filter for call in record.calls],
-        [call.copy_number for call in record.calls],
-    )
-
-
 def _serve(
     monkeypatch: pytest.MonkeyPatch, panel: PanelFilterConstraints, records: list[StructuralVariantRecord]
 ) -> list[tuple[str, dict[str, Any]]]:
     """ClickHouse holding ``records`` (every query gets all their rows: the record filter
     decides), the panel resolved as ``panel``, and Postgres without reviews, cytobands or
     phenotypes. Returns the queries sent, with their parameters."""
-    sent: list[tuple[str, dict[str, Any]]] = []
-    rows = [_stored_row(record, key) for key, record in enumerate(records, start=1)]
-
-    async def execute(query: str, params: dict[str, Any]) -> list[tuple[Any, ...]]:
-        sent.append((query, dict(params)))
-        return rows
+    sent = serve_stored_sv_rows(monkeypatch, records)
+    stub_sv_postgres_lookups(monkeypatch)
 
     async def resolve(_session: Any, panel_id: str, *, assembly_id: str | None = None) -> PanelFilterConstraints:
         assert panel_id == _PANEL_ID and assembly_id == "assembly-uuid"
         return panel
 
-    async def no_review_ids(*_args: Any, **_kwargs: Any) -> set[str]:
-        return set()
-
-    async def nothing(*_args: Any, **_kwargs: Any) -> dict:
-        return {}
-
-    async def no_phenotypes(*_args: Any, **_kwargs: Any) -> tuple[list[str], dict[str, str]]:
-        return [], {}
-
     async def gene_loci(_session: Any, *, gene_query: str, assembly_id: str | None) -> list[Region]:
         return {"OTHERGENE": [Region(chr="3", start=6_900_000, end=7_200_000)], "SVPANB": [_SVPANB_LOCUS]}[gene_query]
 
-    monkeypatch.setattr(_M + "_execute_clickhouse", execute)
     monkeypatch.setattr(clickhouse_family_variants, "_fetch_panel_constraints", resolve)
     monkeypatch.setattr(family_service, "_fetch_panel_constraints", resolve, raising=False)
-    monkeypatch.setattr(_M + "list_matching_structural_variant_review_ids", no_review_ids)
-    monkeypatch.setattr(_M + "get_structural_variant_review_map", nothing)
-    monkeypatch.setattr(_M + "_fetch_structural_cytoband_map", nothing)
-    monkeypatch.setattr(_M + "_affected_present_hpo", no_phenotypes)
     monkeypatch.setattr(_M + "_fetch_gene_regions", gene_loci)
     return sent
 
@@ -423,6 +384,31 @@ def test_a_panel_of_regions_alone_keeps_the_svs_in_them() -> None:
 
 def test_a_panel_without_genes_or_regions_keeps_none() -> None:
     assert _kept(PanelFilterConstraints(), _CALLSET) == set()
+
+
+# The gene side of the rule through ``_structural_record_matches`` itself (merged from
+# ``test_structural_panel_gene_match.py``; its SV naming no gene, which a gene panel leaves
+# out, is ``none`` in test_the_genes_are_matched_in_any_capitals_and_only_whole).
+
+
+def _gene_panel(*genes: str):
+    """A gene panel without regions: it keeps the SVs whose annotation names one of its genes."""
+    from backend.app.services.clickhouse_variant_queries import _StructuralPanelMatch
+
+    return _StructuralPanelMatch(PanelFilterConstraints(genes=genes))
+
+
+def test_panel_genes_match_by_gene_symbol() -> None:
+    # A gene panel keeps an SV whose annotation names one of its genes, in any capitals.
+    record = _sv("DEL-1", "chr1", 100, 200, ["BRCA1", "NBR2"])
+    filters = StructuralVariantQueryFilters(page=1, page_size=100)
+    assert _structural_record_matches(record, filters, [], [], panel=_gene_panel("brca1")) is True
+    assert _structural_record_matches(record, filters, [], [], panel=_gene_panel("TP53")) is False
+
+
+def test_no_panel_is_unconstrained_by_gene() -> None:
+    record = _sv("DEL-1", "chr1", 100, 200, ["BRCA1"])
+    assert _structural_record_matches(record, StructuralVariantQueryFilters(page=1, page_size=100), [], []) is True
 
 
 # --------------------------------------------------------------------------- #

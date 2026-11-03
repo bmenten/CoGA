@@ -1,4 +1,4 @@
-"""The Variant Explorer keeps and drops what the family search does (CLIN-29), on real ClickHouse.
+"""The Variant Explorer keeps and drops what the family search does (CLIN-29, CLIN-5), on real ClickHouse.
 
 The family search needs one transcript of a variant to meet every annotation filter
 together: impact, consequence, ClinVar, frequency, the in-silico scores and *Canonical*,
@@ -7,7 +7,13 @@ pools a variant's transcripts, so with *MANE only* and impact HIGH it kept a var
 HIGH transcript is not its MANE transcript, which the family page drops; and it required
 every in-silico minimum, where the family page takes any one.
 
-Six variants go in once, through the import's write path (``insert_small_variant_records``),
+*MANE only* keeps a variant with a MANE Select or a MANE Plus Clinical transcript (CLIN-5).
+The explorer read ``has_mane_select`` alone, so a variant whose only MANE transcript is MANE
+Plus Clinical was missing from its results and its CSV export: one such variant (its canonical
+transcript not MANE) is kept by *MANE only*, beside the MANE Select ones, and a variant with
+neither is dropped.
+
+Eight variants go in once, through the import's write path (``insert_small_variant_records``),
 annotated as the import parses VEP's CSQ, most with transcripts that disagree. For each
 filter set the test runs, on the same rows:
 
@@ -22,10 +28,9 @@ and asserts that each keeps exactly the expected variants. The family page's hyd
 (reviews, cohort counts, constraint, SV badges) is stubbed: it decorates the rows it is
 given and keeps or drops none.
 
-``resolve_scope`` is monkeypatched to a fresh project, as in
-``test_variant_explorer_mane_only_integration``, and the family is a fresh one. The variants
-sit on chromosome 9, where no other test writes, because the annotation tables are keyed by
-variant, not by project or family.
+``resolve_scope`` is monkeypatched to a fresh project, so only these rows are counted, and the
+family is a fresh one. The variants sit on chromosome 9, where no other test writes, because
+the annotation tables are keyed by variant, not by project or family.
 
 Synthetic data only. Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI
 ``smoke`` job sets it.
@@ -33,11 +38,12 @@ Synthetic data only. Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the
 
 from __future__ import annotations
 
-import asyncio
 from typing import Any
 from uuid import uuid4
 
 import pytest
+
+from backend.tests.integration._datastores import proband_context, run_closing_stores, small_variant, vep_annotations
 
 pytestmark = pytest.mark.integration
 
@@ -58,18 +64,20 @@ def _csq(
     transcript: str,
     *,
     mane: str = "",
+    mane_plus_clinical: str = "",
+    canonical: bool | None = None,
     lof: str = "",
     revel: str = "",
     cadd: str = "",
     af: str = "0.00001",
     clinvar: str = "",
 ) -> str:
-    """One VEP CSQ entry. A MANE transcript is also the canonical one."""
-    canonical = "YES" if mane else ""
+    """One VEP CSQ entry. A MANE Select transcript is also the canonical one, unless said otherwise."""
+    canonical_flag = "YES" if (bool(mane) if canonical is None else canonical) else ""
     return "|".join(
         [
             "T", consequence, impact, gene, f"ENSG_{gene}", "Transcript", transcript,
-            canonical, mane, "", lof, revel, cadd, af, clinvar,
+            canonical_flag, mane, mane_plus_clinical, lof, revel, cadd, af, clinvar,
         ]
     )
 
@@ -86,6 +94,10 @@ _REVEL_OFF_MANE = "9-136700401-C-T"
 _CADD_ONLY = "9-136700501-C-T"
 # A common missense (gnomAD 8%) that ClinVar calls likely pathogenic.
 _COMMON_LIKELY_PATHOGENIC = "9-136700601-C-T"
+# A missense whose only MANE transcript is MANE Plus Clinical; its canonical transcript is not MANE.
+_MANE_PLUS_CLINICAL_ONLY = "9-136700701-C-T"
+# A missense on its canonical transcript, which is not MANE: no MANE transcript at all.
+_NO_MANE = "9-136700801-C-T"
 
 _VARIANTS: dict[str, list[str]] = {
     _HIGH_OFF_MANE: [
@@ -116,6 +128,13 @@ _VARIANTS: dict[str, list[str]] = {
             revel="0.6", cadd="28", af="0.08", clinvar="likely_pathogenic",
         ),
     ],
+    _MANE_PLUS_CLINICAL_ONLY: [
+        _csq("missense_variant", "MODERATE", "SYN29G", "ENST_SYN29G_1", mane_plus_clinical="NM_SYN29G.1", cadd="26"),
+        _csq("intron_variant", "MODIFIER", "SYN29G", "ENST_SYN29G_2", canonical=True, cadd="26"),
+    ],
+    _NO_MANE: [
+        _csq("missense_variant", "MODERATE", "SYN29H", "ENST_SYN29H_1", canonical=True, cadd="26"),
+    ],
 }
 _ALL = set(_VARIANTS)
 
@@ -123,6 +142,8 @@ _ALL = set(_VARIANTS)
 _CASES = [
     pytest.param({}, _ALL, id="no-filter"),
     pytest.param({"impact": ["HIGH"]}, {_HIGH_OFF_MANE, _MANE_HIGH, _LOF_OFF_MANE}, id="high"),
+    # MANE Select or MANE Plus Clinical, on any transcript of the variant (CLIN-5).
+    pytest.param({"mane_only": True}, _ALL - {_NO_MANE}, id="mane-only"),
     pytest.param({"mane_only": True, "impact": ["HIGH"]}, {_MANE_HIGH}, id="mane-only-and-high"),
     pytest.param({"canonical_only": True, "impact": ["HIGH"]}, {_MANE_HIGH}, id="canonical-only-and-high"),
     pytest.param({"lof_only": True, "impact": ["HIGH"]}, {_MANE_HIGH, _LOF_OFF_MANE}, id="lof-only-and-high"),
@@ -145,82 +166,27 @@ _CASES = [
 ]
 
 
-def _vep_annotations(entries: list[str]) -> list[dict[str, Any]]:
-    from backend.app.services.variant_annotation_parser import (
-        AnnotationHeaderState,
-        extract_small_variant_annotations,
-        update_annotation_header_state,
-    )
-
-    state = AnnotationHeaderState()
-    update_annotation_header_state(
-        state,
-        '##INFO=<ID=CSQ,Number=.,Type=String,Description="Consequence annotations from Ensembl'
-        f' VEP. Format: {_CSQ_FORMAT}">',
-    )
-    return extract_small_variant_annotations({"CSQ": ",".join(entries)}, state)
-
-
-def _record(variant_id: str, annotations: list[dict[str, Any]]):
-    from backend.app.services.clickhouse_variant_records import SmallVariantCall, SmallVariantRecord
-
-    chrom, pos, ref, alt = variant_id.split("-")
-    return SmallVariantRecord(
-        variant_key=None, variant_id=variant_id, chr=chrom, start=int(pos), end=int(pos),
-        ref=ref, alt=alt, source="clair3", rsid=None, filters=["PASS"], gene_symbols=[],
-        annotations=annotations,
-        calls=[SmallVariantCall(sample=_SAMPLE, gt="0/1", gq=99.0, dp=30, af=[0.5], ad=[15, 15], ps=None)],
-        qual=100.0,
-    )
-
-
-def _context(family_uuid: str, project: str):
-    from backend.app.services.family_metadata_context import FamilyMetadataContext
-
-    return FamilyMetadataContext(
-        family_uuid=family_uuid,
-        family_id=f"CL29-{family_uuid[:8]}",
-        project_ids=[project],
-        sample_rows=[{"sample_id": _SAMPLE, "role": "proband", "sex": "female", "affected": True}],
-        sample_uuid_to_name={_SAMPLE: _SAMPLE},
-        sample_name_to_uuid={_SAMPLE: _SAMPLE},
-        affected_sample_names=[_SAMPLE],
-        assembly_id=str(uuid4()),
-        assembly_name=_ASSEMBLY,
-    )
-
-
-async def _close_stores() -> None:
-    from backend.app.core.clickhouse import close_clickhouse_client
-    from backend.app.core.postgres import close_postgres_engine
-
-    await close_clickhouse_client()
-    await close_postgres_engine()
-
-
 @pytest.fixture(scope="module")
 def stored_family() -> dict[str, str]:
-    """Write the six variants once, for a fresh family in a fresh project."""
-    from backend.app.core.postgres import init_postgres_schema
+    """Write the eight variants once, for a fresh family in a fresh project."""
     from backend.app.services.clickhouse_variant_storage import (
         ensure_clickhouse_variant_tables,
         insert_small_variant_records,
     )
 
     family_uuid, project = str(uuid4()), str(uuid4())
-    records = [_record(variant_id, _vep_annotations(entries)) for variant_id, entries in _VARIANTS.items()]
+    records = [
+        small_variant(variant_id, vep_annotations(_CSQ_FORMAT, entries), sample=_SAMPLE)
+        for variant_id, entries in _VARIANTS.items()
+    ]
 
     async def _write() -> None:
-        try:
-            # The schema and tables are made here, so the test does not depend on an
-            # earlier test (or the app's startup) having made them.
-            await init_postgres_schema()
-            await ensure_clickhouse_variant_tables(_ASSEMBLY)
-            await insert_small_variant_records(_ASSEMBLY, family_uuid, [project], records)
-        finally:
-            await _close_stores()
+        await ensure_clickhouse_variant_tables(_ASSEMBLY)
+        await insert_small_variant_records(_ASSEMBLY, family_uuid, [project], records)
 
-    asyncio.run(_write())
+    # The schema and tables are made here, so the test does not depend on an earlier test (or
+    # the app's startup) having made them.
+    run_closing_stores(_write, init_schema=True)
     return {"family_uuid": family_uuid, "project": project}
 
 
@@ -237,7 +203,11 @@ def test_explorer_keeps_what_the_family_search_keeps(
     from backend.app.services.clickhouse_variant_queries import _small_record_matches
     from backend.app.services.family_variant_filters import SmallVariantQueryFilters
 
-    context = _context(stored_family["family_uuid"], stored_family["project"])
+    family_uuid = stored_family["family_uuid"]
+    context = proband_context(
+        family_uuid, f"CL29-{family_uuid[:8]}", stored_family["project"], sample=_SAMPLE,
+        assembly_id=str(uuid4()), assembly_name=_ASSEMBLY,
+    )
     scope = explorer.ExplorerScope(
         assembly_id=str(uuid4()), assembly_name=_ASSEMBLY, project_ids=[stored_family["project"]]
     )
@@ -300,13 +270,7 @@ def test_explorer_keeps_what_the_family_search_keeps(
             "explorer export": {row.variant_id for row in explorer_export.rows},
         }
 
-    async def _wrapped() -> dict[str, Any]:
-        try:
-            return await _run()
-        finally:
-            await _close_stores()
-
-    results = asyncio.run(_wrapped())
+    results = run_closing_stores(_run)
     assert results == {
         "family page": (len(expected), expected),
         "family Python matcher": expected,

@@ -1,10 +1,8 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { MemoryRouter, Routes, Route } from 'react-router';
-import { QueryClientProvider } from '@tanstack/react-query';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import FamilyStructuralVariantsPage from '../FamilyStructuralVariantsPage';
 import api from '../../../lib/api';
-import { createTestQueryClient } from '../../../test/createTestQueryClient';
+import { renderFamilyRoute } from '../../../test/familyRoute';
 import { findAssemblyScopeBanner, offScopeProject } from '../../../test/familyPageBanners';
 import { held, settle } from '../../../test/settle';
 import { factText } from '../../../test/factText';
@@ -100,18 +98,13 @@ vi.mock('../../../lib/api', () => ({
   },
 }));
 
+/** The page of family F1, at `url`. */
+const renderPage = (url = '/families/F1/structural-variants') =>
+  renderFamilyRoute('/families/:familyId/structural-variants', url, <FamilyStructuralVariantsPage />);
+
 describe('FamilyStructuralVariantsPage', () => {
   it('shows filtered and overall variant counts', async () => {
-    const queryClient = createTestQueryClient();
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={['/families/F1/structural-variants']}>
-          <Routes>
-            <Route path="/families/:familyId/structural-variants" element={<FamilyStructuralVariantsPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>
-    );
+    renderPage();
     await waitFor(() =>
       expect(screen.getByText(factText(/Showing 1/))).toBeInTheDocument()
     );
@@ -129,32 +122,14 @@ describe('FamilyStructuralVariantsPage', () => {
   it('shows the Source column by default, since several callers call one SV under one id', async () => {
     // Each caller's call is a row of its own, with its own evidence and drift (TRACE-11): the
     // table hid the column that tells them apart (TRACE-12).
-    const queryClient = createTestQueryClient();
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={['/families/F1/structural-variants']}>
-          <Routes>
-            <Route path="/families/:familyId/structural-variants" element={<FamilyStructuralVariantsPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>
-    );
+    renderPage();
     await waitFor(() => expect(screen.getByText(factText(/Showing 1/))).toBeInTheDocument());
     fireEvent.click(screen.getByRole('tab', { name: 'Table' }));
     expect(await screen.findByRole('columnheader', { name: /^Source/ })).toBeInTheDocument();
   });
 
   it('opens the genome workspaces in a new tab so the filtered list is not re-run on every look', async () => {
-    const queryClient = createTestQueryClient();
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={['/families/F1/structural-variants']}>
-          <Routes>
-            <Route path="/families/:familyId/structural-variants" element={<FamilyStructuralVariantsPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>
-    );
+    renderPage();
     await waitFor(() => expect(screen.getByText(factText(/Showing 1/))).toBeInTheDocument());
 
     // Per-variant loci and the whole-genome workspaces in the header both leave the
@@ -175,16 +150,7 @@ describe('FamilyStructuralVariantsPage', () => {
   });
 
   it('can save a quick review tag without updating count-only cache entries as variant pages', async () => {
-    const queryClient = createTestQueryClient();
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={['/families/F1/structural-variants']}>
-          <Routes>
-            <Route path="/families/:familyId/structural-variants" element={<FamilyStructuralVariantsPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>
-    );
+    renderPage();
 
     await waitFor(() => expect(screen.getByText(factText(/Showing 1/))).toBeInTheDocument());
     fireEvent.click(screen.getAllByRole('button', { name: /^review$/i })[0]);
@@ -221,15 +187,7 @@ describe('FamilyStructuralVariantsPage', () => {
         : workingGet(url),
     );
     try {
-      render(
-        <QueryClientProvider client={createTestQueryClient()}>
-          <MemoryRouter initialEntries={['/families/F1/structural-variants']}>
-            <Routes>
-              <Route path="/families/:familyId/structural-variants" element={<FamilyStructuralVariantsPage />} />
-            </Routes>
-          </MemoryRouter>
-        </QueryClientProvider>,
-      );
+      renderPage();
       await waitFor(() => expect(screen.getByText(factText(/Showing 1/))).toBeInTheDocument());
       fireEvent.click(screen.getAllByRole('button', { name: /^review$/i })[0]);
       await waitFor(() => expect(screen.getByText(/Variant review saved/i)).toBeInTheDocument());
@@ -266,15 +224,7 @@ describe('FamilyStructuralVariantsPage', () => {
         : workingGet(url),
     );
     try {
-      render(
-        <QueryClientProvider client={createTestQueryClient()}>
-          <MemoryRouter initialEntries={['/families/F1/structural-variants']}>
-            <Routes>
-              <Route path="/families/:familyId/structural-variants" element={<FamilyStructuralVariantsPage />} />
-            </Routes>
-          </MemoryRouter>
-        </QueryClientProvider>,
-      );
+      renderPage();
       const uploadCard = (await screen.findByText('Source sniffles')).closest('article') as HTMLElement;
       fireEvent.click(within(uploadCard).getByRole('button', { name: 'ACMG (CNV)' }));
       fireEvent.click(await screen.findByRole('button', { name: /save classification/i }));
@@ -294,15 +244,7 @@ describe('FamilyStructuralVariantsPage', () => {
   });
 
   it("saves the review dialog without a small variant's ACMG or compound-het fields (#853)", async () => {
-    render(
-      <QueryClientProvider client={createTestQueryClient()}>
-        <MemoryRouter initialEntries={['/families/F1/structural-variants']}>
-          <Routes>
-            <Route path="/families/:familyId/structural-variants" element={<FamilyStructuralVariantsPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderPage();
     await waitFor(() => expect(screen.getByText(factText(/Showing 1/))).toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: /tags & notes/i }));
     fireEvent.change(await screen.findByPlaceholderText('Note or rationale'), {
@@ -320,15 +262,7 @@ describe('FamilyStructuralVariantsPage', () => {
   });
 
   it('searches the region flags left ticked, each as its own parameter', async () => {
-    render(
-      <QueryClientProvider client={createTestQueryClient()}>
-        <MemoryRouter initialEntries={['/families/F1/structural-variants']}>
-          <Routes>
-            <Route path="/families/:familyId/structural-variants" element={<FamilyStructuralVariantsPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderPage();
     await waitFor(() => expect(screen.getByText(factText(/Showing 1/))).toBeInTheDocument());
     fireEvent.click(screen.getByLabelText('Segdup'));
     fireEvent.click(screen.getByLabelText('Repeat'));
@@ -369,15 +303,7 @@ describe('FamilyStructuralVariantsPage', () => {
             }))
           : workingGet!(url),
       );
-      render(
-        <QueryClientProvider client={createTestQueryClient()}>
-          <MemoryRouter initialEntries={['/families/F1/structural-variants']}>
-            <Routes>
-              <Route path="/families/:familyId/structural-variants" element={<FamilyStructuralVariantsPage />} />
-            </Routes>
-          </MemoryRouter>
-        </QueryClientProvider>,
-      );
+      renderPage();
     };
 
     it('says the search stopped after the candidate cap and marks the total a lower bound', async () => {
@@ -429,16 +355,6 @@ describe('FamilyStructuralVariantsPage', () => {
       };
     };
 
-    const renderAt = (path = '/families/F1/structural-variants') =>
-      render(
-        <QueryClientProvider client={createTestQueryClient()}>
-          <MemoryRouter initialEntries={[path]}>
-            <Routes>
-              <Route path="/families/:familyId/structural-variants" element={<FamilyStructuralVariantsPage />} />
-            </Routes>
-          </MemoryRouter>
-        </QueryClientProvider>,
-      );
 
     it('says a failed search failed, and runs it again on retry', async () => {
       const search = failing((url) => url.startsWith('/families/F1/structural-variants?page=1&page_size=100'));
@@ -446,7 +362,7 @@ describe('FamilyStructuralVariantsPage', () => {
         get.mock.calls.filter(([url]) => String(url).startsWith('/families/F1/structural-variants?page=1&page_size=100'))
           .length;
       const earlier = searches();
-      renderAt();
+      renderPage();
 
       // The page runs a search before its default filters apply, and again after: wait
       // for the default search to have failed too, so the page is settled.
@@ -463,7 +379,7 @@ describe('FamilyStructuralVariantsPage', () => {
 
     it('does not show the filtered count as the total when the total could not be loaded', async () => {
       failing((url) => url === '/families/F1/structural-variants?page=1&page_size=1');
-      renderAt();
+      renderPage();
 
       expect(await screen.findByText(/Filtered 1 SVs; the number imported could not be loaded/)).toBeInTheDocument();
       expect(screen.getByText(factText('All variants —'))).toBeInTheDocument();
@@ -472,7 +388,7 @@ describe('FamilyStructuralVariantsPage', () => {
     // #604 — a location that reads as neither a gene nor a region is not searched as a
     // gene name: from the form it is named under its field, from a URL it fails the search.
     it('names an unreadable location under its field instead of searching it', async () => {
-      renderAt();
+      renderPage();
       await waitFor(() => expect(screen.getByText(factText('Showing 1'))).toBeInTheDocument());
       const searchesBefore = get.mock.calls.length;
 
@@ -484,7 +400,7 @@ describe('FamilyStructuralVariantsPage', () => {
     });
 
     it('fails a search whose URL carries an unreadable location', async () => {
-      renderAt('/families/F1/structural-variants?page=1&locus=chr1%3A100-');
+      renderPage('/families/F1/structural-variants?page=1&locus=chr1%3A100-');
 
       expect(
         await screen.findByText(/Could not load the structural variants — this is not an empty result\. Location 'chr1:100-' is not a gene or chr:start-end/),
@@ -494,7 +410,7 @@ describe('FamilyStructuralVariantsPage', () => {
 
     it('keeps an applied panel visible when the panel list could not be loaded', async () => {
       failing((url) => url === '/panels');
-      renderAt('/families/F1/structural-variants?page=1&panel_id=P1');
+      renderPage('/families/F1/structural-variants?page=1&panel_id=P1');
 
       expect(await screen.findByText(/Could not load the gene panel list — this is not an empty result/)).toHaveTextContent(
         /Panels cannot be chosen, and the default Mendeliome scope is not applied/,
@@ -510,7 +426,7 @@ describe('FamilyStructuralVariantsPage', () => {
           ? Promise.resolve({ data: [{ _id: 'PA', name: 'Panel A' }, { _id: 'PB', name: 'Panel B' }] })
           : workingGet!(url),
       );
-      renderAt('/families/F1/structural-variants?page=1&panel_id=PA');
+      renderPage('/families/F1/structural-variants?page=1&panel_id=PA');
 
       expect(await screen.findByText('Gene panel: Panel A')).toBeInTheDocument();
       fireEvent.change(screen.getByRole('combobox', { name: /panel/i }), { target: { value: 'PB' } });
@@ -535,16 +451,6 @@ describe('FamilyStructuralVariantsPage', () => {
       get.mockImplementation(workingGet!);
     });
 
-    const renderPage = () =>
-      render(
-        <QueryClientProvider client={createTestQueryClient()}>
-          <MemoryRouter initialEntries={['/families/F1/structural-variants']}>
-            <Routes>
-              <Route path="/families/:familyId/structural-variants" element={<FamilyStructuralVariantsPage />} />
-            </Routes>
-          </MemoryRouter>
-        </QueryClientProvider>,
-      );
 
     it('shows none of the SVs before the family, and then its reference, are in', async () => {
       const family = held();
@@ -597,15 +503,7 @@ describe('FamilyStructuralVariantsPage', () => {
         }
         return workingGet!(url);
       });
-      render(
-        <QueryClientProvider client={createTestQueryClient()}>
-          <MemoryRouter initialEntries={['/families/F1/structural-variants?project_id=p2']}>
-            <Routes>
-              <Route path="/families/:familyId/structural-variants" element={<FamilyStructuralVariantsPage />} />
-            </Routes>
-          </MemoryRouter>
-        </QueryClientProvider>,
-      );
+      renderPage('/families/F1/structural-variants?project_id=p2');
 
       expect(await screen.findByText('1p36.33')).toBeInTheDocument();
       const read = get.mock.calls

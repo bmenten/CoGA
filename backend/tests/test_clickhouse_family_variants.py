@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
+import json
 import logging
 import types
 
@@ -1085,35 +1086,31 @@ async def _run_non_native_structural_page(
 
 
 @pytest.mark.asyncio
-async def test_structural_page_non_native_caps_and_flags_estimated(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize(
+    ("returned_rows", "capped"),
+    [
+        # 3 rows returned for a cap of 2 -> fetch was truncated, total is estimated.
+        (3, True),
+        # 2 rows for a cap of 2 -> nothing beyond the cap, exact total.
+        (2, False),
+    ],
+    ids=["beyond-the-cap", "within-the-cap"],
+)
+async def test_a_non_native_structural_page_says_whether_the_candidate_cap_cut_it(
+    monkeypatch: pytest.MonkeyPatch, returned_rows: int, capped: bool
+) -> None:
     monkeypatch.setattr(
         "backend.app.services.clickhouse_family_variants._SV_NON_NATIVE_STRUCTURAL_CANDIDATE_CAP",
         2,
     )
-    # 3 rows returned for a cap of 2 -> fetch was truncated, total is estimated.
-    page = await _run_non_native_structural_page(monkeypatch, returned_rows=3)
-    assert page.total_is_estimated is True
-    assert page.count_limit == 2
+    page = await _run_non_native_structural_page(monkeypatch, returned_rows=returned_rows)
+    assert page.total_is_estimated is capped
+    assert page.count_limit == (2 if capped else None)
     assert page.total == 2
     assert len(page.variants) == 2
     # The table says where the search stopped (#725 follow-up).
-    assert page.candidates_capped is True
-    assert page.candidate_limit == 2
-
-
-@pytest.mark.asyncio
-async def test_structural_page_non_native_exact_total_under_cap(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        "backend.app.services.clickhouse_family_variants._SV_NON_NATIVE_STRUCTURAL_CANDIDATE_CAP",
-        2,
-    )
-    # 2 rows for a cap of 2 -> nothing beyond the cap, exact total.
-    page = await _run_non_native_structural_page(monkeypatch, returned_rows=2)
-    assert page.total_is_estimated is False
-    assert page.count_limit is None
-    assert page.total == 2
-    assert page.candidates_capped is False
-    assert page.candidate_limit is None
+    assert page.candidates_capped is capped
+    assert page.candidate_limit == (2 if capped else None)
 
 
 @pytest.mark.asyncio
@@ -2254,6 +2251,173 @@ async def test_prioritized_ranking_cache_misses_after_the_family_variant_data_ch
     fresh = await _open()
     assert fresh.ranking_cached is False
     assert sorted(str(variant.id) for variant in fresh.variants) == ["1-100-A-G", "1-200-A-G"]
+
+
+def _cached_priority(score: float, **fields) -> dict:
+    return {
+        "combined_score": score,
+        "variant_score": score,
+        "pathogenicity_score": score,
+        "frequency_score": 1.0,
+        "segregation_weight": 1.0,
+        "segregation_modes": [],
+        **fields,
+    }
+
+
+def test_a_cached_ranking_narrowed_to_some_variants_numbers_them_from_one() -> None:
+    ranking = [
+        {"variant_id": "1-100-A-G", "priority": _cached_priority(0.9, rank=1)},
+        {"variant_id": "1-150-C-T", "priority": _cached_priority(0.8, rank=2)},
+        {"variant_id": "1-200-A-G", "priority": _cached_priority(0.7, rank=3)},
+    ]
+    records = [types.SimpleNamespace(variant_id="1-200-A-G"), types.SimpleNamespace(variant_id="1-100-A-G")]
+
+    # As the cache stores it (a JSON text) or as read back (a list), the same priorities.
+    for cached in (ranking, json.dumps(ranking)):
+        priorities = _cfv._priorities_from_ranking(cached, records, {})
+        assert priorities is not None
+        assert {variant_id: (p.rank, p.combined_score) for variant_id, p in priorities.items()} == {
+            "1-100-A-G": (1, 0.9),
+            "1-200-A-G": (2, 0.7),
+        }
+
+
+@pytest.mark.parametrize(
+    "ranking",
+    [
+        "not a ranking",
+        {"variant_id": "1-100-A-G", "priority": _cached_priority(0.9)},
+        # The variant listed twice, its first entry's priority no record of one.
+        [
+            {"variant_id": "1-100-A-G", "priority": "high"},
+            {"variant_id": "1-100-A-G", "priority": _cached_priority(0.9)},
+        ],
+        # A priority the response model refuses.
+        [{"variant_id": "1-100-A-G", "priority": _cached_priority("high")}],
+    ],
+    ids=["text-that-is-no-json", "no-list", "priority-no-record", "priority-refused"],
+)
+def test_a_cached_ranking_that_cannot_be_read_is_never_served(ranking) -> None:
+    # A bad cached blob falls back to a live computation: the caller computes the ranking
+    # again rather than show priorities nobody computed for these variants.
+    records = [types.SimpleNamespace(variant_id="1-100-A-G")]
+    assert _cfv._priorities_from_ranking(ranking, records, {}) is None
+
+
+async def _serve_from_cache(monkeypatch: pytest.MonkeyPatch, cached: dict, records: list) -> tuple:
+    """The page ``_serve_ranking_from_cache`` builds from ``cached``, the family's stored
+    records being ``records``; and the variant ids it fetched, per fetch."""
+    fetched: list[list[str]] = []
+
+    async def _fetch(_context, _filters, *, include_variant_ids=None, **_k):
+        fetched.append(list(include_variant_ids))
+        return [record for record in records if record.variant_id in set(include_variant_ids)]
+
+    async def _no_review_state(*_a, **_k):
+        return None
+
+    monkeypatch.setattr(_cfv, "_fetch_small_variant_rows", _fetch)
+    monkeypatch.setattr(_cfv, "_hydrate_small_variant_outs", _no_review_state)
+    page = await _cfv._serve_ranking_from_cache(
+        None,  # type: ignore[arg-type]
+        context=_family_context(),
+        filters=SmallVariantQueryFilters(page=1, page_size=50),
+        cached=cached,
+        page=1,
+        page_size=50,
+        small_variant_summary=None,
+    )
+    return page, fetched
+
+
+@pytest.mark.asyncio
+async def test_a_cached_ranking_serves_its_order_over_the_records_still_stored(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = [_small_call("PROBAND", "0/1")]
+    stored = [
+        _small_variant("1-200-A-G", "GENE2", calls=calls, start=200),
+        _small_variant("1-100-A-G", "GENE1", calls=calls, start=100),
+    ]
+    ranking = [
+        {"variant_id": "1-100-A-G", "priority": _cached_priority(0.9, rank=1)},
+        {"variant_id": "1-150-C-T", "priority": _cached_priority(0.8, rank=2)},  # no longer stored
+        {"variant_id": "1-200-A-G", "priority": _cached_priority(0.7, rank=3)},
+    ]
+
+    # As the cache stores it, a JSON text.
+    page, fetched = await _serve_from_cache(monkeypatch, {"ranking": json.dumps(ranking), "total": 3}, stored)
+
+    # The page's records are fetched fresh, by id, in the cached order; a ranked variant no
+    # longer stored is left out rather than shown from the cache.
+    assert fetched == [["1-100-A-G", "1-150-C-T", "1-200-A-G"]]
+    assert [(str(variant.id), variant.priority.combined_score) for variant in page.variants] == [
+        ("1-100-A-G", 0.9),
+        ("1-200-A-G", 0.7),
+    ]
+    assert (page.total, page.ranking_cached, page.ranking_truncated) == (3, True, False)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "cached",
+    [
+        {"ranking": "not a ranking", "total": 1},
+        {"ranking": [{"variant_id": "1-100-A-G", "priority": _cached_priority("high")}], "total": 1},
+    ],
+    ids=["text-that-is-no-json", "priority-refused"],
+)
+async def test_a_cached_ranking_the_page_cannot_be_built_from_is_computed_again(
+    monkeypatch: pytest.MonkeyPatch, cached: dict
+) -> None:
+    # None: the caller computes the ranking live rather than serve a page nobody ranked.
+    stored = [_small_variant("1-100-A-G", "GENE1", calls=[_small_call("PROBAND", "0/1")])]
+
+    page, _fetched = await _serve_from_cache(monkeypatch, cached, stored)
+
+    assert page is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "case",
+    ["a panel with neither genes nor regions", "a gene the assembly does not know", "a review selection matching nothing"],
+)
+async def test_a_prioritised_sv_search_that_can_keep_nothing_reads_no_svs(
+    monkeypatch: pytest.MonkeyPatch, case: str
+) -> None:
+    async def _panel(_session, filters, _context):
+        # The panel the search names holds neither genes nor regions; no panel without one.
+        return PanelFilterConstraints() if filters.panel_id else None
+
+    async def _no_regions(*_a, **_k):
+        return []
+
+    async def _no_reviews(*_a, **_k):
+        return set()
+
+    async def _unread(*_a, **_k):
+        raise AssertionError("an SV search that can keep nothing reads no SVs")
+
+    monkeypatch.setattr(_cfv, "_structural_search_panel", _panel)
+    monkeypatch.setattr(_cfv, "_fetch_gene_regions", _no_regions)
+    monkeypatch.setattr(_cfv, "list_matching_structural_variant_review_ids", _no_reviews)
+    monkeypatch.setattr(_cfv, "_fetch_structural_variant_rows", _unread)
+    filters = {
+        "a panel with neither genes nor regions": {"panel_id": "panel-1"},
+        "a gene the assembly does not know": {"gene": "NOTAGENE"},
+        "a review selection matching nothing": {"review_tags": ["report"]},
+    }[case]
+
+    page = await _prioritized_structural_variants_page(
+        None,  # type: ignore[arg-type]
+        context=_family_context(),
+        filters=StructuralVariantQueryFilters(page=1, page_size=50, **filters),
+        page=1,
+        page_size=50,
+        selected_samples=["PROBAND"],
+    )
+
+    assert (page.total, page.variants) == (0, [])
 
 
 @pytest.mark.asyncio

@@ -17,10 +17,15 @@ no length: it passes any minimum and matches no exact length (the owner's decisi
 2026-10-13). The rule holds wherever the filters apply: the SV list, ranked or not, read
 from the rows as stored; its CSV export; the genome track; the track availability; and for
 the calls of each importer. The records and the family are synthetic.
+
+The record filter's chromosome names chrM by either name, as the SQL does (CLIN-50; merged
+from ``test_structural_panel_gene_match.py``, whose gene-panel tests are in
+``test_sv_panel_any_size.py``).
 """
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any
 
 import pytest
@@ -44,6 +49,14 @@ from backend.app.services.family_package_variants import (
 from backend.app.services.family_service import get_family_track_availability_for_user
 from backend.app.services.family_variant_filters import StructuralVariantQueryFilters
 from backend.app.services.structural_variant_ingest import iter_structural_variant_records
+from backend.tests._sv_fakes import (
+    SV_SEARCH,
+    forbid_sv_native_page,
+    kept_by_record_filter as _kept,
+    proband_family as _family,
+    serve_stored_sv_rows,
+    stub_sv_postgres_lookups,
+)
 
 _TEN_MB = 10_000_000
 _FROM_LENGTH = object()
@@ -115,11 +128,6 @@ _CALLSET = [
 _LENGTH_FILTERED = [record for record in _CALLSET if record not in (_INS_ALU, _BND)]
 
 
-def _kept(records: list[StructuralVariantRecord], **filters: Any) -> list[str]:
-    query = StructuralVariantQueryFilters(page=1, page_size=100, **filters)
-    return [record.variant_id for record in records if _structural_record_matches(record, query, [], [])]
-
-
 # --------------------------------------------------------------------------- #
 # The filters, record by record
 # --------------------------------------------------------------------------- #
@@ -174,48 +182,31 @@ def test_a_type_and_a_minimum_length_must_both_hold() -> None:
     assert _kept(_LENGTH_FILTERED, variant_type="DUP,CNV", min_length=_TEN_MB) == []
 
 
+def test_the_chromosome_filter_names_chrm_by_either_name_as_the_sql_does() -> None:
+    # The Python filter compared the names as written, so MT against M dropped an SV the SQL
+    # kept by its aliases (CLIN-50). (Merged from test_structural_panel_gene_match.py.)
+    record = _sv("sv", "DEL", start=100, length=100)
+    filters = StructuralVariantQueryFilters(page=1, page_size=100)
+    for stored, named in (("chrM", "MT"), ("MT", "chrM"), ("M", "mt"), ("chr1", "1")):
+        assert _structural_record_matches(replace(record, chr=stored), replace(filters, chromosome=named), [], []), (
+            stored,
+            named,
+        )
+    assert not _structural_record_matches(replace(record, chr="chr1"), replace(filters, chromosome="2"), [], [])
+
+
 # --------------------------------------------------------------------------- #
 # The SV list
 # --------------------------------------------------------------------------- #
 
 
-def _family() -> FamilyMetadataContext:
-    return FamilyMetadataContext(
-        family_uuid="family-uuid",
-        family_id="FAM001",
-        project_ids=["project-uuid"],
-        sample_rows=[{"sample_id": "PROBAND", "role": "proband", "affected": True, "sex": "female"}],
-        sample_uuid_to_name={"sample-proband": "PROBAND"},
-        sample_name_to_uuid={"PROBAND": "sample-proband"},
-        affected_sample_names=["PROBAND"],
-        assembly_id="assembly-uuid",
-        assembly_name="GRCh38",
-    )
-
-
-_M = "backend.app.services.clickhouse_family_variants."
+_M = SV_SEARCH
 
 
 def _no_native_page_nor_postgres(monkeypatch: pytest.MonkeyPatch) -> None:
     """The native page may not answer; Postgres holds no reviews, cytobands or phenotypes."""
-
-    async def native_summary(*_args: Any, **_kwargs: Any):
-        raise AssertionError("the native page's SQL applies no type or length filter")
-
-    async def no_review_ids(*_args: Any, **_kwargs: Any) -> set[str]:
-        return set()
-
-    async def nothing(*_args: Any, **_kwargs: Any) -> dict:
-        return {}
-
-    async def no_phenotypes(*_args: Any, **_kwargs: Any) -> tuple[list[str], dict[str, str]]:
-        return [], {}
-
-    monkeypatch.setattr(_M + "_fetch_structural_variant_summary", native_summary)
-    monkeypatch.setattr(_M + "list_matching_structural_variant_review_ids", no_review_ids)
-    monkeypatch.setattr(_M + "get_structural_variant_review_map", nothing)
-    monkeypatch.setattr(_M + "_fetch_structural_cytoband_map", nothing)
-    monkeypatch.setattr(_M + "_affected_present_hpo", no_phenotypes)
+    forbid_sv_native_page(monkeypatch, "the native page's SQL applies no type or length filter")
+    stub_sv_postgres_lookups(monkeypatch)
 
 
 @pytest.fixture()
@@ -406,51 +397,19 @@ def test_without_a_length_filter_every_sv_is_kept() -> None:
 # --------------------------------------------------------------------------- #
 
 
-def _stored_row(record: StructuralVariantRecord, key: int) -> tuple[Any, ...]:
-    """``record`` as ClickHouse returns it to the SV candidate read
-    (``_fetch_structural_variant_rows``): the entry's position, type and calls, and the
-    SVLEN of its details row (``svLen``)."""
-    return (
-        key,
-        record.variant_id,
-        record.chr,
-        record.start,
-        record.end,
-        record.sv_type,
-        record.source,
-        None,
-        None,
-        record.sv_len,
-        list(record.filters),
-        "",
-        list(record.gene_symbols),
-        [call.sample for call in record.calls],
-        [call.gt for call in record.calls],
-        [call.qual for call in record.calls],
-        [call.read_support for call in record.calls],
-        [call.filter for call in record.calls],
-        [call.copy_number for call in record.calls],
-    )
-
-
-def _serve_stored(monkeypatch: pytest.MonkeyPatch, records: list[StructuralVariantRecord]) -> list[str]:
+def _serve_stored(
+    monkeypatch: pytest.MonkeyPatch, records: list[StructuralVariantRecord]
+) -> list[tuple[str, dict[str, Any]]]:
     """ClickHouse holding ``records``: every query gets all their rows. Its SQL applies no
     length, and every row meets the conditions it does send (the family, its samples).
-    Returns the queries sent."""
-    queries: list[str] = []
-    rows = [_stored_row(record, key) for key, record in enumerate(records, start=1)]
-
-    async def execute(query: str, _params: dict[str, Any]) -> list[tuple[Any, ...]]:
-        queries.append(query)
-        return rows
-
-    monkeypatch.setattr(_M + "_execute_clickhouse", execute)
+    Returns the queries sent, with their parameters."""
+    sent = serve_stored_sv_rows(monkeypatch, records)
     _no_native_page_nor_postgres(monkeypatch)
-    return queries
+    return sent
 
 
 @pytest.fixture()
-def stored(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+def stored(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, dict[str, Any]]]:
     return _serve_stored(monkeypatch, _CALLER_SHAPED)
 
 
@@ -461,7 +420,7 @@ async def test_the_list_measures_the_stored_svlen(stored, prioritize: bool) -> N
     exactly_5000 = await _page(length=5_000, prioritize=prioritize)
 
     # The candidate read takes each call's SVLEN from its details row.
-    assert stored and all("d.svLen" in query for query in stored)
+    assert stored and all("d.svLen" in query for query, _params in stored)
     assert sorted(str(variant.id) for variant in at_least_50.variants) == sorted(_AT_LEAST_50)
     assert at_least_50.total == len(_AT_LEAST_50)
     assert at_least_50.summary == {

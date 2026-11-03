@@ -36,6 +36,8 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
+from backend.tests.integration._datastores import append_only_tables
+
 pytestmark = pytest.mark.integration
 
 _APPEND_ONLY = (
@@ -59,17 +61,6 @@ _UPDATE_SQL = {
     "family_structure_versions": "UPDATE family_structure_versions SET version = version",
     "ui_events": "UPDATE ui_events SET label = label",
 }
-
-# Every table with an append-only guard: each follows the ``<table>_block_mutation()``
-# trigger-function naming in 04_traceability.sql.
-_TRIGGER_GUARDED_SQL = """
-    SELECT DISTINCT c.relname
-    FROM pg_trigger t
-    JOIN pg_class c ON c.oid = t.tgrelid
-    JOIN pg_namespace n ON n.oid = c.relnamespace
-    JOIN pg_proc p ON p.oid = t.tgfoid
-    WHERE NOT t.tgisinternal AND n.nspname = 'public' AND p.proname ~ '_block_mutation$'
-"""
 
 # coga_app's privileges on one table, read from the catalogue without running a mutation
 # (TRUNCATE in particular would bypass the row triggers if it were ever granted).
@@ -109,7 +100,7 @@ def test_coga_app_role_is_locked_out_of_append_only_mutations() -> None:
             # Every trigger-guarded table is listed here, and coga_app holds exactly SELECT +
             # INSERT on each: the REVOKE in 05_grants.sql covers them all.
             async with sm() as s:
-                guarded = {row[0] for row in (await s.execute(text(_TRIGGER_GUARDED_SQL))).all()}
+                guarded = await append_only_tables(s)
                 assert guarded == set(_APPEND_ONLY), guarded ^ set(_APPEND_ONLY)
                 for table in _APPEND_ONLY:
                     privileges = (await s.execute(text(_PRIVILEGES_SQL), {"t": table})).one()

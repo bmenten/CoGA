@@ -1,5 +1,5 @@
 import { QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import RawFileProvenanceTable from '../RawFileProvenanceTable';
 import api from '../../../lib/api';
@@ -155,6 +155,82 @@ describe('RawFileProvenanceTable', () => {
     }
     // The other rows carry no such line.
     expect(screen.getAllByText(`${OUTSIDE}.`)).toHaveLength(2);
+  });
+
+  // A checksum that no longer matches, or a file gone since the import, is marked as a failure;
+  // only a match is a success.
+  it.each([
+    ['mismatch', 'badge-chip--danger'],
+    ['missing', 'badge-chip--danger'],
+    ['verified', 'badge-chip--success'],
+    ['too_large', null],
+  ])('marks a %s verification as such', async (status, tone) => {
+    (api.post as unknown as Mock).mockResolvedValue({
+      data: { file_id: 'local', status, expected_sha256: null, computed_sha256: null, message: null },
+    });
+    renderTable();
+
+    const local = await rowOf('local.cram');
+    fireEvent.click(local.getByRole('button', { name: 'Verify' }));
+
+    const chip = await local.findByText(status);
+    expect(chip).toHaveClass('badge-chip');
+    // Neither a success nor a failure: a plain chip.
+    if (tone) expect(chip).toHaveClass(tone);
+    else expect(chip.className).not.toMatch(/badge-chip--/);
+    expect(api.post).toHaveBeenCalledWith('/admin/data/files/local/verify');
+  });
+
+  it('downloads a file under its own name, and says when the download fails', async () => {
+    const createObjectURL = vi.fn(() => 'blob:raw-file');
+    const revokeObjectURL = vi.fn();
+    const original = { createObjectURL: window.URL.createObjectURL, revokeObjectURL: window.URL.revokeObjectURL };
+    Object.assign(window.URL, { createObjectURL, revokeObjectURL });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    let fail = false;
+    (api.get as unknown as Mock).mockImplementation((url: string) => {
+      if (url === '/admin/data/families/F1/files') return Promise.resolve({ data: rawFiles });
+      return fail ? Promise.reject(new Error('HTTP 410')) : Promise.resolve({ data: 'CRAM' });
+    });
+    try {
+      render(
+        <QueryClientProvider client={createTestQueryClient()}>
+          <RawFileProvenanceTable familyId="F1" />
+        </QueryClientProvider>,
+      );
+      const local = await rowOf('local.cram');
+
+      fireEvent.click(local.getByRole('button', { name: 'Download' }));
+      await waitFor(() => expect(click).toHaveBeenCalledTimes(1));
+      expect(api.get).toHaveBeenCalledWith('/admin/data/files/local/download', { responseType: 'blob' });
+      const link = click.mock.contexts[0] as HTMLAnchorElement;
+      expect(link.download).toBe('local.cram');
+      expect(link.getAttribute('href')).toBe('blob:raw-file');
+      expect(revokeObjectURL).toHaveBeenCalledWith('blob:raw-file');
+      // A file gone from disk offers no download at all.
+      expect((await rowOf('gone.cram')).getByRole('button', { name: 'Download' })).toBeDisabled();
+
+      fail = true;
+      fireEvent.click(local.getByRole('button', { name: 'Download' }));
+      expect(
+        await screen.findByText('Could not download local.cram. The source file may no longer be available.'),
+      ).toHaveClass('status-note--error');
+      expect(click).toHaveBeenCalledTimes(1);
+    } finally {
+      Object.assign(window.URL, original);
+      click.mockRestore();
+    }
+  });
+
+  it('says the raw files could not be loaded, rather than listing none', async () => {
+    (api.get as unknown as Mock).mockRejectedValue(new Error('HTTP 500'));
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <RawFileProvenanceTable familyId="F1" />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText('Raw file provenance could not be loaded.')).toBeInTheDocument();
   });
 
   it('gives the reason a Verify was refused', async () => {

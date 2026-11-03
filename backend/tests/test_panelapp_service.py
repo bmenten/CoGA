@@ -146,3 +146,58 @@ async def test_a_panelapp_answer_that_is_no_json_is_answered_502(monkeypatch: py
         await panelapp_service._get_panelapp_json("/panels/20/")
 
     assert (refused.value.status_code, refused.value.detail) == (502, "Unexpected PanelApp response")
+
+
+def _panelapp_answers(monkeypatch: pytest.MonkeyPatch, page: httpx.Response, asked: list | None = None) -> None:
+    real_client = httpx.AsyncClient
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        if asked is not None:
+            asked.append(request)
+        return page
+
+    def client(**kwargs):
+        return real_client(transport=httpx.MockTransport(answer), **kwargs)
+
+    monkeypatch.setattr(panelapp_service.httpx, "AsyncClient", client)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("page", "refusal"),
+    [
+        (httpx.Response(404, json={"detail": "Not found."}), (404, "PanelApp panel not found")),
+        (httpx.Response(500, text="Internal error"), (502, "Failed to retrieve PanelApp data")),
+        (httpx.Response(200, json=["a list"]), (502, "Unexpected PanelApp response")),
+    ],
+    ids=["unknown panel", "server error", "JSON that is no object"],
+)
+async def test_a_panelapp_failure_is_answered_as_one_and_never_read_as_a_panel(
+    monkeypatch: pytest.MonkeyPatch, page: httpx.Response, refusal: tuple[int, str]
+) -> None:
+    _panelapp_answers(monkeypatch, page)
+
+    with pytest.raises(HTTPException) as refused:
+        await panelapp_service.fetch_panelapp_panel(20)
+
+    assert (refused.value.status_code, refused.value.detail) == refusal
+
+
+@pytest.mark.asyncio
+async def test_a_panelapp_search_asks_for_at_most_50_panels_by_the_trimmed_name(monkeypatch: pytest.MonkeyPatch) -> None:
+    asked: list[httpx.Request] = []
+    _panelapp_answers(
+        monkeypatch,
+        httpx.Response(200, json={"count": 2, "results": [_panelapp_payload(), "not a panel"]}),
+        asked,
+    )
+
+    summaries, count = await panelapp_service.search_panelapp_panels("  ataxia ", page_size=500)
+
+    [request] = asked
+    assert (request.url.path, dict(request.url.params)) == ("/api/v1/panels/", {"page_size": "50", "name": "ataxia"})
+    assert ([summary.panelapp_id for summary in summaries], count) == ([20], 2)
+    # A blank query lists panels without a name filter, at least one per page.
+    asked.clear()
+    await panelapp_service.search_panelapp_panels("  ", page_size=0)
+    assert dict(asked[0].url.params) == {"page_size": "1"}

@@ -246,6 +246,10 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   any throttling or hashing. The device owner confirmed this policy (#626).
 - ✅ **Reference routers need a signed-in user**, the species list included. Reference data
   (genes, assemblies, the CNV catalogue) is not project-scoped: it is public and not PHI.
+  Every route but the sign-in and sign-up, the sign-in configuration, health, version, metrics
+  and the QC-report download signs its caller in, and every admin route refuses anyone else
+  before it reads anything (`test_routes_require_sign_in.py`, `test_admin_route_gating.py`,
+  both walking the app).
 - ✅ **Outbound downloads.** The HPO bootstrap downloads only when it finds no ontology file:
   over HTTPS only, capped in size and checked to be an OBO file. It fetches the vendored
   file's release from its versioned URL and uses the file only if its SHA-256 is the vendored

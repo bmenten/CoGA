@@ -32,17 +32,13 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import bindparam, text
 
-pytestmark = pytest.mark.integration
+from backend.tests.integration._datastores import TRGT_VCF_HEADER, repeat_family_context, trgt_family
 
-_HEADER = (
-    "##fileformat=VCFv4.2\n"
-    "##trgtVersion=5.0.0\n"
-    "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t{column}\n"
-)
+pytestmark = pytest.mark.integration
 
 
 def _fmr1_vcf(column: str, sample_field: str, *, trid: str = "FXS_FMR1") -> str:
-    return _HEADER.format(column=column) + (
+    return TRGT_VCF_HEADER.format(column=column) + (
         f"chrX\t147912049\t.\tCGG\t<TR>\t.\t.\tTRID={trid};END=147912111;MOTIFS=CGG;STRUC=<TR>"
         f"\tGT:AL:MC\t{sample_field}\n"
     )
@@ -50,7 +46,6 @@ def _fmr1_vcf(column: str, sample_field: str, *, trid: str = "FXS_FMR1") -> str:
 
 def test_review_and_premutation_calls_are_stored() -> None:
     from backend.app.core.postgres import close_postgres_engine, get_postgres_sessionmaker, init_postgres_schema
-    from backend.app.services.family_metadata_context import SampleMetadataContext
     from backend.app.services.repeat_expansion_pg import ingest_trgt_text, seed_builtin_repeat_catalog
 
     label = f"itest-repeat-status-{uuid4()}"
@@ -61,34 +56,7 @@ def test_review_and_premutation_calls_are_stored() -> None:
         try:
             async with sessionmaker() as session:
                 await seed_builtin_repeat_catalog(session)
-                family_uuid = (
-                    await session.execute(
-                        text("INSERT INTO families (family_id) VALUES (:f) RETURNING id::text"), {"f": label}
-                    )
-                ).scalar_one()
-                contexts = {}
-                for name, sex in (("MAN", "male"), ("WOMAN", "female")):
-                    sample_id = f"{label}-{name}"
-                    sample_uuid = (
-                        await session.execute(
-                            text(
-                                "INSERT INTO samples (sample_id, family_id, sex) "
-                                "VALUES (:s, CAST(:f AS uuid), :sex) RETURNING id::text"
-                            ),
-                            {"s": sample_id, "f": family_uuid, "sex": sex},
-                        )
-                    ).scalar_one()
-                    contexts[name] = SampleMetadataContext(
-                        sample_uuid=str(sample_uuid),
-                        sample_id=sample_id,
-                        family_uuid=str(family_uuid),
-                        family_id=label,
-                        sex=sex,
-                        project_ids=[],
-                        assembly_id=None,
-                        assembly_name="GRCh38",
-                    )
-                await session.commit()
+                family_uuid, contexts = await trgt_family(session, label, {"MAN": "male", "WOMAN": "female"})
                 # Two different normal alleles in a man (review), a premutation in a woman.
                 calls = {"MAN": "1/2:90,96:30,32", "WOMAN": "1/2:90,180:30,60"}
                 for name, sample_field in calls.items():
@@ -117,7 +85,6 @@ def test_review_and_premutation_calls_are_stored() -> None:
 
 def test_the_next_start_corrects_an_fmr1_threshold_seeded_before_and_imports_classify_with_it() -> None:
     from backend.app.core.postgres import close_postgres_engine, get_postgres_sessionmaker, init_postgres_schema
-    from backend.app.services.family_metadata_context import SampleMetadataContext
     from backend.app.services.repeat_expansion_pg import ingest_trgt_text, seed_builtin_repeat_catalog
 
     label = f"itest-fmr1-threshold-{uuid4()}"
@@ -137,34 +104,7 @@ def test_the_next_start_corrects_an_fmr1_threshold_seeded_before_and_imports_cla
                 )
                 catalogue = {str(locus_id): int(pathogenic_min) for locus_id, pathogenic_min in thresholds.all()}
 
-                family_uuid = (
-                    await session.execute(
-                        text("INSERT INTO families (family_id) VALUES (:f) RETURNING id::text"), {"f": label}
-                    )
-                ).scalar_one()
-                contexts = {}
-                for name in ("MAN200", "MAN201"):
-                    sample_id = f"{label}-{name}"
-                    sample_uuid = (
-                        await session.execute(
-                            text(
-                                "INSERT INTO samples (sample_id, family_id, sex) "
-                                "VALUES (:s, CAST(:f AS uuid), 'male') RETURNING id::text"
-                            ),
-                            {"s": sample_id, "f": family_uuid},
-                        )
-                    ).scalar_one()
-                    contexts[name] = SampleMetadataContext(
-                        sample_uuid=str(sample_uuid),
-                        sample_id=sample_id,
-                        family_uuid=str(family_uuid),
-                        family_id=label,
-                        sex="male",
-                        project_ids=[],
-                        assembly_id=None,
-                        assembly_name="GRCh38",
-                    )
-                await session.commit()
+                family_uuid, contexts = await trgt_family(session, label, {"MAN200": "male", "MAN201": "male"})
                 # One chrX allele each, with TRGT's TRID "FMR1": the built-in row classifies it.
                 for name, count in (("MAN200", 200), ("MAN201", 201)):
                     await ingest_trgt_text(
@@ -234,13 +174,12 @@ def _gene_name_vcf(column: str) -> str:
         f"\tGT:AL:MC\t1/2:{5 * len(motif)},{count * len(motif)}:5,{count}\n"
         for trid, (chrom, pos, motif, count) in _GENE_NAME_CALLS.items()
     )
-    return _HEADER.format(column=column) + records
+    return TRGT_VCF_HEADER.format(column=column) + records
 
 
 def test_the_next_start_gives_each_built_in_row_strchives_thresholds_and_the_table_reads_them(monkeypatch) -> None:
     from backend.app.core.postgres import close_postgres_engine, get_postgres_sessionmaker, init_postgres_schema
     from backend.app.services import repeat_expansion_pg
-    from backend.app.services.family_metadata_context import FamilyMetadataContext, SampleMetadataContext
     from backend.app.services.repeat_expansion_catalog import BUILTIN_REPEAT_LOCI
     from backend.app.services.repeat_expansion_pg import (
         clear_sample_repeat_expansions,
@@ -269,36 +208,9 @@ def test_the_next_start_gives_each_built_in_row_strchives_thresholds_and_the_tab
                         text("UPDATE repeat_loci SET warning_min = :w, pathogenic_min = :p WHERE locus_id = :l"),
                         {"w": warning_min, "p": pathogenic_min, "l": locus_id},
                     )
-                family_uuid = str(
-                    (
-                        await session.execute(
-                            text("INSERT INTO families (family_id) VALUES (:f) RETURNING id::text"), {"f": label}
-                        )
-                    ).scalar_one()
-                )
-                sample_id = f"{label}-WOMAN"
-                sample_uuid = str(
-                    (
-                        await session.execute(
-                            text(
-                                "INSERT INTO samples (sample_id, family_id, sex) "
-                                "VALUES (:s, CAST(:f AS uuid), 'female') RETURNING id::text"
-                            ),
-                            {"s": sample_id, "f": family_uuid},
-                        )
-                    ).scalar_one()
-                )
-                await session.commit()
-                sample_context = SampleMetadataContext(
-                    sample_uuid=sample_uuid,
-                    sample_id=sample_id,
-                    family_uuid=family_uuid,
-                    family_id=label,
-                    sex="female",
-                    project_ids=[],
-                    assembly_id=None,
-                    assembly_name="GRCh38",
-                )
+                family_uuid, contexts = await trgt_family(session, label, {"WOMAN": "female"})
+                sample_context = contexts["WOMAN"]
+                sample_id, sample_uuid = sample_context.sample_id, sample_context.sample_uuid
                 # Imported under the old rows.
                 await ingest_trgt_text(
                     session,
@@ -326,20 +238,7 @@ def test_the_next_start_gives_each_built_in_row_strchives_thresholds_and_the_tab
                     for row in (await session.execute(stored_query, {"f": family_uuid})).all()
                 }
                 table = await get_family_repeat_expansion_table_response(
-                    session,
-                    context=FamilyMetadataContext(
-                        family_uuid=family_uuid,
-                        family_id=label,
-                        project_ids=[],
-                        sample_rows=[
-                            {"sample_uuid": sample_uuid, "sample_id": sample_id, "role": "proband", "affected": False, "sex": "female"}
-                        ],
-                        sample_uuid_to_name={sample_uuid: sample_id},
-                        sample_name_to_uuid={sample_id: sample_uuid},
-                        affected_sample_names=[],
-                        assembly_id=None,
-                        assembly_name="GRCh38",
-                    ),
+                    session, context=repeat_family_context(family_uuid, label, [(sample_context, "proband", False)])
                 )
                 read_by_table = {
                     str(row.locus_id): (row.calls[sample_id].status, row.warning_min, row.pathogenic_min)
@@ -407,7 +306,7 @@ def _not_assessed_vcf(column: str) -> str:
         f"\tGT:AL:MC\t1/2:{12 * len(motif)},{count * len(motif)}:12,{count}\n"
         for trid, (chrom, pos, motif, count) in _NOT_ASSESSED_CALLS.items()
     )
-    return _HEADER.format(column=column) + records
+    return TRGT_VCF_HEADER.format(column=column) + records
 
 
 def test_a_call_at_a_locus_without_thresholds_is_stored_not_assessed_and_the_table_reads_older_calls_so(
@@ -415,7 +314,6 @@ def test_a_call_at_a_locus_without_thresholds_is_stored_not_assessed_and_the_tab
 ) -> None:
     from backend.app.core.postgres import close_postgres_engine, get_postgres_sessionmaker, init_postgres_schema
     from backend.app.services import repeat_expansion_pg
-    from backend.app.services.family_metadata_context import FamilyMetadataContext, SampleMetadataContext
     from backend.app.services.repeat_expansion_pg import (
         get_family_repeat_expansion_table_response,
         ingest_trgt_text,
@@ -433,38 +331,11 @@ def test_a_call_at_a_locus_without_thresholds_is_stored_not_assessed_and_the_tab
         try:
             async with sessionmaker() as session:
                 await seed_builtin_repeat_catalog(session)
-                family_uuid = str(
-                    (
-                        await session.execute(
-                            text("INSERT INTO families (family_id) VALUES (:f) RETURNING id::text"), {"f": label}
-                        )
-                    ).scalar_one()
-                )
-                sample_id = f"{label}-WOMAN"
-                sample_uuid = str(
-                    (
-                        await session.execute(
-                            text(
-                                "INSERT INTO samples (sample_id, family_id, sex) "
-                                "VALUES (:s, CAST(:f AS uuid), 'female') RETURNING id::text"
-                            ),
-                            {"s": sample_id, "f": family_uuid},
-                        )
-                    ).scalar_one()
-                )
-                await session.commit()
+                family_uuid, contexts = await trgt_family(session, label, {"WOMAN": "female"})
+                sample_id = contexts["WOMAN"].sample_id
                 await ingest_trgt_text(
                     session,
-                    sample_context=SampleMetadataContext(
-                        sample_uuid=sample_uuid,
-                        sample_id=sample_id,
-                        family_uuid=family_uuid,
-                        family_id=label,
-                        sex="female",
-                        project_ids=[],
-                        assembly_id=None,
-                        assembly_name="GRCh38",
-                    ),
+                    sample_context=contexts["WOMAN"],
                     text_value=_not_assessed_vcf(sample_id),
                     metadata={"source": "trgt", "filename": "woman.vcf"},
                 )
@@ -494,20 +365,7 @@ def test_a_call_at_a_locus_without_thresholds_is_stored_not_assessed_and_the_tab
                 )
                 await session.commit()
                 table = await get_family_repeat_expansion_table_response(
-                    session,
-                    context=FamilyMetadataContext(
-                        family_uuid=family_uuid,
-                        family_id=label,
-                        project_ids=[],
-                        sample_rows=[
-                            {"sample_uuid": sample_uuid, "sample_id": sample_id, "role": "proband", "affected": False, "sex": "female"}
-                        ],
-                        sample_uuid_to_name={sample_uuid: sample_id},
-                        sample_name_to_uuid={sample_id: sample_uuid},
-                        affected_sample_names=[],
-                        assembly_id=None,
-                        assembly_name="GRCh38",
-                    ),
+                    session, context=repeat_family_context(family_uuid, label, [(contexts["WOMAN"], "proband", False)])
                 )
                 read_by_table = {
                     str(row.locus_id): (
@@ -556,7 +414,7 @@ def _benign_range_vcf(column: str, calls: dict[str, tuple[str, int, str, tuple[i
         f"\tGT:AL:MC\t0/1:{first * len(motif)},{second * len(motif)}:{first},{second}\n"
         for trid, (chrom, pos, motif, (first, second)) in calls.items()
     )
-    return _HEADER.format(column=column) + records
+    return TRGT_VCF_HEADER.format(column=column) + records
 
 
 def test_a_polg_count_inside_its_benign_range_is_stored_normal_and_the_table_reads_older_calls_so(
@@ -564,7 +422,6 @@ def test_a_polg_count_inside_its_benign_range_is_stored_normal_and_the_table_rea
 ) -> None:
     from backend.app.core.postgres import close_postgres_engine, get_postgres_sessionmaker, init_postgres_schema
     from backend.app.services import repeat_expansion_pg
-    from backend.app.services.family_metadata_context import FamilyMetadataContext, SampleMetadataContext
     from backend.app.services.repeat_expansion_pg import (
         clear_sample_repeat_expansions,
         get_family_repeat_expansion_table_response,
@@ -587,38 +444,7 @@ def test_a_polg_count_inside_its_benign_range_is_stored_normal_and_the_table_rea
         try:
             async with sessionmaker() as session:
                 await seed_builtin_repeat_catalog(session)
-                family_uuid = str(
-                    (
-                        await session.execute(
-                            text("INSERT INTO families (family_id) VALUES (:f) RETURNING id::text"), {"f": label}
-                        )
-                    ).scalar_one()
-                )
-                contexts: dict[str, SampleMetadataContext] = {}
-                for name, sex in (("WOMAN", "female"), ("MAN", "male")):
-                    sample_id = f"{label}-{name}"
-                    sample_uuid = str(
-                        (
-                            await session.execute(
-                                text(
-                                    "INSERT INTO samples (sample_id, family_id, sex) "
-                                    "VALUES (:s, CAST(:f AS uuid), :sex) RETURNING id::text"
-                                ),
-                                {"s": sample_id, "f": family_uuid, "sex": sex},
-                            )
-                        ).scalar_one()
-                    )
-                    contexts[name] = SampleMetadataContext(
-                        sample_uuid=sample_uuid,
-                        sample_id=sample_id,
-                        family_uuid=family_uuid,
-                        family_id=label,
-                        sex=sex,
-                        project_ids=[],
-                        assembly_id=None,
-                        assembly_name="GRCh38",
-                    )
-                await session.commit()
+                family_uuid, contexts = await trgt_family(session, label, {"WOMAN": "female", "MAN": "male"})
 
                 async def _import(name: str) -> None:
                     await ingest_trgt_text(
@@ -653,25 +479,8 @@ def test_a_polg_count_inside_its_benign_range_is_stored_normal_and_the_table_rea
                     },
                 )
                 await session.commit()
-                context = FamilyMetadataContext(
-                    family_uuid=family_uuid,
-                    family_id=label,
-                    project_ids=[],
-                    sample_rows=[
-                        {
-                            "sample_uuid": contexts[name].sample_uuid,
-                            "sample_id": contexts[name].sample_id,
-                            "role": role,
-                            "affected": False,
-                            "sex": contexts[name].sex,
-                        }
-                        for name, role in (("WOMAN", "mother"), ("MAN", "father"))
-                    ],
-                    sample_uuid_to_name={ctx.sample_uuid: ctx.sample_id for ctx in contexts.values()},
-                    sample_name_to_uuid={ctx.sample_id: ctx.sample_uuid for ctx in contexts.values()},
-                    affected_sample_names=[],
-                    assembly_id=None,
-                    assembly_name="GRCh38",
+                context = repeat_family_context(
+                    family_uuid, label, [(contexts["WOMAN"], "mother", False), (contexts["MAN"], "father", False)]
                 )
                 table = await get_family_repeat_expansion_table_response(session, context=context)
                 read_by_table = {

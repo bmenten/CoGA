@@ -1,11 +1,9 @@
-import { QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import FamilyRoiMarkersPage from '../FamilyRoiMarkersPage';
 import api from '../../../lib/api';
 import { NUCLEOTIDE_FALLBACK_COLOR } from '../../../lib/phasedMarkers';
-import { createTestQueryClient } from '../../../test/createTestQueryClient';
+import { renderFamilyRoute } from '../../../test/familyRoute';
 import {
   INCOMPLETE_IMPORT_METADATA,
   findAssemblyScopeBanner,
@@ -83,15 +81,7 @@ const haplo = {
 };
 
 const renderPage = () =>
-  render(
-    <QueryClientProvider client={createTestQueryClient()}>
-      <MemoryRouter initialEntries={['/families/co1/roi-markers']}>
-        <Routes>
-          <Route path="/families/:familyId/roi-markers" element={<FamilyRoiMarkersPage />} />
-        </Routes>
-      </MemoryRouter>
-    </QueryClientProvider>,
-  );
+  renderFamilyRoute('/families/:familyId/roi-markers', '/families/co1/roi-markers', <FamilyRoiMarkersPage />);
 
 // Band cells carry their identity as data attributes (the hover tooltip reads them).
 const bandCell = (sample: string, lane: number, pos: number) =>

@@ -160,3 +160,37 @@ def test_worker_sweeps_then_stops_cleanly(monkeypatch):
 
     asyncio.run(_go())
     assert sweeps["n"] >= 1
+
+
+def test_a_sweep_that_raises_is_logged_and_the_worker_sweeps_again(monkeypatch, caplog):
+    # The monitor is the only scheduled check of the stored variants: one failed sweep must
+    # not end it until the next restart.
+    monkeypatch.setattr(settings, "clickhouse_integrity_monitor_enabled", True)
+    monkeypatch.setattr(settings, "clickhouse_integrity_startup_delay_seconds", 0)
+    monkeypatch.setattr(settings, "clickhouse_integrity_interval_seconds", 0.01)
+    sweeps = {"n": 0}
+
+    async def failing_once():
+        sweeps["n"] += 1
+        if sweeps["n"] == 1:
+            raise RuntimeError("the sweep itself failed")
+        return {}
+
+    monkeypatch.setattr(mon, "run_integrity_sweep", failing_once)
+
+    async def _go():
+        await mon.start_clickhouse_integrity_monitor()
+        for _ in range(100):
+            if sweeps["n"] >= 2:
+                break
+            await asyncio.sleep(0.01)
+        await mon.stop_clickhouse_integrity_monitor()
+
+    with caplog.at_level(logging.ERROR, logger=mon.logger.name):
+        asyncio.run(_go())
+
+    assert sweeps["n"] >= 2
+    assert mon._worker_task is None
+    assert [r.getMessage() for r in caplog.records if r.levelno == logging.ERROR] == [
+        "ClickHouse integrity sweep failed"
+    ]

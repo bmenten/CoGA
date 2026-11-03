@@ -1,5 +1,5 @@
 import { render, screen, waitFor, within } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import userEvent, { type UserEvent } from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -76,6 +76,25 @@ const renderPage = () => {
   );
 };
 
+/** The default profile's Mean depth warning bound, once the page has loaded. */
+const meanDepthWarning = async () =>
+  (await screen.findByLabelText('Mean depth warning threshold')) as HTMLInputElement;
+
+/** Types a new Mean depth warning bound, and asks to save it. */
+const saveMeanDepthWarning = async (user: UserEvent, value: string) => {
+  const warn = await meanDepthWarning();
+  await user.clear(warn);
+  await user.type(warn, value);
+  await user.click(screen.getAllByRole('button', { name: 'Save' })[0]);
+  return warn;
+};
+
+/** Gives the confirmation dialog its reason, and confirms. */
+const confirmWithReason = async (user: UserEvent, reason: string) => {
+  await user.type(await screen.findByLabelText(/Reason for the change/i), reason);
+  await user.click(screen.getByRole('button', { name: /Confirm change/i }));
+};
+
 describe('AdminQcThresholdsPage', () => {
   beforeEach(() => {
     mockedGet.mockReset();
@@ -101,7 +120,7 @@ describe('AdminQcThresholdsPage', () => {
   it('starts on the default profile and shows its stored bounds', async () => {
     renderPage();
 
-    const warn = (await screen.findByLabelText('Mean depth warning threshold')) as HTMLInputElement;
+    const warn = await meanDepthWarning();
     const error = screen.getByLabelText('Mean depth error threshold') as HTMLInputElement;
     expect(warn.value).toBe('20');
     expect(error.value).toBe('10');
@@ -114,7 +133,7 @@ describe('AdminQcThresholdsPage', () => {
   it('switching profile shows that profile’s own bounds, not the default’s', async () => {
     const user = userEvent.setup();
     renderPage();
-    await screen.findByLabelText('Mean depth warning threshold');
+    await meanDepthWarning();
 
     await user.click(screen.getByRole('button', { name: /Long-read WGS/ }));
 
@@ -127,13 +146,9 @@ describe('AdminQcThresholdsPage', () => {
   it('saves an edited bound against the selected profile', async () => {
     const user = userEvent.setup();
     renderPage();
-    const warn = (await screen.findByLabelText('Mean depth warning threshold')) as HTMLInputElement;
 
-    await user.clear(warn);
-    await user.type(warn, '15');
-    await user.click(screen.getAllByRole('button', { name: 'Save' })[0]);
-    await user.type(await screen.findByLabelText(/Reason for the change/i), 'per VAL-P07');
-    await user.click(screen.getByRole('button', { name: /Confirm change/i }));
+    await saveMeanDepthWarning(user, '15');
+    await confirmWithReason(user, 'per VAL-P07');
 
     await waitFor(() =>
       expect(mockedPut).toHaveBeenCalledWith('/admin/qc-thresholds/default', {
@@ -186,14 +201,13 @@ describe('AdminQcThresholdsPage', () => {
   it('clears a threshold when both bounds are blanked', async () => {
     const user = userEvent.setup();
     renderPage();
-    const warn = (await screen.findByLabelText('Mean depth warning threshold')) as HTMLInputElement;
+    const warn = await meanDepthWarning();
     const error = screen.getByLabelText('Mean depth error threshold') as HTMLInputElement;
 
     await user.clear(warn);
     await user.clear(error);
     await user.click(screen.getAllByRole('button', { name: 'Save' })[0]);
-    await user.type(await screen.findByLabelText(/Reason for the change/i), 'per VAL-P07');
-    await user.click(screen.getByRole('button', { name: /Confirm change/i }));
+    await confirmWithReason(user, 'per VAL-P07');
 
     // Nulls clear the row: a metric with no cut-off is not configured, and must not be
     // left behind as an all-null row implying it is.
@@ -210,7 +224,7 @@ describe('AdminQcThresholdsPage', () => {
   it('offers no Save until a bound actually changes', async () => {
     const user = userEvent.setup();
     renderPage();
-    const warn = (await screen.findByLabelText('Mean depth warning threshold')) as HTMLInputElement;
+    const warn = await meanDepthWarning();
 
     // Sixteen permanently disabled buttons were sixteen rows of noise; the control
     // appears on the row being edited.
@@ -224,11 +238,8 @@ describe('AdminQcThresholdsPage', () => {
   it('does not write until the change is confirmed', async () => {
     const user = userEvent.setup();
     renderPage();
-    const warn = (await screen.findByLabelText('Mean depth warning threshold')) as HTMLInputElement;
 
-    await user.clear(warn);
-    await user.type(warn, '15');
-    await user.click(screen.getAllByRole('button', { name: 'Save' })[0]);
+    await saveMeanDepthWarning(user, '15');
 
     // A cut-off decides whether a run is reported as inadequate; it must not be committed
     // on one stray click. The dialog restates both sides of the change.
@@ -245,11 +256,8 @@ describe('AdminQcThresholdsPage', () => {
     const user = userEvent.setup();
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
     renderPage();
-    const warn = (await screen.findByLabelText('Mean depth warning threshold')) as HTMLInputElement;
 
-    await user.clear(warn);
-    await user.type(warn, '15');
-    await user.click(screen.getAllByRole('button', { name: 'Save' })[0]);
+    await saveMeanDepthWarning(user, '15');
     await user.type(await screen.findByLabelText(/Reason for the change/i), 'per VAL-P07');
 
     await user.keyboard('{Escape}');
@@ -267,7 +275,10 @@ describe('AdminQcThresholdsPage', () => {
     confirm.mockRestore();
   });
 
-  it('shows the append-only change history with the value each edit replaced', async () => {
+  // The append-only history: who changed which bound from what to what, and why. The replaced
+  // value is the thing the HTTP request log cannot record; an edit made before a reason was
+  // required, or by an account no longer known, says so rather than showing nothing.
+  it('shows the append-only change history with the value each edit replaced and its reason', async () => {
     mockedGet.mockResolvedValue({
       data: {
         ...CATALOGUE,
@@ -281,6 +292,17 @@ describe('AdminQcThresholdsPage', () => {
             error_value: 10,
             changed_by_email: 'admin@example.com',
             changed_at: '2026-07-30T09:15:00',
+            reason: 'per VAL-P07 opvolgvalidatie',
+          },
+          {
+            profile_key: 'default',
+            metric_key: 'depth.mean_depth',
+            previous_warn_value: null,
+            previous_error_value: null,
+            warn_value: 30,
+            error_value: 20,
+            changed_by_email: null,
+            changed_at: '2026-06-30T08:00:00',
           },
         ],
       },
@@ -288,10 +310,18 @@ describe('AdminQcThresholdsPage', () => {
     renderPage();
 
     expect(await screen.findByText('Change history')).toBeInTheDocument();
-    expect(screen.getByText('admin@example.com')).toBeInTheDocument();
-    // The replaced value is the thing the HTTP request log cannot record.
-    expect(screen.getByText('30 → 20')).toBeInTheDocument();
-    expect(screen.getByText('20 → 10')).toBeInTheDocument();
+    const [latest, first] = within(screen.getByText('per VAL-P07 opvolgvalidatie').closest('tbody') as HTMLElement)
+      .getAllByRole('row')
+      .map((row) => within(row));
+    expect(latest.getByText('admin@example.com')).toBeInTheDocument();
+    expect(latest.getByText('2026-07-30 09:15 UTC')).toBeInTheDocument();
+    expect(latest.getByText('30 → 20')).toBeInTheDocument();
+    expect(latest.getByText('20 → 10')).toBeInTheDocument();
+    expect(latest.getByText('per VAL-P07 opvolgvalidatie')).toBeInTheDocument();
+    expect(first.getByText('unknown')).toBeInTheDocument();
+    expect(first.getByText('— → 30')).toBeInTheDocument();
+    expect(first.getByText('— → 20')).toBeInTheDocument();
+    expect(first.getByText('not recorded')).toBeInTheDocument();
   });
 
   it('says plainly that no cut-offs are shipped by default', async () => {
@@ -314,7 +344,7 @@ describe('AdminQcThresholdsPage', () => {
   it('adds a profile and switches to it', async () => {
     const user = userEvent.setup();
     renderPage();
-    await screen.findByLabelText('Mean depth warning threshold');
+    await meanDepthWarning();
 
     await user.click(screen.getByRole('button', { name: /Add profile/i }));
     await user.type(screen.getByLabelText('New profile name'), 'PGT');
@@ -331,7 +361,7 @@ describe('AdminQcThresholdsPage', () => {
   it('will not submit an empty profile name', async () => {
     const user = userEvent.setup();
     renderPage();
-    await screen.findByLabelText('Mean depth warning threshold');
+    await meanDepthWarning();
 
     await user.click(screen.getByRole('button', { name: /Add profile/i }));
     expect(screen.getByRole('button', { name: /^Add$/ })).toBeDisabled();
@@ -341,11 +371,8 @@ describe('AdminQcThresholdsPage', () => {
   it('will not commit a cut-off change without a reason', async () => {
     const user = userEvent.setup();
     renderPage();
-    const warn = (await screen.findByLabelText('Mean depth warning threshold')) as HTMLInputElement;
 
-    await user.clear(warn);
-    await user.type(warn, '15');
-    await user.click(screen.getAllByRole('button', { name: 'Save' })[0]);
+    await saveMeanDepthWarning(user, '15');
 
     // The values either side are recorded automatically; what they cannot say is
     // whether a limit moved because a validation study supported it or because a run
@@ -356,29 +383,5 @@ describe('AdminQcThresholdsPage', () => {
 
     await user.type(screen.getByLabelText(/Reason for the change/i), 'per VAL-P07');
     expect(screen.getByRole('button', { name: /Confirm change/i })).toBeEnabled();
-  });
-
-  it('shows the recorded reason in the change history', async () => {
-    mockedGet.mockResolvedValue({
-      data: {
-        ...CATALOGUE,
-        changes: [
-          {
-            profile_key: 'default',
-            metric_key: 'depth.mean_depth',
-            previous_warn_value: 30,
-            previous_error_value: 20,
-            warn_value: 20,
-            error_value: 10,
-            changed_by_email: 'admin@example.com',
-            changed_at: '2026-07-30T09:15:00',
-            reason: 'per VAL-P07 opvolgvalidatie',
-          },
-        ],
-      },
-    });
-    renderPage();
-
-    expect(await screen.findByText('per VAL-P07 opvolgvalidatie')).toBeInTheDocument();
   });
 });

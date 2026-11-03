@@ -1,5 +1,8 @@
-"""Backend hardening (#522): species auth, unsigned anchors, the HPO download, the CNV
-knowledgebase subprocess environment, and link tokens in the access log."""
+"""Backend hardening (#522): unsigned anchors, the HPO download, the CNV knowledgebase
+subprocess environment, and link tokens in the access log.
+
+The species list's sign-in (#522) is held with every other route's in
+``test_routes_require_sign_in.py``."""
 
 from __future__ import annotations
 
@@ -10,7 +13,6 @@ import logging
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
 
 from backend.app.core.coga_logging import RedactQueryTokenFilter, redact_query_tokens
 from backend.app.core.config import HPO_PINNED_ONTOLOGY_URL, settings
@@ -19,14 +21,6 @@ from backend.app.services import integrity_anchor_service as anchors
 from backend.app.services.clinical_cnv_kb_jobs import _build_script_env
 
 _OBO = b"format-version: 1.2\ndata-version: hp/releases/2026-06-01\n\n[Term]\nid: HP:0000001\nname: All\n"
-
-
-def test_the_species_list_requires_a_signed_in_user() -> None:
-    from backend.app.main import app
-
-    app.state.skip_startup_tasks = True
-    with TestClient(app) as client:
-        assert client.get("/api/species/").status_code == 401
 
 
 def test_no_unsigned_anchor_is_written_outside_development(monkeypatch) -> None:

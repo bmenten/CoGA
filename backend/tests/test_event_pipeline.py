@@ -1,3 +1,11 @@
+"""The durability of the request audit's and the UI-event log's events (TF-13 S-5).
+
+The queue's backpressure and synchronous fallback, the bounded retry of a batch write and the
+write of each event alone after its last attempt, and never-silent drop accounting; a failure is
+logged by its kind, never by its text, which repeats the rows. Each event stored once, and a
+deleted user's row kept, are in test_audit_rows_idempotent_and_kept.py.
+"""
+
 from __future__ import annotations
 
 import asyncio

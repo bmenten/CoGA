@@ -27,21 +27,16 @@ from uuid import uuid4
 
 import pytest
 
+from backend.tests.e2e._harness import ensure_postgres_schema, status_and_body
+
 pytestmark = pytest.mark.integration
 
 HINT = "Choose an analyst of one of the family's projects or an administrator."
 
 
-def _answer(resp: Any) -> tuple[int, Any]:
-    try:
-        return resp.status_code, resp.json()
-    except ValueError:
-        return resp.status_code, resp.text[:200]
-
-
 def _listed(resp: Any) -> tuple[int, Any]:
     """The list's status and the IDs it holds (its body when it is no list)."""
-    status, body = _answer(resp)
+    status, body = status_and_body(resp)
     return status, [user["id"] for user in body] if status == 200 and isinstance(body, list) else body
 
 
@@ -50,7 +45,7 @@ async def _exercise(run: str) -> dict[str, Any]:
     from sqlalchemy import text
 
     from backend.app.core.clickhouse import init_clickhouse_schema
-    from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
+    from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.dependencies import get_password_hash
     from backend.app.main import app
     from backend.tests.e2e import _harness
@@ -61,7 +56,7 @@ async def _exercise(run: str) -> dict[str, Any]:
     # Made at run time: the repository holds no password-shaped literal.
     password = uuid4().hex
 
-    await init_postgres_schema()
+    await ensure_postgres_schema()
     await init_clickhouse_schema()
     sessionmaker = get_postgres_sessionmaker()
     async with sessionmaker() as session:
@@ -137,8 +132,8 @@ async def _exercise(run: str) -> dict[str, Any]:
             path = f"/api/families/{family_id}"
             out["listed"] = _listed(await ana.get(f"{path}/assignable-users"))
             out["listed_by_reader"] = _listed(await rita.get(f"{path}/assignable-users"))
-            out["listed_by_outsider"] = _answer(await ben.get(f"{path}/assignable-users"))
-            out["unknown_family"] = _answer(await ben.get(f"/api/families/NO_{family_id}/assignable-users"))
+            out["listed_by_outsider"] = status_and_body(await ben.get(f"{path}/assignable-users"))
+            out["unknown_family"] = status_and_body(await ben.get(f"/api/families/NO_{family_id}/assignable-users"))
 
             saved = await ana.put(f"{path}/metadata", json={"assigned_to": users["ana"], "reviewed_by": users["carl"]})
             out["saved"] = (
@@ -147,11 +142,11 @@ async def _exercise(run: str) -> dict[str, Any]:
                 (saved.json().get("reviewed_by") or {}).get("id"),
             )
             out["refused"] = {
-                who: _answer(await ana.put(f"{path}/metadata", json={field: users[who]}))
+                who: status_and_body(await ana.put(f"{path}/metadata", json={field: users[who]}))
                 for who, field in (("rita", "reviewed_by"), ("ben", "assigned_to"), ("gil", "assigned_to"))
             }
             # A refused field leaves the others of the save unwritten.
-            out["refused_with_status"] = _answer(
+            out["refused_with_status"] = status_and_body(
                 await ana.put(f"{path}/metadata", json={"status_key": None, "assigned_to": users["rita"]})
             )
             out["after_refusals"] = (await ana.get(path)).json()
@@ -163,10 +158,10 @@ async def _exercise(run: str) -> dict[str, Any]:
             assert demoted.status_code == 200, demoted.text
             out["kept"] = (await ana.get(path)).json()["reviewed_by"]
             out["listed_after_demotion"] = _listed(await ana.get(f"{path}/assignable-users"))
-            out["left_as_he_is"] = _answer(
+            out["left_as_he_is"] = status_and_body(
                 await ana.put(f"{path}/metadata", json={"assigned_to": users["ana"], "reviewed_by": users["carl"]})
             )
-            out["named_anew"] = _answer(await ana.put(f"{path}/metadata", json={"assigned_to": users["carl"]}))
+            out["named_anew"] = status_and_body(await ana.put(f"{path}/metadata", json={"assigned_to": users["carl"]}))
             for client in clients.values():
                 await client.aclose()
 

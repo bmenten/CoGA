@@ -1,10 +1,14 @@
-import { QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 import FamilyMitoDNAAnalysisPage from '../FamilyMitoDNAAnalysisPage';
-import { createTestQueryClient } from '../../../test/createTestQueryClient';
+import { renderFamilyRoute } from '../../../test/familyRoute';
+import {
+  expectFailedRequestRetried,
+  expectFamilyNotFound,
+  familyNotFound,
+  serverError,
+} from '../../../test/requestFailures';
 
 const apiMock = vi.hoisted(() => ({
   get: vi.fn(),
@@ -37,6 +41,10 @@ vi.mock('../../../lib/reference', async (importOriginal) => ({
       .filter(Boolean)
       .join(' • ') || 'Not linked',
 }));
+
+/** The page of family F1, at `url`. */
+const renderPage = (url = '/families/F1/mitochondrial-dna') =>
+  renderFamilyRoute('/families/:familyId/mitochondrial-dna', url, <FamilyMitoDNAAnalysisPage />);
 
 describe('FamilyMitoDNAAnalysisPage', () => {
   it('separates maternal-line samples from father and displays heteroplasmy ratios', async () => {
@@ -209,20 +217,7 @@ describe('FamilyMitoDNAAnalysisPage', () => {
       return Promise.resolve({ data: {} });
     });
 
-    const queryClient = createTestQueryClient();
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={['/families/F1/mitochondrial-dna']}>
-          <Routes>
-            <Route
-              path="/families/:familyId/mitochondrial-dna"
-              element={<FamilyMitoDNAAnalysisPage />}
-            />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderPage();
 
     await waitFor(() => {
       expect(screen.getByRole('heading', { name: /mitochondrial variants/i })).toBeInTheDocument();
@@ -430,16 +425,7 @@ describe('FamilyMitoDNAAnalysisPage', () => {
       return Promise.resolve({ data: {} });
     });
 
-    const queryClient = createTestQueryClient();
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={['/families/F1/mitochondrial-dna']}>
-          <Routes>
-            <Route path="/families/:familyId/mitochondrial-dna" element={<FamilyMitoDNAAnalysisPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderPage();
 
     await waitFor(() => {
       expect(screen.getByText(/3 of 3 variants/)).toBeInTheDocument();
@@ -558,15 +544,7 @@ describe('FamilyMitoDNAAnalysisPage', () => {
       return Promise.resolve({ data: {} });
     });
 
-    render(
-      <QueryClientProvider client={createTestQueryClient()}>
-        <MemoryRouter initialEntries={['/families/F1/mitochondrial-dna']}>
-          <Routes>
-            <Route path="/families/:familyId/mitochondrial-dna" element={<FamilyMitoDNAAnalysisPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderPage();
 
     const row = await screen.findByRole('article', { name: /m\.3460G>A/i });
     expect(within(row).getByText('Mother not assessed')).toBeInTheDocument();
@@ -579,20 +557,6 @@ describe('FamilyMitoDNAAnalysisPage', () => {
 
 // #610 — any failure read "Family not found", a server error included.
 describe('FamilyMitoDNAAnalysisPage — failed requests (#610)', () => {
-  const serverError = () =>
-    Promise.reject(
-      Object.assign(new Error('Request failed with status code 500'), { response: { status: 500 } }),
-    );
-  const renderPage = () =>
-    render(
-      <QueryClientProvider client={createTestQueryClient()}>
-        <MemoryRouter initialEntries={['/families/F1/mitochondrial-dna']}>
-          <Routes>
-            <Route path="/families/:familyId/mitochondrial-dna" element={<FamilyMitoDNAAnalysisPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
 
   it('says the mtDNA analysis could not be loaded, not that the family was not found', async () => {
     let failedRequests = 0;
@@ -610,28 +574,18 @@ describe('FamilyMitoDNAAnalysisPage — failed requests (#610)', () => {
     });
     renderPage();
 
-    expect(await screen.findByRole('heading', { name: 'mtDNA analysis could not be loaded' })).toBeInTheDocument();
-    expect(
-      screen.getByText('Request failed with status code 500 This is a failed request, not a missing family.'),
-    ).toBeInTheDocument();
-    expect(screen.queryByText('Family not found')).not.toBeInTheDocument();
-    const before = failedRequests;
-    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
-    await waitFor(() => expect(failedRequests).toBeGreaterThan(before));
+    await expectFailedRequestRetried({
+      heading: 'mtDNA analysis could not be loaded',
+      message: 'Request failed with status code 500',
+      requests: () => failedRequests,
+    });
   });
 
   it('keeps "Family not found" for a family the API does not know', async () => {
-    apiMock.get.mockImplementation(() =>
-      Promise.reject(
-        Object.assign(new Error('Request failed with status code 404'), {
-          response: { status: 404, data: { detail: 'Family not found' } },
-        }),
-      ),
-    );
+    apiMock.get.mockImplementation(familyNotFound);
     renderPage();
 
-    expect(await screen.findByRole('heading', { name: 'Family not found' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
+    await expectFamilyNotFound();
   });
 });
 
@@ -740,19 +694,13 @@ describe('mtDNA variant review', () => {
         });
       }
       if (url.endsWith('/small-variant-tags')) return Promise.resolve({ data: tagDefinitions });
+      // The ACMG dialog reads the family's HPO terms for PP4: none here.
+      if (url === '/families/F1/hpo') return Promise.resolve({ data: [] });
       return Promise.resolve({ data: {} });
     });
     apiMock.put.mockReset();
     apiMock.put.mockResolvedValue({ data: {} });
-    render(
-      <QueryClientProvider client={createTestQueryClient()}>
-        <MemoryRouter initialEntries={['/families/F1/mitochondrial-dna']}>
-          <Routes>
-            <Route path="/families/:familyId/mitochondrial-dna" element={<FamilyMitoDNAAnalysisPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderPage();
   };
 
   it('toggles the quick tags on the shared review, keeping its tags and note', async () => {
@@ -848,21 +796,44 @@ describe('mtDNA variant review', () => {
     expect(analysisReads()).toBe(readsBefore);
   });
 
-  it('puts the card back when a quick tag cannot be saved', async () => {
+  it.each(['Exclude', 'Review'])('says so and puts the card back when the %s quick tag cannot be saved', async (tag) => {
     renderWith([mitoVariant('m.3243A>G', null)]);
     apiMock.put.mockRejectedValue(new Error('Network down'));
     const card = await screen.findByRole('article', { name: /m\.3243A>G/ });
-    fireEvent.click(within(card).getByRole('button', { name: 'Exclude' }));
-    await screen.findByRole('alert');
-    expect(within(card).getByRole('button', { name: 'Exclude' })).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(within(card).getByRole('button', { name: tag }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/network down|unable to save the variant review/i);
+    expect(within(card).getByRole('button', { name: tag })).toHaveAttribute('aria-pressed', 'false');
     expect(card).not.toHaveClass('variant-card--excluded');
   });
 
-  it('says so when a quick tag cannot be saved', async () => {
+  // An mtDNA classification is saved on the shared small-variant review, as the list's is.
+  it('saves an ACMG classification on the shared review, and closes the dialog', async () => {
+    renderWith([mitoVariant('m.3243A>G', { tags: ['review'], note: 'Checked in IGV', updated_at: '2026-10-01T10:00:00Z' })]);
+    const card = await screen.findByRole('article', { name: /m\.3243A>G/ });
+    fireEvent.click(within(card).getByRole('button', { name: /classify m\.3243A>G with acmg/i }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText('ACMG classification')).toBeInTheDocument();
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save classification' }));
+    await waitFor(() => expect(apiMock.put).toHaveBeenCalledTimes(1));
+    const [path, payload] = apiMock.put.mock.calls[0] as [string, Record<string, unknown>];
+    expect(path).toBe('/families/F1/small-variants/m.3243A%3EG/review');
+    // The review's own tags and note travel with it, and the save names the version it read.
+    expect(payload).toMatchObject({ note: 'Checked in IGV', expected_updated_at: '2026-10-01T10:00:00Z' });
+    expect(payload.tags).toEqual(expect.arrayContaining(['review']));
+    expect(payload.acmg).toEqual(expect.objectContaining({ criteria: expect.any(Array) }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  });
+
+  it('keeps the ACMG dialog open and says so when the classification cannot be saved', async () => {
     renderWith([mitoVariant('m.3243A>G', null)]);
     apiMock.put.mockRejectedValue(new Error('Network down'));
     const card = await screen.findByRole('article', { name: /m\.3243A>G/ });
-    fireEvent.click(within(card).getByRole('button', { name: 'Review' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent(/network down|unable to save the variant review/i);
+    fireEvent.click(within(card).getByRole('button', { name: /classify m\.3243A>G with acmg/i }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save classification' }));
+
+    await waitFor(() => expect(dialog).toHaveTextContent(/Network down/));
+    expect(screen.getByRole('dialog')).toBe(dialog);
   });
 });

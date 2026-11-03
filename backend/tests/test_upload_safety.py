@@ -1,3 +1,9 @@
+"""Bounded upload decode (``upload_safety``): an upload, or a package file read from disk, is
+read into UTF-8 text with its size capped before and after gzip, so a crafted file cannot
+exhaust a worker's memory (413), and a file that is not complete gzip or UTF-8 text is refused
+(400), never read as the part that was there. gzip is told by its magic bytes, not its name.
+"""
+
 from __future__ import annotations
 
 import gzip
@@ -35,7 +41,7 @@ async def test_oversized_plain_upload_rejected(monkeypatch):
     monkeypatch.setattr(settings, "max_upload_bytes", 64)
     with pytest.raises(HTTPException) as exc:
         await decode_upload_text(_upload(b"x" * 1000), kind="BED")
-    assert exc.value.status_code == 413
+    assert (exc.value.status_code, exc.value.detail) == (413, "BED upload exceeds the maximum allowed size")
 
 
 @pytest.mark.asyncio
@@ -48,7 +54,7 @@ async def test_gzip_bomb_rejected_by_decompressed_cap(monkeypatch):
     assert len(bomb) < 1 * 1024 * 1024  # tiny compressed payload
     with pytest.raises(HTTPException) as exc:
         await decode_upload_text(_upload(bomb), kind="Reference")
-    assert exc.value.status_code == 413
+    assert (exc.value.status_code, exc.value.detail) == (413, "Reference upload expands beyond the maximum allowed size")
 
 
 @pytest.mark.asyncio
@@ -57,14 +63,14 @@ async def test_corrupt_gzip_rejected_as_bad_request():
     data = b"\x1f\x8b" + b"\x00" * 32
     with pytest.raises(HTTPException) as exc:
         await decode_upload_text(_upload(data), kind="TRGT")
-    assert exc.value.status_code == 400
+    assert (exc.value.status_code, exc.value.detail) == (400, "TRGT file is not valid gzip")
 
 
 @pytest.mark.asyncio
 async def test_non_utf8_plain_rejected_as_bad_request():
     with pytest.raises(HTTPException) as exc:
         await decode_upload_text(_upload(b"\xff\xfe\x00bad"), kind="PED")
-    assert exc.value.status_code == 400
+    assert (exc.value.status_code, exc.value.detail) == (400, "PED file must be UTF-8 text or gzipped UTF-8 text")
 
 
 # ---------------------------------------------------------------------------
@@ -86,15 +92,32 @@ def test_read_path_gzip_file_is_decompressed(tmp_path):
     assert read_path_text_bounded(path, kind="Package VCF") == text
 
 
-def test_read_path_gzip_bomb_rejected_by_decompressed_cap(tmp_path, monkeypatch):
+@pytest.mark.parametrize(
+    ("name", "content", "cap"),
+    [
+        pytest.param("bomb.vcf.gz", lambda: gzip.compress(b"\x00" * (8 * 1024 * 1024)), 1, id="one member"),
+        # gzip content under a name that is not .gz is still capped: gzip is told by its
+        # magic bytes.
+        pytest.param("bomb.vcf", lambda: gzip.compress(b"\x00" * (8 * 1024 * 1024)), 1, id="named as plain text"),
+        # The cumulative decompressed size across members stays bounded, so a bomb split over
+        # many members (1 MiB each, ~16 MiB in all) is refused like a single-member one.
+        pytest.param(
+            "bomb.vcf.gz", lambda: gzip.compress(b"\x00" * (1 * 1024 * 1024)) * 16, 4, id="split over many members"
+        ),
+    ],
+)
+def test_read_path_gzip_bomb_rejected_by_decompressed_cap(tmp_path, monkeypatch, name, content, cap):
     monkeypatch.setattr(settings, "max_upload_bytes", 100 * 1024 * 1024)
-    monkeypatch.setattr(settings, "max_decompressed_upload_bytes", 1 * 1024 * 1024)
-    path = tmp_path / "bomb.vcf.gz"
-    path.write_bytes(gzip.compress(b"\x00" * (8 * 1024 * 1024)))
+    monkeypatch.setattr(settings, "max_decompressed_upload_bytes", cap * 1024 * 1024)
+    path = tmp_path / name
+    path.write_bytes(content())
     assert path.stat().st_size < 1 * 1024 * 1024  # tiny on disk
     with pytest.raises(HTTPException) as exc:
         read_path_text_bounded(path, kind="Package VCF")
-    assert exc.value.status_code == 413
+    assert (exc.value.status_code, exc.value.detail) == (
+        413,
+        "Package VCF upload expands beyond the maximum allowed size",
+    )
 
 
 def test_read_path_oversized_plain_rejected(tmp_path, monkeypatch):
@@ -103,20 +126,20 @@ def test_read_path_oversized_plain_rejected(tmp_path, monkeypatch):
     path.write_bytes(b"x" * 1000)
     with pytest.raises(HTTPException) as exc:
         read_path_text_bounded(path, kind="Package VCF")
-    assert exc.value.status_code == 413
+    assert (exc.value.status_code, exc.value.detail) == (413, "Package VCF exceeds the maximum allowed size")
 
 
-def test_read_path_detects_gzip_by_magic_not_extension(tmp_path, monkeypatch):
+def test_read_path_detects_gzip_by_magic_not_extension(tmp_path):
     # A .gz-named plain file must not be force-decompressed; a gzip-content file with a
-    # non-.gz name must still be capped. Cap the decompressed size and confirm a gzip
-    # bomb named ".vcf" is still rejected.
-    monkeypatch.setattr(settings, "max_upload_bytes", 100 * 1024 * 1024)
-    monkeypatch.setattr(settings, "max_decompressed_upload_bytes", 1 * 1024 * 1024)
-    path = tmp_path / "bomb.vcf"  # gzip content, non-.gz name
-    path.write_bytes(gzip.compress(b"\x00" * (8 * 1024 * 1024)))
-    with pytest.raises(HTTPException) as exc:
-        read_path_text_bounded(path, kind="Package VCF")
-    assert exc.value.status_code == 413
+    # non-.gz name is decompressed (and capped: test_read_path_gzip_bomb_rejected_by_decompressed_cap).
+    text = "##fileformat=VCFv4.2\nchr1\t1\t.\tA\tT\n"
+    plain = tmp_path / "plain.vcf.gz"
+    plain.write_text(text, encoding="utf-8")
+    compressed = tmp_path / "compressed.vcf"
+    compressed.write_bytes(gzip.compress(text.encode()))
+
+    assert read_path_text_bounded(plain, kind="Package VCF") == text
+    assert read_path_text_bounded(compressed, kind="Package VCF") == text
 
 
 # ---------------------------------------------------------------------------
@@ -143,20 +166,6 @@ def test_read_path_multi_member_gzip_is_fully_decompressed(tmp_path):
     path = tmp_path / "sv.vcf.gz"
     path.write_bytes(_concat_gzip_members(*parts))
     assert read_path_text_bounded(path, kind="Package VCF") == b"".join(parts).decode()
-
-
-def test_read_path_multi_member_gzip_bomb_rejected(tmp_path, monkeypatch):
-    # The cumulative decompressed size across members must stay bounded so a bomb
-    # split over many members is rejected just like a single-member one.
-    monkeypatch.setattr(settings, "max_upload_bytes", 100 * 1024 * 1024)
-    monkeypatch.setattr(settings, "max_decompressed_upload_bytes", 4 * 1024 * 1024)
-    member = gzip.compress(b"\x00" * (1 * 1024 * 1024))  # 1 MiB decompressed per member
-    path = tmp_path / "bomb.vcf.gz"
-    path.write_bytes(member * 16)  # ~16 MiB across members, tiny on disk
-    assert path.stat().st_size < 1 * 1024 * 1024
-    with pytest.raises(HTTPException) as exc:
-        read_path_text_bounded(path, kind="Package VCF")
-    assert exc.value.status_code == 413
 
 
 # ---------------------------------------------------------------------------

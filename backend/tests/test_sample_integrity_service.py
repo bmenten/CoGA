@@ -75,27 +75,63 @@ def _x_rows(n: int):
     return rows
 
 
-def _patch(monkeypatch, *, swap_child: bool, metadata: dict | None = None):
+def _stub_reads(monkeypatch, *, context: FamilyMetadataContext, sources: list[str], sample, metadata: dict | None = None):
+    """The QC's reads: the family's metadata context and record, its callsets, and the
+    genotype sample ``sample(scope, limit, source)`` of a callset."""
+
     async def _fake_context(session, *, family_identifier, user, project_id=None):
-        return _context()
+        return context
 
     async def _fake_get_family(session, family_id, user):
         return types.SimpleNamespace(metadata=metadata or {})
 
     async def _fake_sources(context):
-        return ["clair3"]
+        return list(sources)
 
     async def _fake_sample(context, *, scope, limit, source):
+        return sample(scope, limit, source)
+
+    monkeypatch.setattr(sample_integrity_service, "build_family_metadata_context", _fake_context)
+    monkeypatch.setattr(sample_integrity_service, "get_family_record", _fake_get_family)
+    monkeypatch.setattr(sample_integrity_service, "fetch_family_variant_sources", _fake_sources)
+    monkeypatch.setattr(sample_integrity_service, "fetch_genotype_site_sample", _fake_sample)
+
+
+def _patch(monkeypatch, *, swap_child: bool, metadata: dict | None = None):
+    def _sample(scope, limit, source):
         if scope == "chrX":
             return _x_rows(600)
         # A fixed seed: one taken from builtin hash() (randomized per process) made the
         # relatedness occasionally dip to "warn" in CI.
         return _autosomal_rows(2_400, seed=11, swap_child=swap_child)
 
-    monkeypatch.setattr(sample_integrity_service, "build_family_metadata_context", _fake_context)
-    monkeypatch.setattr(sample_integrity_service, "get_family_record", _fake_get_family)
-    monkeypatch.setattr(sample_integrity_service, "fetch_family_variant_sources", _fake_sources)
-    monkeypatch.setattr(sample_integrity_service, "fetch_genotype_site_sample", _fake_sample)
+    _stub_reads(monkeypatch, context=_context(), sources=["clair3"], sample=_sample, metadata=metadata)
+
+
+def _patch_nipt_family(monkeypatch) -> None:
+    """The trio as a monogenic NIPT family: FATHER, and MOTHER's plasma as the cfDNA sample
+    (the mother member's maternal-plasma sample; there is no separate maternal germline
+    sample). The NIPT analysis itself is left to each test."""
+    _patch(monkeypatch, swap_child=False, metadata={"analysis_type": "monogenic_nipt"})
+    monkeypatch.setattr(
+        sample_integrity_service, "resolve_nipt_trio",
+        lambda family: types.SimpleNamespace(father_sample_id="FATHER", cfdna_sample_id="MOTHER"),
+    )
+
+
+def _run_nipt_analysis_as(monkeypatch, analysis) -> None:
+    """The family's NIPT analysis: ``analysis`` (its result), or a coroutine function that
+    stands in for ``run_family_nipt_analysis``."""
+    import backend.app.services.nipt_service as nipt_service
+
+    if callable(analysis):
+        monkeypatch.setattr(nipt_service, "run_family_nipt_analysis", analysis)
+        return
+
+    async def _analysis(session, *, family_id, user, project_id=None, **kwargs):
+        return analysis
+
+    monkeypatch.setattr(nipt_service, "run_family_nipt_analysis", _analysis)
 
 
 # A value a failed query was given, which the error's text quotes.
@@ -220,30 +256,9 @@ def test_service_notes_a_failed_genotype_load_without_the_error_text(monkeypatch
 def test_service_nipt_runs_paternity_parent_sex_and_category_qc(monkeypatch) -> None:
     # A monogenic-NIPT family runs paternity (cat 7/8) + fetal sex + the category
     # distribution QC + germline parent sex (X zygosity, cfDNA excluded), but no
-    # genotype relatedness/Mendelian checks.
-    _patch(monkeypatch, swap_child=False, metadata={"analysis_type": "monogenic_nipt"})
-    # The cfDNA sample is the mother member's maternal-plasma sample, so it sexes
-    # the mother; there is no separate maternal germline sample.
-    monkeypatch.setattr(
-        sample_integrity_service, "resolve_nipt_trio",
-        lambda family: types.SimpleNamespace(
-            father_sample_id="FATHER", cfdna_sample_id="MOTHER"
-        ),
-    )
-    import backend.app.services.nipt_service as nipt_service
-
-    async def _fake_nipt(session, *, family_id, user, project_id=None, **kwargs):
-        return types.SimpleNamespace(
-            category_counts={1: 1, 2: 30, 3: 16, 4: 14, 7: 40, 8: 2},
-            paternal_transmission=PaternalTransmissionEvidence(
-                hom_alt_transmitted=40, hom_alt_not_transmitted=1, het_transmitted=60, het_not_transmitted=55
-            ),
-            fetal_sex=types.SimpleNamespace(
-                inferred="female", x_transmitted=12, x_not_transmitted=0, informative_sites=12
-            ),
-        )
-
-    monkeypatch.setattr(nipt_service, "run_family_nipt_analysis", _fake_nipt)
+    # genotype relatedness/Mendelian checks. The cfDNA sample is the mother member's
+    # maternal-plasma sample, so it sexes the mother.
+    _patch_passing_nipt(monkeypatch, de_novo=1)
 
     report = asyncio.run(
         sample_integrity_service.get_family_sample_integrity_qc(
@@ -272,12 +287,7 @@ def test_service_nipt_degrades_to_warning_when_analysis_fails(monkeypatch) -> No
     # The cfDNA analysis raises -> the page degrades to a warning with a note instead
     # of 500-ing. The note is frozen into the signed report snapshot, so it is a fixed
     # sentence: the error's text quotes the failed statement and its parameters.
-    _patch(monkeypatch, swap_child=False, metadata={"analysis_type": "monogenic_nipt"})
-    monkeypatch.setattr(
-        sample_integrity_service, "resolve_nipt_trio",
-        lambda family: types.SimpleNamespace(father_sample_id="FATHER", cfdna_sample_id="MOTHER"),
-    )
-    import backend.app.services.nipt_service as nipt_service
+    _patch_nipt_family(monkeypatch)
 
     async def _boom(session, *, family_id, user, project_id=None, **kwargs):
         raise DBAPIError(
@@ -286,7 +296,7 @@ def test_service_nipt_degrades_to_warning_when_analysis_fails(monkeypatch) -> No
             Exception("invalid input syntax"),
         )
 
-    monkeypatch.setattr(nipt_service, "run_family_nipt_analysis", _boom)
+    _run_nipt_analysis_as(monkeypatch, _boom)
 
     report = asyncio.run(
         sample_integrity_service.get_family_sample_integrity_qc(
@@ -311,18 +321,13 @@ def test_service_nipt_database_error_is_rolled_back_to_its_savepoint(monkeypatch
     from backend.app.services import nipt_artifact_pg
     from backend.app.services.report_signout_service import _unverifiable_swap_checks
 
-    _patch(monkeypatch, swap_child=False, metadata={"analysis_type": "monogenic_nipt"})
-    monkeypatch.setattr(
-        sample_integrity_service, "resolve_nipt_trio",
-        lambda family: types.SimpleNamespace(father_sample_id="FATHER", cfdna_sample_id="MOTHER"),
-    )
-    import backend.app.services.nipt_service as nipt_service
+    _patch_nipt_family(monkeypatch)
 
     async def _reads_the_artifact_list(session, *, family_id, user, project_id=None, **kwargs):
         await nipt_artifact_pg.load_nipt_artifact_ids(session, assembly_id="asm", assay_key="default")
         raise AssertionError("the artifact list was read")
 
-    monkeypatch.setattr(nipt_service, "run_family_nipt_analysis", _reads_the_artifact_list)
+    _run_nipt_analysis_as(monkeypatch, _reads_the_artifact_list)
     session = _PostgresSession()
 
     async def _qc_then_the_next_statement():
@@ -362,15 +367,9 @@ def _warnings(caplog) -> list[str]:
 
 def test_service_logs_a_failed_check_by_its_kind_not_its_text(monkeypatch, caplog) -> None:
     # A failed query's text holds its parameters: the warnings name the error instead.
-    import backend.app.services.nipt_service as nipt_service
-
     caplog.set_level(logging.WARNING, logger=sample_integrity_service.logger.name)
-    _patch(monkeypatch, swap_child=False, metadata={"analysis_type": "monogenic_nipt"})
-    monkeypatch.setattr(
-        sample_integrity_service, "resolve_nipt_trio",
-        lambda family: types.SimpleNamespace(father_sample_id="FATHER", cfdna_sample_id="MOTHER"),
-    )
-    monkeypatch.setattr(nipt_service, "run_family_nipt_analysis", _failed_query)
+    _patch_nipt_family(monkeypatch)
+    _run_nipt_analysis_as(monkeypatch, _failed_query)
     asyncio.run(
         sample_integrity_service.get_family_sample_integrity_qc(
             session=_Session(), family_id="FAM1", user=None
@@ -389,28 +388,22 @@ def test_service_logs_a_failed_check_by_its_kind_not_its_text(monkeypatch, caplo
     assert _warnings(caplog) == ["Genotypes could not be loaded for family FAM1: RuntimeError"]
 
 
-def _patch_passing_nipt(monkeypatch) -> None:
-    """A monogenic NIPT family, FATHER and MOTHER's plasma, whose cfDNA checks all pass."""
-    import backend.app.services.nipt_service as nipt_service
-
-    _patch(monkeypatch, swap_child=False, metadata={"analysis_type": "monogenic_nipt"})
-    monkeypatch.setattr(
-        sample_integrity_service, "resolve_nipt_trio",
-        lambda family: types.SimpleNamespace(father_sample_id="FATHER", cfdna_sample_id="MOTHER"),
-    )
-
-    async def _fake_nipt(session, *, family_id, user, project_id=None, **kwargs):
-        return types.SimpleNamespace(
-            category_counts={2: 30, 3: 16, 4: 14, 7: 40, 8: 2},
+def _patch_passing_nipt(monkeypatch, *, de_novo: int = 0) -> None:
+    """A monogenic NIPT family, FATHER and MOTHER's plasma, whose cfDNA checks all pass
+    (``de_novo`` category-1 sites among them)."""
+    _patch_nipt_family(monkeypatch)
+    _run_nipt_analysis_as(
+        monkeypatch,
+        types.SimpleNamespace(
+            category_counts={1: de_novo, 2: 30, 3: 16, 4: 14, 7: 40, 8: 2},
             paternal_transmission=PaternalTransmissionEvidence(
                 hom_alt_transmitted=40, hom_alt_not_transmitted=1, het_transmitted=60, het_not_transmitted=55
             ),
             fetal_sex=types.SimpleNamespace(
                 inferred="female", x_transmitted=12, x_not_transmitted=0, informative_sites=12
             ),
-        )
-
-    monkeypatch.setattr(nipt_service, "run_family_nipt_analysis", _fake_nipt)
+        ),
+    )
 
 
 async def _unreadable_value(*args, **kwargs):
@@ -476,6 +469,32 @@ def test_service_nipt_parent_sex_without_a_callset_adds_nothing(monkeypatch) -> 
     )
     assert report.sex_checks == []
     assert report.notes == []
+
+
+def test_service_a_nipt_family_whose_trio_is_not_resolved_runs_no_cfdna_check(monkeypatch) -> None:
+    # Without a father and a plasma sample to read, there is no NIPT analysis to run: no
+    # cfDNA check, no parent sex check and no note. Nothing ran ("skip"), which the sign-out
+    # gate holds as a NIPT family none of whose checks could be assessed.
+    from backend.app.services.report_signout_service import _unverifiable_swap_checks
+
+    _patch(monkeypatch, swap_child=False, metadata={"analysis_type": "monogenic_nipt"})
+    monkeypatch.setattr(sample_integrity_service, "resolve_nipt_trio", lambda family: None)
+
+    async def _not_run(*args, **kwargs):
+        raise AssertionError("no NIPT analysis runs without a trio")
+
+    _run_nipt_analysis_as(monkeypatch, _not_run)
+    report = asyncio.run(
+        sample_integrity_service.get_family_sample_integrity_qc(session=_Session(), family_id="FAM1", user=None)
+    )
+
+    assert report.application == "nipt"
+    assert (report.paternity_check, report.fetal_sex_check, report.category_qc_check) == (None, None, None)
+    assert (report.sex_checks, report.notes, report.overall_status) == ([], [], "skip")
+    assert any(
+        reason.startswith("NIPT sample integrity could not be assessed")
+        for reason in _unverifiable_swap_checks(_canonical_sample_qc(report))
+    )
 
 
 def _without_chrx_calls(monkeypatch) -> None:
@@ -551,6 +570,80 @@ def test_service_trio_without_chrx_calls_warns_and_the_signed_snapshot_records_i
     assert _unverifiable_swap_checks(frozen) == []
 
 
+def _trio_sample(*, autosome=None, drop=None):
+    """The trio's genotype sample, each autosomal row's chromosome given by ``autosome(index)``
+    and ``drop(index)`` naming a sample whose file has no record at that row."""
+
+    def _sample(scope, limit, source):
+        if scope == "chrX":
+            return _x_rows(600)
+        rows = []
+        for index, (chrom, pos, ref, alt, sample_ids, gts) in enumerate(
+            _autosomal_rows(2_400, seed=11, swap_child=False)
+        ):
+            if autosome is not None:
+                chrom = autosome(index)
+            dropped = drop(index) if drop is not None else None
+            kept = [(sample, gt) for sample, gt in zip(sample_ids, gts) if sample != dropped]
+            rows.append((chrom, pos, ref, alt, [sample for sample, _ in kept], [gt for _, gt in kept]))
+        return rows
+
+    return _sample
+
+
+def test_service_warns_that_a_callset_on_part_of_the_genome_is_read_on_that_part(monkeypatch) -> None:
+    # CLIN-11 (the owner's decision of 2026-10-27): a callset whose sampled sites lie on fewer
+    # than QC_MIN_AUTOSOMES autosomes (one chromosome, a region) is still checked, and the
+    # report warns that the checks read only that part, in a fixed sentence the signed
+    # record freezes.
+    _stub_reads(
+        monkeypatch, context=_context(), sources=["clair3"], sample=_trio_sample(autosome=lambda index: str(index % 3 + 1))
+    )
+
+    report = asyncio.run(
+        sample_integrity_service.get_family_sample_integrity_qc(session=_Session(), family_id="FAM1", user=None)
+    )
+
+    note = (
+        "The callset covers part of the genome: its sites lie on 3 of the 22 autosomes, so the checks read "
+        "only that part."
+    )
+    assert report.notes == [note]
+    assert all(c.status == "pass" for c in report.sex_checks + report.relatedness_checks + report.mendelian_checks)
+    assert report.overall_status == "warn"
+    assert _canonical_sample_qc(report)["notes"] == [note]
+    # Sites on every autosome: no such warning (the clean trio passes).
+    assert sample_integrity_service.QC_MIN_AUTOSOMES == 20
+
+
+def test_service_notes_a_callset_made_one_sample_at_a_time(monkeypatch) -> None:
+    # One file per sample: where a sample's own file has no record, the checks read it as
+    # reference, as a joint VCF calls a covered site, and the note says so with each such
+    # sample's share of the sites read.
+    _stub_reads(
+        monkeypatch,
+        context=_context(),
+        sources=["clair3"],
+        sample=_trio_sample(drop=lambda index: "CHILD" if index % 10 == 0 else None),
+    )
+
+    report = asyncio.run(
+        sample_integrity_service.get_family_sample_integrity_qc(session=_Session(), family_id="FAM1", user=None)
+    )
+
+    assert report.notes == [
+        "The call set was made one sample at a time (no joint VCF). Where a sample's own file has no record "
+        "(CHILD at 10% of the sites read), the checks read it as reference, as a joint VCF calls a covered "
+        "site. A site without reads is read that way too, which lowers the kinship: on low-coverage data, "
+        "unrelated does not exclude a relationship."
+    ]
+    # Read as reference at a tenth of its sites, the child's kinship to each parent drops
+    # and opposite homozygotes appear: the checks say so rather than pass.
+    mendel = next(c for c in report.mendelian_checks if c.child == "CHILD")
+    assert (mendel.informative_sites, mendel.status) == (2_400, "warn")
+    assert report.overall_status == "fail"
+
+
 # --- PGT without chrX genotypes: the pipeline's ngs-bits sex --------------------
 
 _COPGTM_SAMPLES = ["FATHER1", "MOTHER1", "EMB1", "INDEX1"]
@@ -622,22 +715,12 @@ def _imputed_autosome_rows(n: int):
 
 
 def _copgtm_qc(monkeypatch, context: FamilyMetadataContext):
-    async def _fake_context(session, *, family_identifier, user, project_id=None):
-        return context
-
-    async def _fake_get_family(session, family_id, user):
-        return types.SimpleNamespace(metadata={})
-
-    async def _fake_sources(context):
-        return ["glimpse2"]
-
-    async def _fake_sample(context, *, scope, limit, source):
-        return [] if scope == "chrX" else _imputed_autosome_rows(2_400)
-
-    monkeypatch.setattr(sample_integrity_service, "build_family_metadata_context", _fake_context)
-    monkeypatch.setattr(sample_integrity_service, "get_family_record", _fake_get_family)
-    monkeypatch.setattr(sample_integrity_service, "fetch_family_variant_sources", _fake_sources)
-    monkeypatch.setattr(sample_integrity_service, "fetch_genotype_site_sample", _fake_sample)
+    _stub_reads(
+        monkeypatch,
+        context=context,
+        sources=["glimpse2"],
+        sample=lambda scope, limit, source: [] if scope == "chrX" else _imputed_autosome_rows(2_400),
+    )
     return asyncio.run(
         sample_integrity_service.get_family_sample_integrity_qc(session=_Session(), family_id="PGT2", user=None)
     )
@@ -728,6 +811,29 @@ def test_service_reads_only_an_ngsbits_sex_call(monkeypatch) -> None:
     assert report.notes == [f"Sex could not be checked for samples EMB1 and INDEX1. {_NOT_A_PASS}"]
 
 
+def test_only_a_stored_ngsbits_call_of_a_known_sex_is_read() -> None:
+    from backend.app.services.sample_integrity_qc import ReadSexCall
+
+    def stored(**fields) -> dict:
+        return {"sequencing_qc": {"sex_check": {"method": "ngs-bits SampleGender", **fields}}}
+
+    assert sample_integrity_service._read_sex_call(
+        stored(inferred_sex=" Male ", reads_chry=10_500, reads_chrx=100_000, ratio_chry_chrx=0.105)
+    ) == ReadSexCall("male", reads_chry=10_500, reads_chrx=100_000, ratio_chry_chrx=0.105)
+    # A sex ngs-bits does not write, or none, is no call.
+    assert sample_integrity_service._read_sex_call(stored(inferred_sex="other")) is None
+    assert sample_integrity_service._read_sex_call(stored(inferred_sex=None)) is None
+    assert sample_integrity_service._read_sex_call(None) is None
+    # A count or a ratio that is no number, negative, a boolean or not finite is left out;
+    # the call stands.
+    assert sample_integrity_service._read_sex_call(
+        stored(inferred_sex="female", reads_chry=True, reads_chrx=-1, ratio_chry_chrx="0.1")
+    ) == ReadSexCall("female")
+    assert sample_integrity_service._read_sex_call(stored(inferred_sex="female", ratio_chry_chrx=float("nan"))) == (
+        ReadSexCall("female")
+    )
+
+
 def _nipt_site(variant_id: str, *, father_state: str, father_dp: int | None, present: bool):
     from backend.app.services.nipt_analysis import NiptSiteObservation
 
@@ -746,12 +852,7 @@ def test_service_nipt_paternity_ignores_sites_without_a_confident_father_call(mo
     # counted as paternal transmission, they read "paternity supported".
     from backend.app.services.nipt_analysis import NiptQualityThresholds, run_nipt_analysis
 
-    _patch(monkeypatch, swap_child=False, metadata={"analysis_type": "monogenic_nipt"})
-    monkeypatch.setattr(
-        sample_integrity_service, "resolve_nipt_trio",
-        lambda family: types.SimpleNamespace(father_sample_id="FATHER", cfdna_sample_id="MOTHER"),
-    )
-    import backend.app.services.nipt_service as nipt_service
+    _patch_nipt_family(monkeypatch)
 
     sites = [
         _nipt_site(f"nocall-{i}", father_state="missing", father_dp=None, present=True)
@@ -776,11 +877,7 @@ def test_service_nipt_paternity_ignores_sites_without_a_confident_father_call(mo
     )
     analysis = run_nipt_analysis(sites, NiptQualityThresholds())
     assert analysis.category_counts[7] == 40 and analysis.category_counts[8] == 24
-
-    async def _fake_nipt(session, *, family_id, user, project_id=None, **kwargs):
-        return analysis
-
-    monkeypatch.setattr(nipt_service, "run_family_nipt_analysis", _fake_nipt)
+    _run_nipt_analysis_as(monkeypatch, analysis)
 
     report = asyncio.run(
         sample_integrity_service.get_family_sample_integrity_qc(
@@ -822,25 +919,7 @@ def test_service_sexes_a_haploid_called_nipt_father(monkeypatch) -> None:
     # A caller that emits ploidy-1 calls writes the father's non-PAR chrX as "0" / "1". Read
     # as missing, his sex check stayed indeterminate, which the sign-out gate treats as an
     # unverified identity for a NIPT father.
-    _patch(monkeypatch, swap_child=False, metadata={"analysis_type": "monogenic_nipt"})
-    monkeypatch.setattr(
-        sample_integrity_service, "resolve_nipt_trio",
-        lambda family: types.SimpleNamespace(father_sample_id="FATHER", cfdna_sample_id="MOTHER"),
-    )
-    import backend.app.services.nipt_service as nipt_service
-
-    async def _fake_nipt(session, *, family_id, user, project_id=None, **kwargs):
-        return types.SimpleNamespace(
-            category_counts={2: 30, 3: 16, 4: 14, 7: 40, 8: 2},
-            paternal_transmission=PaternalTransmissionEvidence(
-                hom_alt_transmitted=40, hom_alt_not_transmitted=1, het_transmitted=60, het_not_transmitted=55
-            ),
-            fetal_sex=types.SimpleNamespace(
-                inferred="female", x_transmitted=12, x_not_transmitted=0, informative_sites=12
-            ),
-        )
-
-    monkeypatch.setattr(nipt_service, "run_family_nipt_analysis", _fake_nipt)
+    _patch_passing_nipt(monkeypatch)
     rng = random.Random(5)
 
     async def _haploid_x_sample(context, *, scope, limit, source):
@@ -974,24 +1053,12 @@ def test_service_reads_sibling_embryos_as_siblings_from_sites_across_the_genome(
 
     sampled: dict[str, list] = {}
 
-    async def _fake_context(session, *, family_identifier, user, project_id=None):
-        return _pgt_context()
-
-    async def _fake_get_family(session, family_id, user):
-        return types.SimpleNamespace(metadata={})
-
-    async def _fake_sources(context):
-        return ["glimpse2"]
-
-    async def _fake_sample(context, *, scope, limit, source):
+    def _sample(scope, limit, source):
         assert source == "glimpse2"
         sampled[scope] = callset.x_rows() if scope == "chrX" else callset.smallest_keys(limit)
         return sampled[scope]
 
-    monkeypatch.setattr(sample_integrity_service, "build_family_metadata_context", _fake_context)
-    monkeypatch.setattr(sample_integrity_service, "get_family_record", _fake_get_family)
-    monkeypatch.setattr(sample_integrity_service, "fetch_family_variant_sources", _fake_sources)
-    monkeypatch.setattr(sample_integrity_service, "fetch_genotype_site_sample", _fake_sample)
+    _stub_reads(monkeypatch, context=_pgt_context(), sources=["glimpse2"], sample=_sample)
 
     report = asyncio.run(
         sample_integrity_service.get_family_sample_integrity_qc(
@@ -1021,23 +1088,7 @@ def test_service_sexes_a_per_sample_nipt_callset_from_its_allele_depths(monkeypa
     # call is reference.
     from backend.app.services import clickhouse_family_variants
 
-    _patch(monkeypatch, swap_child=False, metadata={"analysis_type": "monogenic_nipt"})
-    monkeypatch.setattr(
-        sample_integrity_service, "resolve_nipt_trio",
-        lambda family: types.SimpleNamespace(father_sample_id="FATHER", cfdna_sample_id="MOTHER"),
-    )
-    import backend.app.services.nipt_service as nipt_service
-
-    async def _fake_nipt(session, *, family_id, user, project_id=None, **kwargs):
-        return types.SimpleNamespace(
-            category_counts={2: 30, 3: 16, 4: 14, 7: 40, 8: 2},
-            paternal_transmission=PaternalTransmissionEvidence(
-                hom_alt_transmitted=40, hom_alt_not_transmitted=1, het_transmitted=60, het_not_transmitted=55
-            ),
-            fetal_sex=types.SimpleNamespace(
-                inferred="female", x_transmitted=12, x_not_transmitted=0, informative_sites=12
-            ),
-        )
+    _patch_passing_nipt(monkeypatch)
 
     async def _nipt_source(context):
         return ["nipt"]
@@ -1059,7 +1110,6 @@ def test_service_sexes_a_per_sample_nipt_callset_from_its_allele_depths(monkeypa
                              [[1000 - mother_alt, max(mother_alt, 5)]]))
         return rows
 
-    monkeypatch.setattr(nipt_service, "run_family_nipt_analysis", _fake_nipt)
     monkeypatch.setattr(sample_integrity_service, "fetch_family_variant_sources", _nipt_source)
     monkeypatch.setattr(sample_integrity_service, "fetch_genotype_site_sample", clickhouse_family_variants.fetch_genotype_site_sample)
     monkeypatch.setattr(clickhouse_family_variants, "_execute_clickhouse", _fake_execute)
@@ -1153,23 +1203,12 @@ def _ten_sample_rows(sites: int, *, swapped: bool) -> tuple[list, list]:
 
 def _patch_ten(monkeypatch, *, sites: int = 3_000, swapped: bool = False) -> None:
     autosomal, x_rows = _ten_sample_rows(sites, swapped=swapped)
-
-    async def _fake_context(session, *, family_identifier, user, project_id=None):
-        return _ten_sample_context()
-
-    async def _fake_get_family(session, family_id, user):
-        return types.SimpleNamespace(metadata={})
-
-    async def _fake_sources(context):
-        return ["clair3"]
-
-    async def _fake_sample(context, *, scope, limit, source):
-        return list(x_rows if scope == "chrX" else autosomal)
-
-    monkeypatch.setattr(sample_integrity_service, "build_family_metadata_context", _fake_context)
-    monkeypatch.setattr(sample_integrity_service, "get_family_record", _fake_get_family)
-    monkeypatch.setattr(sample_integrity_service, "fetch_family_variant_sources", _fake_sources)
-    monkeypatch.setattr(sample_integrity_service, "fetch_genotype_site_sample", _fake_sample)
+    _stub_reads(
+        monkeypatch,
+        context=_ten_sample_context(),
+        sources=["clair3"],
+        sample=lambda scope, limit, source: list(x_rows if scope == "chrX" else autosomal),
+    )
 
 
 def _ten_sample_qc():

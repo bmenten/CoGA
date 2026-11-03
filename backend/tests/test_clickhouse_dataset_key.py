@@ -1,3 +1,9 @@
+"""The ClickHouse dataset key of an assembly (``core.clickhouse.clickhouse_dataset_key``): the
+prefix of every variant and interval table. Existing tables are named by it, so it is the
+identity on a name that is already a valid identifier, or current data becomes unaddressable;
+any other character becomes ``_``, so no path separator, backtick or semicolon reaches a table
+path; and ingestion and every read path derive it from the same function."""
+
 from __future__ import annotations
 
 import pytest
@@ -10,24 +16,28 @@ from backend.app.services import clickhouse_variant_storage as storage
 from backend.app.services import variant_explorer_service as explorer
 
 
-def test_dataset_key_is_identity_for_existing_names() -> None:
-    # Existing tables are named by these — the key MUST be identity or current
-    # data becomes unaddressable.
-    assert clickhouse_dataset_key("GRCh38") == "GRCh38"
-    assert clickhouse_dataset_key("GRCm39") == "GRCm39"
-    assert clickhouse_dataset_key("T2T_CHM13v2.0") == "T2T_CHM13v2.0"
+@pytest.mark.parametrize(
+    ("assembly_name", "key"),
+    [
+        # Existing tables are named by these: the key MUST be the identity.
+        ("GRCh38", "GRCh38"),
+        ("GRCm39", "GRCm39"),
+        ("T2T_CHM13v2.0", "T2T_CHM13v2.0"),
+        ("T2T CHM13v2.0", "T2T_CHM13v2.0"),
+        ("  spaced  name  ", "spaced__name"),
+        # Path separators, backticks and semicolons cannot survive: injection-safe.
+        ("a/b`c;d", "a_b_c_d"),
+    ],
+    ids=["GRCh38", "GRCm39", "T2T", "inner-space", "trimmed-and-inner-spaces", "separator-backtick-semicolon"],
+)
+def test_dataset_key_keeps_identifiers_and_replaces_disallowed_characters(assembly_name: str, key: str) -> None:
+    assert clickhouse_dataset_key(assembly_name) == key
 
 
-def test_dataset_key_normalizes_disallowed_characters() -> None:
-    assert clickhouse_dataset_key("T2T CHM13v2.0") == "T2T_CHM13v2.0"
-    assert clickhouse_dataset_key("  spaced  name  ") == "spaced__name"
-    # Path separators, backticks and semicolons can't survive — injection-safe.
-    assert clickhouse_dataset_key("a/b`c;d") == "a_b_c_d"
-
-
-def test_dataset_key_rejects_empty() -> None:
-    with pytest.raises(ValueError):
-        clickhouse_dataset_key("   ")
+@pytest.mark.parametrize("assembly_name", ["   ", "", None], ids=["blank", "empty", "none"])
+def test_dataset_key_rejects_empty(assembly_name: str | None) -> None:
+    with pytest.raises(ValueError, match="Assembly name is empty"):
+        clickhouse_dataset_key(assembly_name)  # type: ignore[arg-type]
 
 
 def test_all_modules_agree_on_the_table_prefix() -> None:

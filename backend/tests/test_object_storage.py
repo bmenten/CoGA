@@ -1,6 +1,7 @@
 from datetime import timedelta
 from pathlib import Path
 
+from pydantic import ValidationError
 import pytest
 
 from app.core import object_storage as s
@@ -50,6 +51,27 @@ def test_remote_folder_name_is_the_last_segment_or_the_bucket():
     assert s.remote_folder_name("gs://bucket") == "bucket"
 
 
+@pytest.mark.parametrize(
+    ("uri", "root", "within"),
+    [
+        ("gs://bucket/imports/F1/S1.cram", "gs://bucket/imports", True),
+        ("gs://bucket/imports/F1/S1.cram", "gs://bucket/imports/", True),
+        ("gs://bucket/anything/S1.cram", "gs://bucket", True),
+        # On a segment boundary: imports/ does not hold imports-old/.
+        ("gs://bucket/imports-old/F1/S1.cram", "gs://bucket/imports", False),
+        ("gs://other-bucket/imports/F1/S1.cram", "gs://bucket/imports", False),
+        ("s3://bucket/imports/F1/S1.cram", "gs://bucket/imports", False),
+        # The bucket itself names no object.
+        ("gs://bucket", "gs://bucket", False),
+        ("/data/imports/F1/S1.cram", "gs://bucket/imports", False),
+        ("gs://bucket/imports/F1/S1.cram", "/data/imports", False),
+    ],
+)
+def test_remote_uri_within_holds_only_objects_below_the_root(uri, root, within):
+    # Which bucket objects an import root lets CoGA read (family_package_source).
+    assert s.remote_uri_within(uri, root) is within
+
+
 def test_object_key_honours_prefix_per_backend(monkeypatch):
     monkeypatch.setattr(s.settings, "storage_backend", "s3")
     monkeypatch.setattr(s.settings, "s3_prefix", "families")
@@ -76,40 +98,42 @@ def test_backend_flags(monkeypatch):
     assert s.storage_is_remote() and s.storage_is_gcs()
 
 
+@pytest.mark.parametrize(("backend", "bucket_field"), [("s3", "s3_bucket"), ("gcs", "gcs_bucket")])
+def test_a_remote_backend_without_its_bucket_names_no_bucket(monkeypatch, backend, bucket_field):
+    # The settings refuse such a configuration at startup; the storage refuses it too,
+    # rather than asking a store about an object of no bucket.
+    monkeypatch.setattr(s.settings, "storage_backend", backend)
+    monkeypatch.setattr(s.settings, bucket_field, None)
+    with pytest.raises(RuntimeError, match=f"STORAGE_BACKEND={backend} but {bucket_field.upper()} is not configured"):
+        s._configured_bucket()
+
+    monkeypatch.setattr(s.settings, bucket_field, "phi-bucket")
+    assert s._configured_bucket() == "phi-bucket"
+
+
 # --- Settings validation ----------------------------------------------------
 
 def test_storage_backend_defaults_to_local():
     assert Settings(_env_file=None).storage_backend == "local"
 
 
-def test_s3_backend_requires_bucket():
-    with pytest.raises(Exception):
-        Settings(_env_file=None, APP_ENV="development", STORAGE_BACKEND="s3")
+@pytest.mark.parametrize(
+    ("backend", "bucket_setting", "bucket_field"),
+    [("s3", "S3_BUCKET", "s3_bucket"), ("gcs", "GCS_BUCKET", "gcs_bucket")],
+)
+def test_a_remote_backend_requires_its_bucket(backend, bucket_setting, bucket_field):
+    with pytest.raises(ValidationError, match=f"STORAGE_BACKEND={backend} requires {bucket_setting} to be set"):
+        Settings(_env_file=None, APP_ENV="development", STORAGE_BACKEND=backend)
 
-
-def test_s3_backend_with_bucket_is_valid():
     settings = Settings(
-        _env_file=None, APP_ENV="development", STORAGE_BACKEND="s3", S3_BUCKET="my-bucket"
+        _env_file=None, APP_ENV="development", STORAGE_BACKEND=backend, **{bucket_setting: "my-bucket"}
     )
-    assert settings.storage_backend == "s3"
-    assert settings.s3_bucket == "my-bucket"
-
-
-def test_gcs_backend_requires_bucket():
-    with pytest.raises(Exception):
-        Settings(_env_file=None, APP_ENV="development", STORAGE_BACKEND="gcs")
-
-
-def test_gcs_backend_with_bucket_is_valid():
-    settings = Settings(
-        _env_file=None, APP_ENV="development", STORAGE_BACKEND="gcs", GCS_BUCKET="my-bucket"
-    )
-    assert settings.storage_backend == "gcs"
-    assert settings.gcs_bucket == "my-bucket"
+    assert settings.storage_backend == backend
+    assert getattr(settings, bucket_field) == "my-bucket"
 
 
 def test_invalid_storage_backend_rejected():
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError, match="STORAGE_BACKEND must be one of: local, s3, gcs"):
         Settings(_env_file=None, APP_ENV="development", STORAGE_BACKEND="azure")
 
 
@@ -176,6 +200,154 @@ def test_gcs_signed_url_uses_iam_signing(monkeypatch):
     assert captured["access_token"] == "tok123"
     assert captured["expiration"] == timedelta(seconds=120)
     assert 'filename="S1.cram"' in captured["response_disposition"]
+
+
+@pytest.mark.parametrize(
+    ("uri", "key"),
+    [
+        ("gs://phi-bucket/imports/F1/S1.cram", "imports/F1/S1.cram"),
+        ("/data/families/F1/S1.cram", None),
+        ("gs://", None),
+        ("s3://phi-bucket/imports/F1/S1.cram", None),
+        ("gs://other-bucket/imports/F1/S1.cram", None),
+        ("gs://phi-bucket/imports/F1/S1.cram?generation=1", None),
+        ("gs://phi-bucket/imports/../S1.cram", None),
+        ("gs://phi-bucket/imports//S1.cram", None),
+        ("gs://phi-bucket", None),
+        (42, None),
+    ],
+    ids=[
+        "in-the-bucket", "a-local-path", "no-bucket", "another-backends-scheme", "another-bucket",
+        "a-query", "dot-segments", "an-empty-segment", "no-key", "not-text",
+    ],
+)
+def test_a_recorded_location_names_a_key_only_in_the_configured_bucket(monkeypatch, uri, key):
+    # A location read back from the database is data: only an object of the configured
+    # bucket, written as nothing but scheme, bucket and key, is one a URL is signed for.
+    _use_gcs(monkeypatch)
+    assert s.configured_object_key(uri) == key
+    monkeypatch.setattr(s.settings, "storage_backend", "local")
+    assert s.configured_object_key(uri) is None
+
+
+class _Credentials:
+    """The runtime's application-default credentials, as ``google.auth.default`` gives them."""
+
+    def __init__(self, *, service_account_email=None, signer_email=None, token_after_refresh="access-token"):
+        if service_account_email is not None:
+            self.service_account_email = service_account_email
+        if signer_email is not None:
+            self.signer_email = signer_email
+        self.token = None
+        self._token_after_refresh = token_after_refresh
+        self.refreshed = False
+
+    def refresh(self, _request):
+        self.refreshed = True
+        self.token = self._token_after_refresh
+
+
+@pytest.mark.parametrize(
+    ("credentials", "signer"),
+    [
+        (_Credentials(service_account_email="sa@proj.iam.gserviceaccount.com"), "sa@proj.iam.gserviceaccount.com"),
+        (_Credentials(signer_email="signer@proj.iam.gserviceaccount.com"), "signer@proj.iam.gserviceaccount.com"),
+    ],
+    ids=["service-account", "signer"],
+)
+def test_gcs_urls_are_signed_as_the_runtimes_service_account(monkeypatch, credentials, signer):
+    import google.auth
+
+    asked: list = []
+
+    def default(scopes=None):
+        asked.append(scopes)
+        return credentials, "proj"
+
+    monkeypatch.setattr(google.auth, "default", default)
+
+    # Under Workload Identity no key is on disk: IAM signs with a fresh access token.
+    assert s._gcs_signing_credentials() == (signer, "access-token")
+    assert credentials.refreshed is True
+    assert asked == [["https://www.googleapis.com/auth/cloud-platform"]]
+
+
+@pytest.mark.parametrize(
+    "credentials",
+    [_Credentials(), _Credentials(service_account_email="sa@proj.iam.gserviceaccount.com", token_after_refresh=None)],
+    ids=["no-service-account", "no-token"],
+)
+def test_gcs_signing_without_a_service_account_or_token_is_refused(monkeypatch, credentials):
+    import google.auth
+
+    monkeypatch.setattr(google.auth, "default", lambda scopes=None: (credentials, "proj"))
+
+    # No URL is signed with anything else: the deployment must attach a service account.
+    with pytest.raises(RuntimeError, match="Cannot determine a signing service account for GCS signed URLs"):
+        s._gcs_signing_credentials()
+
+
+def test_the_gcs_client_talks_to_a_configured_endpoint_anonymously(monkeypatch):
+    from google.auth.credentials import AnonymousCredentials
+    from google.cloud import storage
+
+    made: list[dict] = []
+
+    class _Client:
+        def __init__(self, **kwargs):
+            made.append(kwargs)
+
+    monkeypatch.setattr(storage, "Client", _Client)
+    s._gcs_client.cache_clear()
+    try:
+        # An emulator (fake-gcs-server): anonymous credentials, its endpoint, any project.
+        monkeypatch.setattr(s.settings, "gcs_endpoint_url", "http://fake-gcs:4443")
+        monkeypatch.setattr(s.settings, "gcs_project", None)
+        s._gcs_client()
+        s._gcs_client.cache_clear()
+        # GCS itself: the runtime's own credentials, for the configured project.
+        monkeypatch.setattr(s.settings, "gcs_endpoint_url", None)
+        monkeypatch.setattr(s.settings, "gcs_project", "proj-1")
+        s._gcs_client()
+    finally:
+        s._gcs_client.cache_clear()
+
+    emulator, gcs = made
+    assert emulator["project"] == "coga"
+    assert isinstance(emulator["credentials"], AnonymousCredentials)
+    assert emulator["client_options"] == {"api_endpoint": "http://fake-gcs:4443"}
+    assert gcs == {"project": "proj-1"}
+
+
+@pytest.mark.parametrize(
+    ("filename", "expires", "expiry"),
+    [(None, None, 900), ("S1.cram", 120, 120)],
+    ids=["default-expiry", "named-file-and-expiry"],
+)
+def test_s3_urls_are_signed_for_the_configured_bucket(monkeypatch, filename, expires, expiry):
+    monkeypatch.setattr(s.settings, "storage_backend", "s3")
+    monkeypatch.setattr(s.settings, "s3_bucket", "phi-bucket")
+    monkeypatch.setattr(s.settings, "s3_presign_expiry_seconds", 900)
+    captured: dict = {}
+
+    class _Client:
+        def generate_presigned_url(self, operation, *, Params, ExpiresIn):
+            captured.update(operation=operation, params=Params, expires=ExpiresIn)
+            return "https://signed.example/x"
+
+    monkeypatch.setattr(s, "_s3_client", lambda: _Client())
+
+    assert s.presigned_get_url("F1/S1.cram", filename=filename, expires=expires) == "https://signed.example/x"
+
+    # A GET of the one key, in the configured bucket, for the configured time unless the
+    # caller sets one; the file is named only when the caller names it.
+    assert (captured["operation"], captured["expires"]) == ("get_object", expiry)
+    disposition = captured["params"].pop("ResponseContentDisposition", None)
+    assert captured["params"] == {"Bucket": "phi-bucket", "Key": "F1/S1.cram"}
+    if filename is None:
+        assert disposition is None
+    else:
+        assert disposition.startswith("inline") and 'filename="S1.cram"' in disposition
 
 
 def test_gcs_download_prefix(monkeypatch, tmp_path):

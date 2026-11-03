@@ -48,6 +48,7 @@ from backend.app.services.family_package_common import (
     PackageManifest,
     ParsedPed,
 )
+from backend.tests._query_results import MappingRows as _Result
 
 FAMILY = "FAM_COV"
 SAMPLES = ("S1", "S2", "S3")
@@ -96,20 +97,6 @@ def _record(
         "normalization": normalization,
         "loaded_from": loaded_from,
     }
-
-
-class _Result:
-    def __init__(self, rows: list[dict[str, Any]]) -> None:
-        self._rows = rows
-
-    def mappings(self) -> "_Result":
-        return self
-
-    def all(self) -> list[dict[str, Any]]:
-        return list(self._rows)
-
-    def first(self) -> dict[str, Any] | None:
-        return self._rows[0] if self._rows else None
 
 
 class _TrackSession:

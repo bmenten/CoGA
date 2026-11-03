@@ -282,6 +282,10 @@ def test_a_member_whose_sex_is_not_recorded_is_read_as_two_copies() -> None:
     [("X", None), ("X", "T2T-CHM13"), ("Y", ASSEMBLY), ("MT", ASSEMBLY)],
 )
 def test_chry_chrm_and_chrx_of_an_assembly_whose_pars_are_not_known_stay_grey(chrom: str, assembly_name) -> None:
+    # H5(D): outside the autosomes the two-homolog IBD reading does not hold (a man's one X,
+    # no recombination on chrY). Where the PARs are not known it cannot be read by stretch
+    # either: every relative, the father's mother (recorded as a mother) too, stays grey
+    # rather than mis-coloured with the autosomal reading.
     family = _x_family(seed=9)
 
     out = _annotate(family, chrom=chrom, assembly_name=assembly_name)

@@ -36,6 +36,7 @@ from backend.app.services import report_signout_service as rss
 from backend.app.services import signed_record_sections as srs
 from backend.app.services.family_metadata_context import FamilyMetadataContext
 from backend.app.services.repeat_count_units import COUNT_UNIT_MARGIN
+from backend.tests._query_results import MappingRows as _Result
 
 PROBAND_UUID = "00000000-0000-4000-8000-000000000001"
 MOTHER_UUID = "00000000-0000-4000-8000-000000000002"
@@ -124,20 +125,6 @@ def _units(locus_id: str, *, validated: bool, reason: str, by: str = "qa-lead") 
         "updated_by_name": by,
         "updated_at": RECORDED_AT,
     }
-
-
-class _Result:
-    def __init__(self, rows: list[dict[str, Any]]) -> None:
-        self._rows = rows
-
-    def mappings(self) -> "_Result":
-        return self
-
-    def all(self) -> list[dict[str, Any]]:
-        return list(self._rows)
-
-    def first(self) -> dict[str, Any] | None:
-        return self._rows[0] if self._rows else None
 
 
 class _RepeatSession:

@@ -1,3 +1,16 @@
+"""The Variant Explorer's search across every family of the caller's projects
+(``variant_explorer_service``).
+
+Its helpers (the variant type, the most severe class, the term lists, the table names), the
+WHERE it builds over the entries (the per-variant filters on the annotation index, the
+per-transcript ones in one subquery that is the family search's own condition, CLIN-29; the
+ClinVar rescue of the frequency ceilings, #526; imputed calls left out by default; per-sample
+genotype classes, #511), the count cap, the cursor and its fingerprint, the review-tag filter's
+cap (DATA-2), and the gene panel read as the family page reads it (CLIN-48). A variant's
+carriers (the row limit and its truncation flag) and the annotation a row shows (one
+transcript's consequence and HGVS, CLIN-50).
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -6,9 +19,17 @@ from typing import Any
 
 import pytest
 from clickhouse_connect.driver.binding import bind_query
+from fastapi import HTTPException
 
-from backend.app.services.clickhouse_variant_queries import _small_detail_filter_clauses
+from backend.app.services.clickhouse_variant_queries import (
+    _small_detail_filter_clauses,
+    _small_panel_filter_condition,
+    _small_region_filter_condition,
+)
+from backend.app.services.clickhouse_variant_records import PanelFilterConstraints, Region
+from backend.app.services.family_metadata_context import FamilyMetadataContext
 from backend.app.services.family_variant_filters import SmallVariantQueryFilters
+from backend.app.services import variant_explorer_service as ves
 from backend.app.services.variant_explorer_service import (
     _CLASSIFICATION_RANK,
     _CLINVAR_RANK,
@@ -98,8 +119,6 @@ def test_annotation_index_clauses_hold_the_per_variant_filters_only() -> None:
 def test_the_explorer_reads_excluded_clinvar_statuses_and_the_rsid_as_the_family_search_does() -> None:
     # An API value with an underscore excluded nothing: the stored terms read
     # "likely benign" (CLIN-50). The rsID is trimmed, as the family search trims it.
-    from backend.app.services.variant_explorer_service import _annotation_index_clauses
-
     params: dict = {}
     filters = GlobalVariantFilters(exclude_clinvar=["Likely_benign", " Benign ", ""], rsid="  rs123 ")
     _annotation_index_clauses(filters, params)
@@ -503,18 +522,6 @@ def test_mane_only_keeps_a_mane_select_or_a_mane_plus_clinical_transcript() -> N
 
 # --- the gene panel, as the family page applies it (CLIN-48) ------------------------------
 
-from fastapi import HTTPException  # noqa: E402
-
-from backend.app.services.clickhouse_variant_queries import (  # noqa: E402
-    _small_panel_filter_condition,
-    _small_region_filter_condition,
-)
-from backend.app.services.clickhouse_variant_records import (  # noqa: E402
-    PanelFilterConstraints,
-    Region,
-)
-from backend.app.services.family_metadata_context import FamilyMetadataContext  # noqa: E402
-
 _FAMILY = FamilyMetadataContext(
     family_uuid="f1",
     family_id="F1",
@@ -750,3 +757,128 @@ def test_the_cursor_belongs_to_the_panels_genes_and_regions() -> None:
         filters, "a1", _panel(genes=("SYN48A",), regions=(("9", 100, 300),))
     )
     assert _filters_fingerprint(filters, "a1", before) != _filters_fingerprint(filters, "a1")
+
+
+# --- a variant's carriers, and the annotation a row shows ---------------------------------
+
+
+def _patch_common(monkeypatch, *, rows, cap=2):
+    monkeypatch.setattr(ves, "_VARIANT_CARRIER_ROW_LIMIT", cap)
+
+    async def fake_scope(session, user, assembly_id):
+        return types.SimpleNamespace(assembly_name="GRCh38", project_ids=["p1"])
+
+    captured: dict = {}
+
+    async def fake_execute(query, params):
+        captured["query"] = query
+        captured["params"] = params
+        return rows
+
+    async def fake_family_meta(session, project_ids, family_uuids):
+        return {
+            fam: {"family_name": fam.upper(), "project_id": "p1", "project_name": "Proj1"}
+            for fam in family_uuids
+        }
+
+    async def fake_sample_meta(session, sample_keys):
+        return {}
+
+    monkeypatch.setattr(ves, "resolve_scope", fake_scope)
+    monkeypatch.setattr(ves, "execute_clickhouse", fake_execute)
+    monkeypatch.setattr(ves, "_fetch_family_meta", fake_family_meta)
+    monkeypatch.setattr(ves, "_fetch_sample_meta", fake_sample_meta)
+    return captured
+
+
+@pytest.mark.asyncio
+async def test_get_variant_carriers_flags_truncation(monkeypatch) -> None:
+    rows = [
+        ("famA", "s1", "0/1", "vid"),
+        ("famA", "s2", "0/1", "vid"),
+        ("famB", "s3", "0/1", "vid"),  # beyond the cap of 2 -> truncated away
+    ]
+    captured = _patch_common(monkeypatch, rows=rows, cap=2)
+
+    result = await ves.get_variant_carriers(None, user=types.SimpleNamespace(), variant_key=1)
+
+    # The query is bounded with a LIMIT (fetching cap + 1).
+    assert "LIMIT %(carrier_limit)s" in captured["query"]
+    assert captured["params"]["carrier_limit"] == 3
+    # Truncated to the first 2 rows -> 2 carriers, both in famA.
+    assert result.truncated is True
+    assert result.total_samples == 2
+    assert result.total_families == 1
+    assert {group.family_uuid for group in result.families} == {"famA"}
+
+
+@pytest.mark.asyncio
+async def test_get_variant_carriers_exact_under_cap(monkeypatch) -> None:
+    rows = [
+        ("famA", "s1", "0/1", "vid"),
+        ("famB", "s2", "1/1", "vid"),
+    ]
+    _patch_common(monkeypatch, rows=rows, cap=2)
+
+    result = await ves.get_variant_carriers(None, user=types.SimpleNamespace(), variant_key=1)
+
+    assert result.truncated is False
+    assert result.total_samples == 2
+    assert result.het_samples == 1
+    assert result.hom_samples == 1
+    assert result.total_families == 2
+
+
+@pytest.mark.asyncio
+async def test_fetch_annotation_display_maps_columns_without_gene_symbols(monkeypatch) -> None:
+    captured: dict = {}
+
+    async def fake_execute(query, params):
+        if "FROM db.annotations" in query:
+            return []
+        captured["query"] = query
+        # key, gene_ids, impacts, effects, clinvar_terms, hgvsc_values, hgvsp_values
+        return [(1, ["ENSG1"], ["HIGH"], ["missense_variant"], ["Pathogenic"], ["c.1A>T"], ["p.Met1?"])]
+
+    monkeypatch.setattr(ves, "execute_clickhouse", fake_execute)
+    monkeypatch.setattr(ves, "_small_table_name", lambda assembly, suffix: f"db.{suffix.rsplit('/', 1)[1]}")
+
+    result = await ves._fetch_annotation_display("GRCh38", [1])
+
+    # The never-read gene_symbols aggregate is no longer selected, and the
+    # remaining columns map to the shifted indices.
+    assert "gene_symbols" not in captured["query"]
+    assert result[1] == {
+        "gene_ids": ["ENSG1"],
+        "impacts": ["HIGH"],
+        "effects": ["missense_variant"],
+        "clinvar_terms": ["Pathogenic"],
+        "hgvsc_values": ["c.1A>T"],
+        "hgvsp_values": ["p.Met1?"],
+    }
+
+
+@pytest.mark.asyncio
+async def test_a_rows_consequence_and_hgvs_come_from_the_transcript_whose_impact_it_shows(monkeypatch) -> None:
+    # The row showed the most severe impact but the first distinct consequence and HGVS,
+    # so one transcript's consequence came with another's HGVS (CLIN-50).
+    async def fake_execute(query, params):
+        if "FROM db.annotations" in query:
+            # key, impact, effects, hgvsc, hgvsp, mane_select, canonical
+            return [
+                (1, "LOW", ["synonymous_variant"], "ENST1:c.3G>A", "ENSP1:p.Leu1=", True, True),
+                (1, "HIGH", ["stop_gained"], "ENST2:c.7C>T", "ENSP2:p.Gln3*", False, False),
+                (1, "HIGH", ["stop_gained"], "ENST3:c.9C>T", "ENSP3:p.Gln3*", False, True),
+            ]
+        return [
+            (1, ["ENSG1"], ["LOW", "HIGH"], ["synonymous_variant", "stop_gained"], [],
+             ["ENST1:c.3G>A", "ENST2:c.7C>T", "ENST3:c.9C>T"], ["ENSP1:p.Leu1=", "ENSP2:p.Gln3*", "ENSP3:p.Gln3*"])
+        ]
+
+    monkeypatch.setattr(ves, "execute_clickhouse", fake_execute)
+    monkeypatch.setattr(ves, "_small_table_name", lambda assembly, suffix: f"db.{suffix.rsplit('/', 1)[1]}")
+
+    result = await ves._fetch_annotation_display("GRCh38", [1])
+
+    # Of the two HIGH transcripts the canonical one, with its own consequence and HGVS.
+    assert result[1]["shown"] == ["stop_gained", "ENST3:c.9C>T", "ENSP3:p.Gln3*"]

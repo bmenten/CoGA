@@ -42,6 +42,9 @@ from uuid import uuid4
 
 import pytest
 
+from backend.tests.e2e._harness import capture, ensure_postgres_schema
+from backend.tests.e2e._vep_family import deepvariant_vep_header, upload_family
+
 pytestmark = pytest.mark.integration
 
 _SEEDED_GENE_SOURCE = "e2e-track-availability-panel"
@@ -87,16 +90,7 @@ _VIEWS: dict[str, tuple[int, int]] = {
     "the whole chromosome": (0, 159_345_973),
 }
 
-_VCF_HEADER = (
-    "##fileformat=VCFv4.2\n"
-    "##DeepVariant_version=1.10.0\n"
-    "##reference=GRCh38\n"
-    f'##INFO=<ID=CSQ,Number=.,Type=String,Description="Consequence annotations from Ensembl VEP. Format: {_CSQ_FORMAT}">\n'
-    '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
-    '##FORMAT=<ID=GQ,Number=1,Type=Integer,Description="Genotype quality">\n'
-    '##FORMAT=<ID=DP,Number=1,Type=Integer,Description="Read depth">\n'
-    '##FORMAT=<ID=AD,Number=R,Type=Integer,Description="Allele depths">\n'
-)
+_VCF_HEADER = deepvariant_vep_header(_CSQ_FORMAT)
 
 
 def _call(genotype: str) -> str:
@@ -156,23 +150,16 @@ async def _seed_genes(assembly_id: str | None) -> int:
     return int(left)
 
 
-def _status(response: Any) -> dict[str, Any]:
-    out: dict[str, Any] = {"status": response.status_code, "text": response.text[:2000]}
-    if response.status_code == 200 and "json" in response.headers.get("content-type", ""):
-        out["json"] = response.json()
-    return out
-
-
 async def _exercise(family_id: str) -> dict[str, Any]:
     from httpx import ASGITransport, AsyncClient
 
     from backend.app.core.clickhouse import init_clickhouse_schema
-    from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
+    from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.main import app
     from backend.app.services.clickhouse_variant_storage import ensure_clickhouse_variant_tables
     from backend.tests.e2e import _harness
 
-    await init_postgres_schema()
+    await ensure_postgres_schema()
     await init_clickhouse_schema()
     await ensure_clickhouse_variant_tables(_harness.ASSEMBLY)
     async with get_postgres_sessionmaker()() as session:
@@ -195,20 +182,7 @@ async def _exercise(family_id: str) -> dict[str, Any]:
         token = await _harness.login_admin_token(ac)
         ac.headers["Authorization"] = f"Bearer {token}"
         try:
-            ped_response = await ac.post(
-                "/api/ped/upload",
-                params={"project_id": project_id},
-                files={"file": (f"{family_id}.ped", ped.encode(), "text/plain")},
-            )
-            upload = await ac.post(
-                f"{small_variants}/upload",
-                params={"overwrite": "false"},
-                files={"file": (f"{family_id}.vcf", _vcf(samples), "text/plain")},
-            )
-            out["setup"] = {
-                "ped": (ped_response.status_code, ped_response.text[:2000]),
-                "upload": (upload.status_code, upload.text[:2000]),
-            }
+            out["setup"] = await upload_family(ac, project_id, family_id, ped, _vcf(samples))
             await _seed_genes(assembly_id)
             for name, genes in _PANEL_GENES.items():
                 created = await ac.post("/api/panels/", json={"name": f"e2e-tavpnl-{run}-{len(genes)}", "genes": genes})
@@ -223,15 +197,15 @@ async def _exercise(family_id: str) -> dict[str, Any]:
                 panel = {"panel_id": panel_id} if panel_id else {}
                 locus = {"start": start, "end": end}
                 answered = {
-                    "track availability": _status(
+                    "track availability": capture(
                         await ac.get(availability, params={"chrom": "7", **locus, "include_small_variants": "true", **panel})
                     ),
-                    "list": _status(
+                    "list": capture(
                         await ac.get(small_variants, params={"chr": "7", **locus, "overlap": "true", "page_size": 100, **panel})
                     ),
                 }
                 for role, sample in zip(_ROLES, samples):
-                    answered[f"track {role}"] = _status(
+                    answered[f"track {role}"] = capture(
                         await ac.get(
                             small_variants,
                             params={

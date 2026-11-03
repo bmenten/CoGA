@@ -147,7 +147,9 @@ def test_removing_a_sample_keeps_every_other_value_as_stored() -> None:
     assert {column: kept[column] for column in kept if column not in _CALL_COLUMNS} == {
         column: entry[column] for column in entry if column not in _CALL_COLUMNS
     }
+    # A row left with no call is no row, whether it held one call or several.
     assert small_variant_entry_without_samples(_entry([_SIB]), {"SIB", "uuid-sib"}) is None
+    assert small_variant_entry_without_samples(entry, {"PROBAND", "SIB", "FATHER", "uuid-sib"}) is None
 
 
 @pytest.mark.asyncio

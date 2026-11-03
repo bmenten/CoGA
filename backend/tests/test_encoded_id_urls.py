@@ -23,9 +23,7 @@ ID stored before can be one. All IDs and files are synthetic.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 from urllib.parse import parse_qs, quote, unquote
 
@@ -34,15 +32,9 @@ import httpx
 import pytest
 
 from backend.app.core.config import settings
-from backend.app.core.postgres import get_postgres_session
 from backend.app.core.url_path import url_path
-from backend.app.dependencies import get_current_user
-from backend.app.main import app
-from backend.app.middleware import request_logging
 from backend.app.routers import cram, family_qc_reports, signal_tracks
-from backend.app.services.access_control import CurrentUser
-
-ORIGIN = "http://coga.test"
+from backend.tests._family_folder_app import ORIGIN, asgi_client, sign_in_a_viewer_who_reads
 
 # IDs holding each character that has a meaning in a URL, as (family, sample, source): the
 # ID rule allows those but '/' (since SEC-15), which an ID stored before may hold.
@@ -146,16 +138,6 @@ async def test_the_qc_report_link_names_the_family_and_sample_it_was_issued_for(
 # --------------------------------------------------------------------------- #
 
 
-def _viewer() -> CurrentUser:
-    return CurrentUser(
-        id="user-viewer",
-        username="viewer@example.com",
-        email="viewer@example.com",
-        role="viewer",
-        created_at=datetime.now(timezone.utc),
-    )
-
-
 class _Families:
     """Families, their members and their files in a local data directory, served by the app.
 
@@ -201,11 +183,6 @@ def families(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _Families:
     for module in (cram, signal_tracks, family_qc_reports):
         monkeypatch.setattr(module, "DATA_DIR", tmp_path)
 
-    async def family_record(session: Any, family_id: str, user: Any) -> Any:
-        if family_id not in store.members:
-            raise HTTPException(status_code=404, detail="Family not found")
-        return SimpleNamespace(members=[SimpleNamespace(sample_id=sample_id) for sample_id in store.members[family_id]])
-
     async def signal_track_rows(session: Any, sample_ids: list[str]) -> list[tuple[str, dict[str, Any]]]:
         return [(sample_id, store.signal_tracks[sample_id]) for sample_id in sample_ids if sample_id in store.signal_tracks]
 
@@ -214,22 +191,9 @@ def families(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _Families:
             raise HTTPException(status_code=404, detail="No QC report is recorded for this sample")
         return store.reports[(family_id, sample_id)]
 
-    async def no_session():
-        yield None
-
-    async def a_viewer() -> CurrentUser:
-        return _viewer()
-
-    async def keep_audit_row(payload: Any) -> None:
-        return None
-
-    for module in (cram, signal_tracks, family_qc_reports):
-        monkeypatch.setattr(module, "get_family_record", family_record)
+    sign_in_a_viewer_who_reads(monkeypatch, store.members, cram, signal_tracks, family_qc_reports)
     monkeypatch.setattr(signal_tracks, "_signal_track_rows", signal_track_rows)
     monkeypatch.setattr(family_qc_reports, "_recorded_report", recorded_report)
-    monkeypatch.setattr(request_logging, "write_audit_log_event", keep_audit_row)
-    monkeypatch.setitem(app.dependency_overrides, get_postgres_session, no_session)
-    monkeypatch.setitem(app.dependency_overrides, get_current_user, a_viewer)
     return store
 
 
@@ -244,10 +208,6 @@ async def _follow(client: httpx.AsyncClient, url: str) -> httpx.Response:
     """Fetch a URL the API handed out, as the browser does: under the API base, against the
     page's origin (``?`` starts the query, ``#`` the fragment, dot segments resolved)."""
     return await client.get(f"{ORIGIN}/api{url}")
-
-
-def _client() -> httpx.AsyncClient:
-    return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url=ORIGIN)
 
 
 # The IDs of UNSAFE_IDS a path segment can carry once encoded: all but those holding `/`.
@@ -265,7 +225,7 @@ async def test_following_the_manifests_and_the_qc_link_reaches_the_samples_own_f
         families.add(unquote(family_id), unquote(sample_id), source=unquote(source))
     expected = families.content(family_id, sample_id)
 
-    async with _client() as client:
+    async with asgi_client() as client:
         [alignment] = await _manifest(client, "cram", family_id, sample_id)
         [signal] = await _manifest(client, "signal-tracks", family_id, sample_id)
         link = await client.get(f"/api/families/{quote(family_id, safe='')}/qc-report/{quote(sample_id, safe='')}/link")
@@ -297,7 +257,7 @@ async def test_an_id_with_dot_dot_and_slash_never_reaches_another_familys_files(
     families.signal_tracks["../F2/S2"] = {"hificnv": {"depth_bigwig": "cnv/climb.bw"}}
     (families.root / "families" / "F1" / "cnv" / "climb.bw").write_bytes(b"F1 track")
 
-    async with _client() as client:
+    async with asgi_client() as client:
         alignments = await _manifest(client, "cram", "F1", "../F2/S2")
         [signal] = await _manifest(client, "signal-tracks", "F1", "../F2/S2")
         fetched = [

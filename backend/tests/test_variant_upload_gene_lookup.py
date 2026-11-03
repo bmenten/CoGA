@@ -35,7 +35,8 @@ def test_gene_symbols_for_window_returns_distinct_sorted_overlaps() -> None:
 
 @pytest.mark.asyncio
 async def test_fetch_genes_for_chroms_issues_one_query_grouped_by_chrom() -> None:
-    rows = [("1", 100, 200, "A"), ("1", 150, 300, "B"), ("2", 50, 80, "C")]
+    # A gene without a symbol names nothing a variant could be listed under: left out.
+    rows = [("1", 100, 200, "A"), ("1", 150, 300, "B"), ("2", 50, 80, "C"), ("2", 90, 95, None), ("2", 96, 99, "")]
     session = _RecordingSession(rows)
 
     by_chrom = await vus._fetch_genes_for_chroms(

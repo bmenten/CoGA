@@ -34,6 +34,8 @@ from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
+from backend.tests.integration._datastores import fresh_assembly, fresh_species, gene_locus
+
 pytestmark = pytest.mark.integration
 
 
@@ -63,46 +65,16 @@ async def _user_row(session, admin_tag: str) -> str:
 
 async def _seed(session, tag: str, genes: tuple[str, str, str]) -> dict[str, str]:
     """A species of its own with two assemblies; the first gene in both, the others in A."""
-    species = (
-        await session.execute(
-            text(
-                "INSERT INTO species (name, common_name, tax_id) "
-                "VALUES (:n, 'test', :t) RETURNING id::text"
-            ),
-            {"n": f"Panel versions {tag} {uuid4()}", "t": uuid4().int % 2_000_000_000},
-        )
-    ).scalar_one()
-
-    async def _assembly(label: str) -> tuple[str, str]:
-        name = f"PV-{label}-{tag}"
-        assembly_id = (
-            await session.execute(
-                text(
-                    "INSERT INTO assemblies (species_id, assembly_name, version, release_date) "
-                    "VALUES (CAST(:s AS uuid), :a, 'v1', '2020-01-01') RETURNING id::text"
-                ),
-                {"s": species, "a": name},
-            )
-        ).scalar_one()
-        return assembly_id, name
-
-    (assembly_a, name_a), (assembly_b, name_b) = await _assembly("A"), await _assembly("B")
-
-    async def _gene(assembly: str, symbol: str, chr_: str, start: int, end: int) -> None:
-        await session.execute(
-            text(
-                'INSERT INTO genes (assembly_id, gene_id, hgnc_symbol, chr, start, "end", '
-                "strand, biotype, description, source) VALUES "
-                "(CAST(:a AS uuid), :gid, :sym, :chr, :start, :end, 1, 'protein_coding', 't', 't')"
-            ),
-            {"a": assembly, "gid": f"ENSG-{symbol}-{uuid4()}", "sym": symbol, "chr": chr_, "start": start, "end": end},
-        )
+    species = await fresh_species(session, f"Panel versions {tag} {uuid4()}")
+    name_a, name_b = f"PV-A-{tag}", f"PV-B-{tag}"
+    assembly_a = await fresh_assembly(session, species, name_a)
+    assembly_b = await fresh_assembly(session, species, name_b)
 
     first, second, third = genes
-    await _gene(assembly_a, first, "1", 1_000, 2_000)
-    await _gene(assembly_b, first, "1", 5_000, 6_500)
-    await _gene(assembly_a, second, "2", 10_000, 11_000)
-    await _gene(assembly_a, third, "3", 20_000, 21_000)
+    await gene_locus(session, assembly_a, first, "1", 1_000, 2_000)
+    await gene_locus(session, assembly_b, first, "1", 5_000, 6_500)
+    await gene_locus(session, assembly_a, second, "2", 10_000, 11_000)
+    await gene_locus(session, assembly_a, third, "3", 20_000, 21_000)
     user = await _user_row(session, tag)
     await session.commit()
     return {"species": species, "name_a": name_a, "name_b": name_b, "user": user}

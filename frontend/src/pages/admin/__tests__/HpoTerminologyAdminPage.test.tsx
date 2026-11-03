@@ -547,18 +547,6 @@ describe('HpoTerminologyAdminPage', () => {
       expect(screen.queryByText('HPO terminology synchronized.')).not.toBeInTheDocument();
     });
 
-    it('labels only the running action as busy', async () => {
-      const user = userEvent.setup();
-      mockedPost.mockReturnValue(new Promise(() => undefined));
-      renderPage();
-
-      await user.click(await screen.findByRole('button', { name: 'Preview changes' }));
-      // Both are disabled while a request runs, but only the preview says it is checking.
-      expect(screen.getByRole('button', { name: 'Checking...' })).toBeDisabled();
-      expect(screen.getByRole('button', { name: 'Apply sync' })).toBeDisabled();
-      expect(screen.queryByRole('button', { name: 'Synchronizing...' })).not.toBeInTheDocument();
-    });
-
     it('applies once confirmed, then shows the new release and invalidates cached HPO lookups', async () => {
       const user = userEvent.setup();
       vi.spyOn(window, 'confirm').mockReturnValue(true);
@@ -616,7 +604,7 @@ describe('HpoTerminologyAdminPage', () => {
       expect(await screen.findByText('HPO synchronization failed.')).toHaveClass('status-note--error');
     });
 
-    it('needs a file path, and locks both actions while a request is running', async () => {
+    it('needs a file path, and locks both actions while a request is running, labelling only the running one busy', async () => {
       const user = userEvent.setup();
       mockedPost.mockReturnValue(new Promise(() => undefined));
       renderPage();
@@ -636,9 +624,12 @@ describe('HpoTerminologyAdminPage', () => {
       expect(preview).toBeEnabled();
       await user.click(preview);
 
+      // Both are disabled while a request runs, but only the preview says it is checking.
       expect(preview).toHaveTextContent('Checking...');
+      expect(screen.getByRole('button', { name: 'Checking...' })).toBe(preview);
       expect(preview).toBeDisabled();
       expect(apply).toBeDisabled();
+      expect(screen.queryByRole('button', { name: 'Synchronizing...' })).not.toBeInTheDocument();
       expect(mockedPost).toHaveBeenCalledTimes(1);
     });
   });

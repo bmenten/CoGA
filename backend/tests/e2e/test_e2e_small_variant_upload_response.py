@@ -24,6 +24,8 @@ from uuid import uuid4
 
 import pytest
 
+from backend.tests.e2e._harness import capture, ensure_postgres_schema
+
 pytestmark = pytest.mark.integration
 
 _VCF = (
@@ -41,18 +43,11 @@ _VCF = (
 )
 
 
-def _cap(resp) -> dict:
-    out = {"status": resp.status_code, "text": resp.text}
-    if resp.status_code < 400:
-        out["json"] = resp.json()
-    return out
-
-
 async def _exercise(family_id: str) -> dict:
     from httpx import ASGITransport, AsyncClient
 
     from backend.app.core.clickhouse import init_clickhouse_schema
-    from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
+    from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.main import app
     from backend.app.services.clickhouse_variant_storage import (
         count_family_small_variants,
@@ -61,7 +56,7 @@ async def _exercise(family_id: str) -> dict:
     from backend.tests.e2e import _harness
     from sqlalchemy import text
 
-    await init_postgres_schema()
+    await ensure_postgres_schema()
     await init_clickhouse_schema()
     await ensure_clickhouse_variant_tables(_harness.ASSEMBLY)
     async with get_postgres_sessionmaker()() as session:
@@ -81,7 +76,7 @@ async def _exercise(family_id: str) -> dict:
         token = await _harness.login_admin_token(ac)
         ac.headers["Authorization"] = f"Bearer {token}"
 
-        out["ped"] = _cap(
+        out["ped"] = capture(
             await ac.post(
                 "/api/ped/upload",
                 params={"project_id": project_id},
@@ -90,7 +85,7 @@ async def _exercise(family_id: str) -> dict:
         )
 
         async def upload(*, overwrite: bool, source_format: str = "auto") -> dict:
-            return _cap(
+            return capture(
                 await ac.post(
                     f"/api/families/{family_id}/small-variants/upload",
                     params={"overwrite": str(overwrite).lower(), "source_format": source_format},

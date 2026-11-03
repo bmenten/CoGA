@@ -361,6 +361,47 @@ def test_a_tag_may_keep_its_own_label_in_another_case() -> None:
     assert _edit(session, label="PROBE rename x").label == "PROBE rename x"
 
 
+@pytest.mark.parametrize(
+    ("key", "payload", "status", "detail"),
+    [
+        ("  ", {"label": "Probe renamed X"}, 404, "Variant tag not found"),
+        ("Report", {"label": "Probe renamed X"}, 400, "Built-in variant tags cannot be edited"),
+        ("probe_rename_x", {}, 400, "No tag fields were provided"),
+        ("probe_rename_x", {"label": "   "}, 400, "Tag label cannot be blank"),
+        ("probe_rename_x", {"scope": "project"}, 400, "Project-scoped tags require a project id"),
+    ],
+    ids=["no-key", "built-in", "nothing-to-change", "blank-label", "project-scope-without-a-project"],
+)
+def test_an_edit_that_names_no_tag_or_nothing_it_may_change_is_refused(key, payload, status, detail) -> None:
+    session = _Session({_LOOKUP: _Result(rows=[_stored_tag()])})
+    with pytest.raises(HTTPException) as refused:
+        _edit(session, key=key, **payload)
+    assert (refused.value.status_code, refused.value.detail) == (status, detail)
+    assert not any(sql.startswith("UPDATE") for sql, _ in session.calls) and session.committed is False
+
+
+def test_a_tag_moved_to_project_scope_without_a_project_takes_the_familys() -> None:
+    session = _Session({_LOOKUP: _Result(rows=[_stored_tag()]), "FROM projects": _Result(rows=[{"id": P1}])})
+    edited = asyncio.run(
+        tags.update_small_variant_tag_definition(
+            session,
+            family_uuid="f1",
+            tag_key="probe_rename_x",
+            payload=SmallVariantTagDefinitionUpdate(scope="project"),
+            user=_user("admin"),
+            default_project_id=P1,
+        )
+    )
+    assert (edited.key, edited.scope, edited.project_id, edited.shared_project_ids) == (
+        "probe_rename_x",
+        "project",
+        P1,
+        [],
+    )
+    update = next(params for sql, params in session.calls if sql.startswith("UPDATE small_variant_tag_definitions"))
+    assert (update["scope"], update["project_id"]) == ("project", P1)
+
+
 def test_a_tag_is_edited_under_the_definitions_lock() -> None:
     session = _Session({_LOOKUP: _Result(rows=[_stored_tag()])})
     _edit(session, color="#654321")
@@ -384,9 +425,12 @@ def test_a_built_in_tag_cannot_be_deleted() -> None:
 
 
 def test_deleting_an_unknown_tag_is_not_found() -> None:
-    with pytest.raises(HTTPException) as refused:
-        _delete(_Session({"FROM small_variant_tag_definitions": _Result(rows=[])}), _user("admin"), "gone")
-    assert refused.value.status_code == 404
+    for key in ("gone", "  "):
+        session = _Session({"FROM small_variant_tag_definitions": _Result(rows=[])})
+        with pytest.raises(HTTPException) as refused:
+            _delete(session, _user("admin"), key)
+        assert (refused.value.status_code, refused.value.detail) == (404, "Variant tag not found"), key
+        assert session.committed is False
 
 
 def test_a_deleted_tag_is_deactivated_not_removed() -> None:

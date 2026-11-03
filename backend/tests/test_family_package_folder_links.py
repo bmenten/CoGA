@@ -22,11 +22,11 @@ from typing import Any
 import pytest
 import yaml
 
-from backend.app.core.config import settings
 from backend.app.schemas import FamilyImportValidationIssue, FamilyPackageManifestBuildRequest
 from backend.app.services.family_package_discovery import discover_family_package_manifest
 from backend.app.services.family_package_source import scan_family_import_packages
 from backend.app.services.family_package_validation import load_validated_family_package
+from backend.tests._family_import_fakes import authorize_import_root
 
 MOTHER, FATHER = "HG002", "HG003"
 TRIO_PED = "FAM1 F1 0 0 1 1\nFAM1 M1 0 0 2 1\nFAM1 C1 F1 M1 1 2\n"
@@ -35,11 +35,7 @@ TRIO_PED = "FAM1 F1 0 0 1 1\nFAM1 M1 0 0 2 1\nFAM1 C1 F1 M1 1 2\n"
 @pytest.fixture
 def imports(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     """The import root; ``outside/`` beside it is under no import root."""
-    root = tmp_path / "imports"
-    root.mkdir()
-    (tmp_path / "outside").mkdir()
-    monkeypatch.setattr(settings, "family_import_roots", [str(root)])
-    return root
+    return authorize_import_root(monkeypatch, tmp_path)
 
 
 def _long_read_sample(package: Path, sample_id: str, karyotype: str) -> None:

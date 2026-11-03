@@ -5,12 +5,9 @@ from uuid import uuid4
 import pytest
 from fastapi import HTTPException
 
-from backend.app.services import metadata_service
-from backend.app.services.access_control import CurrentUser, RecordNotVisible, visible_metadata_project_ids
-from backend.app.services.ped_service import (
-    _ensure_user_can_replace_existing_families,
-    _resolve_accessible_project_id,
-)
+from backend.app.services import family_metadata_context, metadata_service
+from backend.app.services.access_control import CurrentUser, RecordNotVisible
+from backend.app.services.ped_service import _resolve_accessible_project_id
 
 
 class _ScalarResult:
@@ -84,30 +81,6 @@ def test_resolve_accessible_project_id_accepts_assigned_project() -> None:
     )
 
     assert resolved_project_id == project_id
-
-
-def test_viewer_family_project_ids_are_filtered_to_visible_projects() -> None:
-    visible_project_id = str(uuid4())
-    hidden_project_id = str(uuid4())
-
-    assert visible_metadata_project_ids(
-        [hidden_project_id, visible_project_id],
-        _user("viewer", [visible_project_id]),
-    ) == [visible_project_id]
-
-
-def test_non_admin_cannot_replace_existing_families() -> None:
-    # Replacing existing families/samples is admin-only. This is a role-based
-    # policy, not a per-project check — the function does not inspect rows.
-    with pytest.raises(HTTPException) as exc_info:
-        _ensure_user_can_replace_existing_families(_user("viewer", []))
-
-    assert exc_info.value.status_code == 403
-
-
-def test_admin_can_replace_existing_families() -> None:
-    # An admin is permitted (no exception raised).
-    _ensure_user_can_replace_existing_families(_user("admin", []))
 
 
 # --- PHI access gate: get_accessible_family_mapping / get_accessible_sample_mapping ---------
@@ -245,10 +218,156 @@ def test_a_hidden_family_gets_an_unknown_ones_response_and_only_its_audit_row_sa
     assert [payload.request_meta.get("record_hidden") for payload in audited] == ["family", None]
 
 
-def test_admin_sees_all_project_ids_while_viewer_sees_only_assigned() -> None:
-    p_assigned, p_foreign = str(uuid4()), str(uuid4())
-    family_projects = [p_assigned, p_foreign]
+# --- the family and sample contexts the variant, track and report routes build -------------
+# build_family_metadata_context and build_sample_metadata_context pass the checkpoints above,
+# then read the record's members and assembly over the projects the caller sees, never over
+# another team's project the record is also linked to.
 
-    assert visible_metadata_project_ids(family_projects, _user("admin", [])) == family_projects
-    assert visible_metadata_project_ids(family_projects, _user("viewer", [p_assigned])) == [p_assigned]
-    assert visible_metadata_project_ids(family_projects, _user("viewer", [])) == []
+
+class _Rows:
+    def __init__(self, rows: list[dict]) -> None:
+        self.rows = rows
+
+    def mappings(self) -> "_Rows":
+        return self
+
+    def all(self) -> list[dict]:
+        return list(self.rows)
+
+    def first(self) -> dict | None:
+        return self.rows[0] if self.rows else None
+
+
+class _ContextSession:
+    """Answers the contexts' queries (no members or relationships, one assembly, the given
+    sample row) and records each statement with its parameters."""
+
+    def __init__(self, sample_row: dict | None = None) -> None:
+        self.sample_row = sample_row
+        self.calls: list[tuple[str, dict]] = []
+
+    async def execute(self, statement, params=None):
+        sql = " ".join(str(statement).split())
+        self.calls.append((sql, dict(params or {})))
+        if "FROM family_members fm" in sql or "FROM family_relationships fr" in sql:
+            return _Rows([])
+        if "JOIN assemblies a" in sql:
+            return _Rows([{"assembly_id": "assembly-1", "assembly_name": "GRCh38"}])
+        if "FROM samples s JOIN families f" in sql:
+            return _Rows([self.sample_row] if self.sample_row is not None else [])
+        raise AssertionError(f"unexpected statement: {sql[:80]}")
+
+    def assembly_lookups(self) -> list[dict]:
+        return [params for sql, params in self.calls if "JOIN assemblies a" in sql]
+
+
+def _family_context(session: _ContextSession, user: CurrentUser, project_id: str | None = None):
+    return family_metadata_context.build_family_metadata_context(
+        session,  # type: ignore[arg-type]
+        family_identifier="FAM1",
+        user=user,
+        project_id=project_id,
+    )
+
+
+def test_a_family_context_names_a_project_the_caller_does_not_see_like_one_it_is_not_linked_to(monkeypatch) -> None:
+    seen, hidden, unlinked = str(uuid4()), str(uuid4()), str(uuid4())
+    _families(monkeypatch, {"id": str(uuid4()), "family_id": "FAM1", "project_ids": [seen, hidden]})
+    viewer = _user("viewer", [seen])
+
+    answers = []
+    for project_id in (hidden, unlinked):
+        session = _ContextSession()
+        answers.append(_answer(_refusal(_family_context(session, viewer, project_id))))
+        # Refused before the family's members or assembly are read.
+        assert session.calls == []
+
+    assert answers == [(400, "Project is not linked to this family", None)] * 2
+    # The admin sees both projects, and reads the family's assembly through the one named.
+    session = _ContextSession()
+    context = asyncio.run(_family_context(session, _user("admin", []), hidden))
+    assert context.project_ids == [seen, hidden]
+    assert session.assembly_lookups() == [{"project_id": hidden}]
+
+
+def test_a_family_context_reads_the_assembly_over_the_callers_projects_only(monkeypatch) -> None:
+    seen, hidden = str(uuid4()), str(uuid4())
+    _families(monkeypatch, {"id": str(uuid4()), "family_id": "FAM1", "project_ids": [seen, hidden]})
+
+    session = _ContextSession()
+    context = asyncio.run(_family_context(session, _user("viewer", [seen])))
+
+    assert context.project_ids == [seen]
+    assert (context.assembly_id, context.assembly_name) == ("assembly-1", "GRCh38")
+    [lookup] = session.assembly_lookups()
+    assert [str(project_id) for project_id in lookup["project_ids"]] == [seen]
+
+
+def test_an_admins_context_of_a_family_in_no_project_has_no_assembly(monkeypatch) -> None:
+    _families(monkeypatch, {"id": str(uuid4()), "family_id": "FAM1", "project_ids": []})
+
+    session = _ContextSession()
+    context = asyncio.run(_family_context(session, _user("admin", [])))
+
+    assert (context.project_ids, context.assembly_id, context.assembly_name) == ([], None, None)
+    assert session.assembly_lookups() == []
+
+
+def _sample_context(session: _ContextSession, user: CurrentUser, sample_id: str = "S1"):
+    return family_metadata_context.build_sample_metadata_context(
+        session,  # type: ignore[arg-type]
+        sample_identifier=sample_id,
+        user=user,
+    )
+
+
+def test_a_sample_context_outside_the_callers_projects_answers_like_an_unknown_one(monkeypatch) -> None:
+    _samples(monkeypatch, {"id": str(uuid4()), "sample_id": "S1", "family_project_ids": [str(uuid4())]})
+    intruder = _user("viewer", [str(uuid4())])
+    session = _ContextSession()
+
+    hidden = _refusal(_sample_context(session, intruder))
+    unknown = _refusal(_sample_context(session, intruder, "NO_SUCH_SAMPLE"))
+
+    assert _answer(hidden) == _answer(unknown) == (404, "Sample not found", None)
+    assert (_hidden_kind(hidden), _hidden_kind(unknown)) == ("sample", None)
+    assert session.calls == []
+
+
+def test_a_sample_context_reads_the_assembly_over_the_callers_projects_only(monkeypatch) -> None:
+    seen, hidden, family_uuid, sample_uuid = (str(uuid4()) for _ in range(4))
+    _samples(monkeypatch, {"id": sample_uuid, "sample_id": "S1", "family_project_ids": [seen, hidden]})
+    row = {
+        "sample_uuid": sample_uuid,
+        "sample_id": "S1",
+        "sex": "female",
+        "family_uuid": family_uuid,
+        "family_id": "FAM1",
+        "project_ids": [seen, hidden],
+    }
+
+    # A viewer of one of the two projects: that project's assembly.
+    session = _ContextSession(row)
+    context = asyncio.run(_sample_context(session, _user("viewer", [seen])))
+    assert (context.sample_id, context.family_id, context.project_ids) == ("S1", "FAM1", [seen])
+    assert session.assembly_lookups() == [{"project_id": seen}]
+
+    # An admin sees both: the family's assembly over both projects.
+    session = _ContextSession(row)
+    context = asyncio.run(_sample_context(session, _user("admin", [])))
+    assert context.project_ids == [seen, hidden]
+    [lookup] = session.assembly_lookups()
+    assert ([str(project_id) for project_id in lookup["project_ids"]], lookup["family_uuid"]) == (
+        [seen, hidden],
+        family_uuid,
+    )
+
+
+def test_a_sample_gone_after_its_check_is_not_found(monkeypatch) -> None:
+    project = str(uuid4())
+    _samples(monkeypatch, {"id": str(uuid4()), "sample_id": "S1", "family_project_ids": [project]})
+    session = _ContextSession(sample_row=None)
+
+    assert _answer(_refusal(_sample_context(session, _user("viewer", [project])))) == (404, "Sample not found", None)
+    assert session.assembly_lookups() == []
+

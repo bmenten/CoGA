@@ -548,16 +548,13 @@ def test_the_trail_serves_every_kind_of_import_event(events: list[dict[str, Any]
     async def signed_in() -> CurrentUser:
         return user
 
-    original = dict(app.dependency_overrides)
-    app.state.skip_startup_tasks = True
+    # Left as they were afterwards: the app's startup flag and its dependency overrides.
+    monkeypatch.setattr(app.state, "skip_startup_tasks", True, raising=False)
     monkeypatch.setattr(families_reports, "list_clinical_audit", page_of_trail)
-    app.dependency_overrides[get_postgres_session] = no_session
-    app.dependency_overrides[families_reports.get_current_user] = signed_in
-    try:
-        with TestClient(app) as client:
-            response = client.get("/api/families/FAM1/clinical-audit")
-    finally:
-        app.dependency_overrides = original
+    monkeypatch.setitem(app.dependency_overrides, get_postgres_session, no_session)
+    monkeypatch.setitem(app.dependency_overrides, families_reports.get_current_user, signed_in)
+    with TestClient(app) as client:
+        response = client.get("/api/families/FAM1/clinical-audit")
     assert response.status_code == 200, response.text
     body = response.json()
     assert [event["after"]["phenotypes"][0]["hpo_id"] for event in body["events"] if event["after"]] == [

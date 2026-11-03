@@ -107,6 +107,9 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import text
 
+from backend.tests.e2e._harness import DRIFT_AND_QC_ACKNOWLEDGED, capture, ensure_postgres_schema, gate_refusal
+from backend.tests.e2e._import_jobs import claim_import_job
+
 pytestmark = pytest.mark.integration
 
 _VARIANTS = 6
@@ -114,23 +117,6 @@ _OVERWRITE_VARIANTS = 4
 # The third family's SV calls, uploaded as a manual TSV (ID, CHROM, POS, END, REF, ALT,
 # SVTYPE, GT): no package dataset brings them.
 _UPLOADED_SVS = b"SVDEL1\t1\t10000\t20000\tN\t<DEL>\tDEL\t0/1\nSVDUP1\t1\t50000\t60000\tN\t<DUP>\tDUP\t0/1\n"
-_ACK = "e2e validation"
-# The drift and Sample-QC gates come first; they are acknowledged in every attempt here.
-_OTHER_GATES = {
-    "acknowledge_drift": True,
-    "drift_acknowledgement_reason": _ACK,
-    "acknowledge_qc": True,
-    "qc_acknowledgement_reason": _ACK,
-}
-
-
-def _cap(resp) -> dict:
-    out: dict[str, Any] = {"status": resp.status_code, "text": resp.text}
-    try:
-        out["json"] = resp.json()
-    except ValueError:  # pragma: no cover
-        out["json"] = None
-    return out
 
 
 def _write_package(
@@ -179,7 +165,7 @@ async def _collect(base: Path, mp: pytest.MonkeyPatch) -> dict:
     from httpx import ASGITransport, AsyncClient
 
     from backend.app.core.clickhouse import init_clickhouse_schema
-    from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
+    from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.main import app
     from backend.app.services import clickhouse_family_snapshot as snapshots
     from backend.app.services import family_package_import as package_import
@@ -195,7 +181,7 @@ async def _collect(base: Path, mp: pytest.MonkeyPatch) -> dict:
     )
     from backend.tests.e2e import _harness
 
-    await init_postgres_schema()
+    await ensure_postgres_schema()
     await init_clickhouse_schema()
     await ensure_clickhouse_variant_tables(_harness.ASSEMBLY)
     sm = get_postgres_sessionmaker()
@@ -320,16 +306,7 @@ async def _collect(base: Path, mp: pytest.MonkeyPatch) -> dict:
                 job_id = str(resp.json()["_id"])
                 jobs.append(job_id)
                 worker = f"e2e-restore-{uuid4().hex[:8]}"
-                async with sm() as s:
-                    await s.execute(
-                        text(
-                            "UPDATE family_import_jobs SET status = 'validating', worker_id = :w, "
-                            "started_at = now(), heartbeat_at = now() "
-                            "WHERE id = CAST(:j AS uuid) AND status = 'queued'"
-                        ),
-                        {"j": job_id, "w": worker},
-                    )
-                    await s.commit()
+                await claim_import_job(job_id, worker)
                 await package_import.run_family_import_job(job_id=job_id, worker_id=worker)
                 step: dict[str, Any] = {
                     "job_id": job_id,
@@ -343,16 +320,16 @@ async def _collect(base: Path, mp: pytest.MonkeyPatch) -> dict:
                 return step
 
             async def sign_out(scenario: str, step: dict[str, Any]) -> None:
-                step["signout"] = _cap(
+                step["signout"] = capture(
                     await _harness.sign_out(
-                        ac, f"/api/families/{families[scenario]}/report/sign-out", _OTHER_GATES
+                        ac, f"/api/families/{families[scenario]}/report/sign-out", DRIFT_AND_QC_ACKNOWLEDGED
                     )
                 )
 
             async def upload_svs(scenario: str, name: str, *, overwrite: bool) -> dict[str, Any]:
                 family_id = families[scenario]
                 step: dict[str, Any] = {
-                    "upload": _cap(
+                    "upload": capture(
                         await ac.post(
                             f"/api/structural-variants/upload/{family_id}_S1",
                             params={"overwrite": str(overwrite).lower(), "source_format": "manual"},
@@ -478,14 +455,6 @@ def snap(tmp_path_factory, request) -> dict:
     return _harness.run_async(lambda: _collect(base, mp))
 
 
-def _refused(step: dict) -> dict:
-    resp = step["signout"]
-    assert resp["status"] == 409, resp["text"]
-    detail = resp["json"]["detail"]
-    assert detail["gate"] == "import_incomplete", detail
-    return detail
-
-
 def _signed(step: dict) -> dict:
     resp = step["signout"]
     assert resp["status"] == 200, resp["text"]
@@ -538,7 +507,7 @@ def test_its_flag_names_every_dataset_of_the_import_and_its_entry_stays(snap) ->
     (line,) = [line for line in step["job"]["logs"] if "restore also failed" in line]
     assert "the flag names every dataset of this import as failed, those that imported too (coverage, snv)" in line
     assert "Import the whole family again with overwrite, not only the datasets that failed" in line
-    detail = _refused(step)
+    detail = gate_refusal(step["signout"], "import_incomplete")
     assert detail["import_incomplete"]["failed_datasets"] == ["coverage", "snv"]
     assert detail["import_unfinished"][step["job_id"]]["datasets"] == ["coverage", "snv"]
 
@@ -555,7 +524,7 @@ def test_an_import_of_the_dataset_that_failed_alone_leaves_the_gate_shut(snap) -
     assert step["family"]["unfinished"][flagged["job_id"]]["datasets"] == ["snv"]
     note = next(line for line in step["job"]["logs"] if "stays flagged import-incomplete" in line)
     assert f"snv in import job {flagged['job_id']}" in note
-    detail = _refused(step)
+    detail = gate_refusal(step["signout"], "import_incomplete")
     assert detail["import_incomplete"]["failed_datasets"] == ["snv"]
     assert "failed for snv" in detail["message"]
 
@@ -593,7 +562,7 @@ def test_the_entry_names_the_dataset_the_import_did_not_carry(snap) -> None:
     assert (entry["datasets"], entry["finished_datasets"]) == (["coverage", "snv"], [])
     (line,) = [line for line in step["job"]["logs"] if "restore also failed" in line]
     assert "imported again with overwrite (coverage, snv)" in line
-    detail = _refused(step)
+    detail = gate_refusal(step["signout"], "import_incomplete")
     assert detail["import_unfinished"][step["job_id"]]["datasets"] == ["coverage", "snv"]
 
 
@@ -609,7 +578,7 @@ def test_an_import_of_the_dataset_that_failed_again_leaves_the_gate_shut(snap) -
     assert step["family"]["unfinished"][flagged["job_id"]]["datasets"] == ["coverage"]
     note = next(line for line in step["job"]["logs"] if "stays marked import-incomplete" in line)
     assert f"(import job {flagged['job_id']}, still to import: coverage)" in note
-    detail = _refused(step)
+    detail = gate_refusal(step["signout"], "import_incomplete")
     assert detail["import_incomplete"] is None
     assert detail["import_unfinished"][flagged["job_id"]]["datasets"] == ["coverage"]
     assert "coverage may be partly written or missing" in detail["message"]
@@ -654,7 +623,7 @@ def test_an_update_skips_the_coverage_the_restore_left_and_keeps_it_flagged(snap
     assert step["family"]["incomplete"]["failed_jobs"] == {"coverage": flagged["job_id"], "snv": flagged["job_id"]}
     note = next(line for line in step["job"]["logs"] if "stays flagged import-incomplete" in line)
     assert f"coverage, snv in import job {flagged['job_id']}" in note
-    detail = _refused(step)
+    detail = gate_refusal(step["signout"], "import_incomplete")
     assert detail["import_incomplete"]["failed_datasets"] == ["coverage", "snv"]
 
 
@@ -670,7 +639,7 @@ def test_an_update_imports_the_coverage_the_restore_removed_again(snap) -> None:
     # The restore's entry still lists coverage, as an update removes nothing from it: the
     # sign-out stays refused until an overwrite imports the family again.
     assert step["family"]["unfinished"][flagged["job_id"]]["datasets"] == ["coverage", "snv"]
-    detail = _refused(step)
+    detail = gate_refusal(step["signout"], "import_incomplete")
     assert detail["import_unfinished"][flagged["job_id"]]["datasets"] == ["coverage", "snv"]
 
 
@@ -703,7 +672,7 @@ def test_the_entry_names_the_uploaded_calls_the_restore_removed(snap) -> None:
     # Before: the entry named snv alone.
     entry = step["family"]["unfinished"][step["job_id"]]
     assert (entry["datasets"], entry["finished_datasets"]) == (["snv", "sv_manual"], [])
-    detail = _refused(step)
+    detail = gate_refusal(step["signout"], "import_incomplete")
     assert detail["import_unfinished"][step["job_id"]]["datasets"] == ["snv", "sv_manual"]
 
 
@@ -716,7 +685,7 @@ def test_an_import_of_the_package_again_leaves_the_gate_shut(snap) -> None:
     assert step["family"]["unfinished"][flagged["job_id"]]["datasets"] == ["sv_manual"]
     note = next(line for line in step["job"]["logs"] if "stays marked import-incomplete" in line)
     assert f"(import job {flagged['job_id']}, still to import: sv_manual)" in note
-    detail = _refused(step)
+    detail = gate_refusal(step["signout"], "import_incomplete")
     assert detail["import_incomplete"] is None
     assert detail["import_unfinished"][flagged["job_id"]]["datasets"] == ["sv_manual"]
 
@@ -745,7 +714,7 @@ def test_the_restore_removed_the_direct_calls_an_auto_import_stored(snap) -> Non
     assert step["family"]["clair3_snvs"] == 0
     entry = step["family"]["unfinished"][step["job_id"]]
     assert {"dataset": "snv", "scope": _DIRECT_CALLSET} in entry["whole_family"]
-    _refused(step)
+    gate_refusal(step["signout"], "import_incomplete")
 
 
 def test_an_auto_import_of_imputed_genotypes_does_not_bring_the_direct_calls_again(snap) -> None:
@@ -756,7 +725,7 @@ def test_an_auto_import_of_imputed_genotypes_does_not_bring_the_direct_calls_aga
     assert step["family"]["incomplete"] is None
     # Before: both imports' scopes read "auto", so this one struck the direct calls off the
     # entry, and the family signed out with them gone.
-    detail = _refused(step)
+    detail = gate_refusal(step["signout"], "import_incomplete")
     assert detail["import_unfinished"][flagged["job_id"]]["datasets"] == ["snv"]
     entry = step["family"]["unfinished"][flagged["job_id"]]
     assert entry["whole_family"] == [{"dataset": "snv", "scope": _DIRECT_CALLSET}]

@@ -178,21 +178,25 @@ def test_derive_db_update_ignores_bare_api_prefix() -> None:
     assert _derive_db_update(request, None) is None
 
 
-def test_query_string_for_logging_omits_values_by_default(monkeypatch) -> None:
-    monkeypatch.setattr(settings, "audit_log_query_string_mode", "none")
-    request = Request(
+def _get_with_query(query_string: bytes) -> Request:
+    return Request(
         {
             "type": "http",
             "method": "GET",
             "path": "/families/demo_family",
             "scheme": "http",
-            "query_string": b"family_id=F1&start=1&end=2",
+            "query_string": query_string,
             "headers": [],
             "client": ("127.0.0.1", 1234),
             "server": ("testserver", 80),
             "http_version": "1.1",
         }
     )
+
+
+def test_query_string_for_logging_omits_values_by_default(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "audit_log_query_string_mode", "none")
+    request = _get_with_query(b"family_id=F1&start=1&end=2")
 
     assert _query_string_for_logging(request) is None
     assert _request_url_for_logging(request, _query_string_for_logging(request)) == "/families/demo_family"
@@ -200,40 +204,69 @@ def test_query_string_for_logging_omits_values_by_default(monkeypatch) -> None:
 
 def test_query_string_for_logging_can_keep_keys_only(monkeypatch) -> None:
     monkeypatch.setattr(settings, "audit_log_query_string_mode", "keys")
-    request = Request(
-        {
-            "type": "http",
-            "method": "GET",
-            "path": "/families/demo_family",
-            "scheme": "http",
-            "query_string": b"family_id=F1&start=1&end=2",
-            "headers": [],
-            "client": ("127.0.0.1", 1234),
-            "server": ("testserver", 80),
-            "http_version": "1.1",
-        }
-    )
+    request = _get_with_query(b"family_id=F1&start=1&end=2")
 
     assert _query_string_for_logging(request) == "end&family_id&start"
 
 
 def test_query_string_for_logging_sanitizes_sensitive_values(monkeypatch) -> None:
     monkeypatch.setattr(settings, "audit_log_query_string_mode", "sanitized")
-    request = Request(
-        {
-            "type": "http",
-            "method": "GET",
-            "path": "/families/demo_family",
-            "scheme": "http",
-            "query_string": b"family_id=F1&sample=S1&start=1",
-            "headers": [],
-            "client": ("127.0.0.1", 1234),
-            "server": ("testserver", 80),
-            "http_version": "1.1",
-        }
-    )
+    request = _get_with_query(b"family_id=F1&sample=S1&start=1")
 
     assert _query_string_for_logging(request) == "family_id=%2A%2A%2A&sample=%2A%2A%2A&start=1"
+    # A secret-like key is masked as in a body, and a long value is cut short.
+    secrets_and_notes = _get_with_query(b"Password=hunter2&api_key=k1&note=" + b"x" * 200)
+    assert _query_string_for_logging(secrets_and_notes) == (
+        "Password=%2A%2A%2A&api_key=%2A%2A%2A&note=" + "x" * 125 + "..."
+    )
+    # A query string of separators alone records none.
+    assert _query_string_for_logging(_get_with_query(b"&&")) is None
+
+
+@pytest.mark.parametrize(
+    ("content_type", "body", "recorded"),
+    [
+        (
+            "multipart/form-data; boundary=x",
+            b"--x\r\nContent-Disposition: form-data; name=file\r\n\r\nPROBAND\t1\t100\r\n--x--",
+            {"_content_type": "multipart/form-data; boundary=x"},
+        ),
+        ("application/octet-stream", b"\x00\x01BAM", {"_content_type": "application/octet-stream"}),
+        ("application/json", b'{"note": "' + b"x" * 25_000 + b'"}', {"_truncated": True}),
+    ],
+    ids=["an-upload", "a-binary-payload", "an-oversized-body"],
+)
+def test_an_upload_or_an_oversized_body_is_recorded_by_its_size_only(content_type, body, recorded) -> None:
+    # An upload's file and an oversized body never reach the audit row: only how big they were.
+    parsed = _parse_request_body(_request_with_content_type(content_type), body)
+    assert parsed == {**recorded, "_bytes": len(body)}
+
+
+@pytest.mark.parametrize(
+    ("headers", "recorded"),
+    [
+        ([(b"content-type", b"multipart/form-data; boundary=x"), (b"content-length", b"10")], {"_captured": False, "_reason": "stream_or_large_body"}),
+        ([(b"content-type", b"application/json"), (b"content-length", b"100001")], {"_captured": False, "_reason": "stream_or_large_body"}),
+        ([(b"content-type", b"application/json"), (b"content-length", b"not-a-number")], {"note": "PROBAND"}),
+    ],
+    ids=["an-upload", "a-body-announced-too-large", "an-unreadable-length"],
+)
+def test_the_middleware_reads_no_upload_and_no_body_announced_too_large(monkeypatch, headers, recorded) -> None:
+    captured: list = []
+
+    async def _fake_write(payload):
+        captured.append(payload)
+
+    async def call_next(_request):
+        return JSONResponse({"ok": True})
+
+    monkeypatch.setattr(rl, "write_audit_log_event", _fake_write)
+    request = _json_post("/api/families/F1/notes", b'{"note": "PROBAND"}')
+    request.scope["headers"] = headers
+
+    asyncio.run(rl.log_request_response(request, call_next))
+
+    assert captured[-1].request_body == recorded
 
 
 def test_request_body_excluded_from_stdout_log_but_kept_in_audit(monkeypatch) -> None:

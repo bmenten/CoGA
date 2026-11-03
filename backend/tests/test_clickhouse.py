@@ -191,6 +191,72 @@ async def test_execute_clickhouse_retries_insert_after_request_body_write_failur
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("message", "attempts"),
+    [
+        # Transient, and again on the fresh client: retried once, then raised.
+        ("Network Error: [Errno None] Can not write request body", 2),
+        # Not transient: raised at once.
+        ("Code: 53. DB::Exception: Type mismatch", 1),
+    ],
+    ids=["transient-twice", "not-transient"],
+)
+async def test_an_insert_that_fails_is_raised_never_dropped(
+    monkeypatch: pytest.MonkeyPatch, message: str, attempts: int
+) -> None:
+    # A writer that is not told its rows were not stored would answer as if they were.
+    class _FailingInsertClient(_RecordingAsyncClient):
+        async def insert(self, *, table: str, database: str | None, data, column_names: list[str], settings=None):
+            self.inserts.append((table, database, list(data), column_names))
+            raise RuntimeError(message)
+
+    created: list[_RecordingAsyncClient] = []
+
+    async def fake_create_clickhouse_client():
+        client = _FailingInsertClient(f"client-{len(created) + 1}")
+        created.append(client)
+        return client
+
+    monkeypatch.setattr(clickhouse, "_async_client", None)
+    monkeypatch.setattr(clickhouse, "_client_lock", None)
+    monkeypatch.setattr(clickhouse, "_create_clickhouse_client", fake_create_clickhouse_client)
+    monkeypatch.setattr(clickhouse.asyncio, "sleep", _no_sleep)
+
+    with pytest.raises(RuntimeError) as raised:
+        await clickhouse.execute_clickhouse("INSERT INTO coga.`GRCh38/SV/entries` (key) VALUES", [(1,)])
+
+    assert str(raised.value) == message
+    assert [len(client.inserts) for client in created] == [1] * attempts
+
+
+@pytest.mark.asyncio
+async def test_waiting_for_clickhouse_retries_until_it_answers_and_then_gives_up(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    answers: list[object] = [ConnectionError("refused"), ConnectionError("refused"), [(1,)]]
+    asked: list[str] = []
+
+    async def execute(query: str, parameters=None):
+        asked.append(query)
+        answer = answers.pop(0)
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    monkeypatch.setattr(clickhouse, "execute_clickhouse", execute)
+    monkeypatch.setattr(clickhouse.asyncio, "sleep", _no_sleep)
+
+    await clickhouse.wait_for_clickhouse(max_tries=3, delay=0)
+    assert asked == ["SELECT 1"] * 3
+
+    # Still unreachable at the last try: the start fails with the last error.
+    answers[:] = [ConnectionError("refused")] * 2
+    with pytest.raises(ConnectionError, match="refused"):
+        await clickhouse.wait_for_clickhouse(max_tries=2, delay=0)
+    assert answers == []
+
+
+@pytest.mark.asyncio
 async def test_execute_clickhouse_retries_query_after_session_lock(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

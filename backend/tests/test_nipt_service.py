@@ -11,7 +11,12 @@ from fastapi import HTTPException
 
 from backend.app.schemas import FamilyMemberOut, FamilyOut, FamilyRegionOfInterestOut
 from backend.app.services import clickhouse_interval_tracks, nipt_service
-from backend.app.services.clickhouse_variant_records import Region, SmallVariantCall, SmallVariantRecord
+from backend.app.services.clickhouse_variant_records import (
+    PanelFilterConstraints,
+    Region,
+    SmallVariantCall,
+    SmallVariantRecord,
+)
 from backend.app.services.genotypes import GENOTYPE_CLASSES, classify_genotype, genotype_vocabulary
 from backend.app.services.nipt_analysis import NiptQualityThresholds, run_nipt_analysis
 from backend.app.services.nipt_service import (
@@ -21,6 +26,7 @@ from backend.app.services.nipt_service import (
     get_family_nipt_variants,
     run_family_nipt_analysis,
 )
+from backend.tests._nipt_service_fakes import nipt_family, wire_nipt_reads
 
 
 def _call(sample: str, gt: str, *, dp=None, af=None, ad=None) -> SmallVariantCall:
@@ -85,8 +91,8 @@ def test_derive_father_state(gt: str, expected: str) -> None:
     assert derive_father_state(_call("father-1", gt)) == expected
 
 
-def test_derive_father_state_missing_when_no_call() -> None:
-    assert derive_father_state(None) == "missing"
+# No call at all (a joint VCF without his column) is missing:
+# test_nipt_pair_service.py::test_no_father_call_is_absent_in_a_per_sample_callset.
 
 
 def test_derive_father_state_follows_the_shared_genotype_classes() -> None:
@@ -188,6 +194,16 @@ def test_build_observation_missing_father_and_sex_chromosome() -> None:
     assert not site.is_autosomal
 
 
+def test_build_observation_reads_a_call_without_allele_depths_off_its_gt_and_af() -> None:
+    # No AD: the plasma's allele is present by its GT, at the caller's AF, with no alt-read
+    # count to classify on.
+    record = _record("1-500-A-G", calls=[_call("father-1", "0/0", dp=50, ad=[50, 0]), _call("cfdna-1", "0/1", dp=300, af=[0.05])])
+    site = build_nipt_observations([record], father_sample_id="father-1", cfdna_sample_id="cfdna-1")[0]
+    assert (site.cf_present, site.cf_vaf, site.cf_alt_reads, site.cf_dp) == (True, 0.05, None, 300)
+    absent = _record("1-600-A-G", calls=[_call("cfdna-1", "0/0", dp=300, af=[0.0])])
+    assert not build_nipt_observations([absent], father_sample_id="father-1", cfdna_sample_id="cfdna-1")[0].cf_present
+
+
 def test_build_observation_skips_sites_without_cfdna_call() -> None:
     record = _record("1-300-A-G", calls=[_call("father-1", "0/1", dp=50, ad=[25, 25])])
     assert build_nipt_observations(
@@ -201,62 +217,15 @@ def test_build_observation_skips_sites_without_cfdna_call() -> None:
 
 @pytest.mark.asyncio
 async def test_run_family_nipt_analysis_end_to_end(monkeypatch: pytest.MonkeyPatch) -> None:
-    family = FamilyOut(
-        id="family-uuid",
-        family_id="NIPT001",
-        created_at=datetime.now(timezone.utc),
-        members=[
-            FamilyMemberOut(sample_id="father-1", role="father", affected=False),
-            FamilyMemberOut(
-                sample_id="cfdna-1",
-                role="mother",
-                affected=False,
-                sample_metadata={"assay": "nipt_cfdna"},
-            ),
+    cat3 = _record(
+        "1-9000-A-G",
+        start=9000,
+        calls=[
+            _call("father-1", "0/0", dp=50, ad=[50, 0]),
+            _call("cfdna-1", "0/1", dp=600, af=[0.5], ad=[300, 300]),
         ],
-        metadata={"analysis_type": "monogenic_nipt"},
     )
-
-    records = [
-        _record(
-            f"1-{i}-A-G",
-            start=i,
-            calls=[
-                _call("father-1", "0/1", dp=50, ad=[25, 25]),
-                _call("cfdna-1", "0/1", dp=400, af=[0.05], ad=[380, 20]),
-            ],
-        )
-        for i in range(40)
-    ]
-    records.append(
-        _record(
-            "1-9000-A-G",
-            start=9000,
-            calls=[
-                _call("father-1", "0/0", dp=50, ad=[50, 0]),
-                _call("cfdna-1", "0/1", dp=600, af=[0.5], ad=[300, 300]),
-            ],
-        )
-    )
-
-    async def fake_get_family_record(_session, _family_id, _user):
-        return family
-
-    async def fake_build_context(_session, *, family_identifier, user, project_id=None):
-        return SimpleNamespace(
-            assembly_id="assembly-uuid", assembly_name="GRCh38", sample_name_to_uuid={}, family_uuid="family-uuid"
-        )
-
-    async def fake_fetch(_context, _filters, *, limit=None, **_kwargs):
-        return records
-
-    async def fake_load_artifacts(_session, *, assembly_id, assay_key):
-        return set()
-
-    monkeypatch.setattr(nipt_service, "get_family_record", fake_get_family_record)
-    monkeypatch.setattr(nipt_service, "build_family_metadata_context", fake_build_context)
-    monkeypatch.setattr(nipt_service, "_fetch_small_variant_rows", fake_fetch)
-    monkeypatch.setattr(nipt_service, "load_nipt_artifact_ids", fake_load_artifacts)
+    _wire_variants_mocks(monkeypatch, cohort=[*_cohort_cat7_records(), cat3], filtered=[])
 
     result = await run_family_nipt_analysis(
         session=None,  # type: ignore[arg-type]
@@ -274,41 +243,7 @@ async def test_run_family_nipt_analysis_end_to_end(monkeypatch: pytest.MonkeyPat
 async def test_run_family_nipt_analysis_counts_artifacts(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    family = FamilyOut(
-        id="family-uuid",
-        family_id="NIPT001",
-        created_at=datetime.now(timezone.utc),
-        members=[
-            FamilyMemberOut(sample_id="father-1", role="father", affected=False),
-            FamilyMemberOut(
-                sample_id="cfdna-1",
-                role="mother",
-                affected=False,
-                sample_metadata={"assay": "nipt_cfdna"},
-            ),
-        ],
-        metadata={"analysis_type": "monogenic_nipt"},
-    )
-    records = _cohort_cat7_records()
-
-    async def fake_get_family_record(_session, _family_id, _user):
-        return family
-
-    async def fake_build_context(_session, *, family_identifier, user, project_id=None):
-        return SimpleNamespace(
-            assembly_id="assembly-uuid", assembly_name="GRCh38", sample_name_to_uuid={}, family_uuid="family-uuid"
-        )
-
-    async def fake_fetch(_context, _filters, *, limit=None, **_kwargs):
-        return records
-
-    async def fake_load_artifacts(_session, *, assembly_id, assay_key):
-        return {"1-5-A-G"}
-
-    monkeypatch.setattr(nipt_service, "get_family_record", fake_get_family_record)
-    monkeypatch.setattr(nipt_service, "build_family_metadata_context", fake_build_context)
-    monkeypatch.setattr(nipt_service, "_fetch_small_variant_rows", fake_fetch)
-    monkeypatch.setattr(nipt_service, "load_nipt_artifact_ids", fake_load_artifacts)
+    _wire_variants_mocks(monkeypatch, cohort=_cohort_cat7_records(), filtered=[], artifacts={"1-5-A-G"})
 
     result = await run_family_nipt_analysis(
         session=None,  # type: ignore[arg-type]
@@ -338,73 +273,44 @@ async def test_run_family_nipt_analysis_rejects_non_nipt_family(
 
     monkeypatch.setattr(nipt_service, "get_family_record", fake_get_family_record)
 
-    with pytest.raises(Exception) as excinfo:
+    with pytest.raises(HTTPException) as excinfo:
         await run_family_nipt_analysis(
             session=None,  # type: ignore[arg-type]
             family_id="FAM001",
             user=None,  # type: ignore[arg-type]
         )
-    assert "monogenic NIPT" in str(excinfo.value)
+    assert (excinfo.value.status_code, excinfo.value.detail) == (
+        400,
+        "Family is not configured for monogenic NIPT analysis",
+    )
 
 
 # --------------------------------------------------------------------------- #
 # get_family_nipt_variants (I/O mocked)
 # --------------------------------------------------------------------------- #
 
-def _nipt_family() -> FamilyOut:
-    return FamilyOut(
-        id="family-uuid",
-        family_id="NIPT001",
-        created_at=datetime.now(timezone.utc),
-        members=[
-            FamilyMemberOut(sample_id="father-1", role="father", affected=False),
-            FamilyMemberOut(
-                sample_id="cfdna-1",
-                role="mother",
-                affected=False,
-                sample_metadata={"assay": "nipt_cfdna"},
-            ),
-        ],
-        metadata={"analysis_type": "monogenic_nipt"},
-    )
+def _nipt_family(roi: FamilyRegionOfInterestOut | None = None) -> FamilyOut:
+    return nipt_family(family_id="NIPT001", father="father-1", plasma="cfdna-1", roi=roi)
 
 
 def _wire_variants_mocks(
-    monkeypatch: pytest.MonkeyPatch, *, cohort, filtered, artifacts: set[str] | None = None
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    cohort,
+    filtered,
+    artifacts: set[str] | None = None,
+    family: FamilyOut | None = None,
+    sample_name_to_uuid: dict[str, str] | None = None,
 ) -> None:
-    async def fake_get_family_record(_session, _family_id, _user):
-        return _nipt_family()
-
-    async def fake_build_context(_session, *, family_identifier, user, project_id=None):
-        return SimpleNamespace(
-            assembly_id="assembly-uuid", assembly_name="GRCh38", sample_name_to_uuid={}, family_uuid="family-uuid"
-        )
-
-    async def fake_fetch(_context, filters, *, limit=None, **_kwargs):
-        # The cohort (FF) load carries no gene filter; the variant load does. A limit is
-        # the SQL LIMIT: the first rows, in genomic order.
-        if filters.gene is None:
-            return cohort
-        return filtered if limit is None else filtered[:limit]
-
-    async def fake_load_artifacts(_session, *, assembly_id, assay_key):
-        return set(artifacts or set())
-
-    # Review/internal-cohort hydration is a DB concern exercised elsewhere; no-op
-    # it here so the variant serialization can run against the mocked context.
-    async def fake_hydrate(_session, *, context, variants):
-        return None
-
     # No other cfDNA sample of the assay: no allele recurs.
-    async def fake_carrier_samples(_session, *, assay_key):
-        return {}
-
-    monkeypatch.setattr(nipt_service, "get_family_record", fake_get_family_record)
-    monkeypatch.setattr(nipt_service, "build_family_metadata_context", fake_build_context)
-    monkeypatch.setattr(nipt_service, "_fetch_small_variant_rows", fake_fetch)
-    monkeypatch.setattr(nipt_service, "load_nipt_artifact_ids", fake_load_artifacts)
-    monkeypatch.setattr(nipt_service, "_hydrate_small_variant_outs", fake_hydrate)
-    monkeypatch.setattr(nipt_service, "assay_cfdna_carrier_samples", fake_carrier_samples)
+    wire_nipt_reads(
+        monkeypatch,
+        family=family or _nipt_family(),
+        cohort=cohort,
+        filtered=filtered,
+        artifacts=artifacts,
+        sample_name_to_uuid=sample_name_to_uuid,
+    )
 
 
 def _cohort_cat7_records() -> list[SmallVariantRecord]:
@@ -550,14 +456,15 @@ async def test_get_family_nipt_variants_de_novo_inheritance_preset(
 
 @pytest.mark.asyncio
 async def test_get_family_nipt_variants_rejects_unsupported_preset() -> None:
-    with pytest.raises(Exception) as excinfo:
+    # Refused before any read: no family, context or variant load is stubbed here.
+    with pytest.raises(HTTPException) as excinfo:
         await get_family_nipt_variants(
             session=None,  # type: ignore[arg-type]
             family_id="NIPT001",
             user=None,  # type: ignore[arg-type]
             inheritance="not_a_preset",
         )
-    assert "inheritance preset" in str(excinfo.value)
+    assert (excinfo.value.status_code, excinfo.value.detail) == (400, "Unsupported NIPT inheritance preset: not_a_preset")
 
 
 _SMALL_VARIANT_SEARCH_TS = (
@@ -868,6 +775,114 @@ async def test_a_variant_list_that_fits_the_classification_limit_is_complete(
     assert result.total == 2
 
 
+@pytest.mark.asyncio
+async def test_a_minimum_confidence_lists_only_the_categorised_calls_at_least_that_confident(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A paternal allele the plasma lacks at depth has no category: not transmitted.
+    not_transmitted = _record(
+        "1-9400-A-G",
+        start=9400,
+        calls=[_call("father-1", "0/1", dp=50, ad=[25, 25]), _call("cfdna-1", "0/0", dp=120, ad=[120, 0])],
+    )
+    _wire_variants_mocks(
+        monkeypatch, cohort=_cohort_cat7_records(), filtered=[*_de_novo_and_cat3_records(), not_transmitted]
+    )
+
+    async def listed(min_confidence: float | None) -> dict:
+        result = await get_family_nipt_variants(
+            session=None,  # type: ignore[arg-type]
+            family_id="NIPT001",
+            user=None,  # type: ignore[arg-type]
+            query_filters={"gene": "BRCA1"},
+            min_confidence=min_confidence,
+        )
+        return {item.record.variant_id: item.classification for item in result.variants}
+
+    everything = await listed(None)
+    assert {variant_id: c.category for variant_id, c in everything.items()} == {
+        "1-9000-A-G": 1,
+        "1-9100-A-G": 3,
+        "1-9400-A-G": None,
+    }
+    assert everything["1-9400-A-G"].fetal_inheritance == "paternal_not_transmitted"
+    # The maternal allele at VAF 0.50 and FF 10% is the less certain call.
+    assert everything["1-9100-A-G"].confidence < 0.9 <= everything["1-9000-A-G"].confidence
+    assert set(await listed(0.0)) == {"1-9000-A-G", "1-9100-A-G"}
+    assert set(await listed(0.9)) == {"1-9000-A-G"}
+
+
+# --------------------------------------------------------------------------- #
+# A gene panel narrows the list, on the family's audit trail first (REQ-CARR-003)
+# --------------------------------------------------------------------------- #
+
+
+def _wire_panel(monkeypatch: pytest.MonkeyPatch, constraints: PanelFilterConstraints) -> list[tuple]:
+    """The panel's genes and regions; each step the variant list takes with it, in order: the
+    panel use recorded, its constraints read, and the variant load (not the cohort's)."""
+    steps: list[tuple] = []
+
+    async def record_use(_session, *, context, panel_id, user, search):
+        steps.append(("recorded", panel_id, search, context.family_uuid))
+
+    async def panel_constraints(_session, panel_id, *, assembly_id):
+        steps.append(("read", panel_id, assembly_id))
+        return constraints
+
+    inner_fetch = nipt_service._fetch_small_variant_rows
+
+    async def recording_fetch(context, filters, **kwargs):
+        if filters.gene is not None:
+            steps.append(("variant load", kwargs.get("panel_constraints")))
+        return await inner_fetch(context, filters, **kwargs)
+
+    monkeypatch.setattr(nipt_service, "record_family_panel_use", record_use)
+    monkeypatch.setattr(nipt_service, "_fetch_panel_constraints", panel_constraints)
+    monkeypatch.setattr(nipt_service, "_fetch_small_variant_rows", recording_fetch)
+    return steps
+
+
+@pytest.mark.asyncio
+async def test_a_panel_is_recorded_on_the_audit_trail_before_it_narrows_the_list(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _wire_variants_mocks(monkeypatch, cohort=_cohort_cat7_records(), filtered=_de_novo_and_cat3_records())
+    constraints = PanelFilterConstraints(genes=("GENEA",), regions=(Region("1", 9_000, 9_200),))
+    steps = _wire_panel(monkeypatch, constraints)
+
+    result = await get_family_nipt_variants(
+        session=None,  # type: ignore[arg-type]
+        family_id="NIPT001",
+        user=None,  # type: ignore[arg-type]
+        query_filters={"gene": "BRCA1", "panel_id": "panel-1"},
+    )
+
+    assert steps == [
+        ("recorded", "panel-1", "nipt_variants", "family-uuid"),
+        ("read", "panel-1", "assembly-uuid"),
+        ("variant load", constraints),
+    ]
+    assert result.total == 2
+
+
+@pytest.mark.asyncio
+async def test_a_panel_without_genes_or_regions_lists_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
+    _wire_variants_mocks(monkeypatch, cohort=_cohort_cat7_records(), filtered=_de_novo_and_cat3_records())
+    steps = _wire_panel(monkeypatch, PanelFilterConstraints())
+
+    result = await get_family_nipt_variants(
+        session=None,  # type: ignore[arg-type]
+        family_id="NIPT001",
+        user=None,  # type: ignore[arg-type]
+        query_filters={"gene": "BRCA1", "panel_id": "panel-empty"},
+    )
+
+    # Recorded all the same, and no variant load: an empty panel selects nothing.
+    assert steps == [("recorded", "panel-empty", "nipt_variants", "family-uuid"), ("read", "panel-empty", "assembly-uuid")]
+    assert (result.total, result.variants, result.not_classified) == (0, [], {})
+    assert result.fetal_fraction.n_sites == 40
+
+
 # --------------------------------------------------------------------------- #
 # The review-tag filter (UI-4): the small-variant list's review_tag and
 # exclude_review_tag, read from the family's reviews by the same code.
@@ -1152,35 +1167,10 @@ def _plasma_coverage_is_a_bed(monkeypatch: pytest.MonkeyPatch) -> None:
 async def test_get_family_nipt_coverage_over_family_roi(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    family = FamilyOut(
-        id="family-uuid",
-        family_id="NIPT001",
-        created_at=datetime.now(timezone.utc),
-        members=[
-            FamilyMemberOut(sample_id="father-1", role="father", affected=False),
-            FamilyMemberOut(
-                sample_id="cfdna-1",
-                role="mother",
-                affected=False,
-                sample_metadata={"assay": "nipt_cfdna"},
-            ),
-        ],
-        metadata={"analysis_type": "monogenic_nipt"},
-        roi=FamilyRegionOfInterestOut(
-            query="1:100-200", label="ROI", source="region", chr="1", start=100, end=200
-        ),
+    roi = FamilyRegionOfInterestOut(query="1:100-200", label="ROI", source="region", chr="1", start=100, end=200)
+    _wire_variants_mocks(
+        monkeypatch, cohort=[], filtered=[], family=_nipt_family(roi), sample_name_to_uuid={"cfdna-1": "cfdna-uuid"}
     )
-
-    async def fake_get_family_record(_session, _family_id, _user):
-        return family
-
-    async def fake_build_context(_session, *, family_identifier, user, project_id=None):
-        return SimpleNamespace(
-            family_uuid="family-uuid",
-            assembly_id="assembly-uuid",
-            assembly_name="GRCh38",
-            sample_name_to_uuid={"cfdna-1": "cfdna-uuid"},
-        )
 
     async def fake_fetch_coverage(
         _assembly_name, *, sample_uuid=None, track_type=None, chromosomes=None, source=None, **_kwargs
@@ -1192,8 +1182,6 @@ async def test_get_family_nipt_coverage_over_family_roi(
         assert source == "web"  # the coverage BED, the plasma's track of read depth
         return [{"chr": "1", "start": 100, "end": 200, "value": 30.0}]
 
-    monkeypatch.setattr(nipt_service, "get_family_record", fake_get_family_record)
-    monkeypatch.setattr(nipt_service, "build_family_metadata_context", fake_build_context)
     monkeypatch.setattr(nipt_service, "fetch_interval_track_rows", fake_fetch_coverage)
     _plasma_coverage_is_a_bed(monkeypatch)
 
@@ -1209,6 +1197,35 @@ async def test_get_family_nipt_coverage_over_family_roi(
     assert summary.overall_median_on_target == 30.0
     assert summary.per_region[0].label == "ROI"
     assert summary.per_region[0].median_coverage == 30.0
+
+
+@pytest.mark.asyncio
+async def test_the_coverage_over_a_panel_is_recorded_and_reads_its_regions(monkeypatch: pytest.MonkeyPatch) -> None:
+    _wire_variants_mocks(monkeypatch, cohort=[], filtered=[], sample_name_to_uuid={"cfdna-1": "cfdna-uuid"})
+    steps = _wire_panel(monkeypatch, PanelFilterConstraints(regions=(Region("chr7", 1_000, 1_100),)))
+
+    async def fake_fetch_coverage(_assembly_name, *, sample_uuid=None, track_type=None, chromosomes=None, **_kwargs):
+        if track_type == "target_coverage":
+            return []  # no per-target table: the coverage track over the panel's regions
+        assert chromosomes == ["7"]
+        # A bin without a value holds no coverage, and is not read as zero.
+        return [{"chr": "7", "start": 1_000, "end": 1_100, "value": 45.0}, {"chr": "7", "start": 1_000, "end": 1_100, "value": None}]
+
+    monkeypatch.setattr(nipt_service, "fetch_interval_track_rows", fake_fetch_coverage)
+    _plasma_coverage_is_a_bed(monkeypatch)
+
+    coverage = await get_family_nipt_coverage(
+        session=None,  # type: ignore[arg-type]
+        family_id="NIPT001",
+        user=None,  # type: ignore[arg-type]
+        panel_id="panel-1",
+    )
+
+    # On the family's clinical audit trail first, as the variant list's panel is.
+    assert steps == [("recorded", "panel-1", "nipt_coverage", "family-uuid"), ("read", "panel-1", "assembly-uuid")]
+    [region] = coverage.regions.per_region
+    # A panel's explicit region is labelled by its coordinates.
+    assert (region.label, region.chrom, region.median_coverage, region.covered_bases) == ("7:1000-1100", "7", 45.0, 100)
 
 
 class _FakeGeneMappings:
@@ -1236,32 +1253,7 @@ class _FakeGeneSession:
 async def test_get_family_nipt_coverage_labels_gene_regions(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    family = FamilyOut(
-        id="family-uuid",
-        family_id="NIPT001",
-        created_at=datetime.now(timezone.utc),
-        members=[
-            FamilyMemberOut(sample_id="father-1", role="father", affected=False),
-            FamilyMemberOut(
-                sample_id="cfdna-1",
-                role="mother",
-                affected=False,
-                sample_metadata={"assay": "nipt_cfdna"},
-            ),
-        ],
-        metadata={"analysis_type": "monogenic_nipt"},
-    )
-
-    async def fake_get_family_record(_session, _family_id, _user):
-        return family
-
-    async def fake_build_context(_session, *, family_identifier, user, project_id=None):
-        return SimpleNamespace(
-            family_uuid="family-uuid",
-            assembly_id="assembly-uuid",
-            assembly_name="GRCh38",
-            sample_name_to_uuid={"cfdna-1": "cfdna-uuid"},
-        )
+    _wire_variants_mocks(monkeypatch, cohort=[], filtered=[], sample_name_to_uuid={"cfdna-1": "cfdna-uuid"})
 
     async def fake_fetch_coverage(
         _assembly_name, *, sample_uuid=None, track_type=None, chromosomes=None, **_kwargs
@@ -1270,8 +1262,6 @@ async def test_get_family_nipt_coverage_labels_gene_regions(
             return []
         return [{"chr": "17", "start": 43044295, "end": 43125483, "value": 80.0}]
 
-    monkeypatch.setattr(nipt_service, "get_family_record", fake_get_family_record)
-    monkeypatch.setattr(nipt_service, "build_family_metadata_context", fake_build_context)
     monkeypatch.setattr(nipt_service, "fetch_interval_track_rows", fake_fetch_coverage)
     _plasma_coverage_is_a_bed(monkeypatch)
 

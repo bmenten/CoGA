@@ -51,6 +51,7 @@ import {
   describeSmallVariantDescription,
   describeSmallVariantEvidenceChange,
   describeSmallVariantLocus,
+  describeUnreviewedFinding,
   describeStructuralEvidenceChange,
   describeStructuralVariantDescription,
   homologLabel,
@@ -62,6 +63,7 @@ import {
   paraphaseStatusWords,
   parseSignedReport,
   parseSignedVersionParam,
+  parseUnreviewedFindings,
   reportViewSearch,
   type SignedCoverageTrack,
   type SignedPgtAnalysis,
@@ -279,6 +281,10 @@ describe('parseSignedReport', () => {
       'Mean coverage 18 × (Warning; warning 20 ×, fail 10 ×)',
       'Q30 93.0%',
     ]);
+    // One the record holds no value for is named, never written as a value.
+    expect(
+      describeSignedQcMetric({ label: 'Allele drop-out (ADO)', value: null, unit: '%', verdict: 'pass', warnValue: null, errorValue: null, direction: null }),
+    ).toBe('Allele drop-out (ADO)');
     expect(record.importIncomplete).toBeNull();
     expect(record.importUnfinished).toEqual([]);
   });
@@ -525,6 +531,10 @@ describe('parseSignedReport', () => {
     const neither = missenseZ({ gene_missense_z: null, gene_missense_z_source: null });
     expect(neither.geneConstraintSource).toBeNull();
     expect(describeFrozenEvidenceValues(neither)).toBe("Neither its gene's profile nor the VCF held a gnomAD missense Z.");
+    // A source CoGA has no words for is named as the record holds it.
+    expect(describeFrozenEvidenceValues(missenseZ({ gene_missense_z: 3.6, gene_missense_z_source: 'dbnsfp' }))).toBe(
+      'From dbnsfp: gnomAD missense Z 3.60.',
+    );
     // A value whose source the record does not name is not given one.
     expect(describeFrozenEvidenceValues(missenseZ({ gene_missense_z: 3.6, gene_missense_z_source: 7 }))).toBe(
       'gnomAD missense Z 3.60, from a source the record does not name.',
@@ -575,6 +585,46 @@ describe('parseSignedReport', () => {
     expect(sv.note).toBe('CNV note.');
   });
 
+  it('keeps a reported SV entry or CNV criterion it cannot read, and counts the criteria', () => {
+    const [unreadable, gain] = parseSignedReport({
+      ...SNAPSHOT,
+      reported_structural_variants: [
+        'an entry that is not an object',
+        {
+          variant_id: '3-100-900-DUP---',
+          variant_key: 'k-7',
+          cnv_class: 'cnv_class_3',
+          cnv_acmg: {
+            kind: 'gain',
+            criteria: ['not a criterion', { points: 1, accepted: true }, { code: '2A', points: 1, accepted: true }],
+          },
+          tags: ['report'],
+        },
+      ],
+    })!.reportedStructuralVariants!;
+
+    // Kept as a reported SV the record holds nothing readable of, never dropped.
+    expect(unreadable).toEqual({
+      variantId: null,
+      variantKey: null,
+      classification: null,
+      pointTotal: null,
+      criteria: [],
+      unreadableCriteria: 0,
+      tags: [],
+      note: null,
+    });
+    expect(gain.variantKey).toBe('k-7');
+    // No review label and no scoring classification: the CNV class's label.
+    expect(gain.classification).toBe('VUS - class 3');
+    expect(gain.pointTotal).toBeNull();
+    // A gain's criterion is named from the gain catalogue; the two it cannot read are counted.
+    expect(gain.criteria).toEqual([
+      { code: '2A', name: 'Complete overlap of an established triplosensitive (TS) gene/region', points: 1, evidence: null },
+    ]);
+    expect(gain.unreadableCriteria).toBe(2);
+  });
+
   it('reads a section an older record predates as absent, never as empty', () => {
     const older = {
       family_id: 'F1',
@@ -596,6 +646,8 @@ describe('parseSignedReport', () => {
     expect(record.reportedStructuralVariants).toBeNull();
     expect(record.driftAcknowledgement).toEqual({ acknowledged: null, reason: null });
     expect(record.modules).toEqual([]);
+    // A module list that is no list is not read as no modules.
+    expect(parseSignedReport({ ...older, modules: { gencode: '49' } })!.modules).toBeNull();
   });
 
   it('reads an incomplete import and QC cut-offs that could not be resolved', () => {
@@ -651,6 +703,28 @@ describe('parseSignedReport', () => {
     });
   });
 
+  it("reads a NIPT family's cfDNA checks among its Sample QC checks", () => {
+    const record = parseSignedReport({
+      ...SNAPSHOT,
+      sample_qc: {
+        ...SNAPSHOT.sample_qc,
+        application: 'nipt',
+        relatedness_checks: [],
+        mendelian_checks: [],
+        paternity_check: { father: 'FATHER1', status: 'pass', message: 'Paternity confirmed.' },
+        fetal_sex_check: { status: 'warn', message: 'Fetal sex indeterminate.' },
+        category_qc_check: { status: 'fail', message: 'Too few category-7 sites.' },
+      },
+    })!;
+
+    expect(record.sampleQc?.checks).toEqual([
+      { label: 'Sex of P1', status: 'pass', message: 'Sex matches.' },
+      { label: 'Paternity (cfDNA) of FATHER1', status: 'pass', message: 'Paternity confirmed.' },
+      { label: 'Fetal sex (cfDNA)', status: 'warn', message: 'Fetal sex indeterminate.' },
+      { label: 'cfDNA category distribution', status: 'fail', message: 'Too few category-7 sites.' },
+    ]);
+  });
+
   it('has no record to read without a snapshot object', () => {
     expect(parseSignedReport(null)).toBeNull();
     expect(parseSignedReport('{"family_id":"F1"}')).toBeNull();
@@ -664,6 +738,34 @@ describe('the signed report’s wording', () => {
       'Reference assembly GRCh38 (2013-12-01) · GENCODE 49 (snv), 45 (sv)',
     );
     expect(describeModuleVersions([{ key: 'spliceai', version: null }])).toBeNull();
+  });
+
+  // REQ-TRACE-016: the gate of calls without a review lists each abnormal call, and a section
+  // whose calls could not be read (the backend lists it with no key), as its calls cannot be
+  // checked.
+  it('names each finding without a review, and a section whose calls could not be read', () => {
+    const [repeat, paraphase, unreadable] = parseUnreviewedFindings([
+      {
+        kind: 'repeat',
+        key: 'HD_HTT',
+        gene: 'HTT',
+        samples: [
+          { sample: 'PROBAND', status: 'pathogenic' },
+          { sample: 'MOTHER', status: 'intermediate', near_boundary: true },
+        ],
+      },
+      { kind: 'paraphase', key: 'smn1', gene: null, samples: [{ sample: 'PROBAND', status: 'no_call' }] },
+      { kind: 'paraphase', key: null, status: 'unreadable', samples: [] },
+    ]);
+    expect(describeUnreviewedFinding(repeat)).toBe(
+      'HTT (repeat locus): PROBAND pathogenic, MOTHER intermediate (near a boundary)',
+    );
+    // Without a gene, by its key.
+    expect(describeUnreviewedFinding(paraphase)).toBe('smn1 (Paraphase region): PROBAND no call');
+    expect(unreadable.key).toBeNull();
+    expect(describeUnreviewedFinding(unreadable)).toBe('The Paraphase region calls could not be read');
+    // A list that is no list holds no findings.
+    expect(parseUnreviewedFindings('not a list')).toEqual([]);
   });
 
   it('says why a classification counted as drift when the version was signed', () => {
@@ -680,6 +782,7 @@ describe('the signed report’s wording', () => {
       'no frozen evidence (not saved through ACMG classify)',
     );
     expect(describeSignedDrift({ ...item, status: 'variant_missing' })).toBe('no longer present in the data');
+    expect(describeSignedDrift({ ...item, status: 'unknown' })).toBe('its evidence could not be compared');
     expect(describeSignedDrift({ ...item, status: 'drifted', clinvarFrom: 'VUS', clinvarTo: 'Pathogenic' })).toBe(
       'ClinVar VUS → Pathogenic',
     );
@@ -972,6 +1075,40 @@ describe('what the analysis looked at', () => {
       });
       expect(gba.statusRule).toBeNull();
     }
+  });
+
+  it('names a panel from another source by its release, and only the gene-reference sources that gave one', () => {
+    const record = parseSignedReport({
+      ...SNAPSHOT,
+      ...SIGNED_ANALYSIS,
+      gene_panels: {
+        applied: [
+          { panel_id: 'p2', name: 'Cardio', version: 1, source: 'genomics_england_tsv', gene_count: 1, external_version: '2026.1' },
+          { panel_id: 'p3', name: 'In-house', version: 4, source: 'custom', gene_count: 12 },
+        ],
+      },
+      reference_data: {
+        ...SIGNED_ANALYSIS.reference_data,
+        gene_reference: {
+          ...SIGNED_ANALYSIS.reference_data.gene_reference,
+          sources: [
+            { source: 'hgnc_complete_set', status: 'success', release: '2026-09-01', genes: ['GENE_PATH'] },
+            // A source that answered no release is not named with one it does not have.
+            { source: 'gencc', status: 'failed', release: null, genes: [] },
+          ],
+        },
+      },
+    })!;
+
+    if (record.genePanels.state !== 'recorded') throw new Error('not recorded');
+    expect(record.genePanels.value.map(describeGenePanel)).toEqual([
+      'Cardio, version 1, 1 gene; genomics_england_tsv release 2026.1',
+      'In-house, version 4, 12 genes',
+    ]);
+    if (record.referenceData.state !== 'recorded') throw new Error('not recorded');
+    const { geneReference } = record.referenceData.value;
+    if (geneReference.state !== 'recorded') throw new Error('not recorded');
+    expect(describeGeneReferenceReleases(geneReference.value)).toBe('HGNC 2026-09-01');
   });
 
   it('reads a record signed before these sections as not holding them', () => {

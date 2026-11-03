@@ -4,14 +4,15 @@ record, and the paternal, maternal, de novo and recessive views. Synthetic data 
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from types import SimpleNamespace
-
 import pytest
+from fastapi import HTTPException
 
-from backend.app.schemas import FamilyMemberOut, FamilyOut
 from backend.app.services import nipt_service
-from backend.app.services.clickhouse_variant_records import SmallVariantCall, SmallVariantRecord
+from backend.app.services.clickhouse_variant_records import (
+    PanelFilterConstraints,
+    SmallVariantCall,
+    SmallVariantRecord,
+)
 from backend.app.services.nipt_service import (
     artifact_protection,
     build_nipt_observations,
@@ -25,6 +26,7 @@ from backend.app.services.nipt_service import (
     triage_annotation,
 )
 from backend.app.services.nipt_target_coverage import TargetCoverageRow, TargetDepthLookup
+from backend.tests._nipt_service_fakes import nipt_family, wire_nipt_reads
 
 FATHER = "FATHER1"
 PLASMA = "CFDNA1"
@@ -226,19 +228,6 @@ def test_triage_annotation_reads_the_parsers_population_frequencies() -> None:
 # --------------------------------------------------------------------------- #
 
 
-def _family() -> FamilyOut:
-    return FamilyOut(
-        id="family-uuid",
-        family_id="NIPTFAM1",
-        created_at=datetime.now(timezone.utc),
-        members=[
-            FamilyMemberOut(sample_id=FATHER, role="father", affected=False),
-            FamilyMemberOut(sample_id=PLASMA, role="mother", affected=False, sample_metadata={"assay": "nipt_cfdna"}),
-        ],
-        metadata={"analysis_type": "monogenic_nipt"},
-    )
-
-
 def _ff_sites() -> list[SmallVariantRecord]:
     """60 paternal het alleles the fetus inherited (FF 0.20) and 60 it did not."""
     inherited = [
@@ -285,19 +274,17 @@ def _wire(
     artifacts: set[str] | None = None,
     other_carriers: dict[str, int] | None = None,
 ) -> None:
-    cohort = _ff_sites() + filtered
-
-    async def fake_family_record(_session, _family_id, _user):
-        return _family()
-
-    async def fake_context(_session, *, family_identifier, user, project_id=None):
-        return SimpleNamespace(
-            assembly_id="assembly-uuid", assembly_name="GRCh38", family_uuid="family-uuid",
-            sample_name_to_uuid={FATHER: "father-uuid", PLASMA: "cfdna-uuid"},
-        )
-
-    async def fake_fetch(_context, filters, *, limit=None, **_kwargs):
-        return cohort if filters.gene is None else (filtered if limit is None else filtered[:limit])
+    # Another family's plasma of the assay: what a de novo candidate's recurrence is counted in.
+    wire_nipt_reads(
+        monkeypatch,
+        family=nipt_family(family_id="NIPTFAM1", father=FATHER, plasma=PLASMA),
+        cohort=_ff_sites() + filtered,
+        filtered=filtered,
+        artifacts=artifacts,
+        sample_name_to_uuid={FATHER: "father-uuid", PLASMA: "cfdna-uuid"},
+        carrier_samples={"other-cfdna": "OTHER1"},
+        other_carriers=other_carriers or {},
+    )
 
     async def fake_tracks(
         _assembly, *, sample_uuid=None, track_type=None, include_metadata=False, record_ids=None, **_kwargs
@@ -319,27 +306,7 @@ def _wire(
             for row in rows
         ]
 
-    async def listed_artifacts(_session, *, assembly_id, assay_key):
-        return set(artifacts or ())
-
-    async def no_hydration(_session, *, context, variants):
-        return None
-
-    async def carriers(_session, *, assay_key):
-        return {"other-cfdna": "OTHER1"}
-
-    async def recurrence(_assembly, variant_ids, *, carrier_samples, exclude_family_uuid):
-        assert exclude_family_uuid == "family-uuid"
-        return {variant_id: count for variant_id, count in (other_carriers or {}).items() if variant_id in variant_ids}
-
-    monkeypatch.setattr(nipt_service, "get_family_record", fake_family_record)
-    monkeypatch.setattr(nipt_service, "build_family_metadata_context", fake_context)
-    monkeypatch.setattr(nipt_service, "_fetch_small_variant_rows", fake_fetch)
     monkeypatch.setattr(nipt_service, "fetch_interval_track_rows", fake_tracks)
-    monkeypatch.setattr(nipt_service, "load_nipt_artifact_ids", listed_artifacts)
-    monkeypatch.setattr(nipt_service, "_hydrate_small_variant_outs", no_hydration)
-    monkeypatch.setattr(nipt_service, "assay_cfdna_carrier_samples", carriers)
-    monkeypatch.setattr(nipt_service, "count_cfdna_carriers", recurrence)
 
 
 async def _variants(**kwargs):
@@ -412,8 +379,9 @@ async def test_the_de_novo_view_triages_the_candidates(monkeypatch: pytest.Monke
     assert "father_no_call" in candidate.classification.flags
     high_only = await _variants(inheritance="de_novo", de_novo_priority="high")
     assert len(high_only.variants) == 1
-    with pytest.raises(Exception):
+    with pytest.raises(HTTPException) as refused:
         await _variants(inheritance="de_novo", de_novo_priority="urgent")
+    assert (refused.value.status_code, refused.value.detail) == (400, "Unsupported de novo priority: urgent")
 
 
 @pytest.mark.asyncio
@@ -600,3 +568,29 @@ async def test_the_coverage_reads_the_target_table(monkeypatch: pytest.MonkeyPat
     [gene] = coverage.targets.genes
     assert (gene.gene, gene.weak_targets) == ("GENEA", 1)  # mean 250x, below 300x
     assert coverage.regions.target_region_count == 0
+
+
+@pytest.mark.asyncio
+async def test_the_coverage_of_a_panel_reads_the_targets_of_its_genes(monkeypatch: pytest.MonkeyPatch) -> None:
+    _wire(monkeypatch, filtered=[])
+    recorded: list[tuple[str, str]] = []
+
+    async def record_use(_session, *, context, panel_id, user, search):
+        recorded.append((panel_id, search))
+
+    async def panel_constraints(_session, panel_id, *, assembly_id):
+        return PanelFilterConstraints(genes=("GENEB",))
+
+    monkeypatch.setattr(nipt_service, "record_family_panel_use", record_use)
+    monkeypatch.setattr(nipt_service, "_fetch_panel_constraints", panel_constraints)
+    coverage = await get_family_nipt_coverage(
+        session=None,  # type: ignore[arg-type]
+        family_id="NIPTFAM1",
+        user=None,  # type: ignore[arg-type]
+        panel_id="panel-1",
+    )
+
+    # On the family's clinical audit trail (REQ-CARR-003), and the panel's genes' targets only.
+    assert recorded == [("panel-1", "nipt_coverage")]
+    assert coverage.targets is not None and coverage.targets.targets == 1
+    assert [(gene.gene, gene.targets, gene.weak_targets) for gene in coverage.targets.genes] == [("GENEB", 1, 0)]

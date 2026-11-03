@@ -237,6 +237,8 @@ export type SmallFilterState = {
   sift: string;
   polyphen: string;
   panel_id: string;
+  // 'true': every call that carries the variant passed its caller's FILTER (Call quality).
+  pass_only: string;
   classification: string;
   review_tags: string;
   has_notes: string;
@@ -489,7 +491,8 @@ export const NIPT_BUILT_IN_PRESETS: Array<{
  * Filters of the shared form that the NIPT variant list does not apply: of the review
  * filters it takes the review tags and the excluded tags, as the small-variant list does,
  * but not the classification or the saved notes; nor the family-aware ones (phenotype
- * prioritization, expanded carrier screening, the SV second hit) or a link's raw locus. The
+ * prioritization, expanded carrier screening, the SV second hit, the callers' FILTER) or a
+ * link's raw locus. The
  * form offers them no control. A saved search made on the small-variant list, or a link, can
  * still carry them: the NIPT page shows no chip for them (`niptAppliesFilterChip`).
  */
@@ -502,6 +505,7 @@ export const NIPT_UNSUPPORTED_FILTERS: ReadonlySet<keyof SmallFilterState> = new
   'expanded_carrier_screening',
   'require_sv_second_hit',
   'locus',
+  'pass_only',
 ]);
 
 /**
@@ -591,6 +595,7 @@ const UNAPPLIED_FILTER_NAMES: Partial<Record<keyof SmallFilterState, string>> = 
   expanded_carrier_screening: 'carrier-screening',
   require_sv_second_hit: 'SV second-hit',
   locus: 'location',
+  pass_only: 'pass-only',
   category: 'maternal/fetal category',
   min_confidence: 'minimum-confidence',
   include_not_inherited: 'not-inherited-alleles',
@@ -664,6 +669,7 @@ const SMALL_FILTER_LABELS: Record<keyof SmallFilterState, string> = {
   sift: 'SIFT',
   polyphen: 'PolyPhen',
   panel_id: 'Gene panel',
+  pass_only: 'Pass variants only',
   classification: 'Classification',
   review_tags: 'Review tags',
   has_notes: 'Has notes',
@@ -816,6 +822,7 @@ export const createEmptySmallFilters = (): SmallFilterState => ({
   sift: '',
   polyphen: '',
   panel_id: '',
+  pass_only: '',
   classification: '',
   review_tags: '',
   has_notes: '',
@@ -1265,6 +1272,7 @@ export const buildSmallVariantQueryParams = (
   if (currentFilters.sift) params.set('sift', currentFilters.sift);
   if (currentFilters.polyphen) params.set('polyphen', currentFilters.polyphen);
   if (currentFilters.panel_id) params.set('panel_id', currentFilters.panel_id);
+  if (currentFilters.pass_only === 'true') params.set('pass_only', 'true');
   if (currentFilters.has_notes === 'true') params.set('has_notes', 'true');
 
   parseCommaSeparatedValues(currentFilters.classification).forEach((value) => {

@@ -30,6 +30,8 @@ from pathlib import Path
 
 import pytest
 
+from backend.tests.e2e._harness import capture
+
 pytestmark = pytest.mark.integration
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "golden_trio"
@@ -69,13 +71,6 @@ _DUP_50000 = "1-50000-50500-DUP---"
 # (CLIN-43): the breakend's holds its mate, and its END is its POS (CLIN-39).
 _NEEDLR_DEL = "1-7000-12000-DEL---"
 _NEEDLR_BND = "1-20000-20000-BND-5-3000000-3000000"
-
-
-def _cap(resp) -> dict:
-    out = {"status": resp.status_code, "text": resp.text}
-    if resp.status_code < 400:
-        out["json"] = resp.json()
-    return out
 
 
 async def _entry_rows(family_uuid: str) -> list[dict]:
@@ -128,7 +123,7 @@ async def _exercise(root: Path) -> dict:
         ac.headers["Authorization"] = f"Bearer {token}"
 
         async def upload(sample: str, body: bytes, *, overwrite: bool = False) -> dict:
-            return _cap(
+            return capture(
                 await ac.post(
                     f"/api/structural-variants/upload/{sample}",
                     params={"overwrite": str(overwrite).lower(), "source_format": "sniffles"},
@@ -143,11 +138,11 @@ async def _exercise(root: Path) -> dict:
         out["mother"] = await upload("MOTHER", _MOTHER)
         await _merge_parts()
         out["rows_after_merge"] = await _entry_rows(family_uuid)
-        out["family_page"] = _cap(
+        out["family_page"] = capture(
             await ac.get(f"/api/families/{FAMILY}/structural-variants", params={"page_size": 100})
         )
 
-        out["admin_delete"] = _cap(
+        out["admin_delete"] = capture(
             await ac.delete(
                 "/api/admin/data/samples/MOTHER/structural_variants", params={"confirm": "true"}
             )

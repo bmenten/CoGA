@@ -91,6 +91,38 @@ def test_the_loose_window_reaches_medium_at_most() -> None:
     assert triage.window == "loose" and triage.label == "medium"
 
 
+def test_an_in_window_candidate_below_the_medium_score_is_low_priority() -> None:
+    poor = _site(0.16, filters=["weak_evidence"], fs=15.0, metrics={"TLOD": 200.0, "MMQ": 40.0})
+    triage = triage_de_novo(poor, _WINDOW, DeNovoAnnotation(impact="MODIFIER", max_population_af=0.2, is_novel=False))
+    assert triage is not None
+    # 6 loose - 3 common + (-1 FILTER -1 MMQ -1 FS +1 NM +1 repeat +1 unique) + 1 SNV = 4.
+    assert (triage.window, triage.score, triage.label) == ("loose", 4, "low")
+    assert {"common in the population", "caller FILTER not PASS", "low alt mapping quality", "strand bias"} <= set(
+        triage.reasons
+    )
+
+
+def test_a_spliceai_score_of_at_least_0_2_adds_two() -> None:
+    plain = triage_de_novo(_site(0.11), _WINDOW, DeNovoAnnotation(impact="MODERATE", spliceai_max=0.19))
+    splicing = triage_de_novo(_site(0.11), _WINDOW, DeNovoAnnotation(impact="MODERATE", spliceai_max=0.2))
+    assert plain is not None and splicing is not None
+    assert (plain.score, splicing.score) == (19, 21)
+    assert "SpliceAI >= 0.2" in splicing.reasons and "SpliceAI >= 0.2" not in plain.reasons
+
+
+def test_a_vardict_msi_is_read_as_the_repeat_units() -> None:
+    # VarDict writes the microsatellite units as MSI where Mutect2 writes STR and RPA.
+    unique = triage_de_novo(_site(0.11, metrics={"TLOD": 200.0, "MSI": 1.0}), _WINDOW, DeNovoAnnotation(impact="HIGH"))
+    repeat = triage_de_novo(_site(0.11, metrics={"TLOD": 200.0, "MSI": 4.0}), _WINDOW, DeNovoAnnotation(impact="HIGH"))
+    assert unique is not None and repeat is not None
+    assert repeat.score == unique.score - 2 and "repeat context" in repeat.reasons
+    # An indel in it is a repeat indel, which cannot be high priority.
+    indel = triage_de_novo(
+        _site(0.11, ref="CA", alt="C", metrics={"TLOD": 200.0, "MSI": 4.0}), _WINDOW, DeNovoAnnotation(impact="HIGH")
+    )
+    assert indel is not None and "indel in a repeat" in indel.reasons and indel.label != "high"
+
+
 def test_outside_the_window_is_not_prioritised() -> None:
     below = triage_de_novo(_site(0.02), _WINDOW, DeNovoAnnotation(impact="HIGH"))
     above = triage_de_novo(_site(0.25), _WINDOW, DeNovoAnnotation(impact="HIGH"))
@@ -239,6 +271,15 @@ def test_a_site_both_parents_carry_is_read_off_the_fetal_hom_alt_probability() -
     assert risk.maternal_variant_id == risk.paternal_variant_id == "shared"
     # The paternal allele's inheritance: the hom-alt state, and half the het one.
     assert risk.paternal[0].inherited_probability == pytest.approx(0.985 + 0.5 * 0.015)
+    # Without the fetal genotype posterior, the hom-alt probability alone.
+    no_posterior = _candidate(
+        "shared",
+        "het",
+        _classification(4, maternal_state="het", maternal_allele_probability=0.99, fetal_hom_alt_probability=0.9),
+    )
+    [risk] = recessive_gene_risks([no_posterior])
+    assert risk.paternal[0].inherited_probability == pytest.approx(0.9)
+    assert risk.risk == pytest.approx(0.9)
 
 
 def test_an_untold_inheritance_uses_the_half_prior_and_says_so() -> None:
@@ -290,6 +331,28 @@ def test_an_allele_without_a_population_frequency_says_so() -> None:
     [risk] = recessive_gene_risks([maternal, paternal])
     assert risk.maternal[0].note == "no population frequency"
     assert risk.paternal[0].note == "MNV without a population frequency (gnomAD lists its SNVs)"
+
+
+@pytest.mark.parametrize(
+    ("flags", "note"),
+    [
+        (["maternal_inference_indel"], "indel: the maternal model is less accurate"),
+        (["allele_balance_outlier"], "allele balance fits no fetal genotype"),
+        # Both: the allele balance, which says the model fits no state at all.
+        (["maternal_inference_indel", "allele_balance_outlier"], "allele balance fits no fetal genotype"),
+    ],
+)
+def test_a_maternal_allele_the_model_reads_less_surely_says_so(flags: list[str], note: str) -> None:
+    maternal = _candidate(
+        "mat", "absent", _classification(3, maternal_state="het", maternal_allele_probability=0.9, flags=flags)
+    )
+    paternal = _candidate("pat", "het", _classification(7, paternal_transmission_probability=1.0))
+    [risk] = recessive_gene_risks([maternal, paternal])
+    assert risk.maternal[0].note == note
+    # Beside a frequency note, both are given.
+    maternal.has_population_af = False
+    [risk] = recessive_gene_risks([maternal, paternal])
+    assert risk.maternal[0].note == f"{note}; no population frequency"
 
 
 def test_genes_are_ordered_by_risk_and_need_both_parents() -> None:
