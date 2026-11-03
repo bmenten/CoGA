@@ -9,6 +9,7 @@ refusal carried, as the analyst does in the dialogs (``reportSignOut.tsx``).
 
 ``sign_out_report_through_the_dialogs`` calls the service, as the unit and integration tests
 do; ``backend/tests/e2e/_harness.py::sign_out`` posts to the API with the same steps.
+``FirstSignoutSession`` is the fake session the unit tests sign a family out through.
 """
 
 from __future__ import annotations
@@ -102,3 +103,29 @@ async def no_finding_reviews(session: Any, context: Any, sections: Any) -> dict[
         "finding_review_drift": {"checked": 0, "drifted_count": 0, "drifted": []},
         "unreviewed_findings": [],
     }
+
+
+class NoEarlierSignout:
+    """What a fake session answers every statement with for a family's first sign-out: no
+    earlier sign-out (the next version is 1) and no chain head (its row links to genesis)."""
+
+    def scalar_one(self) -> int:
+        return 0
+
+    def scalar_one_or_none(self) -> None:
+        return None
+
+
+class FirstSignoutSession:
+    """A session for a family's first sign-out: it records every statement it is given, with
+    its parameters, answers each with :class:`NoEarlierSignout`, and commits nothing."""
+
+    def __init__(self) -> None:
+        self.executed: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
+
+    async def execute(self, *args: Any, **kwargs: Any) -> NoEarlierSignout:
+        self.executed.append((args, kwargs))
+        return NoEarlierSignout()
+
+    async def commit(self) -> None:
+        return None

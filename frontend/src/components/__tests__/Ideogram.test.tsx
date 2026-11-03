@@ -1,7 +1,7 @@
 // The chromosome ideogram (#526: it had no tests): cytobands drawn to scale, the
 // centromere, the highlighted region, the axis, drag-to-select and the band tooltip.
 
-import { createEvent, fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, expect, test, vi } from 'vitest';
 
 const { useQueryMock, refetchMock } = vi.hoisted(() => ({
@@ -12,6 +12,7 @@ const { useQueryMock, refetchMock } = vi.hoisted(() => ({
 vi.mock('@tanstack/react-query', () => ({ useQuery: useQueryMock }));
 vi.mock('../../lib/api', () => ({ default: { get: vi.fn() } }));
 
+import { fireMouseAt } from '../../test/pointer';
 import Ideogram from '../visualizations/Ideogram';
 
 // A 1,000 bp chromosome drawn 1,000 px wide: 1 px per bp.
@@ -42,13 +43,6 @@ const renderIdeogram = (props: Partial<React.ComponentProps<typeof Ideogram>> = 
       {...props}
     />,
   );
-
-// Fire a mouse event with an offsetX, which jsdom does not compute.
-const mouse = (type: 'mouseDown' | 'mouseMove' | 'mouseUp', target: Element, offsetX: number) => {
-  const event = createEvent[type](target);
-  Object.defineProperty(event, 'offsetX', { value: offsetX });
-  fireEvent(target, event);
-};
 
 beforeEach(() => {
   useQueryMock.mockReset();
@@ -136,18 +130,18 @@ test('turns a drag into a region, in either direction, and ignores a click', () 
   const { container } = renderIdeogram({ onRegionSelect });
   const svg = container.querySelector('svg') as SVGSVGElement;
 
-  mouse('mouseDown', svg, 600.4);
-  mouse('mouseMove', svg, 300);
+  fireMouseAt('mouseDown', svg, 600.4);
+  fireMouseAt('mouseMove', svg, 300);
   // The drag is shown while it lasts.
   expect(container.querySelector('rect[stroke-dasharray="4"]')?.getAttribute('x')).toBe('300');
-  mouse('mouseUp', svg, 250.6);
+  fireMouseAt('mouseUp', svg, 250.6);
   // Start rounds down and end up, so the selection covers what was dragged over.
   expect(onRegionSelect).toHaveBeenCalledWith(250, 601);
   expect(container.querySelector('rect[stroke-dasharray="4"]')).toBeNull();
 
   // Less than 5 px is a click, not a selection.
-  mouse('mouseDown', svg, 100);
-  mouse('mouseUp', svg, 103);
+  fireMouseAt('mouseDown', svg, 100);
+  fireMouseAt('mouseUp', svg, 103);
   expect(onRegionSelect).toHaveBeenCalledTimes(1);
 });
 
@@ -155,8 +149,8 @@ test('does not start a selection without a handler', () => {
   answer(CHROMOSOME);
   const { container } = renderIdeogram();
   const svg = container.querySelector('svg') as SVGSVGElement;
-  mouse('mouseDown', svg, 100);
-  mouse('mouseMove', svg, 300);
+  fireMouseAt('mouseDown', svg, 100);
+  fireMouseAt('mouseMove', svg, 300);
   expect(container.querySelector('rect[stroke-dasharray="4"]')).toBeNull();
 });
 

@@ -32,6 +32,8 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import text
 
+from backend.tests.integration._datastores import fresh_family
+
 pytestmark = pytest.mark.integration
 
 
@@ -47,15 +49,6 @@ def _reader():
         role="admin",
         created_at=datetime.now(timezone.utc),
     )
-
-
-async def _fresh_family(session, label: str) -> str:
-    return (
-        await session.execute(
-            text("INSERT INTO families (family_id) VALUES (:f) RETURNING id::text"),
-            {"f": label},
-        )
-    ).scalar_one()
 
 
 async def _append(session, family_uuid: str, label: str, numbers) -> None:
@@ -114,7 +107,7 @@ def test_a_trail_longer_than_a_page_is_read_whole_page_by_page() -> None:
             sm = get_postgres_sessionmaker()
             label = f"audit-pages-{uuid4()}"
             async with sm() as s:
-                family_uuid = await _fresh_family(s, label)
+                family_uuid = await fresh_family(s, label)
                 await s.commit()
                 await _append(s, family_uuid, label, range(1, CLINICAL_AUDIT_PAGE_SIZE + 6))
             async with sm() as s:
@@ -184,7 +177,7 @@ def test_an_event_written_between_two_page_reads_shifts_no_page() -> None:
             sm = get_postgres_sessionmaker()
             label = f"audit-shift-{uuid4()}"
             async with sm() as s:
-                family_uuid = await _fresh_family(s, label)
+                family_uuid = await fresh_family(s, label)
                 await s.commit()
                 await _append(s, family_uuid, label, range(1, 6))
             async with sm() as s:
@@ -242,9 +235,9 @@ def test_a_page_after_an_event_outside_the_familys_trail_is_answered_404() -> No
             label_b = f"audit-other-{uuid4()}"
             label_empty = f"audit-empty-{uuid4()}"
             async with sm() as s:
-                family_a = await _fresh_family(s, label_a)
-                family_b = await _fresh_family(s, label_b)
-                await _fresh_family(s, label_empty)
+                family_a = await fresh_family(s, label_a)
+                family_b = await fresh_family(s, label_b)
+                await fresh_family(s, label_empty)
                 await s.commit()
                 await _append(s, family_a, label_a, range(1, 4))
                 await _append(s, family_b, label_b, range(1, 3))

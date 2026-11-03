@@ -18,21 +18,24 @@ conftest.py); the CI ``smoke`` job sets it. All samples and values are synthetic
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
 from uuid import uuid4
 
 import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
+from backend.tests.integration._datastores import (
+    TRGT_VCF_HEADER,
+    admin_account,
+    repeat_family_context,
+    trgt_family,
+)
+
 pytestmark = pytest.mark.integration
 
 _LOCUS = "FXS_FMR1"
 
-_VCF = (
-    "##fileformat=VCFv4.2\n"
-    "##trgtVersion=5.0.0\n"
-    "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t{column}\n"
+_VCF = TRGT_VCF_HEADER + (
     "chrX\t147912049\t.\tCGG\t<TR>\t.\t.\tTRID=FXS_FMR1;END=147912111;MOTIFS=CGG;STRUC=<TR>"
     "\tGT:AL:MC\t1/2:90,159:30,53\n"
 )
@@ -41,9 +44,7 @@ _VCF = (
 def test_the_record_marks_and_unmarks_a_count_near_a_boundary_survives_a_start_and_is_audited(monkeypatch) -> None:
     from backend.app.core.postgres import close_postgres_engine, get_postgres_sessionmaker, init_postgres_schema
     from backend.app.services import repeat_expansion_pg
-    from backend.app.services.access_control import CurrentUser
     from backend.app.services.clinical_audit_service import verify_clinical_audit_chain
-    from backend.app.services.family_metadata_context import FamilyMetadataContext, SampleMetadataContext
     from backend.app.services.repeat_count_units import (
         REPEAT_COUNT_UNITS_AUDIT_CHAIN,
         list_repeat_locus_count_units,
@@ -106,65 +107,15 @@ def test_the_record_marks_and_unmarks_a_count_near_a_boundary_survives_a_start_a
                 prior = dict(prior) if prior is not None else None
                 await session.execute(text("DELETE FROM repeat_locus_count_units WHERE locus_id = :l"), {"l": _LOCUS})
                 username = f"{label}-qa"
-                user_id = (
-                    await session.execute(
-                        text(
-                            "INSERT INTO users (username, hashed_password, role, email) "
-                            "VALUES (:u, 'x', 'admin', :e) RETURNING id::text"
-                        ),
-                        {"u": username, "e": f"{username}@example.org"},
-                    )
-                ).scalar_one()
-                user = CurrentUser(
-                    id=user_id,
-                    username=username,
-                    email=f"{username}@example.org",
-                    role="admin",
-                    created_at=datetime.now(timezone.utc),
-                )
-                family_uuid = (
-                    await session.execute(
-                        text("INSERT INTO families (family_id) VALUES (:f) RETURNING id::text"), {"f": label}
-                    )
-                ).scalar_one()
-                sample_uuid = (
-                    await session.execute(
-                        text(
-                            "INSERT INTO samples (sample_id, family_id, sex) "
-                            "VALUES (:s, CAST(:f AS uuid), 'female') RETURNING id::text"
-                        ),
-                        {"s": sample_id, "f": family_uuid},
-                    )
-                ).scalar_one()
-                await session.commit()
+                user = await admin_account(session, username)
+                family_uuid, contexts = await trgt_family(session, label, {"WOMAN": "female"})
                 await ingest_trgt_text(
                     session,
-                    sample_context=SampleMetadataContext(
-                        sample_uuid=str(sample_uuid),
-                        sample_id=sample_id,
-                        family_uuid=str(family_uuid),
-                        family_id=label,
-                        sex="female",
-                        project_ids=[],
-                        assembly_id=None,
-                        assembly_name="GRCh38",
-                    ),
+                    sample_context=contexts["WOMAN"],
                     text_value=_VCF.format(column=sample_id),
                     metadata={"source": "trgt", "filename": "woman.vcf"},
                 )
-                context = FamilyMetadataContext(
-                    family_uuid=str(family_uuid),
-                    family_id=label,
-                    project_ids=[],
-                    sample_rows=[
-                        {"sample_uuid": str(sample_uuid), "sample_id": sample_id, "role": "mother", "affected": False, "sex": "female"}
-                    ],
-                    sample_uuid_to_name={str(sample_uuid): sample_id},
-                    sample_name_to_uuid={sample_id: str(sample_uuid)},
-                    affected_sample_names=[],
-                    assembly_id=None,
-                    assembly_name="GRCh38",
-                )
+                context = repeat_family_context(family_uuid, label, [(contexts["WOMAN"], "mother", False)])
 
                 out["before"] = await _read(session, context)
                 out["set"] = await set_repeat_locus_count_units(

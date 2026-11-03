@@ -26,6 +26,8 @@ from uuid import uuid4
 
 import pytest
 
+from backend.tests.e2e._harness import ensure_postgres_schema
+
 pytestmark = pytest.mark.integration
 
 _NOT_FOUND = {
@@ -109,7 +111,7 @@ async def _exercise(run: str) -> dict:
     from httpx import ASGITransport, AsyncClient
     from sqlalchemy import text
 
-    from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
+    from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.dependencies import get_password_hash
     from backend.app.main import app
     from backend.tests.e2e import _harness
@@ -121,7 +123,7 @@ async def _exercise(run: str) -> dict:
     # Made at run time: the repository holds no password-shaped literal.
     password = uuid4().hex
 
-    await init_postgres_schema()
+    await ensure_postgres_schema()
     sessionmaker = get_postgres_sessionmaker()
     async with sessionmaker() as session:
         _admin, shared_project_id, _assembly_id = await _harness.ensure_e2e_project(session)

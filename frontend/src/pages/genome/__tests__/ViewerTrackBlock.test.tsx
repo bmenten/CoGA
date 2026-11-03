@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { createEvent, fireEvent, render, screen } from '@testing-library/react';
+import type { ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import ViewerTrackBlock from '../ViewerTrackBlock';
 import ViewerInteractionSurface from '../ViewerInteractionSurface';
@@ -26,26 +27,30 @@ const dispatchMouseEvent = (
   fireEvent(element, event);
 };
 
+/** A 200 px track over 200 bp (100–300 of a 1 kb chromosome, unless given): 1 px is 1 bp. */
+const viewport = (
+  onChange: (start: number, end: number) => void,
+  mode?: 'pan' | 'zoom',
+  region: { regionStart: number; regionEnd: number } = { regionStart: 100, regionEnd: 300 },
+) => ({ chromSize: 1000, ...region, mode, onChange });
+
+const block = (label: string, viewportInteraction: ReturnType<typeof viewport>, children?: ReactNode) => (
+  <ViewerTrackBlock label={label} width={200} viewportInteraction={viewportInteraction}>
+    {children ?? <div style={{ height: 20 }} />}
+  </ViewerTrackBlock>
+);
+
+const surfaceOf = (container: HTMLElement) =>
+  container.querySelector('.viewer-interaction-surface') as HTMLElement;
+
+const trackNamed = (name: RegExp) => screen.getByRole('application', { name });
+
 describe('ViewerTrackBlock', () => {
   it('zooms the viewport when dragging across a track block (default/zoom mode)', () => {
     const onChange = vi.fn();
+    render(block('Coverage', viewport(onChange)));
 
-    render(
-      <ViewerTrackBlock
-        label="Coverage"
-        width={200}
-        viewportInteraction={{
-          chromSize: 1000,
-          regionStart: 100,
-          regionEnd: 300,
-          onChange,
-        }}
-      >
-        <div style={{ height: 20 }} />
-      </ViewerTrackBlock>,
-    );
-
-    const track = screen.getByRole('application', { name: /coverage viewport/i });
+    const track = trackNamed(/coverage viewport/i);
     dispatchMouseEvent(track, 'mouseDown', 50);
     dispatchMouseEvent(track, 'mouseMove', 150);
     dispatchMouseEvent(track, 'mouseUp', 150);
@@ -55,23 +60,14 @@ describe('ViewerTrackBlock', () => {
 
   it('zooms when the drag starts on a nested child element (e.g. an SVG feature)', () => {
     const onChange = vi.fn();
-
     render(
-      <ViewerTrackBlock
-        label="SVs"
-        width={200}
-        viewportInteraction={{
-          chromSize: 1000,
-          regionStart: 100,
-          regionEnd: 300,
-          mode: 'zoom',
-          onChange,
-        }}
-      >
+      block(
+        'SVs',
+        viewport(onChange, 'zoom'),
         <svg>
           <rect data-testid="feature" x={120} y={0} width={8} height={20} />
-        </svg>
-      </ViewerTrackBlock>,
+        </svg>,
+      ),
     );
 
     // Events fire on the inner <rect>, not the frame — they must still be measured
@@ -86,24 +82,9 @@ describe('ViewerTrackBlock', () => {
 
   it('pans the window when dragging in pan mode', () => {
     const onChange = vi.fn();
+    render(block('Coverage', viewport(onChange, 'pan')));
 
-    render(
-      <ViewerTrackBlock
-        label="Coverage"
-        width={200}
-        viewportInteraction={{
-          chromSize: 1000,
-          regionStart: 100,
-          regionEnd: 300,
-          mode: 'pan',
-          onChange,
-        }}
-      >
-        <div style={{ height: 20 }} />
-      </ViewerTrackBlock>,
-    );
-
-    const track = screen.getByRole('application', { name: /coverage viewport/i });
+    const track = trackNamed(/coverage viewport/i);
     // Drag content 50px to the right → window shifts 50px * (200bp / 200px) = 50bp earlier.
     dispatchMouseEvent(track, 'mouseDown', 100);
     dispatchMouseEvent(track, 'mouseMove', 150);
@@ -114,49 +95,52 @@ describe('ViewerTrackBlock', () => {
 
   it('treats a near-stationary pan drag as a click (no region change)', () => {
     const onChange = vi.fn();
+    render(block('Coverage', viewport(onChange, 'pan')));
 
-    render(
-      <ViewerTrackBlock
-        label="Coverage"
-        width={200}
-        viewportInteraction={{
-          chromSize: 1000,
-          regionStart: 100,
-          regionEnd: 300,
-          mode: 'pan',
-          onChange,
-        }}
-      >
-        <div style={{ height: 20 }} />
-      </ViewerTrackBlock>,
-    );
-
-    const track = screen.getByRole('application', { name: /coverage viewport/i });
+    const track = trackNamed(/coverage viewport/i);
     dispatchMouseEvent(track, 'mouseDown', 100);
     dispatchMouseEvent(track, 'mouseUp', 101);
 
     expect(onChange).not.toHaveBeenCalled();
   });
 
+  // A pan never asks for a window off the chromosome: it stops at either end, and a window as
+  // wide as the chromosome stays the whole chromosome.
+  it.each([
+    ['past its start', { regionStart: 100, regionEnd: 300 }, [100, 250], [0, 200]],
+    ['past its end', { regionStart: 700, regionEnd: 900 }, [150, 0], [800, 1000]],
+    ['of a window as wide as the chromosome', { regionStart: 0, regionEnd: 1000 }, [100, 150], [0, 1000]],
+  ])('keeps a pan %s on the chromosome', (_case, region, [fromX, toX], [start, end]) => {
+    const onChange = vi.fn();
+    render(block('Coverage', viewport(onChange, 'pan', region)));
+
+    const track = trackNamed(/coverage viewport/i);
+    dispatchMouseEvent(track, 'mouseDown', fromX);
+    dispatchMouseEvent(track, 'mouseMove', toX);
+    dispatchMouseEvent(track, 'mouseUp', toX);
+
+    expect(onChange.mock.calls).toEqual([[start, end]]);
+  });
+
+  it('changes nothing for a zoom drag under 5 px, nor for a drag with another button', () => {
+    const onChange = vi.fn();
+    render(block('Coverage', viewport(onChange, 'zoom')));
+
+    const track = trackNamed(/coverage viewport/i);
+    dispatchMouseEvent(track, 'mouseDown', 100);
+    dispatchMouseEvent(track, 'mouseUp', 104);
+    dispatchMouseEvent(track, 'mouseDown', 20, { button: 2 });
+    dispatchMouseEvent(track, 'mouseMove', 180);
+    dispatchMouseEvent(track, 'mouseUp', 180);
+
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
   it('leaves the wheel to the page instead of zooming', async () => {
     const onChange = vi.fn();
+    render(block('SVs', viewport(onChange, undefined, { regionStart: 200, regionEnd: 400 })));
 
-    render(
-      <ViewerTrackBlock
-        label="SVs"
-        width={200}
-        viewportInteraction={{
-          chromSize: 1000,
-          regionStart: 200,
-          regionEnd: 400,
-          onChange,
-        }}
-      >
-        <div style={{ height: 20 }} />
-      </ViewerTrackBlock>,
-    );
-
-    const track = screen.getByRole('application', { name: /svs viewport/i });
+    const track = trackNamed(/svs viewport/i);
     const wheel = createEvent.wheel(track, { bubbles: true, cancelable: true, clientX: 100, deltaY: -100 });
     fireEvent(track, wheel);
 
@@ -168,30 +152,14 @@ describe('ViewerTrackBlock', () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 
-
   it('drives the shared guide and selection band across the surface', () => {
     const onChange = vi.fn();
-
     const { container } = render(
-      <ViewerInteractionSurface>
-        <ViewerTrackBlock
-          label="Coverage"
-          width={200}
-          viewportInteraction={{
-            chromSize: 1000,
-            regionStart: 100,
-            regionEnd: 300,
-            mode: 'zoom',
-            onChange,
-          }}
-        >
-          <div style={{ height: 20 }} />
-        </ViewerTrackBlock>
-      </ViewerInteractionSurface>,
+      <ViewerInteractionSurface>{block('Coverage', viewport(onChange, 'zoom'))}</ViewerInteractionSurface>,
     );
 
-    const surface = container.querySelector('.viewer-interaction-surface') as HTMLElement;
-    const track = screen.getByRole('application', { name: /coverage viewport/i });
+    const surface = surfaceOf(container);
+    const track = trackNamed(/coverage viewport/i);
 
     // Hovering publishes a guide fraction to the shared surface.
     dispatchMouseEvent(track, 'mouseMove', 120);
@@ -214,27 +182,12 @@ describe('ViewerTrackBlock', () => {
 
   it('previews a pan offset on the shared surface while dragging in pan mode', () => {
     const onChange = vi.fn();
-
     const { container } = render(
-      <ViewerInteractionSurface>
-        <ViewerTrackBlock
-          label="Coverage"
-          width={200}
-          viewportInteraction={{
-            chromSize: 1000,
-            regionStart: 100,
-            regionEnd: 300,
-            mode: 'pan',
-            onChange,
-          }}
-        >
-          <div style={{ height: 20 }} />
-        </ViewerTrackBlock>
-      </ViewerInteractionSurface>,
+      <ViewerInteractionSurface>{block('Coverage', viewport(onChange, 'pan'))}</ViewerInteractionSurface>,
     );
 
-    const surface = container.querySelector('.viewer-interaction-surface') as HTMLElement;
-    const track = screen.getByRole('application', { name: /coverage viewport/i });
+    const surface = surfaceOf(container);
+    const track = trackNamed(/coverage viewport/i);
 
     dispatchMouseEvent(track, 'mouseDown', 100);
     dispatchMouseEvent(track, 'mouseMove', 130);
@@ -252,30 +205,14 @@ describe('ViewerTrackBlock', () => {
   // grabbing cursor (or the selection band stayed up), until the next drag. A cancelled
   // pointer, or a window that loses focus and with it the mouseup, did the same.
   describe('a gesture that cannot end with a mouseup', () => {
-    const viewport = (onChange: (start: number, end: number) => void, mode: 'pan' | 'zoom') => ({
-      chromSize: 1000,
-      regionStart: 100,
-      regionEnd: 300,
-      mode,
-      onChange,
-    });
-    const surfaceOf = (container: HTMLElement) =>
-      container.querySelector('.viewer-interaction-surface') as HTMLElement;
-
     it('clears the pan when its track is removed mid-drag, and moves nothing', () => {
       const onChange = vi.fn();
       const tracks = (withCoverage: boolean) => (
-        <ViewerInteractionSurface>
-          {withCoverage && (
-            <ViewerTrackBlock label="Coverage" width={200} viewportInteraction={viewport(onChange, 'pan')}>
-              <div style={{ height: 20 }} />
-            </ViewerTrackBlock>
-          )}
-        </ViewerInteractionSurface>
+        <ViewerInteractionSurface>{withCoverage && block('Coverage', viewport(onChange, 'pan'))}</ViewerInteractionSurface>
       );
       const { container, rerender } = render(tracks(true));
       const surface = surfaceOf(container);
-      const track = screen.getByRole('application', { name: /coverage viewport/i });
+      const track = trackNamed(/coverage viewport/i);
 
       dispatchMouseEvent(track, 'mouseDown', 100);
       dispatchMouseEvent(track, 'mouseMove', 130);
@@ -290,16 +227,10 @@ describe('ViewerTrackBlock', () => {
 
     it('clears the selection band when its track is removed mid-drag', () => {
       const tracks = (withCoverage: boolean) => (
-        <ViewerInteractionSurface>
-          {withCoverage && (
-            <ViewerTrackBlock label="Coverage" width={200} viewportInteraction={viewport(vi.fn(), 'zoom')}>
-              <div style={{ height: 20 }} />
-            </ViewerTrackBlock>
-          )}
-        </ViewerInteractionSurface>
+        <ViewerInteractionSurface>{withCoverage && block('Coverage', viewport(vi.fn(), 'zoom'))}</ViewerInteractionSurface>
       );
       const { container, rerender } = render(tracks(true));
-      const track = screen.getByRole('application', { name: /coverage viewport/i });
+      const track = trackNamed(/coverage viewport/i);
 
       dispatchMouseEvent(track, 'mouseDown', 40);
       dispatchMouseEvent(track, 'mouseMove', 140);
@@ -313,19 +244,13 @@ describe('ViewerTrackBlock', () => {
       const onChange = vi.fn();
       const tracks = (withSvs: boolean) => (
         <ViewerInteractionSurface>
-          <ViewerTrackBlock label="Coverage" width={200} viewportInteraction={viewport(onChange, 'pan')}>
-            <div style={{ height: 20 }} />
-          </ViewerTrackBlock>
-          {withSvs && (
-            <ViewerTrackBlock label="SVs" width={200} viewportInteraction={viewport(vi.fn(), 'pan')}>
-              <div style={{ height: 20 }} />
-            </ViewerTrackBlock>
-          )}
+          {block('Coverage', viewport(onChange, 'pan'))}
+          {withSvs && block('SVs', viewport(vi.fn(), 'pan'))}
         </ViewerInteractionSurface>
       );
       const { container, rerender } = render(tracks(true));
       const surface = surfaceOf(container);
-      const coverage = screen.getByRole('application', { name: /coverage viewport/i });
+      const coverage = trackNamed(/coverage viewport/i);
 
       dispatchMouseEvent(coverage, 'mouseDown', 100);
       dispatchMouseEvent(coverage, 'mouseMove', 130);
@@ -344,14 +269,10 @@ describe('ViewerTrackBlock', () => {
     ])('ends the pan on %s, and moves nothing', (_label, cancel) => {
       const onChange = vi.fn();
       const { container } = render(
-        <ViewerInteractionSurface>
-          <ViewerTrackBlock label="Coverage" width={200} viewportInteraction={viewport(onChange, 'pan')}>
-            <div style={{ height: 20 }} />
-          </ViewerTrackBlock>
-        </ViewerInteractionSurface>,
+        <ViewerInteractionSurface>{block('Coverage', viewport(onChange, 'pan'))}</ViewerInteractionSurface>,
       );
       const surface = surfaceOf(container);
-      const track = screen.getByRole('application', { name: /coverage viewport/i });
+      const track = trackNamed(/coverage viewport/i);
 
       dispatchMouseEvent(track, 'mouseDown', 100);
       dispatchMouseEvent(track, 'mouseMove', 130);
@@ -374,21 +295,17 @@ describe('ViewerTrackBlock', () => {
     const style = document.createElement('style');
     style.textContent = readFileSync(GENOME_CSS, 'utf8');
     document.head.appendChild(style);
-    const viewport = { chromSize: 1000, regionStart: 100, regionEnd: 300, mode: 'pan' as const, onChange: vi.fn() };
+    const panning = viewport(vi.fn(), 'pan');
 
     try {
       render(
         <ViewerInteractionSurface>
-          <ViewerTrackBlock label="Coverage" width={200} viewportInteraction={viewport}>
-            <div style={{ height: 20 }} />
-          </ViewerTrackBlock>
-          <ViewerTrackBlock label="SVs" width={200} viewportInteraction={viewport}>
-            <div style={{ height: 20 }} />
-          </ViewerTrackBlock>
+          {block('Coverage', panning)}
+          {block('SVs', panning)}
         </ViewerInteractionSurface>,
       );
-      const coverage = screen.getByRole('application', { name: /coverage viewport/i });
-      const svs = screen.getByRole('application', { name: /svs viewport/i });
+      const coverage = trackNamed(/coverage viewport/i);
+      const svs = trackNamed(/svs viewport/i);
       expect(getComputedStyle(coverage).cursor).toBe('grab');
 
       dispatchMouseEvent(coverage, 'mouseDown', 100);

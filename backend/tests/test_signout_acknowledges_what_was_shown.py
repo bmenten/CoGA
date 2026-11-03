@@ -27,6 +27,7 @@ from backend.app.schemas import ReportSignoutRequest
 from backend.app.services import report_signout_service as rss
 from backend.app.services.hash_chain import canonical_json
 from backend.app.services.sample_integrity_qc import SampleIntegrityReport, SexCheck
+from backend.tests._signout_dialogs import FirstSignoutSession
 
 _SECTIONS = {
     "variant_descriptions": {"small": [], "structural": []},
@@ -107,24 +108,8 @@ class _Family:
         self.audited: list[dict] = []
 
 
-class _Result:
-    def scalar_one(self):
-        return 0  # no earlier sign-out: version 1
-
-    def scalar_one_or_none(self):
-        return None  # the chain's genesis
-
-
-class _Session:
-    def __init__(self) -> None:
-        self.executed: list = []
-
-    async def execute(self, *args, **kwargs):
-        self.executed.append((args, kwargs))
-        return _Result()
-
-    async def commit(self) -> None:
-        return None
+# A family's first sign-out: no earlier sign-out (version 1), the chain's genesis.
+_Session = FirstSignoutSession
 
 
 @pytest.fixture
@@ -529,6 +514,7 @@ def test_a_sign_out_without_concerns_needs_no_fingerprint(family) -> None:
     assert after["drift_concerns_fingerprint"] is None
     assert after["qc_concerns_fingerprint"] is None
     assert after["import_incomplete_concerns_fingerprint"] is None
+    assert after["unreviewed_findings_concerns_fingerprint"] is None
 
 
 def test_concerns_resolved_after_the_dialog_leave_nothing_to_acknowledge(family) -> None:

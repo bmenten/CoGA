@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { ApiRepeatStatus } from '../../lib/apiTypes';
 import { REPEAT_STATUS_TONE } from '../../pages/families/FamilyRepeatExpansionsPage';
 import { STATUS_CHIP_TONE_CLASS } from '../../pages/families/FamilyGenotypeGrid';
-import { themeText } from './themeSource';
+import { themeRules } from './themeSource';
 
 /**
  * Every repeat status has a style of its own on the repeat page: a call's alleles, and the
@@ -25,13 +25,11 @@ const STATUSES = [
 // A status the API adds fails the type check here until it is listed above, and styled.
 const listsEveryStatus: Exclude<ApiRepeatStatus, (typeof STATUSES)[number]> extends never ? true : false = true;
 
-const THEME = themeText().replace(/\/\*[\s\S]*?\*\//g, '');
+const RULES = themeRules();
 
 const declarationOf = (selector: string, property: 'color' | 'opacity'): string | null => {
-  const rule = [...THEME.matchAll(/([^{}]+)\{([^}]*)\}/g)].find(([, selectors]) =>
-    selectors.split(',').some((one) => one.trim() === selector),
-  );
-  return rule ? (new RegExp(`(?:^|[;\\s])${property}:\\s*([^;]+)`).exec(rule[2])?.[1]?.trim() ?? null) : null;
+  const rule = RULES.find(({ selectors }) => selectors.split(',').some((one) => one.trim() === selector));
+  return rule ? (new RegExp(`(?:^|[;\\s])${property}:\\s*([^;]+)`).exec(rule.body)?.[1]?.trim() ?? null) : null;
 };
 
 const callColour = (status: ApiRepeatStatus) =>

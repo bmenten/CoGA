@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import asyncio
 
+import pytest
+
 from backend.app.services import clickhouse_family_variants as cfv
 from backend.app.services.clickhouse_family_variants import (
     _small_variant_present_sample_names,
@@ -102,7 +104,7 @@ def test_explicit_reference_parent_present_iff_base_matches(monkeypatch):
 
 def test_explicit_sample_absent_when_base_does_not_match(monkeypatch):
     async def fake(query, params=None, data=None):
-        return []  # both the ARRAY JOIN and the base-match probe are empty
+        return []  # both the ALT-call aggregate and the base-match probe are empty
 
     monkeypatch.setattr(cfv, "_execute_clickhouse", fake)
     present = asyncio.run(
@@ -133,32 +135,33 @@ def test_structural_presence_maps_ids_to_names(monkeypatch):
     assert "PROBAND" in cap["params"]["track_visible_ids"]
 
 
-def test_structural_presence_empty_context_short_circuits(monkeypatch):
+def _without_assembly() -> FamilyMetadataContext:
+    context = _context()
+    context.assembly_name = None
+    return context
+
+
+def _without_samples() -> FamilyMetadataContext:
+    context = _context()
+    context.sample_name_to_uuid = {}
+    return context
+
+
+@pytest.mark.parametrize(
+    ("presence", "filters"),
+    [(_small_variant_present_sample_names, _filters), (_structural_present_sample_names, _sv_filters)],
+    ids=["small-variants", "structural-variants"],
+)
+@pytest.mark.parametrize("context", [_without_assembly, _without_samples], ids=["no-assembly", "no-samples"])
+def test_empty_context_short_circuits(monkeypatch, presence, filters, context):
+    # A family without an assembly or without a visible sample has no presence: nothing is
+    # asked of ClickHouse.
     called = {"n": 0}
 
     async def fake(*a, **k):
         called["n"] += 1
-        return []
+        return [("PROBAND",)]
 
     monkeypatch.setattr(cfv, "_execute_clickhouse", fake)
-    no_assembly = _context()
-    no_assembly.assembly_name = None
-    assert asyncio.run(_structural_present_sample_names(no_assembly, _sv_filters())) == set()
-    assert called["n"] == 0
-
-
-def test_empty_context_short_circuits(monkeypatch):
-    called = {"n": 0}
-
-    async def fake(*a, **k):
-        called["n"] += 1
-        return []
-
-    monkeypatch.setattr(cfv, "_execute_clickhouse", fake)
-    no_assembly = _context()
-    no_assembly.assembly_name = None
-    assert asyncio.run(_small_variant_present_sample_names(no_assembly, _filters())) == set()
-    no_samples = _context()
-    no_samples.sample_name_to_uuid = {}
-    assert asyncio.run(_small_variant_present_sample_names(no_samples, _filters())) == set()
+    assert asyncio.run(presence(context(), filters())) == set()
     assert called["n"] == 0  # never hits ClickHouse

@@ -39,10 +39,12 @@ from uuid import UUID, uuid4
 
 import pytest
 
+from backend.tests.integration._panel_region_cases import CHROMOSOMES as _CHROMOSOMES
+from backend.tests.integration._panel_region_cases import WINDOW as _WINDOW
+from backend.tests.integration._panel_region_cases import each_region_bounds
+
 pytestmark = pytest.mark.integration
 
-_WINDOW = 1 << 16
-_CHROMOSOMES = ["1", "chr1", "X", "chrX", "M", "MT", "chrM", "GL000192.1"]
 _FAMILY = "sv-panel-family"
 _PROJECTS = ["sv-panel-project-a", "sv-panel-project-b"]
 _GENES = ("SVPGENE", "SvpOther")
@@ -132,19 +134,6 @@ def _rows_subquery(params: dict[str, Any]) -> str:
     )
 
 
-def _each_region_bounds(regions: Any) -> tuple[list[str], list[int], list[int]]:
-    """The regions each read on their own (match key, start and end in order, each once): the
-    reference the bound regions must answer alike."""
-    from backend.app.services.clickhouse_variant_queries import _chromosome_match_key
-
-    kept = dict.fromkeys(
-        (_chromosome_match_key(region.chr), min(region.start, region.end), max(region.start, region.end))
-        for region in regions
-        if _chromosome_match_key(region.chr)
-    )
-    return [c for c, _s, _e in kept], [s for _c, s, _e in kept], [e for _c, _s, e in kept]
-
-
 # The searches: none narrowed to a locus, and loci that cut through regions and rows, with and
 # without the overlap rule a locus can apply.
 _SEARCHES: dict[str, dict[str, Any]] = {
@@ -213,7 +202,7 @@ def test_the_sv_panel_join_keeps_what_each_region_or_gene_keeps() -> None:
         clauses, params = _structural_variant_where_clauses(context, filters)
         clauses = [clause for clause in clauses if not clause.startswith("hasAny(e.calls.sampleId")]
         with pytest.MonkeyPatch.context() as each:
-            each.setattr(queries, "_structural_region_bounds", _each_region_bounds)
+            each.setattr(queries, "_structural_region_bounds", each_region_bounds)
             per_region = _structural_region_filter_condition(_regions(), prefix="each_region", params=params)
         genes = _small_gene_filter_condition(_GENES, prefix="each_gene", params=params)
         assert len(joined_params["sv_panel_region_starts"]) < len(params["each_region_starts"])

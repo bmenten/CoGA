@@ -27,3 +27,29 @@ export const themeText = (): string =>
   themeModules()
     .map((module) => module.css)
     .join('\n');
+
+/**
+ * The whole stylesheet without its comments, which sit between rules and would otherwise be
+ * read as part of the next selector.
+ */
+export const themeTextWithoutComments = (): string => themeText().replace(/\/\*[\s\S]*?\*\//g, '');
+
+export interface ThemeRule {
+  /** The rule's selector list, as written. */
+  selectors: string;
+  /** Its declarations, as written. */
+  body: string;
+  /** Where it starts in {@link themeTextWithoutComments}. */
+  at: number;
+}
+
+/**
+ * Every `selectors { declarations }` block of the stylesheet, comments left out, in cascade
+ * order. jsdom applies no stylesheet, so the style tests read the rules themselves.
+ */
+export const themeRules = (): ThemeRule[] =>
+  [...themeTextWithoutComments().matchAll(/([^{}]+)\{([^}]*)\}/g)].map((match) => ({
+    selectors: match[1],
+    body: match[2],
+    at: match.index,
+  }));

@@ -22,23 +22,9 @@ from uuid import uuid4
 
 import pytest
 
+from backend.tests.integration._datastores import fresh_assembly, fresh_species, run_closing_stores
+
 pytestmark = pytest.mark.integration
-
-
-def _run(coroutine_factory) -> None:
-    """Run under its own loop, then close the module-global Postgres engine, which binds to
-    the loop (the next asyncio.run would otherwise hit a closed one)."""
-    import asyncio
-
-    from backend.app.core.postgres import close_postgres_engine
-
-    async def _wrapped() -> None:
-        try:
-            await coroutine_factory()
-        finally:
-            await close_postgres_engine()
-
-    asyncio.run(_wrapped())
 
 
 async def _seed(session_factory, tag: str) -> dict[str, str]:
@@ -47,26 +33,10 @@ async def _seed(session_factory, tag: str) -> dict[str, str]:
     from sqlalchemy import text
 
     async with session_factory() as session:
-        species = (
-            await session.execute(
-                text(
-                    "INSERT INTO species (name, common_name, tax_id) "
-                    "VALUES (:n, 'test', :t) RETURNING id::text"
-                ),
-                {"n": f"gene-constraint {tag}", "t": uuid4().int % 2_000_000_000},
-            )
-        ).scalar_one()
+        species = await fresh_species(session, f"gene-constraint {tag}")
         assemblies: dict[str, str] = {}
         for name in ("first", "second"):
-            assemblies[name] = (
-                await session.execute(
-                    text(
-                        "INSERT INTO assemblies (species_id, assembly_name, version, release_date) "
-                        "VALUES (CAST(:s AS uuid), :a, 'v1', '2020-01-01') RETURNING id::text"
-                    ),
-                    {"s": species, "a": f"GENECONSTRAINT{name.upper()}{tag}"},
-                )
-            ).scalar_one()
+            assemblies[name] = await fresh_assembly(session, species, f"GENECONSTRAINT{name.upper()}{tag}")
         for assembly, symbol, extra, days_old in (
             ("first", f"T15G1{tag}", {"mis_z": 2.0, "pLI": 0.1}, 1),
             ("second", f"T15G1{tag}", {"mis_z": 9.0, "pLI": 0.9}, 0),
@@ -117,4 +87,4 @@ def test_each_familys_gene_constraint_is_read_from_its_own_assembly_whatever_the
         # Without the family's assembly no profile is read.
         assert none == {}
 
-    _run(_scenario)
+    run_closing_stores(_scenario)

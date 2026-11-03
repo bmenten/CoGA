@@ -30,6 +30,15 @@ ASSEMBLY = "GRCh38"
 SPECIES = "Homo sapiens"
 PROJECT_NAME = "e2e-golden"
 FAMILY_ID = "FAM_TRIO"
+# The drift and Sample-QC gates come before the import gates a module tests: a sign-out body
+# that acknowledges both, sent by the import, deletion and upload modules in every attempt.
+GATE_ACK = "e2e validation"
+DRIFT_AND_QC_ACKNOWLEDGED = {
+    "acknowledge_drift": True,
+    "drift_acknowledgement_reason": GATE_ACK,
+    "acknowledge_qc": True,
+    "qc_acknowledgement_reason": GATE_ACK,
+}
 
 
 def run_async(make_coro: Callable[[], Awaitable[Any]]) -> Any:
@@ -46,6 +55,129 @@ def run_async(make_coro: Callable[[], Awaitable[Any]]) -> Any:
             await close_postgres_engine()
 
     return asyncio.run(_wrapped())
+
+
+_POSTGRES_SCHEMA_APPLIED = False
+
+
+async def ensure_postgres_schema() -> None:
+    """Bring the database to this version's schema (``init_postgres_schema``) once per test
+    process.
+
+    The schema step re-applies the five baseline files and runs the revisions the ledger
+    lacks (about half a second each time, and every module needs it); the modules of a run
+    share one database and none changes its schema, so the modules after the first find it
+    applied. A module that disables a trigger or adds one of its own puts it back in a
+    ``finally``. The step itself is verified by the integration suite
+    (``test_postgres_migrations.py``)."""
+    global _POSTGRES_SCHEMA_APPLIED
+    from backend.app.core.postgres import init_postgres_schema
+
+    if not _POSTGRES_SCHEMA_APPLIED:
+        await init_postgres_schema()
+        _POSTGRES_SCHEMA_APPLIED = True
+
+
+def capture(resp: Any) -> dict[str, Any]:
+    """An HTTP answer as the tests keep it to assert on later: its status, its text, and its
+    JSON body, or ``None`` when it has none (a 500 answered in text, a CSV export, an empty
+    body)."""
+    out: dict[str, Any] = {"status": resp.status_code, "text": resp.text}
+    try:
+        out["json"] = resp.json()
+    except ValueError:
+        out["json"] = None
+    return out
+
+
+def status_and_body(resp: Any) -> tuple[int, Any]:
+    """An HTTP answer as a pair to compare whole with what a route must answer: its status
+    and its JSON body, or the start of its text when it has none."""
+    try:
+        return resp.status_code, resp.json()
+    except ValueError:
+        return resp.status_code, resp.text[:200]
+
+
+def ok_json(snapshot: dict[str, Any], key: str) -> Any:
+    """The JSON body of the answer captured as ``snapshot["responses"][key]``, which must be a
+    200."""
+    resp = snapshot["responses"][key]
+    assert resp["status"] == 200, (key, resp["status"], resp["text"][:2000])
+    return resp["json"]
+
+
+def gate_refusal(resp: dict[str, Any], gate: str) -> dict[str, Any]:
+    """The detail of a captured sign-out that ``gate`` refused (409)."""
+    assert resp["status"] == 409, resp["text"]
+    detail = resp["json"]["detail"]
+    assert detail["gate"] == gate, detail
+    return detail
+
+
+def write_file(root: Path, name: str, content: str) -> str:
+    """Write ``content`` to ``root / name``, making its folders, and return ``name``: the path
+    a manifest gives the file, relative to its package."""
+    path = root / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+    return name
+
+
+def place_file(path: Path, content: bytes) -> Path:
+    """Write ``content`` to ``path``, making its folders, and return ``path``."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(content)
+    return path
+
+
+async def wait_until(condition: Callable[[], bool], timeout: float = 30.0) -> None:
+    """Wait, polling, until ``condition()`` holds; fail after ``timeout`` seconds."""
+
+    async def poll() -> None:
+        while not condition():
+            await asyncio.sleep(0.01)
+
+    await asyncio.wait_for(poll(), timeout)
+
+
+async def annotation_manifest_modules(family_uuid: str) -> str | None:
+    """The family's annotation-manifest modules as stored (``None`` without a manifest), for a
+    module to put back once its writes have recorded their callers in it."""
+    from backend.app.core.postgres import get_postgres_sessionmaker
+
+    async with get_postgres_sessionmaker()() as session:
+        return (
+            await session.execute(
+                text(
+                    "SELECT modules::text FROM family_annotation_manifest "
+                    "WHERE family_id = CAST(:family_uuid AS uuid)"
+                ),
+                {"family_uuid": family_uuid},
+            )
+        ).scalar_one_or_none()
+
+
+async def restore_annotation_manifest_modules(family_uuid: str, modules: str | None) -> None:
+    """Put back the modules ``annotation_manifest_modules`` read (or remove a manifest the
+    family had not had)."""
+    from backend.app.core.postgres import get_postgres_sessionmaker
+
+    async with get_postgres_sessionmaker()() as session:
+        if modules is None:
+            await session.execute(
+                text("DELETE FROM family_annotation_manifest WHERE family_id = CAST(:f AS uuid)"),
+                {"f": family_uuid},
+            )
+        else:
+            await session.execute(
+                text(
+                    "UPDATE family_annotation_manifest SET modules = CAST(:modules AS jsonb) "
+                    "WHERE family_id = CAST(:f AS uuid)"
+                ),
+                {"f": family_uuid, "modules": modules},
+            )
+        await session.commit()
 
 
 def _admin_current_user(user_id: str):
@@ -261,7 +393,7 @@ async def import_golden_trio(root: Path) -> dict[str, Any]:
     """Set up a project, run the real package import, and read back per-stage
     facts. Returns a plain dict so the test asserts synchronously."""
     from backend.app.core.clickhouse import init_clickhouse_schema
-    from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
+    from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.services import family_package_import as package_import
     from backend.app.services.clickhouse_variant_storage import (
         count_family_small_variants,
@@ -273,7 +405,7 @@ async def import_golden_trio(root: Path) -> dict[str, Any]:
     from backend.app.services.clickhouse_family_variants import get_family_small_variants_page
     from backend.app.services.repeat_expansion_pg import seed_builtin_repeat_catalog
 
-    await init_postgres_schema()
+    await ensure_postgres_schema()
     await init_clickhouse_schema()
     await ensure_clickhouse_variant_tables(ASSEMBLY)
 

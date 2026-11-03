@@ -1,3 +1,10 @@
+"""The request audit's row as its writer sends it to Postgres (``audit_log_pg._audit_log_insert_params``).
+
+The JSONB columns go as the JSON text of what the request middleware recorded; a value Postgres
+cannot store is escaped and its column named in ``request_meta._escaped`` (the escaping itself
+is ``core/pg_storable.py``'s, tested in test_pg_storable.py), and a clean row carries no flag.
+"""
+
 import json
 
 from app.services.audit_log_pg import (
@@ -20,9 +27,16 @@ def test_insert_params_serialize_the_jsonb_fields() -> None:
 
     params = _audit_log_insert_params(payload)
 
-    assert isinstance(params["request_body"], str)
-    assert isinstance(params["request_meta"], str)
-    assert isinstance(params["db_update"], str)
+    # Each JSONB column is sent as the JSON text of what the middleware recorded, whole.
+    assert json.loads(params["request_body"]) == {"label": "Review", "password": "***"}
+    assert json.loads(params["request_meta"]) == {"headers": {"content-type": "application/json"}}
+    assert json.loads(params["db_update"]) == {"dbEntity": "families", "updateType": "update"}
+    assert (params["method"], params["path"], params["status_code"], params["user_email"]) == (
+        "PATCH",
+        "/families/F1/small-variant-tags/review",
+        200,
+        "admin@example.com",
+    )
 
 
 def test_insert_params_escape_what_postgres_refuses_and_flag_the_columns() -> None:

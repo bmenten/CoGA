@@ -41,12 +41,22 @@ from typing import get_args
 import pytest
 
 from backend.app.services import repeat_expansion_pg
-from backend.app.services.family_metadata_context import FamilyMetadataContext, SampleMetadataContext
+from backend.app.services.family_metadata_context import SampleMetadataContext
 from backend.app.services.repeat_expansion_pg import (
     MALE_X_DISTINCT_ALLELES_NOTE,
     REPEAT_STATUS_RANK,
     classify_repeat_count,
     summarize_repeat_status,
+)
+from backend.tests._repeat_fakes import (
+    Result,
+    RowsSession,
+    allele_statuses,
+    catalogue_after_a_start,
+    family_context,
+    import_lookup,
+    sample_context,
+    trgt_insert_params,
 )
 
 NOT_ASSESSED = "not_assessed"
@@ -210,91 +220,6 @@ def test_the_api_the_stored_status_and_the_ranking_list_the_same_statuses() -> N
 # ---- The import, through the catalogue a start seeds ----------------------------------------------
 
 
-class _RecordingSession:
-    def __init__(self) -> None:
-        self.statements: list[tuple[str, dict]] = []
-
-    async def execute(self, statement, params=None):
-        self.statements.append((str(statement), params or {}))
-
-    async def commit(self) -> None:
-        pass
-
-
-class _Result:
-    def __init__(self, rows):
-        self._rows = rows
-
-    def mappings(self):
-        return self
-
-    def all(self):
-        return self._rows
-
-    def first(self):
-        return self._rows[0] if self._rows else None
-
-
-class _CatalogueSession:
-    """Answers the import's catalogue query with the given ``repeat_loci`` rows."""
-
-    def __init__(self, rows: list[dict]) -> None:
-        self.rows = rows
-
-    async def execute(self, statement, params=None):
-        return _Result(self.rows)
-
-
-async def _catalogue_after_a_start(monkeypatch) -> dict[str, dict]:
-    """The ``repeat_loci`` rows a start leaves, by locus_id, as the import's catalogue query
-    returns them. The seed upserts by ``locus_id``, so the last write of a locus is its row."""
-    # The shipped STRchive file, not one an environment variable may point at.
-    monkeypatch.setattr(repeat_expansion_pg.settings, "trgt_strchive_loci_path", None)
-    session = _RecordingSession()
-    await repeat_expansion_pg.seed_builtin_repeat_catalog(session)
-    rows: dict[str, dict] = {}
-    # The upserts; the seed's last statement removes STRchive rows of another release (CLIN-31).
-    for _sql, params in (statement for statement in session.statements if "locus_id" in statement[1]):
-        rows[params["locus_id"]] = {
-            **{
-                column: params[column]
-                for column in (
-                    "locus_id",
-                    "gene",
-                    "display_name",
-                    "disease",
-                    "inheritance",
-                    "motif",
-                    "motif_index",
-                    "warning_min",
-                    "pathogenic_min",
-                    "notes",
-                )
-            },
-            "aliases": json.loads(params["aliases_json"]),
-            "metadata": json.loads(params["metadata_json"]),
-        }
-    return rows
-
-
-async def _import_lookup(monkeypatch) -> dict[str, dict]:
-    rows = await _catalogue_after_a_start(monkeypatch)
-    return await repeat_expansion_pg._build_repeat_locus_lookup(_CatalogueSession(list(rows.values())))
-
-
-def _sample_context(*, sex: str = "female") -> SampleMetadataContext:
-    return SampleMetadataContext(
-        sample_uuid="sample-uuid",
-        sample_id="sample",
-        family_uuid="family-uuid",
-        family_id="FAM1",
-        sex=sex,
-        project_ids=["project-uuid"],
-        assembly_id="assembly-uuid",
-        assembly_name="GRCh38",
-    )
-
-
 def _call(
     lookup: dict[str, dict],
     *,
@@ -312,22 +237,15 @@ def _call(
     if sample_field is None:
         lengths = ",".join(str(count * len(motif)) for count in counts)
         sample_field = f"1/2:{lengths}:{counts[0]},{counts[1]}"
-    return repeat_expansion_pg._build_trgt_insert_params(
-        sample_context=_sample_context(sex=sex),
-        locus_lookup=lookup,
-        chrom=chrom,
-        pos=str(pos),
-        ref=motif,
+    return trgt_insert_params(
+        lookup,
         info_field=f"TRID={trid};END={pos + 30};MOTIFS={motifs or motif}",
-        format_field="GT:AL:MC",
         sample_field=sample_field,
-        header_sample="sample",
-        metadata={},
+        chrom=chrom,
+        pos=pos,
+        ref=motif,
+        sex=sex,
     )
-
-
-def _allele_statuses(params: dict) -> list[str]:
-    return [allele["status"] for allele in json.loads(params["alleles_json"])]
 
 
 @pytest.mark.parametrize(
@@ -341,13 +259,13 @@ def _allele_statuses(params: dict) -> list[str]:
 )
 @pytest.mark.asyncio
 async def test_a_call_whose_trid_no_catalogue_row_names_is_stored_not_assessed(monkeypatch, trid: str) -> None:
-    lookup = await _import_lookup(monkeypatch)
+    lookup = await import_lookup(monkeypatch)
     assert trid.lower() not in lookup
 
     params = _call(lookup, trid=trid, counts=(12, 300))
 
     # Both alleles, the 300-repeat expansion included, read "normal" before.
-    assert _allele_statuses(params) == [NOT_ASSESSED, NOT_ASSESSED]
+    assert allele_statuses(params) == [NOT_ASSESSED, NOT_ASSESSED]
     assert params["status"] == NOT_ASSESSED
     assert (params["locus_id"], params["warning_min"], params["pathogenic_min"]) == (trid, None, None)
 
@@ -368,14 +286,14 @@ async def test_a_call_whose_trid_no_catalogue_row_names_is_stored_not_assessed(m
 async def test_a_call_at_a_catalogue_row_without_thresholds_is_stored_not_assessed(
     monkeypatch, trid: str, counts: tuple[int, int]
 ) -> None:
-    lookup = await _import_lookup(monkeypatch)
+    lookup = await import_lookup(monkeypatch)
     row = lookup[trid.lower()]
     assert (row["warning_min"], row["pathogenic_min"], row["metadata"].get("premutation_min")) == (None, None, None)
 
     params = _call(lookup, trid=trid, counts=counts, motif=str(row["motif"]))
 
     assert params["locus_id"] == row["locus_id"]
-    assert _allele_statuses(params) == [NOT_ASSESSED, NOT_ASSESSED]
+    assert allele_statuses(params) == [NOT_ASSESSED, NOT_ASSESSED]
     assert params["status"] == NOT_ASSESSED
 
 
@@ -385,7 +303,7 @@ async def test_the_rows_a_start_seeds_without_thresholds_are_muc1_and_polg(monke
     benign range, so every count there stays not assessed; CPEO_POLG states 10, the one count
     that reads normal. No built-in row lacks a threshold, nor does any other STRchive row: a
     release that adds such a row fails here, for QA to look at the range it states."""
-    rows = await _catalogue_after_a_start(monkeypatch)
+    rows = await catalogue_after_a_start(monkeypatch)
 
     def ranges(row: dict) -> dict:
         metadata = row["metadata"]
@@ -425,14 +343,14 @@ async def test_a_polg_count_inside_its_benign_range_is_stored_normal(
     monkeypatch, trid: str, counts: tuple[int, int], alleles: list[str], status: str
 ) -> None:
     """STRchive's locus ID and the gene name both find CPEO_POLG, benign exactly 10 (CLIN-36)."""
-    lookup = await _import_lookup(monkeypatch)
+    lookup = await import_lookup(monkeypatch)
     row = lookup[trid.lower()]
     assert row["locus_id"] == "CPEO_POLG"
     assert (row["metadata"]["benign_min"], row["metadata"]["benign_max"]) == (10, 10)
 
     params = _call(lookup, trid=trid, counts=counts, chrom="chr15", pos=89_333_579, motif=str(row["motif"]))
 
-    assert _allele_statuses(params) == alleles
+    assert allele_statuses(params) == alleles
     assert params["status"] == status
     assert (params["locus_id"], params["warning_min"], params["pathogenic_min"]) == ("CPEO_POLG", None, None)
 
@@ -444,7 +362,7 @@ async def test_a_polg_allele_is_read_by_the_count_trgt_reports_for_the_catalogue
     GTT ahead of the tract STRchive's benign count of 10 measures, so the common ten-repeat
     allele (50 bp) reads 14 GCT copies and stays not assessed; an allele TRGT counts as 10 GCT
     copies in all reads normal."""
-    lookup = await _import_lookup(monkeypatch)
+    lookup = await import_lookup(monkeypatch)
 
     params = _call(
         lookup,
@@ -467,7 +385,7 @@ async def test_a_polg_allele_is_read_by_the_count_trgt_reports_for_the_catalogue
 async def test_a_call_at_a_catalogued_locus_reads_as_before(
     monkeypatch, trid: str, counts: tuple[int, int], status: str
 ) -> None:
-    lookup = await _import_lookup(monkeypatch)
+    lookup = await import_lookup(monkeypatch)
 
     params = _call(lookup, trid=trid, counts=counts, chrom="chr4", pos=3_074_876)
 
@@ -477,11 +395,11 @@ async def test_a_call_at_a_catalogued_locus_reads_as_before(
 
 @pytest.mark.asyncio
 async def test_a_no_call_at_an_unknown_locus_is_unknown(monkeypatch) -> None:
-    lookup = await _import_lookup(monkeypatch)
+    lookup = await import_lookup(monkeypatch)
 
     params = _call(lookup, trid="chr2_1000000_1000030_CAG", sample_field="./.:.:.")
 
-    assert _allele_statuses(params) == ["unknown"]
+    assert allele_statuses(params) == ["unknown"]
     assert params["status"] == "unknown"
 
 
@@ -489,7 +407,7 @@ async def test_a_no_call_at_an_unknown_locus_is_unknown(monkeypatch) -> None:
 async def test_a_males_two_chrx_alleles_at_an_unknown_locus_stay_not_assessed(monkeypatch) -> None:
     """A note raises a call to at least review; not assessed already ranks above it, so the
     call keeps saying why, and the family table shows the note with it."""
-    lookup = await _import_lookup(monkeypatch)
+    lookup = await import_lookup(monkeypatch)
 
     params = _call(lookup, trid="chrX_70000000_70000030_GCC", chrom="chrX", pos=70_000_000, motif="GCC", sex="male", counts=(12, 40))
 
@@ -509,7 +427,7 @@ class _IngestSession:
         sql = str(statement)
         if "INSERT INTO repeat_expansions" in sql:
             self.inserted.extend(params)
-        return _Result(self.catalogue if "FROM repeat_loci" in sql else [])
+        return Result(self.catalogue if "FROM repeat_loci" in sql else [])
 
     async def commit(self) -> None:
         pass
@@ -541,7 +459,7 @@ async def test_the_ingest_stores_not_assessed_for_an_uncatalogued_trid() -> None
 
     await repeat_expansion_pg.ingest_trgt_text(
         session,
-        sample_context=_sample_context(),
+        sample_context=sample_context(),
         text_value=(
             "##fileformat=VCFv4.2\n"
             "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tsample\n"
@@ -560,12 +478,12 @@ async def test_the_ingest_stores_not_assessed_for_an_uncatalogued_trid() -> None
 async def test_the_ingest_stores_a_polg_call_inside_its_benign_range_as_normal(monkeypatch) -> None:
     """The whole per-sample ingest, through the catalogue a start seeds: POLG 10/10 is stored
     normal (CLIN-36); MUC1, which states nothing, stays not assessed."""
-    rows = await _catalogue_after_a_start(monkeypatch)
+    rows = await catalogue_after_a_start(monkeypatch)
     session = _IngestSession(list(rows.values()))
 
     await repeat_expansion_pg.ingest_trgt_text(
         session,
-        sample_context=_sample_context(),
+        sample_context=sample_context(),
         text_value=(
             _TRGT_HEADER.format(columns="sample")
             + _polg_record("0/0:30,30:10,10")
@@ -575,7 +493,7 @@ async def test_the_ingest_stores_a_polg_call_inside_its_benign_range_as_normal(m
     )
 
     stored = {
-        record["locus_id"]: (record["status"], _allele_statuses(record), record["warning_min"], record["pathogenic_min"])
+        record["locus_id"]: (record["status"], allele_statuses(record), record["warning_min"], record["pathogenic_min"])
         for record in session.inserted
     }
     assert stored == {
@@ -587,7 +505,7 @@ async def test_the_ingest_stores_a_polg_call_inside_its_benign_range_as_normal(m
 @pytest.mark.asyncio
 async def test_the_family_ingest_stores_each_members_polg_call_by_its_counts(monkeypatch) -> None:
     """A family TRGT file: the mother's 10/10 is stored normal, the father's 10/13 not assessed."""
-    rows = await _catalogue_after_a_start(monkeypatch)
+    rows = await catalogue_after_a_start(monkeypatch)
     session = _IngestSession(list(rows.values()))
     contexts = {
         name: SampleMetadataContext(
@@ -610,7 +528,7 @@ async def test_the_family_ingest_stores_each_members_polg_call_by_its_counts(mon
         metadata={"filename": "family.trgt.vcf", "source": "trgt"},
     )
 
-    stored = {record["sample_id"]: (record["status"], _allele_statuses(record)) for record in session.inserted}
+    stored = {record["sample_id"]: (record["status"], allele_statuses(record)) for record in session.inserted}
     assert stored == {
         "mother-uuid": ("normal", ["normal", "normal"]),
         "father-uuid": (NOT_ASSESSED, ["normal", NOT_ASSESSED]),
@@ -623,20 +541,10 @@ SON_UUID = "00000000-0000-4000-8000-000000000001"
 MOTHER_UUID = "00000000-0000-4000-8000-000000000002"
 
 
-def _context() -> FamilyMetadataContext:
-    return FamilyMetadataContext(
-        family_uuid="00000000-0000-4000-8000-0000000000f1",
-        family_id="FAM1",
-        project_ids=["project-uuid"],
-        sample_rows=[
-            {"sample_uuid": SON_UUID, "sample_id": "SON1", "role": "proband", "affected": True, "sex": "male"},
-            {"sample_uuid": MOTHER_UUID, "sample_id": "MOTHER1", "role": "mother", "affected": False, "sex": "female"},
-        ],
-        sample_uuid_to_name={SON_UUID: "SON1", MOTHER_UUID: "MOTHER1"},
-        sample_name_to_uuid={"SON1": SON_UUID, "MOTHER1": MOTHER_UUID},
-        affected_sample_names=["SON1"],
-        assembly_id="assembly-uuid",
-        assembly_name="GRCh38",
+def _context():
+    return family_context(
+        (SON_UUID, "SON1", "proband", True, "male"),
+        (MOTHER_UUID, "MOTHER1", "mother", False, "female"),
     )
 
 
@@ -665,14 +573,6 @@ def _table_row(sample_uuid: str, *, locus_id: str, chrom: str, start: int, allel
         "premutation_min": thresholds.get("premutation_min"),
         "status": status,
     }
-
-
-class _TableSession:
-    def __init__(self, rows: list[dict]) -> None:
-        self.rows = rows
-
-    async def execute(self, statement, params=None):
-        return _Result(self.rows)
 
 
 @pytest.mark.asyncio
@@ -709,7 +609,7 @@ async def test_the_family_table_reads_a_call_stored_as_normal_at_an_uncatalogued
         ),
     ]
 
-    table = await repeat_expansion_pg.get_family_repeat_expansion_table_response(_TableSession(rows), context=_context())
+    table = await repeat_expansion_pg.get_family_repeat_expansion_table_response(RowsSession(rows), context=_context())
 
     loci = {row.locus_id: row for row in table.loci}
     locus = loci[uncatalogued]
@@ -749,7 +649,7 @@ async def test_the_family_table_reads_a_catalogue_row_without_thresholds_as_not_
         ),
     ]
 
-    table = await repeat_expansion_pg.get_family_repeat_expansion_table_response(_TableSession(rows), context=_context())
+    table = await repeat_expansion_pg.get_family_repeat_expansion_table_response(RowsSession(rows), context=_context())
 
     loci = {row.locus_id: row for row in table.loci}
     muc1, polg = loci["ADTKD_MUC1"], loci["CPEO_POLG"]
@@ -771,7 +671,7 @@ async def test_the_family_table_reads_a_polg_call_stored_not_assessed_inside_its
         _table_row(MOTHER_UUID, alleles=stored, status=NOT_ASSESSED, **polg),
     ]
 
-    table = await repeat_expansion_pg.get_family_repeat_expansion_table_response(_TableSession(rows), context=_context())
+    table = await repeat_expansion_pg.get_family_repeat_expansion_table_response(RowsSession(rows), context=_context())
 
     [locus] = table.loci
     for sample in ("SON1", "MOTHER1"):
@@ -795,7 +695,7 @@ async def test_the_family_table_keeps_a_males_chrx_note_on_a_call_not_assessed()
         )
     ]
 
-    table = await repeat_expansion_pg.get_family_repeat_expansion_table_response(_TableSession(rows), context=_context())
+    table = await repeat_expansion_pg.get_family_repeat_expansion_table_response(RowsSession(rows), context=_context())
 
     call = table.loci[0].calls["SON1"]
     assert call.status == NOT_ASSESSED
@@ -824,7 +724,7 @@ async def test_the_genome_track_serves_a_stored_not_assessed_status() -> None:
     }
 
     response = await repeat_expansion_pg.get_sample_repeat_expansion_track_response(
-        _TableSession([stored]), context=_context(), sample_name="SON1", chromosomes=["2"]
+        RowsSession([stored]), context=_context(), sample_name="SON1", chromosomes=["2"]
     )
 
     [item] = response.items

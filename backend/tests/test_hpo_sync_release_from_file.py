@@ -167,6 +167,26 @@ async def test_another_release_than_expected_imports_nothing(
     assert sync_calls == []
 
 
+@pytest.mark.asyncio
+async def test_a_sync_without_the_hpo_tables_imports_nothing(
+    sync_calls: list, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from fastapi import HTTPException
+
+    async def tables_missing(*_args: Any, **_kwargs: Any) -> bool:
+        return False
+
+    monkeypatch.setattr(hpo_service, "_postgres_tables_available", tables_missing)
+    ontology = tmp_path / "hp.obo"
+    ontology.write_text(_OBO, encoding="utf-8")
+
+    with pytest.raises(HTTPException) as refused:
+        await hpo_service.sync_hpo_ontology(object(), path=ontology, preview_only=False)
+
+    assert refused.value.status_code == 503
+    assert sync_calls == []
+
+
 # ---- What the terms keep -----------------------------------------------------------------------------
 
 

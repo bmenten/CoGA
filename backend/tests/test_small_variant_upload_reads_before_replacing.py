@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import copy
 import gzip
-import json
 from io import BytesIO
 from types import SimpleNamespace
 from typing import Any
@@ -35,6 +34,7 @@ from app.routers import families_small_variants as snv_router
 from app.services import annotation_manifest_service, family_package_registration, variant_upload_service
 from app.services.family_metadata_context import FamilyMetadataContext
 from backend.tests._bgzf import bgzip_cut_after
+from backend.tests._family_import_state_fakes import FamilyImportState
 
 _SAMPLE_ROWS = [
     {"sample_uuid": "uuid-S1", "sample_id": "S1", "sex": "female", "role": "proband"},
@@ -124,83 +124,22 @@ class _ClickHouse:
         self.blocks.extend(rows)
 
 
-class _Postgres:
+class _Postgres(FamilyImportState):
     """The family's Postgres state as the upload reads and writes it: the family row's import
-    state (``flag``: import_incomplete, ``unfinished``: import_unfinished, ``imported``:
-    imported_scopes), the haplotype blocks' records and the phase corrections. A write is the
-    transaction's until it commits; a rollback discards it."""
+    state (``_family_import_state_fakes``), the haplotype blocks' records and the phase
+    corrections. A write is the transaction's until it commits; a rollback discards it. The
+    upload writes its mark on a connection of its own before its first ClickHouse write
+    (``family_package_registration.mark_family_upload``, SAFE-28): ``mark_connection()``,
+    committed at once, so the upload's transaction sees it, and its rollback keeps it."""
 
     def __init__(self, *, flag=None, unfinished=None) -> None:
-        self.committed: dict[str, Any] = {
-            "flag": flag,
-            "unfinished": unfinished,
-            "imported": copy.deepcopy(_IMPORTED),
-            "records": [dict(_STORED_RECORD)],
-            "corrections": copy.deepcopy(_STORED_CORRECTIONS),
-        }
-        self.working = copy.deepcopy(self.committed)
-        self.commits = 0
-
-    async def execute(self, statement, params=None):
-        sql = " ".join(str(statement).split())
-        params = params or {}
-        if sql.startswith("SELECT") and "FROM families" in sql:
-            row = {
-                "family_uuid": "family-uuid",
-                "flag": copy.deepcopy(self.working["flag"]),
-                "unfinished": copy.deepcopy(self.working["unfinished"]),
-                "imported_scopes": copy.deepcopy(self.working["imported"]),
-            }
-            return SimpleNamespace(mappings=lambda: SimpleNamespace(first=lambda: row))
-        assert sql.startswith("UPDATE families"), sql
-        if set(params) == {"family_uuid", "import_key"}:  # an entry removed alone: a mark
-            unfinished = dict(self.working["unfinished"] or {})
-            unfinished.pop(params["import_key"], None)
-            self.working["unfinished"] = unfinished or None
-            return SimpleNamespace(rowcount=1)
-        recorded = json.loads(params.get("imported_scopes", "null"))
-        if recorded is not None:  # a JSON null leaves it as it is
-            self.working["imported"] = recorded
-        if "unfinished" in params:
-            self.working["unfinished"] = json.loads(params["unfinished"])
-        if "flag" in params:
-            self.working["flag"] = json.loads(params["flag"])
-        return SimpleNamespace(rowcount=1)
-
-    async def commit(self) -> None:
-        self.committed = copy.deepcopy(self.working)
-        self.commits += 1
-
-    async def rollback(self) -> None:
-        self.working = copy.deepcopy(self.committed)
-
-
-class _MarkConnection:
-    """The connection the upload writes its mark on before its first ClickHouse write
-    (``family_package_registration.mark_family_upload``, SAFE-28): committed at once, so
-    the upload's transaction sees it, and its rollback keeps it."""
-
-    def __init__(self, database: _Postgres) -> None:
-        self.database = database
-
-    async def __aenter__(self) -> "_MarkConnection":
-        return self
-
-    async def __aexit__(self, *_exc) -> bool:
-        return False
-
-    async def execute(self, statement, params=None):
-        sql = " ".join(str(statement).split())
-        assert sql.startswith("UPDATE families"), sql
-        for state in (self.database.committed, self.database.working):
-            state["unfinished"] = {
-                **(state["unfinished"] or {}),
-                params["import_key"]: json.loads(params["entry"]),
-            }
-        return SimpleNamespace(rowcount=1)
-
-    async def commit(self) -> None:
-        return None
+        super().__init__(
+            flag=flag,
+            unfinished=unfinished,
+            imported=copy.deepcopy(_IMPORTED),
+            records=[dict(_STORED_RECORD)],
+            corrections=copy.deepcopy(_STORED_CORRECTIONS),
+        )
 
 
 @pytest.fixture
@@ -272,11 +211,11 @@ async def _upload(
     name: str = "family.vcf",
 ):
     """The single-file upload of ``body`` through its route; its mark is written on a
-    connection of its own (``_MarkConnection``)."""
+    connection of its own (``mark_connection()``)."""
     data = body.encode() if isinstance(body, str) else body
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(
-            family_package_registration, "get_postgres_sessionmaker", lambda: lambda: _MarkConnection(database)
+            family_package_registration, "get_postgres_sessionmaker", lambda: database.mark_connection
         )
         return await snv_router.upload_family_small_variants(
             family_id="F1",

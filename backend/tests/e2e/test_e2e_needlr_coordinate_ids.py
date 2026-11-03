@@ -33,6 +33,8 @@ from uuid import uuid4
 import pytest
 import yaml
 
+from backend.tests.e2e._harness import ensure_postgres_schema
+
 pytestmark = pytest.mark.integration
 
 _HEADER = "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
@@ -84,7 +86,7 @@ async def _exercise(base: Path, suffix: str) -> dict:
     from sqlalchemy import text
 
     from backend.app.core.clickhouse import init_clickhouse_schema
-    from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
+    from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.main import app
     from backend.app.services import family_package_import as package_import
     from backend.app.services.clickhouse_variant_storage import ensure_clickhouse_variant_tables
@@ -96,7 +98,7 @@ async def _exercise(base: Path, suffix: str) -> dict:
     _write_package(root, family_id, samples)
     out: dict = {"samples": samples}
 
-    await init_postgres_schema()
+    await ensure_postgres_schema()
     await init_clickhouse_schema()
     await ensure_clickhouse_variant_tables(_harness.ASSEMBLY)
     sessionmaker = get_postgres_sessionmaker()

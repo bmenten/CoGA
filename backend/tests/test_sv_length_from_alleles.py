@@ -32,18 +32,16 @@ from typing import Any
 from fastapi import UploadFile
 import pytest
 
-from backend.app.services import annotation_manifest_service, variant_upload_service
+from backend.app.services import variant_upload_service
 from backend.app.services.clickhouse_family_variants import (
     export_family_structural_variants,
     get_family_structural_variants_page,
 )
-from backend.app.services.clickhouse_variant_queries import _structural_record_matches
 from backend.app.services.clickhouse_variant_records import (
-    StoredStructuralVariantRow,
     StructuralVariantCall,
     StructuralVariantRecord,
 )
-from backend.app.services.family_metadata_context import FamilyMetadataContext, SampleMetadataContext
+from backend.app.services.family_metadata_context import SampleMetadataContext
 from backend.app.services.family_package_common import ParsedPed
 from backend.app.services.family_package_variants import (
     _iter_cnv_structural_records,
@@ -59,6 +57,17 @@ from backend.app.services.mitochondrial_analysis import _structural_variant_out 
 from backend.app.services.structural_variant_ingest import (
     iter_structural_variant_records,
     sv_type_from_alt,
+)
+from backend.tests._sv_fakes import (
+    SvStore,
+    UploadSession,
+    forbid_sv_native_page,
+    install_sv_upload_fakes,
+    kept_by_record_filter as _kept,
+    proband_family as _family,
+    serve_stored_sv_rows,
+    stub_sv_postgres_lookups,
+    upload_family_context,
 )
 
 POS = 100_000
@@ -100,11 +109,6 @@ def _uploaded(text_value: str, record_format: str) -> StructuralVariantRecord:
         annotations=[],
         calls=[StructuralVariantCall(sample="PROBAND", gt=parsed.gt, qual=None, read_support=None, filter=None)],
     )
-
-
-def _kept(records: list[StructuralVariantRecord], **filters: Any) -> list[str]:
-    query = StructuralVariantQueryFilters(page=1, page_size=100, **filters)
-    return [record.variant_id for record in records if _structural_record_matches(record, query, [], [])]
 
 
 # --------------------------------------------------------------------------- #
@@ -383,76 +387,13 @@ def test_a_call_stored_without_svlen_is_measured_as_it_was_stored() -> None:
     assert _kept([stored], min_length=1) == []
 
 
-def _family() -> FamilyMetadataContext:
-    return FamilyMetadataContext(
-        family_uuid="family-uuid",
-        family_id="FAM001",
-        project_ids=["project-uuid"],
-        sample_rows=[{"sample_id": "PROBAND", "role": "proband", "affected": True, "sex": "female"}],
-        sample_uuid_to_name={"sample-proband": "PROBAND"},
-        sample_name_to_uuid={"PROBAND": "sample-proband"},
-        affected_sample_names=["PROBAND"],
-        assembly_id="assembly-uuid",
-        assembly_name="GRCh38",
-    )
-
-
-_M = "backend.app.services.clickhouse_family_variants."
-
-
-def _stored_row(record: StructuralVariantRecord, key: int) -> tuple[Any, ...]:
-    """``record`` as ClickHouse returns it to the SV candidate read: the entry's position,
-    type and calls, and the SVLEN of its details row (``svLen``)."""
-    return (
-        key,
-        record.variant_id,
-        record.chr,
-        record.start,
-        record.end,
-        record.sv_type,
-        record.source,
-        None,
-        None,
-        record.sv_len,
-        list(record.filters),
-        "",
-        list(record.gene_symbols),
-        [call.sample for call in record.calls],
-        [call.gt for call in record.calls],
-        [call.qual for call in record.calls],
-        [call.read_support for call in record.calls],
-        [call.filter for call in record.calls],
-        [call.copy_number for call in record.calls],
-    )
-
-
 @pytest.fixture()
 def stored(monkeypatch: pytest.MonkeyPatch) -> None:
     """ClickHouse holding the uploaded calls of ``_SEQUENCE_CALLS``; Postgres holds no
     reviews, cytobands or phenotypes, and the native page may not answer."""
-    rows = [_stored_row(record, key) for key, record in enumerate(_SEQUENCE_CALLS, start=1)]
-
-    async def execute(_query: str, _params: dict[str, Any]) -> list[tuple[Any, ...]]:
-        return rows
-
-    async def native_summary(*_args: Any, **_kwargs: Any):
-        raise AssertionError("the native page's SQL applies no length filter")
-
-    async def no_review_ids(*_args: Any, **_kwargs: Any) -> set[str]:
-        return set()
-
-    async def nothing(*_args: Any, **_kwargs: Any) -> dict:
-        return {}
-
-    async def no_phenotypes(*_args: Any, **_kwargs: Any) -> tuple[list[str], dict[str, str]]:
-        return [], {}
-
-    monkeypatch.setattr(_M + "_execute_clickhouse", execute)
-    monkeypatch.setattr(_M + "_fetch_structural_variant_summary", native_summary)
-    monkeypatch.setattr(_M + "list_matching_structural_variant_review_ids", no_review_ids)
-    monkeypatch.setattr(_M + "get_structural_variant_review_map", nothing)
-    monkeypatch.setattr(_M + "_fetch_structural_cytoband_map", nothing)
-    monkeypatch.setattr(_M + "_affected_present_hpo", no_phenotypes)
+    serve_stored_sv_rows(monkeypatch, _SEQUENCE_CALLS)
+    forbid_sv_native_page(monkeypatch, "the native page's SQL applies no length filter")
+    stub_sv_postgres_lookups(monkeypatch)
 
 
 @pytest.mark.asyncio
@@ -502,56 +443,11 @@ def test_the_mtdna_page_shows_a_chrm_sequence_deletion_by_its_alleles() -> None:
 # --------------------------------------------------------------------------- #
 
 
-class _Result:
-    def __init__(self, rows: list[dict[str, Any]] | None = None) -> None:
-        self._rows = rows or []
-
-    def mappings(self) -> "_Result":
-        return self
-
-    def all(self) -> list[dict[str, Any]]:
-        return list(self._rows)
-
-    def scalar_one_or_none(self) -> None:
-        return None
-
-
-class _Session:
-    """Postgres as the upload uses it: the stored-sample lookup of its column check (the
-    family is PROBAND alone), the sample's metadata read and update, and the commit."""
-
-    async def execute(self, statement: Any, params: Any = None) -> _Result:
-        if "FROM samples WHERE family_id" in " ".join(str(statement).split()):
-            return _Result([{"sample_id": "PROBAND"}])
-        return _Result()
-
-    async def commit(self) -> None:
-        return None
-
-
 @pytest.mark.asyncio
 async def test_the_upload_stores_each_call_with_the_length_its_alleles_state(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    written: list[StoredStructuralVariantRow] = []
-
-    async def no_rows(*_args: Any, **_kwargs: Any) -> list[StoredStructuralVariantRow]:
-        return []
-
-    async def rewrite(_assembly: Any, _family: Any, rows: Any, **_kwargs: Any) -> None:
-        written.extend(rows)
-
-    async def no_genes(*_args: Any, **_kwargs: Any) -> dict[str, list[tuple[int, int, str]]]:
-        return {}
-
-    async def nothing(*_args: Any, **_kwargs: Any) -> None:
-        return None
-
-    monkeypatch.setattr(variant_upload_service, "fetch_family_structural_variant_rows", no_rows)
-    monkeypatch.setattr(variant_upload_service, "rewrite_family_structural_variants", rewrite)
-    monkeypatch.setattr(variant_upload_service, "_fetch_genes_for_chroms", no_genes)
-    monkeypatch.setattr(variant_upload_service, "lock_family_variant_writes", nothing)
-    monkeypatch.setattr(annotation_manifest_service, "merge_vcf_header_provenance", nothing)
+    store = install_sv_upload_fakes(monkeypatch, SvStore())
 
     body = _vcf(
         _record(_INS_REF, _INS_ALT, "SVLEN=.;SUPPORT=9"),
@@ -560,18 +456,8 @@ async def test_the_upload_stores_each_call_with_the_length_its_alleles_state(
         _record("N", "N]5:3000000]", "SVTYPE=BND", pos=400_000),
     )
     result = await variant_upload_service.upload_structural_variant_file(
-        _Session(),  # type: ignore[arg-type]
-        family_context=FamilyMetadataContext(
-            family_uuid="family-uuid",
-            family_id="FAM001",
-            project_ids=["project-uuid"],
-            sample_rows=[],
-            sample_uuid_to_name={"sample-proband": "PROBAND"},
-            sample_name_to_uuid={"PROBAND": "sample-proband"},
-            affected_sample_names=[],
-            assembly_id="assembly-uuid",
-            assembly_name="GRCh38",
-        ),
+        UploadSession(),  # type: ignore[arg-type]
+        family_context=upload_family_context({"PROBAND": "sample-proband"}),
         sample_context=_proband(),
         file=UploadFile(file=BytesIO(body.encode()), filename="PROBAND.sniffles.vcf"),
         overwrite=False,
@@ -579,7 +465,7 @@ async def test_the_upload_stores_each_call_with_the_length_its_alleles_state(
     )
 
     assert (result["processed"], result["created"]) == (4, 4)
-    stored = {row.record.variant_id: (row.record.sv_type, row.record.sv_len) for row in written}
+    stored = {row.record.variant_id: (row.record.sv_type, row.record.sv_len) for row in store.written()}
     # The ids are the coordinates and type the calls had before: only their SVLEN is new.
     assert stored == {
         "1-100000-100000-INS---": ("INS", 350),

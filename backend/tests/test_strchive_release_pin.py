@@ -34,6 +34,7 @@ import pytest
 from backend.app import main as app_main
 from backend.app.core import config
 from backend.app.services import repeat_expansion_pg
+from backend.tests._repeat_fakes import RecordingSession
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _SHIPPED = _REPO_ROOT / "data" / "ref-data" / "STRchive-loci.json"
@@ -64,24 +65,12 @@ def _rewritten_copy(tmp_path: Path) -> Path:
     return path
 
 
-class _RecordingSession:
-    def __init__(self) -> None:
-        self.statements: list[tuple[str, dict]] = []
-        self.committed = False
-
-    async def execute(self, statement: Any, params: dict | None = None) -> None:
-        self.statements.append((" ".join(str(statement).split()), params or {}))
-
-    async def commit(self) -> None:
-        self.committed = True
-
-
 def _configure(monkeypatch: pytest.MonkeyPatch, *, setting: Path | None, repository: Path) -> None:
     monkeypatch.setattr(repeat_expansion_pg.settings, "trgt_strchive_loci_path", str(setting) if setting else None)
     monkeypatch.setattr(repeat_expansion_pg, "REPO_STRCHIVE_LOCI_PATH", repository)
 
 
-def _strchive_upserts(session: _RecordingSession) -> list[str]:
+def _strchive_upserts(session: RecordingSession) -> list[str]:
     return [
         params["locus_id"]
         for sql, params in session.statements
@@ -131,7 +120,7 @@ async def test_an_identical_copy_in_the_bucket_is_read(monkeypatch: pytest.Monke
     shutil.copyfile(_SHIPPED, copy)
     # The copy is the only file a start can read: the repository's is not there.
     _configure(monkeypatch, setting=copy, repository=tmp_path / "no-checkout" / "STRchive-loci.json")
-    session = _RecordingSession()
+    session = RecordingSession()
 
     await repeat_expansion_pg.seed_builtin_repeat_catalog(session)
 
@@ -146,7 +135,7 @@ async def test_the_repository_copy_is_read_when_the_setting_names_no_file(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     _configure(monkeypatch, setting=tmp_path / "unmounted" / "STRchive-loci.json", repository=_SHIPPED)
-    session = _RecordingSession()
+    session = RecordingSession()
 
     await repeat_expansion_pg.seed_builtin_repeat_catalog(session)
 
@@ -157,7 +146,7 @@ async def test_the_repository_copy_is_read_when_the_setting_names_no_file(
 # ---- Any other file refuses the start, before anything is written ---------------------------------
 
 
-async def _refused_start(session: _RecordingSession) -> BaseException:
+async def _refused_start(session: RecordingSession) -> BaseException:
     """The error a start raises; a start that seeds the catalogue fails the test."""
     with pytest.raises(Exception) as excinfo:
         await repeat_expansion_pg.seed_builtin_repeat_catalog(session)
@@ -194,7 +183,7 @@ async def test_a_start_on_any_other_file_is_refused_before_anything_is_written(
     other = make_file(tmp_path)
     _configure(monkeypatch, setting=other, repository=_SHIPPED)
     caplog.set_level(logging.INFO, logger=repeat_expansion_pg.__name__)
-    session = _RecordingSession()
+    session = RecordingSession()
 
     error = await _refused_start(session)
 
@@ -215,7 +204,7 @@ async def test_the_repository_copy_is_held_to_the_pin_too(
     edited = _another_release(tmp_path)
     _configure(monkeypatch, setting=None, repository=edited)
     caplog.set_level(logging.INFO, logger=repeat_expansion_pg.__name__)
-    session = _RecordingSession()
+    session = RecordingSession()
 
     error = await _refused_start(session)
 
@@ -233,7 +222,7 @@ async def test_a_start_without_any_strchive_file_is_refused(
     repository = tmp_path / "no-checkout" / "STRchive-loci.json"
     _configure(monkeypatch, setting=setting, repository=repository)
     caplog.set_level(logging.INFO, logger=repeat_expansion_pg.__name__)
-    session = _RecordingSession()
+    session = RecordingSession()
 
     error = await _refused_start(session)
 
@@ -276,11 +265,11 @@ _STEPS_AFTER_THE_CATALOGUE = (
 )
 
 
-def _patch_every_step_but_the_catalogue(monkeypatch: pytest.MonkeyPatch, recorder: _Recorder) -> _RecordingSession:
-    session = _RecordingSession()
+def _patch_every_step_but_the_catalogue(monkeypatch: pytest.MonkeyPatch, recorder: _Recorder) -> RecordingSession:
+    session = RecordingSession()
 
     class _SessionFactory:
-        async def __aenter__(self) -> _RecordingSession:
+        async def __aenter__(self) -> RecordingSession:
             return session
 
         async def __aexit__(self, *_exc: Any) -> bool:
@@ -348,7 +337,7 @@ async def test_a_start_removes_strchive_rows_the_shipped_release_does_not_list(m
     it) keeps loci the shipped release lacks, with that release's thresholds: a TRID naming one
     would read against them. The start's own transaction removes them, after its upserts."""
     _configure(monkeypatch, setting=None, repository=_SHIPPED)
-    session = _RecordingSession()
+    session = RecordingSession()
 
     await repeat_expansion_pg.seed_builtin_repeat_catalog(session)
 

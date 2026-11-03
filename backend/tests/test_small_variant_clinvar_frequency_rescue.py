@@ -1,6 +1,23 @@
+"""*ClinVar P/LP overrules the frequency filter*: a pathogenic or likely pathogenic variant is
+kept past the frequency ceilings when the search asks for it (``clinvar_overrides_frequency``).
+
+The rescue lifts the whole frequency block (the population frequencies and the gnomAD
+homozygote, hemizygote and allele counts), for a ClinVar pathogenic or likely pathogenic record,
+ClinVar's aggregate form included; never for a benign record or a variant without ClinVar, and
+not at all when the search does not ask for it. The Python matcher (``_annotation_matches_normal``)
+and the ClickHouse condition (``_small_detail_filter_clauses``, #534) apply the same rule.
+"""
+
 from __future__ import annotations
 
-from backend.app.services.clickhouse_variant_records import _annotation_matches_normal
+import pytest
+
+from backend.app.services.clickhouse_variant_queries import _small_detail_filter_clauses
+from backend.app.services.clickhouse_variant_records import (
+    _annotation_matches_normal,
+    _flexible_status_match,
+    _status_terms,
+)
 from backend.app.services.family_variant_filters import SmallVariantQueryFilters
 
 
@@ -10,53 +27,40 @@ def _filters(**overrides) -> SmallVariantQueryFilters:
     return SmallVariantQueryFilters(**base)
 
 
-def test_common_pathogenic_kept_when_rescue_enabled() -> None:
-    annotation = {"gnomad_af": 0.2, "gnomad_hom_count": 5000, "clinvar": "Pathogenic"}
-    assert _annotation_matches_normal(annotation, _filters(clinvar_overrides_frequency=True))
-
-
-def test_common_likely_pathogenic_kept_when_rescue_enabled() -> None:
-    annotation = {"gnomad_af": 0.2, "clinvar": "Likely_pathogenic"}
-    assert _annotation_matches_normal(annotation, _filters(clinvar_overrides_frequency=True))
-
-
-def test_common_pathogenic_filtered_without_rescue() -> None:
-    annotation = {"gnomad_af": 0.2, "clinvar": "Pathogenic"}
-    assert not _annotation_matches_normal(annotation, _filters(clinvar_overrides_frequency=False))
-
-
-def test_rescue_does_not_keep_common_benign() -> None:
-    annotation = {"gnomad_af": 0.2, "clinvar": "Benign"}
-    assert not _annotation_matches_normal(annotation, _filters(clinvar_overrides_frequency=True))
-
-
-def test_rescue_does_not_keep_common_variant_without_clinvar() -> None:
-    annotation = {"gnomad_af": 0.2}
-    assert not _annotation_matches_normal(annotation, _filters(clinvar_overrides_frequency=True))
-
-
-def test_rare_pathogenic_passes_regardless() -> None:
-    annotation = {"gnomad_af": 0.0001, "clinvar": "Pathogenic"}
-    assert _annotation_matches_normal(annotation, _filters(clinvar_overrides_frequency=False))
-
-
-def test_rescue_only_bypasses_frequency_not_hom_count_independently() -> None:
-    # A P/LP variant that is common by hom_count is also rescued (rescue covers
-    # the whole frequency/hom/hemi/AC block).
-    annotation = {"gnomad_af": 0.0001, "gnomad_hom_count": 9000, "clinvar": "Pathogenic"}
-    assert not _annotation_matches_normal(annotation, _filters(clinvar_overrides_frequency=False))
-    assert _annotation_matches_normal(annotation, _filters(clinvar_overrides_frequency=True))
+@pytest.mark.parametrize(
+    ("annotation", "rescue", "kept"),
+    [
+        ({"gnomad_af": 0.2, "gnomad_hom_count": 5000, "clinvar": "Pathogenic"}, True, True),
+        ({"gnomad_af": 0.2, "clinvar": "Likely_pathogenic"}, True, True),
+        ({"gnomad_af": 0.2, "clinvar": "Pathogenic"}, False, False),
+        ({"gnomad_af": 0.2, "clinvar": "Benign"}, True, False),
+        ({"gnomad_af": 0.2}, True, False),
+        ({"gnomad_af": 0.0001, "clinvar": "Pathogenic"}, False, True),
+        # Common by its homozygote count alone: the rescue covers the whole
+        # frequency/hom/hemi/AC block, not the frequencies alone.
+        ({"gnomad_af": 0.0001, "gnomad_hom_count": 9000, "clinvar": "Pathogenic"}, False, False),
+        ({"gnomad_af": 0.0001, "gnomad_hom_count": 9000, "clinvar": "Pathogenic"}, True, True),
+    ],
+    ids=[
+        "common pathogenic, rescued",
+        "common likely pathogenic, rescued",
+        "common pathogenic, without the rescue",
+        "common benign is not rescued",
+        "common without ClinVar is not rescued",
+        "rare pathogenic passes regardless",
+        "common by hom count, without the rescue",
+        "common by hom count, rescued",
+    ],
+)
+def test_the_python_matcher_lifts_the_frequency_block_for_a_pathogenic_clinvar_record(
+    annotation: dict, rescue: bool, kept: bool
+) -> None:
+    assert _annotation_matches_normal(annotation, _filters(clinvar_overrides_frequency=rescue)) is kept
 
 
 # --- #534: the ClickHouse filter must apply the same rescue ------------------------------
 # The candidate fetch filters on population frequency in SQL before any row reaches the
 # Python matcher above, so a rescue that exists only in Python never runs.
-
-from backend.app.services.clickhouse_variant_queries import _small_detail_filter_clauses  # noqa: E402
-from backend.app.services.clickhouse_variant_records import (  # noqa: E402
-    _flexible_status_match,
-    _status_terms,
-)
 
 
 def _sql(**overrides):

@@ -38,6 +38,8 @@ from uuid import uuid4
 
 import pytest
 
+from backend.tests.e2e._harness import capture, ensure_postgres_schema
+
 pytestmark = pytest.mark.integration
 
 _MITO_HEADER = (
@@ -66,13 +68,6 @@ _SNIFFLES = (
     "1\t200000\tS.2\tN\t<DEL>\t40\tPASS\tSVTYPE=DEL;SVLEN=-10;END=5000000000;SUPPORT=9\tGT\t0/1\n"
 )
 _BED = "chr1\t-5\t100\t1.0\nchr1\t100\t200\t1.5\n"
-
-
-def _cap(response: Any) -> dict[str, Any]:
-    out: dict[str, Any] = {"status": response.status_code, "text": response.text}
-    if response.status_code < 400:
-        out["json"] = response.json()
-    return out
 
 
 async def _small_variant_calls(family_uuid: str | None) -> dict[int, dict[str, Any]]:
@@ -133,7 +128,7 @@ async def _exercise(base: Path, family_id: str, package_family_id: str) -> dict[
     from sqlalchemy import text
 
     from backend.app.core.clickhouse import init_clickhouse_schema
-    from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
+    from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.main import app
     from backend.app.services import family_package_import as package_import
     from backend.app.services.clickhouse_interval_tracks import fetch_interval_track_rows
@@ -143,7 +138,7 @@ async def _exercise(base: Path, family_id: str, package_family_id: str) -> dict[
     )
     from backend.tests.e2e import _harness
 
-    await init_postgres_schema()
+    await ensure_postgres_schema()
     await init_clickhouse_schema()
     await ensure_clickhouse_variant_tables(_harness.ASSEMBLY)
     sessionmaker = get_postgres_sessionmaker()
@@ -176,7 +171,7 @@ async def _exercise(base: Path, family_id: str, package_family_id: str) -> dict[
     async with AsyncClient(transport=transport, base_url="http://e2e") as ac:
         token = await _harness.login_admin_token(ac)
         ac.headers["Authorization"] = f"Bearer {token}"
-        out["ped"] = _cap(
+        out["ped"] = capture(
             await ac.post(
                 "/api/ped/upload",
                 params={"project_id": project_id},
@@ -185,7 +180,7 @@ async def _exercise(base: Path, family_id: str, package_family_id: str) -> dict[
         )
 
         async def upload_mito(records: str, *, overwrite: bool) -> dict[str, Any]:
-            return _cap(
+            return capture(
                 await ac.post(
                     f"/api/families/{family_id}/small-variants/upload",
                     params={"overwrite": str(overwrite).lower(), "source_format": "mito"},
@@ -200,9 +195,9 @@ async def _exercise(base: Path, family_id: str, package_family_id: str) -> dict[
         family = await family_row(family_id)
         out["flag_after_overwrite"] = family["flag"]
         out["calls_after_overwrite"] = await _small_variant_calls(family["family_uuid"])
-        out["mtdna"] = _cap(await ac.get(f"/api/families/{family_id}/mitochondrial-dna"))
+        out["mtdna"] = capture(await ac.get(f"/api/families/{family_id}/mitochondrial-dna"))
 
-        out["sv_upload"] = _cap(
+        out["sv_upload"] = capture(
             await ac.post(
                 f"/api/structural-variants/upload/{proband}",
                 params={"source_format": "sniffles"},
@@ -222,7 +217,7 @@ async def _exercise(base: Path, family_id: str, package_family_id: str) -> dict[
                 _harness.ASSEMBLY, family["family_uuid"], source="sniffles"
             )
         ]
-        out["bed_upload"] = _cap(
+        out["bed_upload"] = capture(
             await ac.post(
                 f"/api/bed/upload/{proband}/coverage",
                 # A coverage BED declares what it holds (TRACE-9).

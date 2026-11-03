@@ -36,6 +36,8 @@ from uuid import uuid4
 
 import pytest
 
+from backend.tests.e2e._harness import ensure_postgres_schema
+
 pytestmark = pytest.mark.integration
 
 KIND = "depth_bigwig"
@@ -56,7 +58,7 @@ async def _exercise(run: str, data: Path) -> dict[str, Any]:
     from sqlalchemy import text
 
     from backend.app.core.config import settings
-    from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
+    from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.main import app
     from backend.app.routers import family_qc_reports, signal_tracks
     from backend.tests.e2e import _harness
@@ -84,7 +86,7 @@ async def _exercise(run: str, data: Path) -> dict[str, Any]:
         s6: {"sequencing_qc": {"report": f"qc/{s2}.html"}},
     }
 
-    await init_postgres_schema()
+    await ensure_postgres_schema()
     sessionmaker = get_postgres_sessionmaker()
     async with sessionmaker() as session:
         _admin, project_id, _assembly_id = await _harness.ensure_e2e_project(session)

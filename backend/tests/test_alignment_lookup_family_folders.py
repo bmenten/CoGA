@@ -21,7 +21,6 @@ same way. All IDs and files are synthetic.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import os
 from pathlib import Path
 from types import SimpleNamespace
@@ -32,13 +31,9 @@ import httpx
 import pytest
 
 from backend.app.core.config import settings
-from backend.app.core.postgres import get_postgres_session
 from backend.app.core.url_path import url_path
-from backend.app.dependencies import get_current_user
-from backend.app.main import app
-from backend.app.middleware import request_logging
 from backend.app.routers import cram
-from backend.app.services.access_control import CurrentUser
+from backend.tests._family_folder_app import ORIGIN, asgi_client, sign_in_a_viewer_who_reads
 
 # The five layouts, under the data directory, in the order they are probed.
 LAYOUTS = (
@@ -335,44 +330,14 @@ def test_the_header_is_read_only_from_the_familys_own_folders(
 # Through the app
 # --------------------------------------------------------------------------- #
 
-ORIGIN = "http://coga.test"
-
 
 @pytest.fixture()
 def members(data: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, list[str]]:
     """The app over ``data`` with a signed-in viewer who may read every family; the family
     records (their members) are read from the returned mapping."""
     families: dict[str, list[str]] = {}
-
-    async def family_record(session: Any, family_id: str, user: Any) -> Any:
-        if family_id not in families:
-            raise HTTPException(status_code=404, detail="Family not found")
-        return SimpleNamespace(members=[SimpleNamespace(sample_id=sample) for sample in families[family_id]])
-
-    async def no_session():
-        yield None
-
-    async def a_viewer() -> CurrentUser:
-        return CurrentUser(
-            id="user-viewer",
-            username="viewer@example.com",
-            email="viewer@example.com",
-            role="viewer",
-            created_at=datetime.now(timezone.utc),
-        )
-
-    async def keep_audit_row(payload: Any) -> None:
-        return None
-
-    monkeypatch.setattr(cram, "get_family_record", family_record)
-    monkeypatch.setattr(request_logging, "write_audit_log_event", keep_audit_row)
-    monkeypatch.setitem(app.dependency_overrides, get_postgres_session, no_session)
-    monkeypatch.setitem(app.dependency_overrides, get_current_user, a_viewer)
+    sign_in_a_viewer_who_reads(monkeypatch, families, cram)
     return families
-
-
-def _client() -> httpx.AsyncClient:
-    return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url=ORIGIN)
 
 
 async def _manifest(client: httpx.AsyncClient, family_id: str, *sample_ids: str) -> list[dict[str, Any]]:
@@ -397,7 +362,7 @@ async def test_the_manifest_lists_only_the_familys_own_reads(data: Path, members
     for layout in LAYOUTS:
         _place(data, layout, "F2", "S2")
 
-    async with _client() as client:
+    async with asgi_client() as client:
         entries = await _manifest(client, "F1", "S1", "../F2/S2")
         fetched = [await client.get(f"{ORIGIN}/api{entries[0][key]}") for key in ("url", "index_url")]
 
@@ -412,7 +377,7 @@ async def test_a_folder_linked_into_another_family_serves_nothing(data: Path, me
     _place(data, LAYOUTS[1], "F2", "S3")
     _link(data, "families/F1/bams", "families/F2/bams")
 
-    async with _client() as client:
+    async with asgi_client() as client:
         entries = await _manifest(client, "F1", "S3")
         fetched = [await _fetch(client, "F1", "S3.cram"), await _fetch(client, "F1", "S3.cram.crai")]
 
@@ -430,7 +395,7 @@ async def test_a_family_folder_leading_out_of_the_data_directory_serves_nothing(
     members["F1"] = ["S1"]
     _folders_leading_out(data, tmp_path)
 
-    async with _client() as client:
+    async with asgi_client() as client:
         entries = await _manifest(client, "F1", "S1")
         fetched = await _fetch(client, "F1", "S1.cram")
 

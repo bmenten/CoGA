@@ -1,13 +1,27 @@
 from __future__ import annotations
 
 import random
+from datetime import datetime, timezone
+from typing import Any
 
 import pytest
 
+from backend.app.main import app
+from backend.app.routers import families_reports
+from backend.app.services import report_signout_service
+from backend.app.services.access_control import CurrentUser
 from backend.app.services.sample_integrity_qc import (
+    IBS0_PARENT_CHILD_MAX,
+    MIN_MENDEL_SITES,
+    MIN_RELATEDNESS_SITES,
+    MIN_X_SITES,
     PedigreeSpec,
     ReadSexCall,
+    SampleIntegrityReport,
     SexCheck,
+    _evaluate_sex,
+    _mendelian_check,
+    _relationship_status,
     classify_relatedness,
     evaluate_fetal_sex,
     evaluate_nipt_category_qc,
@@ -370,6 +384,17 @@ def test_resolve_application_per_input_shape() -> None:
         analysis_type="", roles={"P": "proband", "F": "father", "M": "mother"},
         parents_of={"P": {"father": "F", "mother": "M"}}, sample_count=3,
     ) == "wgs"
+    # Several members and no parent-child edge, not a couple: the shape tells nothing, and
+    # every check runs where the data allows.
+    unknown = resolve_application(
+        analysis_type="", roles={"A": "proband", "B": "sibling", "C": "relative"}, parents_of={}, sample_count=3
+    )
+    assert unknown == "unknown"
+    assert (profile_for(unknown).run_sex, profile_for(unknown).run_relatedness, profile_for(unknown).run_mendelian) == (
+        True,
+        True,
+        True,
+    )
 
 
 def test_single_profile_runs_sex_only() -> None:
@@ -414,13 +439,22 @@ def test_nipt_profile_summary_names_the_checks_it_runs() -> None:
     # The NIPT page runs fetal sex (from paternal-X transmission, no chrY) and chrX-zygosity
     # sex for the father and the cfDNA sample; its summary said the first was "not yet
     # wired" and that chrX-heterozygosity sex did not apply.
-    summary = profile_for("nipt").summary.lower()
-    assert "not yet wired" not in summary
-    assert "heterozygosity sex do not apply" not in summary
-    assert "fetal sex" in summary and "paternal-x" in summary
-    assert "chrx" in summary and "father" in summary and "cfdna sample" in summary
+    summary = profile_for("nipt").summary
+    lowered = summary.lower()
+    assert "not yet wired" not in lowered
+    assert "heterozygosity sex do not apply" not in lowered
+    assert "fetal sex" in lowered and "paternal-x" in lowered
+    assert "chrx" in lowered and "father" in lowered and "cfdna sample" in lowered
     # What genuinely does not run on a maternal/fetal mixture is still said.
-    assert "relatedness" in summary and "mendelian" in summary
+    assert "relatedness" in lowered and "mendelian" in lowered
+    # What the paternity check counts (ENG-4, below): the father's alleles in the plasma,
+    # homozygous and heterozygous apart, not the categories 7 and 8 of the logic before #749.
+    assert "categories 7/8" not in summary
+    assert "paternal-transmitted" not in summary
+    assert "the father's alleles in the plasma" in summary
+    assert "homozygous" in summary and "heterozygous" in summary
+    # The checks the classification does feed are still named.
+    assert "the category distribution is checked" in summary
 
 
 def _paternity(hom: tuple[int, int], het: tuple[int, int]):
@@ -450,6 +484,80 @@ def test_evaluate_paternity_supported_vs_mixup() -> None:
     # Too few paternal-informative sites -> warn, not a confident verdict.
     thin = _paternity((5, 1), (10, 9))
     assert thin.status == "warn" and "Too few" in thin.message
+
+
+# --- The NIPT paternity check's totals say what they count (ENG-4) ----------------------
+#
+# The check reads the father's alleles in the plasma, at the autosomal sites where the mother
+# does not carry them and the depth leaves a transmitted allele all but impossible to miss: his
+# homozygous alleles must all be seen, about half of his heterozygous ones. Its totals were
+# served as ``cat7_transmitted`` and ``cat8_absent``, and the NIPT summary said paternity was
+# confirmed from "paternal-transmitted sites (categories 7/8)": the logic before #749, which
+# counted the classification's categories 7 and 8. They are now ``transmitted_sites`` (the
+# sites where his allele is seen, homozygous and heterozygous) and ``hom_alt_absent_sites``
+# (his homozygous sites where it is not, ``hom_alt_not_transmitted``). A record signed from
+# now on stores the new summary (checked with the other NIPT checks it names, above). No
+# signed record holds either total: the snapshot keeps the check's four counts, which both
+# are worked out from.
+
+_OLD_TOTAL_NAMES = {"cat7_transmitted", "cat8_absent"}
+
+
+def _nipt_report() -> SampleIntegrityReport:
+    """A NIPT family's Sample QC as the service builds it: the true father, his homozygous
+    alleles all seen but 15 coverage dropouts, half his heterozygous ones."""
+    paternity = _paternity((485, 15), (1020, 980))
+    spec = PedigreeSpec(recorded_sex={}, parents_of={})
+    return evaluate_sample_integrity({}, {}, spec, profile=profile_for("nipt"), paternity_check=paternity)
+
+
+@pytest.mark.asyncio
+async def test_the_paternity_check_serves_its_totals_under_what_they_count(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def sample_qc(*_args: Any, **_kwargs: Any) -> SampleIntegrityReport:
+        return _nipt_report()
+
+    monkeypatch.setattr(families_reports, "get_family_sample_integrity_qc", sample_qc)
+    admin = CurrentUser(
+        id="00000000-0000-0000-0000-000000000001",
+        username="admin@example.com",
+        email="admin@example.com",
+        role="admin",
+        created_at=datetime.now(timezone.utc),
+    )
+
+    served = await families_reports.get_family_sample_integrity_qc_endpoint(
+        "FAM_NIPT_ENG4", None, session=None, user=admin  # type: ignore[arg-type]
+    )
+
+    assert served.paternity_check is not None
+    check = served.paternity_check.model_dump()
+    assert not _OLD_TOTAL_NAMES & set(check)
+    assert check["transmitted_sites"] == 485 + 1020
+    assert check["hom_alt_absent_sites"] == check["hom_alt_not_transmitted"] == 15
+    assert check["informative_sites"] == 485 + 15 + 1020 + 980
+    assert check["status"] == "pass"
+
+    schema = app.openapi()["components"]["schemas"]["SampleIntegrityPaternityCheckOut"]
+    assert not _OLD_TOTAL_NAMES & set(schema["properties"])
+    assert {"transmitted_sites", "hom_alt_absent_sites"} <= set(schema["required"])
+
+
+def test_a_record_signed_now_stores_the_new_summary_and_neither_total() -> None:
+    stored = report_signout_service._canonical_sample_qc(_nipt_report())
+
+    assert stored["application"] == "nipt"
+    assert stored["application_summary"] == profile_for("nipt").summary
+    assert "categories 7/8" not in stored["application_summary"]
+    # The four counts both totals are worked out from, and neither total, under any name.
+    assert set(stored["paternity_check"]) == {
+        "father",
+        "hom_alt_transmitted",
+        "hom_alt_not_transmitted",
+        "het_transmitted",
+        "het_not_transmitted",
+        "status",
+        "message",
+    }
 
 
 def test_evaluate_fetal_sex_wraps_the_call() -> None:
@@ -598,3 +706,208 @@ def test_the_overall_is_not_run_only_when_no_check_ran_at_all() -> None:
     assert swapped.notes == [
         f"Sex could not be checked for samples CHILD, FATHER and MOTHER. {_NOT_A_PASS}"
     ]
+
+
+# --- The bands each genotype check reads ---------------------------------------------
+#
+# The relatedness, sex and Mendelian checks each read a measure against fixed bands, and
+# the cfDNA category check two rates against theirs. These pin each band at its edges and
+# the verdict and sentence each reading gets.
+
+
+@pytest.mark.parametrize(
+    ("kinship", "ibs0", "sites", "expected"),
+    [
+        (0.25, 0.0, MIN_RELATEDNESS_SITES - 1, "indeterminate"),
+        (0.36, 0.0, MIN_RELATEDNESS_SITES, "duplicate"),
+        (0.354, 0.0, 5_000, "parent-child"),  # at the duplicate bound: first degree
+        (0.25, IBS0_PARENT_CHILD_MAX - 0.0001, 5_000, "parent-child"),
+        (0.25, IBS0_PARENT_CHILD_MAX, 5_000, "sibling"),
+        (0.178, 0.0, 5_000, "parent-child"),
+        (0.177, 0.0, 5_000, "second-degree"),
+        (0.0885, 0.0, 5_000, "second-degree"),
+        (0.0884, 0.0, 5_000, "third-degree"),
+        (0.0443, 0.0, 5_000, "third-degree"),
+        (0.0442, 0.0, 5_000, "unrelated"),
+        (-0.2, 0.3, 5_000, "unrelated"),
+    ],
+)
+def test_the_relatedness_bands_and_their_edges(kinship: float, ibs0: float, sites: int, expected: str) -> None:
+    assert classify_relatedness(kinship, ibs0, sites) == expected
+
+
+_REL = "metrics"
+
+
+@pytest.mark.parametrize(
+    ("expected", "inferred", "coparents", "status", "message"),
+    [
+        ("parent-child", "parent-child", False, "pass", f"Confirmed parent-child ({_REL})."),
+        (
+            "parent-child", "sibling", False, "fail",
+            f"Recorded parent-child but genotypes look sibling ({_REL}) — possible sample swap or wrong parent.",
+        ),
+        (
+            "parent-child", "unrelated", False, "fail",
+            f"Recorded parent-child but genotypes look unrelated ({_REL}) — possible sample swap or wrong parent.",
+        ),
+        # Siblings read as parent-child below the IBS0 cut: first degree either way.
+        ("sibling", "parent-child", False, "pass", f"Consistent with full siblings ({_REL})."),
+        ("sibling", "sibling", False, "pass", f"Consistent with full siblings ({_REL})."),
+        ("sibling", "second-degree", False, "fail", f"Recorded siblings but genotypes look second-degree ({_REL})."),
+        ("unrelated", "unrelated", False, "pass", f"Unrelated, as expected ({_REL})."),
+        ("unrelated", "unrelated", True, "pass", f"Parents are unrelated — no consanguinity ({_REL})."),
+        ("unrelated", "third-degree", False, "warn", f"Unexpected relatedness — looks third-degree ({_REL})."),
+        ("unrelated", "second-degree", True, "warn", f"Parents look second-degree — possible consanguinity ({_REL})."),
+        (
+            "unrelated", "parent-child", False, "fail",
+            f"Recorded unrelated but genotypes look parent-child ({_REL}) — possible duplicate or swap.",
+        ),
+        (
+            "unrelated", "duplicate", True, "fail",
+            f"Parents look duplicate ({_REL}) — consanguinity or a sample duplication.",
+        ),
+        ("parent-child", "indeterminate", False, "warn", f"Too few shared sites to assess relatedness ({_REL})."),
+    ],
+)
+def test_each_relatedness_reading_is_graded_against_the_recorded_relationship(
+    expected: str, inferred: str, coparents: bool, status: str, message: str
+) -> None:
+    assert _relationship_status(expected, inferred, 5_000, _REL, coparents=coparents) == (status, message)
+    # Too few shared sites warns whatever the reading.
+    assert _relationship_status(expected, inferred, MIN_RELATEDNESS_SITES - 1, _REL, coparents=coparents)[0] == "warn"
+
+
+def _x_calls(het: int, total: int) -> list[tuple[int, int]]:
+    return [(0, 1)] * het + [(1, 1)] * (total - het)
+
+
+@pytest.mark.parametrize(
+    ("het", "total", "inferred"),
+    [
+        (0, MIN_X_SITES - 1, "indeterminate"),  # too few sites, however clear
+        (0, MIN_X_SITES, "male"),
+        (50, 1_000, "male"),  # 5%: at the male bound
+        (51, 1_000, "indeterminate"),
+        (149, 1_000, "indeterminate"),
+        (150, 1_000, "female"),  # 15%: at the female bound
+    ],
+)
+def test_the_chrx_heterozygosity_bands(het: int, total: int, inferred: str) -> None:
+    assert infer_sex(_x_calls(het, total))[0] == inferred
+
+
+def test_a_sex_the_genotypes_do_not_tell_or_the_record_lacks_warns() -> None:
+    between = _evaluate_sex("S", "male", _x_calls(100, 1_000))
+    assert (between.inferred_sex, between.status, between.message) == (
+        "indeterminate", "warn", "Could not infer sex (10.0% chrX het over 1000 sites)."
+    )
+    unrecorded = _evaluate_sex("S", "unknown", _x_calls(0, 1_000))
+    assert (unrecorded.inferred_sex, unrecorded.status, unrecorded.message) == (
+        "male", "warn", "Sex not recorded; genotypes indicate male (0.0% chrX het over 1000 sites)."
+    )
+
+
+def _mendel(errors: int, informative: int) -> list[tuple[int, int]]:
+    """A child of two hom-ref parents: ``errors`` sites where it carries an allele neither has."""
+    return [(1, 1)] * errors + [(0, 0)] * (informative - errors)
+
+
+@pytest.mark.parametrize(
+    ("errors", "informative", "status", "message"),
+    [
+        (19, 1_000, "pass", "Mendelian-error rate within tolerance (19/1000 sites (1.90%))."),
+        (20, 1_000, "warn", "Elevated Mendelian-error rate 20/1000 sites (2.00%)."),
+        (49, 1_000, "warn", "Elevated Mendelian-error rate 49/1000 sites (4.90%)."),
+        (50, 1_000, "fail", "High Mendelian-error rate 50/1000 sites (5.00%) — likely swap or wrong parent."),
+        (
+            0, MIN_MENDEL_SITES - 1, "warn",
+            f"Too few informative sites for a reliable estimate (0/{MIN_MENDEL_SITES - 1} sites (0.00%)).",
+        ),
+    ],
+)
+def test_the_mendelian_error_rate_bands(errors: int, informative: int, status: str, message: str) -> None:
+    parent = [(0, 0)] * informative
+    check = _mendelian_check(
+        "CHILD", {"father": "FATHER", "mother": "MOTHER"},
+        {"FATHER": parent, "MOTHER": parent, "CHILD": _mendel(errors, informative)},
+    )
+    assert check is not None
+    assert (check.parents, check.informative_sites, check.mendel_errors, check.status, check.message) == (
+        ["FATHER", "MOTHER"], informative, errors, status, message
+    )
+
+
+def test_a_child_is_checked_against_the_parents_with_genotypes() -> None:
+    # One parent with genotypes: the single-parent check (a shared allele at every site).
+    child = [(0, 1)] * 300
+    lone = _mendelian_check(
+        "CHILD", {"father": "FATHER", "mother": "MOTHER"}, {"FATHER": [(1, 1)] * 300, "CHILD": child}
+    )
+    assert lone is not None and (lone.parents, lone.informative_sites, lone.mendel_errors) == (["FATHER"], 300, 0)
+    # A site where a parent has no genotype is not informative.
+    gaps = _mendelian_check(
+        "CHILD",
+        {"father": "FATHER", "mother": "MOTHER"},
+        {"FATHER": [None, *[(0, 0)] * 299], "MOTHER": [(0, 0)] * 300, "CHILD": [(0, 0)] * 300},
+    )
+    assert gaps is not None and gaps.informative_sites == 299
+    # Neither parent has genotypes: no check.
+    assert _mendelian_check("CHILD", {"father": "FATHER", "mother": "MOTHER"}, {"CHILD": child}) is None
+    # Nor for a child without genotypes, in the report.
+    father, mother, _child = _trio(40)
+    report = evaluate_sample_integrity(
+        {"FATHER": father, "MOTHER": mother}, {}, _trio_spec({"FATHER": "male", "MOTHER": "female"}), profile=_WGS
+    )
+    assert report.mendelian_checks == []
+
+
+def test_an_unrelated_pair_reading_unrelated_is_listed_only_for_a_couple_or_co_parents() -> None:
+    # A member the pedigree does not link: its pairs read unrelated as expected, which is
+    # noise in the report; the co-parents' "no consanguinity" stays (and a couple's, above).
+    father, mother, child = _trio(50)
+    autosomal = {"FATHER": father, "MOTHER": mother, "CHILD": child, "OTHER": _founder(random.Random(51))}
+    report = evaluate_sample_integrity(
+        autosomal, {}, _trio_spec({"FATHER": "male", "MOTHER": "female", "CHILD": "male", "OTHER": "female"}), profile=_WGS
+    )
+    assert {(c.sample_a, c.sample_b, c.status) for c in report.relatedness_checks} == {
+        ("CHILD", "FATHER", "pass"),
+        ("CHILD", "MOTHER", "pass"),
+        ("FATHER", "MOTHER", "pass"),
+    }
+
+
+def test_a_family_without_genotypes_says_its_checks_could_not_run() -> None:
+    report = evaluate_sample_integrity(
+        {}, {}, _trio_spec({"FATHER": "male", "MOTHER": "female", "CHILD": "male"}), profile=_WGS
+    )
+    assert report.notes == ["No genotypes were available; QC could not run."]
+    # No check ran at all: not run, which the sign-out gate holds on its own.
+    assert (report.sex_checks, report.relatedness_checks, report.mendelian_checks) == ([], [], [])
+    assert report.overall_status == "skip"
+
+
+@pytest.mark.parametrize(
+    ("counts", "status", "message"),
+    [
+        # 5% de novo: elevated, not yet an excess.
+        ({1: 5, 2: 45, 3: 25, 4: 25}, "warn", "elevated de-novo (cat 1) 5/100 (5%)."),
+        ({1: 15, 2: 45, 3: 20, 4: 20}, "fail", "de-novo (cat 1) excess 15/100 (15%) — artifacts/contamination."),
+        # 30% of the maternal alleles inherited: off 50%, not yet far from it.
+        ({2: 35, 3: 15}, "warn", "maternal transmission 30% off 50% (15/50 maternal-het sites)."),
+        (
+            {2: 40, 3: 10},
+            "fail",
+            "maternal transmission 20% far from 50% (10/50 maternal-het sites) — wrong mother or sample issue.",
+        ),
+        # Fewer than 20 maternal-het sites: the transmission is not judged.
+        (
+            {2: 19},
+            "pass",
+            "Category distribution within expectation — maternal transmission 0%, 0 de-novo, 0 paternal-absent.",
+        ),
+    ],
+)
+def test_the_nipt_category_qc_bands(counts: dict[int, int], status: str, message: str) -> None:
+    qc = evaluate_nipt_category_qc(counts)
+    assert (qc.status, qc.message) == (status, message)

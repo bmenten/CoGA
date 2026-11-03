@@ -470,8 +470,9 @@ def test_a_failed_build_that_said_nothing_keeps_the_plain_error(script: Path, mo
         json.dumps({"checked_files": [{**_CHECKED_FILE, "sha256": ""}]}),
         json.dumps({"checked_files": [{**_CHECKED_FILE, "sha256": _RECURRENT_SHA256[:12]}]}),
         json.dumps({"checked_files": [{key: value for key, value in _CHECKED_FILE.items() if key != "release"}]}),
+        json.dumps({"checked_files": [_RECORDED_RELEASE]}),
     ],
-    ids=["no record", "unreadable", "no file", "no digest", "a shortened digest", "no release"],
+    ids=["no record", "unreadable", "no file", "no digest", "a shortened digest", "no release", "not described"],
 )
 def test_a_build_that_did_not_record_the_pinned_file_it_read_is_not_loaded(
     script: Path, monkeypatch: pytest.MonkeyPatch, sources: str | None
@@ -499,6 +500,16 @@ def test_each_file_the_build_checked_is_recorded_by_release_file_name_and_sha256
 def test_a_job_that_is_no_longer_queued_is_not_run(script: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     run = _run(monkeypatch, row=None)
     assert run.commands == [] and run.applied == [] and run.updates == []
+
+
+def test_the_build_script_is_the_configured_file_when_it_is_there(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    present = tmp_path / "clinical_cnv_knowledgebase.py"
+    present.write_text("# the build\n", encoding="utf-8")
+    for configured, found in (("", None), (str(tmp_path / "absent.py"), None), (str(tmp_path), None), (str(present), present)):
+        monkeypatch.setattr(kb.settings, "clinical_cnv_kb_script_path", configured)
+        assert kb._script_path() == found, configured
 
 
 def test_a_job_whose_build_script_is_gone_is_marked_failed(monkeypatch: pytest.MonkeyPatch) -> None:

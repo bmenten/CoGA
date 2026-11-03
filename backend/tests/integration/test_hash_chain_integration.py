@@ -32,18 +32,9 @@ from sqlalchemy import text
 
 from backend.app.services import hash_chain
 from backend.tests._signout_dialogs import no_finding_reviews
+from backend.tests.integration._datastores import fresh_family, tamper_behind_the_trigger
 
 pytestmark = pytest.mark.integration
-
-
-async def _fresh_family(session, label: str) -> str:
-    """Create an isolated family (only family_id is required) and return its UUID."""
-    return (
-        await session.execute(
-            text("INSERT INTO families (family_id) VALUES (:f) RETURNING id::text"),
-            {"f": label},
-        )
-    ).scalar_one()
 
 
 async def _fresh_user(session) -> str:
@@ -71,15 +62,6 @@ async def _clinical_event_ids(session, family_identifier: str) -> list[str]:
             )
         ).all()
     ]
-
-
-async def _bypass_trigger_mutate(session, table: str, sql: str, params: dict) -> None:
-    """Mutate a row with the append-only trigger DISABLED — i.e. privileged tampering
-    that does NOT recompute the chain hashes (careless owner / any non-owner role)."""
-    await session.execute(text(f"ALTER TABLE {table} DISABLE TRIGGER USER"))
-    await session.execute(text(sql), params)
-    await session.execute(text(f"ALTER TABLE {table} ENABLE TRIGGER USER"))
-    await session.commit()
 
 
 def test_clinical_audit_hash_chain_holds_and_detects_tampering() -> None:
@@ -118,7 +100,7 @@ def test_clinical_audit_hash_chain_holds_and_detects_tampering() -> None:
             # (a) A clean chain written by the real writer verifies.
             label_a = f"p1-4-cae-a-{uuid4()}"
             async with sm() as s:
-                fam_a = await _fresh_family(s, label_a)
+                fam_a = await fresh_family(s, label_a)
                 await _append(s, fam_a, label_a, 3)
                 ok = await verify_clinical_audit_chain(s, label_a)
                 assert ok.verified and ok.rows_checked == 3, ok
@@ -127,7 +109,7 @@ def test_clinical_audit_hash_chain_holds_and_detects_tampering() -> None:
             async with sm() as s:
                 ids_a = await _clinical_event_ids(s, label_a)
             async with sm() as s:
-                await _bypass_trigger_mutate(
+                await tamper_behind_the_trigger(
                     s,
                     "clinical_audit_events",
                     "UPDATE clinical_audit_events SET summary = 'TAMPERED' "
@@ -141,11 +123,11 @@ def test_clinical_audit_hash_chain_holds_and_detects_tampering() -> None:
             # (c) Deleting a middle row (trigger bypassed) is detected as a broken link.
             label_b = f"p1-4-cae-b-{uuid4()}"
             async with sm() as s:
-                fam_b = await _fresh_family(s, label_b)
+                fam_b = await fresh_family(s, label_b)
                 await _append(s, fam_b, label_b, 3)
             async with sm() as s:
                 ids_b = await _clinical_event_ids(s, label_b)
-                await _bypass_trigger_mutate(
+                await tamper_behind_the_trigger(
                     s,
                     "clinical_audit_events",
                     "DELETE FROM clinical_audit_events WHERE id = CAST(:id AS uuid)",
@@ -181,8 +163,8 @@ def test_clinical_audit_chain_survives_account_and_family_deletion() -> None:
             label_a = f"p1-4-del-a-{uuid4()}"
             label_b = f"p1-4-del-b-{uuid4()}"
             async with sm() as s:
-                fam_a = await _fresh_family(s, label_a)
-                fam_b = await _fresh_family(s, label_b)
+                fam_a = await fresh_family(s, label_a)
+                fam_b = await fresh_family(s, label_b)
                 uid = await _fresh_user(s)
                 for i in range(3):  # family A: every event authored by the user we delete
                     await record_clinical_event(
@@ -282,7 +264,7 @@ def test_structural_variant_review_saves_are_chained_and_verify() -> None:
             sm = get_postgres_sessionmaker()
             label = f"sv-audit-{uuid4()}"
             async with sm() as s:
-                fam = await _fresh_family(s, label)
+                fam = await fresh_family(s, label)
                 await s.commit()
             context = SimpleNamespace(family_uuid=fam, family_id=label, project_ids=[])
             user = SimpleNamespace(id=None, username="sv-reviewer", email="svr@x.org")
@@ -437,7 +419,7 @@ def test_criterion_level_changes_are_chained_and_verify() -> None:
             sm = get_postgres_sessionmaker()
             label = f"criterion-audit-{uuid4()}"
             async with sm() as s:
-                fam = await _fresh_family(s, label)
+                fam = await fresh_family(s, label)
                 await s.commit()
             user = SimpleNamespace(id=None, username="criterion-reviewer", email="cr@x.org")
 
@@ -545,7 +527,7 @@ def test_report_signout_verifier_detects_tampering_and_survives_family_deletion(
             # (a) Clean two-version chain verifies (chain + content_hash re-check, incl. big float).
             label = f"p1-4-rs-{uuid4()}"
             async with sm() as s:
-                fam = await _fresh_family(s, label)
+                fam = await fresh_family(s, label)
                 h1 = await _insert_signout(s, fam, label, 1, _snap(1), None)
                 await _insert_signout(s, fam, label, 2, _snap(2), h1)
                 await s.commit()
@@ -554,7 +536,7 @@ def test_report_signout_verifier_detects_tampering_and_survives_family_deletion(
 
             # (b) Editing the snapshot (content_hash NOT updated) is caught by the content re-check.
             async with sm() as s:
-                await _bypass_trigger_mutate(
+                await tamper_behind_the_trigger(
                     s, "report_signouts",
                     "UPDATE report_signouts SET snapshot = "
                     "jsonb_set(snapshot, '{note}', '\"ALTERED\"') "
@@ -567,7 +549,7 @@ def test_report_signout_verifier_detects_tampering_and_survives_family_deletion(
             # (c) Family deletion (family_id→NULL) leaves the signed history verifiable by identifier.
             label2 = f"p1-4-rs2-{uuid4()}"
             async with sm() as s:
-                fam2 = await _fresh_family(s, label2)
+                fam2 = await fresh_family(s, label2)
                 hh = await _insert_signout(s, fam2, label2, 1, _snap(1), None)
                 await _insert_signout(s, fam2, label2, 2, _snap(2), hh)
                 await s.commit()
@@ -582,10 +564,10 @@ def test_report_signout_verifier_detects_tampering_and_survives_family_deletion(
             # (d) Editing a chained identity field is caught by the chain itself.
             label3 = f"p1-4-rs3-{uuid4()}"
             async with sm() as s:
-                fam3 = await _fresh_family(s, label3)
+                fam3 = await fresh_family(s, label3)
                 await _insert_signout(s, fam3, label3, 1, _snap(1), None)
                 await s.commit()
-                await _bypass_trigger_mutate(
+                await tamper_behind_the_trigger(
                     s, "report_signouts",
                     "UPDATE report_signouts SET signed_out_by = 'impostor' "
                     "WHERE family_identifier = :fl",
@@ -649,7 +631,7 @@ def test_report_signout_real_writer_chain_and_read_verification(monkeypatch) -> 
             sm = get_postgres_sessionmaker()
             label = f"p1-4-rsw-{uuid4()}"
             async with sm() as s:
-                holder["uuid"] = await _fresh_family(s, label)
+                holder["uuid"] = await fresh_family(s, label)
                 holder["label"] = label
                 await s.commit()
 
@@ -670,7 +652,7 @@ def test_report_signout_real_writer_chain_and_read_verification(monkeypatch) -> 
             # Tamper the snapshot (content_hash unchanged) → on-read verified=False, but the
             # record is still returned (must not raise) so an auditor can inspect it.
             async with sm() as s:
-                await _bypass_trigger_mutate(
+                await tamper_behind_the_trigger(
                     s, "report_signouts",
                     "UPDATE report_signouts SET snapshot = "
                     "jsonb_set(snapshot, '{note}', '\"ALTERED\"') "

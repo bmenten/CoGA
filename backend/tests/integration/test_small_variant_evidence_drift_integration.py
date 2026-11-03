@@ -45,6 +45,14 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy import text
 from backend.tests._signout_dialogs import no_finding_reviews
+from backend.tests.integration._datastores import (
+    fresh_assembly,
+    fresh_species,
+    proband_context,
+    small_variant,
+    stored_signout_snapshot,
+    vep_annotations,
+)
 
 pytestmark = pytest.mark.integration
 
@@ -57,12 +65,11 @@ _MANE_TRANSCRIPT = "ENST00000000101"
 _REASON = "REVEL rose with the new dbNSFP release; PP3 re-reviewed at the case meeting."
 _OLD_FORMAT_KEYS = ("annotation_version", "annotation_set_hash", "clinvar", "captured_at")
 
-_CSQ_HEADER = (
-    '##INFO=<ID=CSQ,Number=.,Type=String,Description="Consequence annotations from Ensembl VEP.'
-    " Format: Allele|Consequence|IMPACT|SYMBOL|Gene|Feature_type|Feature|CANONICAL|MANE_SELECT"
+_CSQ_FIELDS = (
+    "Allele|Consequence|IMPACT|SYMBOL|Gene|Feature_type|Feature|CANONICAL|MANE_SELECT"
     "|SIFT|PolyPhen|REVEL|CADD_PHRED|am_class|am_pathogenicity|SpliceAI_pred_DS_AG"
     "|SpliceAI_pred_DS_AL|SpliceAI_pred_DS_DG|SpliceAI_pred_DS_DL|gnomADe_AF|gnomADg_AF|MAX_AF"
-    '|gnomAD_AC|gnomAD_nhomalt|gnomAD_Hemi|TOPMed_AF|CLIN_SIG">'
+    "|gnomAD_AC|gnomAD_nhomalt|gnomAD_Hemi|TOPMed_AF|CLIN_SIG"
 )
 
 
@@ -80,14 +87,6 @@ def _csq(transcript: str, *, mane: bool, consequence: str, impact: str, revel: s
 
 
 def _annotations(*, revel: str = "0.412", gnomad_genomes: str = "3.1e-05") -> list[dict[str, Any]]:
-    from backend.app.services.variant_annotation_parser import (
-        AnnotationHeaderState,
-        extract_small_variant_annotations,
-        update_annotation_header_state,
-    )
-
-    state = AnnotationHeaderState()
-    update_annotation_header_state(state, _CSQ_HEADER)
     entries = [
         # A more severe transcript first: the primary one is still the MANE Select one.
         _csq("ENST00000000102", mane=False, consequence="stop_gained", impact="HIGH",
@@ -95,38 +94,33 @@ def _annotations(*, revel: str = "0.412", gnomad_genomes: str = "3.1e-05") -> li
         _csq(_MANE_TRANSCRIPT, mane=True, consequence="missense_variant", impact="MODERATE",
              revel=revel, gnomad_genomes=gnomad_genomes),
     ]
-    return extract_small_variant_annotations({"CSQ": ",".join(entries)}, state)
+    return vep_annotations(_CSQ_FIELDS, entries)
 
 
 def _record(variant_id: str, annotations: list[dict[str, Any]]):
-    from backend.app.services.clickhouse_variant_records import SmallVariantCall, SmallVariantRecord
-
-    chrom, pos, ref, alt = variant_id.split("-")
-    return SmallVariantRecord(
-        variant_key=None, variant_id=variant_id, chr=chrom, start=int(pos), end=int(pos),
-        ref=ref, alt=alt, source="clair3", rsid=None, filters=["PASS"], gene_symbols=[],
-        annotations=annotations,
-        calls=[SmallVariantCall(sample=_SAMPLE, gt="0/1", gq=99.0, dp=30, af=[0.5], ad=[15, 15], ps=None)],
-        qual=100.0,
-    )
+    return small_variant(variant_id, annotations, sample=_SAMPLE)
 
 
 def _context(family_uuid: str, family_id: str, project: str, assembly_id: str | None = None):
     """The family's context; ``assembly_id`` is the assembly whose gene profiles its gene
     constraint is read from (TRACE-15)."""
-    from backend.app.services.family_metadata_context import FamilyMetadataContext
-
-    return FamilyMetadataContext(
-        family_uuid=family_uuid,
-        family_id=family_id,
-        project_ids=[project],
-        sample_rows=[{"sample_id": _SAMPLE, "role": "proband", "sex": "female", "affected": True}],
-        sample_uuid_to_name={_SAMPLE: _SAMPLE},
-        sample_name_to_uuid={_SAMPLE: _SAMPLE},
-        affected_sample_names=[_SAMPLE],
-        assembly_id=assembly_id,
-        assembly_name=_ASSEMBLY,
+    return proband_context(
+        family_uuid, family_id, project, sample=_SAMPLE, assembly_id=assembly_id, assembly_name=_ASSEMBLY
     )
+
+
+async def _frozen(session, family_uuid: str, variant_id: str) -> dict[str, Any]:
+    """The evidence the variant's review froze (``acmg_evidence_snapshot``), as stored."""
+    stored = (
+        await session.execute(
+            text(
+                "SELECT acmg_evidence_snapshot FROM small_variant_reviews "
+                "WHERE family_id = CAST(:f AS uuid) AND variant_id = :v"
+            ),
+            {"f": family_uuid, "v": variant_id},
+        )
+    ).scalar_one()
+    return json.loads(stored) if isinstance(stored, str) else stored
 
 
 def test_a_classification_freezes_its_frequencies_and_scores_and_drifts_when_they_move(monkeypatch) -> None:
@@ -202,27 +196,6 @@ def test_a_classification_freezes_its_frequencies_and_scores_and_drifts_when_the
         ),
     )
 
-    async def _frozen(session, variant_id: str) -> dict[str, Any]:
-        stored = (
-            await session.execute(
-                text(
-                    "SELECT acmg_evidence_snapshot FROM small_variant_reviews "
-                    "WHERE family_id = CAST(:f AS uuid) AND variant_id = :v"
-                ),
-                {"f": holder["uuid"], "v": variant_id},
-            )
-        ).scalar_one()
-        return json.loads(stored) if isinstance(stored, str) else stored
-
-    async def _stored_signout(session, version: int) -> dict[str, Any]:
-        stored = (
-            await session.execute(
-                text("SELECT snapshot FROM report_signouts WHERE family_identifier = :f AND version = :v"),
-                {"f": label, "v": version},
-            )
-        ).scalar_one()
-        return json.loads(stored) if isinstance(stored, str) else stored
-
     async def _import(*, revel: str, gnomad_genomes: str) -> None:
         # The family's small variants as an import writes them, replacing what was there:
         # the classified variant with the given annotation, the other one unchanged.
@@ -276,7 +249,7 @@ def test_a_classification_freezes_its_frequencies_and_scores_and_drifts_when_the
                     s, context=_ctx_now(), variant_id=_CLASSIFIED, payload=classification, user=user
                 )
             async with sm() as s:
-                frozen = await _frozen(s, _CLASSIFIED)
+                frozen = await _frozen(s, holder["uuid"], _CLASSIFIED)
                 page = await family_variants.get_family_small_variants_page(
                     s, context=_ctx_now(), page=1, page_size=10
                 )
@@ -310,7 +283,7 @@ def test_a_classification_freezes_its_frequencies_and_scores_and_drifts_when_the
                     s, context=_ctx_now(), variant_id=_OLD_SNAPSHOT, payload=old_way, user=user
                 )
             async with sm() as s:
-                stored_old = await _frozen(s, _OLD_SNAPSHOT)
+                stored_old = await _frozen(s, holder["uuid"], _OLD_SNAPSHOT)
                 old_snapshot = {key: stored_old[key] for key in _OLD_FORMAT_KEYS}
                 await s.execute(
                     text(
@@ -367,7 +340,7 @@ def test_a_classification_freezes_its_frequencies_and_scores_and_drifts_when_the
                 )
             assert v1["version"] == 1 and v1["drift_acknowledged"] is True
             async with sm() as s:
-                signed = await _stored_signout(s, 1)
+                signed = await stored_signout_snapshot(s, label, 1)
                 assert (await rss.get_report_signout(s, family_id=label, version=1, user=user))["verified"] is True
                 # The values read back from the signed record compare equal to the drift
                 # computed again: the live report still matches the version just signed.
@@ -389,7 +362,7 @@ def test_a_classification_freezes_its_frequencies_and_scores_and_drifts_when_the
                     s, context=_ctx_now(), variant_id=_CLASSIFIED, payload=classification, user=user
                 )
             async with sm() as s:
-                assert (await _frozen(s, _CLASSIFIED))["in_silico"]["revel"] == 0.951
+                assert (await _frozen(s, holder["uuid"], _CLASSIFIED))["in_silico"]["revel"] == 0.951
                 drift = await cds.evaluate_classification_drift(s, family_id=label, user=user)
             assert (drift["checked"], drift["drifted_count"]) == (2, 0)
             async with sm() as s:
@@ -414,23 +387,13 @@ _GENE8_TRANSCRIPT = "ENST00000000108"
 _GENE8 = "GENE8"
 _GENE8_ID = "ENSG00000000108"
 _GENE8_REASON = "The gene's missense Z moved and LOFTEE now calls the stop gained HC; PP2 and PVS1 re-reviewed."
-_GENE8_CSQ_HEADER = (
-    '##INFO=<ID=CSQ,Number=.,Type=String,Description="Consequence annotations from Ensembl VEP.'
-    " Format: Allele|Consequence|IMPACT|SYMBOL|Gene|Feature_type|Feature|CANONICAL|MANE_SELECT"
-    '|REVEL|gnomADe_AF|gnomADg_AF|LoF|CLIN_SIG">'
+_GENE8_CSQ_FIELDS = (
+    "Allele|Consequence|IMPACT|SYMBOL|Gene|Feature_type|Feature|CANONICAL|MANE_SELECT"
+    "|REVEL|gnomADe_AF|gnomADg_AF|LoF|CLIN_SIG"
 )
 
 
 def _gene8_annotations(*, consequence: str, impact: str, lof: str = "") -> list[dict[str, Any]]:
-    from backend.app.services.variant_annotation_parser import (
-        AnnotationHeaderState,
-        extract_small_variant_annotations,
-        update_annotation_header_state,
-    )
-
-    state = AnnotationHeaderState()
-    update_annotation_header_state(state, _GENE8_CSQ_HEADER)
-
     def _entry(transcript: str, *, mane: bool, consequence: str, impact: str, lof: str) -> str:
         return "|".join(
             [
@@ -446,7 +409,7 @@ def _gene8_annotations(*, consequence: str, impact: str, lof: str = "") -> list[
         _entry("ENST00000000109", mane=False, consequence="stop_gained", impact="HIGH", lof="HC"),
         _entry(_GENE8_TRANSCRIPT, mane=True, consequence=consequence, impact=impact, lof=lof),
     ]
-    return extract_small_variant_annotations({"CSQ": ",".join(entries)}, state)
+    return vep_annotations(_GENE8_CSQ_FIELDS, entries)
 
 
 def test_a_classification_freezes_its_consequence_lof_call_and_missense_z_and_drifts_when_they_move(
@@ -545,18 +508,6 @@ def test_a_classification_freezes_its_consequence_lof_call_and_missense_z_and_dr
         ),
     )
 
-    async def _frozen(session, variant_id: str) -> dict[str, Any]:
-        stored = (
-            await session.execute(
-                text(
-                    "SELECT acmg_evidence_snapshot FROM small_variant_reviews "
-                    "WHERE family_id = CAST(:f AS uuid) AND variant_id = :v"
-                ),
-                {"f": holder["uuid"], "v": variant_id},
-            )
-        ).scalar_one()
-        return json.loads(stored) if isinstance(stored, str) else stored
-
     async def _import(*, stop_consequence: str, stop_lof: str) -> None:
         await delete_family_small_variants(_ASSEMBLY, holder["uuid"], source="clair3")
         await insert_small_variant_records(
@@ -610,24 +561,8 @@ def test_a_classification_freezes_its_consequence_lof_call_and_missense_z_and_dr
                     },
                 )
                 # The gene's profile, with the gnomAD missense Z the PP2 suggestion reads.
-                species = (
-                    await s.execute(
-                        text(
-                            "INSERT INTO species (name, common_name, tax_id) "
-                            "VALUES (:n, 'test', :t) RETURNING id::text"
-                        ),
-                        {"n": f"snv-consequence {tag}", "t": uuid4().int % 2_000_000_000},
-                    )
-                ).scalar_one()
-                holder["assembly"] = (
-                    await s.execute(
-                        text(
-                            "INSERT INTO assemblies (species_id, assembly_name, version, release_date) "
-                            "VALUES (CAST(:s AS uuid), :a, 'v1', '2020-01-01') RETURNING id::text"
-                        ),
-                        {"s": species, "a": f"SNVCONSEQUENCE{tag}"},
-                    )
-                ).scalar_one()
+                species = await fresh_species(s, f"snv-consequence {tag}")
+                holder["assembly"] = await fresh_assembly(s, species, f"SNVCONSEQUENCE{tag}")
                 await s.execute(
                     text(
                         "INSERT INTO gene_info (assembly_id, hgnc_symbol, gene_id, extra) "
@@ -651,8 +586,8 @@ def test_a_classification_freezes_its_consequence_lof_call_and_missense_z_and_dr
                     s, context=_ctx_now(), variant_id=_STOP_GAINED, payload=stop_classification, user=user
                 )
             async with sm() as s:
-                frozen_missense = await _frozen(s, _MISSENSE)
-                frozen_stop = await _frozen(s, _STOP_GAINED)
+                frozen_missense = await _frozen(s, holder["uuid"], _MISSENSE)
+                frozen_stop = await _frozen(s, holder["uuid"], _STOP_GAINED)
                 page = await family_variants.get_family_small_variants_page(
                     s, context=_ctx_now(), page=1, page_size=10
                 )
@@ -679,7 +614,7 @@ def test_a_classification_freezes_its_consequence_lof_call_and_missense_z_and_dr
             async with sm() as s:
                 await upsert_small_variant_review(s, context=_ctx_now(), variant_id=_EARLIER, payload=earlier, user=user)
             async with sm() as s:
-                stored_earlier = await _frozen(s, _EARLIER)
+                stored_earlier = await _frozen(s, holder["uuid"], _EARLIER)
                 del stored_earlier["consequence"], stored_earlier["gene_constraint"]
                 await s.execute(
                     text(
@@ -773,11 +708,11 @@ def test_a_classification_freezes_its_consequence_lof_call_and_missense_z_and_dr
                         s, context=_ctx_now(), variant_id=variant_id, payload=payload, user=user
                     )
             async with sm() as s:
-                assert (await _frozen(s, _MISSENSE))["gene_constraint"] == {
+                assert (await _frozen(s, holder["uuid"], _MISSENSE))["gene_constraint"] == {
                     "gene_missense_z": 3.52,
                     "gene_missense_z_source": "gene_profile",
                 }
-                assert (await _frozen(s, _STOP_GAINED))["consequence"]["lof"] == "HC"
+                assert (await _frozen(s, holder["uuid"], _STOP_GAINED))["consequence"]["lof"] == "HC"
                 drift, _ = await _drift(s)
             assert (drift["checked"], drift["drifted_count"]) == (3, 0)
         finally:
@@ -791,30 +726,21 @@ def test_a_classification_freezes_its_consequence_lof_call_and_missense_z_and_dr
 
 _GENE9 = "GENE9"
 _VCF_Z_MISSENSE = "12-40100601-C-T"
-_GENE9_CSQ_HEADER = (
-    '##INFO=<ID=CSQ,Number=.,Type=String,Description="Consequence annotations from Ensembl VEP.'
-    " Format: Allele|Consequence|IMPACT|SYMBOL|Gene|Feature_type|Feature|CANONICAL|MANE_SELECT"
-    '|REVEL|gnomADe_AF|gnomADg_AF|MISSENSE_Z">'
+_GENE9_CSQ_FIELDS = (
+    "Allele|Consequence|IMPACT|SYMBOL|Gene|Feature_type|Feature|CANONICAL|MANE_SELECT"
+    "|REVEL|gnomADe_AF|gnomADg_AF|MISSENSE_Z"
 )
 
 
 def _gene9_annotations() -> list[dict[str, Any]]:
     """A missense variant of GENE9, whose CSQ carries the gene's MISSENSE_Z, as a VEP plugin can
     add it: 9.9 on another transcript, 4.2 on the MANE Select one, whose value PP2 reads."""
-    from backend.app.services.variant_annotation_parser import (
-        AnnotationHeaderState,
-        extract_small_variant_annotations,
-        update_annotation_header_state,
-    )
-
-    state = AnnotationHeaderState()
-    update_annotation_header_state(state, _GENE9_CSQ_HEADER)
     entries = [
         f"T|missense_variant|MODERATE|{_GENE9}|ENSG00000000109|Transcript|ENST00000000110|||0.5|1e-05|1e-05|9.9",
         f"T|missense_variant|MODERATE|{_GENE9}|ENSG00000000109|Transcript|ENST00000000111|YES|NM_000109.1|0.5"
         "|1e-05|1e-05|4.2",
     ]
-    return extract_small_variant_annotations({"CSQ": ",".join(entries)}, state)
+    return vep_annotations(_GENE9_CSQ_FIELDS, entries)
 
 
 def test_a_classification_freezes_the_vcfs_missense_z_when_the_genes_profile_holds_none(monkeypatch) -> None:
@@ -872,18 +798,6 @@ def test_a_classification_freezes_the_vcfs_missense_z_when_the_genes_profile_hol
         ),
     )
 
-    async def _frozen(session) -> dict[str, Any]:
-        stored = (
-            await session.execute(
-                text(
-                    "SELECT acmg_evidence_snapshot FROM small_variant_reviews "
-                    "WHERE family_id = CAST(:f AS uuid) AND variant_id = :v"
-                ),
-                {"f": holder["uuid"], "v": _VCF_Z_MISSENSE},
-            )
-        ).scalar_one()
-        return json.loads(stored) if isinstance(stored, str) else stored
-
     async def _run() -> None:
         try:
             await init_postgres_schema()
@@ -896,25 +810,9 @@ def test_a_classification_freezes_the_vcfs_missense_z_when_the_genes_profile_hol
                         {"f": label},
                     )
                 ).scalar_one()
-                species = (
-                    await s.execute(
-                        text(
-                            "INSERT INTO species (name, common_name, tax_id) "
-                            "VALUES (:n, 'test', :t) RETURNING id::text"
-                        ),
-                        {"n": f"vcf-missense-z {tag}", "t": uuid4().int % 2_000_000_000},
-                    )
-                ).scalar_one()
+                species = await fresh_species(s, f"vcf-missense-z {tag}")
                 # The family's assembly holds no profile of GENE9.
-                holder["assembly"] = (
-                    await s.execute(
-                        text(
-                            "INSERT INTO assemblies (species_id, assembly_name, version, release_date) "
-                            "VALUES (CAST(:s AS uuid), :a, 'v1', '2020-01-01') RETURNING id::text"
-                        ),
-                        {"s": species, "a": f"VCFMISSENSEZ{tag}"},
-                    )
-                ).scalar_one()
+                holder["assembly"] = await fresh_assembly(s, species, f"VCFMISSENSEZ{tag}")
                 await s.commit()
             await insert_small_variant_records(
                 _ASSEMBLY, holder["uuid"], [project], [_record(_VCF_Z_MISSENSE, _gene9_annotations())]
@@ -927,7 +825,7 @@ def test_a_classification_freezes_the_vcfs_missense_z_when_the_genes_profile_hol
                     s, context=_ctx_now(), variant_id=_VCF_Z_MISSENSE, payload=classification, user=user
                 )
             async with sm() as s:
-                frozen = await _frozen(s)
+                frozen = await _frozen(s, holder["uuid"], _VCF_Z_MISSENSE)
                 page = await family_variants.get_family_small_variants_page(
                     s, context=_ctx_now(), page=1, page_size=10
                 )
@@ -965,7 +863,7 @@ def test_a_classification_freezes_the_vcfs_missense_z_when_the_genes_profile_hol
                     s, context=_ctx_now(), variant_id=_VCF_Z_MISSENSE, payload=classification, user=user
                 )
             async with sm() as s:
-                assert (await _frozen(s))["gene_constraint"] == {
+                assert (await _frozen(s, holder["uuid"], _VCF_Z_MISSENSE))["gene_constraint"] == {
                     "gene_missense_z": 3.52,
                     "gene_missense_z_source": "gene_profile",
                 }

@@ -116,21 +116,21 @@ def _create_statement(statements: list[str], table: str) -> str:
 
 
 @pytest.mark.asyncio
-async def test_small_variant_entries_are_sorted_by_variant_and_callset(monkeypatch) -> None:
+@pytest.mark.parametrize(
+    ("table", "sort_key"),
+    [
+        # Before the fix: ORDER BY (project_guid, family_guid, xpos, key).
+        ("GRCh38/SNV_INDEL/entries", _NEW_SMALL_KEY),
+        # Before the fix: ORDER BY (project_guid, family_guid, svType, chrom, start, key).
+        ("GRCh38/SV/entries", _NEW_SV_KEY),
+    ],
+    ids=["small-variants", "structural-variants"],
+)
+async def test_the_entries_are_sorted_by_variant_and_callset(monkeypatch, table: str, sort_key: str) -> None:
     statements = _capture_ddl(monkeypatch)
     await cvs.ensure_clickhouse_variant_tables("GRCh38")
-    ddl = _create_statement(statements, "GRCh38/SNV_INDEL/entries")
-    # Before the fix: ORDER BY (project_guid, family_guid, xpos, key).
-    assert f"ORDER BY ({_NEW_SMALL_KEY})" in ddl
-    assert "ENGINE = CollapsingMergeTree(sign)" in ddl
-
-
-@pytest.mark.asyncio
-async def test_structural_variant_entries_are_sorted_by_variant_and_source(monkeypatch) -> None:
-    statements = _capture_ddl(monkeypatch)
-    await cvs.ensure_clickhouse_variant_tables("GRCh38")
-    ddl = _create_statement(statements, "GRCh38/SV/entries")
-    assert f"ORDER BY ({_NEW_SV_KEY})" in ddl
+    ddl = _create_statement(statements, table)
+    assert f"ORDER BY ({sort_key})" in ddl
     assert "ENGINE = CollapsingMergeTree(sign)" in ddl
 
 
@@ -311,11 +311,15 @@ async def test_startup_check_passes_on_current_tables_and_ignores_import_snapsho
         ("GRCh38/SNAPSHOT/abc123/SV/entries", _OLD_SV_KEY),
     ]
 
+    asked: list[tuple[str, set[str]]] = []
+
     async def fake_execute(query, params=None, data=None):
         names = set((params or {}).get("names") or ())
         if "system.columns" in query:
+            asked.append(("columns", names))
             # The current entries table has every column, the per-call ones included.
             return [(name, list(cvs.SMALL_VARIANT_ENTRY_COLUMNS)) for name in sorted(names)]
+        asked.append(("sort keys", names))
         return [row for row in tables if row[0] in names]
 
     async def fake_assemblies():
@@ -323,7 +327,14 @@ async def test_startup_check_passes_on_current_tables_and_ignores_import_snapsho
 
     monkeypatch.setattr(cvs, "_execute", fake_execute)
     monkeypatch.setattr(cvs, "list_clickhouse_variant_assemblies", fake_assemblies)
-    await cvs.verify_clickhouse_variant_storage_identity()
+
+    assert await cvs.verify_clickhouse_variant_storage_identity() is None
+
+    # Both checks ran, over the served tables alone: a snapshot's copy is never asked about.
+    assert [kind for kind, _names in asked] == ["sort keys", "columns"]
+    assert {"GRCh38/SNV_INDEL/entries", "GRCh38/SV/entries", "GRCh38/SV/key_lookup"} <= asked[0][1]
+    assert asked[1][1] == {"GRCh38/SNV_INDEL/entries"}
+    assert not any("SNAPSHOT" in name for _kind, names in asked for name in names)
 
 
 @pytest.mark.asyncio

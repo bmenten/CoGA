@@ -25,29 +25,13 @@ import pytest
 from backend.app.services.clickhouse_variant_ids import small_variant_key
 from backend.app.services.clickhouse_variant_records import SmallVariantCall, SmallVariantRecord
 from backend.app.services.family_metadata_context import FamilyMetadataContext
+from backend.tests.integration._datastores import run_closing_stores
 
 pytestmark = pytest.mark.integration
 
 _ASSEMBLY = "GRCh38"
 _SAMPLES = ["FATHER", "MOTHER", "E1", "E2"]
 _SITES_PER_AUTOSOME = 500
-
-
-def _run_with_ch_cleanup(run) -> None:
-    """Run a coroutine factory under its own loop, resetting the module-global ClickHouse
-    client afterwards — otherwise the next test's asyncio.run() reuses a client bound to
-    this (now-closed) loop and raises 'Event loop is closed'."""
-    import asyncio as _asyncio
-
-    from backend.app.core.clickhouse import close_clickhouse_client
-
-    async def _wrapped() -> None:
-        try:
-            await run()
-        finally:
-            await close_clickhouse_client()
-
-    _asyncio.run(_wrapped())
 
 
 def _record(
@@ -269,4 +253,4 @@ def test_genotype_site_sample_against_clickhouse(monkeypatch: pytest.MonkeyPatch
         assert partial.overall_status in {"warn", "fail"}
         assert partial.relatedness_checks, "the checks still run"
 
-    _run_with_ch_cleanup(_run)
+    run_closing_stores(_run)

@@ -8,12 +8,14 @@ at them pathogenic.
 
 import pytest
 
+from backend.app.services import repeat_expansion_pg
 from backend.app.services.repeat_expansion_pg import (
     REPEAT_STATUS_RANK,
     _reclassify_repeat_alleles,
     classify_repeat_count,
     summarize_repeat_status,
 )
+from backend.tests._repeat_fakes import RowsSession, family_context
 
 # Straight from STRchive-loci.json.
 VWA1 = {"warning_min": None, "pathogenic_min": 1, "benign_min": 2, "benign_max": 2, "pathogenic_max": 3}
@@ -173,42 +175,16 @@ class TestSharedBoundaryOnMonotonicLoci:
         assert classify(count, locus) == expected
 
 
-def test_catalog_join_breaks_ties_deterministically(monkeypatch) -> None:
+@pytest.mark.asyncio
+async def test_catalog_join_breaks_ties_deterministically() -> None:
     # A gene can be catalogued twice (built-in ATXN8OS and STRchive SCA8_ATXN8OS); the
     # call's thresholds must not depend on row order (#535).
-    import asyncio
-    import types
+    session = RowsSession([])
 
-    from backend.app.services import repeat_expansion_pg as rep
-
-    captured: dict = {}
-
-    class _Result:
-        def mappings(self):
-            return self
-
-        def all(self):
-            return []
-
-    class _Session:
-        async def execute(self, statement, params=None):
-            captured.setdefault("sql", str(statement))
-            return _Result()
-
-    sample_uuid = "00000000-0000-0000-0000-000000000001"
-    context = types.SimpleNamespace(
-        family_uuid="00000000-0000-0000-0000-0000000000f1",
-        family_id="F1",
-        sample_rows=[{"sample_uuid": sample_uuid, "sample_id": "S1"}],
-        sample_uuid_to_name={sample_uuid: "S1"},
+    table = await repeat_expansion_pg.get_family_repeat_expansion_table_response(
+        session, context=family_context(("00000000-0000-0000-0000-000000000001", "S1", "proband", True, "female"))
     )
 
-    async def _run():
-        try:
-            await rep.get_family_repeat_expansion_table_response(_Session(), context=context)
-        except Exception:  # noqa: BLE001 — only the SQL text matters here
-            pass
-
-    asyncio.run(_run())
-    sql = " ".join(captured.get("sql", "").split())
+    assert table.loci == []
+    [sql] = session.statements
     assert "((repeat_loci.metadata ->> 'benign_max') IS NOT NULL) DESC, repeat_loci.locus_id" in sql

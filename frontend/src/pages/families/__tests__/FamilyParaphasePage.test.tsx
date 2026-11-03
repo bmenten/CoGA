@@ -1,10 +1,14 @@
-import { QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 import FamilyParaphasePage from '../FamilyParaphasePage';
-import { createTestQueryClient } from '../../../test/createTestQueryClient';
+import { renderFamilyRoute } from '../../../test/familyRoute';
+import {
+  expectFailedRequestRetried,
+  expectFamilyNotFound,
+  familyNotFound,
+  serverError,
+} from '../../../test/requestFailures';
 
 const apiMock = vi.hoisted(() => ({
   get: vi.fn(),
@@ -36,6 +40,10 @@ vi.mock('../../../lib/reference', () => ({
       .filter(Boolean)
       .join(' • ') || 'Not linked',
 }));
+
+/** The page of family F1, at `url`. */
+const renderPage = (url = '/families/F1/paraphase') =>
+  renderFamilyRoute('/families/:familyId/paraphase', url, <FamilyParaphasePage />);
 
 describe('FamilyParaphasePage', () => {
   it('renders per-sample Paraphase copy-number and phasing summaries', async () => {
@@ -317,17 +325,7 @@ describe('FamilyParaphasePage', () => {
       return Promise.resolve({ data: [] });
     });
 
-    const queryClient = createTestQueryClient();
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={['/families/F1/paraphase']}>
-          <Routes>
-            <Route path="/families/:familyId/paraphase" element={<FamilyParaphasePage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderPage();
 
     await waitFor(() => {
       expect(screen.getByRole('heading', { name: /duplicated-region results/i })).toBeInTheDocument();
@@ -431,20 +429,6 @@ describe('FamilyParaphasePage', () => {
 
 // #610 — any failure read "Family not found", a server error included.
 describe('FamilyParaphasePage — failed requests (#610)', () => {
-  const serverError = () =>
-    Promise.reject(
-      Object.assign(new Error('Request failed with status code 500'), { response: { status: 500 } }),
-    );
-  const renderPage = () =>
-    render(
-      <QueryClientProvider client={createTestQueryClient()}>
-        <MemoryRouter initialEntries={['/families/F1/paraphase']}>
-          <Routes>
-            <Route path="/families/:familyId/paraphase" element={<FamilyParaphasePage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
 
   it('says the family could not be loaded, not that it was not found', async () => {
     let failedRequests = 0;
@@ -453,35 +437,22 @@ describe('FamilyParaphasePage — failed requests (#610)', () => {
         failedRequests += 1;
         return serverError();
       }
-      if (url === '/families/F1') {
-        return Promise.resolve({ data: { family_id: 'F1', members: [], projects: [] } });
-      }
       return Promise.resolve({ data: [] });
     });
     renderPage();
 
-    expect(await screen.findByRole('heading', { name: 'Family could not be loaded' })).toBeInTheDocument();
-    expect(
-      screen.getByText('Request failed with status code 500 This is a failed request, not a missing family.'),
-    ).toBeInTheDocument();
-    expect(screen.queryByText('Family not found')).not.toBeInTheDocument();
-    const before = failedRequests;
-    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
-    await waitFor(() => expect(failedRequests).toBeGreaterThan(before));
+    await expectFailedRequestRetried({
+      heading: 'Family could not be loaded',
+      message: 'Request failed with status code 500',
+      requests: () => failedRequests,
+    });
   });
 
   it('keeps "Family not found" for a family the API does not know', async () => {
-    apiMock.get.mockImplementation(() =>
-      Promise.reject(
-        Object.assign(new Error('Request failed with status code 404'), {
-          response: { status: 404, data: { detail: 'Family not found' } },
-        }),
-      ),
-    );
+    apiMock.get.mockImplementation(familyNotFound);
     renderPage();
 
-    expect(await screen.findByRole('heading', { name: 'Family not found' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
+    await expectFamilyNotFound();
   });
 });
 
@@ -561,15 +532,7 @@ describe('FamilyParaphasePage — the region card', () => {
       }
       return Promise.resolve({ data: [] });
     });
-    render(
-      <QueryClientProvider client={createTestQueryClient()}>
-        <MemoryRouter initialEntries={['/families/F1/paraphase']}>
-          <Routes>
-            <Route path="/families/:familyId/paraphase" element={<FamilyParaphasePage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderPage();
     expect(await screen.findByRole('article', { name: /CNCHANGE/ })).toBeInTheDocument();
     expect(screen.getByLabelText(/copy-number changes and abnormal calls only/i)).toBeChecked();
     expect(screen.getByRole('article', { name: /FUSION/ })).toBeInTheDocument();
@@ -589,15 +552,7 @@ describe('FamilyParaphasePage — the region card', () => {
       }
       return Promise.resolve({ data: [] });
     });
-    render(
-      <QueryClientProvider client={createTestQueryClient()}>
-        <MemoryRouter initialEntries={['/families/F1/paraphase']}>
-          <Routes>
-            <Route path="/families/:familyId/paraphase" element={<FamilyParaphasePage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderPage();
     const card = (await screen.findByText('SMN1/SMN2')).closest('article') as HTMLElement;
     const scope = within(card);
 

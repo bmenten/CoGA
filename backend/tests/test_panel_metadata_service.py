@@ -25,9 +25,10 @@ async def test_ensure_panel_name_available_new_panel_avoids_untyped_null_paramet
 
     await _ensure_panel_name_available(session, "PanelApp 285: Intellectual disability")
 
-    assert session.calls == [
+    # No `:existing_panel_id IS NULL` test: asyncpg cannot type a NULL it is given alone.
+    assert [(" ".join(sql.split()), params) for sql, params in session.calls] == [
         (
-            "\n                SELECT id::text\n                FROM gene_panels\n                WHERE name = :name\n                ",
+            "SELECT id::text FROM gene_panels WHERE name = :name",
             {"name": "PanelApp 285: Intellectual disability"},
         )
     ]

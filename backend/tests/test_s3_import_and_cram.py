@@ -1,3 +1,12 @@
+"""Where a family package may be imported from, and who may read its aligned reads.
+
+A package is read only from FAMILY_IMPORT_ROOTS: an s3:// (or gs://) source below one of
+its remote entries, a local folder below one of its local entries. The CRAM/BAM endpoints
+check the caller's access to the family, and that the sample is one of its members, before
+any file or presigned URL is issued (REQ-SEC-007, risk H11); the alignment manifest hands
+out presigned URLs in a bucket, relative ones locally.
+"""
+
 import asyncio
 import types
 from pathlib import Path
@@ -21,15 +30,29 @@ def test_s3_source_authorization(monkeypatch):
         settings, "family_import_roots", ["s3://bucket/families", "/data/families"]
     )
     assert family_package_source._ensure_authorized_s3_source("s3://bucket/families/F1") == "s3://bucket/families/F1"
+    # The root itself, with or without its final slash; a source is read without the spaces
+    # around it.
+    assert family_package_source._ensure_authorized_s3_source(" s3://bucket/families/ ") == "s3://bucket/families/"
+    assert family_package_source._ensure_authorized_s3_source("s3://bucket/families") == "s3://bucket/families"
     assert family_package_source._authorized_s3_roots() == ["s3://bucket/families"]
-    with pytest.raises(HTTPException):
-        family_package_source._ensure_authorized_s3_source("s3://other-bucket/families/F1")
+    # Another bucket, and a sibling folder whose name only starts like the root's.
+    for outside in ("s3://other-bucket/families/F1", "s3://bucket/families-old/F1"):
+        with pytest.raises(HTTPException) as exc:
+            family_package_source._ensure_authorized_s3_source(outside)
+        assert (exc.value.status_code, exc.value.detail) == (
+            403,
+            "S3 source is outside configured FAMILY_IMPORT_ROOTS: s3://bucket/families",
+        )
 
 
 def test_s3_source_rejected_without_configured_root(monkeypatch):
     monkeypatch.setattr(settings, "family_import_roots", ["/data/families"])
-    with pytest.raises(HTTPException):
+    with pytest.raises(HTTPException) as exc:
         family_package_source._ensure_authorized_s3_source("s3://bucket/families/F1")
+    assert (exc.value.status_code, exc.value.detail) == (
+        403,
+        "S3 family import sources require an s3:// entry in FAMILY_IMPORT_ROOTS",
+    )
 
 
 def test_local_package_path_rejected_when_no_local_root_configured(monkeypatch):
@@ -41,6 +64,9 @@ def test_local_package_path_rejected_when_no_local_root_configured(monkeypatch):
     with pytest.raises(HTTPException) as exc:
         family_package_source._ensure_authorized_package_path(Path("/etc/coga-attacker"))
     assert exc.value.status_code == 403
+    assert exc.value.detail == (
+        "Family import path is outside configured FAMILY_IMPORT_ROOTS: (remote-only FAMILY_IMPORT_ROOTS)"
+    )
 
 
 def test_local_package_path_allowed_under_configured_root(monkeypatch, tmp_path):

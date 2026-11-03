@@ -37,6 +37,8 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import text
 
+from backend.tests.e2e._harness import capture, ensure_postgres_schema
+
 pytestmark = pytest.mark.integration
 
 # What the e2e administrator changes of each colleague's account after the colleague asked for
@@ -44,13 +46,6 @@ pytestmark = pytest.mark.integration
 _CHANGES = {"deactivated": {"is_active": False}, "demoted": {"role": "viewer"}}
 _ERRORS = {"deactivated": "REQUESTER_INACTIVE_ERROR", "demoted": "REQUESTER_NOT_ADMIN_ERROR"}
 _GENE = "SEC35GENE"
-
-
-def _cap(response) -> dict[str, Any]:
-    out: dict[str, Any] = {"status": response.status_code}
-    if response.content:
-        out["json"] = response.json()
-    return out
 
 
 class _LogLines(logging.Handler):
@@ -71,13 +66,13 @@ async def _exercise(
     """``run_rebuild`` is the rebuild's real run, which its queueing is kept from starting."""
     from httpx import ASGITransport, AsyncClient
 
-    from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
+    from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.dependencies import get_password_hash
     from backend.app.main import app
     from backend.app.services import gene_info_jobs_pg as gene_jobs
     from backend.tests.e2e import _harness
 
-    await init_postgres_schema()
+    await ensure_postgres_schema()
     sessionmaker = get_postgres_sessionmaker()
     async with sessionmaker() as session:
         await _harness.ensure_e2e_project(session)
@@ -168,17 +163,17 @@ async def _exercise(
             refresh = await client.post(
                 "/api/admin/gene-reference/refresh-gene", params={"symbol": _GENE}, headers=colleague
             )
-            seen["refresh_queued"] = _cap(refresh)
+            seen["refresh_queued"] = capture(refresh)
             rebuild = await client.post(
                 "/api/admin/clinical-cnv-kb/rebuild",
                 json={"assembly": _harness.ASSEMBLY, "skip_clinvar": True},
                 headers=colleague,
             )
-            seen["rebuild_queued"] = _cap(rebuild)
+            seen["rebuild_queued"] = capture(rebuild)
 
             # The e2e administrator deactivates the colleague, or sets their role to viewer,
             # before either job runs.
-            seen["changed"] = _cap(
+            seen["changed"] = capture(
                 await client.patch(f"/api/auth/users/{account['id']}", json=update, headers=administrator)
             )
 
@@ -201,7 +196,7 @@ async def _exercise(
         control = await client.post(
             "/api/admin/gene-reference/refresh-gene", params={"symbol": _GENE}, headers=administrator
         )
-        out["control_queued"] = _cap(control)
+        out["control_queued"] = capture(control)
         control_id = str(control.json()["_id"])
         out["control_taken"] = await take_up_and_run_refresh(control_id)
         out["control"] = await refresh_row(control_id)

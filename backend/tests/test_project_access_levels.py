@@ -23,7 +23,6 @@ from typing import Any, Iterator
 
 import pytest
 from fastapi import HTTPException
-from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
 from backend.app import dependencies
@@ -45,6 +44,7 @@ from backend.app.services.access_control import (
     request_changes_records,
 )
 from backend.app.services.ped_service import _resolve_accessible_project_id
+from backend.tests._app_routes import dependency_calls, route_operations
 
 PROJECT_A = "00000000-0000-4000-8000-00000000000a"
 PROJECT_B = "00000000-0000-4000-8000-00000000000b"
@@ -446,43 +446,22 @@ CHECKPOINT_ROUTES = {
 PUBLIC_ROUTES = {("POST", "/api/auth/signup"), ("POST", "/api/auth/login"), ("POST", "/api/auth/token")}
 
 
-def _routes(routes: Any) -> Iterator[Any]:
-    """Every route of the app. FastAPI wraps an included router in an ``_IncludedRouter``,
-    whose ``effective_candidates`` are its routes with their full paths and dependencies."""
-    for route in routes:
-        if hasattr(route, "effective_candidates"):
-            yield from _routes(route.effective_candidates())
-        elif isinstance(route, APIRoute) or getattr(route, "dependant", None) is not None:
-            yield route
-
-
-def _calls(dependant: Any) -> set[Any]:
-    found: set[Any] = set()
-    for dependency in dependant.dependencies:
-        found.add(dependency.call)
-        found |= _calls(dependency)
-    return found
-
-
 def _change_routes() -> dict[tuple[str, str], Any]:
-    return {
-        (method, route.path_format): route
-        for route in _routes(app.routes)
-        for method in route.methods or ()
-        if method not in ("GET", "HEAD", "OPTIONS")
-    }
+    return {key: route for key, route in route_operations().items() if key[0] not in ("GET", "OPTIONS")}
 
 
 def test_every_change_route_is_classified() -> None:
     admin, own, checkpoint, public, unknown = set(), set(), set(), set(), set()
     for key, route in _change_routes().items():
-        calls = _calls(route.dependant)
+        calls = dependency_calls(route.dependant)
         if dependencies.get_current_admin_user in calls:
             admin.add(key)
-        elif not request_changes_records(key[0], route.endpoint):
-            own.add(key)
+        # Whether it signs its caller in comes before whether it changes only the caller's own
+        # data: a route of the caller's own data that lost its sign-in is no longer one.
         elif dependencies.get_current_user not in calls:
             public.add(key)
+        elif not request_changes_records(key[0], route.endpoint):
+            own.add(key)
         elif key in CHECKPOINT_ROUTES:
             checkpoint.add(key)
         else:

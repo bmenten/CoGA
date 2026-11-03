@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from fastapi import HTTPException
 import yaml
 
 from backend.app.services import clickhouse_family_variants as family_variants
@@ -23,10 +24,10 @@ from backend.app.services.family_package_datasets import DatasetImportJob
 from backend.app.schemas import FamilyImportDatasetSummary, FamilyPackageManifestBuildRequest
 from backend.app.services.family_variant_filters import StructuralVariantQueryFilters
 from backend.app.services.family_metadata_context import FamilyMetadataContext, SampleMetadataContext
-from backend.app.services.access_control import CurrentUser
 from backend.app.services.import_progress import DatasetTimer
 from backend.app.services.family_package_source import package_folder_path
 from backend.app.services.hpo_service import PhenotypeImport
+from backend.tests._family_import_fakes import admin_user
 
 
 @pytest.fixture(autouse=True)
@@ -71,16 +72,6 @@ def _write_minimal_package(root: Path, *, family_id: str | None = None) -> None:
     )
 
 
-def _current_admin() -> CurrentUser:
-    return CurrentUser(
-        id="00000000-0000-0000-0000-000000000001",
-        username="admin@example.com",
-        email="admin@example.com",
-        role="admin",
-        created_at=datetime.now(timezone.utc),
-    )
-
-
 def _sample_context(sample_id: str) -> SampleMetadataContext:
     return SampleMetadataContext(
         sample_uuid=f"uuid-{sample_id}",
@@ -119,6 +110,81 @@ def test_family_id_defaults_to_folder_name_and_must_match_ped(tmp_path: Path) ->
     assert result.valid is False
     assert result.family_id == "FOLDER_FAM"
     assert "ped_family_mismatch" in {error.code for error in result.errors}
+
+
+# --- A package without a PED file: the existing family's PED, from the database --------------
+
+
+def _write_manifest_without_its_ped(root: Path, *, ped_name: str = "FAM1.ped") -> None:
+    (root / "manifest.yaml").write_text(
+        "schema_version: 1\n"
+        "family_id: FAM1\n"
+        f"ped: {ped_name}\n",
+        encoding="utf-8",
+    )
+
+
+def test_validation_uses_database_fallback_when_ped_absent(tmp_path: Path) -> None:
+    _write_manifest_without_its_ped(tmp_path)
+
+    validation, bundle = family_package_validation.load_validated_family_package(
+        tmp_path,
+        fallback_ped_text="FAM1 KID 0 0 1 2\n",
+    )
+
+    assert validation.valid is True
+    assert validation.sample_ids == ["KID"]
+    assert validation.metadata.get("ped_source") == "database"
+    assert bundle is not None
+    assert bundle.ped.sample_ids == ["KID"]
+
+
+def test_validation_requires_ped_without_fallback(tmp_path: Path) -> None:
+    _write_manifest_without_its_ped(tmp_path)
+
+    validation, bundle = family_package_validation.load_validated_family_package(tmp_path)
+
+    assert validation.valid is False
+    assert bundle is None
+    assert any(issue.code == "ped_file_missing" for issue in validation.errors)
+
+
+def test_discover_uses_db_sample_ids_when_no_ped(tmp_path: Path) -> None:
+    request = FamilyPackageManifestBuildRequest(
+        folder_path=str(tmp_path),
+        family_id="FAM1",
+    )
+
+    result = family_package_discovery.discover_family_package_manifest(request, db_sample_ids=["KID", "MOM"])
+
+    assert result.sample_ids == ["KID", "MOM"]
+    assert not any(issue.code == "ped_file_missing" for issue in result.errors)
+    assert any(issue.code == "ped_from_database" for issue in result.warnings)
+
+
+@pytest.mark.asyncio
+async def test_the_database_fallback_is_the_requested_familys_ped_and_none_for_a_family_it_lacks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    asked: list[str] = []
+
+    async def build_pedigree_text(_session: Any, *, family_id: str) -> str:
+        asked.append(family_id)
+        if family_id == "FAM1":
+            return "FAM1 KID 0 0 1 2\n"
+        raise HTTPException(status_code=404, detail="not found")
+
+    monkeypatch.setattr(package_import.ped_service, "build_pedigree_text", build_pedigree_text)
+    session = object()
+
+    assert await package_import.db_pedigree_fallback(session, " FAM1 ") == "FAM1 KID 0 0 1 2\n"  # type: ignore[arg-type]
+    # A family the database does not hold has no PED to fall back to: the package must bring one.
+    assert await package_import.db_pedigree_fallback(session, "FAM2") is None  # type: ignore[arg-type]
+    # No family asked for, an ID no family can have, or no session: nothing is looked up.
+    assert await package_import.db_pedigree_fallback(session, None) is None  # type: ignore[arg-type]
+    assert await package_import.db_pedigree_fallback(session, "FAM\x001") is None  # type: ignore[arg-type]
+    assert await package_import.db_pedigree_fallback(None, "FAM1") is None
+    assert asked == ["FAM1", "FAM2"]
 
 
 def test_missing_referenced_files_are_validation_errors(tmp_path: Path) -> None:
@@ -954,6 +1020,138 @@ async def test_dry_run_validates_without_database_session(tmp_path: Path) -> Non
     assert "Dry run completed successfully" in result.logs[-1]
 
 
+class _Registered(Exception):
+    """Raised where the import registers the family: its first write."""
+
+
+def _registration_stops_the_import(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """The family's registration recorded, and the import stopped there, should it happen."""
+    registered: list[str] = []
+
+    async def register(*_args: Any, validation: Any, **_kwargs: Any) -> Any:
+        registered.append(validation.family_id)
+        raise _Registered
+
+    monkeypatch.setattr(package_import, "_ensure_family_from_ped", register)
+    return registered
+
+
+@pytest.mark.asyncio
+async def test_a_package_of_another_family_than_the_one_selected_is_refused_before_anything_is_written(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # The import of an existing family's data: a package of FAM002 is never imported into FAM001.
+    package_root = tmp_path / "FAM002"
+    _write_minimal_package(package_root)
+    registered = _registration_stops_the_import(monkeypatch)
+
+    result = await package_import.execute_family_package_import(
+        None,
+        folder_path=package_root,
+        project_id=None,
+        dry_run=False,
+        user=admin_user(),
+        requested_family_id="FAM001",
+        conflict_mode="update",
+    )
+
+    assert (result.completed, result.error) == (False, "Package validation failed")
+    assert [(issue.code, issue.message) for issue in result.validation.errors] == [
+        (
+            "selected_family_mismatch",
+            "Selected existing family 'FAM001' does not match package family_id 'FAM002'.",
+        )
+    ]
+    assert result.logs[-1] == "Package validation failed; no data were imported."
+    assert registered == []
+
+
+class _ExistingFamilySession:
+    """A session the import reads the existing family and samples through
+    (``_existing_package_entity_warnings``, faked); nothing else may read it."""
+
+    async def execute(self, *_args: Any, **_kwargs: Any) -> Any:
+        raise AssertionError("an unexpected statement")
+
+
+def _the_family_and_a_sample_exist(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str | None, list[str]]]:
+    looked_up: list[tuple[str | None, list[str]]] = []
+
+    async def existing_warnings(_session: Any, *, family_id: str | None, sample_ids: list[str]) -> list[Any]:
+        looked_up.append((family_id, list(sample_ids)))
+        return [
+            family_package_common._issue("existing_family", "Family 'FAM001' already exists."),
+            family_package_common._issue("existing_samples", "Sample ID(s) already exist in the system: S1."),
+        ]
+
+    monkeypatch.setattr(package_import, "_existing_package_entity_warnings", existing_warnings)
+    return looked_up
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("dry_run", "refused"), [(False, True), (True, False)], ids=["import", "dry-run"])
+async def test_an_import_that_cancels_on_an_existing_family_is_refused_before_anything_is_written(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, dry_run: bool, refused: bool
+) -> None:
+    package_root = tmp_path / "FAM001"
+    _write_minimal_package(package_root)
+    registered = _registration_stops_the_import(monkeypatch)
+    looked_up = _the_family_and_a_sample_exist(monkeypatch)
+
+    result = await package_import.execute_family_package_import(
+        _ExistingFamilySession(),  # type: ignore[arg-type]
+        folder_path=package_root,
+        project_id=None,
+        dry_run=dry_run,
+        user=admin_user(),
+        conflict_mode="cancel",
+    )
+
+    assert looked_up == [("FAM001", ["S1", "S2"])]
+    # The existing family and samples are said either way; a dry run writes nothing anyway.
+    assert {"existing_family", "existing_samples"} <= {issue.code for issue in result.validation.warnings}
+    assert ("existing_family_or_samples" in {issue.code for issue in result.validation.errors}) is refused
+    assert result.completed is not refused
+    assert registered == []
+
+
+@pytest.mark.asyncio
+async def test_an_update_of_an_existing_family_goes_on_to_register_it(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    package_root = tmp_path / "FAM001"
+    _write_minimal_package(package_root)
+    registered = _registration_stops_the_import(monkeypatch)
+    _the_family_and_a_sample_exist(monkeypatch)
+
+    with pytest.raises(_Registered):
+        await package_import.execute_family_package_import(
+            _ExistingFamilySession(),  # type: ignore[arg-type]
+            folder_path=package_root,
+            project_id=None,
+            dry_run=False,
+            user=admin_user(),
+            conflict_mode="update",
+        )
+
+    assert registered == ["FAM001"]
+
+
+@pytest.mark.asyncio
+async def test_an_import_that_writes_needs_a_session_and_a_user(tmp_path: Path) -> None:
+    package_root = tmp_path / "FAM001"
+    _write_minimal_package(package_root)
+
+    with pytest.raises(RuntimeError, match="A database session and user are required for non-dry-run imports"):
+        await package_import.execute_family_package_import(
+            None,
+            folder_path=package_root,
+            project_id=None,
+            dry_run=False,
+            user=None,
+        )
+
+
 @pytest.mark.asyncio
 async def test_successful_minimal_import_registers_family(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     package_root = tmp_path / "FAM001"
@@ -1001,7 +1199,7 @@ async def test_successful_minimal_import_registers_family(monkeypatch: pytest.Mo
         folder_path=package_root,
         project_id="project-uuid",
         dry_run=False,
-        user=_current_admin(),
+        user=admin_user(),
     )
 
     assert result.completed is True
@@ -1071,7 +1269,7 @@ async def test_package_import_continues_after_dataset_failure(
         folder_path=package_root,
         project_id="project-uuid",
         dry_run=False,
-        user=_current_admin(),
+        user=admin_user(),
     )
 
     statuses = {dataset.dataset_type: dataset.status for dataset in result.datasets}
@@ -1157,7 +1355,7 @@ async def test_each_dataset_is_timed_and_a_running_one_tells_its_time_left(
         folder_path=package_root,
         project_id="project-uuid",
         dry_run=False,
-        user=_current_admin(),
+        user=admin_user(),
         progress=job_progress,
     )
 
@@ -1231,7 +1429,7 @@ async def test_total_failure_on_new_family_rolls_back_shell(
         folder_path=package_root,
         project_id="project-uuid",
         dry_run=False,
-        user=_current_admin(),
+        user=admin_user(),
     )
 
     assert result.completed is False
@@ -1277,7 +1475,7 @@ async def test_a_new_family_keeps_a_dataset_imported_with_warnings_when_the_rest
         folder_path=package_root,
         project_id="project-uuid",
         dry_run=False,
-        user=_current_admin(),
+        user=admin_user(),
     )
 
     assert result.completed is False
@@ -1302,7 +1500,7 @@ async def test_total_failure_on_existing_family_is_not_rolled_back(
         folder_path=package_root,
         project_id="project-uuid",
         dry_run=False,
-        user=_current_admin(),
+        user=admin_user(),
     )
 
     assert result.completed is False
@@ -1331,7 +1529,7 @@ async def test_a_failed_import_flags_the_family_with_its_import_job(
         folder_path=package_root,
         project_id="project-uuid",
         dry_run=False,
-        user=_current_admin(),
+        user=admin_user(),
         job_id="job-uuid",
     )
     # Run outside a job (a script or test): nothing to name.
@@ -1340,7 +1538,7 @@ async def test_a_failed_import_flags_the_family_with_its_import_job(
         folder_path=package_root,
         project_id="project-uuid",
         dry_run=False,
-        user=_current_admin(),
+        user=admin_user(),
     )
 
     assert [flag["job_id"] for flag in flagged] == ["job-uuid", None]
@@ -1358,7 +1556,7 @@ async def test_the_import_names_who_runs_it_its_package_and_its_job_to_the_pheno
     import created are each handed the same import."""
     package_root = tmp_path / "FAM001"
     _write_minimal_package(package_root)
-    admin = _current_admin()
+    admin = admin_user()
     seen: dict[str, Any] = {}
 
     async def fake_ensure_family_from_ped(session, **_kwargs):
@@ -1434,7 +1632,7 @@ async def test_the_import_job_runs_the_import_under_its_own_id(
         "submitted_path": "/data/families/FAM001",
         "project_id": "project-uuid",
         "dry_run": False,
-        "requested_by_id": _current_admin().id,
+        "requested_by_id": admin_user().id,
         "metadata": {"conflict_mode": "update", "requested_family_id": "FAM001"},
     }
 
@@ -1456,7 +1654,7 @@ async def test_the_import_job_runs_the_import_under_its_own_id(
     async def fake_user(session, user_id):
         # The requester is found by the account's id, never by an e-mail address (SEC-32).
         captured["requester_id"] = user_id
-        return _current_admin()
+        return admin_user()
 
     async def fake_execute(session, **kwargs):
         captured.update(kwargs)
@@ -1478,8 +1676,8 @@ async def test_the_import_job_runs_the_import_under_its_own_id(
 
     await package_import.run_family_import_job(job_id="job-uuid", worker_id="worker-1")
 
-    assert captured["requester_id"] == _current_admin().id
-    assert captured["user"].id == _current_admin().id
+    assert captured["requester_id"] == admin_user().id
+    assert captured["user"].id == admin_user().id
     assert captured["job_id"] == "job-uuid"
     assert captured["conflict_mode"] == "update"
     assert captured["final_status"] == "failed"

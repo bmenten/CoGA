@@ -21,6 +21,8 @@ def _route_paths() -> set[str]:
 def test_application_routes_are_mounted_under_api_prefix() -> None:
     paths = _route_paths()
 
+    # Every route the API serves, a router added later included: none outside /api.
+    assert paths and sorted(path for path in paths if not path.startswith("/api/")) == []
     assert "/api/projects/" in paths
     assert "/api/panels/" in paths
     assert "/api/families/" in paths

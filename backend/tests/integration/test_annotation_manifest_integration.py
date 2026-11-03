@@ -17,44 +17,14 @@ and ``test_admin_route_gating.py``.
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
 from uuid import uuid4
 
 import pytest
 from sqlalchemy import text
 
+from backend.tests.integration._datastores import admin_account, fresh_family
+
 pytestmark = pytest.mark.integration
-
-
-async def _fresh_family(session, label: str) -> str:
-    return (
-        await session.execute(
-            text("INSERT INTO families (family_id) VALUES (:f) RETURNING id::text"),
-            {"f": label},
-        )
-    ).scalar_one()
-
-
-async def _fresh_admin(session):
-    from backend.app.services.access_control import CurrentUser
-
-    username = f"manifest-admin-{uuid4()}"
-    user_id = (
-        await session.execute(
-            text(
-                "INSERT INTO users (username, hashed_password, role, email) "
-                "VALUES (:u, 'x', 'admin', :e) RETURNING id::text"
-            ),
-            {"u": username, "e": f"{username}@example.org"},
-        )
-    ).scalar_one()
-    return CurrentUser(
-        id=user_id,
-        username=username,
-        email=f"{username}@example.org",
-        role="admin",
-        created_at=datetime.now(timezone.utc),
-    )
 
 
 async def _events(session, label: str) -> list[dict]:
@@ -110,8 +80,8 @@ def test_a_manifest_replacement_is_chained_and_atomic(monkeypatch) -> None:
             sm = get_postgres_sessionmaker()
             label = f"manifest-{uuid4()}"
             async with sm() as s:
-                family_uuid = await _fresh_family(s, label)
-                admin = await _fresh_admin(s)
+                family_uuid = await fresh_family(s, label)
+                admin = await admin_account(s, f"manifest-admin-{uuid4()}")
                 # A classification already on the family's chain.
                 await record_clinical_event(
                     s, family_uuid=family_uuid, family_identifier=label,
@@ -224,8 +194,8 @@ def test_an_import_cannot_overwrite_a_replacement_in_flight(monkeypatch) -> None
             sm = get_postgres_sessionmaker()
             label = f"manifest-race-a-{uuid4()}"
             async with sm() as s:
-                family_uuid = await _fresh_family(s, label)
-                admin = await _fresh_admin(s)
+                family_uuid = await fresh_family(s, label)
+                admin = await admin_account(s, f"manifest-admin-{uuid4()}")
                 await ams.merge_vcf_header_provenance(
                     s, family_uuid=family_uuid, assembly_id=None,
                     modules={"vep": {"version": "110"}}, modality="snv",
@@ -294,8 +264,8 @@ def test_a_replacement_waits_for_an_import_in_flight_and_records_it_as_the_prior
             sm = get_postgres_sessionmaker()
             label = f"manifest-race-b-{uuid4()}"
             async with sm() as s:
-                family_uuid = await _fresh_family(s, label)
-                admin = await _fresh_admin(s)
+                family_uuid = await fresh_family(s, label)
+                admin = await admin_account(s, f"manifest-admin-{uuid4()}")
                 await ams.merge_vcf_header_provenance(
                     s, family_uuid=family_uuid, assembly_id=None,
                     modules={"vep": {"version": "110"}}, modality="snv",

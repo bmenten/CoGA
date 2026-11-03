@@ -6,7 +6,7 @@ it kept the imported data, under `derived_data_status.family_metadata`; an HPO e
 nothing when the parent key is missing, and no family has a `derived_data_status` until
 the first marker, so neither was ever stored.
 
-The unit tests (test_family_structure_cleared_data.py) pin the values; these run the real
+The unit tests (test_family_structure_update.py) pin the values; these run the real
 writers against Postgres, on families of their own, and read back what was stored. The
 ClickHouse counts and deletes are stood in for, so only Postgres is needed. The writers
 commit, so the families and the user created here are deleted afterwards.

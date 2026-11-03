@@ -1,4 +1,9 @@
-"""Phase 0 of SNV + SV compound het: the SV→gene index + the badge summary."""
+"""Phase 0 of SNV + SV compound het: the SV→gene index + the badge summary.
+
+The summary (``summarize_second_hit``) phases each SV of the gene against the SNV and names the
+locus the badge links to; the index is built lazily per family and read by gene
+(``get_sv_second_hits``, ``get_sv_hit_genes``).
+"""
 
 from __future__ import annotations
 
@@ -710,6 +715,67 @@ def test_a_deletion_in_cis_in_one_affected_sibling_does_not_unmask() -> None:
     assert _verdicts(summary) == [("DUP", "trans", "read"), ("DEL", "cis", "read")]
 
 
+# The badge's locus: the second-hit badge links to the SV page by locus (moved here from
+# test_sv_filter_before_cap.py, beside the rest of summarize_second_hit).
+
+
+class TestSecondHitBoundingLocus:
+    """The badge links by locus because gene symbol and gene coordinates disagree often
+    enough to matter: SV annotation includes flanking genes, the SV search requires a
+    real overlap with a stored transcript."""
+
+    @staticmethod
+    def _summary(svs):
+        from backend.app.services.sv_gene_index_service import summarize_second_hit
+
+        return summarize_second_hit(svs, ["S1"])
+
+    def test_a_single_sv_bounds_itself(self) -> None:
+        summary = self._summary([{"sv_type": "INS", "chr": "1", "start": 207494109, "end": 207494110, "gt": {}}])
+        assert (summary["chr"], summary["start"], summary["end"]) == ("1", 207494109, 207494110)
+
+    def test_several_svs_are_bounded_together(self) -> None:
+        summary = self._summary(
+            [
+                {"sv_type": "DEL", "chr": "2", "start": 500, "end": 900, "gt": {}},
+                {"sv_type": "DUP", "chr": "2", "start": 100, "end": 300, "gt": {}},
+            ]
+        )
+        assert (summary["chr"], summary["start"], summary["end"]) == ("2", 100, 900)
+
+    def test_reversed_coordinates_are_normalised(self) -> None:
+        summary = self._summary([{"sv_type": "DEL", "chr": "3", "start": 900, "end": 100, "gt": {}}])
+        assert (summary["start"], summary["end"]) == (100, 900)
+
+    def test_a_symbol_spanning_chromosomes_bounds_only_the_common_one(self) -> None:
+        # Repeat-family symbols (U6, Y_RNA) occur genome-wide; a span across chromosomes
+        # would be meaningless, so the best-represented chromosome wins.
+        summary = self._summary(
+            [
+                {"sv_type": "DEL", "chr": "5", "start": 100, "end": 200, "gt": {}},
+                {"sv_type": "DEL", "chr": "5", "start": 300, "end": 400, "gt": {}},
+                {"sv_type": "DEL", "chr": "9", "start": 999, "end": 1999, "gt": {}},
+            ]
+        )
+        assert (summary["chr"], summary["start"], summary["end"]) == ("5", 100, 400)
+
+    def test_missing_or_unparsable_coordinates_yield_no_locus(self) -> None:
+        assert self._summary([{"sv_type": "DEL", "gt": {}}])["chr"] is None
+        assert self._summary([{"sv_type": "DEL", "chr": "1", "start": None, "end": 5, "gt": {}}])["chr"] is None
+        assert self._summary([{"sv_type": "DEL", "chr": "1", "start": "x", "end": 5, "gt": {}}])["chr"] is None
+
+    def test_an_sv_without_coordinates_does_not_drag_the_span(self) -> None:
+        summary = self._summary(
+            [
+                {"sv_type": "DEL", "chr": "7", "start": 100, "end": 200, "gt": {}},
+                {"sv_type": "DEL", "gt": {}},
+            ]
+        )
+        assert (summary["chr"], summary["start"], summary["end"]) == ("7", 100, 200)
+        # The count still reflects every SV on the gene.
+        assert summary["sv_count"] == 2
+
+
 def _scan(monkeypatch, rows: list[tuple]) -> tuple[dict, int]:
     async def _fake_execute(query, params):
         assert params["family_guid"] == "u1"
@@ -857,3 +923,85 @@ def test_missing_index_is_built_and_stamped_with_the_version(monkeypatch) -> Non
     assert scans["count"] == 1
     assert session.built_from["u1"] == "3:9"
     assert session.genes["u1"] == {"BRCA2"}
+
+
+# The index read by gene: the SNV list's badge (get_sv_second_hits) and its "SV second hit"
+# filter (get_sv_hit_genes).
+
+
+class _IndexRows:
+    """A session holding ``family_sv_gene_index`` rows; it records each statement and its parameters."""
+
+    def __init__(self, rows: list[dict]) -> None:
+        self.rows = rows
+        self.executed: list[tuple[str, object]] = []
+        self.commits = 0
+
+    async def execute(self, statement, params=None):
+        self.executed.append((" ".join(str(statement).split()), params))
+        rows = self.rows
+        return types.SimpleNamespace(
+            mappings=lambda: types.SimpleNamespace(all=lambda: list(rows)),
+            scalars=lambda: types.SimpleNamespace(all=lambda: [row["gene_symbol"] for row in rows]),
+        )
+
+    async def commit(self) -> None:
+        self.commits += 1
+
+
+def test_the_second_hits_are_read_for_the_genes_asked_in_one_array_parameter() -> None:
+    from backend.app.services.sv_gene_index_service import get_sv_second_hits
+
+    stored = [{"sv_id": "sv1", "sv_type": "DEL", "gt": {"S1": "0/1"}}]
+    session = _IndexRows(
+        [
+            # The driver hands JSONB back decoded, or as its text.
+            {"gene_symbol": "BRCA2", "sv_count": 1, "svs": stored},
+            {"gene_symbol": "FGR", "sv_count": 2, "svs": '[{"sv_id": "sv2"}, {"sv_id": "sv3"}]'},
+        ]
+    )
+
+    hits = asyncio.run(get_sv_second_hits(session, family_uuid="u1", gene_symbols={"brca2", "FGR", "", "fgr"}))
+
+    assert hits == {
+        "BRCA2": {"sv_count": 1, "svs": stored},
+        "FGR": {"sv_count": 2, "svs": [{"sv_id": "sv2"}, {"sv_id": "sv3"}]},
+    }
+    # The genes upper-cased, once each, as one text[] parameter (a CSV export's genes can pass
+    # the 32,767 parameters asyncpg takes in one statement, DATA-3).
+    [(sql, params)] = session.executed
+    assert "gene_symbol = ANY(CAST(:genes AS text[]))" in sql
+    assert params == {"fid": "u1", "genes": ["BRCA2", "FGR"]}
+
+
+@pytest.mark.parametrize("genes", [set(), {""}], ids=["no-gene", "blank-gene"])
+def test_no_gene_asked_reads_no_second_hit(genes: set[str]) -> None:
+    from backend.app.services.sv_gene_index_service import get_sv_second_hits
+
+    session = _IndexRows([{"gene_symbol": "BRCA2", "sv_count": 1, "svs": []}])
+    assert asyncio.run(get_sv_second_hits(session, family_uuid="u1", gene_symbols=genes)) == {}
+    assert session.executed == []
+
+
+def test_the_genes_the_familys_svs_hit_are_read_from_its_index() -> None:
+    from backend.app.services.sv_gene_index_service import get_sv_hit_genes
+
+    session = _IndexRows([{"gene_symbol": "BRCA2"}, {"gene_symbol": "FGR"}])
+    assert asyncio.run(get_sv_hit_genes(session, family_uuid="u1")) == ["BRCA2", "FGR"]
+    assert session.executed == [
+        ("SELECT gene_symbol FROM family_sv_gene_index WHERE family_id = CAST(:fid AS uuid)", {"fid": "u1"})
+    ]
+
+
+def test_clearing_the_index_removes_its_genes_and_its_status() -> None:
+    # The status goes too: a family without one has no index, and the next read builds it.
+    from backend.app.services.sv_gene_index_service import clear_family_sv_gene_index
+
+    session = _IndexRows([])
+    asyncio.run(clear_family_sv_gene_index(session, "u1"))  # type: ignore[arg-type]
+
+    assert session.executed == [
+        ("DELETE FROM family_sv_gene_index WHERE family_id = CAST(:fid AS uuid)", {"fid": "u1"}),
+        ("DELETE FROM family_sv_gene_index_status WHERE family_id = CAST(:fid AS uuid)", {"fid": "u1"}),
+    ]
+    assert session.commits == 1

@@ -41,19 +41,11 @@ from uuid import uuid4
 
 import pytest
 
+from backend.tests.e2e._harness import capture, ensure_postgres_schema
+
 pytestmark = pytest.mark.integration
 
 HPO_TERM = "HP:0001250"
-
-
-def _cap(resp: Any) -> dict[str, Any]:
-    out: dict[str, Any] = {"status": resp.status_code}
-    try:
-        out["json"] = resp.json()
-    except ValueError:
-        out["json"] = None
-        out["text"] = resp.text[:200]
-    return out
 
 
 def _record(answer: dict[str, Any]) -> tuple[int, Any]:
@@ -83,8 +75,8 @@ def _spellings(record_id: str) -> dict[str, str]:
 async def _ask(client: Any, method: str, template: str, value: str, body: Any = None) -> dict[str, Any]:
     url = template.replace("{v}", quote(value, safe=""))
     if body is None:
-        return _cap(await client.request(method, url))
-    return _cap(await client.request(method, url, json=body))
+        return capture(await client.request(method, url))
+    return capture(await client.request(method, url, json=body))
 
 
 async def _answers(
@@ -229,7 +221,7 @@ async def _collect(run: str) -> dict[str, Any]:
 
     from backend.app.core.clickhouse import init_clickhouse_schema
     from backend.app.core.config import settings
-    from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
+    from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.dependencies import get_password_hash
     from backend.app.main import app
     from backend.app.services import raw_import_files_pg
@@ -246,7 +238,7 @@ async def _collect(run: str) -> dict[str, Any]:
     (storage / "raw_imports").mkdir()
     (storage / "raw_imports" / "raw.txt").write_text("synthetic raw import file\n")
 
-    await init_postgres_schema()
+    await ensure_postgres_schema()
     # The family's variant pages run against the assembly's ClickHouse tables.
     await init_clickhouse_schema()
     await ensure_clickhouse_variant_tables(_harness.ASSEMBLY)
@@ -388,7 +380,7 @@ async def _collect(run: str) -> dict[str, Any]:
                         viewer, method, f"/api/families/{family}/hpo/{{v}}", not_a_uuid, ids["annotation"], body
                     )
             r["viewer_file"] = await _answers(viewer, "GET", "/api/admin/data/files/{v}/download", not_a_uuid, ids["file"])
-            r["annotation_after_viewer"] = _cap(await ac.get(f"/api/families/{family_a}/hpo"))
+            r["annotation_after_viewer"] = capture(await ac.get(f"/api/families/{family_a}/hpo"))
 
             # --- reads and changes: each spelling of the id -----------------------------
             reads = {
@@ -410,12 +402,12 @@ async def _collect(run: str) -> dict[str, Any]:
             }
             for key, (method, template, record, body) in reads.items():
                 r[key] = await _answers(ac, method, template, not_a_uuid, ids[record], body)
-            r["project_b_after"] = _cap(await ac.get("/api/projects/"))
+            r["project_b_after"] = capture(await ac.get("/api/projects/"))
             # Only to assemblies that do not exist: an upload to one replaces its reference data.
             upload = {"file": ("cytobands.txt", b"chr1\t0\t2300000\tp36.33\tgneg\n", "text/plain")}
             unknown_assembly = str(uuid4())
             r["reference_upload"] = {
-                name: _cap(
+                name: capture(
                     await ac.post(f"/api/assemblies/{quote(value, safe='')}/reference-upload/cytobands", files=upload)
                 )
                 for name, value in {

@@ -1,13 +1,11 @@
 // Pins the family SV summary: the requests it makes (encoded id, 100k cap), per-chromosome/type
 // counts in karyotype order, the unique/shared sample matrix, absolute-length histograms, states.
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { QueryClientProvider } from '@tanstack/react-query';
-import { MemoryRouter, Route, Routes } from 'react-router';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import FamilyVariantSummaryPage from '../FamilyVariantSummaryPage';
 import api from '../../../lib/api';
-import { createTestQueryClient } from '../../../test/createTestQueryClient';
+import { renderFamilyRoute } from '../../../test/familyRoute';
 import {
   INCOMPLETE_IMPORT_METADATA,
   findAssemblyScopeBanner,
@@ -71,15 +69,7 @@ const serve = (
 };
 
 const renderPage = (path = '/families/F1/variant-summary') =>
-  render(
-    <QueryClientProvider client={createTestQueryClient()}>
-      <MemoryRouter initialEntries={[path]}>
-        <Routes>
-          <Route path="/families/:familyId/variant-summary" element={<FamilyVariantSummaryPage />} />
-        </Routes>
-      </MemoryRouter>
-    </QueryClientProvider>,
-  );
+  renderFamilyRoute('/families/:familyId/variant-summary', path, <FamilyVariantSummaryPage />);
 
 const sectionTitled = (title: string) => {
   const section = screen.getByRole('heading', { name: title, level: 2 }).closest('section');

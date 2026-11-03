@@ -35,6 +35,8 @@ from pathlib import Path
 
 import pytest
 
+from backend.tests.e2e._harness import capture
+
 pytestmark = pytest.mark.integration
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "golden_trio"
@@ -99,13 +101,6 @@ _SPECTRE_VCF = _sv_vcf(
     "##source=Spectre",
     "1\t30000\tSpectre.DEL.1\tN\t<DEL>\t.\tPASS\tSVTYPE=DEL;SVLEN=-1000;END=31000\tGT\t1/1",
 )
-
-
-def _cap(resp) -> dict:
-    out = {"status": resp.status_code, "text": resp.text}
-    if resp.status_code < 400:
-        out["json"] = resp.json()
-    return out
 
 
 async def _small_rows(family_uuid: str) -> list[dict]:
@@ -262,7 +257,7 @@ async def _exercise(root: Path) -> dict:
 
         out["glimpse2_upload"] = await _load_glimpse2(facts["project_id"])
         for source_format, body in (("sniffles", _SNIFFLES_VCF), ("spectre", _SPECTRE_VCF)):
-            out[f"{source_format}_upload"] = _cap(
+            out[f"{source_format}_upload"] = capture(
                 await ac.post(
                     "/api/structural-variants/upload/PROBAND",
                     params={"source_format": source_format},
@@ -277,7 +272,7 @@ async def _exercise(root: Path) -> dict:
         out["sv_after"] = await _sv_rows(family_uuid)
 
         async def page(**params) -> dict:
-            return _cap(
+            return capture(
                 await ac.get(
                     f"/api/families/{FAMILY}/small-variants", params={"page_size": 100, **params}
                 )
@@ -289,7 +284,7 @@ async def _exercise(root: Path) -> dict:
         out["de_novo"] = await page(inheritance="de_novo_dominant")
         out["compound_het"] = await page(inheritance="compound_het")
         out["imputed_list"] = await page(source="glimpse2")
-        out["sv_page"] = _cap(
+        out["sv_page"] = capture(
             await ac.get(f"/api/families/{FAMILY}/structural-variants", params={"page_size": 100})
         )
         record = await get_small_variant_family_record(
@@ -299,7 +294,7 @@ async def _exercise(root: Path) -> dict:
         # A compound-het review is refused unless both variants are heterozygous in an
         # affected member, read through the per-variant record: the imputed row has the
         # proband homozygous at 1:4000.
-        out["compound_het_review"] = _cap(
+        out["compound_het_review"] = capture(
             await ac.put(
                 f"/api/families/{FAMILY}/small-variants/{_CH_LEFT}/review",
                 json={"compound_het": {"partner_variant_id": _CH_RIGHT, "note": "e2e callset identity"}},

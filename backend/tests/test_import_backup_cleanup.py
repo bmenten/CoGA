@@ -157,6 +157,39 @@ def test_orphaned_backups_are_those_no_running_import_owns() -> None:
     assert orphaned == [ended, old_run, old_token]
 
 
+@pytest.mark.asyncio
+async def test_the_running_jobs_are_those_still_queued_validating_or_running() -> None:
+    from backend.app.services.family_package_jobs import running_family_import_job_ids
+
+    class _Session:
+        def __init__(self) -> None:
+            self.statements: list[tuple[str, Any]] = []
+
+        async def execute(self, statement: Any, params: Any = None) -> Any:
+            self.statements.append((" ".join(str(statement).split()), params))
+
+            class _Rows:
+                def scalars(self_inner) -> Any:
+                    class _All:
+                        def all(self_all) -> list[str]:
+                            return [JOB]
+
+                    return _All()
+
+            return _Rows()
+
+    session = _Session()
+    # Each job once, as one text[] parameter; the database says which have not ended.
+    assert await running_family_import_job_ids(session, [OTHER_JOB, JOB, OTHER_JOB]) == {JOB}  # type: ignore[arg-type]
+    [(sql, params)] = session.statements
+    assert params == {"ids": sorted([JOB, OTHER_JOB])}
+    assert "status IN ('queued', 'validating', 'running')" in sql
+    # No job owns a backup: nothing is looked up.
+    empty = _Session()
+    assert await running_family_import_job_ids(empty, []) == set()  # type: ignore[arg-type]
+    assert empty.statements == []
+
+
 # --- the drop ---------------------------------------------------------------------------
 
 
@@ -209,14 +242,35 @@ async def test_the_worker_drops_the_backups_of_a_job_it_ended_and_runs_the_other
 
 
 @pytest.mark.asyncio
-async def test_a_drop_that_fails_leaves_the_job_ended_and_the_backups_for_startup(monkeypatch) -> None:
+async def test_a_drop_that_fails_leaves_the_job_ended_and_the_backups_for_startup(monkeypatch, caplog) -> None:
+    listed: list[Any] = []
+
     async def list_tables(owner: str | None = None) -> list[ImportBackupTable]:
+        listed.append(owner)
         raise RuntimeError("ClickHouse unavailable")
 
+    async def no_drop(_tables: Any) -> list[str]:
+        raise AssertionError("nothing was listed to drop")
+
+    async def no_run(**_kwargs: Any) -> None:
+        raise AssertionError("a job the claim ended is not run")
+
     monkeypatch.setattr(package_import, "list_import_backup_tables", list_tables)
+    monkeypatch.setattr(package_import, "drop_import_backup_tables", no_drop)
+    monkeypatch.setattr(package_import, "run_family_import_job", no_run)
+    caplog.set_level("WARNING", logger=package_import.logger.name)
 
     # Logged, never raised: the worker goes on to its next job.
-    await package_import.handle_claimed_family_import_job({"id": JOB, "status": "failed"}, worker_id="w")
+    assert (
+        await package_import.handle_claimed_family_import_job({"id": JOB, "status": "failed"}, worker_id="w")
+        is None
+    )
+
+    assert listed == [JOB]
+    assert [record.getMessage() for record in caplog.records] == [
+        f"Family package import job {JOB} stopped part-way; ended it as interrupted",
+        f"Could not drop the backup tables of stopped import job {JOB}",
+    ]
 
 
 @pytest.mark.asyncio

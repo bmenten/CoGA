@@ -1,17 +1,20 @@
 """Integration tests that FIRE the append-only triggers (real Postgres, smoke job).
 
-These prove the database-level immutability controls on six append-only tables
-— ``audit_log_events`` (the HTTP access log), ``clinical_audit_events`` (the clinical
-action log), ``report_signouts`` (frozen signed reports), ``qc_threshold_changes``
-(the history of QC acceptance limits), ``family_structure_versions`` (the pedigree's
-history) and ``ui_events`` (the UI-event log): a direct UPDATE of a non-carve-out column
-and any DELETE are rejected by the ``BEFORE UPDATE/DELETE`` triggers, while the FK ``ON
-DELETE SET NULL`` carve-out (the user/actor unlink that keeps account deletion working, and
-for the structure versions the family unlink) is permitted — and nothing else. This is the
-verifying evidence for RTM REQ-TRACE-008 and, for the QC history, REQ-QC-007. The seventh,
+These prove the database-level immutability controls on six append-only tables —
+``audit_log_events`` (the HTTP access log), ``clinical_audit_events`` (the clinical action
+log), ``report_signouts`` (frozen signed reports), ``qc_threshold_changes`` (the history of
+QC acceptance limits), ``family_structure_versions`` (the pedigree's history) and
+``ui_events`` (the UI-event log): a direct UPDATE of a non-carve-out column and any DELETE
+are rejected by the ``BEFORE UPDATE/DELETE`` triggers, while the FK ``ON DELETE SET NULL``
+carve-out (the user/actor unlink that keeps account deletion working, and for the structure
+versions the family unlink) is permitted — and nothing else. This is the verifying evidence
+for RTM REQ-TRACE-008 and, for the QC history, REQ-QC-007. The seventh,
 ``integrity_anchors``, is not fired here: a marker anchor would break the anchor-chain
-verification that ``test_integrity_anchor_integration.py`` runs on the same database. Its
-REVOKE is asserted in ``test_app_role_privileges.py``.
+verification that ``test_integrity_anchor_integration.py`` runs on the same database; that
+test fires it on a database of its own. Its REVOKE is asserted in
+``test_app_role_privileges.py``. The set of trigger-guarded tables is read from the
+catalogue and must be the six fired here and ``integrity_anchors``, so a new append-only
+table cannot ship with a trigger no test fires.
 
 SCOPE CAVEAT (review finding C1): the smoke job — like the application — connects as
 the DB OWNER, so this proves the triggers block the *owner's* UPDATE/DELETE, NOT that
@@ -33,6 +36,8 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
+from backend.tests.integration._datastores import append_only_tables, run_closing_stores
+
 pytestmark = pytest.mark.integration
 
 
@@ -51,169 +56,89 @@ async def _assert_blocked(sessionmaker, sql: str, params: dict, expect_substr: s
     assert expect_substr in str(exc_info.value)
 
 
-def test_append_only_triggers_block_update_and_delete() -> None:
-    from backend.app.core.postgres import (
-        close_postgres_engine,
-        get_postgres_sessionmaker,
-        init_postgres_schema,
-    )
+# Per append-only table: a marker row's INSERT (returning its id), and an UPDATE of a value it
+# records, by its id. integrity_anchors is not fired here: a marker anchor would break the
+# anchor-chain verification that test_integrity_anchor_integration.py runs on the same database
+# (that test fires it, on a database of its own).
+_FIRED = {
+    "audit_log_events": (
+        "INSERT INTO audit_log_events (method, path, status_code) "
+        "VALUES ('GET', '/p1-5-trigger-test', 200) RETURNING id",
+        "UPDATE audit_log_events SET status_code = 500 WHERE id = :id",
+    ),
+    "clinical_audit_events": (
+        "INSERT INTO clinical_audit_events (actor, action, summary) "
+        "VALUES ('p1-5-test', 'test', 'marker') RETURNING id",
+        "UPDATE clinical_audit_events SET summary = 'tampered' WHERE id = :id",
+    ),
+    # A signed report must never change.
+    "report_signouts": (
+        "INSERT INTO report_signouts (version, signed_out_by, content_hash, snapshot) "
+        "VALUES (1, 'p1-5-test', 'deadbeef', '{}'::jsonb) RETURNING id",
+        "UPDATE report_signouts SET content_hash = 'tampered' WHERE id = :id",
+    ),
+    # A past acceptance limit must not be rewritten.
+    "qc_threshold_changes": (
+        "INSERT INTO qc_threshold_changes (profile_key, metric_key, warn_value, reason) "
+        "VALUES ('p1-5-test', 'mean_depth', 10, 'marker') RETURNING id",
+        "UPDATE qc_threshold_changes SET warn_value = 5 WHERE id = :id",
+    ),
+    # A recorded pedigree must not be rewritten.
+    "family_structure_versions": (
+        "INSERT INTO family_structure_versions (family_identifier, version, structure_hash, snapshot) "
+        "VALUES ('p1-5-test', 1, 'deadbeef', '{}'::jsonb) RETURNING id",
+        "UPDATE family_structure_versions SET structure_hash = 'tampered' WHERE id = :id",
+    ),
+    # The UI-event log is not rewritten or pruned.
+    "ui_events": (
+        "INSERT INTO ui_events (event_type, label) VALUES ('click', 'p1-5-trigger-test') RETURNING id",
+        "UPDATE ui_events SET label = 'tampered' WHERE id = :id",
+    ),
+}
+_NOT_FIRED = {"integrity_anchors"}
+
+
+@pytest.fixture(scope="module")
+def schema() -> None:
+    """The tables and triggers exist, whatever ran before (idempotent)."""
+    from backend.app.core.postgres import init_postgres_schema
+
+    run_closing_stores(init_postgres_schema)
+
+
+def test_every_append_only_table_but_the_anchors_is_fired_here(schema) -> None:
+    """A new append-only table cannot ship with a trigger that is never fired: its marker row
+    and UPDATE belong in ``_FIRED`` (its REVOKE in ``test_app_role_privileges.py``)."""
+    from backend.app.core.postgres import get_postgres_sessionmaker
+
+    async def _guarded() -> set[str]:
+        async with get_postgres_sessionmaker()() as s:
+            return await append_only_tables(s)
+
+    guarded = run_closing_stores(_guarded)
+    assert guarded == set(_FIRED) | _NOT_FIRED, guarded ^ (set(_FIRED) | _NOT_FIRED)
+
+
+@pytest.mark.parametrize("table", list(_FIRED))
+def test_append_only_triggers_block_update_and_delete(schema, table: str) -> None:
+    from backend.app.core.postgres import get_postgres_sessionmaker
+
+    insert, update = _FIRED[table]
 
     async def _run() -> None:
-        try:
-            # Idempotent; ensures the tables + triggers exist regardless of test order.
-            await init_postgres_schema()
-            sm = get_postgres_sessionmaker()
+        sm = get_postgres_sessionmaker()
+        async with sm() as s:
+            row_id = (await s.execute(text(insert))).scalar_one()
+            await s.commit()
+        await _assert_blocked(sm, update, {"id": row_id}, f"{table} is append-only; UPDATE is not permitted")
+        await _assert_blocked(
+            sm, f"DELETE FROM {table} WHERE id = :id", {"id": row_id}, f"{table} is append-only; DELETE is not permitted"
+        )
+        # Both refused: the row is there as it was written.
+        async with sm() as s:
+            assert (await s.execute(text(f"SELECT count(*) FROM {table} WHERE id = :id"), {"id": row_id})).scalar_one() == 1
 
-            # --- audit_log_events ---
-            async with sm() as s:
-                ale_id = (
-                    await s.execute(
-                        text(
-                            "INSERT INTO audit_log_events (method, path, status_code) "
-                            "VALUES ('GET', '/p1-5-trigger-test', 200) RETURNING id"
-                        )
-                    )
-                ).scalar_one()
-                await s.commit()
-            await _assert_blocked(
-                sm,
-                "UPDATE audit_log_events SET status_code = 500 WHERE id = :id",
-                {"id": ale_id},
-                "audit_log_events is append-only; UPDATE is not permitted",
-            )
-            await _assert_blocked(
-                sm,
-                "DELETE FROM audit_log_events WHERE id = :id",
-                {"id": ale_id},
-                "audit_log_events is append-only; DELETE is not permitted",
-            )
-
-            # --- clinical_audit_events ---
-            async with sm() as s:
-                cae_id = (
-                    await s.execute(
-                        text(
-                            "INSERT INTO clinical_audit_events (actor, action, summary) "
-                            "VALUES ('p1-5-test', 'test', 'marker') RETURNING id"
-                        )
-                    )
-                ).scalar_one()
-                await s.commit()
-            await _assert_blocked(
-                sm,
-                "UPDATE clinical_audit_events SET summary = 'tampered' WHERE id = :id",
-                {"id": cae_id},
-                "clinical_audit_events is append-only; UPDATE is not permitted",
-            )
-            await _assert_blocked(
-                sm,
-                "DELETE FROM clinical_audit_events WHERE id = :id",
-                {"id": cae_id},
-                "clinical_audit_events is append-only; DELETE is not permitted",
-            )
-
-            # --- report_signouts (a signed report must never change) ---
-            async with sm() as s:
-                rs_id = (
-                    await s.execute(
-                        text(
-                            "INSERT INTO report_signouts "
-                            "(version, signed_out_by, content_hash, snapshot) "
-                            "VALUES (1, 'p1-5-test', 'deadbeef', '{}'::jsonb) RETURNING id"
-                        )
-                    )
-                ).scalar_one()
-                await s.commit()
-            await _assert_blocked(
-                sm,
-                "UPDATE report_signouts SET content_hash = 'tampered' WHERE id = :id",
-                {"id": rs_id},
-                "report_signouts is append-only; UPDATE is not permitted",
-            )
-            await _assert_blocked(
-                sm,
-                "DELETE FROM report_signouts WHERE id = :id",
-                {"id": rs_id},
-                "report_signouts is append-only; DELETE is not permitted",
-            )
-
-            # --- qc_threshold_changes (a past acceptance limit must not be rewritten) ---
-            async with sm() as s:
-                qtc_id = (
-                    await s.execute(
-                        text(
-                            "INSERT INTO qc_threshold_changes "
-                            "(profile_key, metric_key, warn_value, reason) "
-                            "VALUES ('p1-5-test', 'mean_depth', 10, 'marker') RETURNING id"
-                        )
-                    )
-                ).scalar_one()
-                await s.commit()
-            await _assert_blocked(
-                sm,
-                "UPDATE qc_threshold_changes SET warn_value = 5 WHERE id = :id",
-                {"id": qtc_id},
-                "qc_threshold_changes is append-only; UPDATE is not permitted",
-            )
-            await _assert_blocked(
-                sm,
-                "DELETE FROM qc_threshold_changes WHERE id = :id",
-                {"id": qtc_id},
-                "qc_threshold_changes is append-only; DELETE is not permitted",
-            )
-
-            # --- family_structure_versions (a recorded pedigree must not be rewritten) ---
-            async with sm() as s:
-                fsv_id = (
-                    await s.execute(
-                        text(
-                            "INSERT INTO family_structure_versions "
-                            "(family_identifier, version, structure_hash, snapshot) "
-                            "VALUES ('p1-5-test', 1, 'deadbeef', '{}'::jsonb) RETURNING id"
-                        )
-                    )
-                ).scalar_one()
-                await s.commit()
-            await _assert_blocked(
-                sm,
-                "UPDATE family_structure_versions SET structure_hash = 'tampered' WHERE id = :id",
-                {"id": fsv_id},
-                "family_structure_versions is append-only; UPDATE is not permitted",
-            )
-            await _assert_blocked(
-                sm,
-                "DELETE FROM family_structure_versions WHERE id = :id",
-                {"id": fsv_id},
-                "family_structure_versions is append-only; DELETE is not permitted",
-            )
-
-            # --- ui_events (the UI-event log is not rewritten or pruned) ---
-            async with sm() as s:
-                uie_id = (
-                    await s.execute(
-                        text(
-                            "INSERT INTO ui_events (event_type, label) "
-                            "VALUES ('click', 'p1-5-trigger-test') RETURNING id"
-                        )
-                    )
-                ).scalar_one()
-                await s.commit()
-            await _assert_blocked(
-                sm,
-                "UPDATE ui_events SET label = 'tampered' WHERE id = :id",
-                {"id": uie_id},
-                "ui_events is append-only; UPDATE is not permitted",
-            )
-            await _assert_blocked(
-                sm,
-                "DELETE FROM ui_events WHERE id = :id",
-                {"id": uie_id},
-                "ui_events is append-only; DELETE is not permitted",
-            )
-        finally:
-            await close_postgres_engine()
-
-    asyncio.run(_run())
+    run_closing_stores(_run)
 
 
 def test_append_only_fk_null_carveout_is_permitted_but_nothing_else() -> None:

@@ -25,8 +25,6 @@ Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``smoke`` job set
 from __future__ import annotations
 
 import asyncio
-import base64
-from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
@@ -35,36 +33,9 @@ from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
 from backend.app.core.config import settings
+from backend.tests.integration._datastores import admin_account, anchor_signing_seed
 
 pytestmark = pytest.mark.integration
-
-
-def _signing_seed() -> str:
-    """A fresh Ed25519 seed for the anchor, made when the test runs."""
-    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-    from cryptography.hazmat.primitives.serialization import Encoding, NoEncryption, PrivateFormat
-
-    raw = Ed25519PrivateKey.generate().private_bytes(Encoding.Raw, PrivateFormat.Raw, NoEncryption())
-    return base64.b64encode(raw).decode()
-
-
-async def _user(session: Any, run: str) -> Any:
-    from backend.app.services.access_control import CurrentUser
-
-    name = f"sec7-{run}"
-    user_id = (
-        await session.execute(
-            text(
-                "INSERT INTO users (username, hashed_password, role, email) "
-                "VALUES (:u, :h, 'admin', :e) RETURNING id::text"
-            ),
-            {"u": name, "h": "unusable", "e": f"{name}@example.org"},
-        )
-    ).scalar_one()
-    await session.commit()
-    return CurrentUser(
-        id=user_id, username=name, email=f"{name}@example.org", role="admin", created_at=datetime.now(timezone.utc)
-    )
 
 
 async def _pedigree_events(session: Any, label: str) -> list[dict[str, Any]]:
@@ -128,7 +99,7 @@ def test_pedigree_changes_are_chained_versions_and_clinical_audit_events(monkeyp
     )
     from backend.app.services.ped_service import create_manual_family_data
 
-    monkeypatch.setattr(settings, "integrity_anchor_signing_key", _signing_seed())
+    monkeypatch.setattr(settings, "integrity_anchor_signing_key", anchor_signing_seed())
     run = uuid4().hex[:10]
     label = f"sec7-{run}"
     father, mother, child = (f"{label}-{name}" for name in ("F", "M", "P"))
@@ -138,7 +109,8 @@ def test_pedigree_changes_are_chained_versions_and_clinical_audit_events(monkeyp
             await init_postgres_schema()
             sm = get_postgres_sessionmaker()
             async with sm() as s:
-                user = await _user(s, run)
+                user = await admin_account(s, f"sec7-{run}")
+                await s.commit()
 
             # The family made by hand, then three changes of its pedigree.
             async with sm() as s:

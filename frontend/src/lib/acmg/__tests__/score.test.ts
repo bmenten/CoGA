@@ -24,37 +24,27 @@ describe('computeClassification', () => {
     expect(result.classKey).toBe('acmg_class_3');
   });
 
-  it('PVS1 (8) + PM2 (1) = 9 → Likely Pathogenic', () => {
-    const result = computeClassification([sel('PVS1', 'very_strong'), sel('PM2', 'supporting')]);
-    expect(result.points).toBe(9);
+  it.each([
+    ['PVS1 (8) + PM2 (1) = 9 → Likely Pathogenic', [sel('PVS1', 'very_strong'), sel('PM2', 'supporting')], 9, 'acmg_class_4'],
+    ['PVS1 (8) + PM2 moderate (2) = 10 → Pathogenic', [sel('PVS1', 'very_strong'), sel('PM2', 'moderate')], 10, 'acmg_class_5'],
+    ['two benign supporting (-2) → Likely benign', [sel('BP4', 'supporting'), sel('BP7', 'supporting')], -2, 'acmg_class_2'],
+    ['benign strong + supporting (-5) stays Likely benign', [sel('BS1', 'strong'), sel('BP4', 'supporting')], -5, 'acmg_class_2'],
+    ['two benign strong (-8) tips to Benign', [sel('BS1', 'strong'), sel('BS2', 'strong')], -8, 'acmg_class_1'],
+    ['mixed pathogenic and benign evidence nets toward VUS', [sel('PVS1', 'very_strong'), sel('BS1', 'strong')], 4, 'acmg_class_3'],
+  ] as const)('%s', (_label, selections, points, classKey) => {
+    const result = computeClassification([...selections]);
+    expect(result.points).toBe(points);
+    expect(result.classKey).toBe(classKey);
+  });
+
+  it('scores a criterion or strength it does not know as nothing, never as NaN, which would read as benign', () => {
+    const result = computeClassification([
+      sel('PVS1', 'very_strong'),
+      sel('NOT_A_CODE' as AcmgCriterionCode, 'strong'),
+      sel('PM2', 'not_a_strength' as AcmgStrength),
+    ]);
+    expect(result.points).toBe(8);
     expect(result.classKey).toBe('acmg_class_4');
-  });
-
-  it('PVS1 (8) + PM2 moderate (2) = 10 → Pathogenic', () => {
-    const result = computeClassification([sel('PVS1', 'very_strong'), sel('PM2', 'moderate')]);
-    expect(result.points).toBe(10);
-    expect(result.classKey).toBe('acmg_class_5');
-  });
-
-  it('two benign supporting (-2) → Likely benign', () => {
-    const result = computeClassification([sel('BP4', 'supporting'), sel('BP7', 'supporting')]);
-    expect(result.points).toBe(-2);
-    expect(result.classKey).toBe('acmg_class_2');
-  });
-
-  it('benign strong + supporting (-5) stays Likely benign; -7 tips to Benign', () => {
-    expect(
-      computeClassification([sel('BS1', 'strong'), sel('BP4', 'supporting')]).classKey,
-    ).toBe('acmg_class_2');
-    expect(
-      computeClassification([sel('BS1', 'strong'), sel('BS2', 'strong')]).classKey,
-    ).toBe('acmg_class_1');
-  });
-
-  it('mixed pathogenic and benign evidence nets toward VUS', () => {
-    const result = computeClassification([sel('PVS1', 'very_strong'), sel('BS1', 'strong')]);
-    expect(result.points).toBe(4);
-    expect(result.classKey).toBe('acmg_class_3');
   });
 
   it('BA1 forces Benign regardless of point total', () => {

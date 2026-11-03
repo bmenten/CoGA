@@ -25,36 +25,7 @@ from backend.app.schemas import (
 )
 from backend.app.services import pgt_analysis, phased_marker_service
 from backend.app.services.family_metadata_context import FamilyMetadataContext
-
-
-class _Result:
-    def __init__(self, rows: list[dict[str, Any]]) -> None:
-        self._rows = rows
-
-    def mappings(self) -> "_Result":
-        return self
-
-    def all(self) -> list[dict[str, Any]]:
-        return list(self._rows)
-
-    def first(self) -> dict[str, Any] | None:
-        return self._rows[0] if self._rows else None
-
-
-class _Session:
-    """Answers each statement by a fragment of its SQL."""
-
-    def __init__(self, answers: dict[str, list[dict[str, Any]]]) -> None:
-        self.answers = answers
-        self.executed: list[tuple[str, Any]] = []
-
-    async def execute(self, statement: Any, params: Any = None) -> _Result:
-        sql = str(statement)
-        self.executed.append((sql, params))
-        for fragment, rows in self.answers.items():
-            if fragment in sql:
-                return _Result(rows)
-        return _Result([])
+from backend.tests._pgt_session_fakes import AnsweringSession
 
 
 MEMBERS = [
@@ -176,11 +147,11 @@ def _patch_reads(monkeypatch, *, haplotypes: HaplotypeResponse | None = None, ma
     return asked
 
 
-def _session(roi: dict[str, Any] | None = ROI, pgt: Any = None) -> _Session:
+def _session(roi: dict[str, Any] | None = ROI, pgt: Any = None) -> AnsweringSession:
     family = {**(roi or {"roi_query": None, "roi_label": None, "roi_source": None, "roi_chr": None,
                          "roi_start": None, "roi_end": None}),
               "pgt": {"inheritance_model": "AD"} if pgt is None else pgt}
-    return _Session({"FROM families": [family], "FROM sample_interval_track_sources": SOURCES})
+    return AnsweringSession({"FROM families": [family], "FROM sample_interval_track_sources": SOURCES})
 
 
 def test_each_embryo_is_called_at_the_roi_from_the_blocks_the_haplotype_view_reads(monkeypatch) -> None:

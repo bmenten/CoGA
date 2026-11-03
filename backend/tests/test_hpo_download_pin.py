@@ -31,6 +31,7 @@ from backend.app.core.config import (
     Settings,
 )
 from backend.app.services import hpo_service
+from backend.tests._lifespan import LifespanApp, stub_lifespan_steps
 
 _VENDORED_HPO = Path(__file__).resolve().parents[2] / "data" / "ref-data" / "hpo" / "hp.obo"
 # What the floating hp.obo serves once HPO has published a later release.
@@ -121,40 +122,6 @@ def test_no_setting_and_no_argument_moves_the_pin(monkeypatch: pytest.MonkeyPatc
     }
 
 
-class _App:
-    class state:  # FastAPI's app.state, as the lifespan reads it
-        skip_startup_tasks = False
-
-
-# Every step of the lifespan but the HPO bootstrap: replaced, so the startup touches no database.
-_OTHER_STARTUP_STEPS = (
-    "wait_for_postgres",
-    "init_postgres_schema",
-    "init_postgres_admin_user",
-    "start_audit_log_worker",
-    "start_ui_event_worker",
-    "seed_builtin_repeat_catalog",
-    "ensure_human_grch38_reference_on_startup",
-    "ensure_human_t2t_reference_on_startup",
-    "seed_builtin_reference_tracks",
-    "queue_startup_gene_reference_refresh_if_needed",
-    "wait_for_clickhouse",
-    "init_clickhouse_schema",
-    "verify_clickhouse_variant_storage_identity",
-    "drop_orphaned_import_backups",
-    "start_clickhouse_integrity_monitor",
-    "gene_reference_refresh_worker",
-    "family_package_import_worker",
-    "stop_gene_reference_worker",
-    "stop_family_package_import_worker",
-    "stop_clickhouse_integrity_monitor",
-    "stop_audit_log_worker",
-    "stop_ui_event_worker",
-    "close_clickhouse_client",
-    "close_postgres_engine",
-)
-
-
 @pytest.mark.asyncio
 async def test_a_deployment_that_still_sets_the_removed_variables_imports_the_pinned_release(
     monkeypatch: pytest.MonkeyPatch,
@@ -176,9 +143,6 @@ async def test_a_deployment_that_still_sets_the_removed_variables_imports_the_pi
     monkeypatch.setattr(app_main, "settings", deployment)
     monkeypatch.setattr(hpo_service, "settings", deployment)
 
-    async def no_op(*_args: Any, **_kwargs: Any) -> None:
-        return None
-
     class _SessionFactory:
         async def __aenter__(self) -> _Session:
             return _Session()
@@ -186,14 +150,14 @@ async def test_a_deployment_that_still_sets_the_removed_variables_imports_the_pi
         async def __aexit__(self, *_exc: Any) -> bool:
             return False
 
-    for name in _OTHER_STARTUP_STEPS:
-        monkeypatch.setattr(app_main, name, no_op)
+    # Every step of the start but the HPO bootstrap: replaced, so the start touches no database.
+    stub_lifespan_steps(monkeypatch)
     monkeypatch.setattr(app_main, "get_postgres_sessionmaker", lambda: _SessionFactory)
     target = tmp_path / "ref-data" / "hpo" / "hp.obo"
     requested = _serve(monkeypatch, payload, **{_MIRROR_URL: _LATER_RELEASE})
     imported = _start_without_an_ontology_file(monkeypatch, target)
 
-    async with app_main.lifespan(_App()):
+    async with app_main.lifespan(LifespanApp()):
         pass
 
     assert requested == [HPO_PINNED_ONTOLOGY_URL]

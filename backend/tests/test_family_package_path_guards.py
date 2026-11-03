@@ -39,7 +39,6 @@ from __future__ import annotations
 import builtins
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import datetime, timezone
 import errno
 import gzip
 import io
@@ -58,6 +57,7 @@ from backend.app.services.family_package_common import NUL_IN_PATH, _package_pat
 from backend.app.services.family_package_discovery import discover_family_package_manifest, write_family_package_manifest
 from backend.app.services.family_package_source import scan_family_import_packages
 from backend.app.services.family_package_validation import load_validated_family_package, validate_family_package
+from backend.tests._family_import_fakes import authorize_import_root, signed_in_client
 
 FAMILY = "FAM1"
 TRIO_PED = f"{FAMILY} F1 0 0 1 1\n{FAMILY} M1 0 0 2 1\n{FAMILY} C1 F1 M1 1 2\n"
@@ -87,11 +87,7 @@ def _tilde_message(value: str) -> str:
 @pytest.fixture
 def imports(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     """The authorised import root; ``outside/`` beside it is not under it."""
-    root = tmp_path / "imports"
-    root.mkdir()
-    (tmp_path / "outside").mkdir()
-    monkeypatch.setattr(settings, "family_import_roots", [str(root)])
-    return root
+    return authorize_import_root(monkeypatch, tmp_path)
 
 
 def _python312_resolve(self: Path, strict: bool = False) -> Path:
@@ -788,13 +784,17 @@ def test_only_the_package_the_running_import_staged_is_read(
     with source.staged_package_source("gs://phi/imports/FAM1") as staged:
         assert (admitted(Path(staged.root)), admitted(other)) == (True, False)
     assert source._CURRENT_STAGED_ROOT.get() is None
+    # Once its import ends, not that package either.
+    assert admitted(Path(staged.root)) is False
 
-    async def in_an_import() -> tuple[bool, bool]:
+    async def in_an_import() -> tuple[str, bool, bool]:
         async with source.staged_package_source_async("gs://phi/imports/FAM1") as staged:
-            return admitted(Path(staged.root)), admitted(other)
+            return staged.root, admitted(Path(staged.root)), admitted(other)
 
-    assert asyncio.run(in_an_import()) == (True, False)
+    root, *admissions = asyncio.run(in_an_import())
+    assert admissions == [True, False]
     assert source._CURRENT_STAGED_ROOT.get() is None
+    assert admitted(Path(root)) is False
 
 
 def test_a_staging_folder_that_is_a_link_is_refused(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -839,45 +839,11 @@ def test_selection_takes_each_folder_the_package_list_shows_and_refuses_each_it_
 # --------------------------------------------------------------------------- #
 
 
-@contextmanager
-def _admin_client() -> Iterator[Any]:
+def _admin_client() -> Any:
     """The app as an admin sees it, with no database behind it: these requests name no
     family, so none is looked up. A request the app fails on is answered 500, as a server
     answers it."""
-    from fastapi.testclient import TestClient
-
-    from backend.app.core.postgres import get_postgres_session
-    from backend.app.dependencies import get_current_user
-    from backend.app.main import app
-    from backend.app.services.access_control import CurrentUser
-
-    original_overrides = dict(app.dependency_overrides)
-    app.state.skip_startup_tasks = True
-    user = CurrentUser(
-        id="00000000-0000-0000-0000-000000000001",
-        username="admin@example.com",
-        email="admin@example.com",
-        role="admin",
-        created_at=datetime.now(timezone.utc),
-    )
-
-    class _Session:
-        async def rollback(self) -> None:
-            return None
-
-    async def override_get_postgres_session() -> Any:
-        yield _Session()
-
-    async def override_get_current_user() -> CurrentUser:
-        return user
-
-    app.dependency_overrides[get_postgres_session] = override_get_postgres_session
-    app.dependency_overrides[get_current_user] = override_get_current_user
-    try:
-        with TestClient(app, raise_server_exceptions=False) as client:
-            yield client
-    finally:
-        app.dependency_overrides = original_overrides
+    return signed_in_client("admin", raise_server_exceptions=False)
 
 
 def test_the_routes_refuse_a_manifest_symlink_out_of_the_package(tmp_path: Path, imports: Path) -> None:

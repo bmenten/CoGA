@@ -1,13 +1,15 @@
 """Tamper-evidence hash-chain primitives (#261): pure chain math.
 
 Pins the pure ``hash_chain`` primitives — canonical determinism, genesis anchoring,
-and that ``verify_chain`` flags content tampering, deletion and reordering. The
-end-to-end chain integrity against real Postgres (the real writers + privileged
-trigger-bypass tampering) lives in
+and that ``verify_chain`` flags content tampering, deletion, reordering and a deleted
+head, each at the first row it broke. The end-to-end chain integrity against real Postgres
+(the real writers + privileged trigger-bypass tampering) lives in
 ``backend/tests/integration/test_hash_chain_integration.py`` (CI smoke job).
 """
 
 from __future__ import annotations
+
+import pytest
 
 from backend.app.services.hash_chain import (
     GENESIS,
@@ -67,23 +69,46 @@ def test_verify_chain_accepts_a_valid_chain_and_the_empty_chain() -> None:
     assert empty.verified and empty.rows_checked == 0
 
 
-def test_verify_chain_detects_content_tampering() -> None:
-    rows = _build_chain([{"x": 1}, {"x": 2}, {"x": 3}])
+def _edit_the_middle_rows_content(rows: list[dict]) -> None:
     rows[1]["x"] = 99  # edit content without recomputing its hash
-    result = verify_chain(rows, _payload_of)
-    assert not result.verified and result.first_bad_row == "1"
-    assert "row_hash mismatch" in (result.reason or "")
 
 
-def test_verify_chain_detects_deletion() -> None:
-    rows = _build_chain([{"x": 1}, {"x": 2}, {"x": 3}])
-    del rows[1]  # remove the middle row -> the successor's prev_hash now dangles
-    result = verify_chain(rows, _payload_of)
-    assert not result.verified and "prev_hash" in (result.reason or "")
+def _delete_the_middle_row(rows: list[dict]) -> None:
+    del rows[1]  # the successor's prev_hash now dangles
 
 
-def test_verify_chain_detects_reordering() -> None:
-    rows = _build_chain([{"x": 1}, {"x": 2}, {"x": 3}])
+def _swap_the_last_two_rows(rows: list[dict]) -> None:
     rows[1], rows[2] = rows[2], rows[1]
+
+
+def _delete_the_first_row(rows: list[dict]) -> None:
+    del rows[0]  # the chain now starts at a row that links to a predecessor, not to genesis
+
+
+_UNLINKED = "prev_hash does not match the predecessor row_hash (row deleted or reordered)"
+
+
+@pytest.mark.parametrize(
+    ("tamper", "rows_checked", "first_bad_row", "reason"),
+    [
+        (_edit_the_middle_rows_content, 1, "1", "row_hash mismatch (row content tampered)"),
+        (_delete_the_middle_row, 1, "2", _UNLINKED),
+        (_swap_the_last_two_rows, 1, "2", _UNLINKED),
+        (_delete_the_first_row, 0, "1", "first chained row is not a genesis link"),
+    ],
+    ids=["content-tampered", "row-deleted", "rows-reordered", "head-deleted"],
+)
+def test_verify_chain_names_the_first_row_a_tampering_broke(tamper, rows_checked, first_bad_row, reason) -> None:
+    # Each tampering is found at the first row it broke, with the rows before it counted as
+    # intact and the reason it was refused: an edit by its recomputed hash, a deletion or a
+    # reordering by the link it left dangling, and a deleted head by its successor, which now
+    # opens the chain without a genesis link.
+    rows = _build_chain([{"x": 1}, {"x": 2}, {"x": 3}])
+    tamper(rows)
     result = verify_chain(rows, _payload_of)
-    assert not result.verified and "prev_hash" in (result.reason or "")
+    assert (result.verified, result.rows_checked, result.first_bad_row, result.reason) == (
+        False,
+        rows_checked,
+        first_bad_row,
+        reason,
+    )

@@ -62,6 +62,8 @@ def test_a_member_sees_only_their_own_projects() -> None:
     member = _user("viewer", ["p2", "p3"])
     assert visible_metadata_project_ids(["p1", "p2", "p3"], member) == ["p2", "p3"]
     assert user_metadata_project_ids(member) == ["p2", "p3"]
+    # A viewer in no project sees none of a record's projects.
+    assert visible_metadata_project_ids(["p1", "p2"], _user("viewer")) == []
 
 
 def test_a_non_member_may_not_see_the_record() -> None:

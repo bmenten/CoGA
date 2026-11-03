@@ -30,6 +30,8 @@ from uuid import uuid4
 
 import pytest
 
+from backend.tests.e2e._harness import capture, ensure_postgres_schema
+
 pytestmark = pytest.mark.integration
 
 _DEL_30000 = "1-30000-31000-DEL---"
@@ -85,15 +87,6 @@ def _mothers_own_vcf(mother: str) -> bytes:
     )
 
 
-def _cap(resp) -> dict:
-    out = {"status": resp.status_code, "text": resp.text}
-    try:
-        out["json"] = resp.json()
-    except ValueError:
-        pass
-    return out
-
-
 async def _sniffles_rows(family_uuid: str) -> list[tuple[str, dict[str, tuple[str, int | None]]]]:
     """The family's live Sniffles rows as stored, one ``(SV, {sample: (GT, phase set)})`` per
     row, so that an SV stored twice shows as two entries."""
@@ -135,12 +128,12 @@ async def _exercise(family_id: str) -> dict:
     from sqlalchemy import text
 
     from backend.app.core.clickhouse import init_clickhouse_schema
-    from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
+    from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.main import app
     from backend.app.services.clickhouse_variant_storage import ensure_clickhouse_variant_tables
     from backend.tests.e2e import _harness
 
-    await init_postgres_schema()
+    await ensure_postgres_schema()
     await init_clickhouse_schema()
     await ensure_clickhouse_variant_tables(_harness.ASSEMBLY)
     sessionmaker = get_postgres_sessionmaker()
@@ -161,7 +154,7 @@ async def _exercise(family_id: str) -> dict:
         token = await _harness.login_admin_token(ac)
         ac.headers["Authorization"] = f"Bearer {token}"
 
-        out["ped"] = _cap(
+        out["ped"] = capture(
             await ac.post(
                 "/api/ped/upload",
                 params={"project_id": project_id},
@@ -176,7 +169,7 @@ async def _exercise(family_id: str) -> dict:
             ).scalar_one()
 
         async def upload(sample: str, body: bytes, filename: str, *, overwrite: bool = False) -> dict:
-            return _cap(
+            return capture(
                 await ac.post(
                     f"/api/structural-variants/upload/{sample}",
                     params={"overwrite": str(overwrite).lower(), "source_format": "sniffles"},

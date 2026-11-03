@@ -7,7 +7,7 @@ run."), but it had aborted the request's transaction: the sign-out's next statem
 and the sign-out with it (a 500, nothing signed). The step now runs in a savepoint, so the
 error is rolled back to it and reads like the step's other failures.
 
-Over the synthetic demo NIPT package (``demo/nipt_family``, imported as
+Over the synthetic demo NIPT package (``demo/nipt_family``, imported by ``_nipt_demo.py`` as
 ``test_e2e_nipt_signed_record.py`` imports it, with the maternal plasma on an assay panel of
 the run's own), with the artifact list's read made to fail in Postgres (the statement reads a
 table that does not exist), through the API, this:
@@ -29,7 +29,8 @@ from pathlib import Path
 
 import pytest
 
-from backend.tests.e2e.test_e2e_nipt_signed_record import _DEMO, _cap, _import_demo, _prepare_copy
+from backend.tests.e2e._harness import capture, ok_json
+from backend.tests.e2e._nipt_demo import DEMO, import_demo, prepare_copy
 
 pytestmark = pytest.mark.integration
 
@@ -66,7 +67,7 @@ async def _collect(root: Path, family_id: str) -> dict:
     from backend.app.services import nipt_service
     from backend.tests.e2e import _harness
 
-    out: dict = {"import": await _import_demo(root), "responses": {}}
+    out: dict = {"import": await import_demo(root), "responses": {}}
     r = out["responses"]
     transport = ASGITransport(app=app, raise_app_exceptions=False)
     async with AsyncClient(transport=transport, base_url="http://e2e") as ac:
@@ -75,19 +76,19 @@ async def _collect(root: Path, family_id: str) -> dict:
         mp = pytest.MonkeyPatch()
         mp.setattr(nipt_service, "load_nipt_artifact_ids", _unreadable_artifact_list)
         try:
-            r["qc"] = _cap(await ac.get(f"{family}/qc/sample-integrity"))
-            r["refused"] = _cap(await ac.post(f"{family}/report/sign-out", json={}))
-            r["signout"] = _cap(await _harness.sign_out(ac, f"{family}/report/sign-out", ACKNOWLEDGED))
+            r["qc"] = capture(await ac.get(f"{family}/qc/sample-integrity"))
+            r["refused"] = capture(await ac.post(f"{family}/report/sign-out", json={}))
+            r["signout"] = capture(await _harness.sign_out(ac, f"{family}/report/sign-out", ACKNOWLEDGED))
         finally:
             mp.undo()
         version = (r["signout"]["json"] or {}).get("version")
-        r["detail"] = _cap(await ac.get(f"{family}/report/sign-outs/{version}"))
-        r["chain"] = _cap(
+        r["detail"] = capture(await ac.get(f"{family}/report/sign-outs/{version}"))
+        r["chain"] = capture(
             await ac.get("/api/admin/integrity/verify", params={"table": "report_signouts", "family_id": family_id})
         )
-        r["audit"] = _cap(await ac.get(f"{family}/clinical-audit", params={"limit": 50}))
+        r["audit"] = capture(await ac.get(f"{family}/clinical-audit", params={"limit": 50}))
         # The list readable again: the NIPT analysis runs, and the record holds its results.
-        r["readable_signout"] = _cap(await _harness.sign_out(ac, f"{family}/report/sign-out", ACKNOWLEDGED))
+        r["readable_signout"] = capture(await _harness.sign_out(ac, f"{family}/report/sign-out", ACKNOWLEDGED))
     return out
 
 
@@ -96,9 +97,9 @@ def signed(tmp_path_factory, request) -> dict:
     from backend.app.core.config import settings
     from backend.tests.e2e import _harness
 
-    if not (_DEMO / "manifest.yaml").exists():
+    if not (DEMO / "manifest.yaml").exists():
         pytest.fail("the demo NIPT package is missing: it is committed (scripts/generate_nipt_demo.py rebuilds it)")
-    copy = _prepare_copy(tmp_path_factory.mktemp("nipt_qc_database_error"))
+    copy = prepare_copy(tmp_path_factory.mktemp("nipt_qc_database_error"))
     root = Path(copy["root"])
     mp = pytest.MonkeyPatch()
     mp.setattr(settings, "family_import_roots", [str(root.parent)])
@@ -109,14 +110,8 @@ def signed(tmp_path_factory, request) -> dict:
     return out
 
 
-def _ok(signed: dict, key: str) -> dict:
-    resp = signed["responses"][key]
-    assert resp["status"] == 200, (key, resp["status"], resp["text"][:2000])
-    return resp["json"]
-
-
 def test_the_sample_qc_page_notes_that_the_nipt_analysis_could_not_run(signed) -> None:
-    qc = _ok(signed, "qc")
+    qc = ok_json(signed, "qc")
     assert qc["application"] == "nipt"
     assert NOTE in qc["notes"]
     assert (qc["paternity_check"], qc["category_qc_check"]) == (None, None)
@@ -135,7 +130,7 @@ def test_the_gate_lists_the_nipt_checks_among_those_that_could_not_run(signed) -
 
 
 def test_the_acknowledged_sign_out_freezes_what_could_not_run(signed) -> None:
-    signout = _ok(signed, "signout")
+    signout = ok_json(signed, "signout")
     snapshot = signout["snapshot"]
     assert snapshot["acknowledged_qc"] is True
     assert NOTE in snapshot["sample_qc"]["notes"]
@@ -145,18 +140,18 @@ def test_the_acknowledged_sign_out_freezes_what_could_not_run(signed) -> None:
     assert "nipt" in [gap["section"] for gap in signout["not_captured"]]
     # The rest of the sign-out ran in a clean transaction: the record, its chain and its
     # audit event were written and read back.
-    detail = _ok(signed, "detail")
+    detail = ok_json(signed, "detail")
     assert (detail["version"], detail["verified"]) == (signout["version"], True)
-    assert _ok(signed, "chain")["verified"] is True
-    event = next(event for event in _ok(signed, "audit")["events"] if event["action"] == "sign_out")
+    assert ok_json(signed, "chain")["verified"] is True
+    event = next(event for event in ok_json(signed, "audit")["events"] if event["action"] == "sign_out")
     assert event["after"]["version"] == signout["version"]
     assert event["after"]["qc_unverifiable"] == [COULD_NOT_RUN]
     assert event["after"]["acknowledged_qc"] is True
 
 
 def test_with_the_list_readable_again_the_record_holds_the_nipt_results(signed) -> None:
-    readable = _ok(signed, "readable_signout")
-    assert readable["version"] == _ok(signed, "signout")["version"] + 1
+    readable = ok_json(signed, "readable_signout")
+    assert readable["version"] == ok_json(signed, "signout")["version"] + 1
     snapshot = readable["snapshot"]
     assert NOTE not in snapshot["sample_qc"]["notes"]
     assert snapshot["sample_qc"]["paternity_check"] is not None

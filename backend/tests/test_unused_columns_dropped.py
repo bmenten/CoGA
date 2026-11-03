@@ -398,7 +398,7 @@ def test_a_table_without_them_is_not_altered(monkeypatch) -> None:
     asyncio.run(cvs.ensure_clickhouse_variant_tables("GRCh38"))
 
     [lookup] = [(sql, params) for sql, params in statements if sql.startswith("SELECT table, name FROM system.columns")]
-    # One bound query over the assembly's four tables, for the six column names.
+    # One bound query over the assembly's four tables, for the seven column names.
     assert lookup[1]["tables"] == tuple(sorted(f"GRCh38/{table}" for table in _DROPPED))
     assert set(lookup[1]["names"]) == {column for columns in _DROPPED.values() for column in columns}
     assert [sql for sql, _params in statements if sql.startswith("ALTER TABLE")] == []

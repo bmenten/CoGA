@@ -23,48 +23,21 @@ Synthetic data only. Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the
 from __future__ import annotations
 
 import asyncio
-from itertools import product
 from typing import Any
 
 import pytest
 
+from backend.tests.integration._panel_region_cases import CHROMOSOMES as _CHROMOSOMES
+from backend.tests.integration._panel_region_cases import small_variant_shapes, window_edge_regions
+
 pytestmark = pytest.mark.integration
-
-_WINDOW = 1 << 16
-_CHROMOSOMES = ["1", "chr1", "X", "chrX", "M", "MT", "chrM", "GL000192.1"]
-
-
-def _positions() -> list[int]:
-    """Positions on each side of three window boundaries, and a few in between."""
-    positions: set[int] = {1, 2, 1000, 30_000}
-    for boundary in (_WINDOW, 2 * _WINDOW, 2092 * _WINDOW):
-        positions.update(boundary + offset for offset in range(-6, 7))
-    return sorted(positions)
 
 
 def _variants() -> list[tuple[int, str, int, int]]:
-    """(key, chromosome as stored, position, REF length): every chromosome and position
-    with REFs of 1 to 50 bases, and a few REFs longer than one and than two windows."""
-    shapes = list(product(_CHROMOSOMES, _positions(), [1, 2, 5, 50]))
-    shapes += product(["1", "GL000192.1"], [1, _WINDOW - 3, _WINDOW + 1, 2 * _WINDOW - 2], [_WINDOW + 1, 2 * _WINDOW + 7])
-    return [(key, chromosome, position, length) for key, (chromosome, position, length) in enumerate(shapes, start=1)]
-
-
-def _regions() -> list[Any]:
-    from backend.app.services.clickhouse_variant_records import Region
-
-    window_2092 = 2092 * _WINDOW
+    """(key, chromosome as stored, position, REF length): every shape once."""
     return [
-        Region(chr="chr1", start=_WINDOW, end=_WINDOW + 2),  # starts on a boundary
-        Region(chr="1", start=2 * _WINDOW - 3, end=2 * _WINDOW - 1),  # ends before one
-        Region(chr="1", start=2 * _WINDOW - 1, end=2 * _WINDOW - 1),  # one base
-        Region(chr="1", start=_WINDOW + 2, end=_WINDOW),  # reversed
-        Region(chr="chr1", start=_WINDOW, end=_WINDOW + 2),  # repeated
-        Region(chr="X", start=window_2092 - 4, end=window_2092 + 1),  # across a boundary
-        Region(chr="chrM", start=900, end=1_100),  # M, read as MT
-        Region(chr="MT", start=_WINDOW - 1, end=_WINDOW - 1),
-        Region(chr="GL000192.1", start=1, end=3 * _WINDOW + 5),  # several windows
-        Region(chr="", start=1, end=10),  # no chromosome: left out
+        (key, chromosome, position, length)
+        for key, (chromosome, position, length) in enumerate(small_variant_shapes(), start=1)
     ]
 
 
@@ -93,7 +66,7 @@ def test_the_region_join_keeps_exactly_what_the_family_page_keeps() -> None:
     from backend.app.services.clickhouse_variant_queries import _small_region_filter_condition
     from backend.app.services.variant_explorer_service import _region_key_condition
 
-    regions = _regions()
+    regions = window_edge_regions()
     family_params: dict[str, Any] = {}
     family = _small_region_filter_condition(regions, prefix="panel_region", params=family_params)
     explorer_params: dict[str, Any] = {}

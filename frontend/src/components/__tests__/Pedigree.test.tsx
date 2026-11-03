@@ -39,7 +39,7 @@ test('draws child sibling groups with compact horizontal spacing', async () => {
     ...baseRows,
     ...Array.from({ length: 8 }, (_, index) => ({
       fid: 'F1',
-      iid: `K25014${index}`,
+      iid: `EMBRYO${index}`,
       pid: 'DAD',
       mid: 'MOM',
       sex: '0',
@@ -48,7 +48,7 @@ test('draws child sibling groups with compact horizontal spacing', async () => {
   ];
   const embryoMembers = embryoRows.map((row) => ({
     sample_id: row.iid,
-    role: row.iid.startsWith('K') ? 'embryo' : null,
+    role: row.iid.startsWith('EMBRYO') ? 'embryo' : null,
   }));
 
   const embryoRender = render(

@@ -19,6 +19,8 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import text
 
+from backend.tests.integration._datastores import fresh_assembly, fresh_species, gene_locus
+
 pytestmark = pytest.mark.integration
 
 def _symbols() -> tuple[str, str]:
@@ -28,52 +30,14 @@ def _symbols() -> tuple[str, str]:
 
 
 async def _seed(session, gene: str, only_in_b: str) -> dict[str, str]:
-    tax = uuid4().int % 2_000_000_000
-    species = (
-        await session.execute(
-            text(
-                "INSERT INTO species (name, common_name, tax_id) "
-                "VALUES (:n, 'test', :t) RETURNING id::text"
-            ),
-            {"n": f"#515 {uuid4()}", "t": tax},
-        )
-    ).scalar_one()
-
-    async def _assembly(label: str) -> str:
-        return (
-            await session.execute(
-                text(
-                    "INSERT INTO assemblies (species_id, assembly_name, version, release_date) "
-                    "VALUES (CAST(:s AS uuid), :a, 'v1', '2020-01-01') RETURNING id::text"
-                ),
-                {"s": species, "a": f"#515-{label}-{uuid4()}"},
-            )
-        ).scalar_one()
-
-    assembly_a = await _assembly("A")
-    assembly_b = await _assembly("B")
-
-    async def _gene(assembly: str, symbol: str, chr_: str, start: int, end: int) -> None:
-        await session.execute(
-            text(
-                'INSERT INTO genes (assembly_id, gene_id, hgnc_symbol, chr, start, "end", '
-                "strand, biotype, description, source) VALUES "
-                "(CAST(:a AS uuid), :gid, :sym, :chr, :start, :end, 1, 'protein_coding', 't', 't')"
-            ),
-            {
-                "a": assembly,
-                "gid": f"ENSG-{symbol}-{uuid4()}",
-                "sym": symbol,
-                "chr": chr_,
-                "start": start,
-                "end": end,
-            },
-        )
+    species = await fresh_species(session, f"#515 {uuid4()}")
+    assembly_a = await fresh_assembly(session, species, f"#515-A-{uuid4()}")
+    assembly_b = await fresh_assembly(session, species, f"#515-B-{uuid4()}")
 
     # Same gene, different coordinates per assembly; a second gene only in B.
-    await _gene(assembly_a, gene, "1", 1_000, 2_000)
-    await _gene(assembly_b, gene, "1", 5_000, 6_500)
-    await _gene(assembly_b, only_in_b, "2", 10_000, 11_000)
+    await gene_locus(session, assembly_a, gene, "1", 1_000, 2_000)
+    await gene_locus(session, assembly_b, gene, "1", 5_000, 6_500)
+    await gene_locus(session, assembly_b, only_in_b, "2", 10_000, 11_000)
 
     user = (
         await session.execute(

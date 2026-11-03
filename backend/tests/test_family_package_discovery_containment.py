@@ -24,7 +24,6 @@ from __future__ import annotations
 import builtins
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import datetime, timezone
 import gzip
 import io
 import os
@@ -34,10 +33,10 @@ from typing import Any
 import pytest
 import yaml
 
-from backend.app.core.config import settings
 from backend.app.schemas import FamilyPackageManifestBuildOut, FamilyPackageManifestBuildRequest
 from backend.app.services.family_identifiers import IDENTIFIER_RULE
 from backend.app.services.family_package_discovery import NAMING_SCHEMES, discover_family_package_manifest
+from backend.tests._family_import_fakes import authorize_import_root, signed_in_client
 
 FAMILY = "FAM1"
 TRIO_PED = f"{FAMILY} F1 0 0 1 1\n{FAMILY} M1 0 0 2 1\n{FAMILY} C1 F1 M1 1 2\n"
@@ -49,11 +48,7 @@ DECOY_MARKERS = ("DECOYFAM", "DECOYKID", "DECOYMOTHER", "DECOYFATHER")
 @pytest.fixture
 def imports(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     """The authorised import root; ``outside/`` beside it is not under it."""
-    root = tmp_path / "imports"
-    root.mkdir()
-    (tmp_path / "outside").mkdir()
-    monkeypatch.setattr(settings, "family_import_roots", [str(root)])
-    return root
+    return authorize_import_root(monkeypatch, tmp_path)
 
 
 def _package(imports: Path, name: str = FAMILY, *, ped: str | None = TRIO_PED) -> Path:
@@ -545,44 +540,6 @@ def test_an_id_leads_a_path_out_of_the_package_only_when_it_is_a_path_out_itself
 # --------------------------------------------------------------------------- #
 
 
-@contextmanager
-def _client_as(role: str) -> Iterator[Any]:
-    from fastapi.testclient import TestClient
-
-    from backend.app.core.postgres import get_postgres_session
-    from backend.app.dependencies import get_current_user
-    from backend.app.main import app
-    from backend.app.services.access_control import CurrentUser
-
-    original_overrides = dict(app.dependency_overrides)
-    app.state.skip_startup_tasks = True
-    user = CurrentUser(
-        id="00000000-0000-0000-0000-000000000001",
-        username=f"{role}@example.com",
-        email=f"{role}@example.com",
-        role=role,
-        created_at=datetime.now(timezone.utc),
-    )
-
-    class _Session:
-        async def rollback(self) -> None:
-            return None
-
-    async def override_get_postgres_session() -> Any:
-        yield _Session()
-
-    async def override_get_current_user() -> CurrentUser:
-        return user
-
-    app.dependency_overrides[get_postgres_session] = override_get_postgres_session
-    app.dependency_overrides[get_current_user] = override_get_current_user
-    try:
-        with TestClient(app) as client:
-            yield client
-    finally:
-        app.dependency_overrides = original_overrides
-
-
 @pytest.mark.parametrize("role", ["viewer", "admin"])
 def test_discover_stays_admin_only_and_reads_nothing_outside_through_the_route(
     monkeypatch: pytest.MonkeyPatch, imports: Path, role: str
@@ -603,7 +560,7 @@ def test_discover_stays_admin_only_and_reads_nothing_outside_through_the_route(
 
     monkeypatch.setattr(family_imports, "existing_family_sample_ids", no_family)
     monkeypatch.setattr(family_imports, "discover_family_package_manifest", discover)
-    with _client_as(role) as client:
+    with signed_in_client(role) as client:
         response = client.post(
             "/api/family-imports/manifest/discover", json={"folder_path": str(package), "family_id": "../decoy"}
         )

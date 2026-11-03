@@ -35,38 +35,19 @@ from uuid import uuid4
 
 import pytest
 
+from backend.tests.e2e._harness import DRIFT_AND_QC_ACKNOWLEDGED, ensure_postgres_schema
+from backend.tests.e2e._trio_uploads import DEL_30000, SNIFFLES_HEADER, TRIO_VCF_HEADER, the_one_mark, trio_calls
+
 pytestmark = pytest.mark.integration
 
-_ACK = "e2e: the import gate is under test"
-_OTHER_GATES = {
-    "acknowledge_drift": True,
-    "drift_acknowledgement_reason": _ACK,
-    "acknowledge_qc": True,
-    "qc_acknowledgement_reason": _ACK,
-}
-_SNIFFLES_HEADER = (
-    "##fileformat=VCFv4.2\n"
-    "##source=Sniffles2_2.2\n"
-    "##contig=<ID=1,length=248956422>\n"
-    "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tSAMPLE\n"
-)
-_DEL_30000 = "1\t30000\tS.DEL.1\tN\t<DEL>\t40\tPASS\tSVTYPE=DEL;SVLEN=-1000;END=31000;SUPPORT=9\tGT\t{gt}\n"
 _DEL_80000 = "1\t80000\tS.DEL.2\tN\t<DEL>\t40\tPASS\tSVTYPE=DEL;SVLEN=-800;END=80800;SUPPORT=8\tGT\t0/1\n"
 _DUP_50000 = "1\t50000\tS.DUP.3\tN\t<DUP>\t35\tPASS\tSVTYPE=DUP;SVLEN=500;END=50500;SUPPORT=7\tGT\t0/1\n"
 # Each member's Sniffles calls: the child's and the father's deletion is one SV.
 _SNIFFLES = {
-    "child": _SNIFFLES_HEADER + _DEL_30000.format(gt="0/1"),
-    "father": _SNIFFLES_HEADER + _DEL_30000.format(gt="1/1") + _DEL_80000,
-    "mother": _SNIFFLES_HEADER + _DUP_50000,
+    "child": SNIFFLES_HEADER + DEL_30000.format(gt="0/1"),
+    "father": SNIFFLES_HEADER + DEL_30000.format(gt="1/1") + _DEL_80000,
+    "mother": SNIFFLES_HEADER + _DUP_50000,
 }
-_VCF_HEADER = "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t{father}\t{mother}\t{child}\n"
-
-
-def _calls(count: int) -> str:
-    return "".join(
-        f"1\t{10_000 + index * 100}\t.\tA\tG\t50\tPASS\t.\tGT:GQ:DP\t0/1:40:30\t0/0:40:31\t0/1:40:29\n"
-        for index in range(count)
-    )
 
 
 class _ProcessStopped(BaseException):
@@ -79,7 +60,7 @@ async def _exercise(family_id: str) -> dict[str, Any]:
     from sqlalchemy import text
 
     from backend.app.core.clickhouse import init_clickhouse_schema
-    from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
+    from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.main import app
     from backend.app.routers.families_small_variants import _family_sample_contexts
     from backend.app.services import (
@@ -95,7 +76,7 @@ async def _exercise(family_id: str) -> dict[str, Any]:
     from backend.app.services.family_metadata_context import build_family_metadata_context
     from backend.tests.e2e import _harness
 
-    await init_postgres_schema()
+    await ensure_postgres_schema()
     await init_clickhouse_schema()
     await ensure_clickhouse_variant_tables(_harness.ASSEMBLY)
     sessionmaker = get_postgres_sessionmaker()
@@ -108,7 +89,7 @@ async def _exercise(family_id: str) -> dict[str, Any]:
         f"{family_id}\t{names['mother']}\t0\t0\t2\t1\n"
         f"{family_id}\t{names['child']}\t{names['father']}\t{names['mother']}\t2\t2\n"
     )
-    header = _VCF_HEADER.format(**names)
+    header = TRIO_VCF_HEADER.format(**names)
     roles = {name: role for role, name in names.items()}
     out: dict[str, Any] = {"steps": {}, "names": names}
 
@@ -191,7 +172,7 @@ async def _exercise(family_id: str) -> dict[str, Any]:
         await sv_upload("sv_not_restored", "mother", overwrite=False, insert=failing_inserts(99))
         await step(
             "signout_marked",
-            await _harness.sign_out(ac, f"/api/families/{family_id}/report/sign-out", _OTHER_GATES),
+            await _harness.sign_out(ac, f"/api/families/{family_id}/report/sign-out", DRIFT_AND_QC_ACKNOWLEDGED),
         )
         page = await ac.get(f"/api/families/{family_id}")
         out["family_page"] = {"status": page.status_code, "json": page.json()}
@@ -213,7 +194,7 @@ async def _exercise(family_id: str) -> dict[str, Any]:
         response = await ac.post(
             f"/api/families/{family_id}/small-variants/upload",
             params={"overwrite": "false", "source_format": "clair3"},
-            files={"file": (f"{family_id}.vcf", (header + _calls(4)).encode(), "text/plain")},
+            files={"file": (f"{family_id}.vcf", (header + trio_calls(4)).encode(), "text/plain")},
         )
         await step("clair3", response)
 
@@ -232,7 +213,7 @@ async def _exercise(family_id: str) -> dict[str, Any]:
                         session,
                         context=context,
                         sample_contexts=_family_sample_contexts(context),
-                        file=UploadFile(file=BytesIO((header + _calls(3)).encode()), filename="family.vcf"),
+                        file=UploadFile(file=BytesIO((header + trio_calls(3)).encode()), filename="family.vcf"),
                         overwrite=True,
                         format_hint="clair3",
                         record_upload=True,
@@ -244,12 +225,12 @@ async def _exercise(family_id: str) -> dict[str, Any]:
         out["steps"]["clair3_stopped"] = {"status": None, "text": "", **await state()}
         await step(
             "signout_stopped",
-            await _harness.sign_out(ac, f"/api/families/{family_id}/report/sign-out", _OTHER_GATES),
+            await _harness.sign_out(ac, f"/api/families/{family_id}/report/sign-out", DRIFT_AND_QC_ACKNOWLEDGED),
         )
         response = await ac.post(
             f"/api/families/{family_id}/small-variants/upload",
             params={"overwrite": "true", "source_format": "clair3"},
-            files={"file": (f"{family_id}.vcf", (header + _calls(5)).encode(), "text/plain")},
+            files={"file": (f"{family_id}.vcf", (header + trio_calls(5)).encode(), "text/plain")},
         )
         await step("clair3_again", response)
 
@@ -296,11 +277,6 @@ def _ids(step: dict[str, Any]) -> list[str]:
     return sorted(step["sniffles"])
 
 
-def _mark(step: dict[str, Any]) -> tuple[str, dict[str, Any]]:
-    [(key, entry)] = (step["unfinished"] or {}).items()
-    return key, entry
-
-
 def test_the_family_and_its_sv_calls_are_uploaded(run) -> None:
     for name in ("ped", "sv_child", "sv_father"):
         assert run["steps"][name]["status"] == 200, run["steps"][name]["text"]
@@ -321,7 +297,7 @@ def test_an_sv_upload_whose_rows_cannot_be_put_back_marks_the_family_for_each_sa
     failed = run["steps"]["sv_not_restored"]
     assert failed["status"] == 500
     assert failed["sniffles"] == {}
-    key, mark = _mark(failed)
+    key, mark = the_one_mark(failed)
     assert key.startswith("upload-")
     assert (mark["job_id"], mark["datasets"], mark["finished_datasets"]) == (None, ["sv_sniffles"], [])
     names = run["names"]
@@ -339,7 +315,7 @@ def test_the_mark_refuses_sign_out_and_names_the_upload(run) -> None:
     assert refused["status"] == 409, refused["text"]
     detail = json.loads(refused["text"])["detail"]
     assert detail["gate"] == "import_incomplete"
-    key, _mark_entry = _mark(run["steps"]["sv_not_restored"])
+    key, _mark_entry = the_one_mark(run["steps"]["sv_not_restored"])
     assert list(detail["import_unfinished"]) == [key]
     assert detail["import_unfinished"][key]["datasets"] == ["sv_sniffles"]
     assert "a single-file upload (" in detail["message"]
@@ -350,11 +326,11 @@ def test_each_samples_upload_again_strikes_its_calls_off_the_mark(run) -> None:
     names = run["names"]
     after_child = run["steps"]["sv_child_again"]
     assert after_child["status"] == 200, after_child["text"]
-    assert [item["scope"]["samples"] for item in _mark(after_child)[1]["whole_family"]] == sorted(
+    assert [item["scope"]["samples"] for item in the_one_mark(after_child)[1]["whole_family"]] == sorted(
         [[names["father"]], [names["mother"]]]
     )
     after_father = run["steps"]["sv_father_again"]
-    assert [item["scope"]["samples"] for item in _mark(after_father)[1]["whole_family"]] == [[names["mother"]]]
+    assert [item["scope"]["samples"] for item in the_one_mark(after_father)[1]["whole_family"]] == [[names["mother"]]]
     after_mother = run["steps"]["sv_mother_again"]
     assert after_mother["status"] == 200, after_mother["text"]
     assert after_mother["unfinished"] is None
@@ -375,7 +351,7 @@ def test_a_small_variant_upload_whose_process_stops_after_its_delete_leaves_the_
     stopped = run["steps"]["clair3_stopped"]
     # The callset is gone; its upload's transaction never committed, its mark did.
     assert stopped["clair3"] == 0
-    key, mark = _mark(stopped)
+    key, mark = the_one_mark(stopped)
     assert key.startswith("upload-")
     assert mark["whole_family"] == [{"dataset": "snv", "scope": {"source": "clair3", "samples": None}}]
     refused = run["steps"]["signout_stopped"]

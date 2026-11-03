@@ -32,6 +32,8 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import text
 
+from backend.tests.integration._datastores import fresh_assembly, fresh_species
+
 pytestmark = pytest.mark.integration
 
 
@@ -89,24 +91,8 @@ def test_a_kept_panel_resolution_follows_every_change_of_what_it_is_read_from(mo
             await init_postgres_schema()
             sm = get_postgres_sessionmaker()
             async with sm() as s:
-                ids["species"] = (
-                    await s.execute(
-                        text(
-                            "INSERT INTO species (name, common_name, tax_id) "
-                            "VALUES (:n, 'test', :t) RETURNING id::text"
-                        ),
-                        {"n": f"ENG-14 {tag} {uuid4()}", "t": uuid4().int % 2_000_000_000},
-                    )
-                ).scalar_one()
-                ids["assembly"] = (
-                    await s.execute(
-                        text(
-                            "INSERT INTO assemblies (species_id, assembly_name, version, release_date) "
-                            "VALUES (CAST(:s AS uuid), :a, 'v1', '2020-01-01') RETURNING id::text"
-                        ),
-                        {"s": ids["species"], "a": f"ENG14-{tag}"},
-                    )
-                ).scalar_one()
+                ids["species"] = await fresh_species(s, f"ENG-14 {tag} {uuid4()}")
+                ids["assembly"] = await fresh_assembly(s, ids["species"], f"ENG14-{tag}")
                 ids["user"] = (
                     await s.execute(
                         text(

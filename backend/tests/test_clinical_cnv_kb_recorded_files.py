@@ -253,10 +253,17 @@ def test_a_record_without_files_read_names_the_pinned_file_alone() -> None:
 
 
 @pytest.mark.parametrize(
-    "recorded",
-    ["not a list", [{**_CYTOBANDS, "sha256": "b" * 12}], [{**_CYTOBANDS, "source": " "}], [{**_CYTOBANDS, "url": None}], ["x"]],
+    ("recorded", "why"),
+    [
+        ("not a list", "the build's record of the files it read is not a list"),
+        ([{**_CYTOBANDS, "sha256": "b" * 12}], "a source file the build read lacks its SHA-256"),
+        ([{**_CYTOBANDS, "source": " "}], "a source file the build read lacks its source or URL"),
+        ([{**_CYTOBANDS, "url": None}], "a source file the build read lacks its source or URL"),
+        (["x"], "a source file the build read is not described"),
+    ],
     ids=["not a list", "a shortened digest", "no source", "no url", "not described"],
 )
-def test_a_file_read_without_its_full_record_refuses_the_load(recorded: Any) -> None:
-    with pytest.raises(ValueError):
+def test_a_file_read_without_its_full_record_refuses_the_load(recorded: Any, why: str) -> None:
+    with pytest.raises(ValueError) as refused:
         kb_jobs.checked_files_release(json.dumps({"checked_files": [_CHECKED], "recorded_files": recorded}))
+    assert str(refused.value) == why

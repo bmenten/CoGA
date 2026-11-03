@@ -18,6 +18,8 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import text
 
+from backend.tests.integration._datastores import fresh_assembly, fresh_species
+
 pytestmark = pytest.mark.integration
 
 
@@ -55,24 +57,8 @@ def test_each_artifact_list_change_is_audited_on_its_own_chain(monkeypatch: pyte
             await init_postgres_schema()
             sm = get_postgres_sessionmaker()
             async with sm() as s:
-                species = (
-                    await s.execute(
-                        text(
-                            "INSERT INTO species (name, common_name, tax_id) "
-                            "VALUES (:n, 'test', :t) RETURNING id::text"
-                        ),
-                        {"n": f"nipt-audit {tag}", "t": uuid4().int % 2_000_000_000},
-                    )
-                ).scalar_one()
-                assembly_id = (
-                    await s.execute(
-                        text(
-                            "INSERT INTO assemblies (species_id, assembly_name, version, release_date) "
-                            "VALUES (CAST(:s AS uuid), :a, 'v1', '2020-01-01') RETURNING id::text"
-                        ),
-                        {"s": species, "a": f"NIPTAUDIT{tag}"},
-                    )
-                ).scalar_one()
+                species = await fresh_species(s, f"nipt-audit {tag}")
+                assembly_id = await fresh_assembly(s, species, f"NIPTAUDIT{tag}")
                 since = (await s.execute(text("SELECT now()"))).scalar_one()
                 await s.commit()
 

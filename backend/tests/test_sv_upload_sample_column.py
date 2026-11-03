@@ -17,7 +17,7 @@ per-sample files (``per_sample_vcf_column``), before anything is read or written
   and the sample's metadata is not touched.
 
 A manual TSV has no sample column and stays the sample's. The SV storage is faked as in
-test_sv_upload_source_scope. Postgres answers the stored-sample lookup
+test_sv_upload_source_scope (``_sv_fakes.SvStore``). Postgres answers the stored-sample lookup
 (``known_vcf_sample_ids``) as the ``samples`` table would: the family's members, and any
 stored sample a column is named after. ``e2e/test_e2e_sv_upload_sample_column.py`` uploads
 through the API against Postgres and ClickHouse.
@@ -31,14 +31,13 @@ from typing import Any
 from fastapi import HTTPException, UploadFile
 import pytest
 
-from backend.app.services import annotation_manifest_service, variant_upload_service
+from backend.app.services import variant_upload_service
 from backend.app.services.clickhouse_variant_records import (
-    StoredStructuralVariantRow,
     StructuralVariantCall,
     StructuralVariantRecord,
 )
-from backend.app.services.family_metadata_context import FamilyMetadataContext, SampleMetadataContext
 from backend.app.services.structural_variant_ingest import iter_structural_variant_records
+from backend.tests._sv_fakes import SvStore, install_sv_upload_fakes, upload_family_context, upload_sample_context
 
 _FAMILY = "family-uuid"
 _SAMPLES = {"PROBAND": "uuid-proband", "MOTHER": "uuid-mother", "FATHER": "uuid-father"}
@@ -76,33 +75,6 @@ def _joint_vcf(columns: list[tuple[str, str]], *, source: str = "Sniffles2_2.2")
         [name for name, _member in columns],
         [[_CALLS[member][site] for _name, member in columns] for site in (0, 1)],
         source=source,
-    )
-
-
-def _family_context() -> FamilyMetadataContext:
-    return FamilyMetadataContext(
-        family_uuid=_FAMILY,
-        family_id="FAM",
-        project_ids=["project-uuid"],
-        sample_rows=[],
-        sample_uuid_to_name={uuid: name for name, uuid in _SAMPLES.items()},
-        sample_name_to_uuid=dict(_SAMPLES),
-        affected_sample_names=[],
-        assembly_id="assembly-uuid",
-        assembly_name="GRCh38",
-    )
-
-
-def _sample_context(sample: str) -> SampleMetadataContext:
-    return SampleMetadataContext(
-        sample_uuid=_SAMPLES[sample],
-        sample_id=sample,
-        family_uuid=_FAMILY,
-        family_id="FAM",
-        sex="und",
-        project_ids=["project-uuid"],
-        assembly_id="assembly-uuid",
-        assembly_name="GRCh38",
     )
 
 
@@ -148,51 +120,19 @@ class _Session:
         self.committed = True
 
 
-class _Store:
-    """The family's stored SV rows, served by source; the rewrites made."""
-
-    def __init__(self, records: list[StructuralVariantRecord]) -> None:
-        self.records = records
-        self.fetches: list[str | None] = []
-        self.rewrites: list[list[StoredStructuralVariantRow]] = []
-
-    async def fetch(self, _assembly, _family, *, source=None):
-        self.fetches.append(source)
-        return [
-            StoredStructuralVariantRow(project_id="project-uuid", record=record)
-            for record in self.records
-            if source is None or record.source == source
-        ]
-
-    async def rewrite(self, _assembly, _family, rows, *, source=None, stored=()) -> None:
-        self.rewrites.append(list(rows))
-
-    def written(self) -> dict[str, dict[str, tuple[str, int | None]]]:
-        assert len(self.rewrites) == 1, self.rewrites
-        return {
-            row.record.variant_id: {call.sample: (call.gt, call.phase_set) for call in row.record.calls}
-            for row in self.rewrites[0]
-        }
+def _written(store: SvStore) -> dict[str, dict[str, tuple[str, int | None]]]:
+    """What the one rewrite wrote: each SV's calls (sample: genotype and phase set)."""
+    return {
+        row.record.variant_id: {call.sample: (call.gt, call.phase_set) for call in row.record.calls}
+        for row in store.written()
+    }
 
 
 @pytest.fixture
 def store(monkeypatch: pytest.MonkeyPatch):
-    def install(records: list[StructuralVariantRecord] | None = None) -> _Store:
-        fake = _Store(records or [])
-        monkeypatch.setattr(variant_upload_service, "fetch_family_structural_variant_rows", fake.fetch)
-        monkeypatch.setattr(variant_upload_service, "rewrite_family_structural_variants", fake.rewrite)
-
-        async def nothing(*_args, **_kwargs):
-            return None
-
-        async def no_genes(*_args, **_kwargs):
-            return {}
-
-        monkeypatch.setattr(variant_upload_service, "_fetch_genes_for_chroms", no_genes)
-        monkeypatch.setattr(annotation_manifest_service, "merge_vcf_header_provenance", nothing)
-        # The family's write lock is Postgres's; test_family_variant_writes_serialized has it.
-        monkeypatch.setattr(variant_upload_service, "lock_family_variant_writes", nothing)
-        return fake
+    def install(records: list[StructuralVariantRecord] | None = None) -> SvStore:
+        # The stored-sample lookup is the session's (_Session), as Postgres answers it.
+        return install_sv_upload_fakes(monkeypatch, SvStore.of_records(records or []))
 
     return install
 
@@ -208,8 +148,8 @@ async def _upload(
 ) -> dict[str, Any]:
     return await variant_upload_service.upload_structural_variant_file(
         session,  # type: ignore[arg-type]
-        family_context=_family_context(),
-        sample_context=_sample_context(sample),
+        family_context=upload_family_context(_SAMPLES),
+        sample_context=upload_sample_context(_SAMPLES, sample),
         file=UploadFile(file=BytesIO(body.encode()), filename=filename),
         overwrite=overwrite,
         format_hint=format_hint,  # type: ignore[arg-type]
@@ -262,7 +202,7 @@ async def test_a_joint_vcf_stores_the_uploaded_samples_own_column(
 
     assert (result["processed"], result["created"], result["source_format"]) == (2, 2, format_hint)
     # Before the fix: the first column's genotypes and phase set, stored as PROBAND's.
-    assert fake.written() == _PROBANDS_OWN
+    assert _written(fake) == _PROBANDS_OWN
     # The columns were checked against the sample's family and the samples they name.
     [lookup] = session.lookups
     assert lookup["family_uuid"] == _FAMILY
@@ -280,7 +220,7 @@ async def test_a_lone_column_that_names_no_known_sample_is_the_uploaded_samples(
 
     await _upload(_Session(), "PROBAND", _vcf([column], [[_CALLS["PROBAND"][0]], [_CALLS["PROBAND"][1]]]))
 
-    assert fake.written() == _PROBANDS_OWN
+    assert _written(fake) == _PROBANDS_OWN
 
 
 # --- Refused before anything is read or written ------------------------------------------
@@ -347,7 +287,7 @@ async def test_a_file_without_one_column_for_the_uploaded_sample_is_refused_and_
 
     # Before the fix: 200, the first column's calls stored as PROBAND's in place of its own.
     assert (exc.value.status_code, exc.value.detail) == (400, detail)
-    assert fake.fetches == []
+    assert fake.reads == []
     assert fake.rewrites == []
     assert session.statements == []
     assert not session.committed
@@ -368,7 +308,7 @@ async def test_a_vcf_with_no_sample_column_is_refused_and_nothing_is_written(sto
 
     # Before the fix: refused too, but only after reading the stored rows, for having no record.
     assert (exc.value.status_code, exc.value.detail) == (400, "Sniffles VCF has no sample column")
-    assert (fake.fetches, fake.rewrites, session.statements, session.committed) == ([], [], [], False)
+    assert (fake.reads, fake.rewrites, session.statements, session.committed) == ([], [], [], False)
 
 
 _MOTHERS_DEL = "\t".join(
@@ -404,7 +344,7 @@ async def test_a_vcf_without_one_chrom_line_before_its_records_is_refused(
 
     # Before the fix: 200, every record's first sample field stored as PROBAND's.
     assert (exc.value.status_code, exc.value.detail) == (400, detail)
-    assert (fake.fetches, fake.rewrites, session.statements, session.committed) == ([], [], [], False)
+    assert (fake.reads, fake.rewrites, session.statements, session.committed) == ([], [], [], False)
 
 
 @pytest.mark.asyncio
@@ -419,7 +359,7 @@ async def test_a_line_no_reader_reads_before_the_chrom_line_is_not_a_record(stor
 
     await _upload(_Session(), "PROBAND", prefix + _PROBANDS_VCF)
 
-    assert fake.written() == _PROBANDS_OWN
+    assert _written(fake) == _PROBANDS_OWN
 
 
 # --- A manual TSV has no sample column ---------------------------------------------------
@@ -434,7 +374,7 @@ async def test_a_manual_tsv_stays_the_uploaded_samples_without_a_column_check(st
     result = await _upload(session, "PROBAND", manual, format_hint="auto", filename="calls.tsv")
 
     assert result["source_format"] == "manual"
-    assert fake.written() == {"1-100-200-DEL---": {"PROBAND": ("0/1", None)}}
+    assert _written(fake) == {"1-100-200-DEL---": {"PROBAND": ("0/1", None)}}
     assert session.lookups == []
 
 

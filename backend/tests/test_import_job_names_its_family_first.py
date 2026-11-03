@@ -36,6 +36,7 @@ from backend.app.services import family_package_import as package_import
 from backend.app.services import sv_gene_index_service, variant_ranking_cache
 from backend.app.services.access_control import CurrentUser
 from backend.app.services.family_metadata_context import FamilyMetadataContext
+from backend.tests._family_import_fakes import admin_user, two_sample_context
 
 FAMILY = "FAM001"
 JOB = "00000000-0000-0000-0000-0000000000a1"
@@ -184,33 +185,6 @@ class _Session:
         self.aborted = False
 
 
-def _admin() -> CurrentUser:
-    return CurrentUser(
-        id="00000000-0000-0000-0000-000000000001",
-        username="admin@example.com",
-        email="admin@example.com",
-        role="admin",
-        created_at=datetime.now(timezone.utc),
-    )
-
-
-def _context() -> FamilyMetadataContext:
-    return FamilyMetadataContext(
-        family_uuid="family-uuid",
-        family_id=FAMILY,
-        project_ids=["project-uuid"],
-        sample_rows=[
-            {"sample_uuid": "uuid-S1", "sample_id": "S1", "sex": "male", "role": "proband", "affected": True},
-            {"sample_uuid": "uuid-S2", "sample_id": "S2", "sex": "female", "role": "mother", "affected": False},
-        ],
-        sample_uuid_to_name={"uuid-S1": "S1", "uuid-S2": "S2"},
-        sample_name_to_uuid={"S1": "uuid-S1", "S2": "uuid-S2"},
-        affected_sample_names=["S1"],
-        assembly_id="assembly-uuid",
-        assembly_name="GRCh38",
-    )
-
-
 @pytest.fixture
 def jobs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> _JobTable:
     """A re-import of FAM001, claimed by worker-1, whose request named no family: a sign-out
@@ -233,7 +207,7 @@ def jobs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> _JobTable:
             "dry_run": False,
             "worker_id": WORKER,
             "requested_by": "admin@example.com",
-            "requested_by_id": _admin().id,
+            "requested_by_id": admin_user().id,
             "requested_at": now,
             "started_at": now,
             "heartbeat_at": now,
@@ -248,7 +222,7 @@ def jobs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> _JobTable:
     )
 
     async def user(_session: Any, _user_id: str) -> CurrentUser:
-        return _admin()
+        return admin_user()
 
     async def no_warnings(*_args: Any, **_kwargs: Any) -> list[Any]:
         return []
@@ -256,7 +230,7 @@ def jobs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> _JobTable:
     async def register(_session: Any, **_kwargs: Any) -> tuple[FamilyMetadataContext, bool]:
         # The import's first write: the pedigree, the samples and the package provenance.
         table.wrote("family registered")
-        return _context(), False
+        return two_sample_context(), False
 
     @asynccontextmanager
     async def hold(_family_uuid: str, **_kwargs: Any):
@@ -270,7 +244,7 @@ def jobs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> _JobTable:
         return summary.model_copy(update={"status": "imported", "message": "ok"})
 
     async def context(*_args: Any, **_kwargs: Any) -> FamilyMetadataContext:
-        return _context()
+        return two_sample_context()
 
     async def nothing(*_args: Any, **_kwargs: Any) -> None:
         return None
@@ -425,3 +399,20 @@ async def test_an_import_that_writes_nothing_names_no_family_as_running(jobs, ca
     assert jobs.writes == []
     assert not any(event[:2] == ("job", "running") for event in jobs.events), jobs.events
     assert jobs.committed["status"] == ends
+
+
+@pytest.mark.asyncio
+async def test_the_job_cannot_be_recorded_as_running_on_no_family(jobs) -> None:
+    from backend.app.services.family_package_jobs import _record_job_family
+
+    # A sign-out finds a running import by the family its job records: one that recorded
+    # none would run where no sign-out finds it.
+    with pytest.raises(ValueError, match="An import job records the family it writes, and none was given"):
+        await _record_job_family(jobs.session(), job_id=JOB, worker_id=WORKER, family_id="")  # type: ignore[arg-type]
+
+    assert (jobs.committed["status"], jobs.committed["family_id"]) == ("validating", None)
+    assert jobs.events == []
+    # With a family, the job records it as running, while it is this worker's.
+    assert await _record_job_family(jobs.session(), job_id=JOB, worker_id=WORKER, family_id=FAMILY) is True  # type: ignore[arg-type]
+    assert jobs.events == [("job", "running", FAMILY)]
+    assert await _record_job_family(jobs.session(), job_id=JOB, worker_id="worker-2", family_id=FAMILY) is False  # type: ignore[arg-type]

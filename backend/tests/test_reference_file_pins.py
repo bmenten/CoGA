@@ -40,6 +40,7 @@ from backend.app.core import config
 from backend.app.core.config import settings
 from backend.app.services import hpo_service
 from backend.app.services import reference_metadata_service as rms
+from backend.tests._lifespan import LifespanApp, stub_lifespan_steps
 
 sys.path.append(str(Path(__file__).resolve().parents[2] / "scripts"))
 import clinical_cnv_knowledgebase as kb_script
@@ -422,51 +423,10 @@ async def test_an_ontology_in_place_that_cannot_be_read_is_not_imported(
 # ---- A refusal skips only its import: the application starts -----------------------------------------
 
 
-class _App:
-    class state:  # FastAPI's app.state, as the lifespan reads it
-        skip_startup_tasks = False
-
-
-# Every step of the lifespan but the HPO and reference-track bootstraps.
-_OTHER_STARTUP_STEPS = (
-    "wait_for_postgres",
-    "init_postgres_schema",
-    "init_postgres_admin_user",
-    "start_audit_log_worker",
-    "start_ui_event_worker",
-    "seed_builtin_repeat_catalog",
-    "ensure_human_grch38_reference_on_startup",
-    "ensure_human_t2t_reference_on_startup",
-    "queue_startup_gene_reference_refresh_if_needed",
-    "wait_for_clickhouse",
-    "init_clickhouse_schema",
-    "verify_clickhouse_variant_storage_identity",
-    "drop_orphaned_import_backups",
-    "start_clickhouse_integrity_monitor",
-    "gene_reference_refresh_worker",
-    "family_package_import_worker",
-    "stop_gene_reference_worker",
-    "stop_family_package_import_worker",
-    "stop_clickhouse_integrity_monitor",
-    "stop_audit_log_worker",
-    "stop_ui_event_worker",
-    "close_clickhouse_client",
-    "close_postgres_engine",
-)
-
-
 @pytest.mark.asyncio
 async def test_the_application_starts_when_both_files_are_refused(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    calls: list[str] = []
-
-    def step(name: str):
-        async def _step(*_args: Any, **_kwargs: Any) -> None:
-            calls.append(name)
-
-        return _step
-
     session = _RecordingSession()
 
     class _SessionFactory:
@@ -476,8 +436,8 @@ async def test_the_application_starts_when_both_files_are_refused(
         async def __aexit__(self, *_exc: Any) -> bool:
             return False
 
-    for name in _OTHER_STARTUP_STEPS:
-        monkeypatch.setattr(app_main, name, step(name))
+    # Every step of the start but the HPO and reference-track bootstraps.
+    calls = stub_lifespan_steps(monkeypatch, keep=("seed_builtin_reference_tracks",))
     monkeypatch.setattr(app_main, "get_postgres_sessionmaker", lambda: _SessionFactory)
     monkeypatch.setattr(app_main.settings, "family_import_worker_count", 1)
     monkeypatch.setattr(app_main.settings, "hpo_bootstrap_on_startup", True)
@@ -489,7 +449,7 @@ async def test_the_application_starts_when_both_files_are_refused(
     _bootstrap(monkeypatch, segdups=_another_segdup_file(tmp_path), repository=_SHIPPED_SEGDUPS)
     caplog.set_level(logging.INFO)
 
-    async with app_main.lifespan(_App()):
+    async with app_main.lifespan(LifespanApp()):
         pass
 
     # Both refused and logged, nothing of either written, and the start went on past them.

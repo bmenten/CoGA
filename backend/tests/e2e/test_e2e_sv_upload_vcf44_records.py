@@ -42,6 +42,8 @@ from uuid import uuid4
 
 import pytest
 
+from backend.tests.e2e._harness import capture, ensure_postgres_schema
+
 pytestmark = pytest.mark.integration
 
 _GENE = "E2E_SPANNED"
@@ -86,15 +88,6 @@ def _vcf(child: str) -> bytes:
     ).encode()
 
 
-def _cap(resp) -> dict:
-    out = {"status": resp.status_code, "text": resp.text}
-    try:
-        out["json"] = resp.json()
-    except ValueError:
-        pass
-    return out
-
-
 async def _set_seeded_gene(assembly_id: str | None) -> None:
     """Seed (or, with None, remove) the gene row of E2E_SPANNED: the upload lists an SV
     with the genes its span overlaps, from the gene table, and the fixture ships none."""
@@ -125,12 +118,12 @@ async def _exercise(family_id: str) -> dict:
     from httpx import ASGITransport, AsyncClient
 
     from backend.app.core.clickhouse import init_clickhouse_schema
-    from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
+    from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.main import app
     from backend.app.services.clickhouse_variant_storage import ensure_clickhouse_variant_tables
     from backend.tests.e2e import _harness
 
-    await init_postgres_schema()
+    await ensure_postgres_schema()
     await init_clickhouse_schema()
     await ensure_clickhouse_variant_tables(_harness.ASSEMBLY)
     async with get_postgres_sessionmaker()() as session:
@@ -151,14 +144,14 @@ async def _exercise(family_id: str) -> dict:
             token = await _harness.login_admin_token(ac)
             ac.headers["Authorization"] = f"Bearer {token}"
 
-            out["ped"] = _cap(
+            out["ped"] = capture(
                 await ac.post(
                     "/api/ped/upload",
                     params={"project_id": project_id},
                     files={"file": (f"{family_id}.ped", ped.encode(), "text/plain")},
                 )
             )
-            out["upload"] = _cap(
+            out["upload"] = capture(
                 await ac.post(
                     f"/api/structural-variants/upload/{child}",
                     params={"overwrite": "false", "source_format": "sniffles"},
@@ -167,7 +160,7 @@ async def _exercise(family_id: str) -> dict:
             )
             svs = f"/api/families/{family_id}/structural-variants"
             for name, params in _SEARCHES.items():
-                out["searches"][name] = _cap(await ac.get(svs, params={"page_size": 100, **params}))
+                out["searches"][name] = capture(await ac.get(svs, params={"page_size": 100, **params}))
     finally:
         await _set_seeded_gene(None)
     return out

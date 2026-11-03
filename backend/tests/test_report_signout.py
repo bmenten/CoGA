@@ -1,3 +1,18 @@
+"""Signing a family's analysis out (``services/report_signout_service.py``): its gates, the signed
+record and its chain, and the check of the report against the latest record.
+
+The sections, in order: the assembly-scope gate (TF-06 H12); a family whose data is being
+written (TF-06 H16); a family made again under its ID (TRACE-13); the evidence-drift gate and
+the content hash; the Sample-QC gate, its could-not-run checks (#330) and the reasons it names
+(CLIN-8, CLIN-58); the sequencing QC cut-offs and what a record could not capture (#514); the
+incomplete-import gate and imports that stopped part-way; reading a signed version; the gate of
+abnormal repeat and Paraphase calls without a review (REQ-TRACE-016); the HPO release; the
+reported SVs' evidence (REQ-TRACE-014); the signed analysis record's sections, its NIPT and PGT
+parts and the repeat calls' warnings; the report code; and what is frozen as reported (TRACE-19).
+Every acknowledgement is given as the sign-out dialogs give it (``_signout_dialogs.py``). The
+gates' fingerprints over what each dialog showed are in test_signout_acknowledges_what_was_shown.py.
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -31,7 +46,12 @@ from backend.app.services.sample_integrity_qc import (
     evaluate_sample_integrity,
     profile_for,
 )
-from backend.tests._signout_dialogs import sign_out_report_through_the_dialogs
+from backend.tests._query_results import MappingRows
+from backend.tests._signout_dialogs import (
+    FirstSignoutSession,
+    NoEarlierSignout,
+    sign_out_report_through_the_dialogs,
+)
 
 
 # What the analysis looked at (signed_record_sections): the variant descriptions, the gene
@@ -92,24 +112,9 @@ def _through_the_dialogs(session, **kwargs):
 _NO_STRUCTURAL_DRIFT = {"checked": 0, "drifted_count": 0, "drifted": []}
 
 
-class _Result:
-    def scalar_one(self):
-        return 0  # no prior sign-out -> next version 1
-
-    def scalar_one_or_none(self):
-        return None  # no prior sign-out -> chain genesis (prev_hash is None)
-
-
-class _Session:
-    def __init__(self) -> None:
-        self.executed: list = []
-
-    async def execute(self, *args, **kwargs):
-        self.executed.append((args, kwargs))
-        return _Result()
-
-    async def commit(self) -> None:
-        return None
+# A family's first sign-out: no prior sign-out (next version 1), the chain's genesis.
+_Result = NoEarlierSignout
+_Session = FirstSignoutSession
 
 
 def _patch_common(
@@ -632,13 +637,20 @@ def test_a_deleted_familys_record_keeps_its_report_code_from_a_new_sign_out() ->
 
 def test_sign_out_blocks_unacknowledged_drift(monkeypatch) -> None:
     _patch_common(monkeypatch, drifted_count=2)
+    audited = _capture_audit(monkeypatch)
+    session = _Session()
     with pytest.raises(HTTPException) as excinfo:
         asyncio.run(
             rss.sign_out_report(
-                _Session(), family_id="FAM1", user=_user(), acknowledge_drift=False
+                session, family_id="FAM1", user=_user(), acknowledge_drift=False
             )
         )
     assert excinfo.value.status_code == 409
+    detail = excinfo.value.detail
+    assert detail["gate"] == "evidence_drift"
+    assert detail["message"].startswith("2 classification(s) have evidence that changed")
+    assert detail["drifted"] == [{"variant_id": "x"}, {"variant_id": "x"}]
+    assert not _wrote_a_signout(session) and audited == {}
 
 
 def test_sign_out_proceeds_when_clean(monkeypatch) -> None:
@@ -683,7 +695,11 @@ def test_reported_variant_without_snapshot_gates_sign_out(monkeypatch) -> None:
     with pytest.raises(HTTPException) as excinfo:
         asyncio.run(rss.sign_out_report(_Session(), family_id="FAM1", user=_user()))
     assert excinfo.value.status_code == 409
-    assert "cannot be verified" in str(excinfo.value.detail)
+    assert excinfo.value.detail["gate"] == "evidence_drift"
+    assert "cannot be verified" in excinfo.value.detail["message"]
+    assert excinfo.value.detail["drifted"] == [
+        {"variant_id": "9-9-A-G", "acmg_class": "acmg_class_4", "status": "no_snapshot"}
+    ]
 
     # Acknowledging the drift lets it proceed, and the no_snapshot entry is counted.
     _patch_common(monkeypatch, drifted_count=0)
@@ -825,17 +841,23 @@ def test_failing_sample_qc_blocks_sign_out(monkeypatch) -> None:
 
 def test_failing_sample_qc_acknowledged_without_reason_is_422(monkeypatch) -> None:
     _patch_common(monkeypatch, drifted_count=0, qc_status="fail")
+    audited = _capture_audit(monkeypatch)
+    session = _Session()
     with pytest.raises(HTTPException) as excinfo:
         asyncio.run(
             rss.sign_out_report(
-                _Session(),
+                session,
                 family_id="FAM1",
                 user=_user(),
                 acknowledge_qc=True,
                 qc_acknowledgement_reason="   ",  # whitespace-only == empty
             )
         )
-    assert excinfo.value.status_code == 422
+    assert (excinfo.value.status_code, excinfo.value.detail) == (
+        422,
+        "A reason is required to acknowledge a sample-integrity QC concern.",
+    )
+    assert not _wrote_a_signout(session) and audited == {}
 
 
 def test_failing_sample_qc_acknowledged_with_reason_proceeds(monkeypatch) -> None:
@@ -873,7 +895,7 @@ def test_drift_and_qc_gates_are_independent(monkeypatch) -> None:
     with pytest.raises(HTTPException) as drift_exc:
         asyncio.run(rss.sign_out_report(_Session(), family_id="FAM1", user=_user()))
     assert drift_exc.value.status_code == 409
-    assert "classification" in str(drift_exc.value.detail)
+    assert drift_exc.value.detail["gate"] == "evidence_drift"
 
     _patch_common(monkeypatch, drifted_count=2, qc_status="fail")
     with pytest.raises(HTTPException) as qc_exc:
@@ -981,150 +1003,168 @@ def test_unverifiable_asserted_relatedness_ack_without_reason_is_422(monkeypatch
         monkeypatch,
         SampleIntegrityReport(overall_status="warn", relatedness_checks=[_asserted_parent_child(0)]),
     )
+    audited = _capture_audit(monkeypatch)
+    session = _Session()
     with pytest.raises(HTTPException) as excinfo:
         asyncio.run(
             rss.sign_out_report(
-                _Session(), family_id="FAM1", user=_user(),
+                session, family_id="FAM1", user=_user(),
                 acknowledge_qc=True, qc_acknowledgement_reason="   ",
             )
         )
-    assert excinfo.value.status_code == 422
-
-
-def test_non_asserted_and_verified_edges_do_not_block(monkeypatch) -> None:
-    # A non-asserted ("unrelated") pair with no sites is NOT a swap-relevant assertion,
-    # and a fully-verified asserted edge ran fine — neither should require acknowledgement.
-    unrelated_no_sites = RelatednessCheck("A", "B", "unrelated", "indeterminate", 0.0, 0.0, 0, "warn", "x")
-    for report in (
-        SampleIntegrityReport(overall_status="warn", relatedness_checks=[unrelated_no_sites]),
-        SampleIntegrityReport(overall_status="pass", relatedness_checks=[_asserted_parent_child(5000, status="pass")]),
-    ):
-        _patch_common(monkeypatch, drifted_count=0)
-        _patch_qc_report(monkeypatch, report)
-        out = asyncio.run(rss.sign_out_report(_Session(), family_id="FAM1", user=_user()))
-        assert out["snapshot"]["acknowledged_qc"] is False
-
-
-def test_mendelian_unverifiable_blocks_but_elevated_rate_does_not(monkeypatch) -> None:
-    # Too few informative sites = could-not-run -> gate. An elevated (but measured) error
-    # rate over enough sites is a ran-and-concerning "warn" and must NOT newly gate.
-    _patch_common(monkeypatch, drifted_count=0, qc_status="warn")
-    _patch_qc_report(
-        monkeypatch,
-        SampleIntegrityReport(
-            overall_status="warn",
-            mendelian_checks=[MendelianCheck("CHILD", ["FATHER", "MOTHER"], 10, 0, 0.0, "warn", "Too few informative sites.")],
-        ),
+    assert (excinfo.value.status_code, excinfo.value.detail) == (
+        422,
+        "A reason is required to acknowledge a sample-integrity QC concern.",
     )
+    assert not _wrote_a_signout(session) and audited == {}
+
+
+def _refused_by_the_qc(monkeypatch, report: SampleIntegrityReport) -> dict:
+    """The Sample-QC gate's refusal of ``report``, after checking nothing was written."""
+    _patch_common(monkeypatch, drifted_count=0)
+    _patch_qc_report(monkeypatch, report)
+    audited = _capture_audit(monkeypatch)
+    session = _Session()
     with pytest.raises(HTTPException) as excinfo:
-        asyncio.run(rss.sign_out_report(_Session(), family_id="FAM1", user=_user()))
+        asyncio.run(rss.sign_out_report(session, family_id="FAM1", user=_user()))
     assert excinfo.value.status_code == 409
-
-    _patch_common(monkeypatch, drifted_count=0, qc_status="warn")
-    _patch_qc_report(
-        monkeypatch,
-        SampleIntegrityReport(
-            overall_status="warn",
-            mendelian_checks=[MendelianCheck("CHILD", ["FATHER", "MOTHER"], 5000, 150, 0.03, "warn", "Elevated Mendelian-error rate.")],
-        ),
-    )
-    out = asyncio.run(rss.sign_out_report(_Session(), family_id="FAM1", user=_user()))
-    assert out["snapshot"]["acknowledged_qc"] is False
+    assert excinfo.value.detail["gate"] == "sample_qc"
+    assert not _wrote_a_signout(session) and audited == {}
+    return excinfo.value.detail
 
 
 def test_nipt_paternity_and_silent_maternal_pass_through_block(monkeypatch) -> None:
     # NIPT paternity that could not run gates.
-    _patch_common(monkeypatch, drifted_count=0, qc_status="warn")
-    _patch_qc_report(
+    detail = _refused_by_the_qc(
         monkeypatch,
         SampleIntegrityReport(
             overall_status="warn",
             paternity_check=PaternityCheck("FATHER", 2, 1, 0, 0, "warn", "Too few paternal-informative sites."),
         ),
     )
-    with pytest.raises(HTTPException) as excinfo:
-        asyncio.run(rss.sign_out_report(_Session(), family_id="FAM1", user=_user()))
-    assert excinfo.value.status_code == 409
+    assert detail["unverifiable_checks"] == ["Sample FATHER (father): too few paternal-informative sites."]
 
     # The NIPT category QC reports "pass" when maternal transmission is skipped for too
     # few maternal-informative sites — an unverified mother that must now gate despite
     # the overall "pass" verdict.
-    _patch_common(monkeypatch, drifted_count=0, qc_status="pass")
-    _patch_qc_report(
+    detail = _refused_by_the_qc(
         monkeypatch,
         SampleIntegrityReport(
             overall_status="pass",
             category_qc_check=NiptCategoryQc(0, 0, 5, 2, 0.4, "pass", "Category distribution within expectation."),
         ),
     )
-    with pytest.raises(HTTPException) as excinfo2:
-        asyncio.run(rss.sign_out_report(_Session(), family_id="FAM1", user=_user()))
-    assert excinfo2.value.status_code == 409
-    assert excinfo2.value.detail["gate"] == "sample_qc"
+    assert detail["unverifiable_checks"] == [
+        "NIPT maternal lineage could not be verified (too few maternal-informative sites) — possible wrong mother."
+    ]
 
 
-def test_sex_only_identity_unverifiable_blocks(monkeypatch) -> None:
-    # A single-sample / couple / added-relative member whose identity rests solely on the
-    # sex check: an indeterminate sex with no anchoring relatedness edge must gate (the
-    # fail-open the review found — _unverifiable_swap_checks previously ignored sex).
-    _patch_common(monkeypatch, drifted_count=0, qc_status="warn")
-    _patch_qc_report(
-        monkeypatch,
-        SampleIntegrityReport(
-            overall_status="warn",
-            application="single",
-            sex_checks=[SexCheck("PROBAND", "female", "indeterminate", None, 0, "skip", "No chrX genotypes available.")],
+@pytest.mark.parametrize(
+    ("report", "unverifiable"),
+    [
+        pytest.param(
+            # Too few informative sites = could-not-run -> gate (its elevated-rate twin, which
+            # ran, is below).
+            SampleIntegrityReport(
+                overall_status="warn",
+                mendelian_checks=[
+                    MendelianCheck("CHILD", ["FATHER", "MOTHER"], 10, 0, 0.0, "warn", "Too few informative sites.")
+                ],
+            ),
+            "Sample CHILD (child of FATHER and MOTHER): too few informative sites.",
+            id="mendelian-too-few-sites",
         ),
-    )
-    with pytest.raises(HTTPException) as excinfo:
-        asyncio.run(rss.sign_out_report(_Session(), family_id="FAM1", user=_user()))
-    assert excinfo.value.status_code == 409
-    assert excinfo.value.detail["gate"] == "sample_qc"
-
-
-def test_indeterminate_sex_on_anchored_sample_does_not_block(monkeypatch) -> None:
-    # The child's sex is indeterminate but a passing parent-child relatedness anchors its
-    # identity, so sex is redundant and must NOT newly gate (no over-block on trios).
-    _patch_common(monkeypatch, drifted_count=0, qc_status="warn")
-    _patch_qc_report(
-        monkeypatch,
-        SampleIntegrityReport(
-            overall_status="warn",
-            application="wgs",
-            relatedness_checks=[_asserted_parent_child(5000, status="pass")],
-            sex_checks=[SexCheck("CHILD", "male", "indeterminate", None, 0, "skip", "No chrX genotypes available.")],
+        pytest.param(
+            # A single-sample / couple / added-relative member whose identity rests solely on
+            # the sex check: an indeterminate sex with no anchoring relatedness edge must gate
+            # (the fail-open the review found — _unverifiable_swap_checks previously ignored sex).
+            SampleIntegrityReport(
+                overall_status="warn",
+                application="single",
+                sex_checks=[SexCheck("PROBAND", "female", "indeterminate", None, 0, "skip", "No chrX genotypes available.")],
+            ),
+            "Sample PROBAND: no chrX genotypes available.",
+            id="sex-only-identity",
         ),
-    )
+        pytest.param(
+            # NIPT family whose trio could not be resolved -> zero cfDNA checks -> would sign
+            # out with no integrity evidence at all. Must gate despite overall_status "skip".
+            SampleIntegrityReport(overall_status="skip", application="nipt"),
+            "NIPT sample integrity could not be assessed — the trio could not be resolved or the cfDNA "
+            "analysis did not run (no paternity or maternal-lineage check).",
+            id="nipt-trio-unresolved",
+        ),
+    ],
+)
+def test_a_check_that_could_not_run_gates_the_sign_out(monkeypatch, report, unverifiable) -> None:
+    # #330: a swap that manifests as MISSING data leaves the check unable to run (it never
+    # becomes "fail"), so it gates as a check that could not run, named with its sample.
+    detail = _refused_by_the_qc(monkeypatch, report)
+    assert detail["unverifiable_checks"] == [unverifiable]
+    assert detail["message"] == f"{_COULD_NOT_RUN} {_RESOLVE_OR_ACKNOWLEDGE}"
+
+
+@pytest.mark.parametrize(
+    "report",
+    [
+        pytest.param(
+            # A non-asserted ("unrelated") pair with no sites is NOT a swap-relevant assertion.
+            SampleIntegrityReport(
+                overall_status="warn",
+                relatedness_checks=[
+                    RelatednessCheck("A", "B", "unrelated", "indeterminate", 0.0, 0.0, 0, "warn", "x")
+                ],
+            ),
+            id="unasserted-pair-without-sites",
+        ),
+        pytest.param(
+            # A fully-verified asserted edge ran fine.
+            SampleIntegrityReport(overall_status="pass", relatedness_checks=[_asserted_parent_child(5000, status="pass")]),
+            id="verified-parent-child",
+        ),
+        pytest.param(
+            # An elevated (but measured) Mendelian error rate over enough sites is a
+            # ran-and-concerning "warn" and must NOT newly gate.
+            SampleIntegrityReport(
+                overall_status="warn",
+                mendelian_checks=[
+                    MendelianCheck("CHILD", ["FATHER", "MOTHER"], 5000, 150, 0.03, "warn", "Elevated Mendelian-error rate.")
+                ],
+            ),
+            id="mendelian-elevated-rate",
+        ),
+        pytest.param(
+            # The child's sex is indeterminate but a passing parent-child relatedness anchors its
+            # identity, so sex is redundant and must NOT newly gate (no over-block on trios).
+            SampleIntegrityReport(
+                overall_status="warn",
+                application="wgs",
+                relatedness_checks=[_asserted_parent_child(5000, status="pass")],
+                sex_checks=[SexCheck("CHILD", "male", "indeterminate", None, 0, "skip", "No chrX genotypes available.")],
+            ),
+            id="indeterminate-sex-anchored-by-relatedness",
+        ),
+        pytest.param(
+            # A NIPT report whose paternity + category checks ran fine must NOT be gated by the
+            # no-evidence branch (no false positive).
+            SampleIntegrityReport(
+                overall_status="pass",
+                application="nipt",
+                paternity_check=PaternityCheck("FATHER", 40, 2, 60, 55, "pass", "Paternity supported."),
+                category_qc_check=NiptCategoryQc(1, 2, 60, 30, 0.5, "pass", "Within expectation."),
+            ),
+            id="nipt-checks-ran",
+        ),
+    ],
+)
+def test_a_check_that_ran_does_not_gate_the_sign_out(monkeypatch, report) -> None:
+    _patch_common(monkeypatch, drifted_count=0)
+    _patch_qc_report(monkeypatch, report)
+    captured = _capture_audit(monkeypatch)
     out = asyncio.run(rss.sign_out_report(_Session(), family_id="FAM1", user=_user()))
     assert out["snapshot"]["acknowledged_qc"] is False
-
-
-def test_nipt_unresolved_trio_blocks(monkeypatch) -> None:
-    # NIPT family whose trio could not be resolved -> zero cfDNA checks -> would sign out
-    # with no integrity evidence at all. Must gate despite overall_status "skip".
-    _patch_common(monkeypatch, drifted_count=0, qc_status="skip")
-    _patch_qc_report(monkeypatch, SampleIntegrityReport(overall_status="skip", application="nipt"))
-    with pytest.raises(HTTPException) as excinfo:
-        asyncio.run(rss.sign_out_report(_Session(), family_id="FAM1", user=_user()))
-    assert excinfo.value.status_code == 409
-    assert excinfo.value.detail["gate"] == "sample_qc"
-
-
-def test_nipt_with_ran_checks_signs_out(monkeypatch) -> None:
-    # A NIPT report whose paternity + category checks ran fine must NOT be gated by the
-    # no-evidence branch (no false positive).
-    _patch_common(monkeypatch, drifted_count=0, qc_status="pass")
-    _patch_qc_report(
-        monkeypatch,
-        SampleIntegrityReport(
-            overall_status="pass",
-            application="nipt",
-            paternity_check=PaternityCheck("FATHER", 40, 2, 60, 55, "pass", "Paternity supported."),
-            category_qc_check=NiptCategoryQc(1, 2, 60, 30, 0.5, "pass", "Within expectation."),
-        ),
-    )
-    out = asyncio.run(rss.sign_out_report(_Session(), family_id="FAM1", user=_user()))
-    assert out["snapshot"]["acknowledged_qc"] is False
+    assert out["snapshot"]["qc_acknowledgement_reason"] is None
+    assert captured["after"]["qc_unverifiable"] == []
 
 
 def test_audit_records_qc_status_and_acknowledgement(monkeypatch) -> None:
@@ -2085,7 +2125,7 @@ def test_the_import_gate_is_acknowledged_independently_of_drift_and_qc(monkeypat
 
     with pytest.raises(HTTPException) as only_import:
         attempt(**imp)
-    assert "classification" in str(only_import.value.detail)  # the drift gate
+    assert only_import.value.detail["gate"] == "evidence_drift"
     with pytest.raises(HTTPException) as import_and_drift:
         attempt(**imp, **drift)
     assert import_and_drift.value.detail["gate"] == "sample_qc"
@@ -2432,6 +2472,28 @@ def test_the_gate_message_of_a_stopped_import_that_recorded_nothing() -> None:
     assert "overwrite" not in failed_only
 
 
+def test_the_gate_message_of_what_recorded_no_dataset_still_says_the_data_may_be_incomplete() -> None:
+    # A flag set but not in the shape an import writes reads as an import that names no dataset
+    # (test_the_import_flag_reader_is_deterministic_and_fails_safe): it gates, and says that
+    # what it left out was not recorded.
+    unknown = asyncio.run(rss._import_incomplete_state(_ScalarSession(True), "u1"))
+    assert rss._import_gate_message(unknown) == (
+        "This family's data is incomplete: a package import did not complete, and which datasets "
+        "it left out was not recorded. The report may lack data from what failed. Re-run the "
+        "import to complete it, or acknowledge with a reason to sign out anyway."
+    )
+    # A deletion of the family's data that did not finish and names no dataset, and a restore
+    # that did not finish with every dataset done, are each named for what they were.
+    assert rss._import_gate_message(
+        None, {"deletion-1": {"job_id": None, "at": None, "datasets": [], "finished_datasets": []}}
+    ).startswith("This family's data is incomplete: a deletion of this family's data did not finish. Upload")
+    restore = {"job_id": None, "at": None, "datasets": ["snv"], "finished_datasets": ["snv"], "whole_family": True}
+    assert rss._import_gate_message(None, {"job-r": restore}).startswith(
+        "This family's data is incomplete: an import failed, and putting this family's data back did "
+        "not finish. Import this family again in full, with overwrite"
+    )
+
+
 def test_signout_check_flags_an_import_that_stopped_after_signout(monkeypatch) -> None:
     # Signed complete; an import of the family has since stopped part-way. The page no
     # longer shows the data that was signed.
@@ -2628,6 +2690,29 @@ def test_a_signed_version_read_back_as_text_is_served_as_the_record(monkeypatch)
     assert ReportSignoutDetail.model_validate(detail).snapshot == _PRE_GATE_SNAPSHOT
 
 
+def test_a_signed_version_whose_record_was_changed_is_served_unverified(monkeypatch, caplog) -> None:
+    # The stored snapshot no longer hashes to its content hash (edited out of band): the
+    # record is still served, for an auditor to inspect, but flagged unverified and logged.
+    row = {**_pre_gate_row(), "snapshot": {**_PRE_GATE_SNAPSHOT, "reported_variants": []}}
+
+    with caplog.at_level("ERROR", logger=rss.logger.name):
+        detail = _detail_of(monkeypatch, row)
+
+    assert detail["verified"] is False
+    assert detail["snapshot"]["reported_variants"] == []
+    assert detail["content_hash"] == _PRE_GATE_CONTENT_HASH
+    [record] = [r for r in caplog.records if "content hash mismatch" in r.getMessage()]
+    assert record.signout_version == 1 and record.stored_content_hash == _PRE_GATE_CONTENT_HASH
+    assert record.recomputed_content_hash == rss._canonical_hash(row["snapshot"])
+
+
+def test_a_signed_version_the_family_does_not_have_is_404(monkeypatch) -> None:
+    _patch_common(monkeypatch, drifted_count=0)
+    with pytest.raises(HTTPException) as excinfo:
+        asyncio.run(rss.get_report_signout(_RowsSession([]), family_id="FAM1", version=7, user=_user()))
+    assert (excinfo.value.status_code, excinfo.value.detail) == (404, "Sign-out version not found")
+
+
 def test_serialize_signout_exposes_the_frozen_import_acknowledgement() -> None:
     row = {
         "version": 2,
@@ -2722,6 +2807,150 @@ def test_the_sign_out_endpoint_passes_the_import_acknowledgement_on(monkeypatch)
     )
     assert captured["acknowledge_import_incomplete"] is False
     assert captured["import_incomplete_acknowledgement_reason"] is None
+
+
+# ---------------------------------------------------------------------------
+# Abnormal repeat and Paraphase calls without a review (REQ-TRACE-016, TF-06 H1)
+# ---------------------------------------------------------------------------
+#
+# Each repeat locus and Paraphase region with an abnormal call and no review gates the sign-out,
+# acknowledged like the other gates with a reason and the fingerprint of what its dialog listed.
+# Which calls are abnormal is finding_review_pg's (test_finding_reviews.py); here the gate reads
+# the record's list of them.
+
+_UNREVIEWED = [
+    {
+        "kind": "repeat",
+        "key": "FXS_FMR1",
+        "gene": "FMR1",
+        "status": "premutation",
+        "samples": [{"sample": "MOTHER", "status": "premutation", "near_boundary": False}],
+    },
+    {"kind": "paraphase", "key": "smn1", "gene": "SMN1", "samples": [{"sample": "PROBAND", "status": "carrier"}]},
+]
+_UNREVIEWED_REASON = "Both calls are outside the referral question; reviewed with the lab director."
+
+
+def _patch_unreviewed(monkeypatch, findings: list[dict]) -> None:
+    _patch_common(monkeypatch, drifted_count=0)
+
+    async def _findings(session, context, sections):
+        return {
+            "repeat_expansion_reviews": [],
+            "paraphase_reviews": [],
+            "finding_review_drift": {"checked": 0, "drifted_count": 0, "drifted": []},
+            "unreviewed_findings": copy.deepcopy(findings),
+        }
+
+    monkeypatch.setattr(rss, "finding_reviews_for_record", _findings)
+
+
+def _unreviewed_refusal(monkeypatch, findings: list[dict], **acknowledgement) -> tuple[int, Any]:
+    _patch_unreviewed(monkeypatch, findings)
+    audited = _capture_audit(monkeypatch)
+    session = _Session()
+    with pytest.raises(HTTPException) as excinfo:
+        asyncio.run(rss.sign_out_report(session, family_id="FAM1", user=_user(), **acknowledgement))
+    assert not _wrote_a_signout(session) and audited == {}, "nothing may be written for a refused sign-out"
+    return excinfo.value.status_code, excinfo.value.detail
+
+
+def test_an_abnormal_call_without_a_review_blocks_sign_out(monkeypatch) -> None:
+    status, detail = _unreviewed_refusal(monkeypatch, _UNREVIEWED)
+
+    assert status == 409
+    assert detail["gate"] == "unreviewed_findings"
+    assert detail["message"] == (
+        "2 repeat locus/loci or Paraphase region(s) hold an abnormal call without a review: "
+        "FMR1 (repeat locus): MOTHER premutation; SMN1 (Paraphase region): PROBAND carrier. "
+        "Review them, or acknowledge with a reason to sign out anyway."
+    )
+    assert detail["unreviewed_findings"] == _UNREVIEWED
+    assert detail["concerns_changed"] is False
+    assert detail["concerns_fingerprint"] == rss.concerns_fingerprint(
+        "unreviewed_findings", {"unreviewed_findings": _UNREVIEWED}
+    )
+
+
+def test_findings_without_a_review_are_acknowledged_only_with_a_reason_and_what_was_shown(monkeypatch) -> None:
+    shown = rss.concerns_fingerprint("unreviewed_findings", {"unreviewed_findings": _UNREVIEWED})
+    acknowledged = {"acknowledge_unreviewed_findings": True, "unreviewed_findings_concerns_fingerprint": shown}
+
+    status, detail = _unreviewed_refusal(
+        monkeypatch, _UNREVIEWED, **acknowledged, unreviewed_findings_acknowledgement_reason="  "
+    )
+    assert (status, detail) == (422, "A reason is required to acknowledge findings without a review.")
+
+    # Without the fingerprint of what the dialog showed, it covers nothing.
+    status, detail = _unreviewed_refusal(
+        monkeypatch,
+        _UNREVIEWED,
+        acknowledge_unreviewed_findings=True,
+        unreviewed_findings_acknowledgement_reason=_UNREVIEWED_REASON,
+    )
+    assert status == 422 and "unreviewed_findings_concerns_fingerprint" in detail
+
+    # A finding that arose after the dialog listed them: refused with the findings as they are now.
+    arose = [*_UNREVIEWED, {**_UNREVIEWED[0], "key": "HTT", "gene": "HTT", "status": "pathogenic"}]
+    status, detail = _unreviewed_refusal(
+        monkeypatch, arose, **acknowledged, unreviewed_findings_acknowledgement_reason=_UNREVIEWED_REASON
+    )
+    assert (status, detail["gate"], detail["concerns_changed"]) == (409, "unreviewed_findings", True)
+    assert detail["unreviewed_findings"] == arose and detail["concerns_fingerprint"] != shown
+
+
+def test_acknowledged_findings_without_a_review_are_frozen_and_audited(monkeypatch) -> None:
+    _patch_unreviewed(monkeypatch, _UNREVIEWED)
+    captured = _capture_audit(monkeypatch)
+    out = asyncio.run(
+        _through_the_dialogs(
+            _Session(),
+            family_id="FAM1",
+            user=_user(),
+            acknowledge_unreviewed_findings=True,
+            unreviewed_findings_acknowledgement_reason=f"  {_UNREVIEWED_REASON}  ",
+        )
+    )
+
+    snapshot = out["snapshot"]
+    # The findings and the attested reason are inside the hashed record.
+    assert snapshot["unreviewed_findings"] == _UNREVIEWED
+    assert snapshot["acknowledged_unreviewed_findings"] is True
+    assert snapshot["unreviewed_findings_acknowledgement_reason"] == _UNREVIEWED_REASON
+    assert out["content_hash"] == rss._canonical_hash(snapshot)
+    assert (out["unreviewed_findings_acknowledged"], out["unreviewed_findings_acknowledgement_reason"]) == (
+        True,
+        _UNREVIEWED_REASON,
+    )
+    after = captured["after"]
+    assert after["unreviewed_findings"] == _UNREVIEWED
+    assert after["acknowledged_unreviewed_findings"] is True
+    assert after["unreviewed_findings_acknowledgement_reason"] == _UNREVIEWED_REASON
+    assert after["unreviewed_findings_concerns_fingerprint"] == rss.concerns_fingerprint(
+        "unreviewed_findings", {"unreviewed_findings": _UNREVIEWED}
+    )
+    assert ", findings without a review acknowledged" in captured["summary"]
+
+
+def test_without_findings_to_review_an_acknowledgement_records_nothing(monkeypatch) -> None:
+    _patch_unreviewed(monkeypatch, [])
+    captured = _capture_audit(monkeypatch)
+    out = asyncio.run(
+        rss.sign_out_report(
+            _Session(),
+            family_id="FAM1",
+            user=_user(),
+            acknowledge_unreviewed_findings=True,
+            unreviewed_findings_acknowledgement_reason=_UNREVIEWED_REASON,
+        )
+    )
+    assert (out["snapshot"]["acknowledged_unreviewed_findings"], out["unreviewed_findings_acknowledged"]) == (
+        False,
+        False,
+    )
+    assert out["snapshot"]["unreviewed_findings_acknowledgement_reason"] is None
+    assert captured["after"]["unreviewed_findings_concerns_fingerprint"] is None
+    assert "findings without a review" not in captured["summary"]
 
 
 # ---------------------------------------------------------------------------
@@ -2999,7 +3228,10 @@ def test_a_reported_cnv_whose_evidence_changed_blocks_sign_out(monkeypatch) -> N
                 _Session(), family_id="FAM1", user=_user(), acknowledge_drift=True, drift_acknowledgement_reason=" "
             )
         )
-    assert no_reason.value.status_code == 422
+    assert (no_reason.value.status_code, no_reason.value.detail) == (
+        422,
+        "A reason is required to acknowledge evidence drift.",
+    )
 
 
 def test_an_acknowledged_sv_drift_is_frozen_and_audited(monkeypatch) -> None:
@@ -3034,7 +3266,9 @@ def test_a_reported_sv_without_frozen_evidence_blocks_sign_out(monkeypatch) -> N
         asyncio.run(rss.sign_out_report(_Session(), family_id="FAM1", user=_user()))
     assert refused.value.status_code == 409
     detail: Any = refused.value.detail
+    assert detail["gate"] == "evidence_drift"
     assert "cannot be verified" in detail["message"]
+    assert [entry["status"] for entry in detail["structural_drifted"]] == ["no_snapshot"]
 
     _patch_sv(monkeypatch, reported=[_reported_sv(evidence_snapshot=None)], structural_drifted=[])
     out = asyncio.run(
@@ -3397,6 +3631,7 @@ def test_a_fetal_fraction_that_could_not_be_estimated_gates_the_sign_out(monkeyp
     _with_sections(monkeypatch, nipt=_nipt_section(ff="fail"))
     with pytest.raises(HTTPException) as excinfo:
         asyncio.run(rss.sign_out_report(_Session(), family_id="FAM1", user=_user()))
+    assert (excinfo.value.status_code, excinfo.value.detail["gate"]) == (409, "sample_qc")
     assert excinfo.value.detail["nipt_failed_checks"] == [
         "NIPT fetal fraction: not estimated, from 3 category-7 sites (an estimate needs at least 5)."
     ]
@@ -4239,18 +4474,7 @@ class _ReviewRowsSession:
 
     async def execute(self, statement, params=None):
         self.executed.append((str(statement), params))
-        return _RowsResult(self.rows)
-
-
-class _RowsResult:
-    def __init__(self, rows: list[dict]) -> None:
-        self._rows = rows
-
-    def mappings(self) -> "_RowsResult":
-        return self
-
-    def all(self) -> list[dict]:
-        return list(self._rows)
+        return MappingRows(self.rows)
 
 
 def _review_row(variant_id: str, *, tags=(), pair_tags=None, partner: str | None = None) -> dict:

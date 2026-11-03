@@ -84,17 +84,19 @@ export default defineConfig({
       // 78.4 / 75.7 / 66.2 earlier that day, and 69.3 / 67.7 / 65.1 / 57.2 on
       // 2026-06-28). The visualisations, which draw what the clinician reads off a
       // track, have a floor of their own (lines 89.9 / statements 88.5 / functions 90.9 /
-      // branches 78.2).
+      // branches 78.2). Raised after the test-suite review of 2026-11-03 to 3 points under
+      // what it measured: lines 93.2 / statements 92.0 / functions 90.8 / branches 82.4,
+      // the visualisations 95.7 / 94.3 / 95.5 / 86.2.
       thresholds: {
-        lines: 80,
-        functions: 75,
-        branches: 67,
-        statements: 78,
+        lines: 90,
+        functions: 87,
+        branches: 79,
+        statements: 89,
         'src/components/visualizations/**': {
-          lines: 88,
-          functions: 89,
-          branches: 76,
-          statements: 86
+          lines: 92,
+          functions: 92,
+          branches: 83,
+          statements: 91
         }
       }
     }

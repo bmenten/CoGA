@@ -35,6 +35,12 @@ from pathlib import Path
 import pytest
 from sqlalchemy import text
 
+from backend.tests.e2e._harness import (
+    annotation_manifest_modules,
+    capture,
+    restore_annotation_manifest_modules,
+)
+
 pytestmark = pytest.mark.integration
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "golden_trio"
@@ -72,13 +78,6 @@ _BND_60000 = "1-60000-60000-BND-5-3000000-3000000"
 # (CLIN-43): the breakend's holds its mate, and its END is its POS (CLIN-39).
 _NEEDLR_DEL = "1-7000-12000-DEL---"
 _NEEDLR_BND = "1-20000-20000-BND-5-3000000-3000000"
-
-
-def _cap(resp) -> dict:
-    out = {"status": resp.status_code, "text": resp.text}
-    if resp.status_code < 400:
-        out["json"] = resp.json()
-    return out
 
 
 async def _entry_rows(family_uuid: str) -> list[dict]:
@@ -142,41 +141,6 @@ async def _set_member_active(family_uuid: str, sample_id: str, active: bool) -> 
         await session.commit()
 
 
-async def _manifest_modules(family_uuid: str) -> str | None:
-    from backend.app.core.postgres import get_postgres_sessionmaker
-
-    async with get_postgres_sessionmaker()() as session:
-        return (
-            await session.execute(
-                text(
-                    "SELECT modules::text FROM family_annotation_manifest "
-                    "WHERE family_id = CAST(:family_uuid AS uuid)"
-                ),
-                {"family_uuid": family_uuid},
-            )
-        ).scalar_one_or_none()
-
-
-async def _restore_manifest_modules(family_uuid: str, modules: str | None) -> None:
-    from backend.app.core.postgres import get_postgres_sessionmaker
-
-    async with get_postgres_sessionmaker()() as session:
-        if modules is None:
-            await session.execute(
-                text("DELETE FROM family_annotation_manifest WHERE family_id = CAST(:f AS uuid)"),
-                {"f": family_uuid},
-            )
-        else:
-            await session.execute(
-                text(
-                    "UPDATE family_annotation_manifest SET modules = CAST(:modules AS jsonb) "
-                    "WHERE family_id = CAST(:f AS uuid)"
-                ),
-                {"modules": modules, "f": family_uuid},
-            )
-        await session.commit()
-
-
 async def _exercise(root: Path) -> dict:
     from httpx import ASGITransport, AsyncClient
 
@@ -186,7 +150,7 @@ async def _exercise(root: Path) -> dict:
 
     facts = await _harness.import_golden_trio(root)
     family_uuid = facts["family_uuid"]
-    manifest_before = await _manifest_modules(family_uuid)
+    manifest_before = await annotation_manifest_modules(family_uuid)
     out: dict = {
         "facts": facts,
         "manifest_before": manifest_before,
@@ -199,7 +163,7 @@ async def _exercise(root: Path) -> dict:
             ac.headers["Authorization"] = f"Bearer {token}"
 
             async def upload(sample: str, body: bytes) -> dict:
-                return _cap(
+                return capture(
                     await ac.post(
                         f"/api/structural-variants/upload/{sample}",
                         params={"source_format": "sniffles"},
@@ -208,7 +172,7 @@ async def _exercise(root: Path) -> dict:
                 )
 
             out["proband"] = await upload("PROBAND", _PROBAND)
-            out["manifest"] = _cap(await ac.get(f"/api/families/{FAMILY}/annotation-manifest"))
+            out["manifest"] = capture(await ac.get(f"/api/families/{FAMILY}/annotation-manifest"))
             out["father"] = await upload("FATHER", _FATHER)
             out["rows_before_rewrite"] = await _entry_rows(family_uuid)
             out["remote_ends_before_rewrite"] = await _remote_ends(family_uuid)
@@ -218,7 +182,7 @@ async def _exercise(root: Path) -> dict:
             out["rows_after_upload"] = await _entry_rows(family_uuid)
             out["remote_ends_after_upload"] = await _remote_ends(family_uuid)
 
-            out["admin_delete"] = _cap(
+            out["admin_delete"] = capture(
                 await ac.delete(
                     "/api/admin/data/samples/MOTHER/structural_variants", params={"confirm": "true"}
                 )
@@ -227,13 +191,13 @@ async def _exercise(root: Path) -> dict:
             out["remote_ends_after_admin_delete"] = await _remote_ends(family_uuid)
 
             await _set_member_active(family_uuid, "FATHER", True)
-            out["family_page"] = _cap(
+            out["family_page"] = capture(
                 await ac.get(f"/api/families/{FAMILY}/structural-variants", params={"page_size": 100})
             )
     finally:
         # Restore the fixture state for any module that runs later.
         await _set_member_active(family_uuid, "FATHER", True)
-        await _restore_manifest_modules(family_uuid, manifest_before)
+        await restore_annotation_manifest_modules(family_uuid, manifest_before)
         await delete_family_structural_variants(_harness.ASSEMBLY, family_uuid, source="sniffles")
         out["restored"] = await _harness.import_golden_trio(root)
         out["rows_restored"] = await _entry_rows(family_uuid)

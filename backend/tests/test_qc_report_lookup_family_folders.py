@@ -24,10 +24,8 @@ answer the same way. All IDs and files are synthetic.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import os
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
 from fastapi import HTTPException
@@ -35,13 +33,9 @@ import httpx
 import pytest
 
 from backend.app.core.config import settings
-from backend.app.core.postgres import get_postgres_session
 from backend.app.core.url_path import url_path
-from backend.app.dependencies import get_current_user
-from backend.app.main import app
-from backend.app.middleware import request_logging
 from backend.app.routers import family_qc_reports
-from backend.app.services.access_control import CurrentUser
+from backend.tests._family_folder_app import ORIGIN, asgi_client, sign_in_a_viewer_who_reads
 
 
 def _content(family: str, sample: str) -> bytes:
@@ -217,8 +211,6 @@ def test_a_symlink_that_leads_out_of_the_data_directory_is_not_followed(data: Pa
 # Through the app
 # --------------------------------------------------------------------------- #
 
-ORIGIN = "http://coga.test"
-
 
 @pytest.fixture()
 def recorded(data: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, dict[str, str]]:
@@ -227,42 +219,15 @@ def recorded(data: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, dict[str,
     path``."""
     families: dict[str, dict[str, str]] = {}
 
-    async def family_record(session: Any, family_id: str, user: Any) -> Any:
-        if family_id not in families:
-            raise HTTPException(status_code=404, detail="Family not found")
-        return SimpleNamespace(members=[SimpleNamespace(sample_id=sample) for sample in families[family_id]])
-
     async def recorded_report(session: Any, *, family_id: str, sample_id: str) -> str:
         report = families.get(family_id, {}).get(sample_id)
         if report is None:
             raise HTTPException(status_code=404, detail="No QC report is recorded for this sample")
         return report
 
-    async def no_session():
-        yield None
-
-    async def a_viewer() -> CurrentUser:
-        return CurrentUser(
-            id="user-viewer",
-            username="viewer@example.com",
-            email="viewer@example.com",
-            role="viewer",
-            created_at=datetime.now(timezone.utc),
-        )
-
-    async def keep_audit_row(payload: Any) -> None:
-        return None
-
-    monkeypatch.setattr(family_qc_reports, "get_family_record", family_record)
+    sign_in_a_viewer_who_reads(monkeypatch, families, family_qc_reports)
     monkeypatch.setattr(family_qc_reports, "_recorded_report", recorded_report)
-    monkeypatch.setattr(request_logging, "write_audit_log_event", keep_audit_row)
-    monkeypatch.setitem(app.dependency_overrides, get_postgres_session, no_session)
-    monkeypatch.setitem(app.dependency_overrides, get_current_user, a_viewer)
     return families
-
-
-def _client() -> httpx.AsyncClient:
-    return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url=ORIGIN)
 
 
 async def _open(client: httpx.AsyncClient, family_id: str, sample_id: str) -> tuple[int, int, bytes]:
@@ -290,7 +255,7 @@ async def test_the_link_and_the_report_reach_only_the_familys_own_report(
     recorded["F3"] = {"S3": "qc/S2.html"}
     recorded["families"] = {"S5": "F2/qc/S2.html"}
 
-    async with _client() as client:
+    async with asgi_client() as client:
         own = await _open(client, "F1", "S1")
         link = await client.get(f"/api{url_path('families', 'F1', 'qc-report', 'S1', 'link')}")
         followed = await client.get(f"{ORIGIN}/api{link.json()['url']}")

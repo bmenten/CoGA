@@ -19,56 +19,52 @@ const posteriorForPoints = (points: number): number => {
 };
 
 describe('AcmgScaleBar', () => {
-  it('shows the class label and signed point total for a pathogenic call', () => {
-    const classification: AcmgClassification = {
-      points: 12,
-      classKey: 'acmg_class_5',
-      label: 'Pathogenic - class 5',
-      standAloneBenign: false,
-      vusTier: null,
-    };
-    render(<AcmgScaleBar classification={classification} />);
+  // The readout and the arrow: the class, the signed point total (BA1 for the stand-alone benign
+  // override, whose arrow sits in the Benign cap whatever the points), the VUS sub-tier, and the
+  // aria-label that says all of it.
+  it.each([
+    {
+      reading: 'the class label and signed point total for a pathogenic call',
+      classification: { points: 12, classKey: 'acmg_class_5', label: 'Pathogenic - class 5', standAloneBenign: false, vusTier: null },
+      points: '+12 pts',
+      tier: null,
+      ariaLabel: 'ACMG classification: Pathogenic - class 5, +12 points',
+      arrow: 97,
+    },
+    {
+      reading: 'the VUS sub-tier chip and aria-label',
+      classification: { points: 5, classKey: 'acmg_class_3', label: 'VUS - class 3', standAloneBenign: false, vusTier: 'hot' },
+      points: '+5 pts',
+      tier: 'Hot VUS',
+      ariaLabel: 'ACMG classification: VUS - class 3 (Hot VUS), +5 points',
+      arrow: 75,
+    },
+    {
+      reading: 'the BA1 stand-alone benign override',
+      classification: { points: -3, classKey: 'acmg_class_1', label: 'Benign - class 1', standAloneBenign: true, vusTier: null },
+      points: 'BA1 pts',
+      tier: null,
+      ariaLabel: 'ACMG classification: Benign - class 1, BA1 points',
+      arrow: 3,
+    },
+    {
+      reading: 'a negative point total with its sign',
+      classification: { points: -3, classKey: 'acmg_class_2', label: 'Likely benign - class 2', standAloneBenign: false, vusTier: null },
+      points: '-3 pts',
+      tier: null,
+      ariaLabel: 'ACMG classification: Likely benign - class 2, -3 points',
+      arrow: 6 + 3 * (14 / 6) + 14 / 12,
+    },
+  ] as const)('shows $reading', ({ classification, points, tier, ariaLabel, arrow }) => {
+    const { container } = render(<AcmgScaleBar classification={classification as AcmgClassification} />);
 
-    expect(screen.getByText('Pathogenic - class 5')).toBeInTheDocument();
-    expect(screen.getByText('+12 pts')).toBeInTheDocument();
-    expect(screen.getByRole('img')).toHaveAttribute(
-      'aria-label',
-      expect.stringContaining('+12 points'),
-    );
-  });
-
-  it('surfaces the VUS sub-tier chip and aria-label', () => {
-    const classification: AcmgClassification = {
-      points: 5,
-      classKey: 'acmg_class_3',
-      label: 'VUS - class 3',
-      standAloneBenign: false,
-      vusTier: 'hot',
-    };
-    render(<AcmgScaleBar classification={classification} />);
-
-    expect(screen.getByText('Hot VUS')).toBeInTheDocument();
-    expect(screen.getByRole('img')).toHaveAttribute(
-      'aria-label',
-      expect.stringContaining('(Hot VUS)'),
-    );
-  });
-
-  it('renders the BA1 stand-alone benign override', () => {
-    const classification: AcmgClassification = {
-      points: -3,
-      classKey: 'acmg_class_1',
-      label: 'Benign - class 1',
-      standAloneBenign: true,
-      vusTier: null,
-    };
-    render(<AcmgScaleBar classification={classification} />);
-
-    expect(screen.getByText('BA1 pts')).toBeInTheDocument();
-    expect(screen.getByRole('img')).toHaveAttribute(
-      'aria-label',
-      expect.stringContaining('BA1 points'),
-    );
+    expect(screen.getByText(classification.label)).toBeInTheDocument();
+    expect(screen.getByText(points)).toBeInTheDocument();
+    if (tier) expect(screen.getByText(tier)).toBeInTheDocument();
+    else expect(container.querySelector('.acmg-vus-tier-chip')).toBeNull();
+    expect(screen.getByRole('img')).toHaveAttribute('aria-label', ariaLabel);
+    const left = (container.querySelector('.acmg-scalebar-arrow') as HTMLElement).style.left;
+    expect(parseFloat(left)).toBeCloseTo(arrow, 6);
   });
 
   it('labels each VUS tick with the posterior of its point total', () => {

@@ -31,27 +31,11 @@ from backend.app.services.clickhouse_variant_records import (
 )
 from backend.app.services.family_metadata_context import FamilyMetadataContext
 from backend.app.services.family_variant_filters import SmallVariantQueryFilters
+from backend.tests.integration._datastores import run_closing_stores
 
 pytestmark = pytest.mark.integration
 
 _ASSEMBLY = "GRCh38"
-
-
-def _run_with_ch_cleanup(run) -> None:
-    """Run a coroutine factory under its own loop, resetting the module-global ClickHouse
-    client afterwards — otherwise the next test's asyncio.run() reuses a client bound to
-    this (now-closed) loop and raises 'Event loop is closed'."""
-    import asyncio as _asyncio
-
-    from backend.app.core.clickhouse import close_clickhouse_client
-
-    async def _wrapped() -> None:
-        try:
-            await run()
-        finally:
-            await close_clickhouse_client()
-
-    _asyncio.run(_wrapped())
 
 
 def _call(sample: str, gt: str) -> SmallVariantCall:
@@ -133,7 +117,7 @@ def test_small_variant_presence_aggregate_against_clickhouse() -> None:
         )
         assert present_ref_parent == {"S1", "S2"}, present_ref_parent
 
-    _run_with_ch_cleanup(_run)
+    run_closing_stores(_run)
 
 
 # Each member's one call in the variant, and whether it carries an ALT allele (#511's classes).
@@ -194,7 +178,7 @@ def test_small_variant_presence_counts_each_call_with_an_alt_allele_against_clic
         present = await _small_variant_present_sample_names(ctx, _filters(chromosome="4"))
         assert present == {name for name, (_gt, alt) in _GENOTYPES.items() if alt}, present
 
-    _run_with_ch_cleanup(_run)
+    run_closing_stores(_run)
 
 
 def _mendeliome_sized_panel() -> PanelFilterConstraints:
@@ -274,7 +258,7 @@ def test_the_presence_costs_the_analyzer_about_what_a_members_track_count_does(
         for name, group in ids.items():
             measured[name] = min(analysis.get(query_id, 0) for query_id in group)
 
-    _run_with_ch_cleanup(_run)
+    run_closing_stores(_run)
 
     if not measured["track count"]:
         pytest.skip("the analyzer recorded no analysis time")
@@ -334,4 +318,4 @@ def test_structural_variant_presence_aggregate_against_clickhouse() -> None:
         # Genome view diverges: S3 now appears (present only via its chr2 call).
         assert await _structural_present_sample_names(ctx, _svf()) == {"S1", "S2", "S3"}
 
-    _run_with_ch_cleanup(_run)
+    run_closing_stores(_run)

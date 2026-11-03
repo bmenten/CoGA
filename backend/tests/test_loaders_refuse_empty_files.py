@@ -58,7 +58,6 @@ import pytest
 from fastapi import HTTPException, UploadFile
 
 from backend.app.routers import repeat_expansions as trgt_router
-from backend.app.schemas import FamilyImportDatasetSummary
 from backend.app.services import (
     annotation_manifest_service,
     clickhouse_interval_tracks,
@@ -72,10 +71,8 @@ from backend.app.services.family_package_common import (
     APCAD_PCF_TRACK_TYPE,
     APCAD_SOURCE,
     CNV_SOURCE,
-    FamilyPackageBundle,
     ManifestDataset,
     PackageManifest,
-    ParsedPed,
 )
 from backend.app.services.bed_service import BED_UPLOAD_SOURCE
 from backend.app.services.family_package_common import VcfSampleColumnError
@@ -84,13 +81,16 @@ from backend.app.services.family_package_validation import _validate_dataset
 from backend.app.services.nipt import MONOGENIC_NIPT_ANALYSIS_TYPE
 from backend.app.services.nipt_target_coverage import TARGET_COVERAGE_SOURCE, TARGET_COVERAGE_TRACK_TYPE
 from backend.tests._bgzf import bgzip, bgzip_cut_after
+from backend.tests._package_dataset_fakes import (
+    SAMPLES,
+    dataset_job,
+    family_context,
+    package_file as _file,
+    run_dataset as _run,
+    sample_uuid as _uuid,
+)
 
 FAMILY = "FAM029"
-SAMPLES = ("S1", "S2")
-
-
-def _uuid(sample_id: str) -> str:
-    return f"uuid-{sample_id}"
 
 
 # --- the stores --------------------------------------------------------------------------------
@@ -285,34 +285,11 @@ def stores(monkeypatch: pytest.MonkeyPatch) -> _Stores:
 
 
 def _family_context() -> FamilyMetadataContext:
-    return FamilyMetadataContext(
-        family_uuid="family-uuid",
-        family_id=FAMILY,
-        project_ids=["project-uuid"],
-        sample_rows=[
-            {"sample_uuid": _uuid("S1"), "sample_id": "S1", "sex": "female", "role": "proband", "affected": True},
-            {"sample_uuid": _uuid("S2"), "sample_id": "S2", "sex": "male", "role": "father", "affected": False},
-        ],
-        sample_uuid_to_name={_uuid(sample): sample for sample in SAMPLES},
-        sample_name_to_uuid={sample: _uuid(sample) for sample in SAMPLES},
-        affected_sample_names=["S1"],
-        assembly_id="assembly-uuid",
-        assembly_name="GRCh38",
-    )
+    return family_context(FAMILY)
 
 
 def _samples() -> dict[str, Any]:
     return registration._family_sample_contexts(_family_context())
-
-
-def _file(root: Path, name: str, content: str | bytes) -> str:
-    path = root / name
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if isinstance(content, bytes):
-        path.write_bytes(content)
-    else:
-        path.write_text(content, encoding="utf-8")
-    return name
 
 
 def _job(
@@ -323,26 +300,7 @@ def _job(
     *,
     conflict_mode: str = "overwrite",
 ) -> family_package_datasets.DatasetImportJob:
-    family = _family_context()
-    return family_package_datasets.DatasetImportJob(
-        session=_Session(stores),  # type: ignore[arg-type]
-        bundle=FamilyPackageBundle(
-            root=root,
-            manifest_path=root / "manifest.yaml",
-            manifest=PackageManifest(ped="family.ped", datasets={dataset_type: dataset}),
-            ped_path=root / "family.ped",
-            ped=ParsedPed(family_ids=[FAMILY], members=[], sample_ids=list(SAMPLES), text=""),
-        ),
-        dataset=dataset,
-        summary=FamilyImportDatasetSummary(dataset_type=dataset_type, status="valid"),
-        family_context=family,
-        sample_contexts=_samples(),
-        conflict_mode=conflict_mode,
-    )
-
-
-async def _run(job: family_package_datasets.DatasetImportJob) -> FamilyImportDatasetSummary:
-    return await family_package_datasets.DATASET_IMPORTERS[job.summary.dataset_type](job)
+    return dataset_job(_Session(stores), root, FAMILY, dataset_type, dataset, conflict_mode=conflict_mode)
 
 
 # --- TRGT: the upload ------------------------------------------------------------------------
@@ -508,10 +466,14 @@ async def test_a_trgt_file_without_a_record_fails_the_dataset_with_the_samples_c
     assert stores.deletes == []
 
 
+_FAMILY_TRGT_CALL = "chr4\t{pos}\t.\tA\t<STR>\t.\tPASS\tEND=3074933;TRID=HD_HTT;MOTIFS=CAG\tGT:MC\t0/1:18_40\t0/0:17_19\n"
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("text", "detail"),
+    ("content", "detail"),
     [
+        # Without a record for a sample: the loader's words name the samples without one.
         pytest.param(_trgt_vcf(["S1", "S2"]), "No valid TRGT records found for S1, S2", id="header-alone"),
         pytest.param(_TRGT_HEADER, "No valid TRGT records found", id="no-chrom-line"),
         # A record cut short after S1's column: nothing for S2, whose calls it replaces.
@@ -521,34 +483,7 @@ async def test_a_trgt_file_without_a_record_fails_the_dataset_with_the_samples_c
             "No valid TRGT records found for S2",
             id="none-for-a-sample",
         ),
-    ],
-)
-async def test_a_family_trgt_vcf_without_a_record_for_a_sample_replaces_no_call(
-    stores: _Stores, tmp_path: Path, text: str, detail: str
-) -> None:
-    stores.repeats = {_uuid("S1"): 4, _uuid("S2"): 6}
-    dataset = ManifestDataset(family_vcf=_file(tmp_path, "trgt/family.vcf", text))
-
-    with pytest.raises(RuntimeError) as refused:
-        await _run(_job(stores, tmp_path, "repeats_trgt", dataset))
-
-    # The failure names the file, by its path in the package, before the loader's words, which
-    # name the samples without a record (DATA-9). Before: "400: No valid TRGT records found for
-    # S2", naming no file.
-    assert str(refused.value) == f"The family TRGT VCF (trgt/family.vcf): {detail}"
-    # Before: both samples' calls were deleted as the #CHROM line was read.
-    assert stores.repeats == {_uuid("S1"): 4, _uuid("S2"): 6}
-    assert stores.deletes == []
-    assert stores.commits == 0
-
-
-_FAMILY_TRGT_CALL = "chr4\t{pos}\t.\tA\t<STR>\t.\tPASS\tEND=3074933;TRID=HD_HTT;MOTIFS=CAG\tGT:MC\t0/1:18_40\t0/0:17_19\n"
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ("content", "detail"),
-    [
+        # Every other refusal of the TRGT loader.
         pytest.param(
             _trgt_vcf(["OTHER"], ["0/1:18_40"]).encode(),
             "TRGT VCF sample column(s) ['OTHER'] match no sample in this family",
@@ -571,8 +506,8 @@ _FAMILY_TRGT_CALL = "chr4\t{pos}\t.\tA\t<STR>\t.\tPASS\tEND=3074933;TRID=HD_HTT;
         ),
     ],
 )
-async def test_every_refusal_of_a_family_trgt_vcf_names_the_file(
-    stores: _Stores, tmp_path: Path, content: bytes, detail: str
+async def test_every_refusal_of_a_family_trgt_vcf_names_the_file_and_replaces_no_call(
+    stores: _Stores, tmp_path: Path, content: str | bytes, detail: str
 ) -> None:
     stores.repeats = {_uuid("S1"): 4, _uuid("S2"): 6}
     dataset = ManifestDataset(family_vcf=_file(tmp_path, "trgt/family.vcf", content))
@@ -580,9 +515,11 @@ async def test_every_refusal_of_a_family_trgt_vcf_names_the_file(
     with pytest.raises(RuntimeError) as refused:
         await _run(_job(stores, tmp_path, "repeats_trgt", dataset))
 
-    # The TRGT loader's words, after the file, by its path in the package (DATA-9). Before:
-    # "400: " and the loader's words alone, naming no file.
+    # The failure names the file, by its path in the package, before the loader's words
+    # (DATA-9). Before: "400: " and the loader's words alone, naming no file (for a file
+    # without a record for S2, "400: No valid TRGT records found for S2").
     assert str(refused.value) == f"The family TRGT VCF (trgt/family.vcf): {detail}"
+    # Before: both samples' calls were deleted as the #CHROM line was read.
     assert stores.repeats == {_uuid("S1"): 4, _uuid("S2"): 6}
     assert stores.deletes == []
     assert stores.commits == 0

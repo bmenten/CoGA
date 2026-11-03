@@ -1,11 +1,10 @@
-import { QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import FamilyReportPage from '../FamilyReportPage';
 import { APP_VERSION_QUERY_KEY } from '../../../lib/appVersion';
 import { createTestQueryClient } from '../../../test/createTestQueryClient';
+import { renderFamilyRoute } from '../../../test/familyRoute';
 import {
   SIGNED_ANALYSIS,
   SIGNED_PGT_ANALYSIS,
@@ -144,15 +143,7 @@ const mockApi = () => {
 };
 
 const renderPage = (queryClient = createTestQueryClient(), path = '/families/F1/report') =>
-  render(
-    <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={[path]}>
-        <Routes>
-          <Route path="/families/:familyId/report" element={<FamilyReportPage />} />
-        </Routes>
-      </MemoryRouter>
-    </QueryClientProvider>,
-  );
+  renderFamilyRoute('/families/:familyId/report', path, <FamilyReportPage />, queryClient);
 
 const reportFooter = async () =>
   (await screen.findByText(/Report generated .* UTC/)).closest('footer') as HTMLElement;
@@ -265,6 +256,62 @@ describe('FamilyReportPage', () => {
         'A breakend / translocation at 1:20,000-20,000 in an intergenic region with a remote breakpoint at 5:3,000,000.',
       ),
     ).toBeInTheDocument();
+  });
+
+  // A reported SV in a gene is drafted as a small variant is: the gene's description, the
+  // conditions its profile names (OMIM and GenCC, each once, with the modes of inheritance) and
+  // the overlap of its HPO associations with the family's phenotype.
+  it("drafts a reported SV's gene, its conditions and its phenotype overlap", async () => {
+    mockApi();
+    const base = apiMock.get.getMockImplementation()!;
+    const deletion = {
+      _id: '2-1000-50000-DEL',
+      chr: '2',
+      start: 1000,
+      end: 50000,
+      length: 49000,
+      type: 'DEL',
+      gene: 'GENE_DEL',
+      genotypes: [{ sample: 'PROBAND', gt: '0/1' }],
+      review: { tags: ['report', 'cnv_class_5'], classification: 'Pathogenic - class 5' },
+    };
+    apiMock.get.mockImplementation((url: string, config?: { params?: { symbol?: string } }) => {
+      if (url.startsWith('/families/F1/structural-variants')) {
+        return Promise.resolve({ data: { variants: [deletion], total: 1 } });
+      }
+      if (url === '/genes/profile' && config?.params?.symbol === 'GENE_DEL') {
+        return Promise.resolve({
+          data: {
+            symbol: 'GENE_DEL',
+            display_name: 'GENE_DEL dosage-sensitive gene',
+            summary: 'GENE_DEL is haploinsufficient.',
+            extra: {
+              hpo_terms: [{ hpo_id: ' HP:0003002 ', label: 'Breast carcinoma' }, { hpo_id: 'HP:0000001' }, {}],
+              omim_diseases: ['Disorder A', { disease: 'Disorder B' }, { title: ' Disorder C ' }, {}],
+              gencc_assertions: [{ disease_title: 'Disorder A', moi_title: 'Autosomal dominant' }],
+            },
+          },
+        });
+      }
+      return base(url, config);
+    });
+    renderPage();
+
+    const heading = await screen.findByRole('heading', { name: 'Deletion — GENE_DEL' });
+    const article = heading.closest('article')!;
+    expect(article).toHaveTextContent('Pathogenic - class 5');
+    expect(await within(article).findByText(/GENE_DEL is haploinsufficient\./)).toBeInTheDocument();
+    expect(article).toHaveTextContent('GENE_DEL dosage-sensitive gene — GENE_DEL is haploinsufficient.');
+    expect(article).toHaveTextContent(
+      'Associated conditions: Disorder A, Disorder B and Disorder C (Autosomal dominant).',
+    );
+    expect(article).toHaveTextContent(
+      'The patient phenotype overlaps the gene’s known HPO associations for Breast carcinoma (HP:0003002), supporting a phenotypic match.',
+    );
+    // Its gene's profile was asked for in the family's context.
+    expect(apiMock.get).toHaveBeenCalledWith('/genes/profile', expect.objectContaining({
+      params: expect.objectContaining({ symbol: 'GENE_DEL', family_id: 'F1' }),
+    }));
   });
 
   // The report asked for 500 reported variants and never looked at the total: a longer list
@@ -386,7 +433,35 @@ describe('FamilyReportPage', () => {
           },
         });
       }
-      if (url === '/families/F1/paraphase') return Promise.resolve({ data: { samples: [], genes: [] } });
+      if (url === '/families/F1/paraphase') {
+        const result = (sample: string, status: string, cn: number | null) => ({
+          sample,
+          clinical_status: status,
+          copy_number_metrics: [{ key: 'smn1_cn', label: 'SMN1 CN', value: cn }],
+        });
+        return Promise.resolve({
+          data: {
+            samples: [],
+            genes: [
+              {
+                gene_symbol: 'smn1',
+                region_info: { display_name: 'SMN1/SMN2', disorders: [{ name: 'Spinal muscular atrophy' }] },
+                samples: { FATHER: result('FATHER', 'carrier', 1), PROBAND: result('PROBAND', 'pathogenic', 0) },
+                review: {
+                  key: 'smn1',
+                  classification: 'carrier',
+                  tags: ['report'],
+                  tag_metadata: {},
+                  note: 'Proband SMN1 0 copies.',
+                  drift: { status: 'unchanged', changes: [] },
+                },
+              },
+              // A region without the Report tag is not listed.
+              { gene_symbol: 'gba', region_info: { display_name: 'GBA/GBAP1', disorders: [] }, samples: {}, review: null },
+            ],
+          },
+        });
+      }
       return base(url, config);
     });
     renderPage();
@@ -399,6 +474,18 @@ describe('FamilyReportPage', () => {
     expect(section).toHaveTextContent('FATHER: 17 / 20 — Normal');
     expect(section).toHaveTextContent('Reduced penetrance range in the proband.');
     expect(section).not.toHaveTextContent('ATXN1');
+    // The Paraphase region marked Report, its calls proband first; a classification that agrees
+    // with one of its calls is not marked as differing from CoGA's status (H18).
+    const smn = within(section).getByText('SMN1/SMN2').closest('li')!;
+    expect(smn).toHaveTextContent('SMN1/SMN2 (Paraphase region) — Spinal muscular atrophy');
+    expect(smn).toHaveTextContent("Analyst's classification: Carrier");
+    expect(smn).not.toHaveTextContent('differs from');
+    expect(within(smn).getAllByRole('listitem').map((item) => item.textContent)).toEqual([
+      'PROBAND: SMN1 CN 0 — Pathogenic',
+      'FATHER: SMN1 CN 1 — Carrier',
+    ]);
+    expect(smn).toHaveTextContent('Proband SMN1 0 copies.');
+    expect(section).not.toHaveTextContent('GBA');
   });
 
   it('warns when a classification’s evidence has drifted since it was made', async () => {
@@ -1069,27 +1156,6 @@ describe('FamilyReportPage', () => {
     expect(screen.queryByText(/Not validated for clinical use/)).not.toBeInTheDocument();
   });
 
-  it('cancelling the QC override does not sign out', async () => {
-    mockUnsignedFamily();
-    const posts: Array<Record<string, unknown>> = [];
-    apiMock.post.mockImplementation((_url: string, body: Record<string, unknown>) => {
-      posts.push(body);
-      return Promise.reject(QC_409);
-    });
-    renderPage();
-
-    fireEvent.click(await screen.findByRole('button', { name: /Sign out report/ }));
-    await screen.findByRole('dialog', { name: /acknowledgement required/i });
-    fireEvent.click(screen.getByRole('button', { name: /Cancel/ }));
-
-    await waitFor(() =>
-      expect(
-        screen.queryByRole('dialog', { name: /acknowledgement required/i }),
-      ).not.toBeInTheDocument(),
-    );
-    expect(posts).toHaveLength(1); // only the initial attempt; no override post
-  });
-
   it('opens the acknowledgement dialog for an UNVERIFIABLE Sample QC (warn), not only a detected fail', async () => {
     // #330: a swap that manifests as missing data blocks with overall_status 'warn'
     // (not 'fail'); the dialog must still fire and show the specific reason. Two samples
@@ -1411,6 +1477,26 @@ describe('FamilyReportPage', () => {
     '/families/F1/repeat-expansions',
     '/families/F1/paraphase',
   ];
+
+  /**
+   * The page at `path` downloads signed version 2 as it is stored (`GET …/sign-outs/2`) when its
+   * `button` is clicked: a blob link clicked once, and its URL revoked after.
+   */
+  const expectSignedVersionDownload = async (path: string, button: string | RegExp) => {
+    const createObjectURL = vi.fn(() => 'blob:signed');
+    const revokeObjectURL = vi.fn();
+    Object.assign(URL, { createObjectURL, revokeObjectURL });
+    // jsdom cannot navigate to a blob: URL; the click itself is what we need.
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    renderPage(undefined, path);
+
+    fireEvent.click(await screen.findByRole('button', { name: button }));
+    await waitFor(() => expect(createObjectURL).toHaveBeenCalledTimes(1));
+    expect(apiMock.get).toHaveBeenCalledWith('/families/F1/report/sign-outs/2');
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:signed');
+    expect(clickSpy).toHaveBeenCalledTimes(1);
+    clickSpy.mockRestore();
+  };
 
   const signedRecordCard = async (version = 2) =>
     (await screen.findByText(new RegExp(`^Signed version ${version} — signed out by`))).closest(
@@ -1896,7 +1982,14 @@ describe('FamilyReportPage', () => {
       ],
       inputs: {
         target_tables: [{ sample: 'CFDNA1', file: 'cfdna.targets.tsv', targets: 3, loaded_at: '2026-10-01T09:00:00+00:00' }],
-        artifact_list: { assay_key: 'nipt_cfdna', entries: 2, digest: 'abcdef01'.repeat(2), removed: 1, kept: [] },
+        // One listed allele left out; the other kept in, as the family's ClinVar annotation calls it pathogenic.
+        artifact_list: {
+          assay_key: 'nipt_cfdna',
+          entries: 2,
+          digest: 'abcdef01'.repeat(2),
+          removed: 1,
+          kept: [{ variant_id: '1-500-G-A', reason: 'clinvar' }],
+        },
       },
       model: { reference: 'R NIPT-M v0.5.1 validation (6 families with trio exomes)' },
     };
@@ -1932,7 +2025,10 @@ describe('FamilyReportPage', () => {
       expect(nipt).toHaveTextContent('9-999-A-G: not classified — it was not in the family’s NIPT data.');
       expect(nipt).toHaveTextContent('GENE_RECESS: 86.0% (maternal 1-3001-A-G, paternal 1-10000-A-G)');
       expect(nipt).toHaveTextContent('Per-target coverage: CFDNA1: cfdna.targets.tsv, 3 targets, loaded 2026-10-01 09:00 UTC');
-      expect(nipt).toHaveTextContent('Artifact list: nipt_cfdna, 2 alleles, digest abcdef01abcd; 1 left out of this analysis');
+      expect(nipt).toHaveTextContent(
+        'Artifact list: nipt_cfdna, 2 alleles, digest abcdef01abcd; 1 left out of this analysis; ' +
+          'kept in by the family’s annotation: 1-500-G-A (clinvar)',
+      );
       expect(nipt).toHaveTextContent('Model: R NIPT-M v0.5.1 validation (6 families with trio exomes).');
       // With a per-target table the coverage check reads its targets: it noted no coverage track.
       expect(nipt).not.toHaveTextContent('Coverage tracks not read as depth');
@@ -1943,7 +2039,8 @@ describe('FamilyReportPage', () => {
     const WITHOUT_TARGET_TABLE = {
       ...SIGNED_NIPT,
       target_coverage: null,
-      inputs: { ...SIGNED_NIPT.inputs, target_tables: [] },
+      // Its artifact list removed the listed allele, and the family's annotation kept none in.
+      inputs: { ...SIGNED_NIPT.inputs, target_tables: [], artifact_list: { ...SIGNED_NIPT.inputs.artifact_list, kept: [] } },
     };
 
     it('shows the coverage check’s notes a NIPT record froze, with what the check ran for, in print too', async () => {
@@ -1986,6 +2083,8 @@ describe('FamilyReportPage', () => {
         'Coverage tracks not read as depth: not in the signed record (version 2 was signed before CoGA recorded the coverage check’s notes).',
       );
       expect(nipt).toHaveTextContent('Paternity: Pass — Paternity supported');
+      expect(nipt).toHaveTextContent('Artifact list: nipt_cfdna, 2 alleles, digest abcdef01abcd; 1 left out of this analysis');
+      expect(nipt).not.toHaveTextContent('kept in by the family’s annotation');
       expect(nipt).toHaveTextContent('Model: R NIPT-M v0.5.1 validation (6 families with trio exomes).');
       expect(nipt).not.toHaveTextContent('cannot be read here');
     });
@@ -2397,7 +2496,29 @@ describe('FamilyReportPage', () => {
               drift: { status: 'changed', changes: ['PROBAND: 42 → 44'] },
             },
           ],
-          paraphase_reviews: [],
+          // A Paraphase review reads its calls from the region's frozen samples: the key copy
+          // number each member had, or none.
+          paraphase_reviews: [
+            {
+              key: 'GBA',
+              classification: 'carrier',
+              tags: ['report'],
+              reported: true,
+              note: 'One functional GBA copy.',
+              evidence_snapshot: {
+                evidence: {
+                  gene: 'GBA',
+                  region: 'GBA/GBAP1',
+                  samples: [
+                    { sample: 'PROBAND', status: 'carrier', copy_number: [{ key: 'gba_cn', label: 'GBA CN', value: 1 }] },
+                    { sample: 'MOTHER', status: 'no_call', copy_number: [{ key: 'gba_cn', label: 'GBA CN', value: null }] },
+                    { sample: 'FATHER', status: 'normal' },
+                  ],
+                },
+              },
+              drift: { status: 'unchanged', changes: [] },
+            },
+          ],
           finding_review_drift: { checked: 1, drifted_count: 1, drifted: [] },
           unreviewed_findings: [
             { kind: 'paraphase', key: 'smn1', gene: 'SMN1/SMN2', samples: [{ sample: 'PROBAND', status: 'carrier' }] },
@@ -2413,7 +2534,18 @@ describe('FamilyReportPage', () => {
       const section = await screen.findByRole('region', { name: 'Reported repeat expansions and Paraphase findings' });
       expect(section).toHaveTextContent("Analyst's classification: Normal · differs from CoGA's status");
       expect(section).toHaveTextContent('PROBAND: 17 / 42 — Pathogenic');
-      const drift = screen.getByRole('heading', { name: 'Evidence drift at sign-out' }).closest('section')!;
+      const paraphase = within(section).getByText('GBA/GBAP1').closest('li')!;
+      expect(paraphase).toHaveTextContent('(Paraphase region)');
+      expect(paraphase).toHaveTextContent("Analyst's classification: Carrier");
+      expect(paraphase).not.toHaveTextContent('differs from');
+      expect(paraphase).not.toHaveTextContent('since review');
+      expect(within(paraphase).getAllByRole('listitem').map((call) => call.textContent)).toEqual([
+        'PROBAND: GBA CN 1 — Carrier',
+        'MOTHER: GBA CN no call — No-call',
+        'FATHER: Normal',
+      ]);
+      expect(paraphase).toHaveTextContent('One functional GBA copy.');
+      const drift =screen.getByRole('heading', { name: 'Evidence drift at sign-out' }).closest('section')!;
       expect(drift).toHaveTextContent('HTT (repeat locus review) — its calls changed since the review: PROBAND: 42 → 44');
       const checks = screen.getByRole('heading', { name: 'Checks at sign-out' }).closest('section')!;
       expect(checks).toHaveTextContent('SMN1/SMN2 (Paraphase region): PROBAND carrier');
@@ -2838,18 +2970,7 @@ describe('FamilyReportPage', () => {
 
     it('downloads the signed version it shows', async () => {
       mockSignedCase();
-      const createObjectURL = vi.fn(() => 'blob:signed');
-      const revokeObjectURL = vi.fn();
-      Object.assign(URL, { createObjectURL, revokeObjectURL });
-      const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
-      renderPage();
-
-      fireEvent.click(await screen.findByRole('button', { name: 'Download signed version 2 (JSON)' }));
-      await waitFor(() => expect(createObjectURL).toHaveBeenCalledTimes(1));
-      expect(apiMock.get).toHaveBeenCalledWith('/families/F1/report/sign-outs/2');
-      expect(revokeObjectURL).toHaveBeenCalledWith('blob:signed');
-      expect(clickSpy).toHaveBeenCalledTimes(1);
-      clickSpy.mockRestore();
+      await expectSignedVersionDownload('/families/F1/report', 'Download signed version 2 (JSON)');
     });
 
     it('shows nothing in place of a signed version that cannot be loaded', async () => {
@@ -2981,19 +3102,7 @@ describe('FamilyReportPage', () => {
 
     it('downloads the frozen signed version', async () => {
       mockSignedCase();
-      const createObjectURL = vi.fn(() => 'blob:signed');
-      const revokeObjectURL = vi.fn();
-      Object.assign(URL, { createObjectURL, revokeObjectURL });
-      // jsdom cannot navigate to a blob: URL; the click itself is what we need.
-      const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
-      renderPage(undefined, '/families/F1/report?view=live');
-
-      fireEvent.click(await screen.findByRole('button', { name: /Download signed version 2/ }));
-      await waitFor(() => expect(createObjectURL).toHaveBeenCalledTimes(1));
-      expect(apiMock.get).toHaveBeenCalledWith('/families/F1/report/sign-outs/2');
-      expect(revokeObjectURL).toHaveBeenCalledWith('blob:signed');
-      expect(clickSpy).toHaveBeenCalledTimes(1);
-      clickSpy.mockRestore();
+      await expectSignedVersionDownload('/families/F1/report?view=live', /Download signed version 2/);
     });
 
     it('is neither a draft nor signable while the sign-out record loads', async () => {
@@ -3161,6 +3270,47 @@ describe('FamilyReportPage', () => {
     });
     expect(confirmSpy).not.toHaveBeenCalled();
     confirmSpy.mockRestore();
+  });
+
+  // An acknowledgement dialog closed with Cancel or Escape signs nothing out, and the next
+  // attempt asks for the reason again: a typed reason is not kept for a later override.
+  it.each([
+    { gate: 'Sample QC', close: 'Cancel', reason: /despite the QC concerns/ },
+    { gate: 'Sample QC', close: 'Escape', reason: /despite the QC concerns/ },
+    { gate: 'evidence drift', close: 'Cancel', reason: /despite the evidence drift/ },
+    { gate: 'evidence drift', close: 'Escape', reason: /despite the evidence drift/ },
+  ])('closing the $gate override with $close does not sign out', async ({ gate, close, reason }) => {
+    mockUnsignedFamily();
+    const discard = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const posts: Array<Record<string, unknown>> = [];
+    apiMock.post.mockImplementation((_url: string, body: Record<string, unknown>) => {
+      posts.push(body);
+      return Promise.reject(gate === 'Sample QC' ? QC_409 : DRIFT_409);
+    });
+    const dialogName = gate === 'Sample QC' ? /Sample-integrity QC acknowledgement/i : /Evidence drift acknowledgement/i;
+    renderPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: /Sign out report/ }));
+    const dialog = await screen.findByRole('dialog', { name: dialogName });
+    fireEvent.change(within(dialog).getByLabelText(reason), { target: { value: 'Typed, then dropped.' } });
+    if (close === 'Cancel') {
+      fireEvent.click(within(dialog).getByRole('button', { name: /Cancel/ }));
+    } else {
+      fireEvent.keyDown(document, { key: 'Escape' });
+      // The typed reason is discarded only once the user agrees.
+      expect(discard).toHaveBeenCalledWith('Discard the reason you have typed?');
+    }
+
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: dialogName })).not.toBeInTheDocument());
+    expect(posts).toHaveLength(1); // only the initial attempt; no override post
+
+    fireEvent.click(screen.getByRole('button', { name: /Sign out report/ }));
+    const again = await screen.findByRole('dialog', { name: dialogName });
+    expect(within(again).getByLabelText(reason)).toHaveValue('');
+    expect(within(again).getByRole('button', { name: /Sign out anyway/ })).toBeDisabled();
+    expect(posts).toHaveLength(2);
+    expect(posts[1]).toMatchObject({ acknowledge_qc: false, acknowledge_drift: false });
+    discard.mockRestore();
   });
 
   it('shows a 409 that names no gate as a refusal, never as the drift override', async () => {
@@ -3472,7 +3622,7 @@ describe('FamilyReportPage', () => {
       });
     });
 
-    it('does not sign out when the override is cancelled', async () => {
+    it.each(['Cancel', 'Escape'])('does not sign out when the override is closed with %s', async (close) => {
       mockIncompleteFamily();
       const posts: Array<Record<string, unknown>> = [];
       apiMock.post.mockImplementation((_url: string, body: Record<string, unknown>) => {
@@ -3485,7 +3635,8 @@ describe('FamilyReportPage', () => {
       const dialog = await screen.findByRole('dialog', {
         name: /Incomplete import acknowledgement required/i,
       });
-      fireEvent.click(within(dialog).getByRole('button', { name: /Cancel/ }));
+      if (close === 'Cancel') fireEvent.click(within(dialog).getByRole('button', { name: /Cancel/ }));
+      else fireEvent.keyDown(document, { key: 'Escape' });
 
       await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
       expect(posts).toHaveLength(1);
@@ -3921,6 +4072,96 @@ describe('FamilyReportPage', () => {
         ).not.toBeInTheDocument(),
       );
     });
+
+    // TRACE-19: an acknowledgement covers the findings the dialog listed. When another finding
+    // lost its review meanwhile, the dialog lists them as they are now and asks for the reason
+    // again, then sends the new list's fingerprint.
+    it('lists the findings as they are now when another lost its review after the dialog listed them', async () => {
+      mockUnsignedFamily();
+      const changedFingerprint = 'e'.repeat(64);
+      const detail = UNREVIEWED_409.response.data.detail;
+      const changed409 = {
+        response: {
+          status: 409,
+          data: {
+            detail: {
+              ...detail,
+              unreviewed_findings: [
+                ...detail.unreviewed_findings,
+                { kind: 'repeat', key: 'HD_HTT', gene: 'HTT', samples: [{ sample: 'PROBAND', status: 'pathogenic' }] },
+              ],
+              concerns_fingerprint: changedFingerprint,
+              concerns_changed: true,
+            },
+          },
+        },
+      };
+      const posts: Array<Record<string, unknown>> = [];
+      apiMock.post.mockImplementation((_url: string, body: Record<string, unknown>) => {
+        posts.push(body);
+        if (posts.length === 1) return Promise.reject(UNREVIEWED_409);
+        if (posts.length === 2) return Promise.reject(changed409);
+        return Promise.resolve({ data: { version: 1 } });
+      });
+      renderPage();
+
+      fireEvent.click(await screen.findByRole('button', { name: /Sign out report/ }));
+      const dialog = await screen.findByRole('dialog', {
+        name: /Findings without a review: acknowledgement required/i,
+      });
+      const reason = () => within(dialog).getByLabelText(/findings that have no review/);
+      fireEvent.change(reason(), { target: { value: REASON } });
+      fireEvent.click(within(dialog).getByRole('button', { name: /Sign out anyway/ }));
+
+      expect(await within(dialog).findByRole('alert')).toHaveTextContent(/Nothing was signed out/);
+      const list = within(dialog).getByRole('list', { name: 'Findings without a review' });
+      expect(within(list).getAllByRole('listitem').map((item) => item.textContent)).toEqual([
+        'GBA (Paraphase region): PROBAND review',
+        'FMR1 (repeat locus): MOTHER intermediate (near a boundary)',
+        'HTT (repeat locus): PROBAND pathogenic',
+      ]);
+      expect(reason()).toHaveValue('');
+      expect(within(dialog).getByRole('button', { name: /Sign out anyway/ })).toBeDisabled();
+      fireEvent.change(reason(), { target: { value: REASON } });
+      fireEvent.click(within(dialog).getByRole('button', { name: /Sign out anyway/ }));
+
+      await waitFor(() => expect(posts).toHaveLength(3));
+      expect(posts[1]).toMatchObject({ unreviewed_findings_concerns_fingerprint: UNREVIEWED_FINGERPRINT });
+      expect(posts[2]).toMatchObject({
+        acknowledge_unreviewed_findings: true,
+        unreviewed_findings_acknowledgement_reason: REASON,
+        unreviewed_findings_concerns_fingerprint: changedFingerprint,
+      });
+    });
+
+    it.each(['Cancel', 'Escape'])(
+      'does not sign out when the acknowledgement is closed with %s, and asks for the reason again',
+      async (close) => {
+        mockUnsignedFamily();
+        const posts: Array<Record<string, unknown>> = [];
+        apiMock.post.mockImplementation((_url: string, body: Record<string, unknown>) => {
+          posts.push(body);
+          return Promise.reject(UNREVIEWED_409);
+        });
+        renderPage();
+        const dialogName = /Findings without a review: acknowledgement required/i;
+
+        fireEvent.click(await screen.findByRole('button', { name: /Sign out report/ }));
+        const dialog = await screen.findByRole('dialog', { name: dialogName });
+        if (close === 'Cancel') fireEvent.click(within(dialog).getByRole('button', { name: /Cancel/ }));
+        else fireEvent.keyDown(document, { key: 'Escape' });
+
+        await waitFor(() => expect(screen.queryByRole('dialog', { name: dialogName })).not.toBeInTheDocument());
+        expect(posts).toHaveLength(1);
+
+        fireEvent.click(screen.getByRole('button', { name: /Sign out report/ }));
+        const again = await screen.findByRole('dialog', { name: dialogName });
+        expect(within(again).getByLabelText(/findings that have no review/)).toHaveValue('');
+        expect(within(again).getByRole('button', { name: /Sign out anyway/ })).toBeDisabled();
+        expect(posts).toHaveLength(2);
+        expect(posts[1]).toMatchObject({ acknowledge_unreviewed_findings: false });
+      },
+    );
 
     it('names a repeat or Paraphase review whose calls changed in the drift dialog', async () => {
       mockUnsignedFamily();

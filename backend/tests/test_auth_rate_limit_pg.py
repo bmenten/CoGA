@@ -75,6 +75,13 @@ async def test_record_failed_login_applies_backoff_after_threshold(monkeypatch: 
     assert next_state is not None
     assert next_state.retry_after_seconds == 20
 
+    # It doubles with each failure, up to its ceiling.
+    waits = []
+    for _ in range(3):
+        state = await record_failed_login(session, email="user@example.com", remote_ip=None, now=now)
+        waits.append(state.retry_after_seconds if state is not None else 0)
+    assert waits == [40, 60, 60]
+
 
 @pytest.mark.asyncio
 async def test_get_login_throttle_state_returns_active_lockout() -> None:
@@ -165,3 +172,49 @@ async def test_signup_throttle_is_noop_without_remote_ip() -> None:
     assert await record_signup_attempt(session, remote_ip=None) is None
     assert await get_signup_throttle_state(session, remote_ip=None) is None
     assert session.rows == {}
+
+
+def _backoff(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "login_rate_limit_threshold", 3)
+    monkeypatch.setattr(settings, "login_rate_limit_base_backoff_seconds", 10)
+    monkeypatch.setattr(settings, "login_rate_limit_max_backoff_seconds", 60)
+    monkeypatch.setattr(settings, "login_rate_limit_window_seconds", 900)
+
+
+@pytest.mark.asyncio
+async def test_a_failure_older_than_the_window_starts_the_count_again(monkeypatch: pytest.MonkeyPatch) -> None:
+    _backoff(monkeypatch)
+    session = _FakeSession()
+    then = datetime(2026, 5, 12, 8, 0, tzinfo=timezone.utc)
+    session.rows[("email", "user@example.com")] = {"failure_count": 9, "last_failure_at": then, "locked_until": None}
+
+    state = await record_failed_login(session, email="user@example.com", remote_ip=None, now=then + timedelta(seconds=901))
+
+    assert state is None
+    assert session.rows[("email", "user@example.com")]["failure_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_a_lock_that_has_run_out_no_longer_throttles() -> None:
+    session = _FakeSession()
+    now = datetime(2026, 5, 12, 8, 0, tzinfo=timezone.utc)
+    session.rows[("email", "user@example.com")] = {"failure_count": 5, "last_failure_at": now, "locked_until": now}
+
+    assert await get_login_throttle_state(session, email="user@example.com", remote_ip=None, now=now) is None
+    # An address nobody failed to sign in with, from an address never refused, is not throttled.
+    assert await get_login_throttle_state(session, email="other@example.com", remote_ip="203.0.113.5", now=now) is None
+
+
+@pytest.mark.asyncio
+async def test_the_longer_of_the_address_and_the_ip_lock_decides() -> None:
+    session = _FakeSession()
+    now = datetime(2026, 5, 12, 8, 0, tzinfo=timezone.utc)
+    for scope, seconds in ((("email", "user@example.com"), 30), (("remote_ip", "203.0.113.5"), 90)):
+        session.rows[scope] = {"failure_count": 5, "last_failure_at": now, "locked_until": now + timedelta(seconds=seconds)}
+
+    # The address as typed: trimmed and in lower case, as it was recorded.
+    by_ip = await get_login_throttle_state(session, email=" User@Example.com ", remote_ip="203.0.113.5", now=now)
+    other_ip = await get_login_throttle_state(session, email="user@example.com", remote_ip="198.51.100.7", now=now)
+
+    assert by_ip is not None and by_ip.retry_after_seconds == 90
+    assert other_ip is not None and other_ip.retry_after_seconds == 30

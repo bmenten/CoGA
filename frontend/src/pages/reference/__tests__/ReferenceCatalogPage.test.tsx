@@ -491,6 +491,110 @@ describe('ReferenceCatalogPage', () => {
 
   // A clinical CNV knowledgebase rebuild runs in the background; how it ended was not shown,
   // so a failed rebuild looked like a finished one.
+  // The manual entry registers an organism or an assembly that the UCSC import does not offer.
+  it('adds an organism and an assembly by hand', async () => {
+    vi.mocked(api.post).mockResolvedValue({ data: {} });
+    renderPage();
+    await screen.findByRole('heading', { name: 'Homo sapiens' });
+    const reads = (url: string) => vi.mocked(api.get).mock.calls.filter(([path]) => path === url).length;
+    expect(reads('/species')).toBe(1);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Manual entry' }));
+    fireEvent.change(screen.getByLabelText(/^scientific name$/i), { target: { value: 'Mus musculus' } });
+    fireEvent.change(screen.getByLabelText(/^common name$/i), { target: { value: 'mouse' } });
+    fireEvent.change(screen.getByLabelText(/^taxonomy id$/i), { target: { value: '10090' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add species' }));
+
+    await waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith('/species', { name: 'Mus musculus', common_name: 'mouse', tax_id: 10090 }),
+    );
+    expect(await screen.findByText('Species added.')).toBeInTheDocument();
+    expect(screen.getByLabelText(/^scientific name$/i)).toHaveValue('');
+    await waitFor(() => expect(reads('/species')).toBe(2));
+
+    fireEvent.change(screen.getByLabelText(/^species$/i), { target: { value: 'species-1' } });
+    fireEvent.change(screen.getByLabelText(/^assembly name$/i), { target: { value: 'T2T-CHM13v2.0' } });
+    fireEvent.change(screen.getByLabelText(/^version$/i), { target: { value: 'v2.0' } });
+    fireEvent.change(screen.getByLabelText(/^release date$/i), { target: { value: '2022-01-24' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add assembly' }));
+
+    await waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith('/assemblies', {
+        species_id: 'species-1',
+        assembly_name: 'T2T-CHM13v2.0',
+        version: 'v2.0',
+        release_date: '2022-01-24',
+      }),
+    );
+    expect(await screen.findByText('Assembly added.')).toBeInTheDocument();
+    expect(screen.getByLabelText(/^assembly name$/i)).toHaveValue('');
+    await waitFor(() => expect(reads('/assemblies')).toBe(2));
+  });
+
+  it.each([
+    ['organism', 'Add species', 'Failed to add species'],
+    ['assembly', 'Add assembly', 'Failed to add assembly'],
+  ])('says why adding an %s by hand was refused', async (_record, button, fallback) => {
+    vi.mocked(api.post)
+      .mockRejectedValueOnce({ response: { status: 409, data: { detail: 'It is already registered.' } } })
+      .mockRejectedValueOnce({});
+    renderPage();
+    await screen.findByRole('heading', { name: 'Homo sapiens' });
+    fireEvent.click(screen.getByRole('button', { name: 'Manual entry' }));
+
+    fireEvent.click(screen.getByRole('button', { name: button }));
+    expect(await screen.findByText('It is already registered.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: button }));
+    expect(await screen.findByText(fallback)).toBeInTheDocument();
+  });
+
+  it('uploads nothing without an assembly and a file, and says why an upload was refused', async () => {
+    vi.mocked(api.post).mockRejectedValueOnce({ response: { status: 422, data: { detail: 'Line 3 has 4 columns, not 5.' } } });
+    renderPage();
+    await screen.findByRole('heading', { name: 'Homo sapiens' });
+    fireEvent.click(screen.getByRole('button', { name: /upload reference data/i }));
+
+    fireEvent.change(screen.getByLabelText(/^assembly$/i), { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: /upload file/i }));
+    expect(await screen.findByText('Choose an assembly and a reference file first.')).toBeInTheDocument();
+    expect(api.post).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByLabelText(/^assembly$/i), { target: { value: 'assembly-1' } });
+    fireEvent.change(screen.getByLabelText(/reference file/i), {
+      target: { files: [new File(['chr1\t0\t100\n'], 'cytoBand.txt')] },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /upload file/i }));
+    expect(await screen.findByText('Line 3 has 4 columns, not 5.')).toBeInTheDocument();
+    expect(screen.queryByText('Overwrite existing reference data')).not.toBeInTheDocument();
+  });
+
+  it('says why an automatic UCSC import was refused', async () => {
+    vi.mocked(api.post).mockRejectedValueOnce({ response: { status: 502, data: { detail: 'UCSC did not answer.' } } });
+    renderPage();
+    await screen.findByRole('heading', { name: 'Homo sapiens' });
+    fireEvent.click(screen.getByRole('button', { name: /add organism \/ assembly/i }));
+
+    // The form refuses before an organism and an assembly are chosen.
+    fireEvent.submit(screen.getByRole('button', { name: /download cytobands and genes/i }).closest('form') as HTMLFormElement);
+    expect(await screen.findByText('Choose an organism and assembly first.')).toBeInTheDocument();
+    expect(api.post).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByLabelText(/source organism/i), { target: { value: '9606' } });
+    await screen.findByRole('option', { name: /grch38 p14 \(hg38\)/i });
+    fireEvent.change(screen.getByLabelText(/source assembly/i), { target: { value: 'hg38' } });
+    fireEvent.click(screen.getByRole('button', { name: /download cytobands and genes/i }));
+    expect(await screen.findByText('UCSC did not answer.')).toBeInTheDocument();
+  });
+
+  it('offers a reader no change to the catalogue', async () => {
+    localStorage.setItem('role', 'viewer');
+    renderPage();
+
+    expect(await screen.findByText('Read-only: only admins can register species, assemblies, or uploads.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Manual entry' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /upload reference data/i })).not.toBeInTheDocument();
+  });
+
   describe('clinical CNV knowledgebase rebuilds', () => {
     const job = (id: string, status: string, requested: string, error: string | null = null) => ({
       _id: id,

@@ -23,9 +23,11 @@ from backend.app.services import classification_drift_service as cds
 from backend.app.services import structural_variant_evidence as sve
 from backend.app.services import structural_variant_review_pg as svr
 from backend.app.services.access_control import CurrentUser
-from backend.app.services.clickhouse_variant_queries import _structural_variant_out
+from backend.app.services.clickhouse_variant_queries import _structural_variant_out, _structural_variant_where_clauses
 from backend.app.services.clickhouse_variant_records import StructuralVariantRecord
+from backend.app.services.family_variant_filters import StructuralVariantQueryFilters
 from backend.app.services.hash_chain import canonical_hash
+from backend.tests._sv_fakes import proband_family
 
 _WHEN = datetime(2026, 9, 30, 9, 0, tzinfo=timezone.utc)
 _VERSIONS = {"assembly": "GRCh38", "gencode": "45", "gene_loci": "GENCODE"}
@@ -136,6 +138,141 @@ def test_the_versions_are_those_of_the_sv_callset_and_the_reference_it_uses() ->
         "hificnv": "1.0.1",
         "gene_loci": "GENCODE",
     }
+
+
+def test_a_manifest_module_that_is_not_described_or_has_no_key_gives_no_version() -> None:
+    modules = [
+        "gencode 45",
+        {"version": "45", "layer": "pipeline", "by_modality": {"sv": "45"}},
+        {"key": "", "version": "45", "layer": "pipeline", "by_modality": {"sv": "45"}},
+        {"key": "sniffles", "version": "2.2", "layer": "pipeline", "by_modality": {"sv": "2.2"}},
+    ]
+    assert sve.structural_evidence_versions(modules) == {"sniffles": "2.2"}
+
+
+def test_the_versions_a_save_freezes_are_read_from_the_familys_manifest_now(monkeypatch) -> None:
+    asked: list = []
+
+    async def manifest(session, *, family_id, user):
+        asked.append((family_id, user))
+        return {
+            "modules": [
+                {"key": "assembly", "version": "GRCh38", "layer": "reference"},
+                {"key": "gencode", "version": "49", "layer": "pipeline", "by_modality": {"snv": "49", "sv": "45"}},
+            ]
+        }
+
+    monkeypatch.setattr(sve, "get_family_annotation_manifest", manifest)
+    context = types.SimpleNamespace(family_id="FAM1")
+    versions = asyncio.run(sve.read_structural_evidence_versions(None, context=context, user="reviewer"))  # type: ignore[arg-type]
+
+    assert versions == {"assembly": "GRCh38", "gencode": "45"}
+    assert asked == [("FAM1", "reviewer")]
+
+
+# --- the SV as the family's data holds it now ------------------------------------------------------
+# ``fetch_structural_variant_records`` is the read both the save's snapshot and the drift check
+# rest on: the SV page's scope, the id and the caller bound as parameters, and the row read back
+# into the record the evidence is extracted from.
+
+
+class _ClickHouse:
+    """``execute_clickhouse``: answers with ``rows``, or raises ``error``; records what it is sent."""
+
+    def __init__(self, rows=(), error: Exception | None = None) -> None:
+        self.rows, self.error = list(rows), error
+        self.sent: list[tuple[str, dict]] = []
+
+    async def __call__(self, query: str, params: dict):
+        self.sent.append((query, dict(params)))
+        if self.error is not None:
+            raise self.error
+        return self.rows
+
+
+def _stored_evidence_row(record: StructuralVariantRecord) -> tuple:
+    """``record`` as the evidence read's SQL returns it (its details row joined)."""
+    return (
+        record.variant_key,
+        record.variant_id,
+        f"chr{record.chr}",
+        record.start,
+        record.end,
+        record.sv_type,
+        record.source,
+        record.remote_chr,
+        record.remote_start,
+        record.sv_len,
+        list(record.filters),
+        json.dumps(record.annotations),
+        list(record.gene_symbols),
+    )
+
+
+def test_the_sv_is_read_in_the_scope_of_the_sv_page_with_its_id_and_caller_bound(monkeypatch) -> None:
+    clickhouse = _ClickHouse(rows=[_stored_evidence_row(_record())])
+    monkeypatch.setattr(sve, "execute_clickhouse", clickhouse)
+    family = proband_family()
+    hostile_id, hostile_source = "DEL-18') OR 1=1 --", "need'lr"
+
+    [record] = asyncio.run(sve.fetch_structural_variant_records(family, hostile_id, source=hostile_source))
+
+    [(query, params)] = clickhouse.sent
+    # The id and the caller are parameters, never written into the query.
+    assert (params["evidence_variant_id"], params["evidence_source"]) == (hostile_id, hostile_source)
+    assert hostile_id not in query and hostile_source not in query
+    assert "e.variantId = %(evidence_variant_id)s" in query and "e.source = %(evidence_source)s" in query
+    # The SV page's scope: the family, its projects, an SV with a call in a visible sample.
+    page_where, page_params = _structural_variant_where_clauses(
+        family, StructuralVariantQueryFilters(page=1, page_size=1)
+    )
+    assert all(clause in query for clause in page_where)
+    assert {key: params[key] for key in page_params} == page_params
+    # The row reads back as the record the evidence was frozen from (the calls aside).
+    assert sve.structural_evidence(record) == sve.structural_evidence(_record())
+    assert (record.variant_key, record.chr, record.filters, record.calls) == (7, "18", ["PASS"], [])
+
+
+def test_the_sv_read_without_a_caller_reads_every_callers_row(monkeypatch) -> None:
+    clickhouse = _ClickHouse(rows=[_stored_evidence_row(_upload_row()), _stored_evidence_row(_needlr_row())])
+    monkeypatch.setattr(sve, "execute_clickhouse", clickhouse)
+
+    records = asyncio.run(sve.fetch_structural_variant_records(proband_family(), "sv1"))
+
+    [(query, params)] = clickhouse.sent
+    assert "evidence_source" not in params and "e.source = %(evidence_source)s" not in query
+    assert [row.source for row in records] == ["sniffles", "needlr"]
+
+
+def test_without_an_assembly_the_sv_is_not_in_the_data_and_nothing_is_read(monkeypatch) -> None:
+    clickhouse = _ClickHouse(rows=[_stored_evidence_row(_record())])
+    monkeypatch.setattr(sve, "execute_clickhouse", clickhouse)
+    family = proband_family()
+    family.assembly_name = None
+
+    assert asyncio.run(sve.fetch_structural_variant_records(family, "sv1")) == []
+    assert clickhouse.sent == []
+
+
+def test_an_assembly_without_sv_tables_holds_no_such_sv(monkeypatch) -> None:
+    from clickhouse_connect.driver.exceptions import ClickHouseError
+
+    missing = ClickHouseError("Code: 60. DB::Exception: Table coga.`GRCh38/SV/entries` doesn't exist. (UNKNOWN_TABLE)")
+    monkeypatch.setattr(sve, "execute_clickhouse", _ClickHouse(error=missing))
+
+    assert asyncio.run(sve.fetch_structural_variant_records(proband_family(), "sv1")) == []
+
+
+def test_any_other_clickhouse_failure_of_the_sv_read_is_raised_not_read_as_no_sv(monkeypatch) -> None:
+    # Fail closed: an empty answer would refuse the save as "not in the data" (404) or mark a
+    # classification's evidence missing, when the store did not answer at all.
+    from clickhouse_connect.driver.exceptions import ClickHouseError
+
+    failure = ClickHouseError("Code: 241. DB::Exception: Memory limit exceeded. (MEMORY_LIMIT_EXCEEDED)")
+    monkeypatch.setattr(sve, "execute_clickhouse", _ClickHouse(error=failure))
+
+    with pytest.raises(ClickHouseError, match="MEMORY_LIMIT_EXCEEDED"):
+        asyncio.run(sve.fetch_structural_variant_records(proband_family(), "sv1"))
 
 
 # --- the comparison ----------------------------------------------------------------------------

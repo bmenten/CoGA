@@ -27,6 +27,15 @@ const REGISTRATION: Record<string, string> = {
 
 const RATE_LIMITED_DETAIL = 'Too many signup attempts. Try again later.';
 const RATE_LIMITED = { response: { status: 429, data: { detail: RATE_LIMITED_DETAIL } } };
+// The same refusal shaped like an Axios error, which travels with the serialised request body.
+const RATE_LIMITED_WITH_BODY = {
+  ...RATE_LIMITED,
+  message: 'Request failed with status code 429',
+  config: {
+    url: '/auth/signup',
+    data: JSON.stringify({ email: 'ann.lee@example.com', password: PASSWORD }),
+  },
+};
 
 const LoginLanding = () => {
   const location = useLocation();
@@ -251,16 +260,7 @@ describe('SignupPage', () => {
       vi.spyOn(console, method).mockImplementation(() => undefined),
     );
     const user = userEvent.setup();
-    // Shaped like an Axios error, which travels with the serialised request body.
-    const failure = {
-      ...RATE_LIMITED,
-      message: 'Request failed with status code 429',
-      config: {
-        url: '/auth/signup',
-        data: JSON.stringify({ email: 'ann.lee@example.com', password: PASSWORD }),
-      },
-    };
-    mockedPost.mockRejectedValue(failure);
+    mockedPost.mockRejectedValue(RATE_LIMITED_WITH_BODY);
     renderPage();
 
     await fillIn(user);
@@ -269,7 +269,7 @@ describe('SignupPage', () => {
 
     const logged = consoleSpies.flatMap((spy) => spy.mock.calls.flat().map(stringify));
     expect(logged.filter((line) => line.includes(PASSWORD))).toEqual([]);
-    consoleSpies.forEach((spy) => expect(spy).not.toHaveBeenCalledWith(failure));
+    consoleSpies.forEach((spy) => expect(spy).not.toHaveBeenCalledWith(RATE_LIMITED_WITH_BODY));
   });
 
   it('logs only the message in a development build, never the request with the password (#526)', async () => {
@@ -277,15 +277,7 @@ describe('SignupPage', () => {
     vi.stubEnv('MODE', 'development');
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const user = userEvent.setup();
-    const failure = {
-      ...RATE_LIMITED,
-      message: 'Request failed with status code 429',
-      config: {
-        url: '/auth/signup',
-        data: JSON.stringify({ email: 'ann.lee@example.com', password: PASSWORD }),
-      },
-    };
-    mockedPost.mockRejectedValue(failure);
+    mockedPost.mockRejectedValue(RATE_LIMITED_WITH_BODY);
     renderPage();
 
     await fillIn(user);

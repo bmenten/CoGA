@@ -60,11 +60,21 @@ def test_family_export_cell_handles_missing_review() -> None:
 
 
 def test_family_export_columns_are_resolvable() -> None:
-    # Every export field must resolve on a real row without raising.
+    # Every export field must resolve on a real row without raising, as text. An unknown
+    # field reads as an empty cell (getattr's default), so each one must name what a row
+    # holds: a field of the variant, of the filter-matched transcript, or a computed one.
     row = _variant()
+    computed = {"priority_score", "priority_rank", "classification", "tags", "genotypes"}
     for field, label in _FAMILY_EXPORT_COLUMNS:
         assert label.strip()
-        _family_export_cell(row, field)  # must not raise
+        assert isinstance(_family_export_cell(row, field), str)
+        if field.startswith("filter_transcript."):
+            assert field.removeprefix("filter_transcript.") in SmallVariantFilterTranscriptOut.model_fields, field
+        else:
+            assert field in computed or field in VariantOut.model_fields, field
+    # Each column says what it is once.
+    labels = [label for _field, label in _FAMILY_EXPORT_COLUMNS]
+    assert len(labels) == len(set(labels))
 
 
 def test_family_export_names_the_transcript_the_filters_held_on() -> None:

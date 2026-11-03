@@ -66,6 +66,8 @@ vi.mock('../ViewerTrackBlock', () => ({
   ),
 }));
 
+type Props = ComponentProps<typeof GenomeOverviewWorkspace>;
+
 const MEMBER = {
   sample_id: 'PROBAND',
   role: 'proband',
@@ -73,8 +75,57 @@ const MEMBER = {
   sex: 'male',
 } as const;
 
-/** A workspace whose selected sample mounts no track: the empty or failed states. */
-const renderWithoutTracks = (overrides: Partial<ComponentProps<typeof GenomeOverviewWorkspace>> = {}) =>
+/** The tracks the sidebar shows: coverage only, unless a test turns another on. */
+const tracksShown = (fields: Partial<Props['trackVisibility']> = {}): Props['trackVisibility'] => ({
+  coverage: true,
+  segments: false,
+  apcad: false,
+  sv: false,
+  haplotypes: false,
+  repeatExpansions: false,
+  parentalOrigin: false,
+  ...fields,
+});
+
+/** What the track availability says PROBAND has: coverage, the fields a test leaves out absent. */
+const probandAvailability = (fields: Partial<Props['availability'][string]> = {}): Props['availability'] => ({
+  PROBAND: {
+    coverage: true,
+    coverageSources: [],
+    coverageNormalizations: {},
+    coverageContents: {},
+    segmentsSources: [],
+    segments: false,
+    apcadSources: [],
+    apcad: false,
+    apcadPcf: false,
+    haplotypes: false,
+    sv: false,
+    repeatExpansions: false,
+    ...fields,
+  },
+});
+
+/** Each caller's coverage and segments URLs, named after the caller. */
+const urlsBySource = (_sampleId: string, source: string) => ({
+  coverageUrls: [`http://test/coverage?source=${source}`],
+  segmentsUrls: [`http://test/segments?source=${source}`],
+});
+
+const NO_URLS: Props['urlMaps'] = {
+  coverageTrackUrls: () => ({ coverageUrls: [], segmentsUrls: [] }),
+  apcad: {},
+  apcadPcf: {},
+  haplotypes: {},
+  sv: {},
+};
+
+/**
+ * The workspace with PROBAND selected. By default no sample has data, so no track is mounted:
+ * the empty or failed states. A test gives PROBAND data through `membersWithData` and
+ * `availability`.
+ */
+const renderWorkspace = (overrides: Partial<Props> = {}) =>
   render(
     <MemoryRouter>
       <GenomeOverviewWorkspace
@@ -92,25 +143,11 @@ const renderWithoutTracks = (overrides: Partial<ComponentProps<typeof GenomeOver
         familyMembers={[MEMBER]}
         visibleMembers={[MEMBER]}
         membersWithData={[]}
-        trackVisibility={{
-          coverage: true,
-          segments: false,
-          apcad: false,
-          sv: false,
-          haplotypes: false,
-          repeatExpansions: false,
-          parentalOrigin: false,
-        }}
+        trackVisibility={tracksShown()}
         availability={{}}
         variantFilters={{}}
         sampleFilterMap={{}}
-        urlMaps={{
-          coverageTrackUrls: () => ({ coverageUrls: [], segmentsUrls: [] }),
-          apcad: {},
-          apcadPcf: {},
-          haplotypes: {},
-          sv: {},
-        }}
+        urlMaps={NO_URLS}
         layout={{ chroms: ['1'], offsets: { '1': 0 }, lengths: { '1': 1000 }, total: 1000 }}
         trackWidth={1200}
         trackHeight={120}
@@ -121,12 +158,24 @@ const renderWithoutTracks = (overrides: Partial<ComponentProps<typeof GenomeOver
     </MemoryRouter>,
   );
 
+/** Gives a selection surface jsdom's zero-sized box the track's width, so x maps to the layout. */
+const sizeSurface = (surface: HTMLElement, width = 1200) =>
+  Object.defineProperty(surface, 'getBoundingClientRect', {
+    value: () => ({ left: 0, top: 0, width, height: 120, right: width, bottom: 120, x: 0, y: 0, toJSON: () => ({}) }),
+  });
+
+const drag = (surface: HTMLElement, fromX: number, toX: number) => {
+  fireEvent.mouseDown(surface, { clientX: fromX });
+  fireEvent.mouseMove(surface, { clientX: toX });
+  fireEvent.mouseUp(surface, { clientX: toX });
+};
+
 describe('GenomeOverviewWorkspace', () => {
   // #607 — which tracks a sample has decides which are mounted: a failed availability
   // request is not a sample without data.
   it('says the track availability failed, not that the samples have no data', () => {
     const retry = vi.fn();
-    renderWithoutTracks({
+    renderWorkspace({
       tracksFailure: { what: 'which tracks each sample has', error: new Error('Network Error'), retry },
     });
 
@@ -139,7 +188,7 @@ describe('GenomeOverviewWorkspace', () => {
   // #610 — the chromosome lengths the view is laid out on failed: said by name, in place
   // of the tracks, instead of loading for good.
   it('names the request the tracks are waiting on when it is not the availability', () => {
-    renderWithoutTracks({
+    renderWorkspace({
       tracksFailure: { what: 'the chromosome lengths', error: new Error('HTTP 500'), retry: vi.fn() },
     });
 
@@ -151,7 +200,7 @@ describe('GenomeOverviewWorkspace', () => {
   // The overview draws the family's data like any family page: a partly imported family, or
   // one off the validated scope, is said so in its header.
   it('warns in its header that the import is incomplete and the assembly is not validated', async () => {
-    renderWithoutTracks({
+    renderWorkspace({
       assembly: 'GRCh37',
       assemblyValidated: false,
       familyMetadata: INCOMPLETE_IMPORT_METADATA,
@@ -163,130 +212,42 @@ describe('GenomeOverviewWorkspace', () => {
   });
 
   it('shows neither warning for a complete family inside the validated scope', () => {
-    renderWithoutTracks({ assemblyValidated: true, familyMetadata: {} });
+    renderWorkspace({ assemblyValidated: true, familyMetadata: {} });
 
     expect(screen.queryByText('Import incomplete.')).not.toBeInTheDocument();
     expect(screen.queryByText('Not validated for clinical use.')).not.toBeInTheDocument();
   });
 
   it('says a sample without tracks has no data once availability is known', () => {
-    renderWithoutTracks();
+    renderWorkspace();
 
     expect(screen.getByText('No data for selected samples')).toBeInTheDocument();
   });
 
   it('keeps whole-chromosome clicks and supports region jumps from chromosome ideograms', () => {
     const navigateToChromosome = vi.fn();
-
-    render(
-      <MemoryRouter>
-        <GenomeOverviewWorkspace
-          familyId="F1"
-          familyDisplayId="F1"
-          speciesName="Homo sapiens"
-          assemblyVersion="p14"
-          assembly="GRCh38"
-          projectId="p1"
-          trackAreaRef={{ current: null }}
-          backDest="/families/F1/structural-variants"
-          visibleRoi={null}
-          genomeRoiRange={null}
-          navigateToChromosome={navigateToChromosome}
-          familyMembers={[
-            {
-              sample_id: 'PROBAND',
-              role: 'proband',
-              affected: true,
-              sex: 'male',
-            },
-          ]}
-          visibleMembers={[
-            {
-              sample_id: 'PROBAND',
-              role: 'proband',
-              affected: true,
-              sex: 'male',
-            },
-          ]}
-          membersWithData={[
-            {
-              sample_id: 'PROBAND',
-              role: 'proband',
-              affected: true,
-              sex: 'male',
-            },
-          ]}
-          trackVisibility={{
-            coverage: true,
-            segments: false,
-            apcad: false,
-            sv: false,
-            haplotypes: false,
-            repeatExpansions: false,
-            parentalOrigin: false,
-          }}
-          availability={{
-            PROBAND: {
-              coverage: true,
-              coverageSources: ['hificnv'],
-              coverageNormalizations: { hificnv: ['log2_ratio_to_autosomal_median'] },
-              coverageContents: { hificnv: 'log2_ratio' },
-              segmentsSources: [],
-              segments: false,
-              apcadSources: [],
-              apcad: false,
-              apcadPcf: false,
-              haplotypes: false,
-              sv: false,
-              repeatExpansions: false,
-            },
-          }}
-          variantFilters={{}}
-          sampleFilterMap={{}}
-          urlMaps={{
-            coverageTrackUrls: (_sampleId: string, source: string) => ({
-              coverageUrls: [`http://test/coverage?source=${source}`],
-              segmentsUrls: [`http://test/segments?source=${source}`],
-            }),
-            apcad: {},
-            apcadPcf: {},
-            haplotypes: { PROBAND: ['http://test/haplotype'] },
-            sv: { PROBAND: 'http://test/sv' },
-          }}
-          layout={{
-            chroms: ['1'],
-            offsets: { '1': 0 },
-            lengths: { '1': 1000 },
-            total: 1000,
-          }}
-          trackWidth={1200}
-          trackHeight={120}
-          svTrackHeight={80}
-          showViewerLoading={false}
-        />
-      </MemoryRouter>,
-    );
+    renderWorkspace({
+      navigateToChromosome,
+      membersWithData: [MEMBER],
+      availability: probandAvailability({
+        coverageSources: ['hificnv'],
+        coverageNormalizations: { hificnv: ['log2_ratio_to_autosomal_median'] },
+        coverageContents: { hificnv: 'log2_ratio' },
+      }),
+      urlMaps: {
+        ...NO_URLS,
+        coverageTrackUrls: urlsBySource,
+        haplotypes: { PROBAND: ['http://test/haplotype'] },
+        sv: { PROBAND: 'http://test/sv' },
+      },
+    });
 
     // The test id carries the caller: a sample can have three coverage tracks and
     // each selection surface has to be addressable on its own.
     const coverageSurface = screen.getByTestId('genome-region-select-coverage-PROBAND-hificnv');
-    Object.defineProperty(coverageSurface, 'getBoundingClientRect', {
-      value: () => ({
-        left: 0,
-        top: 0,
-        width: 1200,
-        height: 120,
-        right: 1200,
-        bottom: 120,
-        x: 0,
-        y: 0,
-        toJSON: () => ({}),
-      }),
-    });
+    sizeSurface(coverageSurface);
 
-    fireEvent.mouseDown(coverageSurface, { clientX: 120 });
-    fireEvent.mouseMove(coverageSurface, { clientX: 240 });
-    fireEvent.mouseUp(coverageSurface, { clientX: 240 });
+    drag(coverageSurface, 120, 240);
     expect(navigateToChromosome).toHaveBeenCalledWith('1', {
       start: 100,
       end: 200,
@@ -311,13 +272,36 @@ describe('GenomeOverviewWorkspace', () => {
     expect(navigateToChromosome.mock.calls).toEqual([['1'], ['1']]);
   });
 
+  // A region opens on one chromosome: a drag too short to be one, or across the boundary of
+  // two chromosomes, opens none.
+  it('opens no region for a drag shorter than 5 px or one that spans two chromosomes', () => {
+    const navigateToChromosome = vi.fn();
+    renderWorkspace({
+      navigateToChromosome,
+      membersWithData: [MEMBER],
+      availability: probandAvailability({ coverageSources: ['hificnv'], coverageContents: { hificnv: 'log2_ratio' } }),
+      urlMaps: { ...NO_URLS, coverageTrackUrls: urlsBySource },
+      layout: { chroms: ['1', '2'], offsets: { '1': 0, '2': 1000 }, lengths: { '1': 1000, '2': 1000 }, total: 2000 },
+    });
+    const surface = screen.getByTestId('genome-region-select-coverage-PROBAND-hificnv');
+    sizeSurface(surface);
+
+    drag(surface, 100, 103);
+    drag(surface, 500, 700);
+    expect(navigateToChromosome).not.toHaveBeenCalled();
+
+    // Within the second chromosome, a region of it.
+    drag(surface, 720, 840);
+    expect(navigateToChromosome).toHaveBeenCalledWith('2', { start: 200, end: 400 });
+  });
+
   // The strip writes each chromosome as the sidebar, the chromosome view and the tracks name it
   // (#602), without its chr, which its narrow slots have no room for (1, X), and opens the
   // chromosome view's route. ENG-7 named the mitochondrion M here; the overview has left it out
   // since ENG-20 (the owner's decision of 2026-10-28), so no layout the page builds holds it.
   it('names each chromosome in the strip without its chr, and opens it by its route', () => {
     const navigateToChromosome = vi.fn();
-    renderWithoutTracks({
+    renderWorkspace({
       navigateToChromosome,
       layout: {
         chroms: ['X', 'Y'],
@@ -340,76 +324,21 @@ describe('GenomeOverviewWorkspace', () => {
   });
 
   it('draws one labelled coverage track per CNV caller', () => {
-    render(
-      <MemoryRouter>
-        <GenomeOverviewWorkspace
-          familyId="F1"
-          familyDisplayId="F1"
-          speciesName="Homo sapiens"
-          assemblyVersion="p14"
-          assembly="GRCh38"
-          projectId="p1"
-          trackAreaRef={{ current: null }}
-          backDest="/families/F1/structural-variants"
-          visibleRoi={null}
-          genomeRoiRange={null}
-          navigateToChromosome={vi.fn()}
-          familyMembers={[MEMBER]}
-          visibleMembers={[MEMBER]}
-          membersWithData={[MEMBER]}
-          inheritanceModel="dominant"
-          trackVisibility={{
-            coverage: true,
-            segments: true,
-            apcad: false,
-            haplotypes: false,
-            sv: false,
-            repeatExpansions: false,
-            parentalOrigin: false,
-          }}
-          availability={{
-            PROBAND: {
-              coverage: true,
-              // Deliberately out of display order: the view must not depend on
-              // what order the availability query returned.
-              coverageSources: ['qdnaseq', 'hificnv', 'wisecondorx'],
-              coverageNormalizations: { hificnv: ['log2_ratio_to_autosomal_median'] },
-              coverageContents: { hificnv: 'log2_ratio', qdnaseq: 'log2_ratio', wisecondorx: 'log2_ratio' },
-              segmentsSources: ['hificnv'],
-              segments: true,
-              apcadSources: [],
-              apcad: false,
-              apcadPcf: false,
-              haplotypes: false,
-              sv: false,
-              repeatExpansions: false,
-            },
-          }}
-          variantFilters={{}}
-          sampleFilterMap={{}}
-          urlMaps={{
-            coverageTrackUrls: (_sampleId: string, source: string) => ({
-              coverageUrls: [`http://test/coverage?source=${source}`],
-              segmentsUrls: [`http://test/segments?source=${source}`],
-            }),
-            apcad: {},
-            apcadPcf: {},
-            haplotypes: {},
-            sv: {},
-          }}
-          layout={{
-            chroms: ['1'],
-            offsets: { '1': 0 },
-            lengths: { '1': 1000 },
-            total: 1000,
-          }}
-          trackWidth={1200}
-          trackHeight={120}
-          svTrackHeight={80}
-          showViewerLoading={false}
-        />
-      </MemoryRouter>,
-    );
+    renderWorkspace({
+      membersWithData: [MEMBER],
+      inheritanceModel: 'dominant',
+      trackVisibility: tracksShown({ segments: true }),
+      availability: probandAvailability({
+        // Deliberately out of display order: the view must not depend on
+        // what order the availability query returned.
+        coverageSources: ['qdnaseq', 'hificnv', 'wisecondorx'],
+        coverageNormalizations: { hificnv: ['log2_ratio_to_autosomal_median'] },
+        coverageContents: { hificnv: 'log2_ratio', qdnaseq: 'log2_ratio', wisecondorx: 'log2_ratio' },
+        segmentsSources: ['hificnv'],
+        segments: true,
+      }),
+      urlMaps: { ...NO_URLS, coverageTrackUrls: urlsBySource },
+    });
 
     // Three independent measurements, three tracks -- merging them would average
     // three answers into one that is none of them.
@@ -420,9 +349,9 @@ describe('GenomeOverviewWorkspace', () => {
     // Display order, not the order the availability query returned: the same caller
     // must sit in the same row for every family member.
     expect(labels).toEqual([
-      'Coverage \u00b7 HiFiCNV',
-      'Coverage \u00b7 WisecondorX',
-      'Coverage \u00b7 QDNAseq',
+      'Coverage · HiFiCNV',
+      'Coverage · WisecondorX',
+      'Coverage · QDNAseq',
     ]);
     expect(screen.getAllByTestId('coverage-chart')).toHaveLength(3);
     expect(screen.getByTestId('genome-region-select-coverage-PROBAND-qdnaseq')).toBeInTheDocument();
@@ -434,63 +363,19 @@ describe('GenomeOverviewWorkspace', () => {
   // does not declare what it holds on its own range without an axis (it was drawn on the
   // log2-ratio axis while the depth readers read it as depth).
   it('draws each coverage track on the axis of what it holds, and says why where that is not a log2 ratio', () => {
-    const coverageTrackUrls = vi.fn((_sampleId: string, source: string) => ({
-      coverageUrls: [`http://test/coverage?source=${source}`],
-      segmentsUrls: [`http://test/segments?source=${source}`],
-    }));
-    render(
-      <MemoryRouter>
-        <GenomeOverviewWorkspace
-          familyId="F1"
-          familyDisplayId="F1"
-          speciesName="Homo sapiens"
-          assemblyVersion="p14"
-          assembly="GRCh38"
-          projectId="p1"
-          trackAreaRef={{ current: null }}
-          backDest="/families/F1/structural-variants"
-          visibleRoi={null}
-          genomeRoiRange={null}
-          navigateToChromosome={vi.fn()}
-          familyMembers={[MEMBER]}
-          visibleMembers={[MEMBER]}
-          membersWithData={[MEMBER]}
-          trackVisibility={{
-            coverage: true,
-            segments: true,
-            apcad: false,
-            haplotypes: false,
-            sv: false,
-            repeatExpansions: false,
-            parentalOrigin: false,
-          }}
-          availability={{
-            PROBAND: {
-              coverage: true,
-              coverageSources: ['web', 'wisecondorx', 'hificnv'],
-              coverageNormalizations: { hificnv: ['none'] },
-              coverageContents: { hificnv: 'read_depth', web: 'unknown', wisecondorx: 'log2_ratio' },
-              segmentsSources: ['hificnv', 'web', 'wisecondorx'],
-              segments: true,
-              apcadSources: [],
-              apcad: false,
-              apcadPcf: false,
-              haplotypes: false,
-              sv: false,
-              repeatExpansions: false,
-            },
-          }}
-          variantFilters={{}}
-          sampleFilterMap={{}}
-          urlMaps={{ coverageTrackUrls, apcad: {}, apcadPcf: {}, haplotypes: {}, sv: {} }}
-          layout={{ chroms: ['1'], offsets: { '1': 0 }, lengths: { '1': 1000 }, total: 1000 }}
-          trackWidth={1200}
-          trackHeight={120}
-          svTrackHeight={80}
-          showViewerLoading={false}
-        />
-      </MemoryRouter>,
-    );
+    const coverageTrackUrls = vi.fn(urlsBySource);
+    renderWorkspace({
+      membersWithData: [MEMBER],
+      trackVisibility: tracksShown({ segments: true }),
+      availability: probandAvailability({
+        coverageSources: ['web', 'wisecondorx', 'hificnv'],
+        coverageNormalizations: { hificnv: ['none'] },
+        coverageContents: { hificnv: 'read_depth', web: 'unknown', wisecondorx: 'log2_ratio' },
+        segmentsSources: ['hificnv', 'web', 'wisecondorx'],
+        segments: true,
+      }),
+      urlMaps: { ...NO_URLS, coverageTrackUrls },
+    });
 
     const track = (label: string) => screen.getByRole('region', { name: label });
     const chart = (label: string) => within(track(label)).getByTestId('coverage-chart');
@@ -522,77 +407,28 @@ describe('GenomeOverviewWorkspace', () => {
     expect(undeclared).toHaveClass('viz-scale-note--warning');
   });
 
-  it('draws a coverage BED on the axis it declared, without a note', () => {
-    const renderBed = (content: string) =>
-      render(
-        <MemoryRouter>
-          <GenomeOverviewWorkspace
-            familyId="F1"
-            familyDisplayId="F1"
-            assembly="GRCh38"
-            trackAreaRef={{ current: null }}
-            backDest="/families/F1/structural-variants"
-            visibleRoi={null}
-            genomeRoiRange={null}
-            navigateToChromosome={vi.fn()}
-            familyMembers={[MEMBER]}
-            visibleMembers={[MEMBER]}
-            membersWithData={[MEMBER]}
-            trackVisibility={{
-              coverage: true,
-              segments: true,
-              apcad: false,
-              haplotypes: false,
-              sv: false,
-              repeatExpansions: false,
-              parentalOrigin: false,
-            }}
-            availability={{
-              PROBAND: {
-                coverage: true,
-                coverageSources: ['web'],
-                coverageNormalizations: {},
-                coverageContents: { web: content },
-                segmentsSources: ['web'],
-                segments: true,
-                apcadSources: [],
-                apcad: false,
-                apcadPcf: false,
-                haplotypes: false,
-                sv: false,
-                repeatExpansions: false,
-              },
-            }}
-            variantFilters={{}}
-            sampleFilterMap={{}}
-            urlMaps={{
-              coverageTrackUrls: (_sampleId: string, source: string) => ({
-                coverageUrls: [`http://test/coverage?source=${source}`],
-                segmentsUrls: [`http://test/segments?source=${source}`],
-              }),
-              apcad: {},
-              apcadPcf: {},
-              haplotypes: {},
-              sv: {},
-            }}
-            layout={{ chroms: ['1'], offsets: { '1': 0 }, lengths: { '1': 1000 }, total: 1000 }}
-            trackWidth={1200}
-            trackHeight={120}
-            svTrackHeight={80}
-            showViewerLoading={false}
-          />
-        </MemoryRouter>,
-      );
+  it.each([
+    ['read_depth', 'no'],
+    ['log2_ratio', 'yes'],
+  ])('draws a coverage BED declared as %s on that axis, without a note (segments: %s)', (content, segments) => {
+    renderWorkspace({
+      // A header without the species, version or project: the reference label reads the assembly alone.
+      speciesName: undefined,
+      assemblyVersion: undefined,
+      projectId: undefined,
+      membersWithData: [MEMBER],
+      trackVisibility: tracksShown({ segments: true }),
+      availability: probandAvailability({
+        coverageSources: ['web'],
+        coverageContents: { web: content },
+        segmentsSources: ['web'],
+        segments: true,
+      }),
+      urlMaps: { ...NO_URLS, coverageTrackUrls: urlsBySource },
+    });
 
-    const depth = renderBed('read_depth');
-    expect(screen.getByTestId('coverage-chart')).toHaveAttribute('data-scale', 'read_depth');
-    expect(screen.getByTestId('coverage-chart')).toHaveAttribute('data-segments', 'no');
-    expect(screen.queryByRole('note')).not.toBeInTheDocument();
-    depth.unmount();
-
-    renderBed('log2_ratio');
-    expect(screen.getByTestId('coverage-chart')).toHaveAttribute('data-scale', 'log2_ratio');
-    expect(screen.getByTestId('coverage-chart')).toHaveAttribute('data-segments', 'yes');
+    expect(screen.getByTestId('coverage-chart')).toHaveAttribute('data-scale', content);
+    expect(screen.getByTestId('coverage-chart')).toHaveAttribute('data-segments', segments);
     expect(screen.queryByRole('note')).not.toBeInTheDocument();
   });
 });

@@ -42,6 +42,8 @@ from uuid import uuid4
 
 import pytest
 
+from backend.tests.e2e._harness import capture, ensure_postgres_schema, ok_json, write_file
+
 pytestmark = pytest.mark.integration
 
 LOCUS = "FXS_FMR1"
@@ -64,20 +66,13 @@ _TRGT = (
 _PARAPHASE = Path(__file__).parent / "fixtures" / "golden_trio" / "paraphase" / "PROBAND.paraphase.json"
 
 
-def _write(root: Path, name: str, text: str) -> str:
-    path = root / name
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")
-    return name
-
-
 def _package(root: Path, family_id: str, sample: str) -> Path:
     """The one-member family: a woman, her TRGT VCF and her Paraphase result at GBA."""
     root.mkdir(parents=True)
-    _write(root, "family.ped", f"{family_id}\t{sample}\t0\t0\t2\t1\n")
-    trgt = _write(root, f"trgt/{sample}.vcf", _TRGT.format(column=f"{sample}_sort"))
+    write_file(root, "family.ped", f"{family_id}\t{sample}\t0\t0\t2\t1\n")
+    trgt = write_file(root, f"trgt/{sample}.vcf", _TRGT.format(column=f"{sample}_sort"))
     result = json.loads(_PARAPHASE.read_text(encoding="utf-8"))[GENE]
-    paraphase = _write(root, f"paraphase/{sample}.json", json.dumps({GENE: result}))
+    paraphase = write_file(root, f"paraphase/{sample}.json", json.dumps({GENE: result}))
     lines = [
         "schema_version: 1",
         f"family_id: {family_id}",
@@ -90,17 +85,8 @@ def _package(root: Path, family_id: str, sample: str) -> Path:
         "    per_sample:",
         f"      {sample}: {{json: {paraphase}}}",
     ]
-    _write(root, "manifest.yaml", "\n".join(lines) + "\n")
+    write_file(root, "manifest.yaml", "\n".join(lines) + "\n")
     return root
-
-
-def _cap(resp) -> dict[str, Any]:
-    out: dict[str, Any] = {"status": resp.status_code, "text": resp.text}
-    try:
-        out["json"] = resp.json()
-    except ValueError:  # pragma: no cover
-        out["json"] = None
-    return out
 
 
 async def _exercise(base: Path, family_id: str) -> dict[str, Any]:
@@ -108,14 +94,14 @@ async def _exercise(base: Path, family_id: str) -> dict[str, Any]:
     from sqlalchemy import text
 
     from backend.app.core.clickhouse import init_clickhouse_schema
-    from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
+    from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.main import app
     from backend.app.services import family_package_import as package_import
     from backend.app.services.clickhouse_variant_storage import ensure_clickhouse_variant_tables
     from backend.app.services.repeat_expansion_pg import seed_builtin_repeat_catalog
     from backend.tests.e2e import _harness
 
-    await init_postgres_schema()
+    await ensure_postgres_schema()
     await init_clickhouse_schema()
     await ensure_clickhouse_variant_tables(_harness.ASSEMBLY)
     sessionmaker = get_postgres_sessionmaker()
@@ -166,16 +152,16 @@ async def _exercise(base: Path, family_id: str) -> dict[str, Any]:
             ac.headers["Authorization"] = f"Bearer {await _harness.login_admin_token(ac)}"
 
             # Unreviewed: the gate lists both findings.
-            r["gate"] = _cap(await _harness.sign_out(ac, sign_out_url, SIGN_OUT_BODY))
+            r["gate"] = capture(await _harness.sign_out(ac, sign_out_url, SIGN_OUT_BODY))
             acknowledged = {**SIGN_OUT_BODY, "acknowledge_unreviewed_findings": True}
-            r["gate_no_reason"] = _cap(
+            r["gate_no_reason"] = capture(
                 await _harness.sign_out(
                     ac, sign_out_url, {**acknowledged, "unreviewed_findings_acknowledgement_reason": " "}
                 )
             )
 
             # The FMR1 review, and what is refused.
-            r["save"] = _cap(
+            r["save"] = capture(
                 await ac.put(
                     repeat_review,
                     json={
@@ -186,11 +172,11 @@ async def _exercise(base: Path, family_id: str) -> dict[str, Any]:
                     },
                 )
             )
-            r["stale"] = _cap(
+            r["stale"] = capture(
                 await ac.put(repeat_review, json={"classification": "normal", "tags": [], "expected_updated_at": None})
             )
-            r["other_scale"] = _cap(await ac.put(repeat_review, json={"classification": "carrier"}))
-            r["unknown_tag"] = _cap(
+            r["other_scale"] = capture(await ac.put(repeat_review, json={"classification": "carrier"}))
+            r["unknown_tag"] = capture(
                 await ac.put(
                     repeat_review,
                     json={
@@ -200,47 +186,47 @@ async def _exercise(base: Path, family_id: str) -> dict[str, Any]:
                     },
                 )
             )
-            r["no_call"] = _cap(await ac.put(f"{family}/repeat-expansions/HD_HTT/review", json={"note": "x"}))
-            r["paraphase_save"] = _cap(
+            r["no_call"] = capture(await ac.put(f"{family}/repeat-expansions/HD_HTT/review", json={"note": "x"}))
+            r["paraphase_save"] = capture(
                 await ac.put(paraphase_review, json={"classification": "carrier", "tags": ["review"], "expected_updated_at": None})
             )
-            r["repeat_table"] = _cap(await ac.get(f"{family}/repeat-expansions"))
-            r["paraphase_table"] = _cap(await ac.get(f"{family}/paraphase"))
+            r["repeat_table"] = capture(await ac.get(f"{family}/repeat-expansions"))
+            r["paraphase_table"] = capture(await ac.get(f"{family}/paraphase"))
 
             # Reviewed: the sign-out passes the gate; the record holds both reviews.
-            r["signout"] = _cap(await _harness.sign_out(ac, sign_out_url, SIGN_OUT_BODY))
+            r["signout"] = capture(await _harness.sign_out(ac, sign_out_url, SIGN_OUT_BODY))
             version = (r["signout"]["json"] or {}).get("version")
-            r["signout_detail"] = _cap(await ac.get(f"{family}/report/sign-outs/{version}"))
-            r["check"] = _cap(await ac.get(f"{family}/report/sign-out-check"))
+            r["signout_detail"] = capture(await ac.get(f"{family}/report/sign-outs/{version}"))
+            r["check"] = capture(await ac.get(f"{family}/report/sign-out-check"))
 
             # QA validates FMR1's counting units: the FMR1 review's calls are not the calls now.
-            r["validate"] = _cap(
+            r["validate"] = capture(
                 await ac.put(
                     f"/api/admin/repeat-loci/{LOCUS}/count-units",
                     json={"validated": True, "reason": VALIDATION_REASON},
                 )
             )
-            r["repeat_table_drifted"] = _cap(await ac.get(f"{family}/repeat-expansions"))
-            r["drift_gate"] = _cap(
+            r["repeat_table_drifted"] = capture(await ac.get(f"{family}/repeat-expansions"))
+            r["drift_gate"] = capture(
                 await _harness.sign_out(
                     ac, sign_out_url, {key: value for key, value in SIGN_OUT_BODY.items() if "drift" not in key}
                 )
             )
-            r["signout_drifted"] = _cap(await _harness.sign_out(ac, sign_out_url, SIGN_OUT_BODY))
+            r["signout_drifted"] = capture(await _harness.sign_out(ac, sign_out_url, SIGN_OUT_BODY))
             version = (r["signout_drifted"]["json"] or {}).get("version")
-            r["signout_drifted_detail"] = _cap(await ac.get(f"{family}/report/sign-outs/{version}"))
+            r["signout_drifted_detail"] = capture(await ac.get(f"{family}/report/sign-outs/{version}"))
 
             # The GBA review cleared; the audit trail and its chain.
             current_gba = (r["paraphase_save"]["json"] or {}).get("updated_at")
-            r["clear"] = _cap(await ac.put(paraphase_review, json={"tags": [], "expected_updated_at": current_gba}))
-            r["audit"] = _cap(await ac.get(f"{family}/clinical-audit"))
-            r["chain"] = _cap(
+            r["clear"] = capture(await ac.put(paraphase_review, json={"tags": [], "expected_updated_at": current_gba}))
+            r["audit"] = capture(await ac.get(f"{family}/clinical-audit"))
+            r["chain"] = capture(
                 await ac.get(
                     "/api/admin/integrity/verify",
                     params={"table": "clinical_audit_events", "family_id": family_id},
                 )
             )
-            r["signout_chain"] = _cap(
+            r["signout_chain"] = capture(
                 await ac.get("/api/admin/integrity/verify", params={"table": "report_signouts", "family_id": family_id})
             )
         return out
@@ -275,12 +261,6 @@ def run(tmp_path_factory) -> dict[str, Any]:
         mp.undo()
 
 
-def _ok(run: dict[str, Any], key: str) -> Any:
-    resp = run["responses"][key]
-    assert resp["status"] == 200, (key, resp["status"], resp["text"][:2000])
-    return resp["json"]
-
-
 def _detail(run: dict[str, Any], key: str, status: int) -> Any:
     resp = run["responses"][key]
     assert resp["status"] == status, (key, resp["status"], resp["text"][:2000])
@@ -306,7 +286,7 @@ def test_an_abnormal_call_without_a_review_is_acknowledged_with_a_reason(run: di
 
 
 def test_a_review_saves_its_calls_and_refuses_what_it_must(run: dict[str, Any]) -> None:
-    saved = _ok(run, "save")
+    saved = ok_json(run, "save")
     assert saved["key"] == LOCUS and saved["classification"] == "intermediate"
     assert saved["tags"] == ["report"] and saved["note"] == "Grey zone; PCR sizing requested"
     assert saved["evidence_captured_at"] is not None
@@ -315,23 +295,23 @@ def test_a_review_saves_its_calls_and_refuses_what_it_must(run: dict[str, Any]) 
     assert run["responses"]["other_scale"]["status"] == 422
     assert "no_such_tag" in _detail(run, "unknown_tag", 400)
     assert _detail(run, "no_call", 404) == "This family holds no call at that repeat locus"
-    gba = _ok(run, "paraphase_save")
+    gba = ok_json(run, "paraphase_save")
     assert (gba["classification"], gba["tags"]) == ("carrier", ["review"])
 
 
 def test_the_tables_carry_each_review(run: dict[str, Any]) -> None:
-    [locus] = [locus for locus in _ok(run, "repeat_table")["loci"] if locus["locus_id"] == LOCUS]
+    [locus] = [locus for locus in ok_json(run, "repeat_table")["loci"] if locus["locus_id"] == LOCUS]
     assert locus["review"]["classification"] == "intermediate"
     assert locus["review"]["drift"]["status"] == "unchanged"
     # The automatic status is the classifier's, whatever the review says.
     assert locus["status"] == "intermediate"
-    [gene] = [gene for gene in _ok(run, "paraphase_table")["genes"] if gene["gene_symbol"] == GENE]
+    [gene] = [gene for gene in ok_json(run, "paraphase_table")["genes"] if gene["gene_symbol"] == GENE]
     assert gene["review"]["classification"] == "carrier"
 
 
 def test_the_record_holds_the_reviews_and_nothing_unreviewed(run: dict[str, Any]) -> None:
-    signed = _ok(run, "signout")
-    detail = _ok(run, "signout_detail")
+    signed = ok_json(run, "signout")
+    detail = ok_json(run, "signout_detail")
     assert detail["verified"] is True and detail["content_hash"] == signed["content_hash"]
     snapshot = detail["snapshot"]
     [repeat] = snapshot["repeat_expansion_reviews"]
@@ -343,13 +323,13 @@ def test_the_record_holds_the_reviews_and_nothing_unreviewed(run: dict[str, Any]
     assert snapshot["unreviewed_findings"] == []
     assert snapshot["finding_review_drift"] == {"checked": 2, "drifted_count": 0, "drifted": []}
     assert snapshot["acknowledged_unreviewed_findings"] is False
-    check = _ok(run, "check")
+    check = ok_json(run, "check")
     assert (check["matches"], check["changed_sections"], check["not_compared"]) == (True, [], [])
 
 
 def test_a_change_in_the_calls_under_a_review_gates_the_sign_out(run: dict[str, Any]) -> None:
-    assert _ok(run, "validate")["validated"] is True
-    [locus] = [locus for locus in _ok(run, "repeat_table_drifted")["loci"] if locus["locus_id"] == LOCUS]
+    assert ok_json(run, "validate")["validated"] is True
+    [locus] = [locus for locus in ok_json(run, "repeat_table_drifted")["loci"] if locus["locus_id"] == LOCUS]
     drift = locus["review"]["drift"]
     assert drift["status"] == "changed"
     assert "count_units.validated: False → True" in drift["changes"]
@@ -358,14 +338,14 @@ def test_a_change_in_the_calls_under_a_review_gates_the_sign_out(run: dict[str, 
     [listed] = gate["finding_drifted"]
     assert (listed["kind"], listed["key"], listed["status"]) == ("repeat", LOCUS, "changed")
     assert "repeat or Paraphase reviews" in gate["message"]
-    snapshot = _ok(run, "signout_drifted_detail")["snapshot"]
+    snapshot = ok_json(run, "signout_drifted_detail")["snapshot"]
     assert snapshot["acknowledged_drift"] is True
     assert snapshot["finding_review_drift"]["drifted_count"] == 1
     assert snapshot["repeat_expansion_reviews"][0]["drift"]["status"] == "changed"
 
 
 def test_each_change_is_on_the_familys_audit_chain(run: dict[str, Any]) -> None:
-    assert _ok(run, "clear") == {
+    assert ok_json(run, "clear") == {
         "key": GENE,
         "classification": None,
         "tags": [],
@@ -376,7 +356,7 @@ def test_each_change_is_on_the_familys_audit_chain(run: dict[str, Any]) -> None:
         "evidence_captured_at": None,
         "drift": None,
     }
-    events = _ok(run, "audit")["events"]
+    events = ok_json(run, "audit")["events"]
     by_finding: dict[str, list[str]] = {}
     for event in events:
         if event.get("variant_id") in (f"repeat:{LOCUS}", f"paraphase:{GENE}"):
@@ -384,5 +364,5 @@ def test_each_change_is_on_the_familys_audit_chain(run: dict[str, Any]) -> None:
     assert sorted(by_finding[f"repeat:{LOCUS}"]) == ["classification", "note", "tags"]
     # Saved, then cleared: two classification and two tag events.
     assert sorted(by_finding[f"paraphase:{GENE}"]) == ["classification", "classification", "tags", "tags"]
-    assert _ok(run, "chain")["verified"] is True
-    assert _ok(run, "signout_chain")["verified"] is True
+    assert ok_json(run, "chain")["verified"] is True
+    assert ok_json(run, "signout_chain")["verified"] is True

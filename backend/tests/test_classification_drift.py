@@ -140,6 +140,21 @@ def test_evaluate_classification_drift_reports_only_changed(monkeypatch) -> None
     assert item["clinvar_from"] == "Uncertain significance" and item["clinvar_to"] == "Pathogenic"
     assert item["classified_by"] == "alice"
 
+    # A family without a resolved assembly has no variant to compare a classification with:
+    # each reads as missing, never as current (it gates the sign-out, which refuses such a
+    # family anyway), and no variant is looked up.
+    async def _no_assembly(session, *, family_identifier, user, project_id=None):
+        return types.SimpleNamespace(family_uuid="u1", family_id="FAM1", assembly_name=None, assembly_id=None)
+
+    async def _never(**_kwargs):
+        raise AssertionError("no variant can be read without an assembly")
+
+    monkeypatch.setattr(cds, "build_family_metadata_context", _no_assembly)
+    monkeypatch.setattr(cds, "get_small_variant_family_record", _never)
+    out = asyncio.run(cds.evaluate_classification_drift(_Session(), family_id="FAM1", user=None))
+    assert (out["checked"], out["drifted_count"]) == (2, 2)
+    assert {entry["status"] for entry in out["drifted"]} == {"variant_missing"}
+
 
 # --- The frequencies and in-silico scores a classification rests on (CLIN-7) -------------
 

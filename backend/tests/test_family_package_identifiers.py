@@ -20,7 +20,6 @@ here are synthetic.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import gzip
 import io
 import json
@@ -37,7 +36,6 @@ from backend.app.schemas import FamilyPackageManifestBuildRequest, ManualPedFami
 from backend.app.services import family_package_discovery
 from backend.app.services import family_package_import as package_import
 from backend.app.services import ped_service
-from backend.app.services.access_control import CurrentUser
 from backend.app.services.family_identifiers import CONTROL_CHARACTERS, IDENTIFIER_RULE, identifier_problem, visible
 from backend.app.services.family_package_common import PackageManifest, _issue, path_leaves_package
 from backend.app.services.family_package_discovery import discover_family_package_manifest
@@ -46,6 +44,7 @@ from backend.app.services.family_package_long_read import long_read_sample_ids
 from backend.app.services.family_package_manifest import _manifest_added_ped_rows
 from backend.app.services.family_package_registration import existing_family_sample_ids
 from backend.app.services.family_package_validation import load_validated_family_package
+from backend.tests._family_import_fakes import admin_user
 
 FAMILY = "FAM001"
 MOTHER, FATHER, CHILD, INDEX = "MOTHER1", "FATHER1", "CHILD1", "INDEX1"
@@ -62,16 +61,6 @@ class _ExplodingSession:
 
     async def execute(self, *args: Any, **kwargs: Any) -> Any:  # pragma: no cover - must not run
         raise AssertionError("an ID no family can have reached the database")
-
-
-def _admin() -> CurrentUser:
-    return CurrentUser(
-        id="00000000-0000-0000-0000-000000000001",
-        username="admin@example.com",
-        email="admin@example.com",
-        role="admin",
-        created_at=datetime.now(timezone.utc),
-    )
 
 
 def _trio_ped(family_id: str = FAMILY, *, mother: str = MOTHER, father: str = FATHER, child: str = CHILD) -> str:
@@ -458,7 +447,7 @@ async def test_an_import_of_a_family_id_no_family_can_have_writes_nothing(
         folder_path=root,
         project_id="project-uuid",
         dry_run=False,
-        user=_admin(),
+        user=admin_user(),
         record_family=record_family,
     )
 
@@ -517,7 +506,7 @@ async def test_an_import_job_for_a_family_id_no_family_can_have_is_refused_befor
             project_id=None,
             dry_run=True,
             requested_family_id=family_id,
-            requested_by=_admin(),
+            requested_by=admin_user(),
         )
 
     assert refused.value.status_code == 400
@@ -544,7 +533,7 @@ async def test_an_import_job_records_the_requested_family_without_the_whitespace
             project_id=None,
             dry_run=True,
             requested_family_id=f" {FAMILY} ",
-            requested_by=_admin(),
+            requested_by=admin_user(),
         )
 
     assert json.loads(session.params["metadata"])["requested_family_id"] == FAMILY
@@ -606,12 +595,12 @@ async def test_the_family_builder_strips_the_family_id_and_refuses_before_any_wr
     monkeypatch.setattr(ped_service, "_ensure_sample_ids_are_available", available)
     monkeypatch.setattr(ped_service, "_create_family", create_family)
 
-    await ped_service.create_manual_family_data(_Session(), _family(f" {FAMILY} "), False, _admin())  # type: ignore[arg-type]
+    await ped_service.create_manual_family_data(_Session(), _family(f" {FAMILY} "), False, admin_user())  # type: ignore[arg-type]
     assert written == [{"replaced": [FAMILY]}, {"created": FAMILY, "pedigree": f"{FAMILY} {MOTHER} 0 0 0 0"}]
 
     written.clear()
     with pytest.raises(HTTPException):
-        await ped_service.create_manual_family_data(_Session(), _family(f"FAM{NUL}001"), False, _admin())  # type: ignore[arg-type]
+        await ped_service.create_manual_family_data(_Session(), _family(f"FAM{NUL}001"), False, admin_user())  # type: ignore[arg-type]
     assert written == []
 
 
@@ -642,7 +631,7 @@ async def test_a_ped_upload_is_refused_before_anything_is_written() -> None:
     upload = UploadFile(file=io.BytesIO(_trio_ped(mother=f"MOTHER{ESC}1").encode()), filename="family.ped")
 
     with pytest.raises(HTTPException) as refused:
-        await ped_service.upload_ped_data(_ExplodingSession(), upload, False, _admin(), None)  # type: ignore[arg-type]
+        await ped_service.upload_ped_data(_ExplodingSession(), upload, False, admin_user(), None)  # type: ignore[arg-type]
 
     assert refused.value.status_code == 400
 
@@ -844,7 +833,7 @@ async def test_an_import_job_for_a_family_id_that_is_a_path_or_holds_a_character
             project_id=None,
             dry_run=True,
             requested_family_id=family_id,
-            requested_by=_admin(),
+            requested_by=admin_user(),
         )
 
     assert refused.value.status_code == 400

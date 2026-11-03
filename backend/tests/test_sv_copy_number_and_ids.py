@@ -49,6 +49,7 @@ from backend.app.services.family_package_variants import (
 )
 from backend.app.services.structural_variant_ingest import iter_structural_variant_records
 from backend.app.services.sv_copy_change import copy_change
+from backend.tests._sv_fakes import SvStore, UploadSession, install_sv_upload_fakes, upload_family_context
 
 _SAMPLES = {"S1": "uuid-s1", "S2": "uuid-s2"}
 
@@ -260,67 +261,23 @@ def test_the_sv_already_stored_under_an_id_keeps_it() -> None:
     assert event_discriminators(events, plain_lengths={"id": 5}) == {events[0]: "3", events[1]: "7"}
 
 
-class _Store:
-    def __init__(self, rows: list[StoredStructuralVariantRow]) -> None:
-        self.rows = rows
-        self.written: list[StructuralVariantRecord] = []
-
-    async def fetch(self, *_args: Any, source: str | None = None, **_kwargs: Any) -> list[StoredStructuralVariantRow]:
-        return list(self.rows)
-
-    async def rewrite(self, _assembly, _family, rows, *, source=None, stored=()) -> None:
-        self.written = [row.record for row in rows]
-
-
-class _Result:
-    def scalar_one_or_none(self) -> None:
-        return None
-
-
-class _Session:
-    async def execute(self, *_args: Any, **_kwargs: Any) -> _Result:
-        return _Result()
-
-    async def commit(self) -> None:
-        return None
-
-
-async def _upload(monkeypatch: pytest.MonkeyPatch, store: _Store, sample: str, *lines: str) -> dict[str, Any]:
-    async def nothing(*_args: Any, **_kwargs: Any) -> Any:
-        return None
-
-    async def known(*_args: Any, **_kwargs: Any) -> set[str]:
-        return set(_SAMPLES)
-
-    async def no_genes(*_args: Any, **_kwargs: Any) -> dict:
-        return {}
-
-    monkeypatch.setattr(variant_upload_service, "fetch_family_structural_variant_rows", store.fetch)
-    monkeypatch.setattr(variant_upload_service, "rewrite_family_structural_variants", store.rewrite)
-    monkeypatch.setattr(variant_upload_service, "known_vcf_sample_ids", known)
-    monkeypatch.setattr(variant_upload_service, "_fetch_genes_for_chroms", no_genes)
-    monkeypatch.setattr(variant_upload_service, "lock_family_variant_writes", nothing)
-    monkeypatch.setattr(annotation_manifest_service, "merge_vcf_header_provenance", nothing)
+async def _upload(monkeypatch: pytest.MonkeyPatch, store: SvStore, sample: str, *lines: str) -> dict[str, Any]:
+    install_sv_upload_fakes(monkeypatch, store, known_samples=_SAMPLES)
     header = "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tSAMPLE\n"
     body = header + "".join(lines)
     return await variant_upload_service.upload_structural_variant_file(
-        _Session(),  # type: ignore[arg-type]
-        family_context=FamilyMetadataContext(
-            family_uuid="family-uuid",
-            family_id="FAM",
-            project_ids=["project-uuid"],
-            sample_rows=[],
-            sample_uuid_to_name={uuid: name for name, uuid in _SAMPLES.items()},
-            sample_name_to_uuid=dict(_SAMPLES),
-            affected_sample_names=[],
-            assembly_id="assembly-uuid",
-            assembly_name="GRCh38",
-        ),
+        UploadSession(),  # type: ignore[arg-type]
+        family_context=upload_family_context(_SAMPLES),
         sample_context=_contexts()[sample],
         file=UploadFile(file=BytesIO(body.encode()), filename="calls.vcf"),
         overwrite=True,
         format_hint="sniffles",
     )
+
+
+def _written(store: SvStore) -> list[StructuralVariantRecord]:
+    """The records of the one rewrite made."""
+    return [row.record for row in store.written()]
 
 
 def _uploaded_insertion(sequence: str, gt: str = "0/1") -> str:
@@ -329,13 +286,13 @@ def _uploaded_insertion(sequence: str, gt: str = "0/1") -> str:
 
 @pytest.mark.asyncio
 async def test_two_insertions_on_one_position_in_one_upload_are_two_svs(monkeypatch: pytest.MonkeyPatch) -> None:
-    store = _Store([])
+    store = SvStore()
 
     result = await _upload(monkeypatch, store, "S1", _uploaded_insertion(_LONG), _uploaded_insertion(_SHORT, "1/1"))
 
     # Before: one SV with the first one's length (7) and both calls of S1.
     assert result["created"] == 2
-    assert sorted((record.variant_id, record.sv_len, [call.gt for call in record.calls]) for record in store.written) == [
+    assert sorted((record.variant_id, record.sv_len, [call.gt for call in record.calls]) for record in _written(store)) == [
         ("1-20000-20000-INS---", 3, ["1/1"]),
         ("1-20000-20000-INS----7", 7, ["0/1"]),
     ]
@@ -365,21 +322,21 @@ async def test_a_later_samples_upload_attaches_its_call_to_the_sv_of_its_length(
             ),
         )
 
-    store = _Store([stored("1-20000-20000-INS---", 3), stored("1-20000-20000-INS----7", 7)])
+    store = SvStore([stored("1-20000-20000-INS---", 3), stored("1-20000-20000-INS----7", 7)])
 
     # S2's file holds the 7 bp insertion alone: by its own file's order it would take the id.
     await _upload(monkeypatch, store, "S2", _uploaded_insertion(_LONG))
 
-    calls = {record.variant_id: sorted(call.sample for call in record.calls) for record in store.written}
+    calls = {record.variant_id: sorted(call.sample for call in record.calls) for record in _written(store)}
     assert calls == {"1-20000-20000-INS---": ["S1"], "1-20000-20000-INS----7": ["S1", "S2"]}
 
 
 @pytest.mark.asyncio
 async def test_the_same_event_twice_in_one_file_is_one_call_of_the_sample(monkeypatch: pytest.MonkeyPatch) -> None:
-    store = _Store([])
+    store = SvStore()
 
     await _upload(monkeypatch, store, "S1", _uploaded_insertion(_LONG, "0/1"), _uploaded_insertion(_LONG, "1/1"))
 
     # Before: two calls of S1 on one SV.
-    [record] = store.written
+    [record] = _written(store)
     assert [(call.sample, call.gt) for call in record.calls] == [("S1", "1/1")]

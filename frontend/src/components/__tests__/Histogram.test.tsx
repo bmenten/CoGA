@@ -4,8 +4,10 @@ import Histogram from '../visualizations/Histogram';
 test('handles large datasets without stack overflow', () => {
   const data = Array.from({ length: 70000 }, (_, i) => i);
   const { container } = render(<Histogram data={data} />);
-  // If rendering fails, this test will throw before reaching this assertion.
-  expect(container.querySelector('svg')).not.toBeNull();
+  // If rendering fails, this test will throw before reaching these assertions; every value is
+  // counted, and drawn.
+  expect(screen.getByRole('img', { name: /^Histogram: 70,000 values in \d+ bins;/ })).toBeInTheDocument();
+  expect(container.querySelectorAll('rect').length).toBeGreaterThan(0);
 });
 
 test('is a named image that says what it counts and where the peak is (#529)', () => {

@@ -417,3 +417,13 @@ def test_a_region_is_read_from_its_lower_coordinate_to_its_higher_as_the_sql_rea
     assert _variant_overlaps_regions("1", 100, 100, [Region("1", 150, 50)])
     assert _variant_overlaps_regions("1", 40, 60, [Region("1", 150, 50)])
     assert not _variant_overlaps_regions("1", 151, 160, [Region("1", 150, 50)])
+
+
+def test_the_python_matcher_reads_a_numeric_flag_and_a_score_that_is_no_number() -> None:
+    # A transcript flag an annotator stores as a number, and a score that is no number, read
+    # as missing as ifNull reads NULL.
+    assert _keeps(_record("11-100-C-T", annotations=[{"gene": "GENE1", "canonical": 1}]), canonical_only=True)
+    assert not _keeps(_record("11-100-C-T", annotations=[{"gene": "GENE1", "canonical": 0}]), canonical_only=True)
+    unreadable = _record("11-100-C-T", annotations=[{"gene": "GENE1", "cadd_phred": "high"}])
+    assert not _keeps(unreadable, min_cadd=0.0)
+    assert _keeps(unreadable, min_cadd=-1.0)

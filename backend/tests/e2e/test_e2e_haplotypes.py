@@ -24,6 +24,8 @@ from uuid import uuid4
 
 import pytest
 
+from backend.tests.e2e._harness import ensure_postgres_schema
+
 pytestmark = pytest.mark.integration
 
 _FORMAT = "GT:DP:AD:AF:GP:PS"
@@ -94,7 +96,7 @@ async def _collect(root: Path, family_id: str) -> dict:
     from httpx import ASGITransport, AsyncClient
 
     from backend.app.core.clickhouse import init_clickhouse_schema
-    from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
+    from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.main import app
     from backend.app.services import family_package_import as package_import
     from backend.app.services.bed_service import precompute_family_haplotype_lineage
@@ -104,7 +106,7 @@ async def _collect(root: Path, family_id: str) -> dict:
     from backend.tests.e2e import _harness
     from sqlalchemy import text
 
-    await init_postgres_schema()
+    await ensure_postgres_schema()
     await init_clickhouse_schema()
     await ensure_clickhouse_variant_tables(_harness.ASSEMBLY)
 

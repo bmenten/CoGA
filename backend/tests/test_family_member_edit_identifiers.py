@@ -34,8 +34,8 @@ from backend.app.schemas import (
 )
 from backend.app.services import family_member_management_service as members
 from backend.app.services import family_structure_service as structure
-from backend.app.services.access_control import CurrentUser
 from backend.app.services.family_identifiers import IDENTIFIER_RULE
+from backend.tests._family_import_fakes import admin_user
 
 FAMILY = "FAM001"
 FATHER, MOTHER, CHILD = "FATHER1", "MOTHER1", "CHILD1"
@@ -55,16 +55,6 @@ def _no_pedigree_lock(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(members, "lock_family_pedigree", no_lock)
     monkeypatch.setattr(structure, "lock_family_pedigree", no_lock)
-
-
-def _admin() -> CurrentUser:
-    return CurrentUser(
-        id="00000000-0000-0000-0000-000000000001",
-        username="admin@example.com",
-        email="admin@example.com",
-        role="admin",
-        created_at=datetime.now(timezone.utc),
-    )
 
 
 class _ExplodingSession:
@@ -159,7 +149,7 @@ async def test_a_member_edit_refuses_an_id_no_sample_can_be_stored_under_before_
             family_id=FAMILY,
             sample_id=CHILD,
             update=FamilyMemberUpdate(**update),
-            user=_admin(),
+            user=admin_user(),
         )
 
     assert refused.value.status_code == 400
@@ -203,7 +193,7 @@ async def test_a_member_edit_strips_the_whitespace_around_the_ids_it_is_given(mo
         family_id=FAMILY,
         sample_id=CHILD,
         update=FamilyMemberUpdate(sample_id=" CHILD2 ", father_id=f" {FATHER} ", mother_id=""),
-        user=_admin(),
+        user=admin_user(),
     )
 
     assert session.params == [{"sample_uuid": "uuid-child", "sample_id": "CHILD2"}]
@@ -214,12 +204,21 @@ async def test_a_member_edit_strips_the_whitespace_around_the_ids_it_is_given(mo
 
 
 def test_an_id_that_is_empty_once_stripped_is_left_to_the_route() -> None:
-    # No rename for the batch, no parent link: the routes read these as they did.
-    members._require_storable_member_ids(
-        FamilyMemberBatchUpdateItem(sample_id=CHILD, new_sample_id="  ", father_id="", mother_id=" "),
-        new_sample_id_field="new_sample_id",
-    )
-    members._require_storable_member_ids(FamilyMemberUpdate(sample_id=None, father_id=None), new_sample_id_field="sample_id")
+    # No rename for the batch, no parent link: the routes read these as they did. The check
+    # refuses nothing and changes nothing of the request.
+    item = FamilyMemberBatchUpdateItem(sample_id=CHILD, new_sample_id="  ", father_id="", mother_id=" ")
+    update = FamilyMemberUpdate(sample_id=None, father_id=None)
+    before = (item.model_dump(), update.model_dump())
+
+    assert members._require_storable_member_ids(item, new_sample_id_field="new_sample_id") is None
+    assert members._require_storable_member_ids(update, new_sample_id_field="sample_id") is None
+    assert (item.model_dump(), update.model_dump()) == before
+    # The same fields holding an ID no sample can have are refused: the check reads them.
+    with pytest.raises(HTTPException):
+        members._require_storable_member_ids(
+            FamilyMemberBatchUpdateItem(sample_id=CHILD, new_sample_id=" A B ", father_id="", mother_id=" "),
+            new_sample_id_field="new_sample_id",
+        )
 
 
 # --------------------------------------------------------------------------- #
@@ -261,7 +260,7 @@ async def test_a_batch_edit_refuses_such_an_id_before_its_first_member_is_rename
             _ExplodingSession(),  # type: ignore[arg-type]
             family_id=FAMILY,
             update=batch,
-            user=_admin(),
+            user=admin_user(),
         )
 
     assert refused.value.status_code == 400
@@ -309,7 +308,7 @@ async def test_a_batch_edit_strips_the_whitespace_around_the_ids_it_is_given(mon
                 )
             ]
         ),
-        user=_admin(),
+        user=admin_user(),
     )
 
     assert session.params == [{"sample_uuid": "uuid-child", "sample_id": "CHILD2"}]
@@ -393,7 +392,7 @@ async def test_a_structure_edit_refuses_to_add_a_member_no_sample_can_be_stored_
             _ExplodingSession(),  # type: ignore[arg-type]
             family_id=FAMILY,
             update=update,
-            user=_admin(),
+            user=admin_user(),
         )
 
     assert refused.value.status_code == 400
@@ -433,7 +432,7 @@ async def test_a_structure_edit_adds_a_member_without_the_whitespace_around_its_
         session,  # type: ignore[arg-type]
         family_id=FAMILY,
         update=FamilyStructureUpdate(add_members=[FamilyStructureMemberCreate(sample_id=" SIB1 ")]),
-        user=_admin(),
+        user=admin_user(),
     )
 
     assert looked_up == [["SIB1"]]

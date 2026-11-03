@@ -235,6 +235,40 @@ describe('evaluateAcmg — trio / segregation', () => {
     });
     expect(find(suggestions, 'PP1')?.disposition).toBe('consider');
   });
+
+  it('takes the affected member for the proband when no member has that role', () => {
+    const suggestions = evaluateAcmg({ effect: 'missense_variant' }, undefined, undefined, {
+      members: [
+        { sampleId: 'F', role: 'father', affected: false, gt: '0/0' },
+        { sampleId: 'P', role: 'child', affected: true, gt: '0/1' },
+        { sampleId: 'M', role: 'mother', affected: false, gt: '0/0' },
+      ],
+      parentLinks: trioLinks,
+    });
+    expect(find(suggestions, 'PM6')?.disposition).toBe('applies');
+  });
+
+  it('reads a genotype it cannot parse as no call, never as a carrier or a reference call', () => {
+    // A parent whose call is unreadable is not a reference parent: de novo is not assessed.
+    for (const unreadable of ['./.', '0/x', '']) {
+      const suggestions = evaluateAcmg({ effect: 'missense_variant' }, undefined, undefined, {
+        members: [
+          probandHet,
+          { sampleId: 'F', role: 'father', affected: false, gt: unreadable },
+          { sampleId: 'M', role: 'mother', affected: false, gt: '0/0' },
+        ],
+        parentLinks: trioLinks,
+      });
+      expect(find(suggestions, 'PM6')?.disposition, unreadable).toBe('not_applicable');
+      expect(find(suggestions, 'PM6')?.evidence, unreadable).not.toBe('Inherited from a parent — not de novo.');
+    }
+    // Nor is an affected relative with an unreadable call counted for or against segregation.
+    const segregation = evaluateAcmg({ effect: 'missense_variant' }, undefined, undefined, {
+      members: [probandHet, { sampleId: 'S', role: 'sibling', affected: true, gt: '1/y' }],
+    });
+    expect(find(segregation, 'PP1')?.disposition).not.toBe('consider');
+    expect(find(segregation, 'BS4')?.disposition).not.toBe('consider');
+  });
 });
 
 // PM6/PS2 compare the proband with the parents the pedigree links to them, as the backend's de

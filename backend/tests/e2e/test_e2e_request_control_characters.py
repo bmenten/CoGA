@@ -39,21 +39,14 @@ from uuid import uuid4
 
 import pytest
 
+from backend.tests.e2e._harness import capture, ensure_postgres_schema
+
 pytestmark = pytest.mark.integration
 
 _NUL = "%00"
 # The QC-report download is opened by a browser navigation, without a bearer token: it
 # checks the signed link in its query string before it looks anything up.
 _SIGNS_IN_ITSELF = {("GET", "/api/families/{family_id}/qc-report/{sample_id}")}
-
-
-def _cap(resp: Any) -> dict[str, Any]:
-    out: dict[str, Any] = {"status": resp.status_code, "text": resp.text}
-    try:
-        out["json"] = resp.json()
-    except ValueError:
-        out["json"] = None
-    return out
 
 
 async def _audit_rows(session: Any, *, method: str, path: str) -> list[dict[str, Any]]:
@@ -104,7 +97,7 @@ async def _collect(run: str) -> dict[str, Any]:
 
     from backend.app.core.clickhouse import init_clickhouse_schema
     from backend.app.core.config import settings
-    from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
+    from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.dependencies import get_password_hash
     from backend.app.main import app
     from backend.app.services.clickhouse_variant_storage import ensure_clickhouse_variant_tables
@@ -113,7 +106,7 @@ async def _collect(run: str) -> dict[str, Any]:
     family, sample, unknown = f"E2ECC{run}", f"E2ECC{run}M", f"E2ENONE{run}"
     viewer_email, viewer_password = f"e2e-viewer-{run}@example.com", f"viewer-password-{run}"
 
-    await init_postgres_schema()
+    await ensure_postgres_schema()
     # The family's variant search runs against the assembly's ClickHouse tables.
     await init_clickhouse_schema()
     await ensure_clickhouse_variant_tables(_harness.ASSEMBLY)
@@ -151,7 +144,7 @@ async def _collect(run: str) -> dict[str, Any]:
             assert login.status_code == 200, login.text
             viewer.headers["Authorization"] = f"Bearer {login.json()['access_token']}"
 
-            r["create"] = _cap(
+            r["create"] = capture(
                 await ac.post(
                     "/api/ped/manual",
                     json={
@@ -161,25 +154,25 @@ async def _collect(run: str) -> dict[str, Any]:
                     },
                 )
             )
-            r["family"] = _cap(await ac.get(f"/api/families/{family}"))
-            r["family_nul"] = _cap(await ac.get(f"/api/families/{family}{_NUL}X"))
-            r["family_nul_viewer"] = _cap(await viewer.get(f"/api/families/{family}{_NUL}X"))
-            r["unknown_nul"] = _cap(await ac.get(f"/api/families/{unknown}{_NUL}X"))
-            r["unknown_nul_viewer"] = _cap(await viewer.get(f"/api/families/{unknown}{_NUL}X"))
-            r["family_nul_anonymous"] = _cap(await anonymous.get(f"/api/families/{family}{_NUL}X"))
-            r["family_tab"] = _cap(await ac.get(f"/api/families/{family}%09"))
-            r["family_esc"] = _cap(await ac.get(f"/api/families/{family}%1B"))
-            r["family_del"] = _cap(await ac.get(f"/api/families/{family}%7F"))
-            r["query_nul"] = _cap(await ac.get(f"/api/families/{family}/hpo?sample_id={sample}{_NUL}"))
-            r["query_tab"] = _cap(await ac.get(f"/api/families/{family}/hpo?sample_id={sample}%09"))
+            r["family"] = capture(await ac.get(f"/api/families/{family}"))
+            r["family_nul"] = capture(await ac.get(f"/api/families/{family}{_NUL}X"))
+            r["family_nul_viewer"] = capture(await viewer.get(f"/api/families/{family}{_NUL}X"))
+            r["unknown_nul"] = capture(await ac.get(f"/api/families/{unknown}{_NUL}X"))
+            r["unknown_nul_viewer"] = capture(await viewer.get(f"/api/families/{unknown}{_NUL}X"))
+            r["family_nul_anonymous"] = capture(await anonymous.get(f"/api/families/{family}{_NUL}X"))
+            r["family_tab"] = capture(await ac.get(f"/api/families/{family}%09"))
+            r["family_esc"] = capture(await ac.get(f"/api/families/{family}%1B"))
+            r["family_del"] = capture(await ac.get(f"/api/families/{family}%7F"))
+            r["query_nul"] = capture(await ac.get(f"/api/families/{family}/hpo?sample_id={sample}{_NUL}"))
+            r["query_tab"] = capture(await ac.get(f"/api/families/{family}/hpo?sample_id={sample}%09"))
             # The search form's gene and interval lists, typed one per line.
             one_per_line = "gene=GENE1%0AGENE2&intervals=chr1:1-100%0Achr2:5-10&prioritize=true"
-            r["gene_list"] = _cap(await ac.get(f"/api/families/{family}/small-variants?{one_per_line}"))
-            r["gene_list_nul"] = _cap(await ac.get(f"/api/families/{family}/small-variants?gene=GENE1%0AGENE2{_NUL}"))
-            r["delete_member_nul"] = _cap(
+            r["gene_list"] = capture(await ac.get(f"/api/families/{family}/small-variants?{one_per_line}"))
+            r["gene_list_nul"] = capture(await ac.get(f"/api/families/{family}/small-variants?gene=GENE1%0AGENE2{_NUL}"))
+            r["delete_member_nul"] = capture(
                 await ac.delete(f"/api/families/{family}/members/{sample}{_NUL}?confirm=true")
             )
-            r["members_after"] = _cap(await ac.get(f"/api/families/{family}"))
+            r["members_after"] = capture(await ac.get(f"/api/families/{family}"))
             out["sweep"] = await _sweep(ac)
 
         async with sessionmaker() as session:

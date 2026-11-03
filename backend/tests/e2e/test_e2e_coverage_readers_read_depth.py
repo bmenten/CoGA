@@ -38,6 +38,8 @@ from uuid import uuid4
 
 import pytest
 
+from backend.tests.e2e._harness import ensure_postgres_schema, write_file
+
 pytestmark = pytest.mark.integration
 
 MT_LENGTH = 16_569
@@ -79,13 +81,6 @@ _MITO_CALLS = {
 }
 
 
-def _write(root: Path, name: str, text: str) -> str:
-    path = root / name
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")
-    return name
-
-
 def _write_bigwig(path: Path, contigs: dict[str, list[float]]) -> None:
     """A bigWig of 1 kb bins on each contig, one per value."""
     import pyBigWig  # the importer's own reader, a pinned dependency
@@ -108,7 +103,7 @@ def _mito_package(root: Path, family_id: str) -> Path:
     """The trio: chrM calls for every member, and each member's coverage tracks (module doc)."""
     father, mother, proband = (f"{role}_{family_id}" for role in ("FATHER", "MOTHER", "PROBAND"))
     root.mkdir(parents=True)
-    _write(
+    write_file(
         root,
         "family.ped",
         f"{family_id}\t{father}\t0\t0\t1\t1\n"
@@ -117,22 +112,22 @@ def _mito_package(root: Path, family_id: str) -> Path:
     )
     names = {"PROBAND": proband, "MOTHER": mother, "FATHER": father}
     mito = {
-        role: _write(root, f"mito/{names[role]}.vcf", _MITO_HEADER + calls)
+        role: write_file(root, f"mito/{names[role]}.vcf", _MITO_HEADER + calls)
         for role, calls in _MITO_CALLS.items()
     }
     # One record over the whole of chrM per file: the BED's depth, the bins' log2 ratios.
-    bed = _write(root, f"coverage/{proband}.bed", f"chrM\t0\t{MT_LENGTH}\t120\n")
+    bed = write_file(root, f"coverage/{proband}.bed", f"chrM\t0\t{MT_LENGTH}\t120\n")
     # WisecondorX's entries name their segments too (they land on the segments track).
     wcx = {
         role: (
-            _write(root, f"wisecondorx/{names[role]}_bins.bed", f"chrM\t0\t{MT_LENGTH}\t0.1\n"),
-            _write(root, f"wisecondorx/{names[role]}_segments.bed", f"chrM\t0\t{MT_LENGTH}\t0.1\n"),
+            write_file(root, f"wisecondorx/{names[role]}_bins.bed", f"chrM\t0\t{MT_LENGTH}\t0.1\n"),
+            write_file(root, f"wisecondorx/{names[role]}_segments.bed", f"chrM\t0\t{MT_LENGTH}\t0.1\n"),
         )
         for role in ("PROBAND", "MOTHER")
     }
     qdnaseq = {
-        "PROBAND": _write(root, f"qdnaseq/{proband}_bins.bed", f"chrM\t0\t{MT_LENGTH}\t-0.1\n"),
-        "FATHER": _write(root, f"qdnaseq/{father}_bins.bed", f"chrM\t0\t{MT_LENGTH}\t-0.2\n"),
+        "PROBAND": write_file(root, f"qdnaseq/{proband}_bins.bed", f"chrM\t0\t{MT_LENGTH}\t-0.1\n"),
+        "FATHER": write_file(root, f"qdnaseq/{father}_bins.bed", f"chrM\t0\t{MT_LENGTH}\t-0.2\n"),
     }
     # The proband's depth has autosomal depth (median 20): her chrM's 2000x is stored as
     # log2(100). The father's has chrM only: no autosomal median, so his depths are stored as read.
@@ -141,7 +136,7 @@ def _mito_package(root: Path, family_id: str) -> Path:
     )
     _write_bigwig(root / "cnv" / f"{father}.depth.bw", {"chrM": [60.0, 80.0]})
     for sample in (proband, father):
-        _write(root, f"cnv/{sample}.vcf", _CNV_VCF)
+        write_file(root, f"cnv/{sample}.vcf", _CNV_VCF)
     lines = [
         "schema_version: 1",
         f"family_id: {family_id}",
@@ -169,7 +164,7 @@ def _mito_package(root: Path, family_id: str) -> Path:
             for sample in (proband, father)
         ),
     ]
-    _write(root, "manifest.yaml", "\n".join(lines) + "\n")
+    write_file(root, "manifest.yaml", "\n".join(lines) + "\n")
     return root
 
 
@@ -178,16 +173,16 @@ def _nipt_package(root: Path, family_id: str) -> Path:
     WisecondorX bin across chr1:0-100000, with the region of interest 1:10000-20000."""
     father, plasma, fetus = (f"{role}_{family_id}" for role in ("FATHER", "CFDNA", "FETUS"))
     root.mkdir(parents=True)
-    _write(
+    write_file(
         root,
         "family.ped",
         f"{family_id}\t{father}\t0\t0\t1\t1\n"
         f"{family_id}\t{plasma}\t0\t0\t2\t1\n"
         f"{family_id}\t{fetus}\t{father}\t{plasma}\t0\t2\n",
     )
-    bed = _write(root, f"coverage/{plasma}.bed", "1\t10000\t18000\t80\n")
-    bins = _write(root, f"wisecondorx/{plasma}_bins.bed", "1\t0\t100000\t0.1\n")
-    segments = _write(root, f"wisecondorx/{plasma}_segments.bed", "1\t0\t100000\t0.1\n")
+    bed = write_file(root, f"coverage/{plasma}.bed", "1\t10000\t18000\t80\n")
+    bins = write_file(root, f"wisecondorx/{plasma}_bins.bed", "1\t0\t100000\t0.1\n")
+    segments = write_file(root, f"wisecondorx/{plasma}_segments.bed", "1\t0\t100000\t0.1\n")
     lines = [
         "schema_version: 1",
         f"family_id: {family_id}",
@@ -205,7 +200,7 @@ def _nipt_package(root: Path, family_id: str) -> Path:
         "    per_sample:",
         f"      {plasma}: {{bed: {bed}, content: read_depth}}",
     ]
-    _write(root, "manifest.yaml", "\n".join(lines) + "\n")
+    write_file(root, "manifest.yaml", "\n".join(lines) + "\n")
     return root
 
 
@@ -214,14 +209,14 @@ async def _exercise(base: Path, mito_family: str, nipt_family: str) -> dict[str,
     from sqlalchemy import text
 
     from backend.app.core.clickhouse import init_clickhouse_schema
-    from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
+    from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.main import app
     from backend.app.services import family_package_import as package_import
     from backend.app.services.clickhouse_interval_tracks import get_interval_track_sources_by_sample
     from backend.app.services.clickhouse_variant_storage import ensure_clickhouse_variant_tables
     from backend.tests.e2e import _harness
 
-    await init_postgres_schema()
+    await ensure_postgres_schema()
     await init_clickhouse_schema()
     await ensure_clickhouse_variant_tables(_harness.ASSEMBLY)
     sessionmaker = get_postgres_sessionmaker()

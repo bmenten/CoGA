@@ -50,69 +50,33 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import text
 
+from backend.tests.e2e._harness import DRIFT_AND_QC_ACKNOWLEDGED, GATE_ACK, capture, ensure_postgres_schema, gate_refusal
+from backend.tests.e2e._import_jobs import (
+    claim_import_job,
+    import_backups,
+    one_sample_package,
+    queue_import,
+)
+
 pytestmark = pytest.mark.integration
 
 _VARIANTS = 6
 _BATCH = 2  # the SNV loader flushes every _BATCH variants
-_ACK = "e2e validation"
-# The drift and Sample-QC gates come first; they are acknowledged in every attempt here.
-_OTHER_GATES = {
-    "acknowledge_drift": True,
-    "drift_acknowledgement_reason": _ACK,
-    "acknowledge_qc": True,
-    "qc_acknowledgement_reason": _ACK,
-}
 _ALL_GATES = {
-    **_OTHER_GATES,
+    **DRIFT_AND_QC_ACKNOWLEDGED,
     "acknowledge_import_incomplete": True,
-    "import_incomplete_acknowledgement_reason": _ACK,
+    "import_incomplete_acknowledgement_reason": GATE_ACK,
 }
-
-
-def _cap(resp) -> dict:
-    out: dict[str, Any] = {"status": resp.status_code, "text": resp.text}
-    try:
-        out["json"] = resp.json()
-    except ValueError:  # pragma: no cover
-        out["json"] = None
-    return out
-
-
-def _write_package(root: Path, family_id: str, *, datasets: tuple[str, ...] = ("snv", "coverage")) -> Path:
-    """A one-sample package: a family VCF of _VARIANTS SNVs and a coverage BED."""
-    sample = f"{family_id}_S1"  # sample ids are unique across families
-    root.mkdir(parents=True, exist_ok=True)
-    (root / "family.ped").write_text(f"{family_id}\t{sample}\t0\t0\t1\t2\n", encoding="utf-8")
-    manifest = [f"schema_version: 1\nfamily_id: {family_id}\nped: family.ped\ndatasets:\n"]
-    if "snv" in datasets:
-        manifest.append("  snv:\n    family_vcf: snv/family.vcf\n")
-        (root / "snv").mkdir(exist_ok=True)
-        (root / "snv" / "family.vcf").write_text(
-            "##fileformat=VCFv4.2\n"
-            '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
-            f"#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t{sample}\n"
-            + "".join(f"1\t{100 * (i + 1)}\t.\tA\tG\t60\tPASS\t.\tGT\t0/1\n" for i in range(_VARIANTS)),
-            encoding="utf-8",
-        )
-    if "coverage" in datasets:
-        manifest.append(f"  coverage:\n    per_sample:\n      {sample}:\n        bed: coverage/S1.bed\n")
-        (root / "coverage").mkdir(exist_ok=True)
-        (root / "coverage" / "S1.bed").write_text(
-            "1\t0\t1000\t31.0\n1\t1000\t2000\t29.5\n1\t2000\t3000\t30.2\n", encoding="utf-8"
-        )
-    (root / "manifest.yaml").write_text("".join(manifest), encoding="utf-8")
-    return root
 
 
 async def _collect(base: Path, mp: pytest.MonkeyPatch) -> dict:
     from httpx import ASGITransport, AsyncClient
 
     from backend.app.core.clickhouse import init_clickhouse_schema
-    from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
+    from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.main import app
     from backend.app.services import family_package_import as package_import
     from backend.app.services import variant_upload_service
-    from backend.app.services.clickhouse_family_snapshot import list_import_backup_tables
     from backend.app.services.clickhouse_interval_tracks import count_interval_track_source_rows
     from backend.app.services.clickhouse_variant_storage import (
         count_family_small_variants,
@@ -120,7 +84,7 @@ async def _collect(base: Path, mp: pytest.MonkeyPatch) -> dict:
     )
     from backend.tests.e2e import _harness
 
-    await init_postgres_schema()
+    await ensure_postgres_schema()
     await init_clickhouse_schema()
     await ensure_clickhouse_variant_tables(_harness.ASSEMBLY)
     sm = get_postgres_sessionmaker()
@@ -188,23 +152,6 @@ async def _collect(base: Path, mp: pytest.MonkeyPatch) -> dict:
             "coverage_rows": coverage,
         }
 
-    async def backups(job_id: str) -> list[str]:
-        """The ClickHouse backup tables this job's import made of its family."""
-        return [table.name for table in await list_import_backup_tables(owner=job_id)]
-
-    async def claim(job_id: str, worker: str) -> None:
-        """Claim this queued job as the worker does, by its id."""
-        async with sm() as s:
-            await s.execute(
-                text(
-                    "UPDATE family_import_jobs SET status = 'validating', worker_id = :w, "
-                    "started_at = now(), heartbeat_at = now(), completed_at = NULL, error = NULL "
-                    "WHERE id = CAST(:j AS uuid) AND status = 'queued'"
-                ),
-                {"j": job_id, "w": worker},
-            )
-            await s.commit()
-
     out: dict[str, Any] = {"project_id": project_id}
     jobs: list[str] = []
     transport = ASGITransport(app=app)
@@ -213,26 +160,18 @@ async def _collect(base: Path, mp: pytest.MonkeyPatch) -> dict:
             ac.headers["Authorization"] = f"Bearer {await _harness.login_admin_token(ac)}"
 
             async def queue(root: Path, conflict_mode: str, family_id: str | None = None) -> str:
-                body = {
-                    "folder_path": str(root),
-                    "project_id": project_id,
-                    "dry_run": False,
-                    "conflict_mode": conflict_mode,
-                }
-                if family_id:
-                    body["family_id"] = family_id
-                resp = await ac.post("/api/family-imports", json=body)
-                assert resp.status_code == 200, resp.text
-                jobs.append(str(resp.json()["_id"]))
+                jobs.append(
+                    await queue_import(ac, root, project_id, conflict_mode=conflict_mode, family_id=family_id)
+                )
                 return jobs[-1]
 
             async def sign_out(family_id: str, body: dict) -> dict:
                 # As the sign-out dialogs do: each acknowledgement with its refusal's fingerprint.
-                return _cap(await _harness.sign_out(ac, f"/api/families/{family_id}/report/sign-out", body))
+                return capture(await _harness.sign_out(ac, f"/api/families/{family_id}/report/sign-out", body))
 
             async def run_job(job_id: str) -> None:
                 worker = f"e2e-crash-{uuid4().hex[:8]}"
-                await claim(job_id, worker)
+                await claim_import_job(job_id, worker)
                 await package_import.run_family_import_job(job_id=job_id, worker_id=worker)
 
             async def stopped_import(
@@ -244,7 +183,7 @@ async def _collect(base: Path, mp: pytest.MonkeyPatch) -> dict:
                     root, conflict_mode, family_id if conflict_mode != "cancel" else None
                 )
                 worker = f"e2e-crash-{uuid4().hex[:8]}"
-                await claim(job_id, worker)
+                await claim_import_job(job_id, worker)
                 stop_at.update(where=where, reached=asyncio.Event())
                 flushes.clear()
                 run = asyncio.create_task(
@@ -260,7 +199,7 @@ async def _collect(base: Path, mp: pytest.MonkeyPatch) -> dict:
                 record: dict[str, Any] = {"job_id": job_id, "flushed": list(flushes)}
                 record["job_after_stop"] = await job(job_id)
                 record["family_after_stop"] = await family(family_id)
-                record["backups_after_stop"] = await backups(job_id)
+                record["backups_after_stop"] = await import_backups(job_id)
                 record["signout_while_running"] = await sign_out(family_id, _ALL_GATES)
 
                 # Ten minutes later the heartbeat is stale, and a worker claims the job,
@@ -297,14 +236,14 @@ async def _collect(base: Path, mp: pytest.MonkeyPatch) -> dict:
                         break
                 record["job_after_claim"] = await job(job_id)
                 record["family_after_claim"] = await family(family_id)
-                record["backups_after_claim"] = await backups(job_id)
+                record["backups_after_claim"] = await import_backups(job_id)
                 return record
 
             # 1. Stopped inside its SNV dataset, two variants flushed.
             fam_snv = f"FAM_CRASH_{uuid4().hex[:8].upper()}"
-            root_snv = _write_package(base / fam_snv, fam_snv)
+            root_snv = one_sample_package(base / fam_snv, fam_snv, variants=_VARIANTS)
             run = await stopped_import(fam_snv, root_snv, "snv")
-            run["signout_refused"] = await sign_out(fam_snv, _OTHER_GATES)
+            run["signout_refused"] = await sign_out(fam_snv, DRIFT_AND_QC_ACKNOWLEDGED)
             run["signout_acknowledged"] = await sign_out(fam_snv, _ALL_GATES)
 
             update_job = await queue(root_snv, "update", fam_snv)
@@ -316,15 +255,17 @@ async def _collect(base: Path, mp: pytest.MonkeyPatch) -> dict:
             await run_job(overwrite_job)
             run["overwrite_job"] = await job(overwrite_job)
             run["family_after_overwrite"] = await family(fam_snv)
-            run["signout_after_overwrite"] = await sign_out(fam_snv, _OTHER_GATES)
+            run["signout_after_overwrite"] = await sign_out(fam_snv, DRIFT_AND_QC_ACKNOWLEDGED)
             out["mid_dataset"] = run
 
             # 2. Stopped between its datasets: SNV finished, coverage not begun.
             fam_cov = f"FAM_CRASH_{uuid4().hex[:8].upper()}"
-            root_cov = _write_package(base / fam_cov, fam_cov)
+            root_cov = one_sample_package(base / fam_cov, fam_cov, variants=_VARIANTS)
             run = await stopped_import(fam_cov, root_cov, "coverage")
-            run["signout_refused"] = await sign_out(fam_cov, _OTHER_GATES)
-            coverage_only = _write_package(base / f"{fam_cov}_coverage", fam_cov, datasets=("coverage",))
+            run["signout_refused"] = await sign_out(fam_cov, DRIFT_AND_QC_ACKNOWLEDGED)
+            coverage_only = one_sample_package(
+                base / f"{fam_cov}_coverage", fam_cov, variants=_VARIANTS, datasets=("coverage",)
+            )
             overwrite_job = await queue(coverage_only, "overwrite", fam_cov)
             await run_job(overwrite_job)
             run["overwrite_job"] = await job(overwrite_job)
@@ -339,7 +280,7 @@ async def _collect(base: Path, mp: pytest.MonkeyPatch) -> dict:
             await run_job(overwrite_job)
             run["overwrite_job"] = await job(overwrite_job)
             run["family_after_overwrite"] = await family(fam_snv)
-            run["backups_after_overwrite"] = await backups(overwrite_job)
+            run["backups_after_overwrite"] = await import_backups(overwrite_job)
             out["overwrite_stopped"] = run
     finally:
         async with sm() as s:
@@ -367,13 +308,6 @@ def snap(tmp_path_factory, request) -> dict:
     return _harness.run_async(lambda: _collect(base, mp))
 
 
-def _detail(resp: dict, gate: str) -> dict:
-    assert resp["status"] == 409, resp["text"]
-    detail = resp["json"]["detail"]
-    assert detail["gate"] == gate, detail
-    return detail
-
-
 # --- stopped inside a dataset ----------------------------------------------------------
 
 
@@ -383,7 +317,7 @@ def test_the_stopped_import_left_a_half_written_callset(snap) -> None:
     assert run["family_after_stop"]["snvs"] == _BATCH
     # Its job still reads running, so a sign-out is refused meanwhile.
     assert run["job_after_stop"]["status"] == "running"
-    detail = _detail(run["signout_while_running"], "import_in_progress")
+    detail = gate_refusal(run["signout_while_running"], "import_in_progress")
     assert detail["import_job"]["id"] == run["job_id"]
 
 
@@ -418,7 +352,7 @@ def test_the_worker_ends_the_stopped_job_instead_of_running_it_again(snap) -> No
 def test_the_sign_out_names_what_the_stopped_import_had_not_finished(snap) -> None:
     run = snap["mid_dataset"]
     # Before: no flag and no running job, so this signed out (200).
-    detail = _detail(run["signout_refused"], "import_incomplete")
+    detail = gate_refusal(run["signout_refused"], "import_incomplete")
     assert detail["import_incomplete"] is None
     assert set(detail["import_unfinished"]) == {run["job_id"]}
     assert "coverage, snv may be partly written or missing" in detail["message"]
@@ -429,7 +363,7 @@ def test_the_sign_out_names_what_the_stopped_import_had_not_finished(snap) -> No
     snapshot = signed["json"]["snapshot"]
     assert snapshot["import_unfinished"][run["job_id"]]["finished_datasets"] == []
     assert snapshot["acknowledged_import_incomplete"] is True
-    assert snapshot["import_incomplete_acknowledgement_reason"] == _ACK
+    assert snapshot["import_incomplete_acknowledgement_reason"] == GATE_ACK
 
 
 def test_an_update_completes_but_does_not_clear_the_half_written_callset(snap) -> None:
@@ -465,7 +399,7 @@ def test_an_import_stopped_between_datasets_names_the_one_it_had_not_begun(snap)
     assert run["family_after_stop"]["snvs"] == _VARIANTS
     assert run["family_after_stop"]["coverage_rows"] == 0
     assert run["job_after_claim"]["status"] == "failed"
-    detail = _detail(run["signout_refused"], "import_incomplete")
+    detail = gate_refusal(run["signout_refused"], "import_incomplete")
     assert "coverage may be partly written or missing (snv had finished)" in detail["message"]
 
 
