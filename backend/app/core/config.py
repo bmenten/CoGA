@@ -361,6 +361,8 @@ class Settings(BaseSettings):
     audit_log_max_write_attempts: int = Field(
         default=3, ge=1, le=10, alias="AUDIT_LOG_MAX_WRITE_ATTEMPTS"
     )
+    # Empty uses the bundled, checksummed public 1000 Genomes PCA model.
+    ancestry_reference_path: str = Field(default="", alias="ANCESTRY_REFERENCE_PATH")
     # Upload caps: bound the bytes read from an upload and the size it may expand to
     # once decompressed, so a small gzip "bomb" cannot exhaust memory. Generous by
     # default (real genomic files sit well under these); tune down per deployment.

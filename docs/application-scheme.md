@@ -144,7 +144,9 @@ image, with the backend's settings and its `/data`, and starts the API with no i
 (`FAMILY_IMPORT_WORKER_COUNT=0` on the `backend` service). Each replica is one process, which
 runs `FAMILY_IMPORT_WORKER_COUNT` jobs at a time (1 by default); `IMPORT_WORKER_REPLICAS` (1 by
 default) sets how many run. On Google Cloud the imports still run in the API's instances:
-`terraform/` has no worker service.
+`terraform/` has no worker service. The process also runs the worker of the exploratory ancestry
+PCA ([ancestry-pca.md](ancestry-pca.md)), whose jobs parse a whole-genome VCF in Python; the API
+runs that worker only when it runs import workers itself.
 
 On start it checks what the API's start checks before its workers run, and does nothing else:
 

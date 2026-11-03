@@ -80,6 +80,12 @@ def _patch_process(
         await stop_event.wait()
 
     monkeypatch.setattr(import_worker, "family_package_import_worker", worker or waits_for_its_stop)
+
+    async def ancestry_waits_for_its_stop(stop_event: asyncio.Event) -> None:
+        recorder.calls.append("ancestry_worker")
+        await stop_event.wait()
+
+    monkeypatch.setattr(import_worker, "ancestry_worker", ancestry_waits_for_its_stop)
     return stop_events
 
 
@@ -90,7 +96,7 @@ def test_the_process_checks_what_the_api_checks_and_never_migrates(monkeypatch) 
     async def run() -> int:
         stop = asyncio.Event()
         running = asyncio.create_task(import_worker.run_import_workers(3, stop))
-        while recorder.calls.count("family_package_import_worker") < 3:
+        while recorder.calls.count("family_package_import_worker") < 3 or "ancestry_worker" not in recorder.calls:
             await asyncio.sleep(0)
         stop.set()
         return await running
@@ -103,6 +109,8 @@ def test_the_process_checks_what_the_api_checks_and_never_migrates(monkeypatch) 
         "family_package_import_worker",
         "family_package_import_worker",
         "family_package_import_worker",
+        # The exploratory ancestry PCA's worker runs beside them, off the API's loop.
+        "ancestry_worker",
         "close_clickhouse_client",
         "close_postgres_engine",
     ]
@@ -278,8 +286,10 @@ def test_the_api_starts_as_many_import_workers_as_it_is_given(monkeypatch, caplo
         "start_clickhouse_integrity_monitor",
         "gene_reference_refresh_worker",
         "family_package_import_worker",
+        "ancestry_worker",
         "stop_gene_reference_worker",
         "stop_family_package_import_worker",
+        "stop_ancestry_worker",
         "stop_clickhouse_integrity_monitor",
         "stop_audit_log_worker",
         "stop_ui_event_worker",
@@ -300,6 +310,8 @@ def test_the_api_starts_as_many_import_workers_as_it_is_given(monkeypatch, caplo
 
     assert recorder.calls.count("family_package_import_worker") == count
     assert recorder.calls.count("stop_family_package_import_worker") == count
+    # The ancestry PCA's worker runs where the imports run: in the API only with its own.
+    assert recorder.calls.count("ancestry_worker") == recorder.calls.count("stop_ancestry_worker") == min(count, 1)
     # The rest of the start runs as before: the API still migrates and serves.
     assert "init_postgres_schema" in recorder.calls
     assert "gene_reference_refresh_worker" in recorder.calls

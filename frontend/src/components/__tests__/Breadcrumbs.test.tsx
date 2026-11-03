@@ -69,8 +69,8 @@ test('shows the clinical CNV name in the breadcrumb instead of its id', () => {
   expect(explorerLink).toHaveAttribute('href', '/cnv-explorer');
 });
 
-test('reads route words in sentence case and shows identifiers as they are stored', () => {
-  renderAt('/families/demo_family/mitochondrial-dna');
+test.each([['mitochondrial-dna', 'Mitochondrial DNA'], ['ancestry', 'Ancestry']])('reads %s in sentence case and shows identifiers as they are stored', (route, label) => {
+  renderAt(`/families/demo_family/${route}`);
 
   expect(screen.getByText('Dashboard')).toBeInTheDocument();
   expect(screen.getByText('Families')).toBeInTheDocument();
@@ -79,7 +79,7 @@ test('reads route words in sentence case and shows identifiers as they are store
     'href',
     '/families/demo_family',
   );
-  expect(screen.getByText('Mitochondrial DNA')).toBeInTheDocument();
+  expect(screen.getByText(label)).toBeInTheDocument();
 });
 
 test('the families crumb leads to the dashboard, where the families are listed', () => {

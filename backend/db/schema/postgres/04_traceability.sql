@@ -493,3 +493,84 @@ DROP TRIGGER IF EXISTS family_structure_versions_immutable ON family_structure_v
 CREATE TRIGGER family_structure_versions_immutable
     BEFORE UPDATE OR DELETE ON family_structure_versions
     FOR EACH ROW EXECUTE FUNCTION family_structure_versions_block_mutation();
+
+-- The exploratory ancestry PCA (outside the intended purpose; docs/ancestry-pca.md): its
+-- verified WGS sources, public reference snapshots, jobs and results. Nothing here enters a
+-- sign-out. The sources, references and results are append-only.
+CREATE TABLE IF NOT EXISTS wgs_sources (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    family_uuid uuid NOT NULL,
+    family_identifier text NOT NULL,
+    project_id uuid NOT NULL,
+    import_job_id uuid,
+    package_path text NOT NULL,
+    relative_vcf text NOT NULL,
+    sha256 text NOT NULL,
+    storage_version text NOT NULL,
+    storage_fingerprint text NOT NULL,
+    samples jsonb NOT NULL,
+    absent_record_is_hom_ref boolean NOT NULL,
+    file_size bigint NOT NULL,
+    file_mtime_ns bigint NOT NULL,
+    raw_file_id uuid,
+    qualification jsonb NOT NULL DEFAULT '{}'::jsonb,
+    imported_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS wgs_sources_family ON wgs_sources(family_uuid, project_id, imported_at DESC);
+CREATE OR REPLACE FUNCTION wgs_sources_block_mutation() RETURNS trigger AS $$
+BEGIN
+    RAISE EXCEPTION 'wgs_sources is append-only; % is not permitted', TG_OP;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS wgs_sources_no_mutation ON wgs_sources;
+CREATE TRIGGER wgs_sources_no_mutation BEFORE UPDATE OR DELETE ON wgs_sources
+    FOR EACH ROW EXECUTE FUNCTION wgs_sources_block_mutation();
+
+-- Ancestry uses verified, project-scoped full-WGS sources. Reference
+-- axes and published projections are immutable and never enter clinical sign-out.
+CREATE TABLE IF NOT EXISTS ancestry_reference_panels (
+    sha256 text PRIMARY KEY CHECK (sha256 ~ '^[0-9a-f]{64}$'),
+    snapshot jsonb NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS ancestry_runs (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    family_uuid uuid NOT NULL,
+    family_identifier text NOT NULL,
+    project_id uuid NOT NULL,
+    source_id uuid NOT NULL REFERENCES wgs_sources(id),
+    reference_sha256 text NOT NULL REFERENCES ancestry_reference_panels(sha256),
+    requested_by uuid NOT NULL,
+    status text NOT NULL DEFAULT 'queued' CHECK (status IN ('queued','running','completed','failed','interrupted')),
+    error text,
+    requested_at timestamptz NOT NULL DEFAULT now(),
+    started_at timestamptz,
+    finished_at timestamptz
+);
+CREATE INDEX IF NOT EXISTS ancestry_runs_queue ON ancestry_runs(status, requested_at);
+CREATE INDEX IF NOT EXISTS ancestry_runs_family ON ancestry_runs(family_uuid, project_id, requested_at DESC);
+CREATE TABLE IF NOT EXISTS ancestry_results (
+    run_id uuid PRIMARY KEY REFERENCES ancestry_runs(id),
+    source_id uuid NOT NULL REFERENCES wgs_sources(id),
+    reference_sha256 text NOT NULL REFERENCES ancestry_reference_panels(sha256),
+    samples jsonb NOT NULL,
+    calculation_version text NOT NULL,
+    assumptions jsonb NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE OR REPLACE FUNCTION ancestry_reference_panels_block_mutation() RETURNS trigger AS $$
+BEGIN
+    RAISE EXCEPTION 'ancestry_reference_panels is append-only; % is not permitted', TG_OP;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS ancestry_reference_panels_no_mutation ON ancestry_reference_panels;
+CREATE TRIGGER ancestry_reference_panels_no_mutation BEFORE UPDATE OR DELETE ON ancestry_reference_panels
+    FOR EACH ROW EXECUTE FUNCTION ancestry_reference_panels_block_mutation();
+CREATE OR REPLACE FUNCTION ancestry_results_block_mutation() RETURNS trigger AS $$
+BEGIN
+    RAISE EXCEPTION 'ancestry_results is append-only; % is not permitted', TG_OP;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS ancestry_results_no_mutation ON ancestry_results;
+CREATE TRIGGER ancestry_results_no_mutation BEFORE UPDATE OR DELETE ON ancestry_results
+    FOR EACH ROW EXECUTE FUNCTION ancestry_results_block_mutation();

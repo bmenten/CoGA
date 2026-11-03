@@ -787,3 +787,23 @@ created on first use, and an `SNV_INDEL/entries` table created with the narrower
 is widened then ([ClickHouse Tables](#clickhouse-tables)). The full startup order is in
 [application-scheme.md](application-scheme.md), "Startup and background work"; the reference
 data it loads is listed in [data-import.md](data-import.md), section 1.
+
+### Exploratory ancestry PCA
+
+Four tables in `04_traceability.sql` hold the exploratory ancestry PCA, which is outside the
+intended purpose and never enters a sign-out or the signed record ([ancestry-pca.md](ancestry-pca.md)).
+They are new tables, so they need only their baseline.
+
+| Table | Holds |
+| --- | --- |
+| `wgs_sources` | Append-only, project-scoped WGS source snapshots: the VCF's location, checksum, size and mtime, the family's samples, the data-version token and genotype fingerprint of its stored small variants, the absent-position and unfiltered-call policies, and the verification evidence. A retained upload is linked by `raw_file_id`, a family package by its import job. They establish what a projection read, not callable sequencing coverage |
+| `ancestry_reference_panels` | Append-only public reference snapshots keyed by the model NPZ's SHA-256: metadata, PC variance, population labels and reference coordinates |
+| `ancestry_runs` | Project-scoped jobs pinning a `wgs_sources` row, the reference checksum and the requester; queued, running, completed, failed or interrupted |
+| `ancestry_results` | One append-only snapshot per completed run: each individual's four PCs or insufficient-data state, marker QC, calculation version and policies |
+
+`wgs_sources`, `ancestry_reference_panels` and `ancestry_results` have mutation-blocking triggers,
+and `coga_app` may not UPDATE, DELETE or TRUNCATE them (`05_grants.sql`). A running job holds its
+own row lock until it ends; a job whose process stopped loses it, and the next worker ends it as
+interrupted. Publication is checked again under the family's variant-write locks, so a family,
+source, genotype or permission change in between publishes nothing. Earlier projections keep
+their own reference snapshot.

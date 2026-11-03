@@ -71,3 +71,5 @@ REVOKE UPDATE, DELETE, TRUNCATE ON
     audit_log_events, clinical_audit_events, report_signouts, integrity_anchors,
     qc_threshold_changes, family_structure_versions, ui_events
     FROM coga_app;
+REVOKE UPDATE, DELETE, TRUNCATE ON wgs_sources FROM coga_app;
+REVOKE UPDATE, DELETE, TRUNCATE ON ancestry_reference_panels, ancestry_results FROM coga_app;

@@ -901,3 +901,20 @@ python -m pytest -q --co | tail -1
 
 When a test file is added, add a row to the relevant section here and (if it verifies a
 technical-file requirement) update [TF-09b](regulatory/TF-09b-requirements-traceability-matrix.md).
+
+## Exploratory ancestry PCA
+
+The ancestry PCA is outside the intended purpose ([ancestry-pca.md](ancestry-pca.md)): these
+tests verify that it is correct and that it never touches the clinical path, not a clinical claim.
+
+| Test file | Verifies |
+| --- | --- |
+| [`backend/tests/test_ancestry_projection.py`](../backend/tests/test_ancestry_projection.py) | Independent four-PC arithmetic on a synthetic basis; every no-call, filter, duplicate and allele boundary; the observed-call floor under the hom-ref policy; accepted unfiltered calls; gzip input; another declared build refused; the bundled reference pinned and its axes centred |
+| [`backend/tests/test_ancestry_worker.py`](../backend/tests/test_ancestry_worker.py) | The worker loop; a sentence for every reason a source is not ready; embryo, cfDNA and monogenic NIPT families refused |
+| [`backend/tests/test_wgs_sources.py`](../backend/tests/test_wgs_sources.py) | Bounded WGS evidence, an independent SHA-256 byte-order oracle for the call fingerprint, sample-order independence and the explicit unfiltered-call policy |
+| [`backend/tests/e2e/test_e2e_family_ancestry.py`](../backend/tests/e2e/test_e2e_family_ancestry.py) | A family package registering its source after its import, the worker publishing against an independent PCA oracle with no variant-write lock held while it reads, earlier projections on their own reference, cancellation, revoked access, a changed source, and nothing in the signed record |
+| [`backend/tests/e2e/test_e2e_wgs_upload_source.py`](../backend/tests/e2e/test_e2e_wgs_upload_source.py) | A retained upload verified and registered without a variant rewrite and without a variant-write lock held while it reads, idempotent, readers and outsiders refused, invalidated by a new upload, a version bump or a lost row |
+| [`frontend/src/pages/families/__tests__/FamilyAncestryPage.test.tsx`](../frontend/src/pages/families/__tests__/FamilyAncestryPage.test.tsx) | The page's exploratory, not-for-clinical-use note first, project-scoped reads and unavailable families |
+| [`frontend/src/pages/families/__tests__/FamilyAncestryPanel.test.tsx`](../frontend/src/pages/families/__tests__/FamilyAncestryPanel.test.tsx) | Reference axes and points, the mark on the plot, observed and assumed calls apart, the policies in words, earlier projections, a failed calculation and the manual calculation |
+| [`frontend/src/pages/families/__tests__/FamilyWgsSourcePanel.test.tsx`](../frontend/src/pages/families/__tests__/FamilyWgsSourcePanel.test.tsx) | A retained VCF registered only after the user declares it a whole genome, with both policies sent; why a source cannot be registered or was refused |
+| [`frontend/e2e/ancestry.spec.ts`](../frontend/e2e/ancestry.spec.ts) | Production frontend and CSP: a retained upload registered, a calculation against the bundled reference, an incomplete VCF not plotted, axis and population controls, mobile containment |

@@ -18,6 +18,9 @@ whose heartbeat went stale, and the family's variant-write locks, which are advi
 the import's own connection (``family_variant_write_lock``; the ContextVar there only spares
 the import's own tasks from taking the locks they hold already).
 
+It also runs the worker of the exploratory ancestry PCA (``ancestry_service``), whose jobs parse
+a whole-genome VCF in Python: work of the same kind, kept off the API's loop for the same reason.
+
 Its start checks what the API's start checks before a worker runs: the database is at this
 version's schema revision (it never migrates: the API or the migration job does that, as the
 tables' owner), and no variant table has an older row identity. It then drops the backup
@@ -40,6 +43,7 @@ from .core.clickhouse import close_clickhouse_client, init_clickhouse_schema, wa
 from .core.coga_logging import configure_json_logging, install_event_loop_exception_handler
 from .core.config import settings
 from .core.postgres import close_postgres_engine, verify_postgres_schema_revision, wait_for_postgres
+from .services.ancestry_service import ancestry_worker, stop_ancestry_worker
 from .services.clickhouse_variant_storage import verify_clickhouse_variant_storage_identity
 from .services.family_package_import import (
     drop_orphaned_import_backups,
@@ -79,6 +83,7 @@ async def run_import_workers(count: int, stop: asyncio.Event) -> int:
     install_event_loop_exception_handler()
     stopping = asyncio.create_task(stop.wait())
     workers: list[asyncio.Task[None]] = []
+    ancestry: asyncio.Task[None] | None = None
     try:
         start = asyncio.create_task(start_import_worker_process())
         await asyncio.wait({start, stopping}, return_when=asyncio.FIRST_COMPLETED)
@@ -91,11 +96,15 @@ async def run_import_workers(count: int, stop: asyncio.Event) -> int:
             return EXIT_STOPPED
         start.result()
         workers = [asyncio.create_task(family_package_import_worker(stop)) for _ in range(count)]
+        ancestry = asyncio.create_task(ancestry_worker(stop))
         logger.info("Import worker process started with %d package-import worker(s)", count)
-        done, _ = await asyncio.wait({stopping, *workers}, return_when=asyncio.FIRST_COMPLETED)
+        done, _ = await asyncio.wait({stopping, ancestry, *workers}, return_when=asyncio.FIRST_COMPLETED)
         if stopping in done:
             logger.info("Import worker process stopping")
             return EXIT_STOPPED
+        if ancestry in done:
+            problem = None if ancestry.cancelled() else ancestry.exception()
+            logger.error("The ancestry worker ended by itself; the import worker process stops", exc_info=problem)
         for ended in [worker for worker in workers if worker in done]:
             workers.remove(ended)
             problem = None if ended.cancelled() else ended.exception()
@@ -106,6 +115,8 @@ async def run_import_workers(count: int, stop: asyncio.Event) -> int:
         return EXIT_FAILED
     finally:
         stopping.cancel()
+        if ancestry is not None:
+            await stop_ancestry_worker(ancestry, stop)
         for worker in workers:
             await stop_family_package_import_worker(worker, stop)
         await close_clickhouse_client()

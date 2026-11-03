@@ -72,6 +72,8 @@ frontend/playwright/.cache/
 /data/**/*.tsv
 /data/**/*.tsv.gz
 /data/ref-data/dbNSFP*
+# Deployment downloads and indexes the pinned public genomes; never commit large caches.
+/data/ref-data/genomes/
 
 # Coverage reports and the per-job data files CI combines
 frontend/coverage/

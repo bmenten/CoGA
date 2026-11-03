@@ -60,6 +60,7 @@ from .family_package_common import (
     _json_list,
 )
 from .family_package_source import package_folder_path, staged_package_source_async
+from .wgs_source_storage import PackageAncestrySource
 from .family_package_validation import load_validated_family_package
 from .family_package_jobs import (
     FAMILY_IMPORT_STALE_HEARTBEAT,
@@ -502,6 +503,12 @@ async def _execute_family_package_import_local(
     if progress is not None:
         await progress(validation, datasets, logs, family_context.family_id)
 
+    # A manifest that declares its family VCF a whole genome for the exploratory ancestry PCA
+    # (outside the intended purpose) has the file's checksum taken before any dataset reads it,
+    # so the source it registers after the import names the file the import read. Neither
+    # step can fail the import (wgs_source_storage.PackageAncestrySource).
+    ancestry_source = await PackageAncestrySource.before_import(bundle, logs)
+
     # One write of the family's variants at a time, and this import is one write from its
     # snapshot to its restore: it commits after its datasets, and a restore puts back the
     # family's rows as they were before the import, so a write that ran in between would
@@ -528,7 +535,7 @@ async def _execute_family_package_import_local(
                 session, family_id=family_context.family_id, mark=import_mark
             )
             raise
-        return await _import_family_datasets(
+        result = await _import_family_datasets(
             session,
             bundle=bundle,
             validation=validation,
@@ -543,6 +550,15 @@ async def _execute_family_package_import_local(
             import_mark=import_mark,
             user=user,
         )
+        if ancestry_source is not None and result.completed and not result.error:
+            await ancestry_source.note_imported(family_context)
+    if ancestry_source is not None and result.completed and not result.error:
+        # After the family's variant writes are released: no import or sign-out waits for it.
+        await ancestry_source.register(
+            session, context=family_context, project_id=project_id, datasets=result.datasets,
+            job_id=job_id, logs=result.logs,
+        )
+    return result
 
 
 async def _import_family_datasets(

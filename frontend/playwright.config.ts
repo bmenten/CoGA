@@ -1,4 +1,6 @@
 import { defineConfig } from '@playwright/test';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 
 // Browser end-to-end (M6). Drives a real Chromium against a real running stack:
 // a uvicorn backend plus the production frontend server (server.mjs serving the built
@@ -62,6 +64,7 @@ export default defineConfig({
       timeout: 120_000,
       env: {
         APP_ENV: 'test',
+        FAMILY_IMPORT_ROOTS: process.env.FAMILY_IMPORT_ROOTS || path.join(tmpdir(), 'coga-browser-e2e'),
         REFERENCE_BOOTSTRAP_ENABLED: 'false',
         HPO_BOOTSTRAP_ON_STARTUP: 'false',
         GENE_REFERENCE_BOOTSTRAP_ON_STARTUP: 'false',

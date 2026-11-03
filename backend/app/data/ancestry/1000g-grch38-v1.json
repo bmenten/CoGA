@@ -1,0 +1,33 @@
+{
+  "sha256": "802a3590063e52897c7b58d950c003b656e284e88b0ea97d8836e6844d4b4703",
+  "name": "1000 Genomes phase 3 \u00b7 GRCh38 \u00b7 CoGA PCA v1",
+  "genome_build": "GRCh38",
+  "source_url": "https://github.com/brentp/peddy/tree/1d340cd3e87623c8c58b4a82b18f33ba532101aa/peddy",
+  "source_revision": "1d340cd3e87623c8c58b4a82b18f33ba532101aa",
+  "input_sha256": {
+    "GRCH38.sites": "f6647779e9195ed3686fe34f705dcb6af2f658cafd1839fd93e1fd71c5e86e74",
+    "GRCH38.sites.bin.gz": "61cf27b489292bc8c5670199845f690667b64bfa58035aa3a67d4474c7c1e0ef",
+    "pca.py": "a74e84ca783ca680bbe10a85d76d7ad36ec88e8d46e5ba01ff0dfc11226e283f",
+    "LICENSE": "b60a9efdae9f210701e357c747fdc3c492fa637c49ed462a73e26c40ac68e34d"
+  },
+  "method": "Reference-only variance-standardized PCA; MAF \u2265 5%; \u2264 2% reference missingness; r\u00b2 \u2264 0.2 / 500 kb; long-range LD regions excluded; 4 PCs",
+  "variant_count": 9569,
+  "sample_count": 2504,
+  "explained_variance": [
+    0.08211377825493073,
+    0.040378517298347356,
+    0.01250128424536227,
+    0.009051314954443302
+  ],
+  "populations": {
+    "AFR": "African",
+    "AMR": "Admixed American",
+    "EAS": "East Asian",
+    "EUR": "European",
+    "SAS": "South Asian"
+  },
+  "numpy_version": "2.2.6",
+  "seed": 20261101,
+  "reference_ids": "1KG-NNNN identifies a public matrix row, not an original participant identifier.",
+  "license": "Public peddy-distributed reference data; MIT attribution retained in PEDDY-LICENSE.txt"
+}

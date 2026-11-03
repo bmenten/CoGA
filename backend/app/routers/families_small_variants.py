@@ -120,6 +120,9 @@ async def upload_family_small_variants(
         sample_uuid=None,
         scope="family",
         dataset="small_variants",
+        # Which callset the retained file is: the ancestry PCA offers only a directly
+        # called nuclear VCF as its source (wgs_source_service.candidates).
+        metadata={"callset": result["source_format"]},
     )
     return SmallVariantUploadResult.model_validate(result)
 

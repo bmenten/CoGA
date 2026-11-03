@@ -10,6 +10,7 @@ import haplotypeSegregation from '../../content/docs/haplotype-segregation.md?ra
 import monogenicNipt from '../../content/docs/monogenic-nipt.md?raw';
 import svSecondHit from '../../content/docs/sv-second-hit.md?raw';
 import clinicalTraceability from '../../content/docs/clinical-traceability.md?raw';
+import ancestryPca from '../../content/docs/ancestry-pca.md?raw';
 
 export interface ReferenceDoc {
   slug: string;
@@ -25,6 +26,7 @@ export const referenceDocs: ReferenceDoc[] = [
   { slug: 'monogenic-nipt', markdown: monogenicNipt },
   { slug: 'sv-second-hit', markdown: svSecondHit },
   { slug: 'clinical-traceability', markdown: clinicalTraceability },
+  { slug: 'ancestry-pca', markdown: ancestryPca },
 ];
 
 export const referenceDocBySlug = new Map(referenceDocs.map((doc) => [doc.slug, doc]));
