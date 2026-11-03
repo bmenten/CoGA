@@ -1,4 +1,4 @@
-import { QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import FamilyWgsSourcePanel from '../FamilyWgsSourcePanel';
@@ -14,17 +14,24 @@ const candidates = {
     { file_id: 'file-1', file_name: 'family-old.vcf.gz', file_size: 1024 },
   ],
 };
-const renderPanel = (currentSource = false) =>
-  render(
-    <QueryClientProvider client={createTestQueryClient()}>
-      <FamilyWgsSourcePanel
-        familyId="SYN/F1"
-        projectId="project1"
-        enabled
-        currentSource={currentSource}
-      />
-    </QueryClientProvider>
-  );
+const panel = (client: QueryClient, currentSource: boolean) => (
+  <QueryClientProvider client={client}>
+    <FamilyWgsSourcePanel
+      familyId="SYN/F1"
+      projectId="project1"
+      enabled
+      currentSource={currentSource}
+    />
+  </QueryClientProvider>
+);
+const renderPanel = (currentSource = false) => {
+  const client = createTestQueryClient();
+  const view = render(panel(client, currentSource));
+  return {
+    ...view,
+    rerender: (current: boolean) => view.rerender(panel(client, current)),
+  };
+};
 
 describe('WGS source registration', () => {
   beforeEach(() => {
@@ -33,7 +40,7 @@ describe('WGS source registration', () => {
     api.post.mockResolvedValue({ data: { id: 'source1' } });
   });
   it('registers the chosen retained VCF only once the user declares it a whole genome, with both policies', async () => {
-    renderPanel();
+    const { rerender } = renderPanel();
     const register = await screen.findByRole('button', {
       name: 'Check and register the WGS source',
     });
@@ -75,6 +82,12 @@ describe('WGS source registration', () => {
     expect(await screen.findByRole('status')).toHaveTextContent(
       'WGS source registered.'
     );
+    // The source is now current, which folds the form away: the confirmation stays in sight.
+    rerender(true);
+    expect(screen.getByRole('status')).toBeVisible();
+    expect(
+      screen.getByText('Change the source or its assumptions')
+    ).toBeVisible();
   });
   it('says why a source cannot be registered, and why it was refused', async () => {
     api.get.mockResolvedValueOnce({

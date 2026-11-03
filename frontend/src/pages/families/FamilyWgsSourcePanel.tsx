@@ -187,10 +187,11 @@ const FamilyWgsSourcePanel: FC<Props> = ({
                 )}
               </p>
             )}
-            {register.isSuccess && <p role="status">WGS source registered.</p>}
           </form>
         </details>
       )}
+      {/* Outside the form: a registered source is current, which folds the form away. */}
+      {register.isSuccess && <p role="status">WGS source registered.</p>}
     </section>
   );
 };
