@@ -1,22 +1,27 @@
 ### Getting started
 
-Choose **Sign in with Microsoft** and sign in with the Microsoft account of your hospital or university.
-Your first sign-in makes your CoGA account; you see a project's data once an administrator has given
-you access to it. Where CoGA runs without Microsoft sign-in, choose **Sign up** on the sign-in page and
-fill in **Create account** instead: you can sign in once an administrator has activated the account and
-given you access to your projects. **Logout** signs you out of CoGA; on a shared computer, then choose
-**Sign out of Microsoft** on the sign-in page too. The arrow at
-the right of the top bar opens a menu of the main sections: the projects, the explorers, the gene panels,
-this guide and, for administrators, **Admin**. **Settings** in the same bar holds your display
-preferences.
+Choose **Sign in with Microsoft** and use the Microsoft account of your hospital or university. Your
+first sign-in creates your CoGA account. You see a project's data once an administrator gives you
+access to it.
 
-CoGA keeps the pedigree, the assay data and your interpretation together, so a case is reviewed as a
+Where CoGA runs without Microsoft sign-in, choose **Sign up** on the sign-in page and fill in
+**Create account**. You can sign in once an administrator has activated the account and given you
+access to your projects.
+
+**Logout** signs you out of CoGA. On a shared computer, then also choose **Sign out of Microsoft** on
+the sign-in page.
+
+The arrow at the right of the top bar opens a menu of the main sections: the projects, the explorers,
+the gene panels, this guide and, for administrators, **Admin**. **Settings** in the same bar holds your
+display preferences.
+
+CoGA keeps the pedigree, the assay data and your interpretation together, so you review a case as a
 whole:
 
 - A **project** decides who sees the data and which reference assembly applies. You see only the
   projects you belong to; administrators see everything and create the projects. In each of your
   projects you are an **analyst**, who reads and changes its records, or a **reader**, who only reads
-  them; a family page says *Read-only access (reader)* where you are a reader.
+  them. A family page says *Read-only access (reader)* where you are a reader.
 - A **family** is the case: related samples with their pedigree, roles and affected status.
 - A **sample** carries the assay data: variants, coverage, segments, repeats and more.
 - **Reference data** (genes, cytobands, ClinVar, gnomAD, clinical CNVs and more) belongs to an assembly
@@ -33,8 +38,8 @@ whole:
 > - **Check Sample QC** before sign-out: it confirms that the samples are who the pedigree says.
 > - **Sign-out closes the analysis.** It is the analyst's sign-off, not the medical one: the clinical
 >   report is drafted and medically signed in the EPD and refers to the signed version. Only people
->   the laboratory authorises sign out; CoGA refuses it to a reader, but does not check which
->   analyst may.
+>   the laboratory authorises sign out. CoGA refuses it to a reader, but does not check which analyst
+>   may.
 
 ### Reviewing a case
 
@@ -45,8 +50,7 @@ whole:
 4. Build a shortlist in the variant list before you open the viewers.
 5. Record your interpretation as you go: classification, tags and notes.
 6. Tag the variants to report with **Report**, check the drafted report, and have someone the
-   laboratory authorises sign out the analysis. The clinical report is then drafted and medically
-   signed in the EPD, referring to that signed version.
+   laboratory authorises sign out the analysis. The clinical report follows in the EPD.
 
 To set up a new case, see [Case setup and data import](#case-setup).
 

@@ -1,18 +1,18 @@
 # Semi-automatic ACMG classification — reference
 
 The **ACMG classify** dialog pre-evaluates the ACMG/AMP 2015 criteria for a small variant from the
-data CoGA already holds. It scores them on the ClinGen points scale and lets you confirm or change
-every criterion before you save. It is decision support, not an autoclassifier: nothing counts until
-you accept it, and the server recomputes the class when you save.
+data CoGA already holds. It scores them on the ClinGen points scale; you confirm or change every
+criterion before you save. It is decision support, not an autoclassifier: nothing counts until you
+accept it, and the server recomputes the class when you save.
 
-How to use the dialog is in the [user guide](/docs), section *Interpretation and review*. This page
-holds the rules. The ClinGen classifier for copy-number variants is at the end.
+How to use the dialog: [user guide](/docs), section *Interpretation and review*. This page holds the
+rules. The ClinGen classifier for copy-number variants is at the end.
 
 ---
 
 ## From points to a class
 
-Each criterion you accept adds points by its strength. Benign criteria subtract them.
+Each criterion you accept adds points by its strength; benign criteria subtract them.
 
 | Strength | Pathogenic | Benign |
 | --- | ---: | ---: |
@@ -30,17 +30,17 @@ Each criterion you accept adds points by its strength. Benign criteria subtract 
 | −7 or less | Benign - class 1 |
 
 The score bar at the top of the form draws this scale as posterior probabilities of pathogenicity
-(Tavtigian: a prior of 10%, and the odds double with roughly every point). Benign is below 0.1% and
-Pathogenic above 99%, so both are short end caps. Every VUS point has a cell of its own, with a tick
-at 10%, 18.8%, 32.5%, 50%, 67.5% and 81.2%; Likely Pathogenic starts at 90%. The arrow sits in the
-cell of the current total.
+(Tavtigian: a prior of 10%; the odds double with roughly every point). Benign is below 0.1% and
+Pathogenic above 99%, so both are short end caps. Each VUS point has its own cell, with a tick at 10%,
+18.8%, 32.5%, 50%, 67.5% and 81.2%; Likely Pathogenic starts at 90%. The arrow sits in the cell of the
+current total.
 
 **BA1 overrides the points.** An accepted BA1 (allele frequency 5% or more) makes the variant Benign,
 whatever the other criteria say.
 
 **Each criterion counts once, at a strength it allows.** The dialog offers each criterion only these
-strengths. The server checks the same when you save, and refuses a classification that lists a
-criterion twice or gives it another strength.
+strengths. The server checks the same on save: it refuses a classification that lists a criterion
+twice or gives it another strength.
 
 | Criteria | Strengths |
 | --- | --- |
@@ -50,15 +50,20 @@ criterion twice or gives it another strength.
 | BS1–BS4, BP4 | Strong, Moderate, Supporting |
 | BP1–BP3, BP5–BP7 | Moderate, Supporting |
 
-When you save, CoGA writes the class to the variant as its classification and as the matching review
-tag. It also stores every criterion with its strength and your note, for the audit trail (see the
+On save, CoGA writes the class to the variant as its classification and as the matching review tag.
+It also stores every criterion with its strength and your note, for the audit trail (see the
 [traceability reference](/docs/reference/clinical-traceability)). If you accept no criterion, no class
-is saved. Saving also freezes the evidence the criteria read, as the dialog shows it: the ClinVar
-significance, and the consequence, impact and LoF call (LOFTEE), the gnomAD and other population
-frequencies and counts, and the CADD, REVEL, SpliceAI, SIFT, PolyPhen and AlphaMissense values of the
-variant's primary transcript, with, for a missense variant, the gnomAD missense Z of its gene that PP2
-reads and where it came from (the gene profile or the VCF). When one of them changes later, the report
-names it before sign-out.
+is saved. Saving also freezes the evidence the criteria read, as the dialog shows it:
+
+- the ClinVar significance;
+- the consequence, impact and LoF call (LOFTEE);
+- the gnomAD and other population frequencies and counts;
+- the CADD, REVEL, SpliceAI, SIFT, PolyPhen and AlphaMissense values of the variant's primary
+  transcript;
+- for a missense variant, its gene's gnomAD missense Z that PP2 reads, and where it came from (the
+  gene profile or the VCF).
+
+When one of them changes later, the report names it before sign-out.
 
 ### VUS tiers: hot, warm, cold
 
@@ -71,8 +76,8 @@ approach.
 | 2 or 3 | VUS — Warm | Mixed or partial evidence. |
 | 0 or 1 | VUS — Cold | Little pathogenic support. |
 
-The tier shows on the score bar and is saved as a review tag next to *VUS - class 3*, so you can filter
-on it. A variant that leaves the VUS band loses its tier tag.
+The tier shows on the score bar and is saved as a review tag next to *VUS - class 3*, so you can
+filter on it. A variant that leaves the VUS band loses its tier tag.
 
 ---
 
@@ -88,22 +93,22 @@ on it. A variant that leaves the VUS band loses its tier tag.
 Hover a criterion to see the evidence behind its state. You can change every state and every strength.
 
 **A classified variant opens as you saved it.** Opening **ACMG classify** again, from any list, shows
-each criterion you saved with its state, its strength and its evidence. The pre-evaluation only fills
-in evidence you left empty, and sets the criteria you never saved. Saving again without changes keeps
-your criteria.
+each saved criterion with its state, strength and evidence. The pre-evaluation only fills in evidence
+you left empty and sets the criteria you never saved. Saving again without changes keeps your
+criteria.
 
 **When a lookup fails.** If the gene profile or the family's HPO terms cannot be loaded, the dialog
-says so and offers **Retry**. PVS1, BS2 and PP4 then say *not assessed* and are offered as Consider.
-They are never scored as negative evidence.
+says so and offers **Retry**. PVS1, BS2 and PP4 then read *not assessed* and are offered as Consider,
+never scored as negative evidence.
 
 ---
 
 ## What CoGA pre-evaluates
 
 The rules read the variant's annotation (consequence, gnomAD, in-silico scores, ClinVar), the gene
-profile (ClinGen dosage, GenCC inheritance modes, the gene's HPO terms and gnomAD missense Z), the family
-genotypes and the proband's HPO terms. The proband is the member with the proband role, otherwise the
-first affected member.
+profile (ClinGen dosage, GenCC inheritance modes, the gene's HPO terms and gnomAD missense Z), the
+family genotypes and the proband's HPO terms. The proband is the member with the proband role,
+otherwise the first affected member.
 
 | Criterion | State | Rule |
 | --- | --- | --- |
@@ -129,8 +134,8 @@ so it pre-applies neither PP5 nor BP6. The variant marks and the ranking read Cl
 ### Frequency (PM2, BS1, BA1)
 
 The frequency criteria read the overall gnomAD allele frequency from the annotated VCF. When the VCF
-carries only the exome and genome frequencies, CoGA uses the higher of the two. They do not use the
-highest sub-population frequency (popmax).
+carries only the exome and genome frequencies, CoGA uses the higher of the two. The highest
+sub-population frequency (popmax) is not used.
 
 Only the criterion that fits the frequency stays active; the other two are greyed:
 
@@ -141,8 +146,8 @@ Only the criterion that fits the frequency stays active; the other two are greye
 | below 0.01%, or none | PM2 | BA1, BS1 |
 | 0.01% up to 1% | none | BA1, BS1, PM2 |
 
-A variant with no gnomAD frequency counts as absent from gnomAD, so PM2 is pre-applied. Check that the
-VCF was annotated against gnomAD before relying on it.
+A variant with no gnomAD frequency counts as absent from gnomAD, so PM2 is pre-applied. Before you
+rely on it, check that the VCF was annotated against gnomAD.
 
 ### In-silico evidence (PP3, BP4)
 
@@ -161,21 +166,21 @@ When REVEL does not decide:
 
 Only a REVEL-based call marks the opposite criterion as argues against. With no REVEL, SpliceAI or
 AlphaMissense value, PP3 and BP4 are not applicable. A REVEL value between the thresholds, or an
-*ambiguous* AlphaMissense class, with no other signal, leaves both open.
+*ambiguous* AlphaMissense class, with no other signal leaves both open.
 
 ### Missense constraint (PP2)
 
 PP2 asks two things: the gene has few benign missense variants, and missense variants are a common
-mechanism of disease in it. CoGA reads the first from the gene's gnomAD missense Z: at 3.09 or more,
-the threshold ClinGen's Sequence Variant Interpretation working group discusses for PP2, it offers PP2
-as Consider (Supporting) for a missense variant. The second is your judgement, so CoGA never applies
-PP2 for you: tick it once you have checked the gene's disease mechanism.
+mechanism of disease in it. CoGA reads the first from the gene's gnomAD missense Z. At 3.09 or more
+(the threshold ClinGen's Sequence Variant Interpretation working group discusses for PP2), it offers
+PP2 as Consider (Supporting) for a missense variant. The second is your judgement, so CoGA never
+applies PP2 for you: tick it once you have checked the gene's disease mechanism.
 
-The missense Z comes from the gene profile, the value the variant card shows as *Missense Z*. When the
-gene profile holds none, CoGA reads the VCF's own `MISSENSE_Z`, shown under *Other scores &
-annotations* on the card as *Missense Z (gnomAD, from the VCF)*. The evidence says which one PP2 read,
-for example *gnomAD missense Z 3.52 (from the gene profile)*. A gene profile below 3.09 decides, even
-when the VCF holds a higher value. Without a missense Z from either, PP2 is left unmarked.
+The missense Z comes from the gene profile: the value the variant card shows as *Missense Z*. When the
+gene profile holds none, CoGA reads the VCF's own `MISSENSE_Z`, shown on the card under *Other scores &
+annotations* as *Missense Z (gnomAD, from the VCF)*. The evidence says which one PP2 read, for example
+*gnomAD missense Z 3.52 (from the gene profile)*. A gene profile below 3.09 decides, even when the VCF
+holds a higher value. Without a missense Z from either, PP2 is left unmarked.
 
 ### Phenotype (PP4)
 
@@ -185,21 +190,21 @@ phenotype-match score from 0 to 1 (see the [Monarch reference](/docs/reference/m
 - **0.6 or more** → PP4 Moderate.
 - **0.3 or more** → PP4 Supporting.
 
-Without a usable score (none, or below 0.3), CoGA looks for an HPO term that is on both the proband's
-list and the gene's list, and applies PP4 Supporting when it finds one. CoGA never pre-applies PP4 above
-Moderate: raise it to Strong yourself for a highly specific, single-gene phenotype.
+Without a usable score (none, or below 0.3), CoGA applies PP4 Supporting when an HPO term is on both
+the proband's list and the gene's list. CoGA never pre-applies PP4 above Moderate: raise it to Strong
+yourself for a highly specific, single-gene phenotype.
 
 ### De novo (PM6)
 
-PM6 compares the proband with the proband's own parents: the father and mother that the pedigree links
-to the proband. The member roles do not decide it, because a grandparent can hold the father or mother
-role too. The rules are those of the de novo inheritance filter.
+PM6 compares the proband with the proband's own parents: the father and mother the pedigree links to
+the proband. The member roles do not decide it, because a grandparent can hold the father or mother role
+too. The rules are those of the de novo inheritance filter.
 
 - Both parents called reference with 8 reads or more, and the proband heterozygous → PM6 applied
   (assumed de novo). A call without a reported depth counts as enough. Upgrade to PS2 yourself if
   parentage is confirmed.
 - Both parents reference, but a parent has fewer than 8 reads → PM6 Consider. At that depth a parent
-  can carry the variant without it being called. Check the parents' reads.
+  can carry the variant without it being called: check the parents' reads.
 - Both parents reference, but the proband is homozygous → PM6 Consider. A de novo event changes one
   copy, so something else explains the second: a deletion of the other allele, uniparental disomy or a
   genotyping error.
@@ -239,7 +244,7 @@ clickable.
 
 ## Left for you
 
-CoGA never pre-evaluates these, because it does not hold the evidence. Apply them by hand:
+CoGA never pre-evaluates these: it does not hold the evidence. Apply them by hand:
 
 - **PS1 / PM5** — the same or a different change at an amino-acid residue known to be pathogenic.
   CoGA stores only the variant's own ClinVar status, not a residue-level index.
@@ -279,7 +284,7 @@ only the pre-evaluation differs.
 
 The dialog header links the variant to **gnomAD**, **ClinVar** and **DECIPHER**, and to a **PubMed**
 search that combines the gene (or protein change) with the proband's HPO terms. Use it to check whether
-the gene–phenotype link has been published.
+the gene–phenotype link is published.
 
 ---
 
@@ -290,12 +295,12 @@ ACMG technical standard for copy-number variants (Riggs et al. 2020). Choose **C
 **Copy-number gain** at the top: the two have different criteria and point values. CoGA picks gain for a
 duplication or insertion, whatever its subtype (`DUP:TANDEM`, `INS:ME`), and loss otherwise.
 
-Each criterion carries a point value, some with a range you can adjust, and counts once. The server
-keeps each value within its allowed range, refuses a classification that lists a criterion twice, and
-recomputes the total when you save. Saving also freezes the evidence the
-pre-selection reads, so the report can tell when it changes (see the
-[traceability reference](/docs/reference/clinical-traceability)). An event that several callers call
-is a row per caller, each with its own genes, pLI and inheritance: the classifier reads, and the save
+Each criterion carries a point value, some with an adjustable range, and counts once. On save, the
+server keeps each value within its allowed range, refuses a classification that lists a criterion
+twice, and recomputes the total. Saving also freezes the evidence the pre-selection reads, so the
+report can tell when it changes (see the
+[traceability reference](/docs/reference/clinical-traceability)). An event called by several callers is
+a row per caller, each with its own genes, pLI and inheritance: the classifier reads, and the save
 freezes, the row you opened it from.
 
 | Points | Class |
@@ -318,8 +323,7 @@ CoGA pre-selects only what the structural-variant record shows. Everything else 
 
 The pre-selected criteria start accepted. Untick any that do not fit.
 
-Each kind has its own pre-selection, made for that kind. Switching from loss to gain pre-selects the
-gain's own section-3 tier and leaves 2H unticked: none of the loss's criteria, points or notes come
-along, and the same holds the other way round. What you change in one kind stays with that kind: switch
-back and it is as you left it, and it never appears in the other kind. Only the kind shown when you save
-is saved.
+Each kind has its own pre-selection. Switching from loss to gain pre-selects the gain's own section-3
+tier and leaves 2H unticked: none of the loss's criteria, points or notes come along, and the same holds
+the other way round. What you change in one kind stays with that kind: switch back and it is as you
+left it; it never appears in the other kind. Only the kind shown when you save is saved.

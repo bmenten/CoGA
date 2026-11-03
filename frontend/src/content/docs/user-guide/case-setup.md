@@ -6,15 +6,18 @@ Package import | An administrator points at a family folder on the CoGA server, 
 ```
 
 - **Loading data is for administrators**: package import, single uploads on the **Upload family and
-  sample data** page, and replacing an existing family. Editing an existing family's members or
-  structure is for administrators too. Adding, changing and removing HPO terms is for the analysts of
-  the family's project and for administrators.
+  sample data** page, and replacing an existing family. So is editing an existing family's members or
+  structure. HPO terms are added, changed and removed by the analysts of the family's project and by
+  administrators.
 - For a **monogenic NIPT** case, tick *Monogenic NIPT (cfDNA from maternal plasma)* in the family builder:
   see [Monogenic NIPT](#monogenic-nipt).
-- Each kind of data switches on part of CoGA: small variants the small-variant page and Sample QC;
-  structural variants the SV page and the variant summary; TRGT calls the repeat page; Paraphase the
-  paralogue page; mitochondrial calls the mtDNA analysis; coverage, segments, APCAD and haplotypes the
-  viewer tracks.
+- Each kind of data switches on part of CoGA:
+  - small variants: the small-variant page and Sample QC;
+  - structural variants: the SV page and the variant summary;
+  - TRGT calls: the repeat page;
+  - Paraphase: the paralogue page;
+  - mitochondrial calls: the mtDNA analysis;
+  - coverage, segments, APCAD and haplotypes: the viewer tracks.
 
 > **Reference data first.** Genes, cytobands, ClinVar and the other annotation layers are loaded per
 > assembly. If a viewer cannot place coordinates or a gene search is empty, check that the reference

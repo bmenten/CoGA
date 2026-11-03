@@ -115,60 +115,67 @@ The reference is written into the report by the person who drafts it.
 
 **Which outputs are signed.** The sign-out freezes the family's analysis into one signed record,
 which the clinical report in the EPD quotes by its report code (§3; the owner's decision of
-2026-10-14). Every family's record holds the reported small variants, structural variants and
-CNVs (each with its classification, criteria, frozen evidence, tags and note, and its
-description as the analyst reviewed it, #879), the annotation, reference and software versions,
-the reference-data releases, the gene-panel versions the family's searches applied, the
-repeat-expansion and Paraphase calls with their status, what each coverage track held (#911),
-the evidence drift, the Sample QC, the sequencing QC with its cut-offs and the import state
-([clinical-traceability.md](../clinical-traceability.md)). A PGT family's record also holds the
-embryo calls (REQ-PGT-005): the backend makes them from the stored haplotype blocks, the family
-page shows the calls it serves, and the record freezes them with each embryo's phasing QC at
-the ROI and that QC's verdict against provisional thresholds (#899, #908). A monogenic NIPT
-family's analysis is signed out from the NIPT page or the report page, and its record also
-holds the NIPT results as the backend computes them: the fetal-fraction estimate, the quality
-checks with their verdicts, the target coverage, each variant tagged for the report with its
-category, fetal-inheritance probabilities and, for a de novo candidate, its triage, and the
-recessive fetal risk of those variants' genes (#900). The record holds no gene or phenotype
-context, no population frequencies or in silico predictions beyond those a small variant's
-classification froze in its evidence snapshot, and no NIPT candidate that is not tagged for the
-report (TF-09b §3). **🔲 OWNER:** decide per application what the signed record is to hold
-(decided on 2026-10-14, as above; TF-06 H5, H6, H9).
+2026-10-14).
+
+- **Every family's record** holds the reported small variants, structural variants and CNVs
+  (each with its classification, criteria, frozen evidence, tags and note, and its description
+  as the analyst reviewed it, #879); the annotation, reference and software versions; the
+  reference-data releases; the gene-panel versions the family's searches applied; the
+  repeat-expansion and Paraphase calls with their status; what each coverage track held (#911);
+  the evidence drift; the Sample QC; the sequencing QC with its cut-offs; and the import state
+  ([clinical-traceability.md](../clinical-traceability.md)).
+- **A PGT family's record** also holds the embryo calls (REQ-PGT-005). The backend makes them
+  from the stored haplotype blocks, and the family page shows the calls it serves. The record
+  freezes them with each embryo's phasing QC at the ROI and that QC's verdict against
+  provisional thresholds (#899, #908).
+- **A monogenic NIPT family's** analysis is signed out from the NIPT page or the report page.
+  Its record also holds the NIPT results as the backend computes them: the fetal-fraction
+  estimate; the quality checks with their verdicts; the target coverage; each variant tagged
+  for the report, with its category, fetal-inheritance probabilities and, for a de novo
+  candidate, its triage; and the recessive fetal risk of those variants' genes (#900).
+- **The record holds no** gene or phenotype context, no population frequencies or in silico
+  predictions beyond those a small variant's classification froze in its evidence snapshot, and
+  no NIPT candidate that is not tagged for the report (TF-09b §3).
+
+**🔲 OWNER:** decide per application what the signed record is to hold (decided on 2026-10-14,
+as above; TF-06 H5, H6, H9).
 
 > No output is an autonomous diagnosis. All outputs are reviewed by a qualified professional
-> (TF-01 §4). The analyst signs out the analysis in CoGA (the analytical sign-off), and the
-> clinical report is medically signed in the EPD (TF-01 §1); CoGA records the sign-out of the
-> family's analysis, made from the report page or, for a monogenic NIPT family, the NIPT page.
+> (TF-01 §4). The analyst signs out the analysis in CoGA (the analytical sign-off), from the
+> report page or, for a monogenic NIPT family, the NIPT page; the clinical report is medically
+> signed in the EPD (TF-01 §1).
 
 ## 7. Architecture & technology
 
 - **Frontend:** React, TypeScript, Vite, Tailwind.
 - **Backend:** FastAPI (Python), SQLAlchemy async, ClickHouse client.
 - **Processes:** the API runs as one uvicorn process per backend container. The family-package
-  imports run in import-worker processes of their own (`python -m app.import_worker`; the
+  imports run in separate import-worker processes (`python -m app.import_worker`; the
   `import-worker` service of Docker Compose), from the backend's image with its settings. Such
-  a process serves nothing, on no port, and each of its workers takes one queued import job at
-  a time; the API then runs no import itself (`FAMILY_IMPORT_WORKER_COUNT=0`). Without such processes, as in the Cloud Run
-  configuration in `terraform/`, the API runs the import workers itself. The claim of a job,
-  its heartbeat and the end of a job whose process stopped go through Postgres, and so do the
-  locks that let one write of a family's variants run at a time, whichever process runs it, so
-  the controls of §8 and TF-06 H16 hold across processes
+  a process serves nothing and opens no port; each of its workers takes one queued import job
+  at a time. The API then runs no import itself (`FAMILY_IMPORT_WORKER_COUNT=0`). Without such
+  processes, as in the Cloud Run configuration in `terraform/`, the API runs the import workers
+  itself. Postgres carries the claim of a job, its heartbeat, the end of a job whose process
+  stopped, and the locks that let one write of a family's variants run at a time, whichever
+  process runs it. So the controls of §8 and TF-06 H16 hold across processes
   ([application-scheme.md](../application-scheme.md#import-worker-processes)).
 - **Postgres:** authoritative for metadata, users/projects, review state, ACMG blobs, audit logs, repeat/Paraphase results, gene/HPO/panel cache, version manifest, sign-out snapshots.
 - **ClickHouse:** authoritative for variant payloads and interval tracks per assembly, plus cross-project genotype aggregates.
 - **Filesystem / object store:** reference FASTA and BAM/CRAM for visualization (presigned, access-checked).
 
-A complete component list with versions and risk classification of third-party
-components is maintained in the [TF-08 SOUP Register](TF-08-soup-register.md).
+The [TF-08 SOUP Register](TF-08-soup-register.md) holds the complete component list, with
+versions and the risk classification of third-party components.
 
 ## 8. Integrity, reproducibility & traceability features (design elements)
 
-These are both product features and risk controls / GSPR evidence:
+These are product features and also risk controls / GSPR evidence:
 
 - **Per-family annotation/version manifest** and report **provenance footer**.
 - **Per-classification evidence snapshot** frozen at classification time; **evidence-drift detection** flags when underlying data changed.
 - **Immutable, append-only clinical audit trail** (who classified/tagged/edited/signed, with field-level deltas).
-- **Frozen, versioned, SHA-256 content-hashed case sign-out**, the analyst's analytical sign-off that closes the analysis; the clinical report in the EPD refers 1:1 to a signed version (§3). Amendments create new versions and signed snapshots are never changed. Sign-out is **refused** for a family on an assembly outside the validated set (no override), and while the family's data is being written: an import of it queued or running, or another write holding its variant-write locks (no override; a sign-out shares those locks while it reads its snapshot, TF-06 H16). It is **blocked** by unacknowledged evidence drift, by a failed or unverifiable Sample QC, and by an incomplete import (an import that failed for some datasets, or one, an upload or a deletion that did not finish, REQ-TRACE-013) until the analyst records a reason.
+- **Frozen, versioned, SHA-256 content-hashed case sign-out**, the analyst's analytical sign-off that closes the analysis; the clinical report in the EPD refers 1:1 to a signed version (§3). Amendments create new versions; signed snapshots are never changed.
+  - Sign-out is **refused**, with no override, for a family on an assembly outside the validated set, and while the family's data is being written: an import of it queued or running, or another write holding its variant-write locks (a sign-out shares those locks while it reads its snapshot, TF-06 H16).
+  - Sign-out is **blocked**, until the analyst records a reason, by unacknowledged evidence drift, by a failed or unverifiable Sample QC, and by an incomplete import (an import that failed for some datasets, or an import, upload or deletion that did not finish, REQ-TRACE-013).
 - A signed version is **rendered and printed from its frozen record** alone, and says what that record does not hold (REQ-TRACE-007). The live report is labelled as not the signed version and is **checked against the latest signed version**: it says when the two differ. The signed version can be downloaded.
 - **Server-side recomputation** of ACMG scores so stored classifications never depend on the browser.
 
@@ -177,17 +184,17 @@ Reference: [clinical-traceability.md](../clinical-traceability.md).
 ## 9. Configurations / variants
 
 CoGA is one device with per-application configuration (assay tags, gene panels, inheritance
-presets) rather than separate software variants. Configuration items under control:
-gene-panel definitions and their source version, ACMG criterion pre-positioning rules,
-NIPT artifact lists (per assay/panel; seeded from the assay's cfDNA samples or imported from
-the NIPT-M pipeline's recurrent-artefact table), reference-data releases. Configuration
-management is governed by **TF-18**.
+presets), not separate software variants. Configuration items under control: gene-panel
+definitions and their source version, ACMG criterion pre-positioning rules, NIPT artifact
+lists (per assay/panel; seeded from the assay's cfDNA samples or imported from the NIPT-M
+pipeline's recurrent-artefact table), reference-data releases. **TF-18** governs
+configuration management.
 
 ## 10. Operating environment & deployment
 
 - Containerized. **Production target: Google Cloud**, deployed with Terraform (owner decision,
   #627). There is **no production deployment yet**: the configuration in `terraform/` is
-  written but has never been applied. It describes Cloud Run services behind an external
+  written but never applied. It describes Cloud Run services behind an external
   HTTPS load balancer (TLS 1.2+, Cloud Armor), Cloud SQL, a ClickHouse VM and CMEK-encrypted
   buckets in the configured region (default `europe-west1`). The load balancer is
   **internet-facing** until the go-live switches are on; those switches and the other open

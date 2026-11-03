@@ -10,8 +10,8 @@ with ClinGen and GenCC evidence and OMIM links; the *Monarch gene–disease asso
 resources.
 
 - **ACMG secondary finding** says whether the gene is on the ACMG secondary-findings list that CoGA
-  ships: *On ACMG SF v3.3*, with the phenotype, category, inheritance and variants to report the list
-  gives the gene and its footnotes for it, or *Not on ACMG SF v3.3*. *Not checked* means the list was
+  ships: *On ACMG SF v3.3*, with the phenotype, category, inheritance, variants to report and
+  footnotes the list gives for the gene, or *Not on ACMG SF v3.3*. *Not checked* means the list was
   not read for this gene: its gene information was refreshed before CoGA had the list, or the list could
   not be read.
 - **ClinGen dosage curation** gives ClinGen's haploinsufficiency and triplosensitivity curations of the
@@ -51,5 +51,5 @@ chromosome or type; each row shows the CNV, cytoband, location, size and **ClinV
 - Click a CNV for its detail page, with its description, the supporting ClinVar records and links to
   OMIM and DECIPHER. The same page opens when you click a clinical CNV in the viewers.
 
-> **Counts follow your access.** The variant explorer counts only the projects you can see, so its
-> cohort counts reflect your accessible cohort.
+> **Counts follow your access.** The variant explorer's cohort counts include only the projects you can
+> see.

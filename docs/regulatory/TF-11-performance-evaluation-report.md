@@ -10,13 +10,13 @@
 | Date | 2026-06-25 |
 | Basis | IVDR Annex XIII Part A; executes [TF-10 Performance Evaluation Plan](TF-10-performance-evaluation-plan.md) |
 
-> This is the report that records the **results** of the validation studies defined in
-> TF-10 and states the **claimed performance** and **validated scope**. It is the document
-> a competent authority reads to judge GSPR §9.1. Sections are stubbed; fill on execution.
+> This report records the **results** of the validation studies defined in TF-10 and states
+> the **claimed performance** and **validated scope**. A competent authority reads it to judge
+> GSPR §9.1. Sections are stubbed; fill them on execution.
 >
-> **CMGG forms.** This report is the consolidated evidence the signed CMGG validation forms
-> draw from; which form is used when is set out in
-> [TF-18 §4b](TF-18-change-configuration-management.md).
+> **CMGG forms.** The signed CMGG validation forms draw on this report as their consolidated
+> evidence; [TF-18 §4b](TF-18-change-configuration-management.md) sets out which form is used
+> when.
 
 ---
 
@@ -36,6 +36,7 @@ gnomAD, ClinVar, GenCC, inheritance genetics). ‹Cite the basis; not re-establi
 | Variant-level carrier OPA | ‹…› | ‹…› | ≥99% ‹confirm› | ‹…› |
 | Couple-level at-risk concordance | ‹…› | ‹…› | 100% ‹confirm› | ‹…› |
 | Reportable (P/LP) concordance | ‹…› | | all | ‹…› |
+
 Discordance adjudication: ‹table — case, CoGA call, comparator, root cause, action›.
 
 ### 3.2 PGT (100 embryos)

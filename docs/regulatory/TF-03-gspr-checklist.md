@@ -10,14 +10,14 @@
 | Date | 2026-06-25 |
 | Basis | IVDR (EU) 2017/746 **Annex I** |
 
-> Clause-by-clause mapping of the IVDR Annex I GSPRs to applicability, the method of
-> conformity, and the evidence in this technical file. This is the core of the Article
-> 5(5)(f) declaration: the institution declares the device meets these requirements, and
-> states with justification any that are not fully met. **Clause numbering must be
-> verified against the current regulation text by CMGG RA.** "Met by" cites the
-> controlling document(s); ◐ = partially evidenced today, action tracked.
+> Maps each IVDR Annex I GSPR clause to its applicability, the method of conformity and the
+> evidence in this technical file. This is the core of the Article 5(5)(f) declaration: the
+> institution declares that the device meets these requirements, and justifies any that are
+> not fully met. **CMGG RA must verify the clause numbering against the current regulation
+> text.** The evidence column cites the controlling document(s).
 
-Legend — **Status:** ✅ met (evidence exists) · ◐ in progress · ⬜ not started · N/A.
+Legend — **Status:** ✅ met (evidence exists) · ◐ in progress (partially evidenced today,
+action tracked) · ⬜ not started · N/A.
 
 ## Chapter I — General requirements
 
@@ -57,13 +57,13 @@ Legend — **Status:** ✅ met (evidence exists) · ◐ in progress · ⬜ not s
 | 20.4.1 | Limitations, warnings, residual-risk information, required upstream conditions | Yes | ◐ | TF-01 §4; TF-15; provenance footer |
 | 20.4.1 | Version / build identification accessible to user | Yes | ◐ | Shown in the footer of every page and every report, and frozen into each signed report ([TF-15 §1](TF-15-instructions-for-use.md)). Scheme: [TF-18 §2](TF-18-change-configuration-management.md); **🔲** `Sxxxx` not yet assigned |
 
-\* Items marked N/A* are formally non-applicable but have an analogous control noted, because
-the device's interpretive nature changes how the classical IVD wording maps.
+\* Items marked N/A* are formally not applicable but name an analogous control, because the
+device's interpretive nature changes how the classical IVD wording maps.
 
 ## Requirements not (yet) fully met — Article 5(5)(f)(iii) reasoned justifications
 
-The Article 5(5) declaration must list any GSPR **not fully met**, with justification.
-Current open items (to be closed before declaration, or carried with justification):
+The Article 5(5) declaration must list, with justification, any GSPR **not fully met**.
+Open items (to be closed before the declaration, or carried with a justification):
 
 | § | Gap | Plan / justification |
 | --- | --- | --- |
@@ -73,6 +73,6 @@ Current open items (to be closed before declaration, or carried with justificati
 | 16.2 | Lifecycle documentation per the governing SOP H11.1-OP5 to be completed | Codebase practices exist (CI gates, tests, audit) and the SOP defines the process; the bio-IT ingangsvalidatie (H11.1-F12.2) + TF-07/TF-09 formalize it. |
 | 20.1 | IFU not yet issued as a controlled document | [TF-15](TF-15-instructions-for-use.md) and the in-app docs exist as its basis. |
 
-> No GSPR is proposed to be *permanently* unmet; all open items have a remediation path.
-> The declaration should be signed only once these are closed or carry an accepted,
+> No GSPR is proposed to be *permanently* unmet; every open item has a remediation path.
+> The declaration should be signed only once each is closed or carries an accepted,
 > documented justification.

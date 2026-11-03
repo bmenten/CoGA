@@ -11,12 +11,12 @@
 | Standards | IEC 62304:2006+A1:2015 (software lifecycle); IEC 82304-1 (health software product); supports IVDR Annex I §16.2 |
 
 > Defines the lifecycle processes by which CoGA is developed, verified, released and
-> maintained "in accordance with the state of the art" (IVDR Annex I §16.2). It documents
-> the **existing engineering practice** of the project and the gaps to formalize.
+> maintained "in accordance with the state of the art" (IVDR Annex I §16.2): the project's
+> **existing engineering practice** and the gaps to formalize.
 >
-> **Governing procedure.** This plan implements, for CoGA, CMGG's controlled software
-> procedure **`H11.1-OP5`** ([README §1a](README.md)). Where this document cites IEC 62304
-> clauses, they structure the work; they are not a claim of certified 62304 compliance.
+> **Governing procedure.** This plan implements CMGG's controlled software procedure
+> **`H11.1-OP5`** for CoGA ([README §1a](README.md)). The IEC 62304 clauses cited here
+> structure the work; they are not a claim of certified 62304 compliance.
 
 ---
 
@@ -25,25 +25,28 @@
 | | |
 | --- | --- |
 | **Class** | **Class C** — a software failure (e.g. a missed pathogenic variant, a wrong embryo segregation call, a wrong fetal-risk category) could, if not caught, contribute to a serious clinical decision (embryo transfer/discard, reproductive decision, missed diagnosis). |
-| Justification | Per IEC 62304, classification reflects the *worst-case* harm if the software fails and external risk controls are insufficient. Although a qualified professional signs out every result (a strong control), professional review alone is not treated as sufficient to downgrade below C for the safety-critical calls (TF-06). |
-| Effect | Class C requires the full set of 62304 development, architecture, detailed-design, integration, system-test, and maintenance activities, with documented traceability. **Confirmed:** Class C, with no lower-class decomposition claimed ([INPUTS-QUESTIONNAIRE](INPUTS-QUESTIONNAIRE.md) D1). |
+| Justification | Per IEC 62304, the class reflects the *worst-case* harm if the software fails and external risk controls are insufficient. A qualified professional signs out every result (a strong control), but professional review alone is not treated as sufficient to go below C for the safety-critical calls (TF-06). |
+| Effect | Class C requires the full set of 62304 development, architecture, detailed-design, integration, system-test and maintenance activities, with documented traceability. **Confirmed:** Class C, with no lower-class decomposition claimed ([INPUTS-QUESTIONNAIRE](INPUTS-QUESTIONNAIRE.md) D1). |
 
 ## 2. Lifecycle model
 
-CoGA uses an **iterative/incremental** model (feature branches → PR → CI gates → review →
-merge → release), mapped onto the IEC 62304 processes below. The existing per-feature design
-docs (e.g. [monogenic-nipt.md](../monogenic-nipt.md), [clinical-traceability.md](../clinical-traceability.md))
+CoGA uses an **iterative/incremental** model (feature branches → PR → CI gates → merge → QA's
+per-release review → release), mapped onto the IEC 62304 processes below. The per-feature
+design docs (e.g. [monogenic-nipt.md](../monogenic-nipt.md), [clinical-traceability.md](../clinical-traceability.md))
 are the project's de-facto design records; this plan formalizes the structure around them.
 
-These processes are the engineering realization of the **H11.1-OP5 phase flow**:
-**projectaanvraag** (a CMGGMC "Projectaanvraag nieuwe diagnostische Bio-IT toepassing"
-questionnaire — project description, analysis info, validation plan, data/IT infrastructure,
-planning — including a market-research / make-or-buy assessment, cf. [TF-05](TF-05-equivalence-justification.md))
-→ **functionele analyse** (DPO advice obtained when personal data is processed, [TF-14](TF-14-dpia.md))
-→ **ontwerp** → **implementatie** → **validatie** (bio-IT ingangsvalidatie
-[TF-09](TF-09-verification-validation.md) / [TF-06](TF-06-risk-management-plan.md) + clinical
-validation per method [TF-10](TF-10-performance-evaluation-plan.md)) → **operationele fase**
-([TF-16](TF-16-post-market-surveillance-plan.md) / [TF-17](TF-17-vigilance-capa.md)).
+These processes realize the **H11.1-OP5 phase flow**:
+
+1. **projectaanvraag** — a CMGGMC "Projectaanvraag nieuwe diagnostische Bio-IT toepassing"
+   questionnaire (project description, analysis info, validation plan, data/IT infrastructure,
+   planning), including a market-research / make-or-buy assessment (cf. [TF-05](TF-05-equivalence-justification.md));
+2. **functionele analyse** — DPO advice obtained when personal data is processed ([TF-14](TF-14-dpia.md));
+3. **ontwerp**;
+4. **implementatie**;
+5. **validatie** — bio-IT ingangsvalidatie ([TF-09](TF-09-verification-validation.md) /
+   [TF-06](TF-06-risk-management-plan.md)) + clinical validation per method
+   ([TF-10](TF-10-performance-evaluation-plan.md));
+6. **operationele fase** — [TF-16](TF-16-post-market-surveillance-plan.md) / [TF-17](TF-17-vigilance-capa.md).
 
 | IEC 62304 process | How CoGA realizes it | Evidence / location |
 | --- | --- | --- |
@@ -70,17 +73,17 @@ Per H11.1-OP5 (CMGG roles):
 | **CMGG IT coördinator** | ‹named in the KHB› | Project prioritization/planning; co-approves minor/major releases into production. |
 | **Projectverantwoordelijke** (project lead) | ‹named in the KHB› | Owns design quality, implementation, the bio-IT ingangsvalidatie (incl. risk analysis), and release. |
 | **Developer(s)** | The project lead | Implementation, unit/integration tests, SOUP monitoring; works via the project lead for cross-team input. |
-| **Independent reviewer** (four-eyes) | QA: the Kwaliteitscel / labokwaliteitsverantwoordelijke below; necessarily **not** the author of the changes | Per release, before the tag: reviews every change to the clinical-critical modules and a sample of the rest, and signs the review ([TF-18 §6](TF-18-change-configuration-management.md)). Pull requests need no approval (owner decision, 2026-10-14): CoGA has one developer. Until then the IT coördinator held this role, as an approval per change before merge. |
-| **Business contactpersoon** ("Klinisch coördinator") | ‹per application — see KHB› | Clinical requirements and coordinates the **clinical validation per method** ([TF-10](TF-10-performance-evaluation-plan.md)); co-approves major releases. |
+| **Independent reviewer** (four-eyes) | QA: the Kwaliteitscel / labokwaliteitsverantwoordelijke below; necessarily **not** the author of the changes | Per release, before the tag: reviews every change to the clinical-critical modules and a sample of the rest, and signs the review ([TF-18 §6](TF-18-change-configuration-management.md)). Pull requests need no approval, as CoGA has one developer (owner decision, 2026-10-14). Before that decision the IT coördinator held this role, approving each change before merge. |
+| **Business contactpersoon** ("Klinisch coördinator") | ‹per application — see KHB› | Clinical requirements; coordinates the **clinical validation per method** ([TF-10](TF-10-performance-evaluation-plan.md)); co-approves major releases. |
 | **Kwaliteitscel / labokwaliteitsverantwoordelijke** | The CMGG's QC-verantwoordelijke (kwaliteitsbeheerder), ‹named in the KHB› | QMS compliance, document control (KHB), and sign-off on in-production-taking. |
 | **UZ Gent DPO** | ‹to be named at DPO consultation› | Consulted when personal data is processed ([TF-14](TF-14-dpia.md)). |
 | **Head of department** | ‹named in the KHB› | Departmental accountability for the in-house device. |
 | **Lab director / Head of CMGG** | The project lead | Release authorization, residual-risk acceptance. |
 
-The role holders are drawn from the CMGG bio-IT group; the authoritative register is the CMGG
-**kwaliteitshandboek (KHB)** and organigram, of which this table is a project-specific extract. It
-names roles, not people: the repository is public, so the holders' names stay in the KHB. Where
-one person holds several roles, the table says so, because the segregation of duties below turns
+The role holders come from the CMGG bio-IT group. The authoritative register is the CMGG
+**kwaliteitshandboek (KHB)** and organigram; this table is a project-specific extract. It names
+roles, not people: the repository is public, so the holders' names stay in the KHB. Where one
+person holds several roles, the table says so, because the segregation of duties below depends
 on it.
 
 > **🔲 OWNER:** the role titles are to be confirmed ([INPUTS A3](INPUTS-QUESTIONNAIRE.md)). Confirmed
@@ -89,42 +92,46 @@ on it.
 > **Segregation of duties — recorded, not resolved.** The **developer, project lead and lab
 > director are the same person**, so implementation and release authorization are not
 > independent. Two controls compensate and must therefore hold:
-> 1. **Independent review is performed by QA, per release** (owner decision, 2026-10-14):
->    before each tag, QA reviews every change to the clinical-critical modules and a sample of
->    the rest, and signs the review. This is the four-eyes control of
+> 1. **QA performs the independent review, per release** (owner decision, 2026-10-14), as in
+>    the table above. This is the four-eyes control of
 >    [TF-18 §4](TF-18-change-configuration-management.md), set out in
->    [TF-18 §6](TF-18-change-configuration-management.md): a compensating measure for the
->    missing per-change approval, since pull requests need no approval.
+>    [TF-18 §6](TF-18-change-configuration-management.md). It compensates for the missing
+>    per-change approval, since pull requests need no approval.
 > 2. **The H11.1-F12.2 validation report carries three distinct signatures** —
->    eindverantwoordelijke (the lab director), IT-team coördinator and kwaliteitsbeheerder, three
+>    eindverantwoordelijke (the lab director), IT-team coördinator and kwaliteitsbeheerder: three
 >    different people, so no single person both produces and approves the validation.
 >
-> This concentration should be reviewed by the kwaliteitscel and either accepted as a documented
-> residual or resolved by appointing a separate release authorizer.
+> The kwaliteitscel should review this concentration and either accept it as a documented
+> residual or resolve it by appointing a separate release authorizer.
 
 ## 4. Development environment & tooling
 
-- **Environment separation (H11.1-OP5):** development never happens directly on a production system — it uses a dedicated dev environment, or the test environment where none exists.
+- **Environment separation (H11.1-OP5):** development never happens directly on a production system; it uses a dedicated dev environment, or the test environment where there is none.
 - **Registration & identifier:** CoGA is to be registered in the CMGGMC **ICT module** with a software number **`Sxxxx`** (**🔲** not yet assigned); semantic versioning `x.y.z` (see [TF-18 §2](TF-18-change-configuration-management.md)); only **major** versions are recorded in the CMGGMC ICT "Software" section.
 - Languages/runtimes: Python (backend), Node.js / TypeScript (frontend); the versions are in [TF-08](TF-08-soup-register.md).
 - Source control: Git/GitHub; feature branches; pull requests, which need no approval: the four-eyes review is QA's, per release ([`CONTRIBUTING.md`](../../CONTRIBUTING.md)). Branch protection, its required checks, its limits and QA's review: [TF-18 §6](TF-18-change-configuration-management.md).
 - Build/packaging: Docker / Docker Compose; pinned `backend/requirements.txt`, `frontend/package-lock.json`.
 - CI: GitHub Actions (`.github/workflows/ci.yml`, `security.yml`, `build.yml`); the verification gates are described in [TF-09 §1](TF-09-verification-validation.md).
-- Tool validation: development tools (linters, test runners, CI) are not part of the device; their adequacy is evidenced by the gates they enforce. Compilers/build tools are configuration-controlled via pinned versions.
+- Tool validation: development tools (linters, test runners, CI) are not part of the device; the gates they enforce evidence their adequacy. Compilers/build tools are configuration-controlled by pinned versions.
 
 ## 5. Deliverables per increment
 
-For each change reaching a clinical release: updated requirements/design where affected,
-implementation, unit + integration tests (green in CI), updated traceability (TF-09),
-risk-file review (TF-06) when a new hazard or control is touched, and a release record (TF-18).
+For each change reaching a clinical release:
+
+- updated requirements/design where affected;
+- implementation;
+- unit + integration tests, green in CI;
+- updated traceability (TF-09);
+- risk-file review (TF-06) when a new hazard or control is touched;
+- a release record (TF-18).
 
 ## 6. Maintenance & legacy
 
-CoGA is an actively maintained product. Maintenance changes follow the same process and gates
-as development; the change-control procedure (TF-18) determines, per change, whether
-re-verification and/or re-validation (TF-09/TF-10) is required and whether the change is
-"significant" enough to warrant a new declaration/notification. Reference-data and SOUP
-updates are handled per [TF-08](TF-08-soup-register.md).
+CoGA is actively maintained. Maintenance changes follow the same process and gates as
+development. Per change, the change-control procedure (TF-18) decides whether re-verification
+and/or re-validation (TF-09/TF-10) is required, and whether the change is "significant" enough
+to warrant a new declaration/notification. Reference-data and SOUP updates follow
+[TF-08](TF-08-soup-register.md).
 
 ## 7. Records
 

@@ -14,8 +14,9 @@ every document.
 - [development.md](development.md) — run CoGA locally, reset it, troubleshoot.
 - [data-import.md](data-import.md) — load reference data and family data.
 - [deployment-gcp.md](deployment-gcp.md) — deploy to Google Cloud with Terraform, and run it day to day.
-- [deployment-vm.md](deployment-vm.md) — run the production stack on one virtual machine, for a test environment.
-- [monitoring.md](monitoring.md) — the backend's `/metrics` endpoint, what it exposes, and alert rules.
+- [terraform/README.md](../terraform/README.md) — the Terraform design, its files and its known residuals, for reviewers.
+- [deployment-vm.md](deployment-vm.md) — the production stack on one virtual machine, as a test environment.
+- [monitoring.md](monitoring.md) — the backend's `/metrics` endpoint, what it exposes, and the alert rules.
 - [db-runtime-role-runbook.md](db-runtime-role-runbook.md) — switch the API to the restricted database role.
 - [RELEASING.md](../RELEASING.md) and [release-record-template.md](release-record-template.md) — cut a release and record it.
 - [scripts/](../scripts/README.md) — the helper scripts.
@@ -24,7 +25,7 @@ every document.
 
 - [application-scheme.md](application-scheme.md) — architecture: the parts, which database holds what, startup, the code map.
 - [database.md](database.md) — every Postgres and ClickHouse table.
-- [clickhouse-scale-benchmark.md](clickhouse-scale-benchmark.md) — the ClickHouse storage and its queries towards 1,000 whole genomes: where they fail, and the hardware they need.
+- [clickhouse-scale-benchmark.md](clickhouse-scale-benchmark.md) — ClickHouse storage and queries towards 1,000 whole genomes: where they fail, and the hardware they need.
 - [security-posture.md](security-posture.md) — access control, audit logging, encryption and the security checks.
 - [testing.md](testing.md) — what each test file covers, and the CI jobs.
 - [CONTRIBUTING.md](../CONTRIBUTING.md) — the checks to run before a pull request, and how changes are classified.
@@ -39,6 +40,7 @@ The rules for lab users are in the in-app reference docs; these files hold the i
 - [monarch-integration.md](monarch-integration.md) — Monarch gene–disease and disease–phenotype data.
 - [haplotype-segregation-analysis.md](haplotype-segregation-analysis.md) — PGT haplotype segregation.
 - [monogenic-nipt.md](monogenic-nipt.md) — monogenic NIPT, with its fetal-fraction and classification algorithm.
+- [ancestry-pca.md](ancestry-pca.md) — the exploratory family ancestry PCA, outside the intended purpose.
 - [family-member-management.md](family-member-management.md) — what an edit to a family member changes.
 - [report-template.md](report-template.md) — how the family report is drafted.
 - [clinical-traceability.md](clinical-traceability.md) — sign-out, the clinical audit trail and tamper evidence.
@@ -49,7 +51,8 @@ The rules for lab users are in the in-app reference docs; these files hold the i
 - [regulatory/README.md](regulatory/README.md) — the IVDR technical file.
 - [handleiding/README.md](handleiding/README.md) — the Dutch technical manual for the review board.
 - [ROADMAP.md](ROADMAP.md) — the open work.
-- [repeat-paraphase-review-design.md](repeat-paraphase-review-design.md) — the design, in Dutch, of the reviews of repeat expansions and Paraphase findings, with the decisions behind them (B1–B23); built in #1063 and #1064.
+- [repeat-paraphase-review-design.md](repeat-paraphase-review-design.md) — the design (in Dutch) of the repeat-expansion and Paraphase reviews, with its decisions (B1–B23); built in #1063 and #1064.
 - [open-issues.md](open-issues.md) — every open issue, ranked by priority (snapshot of 2026-10-08).
 - [SECURITY.md](../SECURITY.md) and [SECURITY-AUDIT-ALLOWLIST.md](../SECURITY-AUDIT-ALLOWLIST.md) — how to report a vulnerability, and the register of security-check exceptions.
+- [sbom/README.md](../sbom/README.md) — the software bills of materials of the backend and the frontend.
 - [CHANGELOG.md](../CHANGELOG.md) — notable changes.

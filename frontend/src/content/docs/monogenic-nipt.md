@@ -5,9 +5,9 @@ plasma**, together with a sample from the father. The plasma cfDNA is mostly mat
 **fetal fraction (FF)**. The fetus is never sequenced: CoGA infers its genotype from how far each cfDNA
 allele fraction (VAF) moves away from the maternal values of 0%, 50% and 100%.
 
-How to set up a NIPT family and use the page is in the [user guide](/docs), section *Monogenic NIPT*.
-This page holds the model and the rules. The model's constants are those of the lab's R validation of
-NIPT-M (version 0.5.1, six families with trio exomes); the page's quality panel names it.
+How to set up a NIPT family and use the page: [user guide](/docs), section *Monogenic NIPT*. This page
+holds the model and the rules. The model's constants come from the lab's R validation of NIPT-M
+(version 0.5.1, six families with trio exomes); the page's quality panel names it.
 
 > **Screening, not diagnosis.** A NIPT call is decision support derived from cfDNA. Confirm it with an
 > invasive diagnostic test before clinical use.
@@ -30,37 +30,41 @@ marked as maternal-plasma cfDNA as the mother's sample (the mother's own sample 
 
 ### What the input must contain
 
-CoGA takes either input. The analysis is the same for both.
+CoGA takes either input; the analysis is the same for both.
 
 - **Two single-sample VCFs**, as the NIPT-M pipeline writes them: the plasma's calls (Mutect2 in
-  tumour-only mode) and the father's. The package import finds a pair by the sample names of the PED and
+  tumour-only mode) and the father's. The package import finds a pair by the PED's sample names and
   imports the plasma first. Each call keeps its own FILTER values and the caller's metrics (TLOD, FS,
-  mapping quality, mismatches, repeat units and so on), which the quality filter and the de novo
-  triage read. Each file's sample column is read as the sample its manifest entry names, whatever the
-  column is called: the laboratory maps its verified tubes to files that can be named after another
-  tube. When the column is named neither after the sample nor in the entry (`vcf_sample`), Discover, the
-  dry run and the import show a warning naming the sample, the file and the column. Check that the file
-  holds that sample's tube; if it does, record the column as the entry's `vcf_sample`.
+  mapping quality, mismatches, repeat units and so on), which the quality filter and the de novo triage
+  read. Each file's sample column is read as the sample its manifest entry names, whatever the column
+  is called: the laboratory maps its verified tubes to files that can be named after another tube. When
+  the column is named neither after the sample nor in the entry (`vcf_sample`), Discover, the dry run
+  and the import show a warning naming the sample, the file and the column. Check that the file holds
+  that sample's tube; if it does, record the column as the entry's `vcf_sample`.
 - **One combined VCF** with a father column and a cfDNA column, genotyped jointly. The quality is the
   site's QUAL.
 
-Either way the calls need **allele depths (FORMAT/AD)**. The VAF is the alt reads divided by all the
-reads at the site, never the caller's modelled AF (used only when there is no AD). A record that a
-multi-allelic site was split into keeps only its own allele's reads, so its depth is restored from
-all the alleles of the site.
+Either way the calls need **allele depths (FORMAT/AD)**. The VAF is the alt reads divided by all reads
+at the site, never the caller's modelled AF (used only when there is no AD). A record split from a
+multi-allelic site keeps only its own allele's reads, so its depth is restored from all the site's
+alleles.
 
 The father's single-sample VCF holds over a million low-level calls, almost all noise. On import CoGA
 keeps a paternal record when one of its calls reaches 15% alt reads (below the 20% of a heterozygous
-call, so no genotype is lost) or when it lies on a position where the plasma has a call. It drops the
+call, so no genotype is lost), or when it lies on a position where the plasma has a call. It drops the
 rest and reports how many.
 
 **The per-target coverage tables** (`coverage_<sample>.txt`, one row per capture target with its mean,
-median and covered share) belong with the VCFs. The plasma's table drives the coverage check and the
-sex profile, and it gives the plasma's depth where its VCF has no call, which tells whether a missing
-paternal allele would have shown (see *Paternal alleles*). The father's table gives his depth where his
-VCF has none. Without the tables CoGA falls back on the plasma's coverage BED declared as read depth,
-or another coverage track of read depth (see *Coverage*), over the family's region of interest, and an
-allele the plasma does not show cannot be read.
+median and covered share) belong with the VCFs.
+
+- The plasma's table drives the coverage check and the sex profile. It also gives the plasma's depth
+  where its VCF has no call, which tells whether a missing paternal allele would have shown (see *The
+  fetal inheritance probabilities*).
+- The father's table gives his depth where his VCF has none.
+
+Without the tables, CoGA falls back on the plasma's coverage BED declared as read depth, or another
+coverage track of read depth (see *Coverage*), over the family's region of interest; and an allele the
+plasma does not show cannot be read.
 
 ### The father's genotype
 
@@ -99,7 +103,7 @@ An indel written differently in the two files (trimmed or aligned another way) i
 
 ## The quality filter
 
-A cfDNA call passes the quality filter of the R validation's selected setting when it has:
+A cfDNA call passes the quality filter (the R validation's selected setting) when it has:
 
 - a quality of 20 or more (Mutect2's TLOD; otherwise the call's QUAL; for a combined VCF the site's QUAL);
 - at least 5 alt reads and an allele fraction of 1% or more;
@@ -119,8 +123,8 @@ For a biallelic site, with `m` and `f` the maternal and fetal alt-allele fractio
 expected cfDNA allele fraction is `VAF = m · (1 − FF) + f · FF`.
 
 **Which sites.** FF is estimated from category-7 sites: the mother is reference, the father carries the
-alt allele, and the fetus inherited it, so the alt signal comes from the fetus alone and sits at
-`FF / 2`. CoGA selects these sites as follows:
+alt allele, and the fetus inherited it. The alt signal then comes from the fetus alone and sits at
+`FF / 2`. CoGA selects these sites:
 
 - autosomal, with a cfDNA call of the site's own;
 - the father's genotype is het or hom-alt, at a depth of 20 or more;
@@ -132,8 +136,8 @@ alt allele, and the fetus inherited it, so the alt signal comes from the fetus a
 interval (Wilson). The quality panel also gives the per-site median (the R pipeline's estimate), and
 the 5th and 95th percentiles of the sites' allele fractions, which bound the de novo window.
 
-- **Low-confidence FF** appears when there are fewer than 30 sites, or when the interval is wider than
-  ±3 percentage points.
+- **Low-confidence FF** appears with fewer than 30 sites, or an interval wider than ±3 percentage
+  points.
 - With fewer than 5 sites no FF is estimated: the badge reads 0% with *Low-confidence FF*, and no
   fetal call can be trusted.
 - If the estimate cannot be loaded, the badge says *Fetal fraction could not be loaded* and the counts
@@ -146,7 +150,7 @@ fetus: `2 × (chrY ÷ autosomal depth) ÷ 1.2`. It rests on the panel's few chrY
 
 ## The eight categories
 
-Once FF is known, each category has a fixed expected VAF, and each cfDNA variant is assigned to the
+Once FF is known, each category has a fixed expected VAF. Each cfDNA variant is assigned to the
 category that best explains its reads.
 
 | Cat | Maternal / fetal state | Expected cfDNA VAF | Clinical meaning |
@@ -177,7 +181,7 @@ inheritance of the chosen category (for example `paternal_transmitted` or `mater
 Each variant is scored against the candidate categories with a beta-binomial model of its alt reads
 and depth. The model's overdispersion (0.0037) and the reference bias of a maternal heterozygous site
 (its allele fraction sits 1.1 percentage points below the expected value) were fitted on the R
-validation. The most probable category wins; its probability is the **confidence** (0 to 1), and the
+validation. The most probable category wins; its probability is the **confidence** (0 to 1). The
 runner-up is kept.
 
 The fetus has one allele from each parent, so the father's genotype limits the candidates to the fetal
@@ -205,13 +209,13 @@ Next to the category, each variant gives the probability of what matters clinica
   for a hom-alt one. Where the plasma has no call, its depth comes from the target coverage: no alt
   read at a depth where `FF / 2` would give many is strong evidence the allele was not inherited.
 - **Maternal allele inherited.** At a site the mother carries, from her band of categories alone
-  (2, 3 and 4): category 3 and 4 beside a reference father; category 4 and half of category 3 beside a
-  het father; category 4 out of 3 and 4 beside a hom-alt father. A hom-alt mother always passes her
+  (2, 3 and 4): categories 3 and 4 beside a reference father; category 4 and half of category 3 beside
+  a het father; category 4 out of 3 and 4 beside a hom-alt father. A hom-alt mother always passes her
   allele.
 - **Fetus homozygous.** The probability of category 4 (or 6).
 
 The maternal probability is given at every site the mother carries, as in the R validation. It needs
-depth: the shift of `FF / 2` around 50% takes depth in the order of `1 / FF²` to resolve. The R
+depth: resolving the shift of `FF / 2` around 50% takes depth in the order of `1 / FF²`. The R
 validation's maternal model was 95% accurate on SNVs and 74% on indels, so an indel carries the flag
 `maternal_inference_indel`. A site whose allele fraction fits no fetal genotype (more than 4 standard
 deviations off; site-specific capture bias or a copy-number change) carries `allele_balance_outlier`.
@@ -224,7 +228,7 @@ Flags appear as chips on the variant card.
 | --- | --- |
 | `ambiguous` | The confidence is below 0.90: a neighbouring category is close. |
 | `ff_low_confidence` | The fetal-fraction estimate is low-confidence. Set on every autosomal site. |
-| `ff_too_low` | FF is below 1%. The maternal state is given, the fetal call is withheld (categories 2–6). |
+| `ff_too_low` | FF is below 1%. The maternal state is given; the fetal call is withheld (categories 2–6). |
 | `father_no_call` | The father's VCF has no call at the site (read as reference). |
 | `father_low_level_signal` | The father has a call below 20% alt reads (not a genotype). |
 | `father_no_coverage` | The father has no usable call at the site, so de novo and paternal cannot be told apart. |
@@ -248,16 +252,16 @@ Flags appear as chips on the variant card.
 The **Inheritance** control in the NIPT filters picks one of four views. Each works on the variants that
 match the other filters, so set the gene panel, consequence and frequency filters first.
 
-A saved search made on the small-variant list, or a link, can carry an inheritance mode that is none of
-these views (*De novo / dominant*, for one). The NIPT list does not apply it: the page does not send it,
-shows no chip for it, and names it under the active filters, as it names the search's other filters
-the list does not apply.
+A saved search or a link can carry filters that only the other page applies:
 
-The other way round, a search saved here and opened on the small-variant page carries a view and
-filters the small-variant list does not apply (the categories, the minimum confidence, the alleles the
-fetus did not inherit, the lowest de novo priority). That page does not send them either, and names
-them. *De novo in the fetus* is not the small-variant list's *De novo / dominant*, which reads the family
-members' own genotypes; the small-variant list refuses it rather than read it as that mode.
+- **On the NIPT list**: an inheritance mode from the small-variant list that is none of these views
+  (*De novo / dominant*, for one). The page does not send it, shows no chip for it, and names it under
+  the active filters, with the search's other filters the list does not apply.
+- **On the small-variant page**: a search saved here carries a view and filters that list does not
+  apply (the categories, the minimum confidence, the alleles the fetus did not inherit, the lowest de
+  novo priority). That page does not send them either, and names them. *De novo in the fetus* is not
+  the small-variant list's *De novo / dominant*, which reads the family members' own genotypes; the
+  small-variant list refuses it rather than read it as that mode.
 
 ### De novo in the fetus
 
@@ -280,23 +284,28 @@ the window is a maternal allele, one below it noise: both are left out (*outside
 | Paternal signal | −2 when the father has a low-level, thin or missing call, or calls part of the allele |
 | Variant class | SNV +1, indel −1, MNV −2; an indel in a repeat of 3 units or more a further −2 |
 
-**The priority.** *High*: in the strict window, a score of 10 or more, an SNV or an indel not in a
-repeat, and no paternal signal. *Medium*: a score of 7 or more. *Low*: the rest in the window. A
-candidate in the window that a cfDNA sample of another family of the assay carries is *recurrent in
-other samples* and left out, as the R pipeline does. That sample's call must have at least 5 alt
-reads and 1% of the reads, so a few reads crossed over between the samples of a run do not count.
-A candidate that a ClinVar record may call pathogenic is never left out this way: a de novo hotspot
-recurs between pregnancies tested on one panel. **List de novo candidates of priority** sets the
-lowest priority listed. Candidates are ranked by score.
+**The priority.**
+
+- *High*: in the strict window, a score of 10 or more, an SNV or an indel not in a repeat, and no
+  paternal signal.
+- *Medium*: a score of 7 or more.
+- *Low*: the rest in the window.
+
+A candidate in the window that a cfDNA sample of another family of the assay carries is *recurrent in
+other samples* and left out, as the R pipeline does. That sample's call must have at least 5 alt reads
+and 1% of the reads, so a few reads crossed over between the samples of a run do not count. A
+candidate that a ClinVar record may call pathogenic is never left out this way: a de novo hotspot
+recurs between pregnancies tested on one panel. **List de novo candidates of priority** sets the lowest
+priority listed. Candidates are ranked by score.
 
 Confirm a candidate's absence in the father and its allele fraction in the reads before acting on it.
 
 ### Paternal, inherited by the fetus
 
 The father's alleles (het or hom-alt) that the mother does not carry: no plasma call, or a call at 25%
-or less. Each shows the probability that the fetus inherited it. By default only the alleles inherited
-with a probability of 50% or more are listed; **Also list the alleles the fetus did not inherit** adds
-the rest, for example to see that a paternal pathogenic allele was *not* inherited. An allele the plasma
+or less. Each shows the probability that the fetus inherited it. By default only alleles inherited with
+a probability of 50% or more are listed. **Also list the alleles the fetus did not inherit** adds the
+rest, for example to see that a paternal pathogenic allele was *not* inherited. An allele the plasma
 calls in part in another representation is always listed.
 
 ### Maternal, inherited by the fetus
@@ -306,10 +315,10 @@ those inherited with a probability of 50% or more; the same check box adds the r
 
 ### Recessive: both parents carriers
 
-The genes where the mother and the father are each **heterozygous** for an allele among the variants
-that match. A parent homozygous for an allele is not a carrier: for a recessive disease that parent
-would be affected, and mostly the variant is common. The fetus then always inherits that parent's
-allele, so read the other parent's allele in the paternal or maternal view.
+The genes where the mother and the father are each **heterozygous** for an allele among the matching
+variants. A parent homozygous for an allele is not a carrier: for a recessive disease that parent would
+be affected, and mostly the variant is common. The fetus then always inherits that parent's allele, so
+read the other parent's allele in the paternal or maternal view.
 
 The table **Recessive fetal risk by gene** gives, per gene, every maternal and paternal allele with the
 probability that the fetus inherited it, and the **fetal risk**: the probability that it inherited a
@@ -327,10 +336,13 @@ below the table holds every carrier variant of the listed genes.
 
 ### Built-in presets
 
-The presets combine the views with the usual filters: **De novo** (the de novo view, HIGH or MODERATE
-impact, gnomAD 1% or below, a ClinVar pathogenic record overriding the frequency, ClinVar benign and
-likely benign left out), **Paternal, inherited** (the paternal view with HIGH or MODERATE impact and the
-same frequency rule) and **Recessive (both parents carrier)** (the recessive view with those filters).
+The presets combine the views with the usual filters:
+
+- **De novo**: the de novo view, HIGH or MODERATE impact, gnomAD 1% or below, a ClinVar pathogenic
+  record overriding the frequency, ClinVar benign and likely benign left out;
+- **Paternal, inherited**: the paternal view with HIGH or MODERATE impact and the same frequency rule;
+- **Recessive (both parents carrier)**: the recessive view with those filters.
+
 The page opens on **De novo**, on the **Mendeliome** panel, unless its link carries a search of its own.
 
 ---
@@ -352,18 +364,20 @@ The calls are not equally reliable.
 
 ## Quality checks
 
-The NIPT page opens with the checks a reader confirms before reading any variant, folded to one
-verdict: *Pass* when every check with a verdict passed, *Fail* as soon as one failed, *Warning*
-otherwise, a check that could not run included. A click shows each check.
+The NIPT page opens with the checks to confirm before reading any variant, folded into one verdict:
+*Pass* when every check with a verdict passed, *Fail* as soon as one failed, *Warning* otherwise (a
+check that could not run included). A click shows each check.
 
 - **Fetal fraction**, with its interval, the per-site median, the chrY estimate and the de novo window.
-- **Fetal sex**, from two independent signals. *Paternal X*: at the father's X alleles (outside the
-  pseudo-autosomal regions, where he is hom-alt and the plasma's allele fraction is below 30%), a
-  daughter shows the allele and a son does not. From at least 8 informative sites, 80% or more seen is
-  female and 10% or less male; a share in between is indeterminate: the alleles are not this fetus's
-  father's, or the calls are noisy. *chrY coverage*: a chrY signal above the noise (2% of the autosomal
-  depth) means a male fetus; none, at an FF of 4% or more, a female one. The call is the signal(s)
-  that tell, and *discordant* when they disagree.
+- **Fetal sex**, from two independent signals:
+  - *Paternal X*: at the father's X alleles (outside the pseudo-autosomal regions, where he is hom-alt
+    and the plasma's allele fraction is below 30%), a daughter shows the allele and a son does not.
+    From at least 8 informative sites, 80% or more seen is female and 10% or less male. A share in
+    between is indeterminate: the alleles are not this fetus's father's, or the calls are noisy.
+  - *chrY coverage*: a chrY signal above the noise (2% of the autosomal depth) means a male fetus; none,
+    at an FF of 4% or more, a female one.
+
+  The call is the signal(s) that tell, and *discordant* when they disagree.
 - **Paternity.** The father's alleles that the fetus must or may carry, at sites where the mother does
   not carry them and the plasma depth leaves at least 10 expected alt reads. Every allele of a hom-alt
   father must show: 90% or more seen passes, below 80% fails. Half of a het father's alleles show:
@@ -378,11 +392,11 @@ otherwise, a check that could not run included. A click shows each check.
 ## Summary and variant list
 
 The **Summary** (the FF badge, the filter funnel and the category counts) removes the cfDNA calls that
-fail the quality filter and the sites on the artifact list, then estimates FF and classifies what is
-left. A paternal allele without a cfDNA call is counted apart (*paternal only*).
+fail the quality filter and the artifact-list sites, then estimates FF and classifies what is left. A
+paternal allele without a cfDNA call is counted apart (*paternal only*).
 
-The **variant list** and the report classify against that same FF, and they leave artifact-list sites
-out. The variant list also shows sites that fail the quality filter, flagged with the reason, so its
+The **variant list** and the report classify against that same FF and leave artifact-list sites out.
+The variant list also shows sites that fail the quality filter, flagged with the reason, so its
 category counts can be higher than the Summary's.
 
 The variant list classifies the first 5,000 variants of its search, in genomic order. When more
@@ -396,10 +410,10 @@ Narrow the search with a gene panel, a gene or a region.
 The report uses only the gene panel and the gene of the NIPT page's search. Its **Scope** section names
 them, with the panel's version, and says that no other filter of the page applies: not the categories,
 the inheritance view, the confidence, the regions, or the frequency and consequence filters. With both
-a panel and a gene, a variant is listed when it matches both. Artifact-list sites are left out, and sites
-that fail the quality filter are listed with the reason, as in the variant list. It states the fetal
-fraction, the quality checks (fetal sex, paternity, the plasma sample) and the coverage of the targets
-in scope.
+a panel and a gene, a variant is listed when it matches both. Artifact-list sites are left out; sites
+that fail the quality filter are listed with the reason, as in the variant list. The report states the
+fetal fraction, the quality checks (fetal sex, paternity, the plasma sample) and the coverage of the
+targets in scope.
 
 A report lists at most 500 candidates, the first ones in genomic order. When its scope holds more, or
 more variants match than the variant list classifies, the report says so on screen, above the list and
@@ -410,45 +424,52 @@ again.
 Its header carries the warnings of every family page when they apply, *Import incomplete* and
 *Not validated for clinical use*, and prints them: the report itself prints without a sign-out to
 stop on a partly imported family. It is a live report: beside the latest signed version it says
-*This is the live report, not signed version N*, or that the analysis has not been signed out, and
-every printout starts with *Draft* or *Not the signed report*, as the live family report's does.
+*This is the live report, not signed version N*, or that the analysis has not been signed out. Every
+printout starts with *Draft* or *Not the signed report*, as the live family report's does.
 
 ---
 
 ## Sign-out
 
-**Sign out NIPT analysis** on the NIPT report signs the analysis out: the analyst's analytical sign-off,
-which closes and freezes the analysis into the family's signed record (the medical sign-off of the
-patient report happens in the EPD, which refers to the record by its report code). It is the family
-sign-out, with its checks and report code: one record per family, whether it is signed out here or from
-the family report. The NIPT page itself offers no sign-out. Once signed, the button reads **Amend
-sign-out**, and the NIPT report names the latest
-signed version, its report code, and whether the family's data still matches it, naming what it could
-not compare because that version does not hold it (*Not in signed version 2, so not compared: …*).
+**Sign out NIPT analysis** on the NIPT report signs the analysis out. This is the analyst's analytical
+sign-off: it closes and freezes the analysis into the family's signed record. The medical sign-off of
+the patient report happens in the EPD, which refers to the record by its report code. It is the family
+sign-out, with its checks and report code: one record per family, whether signed out here or from the
+family report. The NIPT page itself offers no sign-out. Once signed, the button reads **Amend
+sign-out**. The NIPT report then names the latest signed version, its report code, and whether the
+family's data still matches it. It names what it could not compare because that version does not hold
+it (*Not in signed version 2, so not compared: …*).
 
-For a NIPT family the record also holds the **NIPT results**, as CoGA computes them at sign-out: the
-fetal fraction and the quality checks with their verdicts, the coverage of the capture targets (without
-a per-target table, the coverage check's notes on the coverage tracks it did not read as depth; see
-*Coverage*), the filter funnel and the category counts, each variant tagged *report* as this analysis
-classifies it (its category, reads, inheritance probabilities and, for a de novo candidate in the fetal
-window, its priority), the recessive fetal risk of the reported variants' genes, and what the analysis
-ran with (the coverage tables, the artifact list and the model). The signed version shows them.
+For a NIPT family the record also holds the **NIPT results**, as CoGA computes them at sign-out. The
+signed version shows them:
 
-Sign-out stops at the family's checks. Besides the Sample QC, a NIPT quality check that failed stops it
-until you record a reason: no fetal-fraction estimate, a fetal sex whose two signals disagree, or male
-DNA given as the maternal plasma. Tag the variants you report before you sign out: a variant without
-the *report* tag is not frozen with its classification.
+- the fetal fraction and the quality checks with their verdicts;
+- the coverage of the capture targets (without a per-target table, the coverage check's notes on the
+  coverage tracks it did not read as depth; see *Coverage*);
+- the filter funnel and the category counts;
+- each variant tagged *report*, as this analysis classifies it (its category, reads, inheritance
+  probabilities and, for a de novo candidate in the fetal window, its priority);
+- the recessive fetal risk of the reported variants' genes;
+- what the analysis ran with (the coverage tables, the artifact list and the model).
+
+Sign-out stops at the family's checks. Besides the Sample QC, a failed NIPT quality check stops it until
+you record a reason: no fetal-fraction estimate, a fetal sex whose two signals disagree, or male DNA
+given as the maternal plasma. Tag the variants you report before you sign out: a variant without the
+*report* tag is not frozen with its classification.
 
 **Show reported (N)**, in the page's *Sign-out* section, lists what a sign-out would freeze: the
-variants tagged *report*, with every other filter cleared (the inheritance view, the categories and
-the minimum confidence too), each as this analysis classifies it. N counts the variants tagged
-*report*. A variant counts as tagged when its own review or its compound-het pair review holds the
-tag, here, in the live report and in what the sign-out freezes alike, and so in the recessive fetal
-risk the record computes from them. A tagged variant the analysis does not classify is in no list:
-not in the family's NIPT data, on the assay's artifact list, or without a call in the plasma. The page names it above the
-list with that reason, as the signed record does. The review tags are a filter like any other, as
-on the small-variant page (*Review and curation*, its tags only; *Exclude* for the excluded tags),
-so they also narrow a view: the reported de novo candidates, for one.
+variants tagged *report*, with every other filter cleared (the inheritance view, the categories and the
+minimum confidence too), each as this analysis classifies it. N counts the variants tagged *report*.
+
+- A variant counts as tagged when its own review or its compound-het pair review holds the tag. This
+  holds here, in the live report and in what the sign-out freezes, and so in the recessive fetal risk
+  the record computes from them.
+- A tagged variant the analysis does not classify is in no list: not in the family's NIPT data, on the
+  assay's artifact list, or without a call in the plasma. The page names it above the list with that
+  reason, as the signed record does.
+- The review tags are a filter like any other, as on the small-variant page (*Review and curation*, its
+  tags only; *Exclude* for the excluded tags), so they also narrow a view: the reported de novo
+  candidates, for one.
 
 ---
 
@@ -473,12 +494,12 @@ Neither ever lists:
   may hold a pathogenic submission. A familial founder variant recurs in a disease-focused panel, and a
   listed variant is left out of every analysis of the assay.
 
-The protections are checked on the annotation of the families on the assembly when an allele is
-listed, so an allele no family carried then is listed unchecked. Each family's analysis therefore
-checks its listed alleles again with its own annotation: one it marks common or ClinVar-pathogenic
-stays in, flagged `artifact_list_protected`. A site with no population or ClinVar annotation is not
-protected, and a real recurrent variant that ClinVar does not call pathogenic can still be listed.
-Review the list before use. Every change to the list is a clinical audit event.
+The protections are checked when an allele is listed, on the annotation of the families on the
+assembly; an allele no family carried then is listed unchecked. So each family's analysis checks its
+listed alleles again with its own annotation: one it marks common or ClinVar-pathogenic stays in,
+flagged `artifact_list_protected`. A site with no population or ClinVar annotation is not protected,
+and a real recurrent variant that ClinVar does not call pathogenic can still be listed. Review the list
+before use. Every change to the list is a clinical audit event.
 
 ---
 
@@ -486,25 +507,25 @@ Review the list before use. Every change to the list is a clinical audit event.
 
 With the per-target coverage table, the coverage check reads the plasma's capture targets: in the
 selected gene panel or genes, otherwise every target. A target is **weak** when its mean depth is below
-300× or a base of it has no coverage; a fetal variant there can be missed. The panel reports how many
-targets are below 1000× as well, without flagging them. The coverage card on the NIPT page counts the
-genes with a weak target, a selected gene that is not a target at all among them. Its **Coverage
-details** link opens the coverage page, over the same genes: the genes below target, where a fetal
+300× or a base of it has no coverage; a fetal variant there can be missed. The panel also reports how
+many targets are below 1000×, without flagging them. The coverage card on the NIPT page counts the
+genes with a weak target, including a selected gene that is not a target at all. Its **Coverage
+details** link opens the coverage page over the same genes: the genes below target, where a fetal
 variant can be missed, and those above it, each opening to its targets with their depth, the share
 covered and why a target is weak.
 
 Without the table, on-target coverage is the median depth of the cfDNA sample's coverage track over the
-selected genes, otherwise the family's region of interest. A region is flagged when it has no coverage,
-a median below 20×, or less than 90% of its length covered. The card counts the flagged regions; the
-coverage page lists the regions below and above target.
+selected genes, otherwise over the family's region of interest. A region is flagged when it has no
+coverage, a median below 20×, or less than 90% of its length covered. The card counts the flagged
+regions; the coverage page lists the regions below and above target.
 
-The coverage track read here is one that holds read depth: the plasma's coverage BED when it was
-declared as read depth (the upload's *Coverage BED holds*, the manifest's `content: read_depth`),
-otherwise HiFiCNV's depth when the import stored it as read. WisecondorX's and QDNAseq's bins,
-HiFiCNV's normalised depth and a BED declared as a log2 ratio hold log2 ratios, not depths, and are
-never read here, also beside a BED; nor is a coverage BED that does not say what it holds. The card,
-the coverage page and the printed report name each track left out and why. A plasma without such a
-depth track shows every region as without coverage. A sign-out freezes these notes word for word in
+The coverage track read here must hold read depth: the plasma's coverage BED when it was declared as
+read depth (the upload's *Coverage BED holds*, the manifest's `content: read_depth`), otherwise
+HiFiCNV's depth when the import stored it as read (untransformed). These hold log2 ratios, not depths,
+and are never read here, not even beside a BED: WisecondorX's and QDNAseq's bins, HiFiCNV's normalised
+depth, and a BED declared as a log2 ratio. Nor is a coverage BED that does not say what it holds. The
+card, the coverage page and the printed report name each track left out and why. A plasma without such
+a depth track shows every region as without coverage. A sign-out freezes these notes word for word in
 the signed record, with what the check ran for: it runs the check as the card does without a gene or
 panel, over the family's region of interest, since it is not told the page's search.
 

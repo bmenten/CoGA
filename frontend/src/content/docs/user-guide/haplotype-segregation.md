@@ -8,7 +8,7 @@ disease allele, and calls each embryo from it.
 - A correct pedigree, including the grandparents, who anchor the disease haplotype.
 - Every member's sex, recorded before the phased genotypes are imported. On chrX a man has one X
   outside the pseudo-autosomal regions, and the haplotypes there are built with the sexes recorded
-  at the import: after recording or correcting a sex, import the phased genotypes again.
+  at the import. After recording or correcting a sex, import the phased genotypes again.
 - Affected and carrier status on the members that define the disease haplotype.
 - An **inheritance model** (if none is set, CoGA assumes recessive when a member is marked as a carrier,
   otherwise dominant) and a **region of interest** at the disease locus. Without an ROI there are no
@@ -28,17 +28,17 @@ disease allele, and calls each embryo from it.
 ### The embryo calls
 
 Each embryo's call is a badge in the **Family members** table on the family page: *Affected / at risk*,
-*Carrier*, *Unaffected* or *Uninformative*. A call that the embryo does not carry a disease haplotype
-needs the embryo's own haplotype, seen across the ROI; without it the embryo reads *Uninformative*.
-CoGA works the calls out on the server, from the stored haplotypes, and **Sign out report** freezes
-the same calls into the signed version (*PGT embryo results*), each with the haplotypes it rests on,
-its warnings, its QC at the ROI and that QC's verdict against the thresholds. Next to the badge may be:
+*Carrier*, *Unaffected* or *Uninformative*. To call an embryo free of a disease haplotype, CoGA needs
+the embryo's own haplotype across the ROI; without it the embryo reads *Uninformative*. The server
+works the calls out from the stored haplotypes. **Sign out report** freezes the same calls into the
+signed version (*PGT embryo results*), each with the haplotypes it rests on, its warnings, its QC at the
+ROI and that QC's verdict against the thresholds. Next to the badge may be:
 
 - **⚠ phasing QC** — the embryo's phasing QC at the ROI does not meet its thresholds, counted over the
   ROI and 1 Mb on each side: at least 50 informative sites, a Mendelian error rate of at most 2%, and
   at least 6 markers on each flank of the ROI on each parent's side the call reads. The tooltip names
-  each measure, its value and its threshold. The call stands: check
-  it in the ROI markers before you rely on it. These thresholds are provisional, to be confirmed by
+  each measure, its value and its threshold. The call stands: check it in the ROI markers before you
+  rely on it. These thresholds are provisional, to be confirmed by
   the laboratory director and QA. At an X-linked locus a man is counted with his one X: a son against
   his mother alone.
 - **⚠ both homologs** — the embryo's markers at the ROI mix both of a parent's homologs, as where it
@@ -60,8 +60,8 @@ its warnings, its QC at the ROI and that QC's verdict against the thresholds. Ne
   for a daughter. Record the sex to resolve it.
 
 **Review ROI markers →** shows the phased genotypes of every member across the ROI, with each child's
-Mendelian-error rate. Use it to re-check a surprising call: a single marker that disagrees with its
-neighbours is noise, not a crossover, and a clear Mendelian-error rate points to a swap or a wrong
+Mendelian-error rate. Use it to re-check a surprising call. A single marker that disagrees with its
+neighbours is noise, not a crossover. A clearly raised Mendelian-error rate points to a swap or a wrong
 pedigree.
 
 In a single-parent (donor) family the donor lane stays grey, and a recessive call is uninformative

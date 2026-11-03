@@ -4,15 +4,15 @@ has two separate records.
 ### On each variant
 
 Each row or card has **Review**, **Exclude** and **Report** (one-click tags), **Tags & notes** and **ACMG
-classify**. An excluded variant stays in the list: its card folds to its heading and a bar marked
-*Excluded*, with **Show card** to unfold it and **Undo exclude** to take the tag off again; in the table
-view its row is dimmed.
+classify**. An excluded variant stays in the list. Its card folds to its heading and a bar marked
+*Excluded*: **Show card** unfolds it, and **Undo exclude** takes the tag off again. In the table view
+its row is dimmed.
 
 - **Tags.** The built-in tags are *Review*, *Send for validation*, *Validated*, *Validation did not
   confirm*, *Confident AR single hit*, *Excluded* and *Report*, the ACMG class tags, the VUS tiers and
   *Secondary finding*. An administrator can add custom tags for one project or for everyone. A
   renamed custom tag stays on every review that holds it. A deleted one stays too, marked *(deleted)*:
-  untick it to remove it from a review; it can no longer be added.
+  untick it to remove it from a review. It can no longer be added.
 - **Notes** keep your reasoning with the variant.
 - **Report** puts the variant in the family report.
 
@@ -27,11 +27,11 @@ the family genotypes, and scores them on the ClinGen points scale.
 - The bar at the top shows the points, the class and, for a VUS, the tier (*Hot*, *Warm* or *Cold*).
 - The header links to gnomAD, ClinVar, DECIPHER and a PubMed search on the gene and the patient's HPO
   terms.
-- **Save classification** stores the class as the variant's classification and review tag, together
-  with every criterion and your note; the server recomputes the class. It also freezes the evidence —
-  the ClinVar significance, the consequence and LoF call, the population frequencies, the in-silico
-  scores and, for a missense variant, the gene's missense Z the dialog read — so the report can later
-  tell whether it changed, and what.
+- **Save classification** stores the class as the variant's classification and review tag, with every
+  criterion and your note; the server recomputes the class. It also freezes the evidence the dialog
+  read — the ClinVar significance, the consequence and LoF call, the population frequencies, the
+  in-silico scores and, for a missense variant, the gene's missense Z — so the report can later tell
+  whether it changed, and what.
 - Opening a classified variant again shows the criteria as you saved them.
 
 > **Decision support, not an autoclassifier.** The dialog pre-positions the criteria; you confirm them,
@@ -44,7 +44,7 @@ A variant opened from the **mtDNA analysis** page gets a mitochondrial rule set.
 The structural-variant page works the same way: **Review**, **Exclude**, **Report**, tags and notes, and
 **ACMG (CNV)** for the ClinGen copy-number classifier. Saving a CNV classification also freezes its
 evidence, so the report can tell whether it changed. An event called by more than one caller is listed
-once per caller, with one shared review: the classification freezes the evidence of the row you opened
+once per caller, with one shared review; the classification freezes the evidence of the row you opened
 it from. Small-variant and SV review are counted separately on the family page.
 
 [ACMG classification reference (rules, points, mtDNA, CNV)](/docs/reference/acmg-classification "further-reading")

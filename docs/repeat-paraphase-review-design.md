@@ -3,7 +3,7 @@
 Status: **goedgekeurd door de eigenaar en QA, en gebouwd**: backend in #1063, UI in #1064 (beide
 gemerged op 2026-10-29). De beslissingen staan in §2: B1–B16 uit de vragenronde van 2026-10-28, B17–B20
 de afwijkingen die #1063 voorlegde en die met die PR aanvaard werden, B21–B23 de keuzes die de eigenaar in
-#1064 bevestigde. Waar de tekst hieronder iets anders zegt dan B17–B23, gelden B17–B23.
+#1064 bevestigde. Waar de tekst hieronder afwijkt van B17–B23, gelden B17–B23.
 Datum van het voorstel: 2026-10-28.
 
 ## 1. Aanleiding en uitgangssituatie
@@ -59,8 +59,8 @@ of anders inschat dan de automatische status.
 ## 3. Principes
 
 1. **De automatische status blijft leidend en onaangeroerd.** Een review voegt een oordeel toe, maar
-   wijzigt nooit de status die CoGA uit de catalogus afleidt, niet op de pagina, niet in het record en
-   niet in de genoomtracks. Status en oordeel staan altijd naast elkaar.
+   wijzigt nooit de status die CoGA uit de catalogus afleidt: niet op de pagina, in het record of in de
+   genoomtracks. Status en oordeel staan altijd naast elkaar.
 2. **Niets verdwijnt uit het record.** Het record blijft elke call bevriezen (B2). Report en Exclude zijn
    markeringen; ze filteren niets weg (B3).
 3. **Hetzelfde patroon als de bestaande reviews.** Dezelfde concurrency (409 bij een gewijzigde review),
@@ -86,10 +86,10 @@ nieuwe afwijkende call telt als niet gereviewd (B15).
 
 ### 4.2 Tabellen
 
-Twee tabellen in de baseline `03_assay.sql`; een Alembic-revisie was niet nodig (B18). Ze zijn bewerkbaar, zoals `small_variant_reviews` en `structural_variant_reviews`: de
-geschiedenis zit in de append-only `clinical_audit_events`. Ze zijn dus geen append-only tabellen en
-krijgen geen `*_block_mutation`-trigger. Wel krijgen ze dezelfde `GRANT`s als de andere reviewtabellen in
-`05_grants.sql`, en een rij in de privilegetest.
+Twee tabellen in de baseline `03_assay.sql`, zonder Alembic-revisie (B18). Ze zijn bewerkbaar, zoals
+`small_variant_reviews` en `structural_variant_reviews`; de geschiedenis zit in de append-only
+`clinical_audit_events`. Ze zijn dus niet append-only en krijgen geen `*_block_mutation`-trigger, wel
+dezelfde `GRANT`s als de andere reviewtabellen in `05_grants.sql` en een rij in de privilegetest.
 
 ```
 repeat_expansion_reviews
@@ -129,23 +129,22 @@ Leeg laten mag: dan is er geen oordeel.
 | `uncertain` | Uncertain significance | | |
 
 Een oordeel dat duidelijk afwijkt van de automatische status (bijvoorbeeld *Normal* bij status
-*pathogenic*) mag, ook op een gerapporteerde bevinding (B16). De kaart en het rapport tonen dan beide, met een markering "differs from CoGA's
-status". Er gebeurt geen automatische verzoening (§8, H18).
+*pathogenic*) mag, ook op een gerapporteerde bevinding (B16). De kaart en het rapport tonen dan beide,
+met een markering "differs from CoGA's status". Er is geen automatische verzoening (§8, H18).
 
 ### 4.4 Tags (B6)
 
 Dezelfde tagdefinities als small variants (`small_variant_tag_definitions`, globaal en per project), via
 het bestaande endpoint `/families/{id}/small-variant-tags`. De snelle tags *review*, *excluded* en
-*report* hebben dezelfde betekenis als elders. De dialoog biedt de groep *classification* (ACMG-klassetags
-en VUS-tiers) niet aan, omdat die bij small variants van de ACMG-classificatie afgeleid zijn en hier
-tegenstrijdige labels zouden geven (B14, H10/H18). Een review die zo'n tag toch bevat, toont hem
-gemarkeerd.
+*report* betekenen hetzelfde als elders. De dialoog biedt de groep *classification* (ACMG-klassetags en
+VUS-tiers) niet aan: bij small variants zijn die van de ACMG-classificatie afgeleid, hier zouden ze
+tegenstrijdige labels geven (B14, H10/H18). Een review die zo'n tag toch bevat, toont hem gemarkeerd.
 
 ## 5. Evidence-snapshot en driftcontrole (B5)
 
 Bij een opslag die de classificatie zet of wijzigt, of de Report-tag toevoegt (B17), bevriest de server,
-nooit de browser, wat het oordeel steunde. De inhoud
-wordt canoniek opgebouwd (gesorteerd, zonder klok), zoals de recordsecties.
+nooit de browser, wat het oordeel steunde. De inhoud wordt canoniek opgebouwd (gesorteerd, zonder klok),
+zoals de recordsecties.
 
 **Repeat**, per locus:
 - de locusidentiteit (gen, chr, start, end, motief);
@@ -171,8 +170,8 @@ gewijzigde validatie van de telwijze. De drift telt mee in de **bestaande driftp
 opgesomd met wat veranderde ("PROBAND allel 2: 38 → 41; status intermediate → pathogenic"). Op de kaart
 staat een chip "Changed since review" met hetzelfde detail in de tooltip.
 
-Een review zonder snapshot (kan niet, want elke opslag maakt er een) of met een snapshot die niet te
-lezen is, telt als "cannot be verified", net als bij ACMG.
+Een review zonder snapshot (kan niet bij een classificatie of de Report-tag: elke opslag daarvan maakt
+er een, B17) of met een snapshot die niet te lezen is, telt als "cannot be verified", net als bij ACMG.
 
 Welke reviews de poort controleert: de reviews met **een classificatie of de Report-tag** (B13). Een
 review met alleen een notitie of een Review-tag steunt geen oordeel dat het rapport draagt.
@@ -225,15 +224,16 @@ gelezen worden, dan houdt de poort ook tegen en zegt hij dat (B20).
 
 ## 7. API, rechten, concurrency en audit
 
-**Endpoints** (in `routers/repeat_expansions.py` en de Paraphase-router):
+**Endpoints** (in `routers/families_tracks.py`):
 - `GET /families/{id}/repeat-expansions` en `GET /families/{id}/paraphase` geven per locus/regio ook
-  `review` en `review_drift`.
+  `review`, met daarin de `drift`.
 - `PUT /families/{id}/repeat-expansions/{locus_id}/review` met `classification`, `tags`, `note`,
   `expected_updated_at` en optioneel `project_id`.
 - `PUT /families/{id}/paraphase/{gene_symbol}/review`, idem.
 - De reviewsamenvatting voor de family workspace krijgt tellingen voor beide types.
 
-Paden worden gebouwd met `apiPath`, ID's gecanoniseerd volgens de bestaande regels voor request-ID's.
+Paden worden gebouwd met `apiPath`; ID's worden gecanoniseerd volgens de bestaande regels voor
+request-ID's.
 
 **Rechten (B9):**
 - projectgebonden toegangscontrole (`access_control.py`, `family_metadata_context.py`);

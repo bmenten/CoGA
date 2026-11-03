@@ -3,47 +3,47 @@
 **Device:** CoGA (Comprehensive Genomic Analysis) — clinical genomic interpretation software
 **Manufacturer (health institution):** Center for Medical Genetics Ghent (CMGG), Ghent University Hospital
 **Regulatory basis:** In-house device under **Regulation (EU) 2017/746 (IVDR) Article 5(5)**, manufactured and used within CMGG, under **EN ISO 15189** accreditation (BELAC 351-MED; [accreditation scope](https://www.cmgg.be/nl/over-ons/accreditatie)). Which legal person declares, and whether the certificate relied on covers it, is an open RA decision ([TF-04 §1](TF-04-declaration-of-conformity.md)).
-**Objective:** Meet the Article 5(5) conditions in full while voluntarily aligning the documentation with the CE‑IVDR technical-documentation structure (Annex II/III) so that a future move toward CE marking, or a competent-authority review, is low-friction.
+**Objective:** Meet the Article 5(5) conditions in full, and voluntarily follow the CE‑IVDR technical-documentation structure (Annex II/III), so that a later move to CE marking, or a competent-authority review, is easy.
 
-> **Status: DRAFT for internal review.** None of the documents in this folder are
-> approved or effective. They are working drafts prepared to seed the CMGG quality
-> system. Document-control metadata (owners, approvers, effective dates, version
-> numbers) must be reconciled with the CMGG QMS before release. Placeholders are
-> marked `‹…›`; open decisions are marked **🔲 INPUT NEEDED**.
+> **Status: DRAFT for internal review.** No document in this folder is approved or
+> effective. They are working drafts to seed the CMGG quality system. Document-control
+> metadata (owners, approvers, effective dates, version numbers) must be reconciled with
+> the CMGG QMS before release. Placeholders are marked `‹…›`, open decisions
+> **🔲 INPUT NEEDED**.
 
 ---
 
 ## 1. Why these documents exist (Article 5(5) checklist)
 
-IVDR Article 5(5) lets a health institution manufacture and use a device on itself
-without CE marking, provided **all** of the following are met. This folder maps each
-condition to the document that satisfies it.
+IVDR Article 5(5) lets a health institution manufacture and use a device in-house without
+CE marking, if **all** of the following conditions are met. The table maps each condition
+to the document that meets it.
 
 | Art. 5(5) condition | Requirement (paraphrased) | Satisfied by |
 | --- | --- | --- |
-| (a) | Device not transferred to another legal entity | [TF-04 Declaration](TF-04-declaration-of-conformity.md) §scope; CMGG deployment policy |
+| (a) | Device not transferred to another legal entity | [TF-04 Declaration](TF-04-declaration-of-conformity.md) §3 item 1; CMGG deployment policy |
 | (b) | Manufacture & use under an appropriate **QMS** | CMGG ISO 15189 QMS — governing SOP **H11.1-OP5** (see §1a) + [TF-07 Software Lifecycle Plan](TF-07-software-lifecycle-plan.md) |
 | (c) | Laboratory compliant with **EN ISO 15189** (incl. accreditation) | Accreditation certificate (referenced, not reproduced here; see [TF-04 §1](TF-04-declaration-of-conformity.md)) |
 | (d) | Justification that **no equivalent CE device** meets the need | [TF-05 Equivalence & Clinical-Need Justification](TF-05-equivalence-justification.md) |
-| (e) | Provide information on use to **competent authority** on request | [TF-04 Declaration](TF-04-declaration-of-conformity.md) §competent-authority; this whole file |
+| (e) | Provide information on use to **competent authority** on request | [TF-04 Declaration](TF-04-declaration-of-conformity.md) §5; this whole file |
 | (f) | Public **declaration** (institution identity, device ID, GSPR conformity statement) | [TF-04 Declaration of Conformity](TF-04-declaration-of-conformity.md) |
 | (g) | Documentation of design, manufacture & performance sufficient for the CA to verify GSPR | This **entire technical file** |
 | (h) | Ensure devices are produced per that documentation | [TF-18 Change & Configuration Management](TF-18-change-configuration-management.md) + release procedure |
 | (i) | Review **clinical-use experience** and take corrective action | [TF-16 Post-Market Surveillance Plan](TF-16-post-market-surveillance-plan.md) |
 
 > **Transitional timing (verify with CMGG RA / FAMHP).** Under the amended IVDR
-> transitional provisions (Reg. (EU) 2022/112), the Article 5(5) conditions in
-> points (b), (c) and (e)–(i) apply from **26 May 2024**; the point (d) equivalence
-> justification applies from **26 May 2028**. TF‑05 is therefore prepared ahead of
-> its legal deadline as part of the "as close to CE‑IVDR as possible" goal.
+> transitional provisions (Reg. (EU) 2022/112), Article 5(5) points (b), (c) and (e)–(i)
+> apply from **26 May 2024**; the point (d) equivalence justification from
+> **26 May 2028**. TF‑05 is prepared ahead of that deadline, to stay as close to CE‑IVDR
+> as possible.
 
 ### 1a. Governing CMGG QMS procedure (H11.1-OP5)
 
-This technical file is **not free-standing** — it operates under CMGG's controlled software
+This technical file is not free-standing: it operates under CMGG's controlled software
 procedure **`H11.1-OP5` "Methodologie voor softwareontwikkeling"** (CMG-H11.1-OP5, v1, in
-voege 16-04-2026), itself under the ISO 15189:2022 QMS (BELAC-accredited). Per that SOP,
-validation under IVDR uses **IEC 62304 "as inspiration"** (not strict compliance) plus
-**ISO/IEC 27001** (information security, CIA triad), **GDPR**, and **ISO 15189:2022**. The
+voege 16-04-2026), part of the BELAC-accredited ISO 15189:2022 QMS. Per that SOP,
+validation under IVDR uses **IEC 62304 "as inspiration"** (not strict compliance),
+**ISO/IEC 27001** (information security, CIA triad), **GDPR** and **ISO 15189:2022**. The
 TF documents map onto the SOP as follows:
 
 | CMGG QMS artefact (H11.1-OP5) | This technical file |
@@ -61,7 +61,7 @@ TF documents map onto the SOP as follows:
 
 #### CMGG validation-report templates (the forms the TF docs feed)
 
-The TF documents are structured so the actual CMGG report forms can be filled directly:
+The TF documents are structured to fill the CMGG report forms directly:
 
 | CMGG form (version) | Purpose | Filled from |
 | --- | --- | --- |
@@ -114,11 +114,11 @@ Numbered to mirror an IVDR Annex II/III dossier. Status legend: ✅ drafted ·
 
 ## 3. Existing engineering evidence feeding this file
 
-CoGA already implements several controls that serve as direct GSPR/lifecycle evidence;
-the technical file references rather than duplicates them:
+Several controls CoGA already implements are direct GSPR/lifecycle evidence. The technical
+file references them rather than duplicating them:
 
 - **Clinical traceability, sign-out & audit** — [docs/clinical-traceability.md](../clinical-traceability.md): version manifest, per-classification evidence snapshots, evidence-drift detection, immutable clinical audit trail, content-hashed frozen sign-out. (Feeds GSPR §16 repeatability/traceability, risk controls, PMS.)
-- **Annotation & tool provenance (version control)** — [docs/annotation-provenance.md](../annotation-provenance.md): per-family capture of the caller, annotation-engine and reference-database versions — from the pipeline's run manifest (`software_versions.yaml`) when the package has one, otherwise from the VCF headers — refreshed on re-import and frozen into the sign-out snapshot. (Feeds GSPR §16 traceability and the EFFECTIVE UITVOERING / version-control axis of the bio-IT validation; supports [TF-08 SOUP register](TF-08-soup-register.md).)
+- **Annotation & tool provenance (version control)** — [docs/annotation-provenance.md](../annotation-provenance.md): the caller, annotation-engine and reference-database versions per family, read from the pipeline's run manifest (`software_versions.yaml`) when the package has one, else from the VCF headers; refreshed on re-import and frozen into the sign-out snapshot. (Feeds GSPR §16 traceability and the EFFECTIEVE UITVOERING / version-control axis of the bio-IT validation; supports [TF-08 SOUP register](TF-08-soup-register.md).)
 - **Security & PHI posture** — [docs/security-posture.md](../security-posture.md): project-scoped RBAC, append-only audit log, secrets handling. (Feeds TF-13, TF-14.)
 - **ACMG classifier** — the in-app reference *Semi-automatic ACMG classification* ([source](../../frontend/src/content/docs/acmg-classification.md)) holds the rules and the "overridable, server-recomputed, not an autoclassifier" stance; [docs/acmg-classification.md](../acmg-classification.md) holds the engine notes. (Feeds intended purpose, risk, performance evaluation.)
 - **Assay design references** — [monogenic-nipt.md](../monogenic-nipt.md), [haplotype-segregation-analysis.md](../haplotype-segregation-analysis.md), and the per-feature docs. (Feed device description and per-application performance evaluation.)
@@ -130,8 +130,8 @@ Each document carries a control header: ID, version, status, owner, approver, da
 CMGG QMS assigns formal IDs and revision control, these drafts carry `v0.1 DRAFT`. **The date in
 a header is that of the first draft; later revisions are tracked in git, and
 from the first release candidate also in `CHANGELOG.md` and the change log
-([TF-18 §8](TF-18-change-configuration-management.md)).** Approval, periodic review cadence, and
-storage of the controlled master copy are governed by the CMGG QMS (ISO 15189 clause 8.3
+([TF-18 §8](TF-18-change-configuration-management.md)).** The CMGG QMS governs approval,
+periodic review cadence and storage of the controlled master copy (ISO 15189 clause 8.3
 document control).
 
 > **🔲 OWNER:** fill the Owner and Approver fields with names (from

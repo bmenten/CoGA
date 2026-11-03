@@ -5,8 +5,8 @@ variant (SNV or indel) on one allele and a **structural variant** (SV) on the ot
 case is a **heterozygous SNV plus an overlapping deletion**: the deletion removes the other copy, so a
 variant that looks heterozygous is in fact the only copy left.
 
-Small variants and structural variants are filtered on separate pages, so these pairs are easy to miss.
-CoGA flags them on the small-variant page. How to use the filter is in the [user guide](/docs), section
+Small and structural variants are filtered on separate pages, so these pairs are easy to miss. CoGA
+flags them on the small-variant page. How to use the filter is in the [user guide](/docs), section
 *Small-variant prioritisation*.
 
 ---
@@ -37,10 +37,10 @@ A **deletion** is an SV that removes a copy: a `DEL`, with any subtype (`DEL:ME`
 with no stored copy number may be a loss and counts as one. A duplication, insertion, inversion or breakend
 is not a deletion. The structural-variant ranking reads a deletion the same way.
 
-Hover or focus the badge for an explanation. It gives the SV zygosity in the affected members (`het`,
-`hom` or `mixed`) and how the phase was decided. When several SVs hit the gene it lists each one with its
-position, zygosity and phase, the most telling first (a deletion in trans, then trans, cis, unknown), up
-to five. The badge links to the family's structural variants for that gene, in a new tab.
+Hover or focus the badge for an explanation: the SV zygosity in the affected members (`het`, `hom` or
+`mixed`) and how the phase was decided. When several SVs hit the gene, it lists up to five, each with its
+position, zygosity and phase, the most telling first (a deletion in trans, then trans, cis, unknown).
+The badge links to the family's structural variants for that gene, in a new tab.
 
 ## The filter
 
@@ -77,13 +77,16 @@ heterozygous for the SNV and carry the SV. Then:
   nothing about the phase. Neither does a variant that both parents lack (de novo): it may sit on
   either copy.
 
-A reference call counts only with at least 8 reads behind it, where the call reports its depth; a
-missing call or a no-call is not a reference call. Each SV is traced on its own: the gene's other SVs say
-nothing about it. An SV file uploaded for one sample holds no calls for the other members, so it never
-shows that a parent lacks the SV; a parent counts as carrying it when an SV of their own of the same type
-lies over it or within 1 kb of it, the same SV called in their own file. Another SV of theirs in the
-gene, such as a duplication beside the deletion or a deletion more than 1 kb away, does not count. A
-male is not traced on chrX or chrY outside the pseudo-autosomal regions, where he has a single copy.
+The tracing follows these rules:
+
+- A reference call counts only with at least 8 reads behind it, where the call reports its depth. A
+  missing call or a no-call is not a reference call.
+- Each SV is traced on its own: the gene's other SVs say nothing about it.
+- An SV file uploaded for one sample holds no calls for the other members, so it never shows that a
+  parent lacks the SV. A parent counts as carrying it when an SV of their own of the same type lies over
+  it or within 1 kb of it: the same SV, called in their own file. Another SV of theirs in the gene, such
+  as a duplication beside the deletion or a deletion more than 1 kb away, does not count.
+- A male is not traced on chrX or chrY outside the pseudo-autosomal regions, where he has a single copy.
 
 Two small variants in the same gene (SNV + SNV) are phased the same way, half calls included: by read
 phasing first, and otherwise by this rule. Their pair card says *In trans · read-backed* or

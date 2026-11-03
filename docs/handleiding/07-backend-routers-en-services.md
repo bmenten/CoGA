@@ -1,6 +1,6 @@
 # 7. Backend: routers & services in detail
 
-Dit hoofdstuk beschrijft hoe de API-laag van CoGA is opgebouwd: het vaste patroon **router → service → opslag**, hoe FastAPI de databanksessie en de ingelogde gebruiker aan elk endpoint geeft, en vooral welke **veiligheidsregels overal gelden**: elke databankvraag is geparametriseerd, elke `ORDER BY` komt uit een vaste lijst, en elke `LIMIT`/`OFFSET` wordt een geheel getal. Het hoofdstuk bevat ook het overzicht van alle routers en de request-logging, die elk verzoek in de auditlog vastlegt.
+De API-laag van CoGA volgt een vast patroon: **router → service → opslag**. FastAPI geeft elk endpoint de databanksessie en de ingelogde gebruiker. Enkele **veiligheidsregels gelden overal**: elke databankvraag is geparametriseerd, elke `ORDER BY` komt uit een vaste lijst, en elke `LIMIT`/`OFFSET` wordt een geheel getal. Verder: het overzicht van alle routers, en de request-logging, die elk verzoek in de auditlog vastlegt.
 
 Enkele begrippen:
 
@@ -15,66 +15,82 @@ Enkele begrippen:
 CoGA houdt drie lagen strikt gescheiden:
 
 1. **Router (dun):** leest het pad en de parameters, laat ze valideren, dwingt de toegang af en geeft het antwoord als JSON terug.
-2. **Service (dik):** de klinische en bedrijfslogica, zoals filters, prioritering, ACMG-regels en hash-ketens. Op enkele kleine, geparametriseerde opzoekingen in routers na (in `cram.py`, `signal_tracks.py`, `family_qc_reports.py`, `repeat_expansions.py`, `families.py` en `health.py`) praten alleen services met de opslag.
+2. **Service (dik):** de klinische en bedrijfslogica, zoals filters, prioritering, ACMG-regels en hash-ketens. Alleen services praten met de opslag, op enkele kleine, geparametriseerde opzoekingen in routers na (in `cram.py`, `signal_tracks.py`, `family_qc_reports.py`, `repeat_expansions.py`, `families.py` en `health.py`).
 3. **Opslag:** Postgres via SQLAlchemy (asynchroon) en ClickHouse via een directe client.
 
 Een voorbeeld: `GET /api/families/{family_id}/small-variants`.
 
-- **De router** (`backend/app/routers/families_small_variants.py`) krijgt de paginagrootte als een geheel getal met een ondergrens en een bovengrens; een te grote waarde wordt met `422` geweigerd voor er iets draait. De vele filterparameters leest een aparte dependency in, zodat het gewone endpoint en de CSV-export precies dezelfde filters gebruiken.
+- **De router** (`backend/app/routers/families_small_variants.py`) krijgt de paginagrootte als een geheel getal met een onder- en een bovengrens. Een te grote waarde wordt met `422` geweigerd voor er iets draait. De vele filterparameters leest een aparte dependency in, zodat het gewone endpoint en de CSV-export precies dezelfde filters gebruiken.
 - **Het toegangscheckpoint** `build_family_metadata_context` laadt de familie alleen als de gebruiker ze mag zien, en beperkt de projecten tot die van de gebruiker (hoofdstuk 2). Dat gebeurt vóór er een variantvraag naar ClickHouse gaat.
 - **De service** (`backend/app/services/clickhouse_family_variants.py`) bouwt de ClickHouse-query, met de scoping erin (`e.family_guid = %(family_guid)s`, `e.project_guid IN %(project_ids)s`) en de waarden als parameters.
 - **Het antwoord** wordt tegen een Pydantic-model gecontroleerd en als JSON teruggegeven.
 
-De router raakt dus nooit rechtstreeks SQL aan, en de service bemoeit zich niet met HTTP of tokens. Zo is voor een reviewer duidelijk waar de toegangscontrole, de validatie en de query-opbouw zitten.
+De router raakt hier geen SQL aan, de service geen HTTP of tokens. Zo ziet een reviewer meteen waar de toegangscontrole, de validatie en de query-opbouw zitten.
 
 ## Dependencies: sessie, gebruiker, scoping
 
-Twee dependencies komen in vrijwel elk beschermd endpoint terug. `get_postgres_session` geeft per verzoek een verse databanksessie en sluit ze achteraf. `get_current_user` controleert het token en laadt de gebruiker (hoofdstuk 5); `get_current_admin_user` eist daarbovenop een beheerdersrol. Een router kan een dependency ook op al zijn endpoints tegelijk leggen: de routers voor DGV, CNV's, chromosomen, blacklist en segmentale duplicaties vragen zo voor elk endpoint, ook een toekomstig, een geldig token.
+Twee dependencies komen in vrijwel elk beschermd endpoint terug:
+
+- `get_postgres_session` geeft per verzoek een verse databanksessie en sluit ze achteraf.
+- `get_current_user` controleert het token en laadt de gebruiker (hoofdstuk 5); `get_current_admin_user` eist daarbovenop een beheerdersrol.
+
+Een router kan een dependency ook op al zijn endpoints tegelijk leggen. Zo eisen de routers voor DGV, CNV's, chromosomen, blacklist en segmentale duplicaties een geldig token voor elk endpoint, ook een toekomstig.
 
 **Waar in de code:** `backend/app/dependencies.py` en `backend/app/core/postgres.py`.
 
 ## Schemas: validatie en documentatie
 
-Alle vormen van verzoeken en antwoorden staan in `backend/app/schemas/`, één module per domein. Ze doen drie dingen: ze **controleren invoer** (ongeldige JSON geeft `422` voordat de router draait), ze **leggen de vorm van het antwoord vast** (`response_model=`, zodat onbedoelde velden wegvallen) en ze leveren de **OpenAPI-beschrijving** van de API. Elke route die JSON antwoordt, noemt zo haar model, nooit een losse `dict`: de frontend leest het antwoord via het type dat daaruit gegenereerd wordt (`frontend/src/lib/apiSchema.generated.ts`), en `test_api_response_models.py` faalt op een route zonder model (ENG-4). Alleen de BED-leesroutes geven de JSON terug die hun service bouwt: hun model beschrijft die, zonder de tot een miljoen rijen opnieuw te valideren, en tests vergelijken elk tracktype met het model. Buiten ontwikkeling zijn `/docs`, `/redoc` en `/openapi.json` uitgeschakeld. Omdat alle schemas op één plek staan, kan een reviewer daar nagaan welke gegevens het systeem in- en uitgaan.
+Alle vormen van verzoeken en antwoorden staan in `backend/app/schemas/`, één module per domein. Ze doen drie dingen:
+
+- ze **controleren invoer**: ongeldige JSON geeft `422` voordat de router draait;
+- ze **leggen de vorm van het antwoord vast** (`response_model=`), zodat onbedoelde velden wegvallen;
+- ze leveren de **OpenAPI-beschrijving** van de API.
+
+Elke route die JSON antwoordt, noemt haar model, nooit een losse `dict`. De frontend leest het antwoord via het type dat daaruit gegenereerd wordt (`frontend/src/lib/apiSchema.generated.ts`), en `test_api_response_models.py` faalt op een route zonder model (ENG-4). Alleen de BED-leesroutes geven de JSON terug die hun service bouwt. Hun model beschrijft die zonder de tot een miljoen rijen opnieuw te valideren; tests vergelijken elk tracktype met het model. Buiten ontwikkeling zijn `/docs`, `/redoc` en `/openapi.json` uitgeschakeld. Omdat alle schemas op één plek staan, kan een reviewer daar nagaan welke gegevens het systeem in- en uitgaan.
 
 ## Veiligheidsregels die overal gelden
 
-Deze regels zijn niet per functie opnieuw bedacht, maar zitten in enkele gedeelde hulpmiddelen.
+Deze regels zitten in enkele gedeelde hulpmiddelen, niet in elke functie apart.
 
 ### 1. Alle queries zijn geparametriseerd
 
 Waarden gaan nooit als tekst in een query, altijd als losse parameter.
 
-- **Postgres:** SQLAlchemy met benoemde parameters (`:naam`). Voor een lijst UUID's (bv. `IN :project_ids`) bestaat een hulpfunctie die een veilige, variabele lijst oplevert zonder tekst te plakken.
-- **ClickHouse:** parameters in de vorm `%(naam)s`, die CoGA los van de querytekst aan de client (clickhouse-connect) geeft. De client zet elke waarde ge-escapet in de query die naar de server gaat (binding aan de kant van de client); de querytekst die CoGA zelf opbouwt, bevat de waarde nooit.
-- **Een UUID uit het verzoek:** een UUID in het pad, de querystring of de body (een bestand, een importjob, een HPO-annotatie, een panel, een project, de assembly van een NIPT-artefact, …) wordt één keer gelezen, daar waar het record wordt opgezocht en dus ná de toegangscontroles. Een waarde die geen UUID is, krijgt hetzelfde antwoord als een UUID zonder record (de 404 van de route, of de 400 die de route voor een ongeldige id geeft) en komt nooit in een query. Een UUID wordt in zijn canonieke vorm gebonden (kleine letters, met koppeltekens), zodat `{…}` of `urn:uuid:…` hetzelfde record vindt. Een schrijfactie die naar een record verwijst, zoekt dat record eerst op: een NIPT-artefact voor een onbestaande assembly of een importjob voor een onbestaand project wordt met een 404 geweigerd vóór er iets geschreven wordt, en de audittrail van de artefactlijst krijgt er geen event voor. Voordien liep zo'n verzoek uit op een 500.
+- **Postgres:** SQLAlchemy met benoemde parameters (`:naam`). Voor een lijst UUID's (bv. `IN :project_ids`) maakt een hulpfunctie een veilige lijst van variabele lengte, zonder tekst te plakken.
+- **ClickHouse:** parameters in de vorm `%(naam)s`, die CoGA los van de querytekst aan de client (clickhouse-connect) geeft. De client zet elke waarde ge-escapet in de query die naar de server gaat (binding aan de kant van de client). De querytekst die CoGA zelf opbouwt, bevat de waarde nooit.
+- **Een UUID uit het verzoek** (in het pad, de querystring of de body: een bestand, een importjob, een HPO-annotatie, een panel, een project, de assembly van een NIPT-artefact, …):
+    - wordt één keer gelezen, waar het record wordt opgezocht, dus ná de toegangscontroles;
+    - krijgt, als de waarde geen UUID is, hetzelfde antwoord als een UUID zonder record (de 404 van de route, of de 400 die de route voor een ongeldige id geeft), en komt dan nooit in een query;
+    - wordt in zijn canonieke vorm gebonden (kleine letters, met koppeltekens), zodat `{…}` of `urn:uuid:…` hetzelfde record vindt.
 
-Het enige dat wél in de tekst staat, zijn tabelnamen; die worden afgeleid van de assemblynaam via één functie die alleen veilige tekens toelaat (hoofdstuk 3).
+    Een schrijfactie die naar een record verwijst, zoekt dat record eerst op. Een NIPT-artefact voor een onbestaande assembly of een importjob voor een onbestaand project krijgt een 404 vóór er iets geschreven wordt, en de audittrail van de artefactlijst krijgt er geen event voor. Voordien gaf zo'n verzoek een 500.
+
+Alleen tabelnamen staan wél in de tekst. Die worden afgeleid van de assemblynaam via één functie die alleen veilige tekens toelaat (hoofdstuk 3).
 
 **Waar in de code:** `backend/app/core/sql.py` (`uuid_list_bindparam`, `canonical_uuid`, `require_uuid`) en `execute_clickhouse` in `backend/app/core/clickhouse.py`.
 
 ### 2. `ORDER BY` komt uit een vaste lijst
 
-Een kolomnaam kan in SQL geen parameter zijn. Daarom zet CoGA nooit door de gebruiker aangeleverde tekst in een `ORDER BY`, maar vertaalt het een sorteersleutel via een vaste tabel. In de Variant Explorer valt een onbekende sleutel terug op de standaard (`total_samples`); in de integriteitscontrole van de hash-ketens komen de sorteerkolommen uit een vaste lijst per tabel.
+Een kolomnaam kan in SQL geen parameter zijn. Daarom zet CoGA nooit tekst van de gebruiker in een `ORDER BY`, maar vertaalt het een sorteersleutel via een vaste tabel. In de Variant Explorer valt een onbekende sleutel terug op de standaard (`total_samples`). In de integriteitscontrole van de hash-ketens komen de sorteerkolommen uit een vaste lijst per tabel.
 
 **Waar in de code:** `_SORT_EXPR` in `backend/app/services/variant_explorer_service.py` en `_CHAIN_ORDER_COLS` in `backend/app/services/integrity_anchor_service.py`.
 
 ### 3. `LIMIT` en `OFFSET` worden gehele getallen
 
-Paginagrenzen gaan altijd door `int(...)`, worden minstens 0 en staan zelf als parameter in de query. Een hoog paginanummer kan bovendien geen onbegrensde scan uitlokken: de pagina wordt geklemd.
+Paginagrenzen gaan altijd door `int(...)`, worden minstens 0 en staan zelf als parameter in de query. Een hoog paginanummer kan geen onbegrensde scan uitlokken: de pagina wordt geklemd.
 
 **Waar in de code:** `backend/app/services/clickhouse_variant_queries.py`.
 
 ### 4. Extra bescherming rond ClickHouse
 
-- **Grenzen per query:** een maximale uitvoeringstijd, querygrootte en geheugengrenzen, zodat één brede filter de server niet onbeperkt bezet. Een query die te zwaar is, geeft een `422` met de vraag de zoekopdracht te verfijnen, geen onduidelijke `500`.
+- **Grenzen per query:** een maximale uitvoeringstijd, querygrootte en geheugengrenzen, zodat één brede filter de server niet onbeperkt bezet. Een te zware query geeft een `422` met de vraag de zoekopdracht te verfijnen, geen onduidelijke `500`.
 - **Tijdelijke fouten:** bij een verbroken verbinding herstelt de client zich en probeert hij één keer opnieuw, zonder de query te wijzigen.
 
 **Waar in de code:** `backend/app/core/clickhouse.py` (grenzen en herstel); de vertaling van een te zware query naar `422` in `backend/app/services/clickhouse_family_variants.py`.
 
 ## Alle routers
 
-Alle routers staan in `backend/app/routers/__init__.py` en hangen onder `/api`, behalve `metrics.py`, dat `main.py` bewust buiten `/api` hangt (zie *Metrics voor de monitoring*). De router `families.py` bindt vijf deelrouters in onder hetzelfde pad `/families`; die hebben daarom geen eigen voorvoegsel. Alleen `health.py` en `lookups.py` hebben helemaal geen voorvoegsel.
+Alle routers staan in `backend/app/routers/__init__.py` en hangen onder `/api`. Alleen `metrics.py` hangt `main.py` bewust buiten `/api` (zie *Metrics voor de monitoring*). De router `families.py` bindt vijf deelrouters in onder hetzelfde pad `/families`; die hebben daarom geen eigen voorvoegsel. Alleen `health.py`, `lookups.py` en `ancestry.py` hebben helemaal geen voorvoegsel; `ancestry.py` schrijft `/families/…` in elk pad.
 
 | Router | Pad onder `/api` | Doel |
 | --- | --- | --- |
@@ -88,6 +104,8 @@ Alle routers staan in `backend/app/routers/__init__.py` en hangen onder `/api`, 
 | `families_reports.py` | `/families` (deel) | Annotatiemanifest, drift, klinische audit, sample-QC, rapport en ondertekening (hoofdstuk 11) |
 | `families_tracks.py` | `/families` (deel) | Tracks: haplotypes, gefaseerde markers, repeats, mtDNA, Paraphase (hoofdstuk 9) |
 | `family_qc_reports.py` | `/families` | Het QC-rapport van de pipeline, via een kortlevende link en afgeschermd (hoofdstuk 2) |
+| `ancestry.py` | `/families/{family_id}/ancestry`, `/families/{family_id}/wgs-source` | De exploratieve afstammings-PCA van een familie en haar geverifieerde WGS-invoer; niet klinisch, buiten de ondertekening |
+| `report_codes.py` | `/report-codes` | Een ondertekend analyserecord opzoeken met de rapportcode die het EPD-rapport citeert (hoofdstuk 11) |
 | `structural_variants.py` | `/structural-variants` | Het SV-bestand van één sample uploaden (alleen beheerders); de SV's van één sample leest de SV-lijst van de familie met de parameter `sample` |
 | `cnvs.py` | `/cnvs` | De klinische-CNV-catalogus en CNV's per regio |
 | `variant_explorer.py` | `/variant-explorer` | Varianten over alle toegankelijke projecten heen (hoofdstuk 14) |
@@ -127,26 +145,52 @@ Alle routers staan in `backend/app/routers/__init__.py` en hangen onder `/api`, 
 
 ## Metrics voor de monitoring
 
-`GET /metrics` geeft de operationele cijfers van de backend in het Prometheus-formaat: verzoeken, fouten en duur per route, de laatste geplande integriteitscontrole van ClickHouse per assembly, de wachtrij en de niet-opgeslagen gebeurtenissen van de auditpijplijnen, de actieve importjobs en hoelang die geen teken van leven gaven, en de draaiende build. Er zitten geen klinische gegevens in: een verzoek krijgt het sjabloon van zijn route als label (`/families/{family_id}`, zoals ook de auditlog het bewaart), nooit het pad met zijn identificaties. Het endpoint staat uit zolang `METRICS_TOKEN` niet gezet is, en antwoordt dan alleen een verzoek met dat token als bearer-token. Het ligt buiten `/api`, en de load balancer en de frontendserver sturen alleen `/api` naar de backend door, dus het internet bereikt het nooit. In de deployment leest een collector (de Google-Built OpenTelemetry Collector), als tweede container in dezelfde Cloud Run-dienst, het elke minuut met het token, en schrijft de cijfers naar Google Cloud Managed Service for Prometheus. Alarmregels in Cloud Monitoring lezen ze daar en mailen de adressen uit `alert_notification_emails` (`terraform/monitoring.tf`). `docs/monitoring.md` beschrijft de metrics en voorgestelde alarmregels.
+`GET /metrics` geeft de operationele cijfers van de backend in het Prometheus-formaat:
+
+- verzoeken, fouten en duur per route;
+- de laatste geplande integriteitscontrole van ClickHouse per assembly;
+- de wachtrij en de niet-opgeslagen gebeurtenissen van de auditpijplijnen;
+- de actieve importjobs, en hoelang die geen teken van leven gaven;
+- de draaiende build.
+
+Er zitten geen klinische gegevens in. Een verzoek krijgt het sjabloon van zijn route als label (`/families/{family_id}`, zoals ook de auditlog het bewaart), nooit het pad met zijn identificaties.
+
+Het endpoint staat uit zolang `METRICS_TOKEN` niet gezet is. Is het gezet, dan antwoordt het alleen een verzoek met dat token als bearer-token. Het ligt buiten `/api`, en de load balancer en de frontendserver sturen alleen `/api` naar de backend door: het internet bereikt het dus nooit. In de deployment leest een collector (de Google-Built OpenTelemetry Collector) het elke minuut met het token. Die collector draait als tweede container in dezelfde Cloud Run-dienst en schrijft de cijfers naar Google Cloud Managed Service for Prometheus. Alarmregels in Cloud Monitoring lezen ze daar en mailen de adressen uit `alert_notification_emails` (`terraform/monitoring.tf`). `docs/monitoring.md` beschrijft de metrics en voorgestelde alarmregels.
 
 **Waar in de code:** `backend/app/services/operational_metrics.py` en `backend/app/routers/metrics.py`; het tellen van elk verzoek in de request-logging-middleware.
 
 ## Request-logging: elk verzoek laat een spoor na
 
-Twee onderdelen zorgen dat elk HTTP-verzoek wordt gelogd en geaudit.
+Twee onderdelen zorgen dat elk HTTP-verzoek gelogd en geaudit wordt.
 
-**Gestructureerde logging.** De logregels van de backend zelf verschijnen als JSON-regels op stderr; de eigen regels van uvicorn (het opstarten, de toegangslog op stdout, de traceback van een onafgehandelde fout) houden het tekstformaat van uvicorn. Stuurtekens (ook regeleinden) in waarden worden vervangen voordat ze in een logregel komen, zodat niemand valse logregels kan invoegen (*log forging*).
+**Gestructureerde logging.** De backend schrijft zijn eigen logregels als JSON-regels op stderr. De eigen regels van uvicorn (het opstarten, de toegangslog op stdout, de traceback van een onafgehandelde fout) houden het tekstformaat van uvicorn. Stuurtekens (ook regeleinden) in waarden worden vervangen voor ze in een logregel komen, zodat niemand valse logregels kan invoegen (*log forging*).
 
 **De request-logging-middleware** legt elk verzoek vast in de append-only tabel `audit_log_events`:
 
 - **Wie:** gebruiker, e-mailadres en rol, uit de gebruiker die `get_current_user` aan het verzoek hing.
-- **Wat:** methode, route, status, duur, IP en user-agent. Van een querystring worden standaard alleen de sleutels bewaard (`AUDIT_LOG_QUERY_STRING_MODE`), zodat te zien is welke filters een zoekopdracht gebruikte, zonder hun waarden.
+- **Wat:** methode, route, status, duur, IP en user-agent. Van een querystring worden standaard alleen de sleutels bewaard (`AUDIT_LOG_QUERY_STRING_MODE`): zo is te zien welke filters een zoekopdracht gebruikte, zonder hun waarden.
 - **De inhoud van een wijziging:** bij `POST`, `PUT`, `PATCH` en `DELETE` wordt de body bewaard, met gevoelige velden (wachtwoord, token, geheim, …) gemaskeerd, ook in het formulier van `/auth/token`. Een body die niet te lezen is, wordt niet ruw bewaard. De middleware leidt ook af welke entiteit en welke velden werden gewijzigd.
 - **Verzoeken naar records van andere projecten:** een familie, sample of project buiten de projecten van de gebruiker krijgt hetzelfde antwoord als een id dat niet bestaat (`404`, hoofdstuk 2). Alleen de auditrij houdt het verschil bij: `request_meta.record_hidden` noemt het soort record (`family`, `sample` of `project`). Zo blijft zichtbaar wie records van andere projecten opvroeg; de beheerpagina Auditlogs toont het in de kolom *Flags* (hoofdstuk 15).
-- **Scheiding van klinische gegevens en applicatielog:** de body (mogelijk klinische gegevens) komt alleen in de afgeschermde auditdatabank, nooit in de gewone applicatielog. Dat geldt ook voor de tekst van een fout: bij een mislukte query citeert die de SQL en de parameters, waarden uit het verzoek of die ervoor gelezen werden. De 500-regel van een onafgehandelde fout noemt het soort fout (het type met SQLSTATE, of de foutcode van ClickHouse), de route en de frames van elke exception in de keten, zonder hun meldingen. uvicorn logt dezelfde fout nog eens, want Starlette geeft ze na het 500-antwoord door aan de server; een filter (`RedactServerErrorFilter`) schrijft die traceback op dezelfde manier. De volledige tekst staat alleen in de auditrij (`audit_log_events.error`). Elke andere logregel met een exception (`logger.exception()`, `exc_info=True`), van elke logger, ook die van een bibliotheek, en op elk niveau, schrijft de JSON-formatter (`JsonLogFormatter`) op dezelfde manier: het soort fout in `error`, de frames van de keten in `traceback`, nooit de melding. De enige uitzondering is een auditrij die de databank niet kan opslaan: die wordt met inhoud gelogd, body en fouttekst inbegrepen, zodat ze te herstellen is (zie hieronder).
-- **Wat Postgres niet kan opslaan:** een NUL-teken (een `%00` in het pad of de querystring, `\u0000` in een JSON-body), de helft van een UTF-16-surrogaatpaar en de getallen `NaN` en `Infinity`. Zo'n waarde wordt als zichtbare escape bewaard: een NUL als de vier tekens `\x00`, een half paar als `\udXXX`, een getal als de tekst `"NaN"`, `"Infinity"` of `"-Infinity"`. `request_meta._escaped` noemt de kolommen waarin dat gebeurde (`core/pg_storable.py`). Vroeger liet zo'n waarde de rij mislukken, in de async-modus met de rest van de batch; een gebruiker kon zo een actie uitvoeren zonder rij in `audit_log_events`. De UI-eventlog doet hetzelfde, met `_escaped` in `detail`. De beheerpagina Auditlogs toont beide in de kolom *Flags*, met de kolommen erbij (hoofdstuk 15).
+- **Scheiding van klinische gegevens en applicatielog:** de body (mogelijk klinische gegevens) komt alleen in de afgeschermde auditdatabank, nooit in de gewone applicatielog. Dat geldt ook voor de tekst van een fout: bij een mislukte query citeert die de SQL en de parameters, met waarden uit het verzoek of die ervoor gelezen werden.
+    - De 500-regel van een onafgehandelde fout noemt het soort fout (het type met SQLSTATE, of de foutcode van ClickHouse), de route en de frames van elke exception in de keten, zonder hun meldingen.
+    - uvicorn logt dezelfde fout nog eens, want Starlette geeft ze na het 500-antwoord door aan de server. Een filter (`RedactServerErrorFilter`) schrijft die traceback op dezelfde manier.
+    - Elke andere logregel met een exception (`logger.exception()`, `exc_info=True`) schrijft de JSON-formatter (`JsonLogFormatter`) ook zo, van elke logger (ook die van een bibliotheek) en op elk niveau: het soort fout in `error`, de frames van de keten in `traceback`, nooit de melding.
+    - De volledige tekst staat alleen in de auditrij (`audit_log_events.error`).
 
-De auditregels lopen via een wachtrij die in productie nooit stil iets laat vallen: bij een volle wachtrij schrijft de backend synchroon. Zonder wachtrij (`AUDIT_LOG_MODE=sync`, of zolang er geen worker draait, zoals tijdens het opstarten en afsluiten) schrijft elk verzoek zijn regel zelf weg. De worker schrijft een batch in één INSERT; mislukt die ook bij de laatste poging, dan schrijft hij de regels één voor één, elk één keer en zonder te wachten. Een regel die de databank om zichzelf weigert (een constraint, of een waarde die de driver niet kan coderen, zoals een tijdstip vóór het jaar 1 in UTC), kost zo alleen zichzelf; vroeger nam hij de hele batch mee, tot `AUDIT_LOG_BATCH_SIZE` regels van eender welke gebruiker. Een regel van een gebruiker wiens account verwijderd werd terwijl de regel wachtte (alleen met SQL door een beheerder), viel vroeger zo weg op de foreign key naar `users`. Alleen geschreven, wordt hij nu zonder die koppeling bewaard: het id van de gebruiker staat in `request_meta._deleted_user_id` (bij een UI-event in `detail._deleted_user_id`), `user_email` en `user_role` blijven zoals ze waren, en de log meldt het met het soort fout, zonder waarden. Elke gebeurtenis krijgt verder een eigen id (`event_id`) zodra ze gemaakt wordt, vóór ze in de wachtrij gaat, en de INSERT doet niets voor een id dat de tabel al heeft (`ON CONFLICT (event_id) DO NOTHING`). Ging het antwoord op een geslaagde commit verloren, dan schrijft de worker de batch opnieuw; elke regel staat er zo één keer in, waar hij vroeger twee keer in de tabel kwam. Is de databank niet bereikbaar, dan stopt dat na de eerste regel: de overige worden zonder nieuwe poging gelogd en geteld, zoals vroeger de hele batch. Een regel die echt niet op te slaan is, wordt in elke modus met inhoud gelogd en geteld: de alert op `coga_audit_events_not_persisted_total` gaat af, en de regel is uit de log te herstellen. Van de fout bij het wegschrijven wordt alleen het soort gelogd (type en SQLSTATE), niet haar tekst, die de query en de rij citeert. Het verzoek van de gebruiker faalt er niet door, en een batch UI-events krijgt ook dan 202. Alleen in ontwikkeling mag een volle wachtrij regels laten vallen (`AUDIT_LOG_DROP_ALLOWED`) of mag de auditlog helemaal uit (`AUDIT_LOG_MODE=off`); daarbuiten weigert de backend met die waarden te starten. De standaard is `async`.
+    De enige uitzondering is een auditrij die de databank niet kan opslaan. Die wordt met inhoud gelogd, body en fouttekst inbegrepen, zodat ze te herstellen is (zie hieronder).
+
+- **Wat Postgres niet kan opslaan:** een NUL-teken (een `%00` in het pad of de querystring, `\u0000` in een JSON-body), de helft van een UTF-16-surrogaatpaar en de getallen `NaN` en `Infinity`. Zo'n waarde wordt als zichtbare escape bewaard: een NUL als de vier tekens `\x00`, een half paar als `\udXXX`, een getal als de tekst `"NaN"`, `"Infinity"` of `"-Infinity"`. `request_meta._escaped` noemt de kolommen waarin dat gebeurde (`core/pg_storable.py`). Voorheen liet zo'n waarde de rij mislukken, in de async-modus met de rest van de batch: een gebruiker kon zo een actie uitvoeren zonder rij in `audit_log_events`. De UI-eventlog doet hetzelfde, met `_escaped` in `detail`. De beheerpagina Auditlogs toont beide in de kolom *Flags*, met de kolommen erbij (hoofdstuk 15).
+
+De auditregels lopen via een wachtrij die in productie nooit stil iets laat vallen:
+
+- Bij een volle wachtrij schrijft de backend synchroon.
+- Zonder wachtrij (`AUDIT_LOG_MODE=sync`, of zolang er geen worker draait, zoals tijdens het opstarten en afsluiten) schrijft elk verzoek zijn regel zelf weg.
+- De worker schrijft een batch in één INSERT. Mislukt die ook bij de laatste poging, dan schrijft hij de regels één voor één, elk één keer en zonder te wachten. Een regel die de databank om zichzelf weigert (een constraint, of een waarde die de driver niet kan coderen, zoals een tijdstip vóór het jaar 1 in UTC), kost zo alleen zichzelf. Voorheen nam hij de hele batch mee: tot `AUDIT_LOG_BATCH_SIZE` regels van eender welke gebruiker.
+- Een regel van een gebruiker wiens account verwijderd werd terwijl de regel wachtte (alleen met SQL door een beheerder), viel voorheen weg op de foreign key naar `users`. Bij het schrijven één voor één wordt hij nu zonder die koppeling bewaard: het id van de gebruiker staat in `request_meta._deleted_user_id` (bij een UI-event in `detail._deleted_user_id`), en `user_email` en `user_role` blijven zoals ze waren. De log meldt het met het soort fout, zonder waarden.
+- Elke gebeurtenis krijgt een eigen id (`event_id`) zodra ze gemaakt wordt, vóór ze in de wachtrij gaat. De INSERT doet niets voor een id dat de tabel al heeft (`ON CONFLICT (event_id) DO NOTHING`). Ging het antwoord op een geslaagde commit verloren, dan schrijft de worker de batch opnieuw, en staat elke regel er toch één keer in (voorheen twee keer).
+- Is de databank niet bereikbaar, dan stopt het één voor één schrijven na de eerste regel: de overige worden zonder nieuwe poging gelogd en geteld, zoals vroeger de hele batch.
+- Een regel die echt niet op te slaan is, wordt in elke modus met inhoud gelogd en geteld. De alert op `coga_audit_events_not_persisted_total` gaat af, en de regel is uit de log te herstellen. Van de fout bij het wegschrijven wordt alleen het soort gelogd (type en SQLSTATE), niet haar tekst, die de query en de rij citeert. Het verzoek van de gebruiker faalt er niet door, en een batch UI-events krijgt ook dan 202.
+- Alleen in ontwikkeling mag een volle wachtrij regels laten vallen (`AUDIT_LOG_DROP_ALLOWED`) of mag de auditlog helemaal uit (`AUDIT_LOG_MODE=off`). Daarbuiten weigert de backend met die waarden te starten. De standaard is `async`.
 
 **Waar in de code:** `backend/app/core/coga_logging.py` (JSON-logging, fouten benoemen zonder hun tekst), `backend/app/middleware/request_logging.py` (de middleware), `backend/app/services/audit_log_pg.py` en `event_pipeline.py` (wegschrijven zonder verlies), `backend/app/core/pg_storable.py` (de escapes).
 
@@ -160,7 +204,7 @@ In Starlette (waarop FastAPI draait) is de laatst geregistreerde middleware de b
 4. `security_headers_middleware` — zet de security-headers op elk antwoord (hoofdstuk 2).
 5. `TrustedProxyClientMiddleware` — als laatste geregistreerd, dus de buitenste: bepaalt het echte client-IP (`TRUSTED_PROXY_HOPS`) voordat logging, rate limiting en audit het lezen.
 
-Buiten die keten staat nog Starlettes `ServerErrorMiddleware`. Die beantwoordt een fout die niets anders afhandelt met een `500`, met de handler `_answer_server_error` uit `main.py`: dezelfde tekst als Starlettes eigen antwoord, maar met dezelfde security-headers, HSTS inbegrepen (SEC-23). Daarna gooit hij de fout opnieuw op, zodat uvicorn ze nog logt; de request-logging heeft het verzoek dan al gelogd en in de audit gezet.
+Buiten die keten staat nog Starlettes `ServerErrorMiddleware`. Die beantwoordt een fout die niets anders afhandelt met een `500`, via de handler `_answer_server_error` uit `main.py`: dezelfde tekst als Starlettes eigen antwoord, maar met dezelfde security-headers, HSTS inbegrepen (SEC-23). Daarna gooit hij de fout opnieuw op, zodat uvicorn ze nog logt; de request-logging heeft het verzoek dan al gelogd en in de audit gezet.
 
 **Waar in de code:** het einde van `backend/app/main.py`; `backend/app/middleware/`.
 
