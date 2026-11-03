@@ -14,8 +14,9 @@ figure below comes from its results, measured on 2 and 3 November 2026.
   any room for merges.
 - **Since #1092 the family search runs at every size measured, but it slows as the cohort
   grows.** Its annotation filters still read the whole cohort's annotation table twice per
-  search (the list and the count): 360 M rows at 250 genomes, about 750 M at 1,000, so a
-  broad filter that takes seconds today will take tens of seconds.
+  search (the list and the count): 360 M rows at 250 genomes, about 750 M at 1,000. On a
+  quiet machine a broad search took 2.4–4.8 s at 250 genomes; at 1,000 it will take about
+  5–10 s, and it keeps growing with the cohort.
 - **Before #1092 the rare-only search failed at about 250 genomes:** its queries held 3 GiB
   for the set of matching variants (75 % of the 4 GB cap) and passed the 110 s limit, which
   the app answers with "This filter combination matches too many variants". #1092 holds that
@@ -25,14 +26,15 @@ figure below comes from its results, measured on 2 and 3 November 2026.
 - **The Variant Explorer's unfiltered page is the first thing to fail:** it passes the 110 s
   limit from about 20 M `entries` rows, three or four whole-genome families. Its filtered
   pages read every `entries` row of the cohort and the cohort's annotations, twice: 189 M
-  rows and 7 s at 60 M `entries` rows, about 5.5 billion rows a page at 1,000 genomes.
+  rows and 7 s at 60 M `entries` rows, about 5.5 billion rows a page at 1,000 genomes
+  (about 17 s at the fastest rate seen here, past the 110 s limit at the slowest).
 - **An overwrite of a whole-genome trio takes about a minute** (snapshot and restore of
-  6.3 M rows, about 35 s each, 1.5 GiB each whatever the family's size). The snapshot runs
+  6.3 M rows, 20–35 s each, 1.5 GiB each whatever the family's size). The snapshot runs
   under the 110 s query limit, and on the loaded test machine one passed it. The delete
   rewrites the family's parts, which merges share with the rest of its project: 7.4 GB for
   one trio at 100 genomes in four projects, about 50 GB at 1,000.
-- **The integrity check reads every byte of the variant tables:** 0.7–1.2 GB a second on a
-  quiet machine, so 4 to 6 minutes every 6 hours at 1,000 genomes.
+- **The integrity check reads every byte of the variant tables:** 0.7–1.4 GB a second on a
+  quiet machine, so 3 to 6 minutes every 6 hours at 1,000 genomes.
 - **The storage writer writes about 2,600 records a second since #1093** (1,100–1,400
   before), so writing a whole-genome trio takes about 40 minutes, and 1,000 genomes about
   10 days of one core's work, shared by the import-worker processes (`IMPORT_WORKER_REPLICAS`,
@@ -57,7 +59,7 @@ the family search's annotation scans from growing with the cohort: both need cod
 | --- | --- | --- |
 | Variant Explorer, unfiltered | about 20 M `entries` rows: 3–4 whole-genome families | 110 s limit (it spills to disk past 2 GiB, then runs out of time) |
 | Family search, rare only, before #1092 | about 250 genomes (28 M distinct variants) | 110 s limit at 3 GiB; the 4 GB cap is the next limit |
-| Family search, since #1092 | not within 250 genomes | rows read grow with the cohort: about 750 M per broad search at 1,000 genomes |
+| Family search, since #1092 | not within 250 genomes | rows read grow with the cohort: about 750 M per broad search at 1,000 genomes, about 5–10 s here |
 | Overwrite of a whole-genome trio | on a loaded machine | the snapshot's copy of 6.3 M rows passed the 110 s limit |
 | Delete or overwrite of a family | a project of more than about 70 GB of `entries`, some 350 genomes in one project (extrapolated) | the delete rewrites its project's parts at about 0.6 GB a second, past the client's 120 s read timeout (`CLICKHOUSE_SEND_RECEIVE_TIMEOUT`) |
 | GCP default disk (200 GB) | about 800 genomes | full |
@@ -72,9 +74,11 @@ whole server at 4.3–4.8 GB, from the memory the VM had free. The machine was b
 load average was 9–12 on its 10 cores throughout, and during the 250-genome step the load
 inside the VM reached 600 with its swap full. Memory and rows read are therefore the measures
 to trust; the times show the order of magnitude, and at the 250-genome step they are
-inflated: a one-gene search that took 0.3 s at 100 genomes took up to 32 s there.
+inflated: a one-gene search that took 0.3 s at 100 genomes took up to 32 s there. Pass D
+repeated that step once the other containers had stopped (host load about 7): its times are
+the ones to read for the family search at scale.
 
-The disk had 30 to 50 GB free, not the 240 GB of 1,000 genomes, so the benchmark ran in three
+The disk had 30 to 50 GB free, not the 240 GB of 1,000 genomes, so the benchmark ran in four
 passes:
 
 | Pass | What it holds | Steps |
@@ -82,6 +86,7 @@ passes:
 | A | every table, every family, at a quarter of the variants per genome (`--variant-scale 0.25`) | 10, 20 and 40 genomes |
 | B | the cohort's annotation tables at full size, `entries` only for the measured families (`--entries probes --skip-details`) | 50, 100 and 250 genomes |
 | C | every family, at a quarter of the variants per genome, without `variants/details` | 100 genomes |
+| D | as B, on a quieter machine, with `main`'s code (after #1092) | 250 genomes |
 
 Pass B grows exactly what the family search's annotation filters read; passes A and C grow
 what the Variant Explorer, the overwrite and the integrity check read. Pass B measured each
@@ -143,6 +148,21 @@ median of three runs on the loaded machine:
   3.0 GiB): had the time limit not stopped it first, it would have passed the 4 GB cap at
   about 33 M distinct variants, some 350 genomes.
 
+On the quieter machine (pass D, 250 genomes, `main`'s code) the same searches held the same
+memory and read the same rows, and took:
+
+| Search | Trio | Singleton |
+| --- | --- | --- |
+| Rare only | 4.8 s, 359 M rows | 2.4 s, 353 M rows |
+| Rare, HIGH/MODERATE | 2.5 s | 1.2 s |
+| Panel (5,300 genes) | 4.2 s | 2.2 s |
+| Panel, rare, HIGH/MODERATE | 4.2 s, 412 M rows | 3.3 s |
+| One gene | 0.8 s | 0.6 s |
+
+That is 75–150 M rows a second. At 1,000 genomes a broad search reads about 750 M rows, so it
+takes about 5–10 s on this machine, twice its time at 250 genomes, and its time keeps growing
+with every genome added: the scan, not the memory, is what limits the family search now.
+
 At smaller scale (pass A, 3.4 M distinct variants) every search took under 2.2 s, and #1092
 already halved the rare-only memory (326 to 216 MiB for a quarter-size trio).
 
@@ -158,9 +178,11 @@ the cohort's annotation table for its filter.
 | | 12 M (pass A, 20 genomes) | 2.2 GiB | 31 M | 50 s |
 | | 24 M (pass A, 40 genomes) | 2.3 GiB | 57 M | 49–66 s |
 | | 17 M, three whole-genome families (pass B) | 2.1–2.4 GiB | 73–83 M | 35–67 s at 50 and 100 genomes; 8 of the 12 runs at 100 and 250 genomes passed the 110 s limit |
+| | 17 M, quieter machine (pass D) | 2.4 GiB | 108 M | 28 s |
 | | 60 M (pass C, 100 genomes) | 2.3 GiB | 103 M | passed the 110 s limit |
 | Rare, HIGH/MODERATE | 24 M rows, 3.4 M distinct variants (pass A, 40 genomes) | 84 MiB | 99 M | 2.7 s |
 | | 17 M rows, 28 M distinct variants (pass B, 250 genomes) | 68 MiB | 444 M | 7–18 s |
+| | the same, quieter machine (pass D) | 90 MiB | 446 M | 1.3 s |
 | | 60 M rows, 4.7 M distinct (pass C, 100 genomes) | 108 MiB | 189 M | 6.9 s |
 | One gene | 24 M rows (pass A, 40 genomes) | 84 MiB | 58 M | 1.1 s |
 | | 17 M rows, 28 M distinct (pass B, 250 genomes) | 50 MiB | 110 M | 2–7 s |
@@ -170,8 +192,8 @@ The unfiltered page groups every carrier of every variant (`uniqExact` of famili
 samples per key) and spills that state to disk past 2 GiB; its time grows with the rows and
 the machine's load, and it already fails on a handful of genomes. A filtered page holds little
 memory, but at 1,000 genomes it reads about 5.5 billion rows (2.4 billion `entries` rows and
-360 M annotation rows, twice): about 30 s at the fastest rate seen here (190 M rows a second),
-past the 110 s limit at the slowest.
+360 M annotation rows, twice): about 17 s at the fastest rate seen here (330 M rows a second,
+pass D), past the 110 s limit at the slowest.
 
 ### Overwrite of a family
 
@@ -185,11 +207,13 @@ back). The benchmark runs the snapshot, the delete and the restore of one trio:
 | Pass A, 40 genomes (quarter size) | 1.6 M | 6–7 s, 1.4–1.5 GiB | 0.5–1.9 s; rewrote the parts that held it, 2.7 M rows | 7–9 s, 1.4–1.5 GiB |
 | Pass B, 50 and 100 genomes (whole genome) | 6.3 M | 20–44 s, 1.5 GiB | 0.1–0.7 s; its parts held no other family | 25–60 s, 1.5 GiB |
 | Pass B, 250 genomes, loaded | 6.3 M | passed the 110 s limit after 3.7 M rows | | |
+| Pass D, 250 genomes, quieter machine | 6.3 M | 19 s, 1.5 GiB | 0.05 s; its parts held no other family | 22 s, 1.5 GiB |
 | Pass C, 100 genomes (quarter size, ten families per project) | 1.6 M | 5.2 s, 1.3 GiB | 12.5 s; rewrote the parts that held it: 14.3 M rows and 7.4 GB, nearly all of its project's 15 M | 7.3 s, 1.5 GiB |
 
 The snapshot and the restore stream the rows in insert blocks, so their memory stays at
-1.5 GiB whatever the family's size; their time grows with the family, about 35 s for a
-whole-genome trio on this machine, a third of the 110 s query limit they run under. The delete
+1.5 GiB whatever the family's size; their time grows with the family, 20–35 s for a
+whole-genome trio on this machine, a fifth to a third of the 110 s query limit they run
+under. The delete
 rewrites every part that holds a row of the family: a part holds one project's rows
 (`PARTITION BY project_guid`), and merges join the parts of that project's families, so the
 delete's cost grows with the project's size, not the family's. In pass C it rewrote 7.4 GB in
@@ -211,9 +235,10 @@ variant table, which reads and checksums every part, then counts the distinct ke
 | Pass B, 50 genomes | 7.6 GB | 6.5–7.6 s | 527 MiB |
 | Pass B, 100 genomes | 9.4 GB | 11–14 s | 652 MiB |
 | Pass B, 250 genomes, loaded | 13.2 GB | 32–59 s | 515 MiB |
+| Pass D, 250 genomes, quieter machine | 13.2 GB | 9.7 s | 652 MiB |
 
-It reads 0.7 to 1.2 GB a second on a quiet machine, so at 1,000 genomes (240 GB) it takes
-about 4 to 6 minutes, and longer under load (0.2 GB a second at the 250-genome step: about
+It reads 0.7 to 1.4 GB a second on a quiet machine, so at 1,000 genomes (240 GB) it takes
+about 3 to 6 minutes, and longer under load (0.2 GB a second at the 250-genome step: about
 20 minutes). The key counts held at most 0.65 GiB at 19–28 M distinct variants, so 1 to
 2 GiB at 61 M. It never failed here, but it reads the whole data disk four times a day.
 
