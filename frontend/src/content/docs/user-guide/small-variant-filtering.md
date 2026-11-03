@@ -19,9 +19,24 @@ The page opens with the **Phenotype priority (Exomiser-style)** preset on the **
 ### Filters and presets
 
 The filters are grouped as on the screen: **Phenotype**, **Structural second hit**, **Inheritance**,
-**Pathogenicity**, **Annotations** (with *Canonical only*, *MANE only* and *LoF only*), **In Silico**,
-**Frequency**, **Locations**, **Exclude** and **Review and curation**. For de novo and dominant, a male's
-call on chrX or chrY outside the pseudo-autosomal regions (`1` or `1/1`) counts as one copy. A location
+**Pathogenicity**, **Annotations**, **In Silico**, **Frequency**, **Call quality**, **Locations**,
+**Exclude** and **Review and curation**. **Annotations** groups the VEP consequences as seqr does
+(nonsense, essential splice site, frameshift, missense, in frame, synonymous, extended splice site,
+other, motif feature and regulatory feature); a group's own box ticks or clears all its terms. Beside
+them are the VEP impacts (HIGH, MODERATE, LOW, MODIFIER), the SpliceAI minimum and *Canonical only*,
+*MANE only* and *LoF only*. A term a saved search holds that no box offers is listed under *Other
+selected terms*, ticked. **Frequency** has a slider per population; the AF, AC and H/H fields in its
+header set every population at once. AF shows the maximum the populations that have one share, or
+*mixed* when they differ. **Call quality** sets the minimum genotype quality, allele balance, depth
+and alt reads of the members' calls, for the members at once or per member. With *Affected only* on,
+only the affected members' calls are held to them, so a parent's reference call is not held to an
+allele balance it cannot have; switched off, every member gets the minimums the affected members
+share. *Pass variants only*, under *Filter value*, keeps a variant when every member's call that
+carries it passed its caller's FILTER (PASS, or no filter set), whatever *Affected only* says. A
+callset of one file per sample gives each call its own FILTER, so a parent's reference call
+(DeepVariant's *RefCall*) holds nothing back; a multi-sample VCF gives the FILTER of the site. The
+quick choices *High quality* and *Passing* turn it on, as in seqr, and *All variants* turns it off.
+For de novo and dominant, a male's call on chrX or chrY outside the pseudo-autosomal regions (`1` or `1/1`) counts as one copy. A location
 entry that cannot be read (for example an end before its start) is named under its field, and nothing is
 searched until you fix it. A per-sample minimum (GQ, DP, AF or AD alt) that is not a number fails the
 search, and the message names it.
@@ -29,8 +44,9 @@ search, and the message names it.
 The annotation filters must all hold on one transcript of the variant: impact and consequence, the
 transcript, HGVS, *Canonical only*, *MANE only* and *LoF only*, the ClinVar status, the in-silico scores
 and the frequencies. With *MANE only* and HIGH impact, a variant whose HIGH-impact transcript is not its
-MANE transcript is left out. Under **In Silico**, one of the predictors you set is enough, and a SpliceAI
-score at its minimum also passes the impact and consequence filter. A SIFT or PolyPhen choice keeps a
+MANE transcript is left out. Under **In Silico**, one of the predictors you set is enough. The SpliceAI
+minimum, set under **Annotations**, counts as one of them, and a SpliceAI score at that minimum also
+passes the impact and consequence filter. A SIFT or PolyPhen choice keeps a
 transcript whose prediction is exactly that one, whatever score VEP wrote after it: *deleterious* keeps
 `deleterious(0.01)` but not `deleterious_low_confidence(0.03)`, which is a choice of its own, and
 *tolerated* leaves out `tolerated_low_confidence`. The gene, the rsID and the excluded ClinVar statuses

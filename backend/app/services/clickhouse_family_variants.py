@@ -3354,6 +3354,7 @@ async def get_family_small_variants_page(
     polyphen: str | None = None,
     panel_id: str | None = None,
     sample_filters: list[str] | None = None,
+    pass_only: bool = False,
     review_classifications: list[str] | None = None,
     review_tags: list[str] | None = None,
     exclude_review_tags: list[str] | None = None,
@@ -3416,6 +3417,7 @@ async def get_family_small_variants_page(
         polyphen=polyphen,
         panel_id=panel_id,
         sample_filters=sample_filters or [],
+        pass_only=pass_only,
         overlap=overlap,
         require_sv_second_hit=require_sv_second_hit,
     )

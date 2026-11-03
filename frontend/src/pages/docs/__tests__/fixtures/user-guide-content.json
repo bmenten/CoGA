@@ -868,12 +868,12 @@
   "title": "Small-variant prioritisation",
   "summary": "The small-variant page: the default view, the filters and presets, the phenotype-driven ranking, and genes also hit by a structural variant.",
   "quickLinks": [],
-  "text": "TheSmallvariantspageiswheremostcandidatesarefound.Thefilterstakeagenomedowntoashortlist;thePhenotypeprioritypresetputsthatlistinorder.ThedefaultviewThepageopenswiththePhenotypepriority(Exomiser-style)presetontheMendeliomepanel:HIGHorMODERATEimpact;gnomADexome,genomeandpopmaxfrequency1%orbelow,andatmost10homozygotesand10hemizygotes—aClinVarpathogenicorlikelypathogenicrecordoverridesthesecut-offs;ClinVarbenignandlikelybenignleftout;carried(hetorhom)byeachaffectedmember,withQUAL20,depth10,allelefraction0.2and4altreadsormore.Thedefaultviewhidesvariants.AvariantoutsidetheMendeliome,acommonvariant,alow-qualitycall,oravariantanaffectedmemberdoesnotcarryisnotshown.PressClearallfiltersbeforeyouconcludethatavariantisnotinthedata.FiltersandpresetsThefiltersaregroupedasonthescreen:Phenotype,Structuralsecondhit,Inheritance,Pathogenicity,Annotations(withCanonicalonly,MANEonlyandLoFonly),InSilico,Frequency,Locations,ExcludeandReviewandcuration.Fordenovoanddominant,amale'scallonchrXorchrYoutsidethepseudo-autosomalregions(1or1/1)countsasonecopy.Alocationentrythatcannotberead(forexampleanendbeforeitsstart)isnamedunderitsfield,andnothingissearcheduntilyoufixit.Aper-sampleminimum(GQ,DP,AForADalt)thatisnotanumberfailsthesearch,andthemessagenamesit.Theannotationfiltersmustallholdononetranscriptofthevariant:impactandconsequence,thetranscript,HGVS,Canonicalonly,MANEonlyandLoFonly,theClinVarstatus,thein-silicoscoresandthefrequencies.WithMANEonlyandHIGHimpact,avariantwhoseHIGH-impacttranscriptisnotitsMANEtranscriptisleftout.UnderInSilico,oneofthepredictorsyousetisenough,andaSpliceAIscoreatitsminimumalsopassestheimpactandconsequencefilter.ASIFTorPolyPhenchoicekeepsatranscriptwhosepredictionisexactlythatone,whateverscoreVEPwroteafterit:deleteriouskeepsdeleterious(0.01)butnotdeleterious_low_confidence(0.03),whichisachoiceofitsown,andtoleratedleavesouttolerated_low_confidence.Thegene,thersIDandtheexcludedClinVarstatusesapplytothevariantasawhole:agenekeepseveryvariantannotatedwithit,oneVEPplacesjustoutsidethegene(upstreamordownstream)too,rankedornot.Acard,atablerowandaCSVrowdescribeonetranscriptofthevariant:MANESelect,elsethecanonicalone,elsethemostsevere.Thefiltersmayhaveheldonanother:deleteriouskeepsavariantwhoseMANEtranscriptSIFTcallstoleratedwhenasecondtranscriptisdeleterious,andHIGHorMODERATEimpactkeepsonethatissynonymousonitsMANEtranscriptandmissenseonanother.ThecardthensaysFiltersmetonunderitstranscript,andthetablerowunderitseffect,withthetranscriptthefiltersheldonandthoseofitsconsequence,LoFandin-silicopredictionsthatreadotherwisethantherow's;therow'sownvaluesstayastheyare,andthecard'stranscriptlistmarksthattranscriptFiltersmet.TheCSVgivesitinitslastcolumns,Filter-matchedtranscripttoFilter-matchedPolyPhen.TherankingandACMGclassifyreadthetranscripttherowdescribes.MANEonlyneedsGRCh38.MANEonlykeepsavariantwithaMANESelectorMANEPlusClinicaltranscript.VEPsetstheseflagsonGRCh38only,soonaGRCh37orT2TfamilyMANEonlykeepsnothing.Thebuilt-inpresetsarePhenotypepriority,Dominantstrict,Dominantrelaxed,Expandedcarrierscreening(couplesonly:geneswherebothpartnerscarryarare(below1%)high-ormoderate-impactvariant,andthosevariantsafemalepartnercarriesonchrXoutsidethepseudo-autosomalregions,whichputasonatriskontheirown;aClinVarpathogenicorlikelypathogeniccalloverridesthefrequencycut-off,soacommonfoundervariantstaysin;apartnerwhosesexisnotrecordedcountsasfemale;mitochondrialvariantsarenotpartofit,asmtDNApassesfromthemotheralone),Compoundhet,Recessivehom,Recessivebroad,AnyaffectedandClinVarreview.Apresetsavestherecipe,nottheresult;saveyourowntostandardiseasearch.Compound-heterozygouscandidatesareshownaspairs.Upto100matchesshowascards,moreasatable.YoursavedsearchesaresharedwiththemonogenicNIPTpage.AsearchsavedtherecancarryfiltersonlytheNIPTlistapplies:aninheritanceviewsuchasDenovointhefetus,thematernal/fetalcategories,theminimumconfidence.Thislistdoesnotapplythem:thepagedoesnotsendthem,showsnochipforthem,andnamesthemonceundertheactivefilters.DenovointhefetusisnotDenovo/dominant,whichreadsthefamilymembers'owngenotypes.Asearchcanstoppart-way.Compound-hetandrecessivepairingandExpandedcarrierscreeningreadalimitednumberofcandidates(upto5,000)beforetheyfilter,rankedornot.Whenasearchfillsthatwindow,awarningabovetheresultssays\"Resultsmaybeincomplete\"andafterhowmanycandidatesthesearchstopped;thecountisthenalowerbound(forexample12+)andamatchbeyondthewindowisnotshown.Narrowthefilterswitharegion,agenepanelorageneuntilthewarningisgone.ThephenotyperankingWithPhenotypepriorityon,aScorecolumnappearsandtherowscomeranked,bestfirst.Thescorecombinesthevariant'sownevidence(impactandpredictors,ClinVar,rarity,fitwiththepedigree)withhowwellitsgenematchestheaffectedmembers'HPOterms.A✦marksagenethatmatches.Hoverthescore,orreadthecard,forthebreakdown:Variant,Pathogenicity,RarityandPhenotype,thecompatibleinheritancemodesandthematchedphenotypes.AgenewithoutMonarchdatagetsnophenotypecreditandrankslower;itsVariantscoreisnotaffected.Lookfurtherdownforstrongvariants,oruntickPhenotypeprioritization.WithoutHPOtermsontheaffectedmembers,therankingusesthevariantevidenceonly.Therankingchangestheorderofasearch,notwhatitfinds.WithaninheritancemodeorExpandedcarrierscreeningitranksthesamevariantsandcompound-hetpairsthesearchfindswithoutit.Apairstaysapair,listedwhereitsbetter-rankedvariantranks;eachvariantshowsitsownrank.Thescoreorderscandidateswithinthefamily;itisnotaprobabilityofpathogenicity.Awarningthat\"Rankingmaybeincomplete\"meansmorecandidatesmatchedthanCoGAranksatonce(itsayshowmanywereranked),sothebestonemaybemissing:narrowthefilters(aregion,apanel,agene,oratighterfrequencyorimpact).Whytherankingcanbeinstant.CoGAkeepstherankingonceitiscomputed;alateropenshows⚡Prioritisedrankingservedfromcacheandwhenitwascomputed.Itisrecomputedautomaticallywhenanythingitdependsonchanges:thephenotypes,thepedigree,thepanel'sgenesandregions,thefilters(includingreview-tagfilters),thefamily'svariantdata,orthereferencedata(theMonarchrelease,eachimportoftheHPOontology,geneconstraint,andthegenepositionsapaneloranexcludedgeneuses).NarrowingfromtheMendeliometoasmallerpanelisservedfromthebroaderranking,rankedfrom1withinthesmallerpanel,aslongastheMendeliome'sgenesandregionsarethesameaswhenthatrankingwascomputed.Asmallerpanelthatreachesavariantthebroaderrankinglacks(througharegionofitsown,suchasthepositionPanelAppgivesforagene),orthatkeepsonevariantofacompound-hetpairwithouttheother,iscomputedforitselfinstead.DownloadCSVexportsthelist,withPriorityandRankcolumnswhentherankingison.AlsohitbyastructuralvariantAsmallvariantwhosegeneisalsohitbyanSVcarriesanSVbadge(forexampleSV:DEL),withatransorcischipwhenaphasewasdecided.AlsohitbyanSVunderStructuralsecondhitkeepsonlythesegenes.Thephasecomesfromreadphasingorfromtheparents'genotypes,bythesameruleasforcompound-hetpairs;thereferencegivestherule.EachSVofthegenegetsitsownphase,whichthebadge'sexplanationlists,andadeletionintranswiththeSNVmarksthegeneeffectivelybiallelic,whatevertheotherSVsare.In-depthreferenceSNV+SVcompoundheterozygosityreference(thebadge,transorcis)→",
+  "text": "TheSmallvariantspageiswheremostcandidatesarefound.Thefilterstakeagenomedowntoashortlist;thePhenotypeprioritypresetputsthatlistinorder.ThedefaultviewThepageopenswiththePhenotypepriority(Exomiser-style)presetontheMendeliomepanel:HIGHorMODERATEimpact;gnomADexome,genomeandpopmaxfrequency1%orbelow,andatmost10homozygotesand10hemizygotes—aClinVarpathogenicorlikelypathogenicrecordoverridesthesecut-offs;ClinVarbenignandlikelybenignleftout;carried(hetorhom)byeachaffectedmember,withQUAL20,depth10,allelefraction0.2and4altreadsormore.Thedefaultviewhidesvariants.AvariantoutsidetheMendeliome,acommonvariant,alow-qualitycall,oravariantanaffectedmemberdoesnotcarryisnotshown.PressClearallfiltersbeforeyouconcludethatavariantisnotinthedata.FiltersandpresetsThefiltersaregroupedasonthescreen:Phenotype,Structuralsecondhit,Inheritance,Pathogenicity,Annotations,InSilico,Frequency,Callquality,Locations,ExcludeandReviewandcuration.AnnotationsgroupstheVEPconsequencesasseqrdoes(nonsense,essentialsplicesite,frameshift,missense,inframe,synonymous,extendedsplicesite,other,motiffeatureandregulatoryfeature);agroup'sownboxticksorclearsallitsterms.BesidethemaretheVEPimpacts(HIGH,MODERATE,LOW,MODIFIER),theSpliceAIminimumandCanonicalonly,MANEonlyandLoFonly.AtermasavedsearchholdsthatnoboxoffersislistedunderOtherselectedterms,ticked.Frequencyhasasliderperpopulation;theAF,ACandH/Hfieldsinitsheaderseteverypopulationatonce.AFshowsthemaximumthepopulationsthathaveoneshare,ormixedwhentheydiffer.Callqualitysetstheminimumgenotypequality,allelebalance,depthandaltreadsofthemembers'calls,forthemembersatonceorpermember.WithAffectedonlyon,onlytheaffectedmembers'callsareheldtothem,soaparent'sreferencecallisnotheldtoanallelebalanceitcannothave;switchedoff,everymembergetstheminimumstheaffectedmembersshare.Passvariantsonly,underFiltervalue,keepsavariantwheneverymember'scallthatcarriesitpasseditscaller'sFILTER(PASS,ornofilterset),whateverAffectedonlysays.AcallsetofonefilepersamplegiveseachcallitsownFILTER,soaparent'sreferencecall(DeepVariant'sRefCall)holdsnothingback;amulti-sampleVCFgivestheFILTERofthesite.ThequickchoicesHighqualityandPassingturniton,asinseqr,andAllvariantsturnsitoff.Fordenovoanddominant,amale'scallonchrXorchrYoutsidethepseudo-autosomalregions(1or1/1)countsasonecopy.Alocationentrythatcannotberead(forexampleanendbeforeitsstart)isnamedunderitsfield,andnothingissearcheduntilyoufixit.Aper-sampleminimum(GQ,DP,AForADalt)thatisnotanumberfailsthesearch,andthemessagenamesit.Theannotationfiltersmustallholdononetranscriptofthevariant:impactandconsequence,thetranscript,HGVS,Canonicalonly,MANEonlyandLoFonly,theClinVarstatus,thein-silicoscoresandthefrequencies.WithMANEonlyandHIGHimpact,avariantwhoseHIGH-impacttranscriptisnotitsMANEtranscriptisleftout.UnderInSilico,oneofthepredictorsyousetisenough.TheSpliceAIminimum,setunderAnnotations,countsasoneofthem,andaSpliceAIscoreatthatminimumalsopassestheimpactandconsequencefilter.ASIFTorPolyPhenchoicekeepsatranscriptwhosepredictionisexactlythatone,whateverscoreVEPwroteafterit:deleteriouskeepsdeleterious(0.01)butnotdeleterious_low_confidence(0.03),whichisachoiceofitsown,andtoleratedleavesouttolerated_low_confidence.Thegene,thersIDandtheexcludedClinVarstatusesapplytothevariantasawhole:agenekeepseveryvariantannotatedwithit,oneVEPplacesjustoutsidethegene(upstreamordownstream)too,rankedornot.Acard,atablerowandaCSVrowdescribeonetranscriptofthevariant:MANESelect,elsethecanonicalone,elsethemostsevere.Thefiltersmayhaveheldonanother:deleteriouskeepsavariantwhoseMANEtranscriptSIFTcallstoleratedwhenasecondtranscriptisdeleterious,andHIGHorMODERATEimpactkeepsonethatissynonymousonitsMANEtranscriptandmissenseonanother.ThecardthensaysFiltersmetonunderitstranscript,andthetablerowunderitseffect,withthetranscriptthefiltersheldonandthoseofitsconsequence,LoFandin-silicopredictionsthatreadotherwisethantherow's;therow'sownvaluesstayastheyare,andthecard'stranscriptlistmarksthattranscriptFiltersmet.TheCSVgivesitinitslastcolumns,Filter-matchedtranscripttoFilter-matchedPolyPhen.TherankingandACMGclassifyreadthetranscripttherowdescribes.MANEonlyneedsGRCh38.MANEonlykeepsavariantwithaMANESelectorMANEPlusClinicaltranscript.VEPsetstheseflagsonGRCh38only,soonaGRCh37orT2TfamilyMANEonlykeepsnothing.Thebuilt-inpresetsarePhenotypepriority,Dominantstrict,Dominantrelaxed,Expandedcarrierscreening(couplesonly:geneswherebothpartnerscarryarare(below1%)high-ormoderate-impactvariant,andthosevariantsafemalepartnercarriesonchrXoutsidethepseudo-autosomalregions,whichputasonatriskontheirown;aClinVarpathogenicorlikelypathogeniccalloverridesthefrequencycut-off,soacommonfoundervariantstaysin;apartnerwhosesexisnotrecordedcountsasfemale;mitochondrialvariantsarenotpartofit,asmtDNApassesfromthemotheralone),Compoundhet,Recessivehom,Recessivebroad,AnyaffectedandClinVarreview.Apresetsavestherecipe,nottheresult;saveyourowntostandardiseasearch.Compound-heterozygouscandidatesareshownaspairs.Upto100matchesshowascards,moreasatable.YoursavedsearchesaresharedwiththemonogenicNIPTpage.AsearchsavedtherecancarryfiltersonlytheNIPTlistapplies:aninheritanceviewsuchasDenovointhefetus,thematernal/fetalcategories,theminimumconfidence.Thislistdoesnotapplythem:thepagedoesnotsendthem,showsnochipforthem,andnamesthemonceundertheactivefilters.DenovointhefetusisnotDenovo/dominant,whichreadsthefamilymembers'owngenotypes.Asearchcanstoppart-way.Compound-hetandrecessivepairingandExpandedcarrierscreeningreadalimitednumberofcandidates(upto5,000)beforetheyfilter,rankedornot.Whenasearchfillsthatwindow,awarningabovetheresultssays\"Resultsmaybeincomplete\"andafterhowmanycandidatesthesearchstopped;thecountisthenalowerbound(forexample12+)andamatchbeyondthewindowisnotshown.Narrowthefilterswitharegion,agenepanelorageneuntilthewarningisgone.ThephenotyperankingWithPhenotypepriorityon,aScorecolumnappearsandtherowscomeranked,bestfirst.Thescorecombinesthevariant'sownevidence(impactandpredictors,ClinVar,rarity,fitwiththepedigree)withhowwellitsgenematchestheaffectedmembers'HPOterms.A✦marksagenethatmatches.Hoverthescore,orreadthecard,forthebreakdown:Variant,Pathogenicity,RarityandPhenotype,thecompatibleinheritancemodesandthematchedphenotypes.AgenewithoutMonarchdatagetsnophenotypecreditandrankslower;itsVariantscoreisnotaffected.Lookfurtherdownforstrongvariants,oruntickPhenotypeprioritization.WithoutHPOtermsontheaffectedmembers,therankingusesthevariantevidenceonly.Therankingchangestheorderofasearch,notwhatitfinds.WithaninheritancemodeorExpandedcarrierscreeningitranksthesamevariantsandcompound-hetpairsthesearchfindswithoutit.Apairstaysapair,listedwhereitsbetter-rankedvariantranks;eachvariantshowsitsownrank.Thescoreorderscandidateswithinthefamily;itisnotaprobabilityofpathogenicity.Awarningthat\"Rankingmaybeincomplete\"meansmorecandidatesmatchedthanCoGAranksatonce(itsayshowmanywereranked),sothebestonemaybemissing:narrowthefilters(aregion,apanel,agene,oratighterfrequencyorimpact).Whytherankingcanbeinstant.CoGAkeepstherankingonceitiscomputed;alateropenshows⚡Prioritisedrankingservedfromcacheandwhenitwascomputed.Itisrecomputedautomaticallywhenanythingitdependsonchanges:thephenotypes,thepedigree,thepanel'sgenesandregions,thefilters(includingreview-tagfilters),thefamily'svariantdata,orthereferencedata(theMonarchrelease,eachimportoftheHPOontology,geneconstraint,andthegenepositionsapaneloranexcludedgeneuses).NarrowingfromtheMendeliometoasmallerpanelisservedfromthebroaderranking,rankedfrom1withinthesmallerpanel,aslongastheMendeliome'sgenesandregionsarethesameaswhenthatrankingwascomputed.Asmallerpanelthatreachesavariantthebroaderrankinglacks(througharegionofitsown,suchasthepositionPanelAppgivesforagene),orthatkeepsonevariantofacompound-hetpairwithouttheother,iscomputedforitselfinstead.DownloadCSVexportsthelist,withPriorityandRankcolumnswhentherankingison.AlsohitbyastructuralvariantAsmallvariantwhosegeneisalsohitbyanSVcarriesanSVbadge(forexampleSV:DEL),withatransorcischipwhenaphasewasdecided.AlsohitbyanSVunderStructuralsecondhitkeepsonlythesegenes.Thephasecomesfromreadphasingorfromtheparents'genotypes,bythesameruleasforcompound-hetpairs;thereferencegivestherule.EachSVofthegenegetsitsownphase,whichthebadge'sexplanationlists,andadeletionintranswiththeSNVmarksthegeneeffectivelybiallelic,whatevertheotherSVsare.In-depthreferenceSNV+SVcompoundheterozygosityreference(thebadge,transorcis)→",
   "paragraphs": [
    "The Small variants page is where most candidates are found. The filters take a genome down to a short list; the Phenotype priority preset puts that list in order.",
    "The page opens with the Phenotype priority (Exomiser-style) preset on the Mendeliome panel:",
-   "The filters are grouped as on the screen: Phenotype, Structural second hit, Inheritance, Pathogenicity, Annotations (with Canonical only, MANE only and LoF only), In Silico, Frequency, Locations, Exclude and Review and curation. For de novo and dominant, a male's call on chrX or chrY outside the pseudo-autosomal regions (1 or 1/1) counts as one copy. A location entry that cannot be read (for example an end before its start) is named under its field, and nothing is searched until you fix it. A per-sample minimum (GQ, DP, AF or AD alt) that is not a number fails the search, and the message names it.",
-   "The annotation filters must all hold on one transcript of the variant: impact and consequence, the transcript, HGVS, Canonical only, MANE only and LoF only, the ClinVar status, the in-silico scores and the frequencies. With MANE only and HIGH impact, a variant whose HIGH-impact transcript is not its MANE transcript is left out. Under In Silico, one of the predictors you set is enough, and a SpliceAI score at its minimum also passes the impact and consequence filter. A SIFT or PolyPhen choice keeps a transcript whose prediction is exactly that one, whatever score VEP wrote after it: deleterious keeps deleterious(0.01) but not deleterious_low_confidence(0.03), which is a choice of its own, and tolerated leaves out tolerated_low_confidence. The gene, the rsID and the excluded ClinVar statuses apply to the variant as a whole: a gene keeps every variant annotated with it, one VEP places just outside the gene (upstream or downstream) too, ranked or not.",
+   "The filters are grouped as on the screen: Phenotype, Structural second hit, Inheritance, Pathogenicity, Annotations, In Silico, Frequency, Call quality, Locations, Exclude and Review and curation. Annotations groups the VEP consequences as seqr does (nonsense, essential splice site, frameshift, missense, in frame, synonymous, extended splice site, other, motif feature and regulatory feature); a group's own box ticks or clears all its terms. Beside them are the VEP impacts (HIGH, MODERATE, LOW, MODIFIER), the SpliceAI minimum and Canonical only, MANE only and LoF only. A term a saved search holds that no box offers is listed under Other selected terms, ticked. Frequency has a slider per population; the AF, AC and H/H fields in its header set every population at once. AF shows the maximum the populations that have one share, or mixed when they differ. Call quality sets the minimum genotype quality, allele balance, depth and alt reads of the members' calls, for the members at once or per member. With Affected only on, only the affected members' calls are held to them, so a parent's reference call is not held to an allele balance it cannot have; switched off, every member gets the minimums the affected members share. Pass variants only, under Filter value, keeps a variant when every member's call that carries it passed its caller's FILTER (PASS, or no filter set), whatever Affected only says. A callset of one file per sample gives each call its own FILTER, so a parent's reference call (DeepVariant's RefCall) holds nothing back; a multi-sample VCF gives the FILTER of the site. The quick choices High quality and Passing turn it on, as in seqr, and All variants turns it off. For de novo and dominant, a male's call on chrX or chrY outside the pseudo-autosomal regions (1 or 1/1) counts as one copy. A location entry that cannot be read (for example an end before its start) is named under its field, and nothing is searched until you fix it. A per-sample minimum (GQ, DP, AF or AD alt) that is not a number fails the search, and the message names it.",
+   "The annotation filters must all hold on one transcript of the variant: impact and consequence, the transcript, HGVS, Canonical only, MANE only and LoF only, the ClinVar status, the in-silico scores and the frequencies. With MANE only and HIGH impact, a variant whose HIGH-impact transcript is not its MANE transcript is left out. Under In Silico, one of the predictors you set is enough. The SpliceAI minimum, set under Annotations, counts as one of them, and a SpliceAI score at that minimum also passes the impact and consequence filter. A SIFT or PolyPhen choice keeps a transcript whose prediction is exactly that one, whatever score VEP wrote after it: deleterious keeps deleterious(0.01) but not deleterious_low_confidence(0.03), which is a choice of its own, and tolerated leaves out tolerated_low_confidence. The gene, the rsID and the excluded ClinVar statuses apply to the variant as a whole: a gene keeps every variant annotated with it, one VEP places just outside the gene (upstream or downstream) too, ranked or not.",
    "A card, a table row and a CSV row describe one transcript of the variant: MANE Select, else the canonical one, else the most severe. The filters may have held on another: deleterious keeps a variant whose MANE transcript SIFT calls tolerated when a second transcript is deleterious, and HIGH or MODERATE impact keeps one that is synonymous on its MANE transcript and missense on another. The card then says Filters met on under its transcript, and the table row under its effect, with the transcript the filters held on and those of its consequence, LoF and in-silico predictions that read otherwise than the row's; the row's own values stay as they are, and the card's transcript list marks that transcript Filters met. The CSV gives it in its last columns, Filter-matched transcript to Filter-matched PolyPhen. The ranking and ACMG classify read the transcript the row describes.",
    "The built-in presets are Phenotype priority, Dominant strict, Dominant relaxed, Expanded carrier screening (couples only: genes where both partners carry a rare (below 1%) high- or moderate-impact variant, and those variants a female partner carries on chrX outside the pseudo-autosomal regions, which put a son at risk on their own; a ClinVar pathogenic or likely pathogenic call overrides the frequency cut-off, so a common founder variant stays in; a partner whose sex is not recorded counts as female; mitochondrial variants are not part of it, as mtDNA passes from the mother alone), Compound het, Recessive hom, Recessive broad, Any affected and ClinVar review. A preset saves the recipe, not the result; save your own to standardise a search. Compound-heterozygous candidates are shown as pairs. Up to 100 matches show as cards, more as a table.",
    "Your saved searches are shared with the monogenic NIPT page. A search saved there can carry filters only the NIPT list applies: an inheritance view such as De novo in the fetus, the maternal/fetal categories, the minimum confidence. This list does not apply them: the page does not send them, shows no chip for them, and names them once under the active filters. De novo in the fetus is not De novo / dominant, which reads the family members' own genotypes.",
@@ -994,24 +994,16 @@
     "Annotations"
    ],
    [
-    "em",
-    "Canonical only"
-   ],
-   [
-    "em",
-    "MANE only"
-   ],
-   [
-    "em",
-    "LoF only"
-   ],
-   [
     "strong",
     "In Silico"
    ],
    [
     "strong",
     "Frequency"
+   ],
+   [
+    "strong",
+    "Call quality"
    ],
    [
     "strong",
@@ -1024,6 +1016,70 @@
    [
     "strong",
     "Review and curation"
+   ],
+   [
+    "strong",
+    "Annotations"
+   ],
+   [
+    "em",
+    "Canonical only"
+   ],
+   [
+    "em",
+    "MANE only"
+   ],
+   [
+    "em",
+    "LoF only"
+   ],
+   [
+    "em",
+    "Other selected terms"
+   ],
+   [
+    "strong",
+    "Frequency"
+   ],
+   [
+    "em",
+    "mixed"
+   ],
+   [
+    "strong",
+    "Call quality"
+   ],
+   [
+    "em",
+    "Affected only"
+   ],
+   [
+    "em",
+    "Pass variants only"
+   ],
+   [
+    "em",
+    "Filter value"
+   ],
+   [
+    "em",
+    "Affected only"
+   ],
+   [
+    "em",
+    "RefCall"
+   ],
+   [
+    "em",
+    "High quality"
+   ],
+   [
+    "em",
+    "Passing"
+   ],
+   [
+    "em",
+    "All variants"
    ],
    [
     "code",
@@ -1052,6 +1108,10 @@
    [
     "strong",
     "In Silico"
+   ],
+   [
+    "strong",
+    "Annotations"
    ],
    [
     "em",

@@ -1137,6 +1137,8 @@ def _small_record_matches(
         return False
     if filters.phase_set is not None and not any(call.ps == filters.phase_set for call in record.calls):
         return False
+    if filters.pass_only and not small_record_passes_caller_filters(record):
+        return False
     if include_regions and not _variant_overlaps_regions(record.chr, record.start, record.end, include_regions):
         return False
     if exclude_regions and _variant_overlaps_regions(record.chr, record.start, record.end, exclude_regions):
@@ -2380,6 +2382,45 @@ def _small_native_inheritance_clauses(
     return clauses, params
 
 
+# The FILTER values of a call that passed its caller's filters: PASS, and "." or nothing,
+# which say no filter was applied. Every other value names a filter the call failed.
+_PASSING_FILTER_VALUES: Final[tuple[str, ...]] = ("", ".", "PASS")
+
+
+def _passes_filter_values(values: Iterable[str]) -> bool:
+    return all(value in _PASSING_FILTER_VALUES for value in values)
+
+
+def small_record_passes_caller_filters(record: SmallVariantRecord) -> bool:
+    """Whether every call of ``record`` that carries its ALT allele passed its caller's FILTER
+    ("Pass variants only"; the owner's decision of 2026-11-03).
+
+    A callset of one file per sample keeps each call's own FILTER (``calls.filters``): there
+    a call that carries the variant is read by its own, and another member's reference or
+    no-call record (DeepVariant's ``RefCall``) holds nothing back. A multi-sample VCF keeps
+    no FILTER per call: its record's FILTER is the site's, every call's. A row is read the
+    first way as soon as one of its calls has a FILTER of its own. The SQL condition is
+    ``_small_pass_only_condition``."""
+    if any(call.filters for call in record.calls):
+        return all(_passes_filter_values(call.filters) for call in record.calls if genotype_has_alt(call.gt))
+    return _passes_filter_values(record.filters)
+
+
+def _small_pass_only_condition(params: dict[str, Any]) -> str:
+    """The SQL of ``small_record_passes_caller_filters``, on the entries row ``e``."""
+    params["pass_only_filter_values"] = _PASSING_FILTER_VALUES
+    carries_alt = clickhouse_genotype_condition(
+        "gt", ALT_CLASSES, param="pass_only_alt_genotypes", params=params
+    )
+    passing = "arrayAll(value -> value IN %(pass_only_filter_values)s, {values})"
+    return (
+        "if(arrayExists(own -> notEmpty(own), e.calls.filters), "
+        f"arrayAll((gt, own) -> NOT ({carries_alt}) OR {passing.format(values='own')}, "
+        "e.calls.gt, e.calls.filters), "
+        f"{passing.format(values='e.filters')})"
+    )
+
+
 def _small_variant_where_clauses(
     context: FamilyMetadataContext,
     filters: SmallVariantQueryFilters,
@@ -2427,6 +2468,8 @@ def _small_variant_where_clauses(
     if filters.phase_set is not None:
         where_clauses.append("has(e.calls.ps, %(phase_set)s)")
         params["phase_set"] = filters.phase_set
+    if filters.pass_only:
+        where_clauses.append(_small_pass_only_condition(params))
     if filters.variant_type:
         # The rule of small_variant_type_matches, which the Python record filter applies.
         variant_type = _casefold(filters.variant_type).upper()
