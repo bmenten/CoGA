@@ -159,10 +159,13 @@ Measured on synthetic data with Postgres and ClickHouse faked (each ClickHouse w
 
 The results were the same before and after: the frozen Sample QC, every row written and every
 progress report, and the record's Sample QC and NIPT section. What is left of a stall is a
-garbage collection, which stops every thread. Not done: a genome-scale query benchmark; worker
-processes (the import and refresh workers still run in the API's process); the Variant
-Explorer's unfiltered page, which aggregates every carrier (#841); the ranked view's limit of
-5,000 SVs, which a family with more than 50,000 SVs reaches more often since #906.
+garbage collection, which stops every thread. How the ClickHouse storage and its queries
+scale towards 1,000 whole genomes, where they fail and the hardware they need is measured in
+[clickhouse-scale-benchmark.md](clickhouse-scale-benchmark.md). Not done: worker processes (the
+import and refresh workers still run in the API's process); the Variant Explorer's unfiltered
+page, which aggregates every carrier (#841) and which that benchmark finds the first query to
+fail; the ranked view's limit of 5,000 SVs, which a family with more than 50,000 SVs reaches
+more often since #906.
 
 ### Small-variant import
 
