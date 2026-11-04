@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 import logging
 from pathlib import Path
@@ -320,6 +321,7 @@ def test_expand_groups_keeps_a_renamed_locus_even_though_its_old_symbol_is_unkno
 
 JOB = "00000000-0000-0000-0000-0000000000e0"
 WORKER = "gene-worker-1"
+_HEARTBEAT = "UPDATE gene_info_refresh_jobs SET heartbeat_at"
 REQUESTER_ID = "00000000-0000-0000-0000-0000000000e1"
 REQUESTER_EMAIL = "gene.admin@example.org"
 
@@ -348,11 +350,21 @@ class _FirstResult:
         return self._row
 
 
+class _UpdateResult(_FirstResult):
+    """An UPDATE's result: the rows it matched."""
+
+    def __init__(self, rowcount: int) -> None:
+        super().__init__(None)
+        self.rowcount = rowcount
+
+
 class _RefreshJob:
     """A refresh job this worker has taken up (``running``), requested by ``requested_by`` and
     ``requested_by_id``, whose account the lookup finds as ``accounts`` holds it. Loading the
     sources, choosing the genes and writing their records are stand-ins that say they ran; the
-    job's updates are recorded as the runner gives them."""
+    job's updates are recorded as the runner gives them, and one guarded by a worker matches the
+    row only while ``owner`` is that worker. Loading the sources takes ``load_seconds``; writing
+    the records raises ``fail`` when one is given."""
 
     def __init__(
         self,
@@ -361,11 +373,16 @@ class _RefreshJob:
         requested_by: str,
         requested_by_id: str | None,
         accounts: dict[str, CurrentUser],
+        load_seconds: float = 0.0,
+        fail: Exception | None = None,
     ) -> None:
         self.updates: list[tuple[str, dict]] = []
         self.commits = 0
         self.ran: list[str] = []
         self.looked_up: list[str] = []
+        self.owner = WORKER
+        # The heartbeats written by the time the sources had loaded.
+        self.beats_while_loading: int | None = None
         row = {"id": JOB, "symbol": None, "requested_by": requested_by, "requested_by_id": requested_by_id}
         job = self
 
@@ -374,11 +391,16 @@ class _RefreshJob:
                 sql = " ".join(str(statement).split())
                 if sql.startswith("SELECT"):
                     return _FirstResult(row)
-                job.updates.append((sql, params or {}))
-                return _FirstResult(None)
+                params = params or {}
+                job.updates.append((sql, params))
+                matched = "worker_id = :worker_id" not in sql or params.get("worker_id") == job.owner
+                return _UpdateResult(1 if matched else 0)
 
             async def commit(self) -> None:
                 job.commits += 1
+
+            async def rollback(self) -> None:
+                job.ran.append("rolled back")
 
             async def __aenter__(self):
                 return self
@@ -391,6 +413,8 @@ class _RefreshJob:
             return accounts.get(user_id)
 
         async def load_sources(**_kwargs):
+            await asyncio.sleep(load_seconds)
+            self.beats_while_loading = len(self.heartbeats())
             self.ran.append("sources loaded")
             return None
 
@@ -399,6 +423,8 @@ class _RefreshJob:
             return gene_info_jobs_pg.HumanGeneContext(species={}, assemblies=[]), {}
 
         async def write_records(_session, **_kwargs):
+            if fail is not None:
+                raise fail
             self.ran.append("records written")
             return GeneBulkRefreshOut(
                 human_assemblies=1, gene_symbols=0, updated_records=0, completed_at=datetime.now(timezone.utc)
@@ -412,6 +438,10 @@ class _RefreshJob:
 
     async def run(self) -> None:
         await gene_info_jobs_pg.run_gene_reference_refresh_job(job_id=JOB, worker_id=WORKER)
+
+    def heartbeats(self) -> list[dict]:
+        """The heartbeats written on their own, apart from the refresh's progress."""
+        return [params for sql, params in self.updates if sql.startswith(_HEARTBEAT)]
 
 
 _LOST_RIGHTS = [
@@ -484,6 +514,156 @@ async def test_the_refresh_a_start_queues_is_no_accounts_and_runs(monkeypatch: p
 
     assert job.ran == ["sources loaded", "genes chosen", "records written"]
     assert job.looked_up == []
+
+
+# --- one worker per refresh (SAFE-36) -------------------------------------------------------------
+#
+# Another worker takes a running job up once its heartbeat is older than
+# GENE_REFERENCE_STALE_HEARTBEAT (five minutes). The worker wrote no heartbeat while it loaded the
+# bulk sources (whole-file downloads and the dbNSFP gene file), so a load longer than that let a
+# second worker take the job up and run the refresh beside the first. And a run that failed ended
+# the job whoever's it was by then: a worker whose job had been taken up ended the other's run.
+# The worker now writes the heartbeat while the sources load, stops once it finds the job no
+# longer its own, and ends a failed job only while it is still its own.
+
+OTHER_WORKER = "gene-worker-2"
+
+
+@pytest.mark.asyncio
+async def test_the_refresh_writes_its_heartbeat_while_it_loads_the_bulk_sources(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(gene_info_jobs_pg, "GENE_REFERENCE_HEARTBEAT_SECONDS", 0.01, raising=False)
+    job = _RefreshJob(
+        monkeypatch, requested_by="startup-bootstrap", requested_by_id=None, accounts={}, load_seconds=0.2
+    )
+
+    await job.run()
+
+    # Before, nothing was written to the job until the sources had loaded.
+    assert job.beats_while_loading, "no heartbeat was written while the sources loaded"
+    for heartbeat in job.heartbeats():
+        assert (heartbeat["job_id"], heartbeat["worker_id"]) == (JOB, WORKER)
+    [heartbeat_sql] = {sql for sql, _params in job.updates if sql.startswith(_HEARTBEAT)}
+    assert heartbeat_sql.endswith(
+        "WHERE id = CAST(:job_id AS uuid) AND worker_id = :worker_id AND status = 'running'"
+    )
+    assert job.ran == ["sources loaded", "genes chosen", "records written"]
+    assert job.updates[-1][0].startswith("UPDATE gene_info_refresh_jobs SET status = 'completed'")
+
+
+def test_the_heartbeat_comes_well_inside_the_stale_window() -> None:
+    interval = getattr(gene_info_jobs_pg, "GENE_REFERENCE_HEARTBEAT_SECONDS", None)
+    assert interval is not None, "the refresh has no heartbeat interval"
+    assert 0 < interval * 3 <= gene_info_jobs_pg.GENE_REFERENCE_STALE_HEARTBEAT.total_seconds()
+
+
+@pytest.mark.asyncio
+async def test_a_refresh_taken_up_by_another_worker_while_it_loads_stops_and_writes_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(gene_info_jobs_pg, "GENE_REFERENCE_HEARTBEAT_SECONDS", 0.01, raising=False)
+    job = _RefreshJob(
+        monkeypatch, requested_by="startup-bootstrap", requested_by_id=None, accounts={}, load_seconds=0.5
+    )
+    # Another worker has taken the job up (this one had been silent past the stale window).
+    job.owner = OTHER_WORKER
+
+    await job.run()
+
+    # Before, it went on to write every gene record beside the other worker, and then the job's
+    # end.
+    assert "sources loaded" not in job.ran, "the load went on once the job was no longer this worker's"
+    assert "records written" not in job.ran
+    assert job.heartbeats(), "no heartbeat found the job taken"
+    assert [sql for sql, _params in job.updates if not sql.startswith(_HEARTBEAT)] == []
+
+
+@pytest.mark.asyncio
+async def test_a_failed_refresh_ends_the_job_only_while_it_is_this_workers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    job = _RefreshJob(
+        monkeypatch,
+        requested_by="startup-bootstrap",
+        requested_by_id=None,
+        accounts={},
+        fail=RuntimeError("a source could not be read"),
+    )
+
+    with pytest.raises(RuntimeError):
+        await job.run()
+
+    [(sql, params)] = job.updates
+    assert sql.startswith("UPDATE gene_info_refresh_jobs SET status = 'failed', active_slot = NULL, worker_id = NULL,")
+    # Before, it ended the job whichever worker's it was by then.
+    assert sql.endswith("WHERE id = CAST(:job_id AS uuid) AND worker_id = :worker_id")
+    assert (params["job_id"], params["worker_id"], params["error"]) == (JOB, WORKER, "a source could not be read")
+    # What the run wrote since its last commit is dropped first: after a failed statement the
+    # transaction takes nothing more until it is rolled back, so the failure was not written.
+    assert job.ran == ["sources loaded", "genes chosen", "rolled back"]
+    assert job.commits == 1
+
+
+class _ProgressSession:
+    """The refresh's own session: an UPDATE of the job matches it while ``owner`` is the worker
+    the UPDATE names."""
+
+    def __init__(self, owner: str) -> None:
+        self.owner = owner
+        self.commits = 0
+
+    async def execute(self, statement, params=None):
+        sql = " ".join(str(statement).split())
+        assert sql.startswith("UPDATE gene_info_refresh_jobs"), sql
+        return _UpdateResult(1 if (params or {}).get("worker_id") == self.owner else 0)
+
+    async def commit(self) -> None:
+        self.commits += 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("taken_after", "commits", "fetched"),
+    [
+        pytest.param(0, 0, [], id="before-the-first-gene"),
+        pytest.param(1, 2, ["GENE1", "GENE2"], id="after-a-progress-commit"),
+    ],
+)
+async def test_the_refresh_stops_writing_gene_records_once_the_job_is_another_workers(
+    monkeypatch: pytest.MonkeyPatch, taken_after: int, commits: int, fetched: list[str]
+) -> None:
+    session = _ProgressSession(owner=OTHER_WORKER if taken_after == 0 else WORKER)
+    monkeypatch.setattr(gene_info_jobs_pg, "GENE_REFERENCE_PROGRESS_COMMIT_SYMBOLS", 1)
+    looked_up: list[str] = []
+
+    async def fetch_bundle(*, symbol, **_kwargs):
+        looked_up.append(symbol)
+        if len(looked_up) > taken_after:
+            session.owner = OTHER_WORKER
+        return {}
+
+    async def upsert(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(gene_info_jobs_pg, "fetch_external_gene_bundle", fetch_bundle)
+    monkeypatch.setattr(gene_info_jobs_pg, "_upsert_gene_info_row", upsert)
+    groups = {symbol: [{"assembly_id": "a1", "gene_id": None}] for symbol in ("GENE1", "GENE2", "GENE3")}
+
+    with pytest.raises(gene_info_jobs_pg._JobTakenOver):
+        await gene_info_jobs_pg._refresh_grouped_human_gene_info(
+            session,  # type: ignore[arg-type]
+            job_id=JOB,
+            worker_id=WORKER,
+            human_context=gene_info_jobs_pg.HumanGeneContext(species={}, assemblies=[{"id": "a1"}]),
+            grouped_by_symbol=groups,
+            bulk_context=None,  # type: ignore[arg-type]
+        )
+
+    # Before, it wrote every gene beside the worker that had taken the job up. Now it commits only
+    # while the job is its own (the start, then each gene's progress), and the gene it was writing
+    # when it found the job taken is left to the run's rollback.
+    assert (session.commits, looked_up) == (commits, fetched)
 
 
 class _InsertSession:
