@@ -225,7 +225,7 @@ def test_structural_variant_review_saves_are_chained_and_verify() -> None:
     from backend.app.schemas import (
         CnvAcmgClassificationPayload,
         CnvAcmgCriterion,
-        SmallVariantReviewUpdate,
+        StructuralVariantReviewUpdate,
     )
     from backend.app.services.clinical_audit_service import (
         record_review_changes,
@@ -244,18 +244,18 @@ def test_structural_variant_review_saves_are_chained_and_verify() -> None:
     sv_id = "1-100000-250000-DEL---"
     reported = {"tags": ["report"], "note": "reported CNV"}
     saves = [
-        SmallVariantReviewUpdate(classification="Pathogenic - class 5", cnv_acmg=_loss(("2A", 1.0))),
-        SmallVariantReviewUpdate(
+        StructuralVariantReviewUpdate(classification="Pathogenic - class 5", cnv_acmg=_loss(("2A", 1.0))),
+        StructuralVariantReviewUpdate(
             classification="Pathogenic - class 5", cnv_acmg=_loss(("2A", 1.0)), **reported
         ),
         # 0.30 + 0.15 - 0.45 rounds to a -0.0 point total (VUS).
-        SmallVariantReviewUpdate(
+        StructuralVariantReviewUpdate(
             classification="VUS - class 3",
             cnv_acmg=_loss(("4C", 0.30), ("2H", 0.15), ("5D", -0.45)),
             **reported,
         ),
-        SmallVariantReviewUpdate(classification="VUS - class 3", cnv_acmg=_loss(), **reported),
-        SmallVariantReviewUpdate(),  # everything cleared: the review is deleted
+        StructuralVariantReviewUpdate(classification="VUS - class 3", cnv_acmg=_loss(), **reported),
+        StructuralVariantReviewUpdate(),  # everything cleared: the review is deleted
     ]
 
     async def _run() -> None:
@@ -360,7 +360,7 @@ def test_criterion_level_changes_are_chained_and_verify() -> None:
         AcmgCriterionSelection,
         CnvAcmgClassificationPayload,
         CnvAcmgCriterion,
-        SmallVariantReviewUpdate,
+        StructuralVariantReviewUpdate,
     )
     from backend.app.services.clinical_audit_service import (
         record_review_changes,
@@ -394,8 +394,8 @@ def test_criterion_level_changes_are_chained_and_verify() -> None:
         _snv("supporting", replicated, True),  # unchanged
     ]
 
-    def _loss(evidence: str, points_4d: float, suggested_4d: bool) -> SmallVariantReviewUpdate:
-        return SmallVariantReviewUpdate(
+    def _loss(evidence: str, points_4d: float, suggested_4d: bool) -> StructuralVariantReviewUpdate:
+        return StructuralVariantReviewUpdate(
             classification="Pathogenic - class 5",
             cnv_acmg=CnvAcmgClassificationPayload(
                 kind="loss",

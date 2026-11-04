@@ -16,7 +16,8 @@
   structure edit, which keeps the field, is the one that clears data). A request that still
   sends it is answered as before.
 - The SV review save takes no ``acmg`` or ``compound_het``, a small variant's, which it never
-  read (#853). A page loaded before this still sends them, and is answered as before.
+  read. A request that sends them, or any field the save does not take, is refused (422)
+  naming the field, as the small-variant save's is.
 - A gene's homologs carry no Ensembl gene id and no "in the platform" flag: no source set the
   one, the other was always false, and no screen shows homologs. A homolog cached with them
   still loads.
@@ -303,12 +304,22 @@ def test_the_sv_review_request_takes_no_small_variant_acmg_or_compound_het() -> 
     assert {"expected_updated_at", "classification", "tags", "note", "cnv_acmg", "source"} <= set(sv_body)
     # The small-variant save keeps both: it reads them.
     assert {"acmg", "compound_het"} <= set(small_body)
-    # Fields it does not know are left out, as before, not refused.
-    assert StructuralVariantReviewUpdate.model_config.get("extra", "ignore") == "ignore"
+    # A field it does not take is refused, not left out.
+    assert _schemas()[_request_body("/api/families/{family_id}/structural-variants/{variant_id}/review")].get(
+        "additionalProperties"
+    ) is False
+    assert StructuralVariantReviewUpdate.model_config.get("extra") == "forbid"
 
 
-def test_an_sv_review_save_that_still_sends_them_is_answered_as_before(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        pytest.param("acmg", {"criteria": [{"code": "PVS1", "strength": "very_strong", "accepted": True}]}, id="acmg"),
+        pytest.param("compound_het", {"partner_variant_id": "1-100-A-G", "tags": []}, id="compound-het"),
+    ],
+)
+def test_an_sv_review_save_with_a_small_variant_field_is_refused(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, field: str, value: Any
 ) -> None:
     saved: list[StructuralVariantReviewUpdate] = []
 
@@ -324,19 +335,24 @@ def test_an_sv_review_save_that_still_sends_them_is_answered_as_before(
 
     response = client.put(
         f"/api/families/{FAMILY}/structural-variants/sv1/review",
-        json={
-            "tags": ["report"],
-            "note": "Breakpoints checked.",
-            "acmg": {"criteria": [{"code": "PVS1", "strength": "very_strong", "accepted": True}]},
-            "compound_het": {"partner_variant_id": "1-100-A-G", "tags": []},
-        },
+        json={"tags": ["report"], "note": "Breakpoints checked.", field: value},
     )
 
+    # Before, the save went through and the value was dropped without a word.
+    assert response.status_code == 422
+    [error] = response.json()["detail"]
+    assert (error["type"], error["loc"]) == ("extra_forbidden", ["body", field])
+    assert saved == []
+
+    # Without it, the same save is made.
+    response = client.put(
+        f"/api/families/{FAMILY}/structural-variants/sv1/review",
+        json={"tags": ["report"], "note": "Breakpoints checked."},
+    )
     assert response.status_code == 200
     assert response.json()["tags"] == ["report"]
     (payload,) = saved
     assert payload.model_fields_set == {"tags", "note"}
-    assert not hasattr(payload, "acmg") and not hasattr(payload, "compound_het")
 
 
 def test_the_small_variant_review_request_takes_no_cnv_classification() -> None:
