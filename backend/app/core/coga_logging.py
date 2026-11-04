@@ -161,9 +161,9 @@ class JsonLogFormatter(logging.Formatter):
             payload["user"] = getattr(record, "user_email")
 
         if hasattr(record, "http_request_json"):
+            # The request, never its body: a body may hold patient data and goes to the
+            # audit trail alone (request_logging, audit_log_events.request_body).
             payload["httpRequest"] = getattr(record, "http_request_json")
-            if getattr(record, "request_body", None) is not None:
-                payload["requestBody"] = getattr(record, "request_body")
 
         if hasattr(record, "db_update"):
             payload["dbUpdate"] = getattr(record, "db_update")

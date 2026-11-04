@@ -17,7 +17,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Iterable, Mapping
 
-from ..schemas import FamilyMemberOut, FamilyOut
+from ..schemas import FamilyOut
 
 # Family.metadata["analysis_type"] == this marks a monogenic NIPT family and is
 # what surfaces the NIPT analysis section in the UI.
@@ -58,11 +58,6 @@ def is_monogenic_nipt_family(family: FamilyOut) -> bool:
 def is_cfdna_sample_metadata(metadata: Mapping[str, Any] | None) -> bool:
     """True when a sample's metadata tags it as the maternal-plasma cfDNA."""
     return (metadata or {}).get(SAMPLE_ASSAY_KEY) == NIPT_CFDNA_ASSAY
-
-
-def is_cfdna_member(member: FamilyMemberOut) -> bool:
-    """True when the member's sample is tagged as the maternal-plasma cfDNA."""
-    return is_cfdna_sample_metadata(member.sample_metadata)
 
 
 def resolve_nipt_trio(family: FamilyOut) -> NiptTrio | None:

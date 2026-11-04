@@ -350,6 +350,21 @@ def test_a_traceback_the_call_passes_is_written_as_given() -> None:
     assert "Jane Doe" not in log.text
 
 
+def test_a_request_line_never_writes_a_request_body() -> None:
+    # The request middleware writes the request and its outcome; the body, which may hold
+    # patient data, goes to the audit trail alone (audit_log_events.request_body). The JSON
+    # line had a branch that wrote a record's `request_body` as `requestBody`, which no call
+    # reached: none is left for one to reach.
+    request = {"requestMethod": "POST", "requestUrl": "/api/families", "status": 200}
+    with _json_log("app.middleware.request_logging") as (logger, log):
+        logger.info("", extra={"http_request_json": request, "request_body": {"note": _VALUE}})
+
+    (line,) = log.lines()
+    assert line["httpRequest"] == request
+    assert "requestBody" not in line
+    assert _VALUE not in log.text
+
+
 def test_a_line_without_an_exception_has_no_error_and_no_traceback() -> None:
     with _json_log("app.services.metadata_service") as (logger, log):
         logger.warning("Sequencing-QC threshold evaluation skipped")
