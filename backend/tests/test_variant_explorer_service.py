@@ -31,7 +31,7 @@ from backend.app.services.family_metadata_context import FamilyMetadataContext
 from backend.app.services.family_variant_filters import SmallVariantQueryFilters
 from backend.app.services import variant_explorer_service as ves
 from backend.app.services.variant_explorer_service import (
-    _CLASSIFICATION_RANK,
+    _classification_rank,
     _CLINVAR_RANK,
     _IMPACT_RANK,
     ExplorerScope,
@@ -54,7 +54,7 @@ def test_classify_type() -> None:
 
 
 def test_most_severe_classification_and_impact() -> None:
-    assert _most_severe(["acmg_class_2", "acmg_class_5", "acmg_class_3"], _CLASSIFICATION_RANK) == "acmg_class_5"
+    assert _most_severe(["acmg_class_2", "acmg_class_5", "acmg_class_3"], _classification_rank) == "acmg_class_5"
     assert _most_severe(["MODIFIER", "HIGH", "LOW"], _IMPACT_RANK) == "HIGH"
     assert _most_severe(["likely_benign", "pathogenic"], _CLINVAR_RANK) == "pathogenic"
     assert _most_severe([], _IMPACT_RANK) is None
@@ -504,6 +504,97 @@ def test_review_display_map_binds_any_number_of_variant_ids_as_one_parameter() -
     # One parameter for the project and one array holding every id.
     assert len(expanded.positiontup) == 2
     assert expanded.parameters["variant_ids"] == variant_ids
+
+
+@pytest.mark.parametrize(
+    ("stored", "shown"),
+    [
+        # The labels the review dialog writes, ACMG and CNV alike.
+        (
+            ["Likely benign - class 2", "VUS - class 3", "Pathogenic - class 5", "Likely Pathogenic - class 4"],
+            "Pathogenic - class 5",
+        ),
+        # The same labels in sentence case, and in any other case.
+        (["likely benign - class 2", "Likely pathogenic - class 4", "VUS - class 3"], "Likely pathogenic - class 4"),
+        (["BENIGN - CLASS 1", "likely benign - class 2"], "likely benign - class 2"),
+        # The ACMG and CNV class keys.
+        (["acmg_class_3", "cnv_class_5", "acmg_class_4"], "cnv_class_5"),
+        # The bare class words the review API also takes (free text), in any case or spelling.
+        (["VUS", "Likely_Pathogenic", "benign"], "Likely_Pathogenic"),
+        (["uncertain significance", "likely benign", "Pathogenic"], "Pathogenic"),
+        # Text that names no class loses to any class.
+        (["Not a class", "Benign - class 1"], "Benign - class 1"),
+    ],
+)
+def test_the_explorer_shows_the_most_severe_classification_whatever_form_it_is_stored_in(
+    monkeypatch, stored, shown
+) -> None:
+    # CLIN-69: the rank read the stored label lowercased ("likely pathogenic - class 4"),
+    # which no rank key matched, so every label ranked 0 and the first review read won: a
+    # variant classified pathogenic in one family and likely benign in another could show
+    # "Likely benign - class 2".
+    async def fake_execute(query, params):
+        # key, variant_id, chrom, pos, ref, alt, rsid, xpos, families, hom, het, total, genes
+        return [(7, "1-100-A-G", "1", 100, "A", "G", None, 1_000_000_100, 2, 0, 2, 2, ["BRCA1"])]
+
+    async def no_annotation(assembly_name, keys):
+        return {}
+
+    monkeypatch.setattr(ves, "execute_clickhouse", fake_execute)
+    monkeypatch.setattr(ves, "_fetch_annotation_display", no_annotation)
+    # One review row per family; the labels alternate between the variant's own
+    # classification and its compound-het pair's.
+    review_rows = [
+        {
+            "variant_id": "1-100-A-G",
+            "classification": None if index % 2 else label,
+            "tags": [],
+            "compound_het_classification": label if index % 2 else None,
+            "compound_het_tags": [],
+            "updated_at": None,
+        }
+        for index, label in enumerate(stored)
+    ]
+    scope = types.SimpleNamespace(project_ids=[_PROJECT], assembly_name="GRCh38")
+
+    rows, _cursors = asyncio.run(
+        ves._fetch_variant_rows(
+            _RecordingSession(rows=review_rows),
+            scope=scope,
+            entries_table="db.entries",
+            where_sql="1",
+            params={},
+            sort_expr="total_samples",
+            direction="DESC",
+            limit=10,
+        )
+    )
+
+    assert rows[0].classification == shown
+
+
+def test_a_classification_ranks_by_the_class_it_names() -> None:
+    rank = ves._classification_rank
+    for label, expected in [
+        ("Pathogenic - class 5", 5),
+        ("Likely Pathogenic - class 4", 4),
+        ("Likely pathogenic - class 4", 4),
+        ("VUS - class 3", 3),
+        ("Likely benign - class 2", 2),
+        ("Benign - class 1", 1),
+        ("acmg_class_5", 5),
+        ("cnv_class_1", 1),
+        ("PATHOGENIC", 5),
+        ("likely_pathogenic", 4),
+        ("Uncertain significance", 3),
+        ("vus", 3),
+        ("Likely Benign", 2),
+        ("benign", 1),
+    ]:
+        assert rank(label) == expected, label
+    # Text that names no class ranks below every class, so a class always wins over it.
+    for label in ("", "   ", "Not a class", "Pathogenic variant", "class 6"):
+        assert rank(label) == 0, label
 
 
 def test_mane_only_keeps_a_mane_select_or_a_mane_plus_clinical_transcript() -> None:
