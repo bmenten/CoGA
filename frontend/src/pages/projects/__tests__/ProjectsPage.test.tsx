@@ -302,7 +302,7 @@ describe('ProjectsPage', () => {
     expect(screen.queryByRole('combobox', { name: 'Access level of student@example.com' })).not.toBeInTheDocument();
 
     const userAccess = section('User access');
-    fireEvent.click(within(userAccess).getByRole('checkbox', { name: /Stu Dent/ }));
+    fireEvent.click(within(userAccess).getByRole('button', { name: /^Add Stu Dent/ }));
     const studentLevel = screen.getByRole('combobox', { name: 'Access level of student@example.com' });
     expect(studentLevel).toHaveValue('analyst');
     fireEvent.change(studentLevel, { target: { value: 'reader' } });
@@ -333,9 +333,9 @@ describe('ProjectsPage', () => {
     const studentLevel = await screen.findByRole('combobox', { name: 'Access level of student@example.com' });
     await waitFor(() => expect(studentLevel).toHaveValue('reader'));
     const userAccess = section('User access');
-    fireEvent.click(within(userAccess).getByRole('checkbox', { name: /Stu Dent/ }));
+    fireEvent.click(within(userAccess).getByRole('button', { name: /^Remove Stu Dent/ }));
     expect(screen.queryByRole('combobox', { name: 'Access level of student@example.com' })).not.toBeInTheDocument();
-    fireEvent.click(within(userAccess).getByRole('checkbox', { name: /Stu Dent/ }));
+    fireEvent.click(within(userAccess).getByRole('button', { name: /^Add Stu Dent/ }));
     expect(screen.getByRole('combobox', { name: 'Access level of student@example.com' })).toHaveValue('analyst');
     fireEvent.change(screen.getByRole('combobox', { name: 'Access level of viewer@example.com' }), {
       target: { value: 'analyst' },
@@ -344,6 +344,72 @@ describe('ProjectsPage', () => {
 
     await waitFor(() => expect(api.put).toHaveBeenCalledTimes(1));
     expect(vi.mocked(api.put).mock.calls[0][1]).toMatchObject({ user_ids: ['u1', 'u2'], reader_user_ids: [] });
+  });
+
+  // However many accounts there are, User access lists the members and a few users without
+  // access; a search finds the others, and Enter adds the one user it found.
+  it('lists a few users without access at a time and finds the others by a search', async () => {
+    const accounts = [
+      { id: 'u1', email: 'viewer@example.com', first_name: 'View', last_name: 'Er', role: 'viewer', is_active: true, projects: ['p1'] },
+      ...Array.from({ length: 12 }, (_, index) => ({
+        id: `n${index + 1}`,
+        email: `user${String(index + 1).padStart(2, '0')}@example.com`,
+        first_name: null,
+        last_name: null,
+        role: 'viewer',
+        is_active: true,
+        projects: [],
+      })),
+    ];
+    get.mockImplementation(async (url, config) =>
+      url === '/auth/users' ? { data: accounts } : factory(url, config),
+    );
+    renderPage();
+
+    await screen.findByRole('combobox', { name: 'Access level of viewer@example.com' });
+    const userAccess = section('User access');
+    const listed = () =>
+      within(userAccess)
+        .queryAllByRole('button', { name: /^Add / })
+        .map((button) => button.getAttribute('aria-label'));
+    // The first eight by name, and how many more there are.
+    expect(listed()).toEqual(
+      Array.from({ length: 8 }, (_, index) => `Add user0${index + 1}@example.com`),
+    );
+    expect(within(userAccess).getByText('8 of 12 shown: search by name or email for the others.')).toBeInTheDocument();
+
+    const search = within(userAccess).getByRole('searchbox', { name: 'Add a member' });
+    fireEvent.change(search, { target: { value: 'USER1' } });
+    expect(listed()).toEqual(['Add user10@example.com', 'Add user11@example.com', 'Add user12@example.com']);
+    expect(within(userAccess).queryByText(/ shown: search/)).not.toBeInTheDocument();
+
+    fireEvent.change(search, { target: { value: 'nobody' } });
+    expect(within(userAccess).getByText('No user without access matches “nobody”.')).toBeInTheDocument();
+
+    // Enter adds the single match, clears the search, and submits nothing.
+    fireEvent.change(search, { target: { value: 'user12' } });
+    expect(fireEvent.keyDown(search, { key: 'Enter' })).toBe(false);
+    expect(screen.getByRole('combobox', { name: 'Access level of user12@example.com' })).toHaveValue('analyst');
+    expect(search).toHaveValue('');
+    expect(api.put).not.toHaveBeenCalled();
+
+    // Enter with several matches adds none of them.
+    fireEvent.change(search, { target: { value: 'user0' } });
+    fireEvent.keyDown(search, { key: 'Enter' });
+    expect(screen.queryByRole('combobox', { name: 'Access level of user01@example.com' })).not.toBeInTheDocument();
+  });
+
+  it('says only superusers and administrators open a project without members', async () => {
+    serveProjects((defaults) => defaults.map((project) => ({ ...project, user_ids: [], reader_user_ids: [] })));
+    renderPage();
+
+    expect(
+      await screen.findByText('No members yet: only superusers and administrators can open the project.'),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: /^Access level/ })).not.toBeInTheDocument();
+    fireEvent.click(within(section('User access')).getByRole('button', { name: /^Add View Er/ }));
+    expect(screen.getByRole('combobox', { name: 'Access level of viewer@example.com' })).toHaveValue('analyst');
+    expect(screen.queryByText(/^No members yet/)).not.toBeInTheDocument();
   });
 
   // A project's assembly belongs to its organism: the assembly list offers the organism's own
@@ -398,11 +464,11 @@ describe('ProjectsPage', () => {
       'GRCh38 p14',
     ]);
     fireEvent.change(assembly, { target: { value: 'asm1' } });
-    fireEvent.click(within(form).getByRole('checkbox', { name: /Stu Dent/ }));
+    fireEvent.click(within(form).getByRole('button', { name: /^Add Stu Dent/ }));
     fireEvent.change(within(form).getByRole('combobox', { name: 'Access level of student@example.com' }), {
       target: { value: 'reader' },
     });
-    fireEvent.click(within(form).getByRole('checkbox', { name: /View Er/ }));
+    fireEvent.click(within(form).getByRole('button', { name: /^Add View Er/ }));
     fireEvent.click(within(form).getByRole('button', { name: 'Create project' }));
 
     await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
@@ -541,7 +607,7 @@ describe('ProjectsPage', () => {
     expect(queryClient.getQueryState(['admin', 'users'])?.isInvalidated).toBe(false);
 
     const userAccess = section('User access');
-    fireEvent.click(within(userAccess).getByRole('checkbox', { name: /Stu Dent/ }));
+    fireEvent.click(within(userAccess).getByRole('button', { name: /^Add Stu Dent/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Save settings' }));
 
     await waitFor(() => expect(api.put).toHaveBeenCalledTimes(1));

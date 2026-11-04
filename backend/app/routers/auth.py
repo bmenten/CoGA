@@ -1,7 +1,5 @@
 import asyncio
 import logging
-import smtplib
-from email.message import EmailMessage
 from typing import List
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
@@ -10,7 +8,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core import cas
 from ..core.azure import authority as azure_authority
-from ..core.coga_logging import describe_error
 from ..core.config import settings
 from ..core.postgres import get_postgres_session
 from ..core.sql import require_uuid
@@ -22,6 +19,8 @@ from ..dependencies import (
     get_current_admin_user,
 )
 from ..schemas import (
+    AccountRequestMailOut,
+    AccountRequestMailTestOut,
     ApiId,
     CasSignInOut,
     CasTicketIn,
@@ -35,8 +34,18 @@ from ..schemas import (
     UserLogin,
     UserUpdate,
 )
+from ..services.account_notifications import (
+    AccountRequest,
+    MailNotSent,
+    administrator_addresses,
+    mail_check_message,
+    mail_enabled,
+    notify_account_request,
+    send_mail,
+)
 from ..services.metadata_service import (
     create_user_account,
+    delete_waiting_user_account,
     get_auth_user_mapping_by_email,
     get_user_account_mapping,
     list_user_accounts,
@@ -91,47 +100,37 @@ CAS_ACCOUNT_WAITING_DETAIL = (
     "Your CoGA account waits for an administrator's approval. You can sign in once it is "
     "activated."
 )
+# An account that was active once, and was deactivated or archived since, waits for nothing.
+CAS_ACCOUNT_INACTIVE_DETAIL = "Your CoGA account is not active. Ask a CoGA administrator."
 CAS_TICKET_REFUSED_DETAIL = "The sign-in could not be confirmed. Sign in again."
 CAS_SIGN_IN_OFF_DETAIL = "The organisation sign-in through CAS is not configured."
 OWN_ROLE_DETAIL = "You cannot change your own role: ask another administrator."
 OWN_ACTIVE_DETAIL = "You cannot deactivate your own account: ask another administrator."
+OWN_ARCHIVE_DETAIL = "You cannot archive your own account: ask another administrator."
+OWN_DELETE_DETAIL = "You cannot delete your own account."
 EMERGENCY_ROLE_DETAIL = "The emergency administrator's role cannot be changed."
 EMERGENCY_ACTIVE_DETAIL = (
     "The emergency administrator cannot be deactivated: its sign-in is switched on and off "
     "with AZURE_ADMIN_OVERRIDE."
 )
+EMERGENCY_ARCHIVE_DETAIL = (
+    "The emergency administrator cannot be archived or deleted: its sign-in is switched on and "
+    "off with AZURE_ADMIN_OVERRIDE."
+)
+ARCHIVE_ACTIVE_DETAIL = "An archived account is inactive: it cannot be archived and activated at once."
+NO_MAIL_SERVER_DETAIL = "No mail server is set: set SMTP_HOST (docs/deployment-vm.md)."
+NO_ADMIN_ADDRESS_DETAIL = "There is no active administrator to send the mail to."
 # The account fields an administrator changes, in the order the log line names them. The log
 # names the account and its changed fields only: who changed them is the request audit row's
 # user, and what each changed from and to is in its ``request_meta.account_change``, so no value
 # of the request, its token included, reaches the application log.
-ACCOUNT_CHANGE_FIELDS = ("role", "is_active")
+ACCOUNT_CHANGE_FIELDS = ("role", "is_active", "archived")
 
 
 def _request_remote_ip(request: Request) -> str | None:
     if request.client is None:
         return None
     return request.client.host
-
-
-def notify_admin(email: str) -> None:
-    # Only when ADMIN_EMAIL is configured: its default is the seed admin's placeholder. The log
-    # names neither the new account's address nor the mail server's error text, which can quote
-    # the addresses (SEC-11).
-    admin_email = settings.admin_email.strip() if "admin_email" in settings.model_fields_set else ""
-    if not admin_email:
-        logger.info("ADMIN_EMAIL not set; no sign-up notification sent")
-        return
-    msg = EmailMessage()
-    msg["Subject"] = "New user signup"
-    msg["From"] = admin_email
-    msg["To"] = admin_email
-    msg.set_content(f"A new user has signed up with email: {email}")
-    try:
-        # A bounded wait: the CAS sign-in sends this before it answers.
-        with smtplib.SMTP(settings.smtp_host, timeout=10) as server:
-            server.send_message(msg)
-    except Exception as exc:  # noqa: BLE001 - the notification is best-effort; the sign-up stands
-        logger.error("Failed to send the sign-up notification: %s", describe_error(exc))
 
 
 async def _authenticate_and_issue_token(
@@ -258,7 +257,19 @@ async def signup(
         affiliation=user_in.affiliation,
     )
     if created is not None:
-        background_tasks.add_task(notify_admin, created.email)
+        # Every active administrator is told, after the answer (account_notifications.py).
+        background_tasks.add_task(
+            notify_account_request,
+            AccountRequest(
+                email=created.email,
+                first_name=created.first_name or "",
+                last_name=created.last_name or "",
+                affiliation=created.affiliation or "",
+                sign_in="password",
+                created_at=created.created_at,
+            ),
+            await administrator_addresses(session),
+        )
     return SignupAck(
         detail=(
             "Registration received. An administrator will review the request and "
@@ -364,11 +375,25 @@ async def cas_session(
     user, created = await microsoft_account_user(session, identity, CAS_SIGN_IN)
     if created is not None:
         request.state.account_change = created
-        # Told now, not as a background task: the answer below is a refusal, after which
-        # FastAPI runs no background task.
-        await asyncio.to_thread(notify_admin, user.email)
+        # Every active administrator is told now, not as a background task: the answer below
+        # is a refusal, after which FastAPI runs no background task.
+        account = AccountRequest(
+            email=user.email,
+            first_name=user.first_name,
+            last_name=user.last_name,
+            affiliation=user.affiliation,
+            sign_in="cas",
+            created_at=user.created_at,
+        )
+        await asyncio.to_thread(
+            notify_account_request, account, await administrator_addresses(session)
+        )
     if not user.is_active:
-        raise HTTPException(status_code=403, detail=CAS_ACCOUNT_WAITING_DETAIL)
+        waiting = user.activated_at is None
+        raise HTTPException(
+            status_code=403,
+            detail=CAS_ACCOUNT_WAITING_DETAIL if waiting else CAS_ACCOUNT_INACTIVE_DETAIL,
+        )
     access_token = create_access_token(data={"sub": user.email})
     return Token(access_token=access_token, token_type="bearer", role=user.role)
 
@@ -388,6 +413,8 @@ async def read_me(user: CurrentUser = Depends(get_current_user)):
         projects=user.metadata_project_ids,
         reader_projects=user.reader_project_ids,
         created_at=user.created_at,
+        activated_at=user.activated_at,
+        archived_at=user.archived_at,
     )
 
 
@@ -432,11 +459,13 @@ async def update_user(
     current: CurrentUser = Depends(get_current_admin_user),
     session: AsyncSession = Depends(get_postgres_session),
 ):
-    """Activate or deactivate an account, or set its global role (SEC-4).
+    """Activate or deactivate an account, set its global role, or archive or restore it (SEC-4).
 
-    Nobody changes their own role, and the emergency administrator keeps its role and stays
-    active, so the break-glass sign-in works when it is switched on. What changed, each field
-    from and to, is recorded with the request in the audit log (``request_meta.account_change``).
+    Nobody changes their own role, deactivates or archives their own account, and the emergency
+    administrator keeps its role and stays active, so the break-glass sign-in works when it is
+    switched on. Archiving deactivates the account; an archived account is restored before it is
+    activated. What changed, each field from and to, is recorded with the request in the audit
+    log (``request_meta.account_change``).
     """
     user_uuid = require_uuid(user_id, "Invalid user id")
     if update.projects is not None:
@@ -444,25 +473,34 @@ async def update_user(
             status_code=400,
             detail="Project access is managed from project settings",
         )
-    if update.role is not None or update.is_active is False:
+    if update.archived is True and update.is_active is True:
+        raise HTTPException(status_code=400, detail=ARCHIVE_ACTIVE_DETAIL)
+    if update.role is not None or update.is_active is False or update.archived is True:
         target = await get_user_account_mapping(session, user_uuid)
         if target is None:
             raise HTTPException(status_code=404, detail="User not found")
+        own = str(target["id"]) == current.id
         if update.role is not None and target["role"] != update.role:
-            if str(target["id"]) == current.id:
+            if own:
                 raise HTTPException(status_code=403, detail=OWN_ROLE_DETAIL)
             if is_emergency_admin_account(target):
                 raise HTTPException(status_code=403, detail=EMERGENCY_ROLE_DETAIL)
-        if update.is_active is False and str(target["id"]) == current.id:
+        if update.is_active is False and own:
             # An administrator deactivating their own account locks themselves out (SEC-32).
             raise HTTPException(status_code=403, detail=OWN_ACTIVE_DETAIL)
         if update.is_active is False and target["is_active"] and is_emergency_admin_account(target):
             raise HTTPException(status_code=403, detail=EMERGENCY_ACTIVE_DETAIL)
+        if update.archived is True and target.get("archived_at") is None:
+            if own:
+                raise HTTPException(status_code=403, detail=OWN_ARCHIVE_DETAIL)
+            if is_emergency_admin_account(target):
+                raise HTTPException(status_code=403, detail=EMERGENCY_ARCHIVE_DETAIL)
     updated, changes = await update_user_account(
         session,
         user_id=user_uuid,
         is_active=update.is_active,
         role=update.role,
+        archived=update.archived,
     )
     if changes:
         request.state.account_change = {"user_id": updated.id, "email": updated.email, **changes}
@@ -472,3 +510,80 @@ async def update_user(
             ", ".join(field for field in ACCOUNT_CHANGE_FIELDS if field in changes),
         )
     return updated
+
+
+@router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_user(
+    user_id: str,
+    request: Request,
+    current: CurrentUser = Depends(get_current_admin_user),
+    session: AsyncSession = Depends(get_postgres_session),
+):
+    """Delete an account that was never active: a sign-up or a first CAS sign-in that is not
+    approved (SEC-4).
+
+    Any other account is refused (409) and archived instead, so that every record naming it
+    still does. The deleted account (its id, e-mail address, name and how it signed in) is
+    recorded with the request in the audit log (``request_meta.account_change``). A later
+    sign-in of the same person makes a new account, which waits for approval again.
+    """
+    user_uuid = require_uuid(user_id, "Invalid user id")
+    target = await get_user_account_mapping(session, user_uuid)
+    if target is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    if str(target["id"]) == current.id:
+        raise HTTPException(status_code=403, detail=OWN_DELETE_DETAIL)
+    if is_emergency_admin_account(target):
+        raise HTTPException(status_code=403, detail=EMERGENCY_ARCHIVE_DETAIL)
+    deleted = await delete_waiting_user_account(session, user_id=user_uuid)
+    request.state.account_change = deleted
+    logger.info(
+        "account %s deleted (who deleted it, and the account, in the request audit)",
+        deleted["user_id"],
+    )
+
+
+@router.get(
+    "/account-request-mail",
+    response_model=AccountRequestMailOut,
+    summary="Who is told of an account that waits for approval",
+    description=(
+        "Whether CoGA e-mails the administrators when an account waits for approval (a mail "
+        "server is set with SMTP_HOST), and the addresses: every active administrator's."
+    ),
+)
+async def account_request_mail(
+    current: CurrentUser = Depends(get_current_admin_user),
+    session: AsyncSession = Depends(get_postgres_session),
+) -> AccountRequestMailOut:
+    return AccountRequestMailOut(
+        enabled=mail_enabled(),
+        recipients=await administrator_addresses(session),
+    )
+
+
+@router.post(
+    "/account-request-mail/test",
+    response_model=AccountRequestMailTestOut,
+    summary="Send a test of the account-request mail",
+    description=(
+        "Sends a test mail to every active administrator, through the mail server SMTP_HOST "
+        "names: 409 without one, 502 when it does not take the mail."
+    ),
+)
+async def send_account_request_test_mail(
+    current: CurrentUser = Depends(get_current_admin_user),
+    session: AsyncSession = Depends(get_postgres_session),
+) -> AccountRequestMailTestOut:
+    if not mail_enabled():
+        raise HTTPException(status_code=409, detail=NO_MAIL_SERVER_DETAIL)
+    recipients = await administrator_addresses(session)
+    if not recipients:
+        raise HTTPException(status_code=409, detail=NO_ADMIN_ADDRESS_DETAIL)
+    try:
+        await asyncio.to_thread(send_mail, mail_check_message(recipients))
+    except MailNotSent as exc:
+        logger.warning("the test of the account-request mail was not sent: %s", exc)
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    logger.info("the test of the account-request mail went to %d administrator(s)", len(recipients))
+    return AccountRequestMailTestOut(recipients=recipients)

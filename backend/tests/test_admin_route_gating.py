@@ -50,6 +50,7 @@ ADMIN_READS_OUTSIDE_THE_ADMIN_PREFIX = {
     ("GET", "/api/assemblies/reference-import/assemblies"),
     ("GET", "/api/assemblies/reference-import/organisms"),
     ("GET", "/api/assemblies/reference-import/recent"),
+    ("GET", "/api/auth/account-request-mail"),
     ("GET", "/api/auth/users"),
     ("GET", "/api/users"),
 }

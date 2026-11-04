@@ -1,5 +1,4 @@
 import React, { useMemo, useState } from 'react';
-import { Link } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import api from '../../lib/api';
 import PageState from '../../components/PageState';
@@ -251,23 +250,6 @@ const AdminAuditLogsPage: React.FC = () => {
             <p className="catalog-card-copy">
               Browse API request history, inferred data updates, and client-side interactions.
             </p>
-          </div>
-          <div className="compact-toolbar dashboard-toolbar">
-            <Link to="/admin/data/families" className="button-secondary hover:no-underline">
-              Family & sample data
-            </Link>
-            <Link
-              to="/admin/operations/clickhouse"
-              className="button-secondary hover:no-underline"
-            >
-              ClickHouse tables
-            </Link>
-            <Link to="/admin/variants/presets" className="button-secondary hover:no-underline">
-              Preset filters
-            </Link>
-            <Link to="/admin/variants/tags" className="button-secondary hover:no-underline">
-              Variant tags
-            </Link>
           </div>
         </div>
         <div className="compact-toolbar dashboard-toolbar">

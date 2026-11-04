@@ -263,6 +263,41 @@ CREATE TABLE IF NOT EXISTS dgv_variants (
 CREATE INDEX IF NOT EXISTS idx_dgv_variants_assembly_region ON dgv_variants USING btree (assembly_id, chr, start);
 
 -- ---------------------------------------------------------------------------
+-- dgv_load_jobs
+-- ---------------------------------------------------------------------------
+-- Loads of the pinned DGV release for an assembly (DGV_PINNED_RELEASES in core/config.py),
+-- asked for on the Reference page or queued by a start (requested_by startup-bootstrap, no
+-- account). As for clinical_cnv_kb_jobs: one job queued or running at a time, a worker with a
+-- heartbeat, and an administrator's load run and committed only while that account is an
+-- active administrator (SEC-35). bytes_read and bytes_total are the download's progress.
+CREATE TABLE IF NOT EXISTS dgv_load_jobs (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    assembly_id uuid NOT NULL,
+    assembly_name text NOT NULL,
+    release text NOT NULL,
+    source_url text NOT NULL,
+    status text DEFAULT 'queued'::text NOT NULL,
+    requested_by text NOT NULL,
+    requested_by_id uuid,
+    requested_at timestamp with time zone DEFAULT now() NOT NULL,
+    started_at timestamp with time zone,
+    completed_at timestamp with time zone,
+    bytes_read bigint DEFAULT 0 NOT NULL,
+    bytes_total bigint,
+    inserted integer DEFAULT 0 NOT NULL,
+    error text,
+    worker_id text,
+    heartbeat_at timestamp with time zone,
+    CONSTRAINT dgv_load_jobs_pkey PRIMARY KEY (id),
+    CONSTRAINT dgv_load_jobs_status_check CHECK ((status = ANY (ARRAY['queued'::text, 'running'::text, 'completed'::text, 'failed'::text]))),
+    CONSTRAINT dgv_load_jobs_assembly_id_fkey FOREIGN KEY (assembly_id) REFERENCES assemblies(id) ON DELETE CASCADE,
+    CONSTRAINT dgv_load_jobs_requested_by_id_fkey FOREIGN KEY (requested_by_id) REFERENCES users(id) ON DELETE SET NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_dgv_load_jobs_one_active ON dgv_load_jobs USING btree ((true)) WHERE (status = ANY (ARRAY['queued'::text, 'running'::text]));
+CREATE INDEX IF NOT EXISTS idx_dgv_load_jobs_requested_at ON dgv_load_jobs USING btree (requested_at DESC);
+
+-- ---------------------------------------------------------------------------
 -- segmental_duplications
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS segmental_duplications (

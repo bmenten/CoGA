@@ -69,6 +69,8 @@ def test_a_genome_callset_reads_an_absent_record_as_reference_everywhere():
     assert scan.qc["called"] == 75 and scan.qc["assumed_ref"] == 25 and scan.covered_markers == N
     assert result.status == "projected" and result.callset == "clair3" and result.kind == "genome"
     assert result.pcs == pytest.approx(expected_pcs(model, np.ones(N, dtype=bool)))
+    # Each coordinate comes with its spread over resamplings of the markers.
+    assert result.pcs_se is not None and len(result.pcs_se) == 4 and all(se > 0 for se in result.pcs_se)
 
 
 def test_an_exome_callset_reads_absence_as_reference_only_inside_the_mask():

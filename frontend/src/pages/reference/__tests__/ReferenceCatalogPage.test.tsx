@@ -281,6 +281,45 @@ describe('ReferenceCatalogPage', () => {
     ).toBeInTheDocument();
   });
 
+  it('says what the import started for the assembly: its clinical CNVs and its DGV variants', async () => {
+    (api.post as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      data: {
+        species_id: 'species-1',
+        species_name: 'Homo sapiens',
+        assembly_id: 'assembly-1',
+        assembly_name: 'GRCh38',
+        assembly_version: 'p14',
+        ucsc_genome: 'hg38',
+        created_species: false,
+        created_assembly: true,
+        cytobands_inserted: 24,
+        genes_inserted: 19876,
+        cytobands_replaced: false,
+        genes_replaced: false,
+        cytoband_source_url: 'https://example.org/cytoBandIdeo.txt.gz',
+        gene_source_url: 'https://example.org/gencode.gtf.gz',
+        gene_source: 'gencode',
+        follow_up_notes: [
+          'The clinical CNV knowledgebase build for GRCh38 has started in the background.',
+          'The DGV 2025-12-01 load for GRCh38 has started in the background.',
+        ],
+      },
+    });
+
+    renderPage();
+    await screen.findByRole('heading', { name: 'Homo sapiens' });
+    fireEvent.click(screen.getByRole('button', { name: /add organism \/ assembly/i }));
+    fireEvent.change(screen.getByLabelText(/source organism/i), { target: { value: '9606' } });
+    await screen.findByRole('option', { name: /grch38 p14 \(hg38\)/i });
+    fireEvent.change(screen.getByLabelText(/source assembly/i), { target: { value: 'hg38' } });
+    fireEvent.click(screen.getByRole('button', { name: /download cytobands and genes/i }));
+
+    expect(await screen.findByText(/imported grch38 p14/i)).toHaveTextContent(
+      'Imported GRCh38 p14: 24 cytobands and 19876 genes loaded. The clinical CNV knowledgebase build for ' +
+        'GRCh38 has started in the background. The DGV 2025-12-01 load for GRCh38 has started in the background.'
+    );
+  });
+
   it('imports the assembly and warns when no UCSC gene table is available', async () => {
     (api.post as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
       data: {
@@ -699,6 +738,97 @@ describe('ReferenceCatalogPage', () => {
       expect(await screen.findByRole('heading', { name: 'Homo sapiens' })).toBeInTheDocument();
       await waitFor(() => expect(api.get).toHaveBeenCalledWith('/admin/clinical-cnv-kb/status'));
       expect(screen.queryByLabelText('Failed clinical CNV knowledgebase rebuilds')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('DGV loads', () => {
+    const RELEASE = {
+      assembly_name: 'GRCh38',
+      release: '2025-12-01',
+      source_url: 'https://dgv.tcag.ca/dgv/docs/GRCh38_hg38_variants_2025-12-01.txt',
+      size_bytes: 364191405,
+    };
+    const load = (id: string, status: string, extra: Record<string, unknown> = {}) => ({
+      _id: id,
+      assembly_id: 'assembly-1',
+      assembly_name: 'GRCh38',
+      release: '2025-12-01',
+      source_url: RELEASE.source_url,
+      status,
+      requested_by: 'startup-bootstrap',
+      requested_at: '2026-11-04T10:00:00Z',
+      started_at: '2026-11-04T10:00:01Z',
+      completed_at: status === 'running' ? null : '2026-11-04T10:06:00Z',
+      bytes_read: 0,
+      bytes_total: RELEASE.size_bytes,
+      inserted: 0,
+      error: null,
+      ...extra,
+    });
+    const withDgv = (jobs: ReturnType<typeof load>[], releases = [RELEASE]) => {
+      const get = api.get as unknown as Mock;
+      const working = get.getMockImplementation()!;
+      get.mockImplementation((url: string, config?: unknown) =>
+        url === '/admin/dgv/status'
+          ? Promise.resolve({
+              data: {
+                active_job: jobs.find((job) => job.status === 'queued' || job.status === 'running') ?? null,
+                recent_jobs: jobs,
+                releases,
+              },
+            })
+          : working(url, config),
+      );
+    };
+
+    it('loads the pinned DGV release for an assembly once confirmed', async () => {
+      withDgv([]);
+      (api.post as unknown as Mock).mockResolvedValue({ data: load('job-1', 'queued') });
+      renderPage();
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Load DGV variants' }));
+      const prompt = await screen.findByText(/Load DGV release 2025-12-01 for GRCh38\?/);
+      expect(prompt).toHaveTextContent('(364 MB) from dgv.tcag.ca');
+      expect(prompt).toHaveTextContent('checks it against its pinned SHA-256');
+      expect(api.post).not.toHaveBeenCalled();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Load' }));
+
+      await waitFor(() => expect(api.post).toHaveBeenCalledWith('/admin/dgv/load', { assembly: 'GRCh38' }));
+      expect(await screen.findByText('Started the DGV load for GRCh38.')).toBeInTheDocument();
+    });
+
+    it('shows how far a running load has come, and offers no second one', async () => {
+      withDgv([load('job-1', 'running', { bytes_read: 182100000, inserted: 990000 })]);
+      renderPage();
+
+      expect(await screen.findByLabelText('DGV load in progress')).toHaveTextContent(
+        'Loading DGV release 2025-12-01 for GRCh38: 50 % downloaded, 990,000 variants read. The DGV variants ' +
+          'from before stay until the whole file is read and checked.'
+      );
+      expect(screen.getByRole('button', { name: 'Load DGV variants' })).toBeDisabled();
+    });
+
+    it('says that the newest load of an assembly failed, and why', async () => {
+      const REASON =
+        'Refused the DGV file GRCh38_hg38_variants_2025-12-01.txt: it is not the pinned release 2025-12-01. ' +
+        'Nothing was loaded: the DGV variants from before are unchanged.';
+      withDgv([load('job-2', 'failed', { error: REASON }), load('job-1', 'completed')]);
+      renderPage();
+
+      const notice = await screen.findByLabelText('Failed DGV loads');
+      expect(notice).toHaveTextContent('The DGV load for GRCh38 failed');
+      expect(notice).toHaveTextContent(REASON);
+    });
+
+    it('offers an upload for an assembly without a pinned DGV release', async () => {
+      withDgv([], []);
+      renderPage();
+
+      await screen.findByRole('heading', { name: 'Homo sapiens' });
+      await waitFor(() => expect(api.get).toHaveBeenCalledWith('/admin/dgv/status'));
+      expect(screen.queryByRole('button', { name: 'Load DGV variants' })).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Upload DGV variants' })).toBeInTheDocument();
     });
   });
 });

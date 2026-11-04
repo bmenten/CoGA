@@ -63,6 +63,12 @@ the CI ``smoke`` job sets it.
   check with the five roles (revision 0015): each viewer becomes an analyst, a superuser and an
   admin keep their role, a role CoGA does not know is refused, it ends at the same fingerprint,
   and a viewer made since stays one at a later start.
+- A database at revision 0016 from before accounts were archived gets when each account was
+  first active and when it was archived (revision 0017): an active account, and an inactive one
+  with a request of its own in the audit, were active since their creation; an inactive one
+  without waits for approval; none is archived. An archived account that is active is refused,
+  it ends at the same fingerprint, and an account waiting for approval made since still waits at
+  a later start.
 - A ledger naming a revision this version does not have is refused, and nothing changes.
 - The restricted runtime role cannot run the migration; two instances that start together
   both come up, one after the other.
@@ -2205,6 +2211,125 @@ def test_a_database_from_before_the_analyst_role_makes_each_viewer_an_analyst_an
     assert (stored, refused) == (["analyst", "supervisor", "viewer"], 1)
     assert after_again == "viewer"
     # Every other table is as it was.
+    changed = {"alembic_version", "users"}
+    assert {table: rows for table, rows in kept.items() if table not in changed} == {
+        table: rows for table, rows in contents.items() if table not in changed
+    }
+    assert kept["users"][0] == contents["users"][0]
+    # The schema is the baselines'.
+    assert actual == expected, _differences(expected, actual)
+
+
+_BEFORE_0017 = (
+    "ALTER TABLE users DROP CONSTRAINT users_archived_inactive_check",
+    "ALTER TABLE users DROP COLUMN archived_at",
+    "ALTER TABLE users DROP COLUMN activated_at",
+)
+
+
+@_MODES
+def test_a_database_from_before_the_archive_tells_each_account_waiting_for_approval_from_the_others(
+    monkeypatch, reapply_baselines: bool
+) -> None:
+    from sqlalchemy.exc import IntegrityError
+
+    from backend.app.core import postgres_migrations
+    from backend.app.core.postgres_migrations import apply_postgres_schema, head_revision
+
+    monkeypatch.setattr(postgres_migrations, "REAPPLY_BASELINES_ON_EVERY_RUN", reapply_baselines)
+    # Each account's activation, and whether it made a request of its own (an audit row).
+    accounts = {"active-0017": (True, False), "seen-0017": (False, True), "waiting-0017": (False, False)}
+
+    async def _body(database: str):
+        engine = _engine(database)
+        try:
+            async with engine.begin() as conn:
+                await apply_postgres_schema(conn)
+            # A database at revision 0016, from before the two columns and their check.
+            async with engine.begin() as conn:
+                await conn.execute(text("UPDATE alembic_version SET version_num = '0016'"))
+                for statement in _BEFORE_0017:
+                    await conn.exec_driver_sql(statement)
+                for username, (active, audited) in accounts.items():
+                    user_id = (
+                        await conn.execute(
+                            text(
+                                "INSERT INTO users (username, hashed_password, role, email, is_active, created_at) "
+                                "VALUES (:u, '', 'viewer', :e, :a, '2026-01-02T03:04:05Z') RETURNING id"
+                            ),
+                            {"u": username, "e": f"{username}@example.org", "a": active},
+                        )
+                    ).scalar_one()
+                    if audited:
+                        await conn.execute(
+                            text(
+                                "INSERT INTO audit_log_events (method, path, status_code, user_id) "
+                                "VALUES ('GET', '/api/auth/me', 200, :id)"
+                            ),
+                            {"id": user_id},
+                        )
+            contents = await _table_contents(database)
+            async with engine.begin() as conn:
+                revision = await apply_postgres_schema(conn)
+            kept = await _table_contents(database)
+            async with engine.connect() as conn:
+                stored = {
+                    str(row.username): (
+                        None if row.activated_at is None else row.activated_at == row.created_at,
+                        row.archived_at,
+                    )
+                    for row in (
+                        await conn.execute(
+                            text(
+                                "SELECT username, created_at, activated_at, archived_at FROM users "
+                                "WHERE username = ANY(:names)"
+                            ),
+                            {"names": list(accounts)},
+                        )
+                    ).all()
+                }
+                check = await _check_definition(conn, "users", "users_archived_inactive_check")
+            # An archived account that is active is refused.
+            try:
+                async with engine.begin() as conn:
+                    await conn.execute(text("UPDATE users SET archived_at = now() WHERE username = 'active-0017'"))
+                refused = False
+            except IntegrityError:
+                refused = True
+            # An account waiting for approval made since still waits at the next start.
+            async with engine.begin() as conn:
+                await conn.execute(
+                    text(
+                        "INSERT INTO users (username, hashed_password, role, email, is_active, activated_at) "
+                        "VALUES ('later-0017', '', 'viewer', 'later-0017@example.org', false, NULL)"
+                    )
+                )
+            async with engine.begin() as conn:
+                again = await apply_postgres_schema(conn)
+            async with engine.connect() as conn:
+                later = (
+                    await conn.execute(text("SELECT activated_at FROM users WHERE username = 'later-0017'"))
+                ).scalar_one()
+        finally:
+            await engine.dispose()
+        reference = await _create_database()
+        try:
+            await _apply_baseline_files(reference)
+            fingerprints = await _fingerprint(reference), await _fingerprint(database)
+        finally:
+            await _drop_database(reference)
+        return (revision, again), stored, check, refused, later, (contents, kept), fingerprints
+
+    (revision, again), stored, check, refused, later, (contents, kept), (expected, actual) = _run(_body)
+
+    assert (revision.before, revision.after) == ("0016", head_revision())
+    assert (again.before, again.after) == (head_revision(), head_revision())
+    # Active, or once signed in: active since its creation. Never signed in: waits for approval.
+    assert stored == {"active-0017": (True, None), "seen-0017": (True, None), "waiting-0017": (None, None)}
+    assert check == "CHECK (((archived_at IS NULL) OR (NOT is_active)))"
+    assert refused is True
+    assert later is None
+    # Every other table is as it was; the accounts keep their rows.
     changed = {"alembic_version", "users"}
     assert {table: rows for table, rows in kept.items() if table not in changed} == {
         table: rows for table, rows in contents.items() if table not in changed
