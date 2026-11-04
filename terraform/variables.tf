@@ -119,7 +119,7 @@ variable "clickhouse_data_disk_gb" {
 variable "clickhouse_image" {
   description = "ClickHouse server container image, digest-pinned to match the local stack (tag kept for readability). Bump the digest alongside the tag."
   type        = string
-  default     = "clickhouse/clickhouse-server:26.8@sha256:4769eec6a9b9842a7d102c8bdfca0400128bc6edf65dec4e19a7d3a2b25f32db"
+  default     = "clickhouse/clickhouse-server:26.8@sha256:d426d2f612e1e189c90f9a3f8dcd85a03c6851273833817a296bb327e63aa7a7"
 }
 
 variable "clickhouse_restrict_egress" {
