@@ -327,15 +327,21 @@ def _repeat_table() -> FamilyRepeatExpansionTableOut:
                         sample="PROBAND",
                         genotype="0/1",
                         alleles=[
-                            {"repeat_count": 18, "bp_length": 54, "status": "normal"},
-                            {"repeat_count": 40, "bp_length": 120, "support_reads": 12, "status": "pathogenic"},
+                            {"repeat_count": 18, "trgt_repeat_count": 18, "bp_length": 54, "status": "normal"},
+                            {
+                                "repeat_count": 40,
+                                "trgt_repeat_count": 40,
+                                "bp_length": 120,
+                                "support_reads": 12,
+                                "status": "pathogenic",
+                            },
                         ],
                         status="pathogenic",
                     ),
                     "FATHER": RepeatExpansionSampleCallOut(
                         sample="FATHER",
                         genotype="0/0",
-                        alleles=[{"repeat_count": 18, "bp_length": 54, "status": "normal"}],
+                        alleles=[{"repeat_count": 18, "trgt_repeat_count": 18, "bp_length": 54, "status": "normal"}],
                         status="normal",
                     ),
                 },
@@ -369,6 +375,7 @@ def test_each_repeat_call_is_frozen_with_its_status_and_the_thresholds_behind_it
     assert locus["calls"][1]["alleles"] == [
         {
             "repeat_count": 18,
+            "trgt_repeat_count": 18,
             "bp_length": 54,
             "support_reads": None,
             "interruption_label": None,
@@ -377,6 +384,7 @@ def test_each_repeat_call_is_frozen_with_its_status_and_the_thresholds_behind_it
         },
         {
             "repeat_count": 40,
+            "trgt_repeat_count": 40,
             "bp_length": 120,
             "support_reads": 12,
             "interruption_label": None,
@@ -384,8 +392,14 @@ def test_each_repeat_call_is_frozen_with_its_status_and_the_thresholds_behind_it
             "count_unit_warning": None,
         },
     ]
-    # No QA record for the locus: not validated.
-    assert locus["count_units"] == {"validated": False, "reason": None, "updated_by": None, "updated_at": None}
+    # No QA record for the locus: no correction, not validated.
+    assert locus["count_units"] == {
+        "count_offset": 0,
+        "validated": False,
+        "reason": None,
+        "updated_by": None,
+        "updated_at": None,
+    }
     assert out["count_unit_margin"] == 3
     catalogue = out["catalogue"]
     assert catalogue["loci"] == 2

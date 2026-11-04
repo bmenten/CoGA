@@ -15,6 +15,7 @@ import {
   describeCoverageFiles,
   describeCoverageTrack,
   describeCoverageTracks,
+  describeCountCorrections,
   describeCountUnitMargin,
   describeCountUnits,
   describeDiseaseHaplotypes,
@@ -75,7 +76,9 @@ import {
   SIGNED_ANALYSIS,
   SIGNED_PGT_ANALYSIS,
   SIGNED_PGT_ANALYSIS_BEFORE_QC_VERDICT,
+  SIGNED_REPEAT_EXPANSIONS_BEFORE_COUNT_OFFSETS,
   SIGNED_REPEAT_EXPANSIONS_BEFORE_COUNT_UNITS,
+  SIGNED_REPEAT_EXPANSIONS_WITH_CORRECTION,
 } from '../../../test/signedAnalysisFixture';
 
 // The evidence a small-variant classification froze since CLIN-7: the annotation identity,
@@ -1174,13 +1177,18 @@ describe('the repeat calls’ near-boundary warnings', () => {
     expect(repeats.countUnitMargin).toBe(3);
     const [htt, fmr1] = repeats.loci;
     expect(htt.countUnits).toEqual({
+      countOffset: 0,
       validated: true,
       reason: 'Validation report 7',
       updatedBy: 'qa-lead',
       updatedAt: '2026-10-15T09:00:00+00:00',
     });
     expect(htt.calls[0].alleles.map((allele) => allele.countUnitWarning)).toEqual([null, null]);
-    expect(fmr1.countUnits).toEqual({ validated: false, reason: null, updatedBy: null, updatedAt: null });
+    expect(htt.calls[0].alleles.map((allele) => [allele.repeatCount, allele.trgtRepeatCount])).toEqual([
+      [18, 18],
+      [40, 40],
+    ]);
+    expect(fmr1.countUnits).toEqual({ countOffset: 0, validated: false, reason: null, updatedBy: null, updatedAt: null });
     expect(fmr1.calls[0].alleles.map((allele) => allele.countUnitWarning)).toEqual([
       null,
       { repeatCount: 53, margin: 3, boundaries: [{ repeatCount: 55, status: 'premutation' }], unreadableBoundaries: 0 },
@@ -1206,6 +1214,7 @@ describe('the repeat calls’ near-boundary warnings', () => {
     // A validation QA withdrew: its reason, by whom and when.
     expect(
       describeCountUnits({
+        countOffset: 0,
         validated: false,
         reason: 'New TRGT catalogue',
         updatedBy: 'qa-lead',
@@ -1232,6 +1241,48 @@ describe('the repeat calls’ near-boundary warnings', () => {
     expect(repeats.loci.map(describeRepeatLocusCalls)).toEqual([
       'PROBAND 0/1: 18, 40 repeats — Pathogenic',
       'MOTHER 1/2: 30, 53 repeats — Grey zone',
+    ]);
+  });
+
+  it('reads QA’s count correction and TRGT’s own count beside each corrected count', () => {
+    const repeats = repeatsOf({ ...SNAPSHOT, ...SIGNED_ANALYSIS, repeat_expansions: SIGNED_REPEAT_EXPANSIONS_WITH_CORRECTION });
+    const [htt, fmr1] = repeats.loci;
+    expect(htt.countUnits?.countOffset).toBe(-1);
+    expect(htt.calls[0].alleles.map((allele) => [allele.repeatCount, allele.trgtRepeatCount])).toEqual([
+      [18, 19],
+      [40, 41],
+    ]);
+    expect(describeRepeatLocusCalls(htt)).toBe(
+      'PROBAND 0/1: 18 (TRGT 19), 40 (TRGT 41) repeats — Pathogenic. TRGT’s counting units: validated, corrected to TRGT’s count −1 — Validation report 7 (qa-lead, 2026-10-15 09:00 UTC).',
+    );
+    // A locus without a correction reads as before.
+    expect(describeRepeatLocusCalls(fmr1)).toBe(
+      'MOTHER 1/2: 30, 53 repeats — Grey zone ⚠ Near a boundary: 53 is within 3 repeats of 55 (Premutation). TRGT’s counting units: not validated (no QA record).',
+    );
+    expect(describeCountCorrections(repeats)).toBe(
+      'Where QA had recorded a count correction for a locus, each count there is TRGT’s count with that correction, the count its status was classified from; TRGT’s own count follows in brackets.',
+    );
+    // Without a correction anywhere, nothing is said of them.
+    expect(describeCountCorrections(repeatsOf({ ...SNAPSHOT, ...SIGNED_ANALYSIS }))).toBeNull();
+    expect(
+      describeCountUnits({ countOffset: 2, validated: false, reason: 'Offset from VAL-7', updatedBy: null, updatedAt: null }),
+    ).toBe('not validated, corrected to TRGT’s count +2 — Offset from VAL-7');
+  });
+
+  it('reads a record signed before the corrections as it was signed', () => {
+    const repeats = repeatsOf({
+      ...SNAPSHOT,
+      ...SIGNED_ANALYSIS,
+      repeat_expansions: SIGNED_REPEAT_EXPANSIONS_BEFORE_COUNT_OFFSETS,
+    });
+    expect(repeats.loci.map((locus) => locus.countUnits?.countOffset)).toEqual([null, null]);
+    expect(
+      repeats.loci.flatMap((locus) => locus.calls.flatMap((call) => call.alleles.map((allele) => allele.trgtRepeatCount))),
+    ).toEqual([null, null, null, null]);
+    expect(describeCountCorrections(repeats)).toBeNull();
+    expect(repeats.loci.map(describeRepeatLocusCalls)).toEqual([
+      'PROBAND 0/1: 18, 40 repeats — Pathogenic. TRGT’s counting units: validated — Validation report 7 (qa-lead, 2026-10-15 09:00 UTC).',
+      'MOTHER 1/2: 30, 53 repeats — Grey zone ⚠ Near a boundary: 53 is within 3 repeats of 55 (Premutation). TRGT’s counting units: not validated (no QA record).',
     ]);
   });
 
@@ -1268,8 +1319,9 @@ describe('the repeat calls’ near-boundary warnings', () => {
     });
     expect(repeats.countUnitMargin).toBeNull();
     const [l1, l2] = repeats.loci;
-    // Only `true` is validated; a reason that is blank is none.
-    expect(l1.countUnits).toEqual({ validated: false, reason: null, updatedBy: null, updatedAt: null });
+    // Only `true` is validated; a reason that is blank is none; a record without a correction
+    // predates them.
+    expect(l1.countUnits).toEqual({ countOffset: null, validated: false, reason: null, updatedBy: null, updatedAt: null });
     expect(l2.countUnits).toBeNull();
     const [kept, bare, none] = l1.calls[0].alleles.map((allele) => allele.countUnitWarning);
     expect(kept).toEqual({

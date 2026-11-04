@@ -546,7 +546,10 @@ export interface ApiRepeatExpansionMotifCount {
 }
 
 export interface ApiRepeatExpansionAllele {
+  // The count CoGA classifies: TRGT's count with QA's correction for the locus (CLIN-57).
   repeat_count?: number | null;
+  // TRGT's own count, before the correction.
+  trgt_repeat_count?: number | null;
   bp_length?: number | null;
   confidence_interval?: string | null;
   support_reads?: number | null;
@@ -594,9 +597,15 @@ export interface ApiRepeatExpansionRow {
   // The first count of a premutation (FMR1 55), between the grey zone and the pathogenic
   // threshold; absent for a locus without one.
   premutation_min?: number | null;
-  // Whether QA validated that TRGT's count at the locus is the clinical repeat number, and
-  // what is known of TRGT's count at the gene (FMR1, HTT, POLG).
+  // QA's record for the locus: the correction added to TRGT's count before it is classified
+  // (0: none), whether QA validated that the count, so corrected, is the clinical repeat number,
+  // and the record's reason, who and when; and what is known of TRGT's count at the gene
+  // (FMR1, HTT, POLG).
+  count_offset?: number;
   count_units_validated?: boolean;
+  count_units_reason?: string | null;
+  count_units_updated_by?: string | null;
+  count_units_updated_at?: string | null;
   count_units_note?: string | null;
   status: ApiRepeatStatus;
   review_reason?: ApiRepeatReviewReason | null;
@@ -851,8 +860,11 @@ export interface ApiRepeatExpansionTrackItem {
   // (CLIN-14), not the status stored at import.
   status: ApiRepeatStatus;
   review_reason?: ApiRepeatReviewReason | null;
+  // The counts classified (with QA's correction), and TRGT's own beside them.
   allele_repeat_counts: number[];
+  allele_trgt_repeat_counts?: number[];
   allele_bp_lengths: number[];
+  count_offset?: number;
   count_units_validated?: boolean;
   count_units_note?: string | null;
   count_unit_warnings?: RepeatCountUnitWarningOut[];

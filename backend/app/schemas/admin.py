@@ -145,6 +145,9 @@ class RepeatLocusCountUnitsOut(BaseModel):
     source: str
     # False until QA records otherwise; with the reason, who and when of the last record.
     validated: bool = False
+    # QA's correction: repeat units added to TRGT's count before it is classified (-1 turns
+    # TRGT's 18 into 17); 0 for none, the default until QA records one.
+    count_offset: int = 0
     reason: Optional[str] = None
     updated_by: Optional[str] = None
     updated_at: Optional[datetime] = None
@@ -152,6 +155,8 @@ class RepeatLocusCountUnitsOut(BaseModel):
     call_count: int = 0
     # What is known of TRGT's count at the gene (FMR1, HTT, POLG), or None.
     known_difference: Optional[str] = None
+    # Why a constant correction is wrong at the gene (FMR1), shown next to the field; or None.
+    offset_note: Optional[str] = None
 
 
 class RepeatLocusCountUnitsChangeOut(BaseModel):
@@ -162,6 +167,8 @@ class RepeatLocusCountUnitsChangeOut(BaseModel):
     locus_id: Optional[str] = None
     gene: Optional[str] = None
     validated: bool
+    # The correction the change left (0: none).
+    count_offset: int = 0
     summary: Optional[str] = None
     reason: Optional[str] = None
 
@@ -169,6 +176,8 @@ class RepeatLocusCountUnitsChangeOut(BaseModel):
 class RepeatLocusCountUnitsCatalogueOut(BaseModel):
     # How close to a boundary a count is marked while its locus is not validated.
     margin: int
+    # The largest correction that can be recorded, either way, in repeat units.
+    offset_limit: int
     loci: List[RepeatLocusCountUnitsOut] = Field(default_factory=list)
     # Newest first.
     changes: List[RepeatLocusCountUnitsChangeOut] = Field(default_factory=list)
@@ -230,9 +239,14 @@ class FamilyProjectsUpdateOut(BaseModel):
 
 
 class RepeatLocusCountUnitsUpdate(BaseModel):
-    """Whether TRGT's counting units at a locus are validated, and why (required)."""
+    """A locus's whole record: its count correction, whether TRGT's counting units there are
+    validated, and why (required). Every save states both, so none is left as it was by a
+    client that did not say."""
 
     validated: bool
+    # Repeat units added to TRGT's count before it is classified (0: none). Bounded by
+    # repeat_count_units.COUNT_OFFSET_LIMIT, which the service checks too.
+    count_offset: int = Field(ge=-20, le=20, strict=True)
     reason: str
 
 
@@ -240,6 +254,7 @@ class RepeatLocusCountUnitsSetOut(BaseModel):
     locus_id: str
     gene: Optional[str] = None
     validated: bool
+    count_offset: int
     reason: str
     updated_by: Optional[str] = None
     updated_at: Optional[datetime] = None

@@ -110,8 +110,8 @@ cannot drift from the data. It is written by:
   (`repeat:<locus_id>`) or Paraphase region (`paraphase:<gene_symbol>`);
 - sign-out, and an admin's manifest replacement;
 - every NIPT artifact-list change, on its own chain (`system:nipt-artifacts`, not a family);
-- every record of whether TRGT's counting units at a repeat locus are validated, on another
-  (`system:repeat-loci`);
+- every record of a repeat locus's count correction and of whether TRGT's counting units there
+  are validated, on another (`system:repeat-loci`);
 - every change to a family's phenotypes (SEC-1).
 
 A phenotype edit writes one `phenotype` event per HPO term added, changed or removed: the member,
@@ -149,7 +149,7 @@ The actions are `classification`, `tags`, `note`, `compound_het_pair`, `pedigree
 `nipt_artifact_removed`, `nipt_artifacts_auto_seeded`, `nipt_artifacts_imported` (an import of
 the NIPT-M pipeline's recurrent table, naming the file and every allele it listed), and
 `repeat_count_units_validated` and `repeat_count_units_not_validated` (the locus, and the record
-before and after, with its reason).
+before and after: its count correction, `count_offset`, whether it is validated, and its reason).
 
 `classification`, for a small variant, holds the ACMG class, the accepted criteria, the point
 total, the VUS tier and every stored criterion (its strength, whether accepted, its evidence text,
@@ -385,16 +385,19 @@ in the EPD refers to the signed version by its report code (*The report code* be
     (as the repeat page classifies it), its alleles and the thresholds behind it; and the
     catalogue it was classified against: how many loci, from which sources (STRchive, CoGA's
     built-in rows) and a SHA-256 digest of every locus's thresholds, since STRchive's file states
-    no release. Per allele, its near-boundary warning as the repeat page serves it
+    no release. Per allele, the count classified (`repeat_count`: TRGT's count with QA's count
+    correction for the locus, CLIN-57) and TRGT's own count (`trgt_repeat_count`), and its
+    near-boundary warning as the repeat page serves it
     (`count_unit_warning`, `services/repeat_count_units.py`: the count, the nearest count within
     the margin on each side that reads another status, and the margin; the allele's own status
     is the one on its side of the boundary; null when there is none). Per locus, QA's record of
-    TRGT's counting units there, as `repeat_locus_count_units` held it (`count_units`:
-    `validated`, the `reason`, who (`updated_by`) and when (`updated_at`); for a locus without a
-    record `validated: false` and the rest null), with the margin in force
-    (`count_unit_margin`). The warnings and the record never disagree: a validation or withdrawal
-    that commits while the section is read is frozen with the warnings made again against it, by
-    the family table's own code. A locus validated or withdrawn since reads as a change;
+    TRGT's counting units there, as `repeat_locus_count_units` held it (`count_units`: the
+    correction `count_offset`, `validated`, the `reason`, who (`updated_by`) and when
+    (`updated_at`); for a locus without a record `count_offset: 0`, `validated: false` and the
+    rest null), with the margin in force (`count_unit_margin`). The counts, statuses and warnings
+    and the record never disagree: the family table reads QA's record in the statement that reads
+    the calls, and the record frozen is the one they were classified and marked with. A locus
+    validated, withdrawn or corrected since reads as a change;
   - `paraphase`: every Paraphase result of the family's samples, with its status as CoGA reads it
     at sign-out, its copy numbers, the region's status rule and copy-number norm, and the
     catalogue of regions (how many, and a digest of their rules);
@@ -840,8 +843,10 @@ version; one never signed out opens on the live report.
   family's record shows or mentions PGT or NIPT results;
 - the gene panels applied; the repeat expansions (in a record that holds them, each count near a
   boundary marked beside its call, *⚠ Near a boundary: 53 is within 3 repeats of 55
-  (Premutation)*, and each locus's counting units, *TRGT’s counting units: not validated (no QA
-  record)*, or validated or not with the reason, by whom and when); the Paraphase results; the
+  (Premutation)*; a count QA's correction changed with TRGT's own in brackets, *18 (TRGT 19)*; and
+  each locus's counting units, *TRGT’s counting units: not validated (no QA record)*, or validated
+  or not, *corrected to TRGT’s count −1*, with the reason, by whom and when; where a record holds a
+  correction, one sentence says what the bracketed count is); the Paraphase results; the
   coverage tracks (*Coverage tracks*: per sample and caller, what the track held, read depth, a
   log2 ratio or unknown, and the file it was loaded from, from where and when); and the
   reference-data releases;
@@ -931,6 +936,14 @@ to what it does hold still reads as a change. A record that holds the part is co
   reads as a change. The signed version shows such a record as signed, with nothing called not
   captured. In a record that holds them, a locus whose counting units QA validated or withdrew
   since signing reads as a change.
+- **QA's count corrections** (CLIN-57). A record signed after the warnings but before the
+  corrections holds no `count_offset` in a locus's `count_units` and no `trgt_repeat_count` per
+  allele. Listed: `repeat_expansions.count_offset`
+  (`signed_record_sections.repeat_expansions_comparable_with_record`); a record from before the
+  warnings lists it too. Its `repeat_count` is still compared: it was TRGT's own count then, so a
+  correction recorded since that moves a count, or a status, reads as a change. The signed
+  version shows such a record as signed. In a record that holds them, a correction recorded or
+  changed since signing reads as a change.
 - **The NIPT coverage check's notes** over the coverage tracks (TRACE-17). A NIPT record from
   before holds no `coverage_notes` in its `nipt` section. Listed: `nipt.coverage_notes`
   (`signed_record_nipt.nipt_comparable_with_record`); a fetal fraction or classification that

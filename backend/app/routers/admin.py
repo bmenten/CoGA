@@ -710,8 +710,9 @@ async def list_repeat_loci_admin(
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_admin_user),
 ) -> RepeatLocusCountUnitsCatalogueOut:
-    """The repeat catalogue's loci, each with QA's record of whether TRGT's count there is
-    the clinical repeat number, and that record's history (its clinical audit chain)."""
+    """The repeat catalogue's loci, each with QA's record of TRGT's count there (its correction,
+    and whether it is validated as the clinical repeat number), and that record's history (its
+    clinical audit chain)."""
     del user
     return RepeatLocusCountUnitsCatalogueOut(**await list_repeat_locus_count_units(session))
 
@@ -723,17 +724,21 @@ async def set_repeat_locus_count_units_admin(
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_admin_user),
 ) -> RepeatLocusCountUnitsSetOut:
-    """Record whether TRGT's counting units at a catalogue locus are validated.
+    """Record a catalogue locus's count correction and whether TRGT's counting units there are
+    validated.
 
-    While they are not, the repeat page and the genome tracks mark a count near a
-    classification boundary there. The reason is required, and the change is a hash-chained
-    clinical audit event (chain ``system:repeat-loci``) in the transaction that makes it.
+    The correction is added to TRGT's count before every classification of a call at the
+    locus. While the locus is not validated, the repeat page and the genome tracks mark a
+    count near a classification boundary there. The reason is required, and the change is a
+    hash-chained clinical audit event (chain ``system:repeat-loci``) with the record before
+    and after, in the transaction that makes it.
     """
     return RepeatLocusCountUnitsSetOut(
         **await set_repeat_locus_count_units(
             session,
             locus_id=locus_id,
             validated=payload.validated,
+            count_offset=payload.count_offset,
             reason=payload.reason,
             user=user,
         )

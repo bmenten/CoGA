@@ -191,9 +191,11 @@ SHA-256 content hash), the version the clinical report in the EPD refers to. It 
   - the **reference-data releases**: the gene reference for the reported genes and the clinical CNV
     knowledgebase;
   - the family's **repeat expansions** (TRGT) and **Paraphase** results, each with its status as CoGA
-    reads it at sign-out and the catalogue behind it. Beside each repeat count near a classification
-    boundary, its *Near a boundary* warning. For each repeat locus, whether QA had validated TRGT's
-    counting units there, with the reason, by whom and when;
+    reads it at sign-out and the catalogue behind it. Each repeat count as CoGA classified it, with
+    QA's count correction for its locus, and TRGT's own count beside it. Beside each count near a
+    classification boundary, its *Near a boundary* warning. For each repeat locus, QA's count
+    correction and whether QA had validated TRGT's counting units there, with the reason, by whom and
+    when;
 - in a PGT family, the **embryo calls** at the region of interest, as the family page shows them:
   - the ROI, the inheritance model and the disease haplotype;
   - for each embryo: its call, the haplotypes it inherited at the ROI, and its warnings (missing data,
@@ -406,9 +408,10 @@ It shows what the record holds (section 4):
   not meet them stands as called: the warning is not a gate;
 - the gene panels applied, the repeat expansions, the Paraphase results and the reference-data
   releases. A repeat count near a boundary is marked beside its call (*⚠ Near a boundary: 53 is within
-  3 repeats of 55 (Premutation)*). Each locus says whether QA had validated TRGT's counting units there:
-  *TRGT’s counting units: not validated (no QA record)*, or validated or not, with the reason, by whom
-  and when;
+  3 repeats of 55 (Premutation)*). A count QA's correction changed shows TRGT's own in brackets, *18
+  (TRGT 19)*. Each locus says whether QA had validated TRGT's counting units there, and its correction:
+  *TRGT’s counting units: not validated (no QA record)*, or validated or not, *corrected to TRGT’s count
+  −1*, with the reason, by whom and when;
 - what each coverage track held (*Coverage tracks*);
 - for a monogenic NIPT family, its **NIPT results**, with the coverage tracks the coverage check did not
   read as depth in its words (*Coverage tracks not read as depth: …*). A NIPT family's version signed
@@ -437,7 +440,8 @@ versions:
   signed, with no verdict. Nothing it predates is called *not captured*, and the sign-out check
   compares it on what it holds.
 - A version signed before CoGA froze the repeat calls' near-boundary warnings and QA's records of the
-  counting units is treated the same way: it shows its calls without them.
+  counting units is treated the same way: it shows its calls without them. So is a version signed
+  before QA's count corrections: its counts are TRGT's own, shown as signed.
 
 **Print signed version N** prints this view. The printout starts with a notice when the version is not
 the latest, intact record:
@@ -448,8 +452,8 @@ the latest, intact record:
 
 *Signed versions* at the top lists every version; an earlier one names the version that replaces it.
 On the latest version the page says whether the family's current data still matches it, or what has
-changed since (a review, a report tag, a re-import, a QC cut-off, QA's validation of a repeat locus's
-counting units). What the version does not hold, because CoGA records it only since, cannot be
+changed since (a review, a report tag, a re-import, a QC cut-off, QA's validation or count correction
+of a repeat locus). What the version does not hold, because CoGA records it only since, cannot be
 compared, and the line names it: *The family’s current data still matches this signed version in
 everything it holds. Not in this version, so not compared: the repeat calls’ near-boundary warnings and
 QA’s records of their counting units.* That line is not printed: the version stays what was signed.

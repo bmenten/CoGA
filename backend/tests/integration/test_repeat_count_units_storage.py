@@ -98,7 +98,7 @@ def test_the_record_marks_and_unmarks_a_count_near_a_boundary_survives_a_start_a
                 prior = (
                     await session.execute(
                         text(
-                            "SELECT locus_id, validated, reason, updated_by, updated_by_name, updated_at "
+                            "SELECT locus_id, validated, count_offset, reason, updated_by, updated_by_name, updated_at "
                             "FROM repeat_locus_count_units WHERE locus_id = :l"
                         ),
                         {"l": _LOCUS},
@@ -119,7 +119,7 @@ def test_the_record_marks_and_unmarks_a_count_near_a_boundary_survives_a_start_a
 
                 out["before"] = await _read(session, context)
                 out["set"] = await set_repeat_locus_count_units(
-                    session, locus_id=_LOCUS, validated=True, reason="  Validation report 13  ", user=user
+                    session, locus_id=_LOCUS, validated=True, count_offset=0, reason="  Validation report 13  ", user=user
                 )
                 await seed_builtin_repeat_catalog(session)  # the next start
                 out["after_start"] = await _read(session, context)
@@ -141,7 +141,7 @@ def test_the_record_marks_and_unmarks_a_count_near_a_boundary_survives_a_start_a
                 )
 
                 await set_repeat_locus_count_units(
-                    session, locus_id=_LOCUS, validated=False, reason="New TRGT catalogue", user=user
+                    session, locus_id=_LOCUS, validated=False, count_offset=0, reason="New TRGT catalogue", user=user
                 )
                 out["withdrawn"] = await _read(session, context)
                 out["events"] = [
@@ -186,8 +186,8 @@ def test_the_record_marks_and_unmarks_a_count_near_a_boundary_survives_a_start_a
                     await session.execute(
                         text(
                             "INSERT INTO repeat_locus_count_units "
-                            "(locus_id, validated, reason, updated_by, updated_by_name, updated_at) "
-                            "VALUES (:locus_id, :validated, :reason, :updated_by, :updated_by_name, :updated_at)"
+                            "(locus_id, validated, count_offset, reason, updated_by, updated_by_name, updated_at) "
+                            "VALUES (:locus_id, :validated, :count_offset, :reason, :updated_by, :updated_by_name, :updated_at)"
                         ),
                         prior,
                     )
@@ -238,10 +238,245 @@ def test_the_record_marks_and_unmarks_a_count_near_a_boundary_survives_a_start_a
     ]
     assert {(event["family_id"], event["variant_id"]) for event in events} == {(None, None)}
     assert all(event["actor_id"] == out["record"]["updated_by"] for event in events)
-    assert events[0]["before"] == {"locus_id": _LOCUS, "gene": "FMR1", "validated": False, "reason": None}
-    assert events[0]["after"] == {"locus_id": _LOCUS, "gene": "FMR1", "validated": True, "reason": "Validation report 13"}
+    assert events[0]["before"] == {
+        "locus_id": _LOCUS,
+        "gene": "FMR1",
+        "validated": False,
+        "count_offset": 0,
+        "reason": None,
+    }
+    assert events[0]["after"] == {
+        "locus_id": _LOCUS,
+        "gene": "FMR1",
+        "validated": True,
+        "count_offset": 0,
+        "reason": "Validation report 13",
+    }
     assert events[1]["after"]["reason"] == "New TRGT catalogue"
     assert events[1]["summary"] == "TRGT's counting units at FXS_FMR1 (FMR1): validated → not validated"
     verified, rows_checked = out["chain"]
     assert verified is True and rows_checked >= 2
     assert out["refused"] == 2
+
+
+# A man's HTT call of 18 and 36 (CLIN-57): TRGT reads HTT one above the usual count, so with QA's
+# correction of -1 the 36 (pathogenic) is 35 (grey zone).
+_HTT_LOCUS = "HD_HTT"
+_HTT_VCF = TRGT_VCF_HEADER + (
+    "chr4\t3074876\t.\tCAG\t<TR>\t.\t.\tTRID=HD_HTT;END=3074933;MOTIFS=CAG;STRUC=<TR>"
+    "\tGT:AL:MC\t1/2:54,108:18,36\n"
+)
+
+
+def test_a_count_correction_reclassifies_the_table_the_track_and_the_import_and_is_audited(monkeypatch) -> None:
+    from backend.app.core.postgres import close_postgres_engine, get_postgres_sessionmaker, init_postgres_schema
+    from backend.app.services import repeat_expansion_pg
+    from backend.app.services.clinical_audit_service import verify_clinical_audit_chain
+    from backend.app.services.repeat_count_units import (
+        REPEAT_COUNT_UNITS_AUDIT_CHAIN,
+        list_repeat_locus_count_units,
+        set_repeat_locus_count_units,
+    )
+    from backend.app.services.repeat_expansion_pg import (
+        get_family_repeat_expansion_table_response,
+        get_sample_repeat_expansion_track_response,
+        ingest_trgt_text,
+        seed_builtin_repeat_catalog,
+    )
+
+    monkeypatch.setattr(repeat_expansion_pg.settings, "trgt_strchive_loci_path", None)
+    label = f"itest-count-offset-{uuid4()}"
+    sample_id = f"{label}-MAN"
+
+    async def _read(session, context):
+        table = await get_family_repeat_expansion_table_response(session, context=context)
+        [locus] = [row for row in table.loci if row.locus_id == _HTT_LOCUS]
+        alleles = locus.calls[sample_id].alleles
+        track = await get_sample_repeat_expansion_track_response(
+            session, context=context, sample_name=sample_id, chromosomes=["4"]
+        )
+        [item] = [row for row in track.items if row.locus_id == _HTT_LOCUS]
+        return {
+            "offset": (locus.count_offset, item.count_offset),
+            "counts": [(allele.repeat_count, allele.trgt_repeat_count) for allele in alleles],
+            "statuses": [allele.status for allele in alleles],
+            "marked": [allele.count_unit_warning is not None for allele in alleles],
+            "track": (
+                item.allele_repeat_counts,
+                item.allele_trgt_repeat_counts,
+                item.status,
+                len(item.count_unit_warnings),
+            ),
+            "reason": locus.count_units_reason,
+        }
+
+    async def _stored(session, sample_uuid):
+        row = (
+            await session.execute(
+                text(
+                    "SELECT status, alleles FROM repeat_expansions "
+                    "WHERE sample_id = CAST(:s AS uuid) AND locus_id = :l"
+                ),
+                {"s": sample_uuid, "l": _HTT_LOCUS},
+            )
+        ).mappings().one()
+        return row["status"], [allele["repeat_count"] for allele in row["alleles"]]
+
+    async def _run() -> dict:
+        await init_postgres_schema()
+        sessionmaker = get_postgres_sessionmaker()
+        out: dict = {}
+        prior = None
+        try:
+            async with sessionmaker() as session:
+                await seed_builtin_repeat_catalog(session)
+                prior = (
+                    await session.execute(
+                        text(
+                            "SELECT locus_id, validated, count_offset, reason, updated_by, updated_by_name, "
+                            "updated_at FROM repeat_locus_count_units WHERE locus_id = :l"
+                        ),
+                        {"l": _HTT_LOCUS},
+                    )
+                ).mappings().first()
+                prior = dict(prior) if prior is not None else None
+                await session.execute(
+                    text("DELETE FROM repeat_locus_count_units WHERE locus_id = :l"), {"l": _HTT_LOCUS}
+                )
+                username = f"{label}-qa"
+                user = await admin_account(session, username)
+                family_uuid, contexts = await trgt_family(session, label, {"MAN": "male"})
+                vcf = _HTT_VCF.format(column=sample_id)
+                metadata = {"source": "trgt", "filename": "man.vcf"}
+                await ingest_trgt_text(session, sample_context=contexts["MAN"], text_value=vcf, metadata=metadata)
+                context = repeat_family_context(family_uuid, label, [(contexts["MAN"], "proband", True)])
+
+                out["before"] = await _read(session, context)
+                out["stored_before"] = await _stored(session, contexts["MAN"].sample_uuid)
+                await set_repeat_locus_count_units(
+                    session,
+                    locus_id=_HTT_LOCUS,
+                    validated=False,
+                    count_offset=-1,
+                    reason="Offset from validation report VAL-7",
+                    user=user,
+                )
+                await seed_builtin_repeat_catalog(session)  # the next start keeps it
+                out["corrected"] = await _read(session, context)
+                # The call imported again with the correction recorded: TRGT's counts stored, the
+                # status read from the corrected ones.
+                await ingest_trgt_text(
+                    session, sample_context=contexts["MAN"], text_value=vcf, metadata=metadata, replace=True
+                )
+                out["stored_after"] = await _stored(session, contexts["MAN"].sample_uuid)
+                await set_repeat_locus_count_units(
+                    session,
+                    locus_id=_HTT_LOCUS,
+                    validated=True,
+                    count_offset=-1,
+                    reason="Validation report VAL-8",
+                    user=user,
+                )
+                out["validated"] = await _read(session, context)
+                listed = await list_repeat_locus_count_units(session)
+                [out["listed"]] = [locus for locus in listed["loci"] if locus["locus_id"] == _HTT_LOCUS]
+                out["events"] = [
+                    dict(row)
+                    for row in (
+                        await session.execute(
+                            text(
+                                "SELECT action, before, after, summary FROM clinical_audit_events "
+                                "WHERE family_identifier = :chain AND actor = :actor "
+                                "ORDER BY created_at ASC, id ASC"
+                            ),
+                            {"chain": REPEAT_COUNT_UNITS_AUDIT_CHAIN, "actor": username},
+                        )
+                    ).mappings().all()
+                ]
+                verification = await verify_clinical_audit_chain(session, REPEAT_COUNT_UNITS_AUDIT_CHAIN)
+                out["chain"] = verification.verified
+
+                # The table's check refuses a correction beyond 20 either way, and keeps the record.
+                refused = 0
+                for offset in (21, -21):
+                    try:
+                        async with session.begin_nested():
+                            await session.execute(
+                                text("UPDATE repeat_locus_count_units SET count_offset = :o WHERE locus_id = :l"),
+                                {"o": offset, "l": _HTT_LOCUS},
+                            )
+                    except IntegrityError:
+                        refused += 1
+                out["refused"] = refused
+                out["kept"] = (
+                    await session.execute(
+                        text("SELECT count_offset FROM repeat_locus_count_units WHERE locus_id = :l"),
+                        {"l": _HTT_LOCUS},
+                    )
+                ).scalar_one()
+                await session.rollback()
+                return out
+        finally:
+            async with sessionmaker() as session:
+                await session.execute(
+                    text("DELETE FROM repeat_locus_count_units WHERE locus_id = :l"), {"l": _HTT_LOCUS}
+                )
+                if prior is not None:
+                    await session.execute(
+                        text(
+                            "INSERT INTO repeat_locus_count_units "
+                            "(locus_id, validated, count_offset, reason, updated_by, updated_by_name, updated_at) "
+                            "VALUES (:locus_id, :validated, :count_offset, :reason, :updated_by, "
+                            ":updated_by_name, :updated_at)"
+                        ),
+                        prior,
+                    )
+                await session.execute(text("DELETE FROM families WHERE family_id = :f"), {"f": label})
+                await session.commit()
+            await close_postgres_engine()
+
+    out = asyncio.run(_run())
+
+    # No record: TRGT's counts, the 36 pathogenic and marked (35 reads grey zone).
+    assert out["before"] == {
+        "offset": (0, 0),
+        "counts": [(18, 18), (36, 36)],
+        "statuses": ["normal", "pathogenic"],
+        "marked": [False, True],
+        "track": ([18, 36], [18, 36], "pathogenic", 1),
+        "reason": None,
+    }
+    assert out["stored_before"] == ("pathogenic", [18, 36])
+    # Corrected by -1, not validated: 35 is grey zone, still marked (36 is within the margin),
+    # TRGT's own count beside it, on the table and the track alike; kept by the next start.
+    assert out["corrected"] == {
+        "offset": (-1, -1),
+        "counts": [(17, 18), (35, 36)],
+        "statuses": ["normal", "intermediate"],
+        "marked": [False, True],
+        "track": ([17, 35], [18, 36], "intermediate", 1),
+        "reason": "Offset from validation report VAL-7",
+    }
+    # The import stores TRGT's counts, and reads its status from the corrected ones.
+    assert out["stored_after"] == ("intermediate", [18, 36])
+    # Validated with the correction: the same statuses, no mark.
+    assert out["validated"]["statuses"] == ["normal", "intermediate"]
+    assert out["validated"]["marked"] == [False, False]
+    assert out["validated"]["track"] == ([17, 35], [18, 36], "intermediate", 0)
+    assert (out["listed"]["count_offset"], out["listed"]["validated"], out["listed"]["offset_note"]) == (-1, True, None)
+    # Two events with the correction before and after, chained and verifiable.
+    events = out["events"]
+    assert [event["action"] for event in events] == [
+        "repeat_count_units_not_validated",
+        "repeat_count_units_validated",
+    ]
+    assert [(event["before"]["count_offset"], event["after"]["count_offset"]) for event in events] == [
+        (0, -1),
+        (-1, -1),
+    ]
+    assert events[0]["summary"] == (
+        "TRGT's counting units at HD_HTT (HTT): correction no correction → TRGT's count −1"
+    )
+    assert events[1]["summary"] == "TRGT's counting units at HD_HTT (HTT): not validated → validated"
+    assert out["chain"] is True
+    assert (out["refused"], out["kept"]) == (2, -1)

@@ -94,10 +94,18 @@ known of TRGT's count at the gene. The status itself is not changed: read the ca
 mind. **Aberrant only** keeps such a locus whatever its status, the page header counts the calls near a
 boundary, and a genome track says it in the locus's tooltip.
 
-An administrator records each locus's validation, with its reason, on the admin page **Repeat
-catalogue**; a validated locus is no longer marked. Signing out freezes the mark beside its call and,
-for each locus, whether QA had validated its counting units, with the reason, by whom and when. A
-locus validated or withdrawn after sign-out makes the report say the repeat expansions changed since.
+**Count correction.** QA can record a correction for a locus, in repeats, on the admin page **Repeat
+catalogue**. CoGA adds it to TRGT's count before the count is classified, whether or not the locus is
+validated. The call then shows the corrected count with TRGT's own in brackets, *17 / 36 (TRGT 18 /
+37)*, and the card's **Count correction** line says the correction and its reason. The status, the mark,
+the genome tracks and the signed record all use the corrected count. No locus has a correction until QA
+enters one.
+
+An administrator records each locus's validation and correction, with a reason, on the admin page
+**Repeat catalogue**; a validated locus is no longer marked. Signing out freezes, beside each call, the
+corrected count, TRGT's own count and the mark, and for each locus QA's record: the correction, whether
+QA had validated its counting units, the reason, by whom and when. A locus validated, withdrawn or
+corrected after sign-out makes the report say the repeat expansions changed since.
 
 ### Paraphase
 

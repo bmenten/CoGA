@@ -34,7 +34,7 @@ from .family_package_common import (
     per_sample_vcf_column,
     resolve_vcf_sample_id,
 )
-from .repeat_count_units import count_unit_warning, known_count_unit_difference
+from .repeat_count_units import count_unit_warning, corrected_repeat_count, known_count_unit_difference
 from .repeat_expansion_catalog import BUILTIN_REPEAT_LOCI, PREMUTATION_MIN_BY_GENE
 from .sex_chromosomes import grc_build, hemizygous_chromosome, is_t2t_chm13
 from .vcf_fields import parse_format, parse_info
@@ -588,8 +588,16 @@ def _reclassify_repeat_alleles(
     benign_max: int | None = None,
     pathogenic_max: int | None = None,
     premutation_min: int | None = None,
+    count_offset: int | None = 0,
 ) -> list[dict[str, Any]]:
     """Each called allele's status against the thresholds given, whatever it was stored with.
+
+    The stored alleles hold TRGT's own count (``repeat_count``). Each allele read here holds it
+    as ``trgt_repeat_count``, and as ``repeat_count`` the count classified: TRGT's count plus
+    QA's correction for the catalogue row (``count_offset``, repeat_count_units), never below 0.
+    Every reader of a call (the family table, the genome track, the signed record) reads it
+    through here, so the correction QA records reaches each at once, whatever the call was
+    stored with.
 
     Without any threshold an allele reads ``not_assessed``, so a call stored as ``normal`` at
     a locus without thresholds (before CLIN-26) reads not assessed here at once; a count
@@ -604,10 +612,14 @@ def _reclassify_repeat_alleles(
         if not isinstance(allele, dict):
             continue
         next_allele = dict(allele)
-        repeat_count = next_allele.get("repeat_count")
+        stored_count = next_allele.get("repeat_count")
+        trgt_count = None if stored_count is None else int(stored_count)
+        repeat_count = corrected_repeat_count(trgt_count, count_offset)
+        next_allele["trgt_repeat_count"] = trgt_count
+        next_allele["repeat_count"] = repeat_count
         if repeat_count is not None:
             next_allele["status"] = classify_repeat_count(
-                int(repeat_count),
+                repeat_count,
                 warning_min,
                 pathogenic_min,
                 benign_min=benign_min,
@@ -683,10 +695,17 @@ def _is_male_hemizygous_locus(
 
 
 def _distinct_allele_sizes(alleles: list[dict[str, Any]]) -> set[tuple[Any, Any]]:
+    """The alleles' sizes as TRGT gave them: its own count (``trgt_repeat_count`` on an allele
+    read with QA's correction, ``repeat_count`` on one stored or being imported) and length. A
+    correction shifts every count alike, but the floor at 0 could make two counts one."""
+
+    def trgt_count(allele: dict[str, Any]) -> Any:
+        return allele["trgt_repeat_count"] if "trgt_repeat_count" in allele else allele.get("repeat_count")
+
     return {
-        (allele.get("repeat_count"), allele.get("bp_length"))
+        (trgt_count(allele), allele.get("bp_length"))
         for allele in alleles
-        if allele.get("repeat_count") is not None or allele.get("bp_length") is not None
+        if trgt_count(allele) is not None or allele.get("bp_length") is not None
     }
 
 
@@ -755,8 +774,10 @@ def _classified_call(
 ) -> tuple[list[dict[str, Any]], str, str | None]:
     """A stored call as the family table and the genome track read it (CLIN-14): its alleles
     reclassified against the catalogue row that classifies it (``_CALL_CATALOGUE_COLUMNS``),
-    each with its count-unit warning, and the call's status with the male chrX note, which
-    it returns too. A call whose alleles say nothing keeps its stored status."""
+    each count corrected by QA's correction for that row (``count_offset``, CLIN-57) before it
+    is classified, each with its count-unit warning made from the corrected count, and the
+    call's status with the male chrX note, which it returns too. A call whose alleles say
+    nothing keeps its stored status."""
     warning_min = row.get("warning_min")
     pathogenic_min = row.get("pathogenic_min")
     ranges = {
@@ -766,7 +787,11 @@ def _classified_call(
         "premutation_min": row.get("premutation_min"),
     }
     alleles = _reclassify_repeat_alleles(
-        row.get("alleles", []), warning_min=warning_min, pathogenic_min=pathogenic_min, **ranges
+        row.get("alleles", []),
+        warning_min=warning_min,
+        pathogenic_min=pathogenic_min,
+        count_offset=_as_int(row.get("count_offset")) or 0,
+        **ranges,
     )
     alleles = _with_count_unit_warnings(
         alleles,
@@ -788,23 +813,28 @@ def _classified_call(
     return alleles, status, note
 
 
+# The catalogue the import resolves a call's TRID against, each row with QA's correction for it
+# (repeat_count_units, CLIN-57), so the status the import stores is read from the corrected
+# count as every later read reads it.
 _REPEAT_LOCI_LOOKUP_SQL = text(
     """
     SELECT
-        locus_id,
-        gene,
-        display_name,
-        disease,
-        inheritance,
-        motif,
-        motif_index,
-        warning_min,
-        pathogenic_min,
-        aliases,
-        notes,
-        metadata
+        repeat_loci.locus_id,
+        repeat_loci.gene,
+        repeat_loci.display_name,
+        repeat_loci.disease,
+        repeat_loci.inheritance,
+        repeat_loci.motif,
+        repeat_loci.motif_index,
+        repeat_loci.warning_min,
+        repeat_loci.pathogenic_min,
+        repeat_loci.aliases,
+        repeat_loci.notes,
+        repeat_loci.metadata,
+        COALESCE(units.count_offset, 0) AS count_offset
     FROM repeat_loci
-    ORDER BY locus_id
+    LEFT JOIN repeat_locus_count_units AS units ON units.locus_id = repeat_loci.locus_id
+    ORDER BY repeat_loci.locus_id
     """
 )
 
@@ -1171,6 +1201,9 @@ def _build_trgt_insert_params(
     locus_metadata = locus_document.get("metadata")
     if not isinstance(locus_metadata, dict):
         locus_metadata = {}
+    # QA's correction for the catalogue row (CLIN-57): the stored allele keeps TRGT's count, and
+    # its status is read from the corrected count, as every later read reads it.
+    count_offset = _as_int(locus_document.get("count_offset")) or 0
     interruption_motifs = _known_interruption_motifs(locus_document)
 
     alleles: list[dict[str, Any]] = []
@@ -1194,7 +1227,7 @@ def _build_trgt_insert_params(
                     0,
                 )
         status = classify_repeat_count(
-            repeat_count,
+            corrected_repeat_count(repeat_count, count_offset),
             warning_min,
             pathogenic_min,
             benign_min=_as_int(locus_metadata.get("benign_min")),
@@ -1639,9 +1672,15 @@ _CALL_CATALOGUE_COLUMNS = """                COALESCE(catalog.locus_id, repeat_e
                 catalog.benign_max AS benign_max,
                 catalog.pathogenic_max AS pathogenic_max,
                 catalog.premutation_min AS premutation_min,
-                -- QA's record for the catalogue row that classifies the call; a call no
-                -- row matches is not validated.
+                -- QA's record for the catalogue row that classifies the call, read in this
+                -- statement with the call, so the correction the call is classified with and
+                -- the record the signed record freezes beside it are one (CLIN-57). A call no
+                -- row matches has no correction and is not validated.
+                COALESCE(units.count_offset, 0) AS count_offset,
                 COALESCE(units.validated, false) AS count_units_validated,
+                units.reason AS count_units_reason,
+                units.updated_by_name AS count_units_updated_by,
+                units.updated_at AS count_units_updated_at,
                 repeat_expansions.status,
                 repeat_expansions.genotype,
                 repeat_expansions.allele_count,
@@ -1812,7 +1851,11 @@ async def get_family_repeat_expansion_table_response(
                 "benign_max": row.get("benign_max"),
                 "pathogenic_max": row.get("pathogenic_max"),
                 "premutation_min": row.get("premutation_min"),
+                "count_offset": _as_int(row.get("count_offset")) or 0,
                 "count_units_validated": count_units_validated,
+                "count_units_reason": row.get("count_units_reason"),
+                "count_units_updated_by": row.get("count_units_updated_by"),
+                "count_units_updated_at": row.get("count_units_updated_at"),
                 "count_units_note": known_count_unit_difference(row.get("gene")),
                 "status": row_status,
                 "review_reason": review_reason,
@@ -1918,16 +1961,22 @@ async def get_sample_repeat_expansion_track_response(
                 pathogenic_min=row.get("pathogenic_min"),
                 status=status,
                 review_reason=_review_reason(alleles, status),
+                # The counts as the family table reads them, with QA's correction, and TRGT's
+                # own beside them: the track showed the stored counts.
                 allele_repeat_counts=[
-                    int(allele["repeat_count"])
-                    for allele in row.get("alleles", [])
-                    if allele.get("repeat_count") is not None
+                    int(allele["repeat_count"]) for allele in alleles if allele.get("repeat_count") is not None
+                ],
+                allele_trgt_repeat_counts=[
+                    int(allele["trgt_repeat_count"])
+                    for allele in alleles
+                    if allele.get("trgt_repeat_count") is not None
                 ],
                 allele_bp_lengths=[
                     int(allele["bp_length"])
                     for allele in row.get("alleles", [])
                     if allele.get("bp_length") is not None
                 ],
+                count_offset=_as_int(row.get("count_offset")) or 0,
                 count_units_validated=bool(row.get("count_units_validated")),
                 count_units_note=known_count_unit_difference(row.get("gene")),
                 count_unit_warnings=[

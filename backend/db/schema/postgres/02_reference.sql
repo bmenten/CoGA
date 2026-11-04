@@ -483,18 +483,22 @@ CREATE INDEX IF NOT EXISTS idx_repeat_loci_gene ON repeat_loci USING btree (gene
 -- repeat_locus_count_units
 -- ---------------------------------------------------------------------------
 -- QA's record, per catalogue locus, of whether TRGT's repeat count there is the clinical
--- repeat number the locus's ranges count (owner's decision, 2026-10-14). The catalogue
--- seed never writes it, so a start keeps it; a locus without a row is not validated. An
--- admin sets it with a reason, and each change is a hash-chained clinical audit event
--- (chain `system:repeat-loci`).
+-- repeat number the locus's ranges count (owner's decision, 2026-10-14), and its count
+-- correction: the repeat units added to TRGT's count before it is classified (owner's
+-- decision, 2026-11-04; 0 for none, at most 20 either way, repeat_count_units.py). The
+-- catalogue seed never writes it, so a start keeps it; a locus without a row has no
+-- correction and is not validated. An admin sets it with a reason, and each change is a
+-- hash-chained clinical audit event (chain `system:repeat-loci`).
 CREATE TABLE IF NOT EXISTS repeat_locus_count_units (
     locus_id text NOT NULL,
     validated boolean DEFAULT false NOT NULL,
+    count_offset integer DEFAULT 0 NOT NULL,
     reason text NOT NULL,
     updated_by uuid,
     updated_by_name text,
     updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
     CONSTRAINT repeat_locus_count_units_pkey PRIMARY KEY (locus_id),
+    CONSTRAINT repeat_locus_count_units_count_offset_check CHECK (((count_offset >= '-20'::integer) AND (count_offset <= 20))),
     CONSTRAINT repeat_locus_count_units_reason_check CHECK ((btrim(reason) <> ''::text)),
     CONSTRAINT repeat_locus_count_units_locus_id_fkey FOREIGN KEY (locus_id) REFERENCES repeat_loci(locus_id) ON DELETE CASCADE,
     CONSTRAINT repeat_locus_count_units_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL

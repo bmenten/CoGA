@@ -9,7 +9,9 @@ import {
   SIGNED_ANALYSIS,
   SIGNED_PGT_ANALYSIS,
   SIGNED_PGT_ANALYSIS_BEFORE_QC_VERDICT,
+  SIGNED_REPEAT_EXPANSIONS_BEFORE_COUNT_OFFSETS,
   SIGNED_REPEAT_EXPANSIONS_BEFORE_COUNT_UNITS,
+  SIGNED_REPEAT_EXPANSIONS_WITH_CORRECTION,
   SIGNED_STATEMENT,
 } from '../../../test/signedAnalysisFixture';
 
@@ -1765,6 +1767,42 @@ describe('FamilyReportPage', () => {
       // It prints: nothing of it is kept off the printout, and nothing is called not captured.
       expect(repeats.closest('.no-print')).toBeNull();
       expect(repeats.querySelector('.no-print')).toBeNull();
+      expect(repeats).not.toHaveTextContent('Not captured');
+    });
+
+    // QA's count correction (CLIN-57), as the record froze it: the count classified with TRGT's own
+    // beside it, the correction in the locus's record, and why, said once for the section.
+    it('shows a corrected count with TRGT’s own beside it and the correction in the locus’s record', async () => {
+      mockSignedCase({
+        snapshot: { ...SIGNED_SNAPSHOT, ...SIGNED_ANALYSIS, repeat_expansions: SIGNED_REPEAT_EXPANSIONS_WITH_CORRECTION },
+      });
+      renderPage();
+
+      const repeats = (await screen.findByRole('heading', { name: 'Repeat expansions (TRGT)' })).closest('section')!;
+      expect(repeats).toHaveTextContent(
+        'Where QA had recorded a count correction for a locus, each count there is TRGT’s count with that correction, the count its status was classified from; TRGT’s own count follows in brackets.',
+      );
+      const items = within(repeats).getAllByRole('listitem');
+      expect(items.map((item) => item.textContent)).toEqual([
+        'HTT (HD_HTT), Huntington disease: Pathogenic (grey zone from 27, pathogenic from 36; motif CAG). PROBAND 0/1: 18 (TRGT 19), 40 (TRGT 41) repeats — Pathogenic. TRGT’s counting units: validated, corrected to TRGT’s count −1 — Validation report 7 (qa-lead, 2026-10-15 09:00 UTC).',
+        'FMR1 (FXS_FMR1), Fragile X syndrome: Grey zone (grey zone from 45, premutation from 55, pathogenic from 201; motif CGG). MOTHER 1/2: 30, 53 repeats — Grey zone ⚠ Near a boundary: 53 is within 3 repeats of 55 (Premutation). TRGT’s counting units: not validated (no QA record).',
+      ]);
+      expect(repeats).not.toHaveTextContent('Not captured');
+    });
+
+    it('reads a repeat record signed before the corrections as it was signed', async () => {
+      mockSignedCase({
+        snapshot: { ...SIGNED_SNAPSHOT, ...SIGNED_ANALYSIS, repeat_expansions: SIGNED_REPEAT_EXPANSIONS_BEFORE_COUNT_OFFSETS },
+      });
+      renderPage();
+
+      const repeats = (await screen.findByRole('heading', { name: 'Repeat expansions (TRGT)' })).closest('section')!;
+      const items = within(repeats).getAllByRole('listitem');
+      expect(items.map((item) => item.textContent)).toEqual([
+        'HTT (HD_HTT), Huntington disease: Pathogenic (grey zone from 27, pathogenic from 36; motif CAG). PROBAND 0/1: 18, 40 repeats — Pathogenic. TRGT’s counting units: validated — Validation report 7 (qa-lead, 2026-10-15 09:00 UTC).',
+        'FMR1 (FXS_FMR1), Fragile X syndrome: Grey zone (grey zone from 45, premutation from 55, pathogenic from 201; motif CGG). MOTHER 1/2: 30, 53 repeats — Grey zone ⚠ Near a boundary: 53 is within 3 repeats of 55 (Premutation). TRGT’s counting units: not validated (no QA record).',
+      ]);
+      expect(repeats).not.toHaveTextContent('count correction');
       expect(repeats).not.toHaveTextContent('Not captured');
     });
 

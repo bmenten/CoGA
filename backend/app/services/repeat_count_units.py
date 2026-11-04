@@ -13,20 +13,31 @@ stretch the clinical repeat number counts, and so the ranges CoGA classifies aga
   reads 14.
 
 QA and the laboratory director check, per catalogue locus, that TRGT's count matches the
-clinical repeat number, and record corrections (owner's decision, 2026-10-14). Their record is
-``repeat_locus_count_units``: a locus is validated or not, with the reason, who and when, and
-every change is a hash-chained clinical audit event on its own chain
-(``REPEAT_COUNT_UNITS_AUDIT_CHAIN``). A locus without a record is not validated.
+clinical repeat number, and record corrections (owner's decisions, 2026-10-14 and 2026-11-04).
+Their record is ``repeat_locus_count_units``: per locus a correction (``count_offset``, in
+repeat units, 0 for none) and whether the locus is validated, with the reason, who and when.
+Every change is a hash-chained clinical audit event on its own chain
+(``REPEAT_COUNT_UNITS_AUDIT_CHAIN``) with the record before and after. A locus without a record
+has no correction and is not validated. Nothing is recorded in advance: no correction for HTT,
+POLG or FMR1 exists until QA enters it.
 
-Until a locus is validated, a count within ``COUNT_UNIT_MARGIN`` repeats of a boundary the
-classification uses is marked (``count_unit_warning``): a difference of that size between
-TRGT's count and the clinical number could change the status CoGA shows. The warning changes
-no status; the counts are classified as they are.
+The correction is applied whenever one is recorded, validated or not: the count CoGA classifies
+is TRGT's count plus the offset (``corrected_repeat_count``; -1 turns TRGT's 18 into 17), never
+below 0, at every place a count is classified or compared to a range (the import's stored
+status, the family table, the genome track and the signed record, all through
+``repeat_expansion_pg``). TRGT's own count stays beside it (``trgt_repeat_count``).
 
-Corrections are not applied yet. When QA supplies them (an offset per locus, or for FMR1 the
-AGG interruptions TRGT reports beside the CGG copies), they belong in this record and are
-applied to the count before it is classified; until then a locus whose count needs a
-correction stays not validated, so its counts near a boundary stay marked.
+Validation is a separate statement: that TRGT's count, with the recorded correction, is the
+clinical repeat number. Until a locus is validated, a corrected count within
+``COUNT_UNIT_MARGIN`` repeats of a boundary the classification uses is marked
+(``count_unit_warning``): a difference of that size between the count and the clinical number
+could change the status CoGA shows. The warning changes no status. So a correction QA has
+entered but not yet validated changes the status and keeps the mark; validation lifts the mark.
+
+FMR1 has no constant correction: TRGT leaves out its AGG interruptions, 1 to 3 per allele, so
+no single offset is right for every allele (``CONSTANT_OFFSET_UNSUITABLE``). Its correction
+stays 0 and the locus not validated, so its counts near a boundary stay marked, until CoGA reads
+the interruptions TRGT reports beside the CGG copies.
 """
 
 from __future__ import annotations
@@ -71,8 +82,27 @@ KNOWN_COUNT_UNIT_DIFFERENCES: dict[str, str] = {
     ),
 }
 
+# The largest correction an administrator can record, either way, in repeat units. The known
+# differences are 1 (HTT) and 4 (POLG); a larger one means the TRGT catalogue's region for the
+# locus is not the clinical tract, which is fixed in the catalogue, not by a correction. It
+# also refuses a typing error (-40 for -4). The table's check holds the same bound.
+COUNT_OFFSET_LIMIT = 20
+
+# Where a constant correction is wrong, and why: the admin page says so next to the field.
+CONSTANT_OFFSET_UNSUITABLE: dict[str, str] = {
+    "FMR1": (
+        "No constant correction fits FMR1: TRGT leaves out the AGG interruptions, 1 to 3 per "
+        "allele, so its count reads 1 to 3 below the clinical repeat number depending on the "
+        "allele. Leave the correction at 0 and the locus not validated: its counts near a "
+        "boundary stay marked."
+    ),
+}
+
 _LOCUS_NOT_FOUND = "Repeat locus not found"
 _REASON_REQUIRED = "A reason is required when recording whether a locus's counting units are validated."
+_OFFSET_OUT_OF_RANGE = (
+    f"A count correction must be a whole number of repeats from -{COUNT_OFFSET_LIMIT} to {COUNT_OFFSET_LIMIT}."
+)
 # The validation history the admin page lists, newest first.
 _CHANGES_LIMIT = 200
 
@@ -80,6 +110,23 @@ _CHANGES_LIMIT = 200
 def known_count_unit_difference(gene: str | None) -> str | None:
     """What is known of TRGT's count at this gene, or None."""
     return KNOWN_COUNT_UNIT_DIFFERENCES.get(str(gene or "").strip().upper())
+
+
+def count_offset_note(gene: str | None) -> str | None:
+    """Why a constant correction is wrong at this gene (FMR1), or None."""
+    return CONSTANT_OFFSET_UNSUITABLE.get(str(gene or "").strip().upper())
+
+
+def corrected_repeat_count(repeat_count: int | None, count_offset: int | None) -> int | None:
+    """The count CoGA classifies: TRGT's count plus QA's correction for the locus, never below 0.
+
+    A no-call stays a no-call; without a correction (None or 0) the count is TRGT's. A count
+    the correction would take below 0 reads 0: no allele has fewer than no repeats, and every
+    classification reads a count below 0 as it reads 0. TRGT's own count stays beside it.
+    """
+    if repeat_count is None:
+        return None
+    return max(int(repeat_count) + int(count_offset or 0), 0)
 
 
 def count_unit_warning(
@@ -120,21 +167,45 @@ def _actor(user: CurrentUser) -> str:
 
 
 def _state(locus: dict[str, Any], record: dict[str, Any] | None) -> dict[str, Any]:
-    """What an audit event records of a locus's validation (JSON-safe)."""
+    """What an audit event records of a locus's record (JSON-safe): the correction and whether
+    the locus is validated, with the reason. Without a record: no correction, not validated."""
     return {
         "locus_id": locus["locus_id"],
         "gene": locus.get("gene"),
         "validated": bool(record and record.get("validated")),
+        "count_offset": int((record or {}).get("count_offset") or 0),
         "reason": (record or {}).get("reason"),
     }
 
 
+def describe_count_offset(count_offset: int) -> str:
+    """A correction in words: "no correction", "TRGT's count \\u22121" (a minus sign),
+    "TRGT's count +2"."""
+    if not count_offset:
+        return "no correction"
+    sign = "+" if count_offset > 0 else "−"
+    return f"TRGT's count {sign}{abs(count_offset)}"
+
+
 def _summary(locus: dict[str, Any], before: dict[str, Any], after: dict[str, Any]) -> str:
+    """The audit event's summary: each part of the record that changed, before → after, or the
+    record as it stays when it was confirmed."""
     name = f"{locus['locus_id']} ({locus.get('gene')})" if locus.get("gene") else str(locus["locus_id"])
     word = {True: "validated", False: "not validated"}
-    if before["validated"] == after["validated"]:
-        return f"TRGT's counting units at {name}: {word[after['validated']]}, confirmed"
-    return f"TRGT's counting units at {name}: {word[before['validated']]} → {word[after['validated']]}"
+    changes = []
+    if before["validated"] != after["validated"]:
+        changes.append(f"{word[before['validated']]} → {word[after['validated']]}")
+    if before["count_offset"] != after["count_offset"]:
+        changes.append(
+            f"correction {describe_count_offset(before['count_offset'])} → "
+            f"{describe_count_offset(after['count_offset'])}"
+        )
+    if not changes:
+        return (
+            f"TRGT's counting units at {name}: {word[after['validated']]}, "
+            f"{describe_count_offset(after['count_offset'])}, confirmed"
+        )
+    return f"TRGT's counting units at {name}: {'; '.join(changes)}"
 
 
 async def set_repeat_locus_count_units(
@@ -142,20 +213,27 @@ async def set_repeat_locus_count_units(
     *,
     locus_id: str,
     validated: bool,
+    count_offset: int,
     reason: str,
     user: CurrentUser,
 ) -> dict[str, Any]:
-    """Record whether TRGT's counting units at a catalogue locus are validated, and audit it.
+    """Record a catalogue locus's count correction and whether its counting units are
+    validated, and audit it.
 
-    The reason is required: what the record cannot otherwise say is which check supports it
-    (the validation report, the TRGT catalogue and version it covered). Every save is a
-    clinical audit event, a confirmation of the same state too, since a new reason (a check
-    against a new TRGT catalogue) is itself a deliberate act. A locus the catalogue lacks is
-    answered 404, and nothing is written.
+    Every save states the whole record: the correction (``count_offset``, repeat units added
+    to TRGT's count before it is classified, 0 for none, at most ``COUNT_OFFSET_LIMIT`` either
+    way) and whether the locus is validated. The reason is required: what the record cannot
+    otherwise say is which check supports it (the validation report, the TRGT catalogue and
+    version it covered). Every save is a clinical audit event with the record before and after,
+    a confirmation of the same state too, since a new reason (a check against a new TRGT
+    catalogue) is itself a deliberate act. A correction out of bounds is answered 400, a locus
+    the catalogue lacks 404, and nothing is written.
     """
     reason = (reason or "").strip()
     if not reason:
         raise HTTPException(status_code=400, detail=_REASON_REQUIRED)
+    if isinstance(count_offset, bool) or not isinstance(count_offset, int) or abs(count_offset) > COUNT_OFFSET_LIMIT:
+        raise HTTPException(status_code=400, detail=_OFFSET_OUT_OF_RANGE)
     locus_row = (
         await session.execute(
             text(
@@ -176,7 +254,7 @@ async def set_repeat_locus_count_units(
         await session.execute(
             text(
                 """
-                SELECT validated, reason
+                SELECT validated, count_offset, reason
                 FROM repeat_locus_count_units
                 WHERE locus_id = :locus_id
                 """
@@ -190,24 +268,26 @@ async def set_repeat_locus_count_units(
             text(
                 """
                 INSERT INTO repeat_locus_count_units (
-                    locus_id, validated, reason, updated_by, updated_by_name, updated_at
+                    locus_id, validated, count_offset, reason, updated_by, updated_by_name, updated_at
                 )
                 VALUES (
-                    :locus_id, :validated, :reason,
+                    :locus_id, :validated, :count_offset, :reason,
                     CAST(NULLIF(:user_id, '') AS uuid), :user_name, timezone('utc', now())
                 )
                 ON CONFLICT (locus_id) DO UPDATE SET
                     validated = EXCLUDED.validated,
+                    count_offset = EXCLUDED.count_offset,
                     reason = EXCLUDED.reason,
                     updated_by = EXCLUDED.updated_by,
                     updated_by_name = EXCLUDED.updated_by_name,
                     updated_at = EXCLUDED.updated_at
-                RETURNING locus_id, validated, reason, updated_by_name, updated_at
+                RETURNING locus_id, validated, count_offset, reason, updated_by_name, updated_at
                 """
             ),
             {
                 "locus_id": locus["locus_id"],
                 "validated": bool(validated),
+                "count_offset": int(count_offset),
                 "reason": reason,
                 "user_id": getattr(user, "id", None) or "",
                 "user_name": _actor(user),
@@ -235,6 +315,7 @@ async def set_repeat_locus_count_units(
         "locus_id": record["locus_id"],
         "gene": locus.get("gene"),
         "validated": bool(record["validated"]),
+        "count_offset": int(record.get("count_offset") or 0),
         "reason": record["reason"],
         "updated_by": record.get("updated_by_name"),
         "updated_at": record.get("updated_at"),
@@ -256,6 +337,7 @@ _CATALOGUE_SQL = text(
         (repeat_loci.metadata ->> 'premutation_min')::int AS premutation_min,
         repeat_loci.metadata ->> 'source' AS source,
         COALESCE(units.validated, false) AS validated,
+        COALESCE(units.count_offset, 0) AS count_offset,
         units.reason,
         units.updated_by_name AS updated_by,
         units.updated_at,
@@ -282,17 +364,20 @@ _CHANGES_SQL = text(
 
 
 async def list_repeat_locus_count_units(session: AsyncSession) -> dict[str, Any]:
-    """Every catalogue locus with its validation record, and the record's history.
+    """Every catalogue locus with its record (correction and validation), and the record's history.
 
     Each locus says how many stored calls name it, so QA can see which rows the laboratory's
-    TRGT catalogue resolves to, and what is known of TRGT's count at its gene.
+    TRGT catalogue resolves to, what is known of TRGT's count at its gene, and where a constant
+    correction is wrong (FMR1).
     """
     loci = [dict(row) for row in (await session.execute(_CATALOGUE_SQL)).mappings().all()]
     for locus in loci:
         locus["validated"] = bool(locus.get("validated"))
+        locus["count_offset"] = int(locus.get("count_offset") or 0)
         locus["call_count"] = int(locus.get("call_count") or 0)
         locus["source"] = locus.get("source") or "built-in"
         locus["known_difference"] = known_count_unit_difference(locus.get("gene"))
+        locus["offset_note"] = count_offset_note(locus.get("gene"))
     changes = []
     for row in (
         await session.execute(
@@ -307,8 +392,15 @@ async def list_repeat_locus_count_units(session: AsyncSession) -> dict[str, Any]
                 "locus_id": after.get("locus_id"),
                 "gene": after.get("gene"),
                 "validated": bool(after.get("validated")),
+                # Absent from an event recorded before corrections existed: none then.
+                "count_offset": int(after.get("count_offset") or 0),
                 "summary": row.get("summary"),
                 "reason": after.get("reason"),
             }
         )
-    return {"margin": COUNT_UNIT_MARGIN, "loci": loci, "changes": changes}
+    return {
+        "margin": COUNT_UNIT_MARGIN,
+        "offset_limit": COUNT_OFFSET_LIMIT,
+        "loci": loci,
+        "changes": changes,
+    }
