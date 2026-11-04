@@ -171,8 +171,16 @@ class TestXLinked:
 
     def test_an_assembly_without_known_pars_keeps_the_both_partners_rule(self) -> None:
         records = [_variant("dmd-1", "DMD", woman="0/1", chr="X", start=_DMD)]
-        assert _kept(records, assembly_name="T2T-CHM13v2.0") == []
+        assert _kept(records, assembly_name="T2T-CHM13v1.0") == []
         assert _kept(records) == []
+
+    def test_t2t_reads_its_own_boundaries(self) -> None:
+        # CLIN-12: T2T-CHM13v2.0's PAR1 ends at 2,394,410. A woman's variant just past it counts
+        # alone; one inside it follows the both-partners rule.
+        past = [_variant("x-1", "GENEX", woman="0/1", chr="X", start=2_394_411)]
+        assert _kept(past, assembly_name="T2T-CHM13v2.0") == ["x-1"]
+        inside = [_variant("x-2", "GENEX", woman="0/1", chr="X", start=2_394_410)]
+        assert _kept(inside, assembly_name="T2T-CHM13v2.0") == []
 
     def test_grch37_reads_its_own_boundaries(self) -> None:
         # GRCh37's PAR1 ends at 2,699,520: 2,700,000 lies outside it there, though inside

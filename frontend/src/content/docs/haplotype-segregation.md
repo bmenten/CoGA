@@ -69,8 +69,9 @@ allele twice, is that one allele; a call of two different alleles is not read.
 - A member whose sex is not recorded is read as having two copies, as on the autosomes.
 
 Each block lies in PAR1, in the X between the PARs, or in PAR2, so a haplotype read in a PAR is not
-carried over the X. CoGA takes the PAR bounds from the family's assembly (GRCh38 or GRCh37); on an
-assembly whose PAR bounds it does not have, every member is read as having two copies.
+carried over the X. CoGA takes the PAR bounds from the family's assembly (GRCh38, GRCh37 or
+T2T-CHM13v2.0); on an assembly whose PAR bounds it does not have, every member is read as having two
+copies.
 
 The blocks are made when the phased genotypes are imported, with the sexes recorded then. Record every
 member's sex before the import. After recording or correcting a sex, import the phased genotypes again,
@@ -173,7 +174,7 @@ a known father's daughter carries his X; his son, whose X is the donor's, stays 
 A member whose sex is not recorded is matched as having two copies. The colours follow the sexes
 recorded now (on the genome overview, once its background refresh has run). chrY and the mitochondrion
 are not coloured, nor is chrX of an assembly whose PAR bounds CoGA does not have; it has those of
-GRCh38 and GRCh37.
+GRCh38, GRCh37 and T2T-CHM13v2.0.
 
 ---
 

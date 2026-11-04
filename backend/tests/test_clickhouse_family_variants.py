@@ -219,7 +219,12 @@ def test_small_variant_out_says_where_a_male_is_hemizygous() -> None:
     assert flagged("chrY", 2_787_000)
     assert not flagged("chrX", 1_000_000)  # PAR1
     assert not flagged("chr1", 31_500_000)
-    assert not flagged("chrX", 31_500_000, assembly="T2T-CHM13v2.0")  # PARs not known
+    assert not flagged("chrX", 31_500_000, assembly="T2T-CHM13v1.0")  # PARs not known
+    # T2T-CHM13v2.0 by its own PARs (CLIN-12): PAR1 ends at 2,394,410.
+    assert flagged("chrX", 31_500_000, assembly="T2T-CHM13v2.0")
+    assert not flagged("chrX", 2_394_410, assembly="T2T-CHM13v2.0")
+    assert flagged("chrX", 2_394_411, assembly="T2T-CHM13v2.0")
+    assert flagged("chrY", 2_458_321, assembly="T2T-CHM13v2.0")
 
 
 def _family_context() -> FamilyMetadataContext:
@@ -3029,11 +3034,21 @@ async def test_genotype_site_sample_reads_chrx_outside_the_pseudoautosomal_regio
     assert params["sample_limit"] == 20_000
 
     # On an assembly whose PARs CoGA does not know, all of chrX is read, as before.
-    t2t = dataclasses.replace(_family_context(), assembly_name="T2T-CHM13v2.0")
-    await fetch_genotype_site_sample(t2t, scope="chrX", limit=20_000, source="clair3")
+    other = dataclasses.replace(_family_context(), assembly_name="T2T-CHM13v1.0")
+    await fetch_genotype_site_sample(other, scope="chrX", limit=20_000, source="clair3")
     query, params = queries[1]
     assert not any(name.startswith("sample_hemizygous") for name in params)
     assert (params["sample_xpos_start"], params["sample_xpos_end"]) == (23_000_000_000, 23_999_999_999)
+
+    # T2T-CHM13v2.0 by its own PARs (CLIN-12).
+    t2t = dataclasses.replace(_family_context(), assembly_name="T2T-CHM13v2.0")
+    await fetch_genotype_site_sample(t2t, scope="chrX", limit=20_000, source="clair3")
+    query, params = queries[2]
+    assert (params["sample_hemizygous_x_par1_start"], params["sample_hemizygous_x_par1_end"]) == (1, 2_394_410)
+    assert (params["sample_hemizygous_x_par2_start"], params["sample_hemizygous_x_par2_end"]) == (
+        153_925_835,
+        154_259_566,
+    )
 
 
 @pytest.mark.asyncio

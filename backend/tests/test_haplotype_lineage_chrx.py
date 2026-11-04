@@ -254,6 +254,20 @@ def test_each_relative_is_read_one_stretch_at_a_time() -> None:
     assert _lanes_at(out["GF"], 2 * MB) == (("1", MATERNAL), ("0", UNTRANSMITTED))
 
 
+def test_on_t2t_the_mothers_father_is_coloured_by_t2t_s_pars() -> None:
+    # CLIN-12: chrX of T2T-CHM13v2.0 is read one stretch at a time, by its own PARs; every
+    # relative stayed grey there. Its PAR1 ends at 2,394,410, so no block crosses 2,394,411.
+    family = _x_family(seed=1)
+
+    out = _annotate(family, assembly_name="T2T-CHM13v2.0")
+
+    for lane in ("hap1", "hap2"):
+        assert _coloured_span(out["GF"], lane, ("1", MATERNAL), 3 * MB, 33 * MB) > 0.97 * 30 * MB
+    for name in ("GF", "GM", "PGF", "PGM", "UNC"):
+        for block in out[name]:
+            assert block["end"] <= 2_394_411 or block["start"] >= 2_394_411, (name, block)
+
+
 def test_a_man_who_is_not_the_mothers_father_stays_grey() -> None:
     family = _x_family(seed=7, grandfather_related=False)
 
@@ -279,7 +293,7 @@ def test_a_member_whose_sex_is_not_recorded_is_read_as_two_copies() -> None:
 
 @pytest.mark.parametrize(
     ("chrom", "assembly_name"),
-    [("X", None), ("X", "T2T-CHM13"), ("Y", ASSEMBLY), ("MT", ASSEMBLY)],
+    [("X", None), ("X", "T2T-CHM13v1.0"), ("Y", ASSEMBLY), ("MT", ASSEMBLY)],
 )
 def test_chry_chrm_and_chrx_of_an_assembly_whose_pars_are_not_known_stay_grey(chrom: str, assembly_name) -> None:
     # H5(D): outside the autosomes the two-homolog IBD reading does not hold (a man's one X,

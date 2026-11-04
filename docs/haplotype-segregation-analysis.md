@@ -161,7 +161,7 @@ both.
   - A daughter is counted against her father's one X and her mother's two.
   - A father's call of two different alleles is read as no call.
   - A member whose sex is not recorded, and every member on an assembly whose PAR bounds the table
-    does not hold (T2T-CHM13), is read as two copies.
+    does not hold (it holds GRCh38's, GRCh37's and T2T-CHM13v2.0's), is read as two copies.
 
   The response serves the window's one-copy ranges (`hemizygous_x_ranges`). The ROI marker review
   (`FamilyRoiMarkersPage.tsx`) shades its Mendelian errors by the same rule (CLIN-60). The review's
@@ -228,7 +228,8 @@ both.
   site or to the end of its chromosome or stretch. One opened at a stretch's last position could not
   do so without leaving its stretch and would end where it began, so none is kept there
   (`_append_haplotype_state_row`, ENG-19); the member's block before it in the stretch, where there
-  is one, already reaches that site. No stretch is cut on an assembly without PAR bounds (T2T-CHM13).
+  is one, already reaches that site. No stretch is cut on an assembly without PAR bounds. On
+  T2T-CHM13v2.0 PAR1 starts at the first base, so chrX has no stretch before it.
 
   Before this (CLIN-60's follow-up), with men's calls written as one allele, no child had a
   transmission outside the PARs; with PAR1 in the callset, the PAR1 blocks ran over the X. An embryo
