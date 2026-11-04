@@ -39,7 +39,7 @@ from pydantic import ValidationError
 from .clickhouse_variant_records import SmallVariantCall
 from .data_scope import normalize_chromosome
 from .family_identifiers import visible
-from .family_package_common import FamilyPackageBundle, ManifestDataset, ParsedPed, _display_path, _issue, _package_path_or_none, package_path_within, package_text_handle, read_vcf_sample_columns, resolve_vcf_sample_id
+from .family_package_common import FamilyPackageBundle, ManifestDataset, ParsedPed, _display_path, _issue, _package_path_or_none, package_path_within, package_text_handle, read_vcf_sample_columns, resolve_vcf_sample_id, unreadable_vcf_issue, UnreadableVcf
 from .family_package_manifest import _normalize_manifest_samples
 from .nipt import MONOGENIC_NIPT_ANALYSIS_TYPE, NIPT_CFDNA_ASSAY, SAMPLE_ASSAY_KEY
 
@@ -296,10 +296,16 @@ def _first_match(root: Path, patterns: Sequence[str], sample_id: str) -> Path | 
     return None
 
 
-def discover_nipt_package_files(root: Path, ped: ParsedPed) -> NiptPackageFiles | None:
+def discover_nipt_package_files(
+    root: Path, ped: ParsedPed, errors: list[FamilyImportValidationIssue] | None = None
+) -> NiptPackageFiles | None:
     """A monogenic NIPT pair in a folder without a joint VCF: a PED child without a VCF
     of its own (the fetus) whose mother and father each have a one-sample VCF named after
     them. The mother is taken as the plasma sample. None when the folder is no such pair.
+
+    A parent's VCF that cannot be read (cut short, damaged, not gzip) makes no pair, and is
+    refused by name in ``errors`` (``dataset_vcf_unreadable``, DATA-11): its read raised out
+    of Discover, a 500.
     """
     for member in ped.members:
         father, mother = member.pid, member.mid
@@ -310,7 +316,18 @@ def discover_nipt_package_files(root: Path, ped: ParsedPed) -> NiptPackageFiles 
         vcfs: dict[str, str] = {}
         for sample_id in (mother, father):
             path = _first_match(root, _NIPT_VCF_GLOBS, sample_id)
-            if path is None or len(read_vcf_sample_columns(path)) != 1:
+            if path is None:
+                break
+            try:
+                columns = read_vcf_sample_columns(path)
+            except UnreadableVcf:
+                issue = unreadable_vcf_issue(
+                    root, path, dataset="snv", label=f"The SNV file of {sample_id}", sample_id=sample_id
+                )
+                if errors is not None and issue not in errors:
+                    errors.append(issue)
+                break
+            if len(columns) != 1:
                 break
             vcfs[sample_id] = _display_path(root, path)
         if len(vcfs) != 2:
