@@ -363,9 +363,9 @@ def test_a_member_whose_sex_is_not_recorded_is_read_as_two_copies() -> None:
 
 
 def test_on_an_assembly_without_par_bounds_every_member_has_two_copies() -> None:
-    # T2T-CHM13: CoGA does not know its PARs, so a man's one-allele calls are not read and
+    # CHM13 v1.0: CoGA does not know its PARs, so a man's one-allele calls are not read and
     # the blocks are not cut, as before.
-    context = _context(_member_rows(SON_AND_DAUGHTER), assembly_name="T2T-CHM13v2.0")
+    context = _context(_member_rows(SON_AND_DAUGHTER), assembly_name="T2T-CHM13v1.0")
     rows = _build(context, _genotypes(SON_AND_DAUGHTER, written="once", sites=ROI_SITES))
 
     assert _blocks(rows, "SON") == [] and _blocks(rows, "DAUGHTER") == [] and _blocks(rows, "FATHER") == []
@@ -669,6 +669,54 @@ async def test_no_block_is_one_copy_where_the_assembly_s_pars_are_not_known(monk
     # Unknown bounds could put any block in a PAR: a male is read as having two copies.
     _serve_the_stored_blocks(monkeypatch)
     response = await bed_service.get_family_haplotypes_response(
-        None, context=_response_context("T2T-CHM13v2.0"), chr="X", start=0, end=156_030_895
+        None, context=_response_context("T2T-CHM13v1.0"), chr="X", start=0, end=156_030_895
     )
     assert set(_one_copy_marks(response).values()) == {False}
+
+
+@pytest.mark.asyncio
+async def test_t2t_marks_one_copy_by_its_own_pars(monkeypatch: pytest.MonkeyPatch) -> None:
+    # CLIN-12: T2T-CHM13v2.0's PAR1 ends at 2,394,410 and its PAR2 starts at 153,925,835.
+    _serve_the_stored_blocks(monkeypatch)
+    t2t_blocks = [
+        _stored_block("u-son", "X", 2_394_411, 3_000_000),
+        _stored_block("u-son", "X", 2_394_410, 2_500_000),
+        _stored_block("u-son", "X", 100_000_000, 153_925_834),
+        _stored_block("u-son", "X", 153_925_834, 154_000_000),
+    ]
+
+    async def rows(*args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+        return [dict(row) for row in t2t_blocks]
+
+    monkeypatch.setattr(bed_service, "fetch_interval_track_rows", rows)
+    marks = {}
+    for assembly in ("T2T-CHM13v2.0", "GRCh38"):
+        response = await bed_service.get_family_haplotypes_response(
+            None, context=_response_context(assembly), chr="X", start=0, end=156_030_895
+        )
+        marks[assembly] = _one_copy_marks(response)
+    assert marks["T2T-CHM13v2.0"] == {
+        ("SON", "X", 2_394_411): True,
+        ("SON", "X", 2_394_410): False,
+        ("SON", "X", 100_000_000): True,
+        ("SON", "X", 153_925_834): False,
+    }
+    # On GRCh38 the first two lie in its PAR1 (to 2,781,479).
+    assert marks["GRCh38"][("SON", "X", 2_394_411)] is False
+
+
+def test_t2t_reads_a_man_s_one_x_between_its_pars_as_grch38_does() -> None:
+    # The sites at 30-32 Mb lie between the PARs on both assemblies: the blocks are the same,
+    # except that the last runs to the end of the assembly's stretch, the base before its PAR2.
+    grch38 = _build(_context(_member_rows(SON_AND_DAUGHTER)), _genotypes(SON_AND_DAUGHTER, written="once", sites=ROI_SITES))
+    t2t = _build(
+        _context(_member_rows(SON_AND_DAUGHTER), assembly_name="T2T-CHM13v2.0"),
+        _genotypes(SON_AND_DAUGHTER, written="once", sites=ROI_SITES),
+    )
+    for name in ("SON", "DAUGHTER"):
+        on_t2t, on_grch38 = _blocks(t2t, name), _blocks(grch38, name)
+        assert on_grch38 != []
+        assert [(start, hap1, hap2) for start, _end, hap1, hap2 in on_t2t] == [
+            (start, hap1, hap2) for start, _end, hap1, hap2 in on_grch38
+        ]
+        assert on_t2t[-1][1] == 153_925_834 and on_grch38[-1][1] == 155_701_382

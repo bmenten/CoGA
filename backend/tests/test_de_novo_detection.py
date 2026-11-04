@@ -194,9 +194,20 @@ def test_the_diploid_rules_hold_in_a_par_in_a_daughter_and_off_scope() -> None:
     daughter_het = _record("chrX", X_NON_PAR, _call("DAUGHTER", "0/1"), _call("MOTHER", "0/0"), _call("FATHER", "0"))
     assert not _is_de_novo(daughter_hom, child="DAUGHTER", parents=daughter_trio)
     assert _is_de_novo(daughter_het, child="DAUGHTER", parents=daughter_trio)
-    # No listed PARs (T2T): read as diploid, as before.
+    # No listed PARs (another CHM13 release): read as diploid, as before.
     off_scope = _record("chrX", X_NON_PAR, _call("SON", "1"), _call("MOTHER", "0/0"), _call("FATHER", "0"))
-    assert not _is_de_novo(off_scope, assembly="T2T-CHM13v2.0")
+    assert not _is_de_novo(off_scope, assembly="T2T-CHM13v1.0")
+
+
+def test_t2t_reads_a_son_s_x_by_its_own_pars() -> None:
+    # CLIN-12: on T2T-CHM13v2.0 a son's one-allele call between the PARs is de novo where his
+    # mother is reference; in its PAR1 (to 2,394,410) the diploid rules hold.
+    hemizygous = _record("chrX", X_NON_PAR, _call("SON", "1"), _call("MOTHER", "0/0"), _call("FATHER", "0"))
+    assert _is_de_novo(hemizygous, assembly="T2T-CHM13v2.0")
+    just_past_par1 = _record("chrX", 2_394_411, _call("SON", "1"), _call("MOTHER", "0/0"), _call("FATHER", "0"))
+    assert _is_de_novo(just_past_par1, assembly="T2T-CHM13v2.0")
+    in_par1 = _record("chrX", 2_394_410, _call("SON", "1/1"), _call("MOTHER", "0/0"), _call("FATHER", "0/0"))
+    assert not _is_de_novo(in_par1, assembly="T2T-CHM13v2.0")
 
 
 def test_without_parent_roles_both_parents_must_be_reference() -> None:
@@ -223,6 +234,11 @@ def test_the_de_novo_dominant_pattern_reads_a_male_hemizygous_call_as_one_copy()
     # A 1/1 in a PAR, or where the PARs are unknown, is not one copy.
     assert not matches(_record("chrX", X_PAR1, _call("SON", "1/1"), _call("MOTHER", "0/0"), _call("FATHER", "0/0")))
     assert not matches(
+        _record("chrX", X_NON_PAR, _call("SON", "1"), _call("MOTHER", "0/0"), _call("FATHER", "0")),
+        assembly="T2T-CHM13v1.0",
+    )
+    # T2T-CHM13v2.0 by its own PARs (CLIN-12).
+    assert matches(
         _record("chrX", X_NON_PAR, _call("SON", "1"), _call("MOTHER", "0/0"), _call("FATHER", "0")),
         assembly="T2T-CHM13v2.0",
     )
@@ -272,7 +288,25 @@ def test_the_sql_admits_a_hemizygous_alt_call_for_an_affected_male_outside_the_p
     assert clauses[1].startswith("NOT ")
 
 
-@pytest.mark.parametrize(("sex", "assembly"), [("female", "GRCh38"), ("male", "T2T-CHM13v2.0"), ("", "GRCh38")])
+def test_the_sql_binds_t2t_s_own_par_bounds() -> None:
+    # CLIN-12: an affected male on T2T-CHM13v2.0 is read by its PARs, bound as parameters.
+    filters = SmallVariantQueryFilters(page=1, page_size=50, inheritance="de_novo_dominant")
+    clauses, params = _small_native_inheritance_clauses(_sql_context("male", "T2T-CHM13v2.0"), filters)
+
+    assert "inheritance_affected_hemizygous_0_gts" in clauses[0]
+    assert (params["inheritance_hemizygous_x_par1_start"], params["inheritance_hemizygous_x_par1_end"]) == (1, 2_394_410)
+    assert (params["inheritance_hemizygous_x_par2_start"], params["inheritance_hemizygous_x_par2_end"]) == (
+        153_925_835,
+        154_259_566,
+    )
+    assert (params["inheritance_hemizygous_y_par1_start"], params["inheritance_hemizygous_y_par1_end"]) == (1, 2_458_320)
+    assert (params["inheritance_hemizygous_y_par2_start"], params["inheritance_hemizygous_y_par2_end"]) == (
+        62_122_810,
+        62_460_029,
+    )
+
+
+@pytest.mark.parametrize(("sex", "assembly"), [("female", "GRCh38"), ("male", "T2T-CHM13v1.0"), ("", "GRCh38")])
 def test_the_sql_keeps_the_heterozygous_rule_otherwise(sex: str, assembly: str) -> None:
     filters = SmallVariantQueryFilters(page=1, page_size=50, inheritance="de_novo_dominant")
     clauses, params = _small_native_inheritance_clauses(_sql_context(sex, assembly), filters)

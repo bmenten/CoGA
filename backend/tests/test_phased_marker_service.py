@@ -599,17 +599,17 @@ def test_x_a_man_has_two_copies_inside_the_pars(assembly, chrom):
 
 @pytest.mark.parametrize(
     ("chrom", "assembly"),
-    [("7", "GRCh38"), ("X", "T2T-CHM13v2.0"), ("X", None), (None, "GRCh38")],
-    ids=["autosome", "T2T", "no-assembly", "no-chromosome"],
+    [("7", "GRCh38"), ("X", "T2T-CHM13v1.0"), ("X", None), (None, "GRCh38")],
+    ids=["autosome", "other-CHM13", "no-assembly", "no-chromosome"],
 )
 def test_x_two_copies_where_a_man_is_not_known_to_have_one(chrom, assembly):
-    # On an autosome, on an assembly whose PAR bounds CoGA does not list (T2T-CHM13), and
+    # On an autosome, on an assembly whose PAR bounds CoGA does not list (CHM13 v1.0), and
     # without the chromosome or assembly, every member has two copies, as before.
     rows = _rows((X_SITE, {"F": "0|0", "M": "0|1", "SON": "1|1"}), (X_SITE + 1, {"F": "0", "M": "0|1", "SON": "1"}))
     assert _x_counts(rows, children=["SON"], chrom=chrom, assembly_name=assembly)[1] == {"SON": (1, 1)}
 
 
-@pytest.mark.parametrize("assembly", ["GRCh38", "GRCh37"])
+@pytest.mark.parametrize("assembly", ["GRCh38", "GRCh37", "T2T-CHM13v2.0"])
 def test_x_ranges_hold_exactly_the_sites_where_a_man_has_one_copy(assembly):
     regions = pseudoautosomal_regions(assembly)["X"]
     probes = sorted(
@@ -631,8 +631,18 @@ def test_x_ranges_are_empty_where_no_man_has_one_copy():
     assert hemizygous_x_ranges("GRCh38", "X", 0, 3_000_000) == [[0, 10_000], [2_781_480, 3_000_000]]
     assert hemizygous_x_ranges("GRCh38", "X", 100_000, 200_000) == []  # inside PAR1
     assert hemizygous_x_ranges("GRCh38", "7", 0, 3_000_000) == []
-    assert hemizygous_x_ranges("T2T-CHM13v2.0", "X", 0, 3_000_000) == []
+    assert hemizygous_x_ranges("T2T-CHM13v1.0", "X", 0, 3_000_000) == []
     assert hemizygous_x_ranges(None, "X", 0, 3_000_000) == []
+
+
+def test_t2t_s_x_ranges_follow_its_own_pars():
+    # CLIN-12: PAR1 runs from the first base to 2,394,410, PAR2 from 153,925,835 to the end.
+    assert hemizygous_x_ranges("T2T-CHM13v2.0", "X", 1, 3_000_000) == [[2_394_411, 3_000_000]]
+    assert hemizygous_x_ranges("T2T-CHM13v2.0", "X", 2_000_000, 2_394_410) == []
+    assert hemizygous_x_ranges("T2T-CHM13v2.0", "X", 153_900_000, 154_259_566) == [[153_900_000, 153_925_834]]
+    # Between 2,394,411 and 2,781,479 a man has one X on T2T, two on GRCh38.
+    assert hemizygous_x_ranges("GRCh38", "X", 2_500_000, 2_600_000) == []
+    assert hemizygous_x_ranges("T2T-CHM13v2.0", "X", 2_500_000, 2_600_000) == [[2_500_000, 2_600_000]]
 
 
 def _x_family_context():

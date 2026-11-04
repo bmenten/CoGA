@@ -3,7 +3,7 @@
 The de novo pre-filter admits a male's haploid ``1`` or ``1/1`` call only on chrX and chrY
 outside the pseudo-autosomal regions. This runs sites on both sides of every PAR
 boundary, under each chromosome name, through the real server, and checks that each lands
-where :func:`hemizygous_chromosome` puts it.
+where :func:`hemizygous_chromosome` puts it, on GRCh38, GRCh37 and T2T-CHM13v2.0 (CLIN-12).
 
 Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``smoke`` job sets it.
 """
@@ -23,10 +23,14 @@ _SITES = [
     ("chrY", 10_001), ("chrY", 2_787_000), ("Y", 2_787_000), ("24", 2_787_000),
     ("chrY", 56_887_902), ("chrY", 56_887_903), ("chrY", 57_217_415), ("chrY", 57_217_416),
     ("chr1", 31_500_000), ("1", 2_787_000), ("chrM", 3_243), ("MT", 3_243),
+    # T2T-CHM13v2.0's edges (CLIN-12).
+    ("chrX", 1), ("chrX", 2_394_410), ("chrX", 2_394_411), ("chrX", 153_925_834), ("chrX", 153_925_835),
+    ("chrX", 154_259_566), ("chrY", 1), ("chrY", 2_458_320), ("chrY", 2_458_321), ("chrY", 62_122_809),
+    ("chrY", 62_122_810), ("chrY", 62_460_029),
 ]
 
 
-@pytest.mark.parametrize("assembly", ["GRCh38", "GRCh37"])
+@pytest.mark.parametrize("assembly", ["GRCh38", "GRCh37", "T2T-CHM13v2.0"])
 def test_sql_hemizygous_positions_match_python(assembly: str) -> None:
     from backend.app.core.clickhouse import close_clickhouse_client, execute_clickhouse
     from backend.app.services.clickhouse_variant_queries import _small_hemizygous_position_condition

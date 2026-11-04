@@ -148,10 +148,19 @@ def test_no_other_assembly_is_read_as_t2t_chm13(name: str | None) -> None:
     assert sex_chromosomes.is_t2t_chm13(name) is False
 
 
-def test_t2t_has_no_grc_build_and_no_pars() -> None:
-    # The PAR rule (grc_build) is unchanged: T2T has no listed PARs, so the diploid rules apply.
+def test_t2t_has_no_grc_build_and_its_own_pars_under_each_name() -> None:
+    # T2T is no GRC build; its PARs are its own (CLIN-12), read under every name it carries,
+    # and another CHM13 release has none.
     assert [sex_chromosomes.grc_build(name) for name in T2T_NAMES] == [None] * len(T2T_NAMES)
-    assert sex_chromosomes.pseudoautosomal_regions(UCSC_IMPORT_NAME) is None
+    t2t_pars = sex_chromosomes.pseudoautosomal_regions("T2T-CHM13v2.0")
+    assert t2t_pars is not None
+    assert {name: sex_chromosomes.pseudoautosomal_regions(name) for name in T2T_NAMES} == {
+        name: t2t_pars for name in T2T_NAMES
+    }
+    assert sex_chromosomes.pseudoautosomal_regions(UCSC_IMPORT_NAME) == t2t_pars
+    assert [sex_chromosomes.pseudoautosomal_regions(name) for name in NOT_T2T_CHM13_NAMES if not sex_chromosomes.grc_build(name)] == [
+        None
+    ] * len([name for name in NOT_T2T_CHM13_NAMES if not sex_chromosomes.grc_build(name)])
 
 
 # ---- The gene page's links ---------------------------------------------------------------------
