@@ -390,6 +390,39 @@ def test_revision_0011_drops_the_columns_nothing_reads_and_the_unresolved_roi_ke
     assert not [s for s in every if "unresolved_roi" in s]
 
 
+def test_revision_0013_writes_the_class_labels_the_code_writes_in_mutable_rows_only() -> None:
+    # ENG-6: the class labels in sentence case. The revision rewrites the reviews' and the
+    # filter presets' class labels as the code writes them now, and no append-only table: a
+    # record signed, or an audit event written, before keeps its text.
+    from backend.app.services import acmg_points, cnv_acmg_points
+
+    module = migration_script().get_revision("0013").module
+
+    assert list(module.CLASS_LABELS) == list(acmg_points.CLASS_LABELS.values())
+    assert list(module.CLASS_LABELS) == list(cnv_acmg_points.CLASS_LABELS.values())
+    updated = [re.match(r"UPDATE (\w+) AS ", statement).group(1) for statement in module.STATEMENTS]
+    assert updated == [
+        "small_variant_reviews",
+        "small_variant_reviews",
+        "small_variant_reviews",
+        "structural_variant_reviews",
+        "structural_variant_reviews",
+        "small_variant_filter_presets",
+        "small_variant_filter_presets",
+        "structural_variant_filter_presets",
+        "structural_variant_filter_presets",
+    ]
+    every = " ".join(statement for path in _schema_files() for statement in _statements(path.name))
+    append_only = set(re.findall(r"BEFORE UPDATE OR DELETE ON (\w+)", every))
+    assert {"clinical_audit_events", "report_signouts", "audit_log_events", "ui_events"} <= append_only
+    assert not append_only & set(updated)
+    # Only the case changes: each statement matches a label case-insensitively and skips the
+    # rows that already hold it; nothing else of a row is written (updated_at stays).
+    for statement in module.STATEMENTS:
+        assert "lower(" in statement and "<> l.label" in statement
+        assert "updated_at" not in statement
+
+
 def test_the_ledger_table_is_alembics_own_and_its_revoke_follows_the_broad_grant() -> None:
     # Alembic finds the table the baseline created and uses it as its own.
     context = MigrationContext.configure(dialect_name="postgresql")

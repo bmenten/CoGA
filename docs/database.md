@@ -45,7 +45,7 @@ when the baselines are no longer re-applied:
 | --- | --- |
 | `genes` | gene loci per assembly, one row per transcript (GENCODE for GRCh38) |
 | `gene_info` | the cached gene reference per human gene: identifiers, disease links, dosage, constraint, the gene's entry on the ACMG secondary-findings list (`extra.acmg_secondary_finding`), and a status and release per source |
-| `gene_info_refresh_jobs` | queued and running gene-reference syncs. `requested_by_id` is the account that asked for the job (SEC-35): a worker runs the job only while that account is an active administrator; otherwise it ends the job `failed`, with the reason, before writing any gene record. `requested_by` is the e-mail address it was asked under, shown with the job, or `startup-bootstrap` for the sync a start queues (no account's; it runs). Deleting the account keeps the job, linked to no account; it can then no longer run |
+| `gene_info_refresh_jobs` | queued and running gene-reference syncs. `requested_by_id` is the account that asked for the job (SEC-35): a worker runs the job only while that account is an active administrator; otherwise it ends the job `failed`, with the reason, before writing any gene record. `requested_by` is the e-mail address it was asked under, shown with the job, or `startup-bootstrap` for the sync a start queues (no account's; it runs). Deleting the account keeps the job, linked to no account; it can then no longer run. `worker_id` and `heartbeat_at` mark the worker running a job: it writes the heartbeat while it loads the sources and with its progress. Another worker takes up a running job whose heartbeat is five minutes old; the first then stops, and ends a job failed only while it is still its own (SAFE-36) |
 | `blacklist` | problem regions per assembly |
 | `clinical_cnvs` | known CNV syndromes per assembly, with their ClinVar support (below) |
 | `clinical_cnv_kb_jobs` | admin-triggered rebuilds of the clinical CNV knowledgebase, per assembly: status (`queued`, `running`, `completed` or `failed`), rows inserted, the error (for a failed build, the last reason it gave) and the tail of the build log. At most one job is queued or running (`idx_clinical_cnv_kb_jobs_one_active`, a unique index on a constant). `worker_id` and `heartbeat_at` mark the worker running a job; a job whose heartbeat is ten minutes old is closed as failed. `requested_by_id` is the account that asked for the rebuild (SEC-35). The rebuild runs, and loads what it built, only while that account is an active administrator, checked at the start and before the load; otherwise it ends `failed`, with the reason, and loads nothing. `requested_by` is the e-mail address it was asked under, shown with the job. Deleting the account keeps the job, linked to no account; it can then no longer run. |
@@ -124,13 +124,13 @@ reference file is recorded under its file name.
 | `family_projects`, `sample_projects` | which projects can see a family or a sample |
 | `family_relationships` | explicit links between two samples: `parent_child` (with the role at each end), `couple`, or `relative` (`sample_id_b` is related through `sample_id_a` by an unknown degree, such as a PGT index known only to be on the mother's side); `source` says what made it (`pedigree`: the parents a pedigree gives; `manifest`: a package manifest's `family.relationships`; `manual`: a couple typed in, or an edit), `active = false` retires it |
 | `family_structure_versions` | **append-only**, hash-chained: one row per change of a family's pedigree (its creation, a structure or member edit, a package import that changes a member's affected or carrier status, a sample deleted with its data): the version, a `structure_hash` over the members (sex, role, affected and carrier status, active) and the relationships, the full snapshot, and the family's own ID (`family_identifier`), which stays when the family is deleted (below) |
-| `family_import_jobs` | package-import jobs: status, logs, validation issues and a summary per dataset, with progress (start and end; while running, the share of its files read and the time left). `family_id` is the family a job imports, committed with status `running` before the import writes anything of it (an import that cannot record it writes nothing); the report sign-out refuses a family while a job of it is queued, validating or running. A running job writes `heartbeat_at` every minute, stamped and judged by the database's clock (`now()`). A worker claims a job whose heartbeat is ten minutes old: it runs the job again if it was still `validating`, and ends it `failed` (interrupted) if it was `running`, adding a line to its log either way. An update that names a worker applies only while the job is that worker's, so the heartbeat of an import whose job was ended this way stops the import. `requested_by_id` is the account that asked for the job (SEC-32): the import runs as that account, and a user who is no admin sees only the jobs their account requested. `requested_by` is the e-mail address it was asked under, shown with the job (a Microsoft sign-in may later change an account's address); it decides nothing. Deleting the account keeps the job, linked to no account; it can then no longer run. A job whose account is deactivated, or is no longer an administrator (SEC-35), before a worker takes it up does not run either: the worker ends it `failed`, with the reason, before writing anything of the family |
+| `family_import_jobs` | package-import jobs: status, logs, validation issues and a summary per dataset, with progress (start and end; while running, the share of its files read and the time left). `family_id` is the family a job imports, committed with status `running` before the import writes anything of it (an import that cannot record it writes nothing); the report sign-out refuses a family while a job of it is queued, validating or running. A running job writes `heartbeat_at` every minute, stamped and judged by the database's clock (`now()`). A worker claims a job whose heartbeat is ten minutes old: it runs the job again if it was still `validating`, and ends it `failed` (interrupted) if it was `running`, adding a line to its log either way. An update that names a worker applies only while the job is that worker's, so the heartbeat of an import whose job was ended this way stops the import. `requested_by_id` is the account that asked for the job (SEC-32): the import runs as that account. Every import route needs an admin, so a user who is no admin sees no job. `requested_by` is the e-mail address it was asked under, shown with the job (a Microsoft sign-in may later change an account's address); it decides nothing. Deleting the account keeps the job, linked to no account; it can then no longer run. A job whose account is deactivated, or is no longer an administrator (SEC-35), before a worker takes it up does not run either: the worker ends it `failed`, with the reason, before writing anything of the family |
 | `individual_hpo` | per-person HPO terms, each `present`, `absent` or `unknown`. An analyst of the family's project or an admin adds, changes and removes them; a package import brings them in. Each change, an import's too, is a `phenotype` event on the clinical audit trail ([clinical-traceability.md](clinical-traceability.md)) |
 | `repeat_expansions` | TRGT repeat calls per sample |
 | `sample_paraphase_results` | Paraphase copy-number and haplotype results per sample |
 | `nipt_artifact_variants` | the recurrent-artifact list for monogenic NIPT, per assembly and assay: entries added one by one, imported from the NIPT-M pipeline's recurrent table (as `curated`) or seeded from the cohort (`auto`) (see [monogenic-nipt.md](monogenic-nipt.md) and [data-import.md](data-import.md#the-nipt-artifact-list)) |
 | `sample_interval_track_sources` | one row per sample, track type (`coverage`, `segments`, `apcad`, `apcad_pcf`, `apcad_segregation`, `haplotype`, `target_coverage`), source and file, with its row count; the rows themselves are in ClickHouse. A `haplotype` row's `metadata.pedigree_basis` holds what its blocks were built for besides the genotypes (the index couple, the couple's children in the file and the samples' sexes), which the PGT analysis compares with the pedigree (CLIN-66) |
-| `small_variant_reviews` | the classification, ACMG criteria, tags, notes and evidence snapshot of a small variant in a family |
+| `small_variant_reviews` | the classification, ACMG criteria, tags, notes and evidence snapshot of a small variant in a family. The classification is free text: the dialogs write the class label ("Likely pathogenic - class 4"), in sentence case since revision `0013`, and a save stores a class label sent in another case as the label is now; the filters, the Variant Explorer and the check against the latest sign-out read a class label whatever its case |
 | `structural_variant_reviews` | the same for a structural variant or CNV, with the CNV ACMG points and the evidence snapshot of the CNV classification |
 | `repeat_expansion_reviews`, `paraphase_reviews` | the analyst's review of a repeat locus (`locus_id`, the catalogue's TRGT TRID) and of a Paraphase region (`gene_symbol`, Paraphase's region key), one per family and assembly (`UNIQUE (family_id, assembly_id, key)`). It holds tags from the review-tag catalogue, a note, and a classification on the type's scale (`classification`, checked: for a repeat `pathogenic_expansion`, `reduced_penetrance`, `premutation`, `intermediate`, `normal`, `uncertain`; for a Paraphase region `affected`, `carrier`, `risk_allele`, `normal`, `uncertain`), beside CoGA's automatic status, which it never changes. `evidence_snapshot` holds the calls a classification or the Report tag rests on (`captured_at`, `evidence`: the locus's or region's entry as the signed record freezes it), frozen when a save sets or changes the classification or adds the Report tag; the sign-out compares it with the calls then. A save that says nothing deletes the review. Each change is a clinical audit event (`variant_id` `repeat:<locus_id>` or `paraphase:<gene_symbol>`); see [docs/repeat-paraphase-review-design.md](repeat-paraphase-review-design.md) |
 | `small_variant_filter_presets`, `structural_variant_filter_presets` | saved filter sets, per user. A small-variant one is reusable in every family; a structural-variant one is for one family or all. The owner is the account (`owner_id`, SEC-32), so a preset stays its owner's when a Microsoft sign-in changes the account's user name, and is deleted with the account. One name per owner (for a structural-variant preset, per owner, family and scope). `owner` is the user name the preset was last saved under, shown with it |
@@ -144,10 +144,10 @@ reference file is recorded under its file name.
 A `CHECK` (`sample_interval_track_sources_track_type_check`) holds
 `sample_interval_track_sources.track_type` to the track types above. The baseline creates the
 table only when it is missing, so a database created before `target_coverage` was in the list
-(#749) kept the old check, and importing a per-target coverage table failed. Revision `0003`
-gives it the current check at its next start ([Schema Migrations](#schema-migrations)); revision
-`0012` gives it the check with `apcad_segregation` (an embryo's segregation table, for the
-parental-origin view).
+(2026-10-04, for the NIPT-M pair) kept the old check, and importing a per-target coverage table
+failed. Revision `0003` gives it the current check at its next start
+([Schema Migrations](#schema-migrations)); revision `0012` gives it the check with
+`apcad_segregation` (an embryo's segregation table, for the parental-origin view).
 
 `repeat_expansions.status` is a call's status as its import classified it: `normal`, `review`,
 `not_assessed`, `intermediate`, `premutation`, `pathogenic` or `unknown` (no call).
@@ -159,7 +159,7 @@ rule reads normal on both at once (CLIN-14; before, the tracks showed the stored
 the call was imported again).
 
 A `CHECK` (`repeat_expansions_status_check`) holds the status to these values. A database
-created before `not_assessed` was in the list (#826) kept the old check, and a TRGT import with
+created before `not_assessed` was in the list (2026-10-13) kept the old check, and a TRGT import with
 a call at a locus without thresholds failed, with the whole repeat dataset. Revision `0002`
 gives it the current check at its next start ([Schema Migrations](#schema-migrations)).
 
@@ -402,8 +402,8 @@ its start instead (below). The step is one transaction, so it applies whole or n
 | Revision | What it does |
 | --- | --- |
 | `0001` | applies the five baseline files |
-| `0002` | gives `repeat_expansions` the baseline's `repeat_expansions_status_check`, with `review` and `premutation` (#763) and `not_assessed` (#826) |
-| `0003` | gives `family_relationships` and `sample_interval_track_sources` the baseline's checks, with `relative` (#747) and `target_coverage` (#749) |
+| `0002` | gives `repeat_expansions` the baseline's `repeat_expansions_status_check`, with `review` and `premutation` (2026-10-07) and `not_assessed` (2026-10-13) |
+| `0003` | gives `family_relationships` and `sample_interval_track_sources` the baseline's checks, with `relative` (2026-10-02) and `target_coverage` (2026-10-04) |
 | `0004` | gives `family_structure_versions` its hash chain (`family_identifier`, `row_hash`, `prev_hash` and the chain's index), and a nullable `family_id` that the family's deletion nulls; gives it and `ui_events` their append-only trigger and REVOKE (SEC-7); by running those statements of the baselines |
 | `0005` | gives `project_users` its `access_level` (`analyst` or `reader`, with its check), each stored membership an analyst's (SEC-1), by running the statement `01_access.sql` adds it with |
 | `0006` | gives `users` its `azure_object_id` (a unique UUID, empty for a password account) for Microsoft sign-in (SEC-4), each stored account kept without one, by running the statement `01_access.sql` adds it with |
@@ -413,12 +413,14 @@ its start instead (below). The step is one transaction, so it applies whole or n
 | `0010` | keeps a gene-reference sync's and a clinical CNV knowledgebase rebuild's requester by the account (SEC-35): gives `gene_info_refresh_jobs` and `clinical_cnv_kb_jobs` their `requested_by_id`, each job linked to the account its `requested_by` address finds or to none (as `startup-bootstrap`), with the foreign keys, by running those statements of `02_reference.sql`; every job stays |
 | `0011` | drops three columns no code read (ENG-6): `auth_login_attempts.last_success_at` and `small_variant_reviews.compound_het_partner_variant_keys`, never written or read, and `structural_variant_reviews.variant_key`, never written, with its unique index; every row kept with its other values. It also removes the key `unresolved_roi` from the families' `metadata`, which an import wrote when it could not resolve a manifest's region of interest, and nothing read or cleared |
 | `0012` | gives `sample_interval_track_sources` the baseline's check, with `apcad_segregation` (an embryo's segregation table from the PGT pipeline, read by the `apcad` dataset for the parental-origin view) |
+| `0013` | writes the class labels in sentence case (ENG-6): where a mutable row holds a class label in another case ("Likely Pathogenic - class 4"), it writes the label as the code writes it now ("Likely pathogenic - class 4"). That is the classification, the compound-het pair's classification and the ACMG scoring's (`acmg`) of `small_variant_reviews`; the classification and the CNV scoring's (`cnv_acmg`) of `structural_variant_reviews`; and the classifications each filter preset filters on (`filters.classification`, a list or comma-separated text). Only the case changes; text that is no class label, every other value and `updated_at` stay. The append-only tables keep their text |
 
 A database the baselines created before the ledger existed has an empty ledger, so its first
 start with the ledger runs every revision. Each revision ends at the baseline's definition,
 whatever it starts from. Every row stays, with two exceptions: `0008` removes a filter preset
 whose user name no account has (it is nobody's), and `0011` drops three columns with the values
-they held (none of which anything read) and the families' `unresolved_roi`. The integration
+they held (none of which anything read) and the families' `unresolved_roi`. `0013` changes only
+the case of class labels in mutable rows. The integration
 test [test_postgres_migrations.py](../backend/tests/integration/test_postgres_migrations.py)
 shows both:
 
@@ -737,9 +739,11 @@ buffer: one whose rows exceed `async_insert_max_data_size` (10 MiB), and an `INS
 
 A writer's own `settings` override the default. `{"async_insert": 1}` would suit tiny inserts
 sent by many requests at once, which ClickHouse can gather into one part. No writer passes it:
-ClickHouse is written only by imports, uploads and the lineage precompute (one insert per
-pedigree edit, run after the edit). A writer that needs the buffer is listed here with the
-reason.
+ClickHouse is written only by imports, uploads, the lineage precompute (one insert per
+pedigree edit, run after the edit), the admin's gene-index rebuild, and the deletes of a
+family's data: an admin's (deleting a sample, or a sample's SVs, writes the family's other rows
+back), a PED upload or Family Builder save that replaces a family, and a structure change that
+clears its data. A writer that needs the buffer is listed here with the reason.
 
 ### Row identity
 

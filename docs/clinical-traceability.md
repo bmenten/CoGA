@@ -218,7 +218,7 @@ imported it; for the Mendeliome, the Monarch release.
 - One event per panel version and family. A version already recorded writes nothing; the check
   runs again under the family's audit-chain lock, so two searches at once record it once.
 - A panel edited or imported again since (each such version is archived in
-  `gene_panel_versions`, #809), or a PanelApp version imported over the same genes, is recorded
+  `gene_panel_versions`), or a PanelApp version imported over the same genes, is recorded
   again at the next search that applies it.
 - A search whose event cannot be recorded fails with it.
 - A panel applied in the variant explorer, which searches across families, is recorded for no
@@ -436,9 +436,9 @@ in the EPD refers to the signed version by its report code (*The report code* be
     (`pgt_analysis.embryo_has_haplotype_blocks`, TRACE-19). The import reads a child of unknown
     sex and unknown or unaffected status as an embryo, as a NIPT PED usually gives the fetus, and
     the NIPT trio takes that embryo for the fetus. But the fetus has no sequencing column, so no
-    blocks and no call. Such a record held the fetus's PGT analysis all the same (#922). The
-    blocks an embryo call reads are the narrowest input that makes the section a PGT analysis: a
-    NIPT family with them keeps it, as the family page calls such an embryo;
+    blocks and no call. Such a record held the fetus's PGT analysis all the same (found on
+    2026-10-20). The blocks an embryo call reads are the narrowest input that makes the section
+    a PGT analysis: a NIPT family with them keeps it, as the family page calls such an embryo;
   - `nipt`, a monogenic NIPT family's only (`services/signed_record_nipt.py`; REQ-NIPT-001,
     -004, -006, -010 to -013, -015): the NIPT analysis as the NIPT page computes it at sign-out,
     by the backend's code (`nipt_service`, `nipt_quality_checks`), never the browser. It holds:
@@ -528,9 +528,9 @@ what is frozen.
   seen and not seen), not the totals the Sample QC page is served.
 - The Sample QC's summary (`application_summary`) is frozen as it read. A record signed before
   ENG-4 says paternity was confirmed from "categories 7/8", named after the check's logic before
-  #749; one signed since says it is read from the father's alleles in the plasma. So the sign-out
-  check names the sample-integrity QC as changed for a NIPT family whose latest record holds the
-  old wording, until it is signed again.
+  the NIPT-M pair rework (2026-10-04); one signed since says it is read from the father's
+  alleles in the plasma. So the sign-out check names the sample-integrity QC as changed for a
+  NIPT family whose latest record holds the old wording, until it is signed again.
 - A NIPT variant whose review, or compound-het pair review, is tagged `report` is frozen in
   `reported_variants` and `variant_descriptions` like any reported small variant, with its
   classification, and in `nipt` with its category, reads and probabilities. The recessive fetal
@@ -566,6 +566,13 @@ matches* and beside what changed (*This page still matches signed version 2 in e
 version holds. Not in signed version 2, so not compared: the HPO version.*), so neither reads as
 covering it (TRACE-19). Before, they showed `matches` and `changed_sections` alone.
 
+The check reads a class label whatever its case. The class labels were put in sentence case
+(ENG-6), and revision `0013` rewrote the reviews to match; a version signed before keeps
+*Likely Pathogenic - class 4*, and the signed view shows it as signed. Compared as written, every
+such version would read as changed after the upgrade, although only the case differs. Only a
+`classification` that names a class label is read so (`_with_current_class_labels` in
+`report_signout_service.py`); a different class is still a change.
+
 Six gates run first, in this order:
 
 1. **Assembly scope.** A family whose assembly is not in `VALIDATED_ASSEMBLIES` (default
@@ -588,7 +595,7 @@ Six gates run first, in this order:
    refuses the sign-out. That record is not best-effort. An import whose job cannot record it (a
    database error, or another worker has claimed the job) stops without writing anything of the
    family; its job ends `failed` with the reason while it is still this worker's and can be
-   updated (#736). The job's later updates (logs, dataset summaries, heartbeat) are
+   updated. The job's later updates (logs, dataset summaries, heartbeat) are
    informational: one that fails leaves the status and the family as they are.
 
    - A job whose worker stopped keeps refusing until a worker claims it again.
@@ -599,7 +606,7 @@ Six gates run first, in this order:
      the family stays marked (gate 5).
    - An import whose process is alive but could not write its heartbeat stops where it is once
      its heartbeat reaches the database again and finds the job ended, leaving the family marked
-     the same way (#746). Between the claim and that stop the job no longer refuses a sign-out,
+     the same way. Between the claim and that stop the job no longer refuses a sign-out,
      but the import's variant-write locks do (`variant_writes_in_progress`) while their
      connection holds them.
    - An import whose heartbeat has not reached the database for five minutes stops itself the
@@ -958,8 +965,8 @@ missense variant's entry. The entry the check recomputes also holds them as they
 (`evidence_to`).
 
 The release candidate's snapshot format is the first one CoGA reads: records signed by earlier
-development builds get no reading of their own (#681). They still verify, since verification
-re-hashes the record as stored.
+development builds get no reading of their own (the owner's decision of 2026-09-30). They still
+verify, since verification re-hashes the record as stored.
 
 Both views download the frozen record as JSON.
 
@@ -1070,24 +1077,31 @@ anchors can be deleted without trace unless a copy is kept outside the database.
   genome overview and the chromosome view show each member's risk state from the browser's
   implementation of the same rules, which the parity cases pin but do not prove equal on every
   input.
-- No threshold gates an embryo call on its QC. A call whose phasing QC at the ROI does not meet
-  the thresholds of `services/pgt_embryo_qc.py`, counted over the ROI and 1 Mb on each side (at
-  least 50 informative sites, a Mendelian error rate of at most 2 %, at least 6 markers on each
-  flank of the ROI on each parental side the call reads), carries a warning beside it on the
-  family page and in the signed version; so does one whose QC was not counted. The call stands,
-  the sign-out is not held up, and the analyst decides (the owner's decision of 2026-10-20). The
-  thresholds are provisional: the laboratory director and QA are to confirm them. The markers are
-  counted over the ROI as a whole, not on each flank of the locus.
+- One QC measure gates an embryo call; the others only warn. The QC is counted over the ROI and
+  1 Mb on each side. An embryo whose markers there, on a parental side the call reads, mix both of
+  that parent's homologs (a discordance above 10 % over at least 20 markers, `mixed_homolog_sides`
+  in `services/pgt_embryo_qc.py`) is not called: it reads as uninformative, whatever its blocks
+  say (the owner's decision of 2026-10-30). This gate is a safety net, not an aneuploidy check:
+  two copies of one homolog leave the markers in agreement, and a trisomy away from the ROI is
+  not looked at. A call whose phasing QC does not meet the other thresholds of
+  `services/pgt_embryo_qc.py` (at least 50 informative sites, a Mendelian error rate of at most
+  2 %, at least 6 markers on each flank of the ROI on each parental side the call reads) carries a
+  warning beside it on the family page and in the signed version; so does one whose QC was not
+  counted. Such a call stands, the sign-out is not held up, and the analyst decides (the owner's
+  decision of 2026-10-20). The markers are counted on each flank apart, left and right of the ROI;
+  the ROI's own sites count on neither. The thresholds are provisional: the laboratory director
+  and QA are to confirm them.
 - A NIPT family's record freezes the NIPT classification of the variants tagged `report`, not
   every candidate the NIPT report or a view of the NIPT page lists, and their recessive fetal risk
   over the reported variants alone. It freezes the coverage of every capture target and each gene
   with a weak target, not the coverage of a search's gene panel or genes as the NIPT page's
-  coverage card reads it. Without a per-target coverage table it holds no coverage QC at all (the
-  page reads its coverage over a coverage track for a search's genes or the family's region of
-  interest): `coverage_tracks` holds what the plasma's coverage tracks held, so which kind of
-  coverage that check rested on, not its result. The artifact list and the de novo recurrence are
-  shared by every family of the assay: a change to the list, or another pregnancy of the assay
-  imported since, makes the sign-out check name `nipt` as changed.
+  coverage card reads it. Without a per-target coverage table it holds the coverage check's notes
+  on the plasma's coverage tracks (`nipt.coverage_notes`), not the coverage the check read or its
+  verdict. The check is run as the NIPT page runs it without a gene or panel, over the family's
+  region of interest, not for the genes or panel of a search; `coverage_tracks` says which kind of
+  coverage it rested on. The artifact list and the de novo recurrence are shared by every family
+  of the assay: a change to the list, or another pregnancy of the assay imported since, makes the
+  sign-out check name `nipt` as changed.
 - `coverage_tracks` names each coverage track of the members as their records list it, not the
   chromosomes a depth check read: the mtDNA coverage reads a track only where it has rows on
   chrM, the NIPT coverage check its targets' chromosomes, and a sample with two read-depth tracks

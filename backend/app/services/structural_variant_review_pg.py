@@ -30,6 +30,7 @@ from .review_pg_utils import (
     _merge_tag_metadata,
     _normalize_tags,
     _read_stored_classification,
+    _stored_classification,
 )
 from .small_variant_review_tags import list_small_variant_tag_definitions
 from .clickhouse_variant_records import StructuralVariantRecord
@@ -232,7 +233,11 @@ async def list_matching_structural_variant_review_ids(
     tags: Sequence[str] | None = None,
     has_notes: bool = False,
 ) -> set[str]:
-    normalized_classifications = {value.strip() for value in (classifications or []) if str(value).strip()}
+    # A classification matches whatever its case: a filter or a review saved before the labels
+    # were put in sentence case (ENG-6) holds "Likely Pathogenic - class 4".
+    normalized_classifications = {
+        value.strip().lower() for value in (classifications or []) if str(value).strip()
+    }
     normalized_tags = {value.strip() for value in (tags or []) if str(value).strip()}
     if not normalized_classifications and not normalized_tags and not has_notes:
         return set()
@@ -253,7 +258,7 @@ async def list_matching_structural_variant_review_ids(
             continue
         matches_classification = (
             not normalized_classifications
-            or str(document.get("classification") or "").strip() in normalized_classifications
+            or str(document.get("classification") or "").strip().lower() in normalized_classifications
         )
         matches_tags = not normalized_tags or bool(
             set(_normalize_tags(document.get("tags", []))).intersection(normalized_tags)
@@ -348,7 +353,8 @@ async def upsert_structural_variant_review(
         raise HTTPException(status_code=400, detail="Variant id is required")
     normalized_tags = _normalize_tags(payload.tags)
     normalized_note = (payload.note or "").strip() or None
-    normalized_classification = (payload.classification or "").strip() or None
+    # A class label in another case is stored as the label is now (ENG-6).
+    normalized_classification = _stored_classification(payload.classification)
     # The CNV (ClinGen) scoring, as a small-variant save treats ``acmg``: a save that
     # leaves ``cnv_acmg`` out (the tag toggle, the review dialog) keeps the stored scoring;
     # one that sends it replaces the scoring, and sending null or no criteria clears it.

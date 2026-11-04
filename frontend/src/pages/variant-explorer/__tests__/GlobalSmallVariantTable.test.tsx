@@ -107,7 +107,7 @@ describe('GlobalSmallVariantTable', () => {
       variants: [
         makeVariant({
           key: '1',
-          classification: 'Likely Pathogenic - class 4',
+          classification: 'Likely pathogenic - class 4',
           clinvar: 'Uncertain significance',
         }),
         makeVariant({ key: '2', classification: null, clinvar: 'Pathogenic' }),
@@ -116,7 +116,7 @@ describe('GlobalSmallVariantTable', () => {
     });
 
     expect(bodyCells().map((cells) => cells[2].textContent)).toEqual([
-      'Likely Pathogenic - class 4',
+      'Likely pathogenic - class 4',
       'Pathogenic',
       '—',
     ]);

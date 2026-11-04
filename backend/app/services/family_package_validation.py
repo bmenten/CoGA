@@ -23,7 +23,7 @@ from .hpo_service import (
     parse_manifest_inline_hpo,
 )
 
-from .family_package_common import CORE_DATASETS, HAPLOTYPE_ORIGIN_ROLES, IDENTIFIER_ISSUE_CODES, LONG_READ_DATASET_ROLES, PCF_ROLE_KEYS, QC_FAMILY_ROLES, FamilyPackageBundle, ManifestDataset, PackageManifest, ParsedPed, SUPPORTED_DATASETS, _display_path, _is_uncompressed_vcf, _issue, _package_path_or_none, _resolve_package_path, _vcf_index_candidates, family_id_issue, package_text_handle, read_vcf_sample_columns, sample_id_issues, vcf_holds_a_data_line
+from .family_package_common import CORE_DATASETS, HAPLOTYPE_ORIGIN_ROLES, IDENTIFIER_ISSUE_CODES, LONG_READ_DATASET_ROLES, PCF_ROLE_KEYS, QC_FAMILY_ROLES, FamilyPackageBundle, ManifestDataset, PackageManifest, ParsedPed, SUPPORTED_DATASETS, _display_path, _is_uncompressed_vcf, _issue, _package_path_or_none, _resolve_package_path, _vcf_index_candidates, family_id_issue, package_text_handle, read_vcf_sample_columns, sample_id_issues, unreadable_vcf_issue, UnreadableVcf, vcf_holds_a_data_line
 from .family_package_manifest import _manifest_added_member_entries, _manifest_added_ped_rows, _manifest_derived_statuses, _manifest_pgt_metadata, _manifest_relationship_issues, _manifest_roi_value, _normalize_manifest_samples, _parse_ped_text_strict
 from .family_package_mito_table import mito_sample_calls, read_mito_table
 from .family_package_pgt import pgt_roi_phasing_issue
@@ -433,7 +433,16 @@ def _validate_per_sample_snv_dataset(
             root=root, dataset_type="snv", path=vcf_path, warnings=warnings, sample_id=sample_id
         )
         if vcf_path is not None and vcf_path.is_file():
-            columns = read_vcf_sample_columns(vcf_path)
+            try:
+                columns = read_vcf_sample_columns(vcf_path)
+            except UnreadableVcf:
+                # Refused by name: the read raised out of the request, a 500 (DATA-11).
+                errors.append(
+                    unreadable_vcf_issue(
+                        root, vcf_path, dataset="snv", label=f"The SNV file of {sample_id}", sample_id=sample_id
+                    )
+                )
+                continue
             if len(columns) != 1:
                 errors.append(
                     _issue(

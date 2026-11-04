@@ -17,6 +17,7 @@ import type {
 } from '../../lib/apiSchema.generated';
 import type { ApiFamilyRecord } from '../../lib/apiTypes';
 import { apiPath } from '../../lib/apiPath';
+import { formatChromosomeLabel } from '../../lib/chromosomes';
 import { normalizeSex } from '../../lib/haplotypeRisk';
 import {
   NO_ALLELE,
@@ -378,6 +379,9 @@ const FamilyRoiMarkersPage: React.FC = () => {
   const inheritanceModel = (family?.metadata?.pgt as { inheritance_model?: string } | undefined)
     ?.inheritance_model;
   const inRoi = (pos: number) => pos >= roi.start && pos <= roi.end;
+  // The ROI's chromosome as the viewer names it (`chr1`, `chrX`; #602), however the family
+  // record stores it. The requests above send the stored name.
+  const roiChrom = formatChromosomeLabel(roi.chr);
 
   // Zoom keeps the window centred; pan shifts it by a fraction of its span. Both clamp
   // the left edge at 0 and enforce a minimum span so the view stays sensible.
@@ -468,7 +472,7 @@ const FamilyRoiMarkersPage: React.FC = () => {
         <div className="roi-markers-tip">
           <div className="roi-markers-tip-head">
             <strong>
-              {roi.chr}:{pos.toLocaleString()}
+              {roiChrom}:{pos.toLocaleString()}
             </strong>
             {site && (
               <span className="roi-markers-tip-change">
@@ -528,7 +532,7 @@ const FamilyRoiMarkersPage: React.FC = () => {
           }}
         />
         <p className="segregation-note">
-          Informative phased markers for every family member across the ROI {roi.chr}:
+          Informative phased markers for every family member across the ROI {roiChrom}:
           {roi.start.toLocaleString()}–{roi.end.toLocaleString()}. The view opens on the ROI and 1 Mb on each side of
           it, the window the embryo calls and their phasing QC read; use the zoom and pan controls to narrow or
           move it. Genotypes are derived from the phased imputed
@@ -572,7 +576,7 @@ const FamilyRoiMarkersPage: React.FC = () => {
           </button>
         </div>
         <span className="roi-markers-range">
-          {window.chr}:{window.start.toLocaleString()}–{window.end.toLocaleString()}{' '}
+          {roiChrom}:{window.start.toLocaleString()}–{window.end.toLocaleString()}{' '}
           <span className="roi-markers-range-span">
             ({Math.round((window.end - window.start) / 1000).toLocaleString()} kb)
           </span>
@@ -628,7 +632,7 @@ const FamilyRoiMarkersPage: React.FC = () => {
                 <th
                   key={site.pos}
                   className={`roi-markers-poscol${inRoi(site.pos) ? ' roi-markers-poscol--roi' : ''}`}
-                  title={`${roi.chr}:${site.pos.toLocaleString()} ${site.ref}>${site.alt}${
+                  title={`${roiChrom}:${site.pos.toLocaleString()} ${site.ref}>${site.alt}${
                     inRoi(site.pos) ? '' : ' (flank)'
                   }`}
                 >

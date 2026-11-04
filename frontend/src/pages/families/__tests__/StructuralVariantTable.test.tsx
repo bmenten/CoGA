@@ -38,7 +38,7 @@ const TAGS: SmallVariantTagDefinition[] = [
   tagDefinition({ key: 'excluded', label: 'Excluded', group: 'collaboration', color: '#222222', sort_order: 2, scope: 'system', is_custom: false }),
   tagDefinition({ key: 'report', label: 'Report', group: 'collaboration', color: '#333333', sort_order: 3, scope: 'system', is_custom: false }),
   tagDefinition({ key: 'mosaic', label: 'Mosaic?', group: 'custom', color: '#7c3aed', sort_order: 10, scope: 'global', is_custom: true }),
-  tagDefinition({ key: 'acmg_class_4', label: 'Likely Pathogenic - class 4', group: 'classification', color: '#dc2626', sort_order: 20, scope: 'system', is_custom: false }),
+  tagDefinition({ key: 'acmg_class_4', label: 'Likely pathogenic - class 4', group: 'classification', color: '#dc2626', sort_order: 20, scope: 'system', is_custom: false }),
 ];
 
 const sv = (overrides: Partial<StructuralVariant> = {}): StructuralVariant =>
@@ -289,12 +289,12 @@ describe('StructuralVariantTable', () => {
           review: reviewOf({
             variant_id: 'sv1',
             tags: ['acmg_class_4'],
-            classification: 'Likely Pathogenic - class 4',
+            classification: 'Likely pathogenic - class 4',
           }),
         }),
       ],
     });
-    expect(within(row()).getAllByText('Likely Pathogenic - class 4')).toHaveLength(1);
+    expect(within(row()).getAllByText('Likely pathogenic - class 4')).toHaveLength(1);
   });
 
   it('marks the genotypes of the affected and the proband', () => {

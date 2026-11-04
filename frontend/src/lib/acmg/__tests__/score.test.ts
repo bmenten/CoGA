@@ -25,7 +25,7 @@ describe('computeClassification', () => {
   });
 
   it.each([
-    ['PVS1 (8) + PM2 (1) = 9 → Likely Pathogenic', [sel('PVS1', 'very_strong'), sel('PM2', 'supporting')], 9, 'acmg_class_4'],
+    ['PVS1 (8) + PM2 (1) = 9 → likely pathogenic', [sel('PVS1', 'very_strong'), sel('PM2', 'supporting')], 9, 'acmg_class_4'],
     ['PVS1 (8) + PM2 moderate (2) = 10 → Pathogenic', [sel('PVS1', 'very_strong'), sel('PM2', 'moderate')], 10, 'acmg_class_5'],
     ['two benign supporting (-2) → Likely benign', [sel('BP4', 'supporting'), sel('BP7', 'supporting')], -2, 'acmg_class_2'],
     ['benign strong + supporting (-5) stays Likely benign', [sel('BS1', 'strong'), sel('BP4', 'supporting')], -5, 'acmg_class_2'],
@@ -71,7 +71,7 @@ describe('VUS hot/warm/cold sub-tier', () => {
     ).toBe('warm');
   });
 
-  it('4–5 points → hot (one supporting from Likely Pathogenic)', () => {
+  it('4–5 points → hot (one supporting from likely pathogenic)', () => {
     expect(computeClassification([sel('PS1', 'strong')]).vusTier).toBe('hot');
     expect(
       computeClassification([sel('PS1', 'strong'), sel('PP3', 'supporting')]).vusTier,

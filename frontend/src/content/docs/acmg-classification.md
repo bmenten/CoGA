@@ -24,15 +24,19 @@ Each criterion you accept adds points by its strength; benign criteria subtract 
 | Points | Class (review tag) |
 | --- | --- |
 | 10 or more | Pathogenic - class 5 |
-| 6 to 9 | Likely Pathogenic - class 4 |
+| 6 to 9 | Likely pathogenic - class 4 |
 | 0 to 5 | VUS - class 3 |
 | −1 to −6 | Likely benign - class 2 |
 | −7 or less | Benign - class 1 |
 
+The labels are written in sentence case. A record signed before that shows *Likely Pathogenic -
+class 4*, as it was signed. The filters, and the check of a report against its latest signed version,
+read a class label whatever its case.
+
 The score bar at the top of the form draws this scale as posterior probabilities of pathogenicity
 (Tavtigian: a prior of 10%; the odds double with roughly every point). Benign is below 0.1% and
 Pathogenic above 99%, so both are short end caps. Each VUS point has its own cell, with a tick at 10%,
-18.8%, 32.5%, 50%, 67.5% and 81.2%; Likely Pathogenic starts at 90%. The arrow sits in the cell of the
+18.8%, 32.5%, 50%, 67.5% and 81.2%; likely pathogenic starts at 90%. The arrow sits in the cell of the
 current total.
 
 **BA1 overrides the points.** An accepted BA1 (allele frequency 5% or more) makes the variant Benign,
@@ -67,14 +71,14 @@ When one of them changes later, the report names it before sign-out.
 
 ### VUS tiers: hot, warm, cold
 
-The VUS band is split by how close the points are to Likely Pathogenic (6), following the MAGI-ACMG
+The VUS band is split by how close the points are to likely pathogenic (6), following the MAGI-ACMG
 approach.
 
 | Points | Tier (review tag) | Reading |
 | --- | --- | --- |
-| 4 or 5 | VUS — Hot | 1–2 points short of Likely Pathogenic. Worth chasing more evidence. |
-| 2 or 3 | VUS — Warm | Mixed or partial evidence. |
-| 0 or 1 | VUS — Cold | Little pathogenic support. |
+| 4 or 5 | VUS — hot | 1–2 points short of likely pathogenic. Worth chasing more evidence. |
+| 2 or 3 | VUS — warm | Mixed or partial evidence. |
+| 0 or 1 | VUS — cold | Little pathogenic support. |
 
 The tier shows on the score bar and is saved as a review tag next to *VUS - class 3*, so you can
 filter on it. A variant that leaves the VUS band loses its tier tag.
@@ -306,7 +310,7 @@ freezes, the row you opened it from.
 | Points | Class |
 | --- | --- |
 | 0.99 or more | Pathogenic - class 5 |
-| 0.90 to 0.98 | Likely Pathogenic - class 4 |
+| 0.90 to 0.98 | Likely pathogenic - class 4 |
 | −0.89 to 0.89 | VUS - class 3 |
 | −0.98 to −0.90 | Likely benign - class 2 |
 | −0.99 or less | Benign - class 1 |

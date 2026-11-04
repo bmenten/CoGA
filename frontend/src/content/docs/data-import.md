@@ -388,6 +388,9 @@ Paraphase results are replaced.
   entry's `vcf_sample`, Discover, the dry run and the import warn (`nipt_vcf_column_named_otherwise`),
   naming the sample, the file and the column. Check that the file holds that sample's tube: if it does,
   record the column as the entry's `vcf_sample`, which ends the warning; if not, correct the manifest.
+- A sample's SNV file that cannot be read (a `.vcf.gz` cut short or damaged in a copy, or a plain-text VCF
+  named `.gz`) is an error that names the sample and the file (`dataset_vcf_unreadable`), in Discover too
+  for a NIPT pair's parent file. Copy the file again from where the pipeline wrote it.
 - A manifest's `roi` (a gene, or a region such as `chr7:117480025-117668665`) is looked up in the
   assembly of the import's project, or of the existing family. One the import does not find clears the
   family's region of interest, so no embryo is called at a region the package does not name. The import

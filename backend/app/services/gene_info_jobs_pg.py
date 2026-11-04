@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 import json
 import logging
 import os
-from typing import Any
+from typing import Any, Awaitable, TypeVar
 from uuid import uuid4
 
 from fastapi import HTTPException
@@ -15,9 +15,10 @@ from sqlalchemy import RowMapping, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.coga_logging import describe_error
 from ..core.config import settings
 from ..core.postgres import get_postgres_sessionmaker
-from ..core.sql import uuid_list_bindparam, uuid_values
+from ..core.sql import rows_matched, uuid_list_bindparam, uuid_values
 from ..schemas import (
     GeneBulkRefreshOut,
     GeneInfoRefreshJobOut,
@@ -46,6 +47,11 @@ GENE_REFERENCE_STALE_HEARTBEAT = timedelta(minutes=5)
 # collapse to ~N/100 (or one per 30s of work).
 GENE_REFERENCE_PROGRESS_COMMIT_SYMBOLS = 100
 GENE_REFERENCE_PROGRESS_COMMIT_SECONDS = 30.0
+# While the bulk sources load (whole-file downloads and the dbNSFP gene file, which can take
+# longer than GENE_REFERENCE_STALE_HEARTBEAT on a slow link), the worker writes the job's
+# heartbeat this often, from a session of its own, as the import and knowledgebase workers do:
+# another worker takes a running job up only once its heartbeat is stale (SAFE-36).
+GENE_REFERENCE_HEARTBEAT_SECONDS = 60.0
 # Who asked for the refresh a start queues: no account, so the worker runs it as it is.
 STARTUP_REQUESTER = "startup-bootstrap"
 
@@ -64,6 +70,14 @@ def _requester_lost(lapse: str) -> str:
 REQUESTER_GONE_ERROR = _requester_lost("no longer exists")
 REQUESTER_INACTIVE_ERROR = _requester_lost("has been deactivated")
 REQUESTER_NOT_ADMIN_ERROR = _requester_lost("is no longer an administrator")
+
+
+_T = TypeVar("_T")
+
+
+class _JobTakenOver(Exception):
+    """The job is no longer this worker's: another worker took it up once its heartbeat was
+    stale, or it has ended. This worker stops and writes nothing more to it (SAFE-36)."""
 
 
 @dataclass(slots=True)
@@ -760,10 +774,14 @@ async def _refresh_grouped_human_gene_info(
     grouped_by_symbol: dict[str, list[dict[str, Any]]],
     bulk_context: HumanGeneBulkContext,
 ) -> GeneBulkRefreshOut:
+    """Write each gene's record, committing them with the job's progress (and heartbeat) on a
+    throttle. Each progress write is the job's only while it is this worker's: once it is not
+    (another worker has taken it up), _JobTakenOver is raised before the commit, and what was
+    written since the last commit is left to the caller's rollback."""
     updated_records = 0
     sorted_symbols = sorted(grouped_by_symbol)
     total_symbols = len(sorted_symbols)
-    await session.execute(
+    started = await session.execute(
         text(
             """
             UPDATE gene_info_refresh_jobs
@@ -783,10 +801,12 @@ async def _refresh_grouped_human_gene_info(
             "heartbeat_at": datetime.now(timezone.utc),
         },
     )
+    if rows_matched(started) != 1:
+        raise _JobTakenOver()
     await session.commit()
 
     async def _commit_progress(current_symbol: str, completed: int) -> None:
-        await session.execute(
+        progress = await session.execute(
             text(
                 """
                 UPDATE gene_info_refresh_jobs
@@ -810,6 +830,8 @@ async def _refresh_grouped_human_gene_info(
                 "heartbeat_at": datetime.now(timezone.utc),
             },
         )
+        if rows_matched(progress) != 1:
+            raise _JobTakenOver()
         await session.commit()
 
     last_commit_at = datetime.now(timezone.utc)
@@ -872,9 +894,63 @@ async def _requester_refusal(session: AsyncSession, job_row: RowMapping) -> str 
     return None
 
 
-async def _end_refused_job(session: AsyncSession, *, job_id: str, worker_id: str, error: str) -> None:
+async def _beat_gene_reference_job(*, job_id: str, worker_id: str) -> bool:
+    """Write the job's heartbeat, in a session of its own, while the job is this worker's and
+    running. Committed. False when no row changed: another worker has taken the job up, or it
+    has ended."""
+    session_factory = get_postgres_sessionmaker()
+    async with session_factory() as session:
+        result = await session.execute(
+            text(
+                """
+                UPDATE gene_info_refresh_jobs
+                SET heartbeat_at = :heartbeat_at
+                WHERE id = CAST(:job_id AS uuid)
+                  AND worker_id = :worker_id
+                  AND status = 'running'
+                """
+            ),
+            {"job_id": job_id, "worker_id": worker_id, "heartbeat_at": datetime.now(timezone.utc)},
+        )
+        await session.commit()
+    return rows_matched(result) == 1
+
+
+async def _with_heartbeat(work: Awaitable[_T], *, job_id: str, worker_id: str) -> _T:
+    """Await ``work`` while writing the job's heartbeat every GENE_REFERENCE_HEARTBEAT_SECONDS.
+
+    Raises _JobTakenOver, with ``work`` cancelled, once a heartbeat finds the job no longer this
+    worker's. As in the import and knowledgebase workers, a heartbeat that fails is logged and
+    the work goes on: the next one may reach the database again."""
+    task = asyncio.ensure_future(work)
+    try:
+        while True:
+            done, _pending = await asyncio.wait({task}, timeout=GENE_REFERENCE_HEARTBEAT_SECONDS)
+            if task in done:
+                return task.result()
+            try:
+                still_ours = await _beat_gene_reference_job(job_id=job_id, worker_id=worker_id)
+            except Exception as exc:  # noqa: BLE001 - logged by type only; the work goes on
+                logger.warning(
+                    "Gene reference refresh job %s: heartbeat not written (%s)", job_id, describe_error(exc)
+                )
+                continue
+            if not still_ours:
+                raise _JobTakenOver()
+    finally:
+        if not task.done():
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
+        elif not task.cancelled():
+            # Work that ended as a heartbeat found the job another worker's: its result, or its
+            # error, is no longer the run's.
+            task.exception()
+
+
+async def _end_failed_job(session: AsyncSession, *, job_id: str, worker_id: str, error: str) -> None:
     """End the job failed with ``error`` while it is this worker's, and free its slot for the
-    next refresh."""
+    next refresh. A job another worker has taken up is left to that worker."""
     now = datetime.now(timezone.utc)
     await session.execute(
         text(
@@ -910,6 +986,12 @@ async def run_gene_reference_refresh_job(
     (``REQUESTER_GONE_ERROR``, ``REQUESTER_INACTIVE_ERROR``, ``REQUESTER_NOT_ADMIN_ERROR``),
     before any gene record is written. The account is checked as the job starts, also when it
     is taken again: one deactivated or demoted while the refresh runs has it run to its end.
+
+    One worker runs a job at a time (SAFE-36). Another worker takes a running job up once its
+    heartbeat is older than GENE_REFERENCE_STALE_HEARTBEAT, so the heartbeat is written while
+    the bulk sources load as well as with the refresh's progress. Once the job is found to be
+    another worker's, this run stops and writes nothing more to it; a run that fails ends the
+    job failed only while it is still this worker's, as a run that completes does.
     """
     session_factory = get_postgres_sessionmaker()
     async with session_factory() as session:
@@ -937,16 +1019,19 @@ async def run_gene_reference_refresh_job(
                     "longer an active administrator",
                     job_id,
                 )
-                await _end_refused_job(session, job_id=job_id, worker_id=worker_id, error=refusal)
+                await _end_failed_job(session, job_id=job_id, worker_id=worker_id, error=refusal)
                 return
             job_symbol = str(job_row.get("symbol") or "").strip() or None
             # Load the bulk sources before choosing which genes to refresh: HGNC is
             # what says which human genes exist, so the gene set is derived from it
             # rather than from whichever symbols the assembly's annotation happens to
             # carry. A whole-cohort refresh consults every source for every gene, so it
-            # loads them unrestricted.
-            bulk_context = await load_human_gene_bulk_context(
-                symbols=[job_symbol] if job_symbol else None
+            # loads them unrestricted. The load can outlast the stale window, so the
+            # job's heartbeat is written while it runs (SAFE-36).
+            bulk_context = await _with_heartbeat(
+                load_human_gene_bulk_context(symbols=[job_symbol] if job_symbol else None),
+                job_id=job_id,
+                worker_id=worker_id,
             )
             human_context, grouped_by_symbol = await _load_human_gene_groups(
                 session,
@@ -992,30 +1077,29 @@ async def run_gene_reference_refresh_job(
                 },
             )
             await session.commit()
-        except Exception as exc:  # pragma: no cover
-            await session.execute(
-                text(
-                    """
-                    UPDATE gene_info_refresh_jobs
-                    SET
-                        status = 'failed',
-                        active_slot = NULL,
-                        worker_id = NULL,
-                        current_symbol = NULL,
-                        error = :error,
-                        heartbeat_at = :heartbeat_at,
-                        completed_at = :completed_at
-                    WHERE id = CAST(:job_id AS uuid)
-                    """
-                ),
-                {
-                    "job_id": job_id,
-                    "error": str(exc),
-                    "heartbeat_at": datetime.now(timezone.utc),
-                    "completed_at": datetime.now(timezone.utc),
-                },
+        except _JobTakenOver:
+            # Another worker has taken the job up (this one had been silent past the stale
+            # window) or it has ended: the run stops, and what it wrote since its last commit is
+            # dropped. The other worker's run writes every gene record again.
+            await session.rollback()
+            logger.warning(
+                "Gene reference refresh job %s stopped: it is no longer this worker's", job_id
             )
-            await session.commit()
+        except Exception as exc:
+            # A failed statement leaves the transaction taking nothing more until it is rolled
+            # back, and what the run wrote since its last commit is dropped with it. The job ends
+            # failed only while it is still this worker's: a job another worker has taken up
+            # meanwhile is that worker's to end.
+            try:
+                await session.rollback()
+                await _end_failed_job(session, job_id=job_id, worker_id=worker_id, error=str(exc))
+            except Exception as end_error:  # noqa: BLE001 - logged by type; the run's own error is raised
+                logger.error(
+                    "Gene reference refresh job %s could not be marked failed (%s); another worker "
+                    "takes it up once its heartbeat is stale",
+                    job_id,
+                    describe_error(end_error),
+                )
             raise
 
 

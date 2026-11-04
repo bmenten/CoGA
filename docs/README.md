@@ -1,7 +1,9 @@
 # Documentation
 
-What CoGA is, and who should read what, is in the [README](../README.md). This page lists
-every document.
+What CoGA is, and who should read what, is in the [README](../README.md). This page lists the
+documents. Some folders hold a README of their own that it does not list: the demo families, the
+reference data under `data/ref-data/`, `terraform/main-repo-reference/` and the frontend's
+style-diff harness.
 
 ## Using CoGA
 
@@ -29,6 +31,8 @@ every document.
 - [security-posture.md](security-posture.md) — access control, audit logging, encryption and the security checks.
 - [testing.md](testing.md) — what each test file covers, and the CI jobs.
 - [CONTRIBUTING.md](../CONTRIBUTING.md) — the checks to run before a pull request, and how changes are classified.
+- [AGENTS.md](../AGENTS.md) — the repository's rules in brief, for coding agents.
+- [CODE_OF_CONDUCT.md](../CODE_OF_CONDUCT.md) — the code of conduct for contributors.
 
 ## Clinical design, developer detail
 

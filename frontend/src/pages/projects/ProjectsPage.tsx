@@ -14,6 +14,7 @@ import { formatShortDate } from '../../lib/format';
 import { apiPath } from '../../lib/apiPath';
 import { userAccountsQuery } from '../../lib/users';
 import { memberAccessLevel, type ProjectAccessLevel } from '../../lib/familyAccess';
+import ConfirmDeleteDialog from '../../components/ConfirmDeleteDialog';
 import PageHeader from '../../components/PageHeader';
 import QueryFailure from '../../components/QueryFailure';
 
@@ -131,6 +132,41 @@ const ProjectMemberPicker: React.FC<{
   </div>
 );
 
+/**
+ * What deleting `project` takes with it, for the confirmation (UI-7). The delete cascades to the
+ * project's links: its families and samples stay but lose their link to it, its members the
+ * access it gave them, and the review tags defined for it go. A family in no other project is
+ * then open to administrators only. `projects` is every project: the page is an administrator's.
+ */
+const projectDeletionEffects = (project: Project, projects: Project[]): string[] => {
+  const families = project.families.length;
+  const elsewhere = new Set(
+    projects
+      .filter((other) => other.id !== project.id)
+      .flatMap((other) => other.families.map((family) => family.family_id)),
+  );
+  const orphans = project.families.filter((family) => !elsewhere.has(family.family_id)).length;
+  const members = project.user_ids?.length ?? 0;
+  return [
+    families === 0
+      ? 'No family is linked to it.'
+      : `${pluralize(families, 'family', 'families')}, with ${pluralize(getProjectSampleCount(project), 'sample')}, ${
+          families === 1 ? 'loses its' : 'lose their'
+        } link to it.`,
+    ...(orphans > 0
+      ? [
+          `${pluralize(orphans, 'family', 'families')} of these ${orphans === 1 ? 'is' : 'are'} in no other project: after the deletion only administrators can open ${
+            orphans === 1 ? 'it' : 'them'
+          }.`,
+        ]
+      : []),
+    ...(members > 0
+      ? [`${pluralize(members, 'member')} ${members === 1 ? 'loses' : 'lose'} the access the project gave them.`]
+      : []),
+    'Review tags defined for this project are deleted with it.',
+  ];
+};
+
 const uploadedDateMs = (family: Project['families'][number]) => {
   const timestamp = family.created_at ? Date.parse(family.created_at) : 0;
   return Number.isFinite(timestamp) ? timestamp : 0;
@@ -149,6 +185,8 @@ const ProjectsPage: React.FC = () => {
   const [createForm, setCreateForm] = useState<ProjectFormState>(EMPTY_FORM);
   const [editForm, setEditForm] = useState<ProjectFormState>(EMPTY_FORM);
   const [busy, setBusy] = useState<string | null>(null);
+  // The project whose deletion awaits confirmation (UI-7), read from the current list.
+  const [projectToDeleteId, setProjectToDeleteId] = useState<string | null>(null);
   const [status, setStatus] = useState<PageStatus | null>(null);
   const [familySortKey, setFamilySortKey] = useState<FamilySortKey>('created_at');
   const [familySortAsc, setFamilySortAsc] = useState(false);
@@ -380,6 +418,8 @@ const ProjectsPage: React.FC = () => {
     }
   };
 
+  const projectToDelete = projects.find((project) => project.id === projectToDeleteId) ?? null;
+
   const handleDeleteProject = async (projectId: string) => {
     setBusy(`delete:${projectId}`);
     setStatus(null);
@@ -391,6 +431,7 @@ const ProjectsPage: React.FC = () => {
       setStatus({ tone: 'error', message: getErrorMessage(error, 'Unable to delete project.') });
     } finally {
       setBusy(null);
+      setProjectToDeleteId(null);
     }
   };
 
@@ -683,7 +724,7 @@ const ProjectsPage: React.FC = () => {
                     type="button"
                     className="button-danger"
                     disabled={busy === `delete:${selectedProject.id}`}
-                    onClick={() => handleDeleteProject(selectedProject.id)}
+                    onClick={() => setProjectToDeleteId(selectedProject.id)}
                   >
                     Delete project
                   </button>
@@ -873,6 +914,26 @@ const ProjectsPage: React.FC = () => {
           </section>
         </section>
       )}
+
+      {projectToDelete ? (
+        <ConfirmDeleteDialog
+          title={`Delete project ${projectToDelete.name}`}
+          confirmLabel="Delete project"
+          busy={busy === `delete:${projectToDelete.id}`}
+          onCancel={() => setProjectToDeleteId(null)}
+          onConfirm={() => void handleDeleteProject(projectToDelete.id)}
+        >
+          <p>
+            This deletes the project <strong>{projectToDelete.name}</strong>. No family or sample is
+            deleted with it.
+          </p>
+          <ul>
+            {projectDeletionEffects(projectToDelete, projects).map((effect) => (
+              <li key={effect}>{effect}</li>
+            ))}
+          </ul>
+        </ConfirmDeleteDialog>
+      ) : null}
     </div>
   );
 };

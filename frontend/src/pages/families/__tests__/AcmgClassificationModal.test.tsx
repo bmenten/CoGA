@@ -99,11 +99,11 @@ describe('AcmgClassificationModal', () => {
 
     await screen.findByText('PVS1');
     // PVS1 (LOF + sufficient haploinsufficiency) and PM2 (absent) auto-apply:
-    // 8 + 1 = 9 → Likely Pathogenic.
+    // 8 + 1 = 9 → likely pathogenic.
     await waitFor(() =>
       expect(screen.getByRole('checkbox', { name: /PVS1/ })).toBeChecked(),
     );
-    expect(screen.getByText('Likely Pathogenic - class 4')).toBeInTheDocument();
+    expect(screen.getByText('Likely pathogenic - class 4')).toBeInTheDocument();
 
     // BA1 is ruled out by the rare/absent frequency — flagged n/a, not checked.
     const ba1 = screen.getByText('BA1').closest('.acmg-criterion') as HTMLElement;
@@ -229,7 +229,7 @@ describe('AcmgClassificationModal', () => {
     const user = userEvent.setup();
 
     await screen.findByText('PVS1');
-    await waitFor(() => expect(screen.getByText('Likely Pathogenic - class 4')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('Likely pathogenic - class 4')).toBeInTheDocument());
 
     // Bump PM2 supporting (1) → moderate (2): 8 + 2 = 10 → Pathogenic.
     await user.selectOptions(screen.getByLabelText('PM2 strength'), 'moderate');
@@ -246,8 +246,8 @@ describe('AcmgClassificationModal', () => {
 
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
     const payload = vi.mocked(onSave).mock.calls[0][0] as SmallVariantReviewSavePayload;
-    // PVS1 (8) + PM2 (1) = 9 → Likely Pathogenic (class 4).
-    expect(payload.classification).toBe('Likely Pathogenic - class 4');
+    // PVS1 (8) + PM2 (1) = 9 → likely pathogenic (class 4).
+    expect(payload.classification).toBe('Likely pathogenic - class 4');
     expect(payload.tags).toContain('acmg_class_4');
     expect(payload.acmg?.point_total).toBe(9);
     expect(payload.acmg?.criteria.some((c) => c.code === 'PVS1' && c.accepted)).toBe(true);
