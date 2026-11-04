@@ -168,7 +168,7 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 
 ### OPS-6 · Deployment settings
 
-- Set `COGA_PROBLEM_REPORT_URL` (no problem-report link without it, TF-15) and `SMTP_HOST` beside `ADMIN_EMAIL`.
+- Set `COGA_PROBLEM_REPORT_URL` (no problem-report link without it, TF-15) and `SMTP_HOST` (with `SMTP_FROM`, and `SMTP_STARTTLS`/`SMTP_USERNAME`/`SMTP_PASSWORD` when the relay needs an account), then send the test mail from *Users*.
 - Fill the reference-data bucket: the shipped STRchive file (else the backend does not start), the ACMG SF list then a full gene-reference sync, the vendored `hp.obo`; check `hp.obo` and the ClinGen BED with `shasum -a 256`.
 - On a fresh database, look for the HPO and segmental-duplication refusal lines in the backend log.
 

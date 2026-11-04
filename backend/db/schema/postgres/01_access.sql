@@ -51,7 +51,17 @@ CREATE TABLE IF NOT EXISTS users (
     -- Microsoft sign-in (SEC-4): such an account is found by it, never by its e-mail address,
     -- and has no password (hashed_password holds a marker no password matches). NULL for a
     -- local account: the emergency administrator, and every account without Azure AD.
-    azure_object_id UUID UNIQUE
+    azure_object_id UUID UNIQUE,
+    -- When the account was first active: when it was made, for an account made active, or when
+    -- an administrator first activated it, for one that waited for approval (a sign-up, a
+    -- first CAS sign-in), which leaves it NULL until then. Only an account that was never
+    -- active can be deleted; any other is archived.
+    activated_at TIMESTAMPTZ DEFAULT timezone('utc', now()),
+    -- When an administrator archived the account: it leaves the Users list's default view,
+    -- signs in to nothing, and keeps its row, so every record that names it still does, and a
+    -- later sign-in of the same person makes no new request. NULL when it is not archived.
+    archived_at TIMESTAMPTZ,
+    CONSTRAINT users_archived_inactive_check CHECK (archived_at IS NULL OR NOT is_active)
 );
 
 -- A database made before Microsoft sign-in gains the column here; a no-op on a database the

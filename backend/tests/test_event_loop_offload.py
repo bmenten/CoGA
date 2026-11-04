@@ -2,21 +2,18 @@
 
 The backend runs one uvicorn worker, so anything slow on the event loop stalls every
 request. These pin that the bcrypt check at login and the per-gene phenotype scoring run
-off the loop thread, and that the signup notification is configured through Settings and
-logs neither the new account's address nor the mail server's error text (SEC-11).
+off the loop thread. The mail about an account waiting for approval, which the CAS sign-in
+sends from a worker thread, is pinned in ``test_account_request_mail.py``.
 """
 
 from __future__ import annotations
 
 import asyncio
-import logging
-import smtplib
 import threading
 
 import pytest
 from fastapi.testclient import TestClient
 
-from backend.app.core.config import Settings
 from backend.app.core.postgres import get_postgres_session
 from backend.app.main import app
 from backend.app.routers import auth as auth_router
@@ -104,82 +101,3 @@ def test_gene_phenotype_scoring_runs_off_the_event_loop(monkeypatch: pytest.Monk
 
     assert set(scores) == {"GENE1"}
     assert threads["score"] != threads["loop"], "phenotype scoring ran on the event loop thread"
-
-
-class _FakeSmtp:
-    sent: list[tuple[str, object]] = []
-
-    def __init__(self, host: str, timeout: float | None = None) -> None:
-        self.host = host
-        self.timeout = timeout
-
-    def __enter__(self) -> "_FakeSmtp":
-        return self
-
-    def __exit__(self, *exc) -> None:
-        return None
-
-    def send_message(self, message) -> None:
-        _FakeSmtp.sent.append((self.host, message))
-
-
-def test_signup_notification_goes_to_admin_email_through_smtp_host(monkeypatch: pytest.MonkeyPatch) -> None:
-    _FakeSmtp.sent = []
-    configured = Settings(_env_file=None, APP_ENV="test", ADMIN_EMAIL="lab@example.org", SMTP_HOST="mail.internal")
-    monkeypatch.setattr(auth_router, "settings", configured)
-    monkeypatch.setattr(auth_router.smtplib, "SMTP", _FakeSmtp)
-
-    auth_router.notify_admin("new.user@example.org")
-
-    assert len(_FakeSmtp.sent) == 1
-    host, message = _FakeSmtp.sent[0]
-    assert host == "mail.internal"
-    assert message["To"] == "lab@example.org"
-
-
-def test_no_signup_notification_without_a_configured_admin_email(monkeypatch: pytest.MonkeyPatch) -> None:
-    _FakeSmtp.sent = []
-    monkeypatch.delenv("ADMIN_EMAIL", raising=False)
-    # ADMIN_EMAIL left at its default: the seed admin's placeholder, not an address to mail.
-    monkeypatch.setattr(auth_router, "settings", Settings(_env_file=None, APP_ENV="test"))
-    monkeypatch.setattr(auth_router.smtplib, "SMTP", _FakeSmtp)
-
-    auth_router.notify_admin("new.user@example.org")
-
-    assert _FakeSmtp.sent == []
-
-
-def test_a_skipped_signup_notification_logs_no_address(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
-) -> None:
-    monkeypatch.delenv("ADMIN_EMAIL", raising=False)
-    monkeypatch.setattr(auth_router, "settings", Settings(_env_file=None, APP_ENV="test"))
-
-    with caplog.at_level(logging.INFO):
-        auth_router.notify_admin("new.user@example.org")
-
-    (record,) = [record for record in caplog.records if "sign-up notification" in record.getMessage()]
-    assert record.name == auth_router.__name__
-    assert "new.user@example.org" not in record.getMessage()
-
-
-class _RefusingSmtp(_FakeSmtp):
-    def send_message(self, message) -> None:
-        # The server's answer quotes the addresses, as a refused recipient's does.
-        raise smtplib.SMTPRecipientsRefused({"lab@example.org": (550, b"no mailbox for new.user@example.org")})
-
-
-def test_a_failed_signup_notification_logs_the_error_type_only(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
-) -> None:
-    configured = Settings(_env_file=None, APP_ENV="test", ADMIN_EMAIL="lab@example.org", SMTP_HOST="mail.internal")
-    monkeypatch.setattr(auth_router, "settings", configured)
-    monkeypatch.setattr(auth_router.smtplib, "SMTP", _RefusingSmtp)
-
-    with caplog.at_level(logging.INFO):
-        auth_router.notify_admin("new.user@example.org")
-
-    (record,) = [record for record in caplog.records if "sign-up notification" in record.getMessage()]
-    assert (record.name, record.levelno) == (auth_router.__name__, logging.ERROR)
-    assert record.getMessage() == "Failed to send the sign-up notification: SMTPRecipientsRefused"
-    assert "example.org" not in record.getMessage()

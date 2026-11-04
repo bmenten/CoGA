@@ -43,8 +43,12 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   without a document type declaration, so no entity is expanded. The account is bound to the
   Entra object ID the server releases (`azureObjectId`, `users.azure_object_id`), the same
   account a Microsoft sign-in finds, never linked by e-mail address. CAS admits every account
-  of the organisation, so a first sign-in makes an **inactive** viewer account in no project and
-  e-mails `ADMIN_EMAIL`; it signs in once an administrator activates it. A refused ticket
+  of the organisation, so a first sign-in makes an **inactive** viewer account in no project
+  that waits for approval, and every active administrator is e-mailed (with `SMTP_HOST`); it
+  signs in once an administrator activates it. An account that was never active can be deleted;
+  any other is archived (inactive, out of the default list, its row kept so every record that
+  names it still does). Each activation, archive, restore and deletion is asked for
+  confirmation on *Users* and recorded in the request audit (`request_meta.account_change`). A refused ticket
   answers 401 and counts against the source address (`auth_login_attempts`, scope `cas_ip`),
   which is throttled. The session is CoGA's own HS256 token, which then signs in only an
   account bound to an object ID, or the emergency administrator while `AZURE_ADMIN_OVERRIDE` is

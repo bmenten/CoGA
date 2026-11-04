@@ -305,9 +305,16 @@ class Settings(BaseSettings):
     admin_username: str = Field(default="admin", alias="ADMIN_USERNAME")
     admin_password: str = Field(default="change-me", alias="ADMIN_PASSWORD")
     admin_email: str = Field(default="admin@example.com", alias="ADMIN_EMAIL")
-    # The SMTP relay (port 25, no authentication) that sends the new-signup notification
-    # to ADMIN_EMAIL; the notification is only sent when ADMIN_EMAIL is configured.
-    smtp_host: str = Field(default="localhost", alias="SMTP_HOST")
+    # The mail server that tells the administrators of an account that waits for approval (a
+    # sign-up, a first CAS sign-in; services/account_notifications.py). No mail goes out
+    # without SMTP_HOST. SMTP_FROM is the sender, ADMIN_EMAIL when it is not set; with
+    # SMTP_USERNAME the server is signed in to, which needs SMTP_STARTTLS outside development.
+    smtp_host: str = Field(default="", alias="SMTP_HOST")
+    smtp_port: int = Field(default=25, ge=1, le=65535, alias="SMTP_PORT")
+    smtp_starttls: bool = Field(default=False, alias="SMTP_STARTTLS")
+    smtp_username: str = Field(default="", alias="SMTP_USERNAME")
+    smtp_password: str = Field(default="", alias="SMTP_PASSWORD")
+    smtp_from: str = Field(default="", alias="SMTP_FROM")
     login_rate_limit_window_seconds: int = Field(default=900, ge=60, alias="LOGIN_RATE_LIMIT_WINDOW_SECONDS")
     login_rate_limit_threshold: int = Field(default=5, ge=1, alias="LOGIN_RATE_LIMIT_THRESHOLD")
     login_rate_limit_base_backoff_seconds: int = Field(
@@ -861,6 +868,14 @@ class Settings(BaseSettings):
         if self.is_development:
             return self
 
+        # A mail server's password would cross the network in the clear.
+        if self.smtp_username.strip() and not self.smtp_starttls:
+            raise ValueError(
+                "Refusing to start outside development/test with SMTP_USERNAME set and "
+                "SMTP_STARTTLS off: the mail server's password would be sent unencrypted. Set "
+                "SMTP_STARTTLS=true, or leave SMTP_USERNAME empty for a relay that needs no "
+                "sign-in."
+            )
         if self.audit_log_drop_allowed:
             raise ValueError(
                 "AUDIT_LOG_DROP_ALLOWED=true is only permitted in development/test: "

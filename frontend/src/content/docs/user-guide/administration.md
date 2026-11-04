@@ -45,8 +45,17 @@ page is an administrator's alone.
     analysis out; a **superuser** also has every project, member or not, and the gene panels, variant
     tags, preset filters, sequencing QC thresholds and package import; an **admin** has the whole
     administration. Give the supervisor role only to those the laboratory authorises to sign out.
-  - Activate a new account here. Deactivate one to revoke access without deleting its history. You
-    cannot deactivate your own: another administrator does that.
+  - Each account shows when it was added and where it stands. A sign-up, or a first sign-in through
+    the organisation, *waits for approval*: these accounts come first, and every active administrator
+    gets an e-mail about each when a mail server is set (the page says who, and **Send a test mail**
+    checks it). Activate the account, or **Delete** it when it is not relevant; only an account that
+    was never active can be deleted.
+  - Deactivate an account to revoke access without deleting its history. **Archive** one that is
+    not coming back: it is deactivated and leaves the list (tick **Show archived accounts** to see
+    it), every record still names it, and the same person signing in again makes no new request.
+    **Restore** brings it back, inactive. You cannot deactivate, archive or delete your own: another
+    administrator does that.
+  - Every change asks you to confirm it first, and is kept in the audit log.
   - When you deactivate an account, an import, a gene reference sync or a clinical CNV knowledgebase
     rebuild it asked for that has not started yet is not run, and a rebuild not yet loaded loads
     nothing: its job ends *failed*, saying why. The same holds once the account loses the role the job

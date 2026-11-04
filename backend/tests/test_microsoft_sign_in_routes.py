@@ -11,10 +11,14 @@ and flagged in the request audit (``request_meta.emergency_sign_in``). Any other
 right password is refused with 403 and counts as a failed attempt. There is no sign-up:
 accounts come from the first Microsoft sign-in.
 
-``PATCH /api/auth/users/{id}`` sets an account's global role as well as its activation. An
-administrator cannot change their own role, nor the emergency administrator's, and cannot
-deactivate the emergency administrator; a viewer cannot call it. What changed, each field from and to, is in the request's audit row
-(``request_meta.account_change``) (REQ-SEC-002, REQ-SEC-004).
+``PATCH /api/auth/users/{id}`` sets an account's global role as well as its activation, and
+archives or restores it. An administrator cannot change their own role, nor the emergency
+administrator's, and cannot deactivate or archive their own account or the emergency
+administrator's; an account is not archived and activated at once; a viewer cannot call it.
+``DELETE /api/auth/users/{id}`` deletes an account that was never active, and refuses the
+administrator's own account and the emergency administrator's. What changed, each field from
+and to, or the account deleted, is in the request's audit row (``request_meta.account_change``)
+(REQ-SEC-002, REQ-SEC-004).
 
 The requests go through the real routes, ``get_current_user`` and the audit middleware; the
 account store, the throttle and the audit write are replaced. The accounts are synthetic.
@@ -82,6 +86,8 @@ def _current_user(account: dict[str, Any]) -> CurrentUser:
         is_active=account["is_active"],
         azure_object_id=account["azure_object_id"],
         created_at=account["created_at"],
+        activated_at=account.get("activated_at"),
+        archived_at=account.get("archived_at"),
     )
 
 
@@ -103,6 +109,7 @@ class _Store:
         self.cleared: list[str] = []
         self.throttle_reads = 0
         self.updates: list[dict[str, Any]] = []
+        self.deleted: list[str] = []
 
     def by_id(self, user_id: str) -> dict[str, Any] | None:
         return next((account for account in self.accounts.values() if account["id"] == user_id), None)
@@ -133,17 +140,33 @@ def store(monkeypatch: pytest.MonkeyPatch) -> _Store:
     async def account_by_id(_session: Any, user_id: str) -> dict[str, Any] | None:
         return store.by_id(user_id)
 
-    async def update(_session: Any, *, user_id: str, is_active: bool | None, role: str | None = None):
+    async def update(
+        _session: Any,
+        *,
+        user_id: str,
+        is_active: bool | None,
+        role: str | None = None,
+        archived: bool | None = None,
+    ):
         account = store.by_id(user_id)
         assert account is not None
         changes: dict[str, dict[str, Any]] = {}
+        if archived is not None and archived != bool(account.get("archived_at")):
+            changes["archived"] = {"from": not archived, "to": archived}
+            account["archived_at"] = datetime.now(timezone.utc) if archived else None
+            if archived and account["is_active"]:
+                changes["is_active"] = {"from": True, "to": False}
+                account["is_active"] = False
         if is_active is not None and is_active != account["is_active"]:
             changes["is_active"] = {"from": account["is_active"], "to": is_active}
             account["is_active"] = is_active
         if role is not None and role != account["role"]:
             changes["role"] = {"from": account["role"], "to": role}
             account["role"] = role
-        store.updates.append({"user_id": user_id, "is_active": is_active, "role": role})
+        store.updates.append(
+            {"user_id": user_id, "is_active": is_active, "role": role}
+            | ({"archived": archived} if archived is not None else {})
+        )
         return (
             UserRead(
                 id=account["id"],
@@ -165,7 +188,15 @@ def store(monkeypatch: pytest.MonkeyPatch) -> _Store:
         auth_router, "verify_password", lambda plain, hashed: plain == _PHRASE and hashed == _STORED_HASH
     )
     monkeypatch.setattr(auth_router, "get_user_account_mapping", account_by_id)
+    async def delete(_session: Any, *, user_id: str) -> dict[str, Any]:
+        account = store.by_id(user_id)
+        assert account is not None
+        store.deleted.append(user_id)
+        store.accounts.pop(account["email"])
+        return {"user_id": user_id, "email": account["email"], "deleted": True}
+
     monkeypatch.setattr(auth_router, "update_user_account", update)
+    monkeypatch.setattr(auth_router, "delete_waiting_user_account", delete)
     monkeypatch.setattr(dependencies, "get_current_user_by_email", user_by_email)
     monkeypatch.setattr(dependencies, "get_auth_user_mapping_by_email", account_by_email)
     return store
@@ -493,6 +524,109 @@ def test_project_access_is_not_set_with_the_account(client: TestClient, store: _
     assert store.by_id(LOCAL_VIEWER["id"])["role"] == "viewer"
     (row,) = _rows(audit_rows, f"/api/auth/users/{LOCAL_VIEWER['id']}")
     assert "account_change" not in row.request_meta
+
+
+# --------------------------------------------------------------------------- #
+# An administrator archives, restores and deletes an account
+# --------------------------------------------------------------------------- #
+
+
+def test_archiving_an_account_deactivates_it_and_the_audit_row_says_so(
+    client: TestClient, store: _Store, audit_rows: list[Any]
+) -> None:
+    archived = client.patch(
+        f"/api/auth/users/{LOCAL_VIEWER['id']}", json={"archived": True}, headers=_bearer(LOCAL_ADMIN["email"])
+    )
+    restored = client.patch(
+        f"/api/auth/users/{LOCAL_VIEWER['id']}", json={"archived": False}, headers=_bearer(LOCAL_ADMIN["email"])
+    )
+
+    assert archived.status_code == 200, archived.text
+    assert restored.status_code == 200, restored.text
+    assert store.updates == [
+        {"user_id": LOCAL_VIEWER["id"], "is_active": None, "role": None, "archived": True},
+        {"user_id": LOCAL_VIEWER["id"], "is_active": None, "role": None, "archived": False},
+    ]
+    first, second = _rows(audit_rows, f"/api/auth/users/{LOCAL_VIEWER['id']}")
+    assert first.request_meta["account_change"] == {
+        "user_id": LOCAL_VIEWER["id"],
+        "email": LOCAL_VIEWER["email"],
+        "is_active": {"from": True, "to": False},
+        "archived": {"from": False, "to": True},
+    }
+    # Restored, it stays inactive: activating it is a change of its own.
+    assert second.request_meta["account_change"] == {
+        "user_id": LOCAL_VIEWER["id"],
+        "email": LOCAL_VIEWER["email"],
+        "archived": {"from": True, "to": False},
+    }
+    assert store.by_id(LOCAL_VIEWER["id"])["is_active"] is False
+
+
+@pytest.mark.parametrize(
+    ("target", "body", "status", "detail"),
+    [
+        pytest.param(LOCAL_ADMIN, {"archived": True}, 403, auth_router.OWN_ARCHIVE_DETAIL, id="your-own-account"),
+        pytest.param(
+            EMERGENCY, {"archived": True}, 403, auth_router.EMERGENCY_ARCHIVE_DETAIL, id="the-emergency-admin"
+        ),
+        pytest.param(
+            LOCAL_VIEWER,
+            {"archived": True, "is_active": True},
+            400,
+            auth_router.ARCHIVE_ACTIVE_DETAIL,
+            id="archived-and-active-at-once",
+        ),
+    ],
+)
+def test_some_accounts_are_not_archived(
+    client: TestClient, store: _Store, audit_rows: list[Any], target: dict, body: dict, status: int, detail: str
+) -> None:
+    response = client.patch(f"/api/auth/users/{target['id']}", json=body, headers=_bearer(LOCAL_ADMIN["email"]))
+
+    assert (response.status_code, response.json()) == (status, {"detail": detail})
+    assert store.updates == []
+    (row,) = _rows(audit_rows, f"/api/auth/users/{target['id']}")
+    assert "account_change" not in row.request_meta
+
+
+def test_an_admin_deletes_an_account_and_the_audit_row_names_it(
+    client: TestClient, store: _Store, audit_rows: list[Any], caplog: pytest.LogCaptureFixture
+) -> None:
+    with caplog.at_level(logging.INFO, logger=auth_router.__name__):
+        response = client.delete(f"/api/auth/users/{LOCAL_VIEWER['id']}", headers=_bearer(LOCAL_ADMIN["email"]))
+
+    assert response.status_code == 204, response.text
+    assert store.deleted == [LOCAL_VIEWER["id"]]
+    (row,) = _rows(audit_rows, f"/api/auth/users/{LOCAL_VIEWER['id']}")
+    assert (row.user_email, row.status_code) == (LOCAL_ADMIN["email"], 204)
+    assert row.request_meta["account_change"] == {
+        "user_id": LOCAL_VIEWER["id"],
+        "email": LOCAL_VIEWER["email"],
+        "deleted": True,
+    }
+    # The log names the account's id only: who deleted it, and whom, are in the audit row.
+    (line,) = [record.getMessage() for record in caplog.records if " deleted " in record.getMessage()]
+    assert line == f"account {LOCAL_VIEWER['id']} deleted (who deleted it, and the account, in the request audit)"
+
+
+@pytest.mark.parametrize(
+    ("target", "caller", "status", "detail"),
+    [
+        pytest.param(LOCAL_ADMIN, LOCAL_ADMIN, 403, auth_router.OWN_DELETE_DETAIL, id="your-own-account"),
+        pytest.param(EMERGENCY, LOCAL_ADMIN, 403, auth_router.EMERGENCY_ARCHIVE_DETAIL, id="the-emergency-admin"),
+        pytest.param(LOCAL_VIEWER, LOCAL_VIEWER, 403, "Admin access required", id="by-a-viewer"),
+        pytest.param({"id": str(uuid4())}, LOCAL_ADMIN, 404, "User not found", id="an-unknown-account"),
+        pytest.param({"id": "not-a-uuid"}, LOCAL_ADMIN, 400, "Invalid user id", id="a-malformed-id"),
+    ],
+)
+def test_some_accounts_are_not_deleted(
+    client: TestClient, store: _Store, target: dict, caller: dict, status: int, detail: str
+) -> None:
+    response = client.delete(f"/api/auth/users/{target['id']}", headers=_bearer(caller["email"]))
+
+    assert (response.status_code, response.json()) == (status, {"detail": detail})
+    assert store.deleted == []
 
 
 def test_the_emergency_admin_is_activated_and_other_accounts_deactivated(
