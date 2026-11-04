@@ -29,6 +29,7 @@ Design notes
 from __future__ import annotations
 
 import base64
+import binascii
 import hashlib
 import json
 import re
@@ -152,7 +153,7 @@ def _decode_cursor(
     try:
         raw = base64.urlsafe_b64decode(cursor.encode()).decode()
         parts = raw.split(":")
-    except (ValueError, UnicodeDecodeError, base64.binascii.Error):
+    except (ValueError, UnicodeDecodeError, binascii.Error):
         return None
     if len(parts) != 7:
         return None

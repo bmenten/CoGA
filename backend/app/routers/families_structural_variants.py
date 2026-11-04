@@ -143,7 +143,7 @@ async def get_family_structural_variants(
     # After the user: the caller is signed in, and the request's values are held to the
     # control-character rule, before a filter is read.
     filters: StructuralVariantQueryFilters = Depends(_family_structural_variant_filters),
-) -> VariantPage:
+) -> VariantPage | Response:
     context = await build_family_metadata_context(
         session,
         family_identifier=family_id,

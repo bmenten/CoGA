@@ -262,6 +262,8 @@ def pgt_family_block(
         for member in ped.members
         if roles.get(member.iid) == "embryo" and member.pid not in {"", "0"} and member.mid not in {"", "0"}
     }
+    father: str | None
+    mother: str | None
     if len(embryo_parents) == 1:
         father, mother = next(iter(embryo_parents))
     else:

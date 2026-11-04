@@ -21,6 +21,7 @@ from ..schemas import (
     FamilyStructureParentChildUpdate,
     FamilyStructureRelationshipsUpdate,
     FamilyStructureUpdate,
+    HpoAnnotationOut,
 )
 from .clickhouse_variant_storage import (
     count_family_small_variants_by_sample,
@@ -404,7 +405,7 @@ async def get_family_member_detail_for_user(
         member=member,
         father_id=father_id,
         mother_id=mother_id,
-        hpo_annotations=hpo_annotations,
+        hpo_annotations=[HpoAnnotationOut.model_validate(annotation) for annotation in hpo_annotations],
         impact=impact,
     )
 
@@ -490,10 +491,10 @@ def _replace_sample_id_in_relationships(
             relationship.parent = new_sample_id
         if _sample_key(relationship.child) == _sample_key(old_sample_id):
             relationship.child = new_sample_id
-    for relationship in relationships.couples:
-        relationship.partners = [
+    for couple in relationships.couples:
+        couple.partners = [
             new_sample_id if _sample_key(partner) == _sample_key(old_sample_id) else partner
-            for partner in relationship.partners
+            for partner in couple.partners
         ]
 
 

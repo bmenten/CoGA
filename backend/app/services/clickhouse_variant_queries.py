@@ -4,11 +4,12 @@ import json
 import re
 from bisect import bisect_right
 from dataclasses import dataclass
-from typing import Any, Collection, Final, Iterable, Protocol, Sequence
+from typing import Any, Collection, Final, Iterable, Protocol, Sequence, cast
 
 from fastapi import HTTPException
 
 from ..schemas import (
+    ApiId,
     GenotypeOut,
     SmallVariantFilterTranscriptOut,
     SmallVariantReviewOut,
@@ -1636,7 +1637,8 @@ def _compound_het_pairs(
             continue
         for index, left in enumerate(group_records[:-1]):
             for right in group_records[index + 1 :]:
-                pair_ids = tuple(sorted((left.variant_id, right.variant_id)))
+                first_id, second_id = sorted((left.variant_id, right.variant_id))
+                pair_ids = (first_id, second_id)
                 if pair_ids in pair_map:
                     continue
                 verdict = _compound_het_pair_verdict(
@@ -1911,7 +1913,7 @@ def _small_variant_out(
     transcripts = _small_transcript_annotations(record.annotations, annotation)
     filter_annotation = _filter_transcript_annotation(record.annotations, annotation, filters)
     return VariantOut(
-        _id=record.variant_id,
+        _id=ApiId(record.variant_id),
         chr=record.chr,
         start=record.start,
         end=record.end,
@@ -2037,7 +2039,7 @@ def _structural_variant_out(
         annotation_extra["cytoband"] = cytoband
     population_frequencies = annotation_extra.get("population_frequencies")
     return VariantOut(
-        _id=record.variant_id,
+        _id=ApiId(record.variant_id),
         chr=record.chr,
         start=record.start,
         end=record.end,
@@ -3703,8 +3705,8 @@ def _inheritance_item_sort_key(
 ) -> tuple[int, int, int, str, int, int, str, str]:
     item_type, item_value = item
     if item_type == "group":
-        return (0, *_small_record_sort_key(item_value.left))
-    return (1, *_small_record_sort_key(item_value))
+        return (0, *_small_record_sort_key(cast(SmallVariantCompoundHetPair, item_value).left))
+    return (1, *_small_record_sort_key(cast(SmallVariantRecord, item_value)))
 
 
 def _inheritance_result_items(
@@ -3717,7 +3719,7 @@ def _inheritance_result_items(
     assembly_name: str | None = None,
     pedigree: FamilyPedigree | None = None,
 ) -> list[tuple[str, SmallVariantCompoundHetPair | SmallVariantRecord]]:
-    pair_items = [
+    pair_items: list[tuple[str, SmallVariantCompoundHetPair | SmallVariantRecord]] = [
         ("group", pair)
         for pair in _compound_het_pairs(
             records,

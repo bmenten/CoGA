@@ -11,7 +11,7 @@ import math
 import os
 from pathlib import Path
 import re
-from typing import Any, Awaitable, Callable, Iterable, TextIO
+from typing import Any, Awaitable, Callable, Coroutine, Iterable, TextIO
 import zlib
 
 from fastapi import HTTPException
@@ -251,7 +251,7 @@ FamilyRecordCallback = Callable[[str], Awaitable[None]]
 
 
 async def _run_with_periodic_progress(
-    work: Awaitable[Any],
+    work: Coroutine[Any, Any, Any],
     *,
     report: Callable[[dict[str, Any]], Awaitable[None]] | None,
     stats: dict[str, Any],

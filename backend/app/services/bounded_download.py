@@ -21,7 +21,7 @@ refuses it, and the readers that stream a file refuse it before they read it
 from __future__ import annotations
 
 import os
-from typing import BinaryIO
+from typing import BinaryIO, Literal, overload
 import zlib
 
 import httpx
@@ -112,6 +112,28 @@ def require_bgzf_path_end(path: str | os.PathLike[str], *, label: str) -> None:
     """``require_bgzf_file_end`` for the file at ``path``."""
     with open(path, "rb") as handle:
         require_bgzf_file_end(handle, label=label)
+
+
+@overload
+async def download_bounded_bytes(
+    client: httpx.AsyncClient,
+    url: str,
+    *,
+    max_bytes: int = ...,
+    source: str | None = ...,
+    none_on_404: Literal[False] = ...,
+) -> bytes: ...
+
+
+@overload
+async def download_bounded_bytes(
+    client: httpx.AsyncClient,
+    url: str,
+    *,
+    max_bytes: int = ...,
+    source: str | None = ...,
+    none_on_404: bool,
+) -> bytes | None: ...
 
 
 async def download_bounded_bytes(

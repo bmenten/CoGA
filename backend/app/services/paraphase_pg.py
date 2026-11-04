@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..core.config import settings
 from ..core.sql import uuid_list_bindparam, uuid_values
 from ..schemas import (
+    FamilyMemberOut,
     FamilyParaphaseTableOut,
     ParaphaseGeneResultOut,
     ParaphaseExtraFieldOut,
@@ -478,12 +479,14 @@ async def get_family_paraphase_table_response(
 ) -> FamilyParaphaseTableOut:
     sample_ids = list(context.sample_uuid_to_name)
     samples = [
-        {
-            "sample_id": row["sample_id"],
-            "role": row.get("role", "sibling"),
-            "affected": bool(row.get("affected", False)),
-            "sex": row.get("sex", "und"),
-        }
+        FamilyMemberOut.model_validate(
+            {
+                "sample_id": row["sample_id"],
+                "role": row.get("role", "sibling"),
+                "affected": bool(row.get("affected", False)),
+                "sex": row.get("sex", "und"),
+            }
+        )
         for row in context.sample_rows
     ]
     if not sample_ids:

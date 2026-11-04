@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from typing import Dict, List
+from typing import Any, Dict, List
 
 import httpx
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
@@ -875,7 +875,7 @@ async def list_ui_event_log(
 async def get_hpo_summary(
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_admin_user),
-) -> HpoAdminSummaryOut:
+) -> dict[str, Any]:
     del user
     return await get_hpo_admin_summary(session)
 
@@ -886,7 +886,7 @@ async def list_hpo_terms_for_admin(
     limit: int = Query(default=100, ge=1, le=200),
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_admin_user),
-) -> List[HpoAdminTermOut]:
+) -> list[dict[str, Any]]:
     del user
     return await list_hpo_admin_terms(session, query=q, limit=limit)
 
@@ -896,7 +896,7 @@ async def sync_hpo_terms(
     payload: HpoOntologySyncRequest,
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_admin_user),
-) -> HpoOntologySyncOut:
+) -> dict[str, Any]:
     del user
     try:
         return await sync_hpo_ontology(

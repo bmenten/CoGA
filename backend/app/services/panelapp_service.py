@@ -25,8 +25,10 @@ def panelapp_panel_url(panelapp_id: int) -> str:
 
 
 def panelapp_summary(payload: dict[str, Any]) -> PanelAppPanelSummaryOut:
-    stats = payload.get("stats") if isinstance(payload.get("stats"), dict) else {}
-    panelapp_id = int(payload.get("id"))
+    stated_stats = payload.get("stats")
+    stats = stated_stats if isinstance(stated_stats, dict) else {}
+    stated_id: Any = payload.get("id")
+    panelapp_id = int(stated_id)
     return PanelAppPanelSummaryOut(
         panelapp_id=panelapp_id,
         name=str(payload.get("name") or f"PanelApp {panelapp_id}"),
@@ -74,7 +76,8 @@ async def search_panelapp_panels(query: str, *, page_size: int = 20) -> tuple[li
     if cleaned_query:
         params["name"] = cleaned_query
     payload = await _get_panelapp_json("/panels/", params=params)
-    results = payload.get("results") if isinstance(payload.get("results"), list) else []
+    stated_results = payload.get("results")
+    results = stated_results if isinstance(stated_results, list) else []
     return [panelapp_summary(row) for row in results if isinstance(row, dict)], int(payload.get("count") or 0)
 
 
@@ -93,7 +96,8 @@ def _entity_confidence(entity: dict[str, Any]) -> str:
 
 
 def _entity_symbol(entity: dict[str, Any]) -> str | None:
-    gene_data = entity.get("gene_data") if isinstance(entity.get("gene_data"), dict) else {}
+    stated_gene_data = entity.get("gene_data")
+    gene_data = stated_gene_data if isinstance(stated_gene_data, dict) else {}
     for value in (
         gene_data.get("hgnc_symbol"),
         gene_data.get("gene_symbol"),
@@ -169,7 +173,8 @@ def _append_region(regions: list[GeneLocation], region: GeneLocation) -> None:
 
 
 def _region_from_gene_entity(entity: dict[str, Any], assembly: str, symbol: str) -> GeneLocation | None:
-    gene_data = entity.get("gene_data") if isinstance(entity.get("gene_data"), dict) else {}
+    stated_gene_data = entity.get("gene_data")
+    gene_data = stated_gene_data if isinstance(stated_gene_data, dict) else {}
     parsed = _location_from_gene_data(gene_data, assembly)
     if parsed is None:
         return None

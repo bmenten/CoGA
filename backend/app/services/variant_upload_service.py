@@ -10,7 +10,7 @@ import itertools
 import json
 import logging
 import math
-from typing import Any, Awaitable, Callable, Collection, Final, Generator, Iterable, Literal, Sequence, TypeVar
+from typing import Any, Awaitable, Callable, Collection, Final, Generator, Iterable, Literal, Sequence, TypeVar, cast
 import zlib
 
 from fastapi import HTTPException, UploadFile
@@ -638,9 +638,10 @@ async def _read_off_the_event_loop(steps: Generator[_LoopStep, None, _ReadT]) ->
     try:
         while True:
             done, step, value = await _in_worker_thread(_advance, steps)
+            # _advance gives what the reader returned once it has ended, else its next step.
             if done:
-                return value
-            await step()
+                return cast(_ReadT, value)
+            await cast(_LoopStep, step)()
     finally:
         # An insert that failed leaves the reader waiting at its batch: its file is let go
         # now. No step runs in the thread by then (_in_worker_thread waits for it).
@@ -821,7 +822,7 @@ async def upload_family_small_variant_file(
     annotation_version = "vep_tsv" if vep_annotations is not None else "vcf_info"
     # Defined before the try so the compensating except can scope its cleanup to this
     # upload's own source even if detection itself is what failed.
-    resolved_format: SmallVariantFormat | None = None
+    resolved_format: ResolvedSmallVariantFormat | None = None
     # Only compensate once we've entered the mutating phase (past the "refuse if data
     # already exists and not overwrite" 409, and past the check of the whole file).
     # Otherwise a non-overwrite conflict, or a file the check refused, would trigger a

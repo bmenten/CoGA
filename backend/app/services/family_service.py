@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import re
-from typing import Any
+from typing import Any, cast
 
 from fastapi import HTTPException
 from sqlalchemy import bindparam, text
@@ -458,14 +458,18 @@ async def get_family_track_availability_for_user(
         segregation_ids,
         haplotype_ids,
         repeat_ids,
-    ) = await asyncio.gather(
-        coverage_task,
-        segment_task,
-        apcad_task,
-        apcad_pcf_task,
-        segregation_task,
-        haplotype_task,
-        repeat_task,
+    ) = cast(
+        # asyncio.gather is typed for six awaitables at most, each apart: these are seven.
+        "tuple[dict[str, list[str]], dict[str, list[str]], dict[str, list[str]], set[str], set[str], set[str], set[str]]",
+        await asyncio.gather(
+            coverage_task,
+            segment_task,
+            apcad_task,
+            apcad_pcf_task,
+            segregation_task,
+            haplotype_task,
+            repeat_task,
+        ),
     )
     # What each caller's coverage values are, as its import recorded them. A HiFiCNV depth
     # track is a log2 ratio unless its sample had no usable autosomal median, when its

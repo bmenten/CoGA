@@ -137,7 +137,8 @@ def _qc_out(summary: NiptFamilySummary) -> NiptQcOut:
             het_not_transmitted=evidence.het_not_transmitted,
             hom_alt_rate=evidence.hom_alt_rate,
             het_rate=evidence.het_rate,
-            status=paternity.status,
+            # evaluate_paternity gives pass, warn or fail, never skip.
+            status=paternity.status,  # type: ignore[arg-type]
             message=paternity.message,
         ),
         fetal_fraction_status=checks.fetal_fraction_check.status,

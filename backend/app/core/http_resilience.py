@@ -85,13 +85,12 @@ async def resilient_request(
     attempts = max(1, attempts)
 
     own_client = client is None
-    if own_client:
-        client = httpx.AsyncClient(timeout=default_timeout(), follow_redirects=follow_redirects)
+    http = client if client is not None else httpx.AsyncClient(timeout=default_timeout(), follow_redirects=follow_redirects)
     try:
         response: httpx.Response | None = None
         for attempt in range(1, attempts + 1):
             try:
-                response = await client.request(method_upper, url, **kwargs)
+                response = await http.request(method_upper, url, **kwargs)
             except (httpx.TimeoutException, httpx.TransportError):
                 # TimeoutException is itself a TransportError; both listed for clarity.
                 if not retryable or attempt >= attempts:
@@ -108,4 +107,4 @@ async def resilient_request(
         return response
     finally:
         if own_client:
-            await client.aclose()
+            await http.aclose()

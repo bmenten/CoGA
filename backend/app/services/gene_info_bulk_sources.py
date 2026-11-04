@@ -1427,7 +1427,8 @@ def parse_acmg_sf_list(text_value: str) -> tuple[str, dict[str, dict[str, Any]]]
     if not isinstance(version, str) or not re.fullmatch(r"[0-9]+\.[0-9]+", version.strip()):
         raise AcmgSfListError("the list states no version")
     version = version.strip()
-    source = document.get("source") if isinstance(document.get("source"), dict) else {}
+    stated_source = document.get("source")
+    source = stated_source if isinstance(stated_source, dict) else {}
     source_url = _acmg_sf_text(source, "url")
     genes = document.get("genes")
     if not isinstance(genes, list) or not genes:

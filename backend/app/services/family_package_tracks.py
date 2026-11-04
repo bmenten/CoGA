@@ -749,8 +749,8 @@ def _apcad_value(
         return value
     ad_raw = _first_mapping_value(fmt_vals, ("AD",))
     if ad_raw is not None:
-        depths = [_coerce_int(item) for item in ad_raw.split(",")]
-        depths = [depth for depth in depths if depth is not None]
+        coerced = [_coerce_int(item) for item in ad_raw.split(",")]
+        depths = [depth for depth in coerced if depth is not None]
         if len(depths) >= 2:
             total = sum(depths)
             return depths[1] / total if total > 0 else None
@@ -875,9 +875,9 @@ def _parse_apcad_interval_row(
         # Its FILTER and QUAL, where the table has them, as a VCF's sites carry theirs: the
         # APCAD view keeps the sites that passed.
         for key in ("filter", "qual"):
-            value = _normalized_header_value(parts, header, key)
-            if value is not None:
-                extra[key] = value
+            column_value = _normalized_header_value(parts, header, key)
+            if column_value is not None:
+                extra[key] = column_value
     else:
         if len(parts) >= 7 and _coerce_int(parts[1]) is not None and _coerce_int(parts[2]) is None:
             chrom = parts[0]
@@ -1275,13 +1275,13 @@ async def _import_apcad_track_file(
                 path=path,
             )
     for sample_id, stats in sample_results.items():
-        sample_context = sample_contexts.get(sample_id)
-        if sample_context is None:
+        stats_context = sample_contexts.get(sample_id)
+        if stats_context is None:
             continue
         inserted = int(stats.get("inserted", 0)) if isinstance(stats, dict) else 0
         await upsert_interval_track_source(
             session,
-            sample_context=sample_context,
+            sample_context=stats_context,
             track_type="apcad",
             source=APCAD_SOURCE,
             filename=path.name,

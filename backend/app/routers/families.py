@@ -1,4 +1,4 @@
-from typing import List
+from typing import Any, List
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response
 from sqlalchemy import text
@@ -23,6 +23,7 @@ from ..schemas import (
     HpoAnnotationOut,
     HpoAnnotationUpdate,
     PhenotypeMatchResultOut,
+    PhenotypeTermRefOut,
     UserRefOut,
 )
 from ..services.family_metadata_context import build_family_metadata_context
@@ -240,7 +241,7 @@ async def list_family_hpo(
     sample_id: str | None = None,
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
-) -> List[HpoAnnotationOut]:
+) -> list[dict[str, Any]]:
     context = await build_family_metadata_context(
         session,
         family_identifier=family_id,
@@ -334,6 +335,8 @@ async def family_phenotype_match(
         is_gene = (entry.get("category") or "").endswith("Gene")
         symbol = entry.get("name") if is_gene else None
         gene_terms = breakdown.get(symbol.upper(), {}) if symbol else {}
+        matching = [PhenotypeTermRefOut.model_validate(term) for term in gene_terms.get("matching", [])]
+        extra = [PhenotypeTermRefOut.model_validate(term) for term in gene_terms.get("extra", [])]
         results.append(
             PhenotypeMatchResultOut(
                 rank=entry["rank"],
@@ -343,8 +346,8 @@ async def family_phenotype_match(
                 category=entry.get("category"),
                 symbol=symbol,
                 gene_in_platform=bool(symbol and symbol in in_platform),
-                matching_phenotypes=gene_terms.get("matching", []),
-                extra_phenotypes=gene_terms.get("extra", []),
+                matching_phenotypes=matching,
+                extra_phenotypes=extra,
             )
         )
 
@@ -366,7 +369,7 @@ async def create_family_member_hpo(
     background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
-) -> HpoAnnotationOut:
+) -> dict[str, Any]:
     context = await build_family_metadata_context(
         session,
         family_identifier=family_id,
@@ -393,7 +396,7 @@ async def update_family_hpo(
     background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
-) -> HpoAnnotationOut:
+) -> dict[str, Any]:
     context = await build_family_metadata_context(
         session,
         family_identifier=family_id,

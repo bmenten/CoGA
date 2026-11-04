@@ -11,7 +11,7 @@ import sys
 import textwrap
 import traceback
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, cast
 
 # C0 control characters + DEL. CR/LF here are what let an attacker forge extra log
 # lines (CWE-117); tab/other control chars can corrupt log parsing too.
@@ -360,7 +360,9 @@ def _event_loop_detail(context: dict[str, Any]) -> dict[str, str]:
         elif isinstance(value, traceback.StackSummary):
             # Each frame by file, line, function and source line; any locals it captured are left out.
             frames = [(frame.filename, frame.lineno, frame.name, frame.line) for frame in value]
-            detail[key] = "".join(traceback.format_list(frames)).rstrip("\n")
+            # format_list prints a frame without a line number as it does a FrameSummary's.
+            formatted = traceback.format_list(cast("list[tuple[str, int, str, str | None]]", frames))
+            detail[key] = "".join(formatted).rstrip("\n")
         else:
             detail[key] = type(value).__qualname__
             # asyncio's handle names its callback; uvloop's does not, but the traceback has its frame.

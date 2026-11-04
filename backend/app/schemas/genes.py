@@ -494,10 +494,14 @@ class PanelAppPanelSearchResponse(BaseModel):
     count: int = 0
 
 
+def _green_only() -> List[Literal["1", "2", "3"]]:
+    return ["3"]
+
+
 class PanelAppImportRequest(BaseModel):
     panelapp_id: int = Field(ge=1)
     version: Optional[str] = None
-    confidence_levels: List[Literal["1", "2", "3"]] = Field(default_factory=lambda: ["3"])
+    confidence_levels: List[Literal["1", "2", "3"]] = Field(default_factory=_green_only)
     include_regions: bool = True
     include_strs: bool = True
     assembly: Literal["GRCh38", "GRCh37"] = "GRCh38"

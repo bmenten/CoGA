@@ -761,8 +761,8 @@ class HaplotypeBlockBuilder:
         calls_by_sample: dict[str, Any],
     ) -> None:
         father_name, mother_name = self.father_name, self.mother_name
-        father_call = calls_by_sample.get(father_name)
-        mother_call = calls_by_sample.get(mother_name)
+        father_call = calls_by_sample.get(father_name) if father_name is not None else None
+        mother_call = calls_by_sample.get(mother_name) if mother_name is not None else None
         # On chrX each block lies in one stretch, and outside the PARs a male has one X.
         stretch = self._stretch(chrom, start)
         one_copy = stretch is not None and is_one_copy_x_site(self.assembly_name, chrom, start)

@@ -474,8 +474,8 @@ def _relationship_rows_from_payload(
     rows: list[dict[str, Any]] = []
     for relationship in relationships.relationships.parent_child:
         rows.append(_parent_child_relationship_row(relationship, target_members=target_members))
-    for relationship in relationships.relationships.couples:
-        rows.append(_couple_relationship_row(relationship, target_members=target_members))
+    for couple in relationships.relationships.couples:
+        rows.append(_couple_relationship_row(couple, target_members=target_members))
     if relationships.relationships.relatives is None:
         # A payload without the links of unknown degree keeps them (for members still in
         # the family), so an editor that does not show them cannot drop them.
@@ -607,14 +607,16 @@ def _validate_relationship_graph(
         elif relationship_type == "couple":
             if key_a == key_b:
                 raise HTTPException(status_code=400, detail="A couple relationship needs two different members")
-            edge_key = tuple(sorted((key_a, key_b)))
+            low_key, high_key = sorted((key_a, key_b))
+            edge_key = (low_key, high_key)
             if edge_key in couple_edges:
                 raise HTTPException(status_code=400, detail=f"Duplicate couple relationship for {sample_a} and {sample_b}")
             couple_edges.add(edge_key)
         elif relationship_type == "relative":
             if key_a == key_b:
                 raise HTTPException(status_code=400, detail="A member cannot be related to themselves")
-            edge_key = tuple(sorted((key_a, key_b)))
+            low_key, high_key = sorted((key_a, key_b))
+            edge_key = (low_key, high_key)
             if edge_key in relative_edges:
                 raise HTTPException(status_code=400, detail=f"Duplicate relative link for {sample_a} and {sample_b}")
             relative_edges.add(edge_key)
@@ -685,8 +687,8 @@ def _pedigree_text_from_target(
         else:
             generic_parents[child_key].append(parent)
 
-    for child_key, parents in generic_parents.items():
-        for parent in parents:
+    for child_key, other_parents in generic_parents.items():
+        for parent in other_parents:
             if parents_by_child[child_key]["father"] is None:
                 parents_by_child[child_key]["father"] = parent
             elif parents_by_child[child_key]["mother"] is None:

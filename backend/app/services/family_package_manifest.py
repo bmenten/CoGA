@@ -999,9 +999,9 @@ def _normalize_manifest_samples(samples: dict[str, Any] | list[Any] | None) -> d
             continue
         if not isinstance(entry, dict):
             continue
-        sample_id = entry.get("sample_id") or entry.get("id")
-        if sample_id:
-            normalized[str(sample_id)] = dict(entry)
+        entry_sample_id = entry.get("sample_id") or entry.get("id")
+        if entry_sample_id:
+            normalized[str(entry_sample_id)] = dict(entry)
     return normalized
 
 

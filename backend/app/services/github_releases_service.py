@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import re
 from time import monotonic
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 
@@ -39,10 +39,12 @@ def _normalized_issues_url() -> str:
     return settings.github_issues_url.rstrip("/")
 
 
-def _normalized_repo_visibility() -> str:
+def _normalized_repo_visibility() -> Literal["private", "public", "unknown"]:
     normalized = settings.github_repo_visibility.strip().lower()
-    if normalized in {"private", "public"}:
-        return normalized
+    if normalized == "private":
+        return "private"
+    if normalized == "public":
+        return "public"
     return "unknown"
 
 

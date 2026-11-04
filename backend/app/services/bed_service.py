@@ -13,7 +13,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..schemas import HaplotypeResponse
+from ..schemas import HaplotypeResponse, HaplotypeSample
 from .upload_safety import decode_upload_text
 from .clickhouse_column_bounds import UINT64, column_int
 from .coverage_content import COVERAGE_CONTENT_KEY, declared_coverage_content
@@ -660,9 +660,9 @@ async def _fetch_bed_records_for_chroms(
 
     grouped: dict[str, list[dict[str, Any]]] = {chrom: [] for chrom in ordered}
     for row in rows:
-        chrom = alias_to_chrom.get(normalize_chromosome(str(row.get("chr") or "")))
-        if chrom is not None:
-            grouped[chrom].append(row)
+        row_chrom = alias_to_chrom.get(normalize_chromosome(str(row.get("chr") or "")))
+        if row_chrom is not None:
+            grouped[row_chrom].append(row)
 
     records: list[dict[str, Any]] = []
     for chrom in ordered:
@@ -906,10 +906,12 @@ async def get_family_haplotypes_response(
         # Built for another pedigree or other sexes (CLIN-66): the tracks read no risk state.
         blocks_outdated=blocks_outdated(context, await haplotype_source_rows(session, context)),
         samples=[
-            {
-                "sample": context.sample_uuid_to_name[sample_uuid],
-                "segments": segments.get(sample_uuid, []),
-            }
+            HaplotypeSample.model_validate(
+                {
+                    "sample": context.sample_uuid_to_name[sample_uuid],
+                    "segments": segments.get(sample_uuid, []),
+                }
+            )
             for sample_uuid in sample_ids
         ],
     )
@@ -946,10 +948,12 @@ async def get_family_haplotypes_batch_response(
         chr="genome",
         blocks_outdated=blocks_outdated(context, await haplotype_source_rows(session, context)),
         samples=[
-            {
-                "sample": context.sample_uuid_to_name[sample_uuid],
-                "segments": segments.get(sample_uuid, []),
-            }
+            HaplotypeSample.model_validate(
+                {
+                    "sample": context.sample_uuid_to_name[sample_uuid],
+                    "segments": segments.get(sample_uuid, []),
+                }
+            )
             for sample_uuid in sample_ids
         ],
     )

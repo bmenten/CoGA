@@ -5,7 +5,7 @@ from typing import Any
 from urllib.parse import quote, urlencode
 
 from fastapi import HTTPException
-from sqlalchemy import bindparam, text
+from sqlalchemy import RowMapping, bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.sql import require_uuid, uuid_list_bindparam, uuid_values
@@ -420,7 +420,7 @@ async def build_gene_profile(
     if family_id:
         family_row = await get_accessible_family_mapping(session, family_id, user)
 
-    project_row: dict[str, Any] | None = None
+    project_row: RowMapping | None = None
     if requested_project_id is not None:
         project_result = await session.execute(
             text(
@@ -699,8 +699,8 @@ async def build_gene_profile(
         assembly_id=str(primary_assembly["id"]),
         assembly_name=str(primary_assembly["assembly_name"]),
         assembly_version=primary_assembly.get("version"),
-        gene_annotation_source=(annotation_row or {}).get("source"),
-        gene_annotation_imported_at=(annotation_row or {}).get("performed_at"),
+        gene_annotation_source=annotation_row.get("source") if annotation_row is not None else None,
+        gene_annotation_imported_at=annotation_row.get("performed_at") if annotation_row is not None else None,
         species_name=str(species_row["name"]),
         symbol=str(primary["hgnc_symbol"]),
         gene_id=str(primary["gene_id"]),

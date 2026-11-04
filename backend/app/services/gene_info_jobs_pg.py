@@ -20,6 +20,7 @@ from ..core.config import settings
 from ..core.postgres import get_postgres_sessionmaker
 from ..core.sql import rows_matched, uuid_list_bindparam, uuid_values
 from ..schemas import (
+    ApiId,
     GeneBulkRefreshOut,
     GeneInfoRefreshJobOut,
     GeneInfoSourceSummaryOut,
@@ -107,7 +108,7 @@ def _gene_locus(doc: dict[str, Any]) -> str | None:
 
 def _serialize_job(mapping: dict[str, Any]) -> GeneInfoRefreshJobOut:
     return GeneInfoRefreshJobOut(
-        id=str(mapping["id"]),
+        _id=ApiId(str(mapping["id"])),
         scope=mapping["scope"],
         symbol=mapping.get("symbol"),
         status=mapping["status"],

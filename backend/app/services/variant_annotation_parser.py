@@ -433,9 +433,9 @@ def _apply_numeric_and_population_aliases(
         annotation.get("spliceai_ds_dg"),
         annotation.get("spliceai_ds_dl"),
     ]
-    splice_values = [value for value in splice_values if value is not None]
-    if splice_values:
-        annotation["spliceai_max"] = max(splice_values)
+    present = [value for value in splice_values if value is not None]
+    if present:
+        annotation["spliceai_max"] = max(present)
 
 
 def _base_info_annotation(info: Dict[str, str]) -> Dict[str, Any]:

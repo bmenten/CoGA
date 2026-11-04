@@ -479,8 +479,8 @@ def _iter_cnv_structural_records(
         annotations = extract_small_variant_annotations(info, annotation_state)
         gene_symbols: list[str] = []
         seen_genes: set[str] = set()
-        for annotation in annotations:
-            gene = annotation.get("gene")
+        for gene_annotation in annotations:
+            gene = gene_annotation.get("gene")
             if gene and gene not in seen_genes:
                 seen_genes.add(str(gene))
                 gene_symbols.append(str(gene))

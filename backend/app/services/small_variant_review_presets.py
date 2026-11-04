@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.sql import require_uuid
 from ..schemas import (
+    ApiId,
     SmallVariantFilterPresetCreate,
     SmallVariantFilterPresetOut,
 )
@@ -33,7 +34,7 @@ _PRESET_COLUMNS = """
 
 def _serialize_preset(document: dict[str, Any]) -> SmallVariantFilterPresetOut:
     return SmallVariantFilterPresetOut(
-        id=str(document["id"]),
+        _id=ApiId(str(document["id"])),
         owner=document["owner"],
         name=document["name"],
         description=document.get("description"),
