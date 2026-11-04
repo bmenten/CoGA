@@ -36,6 +36,7 @@ from .family_package_common import (
 from .repeat_count_units import count_unit_warning, known_count_unit_difference
 from .repeat_expansion_catalog import BUILTIN_REPEAT_LOCI, PREMUTATION_MIN_BY_GENE
 from .sex_chromosomes import grc_build, hemizygous_chromosome, is_t2t_chm13
+from .vcf_fields import parse_format, parse_info
 from .vcf_header_provenance import extract_header_provenance
 
 
@@ -395,22 +396,6 @@ async def seed_builtin_repeat_catalog(session: AsyncSession) -> None:
 
 async def decode_repeat_upload_text(file: UploadFile) -> str:
     return await decode_upload_text(file, kind="TRGT")
-
-
-def parse_info(info_field: str) -> dict[str, str]:
-    info: dict[str, str] = {}
-    if info_field and info_field != ".":
-        for item in info_field.split(";"):
-            if "=" in item:
-                key, value = item.split("=", 1)
-                info[key] = value
-    return info
-
-
-def parse_format(format_field: str, sample_field: str) -> dict[str, str]:
-    keys = format_field.split(":")
-    values = sample_field.split(":")
-    return {k: v for k, v in zip(keys, values)}
 
 
 def parse_int_list(value: str | None) -> list[int]:
