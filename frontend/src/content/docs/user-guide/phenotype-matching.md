@@ -33,6 +33,16 @@ keeps:
 
 So the Mendeliome, too, keeps a variant inside one of its genes whose annotation names another gene.
 
+A gene name that no loaded assembly knows, such as a typo or an old symbol, gets no position. The
+panel's page lists it as *not imported*: a filter on the panel finds no variant in it.
+
+Administrators change a local panel's genes on its page, in three ways that can be combined: the bin
+on a gene's row, **Add to changes** for new names, and **Edit the whole list**. Each change is listed
+under **Changes for version N**, where a name no assembly knows is flagged. Nothing is saved until you
+press **Confirm and save version N**; the earlier version stays in the version history. If someone
+saved another version in the meantime, CoGA refuses the save, reloads the panel and keeps your changes
+listed, to confirm again.
+
 ### Phenotype matching
 
 CoGA uses the [Monarch Initiative](https://monarchinitiative.org/) knowledge graph, which links genes,

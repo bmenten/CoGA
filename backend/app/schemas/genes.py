@@ -413,6 +413,23 @@ class GenePanelUpdate(BaseModel):
 
     genes: List[str] = Field(default_factory=list)
     description: Optional[str] = None
+    # The version the edit was made on. When given, the edit is refused (409) if the panel
+    # has a newer version: the genes sent replace the panel's whole list, so saving them
+    # over a newer version would undo its changes unseen.
+    expected_version: Optional[int] = Field(default=None, ge=1)
+
+
+class GeneSymbolCheckRequest(BaseModel):
+    genes: List[str] = Field(default_factory=list, max_length=20000)
+
+
+class GeneSymbolCheckOut(BaseModel):
+    """The names a loaded assembly knows as a gene symbol, and those none does: a panel gets
+    no coordinates for those, so a filter on it finds no variant in them. Each name once,
+    trimmed, in the order given."""
+
+    found: List[str] = Field(default_factory=list)
+    missing: List[str] = Field(default_factory=list)
 
 
 class GenePanelCreateResponse(BaseModel):

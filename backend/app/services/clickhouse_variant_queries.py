@@ -840,32 +840,6 @@ def _structural_population_frequencies(record: StructuralVariantRecord) -> dict[
     return result
 
 
-def _band_position_contains(band: dict[str, Any], position: int) -> bool:
-    start = _coerce_int(band.get("start"))
-    end = _coerce_int(band.get("end"))
-    if start is None or end is None:
-        return False
-    zero_based_position = max(0, position - 1)
-    return start <= zero_based_position <= end
-
-
-def _band_name_for_position(bands: Sequence[dict[str, Any]], position: int) -> str | None:
-    for band in bands:
-        name = str(band.get("name") or "").strip()
-        if name and _band_position_contains(band, position):
-            return name
-    return None
-
-
-def _format_cytoband_label(chromosome: str, start_band: str | None, end_band: str | None) -> str | None:
-    if not start_band and not end_band:
-        return None
-    chrom = normalize_chromosome(chromosome)
-    if start_band and end_band and start_band != end_band:
-        return f"{chrom}{start_band}-{chrom}{end_band}"
-    return f"{chrom}{start_band or end_band}"
-
-
 def _structural_annotation_extra(
     record: StructuralVariantRecord, *, track_mode: bool = False
 ) -> dict[str, Any]:

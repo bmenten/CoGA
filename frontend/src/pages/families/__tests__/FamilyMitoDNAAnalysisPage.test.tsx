@@ -286,7 +286,12 @@ describe('FamilyMitoDNAAnalysisPage', () => {
     const footer = pathogenicRow.querySelector('.variant-card-footer') as HTMLElement;
     expect(
       Array.from(footer.querySelectorAll('.variant-card-nav > *')).map((link) => link.textContent),
-    ).toEqual(['IGV', 'Chromosome view', 'OMIM', 'MITOMAP']);
+    ).toEqual(['IGV', 'Chromosome view', 'OMIM', 'MITOMAP', 'VarSome']);
+    // m.3243A>G lies in a tRNA gene: MitImpact has no entry for it, so no link.
+    expect(within(footer).getByRole('link', { name: /open varsome for m\.3243A>G/i })).toHaveAttribute(
+      'href',
+      'https://varsome.com/variant/hg38/MT-3243-A-G',
+    );
 
     // IGV on the variant, on chrM — the name IGV's genomes give the mitochondrion (MT is an
     // alias of it, chrMT is not) — returning here, in a new tab like every genome link.
@@ -586,6 +591,41 @@ describe('FamilyMitoDNAAnalysisPage — failed requests (#610)', () => {
     renderPage();
 
     await expectFamilyNotFound();
+  });
+});
+
+describe('mtDNA VarSome and MitImpact links', () => {
+  const coding = {
+    position: 8993,
+    ref: 'T',
+    alt: 'G',
+    type: 'SNV',
+    annotation: { category: 'protein coding', consequence_terms: ['missense_variant'] },
+  };
+
+  it('opens VarSome on rCRS, as MT on hg38, for any variant', async () => {
+    const { buildMitoVarsomeHref } = await import('../FamilyMitoDNAAnalysisPage');
+    expect(buildMitoVarsomeHref(coding)).toBe('https://varsome.com/variant/hg38/MT-8993-T-G');
+    expect(buildMitoVarsomeHref({ position: 8270, ref: 'CACCCCCTCT', alt: 'C' })).toBe(
+      'https://varsome.com/variant/hg38/MT-8270-CACCCCCTCT-C',
+    );
+  });
+
+  it('opens MitImpact only for a protein-changing single-base change in a protein-coding gene', async () => {
+    const { buildMitoMitimpactHref } = await import('../FamilyMitoDNAAnalysisPage');
+    expect(buildMitoMitimpactHref(coding)).toBe('https://mitimpact.css-mendel.it/search_allele/8993/T%3EG');
+    // MitImpact holds no indel, no variant outside the protein-coding genes and no
+    // synonymous change.
+    expect(buildMitoMitimpactHref({ ...coding, ref: 'TA', type: 'INDEL' })).toBeNull();
+    expect(
+      buildMitoMitimpactHref({ ...coding, annotation: { category: 'tRNA', consequence_terms: [] } }),
+    ).toBeNull();
+    expect(
+      buildMitoMitimpactHref({
+        ...coding,
+        annotation: { category: 'protein coding', consequence_terms: ['synonymous_variant'] },
+      }),
+    ).toBeNull();
   });
 });
 

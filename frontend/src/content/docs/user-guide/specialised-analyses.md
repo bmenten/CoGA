@@ -158,6 +158,11 @@ same variant on the **Small variants** page shows the same tags and note, and **
 the report with the other reported small variants. **ACMG classify** on a variant from the **mtDNA
 analysis** page uses the mitochondrial rule set.
 
+A card links to IGV, the chromosome view, OMIM (for a variant in a gene), MITOMAP and VarSome. VarSome
+opens the variant on the revised Cambridge Reference Sequence, whatever the family's assembly. A
+single-base change that alters the protein of one of the 13 protein-coding genes also links to
+MitImpact, which holds only such changes.
+
 [ACMG classification reference (including the CNV classifier)](/docs/reference/acmg-classification "further-reading")
 
 ### Ancestry PCA (exploratory)

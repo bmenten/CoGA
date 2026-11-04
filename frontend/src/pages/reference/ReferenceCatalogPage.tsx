@@ -50,6 +50,9 @@ const REFERENCE_COUNT_COLUMNS: Array<
   ['dgv', 'dgv'],
 ];
 
+// The catalogue table's columns: assembly, release, the counts above, last updated.
+const REFERENCE_CATALOG_COLUMN_COUNT = 3 + REFERENCE_COUNT_COLUMNS.length;
+
 // Static copy table — hoisted to module scope so it is not reallocated on every
 // render (two 3 s polling queries re-render this page while jobs run).
 const datasetCopy: Record<string, { title: string; description: string }> = {
@@ -665,176 +668,121 @@ const ReferenceCatalogPage: React.FC = () => {
             </p>
           ) : (
             <div className="data-table-shell reference-catalog-shell">
+              {/* One table for every species, so the assemblies' columns line up across
+                  species: each species is a heading row, its assemblies the rows under it. */}
               <table className="analysis-table reference-catalog-table">
                 <thead>
                   <tr>
-                    <th>Organism</th>
-                    <th>Catalog summary</th>
-                    <th>Latest assembly</th>
+                    <th>Assembly</th>
+                    <th>Release</th>
+                    <th className="reference-count-column">Cytobands</th>
+                    <th className="reference-count-column">Genes</th>
+                    <th className="reference-count-column">Blacklist</th>
+                    <th className="reference-count-column">Clin CNVs</th>
+                    <th className="reference-count-column">SegDup/LCR</th>
+                    <th className="reference-count-column">DGV</th>
+                    <th>Last updated</th>
                   </tr>
                 </thead>
-                <tbody>
-                  {species.map((entry) => {
-                    const speciesAssemblies = assembliesBySpecies.get(entry.id) ?? [];
-                    const latestSpeciesAssembly = speciesAssemblies[0] ?? null;
-                    return (
-                      <React.Fragment key={entry.id}>
-                        <tr className="reference-catalog-species-row">
-                          <td>
-                            <div className="reference-catalog-species-main">
-                              <div className="reference-catalog-species-head">
-                                <h3 className="reference-catalog-species-title">{entry.name}</h3>
+                {species.map((entry) => {
+                  const speciesAssemblies = assembliesBySpecies.get(entry.id) ?? [];
+                  const countWith = (key: 'genes' | 'chromosomes') =>
+                    statusesFailed
+                      ? '—'
+                      : speciesAssemblies.filter((assembly) => (statusByAssembly.get(assembly.id)?.[key] ?? 0) > 0)
+                          .length;
+                  return (
+                    <tbody key={entry.id} className="reference-catalog-species-group">
+                      <tr className="reference-catalog-species-row">
+                        <th colSpan={REFERENCE_CATALOG_COLUMN_COUNT} scope="rowgroup">
+                          <div className="reference-catalog-species-head">
+                            <h3 className="reference-catalog-species-title">{entry.name}</h3>
+                            <span className="reference-catalog-species-meta">
+                              {entry.common_name} • tax id {entry.tax_id}
+                            </span>
+                            {assembliesFailed ? (
+                              <span className="dashboard-link-note">Assemblies could not be loaded</span>
+                            ) : (
+                              <>
                                 <span className="badge-chip">
                                   {speciesAssemblies.length}{' '}
                                   {speciesAssemblies.length === 1 ? 'assembly' : 'assemblies'}
                                 </span>
-                              </div>
-                              <p className="reference-catalog-species-meta">
-                                {entry.common_name} • tax id {entry.tax_id}
-                              </p>
-                            </div>
-                          </td>
-                          <td className="reference-catalog-summary-cell">
-                            {assembliesFailed ? (
-                              <span className="dashboard-link-note">Assemblies could not be loaded</span>
-                            ) : speciesAssemblies.length === 0 ? (
-                              <span className="dashboard-link-note">
-                                No assemblies added yet
-                              </span>
-                            ) : (
-                              <div className="table-chip-list">
-                                <span className="table-chip table-chip--strong">
-                                  {speciesAssemblies.length} in catalog
-                                </span>
-                                <span className="table-chip table-chip--neutral">
-                                  {statusesFailed
-                                    ? '—'
-                                    : speciesAssemblies.filter((assembly) => (statusByAssembly.get(assembly.id)?.genes ?? 0) > 0).length}{' '}
-                                  with genes
-                                </span>
-                                <span className="table-chip table-chip--neutral">
-                                  {statusesFailed
-                                    ? '—'
-                                    : speciesAssemblies.filter((assembly) => (statusByAssembly.get(assembly.id)?.chromosomes ?? 0) > 0).length}{' '}
-                                  with cytobands
-                                </span>
-                              </div>
+                                {speciesAssemblies.length > 0 ? (
+                                  <>
+                                    <span className="table-chip table-chip--neutral">
+                                      {countWith('genes')} with genes
+                                    </span>
+                                    <span className="table-chip table-chip--neutral">
+                                      {countWith('chromosomes')} with cytobands
+                                    </span>
+                                  </>
+                                ) : null}
+                              </>
                             )}
-                          </td>
-                          <td className="reference-catalog-latest-cell">
-                            {latestSpeciesAssembly ? (
-                              <div className="reference-catalog-latest-main">
-                                <strong>
-                                  {latestSpeciesAssembly.assembly_name} {latestSpeciesAssembly.version}
-                                </strong>
-                                <span className="dashboard-link-note">
-                                  {latestSpeciesAssembly.release_date || 'No release date'}
-                                </span>
-                              </div>
-                            ) : (
-                              <span className="dashboard-link-note">
-                                {assembliesFailed ? 'Assemblies could not be loaded' : 'No assembly metadata yet'}
-                              </span>
-                            )}
+                          </div>
+                        </th>
+                      </tr>
+                      {speciesAssemblies.length === 0 ? (
+                        <tr>
+                          <td colSpan={REFERENCE_CATALOG_COLUMN_COUNT} className="reference-catalog-empty">
+                            {assembliesFailed
+                              ? 'The assemblies could not be loaded.'
+                              : 'No assemblies have been added for this species yet.'}
                           </td>
                         </tr>
-                        <tr className="reference-catalog-detail-row">
-                          <td colSpan={3}>
-                            <div className="reference-catalog-detail">
-                              {speciesAssemblies.length === 0 ? (
-                                <p className="section-copy">
-                                  {assembliesFailed
-                                    ? 'The assemblies could not be loaded.'
-                                    : 'No assemblies have been added for this species yet.'}
-                                </p>
-                              ) : (
-                                <div className="overflow-x-auto">
-                                  <table className="analysis-table reference-catalog-assembly-table">
-                                    <thead>
-                                      <tr>
-                                        <th>Assembly</th>
-                                        <th>Release</th>
-                                        <th>Cytobands</th>
-                                        <th>Genes</th>
-                                        <th>Blacklist</th>
-                                        <th>Clin CNVs</th>
-                                        <th>SegDup/LCR</th>
-                                        <th>DGV</th>
-                                        <th>Last updated</th>
-                                      </tr>
-                                    </thead>
-                                    <tbody>
-                                      {speciesAssemblies.map((assembly) => {
-                                        const status = statusByAssembly.get(assembly.id);
-                                        const lastImports = status?.last_imports ?? [];
-                                        const latestImport = lastImports.reduce<
-                                          ReferenceDatasetImportOut | null
-                                        >(
-                                          (latest, entry) =>
-                                            !latest || entry.performed_at > latest.performed_at
-                                              ? entry
-                                              : latest,
-                                          null,
-                                        );
-                                        const lastUpdatedTooltip = lastImports
-                                          .map(
-                                            (entry) =>
-                                              `${entry.dataset_type}: ${formatDateTime(entry.performed_at)}` +
-                                              (entry.performed_by ? ` by ${entry.performed_by}` : ''),
-                                          )
-                                          .join('\n');
-                                        return (
-                                          <tr key={assembly.id}>
-                                            <td>
-                                              <div className="reference-catalog-assembly-main">
-                                                <strong className="reference-assembly-title">
-                                                  {assembly.assembly_name}
-                                                </strong>
-                                                <span className="dashboard-link-note">
-                                                  Version {assembly.version}
-                                                </span>
-                                              </div>
-                                            </td>
-                                            <td className="table-mono">
-                                              {assembly.release_date || '—'}
-                                            </td>
-                                            {REFERENCE_COUNT_COLUMNS.map(([countKey, datasetType]) => (
-                                              <td key={datasetType} className="table-mono">
-                                                <span className="reference-count-with-action">
-                                                  {catalogCount(status?.[countKey])}
-                                                  {renderCountAction(assembly, entry.tax_id, datasetType)}
-                                                </span>
-                                              </td>
-                                            ))}
-                                            <td className="table-mono" title={lastUpdatedTooltip || undefined}>
-                                              {latestImport ? (
-                                                <span>
-                                                  {formatDate(latestImport.performed_at)}
-                                                  {latestImport.performed_by ? (
-                                                    <span className="dashboard-link-note">
-                                                      {' '}
-                                                      by {latestImport.performed_by}
-                                                    </span>
-                                                  ) : null}
-                                                </span>
-                                              ) : (
-                                                <span className="table-empty">—</span>
-                                              )}
-                                            </td>
-                                          </tr>
-                                        );
-                                      })}
-                                    </tbody>
-                                  </table>
+                      ) : (
+                        speciesAssemblies.map((assembly) => {
+                          const status = statusByAssembly.get(assembly.id);
+                          const lastImports = status?.last_imports ?? [];
+                          const latestImport = lastImports.reduce<ReferenceDatasetImportOut | null>(
+                            (latest, entry) =>
+                              !latest || entry.performed_at > latest.performed_at ? entry : latest,
+                            null,
+                          );
+                          const lastUpdatedTooltip = lastImports
+                            .map(
+                              (entry) =>
+                                `${entry.dataset_type}: ${formatDateTime(entry.performed_at)}` +
+                                (entry.performed_by ? ` by ${entry.performed_by}` : ''),
+                            )
+                            .join('\n');
+                          return (
+                            <tr key={assembly.id} className="reference-catalog-assembly-row">
+                              <td>
+                                <div className="reference-catalog-assembly-main">
+                                  <strong className="reference-assembly-title">{assembly.assembly_name}</strong>
+                                  <span className="dashboard-link-note">Version {assembly.version}</span>
                                 </div>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      </React.Fragment>
-                    );
-                  })}
-                </tbody>
+                              </td>
+                              <td className="table-mono">{assembly.release_date || '—'}</td>
+                              {REFERENCE_COUNT_COLUMNS.map(([countKey, datasetType]) => (
+                                <td key={datasetType} className="table-mono reference-count-column">
+                                  <span className="reference-count-with-action">
+                                    <span className="reference-count-value">{catalogCount(status?.[countKey])}</span>
+                                    {renderCountAction(assembly, entry.tax_id, datasetType)}
+                                  </span>
+                                </td>
+                              ))}
+                              <td className="table-mono" title={lastUpdatedTooltip || undefined}>
+                                {latestImport ? (
+                                  <span>
+                                    {formatDate(latestImport.performed_at)}
+                                    {latestImport.performed_by ? (
+                                      <span className="dashboard-link-note"> by {latestImport.performed_by}</span>
+                                    ) : null}
+                                  </span>
+                                ) : (
+                                  <span className="table-empty">—</span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  );
+                })}
               </table>
             </div>
           )}

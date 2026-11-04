@@ -1,5 +1,5 @@
 import { QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -41,31 +41,23 @@ const DELETION_1P36 = {
   description: 'Developmental delay and characteristic facial features.',
 };
 
-const CHROMOSOME_1 = {
-  chr: '1',
-  size: 248956422,
-  bands: [
-    { name: 'p36.33', start: 0, end: 2300000, stain: 'gneg' },
-    { name: 'p36.32', start: 2300000, end: 5300000, stain: 'gpos25' },
-  ],
-};
-
 // Braces: a function beforeEach returns is run as a cleanup hook.
 beforeEach(() => {
   vi.mocked(api.get).mockReset();
 });
 
 describe('CnvDetailsPage', () => {
-  it('renders structured CNV details with computed cytoband and external links', async () => {
-    serve({ '/cnvs/entry/cnv-1': data(DELETION_1P36), '/chromosomes/GRCh38/chr1': data(CHROMOSOME_1) });
+  it('renders structured CNV details with its cytoband and external links', async () => {
+    serve({ '/cnvs/entry/cnv-1': data({ ...DELETION_1P36, cytoband: '1p36.33-1p36.13' }) });
 
     renderAt('cnv-1');
 
     expect(await screen.findByText('1p36 deletion syndrome')).toBeInTheDocument();
     expect(screen.getByText(/Developmental delay/)).toBeInTheDocument();
-    // The cytoband is read from the CNV's own assembly and chromosome.
-    expect(await screen.findByText(/1p36\.33.*1p36\.32/)).toBeInTheDocument();
-    expect(requestsTo('/chromosomes/GRCh38/chr1')).toBe(1);
+    // The server gives the cytoband (stated, or read from the assembly's cytoband track):
+    // the page reads no chromosome of its own.
+    expect(screen.getByText('Cytoband').nextElementSibling).toHaveTextContent(/^1p36\.33-1p36\.13$/);
+    expect(vi.mocked(api.get).mock.calls.map(([url]) => url)).toEqual(['/cnvs/entry/cnv-1']);
 
     expect(screen.getByRole('link', { name: /OMIM/i })).toHaveAttribute(
       'href',
@@ -104,7 +96,6 @@ describe('CnvDetailsPage', () => {
         failing
           ? Promise.reject({ response: { status: 500, data: { detail: 'Database unavailable' } } })
           : Promise.resolve({ data: DELETION_1P36 }),
-      '/chromosomes/GRCh38/chr1': data(CHROMOSOME_1),
     });
     renderAt('cnv-1');
 
@@ -126,21 +117,12 @@ describe('CnvDetailsPage', () => {
     expect(screen.getByText('CNV explorer')).toBeInTheDocument();
   });
 
-  // The cytoband names the first and last band the CNV overlaps, one band once, and none
-  // when it overlaps none of the bands read.
-  it.each([
-    ['within one band', 100000, 200000, '1p36.33'],
-    ['outside every band read', 6000000, 7000000, '—'],
-  ])('names the cytoband of a CNV %s', async (_case, start, end, cytoband) => {
-    serve({
-      '/cnvs/entry/cnv-1': data({ ...DELETION_1P36, start, end }),
-      '/chromosomes/GRCh38/chr1': data(CHROMOSOME_1),
-    });
+  it('shows no cytoband when the server has none for the CNV', async () => {
+    serve({ '/cnvs/entry/cnv-1': data({ ...DELETION_1P36, cytoband: null }) });
     renderAt('cnv-1');
 
     await screen.findByText('1p36 deletion syndrome');
-    await waitFor(() => expect(requestsTo('/chromosomes/GRCh38/chr1')).toBe(1));
-    await waitFor(() => expect(screen.getByText('Cytoband').nextElementSibling).toHaveTextContent(new RegExp(`^${cytoband}$`)));
+    expect(screen.getByText('Cytoband').nextElementSibling).toHaveTextContent(/^—$/);
   });
 
   // #624 — the knowledgebase's ClinVar support, with a link to each supporting record.
@@ -182,7 +164,7 @@ describe('CnvDetailsPage', () => {
 
     expect(screen.getByText('ClinVar pathogenic').nextElementSibling).toHaveTextContent('Not recorded');
     expect(screen.queryByText('Supporting ClinVar records')).not.toBeInTheDocument();
-    // A CNV without an assembly reads no chromosome, and shows no cytoband or assembly.
+    // A CNV without an assembly shows no cytoband or assembly.
     expect(screen.getByText('Cytoband').nextElementSibling).toHaveTextContent(/^—$/);
     expect(screen.queryByText('Assembly')).not.toBeInTheDocument();
     expect(vi.mocked(api.get).mock.calls.map(([url]) => url)).toEqual(['/cnvs/entry/cnv-1']);

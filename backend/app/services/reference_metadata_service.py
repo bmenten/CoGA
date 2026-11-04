@@ -33,6 +33,7 @@ from ..schemas import (
     ReferenceUploadResult,
     SegmentalDuplicationOut,
 )
+from .cytoband_labels import fetch_cytoband_labels
 from .data_scope import chromosome_aliases, normalize_chromosome
 from .sex_chromosomes import grc_build
 from .upload_safety import decode_upload_text
@@ -1647,7 +1648,9 @@ _CLINICAL_CNV_COLUMNS = (
 )
 
 
-def _clinical_cnv_out(row: Mapping[str, Any], *, assembly: str | None) -> ClinicalCnvOut:
+def _clinical_cnv_out(
+    row: Mapping[str, Any], *, assembly: str | None, track_cytoband: str | None = None
+) -> ClinicalCnvOut:
     return ClinicalCnvOut(
         _id=row["id"],
         chr=row["chr"],
@@ -1663,7 +1666,7 @@ def _clinical_cnv_out(row: Mapping[str, Any], *, assembly: str | None) -> Clinic
         omim_title=row.get("omim_title"),
         decipher_id=row.get("decipher_id"),
         description=row.get("description"),
-        cytoband=row.get("cytoband"),
+        cytoband=row.get("cytoband") or track_cytoband,
         source_id=row.get("source_id"),
         orpha_id=row.get("orpha_id"),
         orpha_name=row.get("orpha_name"),
@@ -1671,6 +1674,30 @@ def _clinical_cnv_out(row: Mapping[str, Any], *, assembly: str | None) -> Clinic
         clinvar_pathogenic_gain_count=row.get("clinvar_pathogenic_gain_count"),
         clinvar_pathogenic_accessions=row.get("clinvar_pathogenic_accessions"),
     )
+
+
+async def _clinical_cnv_outs(
+    session: AsyncSession,
+    rows: list[Mapping[str, Any]],
+    *,
+    assembly_id: str,
+    assembly: str,
+) -> list[ClinicalCnvOut]:
+    """The CNVs as served, each with its cytoband: the one its file stated, else the bands its
+    region spans on the assembly's cytoband track, the one the ideogram draws. The knowledgebase
+    build leaves the band empty when it could not read the cytobands, and a CNV loaded before
+    the assembly's cytobands had none; both are read from the track as it is now. Start and end
+    are read as stored, 1-based."""
+    unlabelled = [
+        (str(row["id"]), str(row["chr"]), int(row["start"]), int(row["end"]))
+        for row in rows
+        if not str(row.get("cytoband") or "").strip()
+    ]
+    track_cytobands = await fetch_cytoband_labels(session, assembly_id=assembly_id, loci=unlabelled)
+    return [
+        _clinical_cnv_out(row, assembly=assembly, track_cytoband=track_cytobands.get(str(row["id"])))
+        for row in rows
+    ]
 
 
 async def get_clinical_cnvs_data(
@@ -1702,10 +1729,12 @@ async def get_clinical_cnvs_data(
             "end": end,
         },
     )
-    return [
-        _clinical_cnv_out(row, assembly=assembly_row["assembly_name"])
-        for row in result.mappings().all()
-    ]
+    return await _clinical_cnv_outs(
+        session,
+        list(result.mappings().all()),
+        assembly_id=assembly_row["id"],
+        assembly=assembly_row["assembly_name"],
+    )
 
 
 async def list_clinical_cnvs_catalog_data(
@@ -1737,10 +1766,12 @@ async def list_clinical_cnvs_catalog_data(
         """
     )
     result = await session.execute(stmt, params)
-    return [
-        _clinical_cnv_out(row, assembly=assembly_row["assembly_name"])
-        for row in result.mappings().all()
-    ]
+    return await _clinical_cnv_outs(
+        session,
+        list(result.mappings().all()),
+        assembly_id=assembly_row["id"],
+        assembly=assembly_row["assembly_name"],
+    )
 
 
 async def get_clinical_cnv_by_id_data(
@@ -1763,7 +1794,10 @@ async def get_clinical_cnv_by_id_data(
     if row is None:
         raise HTTPException(status_code=404, detail="Clinical CNV not found")
     assembly_row = await _get_assembly_by_id(session, row["assembly_id"])
-    return _clinical_cnv_out(row, assembly=assembly_row["assembly_name"])
+    [cnv] = await _clinical_cnv_outs(
+        session, [row], assembly_id=assembly_row["id"], assembly=assembly_row["assembly_name"]
+    )
+    return cnv
 
 
 async def list_chromosome_sizes_data(

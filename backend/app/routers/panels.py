@@ -15,6 +15,8 @@ from ..schemas import (
     GenePanelUpdate,
     GenePanelVersionDetail,
     GenePanelVersionListOut,
+    GeneSymbolCheckOut,
+    GeneSymbolCheckRequest,
     MendeliomeRegenerateResponse,
     PanelAppImportRequest,
     PanelAppImportResponse,
@@ -22,6 +24,7 @@ from ..schemas import (
 )
 from ..services.access_control import CurrentUser
 from ..services.panel_metadata_service import (
+    check_gene_symbols,
     create_panel_data,
     delete_panel_data,
     get_panel_or_404,
@@ -54,6 +57,18 @@ async def search_panelapp(
     del current_user
     results, count = await search_panelapp_panels(query, page_size=page_size)
     return PanelAppPanelSearchResponse(results=results, count=count)
+
+
+@router.post("/genes/check", response_model=GeneSymbolCheckOut)
+async def check_panel_gene_symbols(
+    payload: GeneSymbolCheckRequest,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_admin_user),
+) -> GeneSymbolCheckOut:
+    """Which gene names a panel would get coordinates for, before an admin saves them. It only
+    reads, but it is a POST (the names can be many) and so an admin's, like the edit it
+    serves."""
+    return await check_gene_symbols(session, payload.genes)
 
 
 @router.post("/import/panelapp", response_model=PanelAppImportResponse, status_code=201)

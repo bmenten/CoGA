@@ -102,8 +102,8 @@ export interface FindingGenomeLink {
 
 /**
  * A card's links, always in one order at the right of its footer: IGV, Chromosome view,
- * OMIM, then what the kind of finding adds (DECIPHER, MITOMAP). The genome views open a tab,
- * as they leave the list behind; OMIM and the others leave CoGA.
+ * OMIM, then what the kind of finding adds (DECIPHER; MITOMAP, MitImpact, VarSome). The
+ * genome views open a tab, as they leave the list behind; OMIM and the others leave CoGA.
  */
 export const FindingLinks: React.FC<{
   igv?: FindingGenomeLink | null;
