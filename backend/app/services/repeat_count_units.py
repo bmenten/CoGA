@@ -31,7 +31,6 @@ correction stays not validated, so its counts near a boundary stay marked.
 
 from __future__ import annotations
 
-import json
 from collections.abc import Callable
 from typing import Any
 
@@ -41,6 +40,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .access_control import CurrentUser
 from .clinical_audit_service import record_clinical_event
+from .stored_values import json_object as _json_field
 
 # How close to a boundary a count is marked, in repeat units, at every locus not validated.
 # The largest difference found that reads a count on the less severe side is FMR1's: up to 3
@@ -279,15 +279,6 @@ _CHANGES_SQL = text(
     LIMIT :limit
     """
 )
-
-
-def _json_field(value: Any) -> dict[str, Any]:
-    if isinstance(value, str):
-        try:
-            value = json.loads(value)
-        except ValueError:
-            return {}
-    return value if isinstance(value, dict) else {}
 
 
 async def list_repeat_locus_count_units(session: AsyncSession) -> dict[str, Any]:

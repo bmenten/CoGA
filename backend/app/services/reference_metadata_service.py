@@ -36,6 +36,7 @@ from ..schemas import (
 from .cytoband_labels import fetch_cytoband_labels
 from .data_scope import chromosome_aliases, normalize_chromosome
 from .sex_chromosomes import grc_build
+from .stored_values import json_object as _json_dict
 from .upload_safety import decode_upload_text
 
 ReferenceDatasetType = Literal[
@@ -108,18 +109,6 @@ REPO_SEGMENTAL_DUPLICATIONS_PATH = (
     / "clinical_cnv_syndromes_hg38_bundle"
     / "ClinGen_recurrent_CNV_V2.1-hg38.bed"
 )
-
-
-def _json_dict(value: object) -> dict[str, object]:
-    if isinstance(value, dict):
-        return value
-    if isinstance(value, str):
-        try:
-            parsed = json.loads(value)
-        except json.JSONDecodeError:
-            return {}
-        return parsed if isinstance(parsed, dict) else {}
-    return {}
 
 
 def _text_value(value: object) -> str | None:

@@ -144,6 +144,23 @@ async def download_bounded_bytes(
     return b"".join(chunks)
 
 
+async def download_text(url: str, *, http_timeout: float) -> str:
+    """GET ``url`` within the download cap (``download_bounded_bytes``), gunzip it within the
+    decompression cap when the URL ends in ``.gz`` (``gunzip_bounded``), and decode it as UTF-8.
+
+    For a reference file read whole (Monarch's associations, the gene-info bulk sources);
+    ``http_timeout`` is the client's, in seconds.
+    Raises ``httpx.HTTPError`` for a failed request, and ``ValueError`` for a body too large,
+    not gzip, or not UTF-8.
+    """
+    async with httpx.AsyncClient(timeout=http_timeout, follow_redirects=True) as client:
+        raw = await download_bounded_bytes(client, url, source=url)
+    assert raw is not None  # None only for a 404 asked for with none_on_404
+    if url.endswith(".gz"):
+        raw = gunzip_bounded(raw, source=url)
+    return raw.decode("utf-8")
+
+
 def gunzip_bounded(
     data: bytes, *, max_bytes: int = MAX_DECOMPRESSED_BYTES, source: str | None = None
 ) -> bytes:

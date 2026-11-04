@@ -813,16 +813,6 @@ def _json_list(value: Any) -> list[Any]:
     return value if isinstance(value, list) else []
 
 
-def _json_dict(value: Any) -> dict[str, Any]:
-    if isinstance(value, str):
-        try:
-            parsed = json.loads(value)
-        except json.JSONDecodeError:
-            return {}
-        return parsed if isinstance(parsed, dict) else {}
-    return value if isinstance(value, dict) else {}
-
-
 def _issue_list(value: Any) -> list[FamilyImportValidationIssue]:
     return [FamilyImportValidationIssue.model_validate(item) for item in _json_list(value)]
 

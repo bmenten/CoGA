@@ -26,6 +26,7 @@ from .family_metadata_context import build_family_metadata_context
 from .hpo_service import get_loaded_hpo_release
 from .metadata_service import get_family_record
 from .access_control import CurrentUser, is_admin_user
+from .stored_values import json_object as _as_dict
 
 logger = logging.getLogger(__name__)
 
@@ -131,18 +132,6 @@ def _as_module(value: Any) -> dict[str, Any]:
     if value is None:
         return {}
     return {"version": str(value)}
-
-
-def _as_dict(value: Any) -> dict[str, Any]:
-    if isinstance(value, dict):
-        return value
-    if isinstance(value, str) and value.strip():
-        try:
-            parsed = json.loads(value)
-            return parsed if isinstance(parsed, dict) else {}
-        except json.JSONDecodeError:
-            return {}
-    return {}
 
 
 async def _lock_family_manifest(session: AsyncSession, family_uuid: str) -> None:

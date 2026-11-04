@@ -48,6 +48,7 @@ from ..core.object_storage import is_remote_uri, parse_remote_uri, remote_object
 from ..core.sql import canonical_uuid
 # The import's folder rules, read through their module (a test that moves them moves them here).
 from . import family_package_source
+from .stored_values import json_object as _json_object
 
 # Repo-level data directory (matches routers/cram.py DATA_DIR resolution).
 DATA_DIR = Path(__file__).resolve().parents[3] / "data"
@@ -635,15 +636,6 @@ async def verify_raw_import_file(record: dict[str, Any]) -> dict[str, Any]:
         "computed_sha256": computed_sha,
         "message": "Checksum does NOT match the recorded value. The file may be corrupted or altered.",
     }
-
-
-def _json_object(value: Any) -> dict[str, Any]:
-    if isinstance(value, str):
-        try:
-            value = json.loads(value)
-        except json.JSONDecodeError:
-            return {}
-    return value if isinstance(value, dict) else {}
 
 
 def _verify_object_in_store(record: dict[str, Any]) -> dict[str, Any]:

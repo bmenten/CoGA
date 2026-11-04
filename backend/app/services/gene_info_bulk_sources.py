@@ -12,10 +12,8 @@ from pathlib import Path
 import re
 from typing import Any, Iterable, TextIO
 
-import httpx
-
 from ..core.config import settings
-from .bounded_download import download_bounded_bytes, gunzip_bounded
+from .bounded_download import download_text
 
 _MAX_ASSOCIATIONS_PER_GENE = 24
 _MAX_TERMS_PER_GENE = 96
@@ -299,14 +297,6 @@ def build_bulk_gene_bundle(
         "aliases": aliases,
         "previous_symbols": previous_symbols,
     }
-
-
-async def _download_text(url: str) -> str:
-    async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
-        raw = await download_bounded_bytes(client, url, source=url)
-    if url.endswith(".gz"):
-        raw = gunzip_bounded(raw, source=url)
-    return raw.decode("utf-8")
 
 
 def _add_unique_record(bucket: list[dict[str, Any]], record: dict[str, Any]) -> None:
@@ -1265,7 +1255,7 @@ async def _load_csv_dataset(
 ) -> GeneBulkSourceDataset:
     consulted = {_normalize_symbol(symbol) for symbol in symbols} if symbols is not None else None
     try:
-        text_value = await _download_text(url)
+        text_value = await download_text(url, http_timeout=60.0)
         encoded = text_value.encode("utf-8")
         release = GeneSourceRelease(
             label=release_label(text_value) if release_label else None,

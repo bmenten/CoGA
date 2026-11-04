@@ -80,6 +80,7 @@ files = [
     "backend/app/services/signed_record_nipt.py",
     "backend/app/services/signed_record_sections.py",
     "backend/app/services/small_variant_review_tags.py",
+    "backend/app/services/stored_values.py",
     "backend/app/services/structural_variant_evidence.py",
     "backend/app/services/structural_variant_review_pg.py",
     "backend/app/services/sv_copy_change.py",

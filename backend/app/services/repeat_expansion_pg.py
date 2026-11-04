@@ -26,6 +26,7 @@ from ..schemas import (
 )
 from .data_scope import chromosome_aliases, normalize_chromosome
 from .family_metadata_context import FamilyMetadataContext, SampleMetadataContext
+from .stored_values import int_or_none as _as_int, json_object
 from .upload_safety import decode_upload_text
 from .family_package_common import (
     VcfSampleColumnError,
@@ -55,18 +56,6 @@ def _as_text(value: Any) -> str | None:
         return ", ".join(str(item) for item in value if item not in (None, ""))
     text_value = str(value).strip()
     return text_value or None
-
-
-def _as_int(value: Any) -> int | None:
-    if value in (None, ""):
-        return None
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        try:
-            return int(float(value))
-        except (TypeError, ValueError):
-            return None
 
 
 def _text_list(value: Any) -> list[str]:
@@ -866,13 +855,7 @@ class RepeatLocusLookup(dict[str, dict[str, Any]]):
 
 def _row_metadata(row: dict[str, Any]) -> dict[str, Any]:
     """A catalogue row's metadata as a dict (a JSON string, depending on the driver)."""
-    metadata = row.get("metadata")
-    if isinstance(metadata, str):
-        try:
-            metadata = json.loads(metadata)
-        except ValueError:
-            return {}
-    return metadata if isinstance(metadata, dict) else {}
+    return json_object(row.get("metadata"))
 
 
 def _is_strchive_row(row: dict[str, Any]) -> bool:

@@ -20,7 +20,8 @@ from .access_control import CurrentUser, RecordNotVisible, is_admin_user
 
 from .family_identifiers import IDENTIFIER_RULE, identifier_problem, visible
 from .family_package_source import package_folder_path
-from .family_package_common import _dataset_summary_list, _issue_list, _json_dict, _json_list, _model_list_json
+from .family_package_common import _dataset_summary_list, _issue_list, _json_list, _model_list_json
+from .stored_values import json_object
 
 
 # A job's heartbeat is stamped, and its age judged, by the database's clock (`now()`), never
@@ -65,7 +66,7 @@ def _serialize_job(mapping: dict[str, Any]) -> FamilyPackageImportJobOut:
         validation_warnings=_issue_list(mapping.get("validation_warnings")),
         logs=[str(item) for item in _json_list(mapping.get("logs"))],
         datasets=_dataset_summary_list(mapping.get("dataset_summaries")),
-        metadata=_json_dict(mapping.get("metadata")),
+        metadata=json_object(mapping.get("metadata")),
         error=mapping.get("error"),
     )
 

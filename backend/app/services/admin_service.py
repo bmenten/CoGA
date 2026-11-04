@@ -25,6 +25,7 @@ from ..schemas import (
 )
 from .clickhouse_integrity_monitor import integrity_monitor_state
 from .clickhouse_interval_tracks import (
+    INTERVAL_TRACK_TYPES,
     delete_interval_track_sources,
     delete_interval_tracks,
     interval_counts_by_family,
@@ -104,9 +105,8 @@ _EVERY_CLICKHOUSE_STORE = (
     DataReach(INTERVAL_TRACK_DATA),
 )
 
-BED_TRACK_TYPES = ("coverage", "segments", "apcad", "apcad_pcf", "apcad_segregation", "haplotype", "target_coverage")
-SAMPLE_TRACK_TYPES = (*BED_TRACK_TYPES, "structural_variants", "repeat_expansions")
-FAMILY_TRACK_TYPES = ("small_variants", "structural_variants", "repeat_expansions", *BED_TRACK_TYPES)
+SAMPLE_TRACK_TYPES = (*INTERVAL_TRACK_TYPES, "structural_variants", "repeat_expansions")
+FAMILY_TRACK_TYPES = ("small_variants", "structural_variants", "repeat_expansions", *INTERVAL_TRACK_TYPES)
 
 
 def _empty_track_counts(track_types: tuple[str, ...]) -> dict[str, int]:
@@ -321,14 +321,14 @@ async def _interval_counts_by_family(
     session: AsyncSession,
     family_uuids: list[str],
 ) -> dict[str, dict[str, int]]:
-    return await interval_counts_by_family(session, family_uuids, BED_TRACK_TYPES)
+    return await interval_counts_by_family(session, family_uuids, INTERVAL_TRACK_TYPES)
 
 
 async def _interval_counts_by_sample(
     session: AsyncSession,
     sample_uuids: list[str],
 ) -> dict[str, dict[str, int]]:
-    return await interval_counts_by_sample(session, sample_uuids, BED_TRACK_TYPES)
+    return await interval_counts_by_sample(session, sample_uuids, INTERVAL_TRACK_TYPES)
 
 
 async def _repeat_counts_by_family(
@@ -566,7 +566,7 @@ async def list_data_inventory_page(
             family_row=family_row,
             bed_track_counts=interval_counts.get(
                 family_row["family_uuid"],
-                _empty_track_counts(BED_TRACK_TYPES),
+                _empty_track_counts(INTERVAL_TRACK_TYPES),
             ),
             small_variant_count=small_by_family.get(family_row["family_uuid"], 0),
             structural_variant_count=structural_by_family.get(family_row["family_uuid"], 0),
@@ -657,7 +657,7 @@ async def get_family_data_inventory_detail(
 
     family_track_counts = _empty_track_counts(FAMILY_TRACK_TYPES)
     family_track_counts.update(
-        interval_counts.get(family_row["family_uuid"], _empty_track_counts(BED_TRACK_TYPES))
+        interval_counts.get(family_row["family_uuid"], _empty_track_counts(INTERVAL_TRACK_TYPES))
     )
     family_track_counts["small_variants"] = small_variant_count
     family_track_counts["structural_variants"] = structural_variant_count
@@ -667,7 +667,7 @@ async def get_family_data_inventory_detail(
     for sample_row in sample_rows:
         track_counts = _empty_track_counts(SAMPLE_TRACK_TYPES)
         track_counts.update(
-            sample_interval_counts.get(sample_row["sample_uuid"], _empty_track_counts(BED_TRACK_TYPES))
+            sample_interval_counts.get(sample_row["sample_uuid"], _empty_track_counts(INTERVAL_TRACK_TYPES))
         )
         track_counts["structural_variants"] = sample_structural_counts.get(sample_row["sample_uuid"], 0)
         track_counts["repeat_expansions"] = sample_repeat_counts.get(sample_row["sample_uuid"], 0)
@@ -892,11 +892,11 @@ async def delete_sample_data_by_type(
     if not confirm:
         raise HTTPException(status_code=400, detail="Confirmation required")
     if source is not None:
-        if data_type not in BED_TRACK_TYPES:
+        if data_type not in INTERVAL_TRACK_TYPES:
             raise HTTPException(status_code=400, detail="Only an interval track is deleted per source")
         if not source.strip() or source != source.strip():
             raise HTTPException(status_code=400, detail="Invalid source")
-    if data_type in BED_TRACK_TYPES or data_type == "repeat_expansions":
+    if data_type in INTERVAL_TRACK_TYPES or data_type == "repeat_expansions":
         # From before the delete until the commit below, as the single-file uploads of a
         # sample's tracks and repeat calls hold them: a package import's restore rewrites
         # those rows too, and the import holds these locks from its snapshot to its restore,
@@ -905,7 +905,7 @@ async def delete_sample_data_by_type(
         await lock_family_variant_writes(
             session, sample_row["family_uuid"], VARIANT_TYPES, samples=[sample_row["sample_uuid"]]
         )
-    if data_type in BED_TRACK_TYPES:
+    if data_type in INTERVAL_TRACK_TYPES:
         sample_rows = (await _sample_rows_by_family(session, [sample_row["family_uuid"]]))[sample_row["family_uuid"]]
         contexts = await _family_assembly_contexts(
             session,

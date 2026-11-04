@@ -91,6 +91,9 @@ MODULE_FLOORS: dict[str, float] = {
     # what the analysis looked at)
     "backend/app/services/signed_record_sections.py": 97.0,
     "backend/app/services/small_variant_review_tags.py": 90.0,  # (93.8, 2026-11-03)
+    # (100.0 measured locally when it was added, ENG-8: the stored-value readers the
+    # mitochondrial, repeat and annotation-manifest services share)
+    "backend/app/services/stored_values.py": 97.0,
     "backend/app/services/structural_variant_evidence.py": 97.0,  # (100.0, 2026-11-03)
     "backend/app/services/structural_variant_review_pg.py": 95.0,  # (98.3, 2026-11-03) CNV ACMG persistence
     # (100.0 measured locally when it was added: CLIN-47, the copy-loss rule of the SV
