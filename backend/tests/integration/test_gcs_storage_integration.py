@@ -264,6 +264,8 @@ def test_an_alignment_imported_from_fake_gcs_is_served_from_where_it_lies(
     """Stage -> validate -> alignments importer (real GCS existence checks, real Postgres
     write) -> the CRAM endpoint's lookup of the recorded location (real Postgres read,
     real GCS existence checks). Only the URL signing is faked: it needs IAM SignBlob."""
+    from sqlalchemy import text
+
     from app.routers import cram
     from app.schemas import FamilyImportDatasetSummary
     from app.services import family_package_datasets
@@ -307,6 +309,17 @@ def test_an_alignment_imported_from_fake_gcs_is_served_from_where_it_lies(
         assert result.status == "imported", result.message
 
         async with sm() as session:
+            # The package folder the family's import read, as the import's registration
+            # records it: a recorded location is served only from there (SEC-27).
+            await session.execute(
+                text(
+                    "UPDATE families SET metadata = jsonb_build_object("
+                    "'package_import', jsonb_build_object('folder_path', CAST(:folder AS text))) "
+                    "WHERE id = CAST(:f AS uuid)"
+                ),
+                {"folder": staged.source_uri, "f": family.uuid},
+            )
+            await session.commit()
             recorded = await cram._recorded_alignments(session, [family.sample_label])
         assert set(recorded) == {family.sample_label}
         entry = await asyncio.to_thread(

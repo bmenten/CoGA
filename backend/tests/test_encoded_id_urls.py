@@ -184,7 +184,7 @@ def families(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _Families:
         monkeypatch.setattr(module, "DATA_DIR", tmp_path)
 
     async def signal_track_rows(session: Any, sample_ids: list[str]) -> list[tuple[str, dict[str, Any]]]:
-        return [(sample_id, store.signal_tracks[sample_id]) for sample_id in sample_ids if sample_id in store.signal_tracks]
+        return [(sample_id, store.signal_tracks[sample_id], None) for sample_id in sample_ids if sample_id in store.signal_tracks]
 
     async def recorded_report(session: Any, *, family_id: str, sample_id: str) -> str:
         if (family_id, sample_id) not in store.reports:

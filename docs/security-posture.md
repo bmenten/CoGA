@@ -175,8 +175,12 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
 - ✅ **Scoped downloads.** The CRAM/BAM and signal-track endpoints check family and sample
   access before they hand out a signed URL (`routers/cram.py`, `routers/signal_tracks.py`).
   They sign a location the import recorded only when it names an object in the configured
-  bucket below `FAMILY_IMPORT_ROOTS`, so a changed database row cannot point them at any other
-  object.
+  bucket, in the package folder the family's own import read
+  (`families.metadata.package_import.folder_path`, below `FAMILY_IMPORT_ROOTS`;
+  `within_family_package` in `services/family_package_source.py`). So a changed database row
+  cannot point them at any other object, another family's package in the import area
+  included (SEC-27; the check used to be against the import area alone). A location recorded
+  for a family without such a folder is not signed: the layout probes are tried instead.
 
   With local storage, the CRAM/BAM, signal-track and QC-report endpoints
   (`routers/family_qc_reports.py`) look a file up only in the family's own folders,
@@ -216,6 +220,10 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
     it, and **Write manifest** does not write through it. A linked manifest gave a package the
     family of any YAML or JSON file the backend could read, and Write manifest replaced the
     file it pointed at (SEC-21; [data-import.md](data-import.md)).
+  - Write manifest follows no link at all: it writes the text into a new file of the package
+    folder, created exclusively and not through a link, and renames it over `manifest.yaml`.
+    The checks above ran before the write, so a link put in the manifest's place between them
+    was written through (SEC-27); now it is replaced.
   - A package staged from a bucket is read only by the import or validation that staged it. A
     typed folder in the staging folder, or an import root linked there, is refused
     (`package_folder_not_allowed`); it used to read another import's staged copy.

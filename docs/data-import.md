@@ -818,7 +818,14 @@ symlink leading out of the folder, or that loops, is refused (`manifest_outside_
 nothing, validation reads nothing more of the package, the package list shows it under its
 folder's name, and **Write manifest.yaml** answers 400. (Discover and validation used to read the
 link's target as the manifest, and Write manifest wrote through it, replacing that file or
-creating the one a dangling link named.) A symlink that stays in the package is followed.
+creating the one a dangling link named.) A symlink that stays in the package is followed when
+the manifest is read.
+
+**Write manifest.yaml** follows no link: it writes the text into a new file in the package
+folder and renames that file over `manifest.yaml` (SEC-27). The check for a link out of the
+package runs before the write, and a link put in the manifest's place between the two was
+written through; now the rename replaces it. A `manifest.yaml` that is a link within the
+package is replaced by the written file too, and the file it pointed at is left as it was.
 
 Every path the manifest names is relative to the package folder, or an absolute path inside it.
 Validation refuses with 400 a path that leads out of the package (an absolute path elsewhere,

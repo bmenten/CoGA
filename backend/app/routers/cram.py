@@ -22,7 +22,7 @@ from ..core.postgres import get_postgres_session
 from ..core.url_path import url_path
 from ..dependencies import get_current_user
 from ..schemas import AlignmentManifestEntryOut
-from ..services.family_package_source import within_remote_import_roots
+from ..services.family_package_source import within_family_package
 from ..services.metadata_service import get_family_record
 from ..services.access_control import CurrentUser
 
@@ -114,38 +114,41 @@ class _RecordedAlignment:
     index_key: str | None = None
 
 
-def _recorded_key(uri: object, suffix: str) -> str | None:
+def _recorded_key(uri: object, suffix: str, package_folder: object) -> str | None:
     """The key a recorded location names, when it may be served; ``None`` otherwise.
 
     The location comes back from ``samples.metadata``, which the import writes but which
     is read here as data. It is served only when it names an object in the configured
     bucket (``configured_object_key``: that bucket and scheme, nothing but scheme,
-    bucket and key, no empty/``.``/``..`` segment), below one of the remote
-    FAMILY_IMPORT_ROOTS -- the folders every package is imported from -- and with the
-    extension of the file it stands for. A tampered row can therefore point at most at
-    another object of the import area, never at other objects of the bucket or at
-    another bucket. The endpoints check family membership before they read the row.
+    bucket and key, no empty/``.``/``..`` segment), in the family's own package folder
+    below the remote FAMILY_IMPORT_ROOTS (``within_family_package``: the bucket folder the
+    family's import read, ``package_folder``), and with the extension of the file it
+    stands for. A tampered row can therefore point at most at another object of the
+    family's own package, never at another family's package in the import area, other
+    objects of the bucket or another bucket (SEC-27). The endpoints check family
+    membership before they read the row.
     """
     key = configured_object_key(uri)
-    if key is None or not key.lower().endswith(suffix) or not within_remote_import_roots(str(uri)):
+    if key is None or not key.lower().endswith(suffix) or not within_family_package(str(uri), package_folder):
         return None
     return key
 
 
-def _recorded_alignment(value: object) -> _RecordedAlignment | None:
-    """Parse ``samples.metadata['alignment']``; ``None`` unless it is usable."""
+def _recorded_alignment(value: object, package_folder: object) -> _RecordedAlignment | None:
+    """Parse ``samples.metadata['alignment']``; ``None`` unless it is usable, in the
+    family's package folder ``package_folder``."""
     if not isinstance(value, dict):
         return None
     fmt = value.get("format")
     if not isinstance(fmt, str) or fmt not in _INDEX_SUFFIXES:
         return None
-    key = _recorded_key(value.get("uri"), f".{fmt}")
+    key = _recorded_key(value.get("uri"), f".{fmt}", package_folder)
     if key is None:
         return None
     return _RecordedAlignment(
         format=fmt,
         key=key,
-        index_key=_recorded_key(value.get("index_uri"), _INDEX_SUFFIXES[fmt]),
+        index_key=_recorded_key(value.get("index_uri"), _INDEX_SUFFIXES[fmt], package_folder),
     )
 
 
@@ -159,26 +162,31 @@ async def _recorded_alignments(
     """
     if not sample_ids or not storage_is_remote():
         return {}
+    # Each sample's family's package folder, the bucket folder its import read: a recorded
+    # location is served only from there (SEC-27).
     result = await session.execute(
         text(
             """
-            SELECT sample_id, metadata -> 'alignment' AS alignment
-            FROM samples
-            WHERE sample_id = ANY(:sample_ids)
-              AND metadata ? 'alignment'
+            SELECT s.sample_id,
+                   s.metadata -> 'alignment' AS alignment,
+                   f.metadata -> 'package_import' ->> 'folder_path' AS package_folder
+            FROM samples s
+            JOIN families f ON f.id = s.family_id
+            WHERE s.sample_id = ANY(:sample_ids)
+              AND s.metadata ? 'alignment'
             """
         ),
         {"sample_ids": list(sample_ids)},
     )
     recorded: dict[str, _RecordedAlignment] = {}
-    for sample_id, value in result.all():
-        alignment = _recorded_alignment(value)
+    for sample_id, value, package_folder in result.all():
+        alignment = _recorded_alignment(value, package_folder)
         if alignment is not None:
             recorded[str(sample_id)] = alignment
         elif isinstance(value, dict) and value.get("uri"):
             logger.warning(
                 "Ignoring the recorded alignment location of sample %s: it is not an "
-                "object in the configured bucket below FAMILY_IMPORT_ROOTS",
+                "object in the configured bucket in its family's package folder",
                 sample_id,
             )
     return recorded

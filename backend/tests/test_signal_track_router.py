@@ -90,9 +90,10 @@ async def test_only_known_kinds_are_read_out_of_the_recorded_metadata() -> None:
                         # Not a mapping.
                         "broken": "nonsense",
                     },
+                    None,
                 ),
                 # No usable entries at all: must not appear.
-                ("OTHER", {"hificnv": {"unknown_kind": "x"}}),
+                ("OTHER", {"hificnv": {"unknown_kind": "x"}}, None),
             ]
 
     class FakeSession:
@@ -149,12 +150,19 @@ def _recorded(uri: Any = f"gs://{BUCKET}/{DEPTH_KEY}", path: str = DEPTH) -> dic
 
 
 class _RowsSession:
-    def __init__(self, rows: dict[str, Any]) -> None:
+    """Answers the query for each sample's ``signal_tracks`` and its family's package folder,
+    ``families.metadata.package_import.folder_path`` (the ``pacbio`` package's in the store
+    ``use_store`` sets up, unless given)."""
+
+    def __init__(self, rows: dict[str, Any], package_folder: Any = f"gs://{BUCKET}/imports/pacbio") -> None:
         self.rows = rows
+        self.package_folder = package_folder
+        self.sql: list[str] = []
 
     async def execute(self, statement: Any, params: Any = None) -> Any:
+        self.sql.append(" ".join(str(statement).split()))
         wanted = set(params["sample_ids"])
-        rows = [(sample_id, value) for sample_id, value in self.rows.items() if sample_id in wanted]
+        rows = [(sample_id, value, self.package_folder) for sample_id, value in self.rows.items() if sample_id in wanted]
         return SimpleNamespace(all=lambda: rows)
 
 
@@ -208,7 +216,9 @@ async def test_the_remote_manifest_signs_the_recorded_object(
     use_store(monkeypatch, scheme, {DEPTH_KEY: "bigwig"})
     _members(monkeypatch, "HG002")
     _sign(monkeypatch)
-    session: Any = _RowsSession({"HG002": _recorded(uri=f"{scheme}://{BUCKET}/{DEPTH_KEY}")})
+    session: Any = _RowsSession(
+        {"HG002": _recorded(uri=f"{scheme}://{BUCKET}/{DEPTH_KEY}")}, package_folder=f"{scheme}://{BUCKET}/imports/pacbio"
+    )
 
     entries = await signal_tracks.get_signal_track_manifest("pacbio", sample_ids=["HG002"], session=session, user=object())
 
@@ -270,6 +280,32 @@ async def test_an_untrusted_recorded_signal_track_is_never_signed(
         await signal_tracks.get_signal_track("pacbio", "HG002", "hificnv", "depth_bigwig", session=session, user=object())
     assert exc.value.status_code == 404
     assert signed == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "package_folder",
+    [f"gs://{BUCKET}/imports/other-family", None, f"gs://{BUCKET}/imports", f"gs://{BUCKET}/imports/pacbio/.."],
+    ids=["another family's package", "none recorded", "the import root itself", "a dot segment"],
+)
+async def test_a_track_outside_the_familys_own_package_is_never_signed(
+    monkeypatch: pytest.MonkeyPatch, package_folder: Any
+) -> None:
+    # SEC-27: the recorded URI was checked against the import area alone, so a row naming
+    # another family's package there was signed. It must lie in the package folder the
+    # sample's family's import read.
+    use_store(monkeypatch, "gs", {DEPTH_KEY: "bigwig"})
+    _members(monkeypatch, "HG002")
+    signed = _sign(monkeypatch)
+    session: Any = _RowsSession({"HG002": _recorded()}, package_folder=package_folder)
+
+    assert await signal_tracks.get_signal_track_manifest("pacbio", sample_ids=["HG002"], session=session, user=object()) == []
+    with pytest.raises(HTTPException) as exc:
+        await signal_tracks.get_signal_track("pacbio", "HG002", "hificnv", "depth_bigwig", session=session, user=object())
+    assert exc.value.status_code == 404
+    assert signed == []
+    # The family's package folder is read with each sample's row, from the sample's family.
+    assert "JOIN families f ON f.id = s.family_id" in session.sql[0]
 
 
 @pytest.mark.asyncio

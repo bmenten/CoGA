@@ -70,7 +70,9 @@ De ontdekkingsstap zoekt bestanden op de familie- en sample-ID's, en alleen in d
 
 De eigenaar koos voor een waarschuwing, niet voor een weigering (SEC-27, `package_folder_link_issues` in `family_package_source.py`). De bewakers hierboven blijven gelden: een bestand dat het manifest noemt of dat de ontdekkingsstap zoekt via een link uit het pakket, wordt nog altijd niet gelezen.
 
-**Het manifest is een bestand in de pakketmap.** Een `manifest.yaml` (of `.yml`, `.json`) die een symbolische link uit de map is, of een link in een kring, wordt geweigerd (`manifest_outside_package`). De ontdekkingsstap stelt dan niets voor, de controle leest niets meer van het pakket, de pakketlijst toont het onder de mapnaam, en *Write manifest.yaml* schrijft niet door de link (`400`). (Voorheen gold het doel van de link als manifest, en overschreef *Write manifest.yaml* het, of maakte het aan.) Een link die in het pakket blijft, wordt gevolgd.
+**Het manifest is een bestand in de pakketmap.** Een `manifest.yaml` (of `.yml`, `.json`) die een symbolische link uit de map is, of een link in een kring, wordt geweigerd (`manifest_outside_package`). De ontdekkingsstap stelt dan niets voor, de controle leest niets meer van het pakket, de pakketlijst toont het onder de mapnaam, en *Write manifest.yaml* schrijft niet door de link (`400`). (Voorheen gold het doel van de link als manifest, en overschreef *Write manifest.yaml* het, of maakte het aan.) Een link die in het pakket blijft, wordt gevolgd bij het lezen.
+
+*Write manifest.yaml* volgt geen enkele link: het schrijft de tekst in een nieuw bestand in de pakketmap en hernoemt dat bestand tot `manifest.yaml` (SEC-27). De controle op een link uit het pakket loopt vóór het schrijven; een link die tussen beide in de plaats van het manifest kwam, werd gevolgd. Nu vervangt de hernoeming hem. Een `manifest.yaml` die een link binnen het pakket is, wordt ook door het geschreven bestand vervangen; het bestand waarnaar hij wees, blijft zoals het was.
 
 Elk pad in het manifest is relatief tot de pakketmap (of een absoluut pad erin). Een `400` krijgen:
 

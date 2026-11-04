@@ -226,7 +226,7 @@ def recorded(data: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, dict[str,
 
     async def rows(session: Any, sample_ids: list[str]) -> list[tuple[str, dict[str, Any]]]:
         paths = {sample: path for members in families.values() for sample, path in members.items()}
-        return [(sample, {"hificnv": {KIND: paths[sample]}}) for sample in sample_ids if sample in paths]
+        return [(sample, {"hificnv": {KIND: paths[sample]}}, None) for sample in sample_ids if sample in paths]
 
     sign_in_a_viewer_who_reads(monkeypatch, families, signal_tracks)
     monkeypatch.setattr(signal_tracks, "_signal_track_rows", rows)

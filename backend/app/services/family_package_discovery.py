@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from contextlib import suppress
 import glob
 import os
 from pathlib import Path
 import re
 from typing import Any, Iterable
+from uuid import uuid4
 
 from fastapi import HTTPException
 import yaml
@@ -2110,6 +2112,44 @@ def discover_family_package_manifest(
     )
 
 
+_MANIFEST_FILE = "manifest.yaml"
+
+
+def _write_manifest_in_folder(root: Path, manifest_yaml: str) -> Path:
+    """Write ``manifest.yaml`` in the package folder ``root``, never through a symlink.
+
+    The checks before find no link out of the package, but a link put in the manifest's place
+    between them and the write was followed: the text replaced, or created, the file the link
+    names, wherever it lies (SEC-27). So the text goes into a new file of the folder, created
+    exclusively and never through a link (``O_CREAT | O_EXCL | O_NOFOLLOW``), which is then
+    renamed over ``manifest.yaml``: a rename replaces the name itself, never what a link of
+    that name points at. Both are made relative to the folder, opened once and not through a
+    link either, so the file lands in the folder that was checked. A ``manifest.yaml`` that is
+    a link within the package is replaced by the file, the link's target left as it was."""
+    folder = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    temporary = f".{_MANIFEST_FILE}.{uuid4().hex}.tmp"
+    try:
+        # Owner read-write only: a manifest names the samples and may hold HPO terms and
+        # notes, so neither the group nor others read or write it, whatever the umask. CoGA
+        # reads it as the same user that writes it.
+        descriptor = os.open(
+            temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=folder
+        )
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+                handle.write(manifest_yaml)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, _MANIFEST_FILE, src_dir_fd=folder, dst_dir_fd=folder)
+        except BaseException:
+            with suppress(FileNotFoundError):
+                os.unlink(temporary, dir_fd=folder)
+            raise
+    finally:
+        os.close(folder)
+    return root / _MANIFEST_FILE
+
+
 def write_family_package_manifest(
     *,
     folder_path: str | Path,
@@ -2143,7 +2183,7 @@ def write_family_package_manifest(
             detail=f"Manifest YAML holds a NUL character at {nul_at}, which no path or name can hold",
         )
     PackageManifest.model_validate(payload)
-    manifest_path.write_text(manifest_yaml, encoding="utf-8")
+    manifest_path = _write_manifest_in_folder(root, manifest_yaml)
     return FamilyPackageManifestWriteOut(
         manifest_path=str(manifest_path),
         validation=validate_family_package(root, fallback_ped_text=fallback_ped_text),

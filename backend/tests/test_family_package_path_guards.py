@@ -44,6 +44,7 @@ import gzip
 import io
 import json
 import os
+import stat
 from pathlib import Path
 from typing import Any
 
@@ -55,6 +56,7 @@ from backend.app.core.config import settings
 from backend.app.schemas import FamilyPackageManifestBuildOut, FamilyPackageManifestBuildRequest
 from backend.app.services.family_package_common import NUL_IN_PATH, _package_path_or_none, _resolve_package_path, package_path_within
 from backend.app.services.family_package_discovery import discover_family_package_manifest, write_family_package_manifest
+from backend.app.services import family_package_discovery as discovery_module
 from backend.app.services.family_package_source import scan_family_import_packages
 from backend.app.services.family_package_validation import load_validated_family_package, validate_family_package
 from backend.tests._family_import_fakes import authorize_import_root, signed_in_client
@@ -300,10 +302,74 @@ def test_a_manifest_symlink_that_stays_in_the_package_is_followed(imports: Path)
     assert bundle is not None and bundle.manifest.analysis_type == "trio_check"
     assert yaml.safe_load(answer.manifest_yaml)["analysis_type"] == "trio_check"
     assert listed[FAMILY]["analysis_type"] == "trio_check"
-    # Written through the link, into the package's own file.
+    # Written as manifest.yaml itself, which replaces the link (SEC-27: the write follows no
+    # link); the link's target is left as it was.
     assert written.validation.valid
-    assert yaml.safe_load(current.read_text())["notes"] == "rewritten"
-    assert (package / "manifest.yaml").is_symlink()
+    assert not (package / "manifest.yaml").is_symlink()
+    assert yaml.safe_load((package / "manifest.yaml").read_text())["notes"] == "rewritten"
+    assert yaml.safe_load(current.read_text())["analysis_type"] == "trio_check"
+
+
+def _link_swapped_in_after_the_check(
+    monkeypatch: pytest.MonkeyPatch, package: Path, target: Path
+) -> None:
+    """The check for a manifest link out of the package finds none, and a link out is put in
+    the manifest's place right after it, before the write: the race SEC-27 names."""
+    checked = discovery_module.manifest_link_out_of_package
+
+    def check_then_swap(root: Path) -> Any:
+        found = checked(root)
+        manifest = package / "manifest.yaml"
+        if manifest.exists() or manifest.is_symlink():
+            manifest.unlink()
+        manifest.symlink_to(target)
+        return found
+
+    monkeypatch.setattr(discovery_module, "manifest_link_out_of_package", check_then_swap)
+
+
+@pytest.mark.parametrize("before", ["no manifest", "a manifest"])
+def test_write_manifest_writes_nothing_through_a_link_swapped_in_after_its_check(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, imports: Path, before: str
+) -> None:
+    decoy = _decoy_manifest(tmp_path)
+    decoy_bytes = decoy.read_bytes()
+    planted = tmp_path / "outside" / "planted.yaml"
+    package = _package(imports)
+    if before == "a manifest":
+        (package / "manifest.yaml").write_text(MANIFEST_YAML)
+
+    for target in (decoy, planted):
+        _link_swapped_in_after_the_check(monkeypatch, package, target)
+        written = _write(package)
+
+        # The write followed the link: it replaced the decoy outside the package, or created
+        # the file a dangling link named there.
+        assert decoy.read_bytes() == decoy_bytes
+        assert not planted.exists()
+        manifest = package / "manifest.yaml"
+        assert not manifest.is_symlink() and manifest.read_text() == MANIFEST_YAML
+        assert written.validation.family_id == FAMILY
+    # Nothing is left of the file the text went into first.
+    assert sorted(path.name for path in package.iterdir()) == ["family.ped", "manifest.yaml"]
+
+
+def test_write_manifest_leaves_no_file_behind_when_the_write_fails(
+    monkeypatch: pytest.MonkeyPatch, imports: Path
+) -> None:
+    package = _package(imports)
+    (package / "manifest.yaml").write_text("schema_version: 1\n")
+
+    def refuse(*_args: Any, **_kwargs: Any) -> None:
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(discovery_module.os, "replace", refuse)
+    with pytest.raises(OSError):
+        _write(package)
+
+    # The manifest is as it was, and no partial file is left in the package.
+    assert (package / "manifest.yaml").read_text() == "schema_version: 1\n"
+    assert sorted(path.name for path in package.iterdir()) == ["family.ped", "manifest.yaml"]
 
 
 # --------------------------------------------------------------------------- #
@@ -1079,3 +1145,18 @@ def test_the_routes_refuse_a_nul_without_a_500(imports: Path) -> None:
         {"detail": "Manifest YAML holds a NUL character at ped, which no path or name can hold"},
     )
     assert (package / "manifest.yaml").read_bytes() == before
+
+
+def test_a_written_manifest_is_read_and_written_by_its_owner_alone(imports: Path) -> None:
+    # A manifest names the samples and may hold HPO terms and notes: whatever the umask, it is
+    # written owner read-write only, nothing for the group or others (CodeQL
+    # py/overly-permissive-file).
+    package = _package(imports)
+    previous = os.umask(0)
+    try:
+        written = write_family_package_manifest(folder_path=package, manifest_yaml=MANIFEST_YAML, overwrite=True)
+    finally:
+        os.umask(previous)
+
+    assert stat.S_IMODE((package / "manifest.yaml").stat().st_mode) == 0o600
+    assert written.manifest_path == str(package / "manifest.yaml")
