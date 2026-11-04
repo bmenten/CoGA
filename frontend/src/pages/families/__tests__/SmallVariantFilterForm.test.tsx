@@ -20,7 +20,7 @@ const MEMBERS = [
 
 const TAGS = [
   { key: 'review', label: 'Review', group: 'collaboration' as const, color: '#2563eb', sort_order: 10, scope: 'system' as const, is_custom: false },
-  { key: 'acmg_class_4', label: 'Likely Pathogenic - class 4', group: 'classification' as const, color: '#ea580c', sort_order: 120, scope: 'system' as const, is_custom: false },
+  { key: 'acmg_class_4', label: 'Likely pathogenic - class 4', group: 'classification' as const, color: '#ea580c', sort_order: 120, scope: 'system' as const, is_custom: false },
 ];
 
 // A draft with a value in most sections, so each renders its filled-in state.

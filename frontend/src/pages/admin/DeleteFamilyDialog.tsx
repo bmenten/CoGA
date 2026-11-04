@@ -46,7 +46,7 @@ const DeleteFamilyDialog: React.FC<DeleteFamilyDialogProps> = ({
         if (!busy) onCancel();
       }}
       label={`Delete family ${familyId}`}
-      className="modal-surface surface-card admin-delete-family-modal"
+      className="modal-surface surface-card confirm-delete-modal"
       closeOnBackdrop={false}
       confirmDiscard={false}
     >
@@ -57,7 +57,7 @@ const DeleteFamilyDialog: React.FC<DeleteFamilyDialogProps> = ({
 
       {step === 'warn' ? (
         <>
-          <div className="admin-delete-family-warning">
+          <div className="confirm-delete-warning">
             <p>This action permanently deletes:</p>
             <ul>
               <li>Family metadata</li>
@@ -66,7 +66,7 @@ const DeleteFamilyDialog: React.FC<DeleteFamilyDialogProps> = ({
               <li>Annotations</li>
               <li>Imported files linked to this family</li>
             </ul>
-            <p className="admin-delete-family-warning-strong">
+            <p className="confirm-delete-warning-strong">
               This operation cannot be undone.
             </p>
           </div>
@@ -109,8 +109,8 @@ const DeleteFamilyDialog: React.FC<DeleteFamilyDialogProps> = ({
         </>
       ) : (
         <>
-          <div className="admin-delete-family-warning">
-            <p className="admin-delete-family-warning-strong">
+          <div className="confirm-delete-warning">
+            <p className="confirm-delete-warning-strong">
               Final confirmation: permanently delete {familyId} and every linked
               record and file?
             </p>

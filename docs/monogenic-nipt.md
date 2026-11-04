@@ -128,9 +128,10 @@ it.
   when the two signals disagree, `warn` when neither tells), paternity and the plasma sample's sex
   profile. The summary endpoint serves them (`fetal_fraction_status`, `fetal_sex.status`; before,
   the page made the first two in the browser), and the signed record freezes them.
-- **Sign-out** — a NIPT family is signed out through the family sign-out, from the NIPT page or the
-  report page. Its record holds the section `nipt` (`signed_record_nipt.py`): the summary, the
-  checks, each reported variant as the variant list classifies it (from
+- **Sign-out** — a NIPT family is signed out through the family sign-out, from the NIPT report or
+  the family report page (the NIPT page has none). Its record holds the section `nipt`
+  (`signed_record_nipt.py`): the summary, the checks, each reported variant as the variant list
+  classifies it (from
   `nipt_service.get_family_nipt_record`), the recessive fetal risk over them, the inputs, and,
   without a per-target table, the coverage check's notes over the coverage tracks (`coverage_notes`,
   from `nipt_service.nipt_coverage_notes`, TRACE-17). A failed fetal-fraction, fetal-sex or plasma

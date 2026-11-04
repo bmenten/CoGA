@@ -1,14 +1,14 @@
 # Ontwerpvoorstel: review van repeat expansions en Paraphase-bevindingen
 
-Status: **goedgekeurd door de eigenaar en QA, en gebouwd**: backend in #1063, UI in #1064 (beide
+Status: **goedgekeurd door de eigenaar en QA, en gebouwd**: backend in PR 1, UI in PR 2 (§12; beide
 gemerged op 2026-10-29). De beslissingen staan in §2: B1–B16 uit de vragenronde van 2026-10-28, B17–B20
-de afwijkingen die #1063 voorlegde en die met die PR aanvaard werden, B21–B23 de keuzes die de eigenaar in
-#1064 bevestigde. Waar de tekst hieronder afwijkt van B17–B23, gelden B17–B23.
+de afwijkingen die PR 1 voorlegde en die met die PR aanvaard werden, B21–B23 de keuzes die de eigenaar in
+PR 2 bevestigde. Waar de tekst hieronder afwijkt van B17–B23, gelden B17–B23.
 Datum van het voorstel: 2026-10-28.
 
 ## 1. Aanleiding en uitgangssituatie
 
-Small variants, structurele varianten en (sinds #1056) mtDNA-varianten hebben een review per familie:
+Small variants, structurele varianten en (sinds 2026-10-28) mtDNA-varianten hebben een review per familie:
 tags (Review, Exclude, Report, eigen tags), een notitie, een classificatie (ACMG of CNV-scoring), een
 bevroren evidence-snapshot met een driftpoort bij de sign-out, en een rij per wijziging in de
 hash-gekoppelde klinische audittrail. Repeat expansions (TRGT) en Paraphase hebben dat niet.
@@ -48,13 +48,13 @@ of anders inschat dan de automatische status.
 | B14 | ACMG-klassetags bij repeats en Paraphase (was O3) | De volledige catalogus blijft (B6), maar de dialoog van repeats en Paraphase biedt de groep *classification* (ACMG-klassetags en VUS-tiers) **niet** aan. Een review die zo'n tag toch bevat, toont hem gemarkeerd. |
 | B15 | Ander locus-ID na een herimport (was O4) | Een review **verhuist niet mee**. Een andere ID is een andere bevinding; de oude review blijft in de audittrail en de nieuwe afwijkende call telt als niet gereviewd. |
 | B16 | Gerapporteerde bevinding met status *normal* (was O5) | **Mag**, bijvoorbeeld als relevant negatief resultaat, met de markering "differs from CoGA's status" als het oordeel afwijkt. |
-| B17 | Wanneer de calls opnieuw bevroren worden (#1063) | Een opslag die de classificatie zet of wijzigt, of de Report-tag toevoegt, bevriest de calls opnieuw. Een opslag van alleen tags of een notitie houdt de bevroren calls, zodat hij geen drift kan wegwerken zonder nieuw oordeel (zoals bij ACMG- en CNV-classificaties). Vervangt "bij elke opslag" in §5. |
-| B18 | Geen Alembic-revisie (#1063) | Twee nieuwe tabellen hebben er geen nodig: tot de release candidate worden de baselines bij elke migratierun opnieuw toegepast, zoals toen `repeat_locus_count_units` erbij kwam. Vervangt de revisie in §4.2. |
-| B19 | De dialoog van de nieuwe poort zit al in de backend-PR (#1063) | `reportSignOut.tsx` en de Playwright-journey kennen de poort al in #1063; anders kon een familie met een ongereviewde afwijkende call (de golden trio inbegrepen) tot de UI-PR niet ondertekend worden. De driftdialoog noemt ook de repeat- en Paraphase-reviews die hij telt. |
-| B20 | Calls die niet gelezen konden worden, houden de poort ook tegen (#1063) | Kan de repeat- of Paraphase-sectie van het record niet gelezen worden, dan noemt de poort dat ("the repeat locus calls could not be read"), zodat een afwijkende call niet ongezien ondertekend wordt. Aanvulling op §6.2. |
-| B21 | *Secondary finding* in de dialoog (#1064) | De dialoog van repeats en Paraphase laat alleen de ACMG-klassetags (`acmg_*`) en de VUS-tiers weg; *Secondary finding* blijft aangeboden: het is geen ACMG-klasse. Verfijning van B14. |
-| B22 | Wanneer "differs from CoGA's status" verschijnt (#1064) | Alleen als de classificatie met **geen enkele** call van de familieleden overeenkomt. Een review geldt per locus (B1) en kan over één lid gaan: *Premutation* voor de moeder bij een locus waar het kind *Pathogenic* leest, wordt niet gemarkeerd; *Normal* terwijl elke call *Pathogenic* leest wel. |
-| B23 | Een leesendpoint voor de tellingen in de family workspace (#1064) | `GET /families/{id}/finding-review-summary`, alleen lezend, met de gewone familiecontrole: een lezer mag het lezen, zoals de samenvatting van small variants. |
+| B17 | Wanneer de calls opnieuw bevroren worden (PR 1) | Een opslag die de classificatie zet of wijzigt, of de Report-tag toevoegt, bevriest de calls opnieuw. Een opslag van alleen tags of een notitie houdt de bevroren calls, zodat hij geen drift kan wegwerken zonder nieuw oordeel (zoals bij ACMG- en CNV-classificaties). Vervangt "bij elke opslag" in §5. |
+| B18 | Geen Alembic-revisie (PR 1) | Twee nieuwe tabellen hebben er geen nodig: tot de release candidate worden de baselines bij elke migratierun opnieuw toegepast, zoals toen `repeat_locus_count_units` erbij kwam. Vervangt de revisie in §4.2. |
+| B19 | De dialoog van de nieuwe poort zit al in de backend-PR (PR 1) | `reportSignOut.tsx` en de Playwright-journey kennen de poort al in PR 1; anders kon een familie met een ongereviewde afwijkende call (de golden trio inbegrepen) tot de UI-PR niet ondertekend worden. De driftdialoog noemt ook de repeat- en Paraphase-reviews die hij telt. |
+| B20 | Calls die niet gelezen konden worden, houden de poort ook tegen (PR 1) | Kan de repeat- of Paraphase-sectie van het record niet gelezen worden, dan noemt de poort dat ("the repeat locus calls could not be read"), zodat een afwijkende call niet ongezien ondertekend wordt. Aanvulling op §6.2. |
+| B21 | *Secondary finding* in de dialoog (PR 2) | De dialoog van repeats en Paraphase laat alleen de ACMG-klassetags (`acmg_*`) en de VUS-tiers weg; *Secondary finding* blijft aangeboden: het is geen ACMG-klasse. Verfijning van B14. |
+| B22 | Wanneer "differs from CoGA's status" verschijnt (PR 2) | Alleen als de classificatie met **geen enkele** call van de familieleden overeenkomt. Een review geldt per locus (B1) en kan over één lid gaan: *Premutation* voor de moeder bij een locus waar het kind *Pathogenic* leest, wordt niet gemarkeerd; *Normal* terwijl elke call *Pathogenic* leest wel. |
+| B23 | Een leesendpoint voor de tellingen in de family workspace (PR 2) | `GET /families/{id}/finding-review-summary`, alleen lezend, met de gewone familiecontrole: een lezer mag het lezen, zoals de samenvatting van small variants. |
 
 ## 3. Principes
 
@@ -95,7 +95,7 @@ dezelfde `GRANT`s als de andere reviewtabellen in `05_grants.sql` en een rij in 
 repeat_expansion_reviews
   id uuid PK
   family_id uuid NOT NULL → families ON DELETE CASCADE
-  assembly_id uuid NOT NULL → assemblies
+  assembly_id uuid NOT NULL → assemblies ON DELETE CASCADE
   locus_id text NOT NULL
   classification text NULL  CHECK (classification IN (… §4.3 repeat …))
   tags jsonb NOT NULL DEFAULT '[]'
@@ -318,7 +318,7 @@ uitvoering als B17–B23 (§2).
 
 ## 12. Uitvoering (B10)
 
-**PR 1 — backend**, gebouwd in #1063 (met de poortdialoog, B19):
+**PR 1 — backend**, gebouwd (met de poortdialoog, B19):
 - schema en grants (geen revisie, B18);
 - de services voor reviews, snapshot en drift;
 - de endpoints;
@@ -330,7 +330,7 @@ uitvoering als B17–B23 (§2).
 - `database.md` en `clinical-traceability.md`;
 - de TF-delen uit §9.
 
-**PR 2 — UI**, gebouwd in #1064:
+**PR 2 — UI**, gebouwd:
 - kaarten met Review, Exclude, Report, Tags & notes, de classificatiechip, de tags, de notitie en de
   drift-chip;
 - Exclude klapt de kaart dicht (`ExcludedCardBar`);

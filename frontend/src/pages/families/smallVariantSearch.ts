@@ -310,7 +310,7 @@ export const REPORT_TAG_KEY = COLLABORATION_QUICK_TAGS.report;
 
 export const ACMG_CLASSIFICATION_TAGS = [
   { key: 'acmg_class_5', label: 'Pathogenic - class 5' },
-  { key: 'acmg_class_4', label: 'Likely Pathogenic - class 4' },
+  { key: 'acmg_class_4', label: 'Likely pathogenic - class 4' },
   { key: 'acmg_class_3', label: 'VUS - class 3' },
   { key: 'acmg_class_2', label: 'Likely benign - class 2' },
   { key: 'acmg_class_1', label: 'Benign - class 1' },
@@ -321,13 +321,34 @@ export const ACMG_CLASSIFICATION_LABELS = Object.fromEntries(
   ACMG_CLASSIFICATION_TAGS.map((entry) => [entry.key, entry.label]),
 ) as Record<string, string>;
 export const REVIEW_CLASSIFICATION_OPTIONS = ACMG_CLASSIFICATION_TAGS.map((entry) => entry.label);
+// The classes the P/LP/VUS quick choice and the ClinVar-review preset filter on.
+export const PATHOGENIC_TO_VUS_CLASSIFICATIONS: readonly string[] = ['acmg_class_5', 'acmg_class_4', 'acmg_class_3'].map(
+  (key) => ACMG_CLASSIFICATION_LABELS[key],
+);
+
+const CLASSIFICATION_OPTION_BY_LOWERED = new Map(
+  REVIEW_CLASSIFICATION_OPTIONS.map((label) => [label.toLowerCase(), label]),
+);
+
+/**
+ * A classification filter with each class label written as the options write it. A filter
+ * saved in a link before the labels were put in sentence case holds "Likely Pathogenic - class
+ * 4"; the server matches it whatever its case, and read through this its box shows ticked.
+ * Any other value is kept as it is.
+ */
+export const canonicalClassificationFilter = (value: string) =>
+  joinFilterValues(
+    parseCommaSeparatedValues(value).map(
+      (entry) => CLASSIFICATION_OPTION_BY_LOWERED.get(entry.toLowerCase()) ?? entry,
+    ),
+  );
 
 // MAGI-ACMG VUS sub-tier tags. Auto-managed alongside the acmg_class_* tags so a
 // "hot VUS" is filterable/reportable through the existing review-tag pipeline.
 export const ACMG_VUS_TIER_TAGS = [
-  { key: 'acmg_vus_hot', label: 'VUS — Hot' },
-  { key: 'acmg_vus_warm', label: 'VUS — Warm' },
-  { key: 'acmg_vus_cold', label: 'VUS — Cold' },
+  { key: 'acmg_vus_hot', label: 'VUS — hot' },
+  { key: 'acmg_vus_warm', label: 'VUS — warm' },
+  { key: 'acmg_vus_cold', label: 'VUS — cold' },
 ] as const;
 
 export const ACMG_VUS_TIER_TAG_KEYS = ACMG_VUS_TIER_TAGS.map((entry) => entry.key);
@@ -1075,8 +1096,7 @@ const buildPresetState = (
   } else if (preset === 'clinvar_review') {
     setFrequencyCeiling('0.01');
     filters.clinvar = 'Pathogenic';
-    filters.classification =
-      'Pathogenic - class 5, Likely Pathogenic - class 4, VUS - class 3';
+    filters.classification = joinFilterValues(PATHOGENIC_TO_VUS_CLASSIFICATIONS);
     filters.has_notes = 'true';
     members.forEach((member) => {
       if (member.affected) {
@@ -1437,6 +1457,7 @@ export const deserializePresetFilters = (
   (Object.keys(nextFilters) as (keyof SmallFilterState)[]).forEach((key) => {
     nextFilters[key] = normalizeStoredFilterValue(key, filters[key]);
   });
+  nextFilters.classification = canonicalClassificationFilter(nextFilters.classification);
   return nextFilters;
 };
 
@@ -1619,7 +1640,9 @@ export const useSmallVariantSearchState = ({
         return;
       }
       if (key === 'classification') {
-        initialFilters.classification = joinFilterValues(params.getAll('classification'));
+        initialFilters.classification = canonicalClassificationFilter(
+          joinFilterValues(params.getAll('classification')),
+        );
         return;
       }
       if (key === 'review_tags') {

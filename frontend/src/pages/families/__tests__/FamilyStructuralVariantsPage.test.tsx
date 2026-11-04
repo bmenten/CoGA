@@ -195,7 +195,7 @@ describe('FamilyStructuralVariantsPage', () => {
       const [path, body] = (api.put as unknown as Mock).mock.calls.at(-1)!;
       expect(path).toBe('/families/F1/structural-variants/v1/review');
       expect(JSON.parse(JSON.stringify(body))).toEqual({
-        classification: 'Likely Pathogenic - class 4',
+        classification: 'Likely pathogenic - class 4',
         tags: ['mosaic', 'review'],
         note: 'Breakpoint in intron 10.',
         expected_updated_at: '2026-10-01T10:00:00Z',

@@ -133,6 +133,13 @@ const PROJECT_THREE = {
 
 const catalogRow = (name: string) => screen.getByRole('button', { name }).closest('tr') as HTMLElement;
 
+/** Clicks Delete project, then confirms in the dialog that asks first (UI-7). */
+const deleteProject = () => {
+  fireEvent.click(screen.getByRole('button', { name: 'Delete project' }));
+  const dialog = screen.getByRole('dialog', { name: /^Delete project / });
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Delete project' }));
+};
+
 describe('ProjectsPage', () => {
   const { get, factory } = useFactoryGet(api.get);
 
@@ -429,11 +436,60 @@ describe('ProjectsPage', () => {
     renderPage();
     await screen.findByRole('heading', { level: 2, name: 'Project One' });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Delete project' }));
+    deleteProject();
 
     await waitFor(() => expect(api.delete).toHaveBeenCalledWith('/projects/p1'));
     expect(await screen.findByText('Project deleted.')).toBeInTheDocument();
     await waitFor(() => expect(projectRequests()).toBe(2));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  // UI-7: a project was deleted on one click, and its delete unlinks every family and sample
+  // of it. It now asks first, saying what loses its link (a family in no other project is then
+  // open to administrators only), and sends nothing until confirmed: neither on Cancel nor on
+  // Escape.
+  it('asks before deleting a project, saying what loses its link, and sends nothing on cancel', async () => {
+    // F2 is in Project Two as well; F1 only in Project One.
+    serveProjects((defaults) => [
+      ...defaults,
+      { ...PROJECT_TWO, families: [...PROJECT_TWO.families, { family_id: 'F2', members: [] }] },
+    ]);
+    renderPage();
+    await screen.findByRole('heading', { level: 2, name: 'Project One' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete project' }));
+    const dialog = screen.getByRole('dialog', { name: 'Delete project Project One' });
+    expect(dialog).toHaveTextContent('This deletes the project Project One. No family or sample is deleted with it.');
+    expect(within(dialog).getAllByRole('listitem').map((item) => item.textContent)).toEqual([
+      '2 families, with 3 samples, lose their link to it.',
+      '1 family of these is in no other project: after the deletion only administrators can open it.',
+      '1 member loses the access the project gave them.',
+      'Review tags defined for this project are deleted with it.',
+    ]);
+    expect(dialog).toHaveTextContent('This cannot be undone.');
+    expect(within(dialog).getByRole('button', { name: 'Cancel' })).toHaveFocus();
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Delete project' }));
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(api.delete).not.toHaveBeenCalled();
+    expect(projectRequests()).toBe(1);
+  });
+
+  // A project with no family and no member says so, rather than counting zeros.
+  it('says a project to delete links no family', async () => {
+    serveProjects(() => [PROJECT_THREE]);
+    renderPage();
+    await screen.findByRole('heading', { level: 2, name: 'Project Three' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete project' }));
+    const dialog = screen.getByRole('dialog', { name: 'Delete project Project Three' });
+    expect(within(dialog).getAllByRole('listitem').map((item) => item.textContent)).toEqual([
+      'No family is linked to it.',
+      'Review tags defined for this project are deleted with it.',
+    ]);
   });
 
   // A refused write says why (the server's reason, else a fixed sentence) and changes nothing
@@ -461,7 +517,7 @@ describe('ProjectsPage', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Save settings' }));
     } else {
       vi.mocked(api.delete).mockRejectedValueOnce(refusal);
-      fireEvent.click(screen.getByRole('button', { name: 'Delete project' }));
+      deleteProject();
     }
 
     const status = await screen.findByText(message);

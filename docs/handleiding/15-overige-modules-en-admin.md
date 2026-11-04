@@ -1,6 +1,6 @@
 # 15. Overige modules & adminfunctionaliteit
 
-Dit hoofdstuk behandelt de modules zonder eigen hoofdstuk: de Clinical CNV Explorer met de kennisbank van klinische CNV's, de genpanels, de beheerfuncties en hun rechten, de in-app documentatie, de releasepagina en de UI-telemetrie. Uitleg voor beheerders staat in de gebruikersgids in de app (`frontend/src/content/docs/user-guide/administration.md`); het beheer van familieleden en stamboom in `docs/family-member-management.md`; alle tabellen in `docs/database.md`.
+Dit hoofdstuk behandelt de modules zonder eigen hoofdstuk: de Clinical CNV Explorer met de kennisbank van klinische CNV's, de genpanels, de verkennende ancestry-PCA, de beheerfuncties en hun rechten, de in-app documentatie, de releasepagina en de UI-telemetrie. Uitleg voor beheerders staat in de gebruikersgids in de app (`frontend/src/content/docs/user-guide/administration.md`); het beheer van familieleden en stamboom in `docs/family-member-management.md`; alle tabellen in `docs/database.md`.
 
 ## Toegang als rode draad
 
@@ -33,7 +33,7 @@ De ruggengraat van de kennisbank zijn de dosiscuratie van ClinGen en het ClinGen
 
 Het bestand met de terugkerende CNV-regio's is per assembly vastgezet op zijn SHA-256 (`CLINGEN_RECURRENT_CNV_SHA256`, TRACE-14). Het script leest het alleen als de SHA-256 klopt, en stopt anders op dezelfde manier. Voor GRCh38 is dat ClinGens bestand van release V2.1, hetzelfde als het meegeleverde bestand van de segmentale duplicaties. Voor GRCh37 is het ClinGens V2.1-bestand voor GRCh37, op 2026-10-27 met toestemming van de eigenaar gedownload van ftp.clinicalgenome.org (TRACE-18).
 
-De andere bronnen leest het script zoals ze die dag gepubliceerd zijn: de dosiscuratie van ClinGen, de UCSC-cytobanden, ClinVar, Orphanet en een DECIPHER-koppeling. Het registreert elk bestand dat het in de kennisbank inlas, met zijn SHA-256 en grootte; een lokaal bestand alleen met zijn naam (TRACE-18). De import registreert al die bestanden als release van de kennisbank: het vastgezette met release en SHA-256, de andere met naam en SHA-256. Een ondertekend analyserecord bevriest dat. Een build die ze niet volledig registreerde, wordt niet geladen.
+De andere bronnen leest het script zoals ze die dag gepubliceerd zijn: de dosiscuratie van ClinGen, de UCSC-cytobanden, ClinVar, Orphanet en een DECIPHER-koppeling. Het registreert elk bestand dat het in de kennisbank inlas, met zijn SHA-256 en grootte; een lokaal bestand (een Orphanet-XML of de DECIPHER-koppeling) onder zijn naam, niet onder zijn pad (TRACE-18). De import registreert al die bestanden als release van de kennisbank: het vastgezette met release en SHA-256, de andere met naam en SHA-256. Een ondertekend analyserecord bevriest dat. Een build die ze niet volledig registreerde, wordt niet geladen.
 
 **ClinVar-steun.** Per regio telt de build de (waarschijnlijk) pathogene ClinVar-CNV's (niet de "conflicting") die de regio voldoende wederzijds overlappen, apart voor verlies en winst. De kant volgt eerst uit het type in ClinVar, dan uit het kopieaantal in de naam van een array-record, en pas dan uit woorden in de naam. De tellingen worden alleen geschreven als ClinVar echt geraadpleegd werd. Een kennisbank zonder ClinVar staat als leeg in de tabel en leest in de app als "not recorded", nooit als 0.
 
@@ -48,7 +48,7 @@ Een **genpanel** is een benoemde lijst genen (eventueel met regio's en repeatloc
 - **Lezen** (elke ingelogde gebruiker): de lijst, één panel, zijn versies, en zoeken in PanelApp.
 - **Schrijven** (alleen beheerders): aanmaken, wijzigen, verwijderen, een PanelApp-panel importeren en het Mendeliome opnieuw opbouwen. Ook het nakijken van gennamen voor een bewerking (`POST /api/panels/genes/check`) is voor beheerders: het leest alleen, maar is een POST, zoals de bewerking die het dient.
 
-**Versies.** Een panel krijgt versie 1 bij het aanmaken, het opbouwen (het Mendeliome) of de eerste import uit PanelApp. Het krijgt een volgende versie telkens zijn genen of regio's veranderen: door een bewerking (bij een lokaal panel ook een nieuwe beschrijving), een nieuw opgebouwd Mendeliome met andere genen, of een nieuwe PanelApp-import met andere genen of regio's. Elke versie wordt bewaard met de volledige genen- en regiolijst, de bron, de externe versie en wie de wijziging deed (ook als tekst, zodat die herkenbaar blijft als het account verdwijnt). Zo is terug te vinden welke genset een panel op een bepaald moment had. De app herschrijft een bewaarde versie nooit, en de databank weigert een tweede versie met hetzelfde nummer. Geen trigger maakt de tabel `gene_panel_versions` echter append-only. **Let op:** een panel verwijderen wist ook zijn versiegeschiedenis.
+**Versies.** Een panel krijgt versie 1 bij het aanmaken, het opbouwen (het Mendeliome) of de eerste import uit PanelApp. Het krijgt een volgende versie telkens zijn genen of regio's veranderen: door een bewerking (bij een lokaal panel ook een nieuwe beschrijving), een nieuw opgebouwd Mendeliome met andere genen, of een nieuwe PanelApp-import met andere genen of regio's. Elke versie wordt bewaard met de volledige genen- en regiolijst, de bron, de externe versie en wie de wijziging deed (ook als tekst, zodat die herkenbaar blijft als het account verdwijnt). Zo is terug te vinden welke genset een panel op een bepaald moment had. De app herschrijft een bewaarde versie nooit, en de databank weigert een tweede versie met hetzelfde nummer. Geen trigger maakt de tabel `gene_panel_versions` echter append-only. **Let op:** een panel verwijderen wist ook zijn versiegeschiedenis. Daarom vraagt *Delete* in de lijst eerst een bevestiging, die het panel en zijn versie noemt; pas die stuurt `DELETE /api/panels/{panel_id}`. *Cancel* en Escape sturen niets.
 
 **Onbekende namen.** Een gennaam die geen geladen assembly kent (een tikfout, een oud symbool), blijft in de genlijst van het panel maar krijgt geen regio: een filter op het panel vindt er geen variant in. De pagina van het panel noemt zulke namen *not imported* (de genen zonder regio in welke assembly ook).
 
@@ -62,6 +62,31 @@ De UI verbergt de schrijfknoppen voor niet-beheerders, maar de afscherming zit o
 
 **Waar in de code:** `backend/app/routers/panels.py`, `backend/app/services/panel_metadata_service.py` en `panelapp_service.py`; de pagina's in `frontend/src/pages/panels/`.
 
+## Ancestry-PCA (verkennend)
+
+**Buiten het beoogde doel.** De pagina *Ancestry (exploratory)* van een familie (`FamilyAncestryPage.tsx`) toont hoe genetisch gelijk elk lid is aan publieke referentiepopulaties. Ze is niet gevalideerd en niet voor klinische interpretatie, en komt nooit in een ondertekening of een ondertekend record (TF-01 §4, TF-15 §3). De pagina en haar plot zeggen dat: *Exploratory — not for clinical use*. De pagina is er voor een familie met small variants die geen monogene NIPT-familie is. Ze projecteert elk lid op vier vaste hoofdcomponenten van een publieke referentie en tekent het naast de referentiepersonen. De uitleg voor ontwikkelaars staat in `docs/ancestry-pca.md`.
+
+**De WGS-bron.** Een projectie leest één WGS-bron (`wgs_sources`): een volledige, gezamenlijk en rechtstreeks gecallde GRCh38-genoom-VCF met diploïde GT-calls. De gebruiker verklaart dat het een volledig genoom is; een verdeling van varianten kan niet bewijzen welke regio's gedekt zijn. De bron legt vast: de plaats, checksum, grootte en wijzigingstijd van het bestand; de samples van de familie; de dataversie en een vingerafdruk van de genotypes van haar opgeslagen small variants; en twee regels (een ontbrekend record telt als homozygoot referentie; een call met `FILTER=.` telt mee). Ze is alleen *ready* zolang dat alles nog klopt; anders noemt de pagina wat niet meer klopt. Een bron komt er op twee manieren:
+
+- **Uit een bewaarde upload** van de small variants van de familie (`POST /api/families/{family_id}/wgs-source`). CoGA leest het hele bestand en controleert de checksum, de samplekolommen (precies de samples van de familie), de build, dat er geen geïmputeerde of gVCF-records in staan, en dat een vingerafdruk van elke call gelijk is aan die over de opgeslagen calls in ClickHouse. Er wordt niets opnieuw geïmporteerd.
+- **Uit een familiepakket** waarvan het manifest de familie-VCF als volledig genoom verklaart (`metadata.ancestry`). De import registreert de bron nadat hij de schrijfsloten van de familie vrijgaf, als het bestand en de dataversie ongewijzigd zijn en de kolommen van de VCF precies de samples van de familie zijn. Lukt dat niet, dan staat er een regel in de log van de import; de import faalt er niet om.
+
+Een familie met een embryo of een cfDNA-sample uit maternaal plasma, of een monogene NIPT-familie, krijgt geen bron: haar samples zijn niet de eigen diploïde genotypes van één persoon.
+
+**De berekening.** *Calculate PCA projection* zet een job in de wachtrij (`ancestry_runs`) die de bron en de checksum van de referentie vastlegt; niets start er vanzelf een. De job loopt waar de pakketimport loopt: in de importworkerprocessen, of in de API als die zelf importworkers draait (hoofdstuk 4).
+
+- Per lid en referentie-SNP is de dosis het aantal ALT-allelen van een diploïde PASS-call (of een aanvaarde ongefilterde call) met precies de REF en ALT van de SNP. Elke andere call, of twee records op één positie, laat de marker weg.
+- Een lid wordt alleen geprojecteerd met minstens 1.000 bruikbare markers (`MIN_MARKERS`), 95 % van de markers bruikbaar (`MIN_CALL_RATE`) en, onder de regel van het ontbrekende record, 20 % ervan als call gezien (`MIN_OBSERVED_FRACTION`). Anders krijgt het *insufficient data*. Zonder die laatste drempel zou een exoom, of een VCF met één record, als een punt met alleen referentie-allelen geprojecteerd worden.
+- Een voltooide job schrijft één append-only snapshot (`ancestry_results`): de vier PC's van elk lid of *insufficient data*, de marker-QC per categorie, de rekenversie en de regels. Een mislukte of onderbroken job publiceert niets.
+
+**De referentie.** `backend/app/data/ancestry/1000g-grch38-v1.npz`: 2.504 personen van het 1000 Genomes Project (fase 3, vijf superpopulaties) en 9.569 autosomale GRCh38-SNP's, afgeleid van de vastgezette publieke bestanden van peddy. De vier PC's komen uit de referentie alleen, zodat familiedata de assen nooit bepalen. De SHA-256 van het bestand is vastgezet (`DEFAULT_REFERENCE_SHA256`); `ANCESTRY_REFERENCE_PATH` kiest een eigen model, dat tegen zijn eigen JSON-bestand gecontroleerd wordt. Elke projectie houdt de referentie waarmee ze berekend werd (`ancestry_reference_panels`), en blijft leesbaar op haar eigen assen.
+
+**De sloten.** Een genoom-VCF lezen duurt minuten. De registratie en de berekening houden de schrijfsloten op de varianten van de familie daarom niet vast terwijl ze lezen. Ze controleren de bron onder die sloten, sluiten die transactie en lezen het bestand. Ze nemen de sloten opnieuw om hun rij te schrijven, en weigeren als er intussen naar de varianten van de familie geschreven werd. Zo wacht een import of een ondertekening nooit op de PCA.
+
+**Toegang.** Een lezer van het project ziet de pagina; registreren en berekenen vraagt het recht om het project te wijzigen. Een familie of project buiten de projecten van de gebruiker antwoordt `404`, zoals een onbekende. De tabellen staan in hoofdstuk 3.
+
+**Waar in de code:** `backend/app/routers/ancestry.py`; `backend/app/services/ancestry_service.py`, `ancestry_projection.py`, `wgs_source_service.py` en `wgs_source_storage.py`; de pagina `frontend/src/pages/families/FamilyAncestryPage.tsx`.
+
 ## Beheerfuncties
 
 De hele beheer-API staat in `backend/app/routers/admin.py` (`/api/admin`); elk endpoint vraagt `get_current_admin_user`. De schermen staan in `frontend/src/pages/admin/`, met `AdminDashboardPage.tsx` als ingang.
@@ -70,6 +95,7 @@ De hele beheer-API staat in `backend/app/routers/admin.py` (`/api/admin`); elk e
 
 - **Gebruikers:** per gebruiker e-mail, naam, affiliatie, rol, actief en projecttoegang. Een beheerder activeert of deactiveert een account (`PATCH /api/auth/users/{user_id}`); projecttoegang wordt daar alleen getoond.
 - **Projecten van een familie:** welke projecten een familie zien. De data-inventaris (`GET /api/admin/data`) toont ze per familie; `PUT /api/admin/families/{family_id}/projects` wijzigt ze.
+- **Een project verwijderen** (`ProjectsPage.tsx`, `DELETE /api/projects/{project_id}`): de databank wist met het project ook zijn koppelingen (`ON DELETE CASCADE`). Zijn families en samples blijven, maar zonder koppeling aan het project; zijn leden verliezen de toegang die het hun gaf; de reviewtags van het project worden gewist. Een familie die in geen ander project zit, kan daarna alleen een beheerder nog openen. Daarom vraagt *Delete project* eerst een bevestiging die dat zegt, met de aantallen: families, samples, families die in geen ander project zitten, en leden. De pagina telt ze uit de projectenlijst, die een beheerder volledig ziet. Pas de bevestiging stuurt het verzoek. *Cancel* en Escape sturen niets.
 
 ### Datamanagement en herkomst
 
@@ -158,6 +184,7 @@ Naast de HTTP-auditlog legt CoGA **betekenisvolle interacties** in de interface 
 | `backend/app/routers/cnvs.py` · `backend/app/services/clinical_cnv_kb_jobs.py` | De CNV-catalogus en de herbouw van de kennisbank |
 | `backend/app/routers/panels.py` · `backend/app/services/panel_metadata_service.py` | Genpanels, versies, Mendeliome |
 | `backend/app/services/panelapp_service.py` | PanelApp |
+| `backend/app/routers/ancestry.py` · `backend/app/services/ancestry_service.py` | De verkennende ancestry-PCA |
 | `backend/app/services/admin_service.py` | Data-inventaris, verwijderen, bronbestanden verifiëren |
 | `backend/app/services/qc_threshold_service.py` | Grenzen voor sequencing-QC en hun geschiedenis |
 | `backend/app/services/family_structure_service.py` · `family_member_management_service.py` | Familiestructuur en ledenbeheer |

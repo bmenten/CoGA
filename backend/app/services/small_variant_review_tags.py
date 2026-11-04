@@ -84,7 +84,7 @@ DEFAULT_SMALL_VARIANT_TAGS: list[dict[str, str]] = [
     },
     {
         "key": "acmg_class_4",
-        "label": "Likely Pathogenic - class 4",
+        "label": "Likely pathogenic - class 4",
         "group": "classification",
         "color": "#ea580c",
         "sort_order": "120",
@@ -116,7 +116,7 @@ DEFAULT_SMALL_VARIANT_TAGS: list[dict[str, str]] = [
     },
     {
         "key": "acmg_vus_hot",
-        "label": "VUS — Hot",
+        "label": "VUS — hot",
         "group": "classification",
         "color": "#e11d48",
         "sort_order": "131",
@@ -124,7 +124,7 @@ DEFAULT_SMALL_VARIANT_TAGS: list[dict[str, str]] = [
     },
     {
         "key": "acmg_vus_warm",
-        "label": "VUS — Warm",
+        "label": "VUS — warm",
         "group": "classification",
         "color": "#f59e0b",
         "sort_order": "132",
@@ -132,7 +132,7 @@ DEFAULT_SMALL_VARIANT_TAGS: list[dict[str, str]] = [
     },
     {
         "key": "acmg_vus_cold",
-        "label": "VUS — Cold",
+        "label": "VUS — cold",
         "group": "classification",
         "color": "#38bdf8",
         "sort_order": "133",

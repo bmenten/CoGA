@@ -388,6 +388,9 @@ Paraphase results are replaced.
   entry's `vcf_sample`, Discover, the dry run and the import warn (`nipt_vcf_column_named_otherwise`),
   naming the sample, the file and the column. Check that the file holds that sample's tube: if it does,
   record the column as the entry's `vcf_sample`, which ends the warning; if not, correct the manifest.
+- A sample's SNV file that cannot be read (a `.vcf.gz` cut short or damaged in a copy, or a plain-text VCF
+  named `.gz`) is an error that names the sample and the file (`dataset_vcf_unreadable`), in Discover too
+  for a NIPT pair's parent file. Copy the file again from where the pipeline wrote it.
 - A dataset type CoGA does not know is an error. A missing small-variant or structural-variant dataset is
   a warning; other missing datasets are simply absent.
 - A data file with nothing after its header, that the import would refuse for holding no record, is a

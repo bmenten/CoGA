@@ -176,9 +176,9 @@ def test_a_classification_freezes_its_frequencies_and_scores_and_drifts_when_the
     monkeypatch.setattr(family_variants, "_hydrate_small_variant_outs", _no_hydration)
 
     user = SimpleNamespace(username="analyst", email="analyst@example.org", id=None)
-    # PS3 strong (4) + PM2 supporting (1) + PP3 supporting (1) = 6: Likely Pathogenic.
+    # PS3 strong (4) + PM2 supporting (1) + PP3 supporting (1) = 6: likely pathogenic.
     classification = SmallVariantReviewUpdate(
-        classification="Likely Pathogenic - class 4",
+        classification="Likely pathogenic - class 4",
         tags=["acmg_class_4", "report"],
         acmg=AcmgClassificationPayload(
             criteria=[
@@ -488,9 +488,9 @@ def test_a_classification_freezes_its_consequence_lof_call_and_missense_z_and_dr
             ]
         ),
     )
-    # PVS1 strong (4) + PM2 supporting (1) + PP4 supporting (1) = 6: Likely Pathogenic.
+    # PVS1 strong (4) + PM2 supporting (1) + PP4 supporting (1) = 6: likely pathogenic.
     stop_classification = SmallVariantReviewUpdate(
-        classification="Likely Pathogenic - class 4",
+        classification="Likely pathogenic - class 4",
         tags=["acmg_class_4", "report"],
         acmg=AcmgClassificationPayload(
             criteria=[

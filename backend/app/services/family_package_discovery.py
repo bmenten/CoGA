@@ -1994,8 +1994,9 @@ def discover_family_package_manifest(
         notes=request.notes,
     )
     if parsed_ped is not None and not manifest_payload["datasets"].get("snv", {}).get("enabled"):
-        # No joint VCF: a monogenic NIPT pair has one VCF per parent instead.
-        nipt_files = discover_nipt_package_files(root, parsed_ped)
+        # No joint VCF: a monogenic NIPT pair has one VCF per parent instead. A parent's VCF
+        # that cannot be read is refused by name (DATA-11).
+        nipt_files = discover_nipt_package_files(root, parsed_ped, errors)
         if nipt_files is not None:
             _apply_nipt_package_files(manifest_payload, availability, root=root, files=nipt_files)
             warnings.append(

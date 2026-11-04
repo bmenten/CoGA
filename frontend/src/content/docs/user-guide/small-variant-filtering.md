@@ -27,6 +27,12 @@ quality**, **Locations**, **Exclude** and **Review and curation**.
   feature. A group's own box ticks or clears all its terms. Beside them are the VEP impacts (HIGH,
   MODERATE, LOW, MODIFIER), the SpliceAI minimum, and *Canonical only*, *MANE only* and *LoF only*. A
   saved search's term that no box offers is listed under *Other selected terms*, ticked.
+  - Its *Quick* choice sets the consequences and the impacts together, and leaves the SpliceAI
+    minimum and the three switches as they are. *All* clears both. *High impact* ticks HIGH, and
+    *Moderate to high impact* HIGH and MODERATE, with no consequence. *All coding* ticks the coding
+    consequences (missense, frameshift, stop gained, stop lost, start lost, splice acceptor, donor
+    and region, in-frame insertion and deletion, protein altering, synonymous and coding sequence
+    variant), with no impact. Any other selection shows as *Custom*.
 - **Frequency** has a slider per population. In its header, AF sets every population at once; AC and
   H/H set gnomAD's allele count and its homozygote and hemizygote counts. AF shows the maximum shared
   by the populations that have one, or *mixed* when they differ.

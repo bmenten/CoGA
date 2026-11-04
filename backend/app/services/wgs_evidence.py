@@ -10,6 +10,7 @@ import hashlib
 from pathlib import Path
 import re
 from typing import Any, TextIO
+import zlib
 
 from .data_scope import normalize_chromosome
 
@@ -44,13 +45,17 @@ def open_vcf_text(path: Path) -> Iterator[TextIO]:
 
 
 def read_vcf_sample_columns(path: Path) -> list[str]:
-    """The sample columns of a VCF's ``#CHROM`` line, read from its header only."""
-    with open_vcf_text(path) as stream:
-        for line in stream:
-            if line.startswith("#CHROM\t"):
-                return line.rstrip("\r\n").split("\t")[9:]
-            if not line.startswith("#"):
-                break
+    """The sample columns of a VCF's ``#CHROM`` line, read from its header only. A file cut
+    short or damaged is refused by a fixed message, never the error's text (DATA-11)."""
+    try:
+        with open_vcf_text(path) as stream:
+            for line in stream:
+                if line.startswith("#CHROM\t"):
+                    return line.rstrip("\r\n").split("\t")[9:]
+                if not line.startswith("#"):
+                    break
+    except (OSError, EOFError, zlib.error) as exc:
+        raise WgsInputError("The WGS VCF could not be read: it is cut short or damaged.") from exc
     raise WgsInputError("The WGS VCF has no sample header.")
 
 

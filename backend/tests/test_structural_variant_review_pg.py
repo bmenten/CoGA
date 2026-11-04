@@ -324,6 +324,18 @@ def test_a_second_save_updates_the_review_in_place() -> None:
     assert (review.note, review.classification) == ("second look", "likely_pathogenic")
 
 
+def test_a_class_label_saved_in_another_case_is_stored_as_the_label_is_now_and_audits_no_change() -> None:
+    # ENG-6: a page loaded before the labels were put in sentence case sends "Likely Pathogenic -
+    # class 4" back. It is stored as the label is now, so the trail records no class change.
+    table = _ReviewTable()
+    _save(table, StructuralVariantReviewUpdate(classification="Likely pathogenic - class 4", note="first look"))
+    audited = len(table.audit)
+    review = _save(table, StructuralVariantReviewUpdate(classification="Likely Pathogenic - class 4", note="first look"))
+
+    assert table.rows["sv1"]["classification"] == review.classification == "Likely pathogenic - class 4"
+    assert len(table.audit) == audited
+
+
 def test_an_empty_save_deletes_the_review() -> None:
     table = _ReviewTable()
     _save(table, StructuralVariantReviewUpdate(note="to be cleared"))

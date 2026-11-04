@@ -528,7 +528,7 @@ async def _import_snv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumma
     # sample; resolve those to family sample ids up front so the loader does not reject
     # the file outright.
     sample_aliases, unresolved_samples = vcf_sample_alias_map(
-        read_vcf_sample_columns(vcf_path),
+        read_vcf_sample_columns(vcf_path, label="The SNV family VCF"),
         set(sample_contexts),
         declared=extra.get("vcf_sample") or extra.get("sample_name"),
     )
@@ -1352,12 +1352,12 @@ async def _import_nipt_per_sample_snv(job: DatasetImportJob) -> FamilyImportData
     sample_columns: dict[str, list[str]] = {}
     for sample_id, vcf_path in sample_files:
         require_bgzf_path_end(vcf_path, label=f"The NIPT SNV file of {sample_id} ({vcf_path.name})")
-        vcf_columns = read_vcf_sample_columns(vcf_path)
+        vcf_columns = read_vcf_sample_columns(vcf_path, label=f"The NIPT SNV file of {sample_id}")
         if len(vcf_columns) != 1:
             raise RuntimeError(
                 f"The NIPT SNV file of {sample_id} must hold one sample; it has {len(vcf_columns)}"
             )
-        if not vcf_holds_a_data_line(vcf_path):
+        if not vcf_holds_a_data_line(vcf_path, label=f"The NIPT SNV file of {sample_id}"):
             raise RuntimeError(
                 f"The NIPT SNV file of {sample_id} ({vcf_path.name}) holds no record; "
                 "no NIPT call was replaced"
@@ -1456,7 +1456,7 @@ async def _import_per_sample_snv(job: DatasetImportJob) -> FamilyImportDatasetSu
         vcf_path = _resolve_package_path(bundle.root, raw_entry.get("vcf") or raw_entry.get("file"))
         if vcf_path is None:
             continue
-        header = read_vcf_sample_columns(vcf_path)
+        header = read_vcf_sample_columns(vcf_path, label=f"The SNV file of {sample_id}")
         if len(header) != 1:
             raise RuntimeError(f"The SNV file of {sample_id} must hold one sample; it has {len(header)}")
         column = per_sample_vcf_column(
@@ -2751,7 +2751,7 @@ async def _mito_sample_columns(
             path = _resolve_package_path(bundle.root, value)
             if path is None:
                 continue
-            header = read_vcf_sample_columns(path)
+            header = read_vcf_sample_columns(path, label=f"The {label} of {sample_id}")
             confirmed = declared if role == "vcf" or (declared and (declared in header or declared == sample_id)) else None
             index = per_sample_vcf_column(
                 header,

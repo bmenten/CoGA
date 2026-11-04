@@ -19,12 +19,13 @@ import {
   parseCommaSeparatedValues,
   parseSerializedGenotypeSelection,
 } from '../../lib/sampleFilterState';
-import type {
-  CnvAcmgReviewPayload,
-  GenePanel,
-  SmallVariantReview,
-  SmallVariantReviewSavePayload,
-  SmallVariantTagDefinition,
+import {
+  canonicalClassificationFilter,
+  type CnvAcmgReviewPayload,
+  type GenePanel,
+  type SmallVariantReview,
+  type SmallVariantReviewSavePayload,
+  type SmallVariantTagDefinition,
 } from './smallVariantSearch';
 import { setLocationParams } from './variantFilterFormUtils';
 
@@ -380,6 +381,7 @@ const deserializeStructuralPresetFilters = (
     const value = payload?.[key];
     if (typeof value === 'string') filters[key] = value;
   });
+  filters.classification = canonicalClassificationFilter(filters.classification);
   return filters;
 };
 
@@ -609,7 +611,9 @@ export const useStructuralVariantSearchState = ({
     const regionFlags = params.getAll('region_flag');
     if (regionFlags.length) initialFilters.region_flags = regionFlags.join(', ');
     const classifications = params.getAll('classification');
-    if (classifications.length) initialFilters.classification = joinFilterValues(classifications);
+    if (classifications.length) {
+      initialFilters.classification = canonicalClassificationFilter(joinFilterValues(classifications));
+    }
     const reviewTags = params.getAll('review_tag');
     if (reviewTags.length) initialFilters.review_tags = joinFilterValues(reviewTags);
     const excludeReviewTags = params.getAll('exclude_review_tag');

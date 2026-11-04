@@ -1,12 +1,17 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
+import { ACMG_CLASS_LABELS } from '../../../lib/acmg';
+import { CNV_CLASS_LABELS } from '../../../lib/cnvAcmg';
 import {
+  ACMG_CLASSIFICATION_TAGS,
+  ACMG_VUS_TIER_TAGS,
   ALL_GT_GROUPS,
   HET_GT_GROUP,
   addableTagDefinitions,
   buildActiveFilterChips,
   buildSmallVariantQueryParams,
   buildPresetPayload,
+  canonicalClassificationFilter,
   createEmptySmallFilters,
   describeUnappliedFilters,
   deserializePresetFilters,
@@ -561,6 +566,55 @@ describe('preset filter (de)serialisation', () => {
     expect(filters.prioritize).toBe('true');
     expect(filters.require_sv_second_hit).toBe('');
     expect(filters.impact).toBe('HIGH');
+  });
+});
+
+// ENG-6 (the owner's decision of 2026-10-28): the classification tags and the VUS tiers in
+// sentence case. A link or a preset saved before holds "Likely Pathogenic - class 4"; read, it
+// ticks the box the options write in sentence case, and any other value stays as written.
+describe('class labels in sentence case', () => {
+  it('names the classification tags and the VUS tiers in sentence case', () => {
+    expect(ACMG_CLASSIFICATION_TAGS.map((tag) => tag.label)).toEqual([
+      'Pathogenic - class 5',
+      'Likely pathogenic - class 4',
+      'VUS - class 3',
+      'Likely benign - class 2',
+      'Benign - class 1',
+    ]);
+    expect(ACMG_VUS_TIER_TAGS.map((tag) => tag.label)).toEqual(['VUS — hot', 'VUS — warm', 'VUS — cold']);
+    expect(ACMG_CLASS_LABELS).toEqual(Object.fromEntries(ACMG_CLASSIFICATION_TAGS.map((tag) => [tag.key, tag.label])));
+    expect(Object.values(CNV_CLASS_LABELS)).toEqual(ACMG_CLASSIFICATION_TAGS.map((tag) => tag.label));
+  });
+
+  it('reads a class label saved in another case as the option writes it, and keeps any other value', () => {
+    expect(canonicalClassificationFilter('Likely Pathogenic - class 4, VUS - CLASS 3, My own words')).toBe(
+      'Likely pathogenic - class 4, VUS - class 3, My own words',
+    );
+    expect(canonicalClassificationFilter('')).toBe('');
+    expect(
+      deserializePresetFilters({ classification: ['Pathogenic - class 5', 'Likely Pathogenic - class 4'] })
+        .classification,
+    ).toBe('Pathogenic - class 5, Likely pathogenic - class 4');
+  });
+
+  it('reads a link saved before as the options write it', async () => {
+    const family = {
+      members: [{ sample_id: 'S1', role: 'proband', affected: true, sex: 'female' }],
+      relationships: [],
+      projects: [],
+    } as never;
+    const { result } = renderHook(() =>
+      useSmallVariantSearchState({
+        family,
+        locationSearch: '?classification=Pathogenic+-+class+5&classification=Likely+Pathogenic+-+class+4',
+        navigate: () => {},
+        mendeliomePanelId: 'mendel-1',
+        panelsLoaded: true,
+      }),
+    );
+    await waitFor(() =>
+      expect(result.current.filters.classification).toBe('Pathogenic - class 5, Likely pathogenic - class 4'),
+    );
   });
 });
 

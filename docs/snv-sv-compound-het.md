@@ -34,8 +34,8 @@ implementation.
     to the SNV genotypes and `_sv_carriage` of that SV, with the pedigree from `_family_pedigree`
     (the parent links the de novo check uses). `_sv_carriage` reads the SV's own record; a sample it
     holds no call for (an SV file of one sample) carries the SV when an SV of their own may be the
-    same one (`_same_sv`: the same type without subtype, overlapping it or within
-    `SAME_SV_MAX_DISTANCE`, 1 kb).
+    same one (`_same_sv`: the same type without subtype, on the same chromosome, overlapping it or
+    within `SAME_SV_MAX_DISTANCE`, 1 kb).
 
   `summarize_second_hit` returns each SV with its verdict (`svs`, by position) and draws the gene's
   verdict from them:

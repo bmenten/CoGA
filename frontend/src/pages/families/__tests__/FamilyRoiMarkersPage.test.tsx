@@ -268,6 +268,38 @@ describe('FamilyRoiMarkersPage', () => {
     expect(screen.getByText(/derived from the phased imputed data/i)).toBeTruthy();
   });
 
+  // ENG-20: the page wrote the ROI's chromosome as the family record stores it (`1:1,000,500`,
+  // `X:…`), where the viewer and its tooltips write `chr1` and `chrX` (#602). The requests keep
+  // the stored name.
+  it.each([
+    ['1', 'chr1'],
+    ['X', 'chrX'],
+    ['chrx', 'chrX'],
+  ])('names the ROI chromosome stored as %s as the viewer does, %s', async (stored, shown) => {
+    const working = (api.get as Mock).getMockImplementation()!;
+    (api.get as Mock).mockImplementation((url: string, config?: unknown) =>
+      url === '/families/co1'
+        ? Promise.resolve({ data: { ...family, roi: { ...family.roi, chr: stored } } })
+        : working(url, config),
+    );
+    renderPage();
+    await waitFor(() => expect(bandCell('FATHER', 1, 1_000_500)).toBeTruthy());
+
+    expect(screen.getByText(new RegExp(`across the ROI ${shown}:1,000,000–1,001,000\\.`))).toBeInTheDocument();
+    expect(document.querySelector('.roi-markers-range')?.textContent).toMatch(new RegExp(`^${shown}:0–2,001,000 `));
+    expect(screen.getByTitle(`${shown}:1,000,500 G>A`)).toBeInTheDocument();
+    expect(screen.getByTitle(`${shown}:1,001,500 C>T (flank)`)).toBeInTheDocument();
+    fireEvent.mouseMove(bandCell('FATHER', 1, 1_000_500) as HTMLElement, { clientX: 20, clientY: 20 });
+    expect(document.querySelector('.viz-tooltip .roi-markers-tip-head strong')?.textContent).toBe(
+      `${shown}:1,000,500`,
+    );
+    expect(
+      (api.get as Mock).mock.calls.some(
+        ([url, opts]) => String(url).endsWith('/phased-markers') && opts?.params?.chr === stored,
+      ),
+    ).toBe(true);
+  });
+
   it('draws an informative allele that is not a single base in the shared grey, not the uninformative one', async () => {
     // The informative site's alt is a two-base allele.
     const working = (api.get as Mock).getMockImplementation()!;
