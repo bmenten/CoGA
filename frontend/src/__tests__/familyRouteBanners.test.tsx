@@ -129,6 +129,10 @@ const PAGE_DATA: Record<string, PageData> = {
   },
   '/families/:familyId/qc': {
     api: {
+      '/families/F1/ancestry': {
+        project_id: 'p1', state: 'GRCh38_required', can_calculate: false, reference: null,
+        analysis: null, runs: [], notices: [], active_reference_sha256: null,
+      },
       '/families/F1/qc/sample-integrity': {
         family_id: 'F1',
         overall_status: 'pass',
@@ -152,10 +156,6 @@ const PAGE_DATA: Record<string, PageData> = {
     },
   },
   '/families/:familyId/repeat-expansions': { api: { '/families/F1/repeat-expansions': { samples: [], loci: [] } } },
-  '/families/:familyId/ancestry': { api: { '/families/F1/ancestry': {
-    project_id: 'p1', source_state: 'GRCh38_required', can_calculate: false, reference: null,
-    analysis: null, runs: [], notices: [], active_reference_sha256: null,
-  } } },
   '/families/:familyId/paraphase': { api: { '/families/F1/paraphase': { samples: [], genes: [] } } },
   '/families/:familyId/mitochondrial-dna': {
     api: {

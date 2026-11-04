@@ -133,10 +133,11 @@ statements and risk controls):
 - Standalone diagnosis without professional review and sign-out.
 - Use by patients, or in a non-accredited setting.
 - Populations, panels, sample types, or assemblies outside the verified scope.
-- The **ancestry PCA** (a family's genetic similarity to public reference populations, on the
-  family's *Ancestry (exploratory)* page): an exploratory feature outside the intended
-  purpose. It is not validated, not for clinical interpretation, and never part of the sign-out
-  or of the signed record. The page and its plot are labelled *Exploratory — not for clinical use*.
+- The **ancestry PCA** (a family's genetic similarity to public reference populations, in the
+  *Ancestry (exploratory)* section of the family's Sample QC, calculated automatically from its
+  stored callsets): an exploratory feature outside the intended purpose. It is not validated,
+  not for clinical interpretation, and never part of the sign-out or of the signed record. The
+  section and its plot are labelled *Exploratory — not for clinical use*.
 
 ---
 

@@ -9,7 +9,6 @@ export type FamilyModuleKey =
   | 'small-variants'
   | 'structural-variants'
   | 'repeat-expansions'
-  | 'ancestry'
   | 'paraphase'
   | 'mitochondrial-dna'
   | 'nipt'
@@ -61,14 +60,6 @@ const FamilyModuleNav: React.FC<{
       label: 'Repeat expansions',
       available: presence.hasRepeatExpansions,
       withProject: false,
-    },
-    // Exploratory, outside the intended purpose: offered where there are small variants to
-    // read, never for a monogenic NIPT family (a cfDNA mixture is not an individual).
-    {
-      key: 'ancestry',
-      label: 'Ancestry (exploratory)',
-      available: presence.hasSmallVariants && !isMonogenicNipt,
-      withProject: true,
     },
     {
       key: 'paraphase',

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Link, useParams } from 'react-router';
+import { Link, useLocation, useParams } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 
 import api from '../../lib/api';
@@ -7,6 +7,7 @@ import { QC_STATUS_CHIP, QC_STATUS_LABEL, worstIntegrityStatus } from '../../lib
 import PageState from '../../components/PageState';
 import FamilyLoadFailure from '../../components/FamilyLoadFailure';
 import FamilyCaseHeader from './FamilyCaseHeader';
+import FamilyAncestryPanel from './FamilyAncestryPanel';
 import InfoTip from '../../components/InfoTip';
 import Pedigree, { type PedigreeQcStatus } from '../../components/visualizations/Pedigree';
 import type {
@@ -412,6 +413,8 @@ const PaternityCard: React.FC<{ check: ApiSampleIntegrityPaternityCheck }> = ({ 
 
 const FamilySampleQcPage: React.FC = () => {
   const { familyId } = useParams<{ familyId: string }>();
+  const location = useLocation();
+  const requestedProject = new URLSearchParams(location.search).get('project_id') || undefined;
 
   const {
     data: qc,
@@ -452,7 +455,7 @@ const FamilySampleQcPage: React.FC = () => {
     isLoading: referenceLoading,
     isError: referenceFailed,
     retry: retryReference,
-  } = useFamilyReference(family?.projects);
+  } = useFamilyReference(family?.projects, requestedProject);
 
   if (!familyId) {
     return <PageState kicker="Sample QC" title="Family not specified" />;
@@ -660,6 +663,16 @@ const FamilySampleQcPage: React.FC = () => {
           </div>
         </section>
       ) : null}
+
+      {/* Exploratory, outside the intended purpose: the individuals' genetic similarity to
+          public reference populations, read from the same stored genotypes. Last, after the
+          checks the sign-out reads. */}
+      <FamilyAncestryPanel
+        key={`${familyId}:${projectId ?? ''}`}
+        familyId={familyId}
+        projectId={projectId ?? undefined}
+        enabled={!referenceFailed}
+      />
     </div>
   );
 };

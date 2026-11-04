@@ -1,4 +1,9 @@
-"""Real HTTP/DB ancestry lifecycle, with synthetic genomes and an independent PCA oracle."""
+"""Real HTTP/DB ancestry lifecycle on a family's stored callset, with an independent PCA oracle.
+
+A synthetic family is imported; the worker's sweep queues an automatic run once its genotypes
+are stored; the run reads them from ClickHouse with no lock of the family's variant writes held,
+and publishes only if nothing was written in between. All values are synthetic.
+"""
 from __future__ import annotations
 
 import asyncio
@@ -36,10 +41,10 @@ async def exercise(root: Path, monkeypatch):
     from backend.app.main import app
     from backend.app.services import ancestry_service as service
     from backend.app.services.access_control import RecordNotVisible
-    from backend.app.services.ancestry_projection import AncestryReference
+    from backend.app.services.ancestry_projection import AncestryMarker, AncestryReference
+    from backend.app.services.clickhouse_variant_storage import bump_family_small_variant_data_version
     from backend.app.services.family_package_import import run_family_import_job
     from backend.app.services.family_package_jobs import claim_next_family_import_job
-    from backend.app.services.ancestry_projection import AncestryMarker
     from backend.tests.e2e import _harness
 
     await init_postgres_schema()
@@ -65,12 +70,13 @@ async def exercise(root: Path, monkeypatch):
     monkeypatch.setattr(settings, "family_import_roots", [str(root.parent)])
     root.mkdir(exist_ok=True)
     (root / "family.ped").write_text(f"{family} {proband} {father} {mother} 1 2\n{family} {mother} 0 0 2 1\n{family} {father} 0 0 1 1\n")
+    # The mother carries ALT at every marker, so every row holds an explicit call of each
+    # individual: the proband's and the mother's callsets are complete, the father's all no-calls.
     (root / "family.vcf").write_text("##fileformat=VCFv4.2\n##reference=GRCh38\n"
         '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
         f"#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t{proband}\t{mother}\t{father}\n" +
         "".join(f"1\t{i + 1}\t.\tA\tG\t50\tPASS\t.\tGT\t{['0/0', '0/1', '1/1'][i % 3]}\t1/1\t./.\n" for i in range(loci)))
     (root / "manifest.json").write_text(json.dumps({"schema_version": 1, "family_id": family, "ped": "family.ped",
-        "metadata": {"ancestry": {"full_wgs": True, "genome_build": "GRCh38", "absent_record_is_hom_ref": True}},
         "datasets": {"snv": {"family_vcf": "family.vcf", "source_format": "clair3"}}}))
     transport = ASGITransport(app=app, raise_app_exceptions=False)
     try:
@@ -86,53 +92,65 @@ async def exercise(root: Path, monkeypatch):
             if isinstance(job, dict):
                 job = job["$oid"]
             async with sm() as session:
+                # The import is queued: the sweep queues nothing for the family while it runs.
                 claimed = await claim_next_family_import_job(session, worker_id="synthetic-ancestry")
                 assert str(claimed["id"]) == job
             await run_family_import_job(job_id=job, worker_id="synthetic-ancestry")
             imported = (await ac.get(f"/api/family-imports/{job}")).json()
             assert imported["status"] == "completed", imported.get("validation_errors")
-            assert any("registered as the WGS source" in line for line in imported["logs"]), imported["logs"]
+            async with sm() as session:
+                family_uuid = (await session.execute(text("SELECT id::text FROM families WHERE family_id = :f"),
+                                                     {"f": family})).scalar_one()
 
             async def snapshot(**extra):
                 response = await ac.get(url, params={**params, **extra})
                 assert response.status_code == 200, response.text
                 return response.json()
 
+            async def sweep() -> int:
+                async with sm() as session:
+                    return await service.queue_changed_families(session, [family_uuid])
+
             initial = await snapshot()
             assert initial["analysis"] is None and initial["reference"]["sample_count"] == 5
-            assert initial["can_calculate"] and initial["source_state"] == "ready"
-            assert initial["runs"] == []  # importing a WGS source never silently queues PCA
-            response = await ac.post(url + "/calculate", params=params)
-            assert response.status_code == 202, response.text
-            first_run = response.json()["id"]
-            assert (await ac.post(url + "/calculate", params=params)).status_code == 409
-            # The VCF is read with no lock of the family's variant writes held: an import or a
-            # sign-out of the family never waits for a calculation.
-            async with sm() as session:
-                family_uuid = (await session.execute(text("SELECT id::text FROM families WHERE family_id = :f"),
-                                                     {"f": family})).scalar_one()
-            loop = asyncio.get_running_loop()
-            during_read: list[bool] = []
-            original_project_file = service.project_file
+            assert initial["can_calculate"] and initial["state"] == "ready"
+            assert initial["runs"] == []  # nothing in the import itself queues a run
 
-            def project_and_probe(*args, **kwargs):
-                during_read.append(asyncio.run_coroutine_threadsafe(writer_could_lock(sm, family_uuid), loop).result())
-                return original_project_file(*args, **kwargs)
+            # The worker's sweep queues one automatic run for the stored genotypes, and only one.
+            assert await sweep() == 1
+            assert await sweep() == 0
+            queued = (await snapshot())["runs"]
+            assert [(r["trigger"], r["status"]) for r in queued] == [("automatic", "queued")]
+            assert (await ac.post(url + "/calculate", params=params)).status_code == 409
+            # The callsets are read with no lock of the family's variant writes held: an import
+            # or a sign-out of the family never waits for a calculation. The second read checks,
+            # under the locks, that the rows did not change before publishing.
+            during_read: list[bool] = []
+            original_read = service.read_marker_rows
+
+            async def read_and_probe(*args, **kwargs):
+                during_read.append(await writer_could_lock(sm, family_uuid))
+                return await original_read(*args, **kwargs)
 
             with monkeypatch.context() as patch:
-                patch.setattr(service, "project_file", project_and_probe)
+                patch.setattr(service, "read_marker_rows", read_and_probe)
                 assert await service.process_next_run()
-            assert during_read == [True]
+            assert during_read == [True, False]
             completed = await snapshot()
             assert completed["runs"][0]["status"] == "completed", completed
+            first_run = completed["runs"][0]["id"]
             analysis = completed["analysis"]
-            assert analysis["current_source"] and analysis["current_reference"]
+            assert analysis["current_genotypes"] and analysis["current_reference"]
+            assert analysis["calculation_version"] == "coga-ancestry-pca-v2" and analysis["source_id"] is None
             samples = {r["sample_id"]: r for r in analysis["samples"]}
             assert samples[proband]["pcs"] == [-1, 0, 1, -1]
             assert samples[mother]["pcs"] == [1, 1, 1, 1]
+            assert (samples[proband]["callset"], samples[proband]["kind"]) == ("clair3", "complete")
             assert samples[father]["pcs"] is None and samples[father]["status"] == "insufficient_data"
-            assert samples[father]["qc"]["no_call"] == 1000 and samples[father]["qc"]["assumed_ref"] == 0
+            assert samples[father]["kind"] == "partial" and samples[father]["qc"]["no_call"] == 1000
+            assert samples[father]["candidates"][0]["carriers"] == 0
             assert analysis["assumptions"]["min_call_rate"] == 0.95
+            assert analysis["assumptions"]["marker_rows"].startswith("ancestry-rows-v1:")
 
             # Historical views retain their own reference, even after configuration changes.
             other_public = public.model_copy(update={"sha256": "b" * 64, "name": "Synthetic reference v2"})
@@ -143,7 +161,8 @@ async def exercise(root: Path, monkeypatch):
             assert (await ac.get(url, params={**params, "run_id": str(uuid4())})).status_code == 404
 
             # Pin the reference when queued: a replaced model never changes a running request.
-            assert (await ac.post(url + "/calculate", params=params)).status_code == 202
+            response = await ac.post(url + "/calculate", params=params)
+            assert response.status_code == 202 and response.json()["trigger"] == "user"
             monkeypatch.setattr(service, "configured_reference", lambda: reference)
             assert await service.process_next_run()
             assert (await snapshot())["runs"][0]["status"] == "failed"
@@ -181,7 +200,7 @@ async def exercise(root: Path, monkeypatch):
                     await service.calculate_run(cancelled)
             assert (await snapshot())["runs"][0]["status"] == "interrupted"
 
-            # A revoked requester, or a changed file, cannot publish a newer result.
+            # A revoked requester cannot publish a newer result.
             assert (await ac.post(url + "/calculate", params=params)).status_code == 202
             async with sm() as session:
                 revoked = await service.claim_run(session)
@@ -191,15 +210,27 @@ async def exercise(root: Path, monkeypatch):
                 patch.setattr(service, "get_current_user_by_id", revoked_user)
                 await service.calculate_run(revoked)
             assert (await snapshot())["runs"][0]["status"] == "failed"
+
+            # A write of the family's variants while the callsets are read: nothing is published.
             assert (await ac.post(url + "/calculate", params=params)).status_code == 202
-            with (root / "family.vcf").open("a") as stream:
-                stream.write("\n")
+            with monkeypatch.context() as patch:
+                async def read_then_write(*args, **kwargs):
+                    rows = await original_read(*args, **kwargs)
+                    await bump_family_small_variant_data_version("GRCh38", family_uuid)
+                    return rows
+                patch.setattr(service, "read_marker_rows", read_then_write)
+                assert await service.process_next_run()
+            interrupted = await snapshot()
+            assert interrupted["runs"][0]["status"] == "failed"
+            assert interrupted["runs"][0]["error"].startswith("Genotypes were written during calculation")
+            # The projection shown is now of earlier genotypes; the sweep queues a new one.
+            assert interrupted["analysis"]["run_id"] == first_run and not interrupted["analysis"]["current_genotypes"]
+            assert await sweep() == 1
             assert await service.process_next_run()
-            stale = await snapshot()
-            assert stale["source_state"] == "source_changed" and not stale["can_calculate"]
-            assert not stale["analysis"]["current_source"] and stale["analysis"]["run_id"] == first_run
-            assert stale["runs"][0]["status"] == "failed"
-            assert (await ac.post(url + "/calculate", params=params)).status_code == 409
+            current = await snapshot()
+            assert current["runs"][0]["trigger"] == "automatic" and current["runs"][0]["status"] == "completed"
+            assert current["analysis"]["current_genotypes"] and current["analysis"]["run_id"] != first_run
+            assert await sweep() == 0
 
             # No ancestry values or reference snapshots enter the clinical signed record.
             from backend.app.services.report_signout_service import build_report_snapshot
@@ -207,7 +238,7 @@ async def exercise(root: Path, monkeypatch):
                 signed = await build_report_snapshot(session, family_id=family, user=admin, project_id=project)
                 count = (await session.execute(text("SELECT count(*) FROM ancestry_results WHERE run_id IN (SELECT id FROM ancestry_runs WHERE family_identifier = :f)"),
                                                {"f": family})).scalar_one()
-            assert count == 1 and "coga-ancestry-pca-v1" not in json.dumps(signed)
+            assert count == 2 and "coga-ancestry-pca" not in json.dumps(signed)
             assert "ancestry" not in signed and first_run not in json.dumps(signed)
     finally:
         app.dependency_overrides.clear()

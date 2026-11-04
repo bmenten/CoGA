@@ -58,7 +58,6 @@ const FamilySmallVariantsPage = lazy(
 const FamilyRepeatExpansionsPage = lazy(
   () => import('./pages/families/FamilyRepeatExpansionsPage')
 );
-const FamilyAncestryPage = lazy(() => import('./pages/families/FamilyAncestryPage'));
 const FamilyParaphasePage = lazy(
   () => import('./pages/families/FamilyParaphasePage')
 );
@@ -214,10 +213,6 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
               <Route
                 path="/families/:familyId/repeat-expansions"
                 element={routeElement(<FamilyRepeatExpansionsPage />)}
-              />
-              <Route
-                path="/families/:familyId/ancestry"
-                element={routeElement(<FamilyAncestryPage />)}
               />
               <Route
                 path="/families/:familyId/paraphase"

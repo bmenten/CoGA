@@ -821,7 +821,8 @@
 .igv-shell {
   min-height: 500px;
 }
-/* Exploratory ancestry PCA (FamilyAncestryPage), with exact coordinates and an accessible QC table. */
+/* Exploratory ancestry PCA (FamilyAncestryPanel, the last section of Sample QC), with exact
+   coordinates and accessible QC tables. */
 .ancestry-heading,
 .ancestry-controls,
 .ancestry-legend {
@@ -875,6 +876,11 @@
 }
 .ancestry-quality-table {
   min-width: 58rem;
+}
+/* Why an individual or a callset is not projected, under its status. */
+.ancestry-reason {
+  display: block;
+  max-width: 28rem;
 }
 .ancestry-chart {
   display: block;

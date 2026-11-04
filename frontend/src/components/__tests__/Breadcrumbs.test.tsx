@@ -93,7 +93,7 @@ test('shows the gene panel id until its page has read the panel', () => {
   expect(screen.getByText('6f1c2a40-1111-4222-8333-944455556666')).toHaveClass('breadcrumb-current');
 });
 
-test.each([['mitochondrial-dna', 'Mitochondrial DNA'], ['ancestry', 'Ancestry']])('reads %s in sentence case and shows identifiers as they are stored', (route, label) => {
+test.each([['mitochondrial-dna', 'Mitochondrial DNA'], ['repeat-expansions', 'Repeat expansions']])('reads %s in sentence case and shows identifiers as they are stored', (route, label) => {
   renderAt(`/families/demo_family/${route}`);
 
   expect(screen.getByText('Dashboard')).toBeInTheDocument();

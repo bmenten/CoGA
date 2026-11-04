@@ -39,10 +39,23 @@ const NIPT_SUMMARY =
   'father and for the cfDNA sample, which reads as the mother because maternal DNA dominates the plasma. ' +
   'Genotype relatedness and Mendelian errors do not apply to a maternal/fetal mixture.';
 
+// The exploratory ancestry section at the page's end, before any projection.
+const NO_ANCESTRY = {
+  project_id: 'p1',
+  state: 'ready',
+  can_calculate: false,
+  active_reference_sha256: null,
+  reference: null,
+  analysis: null,
+  runs: [],
+  notices: [],
+};
+
 const mockApi = (qcData: unknown, family: unknown = TRIO_FAMILY) => {
   apiMock.get.mockImplementation((url: string) => {
     if (url === '/families/FAM1/qc/sample-integrity') return Promise.resolve({ data: qcData });
     if (url === '/families/FAM1') return Promise.resolve({ data: family });
+    if (url === '/families/FAM1/ancestry') return Promise.resolve({ data: NO_ANCESTRY });
     return Promise.resolve({ data: {} });
   });
 };
@@ -231,6 +244,34 @@ describe('FamilySampleQcPage', () => {
     );
     expect(container.querySelector('.qc-genotype-sex--match')?.textContent).toBe('male ✓');
     expect(pedigreeTooltip(container, 'CHILD')).toBe('Sex male (matches record)');
+  });
+
+  // The exploratory ancestry PCA is Sample QC's last section, marked as such, read for the
+  // family's own project.
+  it('ends with the exploratory ancestry section, after the checks', async () => {
+    mockApi({
+      family_id: 'FAM1',
+      overall_status: 'pass',
+      application: 'wgs',
+      application_label: 'Long-read WGS family',
+      application_summary: 'Full pedigree QC on the SNV call set.',
+      genotype_source: 'clair3',
+      paternity_check: null,
+      autosomal_sites: 90000,
+      notes: [],
+      sex_checks: [],
+      relatedness_checks: [],
+      mendelian_checks: [],
+    });
+
+    const { container } = renderPage();
+
+    const heading = await screen.findByRole('heading', { name: 'Ancestry (exploratory)' });
+    const section = heading.closest('section') as HTMLElement;
+    expect(section).toHaveAttribute('id', 'ancestry');
+    expect(container.querySelector('.page-shell')?.lastElementChild).toBe(section);
+    expect(within(section).getByRole('note')).toHaveTextContent('Exploratory — not for clinical use.');
+    expect(apiMock.get).toHaveBeenCalledWith('/families/FAM1/ancestry', expect.anything());
   });
 
   // The PGT pipeline's per-embryo QC, which its dashboard shows: read from its Picard and RTG

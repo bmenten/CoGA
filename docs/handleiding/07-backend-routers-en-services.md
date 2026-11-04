@@ -104,7 +104,7 @@ Alle routers staan in `backend/app/routers/__init__.py` en hangen onder `/api`. 
 | `families_reports.py` | `/families` (deel) | Annotatiemanifest, drift, klinische audit, sample-QC, rapport en ondertekening (hoofdstuk 11) |
 | `families_tracks.py` | `/families` (deel) | Tracks: haplotypes, gefaseerde markers, repeats, mtDNA, Paraphase (hoofdstuk 9) |
 | `family_qc_reports.py` | `/families` | Het QC-rapport van de pipeline, via een kortlevende link en afgeschermd (hoofdstuk 2) |
-| `ancestry.py` | `/families/{family_id}/ancestry`, `/families/{family_id}/wgs-source` | De exploratieve afstammings-PCA van een familie en haar geverifieerde WGS-invoer; niet klinisch, buiten de ondertekening |
+| `ancestry.py` | `/families/{family_id}/ancestry` | De exploratieve afstammings-PCA van een familie, uit haar opgeslagen callsets; niet klinisch, buiten de ondertekening |
 | `report_codes.py` | `/report-codes` | Een ondertekend analyserecord opzoeken met de rapportcode die het EPD-rapport citeert (hoofdstuk 11) |
 | `structural_variants.py` | `/structural-variants` | Het SV-bestand van één sample uploaden (alleen beheerders); de SV's van één sample leest de SV-lijst van de familie met de parameter `sample` |
 | `cnvs.py` | `/cnvs` | De klinische-CNV-catalogus en CNV's per regio |

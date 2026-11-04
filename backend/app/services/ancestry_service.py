@@ -1,15 +1,20 @@
-"""Durable exploratory ancestry PCA jobs on verified, project-scoped WGS sources.
+"""Durable exploratory ancestry PCA jobs on the family's stored callsets.
 
 Outside CoGA's intended purpose (TF-01 §4): a projection shows genetic similarity to public
 reference populations, is never read clinically, and never enters the sign-out or the signed
 record.
 
-A calculation reads the whole source VCF, which takes minutes for a whole genome, and holds no
-lock of the family's variant writes while it does. It checks the source under those locks,
-releases them, projects, and takes them again only to check that the source still holds and
-to publish. What keeps another worker off a running job is the job's own row lock, held on a
-connection of its own until the job ends: a job whose process stopped loses it, and the next
-worker to look ends the job as interrupted.
+A calculation reads the family's small variants at the reference markers from ClickHouse
+(``ancestry_callsets``), which takes about a second. It checks the family under its
+variant-write locks and releases them before it reads; it takes them again only to check that
+nothing was written in between and to publish, so no import or sign-out waits for it. What
+keeps another worker off a running job is the job's own row lock, held on a connection of its
+own until the job ends: a job whose process stopped loses it, and the next worker to look ends
+the job as interrupted.
+
+A run is a user's request, or the worker's own: every half minute it queues one for each
+family whose small-variant data version no run has read yet, once no import of the family is
+running. Nothing in the import or the upload calls it.
 """
 from __future__ import annotations
 
@@ -17,7 +22,9 @@ import asyncio
 import functools
 import json
 import logging
+import time
 from pathlib import Path
+from typing import Any
 
 from fastapi import HTTPException
 from sqlalchemy import text
@@ -28,45 +35,65 @@ from ..core.coga_logging import describe_error
 from ..core.config import settings
 from ..core.postgres import get_postgres_sessionmaker
 from ..core.sql import require_uuid
-from ..wgs_schemas import WgsSourceOut
-from .access_control import CurrentUser, user_can_change_metadata_projects
+from .access_control import (
+    CurrentUser,
+    ReadOnlyAccess,
+    RecordNotVisible,
+    user_can_change_metadata_projects,
+    visible_metadata_project_ids,
+)
+from .ancestry_callsets import (
+    CALLSET_LABELS,
+    COMPLETE_SHARE,
+    MIN_COVERAGE_RATIO,
+    project_family,
+    read_marker_rows,
+    rows_digest,
+)
 from .ancestry_projection import (
     CALCULATION_VERSION,
     DEFAULT_REFERENCE,
     MIN_CALL_RATE,
     MIN_MARKERS,
-    MIN_OBSERVED_FRACTION,
+    AncestryInputError,
     AncestryReference,
     load_reference,
-    project_file,
 )
+from .clickhouse_variant_storage import (
+    _execute as storage_execute,
+    _small_table_name,
+    get_family_small_variant_data_version,
+)
+from .family_metadata_context import FamilyMetadataContext, _resolve_family_assembly, build_family_metadata_context
 from .family_variant_write_lock import try_share_family_variant_writes
-from .metadata_service import get_current_user_by_id
-from .wgs_evidence import WgsInputError
-from . import wgs_source_storage as wgs
+from .metadata_service import get_accessible_family_mapping, get_current_user_by_id
 
 logger = logging.getLogger(__name__)
 INTERRUPTED = "Ancestry calculation interrupted; no partial results were published. Request a new calculation."
-# Why a family cannot be calculated now, by source_state, as the page shows it.
+# How often the worker looks for families whose genotypes changed since their last run.
+SWEEP_INTERVAL_SECONDS = 30.0
+# Why a family cannot be calculated now, by family_state, as the page shows it.
 STATE_NOTICES = {
     "GRCh38_required": "Ancestry PCA needs a family on GRCh38.",
-    "unsupported_samples": "Ancestry PCA reads individuals' own genotypes, so it is not available for a family "
-                           "with an embryo or a maternal-plasma cfDNA sample.",
     "import_incomplete": "The family's last import did not complete; import it again before ancestry PCA.",
-    "import_in_progress": "An import of this family is running; ancestry PCA is available once it ends.",
-    "no_full_wgs_source": "No WGS source is registered for this family: register a retained whole-genome VCF below.",
-    "import_not_completed": "The import the WGS source came from did not complete; import the family again.",
-    "family_members_changed": "The family's members changed since the WGS source was registered; register it again.",
-    "genotype_storage_changed": "The family's stored genotypes changed since the WGS source was registered; "
-                                "register it again.",
-    "genotype_storage_unavailable": "The family's stored genotypes could not be checked; try again later.",
-    "source_changed": "The WGS source file changed since it was registered; register it again.",
-    "source_unavailable": "The WGS source file is no longer available; register a source again.",
+    "import_in_progress": "An import of this family is running; ancestry PCA is calculated once it ends.",
 }
 _RUNS = """
-    SELECT id::text, source_id::text, reference_sha256, status, error, requested_at, started_at, finished_at
+    SELECT id::text, source_id::text, trigger, reference_sha256, status, error, requested_at, started_at, finished_at
     FROM ancestry_runs WHERE family_uuid = CAST(:family AS uuid) AND project_id = CAST(:project AS uuid)
     ORDER BY requested_at DESC, id DESC
+"""
+_IMPORT_RUNNING = """
+    SELECT 1 FROM family_import_jobs
+    WHERE status IN ('queued', 'validating', 'running')
+      AND (family_id = :family OR metadata->>'requested_family_id' = :family)
+    LIMIT 1
+"""
+_MEMBERS = """
+    SELECT s.sample_id, s.metadata AS sample_metadata, fm.role
+    FROM family_members fm JOIN samples s ON s.id = fm.sample_id
+    WHERE fm.family_id = CAST(:family AS uuid) AND fm.active
+    ORDER BY lower(s.sample_id), s.sample_id
 """
 
 
@@ -81,23 +108,73 @@ def configured_reference() -> AncestryReference:
     try:
         stat = path.stat()
     except OSError as exc:
-        raise WgsInputError("The ancestry reference is unavailable or failed validation.") from exc
+        raise AncestryInputError("The ancestry reference is unavailable or failed validation.") from exc
     return _load_reference_cached(str(path), stat.st_size, stat.st_mtime_ns)
 
 
+async def family_scope(session: AsyncSession, family_id: str, user: CurrentUser, project_id: str | None,
+                       *, change: bool = False) -> tuple[FamilyMetadataContext, str]:
+    """The family and the one project an ancestry read or change is about.
+
+    A family outside the caller's projects, and a project outside the family's visible ones,
+    answer 404 as an unknown one does; ``change`` refuses a reader of the project.
+    """
+    project = require_uuid(project_id, "Project not found", status_code=404) if project_id else None
+    family = await get_accessible_family_mapping(session, family_id, user)
+    projects = visible_metadata_project_ids(family.get("project_ids"), user)
+    if project is not None and project not in projects:
+        raise RecordNotVisible("project", "Project not found")
+    if project is None:
+        if len(projects) != 1:
+            raise HTTPException(400, "Choose one of this family's projects for ancestry.")
+        project = projects[0]
+    context = await build_family_metadata_context(session, family_identifier=family_id, user=user, project_id=project)
+    if change and not user_can_change_metadata_projects([project], user):
+        raise ReadOnlyAccess()
+    return context, project
+
+
+async def family_state(session: AsyncSession, family_uuid: str, family_identifier: str, assembly_name: str | None) -> str:
+    """``ready`` when the family's callsets can be read now, or the first reason they cannot."""
+    if assembly_name != "GRCh38":
+        return "GRCh38_required"
+    metadata = (await session.execute(text("SELECT metadata FROM families WHERE id = CAST(:id AS uuid)"),
+                                      {"id": family_uuid})).scalar_one_or_none()
+    if not isinstance(metadata, dict):
+        metadata = {}
+    if metadata.get("import_incomplete") not in (None, False) or metadata.get("import_unfinished"):
+        return "import_incomplete"
+    if (await session.execute(text(_IMPORT_RUNNING), {"family": family_identifier})).first():
+        return "import_in_progress"
+    return "ready"
+
+
+async def _members(session: AsyncSession, family_uuid: str) -> list[dict[str, Any]]:
+    rows = (await session.execute(text(_MEMBERS), {"family": family_uuid})).mappings().all()
+    return [{"sample_id": str(r["sample_id"]), "role": r["role"],
+             "sample_metadata": r["sample_metadata"] if isinstance(r["sample_metadata"], dict) else {}}
+            for r in rows]
+
+
+async def _storage_version(family_uuid: str) -> str | None:
+    try:
+        return await get_family_small_variant_data_version("GRCh38", family_uuid)
+    except Exception as exc:  # noqa: BLE001 - shown as "not known to be current"; no values logged
+        logger.warning("Ancestry data-version check failed: %s", describe_error(exc))
+        return None
+
+
 async def family_ancestry(session: AsyncSession, family_id: str, user: CurrentUser, project_id: str | None,
-                           run_id: str | None = None, *, deep: bool = False) -> FamilyAncestryOut:
-    context, project = await wgs.family_scope(session, family_id, user, project_id)
+                          run_id: str | None = None) -> FamilyAncestryOut:
+    context, project = await family_scope(session, family_id, user, project_id)
     params = {"family": context.family_uuid, "project": project}
-    sources = [WgsSourceOut(**dict(r)) for r in (await session.execute(text(wgs._SOURCES), params)).mappings().all()]
-    source = sources[0] if sources else None
-    state = await wgs.source_state(session, context, source, project, deep=deep)
+    state = await family_state(session, context.family_uuid, context.family_id, context.assembly_name)
     runs = [AncestryRunOut(**dict(r)) for r in (await session.execute(text(_RUNS), params)).mappings().all()]
     notices = []
     active = None
     try:
         active = (await asyncio.to_thread(configured_reference)).public
-    except WgsInputError:
+    except AncestryInputError:
         notices.append("The ancestry reference is unavailable or failed validation. Historical projections remain available.")
     selection = ""
     query_params = dict(params)
@@ -106,7 +183,7 @@ async def family_ancestry(session: AsyncSession, family_id: str, user: CurrentUs
         selection = "AND r.id = CAST(:run AS uuid)"
     # selection is a fixed SQL fragment; the only caller-supplied value is bound.
     row = (await session.execute(text("""
-        SELECT a.run_id::text, a.source_id::text, a.reference_sha256, a.samples,
+        SELECT a.run_id::text, a.source_id::text, a.reference_sha256, a.samples, a.storage_version,
                a.calculation_version, a.assumptions, a.created_at, p.snapshot
         FROM ancestry_results a JOIN ancestry_runs r ON r.id = a.run_id
         JOIN ancestry_reference_panels p ON p.sha256 = a.reference_sha256
@@ -119,46 +196,97 @@ async def family_ancestry(session: AsyncSession, family_id: str, user: CurrentUs
     reference = active
     if row is not None:
         reference = AncestryReferenceOut.model_validate(row["snapshot"])
+        current = row["storage_version"] is not None and row["storage_version"] == await _storage_version(context.family_uuid)
         analysis = AncestryAnalysisOut(**{k: row[k] for k in (
-            "run_id", "source_id", "reference_sha256", "samples", "calculation_version", "assumptions", "created_at")},
-            current_source=state == "ready" and source is not None and row["source_id"] == source.id,
+            "run_id", "source_id", "reference_sha256", "samples", "storage_version", "calculation_version",
+            "assumptions", "created_at")},
+            current_genotypes=current,
             current_reference=active is not None and row["reference_sha256"] == active.sha256)
     if state != "ready":
         notices.append(STATE_NOTICES.get(state, "Ancestry PCA is unavailable for this family."))
-    return FamilyAncestryOut(project_id=project, source_state=state, reference=reference, analysis=analysis,
-                              active_reference_sha256=active.sha256 if active else None, runs=runs, notices=notices,
-                              can_calculate=state == "ready" and active is not None
-                              and user_can_change_metadata_projects([project], user))
+    return FamilyAncestryOut(project_id=project, state=state, reference=reference, analysis=analysis,
+                             active_reference_sha256=active.sha256 if active else None, runs=runs, notices=notices,
+                             can_calculate=state == "ready" and active is not None
+                             and user_can_change_metadata_projects([project], user))
 
 
-async def queue_family(session: AsyncSession, family_id: str, user: CurrentUser, project_id: str | None) -> AncestryRunOut:
-    context, project = await wgs.family_scope(session, family_id, user, project_id, change=True)
-    await session.execute(text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
-                          {"key": f"ancestry-queue:{context.family_uuid}:{project}"})
-    if not await try_share_family_variant_writes(session, context.family_uuid):
-        raise HTTPException(409, "Genotypes are being written; retry once the import finishes.")
-    snapshot = await family_ancestry(session, family_id, user, project, deep=True)
-    if not snapshot.can_calculate:
-        raise HTTPException(409, "A verified GRCh38 full-WGS source and a valid ancestry reference are required.")
-    if any(r.status in {"queued", "running"} for r in snapshot.runs):
-        raise HTTPException(409, "An ancestry calculation is already queued or running for this family.")
-    reference = (await asyncio.to_thread(configured_reference)).public
-    source = (await session.execute(text(wgs._SOURCES), {"family": context.family_uuid, "project": project})).mappings().first()
-    if source is None:
-        raise HTTPException(409, "A verified full-WGS source is required.")
+async def _insert_run(session: AsyncSession, *, family_uuid: str, family_identifier: str, project: str,
+                      reference: AncestryReferenceOut, trigger: str, requested_by: str | None,
+                      storage_version: str | None) -> str:
     await session.execute(text("""
         INSERT INTO ancestry_reference_panels(sha256, snapshot) VALUES (:sha, CAST(:snapshot AS jsonb))
         ON CONFLICT (sha256) DO NOTHING
     """), {"sha": reference.sha256, "snapshot": reference.model_dump_json()})
     result = await session.execute(text("""
-        INSERT INTO ancestry_runs(family_uuid, family_identifier, project_id, source_id, reference_sha256, requested_by)
-        VALUES (CAST(:family AS uuid), :identifier, CAST(:project AS uuid), CAST(:source AS uuid), :sha, CAST(:actor AS uuid))
+        INSERT INTO ancestry_runs(family_uuid, family_identifier, project_id, reference_sha256, requested_by,
+                                  trigger, storage_version)
+        VALUES (CAST(:family AS uuid), :identifier, CAST(:project AS uuid), :sha, CAST(:actor AS uuid),
+                :trigger, :version)
         RETURNING id::text
-    """), {"family": context.family_uuid, "identifier": context.family_id, "project": project,
-            "source": source["id"], "sha": reference.sha256, "actor": user.id})
-    run = str(result.scalar_one())
+    """), {"family": family_uuid, "identifier": family_identifier, "project": project, "sha": reference.sha256,
+            "actor": requested_by, "trigger": trigger, "version": storage_version})
+    return str(result.scalar_one())
+
+
+async def queue_family(session: AsyncSession, family_id: str, user: CurrentUser, project_id: str | None) -> AncestryRunOut:
+    context, project = await family_scope(session, family_id, user, project_id, change=True)
+    await session.execute(text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
+                          {"key": f"ancestry-queue:{context.family_uuid}:{project}"})
+    if not await try_share_family_variant_writes(session, context.family_uuid):
+        raise HTTPException(409, "Genotypes are being written; retry once the import finishes.")
+    snapshot = await family_ancestry(session, family_id, user, project)
+    if not snapshot.can_calculate:
+        raise HTTPException(409, "A GRCh38 family with a completed import and a valid ancestry reference is required.")
+    if any(r.status in {"queued", "running"} for r in snapshot.runs):
+        raise HTTPException(409, "An ancestry calculation is already queued or running for this family.")
+    reference = (await asyncio.to_thread(configured_reference)).public
+    run = await _insert_run(session, family_uuid=context.family_uuid, family_identifier=context.family_id,
+                            project=project, reference=reference, trigger="user", requested_by=user.id,
+                            storage_version=await _storage_version(context.family_uuid))
     await session.commit()
     return next(r for r in (await family_ancestry(session, family_id, user, project)).runs if r.id == run)
+
+
+async def queue_changed_families(session: AsyncSession, family_uuids: list[str] | None = None) -> int:
+    """Queue an automatic run for each family and project whose current small-variant data
+    version no run has been queued for or read, once no import of the family runs. Returns how
+    many it queued; commits them. ``family_uuids`` limits the sweep to those families."""
+    try:
+        reference = (await asyncio.to_thread(configured_reference)).public
+    except AncestryInputError:
+        return 0
+    # Fixed assembly and allowlisted table helper; nothing here comes from a request.
+    table = _small_table_name("GRCh38", "family_data_version")
+    versions = {str(family): f"{int(count or 0)}:{int(total or 0)}" for family, count, total in
+                (await storage_execute(f"SELECT family_guid, count(), sum(token) FROM {table} GROUP BY family_guid")
+                 or [])}
+    if family_uuids is not None:
+        versions = {family: version for family, version in versions.items() if family in set(family_uuids)}
+    if not versions:
+        return 0
+    # One sweep at a time across the worker processes: two would queue the same runs.
+    await session.execute(text("SELECT pg_advisory_xact_lock(hashtext('ancestry-sweep'))"))
+    candidates = (await session.execute(text("""
+        SELECT f.id::text AS family_uuid, f.family_id, fp.project_id::text AS project_id
+        FROM families f JOIN family_projects fp ON fp.family_id = f.id
+        WHERE f.id::text = ANY(CAST(:families AS text[]))
+          AND NOT EXISTS (
+            SELECT 1 FROM ancestry_runs r
+            WHERE r.family_uuid = f.id AND r.project_id = fp.project_id
+              AND (r.status IN ('queued', 'running') OR r.storage_version = (CAST(:versions AS jsonb) ->> f.id::text)))
+        ORDER BY f.family_id, fp.project_id
+    """), {"families": sorted(versions), "versions": json.dumps(versions)})).mappings().all()
+    queued = 0
+    for row in candidates:
+        _, assembly = await _resolve_family_assembly(session, family_uuid=row["family_uuid"], project_id=row["project_id"])
+        if await family_state(session, row["family_uuid"], row["family_id"], assembly) != "ready":
+            continue
+        await _insert_run(session, family_uuid=row["family_uuid"], family_identifier=row["family_id"],
+                          project=row["project_id"], reference=reference, trigger="automatic", requested_by=None,
+                          storage_version=versions[row["family_uuid"]])
+        queued += 1
+    await session.commit()
+    return queued
 
 
 async def claim_run(session: AsyncSession) -> str | None:
@@ -170,11 +298,13 @@ async def claim_run(session: AsyncSession) -> str | None:
         WHERE id IN (SELECT id FROM ancestry_runs WHERE status = 'running'
           AND started_at < now() - interval '1 minute' FOR UPDATE SKIP LOCKED)
     """), {"error": INTERRUPTED})
+    # A family whose import runs waits: its genotypes are being written.
     run = (await session.execute(text("""
         UPDATE ancestry_runs SET status = 'running', started_at = now()
-        WHERE id = (SELECT r.id FROM ancestry_runs r JOIN wgs_sources s ON s.id = r.source_id
-          LEFT JOIN family_import_jobs i ON i.id = s.import_job_id
-          WHERE r.status = 'queued' AND (s.import_job_id IS NULL OR i.status NOT IN ('queued','validating','running') OR i.id IS NULL)
+        WHERE id = (SELECT r.id FROM ancestry_runs r
+          WHERE r.status = 'queued' AND NOT EXISTS (
+            SELECT 1 FROM family_import_jobs i WHERE i.status IN ('queued', 'validating', 'running')
+              AND (i.family_id = r.family_identifier OR i.metadata->>'requested_family_id' = r.family_identifier))
           ORDER BY r.requested_at LIMIT 1 FOR UPDATE OF r SKIP LOCKED)
         RETURNING id::text
     """))).scalar_one_or_none()
@@ -191,32 +321,52 @@ async def _finish_failed(run_id: str, status: str, error: str) -> None:
         await session.commit()
 
 
-async def _requester(session: AsyncSession, run: dict) -> CurrentUser:
-    user = await get_current_user_by_id(session, str(run["requested_by"]))
-    if user is None or not user.is_active:
-        raise WgsInputError("The requester no longer has access to this project.")
-    return user
+async def _check_family(session: AsyncSession, run: dict) -> None:
+    """The run's family may be read now: its requester (a user's run) may still change it, it is
+    on GRCh38 with a completed import, and nothing writes its variants. Takes the family's
+    variant-write locks for the rest of the session's transaction."""
+    family_uuid, project = str(run["family_uuid"]), str(run["project_id"])
+    if run["trigger"] == "user":
+        user = await get_current_user_by_id(session, str(run["requested_by"]))
+        if user is None or not user.is_active:
+            raise AncestryInputError("The requester no longer has access to this project.")
+        context, _ = await family_scope(session, run["family_identifier"], user, project, change=True)
+        if context.family_uuid != family_uuid:
+            raise AncestryInputError("The original family no longer exists.")
+    linked = (await session.execute(text("""
+        SELECT f.family_id FROM families f JOIN family_projects fp ON fp.family_id = f.id
+        WHERE f.id = CAST(:family AS uuid) AND fp.project_id = CAST(:project AS uuid)
+    """), {"family": family_uuid, "project": project})).scalar_one_or_none()
+    if linked is None:
+        raise AncestryInputError("The family is no longer in this project.")
+    _, assembly = await _resolve_family_assembly(session, family_uuid=family_uuid, project_id=project)
+    state = await family_state(session, family_uuid, str(linked), assembly)
+    if state != "ready":
+        raise AncestryInputError(STATE_NOTICES.get(state, "Ancestry PCA is unavailable for this family."))
+    if not await try_share_family_variant_writes(session, family_uuid):
+        raise AncestryInputError("Genotypes are being written; the calculation runs again after the import.")
 
 
-async def _checked_source(run: dict) -> tuple[WgsSourceOut, Path | None]:
-    """The run's source, checked under the family's variant-write locks in a transaction of
-    its own, which ends (releasing them) before the file is read."""
-    async with get_postgres_sessionmaker()() as session:
-        user = await _requester(session, run)
-        context, project = await wgs.family_scope(session, run["family_identifier"], user, str(run["project_id"]), change=True)
-        if context.family_uuid != str(run["family_uuid"]):
-            raise WgsInputError("The original family no longer exists.")
-        if not await try_share_family_variant_writes(session, context.family_uuid):
-            raise WgsInputError("Genotypes are being written; request calculation after import.")
-        sources = (await session.execute(text(wgs._SOURCES), {"family": context.family_uuid, "project": project})).mappings().all()
-        if not sources or str(sources[0]["id"]) != str(run["source_id"]):
-            raise WgsInputError("A newer WGS source exists; request a new calculation.")
-        source = WgsSourceOut(**dict(sources[0]))
-        if await wgs.source_state(session, context, source, project, deep=True) != "ready":
-            raise WgsInputError("The import, family members or genotype storage changed; import full WGS again.")
-        retained = await wgs.retained_source_path(session, source, context.family_uuid) if source.raw_file_id else None
-        await session.rollback()
-        return source, retained
+def _assumptions(reference: AncestryReference, digest: str) -> dict[str, str | bool | float | int]:
+    exome = reference.exome
+    return {
+        "genotypes": "the family's stored callsets (" + ", ".join(CALLSET_LABELS.values()).lower()
+                     + ") at the reference markers; diploid GT; exact REF/ALT; no strand flips",
+        "callset_kinds": "complete: explicit calls only; genome: an absent record is homozygous reference; "
+                         "exome: an absent record is reference only inside the exome mask; partial: not projected",
+        "min_coverage_ratio": MIN_COVERAGE_RATIO,
+        "complete_share": COMPLETE_SHARE,
+        "exome_mask": exome.definition if exome else "none: no callset is read as an exome",
+        "exome_mask_sha256": exome.sha256 if exome else "",
+        "filters": "PASS calls; unfiltered calls (FILTER=.) from imputed genotypes and from a callset "
+                   "that filtered none of its calls",
+        "min_usable_markers": MIN_MARKERS,
+        "min_call_rate": MIN_CALL_RATE,
+        "excluded": "maternal-plasma cfDNA samples and embryos",
+        "projection": "least-squares fit of the fixed public reference axes to each individual's usable markers; "
+                      "no ancestry percentages",
+        "marker_rows": digest,
+    }
 
 
 async def calculate_run(run_id: str) -> None:
@@ -229,38 +379,36 @@ async def calculate_run(run_id: str) -> None:
             if row is None:
                 return
             run = dict(row)
-            source, retained = await _checked_source(run)
+            family_uuid, project = str(run["family_uuid"]), str(run["project_id"])
+            # Checked under the family's variant-write locks, in a transaction that ends (and
+            # releases them) before the callsets are read.
+            async with get_postgres_sessionmaker()() as check:
+                await _check_family(check, run)
+                members = await _members(check, family_uuid)
+                version = await get_family_small_variant_data_version("GRCh38", family_uuid)
+                await check.rollback()
+            await hold.execute(text("UPDATE ancestry_runs SET storage_version = :version WHERE id = CAST(:id AS uuid)"),
+                               {"id": run_id, "version": version})
             reference = await asyncio.to_thread(configured_reference)
             if reference.public.sha256 != run["reference_sha256"]:
-                raise WgsInputError("The ancestry reference changed after queueing; request a new calculation.")
-            allow_unfiltered = source.qualification.get("allow_unfiltered") is True
-            async with wgs.source_file(source, retained) as path:
-                results = await asyncio.to_thread(project_file, path, source.sha256, reference, source.samples,
-                                                  assume_ref=source.absent_record_is_hom_ref,
-                                                  allow_unfiltered=allow_unfiltered)
-            # Publish: the requester, the family and the source must all still hold, checked
+                raise AncestryInputError("The ancestry reference changed after queueing; request a new calculation.")
+            rows = await read_marker_rows(family_uuid, project, reference)
+            samples = await asyncio.to_thread(project_family, rows, reference, members)
+            # Publish: the requester, the family and its genotypes must all still hold, checked
             # under the family's variant-write locks in the transaction that writes the result.
-            user = await _requester(hold, run)
-            context, project = await wgs.family_scope(hold, run["family_identifier"], user, str(run["project_id"]), change=True)
-            if not await try_share_family_variant_writes(hold, context.family_uuid):
-                raise WgsInputError("Genotypes were written during calculation; no results were published.")
-            if await wgs.source_state(hold, context, source, project, deep=True) != "ready":
-                raise WgsInputError("The family or import changed during calculation; no results were published.")
-            assumptions = {"full_wgs": True, "absent_record_is_hom_ref": source.absent_record_is_hom_ref,
-                           "allow_unfiltered": allow_unfiltered,
-                           "source_limitations": "; ".join(source.qualification.get("assessment", {}).get("warnings", [])),
-                           "min_usable_markers": MIN_MARKERS, "min_call_rate": MIN_CALL_RATE,
-                           "min_observed_fraction": MIN_OBSERVED_FRACTION,
-                           "missing_calls": "uncalled SNPs contribute zero after reference centering, only above QC thresholds",
-                           "projection": "fixed public reference axes; no ancestry percentages",
-                           "genotypes": "diploid GT; exact REF/ALT; " + ("PASS and explicitly accepted unfiltered records" if allow_unfiltered else "PASS") + "; no strand flips"}
+            await _check_family(hold, run)
+            if (await get_family_small_variant_data_version("GRCh38", family_uuid) != version
+                    or rows_digest(await read_marker_rows(family_uuid, project, reference)) != rows_digest(rows)):
+                raise AncestryInputError("Genotypes were written during calculation; no results were published.")
+            if await _members(hold, family_uuid) != members:
+                raise AncestryInputError("The family's members changed during calculation; no results were published.")
             await hold.execute(text("""
-                INSERT INTO ancestry_results(run_id, source_id, reference_sha256, samples, calculation_version, assumptions)
-                VALUES (CAST(:run AS uuid), CAST(:source AS uuid), :sha, CAST(:samples AS jsonb), :version, CAST(:assumptions AS jsonb))
-            """), {"run": run_id, "source": source.id, "sha": reference.public.sha256,
-                    "samples": json.dumps([r.model_dump() for r in results]),
-                    "version": CALCULATION_VERSION + ("+unfiltered-v1" if allow_unfiltered else ""),
-                    "assumptions": json.dumps(assumptions)})
+                INSERT INTO ancestry_results(run_id, reference_sha256, samples, storage_version, calculation_version, assumptions)
+                VALUES (CAST(:run AS uuid), :sha, CAST(:samples AS jsonb), :version, :calculation, CAST(:assumptions AS jsonb))
+            """), {"run": run_id, "sha": reference.public.sha256,
+                    "samples": json.dumps([s.model_dump() for s in samples]), "version": version,
+                    "calculation": CALCULATION_VERSION,
+                    "assumptions": json.dumps(_assumptions(reference, rows_digest(rows)))})
             await hold.execute(text("UPDATE ancestry_runs SET status = 'completed', finished_at = now() WHERE id = CAST(:id AS uuid)"),
                                {"id": run_id})
             await hold.commit()
@@ -269,7 +417,7 @@ async def calculate_run(run_id: str) -> None:
         raise
     except Exception as exc:  # noqa: BLE001 - fixed errors only; no family/genotype values in logs
         logger.warning("Ancestry calculation failed: %s", describe_error(exc))
-        error = str(exc) if isinstance(exc, WgsInputError) else "Ancestry calculation failed; verify source availability and project access before retrying."
+        error = str(exc) if isinstance(exc, AncestryInputError) else "Ancestry calculation failed; request a new calculation."
         await _finish_failed(run_id, "failed", error)
 
 
@@ -282,15 +430,34 @@ async def process_next_run() -> bool:
     return True
 
 
+async def sweep_changed_families() -> int:
+    async with get_postgres_sessionmaker()() as session:
+        try:
+            return await queue_changed_families(session)
+        except Exception:
+            await session.rollback()
+            raise
+
+
 async def ancestry_worker(stop: asyncio.Event) -> None:
-    """Take queued ancestry jobs one at a time until ``stop`` is set.
+    """Take queued ancestry jobs one at a time until ``stop`` is set, and queue the automatic
+    ones every ``SWEEP_INTERVAL_SECONDS``.
 
     Runs where the package-import workers run: in an import-worker process
     (``app.import_worker``), or in the API when it runs import workers itself
-    (``FAMILY_IMPORT_WORKER_COUNT`` above 0). A projection parses a whole VCF in Python.
+    (``FAMILY_IMPORT_WORKER_COUNT`` above 0).
     """
+    next_sweep = 0.0
     while not stop.is_set():
         try:
+            if time.monotonic() >= next_sweep:
+                next_sweep = time.monotonic() + SWEEP_INTERVAL_SECONDS
+                try:
+                    await sweep_changed_families()
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:  # noqa: BLE001 - a failed sweep never stops the queued runs
+                    logger.warning("Ancestry sweep failed: %s", describe_error(exc))
             if await process_next_run():
                 continue
         except asyncio.CancelledError:

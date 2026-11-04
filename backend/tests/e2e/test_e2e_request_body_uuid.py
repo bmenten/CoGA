@@ -166,9 +166,6 @@ def _sweep_bodies(run: str, records: dict[str, str]) -> dict[tuple[str, str], di
             "members": [{"sample_id": f"E2EBODYP{run}M", "sex": "female"}],
         },
         ("PUT", "/api/families/{family_id}/roi"): {},
-        ("POST", "/api/families/{family_id}/wgs-source"): {
-            "full_wgs": True, "genome_build": "GRCh38", "absent_record_is_hom_ref": False,
-        },
         ("POST", "/api/families/{family_id}/small-variant-tags"): tag,
         ("PUT", "/api/families/{family_id}/small-variant-tags/{tag_key}"): tag,
         ("POST", "/api/projects/"): {
