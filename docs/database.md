@@ -34,7 +34,7 @@ when the baselines are no longer re-applied:
 | `species` | organisms: name, common name, NCBI taxonomy id |
 | `assemblies` | genome assemblies per species |
 | `chromosomes` | chromosome sizes and cytobands per assembly |
-| `users` | accounts: username, password hash, role (`admin`, `superuser` or `viewer`) and active flag. An account made at its first Microsoft sign-in holds the user's Microsoft Entra ID object ID (`azure_object_id`, unique), by which every later sign-in finds it, and no password (`hashed_password` holds a marker no password matches). A local account, such as the emergency administrator, has no object ID (SEC-4) |
+| `users` | accounts: username, password hash, role (`admin`, `superuser` or `viewer`) and active flag. An account made at its first Microsoft sign-in, or at its first sign-in through the organisation's CAS server (which releases that ID; the account starts inactive, waiting for approval), holds the user's Microsoft Entra ID object ID (`azure_object_id`, unique), by which every later sign-in finds it, and no password (`hashed_password` holds a marker no password matches). A local account, such as the emergency administrator, has no object ID (SEC-4) |
 | `projects` | projects, each bound to one species and assembly |
 | `project_users` | which users belong to which project, and each member's `access_level`: `analyst` (reads and changes the project's records; the default) or `reader` (only reads them; SEC-1). Data access is scoped by project; an administrator (`admin` or `superuser`) has every right in every project |
 | `auth_login_attempts` | failed-login counts and back-off per email and per client address, and sign-up attempts per address |

@@ -592,8 +592,25 @@ class Settings(BaseSettings):
     # The emergency (break-glass) sign-in. Off (the default), Microsoft sign-in is the only
     # one. On, the emergency administrator (the local account ADMIN_USERNAME names) may also
     # sign in with its password at /login/emergency; every such sign-in, and every request
-    # made with it, is logged and flagged in the request audit. It needs Azure AD.
+    # made with it, is logged and flagged in the request audit. It needs an organisation
+    # sign-in: Microsoft's, or the CAS server's below.
     azure_admin_override: bool = Field(default=False, alias="AZURE_ADMIN_OVERRIDE")
+    # Sign-in through the organisation's CAS server (SEC-4), such as Ghent University's
+    # login.ugent.be (core/cas.py). The browser goes to CAS_SERVER_URL/login with
+    # CAS_SERVICE_URL, the app's own /login page, as the service; the backend checks the
+    # ticket it returns with the CAS server and reads the user's attributes from the answer.
+    # Both or neither, and not beside Microsoft sign-in: one organisation sign-in at a time.
+    cas_server_url: str | None = Field(default=None, alias="CAS_SERVER_URL")
+    cas_service_url: str | None = Field(default=None, alias="CAS_SERVICE_URL")
+    # What the sign-in button names, as in "Sign in with UGent".
+    cas_display_name: str = Field(default="UGent", alias="CAS_DISPLAY_NAME")
+    # The attributes the CAS server releases for CoGA: the user's object ID in the
+    # organisation's Microsoft Entra ID, which binds the account (users.azure_object_id), so a
+    # later Microsoft sign-in finds the same account; the e-mail address; and the name.
+    cas_object_id_attribute: str = Field(default="azureObjectId", alias="CAS_OBJECT_ID_ATTRIBUTE")
+    cas_email_attribute: str = Field(default="mail", alias="CAS_EMAIL_ATTRIBUTE")
+    cas_given_name_attribute: str = Field(default="givenName", alias="CAS_GIVEN_NAME_ATTRIBUTE")
+    cas_family_name_attribute: str = Field(default="surname", alias="CAS_FAMILY_NAME_ATTRIBUTE")
 
     # Resolve the project root .env if present (repo root), otherwise fallback to CWD
     _env_path = Path(__file__).resolve().parents[3] / ".env"
@@ -662,6 +679,16 @@ class Settings(BaseSettings):
             if not stripped:
                 return None
             return stripped.lower() if _GUID_PATTERN.fullmatch(stripped) else stripped
+        return value
+
+    @field_validator("cas_server_url", "cas_service_url", mode="before")
+    @classmethod
+    def normalize_blank_cas_values(cls, value: object) -> object:
+        # An unset variable arrives as an empty value: that is no value. A trailing slash is
+        # dropped from the server, whose paths CoGA appends.
+        if isinstance(value, str):
+            stripped = value.strip()
+            return stripped or None
         return value
 
     @field_validator("app_env", mode="before")
@@ -739,19 +766,62 @@ class Settings(BaseSettings):
                 "name, such as api://<AZURE_CLIENT_ID>/access_as_user, or be left blank for "
                 "that default."
             )
-        if self.azure_admin_override and not tenant:
+        cas_server, cas_service = self.cas_server_url, self.cas_service_url
+        if bool(cas_server) != bool(cas_service):
+            missing = "CAS_SERVICE_URL" if cas_server else "CAS_SERVER_URL"
+            raise ValueError(
+                f"The CAS sign-in needs both CAS_SERVER_URL and CAS_SERVICE_URL, and {missing} "
+                "is not set."
+            )
+        if cas_server and tenant:
+            raise ValueError(
+                "CAS_SERVER_URL and AZURE_TENANT_ID are both set: CoGA uses one organisation "
+                "sign-in at a time. Leave one of them empty."
+            )
+        if cas_server and cas_service:
+            self.cas_server_url = cas_server.rstrip("/")
+            self._check_cas_url("CAS_SERVER_URL", self.cas_server_url, path=None)
+            self._check_cas_url("CAS_SERVICE_URL", cas_service, path="/login")
+        if self.azure_admin_override and not tenant and not cas_server:
             raise ValueError(
                 "AZURE_ADMIN_OVERRIDE=true opens the emergency administrator's password "
-                "sign-in beside Microsoft sign-in, and Microsoft sign-in is not configured "
-                "(AZURE_TENANT_ID, AZURE_CLIENT_ID). Without it every local account signs in "
+                "sign-in beside the organisation's sign-in, and neither Microsoft sign-in "
+                "(AZURE_TENANT_ID, AZURE_CLIENT_ID) nor the CAS sign-in (CAS_SERVER_URL, "
+                "CAS_SERVICE_URL) is configured. Without one, every local account signs in "
                 "with its password already: set AZURE_ADMIN_OVERRIDE=false."
             )
         return self
+
+    def _check_cas_url(self, name: str, url: str, *, path: str | None) -> None:
+        """A CAS address: HTTPS (plain HTTP in development only, for a local test server), a
+        host, no user name, query or fragment; the service is the app's /login page."""
+        parts = urlsplit(url)
+        allowed = {"https", "http"} if self.is_development else {"https"}
+        if parts.scheme not in allowed or not parts.hostname:
+            raise ValueError(f"{name} must be an https:// address with a host name, such as https://login.example.org.")
+        if parts.username or parts.password or parts.query or parts.fragment:
+            raise ValueError(f"{name} must not carry a user name, a query string or a fragment.")
+        if path is not None and parts.path != path:
+            raise ValueError(
+                f"{name} must be the app's own sign-in page, https://<host name>{path}: the "
+                "CAS server sends the browser back there with the ticket."
+            )
 
     @property
     def azure_ad_enabled(self) -> bool:
         """Whether users sign in with Microsoft (Azure AD) rather than with a password."""
         return bool(self.azure_tenant_id and self.azure_client_id)
+
+    @property
+    def cas_enabled(self) -> bool:
+        """Whether users sign in through the organisation's CAS server."""
+        return bool(self.cas_server_url and self.cas_service_url)
+
+    @property
+    def organisation_sign_in_enabled(self) -> bool:
+        """Whether users sign in through their organisation (Microsoft or its CAS server), so
+        that no password sign-in or sign-up serves them (SEC-4)."""
+        return self.azure_ad_enabled or self.cas_enabled
 
     @property
     def azure_api_scope_value(self) -> str:

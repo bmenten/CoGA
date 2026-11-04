@@ -111,6 +111,7 @@ class _Session:
                 "first_name": params["first_name"],
                 "last_name": params["last_name"],
                 "hashed_password": params["hashed_password"],
+                "is_active": params["is_active"],
             }
             if self.users.taken(row):
                 return _Result(None)
@@ -317,6 +318,25 @@ def test_the_emergency_administrator_is_the_local_admin_username_account(monkeyp
     assert not user_accounts.is_emergency_admin_account({**local, "azure_object_id": str(uuid4())})
 
 
+def test_a_first_cas_sign_in_makes_an_account_that_waits_for_approval(users: _Users) -> None:
+    # CAS admits every account of the organisation: the account waits for an administrator.
+    identity = _identity(preferred_username="acolleague")
+
+    user, created = asyncio.run(
+        user_accounts.microsoft_account_user(_Session(users), identity, user_accounts.CAS_SIGN_IN)
+    )
+
+    (row,) = users.rows
+    assert (row["azure_object_id"], row["role"], row["is_active"]) == (identity.object_id, "viewer", False)
+    assert (row["username"], row["email"]) == ("acolleague", "a.colleague@example.org")
+    assert verify_password("", row["hashed_password"]) is False
+    assert user.is_active is False
+    assert created is not None and created["created"] == "cas_sign_in"
+    # A later sign-in, by CAS or by Microsoft, finds the same account by its object ID.
+    again, made = _sign_in(users, identity)
+    assert (again.id, made, len(users.rows)) == (user.id, None, 1)
+
+
 def test_the_account_list_says_how_each_account_signs_in() -> None:
     row = {
         "id": str(uuid4()),
@@ -328,6 +348,21 @@ def test_the_account_list_says_how_each_account_signs_in() -> None:
     }
     assert metadata_service._user_read_from_mapping({**row, "azure_object_id": None}).sign_in == "password"
     assert metadata_service._user_read_from_mapping({**row, "azure_object_id": str(uuid4())}).sign_in == "microsoft"
+
+
+def test_with_the_cas_sign_in_a_bound_account_signs_in_through_cas(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "cas_server_url", "https://login.example.org")
+    monkeypatch.setattr(settings, "cas_service_url", "https://coga.example.org/login")
+    row = {
+        "id": str(uuid4()),
+        "username": "u@example.org",
+        "email": "u@example.org",
+        "is_active": True,
+        "role": "viewer",
+        "created_at": datetime.now(timezone.utc),
+    }
+    assert metadata_service._user_read_from_mapping({**row, "azure_object_id": str(uuid4())}).sign_in == "cas"
+    assert metadata_service._user_read_from_mapping({**row, "azure_object_id": None}).sign_in == "password"
 
 
 class _SeedConnection:

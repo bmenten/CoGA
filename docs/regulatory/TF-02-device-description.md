@@ -204,7 +204,10 @@ configuration management.
   import workers run as a service of their own, which publishes no port (§7).
 - Authentication: users sign in with their institutional Microsoft account (Microsoft Entra ID /
   Azure AD, through MSAL with the authorization code flow and PKCE); the backend checks the RS256
-  access token Entra ID issues for CoGA's API. One local emergency administrator signs in with a
+  access token Entra ID issues for CoGA's API. Where the organisation offers it, users sign in
+  through its CAS server instead (such as `login.ugent.be`): the backend checks the service ticket
+  with that server and binds the account to the Entra object ID it releases; a first sign-in
+  waits for an administrator's approval. One local emergency administrator signs in with a
   password only while `AZURE_ADMIN_OVERRIDE` is on. Without Azure AD (development) accounts sign in
   with a password and an HS256 token (SEC-4, [TF-13 §2](TF-13-cybersecurity.md)). Project-scoped
   RBAC; admin-gated mutations.

@@ -23,12 +23,17 @@ const SignupPage: React.FC = () => {
   const [acknowledgement, setAcknowledgement] = useState<string | null>(null);
   // With Microsoft sign-in there is no sign-up: the first sign-in makes the account (SEC-4).
   const [microsoftSignIn, setMicrosoftSignIn] = useState(false);
+  // Nor with the organisation's CAS sign-in, whose first sign-in makes an account that waits
+  // for an administrator: the name the sign-in goes by, such as UGent.
+  const [casSignIn, setCasSignIn] = useState<string | null>(null);
 
   useEffect(() => {
     let current = true;
     fetchSignInConfig()
       .then((config) => {
-        if (current) setMicrosoftSignIn(Boolean(config.microsoft));
+        if (!current) return;
+        setMicrosoftSignIn(Boolean(config.microsoft));
+        setCasSignIn(config.cas?.display_name ?? null);
       })
       .catch(() => undefined);
     return () => {
@@ -80,7 +85,11 @@ const SignupPage: React.FC = () => {
                 Use your professional details so administrators can assign the right access.
               </p>
             </div>
-            {microsoftSignIn ? (
+            {casSignIn ? (
+              <p className="status-note status-note--info" role="status">
+                {`There is no sign-up: your first sign-in with your ${casSignIn} account makes your CoGA account. An administrator then approves it and gives you access to your projects.`}
+              </p>
+            ) : microsoftSignIn ? (
               <p className="status-note status-note--info" role="status">
                 There is no sign-up: your first sign-in with the Microsoft account of your hospital or
                 university makes your CoGA account. An administrator then gives you access to your

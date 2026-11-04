@@ -256,3 +256,29 @@ async def record_signup_attempt(
     return await _record_attempt_for_scopes(
         session, scopes=_signup_scope_rows(remote_ip), now=now
     )
+
+
+def _cas_scope_rows(remote_ip: str | None) -> list[tuple[str, str]]:
+    # The CAS sign-in counts refused tickets per source IP only, in a bucket of its own: a
+    # ticket names no account before the CAS server confirms it, and a successful sign-in
+    # costs nothing, so colleagues behind one address are not held up by each other.
+    normalized_ip = _normalize_remote_ip(remote_ip)
+    return [("cas_ip", normalized_ip)] if normalized_ip else []
+
+
+async def get_cas_throttle_state(
+    session: AsyncSession,
+    *,
+    remote_ip: str | None,
+    now: datetime | None = None,
+) -> LoginThrottleState | None:
+    return await _throttle_state_for_scopes(session, scopes=_cas_scope_rows(remote_ip), now=now)
+
+
+async def record_refused_cas_ticket(
+    session: AsyncSession,
+    *,
+    remote_ip: str | None,
+    now: datetime | None = None,
+) -> LoginThrottleState | None:
+    return await _record_attempt_for_scopes(session, scopes=_cas_scope_rows(remote_ip), now=now)

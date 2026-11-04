@@ -11,7 +11,13 @@ password: ``hashed_password`` holds a marker no password matches.
 An existing account is never taken over by an e-mail address: a first sign-in whose address (or
 user name) another account already has is refused, and nothing is linked.
 
-Beside Microsoft sign-in there is one local account, the emergency (break-glass)
+The sign-in through the organisation's CAS server (core/cas.py) binds accounts the same way,
+to the object ID the CAS server releases, so a later Microsoft sign-in finds the same account.
+CAS has no list of the users who may sign in, so its first sign-in makes an inactive account:
+an administrator activates it after approval, as for a sign-up, and until then it signs in to
+nothing.
+
+Beside the organisation's sign-in there is one local account, the emergency (break-glass)
 administrator: the account ``ADMIN_USERNAME`` names, which the deployment seeds
 (``db_migrate.init_postgres_admin_user``) and which is bound to no object ID. It signs in with
 its password only while ``AZURE_ADMIN_OVERRIDE`` is on, and keeps an administrator's role.
@@ -20,6 +26,7 @@ its password only while ``AZURE_ADMIN_OVERRIDE`` is on, and keeps an administrat
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Mapping
 
@@ -51,6 +58,42 @@ NO_EMAIL_DETAIL = (
 EMAIL_TAKEN_DETAIL = (
     "Another CoGA account already uses the e-mail address or user name of your Microsoft "
     "account, and it is not linked to it. Ask a CoGA administrator."
+)
+CAS_NO_EMAIL_DETAIL = (
+    "The organisation's sign-in gave CoGA no e-mail address for your account. Ask your IT "
+    "department to release the e-mail attribute to CoGA."
+)
+CAS_EMAIL_TAKEN_DETAIL = (
+    "Another CoGA account already uses the e-mail address or user name of your organisation "
+    "account, and it is not linked to it. Ask a CoGA administrator."
+)
+
+
+@dataclass(frozen=True)
+class SignInSource:
+    """How an organisation sign-in makes and names its accounts."""
+
+    created: str  # what the request audit records as the account's origin
+    active: bool  # whether its first sign-in makes an active account
+    no_email_detail: str
+    email_taken_detail: str
+    log_name: str
+
+
+MICROSOFT_SIGN_IN = SignInSource(
+    created="microsoft_sign_in",
+    active=True,
+    no_email_detail=NO_EMAIL_DETAIL,
+    email_taken_detail=EMAIL_TAKEN_DETAIL,
+    log_name="microsoft sign-in",
+)
+# CAS admits every account of the organisation, so a new account waits for an administrator.
+CAS_SIGN_IN = SignInSource(
+    created="cas_sign_in",
+    active=False,
+    no_email_detail=CAS_NO_EMAIL_DETAIL,
+    email_taken_detail=CAS_EMAIL_TAKEN_DETAIL,
+    log_name="cas sign-in",
 )
 
 
@@ -149,13 +192,16 @@ async def _follow_profile(session: AsyncSession, user: CurrentUser, profile: dic
 
 
 async def microsoft_account_user(
-    session: AsyncSession, identity: AzureIdentity
+    session: AsyncSession,
+    identity: AzureIdentity,
+    source: SignInSource = MICROSOFT_SIGN_IN,
 ) -> tuple[CurrentUser, dict[str, Any] | None]:
-    """The account a verified Microsoft token signs in, made at the user's first sign-in.
+    """The account a verified organisation sign-in (a Microsoft token, or a CAS answer) signs
+    in, made at the user's first sign-in: active for Microsoft, waiting for approval for CAS.
 
     Returns the user and, when this sign-in made the account, what the request audit records
-    of it (``request_meta.account_change``). Raises 403 when the token gives no e-mail address,
-    or when another account has its address or user name.
+    of it (``request_meta.account_change``). Raises 403 when the sign-in gives no e-mail
+    address, or when another account has its address or user name.
     """
     profile = _profile(identity)
     user = await _user_by_object_id(session, identity.object_id)
@@ -164,7 +210,7 @@ async def microsoft_account_user(
             user = await _follow_profile(session, user, profile)
         return user, None
     if profile is None:
-        raise HTTPException(status_code=403, detail=NO_EMAIL_DETAIL)
+        raise HTTPException(status_code=403, detail=source.no_email_detail)
     created = await session.execute(
         text(
             """
@@ -174,7 +220,7 @@ async def microsoft_account_user(
             )
             VALUES (
                 :username, :hashed_password, :role, :email, :first_name, :last_name, '',
-                true, '{}'::jsonb, :created_at, CAST(:object_id AS uuid)
+                :is_active, '{}'::jsonb, :created_at, CAST(:object_id AS uuid)
             )
             ON CONFLICT DO NOTHING
             RETURNING id::text
@@ -189,6 +235,7 @@ async def microsoft_account_user(
             "last_name": profile.get("last_name", ""),
             "created_at": datetime.now(timezone.utc),
             "object_id": identity.object_id,
+            "is_active": source.active,
         },
     )
     user_id = created.scalar_one_or_none()
@@ -200,18 +247,24 @@ async def microsoft_account_user(
         if user is not None:
             return user, None
         logger.warning(
-            "microsoft sign-in refused for object id %s: another account has its e-mail "
-            "address or user name",
+            "%s refused for object id %s: another account has its e-mail address or user name",
+            source.log_name,
             identity.object_id,
         )
-        raise HTTPException(status_code=403, detail=EMAIL_TAKEN_DETAIL)
+        raise HTTPException(status_code=403, detail=source.email_taken_detail)
     user = await _user_by_object_id(session, identity.object_id)
     if user is None:  # pragma: no cover - the row was committed above
         raise HTTPException(status_code=500, detail="Failed to create user")
-    logger.info("microsoft sign-in made account %s (role %s, no project)", user.id, user.role)
+    logger.info(
+        "%s made account %s (role %s, no project, %s)",
+        source.log_name,
+        user.id,
+        user.role,
+        "active" if user.is_active else "waiting for approval",
+    )
     return user, {
         "user_id": user.id,
         "email": user.email,
-        "created": "microsoft_sign_in",
+        "created": source.created,
         "role": {"from": None, "to": user.role},
     }

@@ -1,10 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Navigate, useNavigate, Link, useLocation } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../../lib/api';
 import AuthIntro from './AuthIntro';
 import { isAuthenticated, persistSession } from '../../lib/auth';
 import { buildApiUnavailableMessage, getErrorMessage } from '../../lib/errorMessage';
+import { casTicketFrom, completeCasSignIn, startCasSignIn } from '../../lib/casSignIn';
 import {
   completeMicrosoftSignIn,
   forgetMicrosoftAccount,
@@ -35,8 +36,8 @@ const resolveNextPath = (rawNext: string | null): string => {
 };
 
 interface LoginPageProps {
-  // The emergency administrator's password sign-in beside Microsoft sign-in (/login/emergency,
-  // SEC-4). Without Microsoft sign-in the password sign-in is /login itself.
+  // The emergency administrator's password sign-in beside the organisation's sign-in, Microsoft
+  // or CAS (/login/emergency, SEC-4). Without one the password sign-in is /login itself.
   emergency?: boolean;
 }
 
@@ -58,7 +59,45 @@ const LoginPage: React.FC<LoginPageProps> = ({ emergency = false }) => {
   const queryClient = useQueryClient();
   const signInConfig = useQuery(signInConfigQuery);
   const microsoft = signInConfig.data?.microsoft ?? null;
+  const cas = signInConfig.data?.cas ?? null;
   const signedIn = isAuthenticated();
+  // A sign-in through the CAS server under way: on its way there, or back with a ticket.
+  const [casStep, setCasStep] = useState<'idle' | 'leaving' | 'completing'>('idle');
+  const casTicket = casTicketFrom(location.search);
+  // A ticket is good for one check: the one this page made is not made again.
+  const checkedCasTicket = useRef<string | null>(null);
+
+  // The CAS server sends the browser back here with a service ticket: the API checks it with
+  // the CAS server and starts the session, as for a password sign-in.
+  useEffect(() => {
+    if (!cas || emergency || signedIn || !casTicket || checkedCasTicket.current === casTicket) {
+      return;
+    }
+    checkedCasTicket.current = casTicket;
+    // The ticket leaves the address bar: it is spent once checked.
+    window.history.replaceState(window.history.state, '', '/login');
+    setError('');
+    setCasStep('completing');
+    completeCasSignIn(casTicket)
+      .then(async (completed) => {
+        const me = await api.get('/auth/me', {
+          headers: { Authorization: `Bearer ${completed.accessToken}` },
+        });
+        // Start the session with an empty cache: nothing loaded under an earlier session
+        // in this tab may be shown to this user (#521).
+        queryClient.clear();
+        persistSession(completed.accessToken, me.data.email, me.data.role, 'cas');
+        setDestination(resolveNextPath(completed.nextPath));
+      })
+      .catch((err: unknown) => {
+        setCasStep('idle');
+        setError(
+          getErrorMessage(err, `The ${cas.display_name} sign-in did not complete.`, {
+            networkFallback: buildApiUnavailableMessage(api.defaults.baseURL),
+          }),
+        );
+      });
+  }, [cas, casTicket, emergency, signedIn, queryClient]);
 
   // Microsoft sends the browser back here with the sign-in: complete it, then check the token
   // with the API and start the session as for a password sign-in.
@@ -104,8 +143,8 @@ const LoginPage: React.FC<LoginPageProps> = ({ emergency = false }) => {
   if (signedIn) {
     return <Navigate to={nextPath} replace />;
   }
-  if (emergency && signInConfig.isSuccess && !microsoft) {
-    // Without Microsoft sign-in every account signs in with its password at /login.
+  if (emergency && signInConfig.isSuccess && !microsoft && !cas) {
+    // Without an organisation sign-in every account signs in with its password at /login.
     return <Navigate to="/login" replace />;
   }
 
@@ -165,8 +204,18 @@ const LoginPage: React.FC<LoginPageProps> = ({ emergency = false }) => {
     }
   };
 
+  const handleCasSignIn = () => {
+    if (!cas) return;
+    setError('');
+    setCasStep('leaving');
+    startCasSignIn(cas, nextPath);
+  };
+
   const usesMicrosoft = Boolean(microsoft) && !emergency;
-  const usesPassword = signInConfig.isSuccess && !usesMicrosoft;
+  const usesCas = Boolean(cas) && !emergency;
+  const usesPassword = signInConfig.isSuccess && !usesMicrosoft && !usesCas;
+  // What the organisation's sign-in is called, where a page names it.
+  const organisationSignIn = cas ? cas.display_name : 'Microsoft';
 
   const errorNote = error ? (
     <p className="status-note status-note--error text-center" aria-live="polite">
@@ -220,14 +269,16 @@ const LoginPage: React.FC<LoginPageProps> = ({ emergency = false }) => {
               <h1>{emergency ? 'Emergency sign-in' : 'Sign in'}</h1>
               <p className="page-subtitle">
                 {emergency
-                  ? 'For the emergency administrator only, when the Microsoft sign-in cannot be used. Every sign-in here, and everything done with it, is recorded in the audit log.'
+                  ? `For the emergency administrator only, when the ${organisationSignIn} sign-in cannot be used. Every sign-in here, and everything done with it, is recorded in the audit log.`
                   : usesMicrosoft
                     ? 'Continue to the family workspace with the Microsoft account of your hospital or university.'
-                    : 'Continue to the family workspace with your user account.'}
+                    : usesCas && cas
+                      ? `Continue to the family workspace with your ${cas.display_name} account.`
+                      : 'Continue to the family workspace with your user account.'}
               </p>
               {loggedOut && (
                 <p className="status-note status-note--success auth-inline-status" role="status">
-                  {usesMicrosoft ? 'You have been signed out of CoGA.' : 'You have been signed out.'}
+                  {usesMicrosoft || usesCas ? 'You have been signed out of CoGA.' : 'You have been signed out.'}
                 </p>
               )}
               {nextPath !== '/dashboard' && !loggedOut && (
@@ -287,6 +338,39 @@ const LoginPage: React.FC<LoginPageProps> = ({ emergency = false }) => {
               </div>
             )}
 
+            {usesCas && cas && (
+              <div className="field-grid">
+                {casStep === 'completing' ? (
+                  <p className="status-note status-note--info" role="status">
+                    {`Completing the ${cas.display_name} sign-in...`}
+                  </p>
+                ) : (
+                  <button
+                    type="button"
+                    className="form-button"
+                    onClick={handleCasSignIn}
+                    disabled={casStep !== 'idle'}
+                    aria-busy={casStep === 'leaving' ? 'true' : 'false'}
+                  >
+                    {casStep === 'leaving'
+                      ? `Opening the ${cas.display_name} sign-in...`
+                      : `Sign in with ${cas.display_name}`}
+                  </button>
+                )}
+                {errorNote}
+                {loggedOut && (
+                  <>
+                    <p className="auth-form-note">
+                      {`Your ${cas.display_name} session may still be open in this browser. On a shared computer, sign out of it too.`}
+                    </p>
+                    <a className="button-secondary" href={cas.logout_url}>
+                      {`Sign out of ${cas.display_name}`}
+                    </a>
+                  </>
+                )}
+              </div>
+            )}
+
             {usesPassword && passwordForm}
 
             {usesMicrosoft && (
@@ -295,9 +379,15 @@ const LoginPage: React.FC<LoginPageProps> = ({ emergency = false }) => {
                 your projects.
               </p>
             )}
+            {usesCas && (
+              <p className="auth-form-switch">
+                Your first sign-in makes your CoGA account. An administrator then approves it and
+                gives you access to your projects.
+              </p>
+            )}
             {usesPassword && emergency && (
               <p className="auth-form-switch">
-                <Link to="/login">Back to the Microsoft sign-in</Link>
+                <Link to="/login">{`Back to the ${organisationSignIn} sign-in`}</Link>
               </p>
             )}
             {usesPassword && !emergency && (

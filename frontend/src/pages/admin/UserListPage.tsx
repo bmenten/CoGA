@@ -18,6 +18,7 @@ type Role = NonNullable<UserUpdate['role']>;
 const ROLES: Role[] = ['viewer', 'superuser', 'admin'];
 const SIGN_IN_LABELS: Record<User['sign_in'], string> = {
   microsoft: 'Microsoft',
+  cas: 'Organisation (CAS)',
   password: 'Password',
 };
 

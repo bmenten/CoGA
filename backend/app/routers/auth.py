@@ -8,6 +8,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request,
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core import cas
 from ..core.azure import authority as azure_authority
 from ..core.coga_logging import describe_error
 from ..core.config import settings
@@ -22,6 +23,8 @@ from ..dependencies import (
 )
 from ..schemas import (
     ApiId,
+    CasSignInOut,
+    CasTicketIn,
     MicrosoftSignInOut,
     SignInConfigOut,
     SignupAck,
@@ -37,15 +40,23 @@ from ..services.metadata_service import (
     get_auth_user_mapping_by_email,
     get_user_account_mapping,
     list_user_accounts,
+    organisation_sign_in_name,
     update_user_account,
 )
-from ..services.user_accounts import is_emergency_admin, is_emergency_admin_account
+from ..services.user_accounts import (
+    CAS_SIGN_IN,
+    is_emergency_admin,
+    is_emergency_admin_account,
+    microsoft_account_user,
+)
 from ..services.access_control import CurrentUser, changes_only_own_data
 from ..services.auth_rate_limit_pg import (
     clear_login_failures,
+    get_cas_throttle_state,
     get_login_throttle_state,
     get_signup_throttle_state,
     record_failed_login,
+    record_refused_cas_ticket,
     record_signup_attempt,
 )
 from ..services.small_variant_review_presets import (
@@ -62,18 +73,26 @@ logger = logging.getLogger(__name__)
 # Computed once at import so it matches the configured bcrypt work factor.
 _DUMMY_LOGIN_PASSWORD_HASH = get_password_hash("coga-login-timing-equalizer")
 
-# With Microsoft sign-in (SEC-4), the password sign-in serves the emergency administrator alone,
-# and only while AZURE_ADMIN_OVERRIDE is on; accounts come from the first Microsoft sign-in.
+# With the organisation's sign-in (Microsoft, or its CAS server; SEC-4), the password sign-in
+# serves the emergency administrator alone, and only while AZURE_ADMIN_OVERRIDE is on; accounts
+# come from the first sign-in through the organisation.
 PASSWORD_SIGN_IN_OFF_DETAIL = (
-    "Sign in with your Microsoft account: the password sign-in is switched off."
+    "Sign in with your organisation account: the password sign-in is switched off."
 )
 EMERGENCY_ONLY_DETAIL = (
-    "Only the emergency administrator signs in with a password. Sign in with your Microsoft "
+    "Only the emergency administrator signs in with a password. Sign in with your organisation "
     "account."
 )
 SIGNUP_OFF_DETAIL = (
-    "Accounts are made at the first sign-in with a Microsoft account: there is no sign-up."
+    "Accounts are made at the first sign-in with an organisation account: there is no sign-up."
 )
+# A first CAS sign-in makes an account that waits for an administrator's approval (SEC-4).
+CAS_ACCOUNT_WAITING_DETAIL = (
+    "Your CoGA account waits for an administrator's approval. You can sign in once it is "
+    "activated."
+)
+CAS_TICKET_REFUSED_DETAIL = "The sign-in could not be confirmed. Sign in again."
+CAS_SIGN_IN_OFF_DETAIL = "The organisation sign-in through CAS is not configured."
 OWN_ROLE_DETAIL = "You cannot change your own role: ask another administrator."
 OWN_ACTIVE_DETAIL = "You cannot deactivate your own account: ask another administrator."
 EMERGENCY_ROLE_DETAIL = "The emergency administrator's role cannot be changed."
@@ -108,7 +127,8 @@ def notify_admin(email: str) -> None:
     msg["To"] = admin_email
     msg.set_content(f"A new user has signed up with email: {email}")
     try:
-        with smtplib.SMTP(settings.smtp_host) as server:
+        # A bounded wait: the CAS sign-in sends this before it answers.
+        with smtplib.SMTP(settings.smtp_host, timeout=10) as server:
             server.send_message(msg)
     except Exception as exc:  # noqa: BLE001 - the notification is best-effort; the sign-up stands
         logger.error("Failed to send the sign-up notification: %s", describe_error(exc))
@@ -122,7 +142,7 @@ async def _authenticate_and_issue_token(
     request: Request,
 ) -> Token:
     remote_ip = _request_remote_ip(request)
-    if settings.azure_ad_enabled and not settings.azure_admin_override:
+    if settings.organisation_sign_in_enabled and not settings.azure_admin_override:
         # Refused before any account is looked up: the answer says nothing about accounts.
         raise HTTPException(status_code=403, detail=PASSWORD_SIGN_IN_OFF_DETAIL)
     throttle_state = await get_login_throttle_state(
@@ -167,8 +187,9 @@ async def _authenticate_and_issue_token(
         )
         await session.commit()
         raise HTTPException(status_code=403, detail="User not active")
-    if settings.azure_ad_enabled and not is_emergency_admin(user):
-        # Microsoft sign-in is the way in; the password one is the emergency administrator's.
+    if settings.organisation_sign_in_enabled and not is_emergency_admin(user):
+        # The organisation's sign-in is the way in; the password one is the emergency
+        # administrator's.
         await record_failed_login(
             session,
             email=email,
@@ -182,11 +203,12 @@ async def _authenticate_and_issue_token(
         remote_ip=remote_ip,
     )
     await session.commit()
-    if settings.azure_ad_enabled:
+    if settings.organisation_sign_in_enabled:
         logger.warning(
             "azure_admin_override: the emergency administrator %s signed in with its password "
-            "beside Microsoft sign-in",
+            "beside %s",
             user["id"],
+            "Microsoft sign-in" if settings.azure_ad_enabled else "the CAS sign-in",
         )
         request.state.emergency_sign_in = True
     access_token = create_access_token(data={"sub": user["email"]})
@@ -204,9 +226,9 @@ async def signup(
     request: Request,
     session: AsyncSession = Depends(get_postgres_session),
 ):
-    if settings.azure_ad_enabled:
-        # Accounts come from the first Microsoft sign-in (SEC-4); refused before anything is
-        # read, so the answer says nothing about accounts either.
+    if settings.organisation_sign_in_enabled:
+        # Accounts come from the first sign-in through the organisation (SEC-4); refused before
+        # anything is read, so the answer says nothing about accounts either.
         raise HTTPException(status_code=403, detail=SIGNUP_OFF_DETAIL)
     # Signup is unauthenticated; throttle per source IP so it cannot be used to
     # enumerate accounts, flood the admin-notification mailbox, or burn CPU on
@@ -287,6 +309,14 @@ async def token(
     ),
 )
 async def sign_in_config() -> SignInConfigOut:
+    if settings.cas_enabled:
+        return SignInConfigOut(
+            cas=CasSignInOut(
+                display_name=settings.cas_display_name,
+                login_url=cas.login_url(),
+                logout_url=cas.logout_url(),
+            )
+        )
     if not settings.azure_ad_enabled:
         return SignInConfigOut(microsoft=None)
     return SignInConfigOut(
@@ -298,6 +328,51 @@ async def sign_in_config() -> SignInConfigOut:
     )
 
 
+@router.post(
+    "/cas/session",
+    response_model=Token,
+    summary="Sign in with a CAS service ticket",
+    description=(
+        "Checks the service ticket the organisation's CAS server sent the browser back with, "
+        "for CoGA's own service, and starts the session of the account it signs in. A first "
+        "sign-in makes an account that waits for an administrator's approval (403 until then)."
+    ),
+)
+async def cas_session(
+    ticket_in: CasTicketIn,
+    request: Request,
+    session: AsyncSession = Depends(get_postgres_session),
+) -> Token:
+    if not settings.cas_enabled:
+        raise HTTPException(status_code=404, detail=CAS_SIGN_IN_OFF_DETAIL)
+    remote_ip = _request_remote_ip(request)
+    throttle_state = await get_cas_throttle_state(session, remote_ip=remote_ip)
+    if throttle_state is not None:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many sign-in attempts. Try again later.",
+            headers={"Retry-After": str(throttle_state.retry_after_seconds)},
+        )
+    try:
+        identity = await cas.verify_service_ticket(ticket_in.ticket)
+    except cas.CasError as exc:
+        # Why, never the ticket or the CAS server's answer.
+        logger.warning("cas sign-in: ticket refused: %s", exc)
+        await record_refused_cas_ticket(session, remote_ip=remote_ip)
+        await session.commit()
+        raise HTTPException(status_code=401, detail=CAS_TICKET_REFUSED_DETAIL) from exc
+    user, created = await microsoft_account_user(session, identity, CAS_SIGN_IN)
+    if created is not None:
+        request.state.account_change = created
+        # Told now, not as a background task: the answer below is a refusal, after which
+        # FastAPI runs no background task.
+        await asyncio.to_thread(notify_admin, user.email)
+    if not user.is_active:
+        raise HTTPException(status_code=403, detail=CAS_ACCOUNT_WAITING_DETAIL)
+    access_token = create_access_token(data={"sub": user.email})
+    return Token(access_token=access_token, token_type="bearer", role=user.role)
+
+
 @router.get("/me", response_model=UserRead)
 async def read_me(user: CurrentUser = Depends(get_current_user)):
     return UserRead(
@@ -307,7 +382,7 @@ async def read_me(user: CurrentUser = Depends(get_current_user)):
         first_name=user.first_name,
         last_name=user.last_name,
         affiliation=user.affiliation,
-        sign_in="microsoft" if user.azure_object_id else "password",
+        sign_in=organisation_sign_in_name() if user.azure_object_id else "password",
         is_active=user.is_active,
         role=user.role,
         projects=user.metadata_project_ids,

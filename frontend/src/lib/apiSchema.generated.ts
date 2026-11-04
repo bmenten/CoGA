@@ -272,6 +272,21 @@ export interface Body_upload_structural_variants_api_structural_variants_upload_
   file: string;
 }
 
+/**
+ * Where the browser signs a user in through the organisation's CAS server, and signs out
+ * of it: none of it is secret.
+ */
+export interface CasSignInOut {
+  display_name: string;
+  login_url: string;
+  logout_url: string;
+}
+
+/** The service ticket the CAS server sent the browser back with. */
+export interface CasTicketIn {
+  ticket: string;
+}
+
 export interface ChromosomeOut {
   _id: string;
   assembly_id: string;
@@ -3373,11 +3388,13 @@ export interface SegmentalDuplicationOut {
 export type SharedStructuralVariantCountsOut = Record<string, Record<string, number>>;
 
 /**
- * How users sign in: with Microsoft when ``microsoft`` is given, else with a password
- * (and then a new user signs up).
+ * How users sign in: with Microsoft when ``microsoft`` is given, through the
+ * organisation's CAS server when ``cas`` is, else with a password (and then a new user
+ * signs up).
  */
 export interface SignInConfigOut {
   microsoft: MicrosoftSignInOut | null;
+  cas: CasSignInOut | null;
 }
 
 /** One caller signal file the genome browser can draw. */
@@ -3800,7 +3817,7 @@ export interface UserRead {
   first_name: string | null;
   last_name: string | null;
   affiliation: string | null;
-  sign_in: "microsoft" | "password";
+  sign_in: "microsoft" | "cas" | "password";
   is_active: boolean;
   role: string;
   projects: string[];
