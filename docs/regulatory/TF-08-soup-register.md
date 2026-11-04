@@ -106,8 +106,15 @@ All container images are pinned by digest in the Dockerfiles, compose, CI and Te
 digest is the authoritative identity, the tag is for reading. For the Dockerfiles and compose,
 Dependabot proposes a new digest when a pinned tag is rebuilt. It proposes no new version line:
 a new Python, Node, PostgreSQL or ClickHouse line is a runtime change with its own change record
-(A.4). Dependabot does not cover the CI service images, the Terraform ClickHouse image or the
-metrics collector image; they are updated by hand alongside.
+(A.4). The images no Dockerfile or compose file names are pinned once more in
+`ci/pinned-images.Dockerfile`, where Dependabot refreshes them too: the scripts' Python and
+Node, the CI's fake-gcs-server, the Cloud Build builder, the Terraform version CI installs and
+the metrics collector. The scripts read their digest from there. The CI workflows, the Cloud
+Build configs and the Terraform variables keep their own pins, and a test fails until they
+name what that file pins. The same holds for the Python tools the workflows install by name
+(`ci/requirements-*.txt`). The CI service images and the Terraform ClickHouse image follow
+compose the same way. Dependabot also proposes the Terraform providers' updates. These
+companion edits are made by hand in the same pull request.
 
 ### A.4 Runtime platform support status
 

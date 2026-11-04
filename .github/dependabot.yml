@@ -1,10 +1,12 @@
 version: 2
 
 # Keeps backend (pip), frontend (npm) and CI (github-actions) dependencies
-# current, and refreshes the digests of the pinned container images (docker,
-# docker-compose). With CI now running on every PR, each bump is tested automatically —
-# so a breaking major (e.g. the Starlette 1.x bump that broke /api routing)
-# shows up as a reviewable red PR instead of a surprise on the next rebuild.
+# current, refreshes the digests of the pinned container images (docker,
+# docker-compose), and proposes updates of what the workflows, the scripts and
+# Terraform pin elsewhere (docker and pip for /ci, terraform). With CI now running on
+# every PR, each bump is tested automatically — so a breaking major (e.g. the
+# Starlette 1.x bump that broke /api routing) shows up as a reviewable red PR instead
+# of a surprise on the next rebuild.
 #
 # Noise control: minor/patch updates are grouped into a single weekly PR per
 # ecosystem; majors come as their own PR so they get reviewed on their own.
@@ -87,3 +89,60 @@ updates:
     groups:
       datastore-images:
         patterns: ["*"]
+
+  # The images no Dockerfile or compose file of CoGA's names, pinned one per FROM line in
+  # ci/pinned-images.Dockerfile (nothing builds it): the scripts' Python and Node, the CI's
+  # fake-gcs-server, the Cloud Build builder, the Terraform version build.yml installs and
+  # the metrics collector Terraform deploys. The scripts read their digest from there; for
+  # the others backend/tests/test_pinned_images.py fails until their own file names what
+  # the pull request moves to (a workflow file is the owner's to change). Digests only, as
+  # above, except fake-gcs-server and Terraform, which also take minor and patch versions.
+  - package-ecosystem: docker
+    directory: /ci
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - version-update:semver-major
+      - dependency-name: "python"
+        update-types:
+          - version-update:semver-minor
+          - version-update:semver-patch
+      - dependency-name: "node"
+        update-types:
+          - version-update:semver-minor
+          - version-update:semver-patch
+      - dependency-name: "gcr.io/cloud-builders/docker"
+        update-types:
+          - version-update:semver-minor
+          - version-update:semver-patch
+      - dependency-name: "us-docker.pkg.dev/cloud-ops-agents-artifacts/google-cloud-opentelemetry-collector/otelcol-google"
+        update-types:
+          - version-update:semver-minor
+          - version-update:semver-patch
+    groups:
+      pinned-images:
+        patterns: ["*"]
+
+  # The Python tools the workflows install by name (pip-audit, and markdown for the
+  # handleiding), pinned in ci/requirements-*.txt. test_pinned_images.py fails until the
+  # workflow installs the version pinned there.
+  - package-ecosystem: pip
+    directory: /ci
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      workflow-tools:
+        patterns: ["*"]
+
+  # The Terraform providers' version constraints (terraform/versions.tf). No lock file is
+  # committed yet; once `terraform providers lock` writes one, Dependabot updates it too.
+  # CI's tf-validate job (build.yml) checks each proposal.
+  - package-ecosystem: terraform
+    directory: /terraform
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
