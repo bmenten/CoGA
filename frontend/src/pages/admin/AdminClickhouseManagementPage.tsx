@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { Link } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../../lib/api';
 import { apiPath } from '../../lib/apiPath';
@@ -97,32 +96,6 @@ const AdminClickhouseManagementPage: React.FC = () => {
               Keep variant tables, materialized views, and mutations healthy
               outside family and sample lifecycle tasks.
             </p>
-          </div>
-          <div className="compact-toolbar dashboard-toolbar">
-            <Link
-              to="/admin/data/families"
-              className="button-secondary hover:no-underline"
-            >
-              Family & sample data
-            </Link>
-            <Link
-              to="/admin/variants/presets"
-              className="button-secondary hover:no-underline"
-            >
-              Preset filters
-            </Link>
-            <Link
-              to="/admin/variants/tags"
-              className="button-secondary hover:no-underline"
-            >
-              Variant tags
-            </Link>
-            <Link
-              to="/admin/monitoring/audit-logs"
-              className="button-secondary hover:no-underline"
-            >
-              Audit logs
-            </Link>
           </div>
         </div>
       </section>
