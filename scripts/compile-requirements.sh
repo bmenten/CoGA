@@ -27,6 +27,12 @@ PYTHON_IMAGE="$(pinned_image "${PYTHON_IMAGE}")"
 PLATFORM="linux/amd64"
 PIP_VERSION="24.2"
 PIP_TOOLS_VERSION="7.4.1"
+# pip-tools accepts any click 8, and the command line in a lock's header is pip-compile's
+# options as click renders them: from click 8.3 on, pip-tools 7.4.1 also lists options left
+# unset (`--cert=None --client-cert=None …`), and click 8.5 added `--no-index`. Pinned, the
+# header is the same on every run, so CI's lock job can compare it. 8.1.8 is the last release
+# of click 8.1, the line pip-tools 7.4.1 came out with; move it with pip-tools.
+CLICK_VERSION="8.1.8"
 
 # --strip-extras: expand extras to concrete deps (default in newer pip-tools).
 # --allow-unsafe: pin build deps (setuptools/pip) too, for full reproducibility.
@@ -35,7 +41,7 @@ COMPILE_FLAGS=(--quiet --generate-hashes --strip-extras --allow-unsafe --resolve
 docker run --rm --platform="${PLATFORM}" \
   -v "${REPO_ROOT}:/repo" -w /repo/backend \
   "${PYTHON_IMAGE}" bash -euo pipefail -c "
-    pip install --quiet --upgrade 'pip==${PIP_VERSION}' 'pip-tools==${PIP_TOOLS_VERSION}'
+    pip install --quiet --upgrade 'pip==${PIP_VERSION}' 'pip-tools==${PIP_TOOLS_VERSION}' 'click==${CLICK_VERSION}'
     pip-compile ${COMPILE_FLAGS[*]} --output-file requirements.txt requirements.in
     pip-compile ${COMPILE_FLAGS[*]} --output-file requirements-dev.txt requirements-dev.in
   "
