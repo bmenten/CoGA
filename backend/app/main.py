@@ -54,6 +54,7 @@ from .services.reference_source_service import (
     ensure_human_t2t_reference_on_startup,
 )
 from .services.hpo_service import ensure_hpo_ontology_on_startup
+from .services.reference_auto_load import queue_startup_reference_loads
 from .services.audit_log_pg import start_audit_log_worker, stop_audit_log_worker
 from .services.clickhouse_integrity_monitor import (
     start_clickhouse_integrity_monitor,
@@ -99,6 +100,9 @@ async def lifespan(app: FastAPI):
         await ensure_human_grch38_reference_on_startup(session)
         # Opt-in second assembly; never blocks startup if it fails.
         await ensure_human_t2t_reference_on_startup(session)
+        # The clinical CNV knowledgebase and the pinned DGV release for a GRCh37/GRCh38 assembly
+        # that has none yet, built and loaded in the background; never blocks startup.
+        await queue_startup_reference_loads(session)
         await ensure_hpo_ontology_on_startup(
             session,
             ontology_path=settings.hpo_ontology_path,

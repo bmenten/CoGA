@@ -98,7 +98,7 @@ def test_a_file_that_states_no_release_is_refused() -> None:
 def sync_calls(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
     imported: list[dict[str, Any]] = []
 
-    async def preview(_session: Any, *, path: Any) -> dict[str, int]:
+    async def preview(_session: Any, **_kwargs: Any) -> dict[str, int]:
         return {"terms": 2}
 
     async def summary(_session: Any) -> dict[str, Any]:

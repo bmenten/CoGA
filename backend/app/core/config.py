@@ -5,7 +5,7 @@ import ipaddress
 import json
 import re
 from urllib.parse import urlsplit
-from typing import Annotated
+from typing import Annotated, NamedTuple
 from pydantic import Field
 from pydantic import field_validator
 from pydantic import model_validator
@@ -78,6 +78,48 @@ LOCAL_TOKEN_ALGORITHM = "HS256"
 HPO_PINNED_RELEASE = "hp/releases/2026-02-16"
 HPO_PINNED_ONTOLOGY_SHA256 = "8d6c23798667d4506767ce643fc3c028f0d1c85e7e1d8810e491181a345d53cd"
 HPO_PINNED_ONTOLOGY_URL = f"https://purl.obolibrary.org/obo/{HPO_PINNED_RELEASE}/hp.obo"
+# Where the HPO admin page reads which HPO release is the newest (the release check), and the
+# URL a release's ontology file is downloaded from when the admin sync fetches one: its own
+# versioned PURL, which never floats. Neither is a setting. A downloaded file is imported only
+# as the admin sync imports a file on disk: previewed, checked to state the release asked for,
+# and applied by an administrator with the SHA-256 the preview showed (TRACE-18).
+HPO_LATEST_RELEASE_API_URL = (
+    "https://api.github.com/repos/obophenotype/human-phenotype-ontology/releases/latest"
+)
+HPO_RELEASE_URL_TEMPLATE = "https://purl.obolibrary.org/obo/hp/releases/{release}/hp.obo"
+
+
+class DgvPinnedRelease(NamedTuple):
+    """One DGV release file as the reference loader downloads it (TRACE-14)."""
+
+    release: str
+    url: str
+    sha256: str
+    size_bytes: int
+
+
+# The Database of Genomic Variants release the reference loader downloads for an assembly, per
+# assembly: DGV's "variants" file of release 2025-12-01, DGV's newest, published 2025-12-18 (the
+# release is in the file's name; the file states none of its own). Each was downloaded from
+# DGV on 2026-11-04 and is pinned by its SHA-256 and size: a load reads the file only if both
+# are these, and refuses another file with nothing written. No setting overrides a pin; a new
+# DGV release moves it in a reviewed change (docs/data-import.md, "DGV"), and
+# test_dgv_load_jobs.py checks the pins' form. An assembly with no pin has no automatic DGV
+# load: its DGV is uploaded by hand, or loaded with scripts/import_dgv.py.
+DGV_PINNED_RELEASES: dict[str, DgvPinnedRelease] = {
+    "GRCh38": DgvPinnedRelease(
+        release="2025-12-01",
+        url="https://dgv.tcag.ca/dgv/docs/GRCh38_hg38_variants_2025-12-01.txt",
+        sha256="bb22031500549a7abdb00dd96eb28a24891174ad52960bf555ec0df608d836e6",
+        size_bytes=364191405,
+    ),
+    "GRCh37": DgvPinnedRelease(
+        release="2025-12-01",
+        url="https://dgv.tcag.ca/dgv/docs/GRCh37_hg19_variants_2025-12-01.txt",
+        sha256="90027539a673aabee9eddf78a81ac3291418cb2bb3dd6fe213da583847dcdf5e",
+        size_bytes=367419437,
+    ),
+}
 # The STRchive release the repeat catalogue is built from (CLIN-31): the shipped
 # data/ref-data/STRchive-loci.json, validated with the built-in repeat loci, which carry its
 # thresholds (CLIN-22). The file states no release of its own, so its SHA-256 is its identity.
@@ -555,6 +597,22 @@ class Settings(BaseSettings):
     reference_bootstrap_assembly_name: str = Field(
         default="GRCh38",
         alias="REFERENCE_BOOTSTRAP_ASSEMBLY_NAME",
+    )
+    # Whether a start builds the clinical CNV knowledgebase, and loads the pinned DGV release,
+    # for a GRCh37 or GRCh38 assembly that has none yet (with REFERENCE_BOOTSTRAP_ENABLED): each
+    # in the background, as the Reference page's rebuild and load buttons run them, and each
+    # downloads from its sources (ClinGen, UCSC, ClinVar, Orphanet; dgv.tcag.ca).
+    reference_bootstrap_clinical_cnvs: bool = Field(
+        default=True,
+        alias="REFERENCE_BOOTSTRAP_CLINICAL_CNVS",
+    )
+    reference_bootstrap_dgv: bool = Field(default=True, alias="REFERENCE_BOOTSTRAP_DGV")
+    # A DGV load longer than this is stopped and its job marked failed, with nothing loaded; a
+    # normal one takes minutes, so the bound only catches a load that hangs.
+    dgv_load_timeout_seconds: int = Field(
+        default=7200,
+        ge=60,
+        alias="DGV_LOAD_TIMEOUT_SECONDS",
     )
     # The segmental-duplication file the startup reads first; the repository's copy when this
     # one does not exist. Whichever is read must be the shipped file, byte for byte
