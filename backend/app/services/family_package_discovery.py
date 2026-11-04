@@ -2129,8 +2129,10 @@ def _write_manifest_in_folder(root: Path, manifest_yaml: str) -> Path:
     folder = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     temporary = f".{_MANIFEST_FILE}.{uuid4().hex}.tmp"
     try:
+        # Owner read-write, others read: the mode a manifest written by Path.write_text got
+        # under the usual umask (022), and never world-writable whatever the umask.
         descriptor = os.open(
-            temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o666, dir_fd=folder
+            temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644, dir_fd=folder
         )
         try:
             with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
