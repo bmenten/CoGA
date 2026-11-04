@@ -52,7 +52,7 @@ The rules for lab users are in the in-app reference docs; these files hold the i
 - [handleiding/README.md](handleiding/README.md) — the Dutch technical manual for the review board.
 - [ROADMAP.md](ROADMAP.md) — the open work.
 - [repeat-paraphase-review-design.md](repeat-paraphase-review-design.md) — the design (in Dutch) of the repeat-expansion and Paraphase reviews, with its decisions (B1–B23); built in #1063 and #1064.
-- [open-issues.md](open-issues.md) — every open issue, ranked by priority (snapshot of 2026-10-08).
+- [open-issues.md](open-issues.md) — what still has to be done, ranked by priority.
 - [SECURITY.md](../SECURITY.md) and [SECURITY-AUDIT-ALLOWLIST.md](../SECURITY-AUDIT-ALLOWLIST.md) — how to report a vulnerability, and the register of security-check exceptions.
 - [sbom/README.md](../sbom/README.md) — the software bills of materials of the backend and the frontend.
 - [CHANGELOG.md](../CHANGELOG.md) — notable changes.

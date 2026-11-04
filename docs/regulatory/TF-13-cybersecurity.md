@@ -191,7 +191,7 @@ Three limits, so the artifact is not overread:
 - **Triage:** assess each advisory for exploitability in CoGA's deployment and impact on safety/PHI; rank by severity.
 - **Remediation:** patch under change control (TF-18) with CI + review; emergency path for actively-exploited criticals.
 - **Receiving reports:** a public [`SECURITY.md`](../../SECURITY.md) states the intake route: GitHub **private vulnerability reporting** (enabled on the repository), which keeps a report confidential to the maintainers until an advisory is published. It also sets the scope of a report, forbids attaching real patient data to it, and directs suspected patient-safety incidents to the vigilance route (TF-17), not a GitHub advisory.
-- **Disclosure/coordination:** the contact is the **project lead and developer**, at the e-mail address in [`SECURITY.md`](../../SECURITY.md), beside the GitHub private-reporting route, with a five-working-day acknowledgement aim. **🔲 INPUT NEEDED** — formal response/remediation targets and the UZ Gent IT security escalation path, still to be agreed and aligned with vigilance (TF-17); due with the first beta release.
+- **Disclosure/coordination:** the contact is the **project lead and developer**, reached through the GitHub private-reporting route or, as [`SECURITY.md`](../../SECURITY.md) says, through the CMGG, with a five-working-day acknowledgement aim. **🔲 INPUT NEEDED** — formal response/remediation targets and the UZ Gent IT security escalation path, still to be agreed and aligned with vigilance (TF-17); due with the first beta release.
 
 ## 7. Minimum IT/security requirements for operation (IVDR Annex I §16.4)
 Stated in the IFU: [TF-15 §6](TF-15-instructions-for-use.md).
