@@ -187,8 +187,9 @@ export const buildMitoMitimpactHref = (
 ): string | null => {
   if (variant.type !== 'SNV' || variant.annotation.category !== 'protein coding') return null;
   if ((variant.annotation.consequence_terms ?? []).includes('synonymous_variant')) return null;
-  return `https://mitimpact.css-mendel.it/search_allele/${variant.position}/${encodeURIComponent(
-    `${variant.ref}>${variant.alt}`,
+  // MitImpact's search, by position and change as MITOMAP writes it (8901A>G).
+  return `https://mitimpact.mcb2lab.org/search?q=${encodeURIComponent(
+    `${variant.position}${variant.ref}>${variant.alt}`,
   )}`;
 };
 

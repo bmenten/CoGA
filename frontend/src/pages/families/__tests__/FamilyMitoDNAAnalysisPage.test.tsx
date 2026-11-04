@@ -613,7 +613,7 @@ describe('mtDNA VarSome and MitImpact links', () => {
 
   it('opens MitImpact only for a protein-changing single-base change in a protein-coding gene', async () => {
     const { buildMitoMitimpactHref } = await import('../FamilyMitoDNAAnalysisPage');
-    expect(buildMitoMitimpactHref(coding)).toBe('https://mitimpact.css-mendel.it/search_allele/8993/T%3EG');
+    expect(buildMitoMitimpactHref(coding)).toBe('https://mitimpact.mcb2lab.org/search?q=8993T%3EG');
     // MitImpact holds no indel, no variant outside the protein-coding genes and no
     // synonymous change.
     expect(buildMitoMitimpactHref({ ...coding, ref: 'TA', type: 'INDEL' })).toBeNull();
