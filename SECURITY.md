@@ -25,7 +25,8 @@ Helpful to include: affected version or commit, component (backend API, frontend
 pipeline, report sign-out, deployment code), reproduction steps, and the impact you think it has.
 
 If you would rather not use GitHub, or the issue needs institutional escalation, contact
-the project lead and developer directly: **<bjorn.menten@ugent.be>**.
+the Center for Medical Genetics Ghent (Ghent University Hospital) and ask for CoGA's project
+lead and developer.
 
 We aim to acknowledge a report within **five working days**. Formal response and remediation
 targets are being aligned with the CMGG vigilance process
