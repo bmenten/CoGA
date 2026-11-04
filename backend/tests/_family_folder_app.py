@@ -4,8 +4,9 @@ The alignment, signal-track and QC-report lookups (``test_alignment_lookup_famil
 ``test_signal_track_lookup_family_folders.py``, ``test_qc_report_lookup_family_folders.py``)
 and the URLs they hand out (``test_encoded_id_urls.py``) are asked through the app, ``httpx``
 on the ASGI app, which decodes a path once as uvicorn does. What they check is which file a
-request reaches, so the family check lets the viewer read every family the test lists, and
-nothing is read from a database or written to the audit table.
+request reaches, so the family check lets the viewer read every family the test lists, the
+database holds no rows (no sample records where its import put a file, so the lookups read the
+family's folders), and nothing is written to the audit table.
 """
 
 from __future__ import annotations
@@ -51,7 +52,7 @@ def sign_in_a_viewer_who_reads(
         return SimpleNamespace(members=[SimpleNamespace(sample_id=sample_id) for sample_id in families[family_id]])
 
     async def no_session():
-        yield None
+        yield _NoRows()
 
     async def signed_in() -> CurrentUser:
         return a_viewer()
@@ -64,6 +65,13 @@ def sign_in_a_viewer_who_reads(
     monkeypatch.setattr(request_logging, "write_audit_log_event", keep_audit_row)
     monkeypatch.setitem(app.dependency_overrides, get_postgres_session, no_session)
     monkeypatch.setitem(app.dependency_overrides, get_current_user, signed_in)
+
+
+class _NoRows:
+    """A database session that holds no rows: every query answers nothing."""
+
+    async def execute(self, *args: Any, **kwargs: Any) -> Any:
+        return SimpleNamespace(all=lambda: [], one_or_none=lambda: None, scalar_one_or_none=lambda: None)
 
 
 def asgi_client() -> httpx.AsyncClient:

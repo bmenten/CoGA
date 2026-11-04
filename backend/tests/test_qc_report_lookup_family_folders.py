@@ -219,11 +219,11 @@ def recorded(data: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, dict[str,
     path``."""
     families: dict[str, dict[str, str]] = {}
 
-    async def recorded_report(session: Any, *, family_id: str, sample_id: str) -> str:
+    async def recorded_report(session: Any, *, family_id: str, sample_id: str) -> Any:
         report = families.get(family_id, {}).get(sample_id)
         if report is None:
             raise HTTPException(status_code=404, detail="No QC report is recorded for this sample")
-        return report
+        return family_qc_reports._RecordedReport(report)
 
     sign_in_a_viewer_who_reads(monkeypatch, families, family_qc_reports)
     monkeypatch.setattr(family_qc_reports, "_recorded_report", recorded_report)

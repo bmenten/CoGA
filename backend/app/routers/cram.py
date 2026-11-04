@@ -1,8 +1,9 @@
 import asyncio
 from dataclasses import dataclass
 import logging
+import os
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.responses import FileResponse, RedirectResponse
@@ -22,7 +23,7 @@ from ..core.postgres import get_postgres_session
 from ..core.url_path import url_path
 from ..dependencies import get_current_user
 from ..schemas import AlignmentManifestEntryOut
-from ..services.family_package_source import within_family_package
+from ..services.family_package_source import local_family_package_folder, within_family_package
 from ..services.metadata_service import get_family_record
 from ..services.access_control import CurrentUser
 
@@ -38,7 +39,10 @@ DATA_DIR = Path(__file__).resolve().parents[3] / "data"
 # package keeps its pipeline layout instead (`<data>/families/<family>/bams/<sample>.cram`),
 # so both are probed rather than requiring the files to be copied or symlinked after
 # import. A file is found only inside the family's own folders: see
-# _alignment_candidate_paths.
+# _alignment_candidate_paths. These are the fallback: where the alignments import recorded
+# the reads, in the package folder the family's import read, comes first
+# (_local_alignment_path), so a package on a share mounted as a second import root is
+# served where it lies.
 _ALIGNMENT_LAYOUTS: tuple[tuple[str, str], ...] = (
     ("", ""),  # <data>/<family>/<sample>.cram
     (PACKAGES_FOLDER, "bams"),  # <data>/families/<family>/bams/<sample>.cram
@@ -91,11 +95,6 @@ def _alignment_path(
     )
 
 
-def _alignment_exists(family_id: str, sample_id: str, ext: str, suffix: str = "") -> bool:
-    """Whether one of the layouts holds the file in the family's folders (local mode)."""
-    return _alignment_path(family_id, sample_id, ext, suffix) is not None
-
-
 # ---------------------------------------------------------------------------
 # Remote mode (STORAGE_BACKEND=gcs/s3)
 # ---------------------------------------------------------------------------
@@ -106,12 +105,15 @@ _INDEX_SUFFIXES = {"cram": ".crai", "bam": ".bai"}
 
 @dataclass(frozen=True, slots=True)
 class _RecordedAlignment:
-    """A sample's alignment as the import recorded it in the object store: keys in the
-    configured bucket that passed ``_recorded_key``."""
+    """A sample's alignment where the import recorded it, checked. In remote mode the
+    locations are keys in the configured bucket that passed ``_recorded_key``; in local
+    mode they are file paths in the family's package folder, ``folder``, that passed
+    ``_recorded_local_path``."""
 
     format: str
-    key: str
-    index_key: str | None = None
+    location: str
+    index_location: str | None = None
+    folder: str | None = None
 
 
 def _recorded_key(uri: object, suffix: str, package_folder: object) -> str | None:
@@ -147,23 +149,74 @@ def _recorded_alignment(value: object, package_folder: object) -> _RecordedAlign
         return None
     return _RecordedAlignment(
         format=fmt,
-        key=key,
-        index_key=_recorded_key(value.get("index_uri"), _INDEX_SUFFIXES[fmt], package_folder),
+        location=key,
+        index_location=_recorded_key(value.get("index_uri"), _INDEX_SUFFIXES[fmt], package_folder),
     )
+
+
+def _recorded_local_path(relative: object, extension: str, folder: str) -> str | None:
+    """The file a package-relative path the import recorded names in the family's package
+    folder ``folder`` (local mode), when it may be served; ``None`` otherwise.
+
+    The path comes back from ``samples.metadata`` as data: an edited row can hold ``..`` or
+    an absolute path. It is served only when it has the extension of the file it stands for
+    and, joined to the folder and normalised as a string, stays inside it, and its real path,
+    symlinks resolved, lies inside it too (``core/family_folders.py``). A tampered row can
+    therefore point at most at another file of that kind in the family's own package, as in
+    remote mode (SEC-27). Blocking: symlinks are resolved on disk.
+    """
+    if not isinstance(relative, str) or not relative.lower().endswith(extension):
+        return None
+    return path_in_family_folder(folder, [folder], relative)
+
+
+def _recorded_local_alignment(value: object, package_folder: object) -> _RecordedAlignment | None:
+    """Parse ``samples.metadata['alignment']`` as the import of a local package wrote it
+    (``path``, ``index_path``: relative to the package); ``None`` unless it is usable, in the
+    family's package folder ``package_folder`` below a local FAMILY_IMPORT_ROOTS entry
+    (``local_family_package_folder``). Blocking."""
+    if not isinstance(value, dict):
+        return None
+    fmt = value.get("format")
+    if not isinstance(fmt, str) or fmt not in _INDEX_SUFFIXES:
+        return None
+    folder = local_family_package_folder(package_folder)
+    if folder is None:
+        return None
+    path = _recorded_local_path(value.get("path"), f".{fmt}", folder)
+    if path is None:
+        return None
+    return _RecordedAlignment(
+        format=fmt,
+        location=path,
+        index_location=_recorded_local_path(value.get("index_path"), _INDEX_SUFFIXES[fmt], folder),
+        folder=folder,
+    )
+
+
+def _recorded_local_alignments(rows: list[tuple[Any, ...]]) -> dict[str, _RecordedAlignment]:
+    """``_recorded_local_alignment`` of each ``(sample_id, alignment, package folder)`` row
+    that has a usable one. Blocking."""
+    recorded: dict[str, _RecordedAlignment] = {}
+    for sample_id, value, package_folder in rows:
+        alignment = _recorded_local_alignment(value, package_folder)
+        if alignment is not None:
+            recorded[str(sample_id)] = alignment
+    return recorded
 
 
 async def _recorded_alignments(
     session: AsyncSession, sample_ids: list[str]
 ) -> dict[str, _RecordedAlignment]:
-    """Where the import recorded each sample's alignment in the object store.
-
-    Remote mode only: a local deployment serves the data-directory layouts. Callers
-    check first that the samples belong to the family and the user may read it.
+    """Where the import recorded each sample's alignment: an object in the store (remote
+    mode), or a file in the local package folder the family's import read (local mode), such
+    as a package on a share mounted as a second import root. Callers check first that the
+    samples belong to the family and the user may read it.
     """
-    if not sample_ids or not storage_is_remote():
+    if not sample_ids:
         return {}
-    # Each sample's family's package folder, the bucket folder its import read: a recorded
-    # location is served only from there (SEC-27).
+    # Each sample's family's package folder, the folder its import read: a recorded location
+    # is served only from there (SEC-27).
     result = await session.execute(
         text(
             """
@@ -178,8 +231,12 @@ async def _recorded_alignments(
         ),
         {"sample_ids": list(sample_ids)},
     )
+    rows = [tuple(row) for row in result.all()]
+    if not storage_is_remote():
+        # Resolving the folder's symlinks reads the disk, a network share's too.
+        return await asyncio.to_thread(_recorded_local_alignments, rows)
     recorded: dict[str, _RecordedAlignment] = {}
-    for sample_id, value, package_folder in result.all():
+    for sample_id, value, package_folder in rows:
         alignment = _recorded_alignment(value, package_folder)
         if alignment is not None:
             recorded[str(sample_id)] = alignment
@@ -218,8 +275,8 @@ def _probed_alignment_key(family_id: str, sample_id: str, ext: str, suffix: str 
 def _recorded_index_key(recorded: _RecordedAlignment) -> str | None:
     """The recorded alignment's index: the one the import recorded, else the one stored
     next to the alignment."""
-    beside = f"{recorded.key}{_INDEX_SUFFIXES[recorded.format]}"
-    candidates = dict.fromkeys(key for key in (recorded.index_key, beside) if key)
+    beside = f"{recorded.location}{_INDEX_SUFFIXES[recorded.format]}"
+    candidates = dict.fromkeys(key for key in (recorded.index_location, beside) if key)
     return next((key for key in candidates if object_exists(key)), None)
 
 
@@ -239,11 +296,46 @@ def _remote_alignment_key(
     The layout probes are the fallback when nothing usable was recorded or the recorded
     object is gone.
     """
-    if recorded is not None and object_exists(recorded.key):
+    if recorded is not None and object_exists(recorded.location):
         if ext != recorded.format:
             return None
-        return _recorded_index_key(recorded) if suffix else recorded.key
+        return _recorded_index_key(recorded) if suffix else recorded.location
     return _probed_alignment_key(family_id, sample_id, ext, suffix)
+
+
+def _recorded_local_index(recorded: _RecordedAlignment) -> Path | None:
+    """The recorded alignment's index (local mode): the one the import recorded, else the one
+    next to the alignment, in the family's package folder as the alignment is."""
+    beside = None
+    if recorded.folder is not None:
+        beside = path_in_family_folder(
+            recorded.folder, [recorded.folder], f"{recorded.location}{_INDEX_SUFFIXES[recorded.format]}"
+        )
+    candidates = dict.fromkeys(path for path in (recorded.index_location, beside) if path)
+    return next((Path(path) for path in candidates if os.path.isfile(path)), None)
+
+
+def _local_alignment_path(
+    family_id: str,
+    sample_id: str,
+    ext: str,
+    suffix: str = "",
+    recorded: _RecordedAlignment | None = None,
+) -> Path | None:
+    """The file to serve as ``<sample>.<ext><suffix>`` (local mode), or ``None``.
+
+    As in remote mode, the location the import recorded comes first (a package read where it
+    lies, on a share mounted as a second import root, keeps its reads there), and when its
+    alignment is on disk it alone answers for the sample: alignment and index both come from
+    it, never an index a layout probe found elsewhere, and the other format is not probed
+    for. The layouts in the family's own folders are the fallback when nothing usable was
+    recorded or the recorded file is gone.
+    """
+    if recorded is not None and os.path.isfile(recorded.location):
+        if ext != recorded.format:
+            return None
+        return _recorded_local_index(recorded) if suffix else Path(recorded.location)
+    return _alignment_path(family_id, sample_id, ext, suffix)
 
 
 def _serve_alignment(
@@ -262,7 +354,7 @@ def _serve_alignment(
             raise HTTPException(status_code=404, detail=not_found_detail)
         # IGV follows the 302 and reads bytes (with HTTP range) straight from the store.
         return RedirectResponse(presigned_get_url(key, filename=file_name), status_code=302)
-    path = _alignment_path(family_id, sample_id, ext, suffix)
+    path = _local_alignment_path(family_id, sample_id, ext, suffix, recorded)
     if path is None:
         raise HTTPException(status_code=404, detail=not_found_detail)
     return FileResponse(path)
@@ -279,7 +371,7 @@ def _head_alignment(
     if storage_is_remote():
         found = _remote_alignment_key(family_id, sample_id, ext, suffix, recorded) is not None
     else:
-        found = _alignment_exists(family_id, sample_id, ext, suffix)
+        found = _local_alignment_path(family_id, sample_id, ext, suffix, recorded) is not None
     if not found:
         raise HTTPException(status_code=404, detail=not_found_detail)
     return Response(status_code=200)
@@ -313,7 +405,10 @@ def _resolve_alignment_manifest_entry(
                 url=presigned_get_url(data_key, filename=f"{sample_id}.{ext}"),
                 index_url=presigned_get_url(index_key, filename=f"{sample_id}.{ext}{index_suffix}"),
             )
-        if not (_alignment_exists(family_id, sample_id, ext) and _alignment_exists(family_id, sample_id, ext, index_suffix)):
+        if (
+            _local_alignment_path(family_id, sample_id, ext, "", recorded) is None
+            or _local_alignment_path(family_id, sample_id, ext, index_suffix, recorded) is None
+        ):
             continue
         return AlignmentManifestEntryOut(
             sample_id=sample_id,
@@ -508,11 +603,11 @@ def _read_alignment_header(
                 with pysam.AlignmentFile(presigned_get_url(key, filename=f"{sample_id}.{ext}"), mode) as af:
                     return af.header.to_dict()
         raise HTTPException(status_code=404, detail="No CRAM/BAM found for sample")
-    cram_path = _alignment_path(family_id, sample_id, "cram")
+    cram_path = _local_alignment_path(family_id, sample_id, "cram", "", recorded)
     if cram_path is not None:
         with pysam.AlignmentFile(str(cram_path), "rc") as af:
             return af.header.to_dict()
-    bam_path = _alignment_path(family_id, sample_id, "bam")
+    bam_path = _local_alignment_path(family_id, sample_id, "bam", "", recorded)
     if bam_path is not None:
         with pysam.AlignmentFile(str(bam_path), "rb") as af:
             return af.header.to_dict()

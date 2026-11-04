@@ -230,9 +230,16 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   for a family without such a folder is not signed: the layout probes are tried instead.
 
   With local storage, the CRAM/BAM, signal-track and QC-report endpoints
-  (`routers/family_qc_reports.py`) look a file up only in the family's own folders,
-  `data/<family>/` and `data/families/<family>/` (`core/family_folders.py`): a sample's reads
-  by the layouts, its signal files and QC report at the path the import recorded on the sample.
+  (`routers/family_qc_reports.py`) look a file up first at the path the import recorded on the
+  sample, in the package folder the family's own import read, and then in the family's own
+  folders, `data/<family>/` and `data/families/<family>/` (`core/family_folders.py`): a
+  sample's reads by the layouts, its signal files and QC report at the recorded path.
+  - The package folder (`families.metadata.package_import.folder_path`) is used only when it
+    lies, symlinks resolved, below a local `FAMILY_IMPORT_ROOTS` entry, and is not the root
+    itself (`local_family_package_folder`). With no local root configured, nothing is served
+    from it. A recorded file must lie, symlinks resolved, inside it, and a recorded CRAM/BAM
+    or index must have that file's extension: a changed row can point at most at another file
+    of that kind in the family's own package, as in a bucket (SEC-27).
   - A path built from the IDs or read back from `samples.metadata` is normalised, and dropped
     before any look-up when it leaves the family's folder: a sample ID such as `../F2/S2`, a
     recorded path holding `..` or naming an absolute path elsewhere, a family ID that is no
@@ -240,7 +247,7 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   - A file whose real path lies outside the family's folders (a linked folder leading into
     another family's folder or out of the data directory) is neither listed in a manifest nor
     served (404).
-  - Nothing outside the layouts is tried.
+  - Nothing outside the recorded path and the layouts is tried.
   - A QC report must also lie, symlinks resolved, inside the folder it is found in, below
     `FAMILY_IMPORT_ROOTS`.
 

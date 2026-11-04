@@ -710,18 +710,15 @@ async def test_the_layout_probes_still_serve_a_sample_with_no_usable_record(
 
 
 @pytest.mark.asyncio
-async def test_local_mode_does_not_read_the_recorded_location(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_a_bucket_location_is_never_read_in_local_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Local mode reads a recorded location only as a path in a local package folder
+    # (test_local_package_alignments.py); a recorded URI is never followed there.
     monkeypatch.setattr(settings, "storage_backend", "local")
     _family_members(monkeypatch, "S1")
-
-    class _NoQueries:
-        async def execute(self, *args: Any, **kwargs: Any) -> Any:
-            raise AssertionError("local mode serves files from the data directory")
+    session: Any = _RecordedAlignmentsSession({"S1": _recorded()})
 
     with pytest.raises(HTTPException) as exc:
-        await cram.get_cram("F1", "S_NO_FILE", session=_NoQueries(), user=object())  # type: ignore[arg-type]
-    assert exc.value.status_code == 404  # the member check, before any lookup
-    with pytest.raises(HTTPException) as exc:
-        await cram.get_cram("F1", "S1", session=_NoQueries(), user=object())  # type: ignore[arg-type]
+        await cram.get_cram("F1", "S1", session=session, user=object())
     assert exc.value.status_code == 404
     assert exc.value.detail == "CRAM file not found"
+    assert await cram.get_alignment_manifest("F1", sample_ids=["S1"], session=session, user=object()) == []

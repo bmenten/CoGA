@@ -13,10 +13,11 @@ Two things differ from the alignment endpoints next door:
   ``<sample>.cram``; a HiFiCNV bigWig is named after the caller's own run
   (``HG002.Sample0.depth.bw``, ``HG002.HG002.maf.bw``). What the import found is
   recorded on the sample, and that is what is served. With local storage the recorded
-  path is looked up in the family's package folder, ``<data>/families/<family>``, and
-  only inside the family's own folders, as the alignments are: one that leads out (an
-  edited row holding ``..`` or an absolute path, a symlink into another family's folder)
-  names no file (``core/family_folders.py``).
+  path is looked up in the package folder the family's import read, below a local import
+  root (a package read where it lies, on a share mounted as a second root, keeps its files
+  there), then in ``<data>/families/<family>``, and only inside that folder, as the
+  alignments are: one that leads out (an edited row holding ``..`` or an absolute path, a
+  symlink into another family's folder) names no file (``core/family_folders.py``).
 * **Range requests matter.** A depth bigWig is ~19 MB and a MAF bigWig ~143 MB;
   IGV fetches slices by byte range. Starlette's ``FileResponse`` honours ``Range``,
   which is also how the CRAM endpoints work.
@@ -59,7 +60,11 @@ from ..core.postgres import get_postgres_session
 from ..core.url_path import url_path
 from ..dependencies import get_current_user
 from ..schemas import SignalTrackManifestEntryOut
-from ..services.family_package_source import within_family_package, within_remote_import_roots
+from ..services.family_package_source import (
+    local_family_package_folder,
+    within_family_package,
+    within_remote_import_roots,
+)
 from ..services.metadata_service import get_family_record
 from ..services.access_control import CurrentUser
 
@@ -194,23 +199,30 @@ def _track_uris(rows: list[tuple[str, dict[str, Any], str | None]]) -> dict[str,
     return recorded
 
 
-def _resolve_track_path(family_id: str, relative_path: str) -> Path | None:
-    """The file a recorded path names in the family's package folder,
-    ``<data>/families/<family>``; ``None`` when it is gone or lies outside the family's own
-    folders.
+def _resolve_track_path(family_id: str, relative_path: str, package_folder: object = None) -> Path | None:
+    """The file a recorded path names in the package folder the family's import read,
+    ``package_folder`` (``families.metadata.package_import.folder_path``), else in its package
+    folder ``<data>/families/<family>``; ``None`` when it is gone or lies outside them.
 
     The import records the path relative to the package, but it comes back from
     ``samples.metadata`` as data: an edited row can hold ``..`` or an absolute path. It is
     joined to the package folder and normalised as a string, and one that leaves that folder
     (``../F2/cnv/S2.depth.bw``, an absolute path elsewhere) is dropped before anything is
-    looked up by it. One that stays is kept only when its real path lies inside one of the
-    family's own folders, so a symlink cannot lead into another family's folder or out of
-    the data directory; a family ID that is no single folder name has no folder
-    (``core/family_folders.py``).
+    looked up by it. One that stays is kept only when its real path lies inside that folder
+    (the imported one) or one of the family's own folders, so a symlink cannot lead into
+    another family's folder or out of the data directory; a family ID that is no single
+    folder name has no folder (``core/family_folders.py``). The imported folder is used only
+    when it lies below a local import root (``local_family_package_folder``): a package on a
+    share mounted as a second root is read where it lies.
     """
 
     if not relative_path:
         return None
+    imported = local_family_package_folder(package_folder)
+    if imported is not None:
+        path = path_in_family_folder(imported, [imported], relative_path)
+        if path is not None and os.path.isfile(path):
+            return Path(path)
     folders = family_folders(DATA_DIR, family_id)
     package = folders.get(PACKAGES_FOLDER)
     if package is None:
@@ -276,15 +288,16 @@ def _track_url(
     kind: str,
     relative_path: str | None,
     uri: object,
+    package_folder: object = None,
 ) -> str | None:
     """Where the browser fetches a track, or ``None`` when there is nothing to serve: a
     signed URL of its object in remote mode, else the backend route to the file in the
-    data directory, each value percent-encoded as one segment (an ID may hold `/`, `?`,
+    package folder, each value percent-encoded as one segment (an ID may hold `/`, `?`,
     `#`, `%` or `..`). Blocking (store requests, file checks)."""
     if storage_is_remote():
         key = _remote_track_key(family_id, kind, relative_path, uri)
         return presigned_get_url(key, filename=PurePosixPath(key).name) if key else None
-    if not relative_path or _resolve_track_path(family_id, relative_path) is None:
+    if not relative_path or _resolve_track_path(family_id, relative_path, package_folder) is None:
         return None
     return url_path("signal-tracks", family_id, sample_id, source, kind)
 
@@ -309,6 +322,7 @@ async def get_signal_track_manifest(
     rows = await _signal_track_rows(session, ordered)
     recorded = _track_paths(rows)
     recorded_uris = _track_uris(rows) if storage_is_remote() else {}
+    package_folders = {sample_id: package_folder for sample_id, _tracks, package_folder in rows}
 
     def _build() -> list[SignalTrackManifestEntryOut]:
         entries: list[SignalTrackManifestEntryOut] = []
@@ -324,6 +338,7 @@ async def get_signal_track_manifest(
                         kind,
                         paths.get(source, {}).get(kind),
                         uris.get(source, {}).get(kind),
+                        package_folders.get(sample_id),
                     )
                     if url is None:
                         continue
@@ -353,9 +368,10 @@ async def _requested_track(
     source: str,
     kind: str,
     user: CurrentUser,
-) -> tuple[str | None, object, _TrackKind]:
-    """``(recorded path, recorded URI, kind)`` of a track the user may read, after the
-    family-membership check; 404 when nothing is recorded for it."""
+) -> tuple[str | None, object, _TrackKind, str | None]:
+    """``(recorded path, recorded URI, kind, package folder)`` of a track the user may read,
+    after the family-membership check; 404 when nothing is recorded for it. The package folder
+    is the one the family's import read (``_signal_track_rows``)."""
     if kind not in _TRACK_KINDS:
         raise HTTPException(status_code=404, detail="Unknown signal-track kind")
     family_sample_ids = await _accessible_sample_ids(session, family_id, user)
@@ -366,7 +382,8 @@ async def _requested_track(
     uri = _track_uris(rows).get(sample_id, {}).get(source, {}).get(kind) if storage_is_remote() else None
     if not relative_path and uri is None:
         raise HTTPException(status_code=404, detail="Signal track not found")
-    return relative_path, uri, _TRACK_KINDS[kind]
+    package_folder = next((folder for _sample, _tracks, folder in rows), None)
+    return relative_path, uri, _TRACK_KINDS[kind], package_folder
 
 
 async def _resolve_requested_track(
@@ -377,10 +394,12 @@ async def _resolve_requested_track(
     kind: str,
     user: CurrentUser,
 ) -> tuple[Path, _TrackKind]:
-    relative_path, _uri, spec = await _requested_track(session, family_id, sample_id, source, kind, user)
+    relative_path, _uri, spec, package_folder = await _requested_track(
+        session, family_id, sample_id, source, kind, user
+    )
     if not relative_path:
         raise HTTPException(status_code=404, detail="Signal track not found")
-    path = await asyncio.to_thread(_resolve_track_path, family_id, relative_path)
+    path = await asyncio.to_thread(_resolve_track_path, family_id, relative_path, package_folder)
     if path is None:
         raise HTTPException(status_code=404, detail="Signal track file is missing")
     return path, spec
@@ -395,7 +414,9 @@ async def _resolve_requested_object(
     user: CurrentUser,
 ) -> tuple[str, _TrackKind]:
     """Remote mode: the key of the object to serve for a track the user may read."""
-    relative_path, uri, spec = await _requested_track(session, family_id, sample_id, source, kind, user)
+    relative_path, uri, spec, _package_folder = await _requested_track(
+        session, family_id, sample_id, source, kind, user
+    )
     key = await asyncio.to_thread(_remote_track_key, family_id, kind, relative_path, uri)
     if key is None:
         raise HTTPException(status_code=404, detail="Signal track file is missing")

@@ -508,7 +508,8 @@ async def record_sample_alignment_metadata(
     """Record where a sample's aligned reads lie, under ``samples.metadata["alignment"]``:
     ``format`` (cram/bam), the package-relative ``path``/``index_path`` and, for a
     package imported from a bucket, the objects' ``uri``/``index_uri``. The CRAM
-    endpoint serves from the URIs only after checking them (routers/cram.py)."""
+    endpoint serves them only after checking them (routers/cram.py): the URIs, or the paths
+    in the local package folder the family's import read."""
     await _merge_sample_metadata(
         session,
         sample_uuid=sample_context.sample_uuid,

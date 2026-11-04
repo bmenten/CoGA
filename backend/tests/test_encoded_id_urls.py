@@ -87,7 +87,9 @@ def test_the_alignment_manifest_names_the_family_and_sample_it_was_issued_for(
     monkeypatch: pytest.MonkeyPatch, family_id: str, sample_id: str, _source: str
 ) -> None:
     monkeypatch.setattr(cram, "storage_is_remote", lambda: False)
-    monkeypatch.setattr(cram, "_alignment_exists", lambda family, sample, ext, suffix="": ext == "cram")
+    monkeypatch.setattr(
+        cram, "_alignment_path", lambda family, sample, ext, suffix="": Path(f"{ext}{suffix}") if ext == "cram" else None
+    )
 
     entry = cram._resolve_alignment_manifest_entry(family_id, sample_id)
 
@@ -101,7 +103,7 @@ def test_the_signal_track_manifest_names_the_family_sample_and_source_it_was_iss
     monkeypatch: pytest.MonkeyPatch, family_id: str, sample_id: str, source: str
 ) -> None:
     monkeypatch.setattr(signal_tracks, "storage_is_remote", lambda: False)
-    monkeypatch.setattr(signal_tracks, "_resolve_track_path", lambda family, relative: Path("depth.bw"))
+    monkeypatch.setattr(signal_tracks, "_resolve_track_path", lambda family, relative, folder=None: Path("depth.bw"))
 
     url = signal_tracks._track_url(family_id, sample_id, source, "depth_bigwig", "cnv/depth.bw", None)
 
@@ -117,11 +119,11 @@ async def test_the_qc_report_link_names_the_family_and_sample_it_was_issued_for(
     monkeypatch.setattr(settings, "storage_backend", "local")
     monkeypatch.setattr(settings, "secret_key", "x" * 40)
 
-    async def recorded_report_path(session: Any, **_: Any) -> str:
-        return "qc/report.html"
+    async def recorded_report_path(session: Any, **_: Any) -> Any:
+        return family_qc_reports._RecordedReport("qc/report.html")
 
     monkeypatch.setattr(family_qc_reports, "_recorded_report_path", recorded_report_path)
-    monkeypatch.setattr(family_qc_reports, "_resolve_report_file", lambda family, relative: Path("report.html"))
+    monkeypatch.setattr(family_qc_reports, "_resolve_report_file", lambda family, relative, folder=None: Path("report.html"))
 
     link = await family_qc_reports.get_family_qc_report_link(family_id, sample_id, session=None, user=None)
 
@@ -186,10 +188,10 @@ def families(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _Families:
     async def signal_track_rows(session: Any, sample_ids: list[str]) -> list[tuple[str, dict[str, Any]]]:
         return [(sample_id, store.signal_tracks[sample_id], None) for sample_id in sample_ids if sample_id in store.signal_tracks]
 
-    async def recorded_report(session: Any, *, family_id: str, sample_id: str) -> str:
+    async def recorded_report(session: Any, *, family_id: str, sample_id: str) -> Any:
         if (family_id, sample_id) not in store.reports:
             raise HTTPException(status_code=404, detail="No QC report is recorded for this sample")
-        return store.reports[(family_id, sample_id)]
+        return family_qc_reports._RecordedReport(store.reports[(family_id, sample_id)])
 
     sign_in_a_viewer_who_reads(monkeypatch, store.members, cram, signal_tracks, family_qc_reports)
     monkeypatch.setattr(signal_tracks, "_signal_track_rows", signal_track_rows)
