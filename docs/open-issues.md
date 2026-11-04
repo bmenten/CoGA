@@ -1,12 +1,12 @@
 # Open issues
 
 What still has to be done: P1 blocks the release candidate (RC), P2 is due before the RC, P3 after it.
-Status 2026-11-04, `origin/main` at `490b13f5`. Ideas that are not defects are in [ROADMAP.md](ROADMAP.md).
+Status 2026-11-04, `origin/main` at `fe2c30b2`. Ideas that are not defects are in [ROADMAP.md](ROADMAP.md).
 
 | ID | Pri | What has to happen | Who | Blocks |
 |---|---|---|---|---|
 | REG-1 | P1 | Bring the TF-09b statuses and gap texts in line with the software | QA, owner | RC |
-| CLIN-57 | P1 | Validate TRGT's repeat count per catalogue locus; correct FMR1, HTT and POLG | QA, lab director, developer | RC |
+| CLIN-57 | P1 | Validate TRGT's repeat count per catalogue locus; enter the count corrections of FMR1, HTT and POLG | QA, lab director | RC |
 | REG-13 | P1 | Review the technical file's signed-record corrections (#997) | QA | RC |
 | OPS-2 | P1 | Make the CI `images` job a required check; configure Google Cloud so images are pushed | owner, ops | RC |
 | OPS-3 | P1 | Apply Terraform; set the deploy trigger to `release` | ops, owner | RC |
@@ -18,9 +18,7 @@ Status 2026-11-04, `origin/main` at `490b13f5`. Ideas that are not defects are i
 | REG-6 | P1 | Fill TF-10's comparators, acceptance criteria and sample sizes (INPUTS C1–C7) | owner, QA | validation |
 | REG-7 | P1 | Run the usability evaluation, file the DPIA, settle the national provisions | owner, DPO, RA, QA | go-live |
 | REG-8 | P1 | Confirm QA's per-release review; record the first before the RC tag | QA | RC |
-| CLIN-69 | P2 | Variant Explorer: show the most severe classification (`_most_severe` ranks the stored labels 0, so the first review read wins) | developer | RC |
-| DATA-10 | P2 | Warn when a manifest's ROI does not resolve (`_apply_manifest_roi` silently keeps the earlier ROI, which the PGT calls read) | developer | RC |
-| UI-7 | P2 | Ask for confirmation before deleting a gene panel or a project (whose delete cascades to every family's link to it) | developer | RC |
+| TRACE-20 | P2 | Audit a change of a small-variant review's classification text: only its ACMG record, tags and note are audited | developer | RC |
 | CLIN-70 | P2 | Enter each QC profile's sequencing-QC cut-offs: all ship empty, so nothing is judged (TF-06 H14) | lab director, QA | go-live |
 | CLIN-68 | P2 | Add gnomAD's hom, hemi and AC counts to the lab's VEP run; meanwhile decide whether presets rely on them | lab director, owner | validation |
 | CLIN-61 | P2 | Confirm or change the provisional PGT phasing-QC thresholds and window | lab director, QA | validation |
@@ -30,46 +28,44 @@ Status 2026-11-04, `origin/main` at `490b13f5`. Ideas that are not defects are i
 | CLIN-9 | P2 | Confirm the carrier-screening preset and the chrM exclusion (#763) | QA | RC |
 | CLIN-10 | P2 | Check parent–embryo IBS0 on one real imputed PGT family's Sample QC page | owner | validation |
 | CLIN-18 | P2 | Fill in what APCAD stands for (`user-guide/glossary.md`) | lab director | RC |
-| OPS-15 | P2 | Fix the clinical build's GitHub links; check the Node image meets the engines floor | owner, developer | RC |
+| OPS-15 | P2 | Fix the clinical build's GitHub links (`build.yml` passes no `VITE_GITHUB_*`) | owner | RC |
 | OPS-6 | P2 | Set the problem-report link, SMTP and the reference-data bucket | ops | go-live |
 | OPS-24 | P2 | Try the release mechanics at the first configured build | ops, owner | go-live |
 | REG-10 | P2 | Build a GIAB / GeT-RM truth set with a concordance harness (INPUTS C6) | developer, QA | RC |
 | REG-11 | P2 | Supply the post-market, vigilance and security-process inputs | QA, RA, owner | go-live |
 | OPS-9 | P2 | Prove CoGA at genome scale on the real stack | developer, owner | |
-| DOC-9 | P2 | Correct the documentation errors found on 2026-11-04 | developer | |
-| DOC-7 | P2 | Replace PR numbers in the technical file and docs by what they stand for | developer, QA | RC |
-| ENG-22 | P2 | Remove dead and legacy code, verifying each candidate first | developer | |
+| DOC-10 | P2 | Write out the closed open-issue IDs the technical file cites, and the PR numbers left outside it | developer, QA | RC |
 | OPS-27 | P2 | Delete branch `feat/family-pgs`; tag the alpha baseline with a GitHub release; name it in every validation record | owner | validation |
 | OPS-7 | P3 | Approve the integrity-anchor residual (TF-13 §3) and set how often anchors are made | QA, owner | |
 | OPS-22 | P3 | Keep PRs that pass alone from failing together: a merge queue needs an organisation-owned repository | owner | |
 | SEC-19 | P3 | Accept in TF-13: best-effort ClickHouse shutdown, bucket-wide grants, VM restart after a certificate reissue | QA | |
 | SEC-23 | P3 | Close the HSTS gaps | QA, owner, developer | |
-| SEC-27 | P3 | Close the package-path residuals | developer | |
-| SEC-15 | P3 | Write the IDs of `ped_service`'s "Father/Mother id not found" through `visible()` | developer | |
-| SAFE-36 | P3 | Gene-reference refresh: heartbeat while loading bulk sources; end a failed job only if still the worker's | developer | |
-| DATA-11 | P3 | Refuse a corrupt per-sample `.vcf.gz` in Discover and the validation, which read its columns unguarded | developer | |
-| CLIN-12 | P3 | Add T2T-CHM13's PAR bounds from a verified source (fails safe now) | developer | |
+| SEC-37 | P3 | Quote no raw value: the IDs two refusals echo, the gene-reference job's stored error, a sample ID in a log line | developer | |
+| SEC-38 | P3 | Check the admin raw-file download and *Verify* against the family's own package, not the whole import area | developer | |
+| SAFE-37 | P3 | Deactivate a project's review tags when the project is deleted: the cascade deletes them outright | developer | |
+| DATA-12 | P3 | Refuse a corrupt APCAD per-sample VCF or haplotypes family VCF at validation: today it fails only at import | developer | |
+| CLIN-71 | P3 | Variant Explorer: show the class of a review classified by tag alone; read the reviews in a fixed order | developer | |
 | CLIN-14 | P3 | Settle the repeat catalogue's open points; move to STRchive v2.28.0 | QA, owner, developer | |
 | CLIN-17 | P3 | Confirm against Riggs et al. 2020 whether CNV scoring caps section totals | QA | |
 | CLIN-39 | P3 | Decide whether one SV in two siblings' per-sample records gets one second-hit verdict | owner | |
 | CLIN-50 | P3 | Decide whether carrier screening reads Ensembl-only genes, and which annotation set the Explorer matches | owner | |
+| CLIN-72 | P3 | Decide whether every reader keeps a VCF's INFO flags: uploads drop them, package imports keep them | owner, developer | |
 | TRACE-10 | P3 | Decide how a segments-only BED is drawn and what a segments or APCAD read without `source` returns | owner, developer | |
-| OPS-11 | P3 | Pin `click` so the lock check compares the header; clear the mypy errors outside the gate | developer | |
-| OPS-12 | P3 | Bring what Dependabot does not track under updates | developer, owner | |
+| TRACE-21 | P3 | Decide whether a family that loses a project link gets a clinical audit event | owner | |
+| OPS-12 | P3 | Finish what Dependabot cannot update: the workflow pins, a Terraform lock file, the Cloud Build builder | owner | |
 | OPS-17 | P3 | Rebuild the clinical CNV knowledgebase for both assemblies on each database | ops | |
 | OPS-26 | P3 | At the first apply, check the ClickHouse VM's certificate refresh runs (`/etc` may be no-exec) | ops | |
-| ENG-4 | P3 | Remove the API leftovers | developer | |
-| ENG-6 | P3 | Put classification tags and VUS tiers in sentence case, with a migration (decided 2026-10-28) | developer | |
-| ENG-8 | P3 | Fold the duplicated helpers (queue workers, download helper, VCF parsers, service copies) | developer | |
-| ENG-20 | P3 | Name chromosomes as the viewer does in the Circos SV tooltip and on the ROI markers page | developer | |
+| OPS-28 | P3 | Dismiss Dependabot alert 137 (minimatch): only ESLint tooling uses it, and no release they accept fixes it | owner | |
+| ENG-23 | P3 | Remove the leftovers found on 2026-11-04 | developer | |
 
 ## Waiting for a decision
 
 Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 
 - **Owner:** REG-1 (wording, REQ-TRACE-007), OPS-2, OPS-3 (separate validation environment?),
-  OPS-22, SEC-6 (with the DPO), REG-14, CLIN-10, CLIN-39, CLIN-50, CLIN-68, TRACE-10, SEC-23
-  (`/api` fallback), OPS-15 (role mailbox), OPS-24 (pre-migration backup retention).
+  OPS-12 (builder, Terraform lock), OPS-22, OPS-28, SEC-6 (with the DPO), REG-14, CLIN-10,
+  CLIN-39, CLIN-50, CLIN-68, CLIN-72, TRACE-10, TRACE-21, SEC-23 (`/api` fallback), OPS-15
+  (role mailbox), OPS-24 (pre-migration backup retention).
 - **QA:** REG-1, REG-5, REG-8, REG-12, REG-13, REG-14, CLIN-9, CLIN-14, CLIN-17, CLIN-57, CLIN-61,
   CLIN-70, OPS-7, SEC-19; with RA, REG-11.
 - **Lab director:** REG-5, CLIN-18, CLIN-57, CLIN-61, CLIN-68, CLIN-70.
@@ -86,9 +82,9 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 ### CLIN-57 · TRGT's counting units are not validated per locus
 
 - TRGT counts its catalogue region: FMR1 reads 1–3 repeats low, HTT one high, POLG four high (10 reads 14).
-- QA and the lab director compare the count with the clinical number on reference samples near each boundary, and record each locus on the *Repeat Catalogue* page (until then CoGA warns near a boundary).
-- Developer: add a per-locus count correction (none exists) for FMR1, HTT and POLG.
-- QA words the TF-09a requirement and a TF-06 hazard with the next free number (H17 and H18 are taken).
+- QA and the lab director compare the count with the clinical number on reference samples near each boundary, and record each locus on the *Repeat Catalogue* page: validated or not, and its count correction, which CoGA adds to TRGT's count before it classifies. None is entered; until a locus is validated CoGA warns near a boundary.
+- FMR1's difference varies (1–3), so a constant correction is wrong there: it stays warned.
+- QA words the TF-09a requirement and a TF-06 hazard for the correction with the next free number (H17 and H18 are taken), and decides whether the backend refuses a correction at FMR1 and whether ±20 is the right bound.
 
 ### REG-13 · QA review of the signed-record corrections (#997)
 
@@ -138,6 +134,10 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 
 ## P2
 
+### TRACE-20 · A small-variant review's classification text is not audited
+
+- `clinical_audit_service.diff_review_changes` writes an event for the ACMG record, the tags and the note, not for the `classification` text. The review dialog's class change is still audited through its class tag; a text change through the API alone is not. The SV review save audits it.
+
 ### CLIN-61 · Provisional PGT phasing-QC thresholds
 
 - Warning: under 50 informative sites, Mendelian errors above 2 %, or under 6 markers on a flank, over the ROI ± 1 Mb.
@@ -148,6 +148,16 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 ### REG-12 · Owner and QA confirmations of the fix rounds
 
 - The choices of #790–#1027 are listed by PR under REG-12 in this file's previous version (`git show dbdf9ffc:docs/open-issues.md`); later fix PRs name theirs in their description (e.g. #1041, #1045, #1077, #1101).
+- The 2026-11-04 round (#1112–#1138):
+    - The five decision dates and roles written into the technical file in place of PR numbers (#1113).
+    - `security-posture.md` says the device owner confirmed the sign-up password policy; the change that set it says the lab director.
+    - Class labels in sentence case: migration 0013 without a clinical audit event, a sign-out check blind to a label's case, saves that store an old-case label in the new case (owner's decisions, #1123).
+    - An unresolved manifest ROI clears the family's (owner's decision, #1126).
+    - Review saves refuse a field they do not take (owner's decision for the SV save, #1119).
+    - An in-package `manifest.yaml` link is replaced, not written through (#1122).
+    - A Monarch download over the size cap answers 502, not 500 (#1133).
+    - The count correction: always applied once recorded; the boundary warning lifted only by validation (#1135).
+    - T2T-CHM13's PARs: a man is now hemizygous outside them on T2T (#1136; T2T is outside the validated scope).
 - A point that asks only for a TF-10 §8 phrase lapses where a TF-10 §8 area covers it.
 - Approve the drafts merged for it: TF-09a REQ-SEC-001 and TF-13 §2 (#1037); the APCAD definition and contamination wording (#1038).
 - Done when: one QA record marks each choice confirmed or to change.
@@ -155,11 +165,6 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 ### REG-14 · Journeys TF-09d does not list
 
 - `frontend/e2e/` holds `findingReview.spec.ts` and `ancestry.spec.ts` beside TF-09d §3's four. Listing them widens the claim; the ancestry journey checks a phone viewport, which TF-09d puts out of scope.
-
-### OPS-15 · Build configuration
-
-- `build.yml` passes no `VITE_GITHUB_*`, so the clinical build's GitHub links fall back to the owner's repository.
-- Check that the pinned `node:22-alpine` meets the `>=22.22.2` floor.
 
 ### OPS-6 · Deployment settings
 
@@ -184,20 +189,10 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 - Terraform: a Cloud Run import-worker service, as Compose has; a ClickHouse disk and VM above the 200 GB and `e2-standard-4` defaults.
 - The benchmark's "What would scale better": the cohort-wide annotation scans, the Explorer's unfiltered page (fails from about 20 M rows), a finer `entries` partition.
 
-### DOC-9 · Documentation errors found on 2026-11-04
+### DOC-10 · IDs and numbers an auditor cannot follow
 
-- `clinical-traceability.md` *Known limitations*: one embryo-QC measure now gates; markers count per flank; a NIPT record without a per-target table holds `coverage_notes`.
-- Handleiding: ch. 6 (non-admins see no import jobs: every route is admin-only); ch. 11's snapshot table (add `repeat_expansion_reviews`, `paraphase_reviews`, `unreviewed_findings`, the acknowledgement fields); ch. 15 (a local knowledgebase file is recorded by name and SHA-256); the ancestry PCA (ch. 3's tables, a section).
-- `database.md` (admin deletes also write ClickHouse); `security-posture.md` (the summary's input bounds are described nowhere); `haplotype-segregation-analysis.md` (`PHASE_SWITCH_MIN_CHILD_MARKERS` is in `haplotype_block_builder.py`; the lineage fingerprint also holds sexes, phase corrections, the blocks' digest, the ROI); `snv-sv-compound-het.md` (`_same_sv` needs the same chromosome); `scripts/README.md` (GRCh37 is pinned); `monogenic-nipt.md` and the user guide's *Clinical report* (sign-out is on the NIPT report); `repeat-paraphase-review-design.md` §4.2 (`assembly_id` cascades); `docs/README.md` ("every document"); TF-08 A.1 (`--require-hashes` is not passed: pip's hash mode applies).
-- User guide: describe the Annotations *Quick* choice.
-
-### DOC-7 · PR numbers in the docs
-
-- About 90 in `docs/regulatory/`, 9 in the handleiding, 80 in the other docs (this page and `testing.md` may keep theirs): replace each by the behaviour, decision or test it stood for; a CI check refuses `#123` in `docs/regulatory/`.
-
-### ENG-22 · Dead and legacy code
-
-- Unused code, CSS, routes, settings, scripts and shims for data that no longer exist. Found: the JSON log formatter's `requestBody` branch (`coga_logging.py`), which no record reaches.
+- `docs/regulatory/` cites about 85 open-issue IDs that are closed and gone from this list (CLIN-27, SAFE-29, TRACE-15 …): write out what each stood for, or keep a register of closed IDs, and extend `test_regulatory_docs_cite_no_pr_numbers.py` to match.
+- PR numbers left outside the technical file: `ROADMAP.md` (8), `SECURITY-AUDIT-ALLOWLIST.md` (4), `docs/README.md` (1).
 
 ## P3
 
@@ -207,22 +202,31 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 - The frontend's `/api` fallback reaches the backend only through VPC egress (owner).
 - Express's default 500 and Node's own 400 carry no headers.
 
-### SEC-27 · Package paths
+### SEC-37 · Raw values in messages and logs
 
-- *Write manifest* checks the link, then writes: a symlink swapped in between could redirect the write.
-- A recorded track or alignment URI is checked against the import area, not the family's folder.
+- "Family member '…' not found" (`family_structure_service.py`, two places) and "Sample '…' not found in family" (`per_sample_small_variants.py`) quote a request's ID raw, not through `visible()`.
+- A failed gene-reference refresh stores the exception's text as the job's error, shown on the admin page (`gene_info_jobs_pg.py`): a fixed sentence and `describe_error` instead.
+- `routers/cram.py`: a warning line names the sample.
 
 ### CLIN-14 · Repeat catalogue
 
 - STRchive's gaps and overlaps: ATXN7 36 intermediate, PPP2R2B 33–39 normal and 50 intermediate, ATXN10 800–850 pathogenic.
 - Motif orientation differs at nine loci; PABPN1's `GCN` is unchecked against the pipeline's TRGT BED; STRchive tags as TRID aliases name no locus. Move to v2.28.0 after CLIN-57.
 
-### OPS-12 · Not tracked by Dependabot
+### CLIN-72 · INFO flags
 
-- CI service images, `fake-gcs-server`, workflow pins (`pip-audit`, `markdown`), `scripts/*.sh` image tags, Terraform (version, providers; no lock file committed), the Cloud Build builder (no tag or digest).
+- The small-variant upload and the per-sample callsets drop an INFO flag (an item without `=`); the family-package readers keep it as `true` (`vcf_fields.parse_info`'s `flags`). So an INFO-level `CANONICAL` or `MANE_SELECT` sets the canonical or MANE transcript in a package import, not in an upload. Keeping flags everywhere changes stored annotations: a PR of its own.
 
-### ENG-4 · API leftovers
+### OPS-12 · What Dependabot cannot update
 
-- `SmallVariantReviewUpdate.cnv_acmg` is accepted and ignored.
-- `GeneHomologOut.ensembl_gene_id` is never set, `in_platform` always false; no screen shows homologs.
-- `SampleIntegrityPaternityCheckOut` holds one count twice (`hom_alt_absent_sites`, `hom_alt_not_transmitted`).
+- Workflow edits: install `ci/requirements-*.txt` in `ci.yml` and `security.yml`; drop the smoke job's own fake-gcs `docker run`; move `build.yml`'s `terraform_version` with each Terraform bump. CI's Postgres and ClickHouse service images still follow compose by hand. Until the workflows match, Dependabot's `/ci` PRs fail `test_pinned_images.py`, which names the file to move.
+- Commit `.terraform.lock.hcl`, generated with Terraform for linux_amd64 and darwin_arm64 (remove its `.gitignore` line).
+- `gcr.io/cloud-builders/docker` is frozen at Docker 20.10.24: move the Cloud Build configs to `docker:<version>-cli` by digest.
+
+### ENG-23 · Leftovers found on 2026-11-04
+
+- Read shims for rows written before a format change (the ClinVar `/` rescue in `clickhouse_variant_queries.py`, the old-shape `import_incomplete` readers, structure versions without `row_hash`, coverage tracks from before BEDs declared their content): remove them when the RC database is created fresh.
+- The non-admin branches of `family_package_jobs.py` that no route reaches; code only tests use (`clickhouse_variant_rows._small_annotation_row`, `repeat_expansion_pg.load_strchive_repeat_loci`, `wholeFamilyImportKeys`, `parentalOriginChartHeight`).
+- The request audit's `updateFields` lists body keys a model ignores (`audit_log_pg.py`).
+- Copies still to fold: `read_vcf_sample_columns` (`family_package_common.py`, `wgs_evidence.py`), the gene look-up SQL (`family_service.py`, `family_package_registration.py`), `_family_sample_contexts`, `_coerce_int`, the worker `stop_*` functions, `_execute` of the two ClickHouse writers, `_finite`, `_shares_allele`, the audit-actor helper.
+- `PaternityCheck.status` allows `skip`, which `evaluate_paternity` never returns; the GCS integration test's fixed container name collides in parallel runs.
