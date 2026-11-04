@@ -30,7 +30,7 @@ Status 2026-11-04, `origin/main` at `490b13f5`. Ideas that are not defects are i
 | CLIN-9 | P2 | Confirm the carrier-screening preset and the chrM exclusion (#763) | QA | RC |
 | CLIN-10 | P2 | Check parent–embryo IBS0 on one real imputed PGT family's Sample QC page | owner | validation |
 | CLIN-18 | P2 | Fill in what APCAD stands for (`user-guide/glossary.md`) | lab director | RC |
-| OPS-15 | P2 | Replace the footer's personal contact address; fix the clinical build's GitHub links | owner, developer | RC |
+| OPS-15 | P2 | Fix the clinical build's GitHub links; check the Node image meets the engines floor | owner, developer | RC |
 | OPS-6 | P2 | Set the problem-report link, SMTP and the reference-data bucket | ops | go-live |
 | OPS-24 | P2 | Try the release mechanics at the first configured build | ops, owner | go-live |
 | REG-10 | P2 | Build a GIAB / GeT-RM truth set with a concordance harness (INPUTS C6) | developer, QA | RC |
@@ -158,7 +158,6 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 
 ### OPS-15 · Build configuration
 
-- The footer's *Contact* (`components/Layout.tsx`) is a person's address: use a role mailbox or a build variable.
 - `build.yml` passes no `VITE_GITHUB_*`, so the clinical build's GitHub links fall back to the owner's repository.
 - Check that the pinned `node:22-alpine` meets the `>=22.22.2` floor.
 

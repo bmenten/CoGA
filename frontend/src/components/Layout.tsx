@@ -187,8 +187,6 @@ const Layout: React.FC = () => {
             <a href={githubRepositoryUrl} target="_blank" rel="noopener noreferrer">
               GitHub
             </a>
-            {' · '}
-            <a href="mailto:bjorn.menten@ugent.be">Contact</a>
           </p>
         </div>
       </footer>
