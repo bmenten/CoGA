@@ -25,6 +25,8 @@ CALCULATION_VERSION = "coga-ancestry-pca-v2"
 MIN_MARKERS = 1000
 # Of the markers a callset is taken to cover, the share an individual needs a usable genotype at.
 MIN_CALL_RATE = 0.95
+# Resamplings of an individual's usable markers that give the spread of its coordinates.
+BOOTSTRAP_REPLICATES = 200
 DEFAULT_REFERENCE = Path(__file__).resolve().parents[1] / "data" / "ancestry" / "1000g-grch38-v1.npz"
 # The bundled model and its exome mask, pinned: their JSON files certify only themselves. An
 # operator's own model (ANCESTRY_REFERENCE_PATH) is checked against its sidecar alone, and its
@@ -190,3 +192,31 @@ def project_least_squares(reference: AncestryReference, dosages: Any, usable: An
         return None
     standardized = (dosages[rows] - reference.means[rows]) / reference.scales[rows]
     return [float(value) for value in np.linalg.solve(gram, loadings.T @ standardized)]
+
+
+def bootstrap_standard_errors(reference: AncestryReference, dosages: Any, usable: Any,
+                              seed: str) -> list[float] | None:
+    """How far each PC moves when the individual's usable markers are drawn again, with
+    replacement, ``BOOTSTRAP_REPLICATES`` times: the standard deviation of the fits. It is the
+    uncertainty a set of markers of that size leaves, larger for a panel than for a genome.
+
+    ``seed`` makes it the same on every calculation of the same reading. None when most
+    resamplings cannot determine the four components.
+    """
+    rows = np.flatnonzero(usable)
+    if len(rows) < 4:
+        return None
+    rng = np.random.default_rng(int.from_bytes(hashlib.sha256(seed.encode()).digest()[:8], "little"))
+    loadings = reference.loadings[rows]
+    standardized = (dosages[rows] - reference.means[rows]) / reference.scales[rows]
+    fits = []
+    for _ in range(BOOTSTRAP_REPLICATES):
+        pick = rng.integers(0, len(rows), len(rows))
+        sample = loadings[pick]
+        gram = sample.T @ sample
+        if not np.isfinite(gram).all() or np.linalg.cond(gram) > 1e6:
+            continue
+        fits.append(np.linalg.solve(gram, sample.T @ standardized[pick]))
+    if len(fits) < BOOTSTRAP_REPLICATES // 2:
+        return None
+    return [float(value) for value in np.std(np.array(fits), axis=0, ddof=1)]

@@ -2032,3 +2032,13 @@ upload that changed a GRCh38 family's small variants, the ancestry worker calcul
 from the stored callsets, once no import of the family is running; it reads whether each covers a
 genome, an exome or only part of the markers. It never fails or delays the import. A manifest's
 `metadata.ancestry` block, which declared a whole-genome VCF before, is not read.
+
+A package can declare VCF files the ancestry PCA reads without importing them, such as a gVCF:
+
+```json
+{"metadata":{"ancestry":{"vcfs":[{"path":"ancestry/PROBAND.g.vcf.gz","label":"gVCF"}]}}}
+```
+
+Once the import has completed, each file inside the package is recorded (at most 8; a line in the
+import's log says how many); the ancestry worker reads it in the background. Nothing of it is
+imported, and a file it cannot record or read never fails the import.

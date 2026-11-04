@@ -128,7 +128,7 @@ Ook een gecompromitteerde applicatie mag de *append-only* bewijstabellen niet ku
 
 - `audit_log_events`, `clinical_audit_events`, `report_signouts`, `integrity_anchors` en `qc_threshold_changes`;
 - `family_structure_versions` en `ui_events`, sinds SEC-7 (de stamboomversies en het logboek van de UI-gebeurtenissen);
-- `wgs_sources`, `ancestry_reference_panels` en `ancestry_results`, de tabellen van de verkennende ancestry-PCA (`wgs_sources` alleen voor projecties van vóór revisie 0016).
+- `wgs_sources`, `ancestry_reference_panels`, `ancestry_results`, `ancestry_sample_choices`, `ancestry_files` en `ancestry_file_scans`, de tabellen van de verkennende ancestry-PCA (`wgs_sources` alleen voor projecties van vóór revisie 0016).
 
 Het migratiegrootboek `alembic_version` mag `coga_app` alleen lezen: alleen de migratiestap schrijft er, als eigenaar, de revisie in waarop de databank staat. Als niet-eigenaar kan `coga_app` ook geen trigger uitschakelen. De runtime kan dus rijen aan die tabellen toevoegen, maar geen bestaande rij wijzigen of wissen: geen auditregel, ondertekend rapport, integriteitsanker, eerder vastgelegde QC-grens, stamboomversie of UI-gebeurtenis. De enige toegelaten wijziging doet de databank zelf, bij het verwijderen van een gebruiker of familie: de verwijzing ernaar gaat op `NULL` (`ON DELETE SET NULL`), terwijl een eigen kolom van de rij bewaart wie of welke familie het was (hoofdstuk 11).
 

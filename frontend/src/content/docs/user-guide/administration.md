@@ -1,5 +1,5 @@
-Administrator tools sit behind admin access. **Admin**, in the top-bar menu or on the dashboard, opens
-the [admin dashboard](/admin), grouped in six areas. A superuser sees five of its pages: **Gene panels**,
+Administrator tools sit behind admin access. **Admin**, in the top-bar menu, or **Open admin dashboard**
+on the dashboard opens the [admin dashboard](/admin), grouped in six areas. A superuser sees five of its pages: **Gene panels**,
 **Sequencing QC thresholds**, **Package import**, **Variant tags** and **Preset filters**. Every other
 page is an administrator's alone.
 
@@ -64,8 +64,9 @@ page is an administrator's alone.
 - **Projects & access** — the projects (each tied to an assembly) and which families, samples and users
   belong to them. A user sees only the data of their projects; the cohort counts in the explorers
   follow the same scope.
-  - Tick a user to make them a member, and choose their level next to their name. A member added
-    starts as an analyst.
+  - The members are listed with their level; **Remove** takes one off. Under them, **Add a member**
+    lists a few users without access at a time: type part of a name or email to find the others, then
+    **Add** one (or press Enter when the search finds one user). A member added starts as an analyst.
   - An **analyst** reads the project's records and changes them as far as their role allows: a
     viewer changes nothing, whatever their level.
   - A **reader** (a student, say) reads, searches, exports and prints them and saves their own filter

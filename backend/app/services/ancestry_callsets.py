@@ -18,7 +18,9 @@ the callset covers is measured, not declared:
   inside the exome too. Absence cannot be read there, so the callset is not projected.
 
 An individual is projected from its best projectable callset: direct calls before NIPT
-per-sample calls before imputed genotypes.
+per-sample calls before imputed genotypes. A user may choose otherwise for one individual
+(``ancestry_choices``): one callset, with the regions it covers (**regions**: an absent record is
+reference inside them, if the callset carries the expected non-reference calls there), or none.
 """
 from __future__ import annotations
 
@@ -31,11 +33,12 @@ from typing import Any
 
 import numpy as np
 
-from ..ancestry_schemas import AncestryCallsetKind, AncestryCallsetScanOut, AncestrySampleOut
+from ..ancestry_schemas import AncestryCallsetKind, AncestryCallsetScanOut, AncestryRegionsOut, AncestrySampleChoiceOut, AncestrySampleOut
 from .ancestry_projection import (
     MIN_CALL_RATE,
     MIN_MARKERS,
     AncestryReference,
+    bootstrap_standard_errors,
     carries_alt,
     genotype_dosage,
     project_least_squares,
@@ -44,8 +47,10 @@ from .clickhouse_variant_storage import _execute as storage_execute, _small_tabl
 from .nipt import is_cfdna_sample_metadata
 
 CALLSET_LABELS = {"clair3": "Direct calls", "nipt": "NIPT per-sample calls", "glimpse2": "Imputed genotypes"}
-# Which callset projects an individual when more than one can.
+# The stored callsets read, and which projects an individual when more than one can: a VCF
+# file a package declared for ancestry (``file:<id>``, ancestry_files) comes after direct calls.
 CALLSET_PREFERENCE = ("clair3", "nipt", "glimpse2")
+_PREFERENCE_RANK = {"clair3": 0, "file": 1, "nipt": 2, "glimpse2": 3}
 # Imputation has no FILTER of its own: its calls are read whatever the column holds.
 IMPUTED_CALLSETS = frozenset({"glimpse2"})
 # A callset counts as covering a set of markers when it carries at least this share of the
@@ -57,7 +62,12 @@ COMPLETE_SHARE = 0.95
 _QUERY_CHUNK = 5000
 
 EXCLUDED_CFDNA = "A maternal-plasma cfDNA sample is a mixture of mother and fetus, not one individual."
-EXCLUDED_EMBRYO = "An embryo is left out: its genotypes come from a few amplified cells and are its parents' alleles."
+EXCLUDED_EMBRYO = ("An embryo is left out: its genotypes come from a few amplified cells and are its parents' "
+                   "alleles. Choose a callset to read it.")
+EXCLUDED_BY_CHOICE = "Left out by a user's choice."
+NO_CHOSEN_CALLSET = "The chosen callset holds none of this individual's genotypes at the reference markers."
+REASON_REGIONS = ("The callset holds fewer non-reference calls in the given regions than a sequenced genome "
+                  "has there: they are not the regions it covers.")
 NO_CALLSET = "No stored callset holds this individual's genotypes at the reference markers."
 REASON_PARTIAL = ("The callset holds fewer non-reference calls than a sequenced genome or exome has at these "
                   "markers (a gene panel, a subset of sites or a filtered imputation): an absent marker "
@@ -140,27 +150,30 @@ def _filter_state(row: MarkerRow, index: int) -> str:
     return "pass" if all(value == "PASS" for value in values) else "filtered"
 
 
-def excluded_reason(sample_row: dict[str, Any]) -> str | None:
-    """Why an individual of the family is not projected at all, or None."""
-    if is_cfdna_sample_metadata(sample_row.get("sample_metadata")):
-        return EXCLUDED_CFDNA
-    if str(sample_row.get("role") or "").lower() == "embryo":
-        return EXCLUDED_EMBRYO
-    return None
+def _classify(reference: AncestryReference, carrier: Any, explicit: Any,
+              regions: Any = None) -> tuple[AncestryCallsetKind, Any, dict[str, float | None]]:
+    """The callset's kind, the markers an absent record counts as reference at, and its ratios.
 
-
-def _classify(reference: AncestryReference, carrier: Any, explicit: Any) -> tuple[AncestryCallsetKind, Any, dict[str, float | None]]:
-    """The callset's kind, the markers an absent record counts as reference at, and its ratios."""
+    ``regions``, the markers inside the regions a user gave for the callset, replaces the exome
+    mask: the callset covers them if it carries the expected non-reference calls there.
+    """
     expected = reference.expected_carrier
     n = len(reference.markers)
     ratios: dict[str, float | None] = {
-        "coverage_ratio": float(carrier.sum() / expected.sum()), "exome_ratio": None, "outside_exome_ratio": None}
+        "coverage_ratio": float(carrier.sum() / expected.sum()), "exome_ratio": None, "outside_exome_ratio": None,
+        "regions_ratio": None}
     mask = reference.exome.covered if reference.exome is not None else None
     if mask is not None:
         ratios["exome_ratio"] = float(carrier[mask].sum() / expected[mask].sum())
         ratios["outside_exome_ratio"] = float(carrier[~mask].sum() / expected[~mask].sum())
+    if regions is not None and regions.any():
+        ratios["regions_ratio"] = float(carrier[regions].sum() / expected[regions].sum())
     if explicit.sum() >= COMPLETE_SHARE * n:
         return "complete", np.zeros(n, dtype=bool), ratios
+    if regions is not None:
+        if (ratios["regions_ratio"] or 0.0) >= MIN_COVERAGE_RATIO:
+            return "regions", regions.copy(), ratios
+        return "partial", np.zeros(n, dtype=bool), ratios
     if mask is None:
         if ratios["coverage_ratio"] >= MIN_COVERAGE_RATIO:
             return "genome", np.ones(n, dtype=bool), ratios
@@ -174,9 +187,13 @@ def _classify(reference: AncestryReference, carrier: Any, explicit: Any) -> tupl
     return "partial", np.zeros(n, dtype=bool), ratios
 
 
-def read_callsets(rows: list[MarkerRow], reference: AncestryReference,
-                  samples: list[str]) -> dict[str, dict[str, CallsetGenotypes]]:
-    """Each individual's reading from each callset that holds it, by sample and callset."""
+def read_callsets(rows: list[MarkerRow], reference: AncestryReference, samples: list[str],
+                  regions: dict[tuple[str, str], Any] | None = None,
+                  labels: dict[str, str] | None = None) -> dict[str, dict[str, CallsetGenotypes]]:
+    """Each individual's reading from each callset that holds it, by sample and callset.
+
+    ``regions`` gives, by (sample, callset), the markers inside the regions a user gave for it.
+    """
     n = len(reference.markers)
     index = {(m.chrom, m.pos): i for i, m in enumerate(reference.markers)}
     wanted = set(samples)
@@ -218,7 +235,8 @@ def read_callsets(rows: list[MarkerRow], reference: AncestryReference,
         # Unfiltered calls are taken from imputed genotypes, and from a callset that filtered
         # none of its calls; a callset with PASS calls keeps its unfiltered ones out.
         accepts_unfiltered = callset in IMPUTED_CALLSETS or (counts["called"] == 0 and counts["called_unfiltered"] > 0)
-        kind, covered, ratios = _classify(reference, carrier[(callset, sample)], explicit[(callset, sample)])
+        given = (regions or {}).get((sample, callset))
+        kind, covered, ratios = _classify(reference, carrier[(callset, sample)], explicit[(callset, sample)], given)
         called = (marks == "called") | ((marks == "called_unfiltered") & accepts_unfiltered)
         assumed = (marks == "absent") & covered
         usable = called | assumed
@@ -234,19 +252,20 @@ def read_callsets(rows: list[MarkerRow], reference: AncestryReference,
         call_rate = usable_count / covered_count if covered_count else 0.0
         reason = None
         if kind == "partial":
-            reason = REASON_PARTIAL
+            reason = REASON_REGIONS if given is not None else REASON_PARTIAL
         elif usable_count < MIN_MARKERS:
             reason = f"Too few usable markers: {usable_count:,} of at least {MIN_MARKERS:,}."
         elif call_rate < MIN_CALL_RATE:
             reason = (f"Too few of the markers the callset covers have a usable genotype: "
                       f"{call_rate:.0%}, at least {MIN_CALL_RATE:.0%}.")
         scan = AncestryCallsetScanOut(
-            callset=callset, label=CALLSET_LABELS.get(callset, callset), kind=kind,
+            callset=callset, label=(labels or {}).get(callset) or CALLSET_LABELS.get(callset, callset), kind=kind,
             carriers=int(carrier[(callset, sample)].sum()),
             expected_carriers=round(float(reference.expected_carrier.sum()), 1),
             coverage_ratio=round(float(ratios["coverage_ratio"] or 0.0), 3),
             exome_ratio=None if ratios["exome_ratio"] is None else round(ratios["exome_ratio"], 3),
             outside_exome_ratio=None if ratios["outside_exome_ratio"] is None else round(ratios["outside_exome_ratio"], 3),
+            regions_ratio=None if ratios["regions_ratio"] is None else round(ratios["regions_ratio"], 3),
             explicit_calls=int(explicit[(callset, sample)].sum()), accepts_unfiltered=accepts_unfiltered,
             covered_markers=covered_count, usable_markers=usable_count, call_rate=round(call_rate, 4), qc=qc,
             projectable=reason is None, reason=reason)
@@ -256,32 +275,67 @@ def read_callsets(rows: list[MarkerRow], reference: AncestryReference,
 
 
 def _preference(callset: str) -> int:
-    return CALLSET_PREFERENCE.index(callset) if callset in CALLSET_PREFERENCE else len(CALLSET_PREFERENCE)
+    return _PREFERENCE_RANK.get(callset.split(":", 1)[0], len(_PREFERENCE_RANK))
 
 
-def project_family(rows: list[MarkerRow], reference: AncestryReference,
-                   sample_rows: list[dict[str, Any]]) -> list[AncestrySampleOut]:
-    """Each individual of the family projected from its best callset, or why it is not."""
+def _choice_out(sample: str, choice: dict[str, Any]) -> AncestrySampleChoiceOut:
+    regions = choice.get("regions")
+    return AncestrySampleChoiceOut(
+        sample_id=sample, mode=choice["mode"], callset=choice.get("callset"),
+        regions=AncestryRegionsOut(**{k: v for k, v in regions.items() if k != "loci"}) if regions else None,
+        chosen_at=choice["chosen_at"])
+
+
+def regions_mask(reference: AncestryReference, loci: list[str]) -> Any:
+    """The reference markers among a choice's regions (``chrom:pos``)."""
+    wanted = set(loci)
+    return np.array([f"{m.chrom}:{m.pos}" in wanted for m in reference.markers], dtype=bool)
+
+
+def project_family(rows: list[MarkerRow], reference: AncestryReference, sample_rows: list[dict[str, Any]],
+                   choices: dict[str, dict[str, Any]] | None = None,
+                   labels: dict[str, str] | None = None) -> list[AncestrySampleOut]:
+    """Each individual of the family projected from its best callset, or the one a user chose,
+    or why it is not. ``choices``: each individual's latest choice (``ancestry_choices``)."""
+    choices = choices or {}
     samples = [str(row["sample_id"]) for row in sample_rows]
-    excluded = {str(row["sample_id"]): excluded_reason(row) for row in sample_rows}
-    readings = read_callsets(rows, reference, [s for s in samples if excluded[s] is None])
+    cfdna = {str(row["sample_id"]) for row in sample_rows if is_cfdna_sample_metadata(row.get("sample_metadata"))}
+    embryos = {str(row["sample_id"]) for row in sample_rows if str(row.get("role") or "").lower() == "embryo"}
+    regions = {(sample, str(choice["callset"])): regions_mask(reference, choice["regions"]["loci"])
+               for sample, choice in choices.items()
+               if choice.get("mode") == "callset" and isinstance(choice.get("regions"), dict)}
+    # Every individual but a cfDNA mixture is read, the ones left out too: its callsets are shown,
+    # so a user can choose one.
+    readings = read_callsets(rows, reference, [s for s in samples if s not in cfdna], regions, labels)
     results = []
     for sample in samples:
-        if excluded[sample] is not None:
-            results.append(AncestrySampleOut(sample_id=sample, status="excluded", reason=excluded[sample]))
-            continue
+        choice = choices.get(sample) or {}
+        mode = choice.get("mode", "auto")
+        chosen = _choice_out(sample, choice) if mode != "auto" and "chosen_at" in choice else None
         options = sorted(readings.get(sample, {}).values(),
                          key=lambda r: (not r.scan.projectable, _preference(r.scan.callset), -r.scan.usable_markers))
         candidates = sorted((r.scan for r in options), key=lambda s: _preference(s.callset))
+        excluded = (EXCLUDED_CFDNA if sample in cfdna else EXCLUDED_BY_CHOICE if mode == "exclude"
+                    else EXCLUDED_EMBRYO if sample in embryos and mode != "callset" else None)
+        if excluded is not None:
+            results.append(AncestrySampleOut(sample_id=sample, status="excluded", reason=excluded,
+                                             candidates=candidates, choice=chosen))
+            continue
+        if mode == "callset":
+            options = [r for r in options if r.scan.callset == choice.get("callset")]
         if not options:
-            results.append(AncestrySampleOut(sample_id=sample, status="insufficient_data", reason=NO_CALLSET))
+            results.append(AncestrySampleOut(
+                sample_id=sample, status="insufficient_data", reason=NO_CHOSEN_CALLSET if mode == "callset" else NO_CALLSET,
+                candidates=candidates, choice=chosen))
             continue
         best = options[0]
         pcs = project_least_squares(reference, best.dosages, best.usable) if best.scan.projectable else None
+        pcs_se = (bootstrap_standard_errors(reference, best.dosages, best.usable, f"{sample}:{best.scan.callset}")
+                  if pcs is not None else None)
         reason = best.scan.reason if best.scan.projectable is False else (
             None if pcs is not None else "The usable markers cannot determine the four components.")
         results.append(AncestrySampleOut(
-            sample_id=sample, status="projected" if pcs is not None else "insufficient_data", pcs=pcs,
+            sample_id=sample, status="projected" if pcs is not None else "insufficient_data", pcs=pcs, pcs_se=pcs_se,
             call_rate=best.scan.call_rate, qc=best.scan.qc, callset=best.scan.callset, kind=best.scan.kind,
-            usable_markers=best.scan.usable_markers, reason=reason, candidates=candidates))
+            usable_markers=best.scan.usable_markers, reason=reason, candidates=candidates, choice=chosen))
     return results

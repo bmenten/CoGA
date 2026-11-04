@@ -583,3 +583,73 @@ $$ LANGUAGE plpgsql;
 DROP TRIGGER IF EXISTS ancestry_results_no_mutation ON ancestry_results;
 CREATE TRIGGER ancestry_results_no_mutation BEFORE UPDATE OR DELETE ON ancestry_results
     FOR EACH ROW EXECUTE FUNCTION ancestry_results_block_mutation();
+-- A user's choice, per individual, of how the ancestry PCA reads it (ancestry_choices.py):
+-- CoGA's own reading (auto), one callset, possibly with the regions it covers, or left out.
+-- The latest choice of an individual holds; append-only, so each calculation's is kept.
+CREATE TABLE IF NOT EXISTS ancestry_sample_choices (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    family_uuid uuid NOT NULL,
+    project_id uuid NOT NULL,
+    sample_id text NOT NULL,
+    mode text NOT NULL CONSTRAINT ancestry_sample_choices_mode_check CHECK (mode IN ('auto','callset','exclude')),
+    -- A stored callset, or a VCF file the family's package declared for ancestry (file:<its id>).
+    callset text CONSTRAINT ancestry_sample_choices_callset_check
+        CHECK (callset IN ('clair3','nipt','glimpse2') OR callset ~ '^file:[0-9a-f-]{36}$'),
+    -- The regions the chosen callset covers, as the reference markers inside them; never a file.
+    regions jsonb,
+    chosen_by uuid NOT NULL,
+    chosen_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+    CONSTRAINT ancestry_sample_choices_callset_mode_check CHECK ((mode = 'callset') = (callset IS NOT NULL)),
+    CONSTRAINT ancestry_sample_choices_regions_check CHECK (regions IS NULL OR mode = 'callset')
+);
+CREATE INDEX IF NOT EXISTS ancestry_sample_choices_family
+    ON ancestry_sample_choices(family_uuid, project_id, sample_id, chosen_at DESC);
+CREATE OR REPLACE FUNCTION ancestry_sample_choices_block_mutation() RETURNS trigger AS $$
+BEGIN
+    RAISE EXCEPTION 'ancestry_sample_choices is append-only; % is not permitted', TG_OP;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS ancestry_sample_choices_no_mutation ON ancestry_sample_choices;
+CREATE TRIGGER ancestry_sample_choices_no_mutation BEFORE UPDATE OR DELETE ON ancestry_sample_choices
+    FOR EACH ROW EXECUTE FUNCTION ancestry_sample_choices_block_mutation();
+-- VCF files a family package declared for the ancestry PCA without importing them (a gVCF),
+-- and each scan of one: its checksum and its calls at the reference markers, which every
+-- calculation reads instead of the file (ancestry_files.py). Both append-only.
+CREATE TABLE IF NOT EXISTS ancestry_files (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    family_uuid uuid NOT NULL,
+    family_identifier text NOT NULL,
+    project_id uuid NOT NULL,
+    import_job_id uuid,
+    package_path text NOT NULL,
+    relative_path text NOT NULL,
+    label text NOT NULL,
+    declared_at timestamptz NOT NULL DEFAULT clock_timestamp()
+);
+CREATE INDEX IF NOT EXISTS ancestry_files_family ON ancestry_files(family_uuid, project_id, relative_path, declared_at DESC);
+CREATE TABLE IF NOT EXISTS ancestry_file_scans (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    file_id uuid NOT NULL REFERENCES ancestry_files(id),
+    status text NOT NULL CONSTRAINT ancestry_file_scans_status_check CHECK (status IN ('scanned','failed')),
+    -- The file as it was read, and the reference whose markers were kept.
+    sha256 text,
+    file_size bigint,
+    reference_sha256 text NOT NULL,
+    columns jsonb NOT NULL DEFAULT '[]'::jsonb,
+    rows jsonb NOT NULL DEFAULT '[]'::jsonb,
+    error text,
+    scanned_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+    CONSTRAINT ancestry_file_scans_checksum_check CHECK ((status = 'scanned') = (sha256 IS NOT NULL))
+);
+CREATE INDEX IF NOT EXISTS ancestry_file_scans_file ON ancestry_file_scans(file_id, scanned_at DESC);
+CREATE OR REPLACE FUNCTION ancestry_files_block_mutation() RETURNS trigger AS $$
+BEGIN
+    RAISE EXCEPTION '% is append-only; % is not permitted', TG_TABLE_NAME, TG_OP;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS ancestry_files_no_mutation ON ancestry_files;
+CREATE TRIGGER ancestry_files_no_mutation BEFORE UPDATE OR DELETE ON ancestry_files
+    FOR EACH ROW EXECUTE FUNCTION ancestry_files_block_mutation();
+DROP TRIGGER IF EXISTS ancestry_file_scans_no_mutation ON ancestry_file_scans;
+CREATE TRIGGER ancestry_file_scans_no_mutation BEFORE UPDATE OR DELETE ON ancestry_file_scans
+    FOR EACH ROW EXECUTE FUNCTION ancestry_files_block_mutation();

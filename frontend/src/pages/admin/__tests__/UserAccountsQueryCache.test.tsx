@@ -132,8 +132,11 @@ describe('the account list the admin pages share', () => {
 
     renderPage(queryClient, <ProjectsPage />);
 
-    expect(await screen.findByText('Ann Lee · ann@example.com')).toBeInTheDocument();
-    expect(screen.getByText('Ben Ray · ben@example.com')).toBeInTheDocument();
+    // Ann, the project's member, in the member table, and Ben among the users it can add. Wait
+    // for the table: until the project's settings load, Ann is briefly listed with Ben, and
+    // that element is gone once she moves to the table.
+    expect(await screen.findByRole('cell', { name: 'Ann Lee · ann@example.com' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Add Ben Ray · ben@example.com' })).toBeInTheDocument();
     expect(accountListRequests()).toBe(1);
   });
 });

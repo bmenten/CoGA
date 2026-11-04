@@ -168,7 +168,9 @@ const AncestryPcaPlot: React.FC<Props> = ({ reference, samples }) => {
           </title>
           <desc id={`${id}-description`}>
             Public reference individuals are colored by population. Family
-            individuals are labeled diamonds. Horizontal {label(xAxis)};
+            individuals are labeled diamonds, each in a dashed ellipse two
+            standard errors wide: how far it moves when its markers are drawn
+            again. Horizontal {label(xAxis)};
             vertical {label(yAxis)}. Percentages show variance explained, not
             ancestry proportions. Hover a point for its coordinates.
           </desc>
@@ -254,6 +256,10 @@ const AncestryPcaPlot: React.FC<Props> = ({ reference, samples }) => {
             {projected.map((sample, i) => {
               const cx = x(sample.pcs![xAxis]);
               const cy = y(sample.pcs![yAxis]);
+              const se = sample.pcs_se;
+              // Two standard errors on each axis shown, in the plot's own scale.
+              const rx = se ? Math.abs(x(sample.pcs![xAxis] + 2 * se[xAxis]) - cx) : 0;
+              const ry = se ? Math.abs(y(sample.pcs![yAxis] + 2 * se[yAxis]) - cy) : 0;
               return (
                 <g
                   key={sample.sample_id}
@@ -263,9 +269,22 @@ const AncestryPcaPlot: React.FC<Props> = ({ reference, samples }) => {
                   <title>
                     {sample.sample_id}; PC{xAxis + 1}:{' '}
                     {sample.pcs![xAxis].toFixed(3)}; PC{yAxis + 1}:{' '}
-                    {sample.pcs![yAxis].toFixed(3)}; usable markers:{' '}
-                    {(sample.call_rate * 100).toFixed(1)}%
+                    {sample.pcs![yAxis].toFixed(3)}
+                    {se
+                      ? ` (± ${se[xAxis].toFixed(3)}; ± ${se[yAxis].toFixed(3)} SE)`
+                      : ''}
+                    ; usable markers: {(sample.call_rate * 100).toFixed(1)}%
                   </title>
+                  {se ? (
+                    <ellipse
+                      cx={cx}
+                      cy={cy}
+                      rx={rx}
+                      ry={ry}
+                      className="ancestry-uncertainty"
+                      data-uncertainty={sample.sample_id}
+                    />
+                  ) : null}
                   <circle
                     cx={cx}
                     cy={cy}

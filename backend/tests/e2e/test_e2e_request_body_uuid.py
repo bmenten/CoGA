@@ -54,6 +54,7 @@ pytestmark = pytest.mark.integration
 UUID_BODY_FIELDS = {
     "file_id",
     "assembly_id",
+    "panel_id",
     "project_id",
     "project_ids",
     "reader_user_ids",
@@ -166,6 +167,7 @@ def _sweep_bodies(run: str, records: dict[str, str]) -> dict[tuple[str, str], di
             "members": [{"sample_id": f"E2EBODYP{run}M", "sex": "female"}],
         },
         ("PUT", "/api/families/{family_id}/roi"): {},
+        ("PUT", "/api/families/{family_id}/ancestry/choices/{sample_id}"): {"mode": "callset", "callset": "clair3"},
         ("POST", "/api/families/{family_id}/small-variant-tags"): tag,
         ("PUT", "/api/families/{family_id}/small-variant-tags/{tag_key}"): tag,
         ("POST", "/api/projects/"): {

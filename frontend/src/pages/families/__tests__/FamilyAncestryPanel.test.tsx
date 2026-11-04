@@ -11,7 +11,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import FamilyAncestryPanel from '../FamilyAncestryPanel';
 import { createTestQueryClient } from '../../../test/createTestQueryClient';
 
-const api = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }));
+const api = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), put: vi.fn() }));
 vi.mock('../../../lib/api', () => ({ default: api }));
 const reference = {
   sha256: 'synthetic-reference',
@@ -85,6 +85,7 @@ const data = {
         sample_id: 'PROBAND',
         status: 'projected',
         pcs: [1, 2, 3, 4],
+        pcs_se: [0.05, 0.1, 0.2, 0.4],
         call_rate: 0.99,
         qc: { called: 4000, assumed_ref: 5900, no_call: 100 },
         callset: 'clair3',
@@ -203,6 +204,10 @@ describe('family ancestry PCA', () => {
     expect(proband.getByText('96%')).toBeInTheDocument();
     expect(proband.getByText('9,900 of 10,000 (99.0%)')).toBeInTheDocument();
     expect(proband.getByText('no call: 100')).toBeInTheDocument();
+    // Each coordinate with its standard error, and an ellipse of two around the point.
+    expect(proband.getByText('± 0.050')).toBeInTheDocument();
+    expect(container.querySelector('[data-uncertainty="PROBAND"]')).toBeInTheDocument();
+    expect(container.querySelector('[data-uncertainty="MOTHER"]')).not.toBeInTheDocument();
     const mother = within(within(table).getByRole('row', { name: /MOTHER/ }));
     expect(mother.getByText('Direct calls · exome')).toBeInTheDocument();
     expect(mother.getByText('93% in the exome')).toBeInTheDocument();
@@ -253,6 +258,144 @@ describe('family ancestry PCA', () => {
     expect(mother.getByText('8,200 of 8,398 (97.6%)')).toBeInTheDocument();
     expect(mother.getByText('Projected')).toBeInTheDocument();
     expect(screen.getByText(/carries the ALT allele at about 3,960 of the markers/)).toBeInTheDocument();
+  });
+  it('lets a user choose how an individual is read, with a panel or a BED file, and saves it', async () => {
+    const panels = [{ _id: 'panel-1', name: 'Synthetic panel' }];
+    api.get.mockImplementation((url: string) =>
+      Promise.resolve({
+        data:
+          url === '/panels'
+            ? panels
+            : {
+                ...data,
+                can_choose: true,
+                choices: [
+                  {
+                    sample_id: 'MOTHER',
+                    mode: 'exclude',
+                    callset: null,
+                    regions: null,
+                    chosen_at: '2026-01-02T12:00:00Z',
+                  },
+                ],
+              },
+      })
+    );
+    api.put.mockResolvedValue({ data: {} });
+    renderPanel();
+    await screen.findByRole('img');
+    const table = screen.getByRole('table', { name: 'Choices per individual' });
+    // Every individual with a callset to choose.
+    expect(within(table).getAllByRole('row').slice(1).map((row) => row.firstChild?.textContent)).toEqual([
+      'PROBAND',
+      'MOTHER',
+      'FATHER1',
+    ]);
+    expect(within(within(table).getByRole('row', { name: /MOTHER/ })).getByText('Left out')).toBeInTheDocument();
+    const father = within(within(table).getByRole('row', { name: /FATHER1/ }));
+    const regions = father.getByLabelText("Regions FATHER1's callset covers");
+    expect(regions).toBeDisabled();
+    fireEvent.change(father.getByLabelText('How FATHER1 is read'), { target: { value: 'callset:glimpse2' } });
+    await waitFor(() => expect(father.getByRole('option', { name: 'Gene panel: Synthetic panel' })).toBeInTheDocument());
+    fireEvent.change(regions, { target: { value: 'panel:panel-1' } });
+    fireEvent.click(father.getByRole('button', { name: 'Save' }));
+    await waitFor(() =>
+      expect(api.put).toHaveBeenCalledWith(
+        '/families/F1/ancestry/choices/FATHER1',
+        { mode: 'callset', callset: 'glimpse2', panel_id: 'panel-1', keep_regions: false },
+        { params: { project_id: 'project1' } }
+      )
+    );
+    // A BED file is sent as a form with the callset, not kept by the page.
+    fireEvent.change(regions, { target: { value: 'bed' } });
+    expect(father.getByRole('button', { name: 'Save' })).toBeDisabled();
+    const file = new File(['chr1\t0\t10\n'], 'capture.bed', { type: 'text/plain' });
+    fireEvent.change(father.getByLabelText('BED file for FATHER1'), { target: { files: [file] } });
+    fireEvent.click(father.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(api.put).toHaveBeenCalledTimes(2));
+    const [url, form] = api.put.mock.calls[1];
+    expect(url).toBe('/families/F1/ancestry/choices/FATHER1/bed');
+    expect((form as FormData).get('callset')).toBe('glimpse2');
+    expect(((form as FormData).get('file') as File).name).toBe('capture.bed');
+    // Leaving an individual out.
+    const proband = within(within(table).getByRole('row', { name: /PROBAND/ }));
+    fireEvent.change(proband.getByLabelText('How PROBAND is read'), { target: { value: 'exclude' } });
+    fireEvent.click(proband.getByRole('button', { name: 'Save' }));
+    await waitFor(() =>
+      expect(api.put).toHaveBeenLastCalledWith(
+        '/families/F1/ancestry/choices/PROBAND',
+        { mode: 'exclude', callset: null, panel_id: null, keep_regions: false },
+        { params: { project_id: 'project1' } }
+      )
+    );
+  });
+  it('lists the declared VCF files and lets a user read one', async () => {
+    const fileCallset = 'file:0f8fad5b-d9cb-469f-a165-70867728950e';
+    const withFile = {
+      ...data,
+      can_choose: true,
+      choices: [],
+      files: [
+        {
+          id: '0f8fad5b-d9cb-469f-a165-70867728950e',
+          label: 'Father gVCF',
+          relative_path: 'ancestry/FATHER1.g.vcf.gz',
+          declared_at: '2026-01-01T12:00:00Z',
+          status: 'scanned',
+          sha256: 'ab'.repeat(32),
+          scanned_at: '2026-01-01T12:05:00Z',
+          columns: ['FATHER1'],
+        },
+        {
+          id: '1f8fad5b-d9cb-469f-a165-70867728950e',
+          label: 'Old gVCF',
+          relative_path: 'old.g.vcf.gz',
+          declared_at: '2026-01-01T12:00:00Z',
+          status: 'failed',
+          error: 'The VCF file could not be read.',
+          columns: [],
+        },
+      ],
+      analysis: {
+        ...data.analysis,
+        samples: data.analysis.samples.map((sample) =>
+          sample.sample_id === 'FATHER1'
+            ? {
+                ...sample,
+                candidates: [
+                  ...sample.candidates,
+                  scan(fileCallset, 'VCF file: Father gVCF', 'complete'),
+                ],
+              }
+            : sample
+        ),
+      },
+    };
+    api.get.mockImplementation((url: string) =>
+      Promise.resolve({ data: url === '/panels' ? [] : withFile })
+    );
+    api.put.mockResolvedValue({ data: {} });
+    renderPanel();
+    await screen.findByRole('img');
+    expect(screen.getByText('Father gVCF')).toBeInTheDocument();
+    expect(screen.getByText(/ancestry\/FATHER1\.g\.vcf\.gz/).closest('li')).toHaveTextContent(`SHA-256 ${'ab'.repeat(32)}`);
+    expect(screen.getByText(/not read: The VCF file could not be read\./)).toBeInTheDocument();
+    const table = screen.getByRole('table', { name: 'Choices per individual' });
+    const father = within(within(table).getByRole('row', { name: /FATHER1/ }));
+    fireEvent.change(father.getByLabelText('How FATHER1 is read'), { target: { value: `callset:${fileCallset}` } });
+    fireEvent.click(father.getByRole('button', { name: 'Save' }));
+    await waitFor(() =>
+      expect(api.put).toHaveBeenCalledWith(
+        '/families/F1/ancestry/choices/FATHER1',
+        { mode: 'callset', callset: fileCallset, panel_id: null, keep_regions: false },
+        { params: { project_id: 'project1' } }
+      )
+    );
+  });
+  it('offers no choice to a reader', async () => {
+    renderPanel();
+    await screen.findByRole('img');
+    expect(screen.queryByRole('table', { name: 'Choices per individual' })).not.toBeInTheDocument();
   });
   it('names the policies of the projection shown, in words', async () => {
     renderPanel();

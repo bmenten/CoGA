@@ -862,7 +862,7 @@ data it loads is listed in [data-import.md](data-import.md), section 1.
 
 ### Exploratory ancestry PCA
 
-Four tables in `04_traceability.sql` hold the exploratory ancestry PCA, which is outside the
+Seven tables in `04_traceability.sql` hold the exploratory ancestry PCA, which is outside the
 intended purpose and never enters a sign-out or the signed record ([ancestry-pca.md](ancestry-pca.md)).
 A projection reads the family's stored small variants in ClickHouse at the reference markers;
 revision 0016 (2026-11-04) gave the runs and results what that needs.
@@ -872,11 +872,14 @@ revision 0016 (2026-11-04) gave the runs and results what that needs.
 | `ancestry_reference_panels` | Append-only public reference snapshots keyed by the model NPZ's SHA-256: metadata, PC variance, population labels, the exome mask's checksum and definition, and reference coordinates |
 | `ancestry_runs` | Project-scoped jobs pinning the reference checksum: a user's (`trigger = 'user'`, with `requested_by`) or the worker's own once the family's genotypes changed (`trigger = 'automatic'`, no requester; a check makes a user's run name its requester). `storage_version` is the family's small-variant data version the run was queued for, then the one it read: the worker's sweep queues no second run for a version. Queued, running, completed, failed or interrupted |
 | `ancestry_results` | One append-only snapshot per completed run: each individual's four PCs or why there are none, the callset it was read from and how (genome, exome, a call at every marker), every callset's scan, the `storage_version` read, the calculation version and the rules, with a digest of the rows read |
+| `ancestry_sample_choices` | Append-only choices of how one individual is read, the latest per individual holding: CoGA's own reading (`auto`), one callset (`callset`, which also includes an embryo) with the regions it covers, or left out (`exclude`). `regions` holds the regions' source (a gene panel's id and version, or a BED file's name and SHA-256), their interval count and the reference markers inside them (`loci`); never the BED file. A new table: its baseline only |
+| `ancestry_files` | Append-only VCF files a family package declared for ancestry without importing them (a gVCF): the family, project, import job, package and relative path, and label. Of the declarations of one path the latest counts. A new table: its baseline only |
+| `ancestry_file_scans` | Append-only scans of a declared file: `scanned` (its SHA-256 and size as read, its sample columns and its calls at the reference markers, `rows`) or `failed` (a fixed reason), and the reference whose markers were kept. A calculation reads the latest scan, never the file. A new table: its baseline only |
 | `wgs_sources` | Append-only WGS file sources that projections read before revision 0016 (a retained upload by `raw_file_id`, a family package by its import job), with their checksum, the stored genotypes' version and fingerprint and the absence and unfiltered-call policies. A run or result from before then names one in `source_id`; nothing writes a source any more |
 
-`wgs_sources`, `ancestry_reference_panels` and `ancestry_results` have mutation-blocking triggers,
+`wgs_sources`, `ancestry_reference_panels`, `ancestry_results`, `ancestry_sample_choices`, `ancestry_files` and `ancestry_file_scans` have mutation-blocking triggers,
 and `coga_app` may not UPDATE, DELETE or TRUNCATE them (`05_grants.sql`). A running job holds its
 own row lock until it ends; a job whose process stopped loses it, and the next worker ends it as
 interrupted. Publication is checked again under the family's variant-write locks, so a family,
-genotype, member or permission change in between publishes nothing. Earlier projections keep
+genotype, member, choice or permission change in between publishes nothing. Earlier projections keep
 their own reference snapshot.

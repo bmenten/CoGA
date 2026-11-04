@@ -900,6 +900,13 @@
   stroke: var(--color-border);
   stroke-opacity: 0.55;
 }
+/* Two standard errors of a family individual's coordinates, behind its diamond. */
+.ancestry-uncertainty {
+  fill: none;
+  stroke: var(--color-text-muted);
+  stroke-dasharray: 4 3;
+  stroke-width: 1px;
+}
 .ancestry-family-point path {
   fill: var(--color-surface);
   stroke: var(--color-text);

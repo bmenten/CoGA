@@ -46,11 +46,6 @@ const Dashboard: React.FC = () => {
           <Link to="/family-builder" className="button-secondary hover:no-underline">
             Family builder
           </Link>
-          {userHasAdminDashboard && (
-            <Link to="/admin" className="button-secondary hover:no-underline">
-              Admin
-            </Link>
-          )}
           <Link to="/docs" className="button-grey hover:no-underline">
             User guide
           </Link>

@@ -96,41 +96,133 @@ const memberLevels = (form: ProjectFormState) => ({
   reader_user_ids: form.readerIds.filter((userId) => form.userIds.includes(userId)),
 });
 
+/** How many users without access the member picker lists at once; a search finds the others. */
+const MEMBER_CANDIDATE_LIMIT = 8;
+
+const byUserLabel = (left: User, right: User) => getUserLabel(left).localeCompare(getUserLabel(right));
+
 /**
  * Who may open the project, and what each member may do in it (SEC-1): an analyst reads and
- * changes its records, a reader only reads them. An administrator has every right in every
- * project and needs no membership.
+ * changes its records, a reader only reads them. A superuser or an administrator has every right
+ * in every project and needs no membership. The members are a table; a user is added from a
+ * search that lists a few users without access at a time, so the section stays short however
+ * many accounts there are.
  */
 const ProjectMemberPicker: React.FC<{
   users: User[];
   form: ProjectFormState;
   onToggle: (userId: string) => void;
   onLevel: (userId: string, level: ProjectAccessLevel) => void;
-}> = ({ users, form, onToggle, onLevel }) => (
-  <div className="table-checkbox-grid project-access-grid">
-    {users.map((user) => {
-      const member = form.userIds.includes(user.id);
-      return (
-        <div key={user.id} className="project-member-row">
-          <label className="admin-project-chip">
-            <input type="checkbox" checked={member} onChange={() => onToggle(user.id)} />
-            <span>{getUserLabel(user)}</span>
+}> = ({ users, form, onToggle, onLevel }) => {
+  const [search, setSearch] = useState('');
+  const query = search.trim().toLowerCase();
+  const members = users.filter((user) => form.userIds.includes(user.id)).sort(byUserLabel);
+  const others = users.filter((user) => !form.userIds.includes(user.id));
+  const matches = (
+    query ? others.filter((user) => getUserLabel(user).toLowerCase().includes(query)) : others
+  ).sort(byUserLabel);
+  const shown = matches.slice(0, MEMBER_CANDIDATE_LIMIT);
+
+  return (
+    <div className="project-member-picker">
+      {members.length > 0 ? (
+        <div className="data-table-shell data-table-shell--fit">
+          <table className="analysis-table project-member-table">
+            <thead>
+              <tr>
+                <th scope="col">Member</th>
+                <th scope="col">Access</th>
+                <th scope="col">
+                  <span className="sr-only">Remove</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {members.map((user) => (
+                <tr key={user.id}>
+                  <td>{getUserLabel(user)}</td>
+                  <td>
+                    <select
+                      aria-label={`Access level of ${user.email}`}
+                      value={memberAccessLevel(form.readerIds, user.id)}
+                      onChange={(event) => onLevel(user.id, event.target.value as ProjectAccessLevel)}
+                    >
+                      <option value="analyst">Analyst (read and change)</option>
+                      <option value="reader">Reader (read only)</option>
+                    </select>
+                  </td>
+                  <td>
+                    <button
+                      type="button"
+                      className="button-ghost project-member-action"
+                      aria-label={`Remove ${getUserLabel(user)}`}
+                      onClick={() => onToggle(user.id)}
+                    >
+                      Remove
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : form.userIds.length === 0 ? (
+        <p className="table-empty">
+          No members yet: only superusers and administrators can open the project.
+        </p>
+      ) : null}
+
+      {others.length > 0 ? (
+        <div className="project-member-add">
+          <label className="field-label project-member-search">
+            Add a member
+            <input
+              type="search"
+              value={search}
+              placeholder="Search by name or email"
+              onChange={(event) => setSearch(event.target.value)}
+              onKeyDown={(event) => {
+                // Enter adds the one user the search found; it never submits the form around it.
+                if (event.key !== 'Enter') return;
+                event.preventDefault();
+                if (query && matches.length === 1) {
+                  onToggle(matches[0].id);
+                  setSearch('');
+                }
+              }}
+            />
           </label>
-          {member ? (
-            <select
-              aria-label={`Access level of ${user.email}`}
-              value={memberAccessLevel(form.readerIds, user.id)}
-              onChange={(event) => onLevel(user.id, event.target.value as ProjectAccessLevel)}
-            >
-              <option value="analyst">Analyst (read and change)</option>
-              <option value="reader">Reader (read only)</option>
-            </select>
+          {shown.length > 0 ? (
+            <ul className="project-member-candidates">
+              {shown.map((user) => (
+                <li key={user.id}>
+                  <span>{getUserLabel(user)}</span>
+                  <button
+                    type="button"
+                    className="button-secondary project-member-action"
+                    aria-label={`Add ${getUserLabel(user)}`}
+                    onClick={() => onToggle(user.id)}
+                  >
+                    Add
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="table-empty">No user without access matches &ldquo;{search.trim()}&rdquo;.</p>
+          )}
+          {matches.length > shown.length ? (
+            <p className="table-subtle">
+              {shown.length} of {matches.length} shown: search by name or email for the others.
+            </p>
           ) : null}
         </div>
-      );
-    })}
-  </div>
-);
+      ) : (
+        <p className="table-subtle">Every user is a member.</p>
+      )}
+    </div>
+  );
+};
 
 /**
  * What deleting `project` takes with it, for the confirmation (UI-7). The delete cascades to the
@@ -507,6 +599,7 @@ const ProjectsPage: React.FC = () => {
               <label className="field-label">
                 Notes
                 <textarea
+                  rows={1}
                   value={createForm.description}
                   onChange={(event) =>
                     setCreateForm((current) => ({
@@ -514,7 +607,7 @@ const ProjectsPage: React.FC = () => {
                       description: event.target.value,
                     }))
                   }
-                  placeholder="Short notes describing the cohort, purpose, or handoff context."
+                  placeholder="Cohort, purpose or handoff context"
                 />
               </label>
               <label className="field-label">
@@ -564,7 +657,7 @@ const ProjectsPage: React.FC = () => {
                 <div className="space-y-1">
                   <p className="eyebrow-label">Initial access</p>
                   <p className="catalog-card-copy">
-                    Leave this empty if the project should not start with a restricted user list.
+                    Members can also be added later, from the project&rsquo;s settings.
                     An analyst reads and changes the project&rsquo;s records; a reader only reads
                     them.
                   </p>
@@ -750,6 +843,7 @@ const ProjectsPage: React.FC = () => {
               <label className="field-label">
                 Notes
                 <textarea
+                  rows={1}
                   value={editForm.description}
                   onChange={(event) =>
                     setEditForm((current) => ({
@@ -811,10 +905,11 @@ const ProjectsPage: React.FC = () => {
             </h3>
             <p className="catalog-card-copy">
               An analyst reads and changes the project&rsquo;s records; a reader only reads
-              them. Administrators have every right in every project.
+              them. Superusers and administrators have every right in every project.
             </p>
             {users.length > 0 ? (
               <ProjectMemberPicker
+                key={selectedProject.id}
                 users={users}
                 form={editForm}
                 onToggle={(userId) => toggleUserId(setEditForm, userId)}
