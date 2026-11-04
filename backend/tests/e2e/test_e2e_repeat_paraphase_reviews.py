@@ -175,7 +175,11 @@ async def _exercise(base: Path, family_id: str) -> dict[str, Any]:
             r["stale"] = capture(
                 await ac.put(repeat_review, json={"classification": "normal", "tags": [], "expected_updated_at": None})
             )
-            r["other_scale"] = capture(await ac.put(repeat_review, json={"classification": "carrier"}))
+            r["other_scale"] = capture(
+                await ac.put(repeat_review, json={"classification": "carrier", "expected_updated_at": None})
+            )
+            # A save that does not say which version it was made against (REQ-TRACE-010).
+            r["no_version"] = capture(await ac.put(repeat_review, json={"classification": "normal", "tags": []}))
             r["unknown_tag"] = capture(
                 await ac.put(
                     repeat_review,
@@ -186,7 +190,9 @@ async def _exercise(base: Path, family_id: str) -> dict[str, Any]:
                     },
                 )
             )
-            r["no_call"] = capture(await ac.put(f"{family}/repeat-expansions/HD_HTT/review", json={"note": "x"}))
+            r["no_call"] = capture(
+                await ac.put(f"{family}/repeat-expansions/HD_HTT/review", json={"note": "x", "expected_updated_at": None})
+            )
             r["paraphase_save"] = capture(
                 await ac.put(paraphase_review, json={"classification": "carrier", "tags": ["review"], "expected_updated_at": None})
             )
@@ -293,6 +299,8 @@ def test_a_review_saves_its_calls_and_refuses_what_it_must(run: dict[str, Any]) 
     assert saved["drift"] == {"status": "unchanged", "changes": []}
     assert _detail(run, "stale", 409)["code"] == "review_conflict"
     assert run["responses"]["other_scale"]["status"] == 422
+    no_version = run["responses"]["no_version"]
+    assert no_version["status"] == 422 and "expected_updated_at" in json.dumps(no_version["json"])
     assert "no_such_tag" in _detail(run, "unknown_tag", 400)
     assert _detail(run, "no_call", 404) == "This family holds no call at that repeat locus"
     gba = ok_json(run, "paraphase_save")

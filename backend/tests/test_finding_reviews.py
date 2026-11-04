@@ -10,6 +10,7 @@ unreviewed findings lists (B8, B12), and the clinical audit events of a save.
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 import json
 from types import SimpleNamespace
 from typing import Any, get_args
@@ -91,17 +92,17 @@ def _paraphase_section(*genes: dict[str, Any]) -> dict[str, Any]:
 
 
 def test_each_type_takes_its_own_scale_and_refuses_any_other_value() -> None:
-    assert RepeatExpansionReviewUpdate(classification="reduced_penetrance").classification == "reduced_penetrance"
-    assert ParaphaseReviewUpdate(classification="risk_allele").classification == "risk_allele"
+    assert RepeatExpansionReviewUpdate(classification="reduced_penetrance", expected_updated_at=None).classification == "reduced_penetrance"
+    assert ParaphaseReviewUpdate(classification="risk_allele", expected_updated_at=None).classification == "risk_allele"
     # Another type's value, an ACMG class, or a word: refused (422 at the API).
     for bad in ("carrier", "pathogenic", "acmg_class_5", "Pathogenic expansion"):
         with pytest.raises(ValidationError):
-            RepeatExpansionReviewUpdate(classification=bad)
+            RepeatExpansionReviewUpdate(classification=bad, expected_updated_at=None)
     for bad in ("premutation", "pathogenic_expansion", "likely_pathogenic"):
         with pytest.raises(ValidationError):
-            ParaphaseReviewUpdate(classification=bad)
+            ParaphaseReviewUpdate(classification=bad, expected_updated_at=None)
     # No classification is no judgement, not a refusal.
-    assert RepeatExpansionReviewUpdate().classification is None
+    assert RepeatExpansionReviewUpdate(expected_updated_at=None).classification is None
 
 
 def test_every_value_of_each_scale_has_its_label_and_the_tables_check_takes_it() -> None:
@@ -433,12 +434,31 @@ def test_the_events_name_the_finding_its_modality_assembly_and_evidence(monkeypa
 # calls reads as drift (B5, B13). Real Postgres is in e2e/test_e2e_repeat_paraphase_reviews.py.
 
 _CALLS = {"locus_id": "FXS_FMR1", "calls": [{"sample": "MOTHER", "repeat_counts": [30, 60]}]}
+def test_a_save_must_say_which_version_of_the_review_it_was_made_against() -> None:
+    # REQ-TRACE-010: left out, the save is refused (422 at the API) instead of overwriting
+    # unchecked; null says the client loaded no review.
+    for model in (RepeatExpansionReviewUpdate, ParaphaseReviewUpdate):
+        with pytest.raises(ValidationError) as refused:
+            model(note="Seen")
+        assert [error["loc"] for error in refused.value.errors()] == [("expected_updated_at",)]
+        assert model(note="Seen", expected_updated_at=None).expected_updated_at is None
+
+
 _CALLS_SINCE = {"locus_id": "FXS_FMR1", "calls": [{"sample": "MOTHER", "repeat_counts": [30, 62]}]}
 _FROZEN = {"captured_at": "2026-10-28T10:00:00+00:00", "evidence": _CALLS}
 
 
+# The stored review's version, as the client loaded it.
+_LOADED = datetime(2026, 10, 28, 10, tzinfo=timezone.utc)
+
+
 def _stored(**fields: Any) -> dict[str, Any]:
-    return {**_row("FXS_FMR1", classification="premutation", evidence_snapshot=_FROZEN), "id": "r1", **fields}
+    return {
+        **_row("FXS_FMR1", classification="premutation", evidence_snapshot=_FROZEN),
+        "id": "r1",
+        "updated_at": _LOADED,
+        **fields,
+    }
 
 
 class _SaveSession:
@@ -515,7 +535,7 @@ def test_a_re_save_that_keeps_the_classification_updates_the_review_and_keeps_it
     # the review now reads as drifted.
     saved, session, audited = _save(
         monkeypatch,
-        RepeatExpansionReviewUpdate(classification="premutation", note="Confirmed by PCR"),
+        RepeatExpansionReviewUpdate(classification="premutation", note="Confirmed by PCR", expected_updated_at=_LOADED),
         existing=_stored(),
         current=_CALLS_SINCE,
     )
@@ -540,8 +560,8 @@ def test_a_re_save_that_keeps_the_classification_updates_the_review_and_keeps_it
 @pytest.mark.parametrize(
     "payload",
     [
-        RepeatExpansionReviewUpdate(classification="pathogenic_expansion"),
-        RepeatExpansionReviewUpdate(classification="premutation", tags=["report"]),
+        RepeatExpansionReviewUpdate(classification="pathogenic_expansion", expected_updated_at=_LOADED),
+        RepeatExpansionReviewUpdate(classification="premutation", tags=["report"], expected_updated_at=_LOADED),
     ],
     ids=["classification-changed", "report-tag-added"],
 )
@@ -555,26 +575,28 @@ def test_a_changed_classification_or_a_report_tag_added_freezes_the_calls_again(
 
 
 def test_a_first_review_that_bears_a_judgement_is_inserted_with_the_calls_it_rests_on(monkeypatch) -> None:
-    saved, session, audited = _save(monkeypatch, RepeatExpansionReviewUpdate(classification="premutation"), existing=None)
+    saved, session, audited = _save(
+        monkeypatch, RepeatExpansionReviewUpdate(classification="premutation", expected_updated_at=None), existing=None
+    )
 
     [(verb, params)] = session.writes()
     assert (verb, params["key"], params["assembly_id"]) == ("INSERT", "FXS_FMR1", "a1")
     assert json.loads(params["snapshot_json"])["evidence"] == _CALLS
     assert audited[0]["existing"] is None and session.commits == 1
     # A review of a note alone freezes nothing: it bears no judgement.
-    _saved, session, _audited = _save(monkeypatch, RepeatExpansionReviewUpdate(note="Seen"), existing=None)
+    _saved, session, _audited = _save(monkeypatch, RepeatExpansionReviewUpdate(note="Seen", expected_updated_at=None), existing=None)
     assert _snapshot_written(session) is None
 
 
 def test_a_save_that_says_nothing_deletes_the_review_with_its_audit_event(monkeypatch) -> None:
-    saved, session, audited = _save(monkeypatch, RepeatExpansionReviewUpdate(), existing=_stored())
+    saved, session, audited = _save(monkeypatch, RepeatExpansionReviewUpdate(expected_updated_at=_LOADED), existing=_stored())
 
     assert session.writes() == [("DELETE", {"review_id": "r1"})]
     [event] = audited
     assert (event["new_state"], event["evidence_digest"], event["commits_before"]) == (None, None, 0)
     assert (saved.key, saved.classification, session.commits) == ("FXS_FMR1", None, 1)
     # Nothing to delete: nothing written, audited or committed.
-    _saved, session, audited = _save(monkeypatch, RepeatExpansionReviewUpdate(), existing=None)
+    _saved, session, audited = _save(monkeypatch, RepeatExpansionReviewUpdate(expected_updated_at=None), existing=None)
     assert (session.writes(), audited, session.commits) == ([], [], 0)
 
 
@@ -589,15 +611,37 @@ def test_a_save_that_says_nothing_deletes_the_review_with_its_audit_event(monkey
             "of. Link the family to a project with an assembly.",
         ),
         ({"current": None}, 404, "This family holds no call at that repeat locus"),
-        ({"payload": RepeatExpansionReviewUpdate(tags=["report", "probe_x"])}, 400, "Unknown review tag(s): probe_x"),
+        ({"payload": RepeatExpansionReviewUpdate(tags=["report", "probe_x"], expected_updated_at=None)}, 400, "Unknown review tag(s): probe_x"),
     ],
     ids=["no-locus", "no-assembly", "no-call-at-the-locus", "unknown-tag-added"],
 )
 def test_a_save_that_cannot_say_what_it_is_of_is_refused_and_writes_nothing(monkeypatch, save, status, detail) -> None:
-    payload = save.pop("payload", RepeatExpansionReviewUpdate(classification="premutation"))
+    payload = save.pop("payload", RepeatExpansionReviewUpdate(classification="premutation", expected_updated_at=None))
     session = _SaveSession()
     with pytest.raises(HTTPException) as refused:
         _save(monkeypatch, payload, existing=None, session=session, **save)
 
     assert (refused.value.status_code, refused.value.detail) == (status, detail)
+    assert (session.writes(), session.commits) == ([], 0)
+
+
+@pytest.mark.parametrize(
+    "loaded",
+    [None, datetime(2026, 10, 27, 9, tzinfo=timezone.utc)],
+    ids=["loaded-no-review", "loaded-an-older-version"],
+)
+def test_a_save_made_against_another_version_is_refused_and_writes_nothing(monkeypatch, loaded) -> None:
+    # REQ-TRACE-010: another reviewer saved in between; the 409 carries their review.
+    session = _SaveSession()
+    with pytest.raises(HTTPException) as refused:
+        _save(
+            monkeypatch,
+            RepeatExpansionReviewUpdate(classification="pathogenic_expansion", expected_updated_at=loaded),
+            existing=_stored(),
+            session=session,
+        )
+
+    assert refused.value.status_code == 409
+    assert refused.value.detail["code"] == "review_conflict"
+    assert refused.value.detail["current"]["classification"] == "premutation"
     assert (session.writes(), session.commits) == ([], 0)
