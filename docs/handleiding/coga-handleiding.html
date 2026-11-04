@@ -4161,7 +4161,7 @@ python docs/handleiding/build_site.py
 <li>De frontend toont alleen een melding als er niets is ("… in your accessible projects"); de afscherming zit volledig op de server.</li>
 </ul>
 <p>Het bestand <code>backend/app/services/data_scope.py</code> gaat, ondanks de naam, niet over deze afscherming maar over chromosoomnamen. De toegangsscope staat in <code>variant_explorer_service.py</code> (<code>resolve_scope</code>).</p>
-<p><strong>Traceerbaarheid.</strong> Elke drager is terug te voeren op zijn familie en project. De review (tags, classificatie, laatste review) komt uit <code>small_variant_reviews</code> (hoofdstuk 10).</p>
+<p><strong>Traceerbaarheid.</strong> Elke drager is terug te voeren op zijn familie en project. De review (tags, classificatie, laatste review) komt uit <code>small_variant_reviews</code> (hoofdstuk 10). Is een variant in meer families beoordeeld, dan toont de rij de tags van alle reviews en de ernstigste classificatie (<code>_classification_rank</code>). Die leest de klasse uit de opgeslagen tekst, in elke vorm: het label van het reviewvenster ("Pathogenic - class 5"), een klassesleutel (<code>acmg_class_5</code>, <code>cnv_class_5</code>) of het klassewoord, in welke schrijfwijze ook. Tekst die geen klasse noemt, telt het laagst. Vroeger telde elk opgeslagen label als 0 en won de eerste gelezen review (CLIN-69).</p>
 <p class="waar"><strong>Waar in de code:</strong> <code>resolve_scope</code> in <code>backend/app/services/variant_explorer_service.py</code>; de rolregels in <code>backend/app/services/access_control.py</code>.</p>
 <h2>Snelheid</h2>
 <p>De Explorer bevraagt mogelijk vele projecten en miljoenen genotypes. Enkele keuzes houden dat werkbaar:</p>

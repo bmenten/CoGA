@@ -33,7 +33,7 @@ import hashlib
 import json
 import re
 from dataclasses import asdict, dataclass, field
-from typing import Any, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -179,17 +179,19 @@ def _seek_having(sort_expr: str, direction: str) -> str:
 # Keys are lowercased to match _most_severe's case-insensitive lookup (and the
 # casefolded impacts stored in annotation_index).
 _IMPACT_RANK = {"high": 4, "moderate": 3, "low": 2, "modifier": 1}
-_CLASSIFICATION_RANK = {
-    "acmg_class_5": 5,
+# A review's classification is free text. The review dialog stores the class label
+# ("Pathogenic - class 5", the same for ACMG and CNV classes); other clients and older
+# reviews may hold a class key ("acmg_class_4", "cnv_class_4") or the bare class word in any
+# case or spelling ("Likely_Pathogenic", "VUS"). Each reads as the class it names (CLIN-69):
+# the class number when the text ends in one, else the class word.
+_CLASS_NUMBER = re.compile(r"(?:^|_)class_([1-5])$")
+_CLASSIFICATION_WORD_RANK = {
     "pathogenic": 5,
-    "acmg_class_4": 4,
     "likely_pathogenic": 4,
-    "acmg_class_3": 3,
     "uncertain_significance": 3,
+    "variant_of_uncertain_significance": 3,
     "vus": 3,
-    "acmg_class_2": 2,
     "likely_benign": 2,
-    "acmg_class_1": 1,
     "benign": 1,
 }
 _CLINVAR_RANK = {
@@ -225,18 +227,35 @@ def _classify_type(ref: str | None, alt: str | None) -> str:
     return "INDEL"
 
 
-def _most_severe(values: Sequence[str], rank: dict[str, int]) -> str | None:
+def _most_severe(
+    values: Sequence[str], rank: Mapping[str, int] | Callable[[str], int]
+) -> str | None:
+    """The value of highest rank, as given; of two that rank alike, the first. ``rank`` is
+    a table of lowercased values (an unlisted one ranks 0) or a function of the value."""
     best_value: str | None = None
     best_rank = -1
     for value in values:
         text_value = str(value or "").strip()
         if not text_value:
             continue
-        value_rank = rank.get(text_value.lower(), 0)
+        if callable(rank):
+            value_rank = rank(text_value)
+        else:
+            value_rank = rank.get(text_value.lower(), 0)
         if value_rank > best_rank:
             best_rank = value_rank
             best_value = text_value
     return best_value
+
+
+def _classification_rank(value: str) -> int:
+    """The class a stored classification names, 5 (pathogenic) to 1 (benign); 0 for text
+    that names no class, which any class outranks."""
+    slug = re.sub(r"[^a-z0-9]+", "_", str(value or "").lower()).strip("_")
+    match = _CLASS_NUMBER.search(slug)
+    if match:
+        return int(match.group(1))
+    return _CLASSIFICATION_WORD_RANK.get(slug, 0)
 
 
 def _first_non_empty(values: Sequence[str]) -> str | None:
@@ -1096,7 +1115,7 @@ async def _fetch_variant_rows(
         # The transcript the row's consequence and HGVS come from: [effect, HGVSc, HGVSp].
         shown = annotation.get("shown", [])
         clinvar_terms = annotation.get("clinvar_terms", [])
-        classification = _most_severe(review.get("classifications", []), _CLASSIFICATION_RANK)
+        classification = _most_severe(review.get("classifications", []), _classification_rank)
         impact = _most_severe(impacts, _IMPACT_RANK) or _first_non_empty(impacts)
 
         variants.append(
