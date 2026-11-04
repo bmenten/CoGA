@@ -883,6 +883,22 @@ datasets:
         maf_bigwig: cnv/HG002/HG002.HG002.maf.bw
 ```
 
+`roi` is the family's region of interest: a gene (its symbol, an Ensembl gene or transcript ID,
+or a RefSeq accession) or a region such as `chr7:117480025-117668665`. The import looks a gene up
+in the assembly of the import's project, or else of the existing family, on its chromosome before
+a copy on an ALT contig, as the family page does. The PGT embryo calls and the NIPT coverage
+check read this region, so after an import whose manifest names one, the family has that region
+or none:
+
+- An `roi` the import does not find clears the family's region of interest. The import warns
+  (`manifest_roi_unresolved`) and names the region it cleared. No embryo is called until the
+  region is set again, on the family page or by a corrected manifest. (The import used to keep
+  the family's earlier region without a word, and the embryos were called at it.)
+- The dry run and `POST /family-imports/validate` look the region up the same way and give the
+  same warning ahead of the import. With no project and no existing family to look it up in,
+  they say it was not checked (`manifest_roi_not_checked`).
+- A manifest without `roi` leaves the family's region as it is.
+
 `metadata.pgt.affected_parents` names the parent whose condition the PGT tests for (the PGT
 pipeline's `affected_parent`, which Discover copies). `metadata.pgt.indexes` names the index, the
 relative whose haplotypes the risk haplotype is read from (the samplesheet's `index`, which

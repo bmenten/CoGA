@@ -12,6 +12,7 @@ import re
 from typing import Any
 from uuid import uuid4
 
+from fastapi import HTTPException
 from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,6 +21,7 @@ from ..core.object_storage import (
     remote_object_identity,
 )
 from ..core.postgres import get_postgres_sessionmaker
+from ..core.sql import canonical_uuid
 from ..schemas import (
     FamilyImportDatasetSummary,
     FamilyImportValidationIssue,
@@ -37,7 +39,7 @@ from .clickhouse_variant_storage import (
     delete_family_structural_variants,
 )
 from .data_scope import normalize_chromosome
-from .family_identifiers import identifier_problem
+from .family_identifiers import identifier_problem, visible
 from .family_structure_audit import (
     IMPORT_FAILED,
     PACKAGE_IMPORT,
@@ -50,6 +52,7 @@ from .family_structure_audit import (
 from .family_metadata_context import (
     FamilyMetadataContext,
     SampleMetadataContext,
+    _resolve_family_assembly,
     build_family_metadata_context,
 )
 from .family_variant_write_lock import VARIANT_TYPES, lock_family_variant_writes
@@ -584,7 +587,12 @@ async def _resolve_manifest_roi(
                        OR lower(split_part(accession, '.', 1)) = lower(:query)
                 )
               )
-            ORDER BY ("end" - start) DESC, hgnc_symbol
+            -- As the family page resolves an ROI: the gene on its chromosome (1-22, X, Y,
+            -- M/MT) before a copy on an ALT or scaffold contig ("1_KI270766v1_alt").
+            ORDER BY
+              (CASE WHEN chr ~* '^(chr)?([0-9]{1,2}|X|Y|M|MT)$' THEN 0 ELSE 1 END),
+              ("end" - start) DESC,
+              hgnc_symbol
             LIMIT 1
             """
         ),
@@ -604,25 +612,148 @@ async def _resolve_manifest_roi(
     }
 
 
+# A manifest's region of interest that does not resolve (DATA-10). The PGT calls and the NIPT
+# coverage check read the family's region of interest, so an import whose manifest names one
+# leaves the family with that region or with none, never with a region the package does not
+# name. The warning is in the validation, the dry run and the import's result.
+MANIFEST_ROI_UNRESOLVED = "manifest_roi_unresolved"
+# A validation or dry run with no assembly to look the manifest's region up in: no project,
+# and no existing family in one.
+MANIFEST_ROI_NOT_CHECKED = "manifest_roi_not_checked"
+
+_ROI_UNREAD = "so no embryo is called and the NIPT coverage check reads no region"
+
+
+def _roi_not_found(roi_query: str) -> str:
+    return (
+        f"The manifest's region of interest ({visible(roi_query)}) was not found: no gene of the "
+        "assembly has that name, and it is not a region such as chr7:117480025-117668665."
+    )
+
+
+def _roi_text(row: Mapping[str, Any]) -> str:
+    """A family's region of interest as the family page names it: its label and its locus."""
+    label = visible(str(row.get("roi_label") or row.get("roi_query") or ""))
+    if row.get("roi_chr") is None or row.get("roi_start") is None or row.get("roi_end") is None:
+        return label
+    return f"{label}, {row['roi_chr']}:{row['roi_start']}-{row['roi_end']}"
+
+
+async def _package_roi_assembly(
+    session: AsyncSession,
+    *,
+    project_id: str | None,
+    family_id: str | None,
+) -> str | None:
+    """The assembly an import looks the manifest's region of interest up in, as its family's
+    context reads it (``build_family_metadata_context``): its project's, else the existing
+    family's. None when there is neither, or the family's projects span several."""
+    project_uuid = canonical_uuid((project_id or "").strip())
+    if project_uuid is not None:
+        found = await session.execute(
+            text("SELECT assembly_id::text FROM projects WHERE id = CAST(:project_id AS uuid)"),
+            {"project_id": project_uuid},
+        )
+        assembly_id = found.scalar_one_or_none()
+        return str(assembly_id) if assembly_id else None
+    family_id = (family_id or "").strip()
+    if not family_id or identifier_problem(family_id) is not None:
+        return None
+    existing = await _fetch_existing_family(session, family_id=family_id)
+    if existing is None:
+        return None
+    try:
+        assembly_id, _assembly_name = await _resolve_family_assembly(
+            session, family_uuid=str(existing["family_uuid"])
+        )
+    except HTTPException:
+        return None
+    return assembly_id
+
+
+async def manifest_roi_issue(
+    session: AsyncSession,
+    *,
+    roi_query: str | None,
+    project_id: str | None,
+    family_id: str | None,
+) -> FamilyImportValidationIssue | None:
+    """The warning of a validation or dry run whose manifest names a region of interest the
+    import will not resolve, looked up as the import looks it up (``_package_roi_assembly``):
+    the import leaves the family without one (DATA-10). None when the manifest names none,
+    or it resolves."""
+    roi_query = (roi_query or "").strip()
+    if not roi_query:
+        return None
+    assembly_id = await _package_roi_assembly(session, project_id=project_id, family_id=family_id)
+    if assembly_id is None:
+        return _issue(
+            MANIFEST_ROI_NOT_CHECKED,
+            f"The manifest's region of interest ({visible(roi_query)}) was not checked: it is "
+            "looked up in the assembly of the family's project, and none is chosen. Choose the "
+            "project the family is imported into.",
+        )
+    if await _resolve_manifest_roi(session, assembly_id=assembly_id, query=roi_query) is not None:
+        return None
+    return _issue(
+        MANIFEST_ROI_UNRESOLVED,
+        f"{_roi_not_found(roi_query)} The import leaves the family without a region of interest, "
+        f"{_ROI_UNREAD}: correct the manifest's roi, or set the region on the family page after "
+        "the import.",
+    )
+
+
 async def _apply_manifest_roi(
     session: AsyncSession,
     *,
     bundle: FamilyPackageBundle,
     context: FamilyMetadataContext,
-) -> None:
+) -> FamilyImportValidationIssue | None:
+    """Give the family the region of interest its manifest names. One that does not resolve
+    clears the family's (DATA-10): the PGT calls and the NIPT coverage check read the family's
+    region, and the one it had need not be the one this package names. The warning returned
+    then says so and names the region cleared; the import puts it in its result."""
     roi_query = _manifest_roi_value(bundle.manifest)
     if not roi_query:
-        return
+        return None
     roi = await _resolve_manifest_roi(
         session,
         assembly_id=context.assembly_id,
         query=roi_query,
     )
+    issue: FamilyImportValidationIssue | None = None
     if roi is None:
-        # The family's region of interest stays as it was, and its metadata gets nothing: the
-        # key it got here, unresolved_roi, was never read, nor cleared by a later import that
-        # resolved the region (ENG-6).
-        return
+        earlier = (
+            await session.execute(
+                text(
+                    """
+                    SELECT roi_query, roi_label, roi_chr, roi_start, roi_end
+                    FROM families
+                    WHERE id = CAST(:family_uuid AS uuid)
+                    """
+                ),
+                {"family_uuid": context.family_uuid},
+            )
+        ).mappings().first()
+        reason = (
+            _roi_not_found(roi_query)
+            if context.assembly_id
+            else (
+                f"The manifest's region of interest ({visible(roi_query)}) was not looked up: "
+                "the family is in no project with an assembly."
+            )
+        )
+        if earlier is not None and earlier.get("roi_query"):
+            outcome = (
+                f"The family's region of interest ({_roi_text(dict(earlier))}) was cleared, "
+                f"{_ROI_UNREAD}: set it on the family page."
+            )
+        else:
+            outcome = f"The family has no region of interest, {_ROI_UNREAD}: set it on the family page."
+        issue = _issue(MANIFEST_ROI_UNRESOLVED, f"{reason} {outcome}")
+        # Cleared, and nothing goes into the family's metadata: the key an import once wrote
+        # here, unresolved_roi, was never read (ENG-6). The warning is in the import's result.
+        roi = dict.fromkeys(("query", "label", "source", "assembly_id", "chr", "start", "end"))
     await session.execute(
         text(
             """
@@ -649,6 +780,7 @@ async def _apply_manifest_roi(
         },
     )
     await session.commit()
+    return issue
 
 
 def _package_family_id(validation: FamilyPackageValidationOut, bundle: FamilyPackageBundle) -> str:
@@ -1658,9 +1790,12 @@ async def _ensure_family_from_ped(
     validation: FamilyPackageValidationOut,
     conflict_mode: str = "cancel",
     import_mark: ImportMark | None = None,
+    warnings: list[FamilyImportValidationIssue] | None = None,
 ) -> tuple[FamilyMetadataContext, bool]:
     """Create the package's family, or check the existing one may take the import, then
     register the package (provenance, ROI). Returns the family and whether it was created.
+    What the import is to warn of (a region of interest that did not resolve) is added to
+    ``warnings``.
 
     ``import_mark``, when given, is recorded before anything of the family is written: a
     new family is created with it, an existing one marked (committed) once its checks
@@ -1771,7 +1906,9 @@ async def _ensure_family_from_ped(
         family_identifier=context.family_id,
         user=user,
     )
-    await _apply_manifest_roi(session, bundle=bundle, context=context)
+    roi_issue = await _apply_manifest_roi(session, bundle=bundle, context=context)
+    if roi_issue is not None and warnings is not None:
+        warnings.append(roi_issue)
     return context, created
 
 

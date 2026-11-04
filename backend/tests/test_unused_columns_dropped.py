@@ -16,7 +16,8 @@ The owner's decision of 2026-10-28 (ENG-6): the schema keeps no column that noth
   (``integration/test_unused_columns_dropped_clickhouse.py`` on real ClickHouse).
 - ``families.metadata.unresolved_roi`` was written when a manifest's ROI could not be resolved,
   never read, and never cleared by a later import that resolved it: the import writes nothing
-  to the family then, and revision 0011 removes the key from the families that hold it.
+  to the family's metadata then, and revision 0011 removes the key from the families that hold
+  it.
 
 All values are synthetic.
 """
@@ -197,13 +198,15 @@ def _bundle(roi: str) -> Any:
 _FAMILY = types.SimpleNamespace(family_uuid="00000000-0000-0000-0000-00000000f001", assembly_id="00000000-0000-0000-0000-0000000000a1")
 
 
-def test_an_roi_the_import_cannot_resolve_writes_nothing_to_the_family() -> None:
-    # No gene of the assembly has the name: the family's region of interest stays as it was, and
-    # nothing is written to its metadata, which no screen or check read.
+def test_an_roi_the_import_cannot_resolve_writes_nothing_to_the_familys_metadata() -> None:
+    # No gene of the assembly has the name: nothing is written to the family's metadata, which no
+    # screen or check read. (Its region of interest is cleared, and the import warns of it:
+    # test_manifest_roi_unresolved.py, DATA-10.)
     session = _Session([])
     asyncio.run(registration._apply_manifest_roi(session, bundle=_bundle("NOT_A_GENE"), context=_FAMILY))
 
-    assert [sql for sql in session.sql if "families" in sql and not sql.startswith("SELECT")] == []
+    [update] = [sql for sql in session.sql if "families" in sql and not sql.startswith("SELECT")]
+    assert update.startswith("UPDATE families SET roi_query = :query") and "metadata" not in update
     assert "unresolved_roi" not in " ".join(session.sql)
 
 
