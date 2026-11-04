@@ -119,20 +119,20 @@ which the clinical report in the EPD quotes by its report code (§3; the owner's
 
 - **Every family's record** holds the reported small variants, structural variants and CNVs
   (each with its classification, criteria, frozen evidence, tags and note, and its description
-  as the analyst reviewed it, #879); the annotation, reference and software versions; the
+  as the analyst reviewed it); the annotation, reference and software versions; the
   reference-data releases; the gene-panel versions the family's searches applied; the
-  repeat-expansion and Paraphase calls with their status; what each coverage track held (#911);
+  repeat-expansion and Paraphase calls with their status; what each coverage track held;
   the evidence drift; the Sample QC; the sequencing QC with its cut-offs; and the import state
   ([clinical-traceability.md](../clinical-traceability.md)).
 - **A PGT family's record** also holds the embryo calls (REQ-PGT-005). The backend makes them
   from the stored haplotype blocks, and the family page shows the calls it serves. The record
   freezes them with each embryo's phasing QC at the ROI and that QC's verdict against
-  provisional thresholds (#899, #908).
+  provisional thresholds.
 - **A monogenic NIPT family's** analysis is signed out from the NIPT page or the report page.
   Its record also holds the NIPT results as the backend computes them: the fetal-fraction
   estimate; the quality checks with their verdicts; the target coverage; each variant tagged
   for the report, with its category, fetal-inheritance probabilities and, for a de novo
-  candidate, its triage; and the recessive fetal risk of those variants' genes (#900).
+  candidate, its triage; and the recessive fetal risk of those variants' genes.
 - **The record holds no** gene or phenotype context, no population frequencies or in silico
   predictions beyond those a small variant's classification froze in its evidence snapshot, and
   no NIPT candidate that is not tagged for the report (TF-09b §3).
@@ -192,8 +192,8 @@ configuration management.
 
 ## 10. Operating environment & deployment
 
-- Containerized. **Production target: Google Cloud**, deployed with Terraform (owner decision,
-  #627). There is **no production deployment yet**: the configuration in `terraform/` is
+- Containerized. **Production target: Google Cloud**, deployed with Terraform (owner decision of
+  2026-09-29). There is **no production deployment yet**: the configuration in `terraform/` is
   written but never applied. It describes Cloud Run services behind an external
   HTTPS load balancer (TLS 1.2+, Cloud Armor), Cloud SQL, a ClickHouse VM and CMEK-encrypted
   buckets in the configured region (default `europe-west1`). The load balancer is
