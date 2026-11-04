@@ -36,6 +36,7 @@ from .review_pg_utils import (
     _merge_tag_metadata,
     _normalize_tags,
     _save_time,
+    _stored_classification,
 )
 from .small_variant_review_acmg import (
     freeze_evidence_snapshot,
@@ -202,9 +203,11 @@ async def list_matching_small_variant_review_ids(
     tags: Sequence[str] | None = None,
     has_notes: bool = False,
 ) -> set[str]:
-    normalized_classifications = [
-        value.strip() for value in (classifications or []) if str(value).strip()
-    ]
+    # A classification matches whatever its case: a filter or a review saved before the labels
+    # were put in sentence case (ENG-6) holds "Likely Pathogenic - class 4".
+    normalized_classifications = {
+        value.strip().lower() for value in (classifications or []) if str(value).strip()
+    }
     normalized_tags = {
         value.strip() for value in (tags or []) if str(value).strip()
     }
@@ -235,8 +238,9 @@ async def list_matching_small_variant_review_ids(
         if not variant_id:
             continue
         matches_classification = not normalized_classifications or (
-            str(document.get("classification") or "").strip() in normalized_classifications
-            or str(document.get("compound_het_classification") or "").strip() in normalized_classifications
+            str(document.get("classification") or "").strip().lower() in normalized_classifications
+            or str(document.get("compound_het_classification") or "").strip().lower()
+            in normalized_classifications
         )
         matches_tags = not normalized_tags or bool(
             set(_normalize_tags(document.get("tags", []))).intersection(normalized_tags)
@@ -428,7 +432,8 @@ async def upsert_small_variant_review(
 
     normalized_tags = _normalize_tags(payload.tags)
     normalized_note = (payload.note or "").strip() or None
-    normalized_classification = (payload.classification or "").strip() or None
+    # A class label in another case is stored as the label is now (ENG-6).
+    normalized_classification = _stored_classification(payload.classification)
     compound_het_requested = "compound_het" in payload.model_fields_set
     compound_het_payload: SmallVariantCompoundHetReviewUpdate | None = (
         payload.compound_het if compound_het_requested else None
@@ -495,9 +500,7 @@ async def upsert_small_variant_review(
         acmg_evidence_snapshot = (existing or {}).get("acmg_evidence_snapshot")
 
     if compound_het_requested and compound_het_payload is not None:
-        normalized_compound_het_classification = (
-            (compound_het_payload.classification or "").strip() or None
-        )
+        normalized_compound_het_classification = _stored_classification(compound_het_payload.classification)
         normalized_compound_het_tags = _normalize_tags(compound_het_payload.tags)
         normalized_compound_het_note = (compound_het_payload.note or "").strip() or None
         await _refuse_unknown_added_tags(

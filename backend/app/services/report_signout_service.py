@@ -48,6 +48,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.coga_logging import scrub_log
 from ..core.config import settings
+from .review_pg_utils import current_class_label
 from .annotation_manifest_service import (
     REFERENCE_MODULE_KEYS,
     UNAVAILABLE_MODULE_VERSION,
@@ -2034,6 +2035,29 @@ def _section_fingerprint(value: Any) -> str:
     return _canonical_hash(json.loads(json.dumps(value, default=str)))
 
 
+def _with_current_class_labels(value: Any) -> Any:
+    """``value`` with each classification that names a class label in another case written
+    as the label is now (:func:`current_class_label`).
+
+    The labels were put in sentence case (ENG-6), and revision 0013 rewrote the stored reviews
+    to match; a record signed before keeps "Likely Pathogenic - class 4". The comparison with
+    the latest sign-out reads the two as one, so the case alone is no change since sign-out.
+    Only a string under a ``classification`` key is read; any other text compares as it is.
+    """
+    if isinstance(value, Mapping):
+        return {
+            key: (
+                current_class_label(item)
+                if key == "classification" and isinstance(item, str)
+                else _with_current_class_labels(item)
+            )
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_with_current_class_labels(item) for item in value]
+    return value
+
+
 def _modules_comparable_with(
     signed: Mapping[str, Any], current: list[Any]
 ) -> tuple[list[Any], list[str]]:
@@ -2087,7 +2111,9 @@ async def compare_report_with_latest_signout(
     embryo, or of a monogenic NIPT family whose embryo, its fetus, has no haplotype blocks;
     ``nipt`` of a family that is no monogenic NIPT family) is neither compared nor listed. The
     report page and the signed view name what is listed as not compared beside what changed,
-    and beside "still matches" (TRACE-19).
+    and beside "still matches" (TRACE-19). A class label compares whatever its case
+    (:func:`_with_current_class_labels`): a record signed before the labels were put in
+    sentence case (ENG-6) still matches a report whose only difference is that case.
     """
     context = await build_family_metadata_context(
         session, family_identifier=family_id, user=user, project_id=project_id
@@ -2152,7 +2178,9 @@ async def compare_report_with_latest_signout(
             # signed before them does not hold (TRACE-17).
             current_value, predated = nipt_comparable_with_record(signed_value, current_value)
             not_compared.extend(predated)
-        if _section_fingerprint(signed_value) != _section_fingerprint(current_value):
+        if _section_fingerprint(_with_current_class_labels(signed_value)) != _section_fingerprint(
+            _with_current_class_labels(current_value)
+        ):
             changed.append(section)
     return {
         "family_id": context.family_id,

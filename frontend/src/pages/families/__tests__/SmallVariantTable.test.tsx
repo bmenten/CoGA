@@ -80,7 +80,7 @@ describe('SmallVariantTable', () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByText('Likely Pathogenic - class 4')).toHaveClass('table-chip--critical');
+    expect(screen.getByText('Likely pathogenic - class 4')).toHaveClass('table-chip--critical');
     expect(screen.queryByText(/likely pathogenic/)).not.toBeInTheDocument();
   });
 

@@ -49,6 +49,12 @@ the CI ``smoke`` job sets it.
   ``structural_variant_reviews.variant_key`` with its unique index) and the families' metadata
   key ``unresolved_roi`` (revision 0011), keeps every row with its other values and a family's
   other metadata, and ends at the same fingerprint; a later start changes nothing.
+- A database at revision 0012 from before the class labels were put in sentence case (ENG-6)
+  gets each class label its reviews, their ACMG and CNV scorings and its filter presets hold in
+  another case written as the code writes it now (revision 0013), every other value and each
+  review's and preset's ``updated_at`` kept; the clinical audit trail, the signed records, the
+  request audit and the UI-event log keep the label as it was, and every other table is as it
+  was. It ends at the same fingerprint; a later start changes nothing.
 - A ledger naming a revision this version does not have is refused, and nothing changes.
 - The restricted runtime role cannot run the migration; two instances that start together
   both come up, one after the other.
@@ -1760,6 +1766,228 @@ def test_a_database_from_before_eng6_loses_the_unused_columns_and_the_unresolved
     assert {table: rows for table, rows in kept.items() if table not in changed} == {
         table: rows for table, rows in contents.items() if table not in changed
     }
+    assert unchanged == kept
+    # The schema is the baselines'.
+    assert actual == expected, _differences(expected, actual)
+
+
+_OLD_LP = "Likely Pathogenic - class 4"
+_NEW_LP = "Likely pathogenic - class 4"
+# The mutable tables revision 0013 rewrites.
+_LABELLED_BY_0013 = (
+    "small_variant_reviews",
+    "structural_variant_reviews",
+    "small_variant_filter_presets",
+    "structural_variant_filter_presets",
+)
+
+
+async def _labelled_rows(conn: AsyncConnection) -> dict[str, dict]:
+    """What revision 0013 may rewrite, by row: the reviews' classifications and scorings, with
+    their ``updated_at``, and the presets' filters."""
+
+    queries = {
+        "small": (
+            "SELECT variant_id, classification, compound_het_classification, acmg, updated_at::text "
+            "FROM small_variant_reviews"
+        ),
+        "structural": "SELECT variant_id, classification, cnv_acmg, updated_at::text FROM structural_variant_reviews",
+        "small_presets": "SELECT name, filters, updated_at::text FROM small_variant_filter_presets",
+        "structural_presets": "SELECT name, filters, updated_at::text FROM structural_variant_filter_presets",
+    }
+    return {
+        name: {row[0]: tuple(row[1:]) for row in (await conn.execute(text(query))).all()}
+        for name, query in queries.items()
+    }
+
+
+@_MODES
+def test_a_database_from_before_eng6_gets_its_class_labels_in_sentence_case_and_its_records_kept(
+    monkeypatch, reapply_baselines: bool
+) -> None:
+    import json
+    from datetime import datetime, timezone
+
+    from backend.app.core import postgres_migrations
+    from backend.app.core.postgres_migrations import apply_postgres_schema, head_revision
+
+    monkeypatch.setattr(postgres_migrations, "REAPPLY_BASELINES_ON_EVERY_RUN", reapply_baselines)
+    saved = datetime(2026, 10, 1, 9, 0, tzinfo=timezone.utc)
+
+    async def _insert(conn: AsyncConnection, statement: str, **params) -> None:
+        # A dict or list goes as JSON text, for the statement to cast.
+        encoded = {key: json.dumps(value) if isinstance(value, (dict, list)) else value for key, value in params.items()}
+        await conn.execute(text(statement), encoded)
+
+    async def _body(database: str):
+        engine = _engine(database)
+        try:
+            async with engine.begin() as conn:
+                await apply_postgres_schema(conn)
+            # A database at revision 0012 from before the labels were put in sentence case: the
+            # reviews and presets the code wrote then, and the records and logs it signed and wrote.
+            async with engine.begin() as conn:
+                await conn.execute(text("UPDATE alembic_version SET version_num = '0012'"))
+                account = (
+                    await conn.execute(
+                        text(
+                            "INSERT INTO users (username, hashed_password, role, email) "
+                            "VALUES ('analyst-eng6', '', 'viewer', 'analyst-eng6@example.org') RETURNING id::text"
+                        )
+                    )
+                ).scalar_one()
+                family = (
+                    await conn.execute(
+                        text("INSERT INTO families (family_id) VALUES ('FAM-ENG6-LABELS') RETURNING id::text")
+                    )
+                ).scalar_one()
+                small = (
+                    "INSERT INTO small_variant_reviews (family_id, variant_id, classification, "
+                    "compound_het_classification, acmg, updated_by, updated_at) VALUES (CAST(:f AS uuid), :v, :c, "
+                    ":p, CAST(:a AS jsonb), 'analyst', CAST(:t AS timestamptz))"
+                )
+                for variant_id, classification, pair, acmg in (
+                    # The dialog's label of the time, its pair's in another case, and its scoring's.
+                    ("1-100-A-G", _OLD_LP, "likely pathogenic - CLASS 4", {"criteria": [], "point_total": 7, "classification": _OLD_LP}),
+                    # A label already as the code writes it, and text that is no class label.
+                    ("1-200-A-G", "Pathogenic - class 5", None, None),
+                    ("1-300-A-G", "Likely pathogenic, see note", "VUS - class 3", "null"),
+                ):
+                    await _insert(conn, small, f=family, v=variant_id, c=classification, p=pair, a=acmg, t=saved)
+                await _insert(
+                    conn,
+                    "INSERT INTO structural_variant_reviews (family_id, variant_id, classification, cnv_acmg, "
+                    "updated_by, updated_at) VALUES (CAST(:f AS uuid), '1-1000-5000-DEL---', 'VUS - CLASS 3', "
+                    "CAST(:a AS jsonb), 'analyst', CAST(:t AS timestamptz))",
+                    f=family,
+                    a={"kind": "loss", "criteria": [], "point_total": 0.9, "classification": _OLD_LP},
+                    t=saved,
+                )
+                small_preset = (
+                    "INSERT INTO small_variant_filter_presets (owner, owner_id, name, filters, updated_at) "
+                    "VALUES ('analyst-eng6', CAST(:o AS uuid), :n, CAST(:fl AS jsonb), CAST(:t AS timestamptz))"
+                )
+                structural_preset = (
+                    "INSERT INTO structural_variant_filter_presets (scope, owner, owner_id, name, filters, updated_at) "
+                    "VALUES ('global', 'analyst-eng6', CAST(:o AS uuid), :n, CAST(:fl AS jsonb), CAST(:t AS timestamptz))"
+                )
+                for statement, name, filters in (
+                    # A small variant preset's list, and the comma-separated text a link or an
+                    # older client may have stored; a preset with no classification filter.
+                    (small_preset, "eng6 list", {"classification": ["Pathogenic - class 5", _OLD_LP, "Custom words"], "impact": ["HIGH"]}),
+                    (small_preset, "eng6 text", {"classification": f"{_OLD_LP},, vus - class 3"}),
+                    (small_preset, "eng6 none", {"impact": ["HIGH"]}),
+                    # A structural variant preset's comma-separated text, and one already right.
+                    (structural_preset, "eng6 text", {"classification": f"Pathogenic - class 5, {_OLD_LP}"}),
+                    (structural_preset, "eng6 current", {"classification": f"Pathogenic - class 5, {_NEW_LP}"}),
+                ):
+                    await _insert(conn, statement, o=account, n=name, fl=filters, t=saved)
+                # The append-only records of the time hold the label as it was then.
+                await _insert(
+                    conn,
+                    "INSERT INTO clinical_audit_events (family_id, family_identifier, variant_id, actor, action, "
+                    "summary, before, after) VALUES (CAST(:f AS uuid), 'FAM-ENG6-LABELS', '1-100-A-G', 'analyst', "
+                    "'classification', :s, CAST(:b AS jsonb), CAST(:a AS jsonb))",
+                    f=family,
+                    s=f"Classification: unclassified → {_OLD_LP}",
+                    b={"classification": None},
+                    a={"classification": _OLD_LP},
+                )
+                await _insert(
+                    conn,
+                    "INSERT INTO report_signouts (family_id, family_identifier, version, signed_out_by, content_hash, "
+                    "snapshot) VALUES (CAST(:f AS uuid), 'FAM-ENG6-LABELS', 1, 'analyst', :h, CAST(:s AS jsonb))",
+                    f=family,
+                    h="0" * 64,
+                    s={"reported_variants": [{"variant_id": "1-100-A-G", "classification": _OLD_LP}]},
+                )
+                await _insert(
+                    conn,
+                    "INSERT INTO audit_log_events (method, path, query_string, status_code) VALUES "
+                    "('GET', '/api/families/FAM-ENG6-LABELS/small-variants', :q, 200)",
+                    q="classification=Likely+Pathogenic+-+class+4",
+                )
+                await _insert(
+                    conn,
+                    "INSERT INTO ui_events (event_type, label, detail) VALUES ('click', :l, CAST(:d AS jsonb))",
+                    l=_OLD_LP,
+                    d={"classification": _OLD_LP},
+                )
+                before = await _labelled_rows(conn)
+            contents = await _table_contents(database)
+            async with engine.begin() as conn:
+                revision = await apply_postgres_schema(conn)
+            kept = await _table_contents(database)
+            async with engine.connect() as conn:
+                after = await _labelled_rows(conn)
+                signed = (await conn.execute(text("SELECT snapshot FROM report_signouts"))).scalar_one()
+                audited = (await conn.execute(text("SELECT summary, after FROM clinical_audit_events"))).one()
+            # The next start finds nothing left to do.
+            async with engine.begin() as conn:
+                again = await apply_postgres_schema(conn)
+            unchanged = await _table_contents(database)
+        finally:
+            await engine.dispose()
+        reference = await _create_database()
+        try:
+            await _apply_baseline_files(reference)
+            fingerprints = await _fingerprint(reference), await _fingerprint(database)
+        finally:
+            await _drop_database(reference)
+        return (revision, again), (before, after), (signed, tuple(audited)), (contents, kept, unchanged), fingerprints
+
+    (revision, again), (before, after), (signed, audited), (contents, kept, unchanged), (expected, actual) = _run(_body)
+
+    assert (revision.before, revision.after) == ("0012", head_revision())
+    assert (again.before, again.after) == (head_revision(), head_revision())
+    # The reviews: each class label as the code writes it now, its scoring's too; text that is
+    # no class label, a label already right, a scoring that is JSON null, and when each review
+    # was saved, as they were.
+    lp_scoring = {"criteria": [], "point_total": 7, "classification": _NEW_LP}
+    assert after["small"] == {
+        "1-100-A-G": (_NEW_LP, _NEW_LP, lp_scoring, before["small"]["1-100-A-G"][3]),
+        "1-200-A-G": before["small"]["1-200-A-G"],
+        "1-300-A-G": before["small"]["1-300-A-G"],
+    }
+    assert before["small"]["1-100-A-G"][:3] == (
+        _OLD_LP,
+        "likely pathogenic - CLASS 4",
+        {"criteria": [], "point_total": 7, "classification": _OLD_LP},
+    )
+    assert after["structural"] == {
+        "1-1000-5000-DEL---": (
+            "VUS - class 3",
+            {"kind": "loss", "criteria": [], "point_total": 0.9, "classification": _NEW_LP},
+            before["structural"]["1-1000-5000-DEL---"][2],
+        )
+    }
+    # The presets: each class label in a list, or in comma-separated text joined as the form
+    # joins it; any other filter value, and a preset without a class label to rewrite, as it was.
+    assert after["small_presets"] == {
+        "eng6 list": (
+            {"classification": ["Pathogenic - class 5", _NEW_LP, "Custom words"], "impact": ["HIGH"]},
+            before["small_presets"]["eng6 list"][1],
+        ),
+        "eng6 text": ({"classification": f"{_NEW_LP}, VUS - class 3"}, before["small_presets"]["eng6 text"][1]),
+        "eng6 none": before["small_presets"]["eng6 none"],
+    }
+    assert after["structural_presets"] == {
+        "eng6 text": (
+            {"classification": f"Pathogenic - class 5, {_NEW_LP}"},
+            before["structural_presets"]["eng6 text"][1],
+        ),
+        "eng6 current": before["structural_presets"]["eng6 current"],
+    }
+    # The signed record and the audit trail keep the label as it was then, and so do the request
+    # audit and the UI-event log: every table but the four, and the ledger, is as it was.
+    assert signed == {"reported_variants": [{"variant_id": "1-100-A-G", "classification": _OLD_LP}]}
+    assert audited == (f"Classification: unclassified → {_OLD_LP}", {"classification": _OLD_LP})
+    changed = {"alembic_version", *_LABELLED_BY_0013}
+    assert {table: rows for table, rows in kept.items() if table not in changed} == {
+        table: rows for table, rows in contents.items() if table not in changed
+    }
+    for table in ("clinical_audit_events", "report_signouts", "audit_log_events", "ui_events"):
+        assert kept[table][0] == 1, table
     assert unchanged == kept
     # The schema is the baselines'.
     assert actual == expected, _differences(expected, actual)

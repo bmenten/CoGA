@@ -319,7 +319,7 @@ def test_review_recomputes_acmg_and_persists(snap):
     assert resp["status"] == 200, resp["text"]
     body = resp["json"]
     acmg = body["acmg"]
-    # PVS1(very_strong=8) + PM2(supporting=1) = 9 -> Likely Pathogenic (class 4).
+    # PVS1(very_strong=8) + PM2(supporting=1) = 9 -> likely pathogenic (class 4).
     # The bogus client point_total/classification (999 / Benign) must be ignored.
     assert acmg["point_total"] == 9, acmg
     assert "4" in acmg["classification"], acmg

@@ -106,7 +106,7 @@ export interface AcmgClassification {
   // Signed point total over accepted selections.
   points: number;
   classKey: AcmgClassKey;
-  // Display label, e.g. "Likely Pathogenic - class 4".
+  // Display label, e.g. "Likely pathogenic - class 4".
   label: string;
   // True when an accepted BA1 forced the Benign call (stand-alone override).
   standAloneBenign: boolean;

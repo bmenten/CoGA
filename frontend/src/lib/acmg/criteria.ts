@@ -33,10 +33,10 @@ export const STRENGTH_LABELS: Record<AcmgStrength, string> = {
 };
 
 // ACMG class bands over the signed point total (ClinGen/Tavtigian thresholds):
-// ≥10 Pathogenic · 6–9 Likely Pathogenic · 0–5 VUS · −1…−6 Likely Benign · ≤−7 Benign.
+// ≥10 pathogenic · 6–9 likely pathogenic · 0–5 VUS · −1…−6 likely benign · ≤−7 benign.
 export const ACMG_CLASS_LABELS: Record<AcmgClassKey, string> = {
   acmg_class_5: 'Pathogenic - class 5',
-  acmg_class_4: 'Likely Pathogenic - class 4',
+  acmg_class_4: 'Likely pathogenic - class 4',
   acmg_class_3: 'VUS - class 3',
   acmg_class_2: 'Likely benign - class 2',
   acmg_class_1: 'Benign - class 1',

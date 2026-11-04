@@ -108,7 +108,7 @@ ALLOWED_STRENGTHS: dict[str, frozenset[str]] = {
 # Display labels matching the frontend ACMG_CLASS_LABELS / ACMG_CLASSIFICATION_TAGS.
 CLASS_LABELS: dict[str, str] = {
     "acmg_class_5": "Pathogenic - class 5",
-    "acmg_class_4": "Likely Pathogenic - class 4",
+    "acmg_class_4": "Likely pathogenic - class 4",
     "acmg_class_3": "VUS - class 3",
     "acmg_class_2": "Likely benign - class 2",
     "acmg_class_1": "Benign - class 1",

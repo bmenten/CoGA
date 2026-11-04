@@ -462,7 +462,12 @@ async def _variant_ids_matching_reviews(
     list on every request; the query reads one row more to know whether more matched.
     """
 
-    classifications = [value.strip() for value in classifications if str(value).strip()]
+    # A classification matches whatever its case, as on the family page: a filter or a review
+    # saved before the labels were put in sentence case (ENG-6) holds "Likely Pathogenic -
+    # class 4". Postgres's lower() and Python's agree on these ASCII labels.
+    classifications = list(
+        dict.fromkeys(value.strip().lower() for value in classifications if str(value).strip())
+    )
     tags = [value.strip() for value in tags if str(value).strip()]
     if not classifications and not tags:
         return [], False
@@ -480,8 +485,8 @@ async def _variant_ids_matching_reviews(
 
     if classifications:
         clauses.append(
-            "(r.classification IN :classifications"
-            " OR r.compound_het_classification IN :classifications)"
+            "(lower(btrim(r.classification)) IN :classifications"
+            " OR lower(btrim(r.compound_het_classification)) IN :classifications)"
         )
         params["classifications"] = classifications
         bind_params.append(bindparam("classifications", expanding=True))

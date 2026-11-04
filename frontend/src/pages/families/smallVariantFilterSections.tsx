@@ -9,6 +9,7 @@ import {
   COLLABORATION_QUICK_TAGS,
   HET_GT_GROUP,
   HOM_GT_GROUP,
+  PATHOGENIC_TO_VUS_CLASSIFICATIONS,
   REF_GT_GROUP,
   REVIEW_CLASSIFICATION_OPTIONS,
   resolveCarrierScreeningCoupleMembers,
@@ -23,11 +24,7 @@ import { GENOTYPE_GROUP_HINTS } from '../../lib/genotypes';
 import { countNonEmpty, stopSummaryInteraction } from './variantFilterFormUtils';
 
 const TYPE_OPTIONS = ['', 'SNV', 'INDEL', 'MNV'];
-const REVIEW_QUICK_CLASSIFICATION_VALUES = [
-  'Pathogenic - class 5',
-  'Likely Pathogenic - class 4',
-  'VUS - class 3',
-] as const;
+const REVIEW_QUICK_CLASSIFICATION_VALUES = PATHOGENIC_TO_VUS_CLASSIFICATIONS;
 const REVIEW_QUICK_CLASSIFICATION_FILTER = REVIEW_QUICK_CLASSIFICATION_VALUES.join(', ');
 const EXCLUDE_QUICK_CLINVAR_VALUES = ['Benign', 'Likely benign'] as const;
 const EXCLUDE_QUICK_CLINVAR_FILTER = EXCLUDE_QUICK_CLINVAR_VALUES.join(', ');

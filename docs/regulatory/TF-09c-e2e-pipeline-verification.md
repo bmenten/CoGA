@@ -43,7 +43,7 @@ be derived and audited by hand. The planted records and their expected outcomes:
 | Benign SNV | common variant (high gnomAD AF) | ingested, de-prioritised |
 | Indel | frameshift deletion in one gene | ingested, typed INDEL |
 | MNV | two-base substitution | ingested; typed INDEL by the family query, MNV by the Variant Explorer |
-| Pathogenic SNV | nonsense variant | ingested; on review → ACMG **Likely Pathogenic (class 4)** from PVS1+PM2 |
+| Pathogenic SNV | nonsense variant | ingested; on review → ACMG **Likely pathogenic (class 4)** from PVS1+PM2 |
 | De novo SNV | proband het, both parents hom-ref | flagged de novo |
 | Compound het (SNV+SNV) | two variants in one gene, trans across parents | paired as a compound-het group: `phase=trans`, `phase_evidence=segregation` |
 | Compound het (SNV+SV) | maternal SNV + paternal DEL over the same gene | SV second-hit: `phase=trans`, `phase_evidence=segregation`, `deletion_unmasked=true` |

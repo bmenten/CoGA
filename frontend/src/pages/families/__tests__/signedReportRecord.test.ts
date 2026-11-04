@@ -293,6 +293,8 @@ describe('parseSignedReport', () => {
     const [classified, tagged, unreadable] = parseSignedReport(SNAPSHOT)!.reportedVariants!;
 
     expect(classified.variantId).toBe('17-43000000-A-G');
+    // The record was signed before the class labels were put in sentence case (ENG-6): it reads
+    // as signed, in the case it was signed in.
     expect(classified.classification).toBe('Likely Pathogenic - class 4');
     expect(classified.pointTotal).toBe(6);
     // The accepted criteria, the ones the classification rests on, named from the catalogue.

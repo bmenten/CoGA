@@ -236,7 +236,7 @@ describe('CnvAcmgClassificationModal', () => {
     expect(sent['5A']).toMatchObject({ accepted: false });
     // 1A (0) + 3B (+0.45) + 4A (+0.45).
     expect(scoring.point_total).toBe(0.9);
-    expect(scoring.classification).toBe('Likely Pathogenic - class 4');
+    expect(scoring.classification).toBe('Likely pathogenic - class 4');
     expect(serverRescoring(scoring, CNV_LOSS_CRITERIA).pointTotal).toBe(0.9);
   });
 

@@ -1565,7 +1565,7 @@
   "title": "Interpretation and review",
   "summary": "Tag, annotate and classify variants — with the semi-automatic ACMG classifier — and keep the review state per family.",
   "quickLinks": [],
-  "text": "Recordyourinterpretationasyougo.Reviewstateiskeptperfamily:thesamevariantintwofamilieshastwoseparaterecords.OneachvariantEachroworcardhasReview,ExcludeandReport(one-clicktags),Tags&notesandACMGclassify.Anexcludedvariantstaysinthelist.ItscardfoldstoitsheadingandabarmarkedExcluded:Showcardunfoldsit,andUndoexcludetakesthetagoffagain.Inthetableviewitsrowisdimmed.Tags.Thebuilt-intagsareReview,Sendforvalidation,Validated,Validationdidnotconfirm,ConfidentARsinglehit,ExcludedandReport,theACMGclasstags,theVUStiersandSecondaryfinding.Anadministratorcanaddcustomtagsforoneprojectorforeveryone.Arenamedcustomtagstaysoneveryreviewthatholdsit.Adeletedonestaystoo,marked(deleted):untickittoremoveitfromareview.Itcannolongerbeadded.Noteskeepyourreasoningwiththevariant.Reportputsthevariantinthefamilyreport.ACMGclassifyACMGclassifyopensadialogthatpre-evaluatestheACMG/AMPcriteriafromthevariant,thegeneandthefamilygenotypes,andscoresthemontheClinGenpointsscale.Eachcriterionshowsaschecked(thedatasupportsit),●(consider),✕(thedataarguesagainst)orn/a(cannotapply).Hoveritfortheevidence;clicktochangeit,andpickitsstrength.Onlycheckedcriteriacount.Thebaratthetopshowsthepoints,theclassand,foraVUS,thetier(Hot,WarmorCold).TheheaderlinkstognomAD,ClinVar,DECIPHERandaPubMedsearchonthegeneandthepatient'sHPOterms.Saveclassificationstorestheclassasthevariant'sclassificationandreviewtag,witheverycriterionandyournote;theserverrecomputestheclass.Italsofreezestheevidencethedialogread—theClinVarsignificance,theconsequenceandLoFcall,thepopulationfrequencies,thein-silicoscoresand,foramissensevariant,thegene'smissenseZ—sothereportcanlatertellwhetheritchanged,andwhat.Openingaclassifiedvariantagainshowsthecriteriaasyousavedthem.Decisionsupport,notanautoclassifier.Thedialogpre-positionsthecriteria;youconfirmthem,adjustthestrengthsandaddanote.AvariantopenedfromthemtDNAanalysispagegetsamitochondrialruleset.StructuralvariantsThestructural-variantpageworksthesameway:Review,Exclude,Report,tagsandnotes,andACMG(CNV)fortheClinGencopy-numberclassifier.SavingaCNVclassificationalsofreezesitsevidence,sothereportcantellwhetheritchanged.Aneventcalledbymorethanonecallerislistedoncepercaller,withonesharedreview;theclassificationfreezestheevidenceoftherowyouopeneditfrom.Small-variantandSVreviewarecountedseparatelyonthefamilypage.In-depthreferenceACMGclassificationreference(rules,points,mtDNA,CNV)→",
+  "text": "Recordyourinterpretationasyougo.Reviewstateiskeptperfamily:thesamevariantintwofamilieshastwoseparaterecords.OneachvariantEachroworcardhasReview,ExcludeandReport(one-clicktags),Tags&notesandACMGclassify.Anexcludedvariantstaysinthelist.ItscardfoldstoitsheadingandabarmarkedExcluded:Showcardunfoldsit,andUndoexcludetakesthetagoffagain.Inthetableviewitsrowisdimmed.Tags.Thebuilt-intagsareReview,Sendforvalidation,Validated,Validationdidnotconfirm,ConfidentARsinglehit,ExcludedandReport,theACMGclasstags,theVUStiersandSecondaryfinding.Anadministratorcanaddcustomtagsforoneprojectorforeveryone.Arenamedcustomtagstaysoneveryreviewthatholdsit.Adeletedonestaystoo,marked(deleted):untickittoremoveitfromareview.Itcannolongerbeadded.Noteskeepyourreasoningwiththevariant.Reportputsthevariantinthefamilyreport.ACMGclassifyACMGclassifyopensadialogthatpre-evaluatestheACMG/AMPcriteriafromthevariant,thegeneandthefamilygenotypes,andscoresthemontheClinGenpointsscale.Eachcriterionshowsaschecked(thedatasupportsit),●(consider),✕(thedataarguesagainst)orn/a(cannotapply).Hoveritfortheevidence;clicktochangeit,andpickitsstrength.Onlycheckedcriteriacount.Thebaratthetopshowsthepoints,theclassand,foraVUS,thetier(hot,warmorcold).TheheaderlinkstognomAD,ClinVar,DECIPHERandaPubMedsearchonthegeneandthepatient'sHPOterms.Saveclassificationstorestheclassasthevariant'sclassificationandreviewtag,witheverycriterionandyournote;theserverrecomputestheclass.Italsofreezestheevidencethedialogread—theClinVarsignificance,theconsequenceandLoFcall,thepopulationfrequencies,thein-silicoscoresand,foramissensevariant,thegene'smissenseZ—sothereportcanlatertellwhetheritchanged,andwhat.Openingaclassifiedvariantagainshowsthecriteriaasyousavedthem.Decisionsupport,notanautoclassifier.Thedialogpre-positionsthecriteria;youconfirmthem,adjustthestrengthsandaddanote.AvariantopenedfromthemtDNAanalysispagegetsamitochondrialruleset.StructuralvariantsThestructural-variantpageworksthesameway:Review,Exclude,Report,tagsandnotes,andACMG(CNV)fortheClinGencopy-numberclassifier.SavingaCNVclassificationalsofreezesitsevidence,sothereportcantellwhetheritchanged.Aneventcalledbymorethanonecallerislistedoncepercaller,withonesharedreview;theclassificationfreezestheevidenceoftherowyouopeneditfrom.Small-variantandSVreviewarecountedseparatelyonthefamilypage.In-depthreferenceACMGclassificationreference(rules,points,mtDNA,CNV)→",
   "paragraphs": [
    "Record your interpretation as you go. Review state is kept per family: the same variant in two families has two separate records.",
    "Each row or card has Review, Exclude and Report (one-click tags), Tags & notes and ACMG classify. An excluded variant stays in the list. Its card folds to its heading and a bar marked Excluded: Show card unfolds it, and Undo exclude takes the tag off again. In the table view its row is dimmed.",
@@ -1600,7 +1600,7 @@
    ],
    [
     "li",
-    "The bar at the top shows the points, the class and, for a VUS, the tier (Hot, Warm or Cold)."
+    "The bar at the top shows the points, the class and, for a VUS, the tier (hot, warm or cold)."
    ],
    [
     "li",
@@ -1726,15 +1726,15 @@
    ],
    [
     "em",
-    "Hot"
+    "hot"
    ],
    [
     "em",
-    "Warm"
+    "warm"
    ],
    [
     "em",
-    "Cold"
+    "cold"
    ],
    [
     "strong",

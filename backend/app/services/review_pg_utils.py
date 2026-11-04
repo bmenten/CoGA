@@ -17,10 +17,34 @@ from pydantic import BaseModel, ValidationError
 from sqlalchemy import text
 
 from ..core.coga_logging import scrub_log
+from . import acmg_points, cnv_acmg_points
 
 logger = logging.getLogger(__name__)
 
 _ClassificationT = TypeVar("_ClassificationT", bound=BaseModel)
+
+# The class labels the review dialogs write, ACMG and CNV alike, by their lowercased text.
+_CLASS_LABELS_BY_LOWERED = {
+    label.lower(): label
+    for label in (*acmg_points.CLASS_LABELS.values(), *cnv_acmg_points.CLASS_LABELS.values())
+}
+
+
+def current_class_label(value: str) -> str:
+    """``value`` written as the class label it names, when it names one in another case.
+
+    The class labels are in sentence case (ENG-6): "Likely Pathogenic - class 4", as a review
+    or a signed record from before holds it, or as an older page still sends it, reads as
+    "Likely pathogenic - class 4". Any other text is returned as it is.
+    """
+    return _CLASS_LABELS_BY_LOWERED.get(value.strip().lower(), value)
+
+
+def _stored_classification(value: str | None) -> str | None:
+    """A review's classification as a save stores it: trimmed, None when empty, and a class
+    label in another case written as the label is now (:func:`current_class_label`)."""
+    text_value = (value or "").strip()
+    return current_class_label(text_value) if text_value else None
 
 
 def _normalize_tags(tags: Iterable[str]) -> list[str]:
