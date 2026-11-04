@@ -56,10 +56,10 @@ from .family_package_common import (
     PackageExecutionResult,
     ProgressCallback,
     _issue,
-    _json_dict,
     _json_list,
 )
 from .family_package_source import package_folder_path, staged_package_source_async
+from .stored_values import json_object
 from .wgs_source_storage import PackageAncestrySource
 from .family_package_validation import load_validated_family_package
 from .family_package_jobs import (
@@ -1251,7 +1251,7 @@ async def run_family_import_job(
                 raise RuntimeError(REQUESTER_INACTIVE_ERROR)
             if not is_admin_user(user):
                 raise RuntimeError(REQUESTER_NOT_ADMIN_ERROR)
-            job_metadata = _json_dict(job_row.get("metadata"))
+            job_metadata = json_object(job_row.get("metadata"))
             result = await execute_family_package_import(
                 session,
                 folder_path=str(job_row["submitted_path"]),

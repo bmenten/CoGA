@@ -7,6 +7,7 @@ release. No network: every download is replaced."""
 
 import pytest
 
+from backend.app.services import bounded_download
 from backend.app.services import monarch_ingest as monarch
 from backend.app.services.monarch_ingest import (
     _Association,
@@ -196,11 +197,24 @@ async def test_a_download_that_cannot_be_read_is_a_monarch_source_error(monkeypa
     async def download(_client, _url, **_kwargs) -> bytes:
         return body
 
-    monkeypatch.setattr(monarch, "download_bounded_bytes", download)
+    monkeypatch.setattr(bounded_download, "download_bounded_bytes", download)
 
     # A ValueError from the gunzip or the decode, which the refresh router did not catch: a 500.
     with pytest.raises(monarch.MonarchSourceError):
         await monarch._download_gzip_tsv(url)
+
+
+@pytest.mark.asyncio
+async def test_a_download_larger_than_the_cap_is_a_monarch_source_error(monkeypatch) -> None:
+    async def download(_client, url, *, max_bytes=bounded_download.MAX_DOWNLOAD_BYTES, **_kwargs) -> bytes:
+        raise ValueError(f"{url} download exceeds {max_bytes} bytes")  # as download_bounded_bytes says it
+
+    monkeypatch.setattr(bounded_download, "download_bounded_bytes", download)
+
+    # Raised past the conversion, it reached the refresh router as a 500, though the class says a
+    # download too large is a fault upstream, answered 502 with the loaded release kept (ENG-8).
+    with pytest.raises(monarch.MonarchSourceError, match="download exceeds"):
+        await monarch._download_gzip_tsv("https://example.org/gene_disease.tsv.gz")
 
 
 class _RecordingSession:

@@ -19,22 +19,11 @@ from ..schemas import (
     ParaphaseSampleResultOut,
 )
 from .family_metadata_context import FamilyMetadataContext
+from .stored_values import json_object as _json_object
 
 REPO_PARAPHASE_MEDICAL_REGIONS_PATH = (
     Path(__file__).resolve().parents[3] / "data" / "ref-data" / "paraphase-medical-regions.json"
 )
-
-
-def _json_object(value: Any) -> dict[str, Any]:
-    if isinstance(value, dict):
-        return value
-    if isinstance(value, str):
-        try:
-            parsed = json.loads(value)
-        except json.JSONDecodeError:
-            return {}
-        return parsed if isinstance(parsed, dict) else {}
-    return {}
 
 
 def _count_items(value: Any) -> int:

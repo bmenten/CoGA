@@ -23,7 +23,7 @@ import httpx
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .bounded_download import download_bounded_bytes, gunzip_bounded
+from .bounded_download import download_text
 from .monarch_phenotype_score import reset_information_content_cache
 
 logger = logging.getLogger(__name__)
@@ -103,12 +103,8 @@ class MonarchSourceError(RuntimeError):
 
 
 async def _download_gzip_tsv(url: str) -> str:
-    async with httpx.AsyncClient(timeout=120.0, follow_redirects=True) as client:
-        raw = await download_bounded_bytes(client, url, source=url)
     try:
-        if url.endswith(".gz"):
-            raw = gunzip_bounded(raw, source=url)
-        return raw.decode("utf-8")
+        return await download_text(url, http_timeout=120.0)
     except ValueError as exc:  # too large, no complete gzip, or not UTF-8
         raise MonarchSourceError(str(exc)) from exc
 

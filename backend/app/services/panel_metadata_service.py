@@ -31,6 +31,7 @@ from .panelapp_service import (
     panelapp_panel_url,
 )
 from .sex_chromosomes import assembly_display_rank
+from .stored_values import json_object as _jsonb_dict
 
 
 def _ensure_admin(user: CurrentUser) -> None:
@@ -936,16 +937,6 @@ def _jsonb_list(value: Any) -> list[Any]:
     return []
 
 
-def _jsonb_dict(value: Any) -> dict[str, Any]:
-    if isinstance(value, dict):
-        return value
-    if isinstance(value, str) and value.strip():
-        try:
-            parsed = json.loads(value)
-            return parsed if isinstance(parsed, dict) else {}
-        except json.JSONDecodeError:
-            return {}
-    return {}
 
 
 async def list_panel_versions(session: AsyncSession, panel_id: str) -> GenePanelVersionListOut:

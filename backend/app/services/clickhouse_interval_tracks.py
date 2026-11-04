@@ -18,6 +18,10 @@ from .coverage_content import COVERAGE_CONTENT_KEY
 from .data_scope import chromosome_aliases, normalize_chromosome
 from .family_metadata_context import SampleMetadataContext
 
+# Every track type the interval table holds: the data inventory and the family's data counts
+# count each of them.
+INTERVAL_TRACK_TYPES = ("coverage", "segments", "apcad", "apcad_pcf", "apcad_segregation", "haplotype", "target_coverage")
+
 # Memoize which interval tables have been ensured this process so the DDL runs
 # once per assembly instead of before every read/presence call (mirrors
 # clickhouse_variant_storage._ensured_variant_table_assemblies).

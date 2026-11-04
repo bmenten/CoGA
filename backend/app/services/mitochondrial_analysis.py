@@ -40,6 +40,7 @@ from .family_variant_filters import SmallVariantQueryFilters, StructuralVariantQ
 from .genotypes import HET, HOM_ALT, NO_CALL, classify_genotype
 from .qc_threshold_service import evaluate_metric, resolve_family_qc_thresholds
 from .small_variant_review_pg import get_small_variant_review_map
+from .stored_values import int_or_none as _int
 
 
 MT_GENOME_LENGTH = 16_569
@@ -128,18 +129,6 @@ def _float(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
-
-
-def _int(value: Any) -> int | None:
-    if value in (None, ""):
-        return None
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        try:
-            return int(float(value))
-        except (TypeError, ValueError):
-            return None
 
 
 def _list_texts(*values: Any) -> list[str]:

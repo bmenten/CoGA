@@ -289,3 +289,58 @@ async def test_download_bounded_bytes_5xx_raises() -> None:
     async with _client(lambda req: httpx.Response(503)) as client:
         with pytest.raises(httpx.HTTPStatusError):
             await download_bounded_bytes(client, "https://x/y")
+
+
+# --- download_text ---------------------------------------------------------------------
+
+
+def _serve(monkeypatch, body: bytes, seen: list[dict] | None = None) -> None:
+    """download_text's client answers every GET with ``body``; ``seen`` collects the client's
+    options."""
+    real_client = httpx.AsyncClient
+
+    def client(**kwargs):
+        if seen is not None:
+            seen.append(kwargs)
+        return real_client(transport=httpx.MockTransport(lambda request: httpx.Response(200, content=body)), **kwargs)
+
+    monkeypatch.setattr(bounded_download.httpx, "AsyncClient", client)
+
+
+@pytest.mark.asyncio
+async def test_download_text_gunzips_a_gz_url_and_decodes_utf8(monkeypatch) -> None:
+    # Monarch's association files and the gene-info bulk sources are read through it (ENG-8).
+    seen: list[dict] = []
+    _serve(monkeypatch, gzip.compress("gene\tziekte é\n".encode()), seen)
+
+    text = await bounded_download.download_text("https://x/file.tsv.gz", http_timeout=12.0)
+
+    assert text == "gene\tziekte é\n"
+    assert seen == [{"timeout": 12.0, "follow_redirects": True}]
+
+
+@pytest.mark.asyncio
+async def test_download_text_reads_any_other_url_as_it_is(monkeypatch) -> None:
+    _serve(monkeypatch, gzip.compress(b"x"))
+
+    # Not gunzipped: gzip's bytes are no UTF-8.
+    with pytest.raises(UnicodeDecodeError):
+        await bounded_download.download_text("https://x/file.tsv", http_timeout=1.0)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("url", "body", "message"),
+    [
+        ("https://x/file.tsv.gz", b"not gzip", "not valid gzip"),
+        ("https://x/file.tsv", b"\xff\xfe not UTF-8", "utf-8"),
+    ],
+    ids=["not-gzip", "not-utf8"],
+)
+async def test_download_text_refuses_a_body_it_cannot_read_with_a_value_error(
+    monkeypatch, url: str, body: bytes, message: str
+) -> None:
+    _serve(monkeypatch, body)
+
+    with pytest.raises(ValueError, match=message):
+        await bounded_download.download_text(url, http_timeout=1.0)
