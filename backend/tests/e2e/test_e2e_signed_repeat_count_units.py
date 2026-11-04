@@ -1,4 +1,5 @@
-"""The signed record freezes each repeat call's near-boundary warning and QA's counting-units record, E2E.
+"""The signed record freezes each repeat call's near-boundary warning, QA's counting-units record and
+QA's count correction, E2E.
 
 TRGT's count need not be the clinical repeat number (at FMR1 it leaves out the AGG
 interruptions: a 55-repeat premutation can read 53), so until QA validates a catalogue locus the
@@ -7,8 +8,8 @@ now freezes that warning beside each allele, and per locus QA's record of TRGT's
 as ``repeat_locus_count_units`` holds it at sign-out.
 
 Here a one-member family (a woman, a new id each run) goes through the package import into real
-Postgres and ClickHouse with a TRGT call at FXS_FMR1 of 30 and 53 repeats, at a locus without a
-QA record. Through the API, this:
+Postgres and ClickHouse with a TRGT call at FXS_FMR1 of 30 and 53 repeats and one at HD_HTT of 18
+and 36, at loci without a QA record. Through the API, this:
 
 * reads the repeat page: the 53 reads grey zone and is marked with the premutation at 55;
 * signs the family out and reads the record back: the warning beside the 53, none beside the 30,
@@ -20,9 +21,14 @@ QA record. Through the API, this:
   warning; then withdraws the validation: the check names the repeat expansions as changed again;
 * signs out once more as a build from before the warnings (the section without them): that record
   still verifies and reads, nothing it predates is called not captured, and the check compares it
-  on what it holds, naming the warnings and QA's records as not compared.
+  on what it holds, naming the warnings, QA's records and the corrections as not compared;
+* records QA's count correction of -1 at HD_HTT (CLIN-57), which TRGT reads one above the usual
+  count: the repeat page reads the 36 as 35, grey zone, with TRGT's 36 beside it; the check names
+  the repeat expansions as changed; a sign-out freezes both counts and the correction; and a
+  record signed by a build from before the corrections is compared on what it holds, naming them
+  as not compared. The record's chain holds the correction before and after.
 
-FXS_FMR1's record is put back as it was. Everything runs in ONE event loop, with an in-process
+FXS_FMR1's and HD_HTT's records are put back as they were. Everything runs in ONE event loop, with an in-process
 ``httpx.ASGITransport`` client for the API (see test_e2e_api_contract.py for why).
 
 Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``e2e`` job sets it. All samples
@@ -42,6 +48,7 @@ from backend.tests.e2e._harness import capture, ensure_postgres_schema, ok_json,
 pytestmark = pytest.mark.integration
 
 LOCUS = "FXS_FMR1"
+HTT_LOCUS = "HD_HTT"
 SIGN_OUT_BODY = {
     "acknowledge_drift": True,
     "drift_acknowledgement_reason": "e2e: nothing is reported",
@@ -53,6 +60,7 @@ SIGN_OUT_BODY = {
 }
 VALIDATION_REASON = "e2e: validation report of TRGT's counting units at FMR1"
 WITHDRAWAL_REASON = "e2e: a new TRGT catalogue"
+CORRECTION_REASON = "e2e: TRGT counts HTT one above the usual count"
 WARNING_53 = {"repeat_count": 53, "margin": 3, "boundaries": [{"repeat_count": 55, "status": "premutation"}]}
 
 _TRGT = (
@@ -61,11 +69,14 @@ _TRGT = (
     "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t{column}\n"
     "chrX\t147912049\t.\tCGG\t<TR>\t.\t.\tTRID=FXS_FMR1;END=147912111;MOTIFS=CGG;STRUC=<TR>"
     "\tGT:AL:MC\t1/2:90,159:30,53\n"
+    "chr4\t3074876\t.\tCAG\t<TR>\t.\t.\tTRID=HD_HTT;END=3074933;MOTIFS=CAG;STRUC=<TR>"
+    "\tGT:AL:MC\t1/2:54,108:18,36\n"
 )
 
 
 def _package(root: Path, family_id: str, sample: str) -> Path:
-    """The one-member family: a woman, her TRGT VCF with an FMR1 call of 30 and 53 repeats."""
+    """The one-member family: a woman, her TRGT VCF with an FMR1 call of 30 and 53 repeats and an
+    HTT call of 18 and 36."""
     root.mkdir(parents=True)
     write_file(root, "family.ped", f"{family_id}\t{sample}\t0\t0\t2\t1\n")
     trgt = write_file(root, f"trgt/{sample}.vcf", _TRGT.format(column=f"{sample}_sort"))
@@ -84,7 +95,7 @@ def _package(root: Path, family_id: str, sample: str) -> Path:
 
 def _before_count_units(section: Any) -> None:
     """The section as a build from before the warnings froze it: no margin, no QA record per
-    locus, no warning beside an allele (in place)."""
+    locus, no warning beside an allele, no TRGT count beside the count (in place)."""
     if not isinstance(section, dict):
         return
     section.pop("count_unit_margin", None)
@@ -93,6 +104,19 @@ def _before_count_units(section: Any) -> None:
         for call in locus.get("calls") or []:
             for allele in call.get("alleles") or []:
                 allele.pop("count_unit_warning", None)
+                allele.pop("trgt_repeat_count", None)
+
+
+def _before_count_offsets(section: Any) -> None:
+    """The section as a build from after the warnings but before QA's count corrections froze it:
+    no correction in a locus's QA record, no TRGT count beside the count (in place)."""
+    if not isinstance(section, dict):
+        return
+    for locus in section.get("loci") or []:
+        (locus.get("count_units") or {}).pop("count_offset", None)
+        for call in locus.get("calls") or []:
+            for allele in call.get("alleles") or []:
+                allele.pop("trgt_repeat_count", None)
 
 
 async def _exercise(base: Path, family_id: str) -> dict[str, Any]:
@@ -115,18 +139,23 @@ async def _exercise(base: Path, family_id: str) -> dict[str, Any]:
     async with sessionmaker() as session:
         admin, project_id, _assembly_id = await _harness.ensure_e2e_project(session)
         await seed_builtin_repeat_catalog(session)
-        # The locus starts without a QA record (not validated); its record is put back below.
-        prior = (
-            await session.execute(
-                text(
-                    "SELECT locus_id, validated, reason, updated_by, updated_by_name, updated_at "
-                    "FROM repeat_locus_count_units WHERE locus_id = :l"
-                ),
-                {"l": LOCUS},
-            )
-        ).mappings().first()
-        prior = dict(prior) if prior is not None else None
-        await session.execute(text("DELETE FROM repeat_locus_count_units WHERE locus_id = :l"), {"l": LOCUS})
+        # The loci start without a QA record (no correction, not validated); their records are
+        # put back below.
+        priors = [
+            dict(row)
+            for row in (
+                await session.execute(
+                    text(
+                        "SELECT locus_id, validated, count_offset, reason, updated_by, updated_by_name, updated_at "
+                        "FROM repeat_locus_count_units WHERE locus_id IN (:l, :h)"
+                    ),
+                    {"l": LOCUS, "h": HTT_LOCUS},
+                )
+            ).mappings().all()
+        ]
+        await session.execute(
+            text("DELETE FROM repeat_locus_count_units WHERE locus_id IN (:l, :h)"), {"l": LOCUS, "h": HTT_LOCUS}
+        )
         await session.commit()
 
     sample = f"{family_id}_S1"  # sample ids are unique across families
@@ -166,14 +195,18 @@ async def _exercise(base: Path, family_id: str) -> dict[str, Any]:
             r["check"] = capture(await ac.get(f"{family}/report/sign-out-check"))
 
             # QA validates TRGT's counting units at FMR1 after sign-out.
-            r["validate"] = capture(await ac.put(units, json={"validated": True, "reason": VALIDATION_REASON}))
+            r["validate"] = capture(
+                await ac.put(units, json={"validated": True, "count_offset": 0, "reason": VALIDATION_REASON})
+            )
             r["table_validated"] = capture(await ac.get(f"{family}/repeat-expansions"))
             r["check_validated"] = capture(await ac.get(f"{family}/report/sign-out-check"))
             await sign_out("signout_validated")
             r["check_signed_validated"] = capture(await ac.get(f"{family}/report/sign-out-check"))
 
             # And withdraws it.
-            r["withdraw"] = capture(await ac.put(units, json={"validated": False, "reason": WITHDRAWAL_REASON}))
+            r["withdraw"] = capture(
+                await ac.put(units, json={"validated": False, "count_offset": 0, "reason": WITHDRAWAL_REASON})
+            )
             r["check_withdrawn"] = capture(await ac.get(f"{family}/report/sign-out-check"))
 
             # A record signed by a build from before the warnings: the section without them.
@@ -191,6 +224,34 @@ async def _exercise(base: Path, family_id: str) -> dict[str, Any]:
             finally:
                 mp.undo()
             r["old_check"] = capture(await ac.get(f"{family}/report/sign-out-check"))
+
+            # QA's count correction at HTT (CLIN-57), after a sign-out by this build.
+            await sign_out("signout_before_correction")
+            r["correct"] = capture(
+                await ac.put(
+                    f"/api/admin/repeat-loci/{HTT_LOCUS}/count-units",
+                    json={"validated": False, "count_offset": -1, "reason": CORRECTION_REASON},
+                )
+            )
+            r["table_corrected"] = capture(await ac.get(f"{family}/repeat-expansions"))
+            r["check_corrected"] = capture(await ac.get(f"{family}/report/sign-out-check"))
+            await sign_out("signout_corrected")
+            r["check_signed_corrected"] = capture(await ac.get(f"{family}/report/sign-out-check"))
+
+            # A record signed by a build from before the corrections.
+            async def _before_offsets_build(*args: Any, **kwargs: Any) -> dict[str, Any]:
+                body = await real_build(*args, **kwargs)
+                _before_count_offsets(body.get("repeat_expansions"))
+                return body
+
+            mp = pytest.MonkeyPatch()
+            mp.setattr(rss, "build_report_snapshot", _before_offsets_build)
+            try:
+                await sign_out("offsets_old_signout")
+            finally:
+                mp.undo()
+            r["offsets_old_check"] = capture(await ac.get(f"{family}/report/sign-out-check"))
+            r["listed"] = capture(await ac.get("/api/admin/repeat-loci"))
             r["chain"] = capture(
                 await ac.get("/api/admin/integrity/verify", params={"table": "report_signouts", "family_id": family_id})
             )
@@ -203,13 +264,16 @@ async def _exercise(base: Path, family_id: str) -> dict[str, Any]:
         return out
     finally:
         async with sessionmaker() as session:
-            await session.execute(text("DELETE FROM repeat_locus_count_units WHERE locus_id = :l"), {"l": LOCUS})
-            if prior is not None:
+            await session.execute(
+                text("DELETE FROM repeat_locus_count_units WHERE locus_id IN (:l, :h)"), {"l": LOCUS, "h": HTT_LOCUS}
+            )
+            for prior in priors:
                 await session.execute(
                     text(
                         "INSERT INTO repeat_locus_count_units "
-                        "(locus_id, validated, reason, updated_by, updated_by_name, updated_at) "
-                        "VALUES (:locus_id, :validated, :reason, :updated_by, :updated_by_name, :updated_at)"
+                        "(locus_id, validated, count_offset, reason, updated_by, updated_by_name, updated_at) "
+                        "VALUES (:locus_id, :validated, :count_offset, :reason, :updated_by, :updated_by_name, "
+                        ":updated_at)"
                     ),
                     prior,
                 )
@@ -235,6 +299,11 @@ def run(tmp_path_factory) -> dict[str, Any]:
 
 def _fmr1(section: dict[str, Any]) -> dict[str, Any]:
     [locus] = [locus for locus in section["loci"] if locus["locus_id"] == LOCUS]
+    return locus
+
+
+def _htt(section: dict[str, Any]) -> dict[str, Any]:
+    [locus] = [locus for locus in section["loci"] if locus["locus_id"] == HTT_LOCUS]
     return locus
 
 
@@ -266,9 +335,18 @@ def test_the_record_freezes_the_warning_beside_the_call_and_the_locus_not_valida
     section = detail["snapshot"]["repeat_expansions"]
     assert section["count_unit_margin"] == 3
     locus = _fmr1(section)
-    assert locus["count_units"] == {"validated": False, "reason": None, "updated_by": None, "updated_at": None}
+    assert locus["count_units"] == {
+        "count_offset": 0,
+        "validated": False,
+        "reason": None,
+        "updated_by": None,
+        "updated_at": None,
+    }
     alleles = _alleles(locus, run["sample"])
-    assert [(allele["repeat_count"], allele["status"]) for allele in alleles] == [(30, "normal"), (53, "intermediate")]
+    assert [(allele["repeat_count"], allele["trgt_repeat_count"], allele["status"]) for allele in alleles] == [
+        (30, 30, "normal"),
+        (53, 53, "intermediate"),
+    ]
     # The warning the repeat page showed, as it served it.
     assert [allele["count_unit_warning"] for allele in alleles] == [None, WARNING_53]
     # Bound into the content hash, which the stored record still matches.
@@ -336,13 +414,82 @@ def test_a_record_signed_before_the_warnings_still_verifies_reads_and_is_compare
     assert detail["verified"] is True
     # Nothing it predates is called "not captured".
     assert _section_gaps(detail["not_captured"]) == []
-    # Compared on what it holds: the calls match, and the warnings and QA's records are named
-    # as not compared (the locus is withdrawn now, so the 53 is marked again).
+    # Compared on what it holds: the calls match, and the warnings, QA's records and the
+    # corrections are named as not compared (the locus is withdrawn now, so the 53 is marked again).
     check = ok_json(run, "old_check")
     assert check["version"] == old["version"]
-    assert check["not_compared"] == ["repeat_expansions.count_units"]
+    assert check["not_compared"] == ["repeat_expansions.count_units", "repeat_expansions.count_offset"]
     assert check["matches"] is True, check
     assert _section_gaps(check["not_captured"]) == []
+
+
+def test_a_count_correction_reclassifies_the_call_with_trgts_count_beside_it(run) -> None:
+    corrected = ok_json(run, "correct")
+    assert (corrected["locus_id"], corrected["validated"], corrected["count_offset"]) == (HTT_LOCUS, False, -1)
+    [locus] = [row for row in ok_json(run, "table_corrected")["loci"] if row["locus_id"] == HTT_LOCUS]
+    assert (locus["count_offset"], locus["count_units_validated"], locus["count_units_reason"]) == (
+        -1,
+        False,
+        CORRECTION_REASON,
+    )
+    alleles = locus["calls"][run["sample"]]["alleles"]
+    # TRGT's 36 (pathogenic) is 35: grey zone, still marked while HTT is not validated.
+    assert [(allele["repeat_count"], allele["trgt_repeat_count"], allele["status"]) for allele in alleles] == [
+        (17, 18, "normal"),
+        (35, 36, "intermediate"),
+    ]
+    assert alleles[1]["count_unit_warning"] == {
+        "repeat_count": 35,
+        "margin": 3,
+        "boundaries": [{"repeat_count": 36, "status": "pathogenic"}],
+    }
+    assert locus["status"] == "intermediate"
+    # The record signed just before held the 36 pathogenic: the check says the repeat expansions
+    # changed, and so did the findings without a review that listed it.
+    check = ok_json(run, "check_corrected")
+    assert check["matches"] is False
+    assert "repeat_expansions" in check["changed_sections"]
+    assert check["not_compared"] == []
+
+
+def test_the_record_freezes_the_corrected_count_trgts_count_and_the_correction(run) -> None:
+    detail = ok_json(run, "signout_corrected_detail")
+    locus = _htt(detail["snapshot"]["repeat_expansions"])
+    assert locus["status"] == "intermediate"
+    units = locus["count_units"]
+    assert (units["count_offset"], units["validated"], units["reason"]) == (-1, False, CORRECTION_REASON)
+    assert units["updated_by"] and units["updated_at"]
+    alleles = _alleles(locus, run["sample"])
+    assert [(allele["repeat_count"], allele["trgt_repeat_count"], allele["status"]) for allele in alleles] == [
+        (17, 18, "normal"),
+        (35, 36, "intermediate"),
+    ]
+    assert detail["verified"] is True
+    assert _section_gaps(detail["not_captured"]) == []
+    # Through the JSONB round trip the section compares equal to the one built again.
+    check = ok_json(run, "check_signed_corrected")
+    assert check["matches"] is True, check
+    assert check["not_compared"] == []
+
+
+def test_a_record_signed_before_the_corrections_is_compared_on_what_it_holds(run) -> None:
+    detail = ok_json(run, "offsets_old_signout_detail")
+    locus = _htt(detail["snapshot"]["repeat_expansions"])
+    assert "count_offset" not in locus["count_units"]
+    assert all("trgt_repeat_count" not in allele for allele in _alleles(locus, run["sample"]))
+    assert detail["verified"] is True
+    assert _section_gaps(detail["not_captured"]) == []
+    check = ok_json(run, "offsets_old_check")
+    assert check["not_compared"] == ["repeat_expansions.count_offset"]
+    assert check["matches"] is True, check
+
+
+def test_the_admin_list_names_the_correction(run) -> None:
+    [htt] = [locus for locus in ok_json(run, "listed")["loci"] if locus["locus_id"] == HTT_LOCUS]
+    assert (htt["count_offset"], htt["validated"], htt["offset_note"]) == (-1, False, None)
+    [fmr1] = [locus for locus in ok_json(run, "listed")["loci"] if locus["locus_id"] == LOCUS]
+    assert fmr1["count_offset"] == 0 and "AGG" in fmr1["offset_note"]
+    assert ok_json(run, "listed")["offset_limit"] == 20
 
 
 def test_the_sign_out_chain_and_the_records_chain_verify(run) -> None:

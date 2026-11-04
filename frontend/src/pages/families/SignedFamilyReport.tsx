@@ -38,6 +38,7 @@ import {
   describeCoverageContent,
   describeCoverageFiles,
   describeCoverageTracks,
+  describeCountCorrections,
   describeCountUnitMargin,
   describeDiseaseHaplotypes,
   describeEmbryoCall,
@@ -903,6 +904,10 @@ const AnalysisSections: React.FC<{ record: SignedReport; version: number }> = ({
           {/* A record signed before CoGA froze the near-boundary warnings reads as it was signed. */}
           {repeats.countUnitMargin !== null ? (
             <p className="report-paragraph">{describeCountUnitMargin(repeats.countUnitMargin)}</p>
+          ) : null}
+          {/* Only where a count correction was frozen: a record without one reads as before. */}
+          {describeCountCorrections(repeats) ? (
+            <p className="report-paragraph">{describeCountCorrections(repeats)}</p>
           ) : null}
           {repeats.loci.length ? (
             <ul className="report-signed-list">

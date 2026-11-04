@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { vi } from 'vitest';
 
 const { useQueryMock } = vi.hoisted(() => ({
@@ -254,6 +254,33 @@ describe('RepeatExpansionTrack', () => {
     expect(
       screen.getByRole('img', { name: 'Repeat loci of S1 on chr1: 2, all normal, 1 near a boundary' }),
     ).toBeInTheDocument();
+  });
+
+  // QA's count correction (CLIN-57): the counts drawn are the ones classified, TRGT's own beside them.
+  it('says each corrected count with TRGT’s own and the correction in the tooltip', () => {
+    useQueryMock.mockReturnValue({
+      data: {
+        items: [
+          {
+            ...locus('HTT', 100, 'pathogenic'),
+            allele_repeat_counts: [17, 36],
+            allele_trgt_repeat_counts: [18, 37],
+            count_offset: -1,
+          },
+          { ...locus('ATXN1', 300, 'normal'), allele_repeat_counts: [29], allele_trgt_repeat_counts: [29] },
+        ],
+      },
+      isLoading: false,
+    });
+    const { container } = render(regionTrack(0, { chromosomeSize: 1000 }));
+
+    fireEvent.mouseMove(container.querySelector('[data-repeat-locus-id="HTT"]') as Element, { clientX: 10, clientY: 10 });
+    expect(screen.getByText('17 / 36 (TRGT 18 / 37) repeats')).toBeInTheDocument();
+    expect(screen.getByText('QA’s count correction: TRGT’s count −1')).toBeInTheDocument();
+
+    fireEvent.mouseMove(container.querySelector('[data-repeat-locus-id="ATXN1"]') as Element, { clientX: 30, clientY: 10 });
+    expect(screen.getByText('29 repeats')).toBeInTheDocument();
+    expect(screen.queryByText(/QA’s count correction/)).not.toBeInTheDocument();
   });
 
   it('names only the loci in the region outside chromosome view mode (#529)', () => {

@@ -51,7 +51,7 @@ const adminGroups: AdminGroup[] = [
         label: 'Repeat catalogue',
         to: '/admin/reference/repeat-loci',
         description:
-          "Record, per repeat locus, whether QA validated that TRGT's count is the clinical repeat number; until then counts near a boundary are marked.",
+          "Record, per repeat locus, QA's count correction and whether QA validated that TRGT's count is the clinical repeat number; until then counts near a boundary are marked.",
       },
     ],
   },

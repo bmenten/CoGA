@@ -423,6 +423,21 @@ def test_revision_0013_writes_the_class_labels_the_code_writes_in_mutable_rows_o
         assert "updated_at" not in statement
 
 
+def test_revision_0014_gives_qas_repeat_record_the_baselines_count_correction() -> None:
+    # CLIN-57: the count correction per repeat catalogue locus, with the baseline's type, default
+    # and check; every stored record gets 0, no correction.
+    module = migration_script().get_revision("0014").module
+    create = next(
+        statement
+        for statement in _statements("02_reference.sql")
+        if statement.startswith("CREATE TABLE IF NOT EXISTS repeat_locus_count_units ")
+    )
+
+    assert "count_offset integer DEFAULT 0 NOT NULL," in create
+    assert f"CONSTRAINT repeat_locus_count_units_count_offset_check {module._COUNT_OFFSET_CHECK}," in create
+    assert module._COUNT_OFFSET_CHECK == "CHECK (((count_offset >= '-20'::integer) AND (count_offset <= 20)))"
+
+
 def test_the_ledger_table_is_alembics_own_and_its_revoke_follows_the_broad_grant() -> None:
     # Alembic finds the table the baseline created and uses it as its own.
     context = MigrationContext.configure(dialect_name="postgresql")

@@ -1,6 +1,6 @@
 import React from 'react';
 import type { ApiParaphaseGeneResult, ApiRepeatExpansionRow, ApiRepeatStatus } from '../../lib/apiTypes';
-import { repeatStatusLabel } from '../../lib/repeatStatus';
+import { formatCorrectedCounts, repeatStatusLabel } from '../../lib/repeatStatus';
 import { COLLABORATION_QUICK_TAGS } from './smallVariantSearch';
 import { paraphaseStatusWords, type SignedFindingReview } from './signedReportRecord';
 import { FINDING_DRIFT_LABEL, differsFromStatus, findingClassificationLabel, type FindingKind } from './findingReview';
@@ -41,14 +41,15 @@ export const reportedRepeatFinding = (row: ApiRepeatExpansionRow, sampleOrder: s
   const calls = sampleOrder
     .map((sample) => row.calls[sample])
     .filter(Boolean)
-    .map((call) => {
-      const counts = call.alleles.map((allele) => allele.repeat_count).filter((count) => count != null);
-      return {
-        sample: call.sample,
-        call: counts.length ? counts.join(' / ') : null,
-        status: repeatStatusLabel(call.status, call.review_reason),
-      };
-    });
+    .map((call) => ({
+      sample: call.sample,
+      // The counts CoGA classified, with TRGT's own beside them where QA corrected them.
+      call: formatCorrectedCounts(
+        call.alleles.map((allele) => allele.repeat_count),
+        call.alleles.map((allele) => allele.trgt_repeat_count),
+      ),
+      status: repeatStatusLabel(call.status, call.review_reason),
+    }));
   return {
     kind: 'repeat',
     key: row.locus_id,

@@ -55,6 +55,10 @@ the CI ``smoke`` job sets it.
   review's and preset's ``updated_at`` kept; the clinical audit trail, the signed records, the
   request audit and the UI-event log keep the label as it was, and every other table is as it
   was. It ends at the same fingerprint; a later start changes nothing.
+- A database at revision 0013 from before CLIN-57 gets QA's count correction per repeat locus
+  (``repeat_locus_count_units.count_offset``, revision 0014) with the baseline's default and
+  check: a stored record is kept with no correction, a correction beyond 20 either way is
+  refused, it ends at the same fingerprint, and a later start changes nothing.
 - A ledger naming a revision this version does not have is refused, and nothing changes.
 - The restricted runtime role cannot run the migration; two instances that start together
   both come up, one after the other.
@@ -1988,6 +1992,113 @@ def test_a_database_from_before_eng6_gets_its_class_labels_in_sentence_case_and_
     }
     for table in ("clinical_audit_events", "report_signouts", "audit_log_events", "ui_events"):
         assert kept[table][0] == 1, table
+    assert unchanged == kept
+    # The schema is the baselines'.
+    assert actual == expected, _differences(expected, actual)
+
+
+# QA's repeat record as a database had it before CLIN-57 (revision 0014): no count correction.
+_BEFORE_0014 = (
+    "ALTER TABLE repeat_locus_count_units DROP CONSTRAINT repeat_locus_count_units_count_offset_check",
+    "ALTER TABLE repeat_locus_count_units DROP COLUMN count_offset",
+)
+
+
+@_MODES
+def test_a_database_from_before_clin57_gets_the_count_correction_with_every_record_kept_without_one(
+    monkeypatch, reapply_baselines: bool
+) -> None:
+    from sqlalchemy.exc import IntegrityError
+
+    from backend.app.core import postgres_migrations
+    from backend.app.core.postgres_migrations import apply_postgres_schema, head_revision
+
+    monkeypatch.setattr(postgres_migrations, "REAPPLY_BASELINES_ON_EVERY_RUN", reapply_baselines)
+
+    async def _body(database: str):
+        engine = _engine(database)
+        try:
+            async with engine.begin() as conn:
+                await apply_postgres_schema(conn)
+            # A database at revision 0013 from before CLIN-57, with QA's record of one locus.
+            async with engine.begin() as conn:
+                await conn.execute(text("UPDATE alembic_version SET version_num = '0013'"))
+                for statement in _BEFORE_0014:
+                    await conn.exec_driver_sql(statement)
+                await conn.execute(
+                    text(
+                        "INSERT INTO repeat_loci (locus_id, gene, display_name, disease) "
+                        "VALUES ('HD_HTT', 'HTT', 'HTT', 'Huntington disease')"
+                    )
+                )
+                await conn.execute(
+                    text(
+                        "INSERT INTO repeat_locus_count_units (locus_id, validated, reason, updated_by_name) "
+                        "VALUES ('HD_HTT', true, 'Validation report 7', 'qa-lead')"
+                    )
+                )
+            contents = await _table_contents(database)
+            async with engine.begin() as conn:
+                revision = await apply_postgres_schema(conn)
+            kept = await _table_contents(database)
+            async with engine.connect() as conn:
+                record = dict(
+                    (
+                        await conn.execute(
+                            text(
+                                "SELECT locus_id, validated, count_offset, reason, updated_by_name "
+                                "FROM repeat_locus_count_units"
+                            )
+                        )
+                    ).mappings().one()
+                )
+                check = await _check_definition(
+                    conn, "repeat_locus_count_units", "repeat_locus_count_units_count_offset_check"
+                )
+            # The check holds the bound on the migrated database.
+            refused = 0
+            for offset in (21, -21):
+                try:
+                    async with engine.begin() as conn:
+                        await conn.execute(
+                            text("UPDATE repeat_locus_count_units SET count_offset = :o"), {"o": offset}
+                        )
+                except IntegrityError:
+                    refused += 1
+            # The next start finds nothing left to do.
+            async with engine.begin() as conn:
+                again = await apply_postgres_schema(conn)
+            unchanged = await _table_contents(database)
+        finally:
+            await engine.dispose()
+        reference = await _create_database()
+        try:
+            await _apply_baseline_files(reference)
+            fingerprints = await _fingerprint(reference), await _fingerprint(database)
+        finally:
+            await _drop_database(reference)
+        return (revision, again), record, check, refused, (contents, kept, unchanged), fingerprints
+
+    (revision, again), record, check, refused, (contents, kept, unchanged), (expected, actual) = _run(_body)
+
+    assert (revision.before, revision.after) == ("0013", head_revision())
+    assert (again.before, again.after) == (head_revision(), head_revision())
+    # The record stored before is kept, with no correction.
+    assert record == {
+        "locus_id": "HD_HTT",
+        "validated": True,
+        "count_offset": 0,
+        "reason": "Validation report 7",
+        "updated_by_name": "qa-lead",
+    }
+    assert check == "CHECK (((count_offset >= '-20'::integer) AND (count_offset <= 20)))"
+    assert refused == 2
+    # Every other table is as it was, and a later start changes nothing.
+    changed = {"alembic_version", "repeat_locus_count_units"}
+    assert {table: rows for table, rows in kept.items() if table not in changed} == {
+        table: rows for table, rows in contents.items() if table not in changed
+    }
+    assert kept["repeat_locus_count_units"][0] == contents["repeat_locus_count_units"][0] == 1
     assert unchanged == kept
     # The schema is the baselines'.
     assert actual == expected, _differences(expected, actual)

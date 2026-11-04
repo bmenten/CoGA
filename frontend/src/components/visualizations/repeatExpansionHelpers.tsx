@@ -4,7 +4,9 @@ import { cssVar } from '../../lib/colors';
 import {
   COUNT_UNIT_MARK,
   COUNT_UNITS_NOT_VALIDATED,
+  describeCountOffset,
   describeCountUnitWarning,
+  formatCorrectedCounts,
 } from '../../lib/repeatStatus';
 import VizTooltip from './VizTooltip';
 
@@ -77,7 +79,10 @@ export const describeRepeatLoci = (
 type RepeatLocusTooltipItem = {
   display_name: string;
   disease: string;
+  // The counts classified, with QA's correction for the locus (CLIN-57), and TRGT's own.
   allele_repeat_counts: Array<number | string>;
+  allele_trgt_repeat_counts?: number[];
+  count_offset?: number;
   // A count near a boundary while TRGT's counting units at the locus are not validated,
   // and what is known of TRGT's count at the gene.
   count_unit_warnings?: RepeatCountUnitWarningOut[];
@@ -96,7 +101,14 @@ export const RepeatLocusTooltip = ({
   <VizTooltip x={x} y={y}>
     <div>{item.display_name}</div>
     <div>{item.disease}</div>
-    <div>{item.allele_repeat_counts.join(' / ') || 'no call'} repeats</div>
+    <div>
+      {formatCorrectedCounts(
+        item.allele_repeat_counts.map((count) => (count === '' ? null : Number(count))),
+        item.allele_trgt_repeat_counts ?? [],
+      ) ?? 'no call'}{' '}
+      repeats
+    </div>
+    {describeCountOffset(item.count_offset) && <div>QA’s count correction: {describeCountOffset(item.count_offset)}</div>}
     {(item.count_unit_warnings ?? []).length > 0 && (
       <>
         <div>

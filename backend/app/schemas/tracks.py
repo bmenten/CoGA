@@ -290,7 +290,11 @@ class RepeatCountUnitWarningOut(BaseModel):
 
 
 class RepeatExpansionAlleleOut(BaseModel):
+    # The count CoGA classifies: TRGT's count plus QA's correction for the locus (the row's
+    # ``count_offset``), never below 0; TRGT's count where no correction is recorded.
     repeat_count: Optional[int] = None
+    # TRGT's own count, as the file holds it, before the correction.
+    trgt_repeat_count: Optional[int] = None
     bp_length: Optional[int] = None
     confidence_interval: Optional[str] = None
     support_reads: Optional[int] = None
@@ -343,10 +347,16 @@ class RepeatExpansionRowOut(BaseModel):
     # The first count of a premutation (FMR1 55), between the grey zone and the
     # pathogenic threshold; None for a locus without one.
     premutation_min: Optional[int] = None
-    # Whether QA validated that TRGT's count at the catalogue row classifying the calls is
-    # the clinical repeat number; False until it did. And what is known of TRGT's count at
-    # the gene (FMR1, HTT, POLG), or None.
+    # QA's record for the catalogue row classifying the calls (repeat_count_units), read in the
+    # statement that read the calls: the correction added to TRGT's count before it is
+    # classified (0: none); whether QA validated that the count, so corrected, is the clinical
+    # repeat number (False until it did); and the record's reason, who and when (None without
+    # a record). And what is known of TRGT's count at the gene (FMR1, HTT, POLG), or None.
+    count_offset: int = 0
     count_units_validated: bool = False
+    count_units_reason: Optional[str] = None
+    count_units_updated_by: Optional[str] = None
+    count_units_updated_at: Optional[datetime] = None
     count_units_note: Optional[str] = None
     status: RepeatStatus = "unknown"
     # Why a ``review`` locus reads so: a count the catalogue cannot classify in any call,
@@ -480,11 +490,14 @@ class RepeatExpansionTrackItemOut(BaseModel):
     # classifies it now, not the status and thresholds stored at import.
     status: RepeatStatus = "unknown"
     review_reason: Optional[RepeatReviewReason] = None
+    # The counts classified (with QA's correction, as on the family table), and TRGT's own.
     allele_repeat_counts: List[int] = Field(default_factory=list)
+    allele_trgt_repeat_counts: List[int] = Field(default_factory=list)
     allele_bp_lengths: List[int] = Field(default_factory=list)
-    # As on the family table, against the same catalogue row: QA's record for it, what is
-    # known of TRGT's count at the gene, and one warning per allele near a boundary while it
-    # is not validated.
+    # As on the family table, against the same catalogue row: QA's record for it (its
+    # correction and whether it is validated), what is known of TRGT's count at the gene, and
+    # one warning per allele near a boundary while it is not validated.
+    count_offset: int = 0
     count_units_validated: bool = False
     count_units_note: Optional[str] = None
     count_unit_warnings: List[RepeatCountUnitWarningOut] = Field(default_factory=list)

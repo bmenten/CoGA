@@ -112,7 +112,7 @@ async def _exercise(base: Path, family_id: str) -> dict[str, Any]:
         prior = (
             await session.execute(
                 text(
-                    "SELECT locus_id, validated, reason, updated_by, updated_by_name, updated_at "
+                    "SELECT locus_id, validated, count_offset, reason, updated_by, updated_by_name, updated_at "
                     "FROM repeat_locus_count_units WHERE locus_id = :l"
                 ),
                 {"l": LOCUS},
@@ -209,7 +209,7 @@ async def _exercise(base: Path, family_id: str) -> dict[str, Any]:
             r["validate"] = capture(
                 await ac.put(
                     f"/api/admin/repeat-loci/{LOCUS}/count-units",
-                    json={"validated": True, "reason": VALIDATION_REASON},
+                    json={"validated": True, "count_offset": 0, "reason": VALIDATION_REASON},
                 )
             )
             r["repeat_table_drifted"] = capture(await ac.get(f"{family}/repeat-expansions"))
@@ -243,8 +243,9 @@ async def _exercise(base: Path, family_id: str) -> dict[str, Any]:
                 await session.execute(
                     text(
                         "INSERT INTO repeat_locus_count_units "
-                        "(locus_id, validated, reason, updated_by, updated_by_name, updated_at) "
-                        "VALUES (:locus_id, :validated, :reason, :updated_by, :updated_by_name, :updated_at)"
+                        "(locus_id, validated, count_offset, reason, updated_by, updated_by_name, updated_at) "
+                        "VALUES (:locus_id, :validated, :count_offset, :reason, :updated_by, :updated_by_name, "
+                        ":updated_at)"
                     ),
                     prior,
                 )

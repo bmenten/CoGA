@@ -445,7 +445,7 @@ class _RecordSession:
         self.statements.append((sql, params))
         if "FROM repeat_loci" in sql:
             return Result([self.locus] if self.locus else [])
-        if sql.startswith("SELECT validated, reason FROM repeat_locus_count_units"):
+        if sql.startswith("SELECT validated, count_offset, reason FROM repeat_locus_count_units"):
             return Result([self.previous] if self.previous else [])
         if sql.startswith("INSERT INTO repeat_locus_count_units"):
             return Result(
@@ -453,6 +453,7 @@ class _RecordSession:
                     {
                         "locus_id": params["locus_id"],
                         "validated": params["validated"],
+                        "count_offset": params["count_offset"],
                         "reason": params["reason"],
                         "updated_by_name": params["user_name"],
                         "updated_at": datetime(2026, 10, 14, tzinfo=timezone.utc),
@@ -475,7 +476,7 @@ async def test_a_record_without_a_reason_is_refused_and_nothing_is_written(reaso
 
     with pytest.raises(HTTPException) as refused:
         await repeat_count_units.set_repeat_locus_count_units(
-            session, locus_id="FMR1", validated=True, reason=reason, user=_admin()
+            session, locus_id="FMR1", validated=True, count_offset=0, reason=reason, user=_admin()
         )
 
     assert refused.value.status_code == 400
@@ -488,7 +489,7 @@ async def test_a_record_for_a_locus_the_catalogue_lacks_is_answered_404_and_noth
 
     with pytest.raises(HTTPException) as refused:
         await repeat_count_units.set_repeat_locus_count_units(
-            session, locus_id="NO_SUCH_LOCUS", validated=True, reason="checked", user=_admin()
+            session, locus_id="NO_SUCH_LOCUS", validated=True, count_offset=0, reason="checked", user=_admin()
         )
 
     assert refused.value.status_code == 404
@@ -502,11 +503,16 @@ async def test_validating_a_locus_records_it_with_the_reason_and_audits_it_on_it
     session = _RecordSession(locus={"locus_id": "FMR1", "gene": "FMR1"}, previous=None)
 
     record = await repeat_count_units.set_repeat_locus_count_units(
-        session, locus_id="FMR1", validated=True, reason="  validation report VAL-TRGT-01  ", user=_admin()
+        session,
+        locus_id="FMR1",
+        validated=True,
+        count_offset=0,
+        reason="  validation report VAL-TRGT-01  ",
+        user=_admin(),
     )
 
     [upsert] = session.writes("repeat_locus_count_units")
-    assert upsert["validated"] is True
+    assert upsert["validated"] is True and upsert["count_offset"] == 0
     assert upsert["reason"] == "validation report VAL-TRGT-01"
     assert upsert["user_id"] == _admin().id and upsert["user_name"] == "qa-admin"
     [event] = session.writes("clinical_audit_events")
@@ -515,16 +521,24 @@ async def test_validating_a_locus_records_it_with_the_reason_and_audits_it_on_it
     assert event["action"] == "repeat_count_units_validated"
     assert event["actor"] == "qa-admin"
     assert event["summary"] == "TRGT's counting units at FMR1 (FMR1): not validated → validated"
-    assert json.loads(event["before"]) == {"locus_id": "FMR1", "gene": "FMR1", "validated": False, "reason": None}
+    assert json.loads(event["before"]) == {
+        "locus_id": "FMR1",
+        "gene": "FMR1",
+        "validated": False,
+        "count_offset": 0,
+        "reason": None,
+    }
     assert json.loads(event["after"]) == {
         "locus_id": "FMR1",
         "gene": "FMR1",
         "validated": True,
+        "count_offset": 0,
         "reason": "validation report VAL-TRGT-01",
     }
     assert json.loads(event["metadata"]) == {"locus_id": "FMR1", "gene": "FMR1"}
     assert session.commits == 1
     assert record["validated"] is True and record["reason"] == "validation report VAL-TRGT-01"
+    assert record["count_offset"] == 0
     assert record["updated_by"] == "qa-admin"
 
 
@@ -535,7 +549,7 @@ async def test_withdrawing_a_validation_is_audited_as_such() -> None:
     )
 
     await repeat_count_units.set_repeat_locus_count_units(
-        session, locus_id="HD_HTT", validated=False, reason="new TRGT catalogue", user=_admin()
+        session, locus_id="HD_HTT", validated=False, count_offset=0, reason="new TRGT catalogue", user=_admin()
     )
 
     [event] = session.writes("clinical_audit_events")
@@ -551,12 +565,12 @@ async def test_confirming_the_same_state_with_a_new_reason_is_audited_too() -> N
     )
 
     await repeat_count_units.set_repeat_locus_count_units(
-        session, locus_id="FMR1", validated=True, reason="checked again on TRGT 5", user=_admin()
+        session, locus_id="FMR1", validated=True, count_offset=0, reason="checked again on TRGT 5", user=_admin()
     )
 
     [event] = session.writes("clinical_audit_events")
     assert event["action"] == "repeat_count_units_validated"
-    assert event["summary"] == "TRGT's counting units at FMR1 (FMR1): validated, confirmed"
+    assert event["summary"] == "TRGT's counting units at FMR1 (FMR1): validated, no correction, confirmed"
 
 
 @pytest.mark.asyncio
@@ -593,6 +607,7 @@ async def test_the_admin_list_names_each_locus_its_record_its_calls_and_the_hist
             "premutation_min": None,
             "source": "STRchive",
             "validated": True,
+            "count_offset": -1,
             "reason": "checked",
             "updated_by": "qa-admin",
             "updated_at": datetime(2026, 10, 14, tzinfo=timezone.utc),
@@ -629,20 +644,31 @@ async def test_the_admin_list_names_each_locus_its_record_its_calls_and_the_hist
 
     listed = await repeat_count_units.list_repeat_locus_count_units(_ListSession())
 
-    assert listed["margin"] == 3
+    assert listed["margin"] == 3 and listed["offset_limit"] == 20
     fmr1, htt = listed["loci"]
-    assert (fmr1["validated"], fmr1["source"], fmr1["call_count"]) == (False, "built-in", 3)
+    # A locus without a record: no correction, not validated.
+    assert (fmr1["validated"], fmr1["count_offset"], fmr1["source"], fmr1["call_count"]) == (False, 0, "built-in", 3)
     assert fmr1["known_difference"] == KNOWN_COUNT_UNIT_DIFFERENCES["FMR1"]
-    assert (htt["validated"], htt["source"], htt["reason"]) == (True, "STRchive", "checked")
+    # FMR1 is named as a locus where a constant correction is wrong; HTT is not.
+    assert "AGG" in fmr1["offset_note"]
+    assert (htt["validated"], htt["count_offset"], htt["source"], htt["reason"]) == (True, -1, "STRchive", "checked")
     assert htt["known_difference"] == KNOWN_COUNT_UNIT_DIFFERENCES["HTT"]
+    assert htt["offset_note"] is None
     change, unreadable = listed["changes"]
-    assert (change["locus_id"], change["validated"], change["reason"], change["changed_by"]) == (
+    # An event recorded before corrections existed holds none: listed as no correction.
+    assert (change["locus_id"], change["validated"], change["count_offset"], change["reason"], change["changed_by"]) == (
         "HD_HTT",
         True,
+        0,
         "checked",
         "qa-admin",
     )
-    assert (unreadable["locus_id"], unreadable["validated"], unreadable["reason"]) == (None, False, None)
+    assert (unreadable["locus_id"], unreadable["validated"], unreadable["count_offset"], unreadable["reason"]) == (
+        None,
+        False,
+        0,
+        None,
+    )
     assert unreadable["summary"] == "TRGT's counting units at FMR1 (FMR1): not validated → validated"
 
 
@@ -693,7 +719,9 @@ def test_a_viewer_can_neither_list_nor_set_the_record(monkeypatch) -> None:
     monkeypatch.setattr(admin_router, "set_repeat_locus_count_units", _set)
     with _client_as("viewer") as client:
         listed = client.get("/api/admin/repeat-loci")
-        updated = client.put("/api/admin/repeat-loci/FMR1/count-units", json={"validated": True, "reason": "x"})
+        updated = client.put(
+            "/api/admin/repeat-loci/FMR1/count-units", json={"validated": True, "count_offset": 0, "reason": "x"}
+        )
     assert (listed.status_code, updated.status_code) == (403, 403)
     assert calls == []
 
@@ -709,24 +737,37 @@ def test_an_admin_sets_the_record_through_the_route(monkeypatch) -> None:
             "locus_id": kwargs["locus_id"],
             "gene": "FMR1",
             "validated": kwargs["validated"],
+            "count_offset": kwargs["count_offset"],
             "reason": kwargs["reason"],
             "updated_by": kwargs["user"].username,
             "updated_at": datetime(2026, 10, 14, tzinfo=timezone.utc),
         }
 
     async def _list(session):
-        return {"margin": 3, "loci": [], "changes": []}
+        return {"margin": 3, "offset_limit": 20, "loci": [], "changes": []}
 
     monkeypatch.setattr(admin_router, "set_repeat_locus_count_units", _set)
     monkeypatch.setattr(admin_router, "list_repeat_locus_count_units", _list)
     with _client_as("admin") as client:
-        updated = client.put("/api/admin/repeat-loci/FMR1/count-units", json={"validated": True, "reason": "checked"})
+        updated = client.put(
+            "/api/admin/repeat-loci/FMR1/count-units", json={"validated": True, "count_offset": 0, "reason": "checked"}
+        )
         listed = client.get("/api/admin/repeat-loci")
-        missing_reason = client.put("/api/admin/repeat-loci/FMR1/count-units", json={"validated": True})
+        missing_reason = client.put("/api/admin/repeat-loci/FMR1/count-units", json={"validated": True, "count_offset": 0})
+        # The whole record is stated on every save: a client that does not say the correction
+        # cannot leave one as it was, or clear it, without meaning to.
+        missing_offset = client.put("/api/admin/repeat-loci/FMR1/count-units", json={"validated": True, "reason": "checked"})
 
     assert updated.status_code == 200, updated.text
-    assert updated.json()["validated"] is True
+    assert updated.json()["validated"] is True and updated.json()["count_offset"] == 0
     [call] = calls
-    assert (call["locus_id"], call["validated"], call["reason"], call["user"].role) == ("FMR1", True, "checked", "admin")
-    assert listed.status_code == 200 and listed.json() == {"margin": 3, "loci": [], "changes": []}
+    assert (call["locus_id"], call["validated"], call["count_offset"], call["reason"], call["user"].role) == (
+        "FMR1",
+        True,
+        0,
+        "checked",
+        "admin",
+    )
+    assert listed.status_code == 200 and listed.json() == {"margin": 3, "offset_limit": 20, "loci": [], "changes": []}
     assert missing_reason.status_code == 422
+    assert missing_offset.status_code == 422

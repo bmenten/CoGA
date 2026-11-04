@@ -26,7 +26,13 @@ import { geneInfoHref } from '../../lib/geneInfo';
 import InfoIcon from '../../components/InfoIcon';
 import FindingCard, { FindingLinks, type FindingRail } from './FindingCard';
 import FamilyGenotypeGrid, { STATUS_CHIP_TONE_CLASS, type GenotypeTone } from './FamilyGenotypeGrid';
-import { COUNT_UNIT_MARK, countUnitWarningText, repeatStatusLabel } from '../../lib/repeatStatus';
+import {
+  COUNT_UNIT_MARK,
+  countUnitWarningText,
+  describeCountOffset,
+  formatCorrectedCounts,
+  repeatStatusLabel,
+} from '../../lib/repeatStatus';
 import { raw, routePath } from '../../lib/routePath';
 import type { FindingReview } from './findingReview';
 import { useFindingReviewCards, type FindingReviewCardParts } from './useFindingReviewCards';
@@ -92,11 +98,19 @@ const locusDiseases = (row: ApiRepeatExpansionRow) => {
   return [{ name: disease, omimUrl: omimSearchHref(disease) }];
 };
 
-const formatAlleles = (alleles: ApiRepeatExpansionAllele[]): string => {
-  const values = alleles
-    .map((allele) => allele.repeat_count)
-    .filter((value): value is number => value != null);
-  return values.length ? values.join(' / ') : 'No call';
+// The counts CoGA classified, with TRGT's own in brackets where QA's correction for the locus
+// changed them (CLIN-57): "17 / 40 (TRGT 18 / 41)".
+const formatAlleles = (alleles: ApiRepeatExpansionAllele[]): string =>
+  formatCorrectedCounts(
+    alleles.map((allele) => allele.repeat_count),
+    alleles.map((allele) => allele.trgt_repeat_count),
+  ) ?? 'No call';
+
+// QA's count correction at the locus, with its reason: "TRGT's count −1 (validation report 7)".
+const formatCountCorrection = (row: ApiRepeatExpansionRow): string | null => {
+  const correction = describeCountOffset(row.count_offset);
+  if (!correction) return null;
+  return row.count_units_reason ? `${correction} (${row.count_units_reason})` : correction;
 };
 
 const formatAlleleMotifLabels = (alleles: ApiRepeatExpansionAllele[]): string[] =>
@@ -187,8 +201,10 @@ const REPEAT_READING_GUIDE =
   'grey zone or premutation (amber; a premutation is an FMR1 allele of 55–200 repeats, which can expand ' +
   'in a child), pathogenic (red), or not assessed (blue: the catalogue gives the locus no threshold and ' +
   'the count is outside any benign range it states there). ' +
+  'Where QA recorded a count correction for a locus, each count is TRGT’s count with that correction, ' +
+  'the count the status is read from, and TRGT’s own count follows in brackets. ' +
   `${COUNT_UNIT_MARK} marks a count a few repeats from a boundary at a locus where QA has not yet ` +
-  'validated that TRGT counts the clinical repeat number; there, a small difference could change the ' +
+  'validated that the count is the clinical repeat number; there, a small difference could change the ' +
   'status. Hover over or focus it for the boundary. Aberrant only keeps such a locus too.';
 
 // Each status's tone on the card (FamilyGenotypeGrid): the call, its status chip and the
@@ -278,6 +294,12 @@ const RepeatLocusCard: React.FC<{
               <dt>Cutoffs</dt>
               <dd className="repeat-cutoff-cell">{formatCutoff(row)}</dd>
             </div>
+            {formatCountCorrection(row) ? (
+              <div>
+                <dt>Count correction</dt>
+                <dd>{formatCountCorrection(row)}</dd>
+              </div>
+            ) : null}
           </dl>
         ),
       },

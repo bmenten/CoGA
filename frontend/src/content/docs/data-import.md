@@ -114,9 +114,11 @@ the motif across the region its own catalogue gives a locus:
 - at HTT it counts the CAG after the CAA interruption (one above);
 - at POLG it counts four flanking GCT copies (the common 10-repeat allele reads 14).
 
-Until QA validates a locus's counting units (admin page **Repeat catalogue**), the repeat page and the
-genome tracks mark a count within 3 repeats of a boundary there as *Near a boundary*, without changing
-its status. See the [user guide](/docs), section *Structural variants, repeats, Paraphase and mtDNA*.
+QA can record a count correction per locus (admin page **Repeat catalogue**): it is added to TRGT's
+count before the count is classified, and TRGT's own count stays shown beside the corrected one. None is
+recorded in advance. Until QA validates a locus's counting units, the repeat page and the genome tracks
+mark a count within 3 repeats of a boundary there as *Near a boundary*, without changing its status. See
+the [user guide](/docs), section *Structural variants, repeats, Paraphase and mtDNA*.
 
 A small variant's population frequencies and gnomAD counts come only from annotation fields that name
 their source (gnomAD's, TOPMed's, and VEP's `MAX_AF`), never from the callset's own allele count, the

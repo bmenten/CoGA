@@ -33,6 +33,29 @@ export const repeatStatusLabel = (status: ApiRepeatStatus, reviewReason?: ApiRep
   }
 };
 
+/**
+ * QA's count correction at a locus in words (repeat_count_units.py, CLIN-57): "TRGT's count −1",
+ * "TRGT's count +2"; null without one (0, or a record from before corrections).
+ */
+export const describeCountOffset = (offset: number | null | undefined): string | null =>
+  offset ? `TRGT’s count ${offset > 0 ? '+' : '−'}${Math.abs(offset)}` : null;
+
+/**
+ * An allele's or a call's counts as CoGA classifies them, with TRGT's own beside them where QA's
+ * correction changed them: "17 / 40 (TRGT 18 / 41)"; "17 / 40" without a correction. A no-call
+ * allele is left out of both; null when no allele has a count.
+ */
+export const formatCorrectedCounts = (
+  counts: Array<number | null | undefined>,
+  trgtCounts: Array<number | null | undefined>,
+): string | null => {
+  const shown = counts.filter((count): count is number => count != null);
+  if (!shown.length) return null;
+  const trgt = trgtCounts.filter((count): count is number => count != null);
+  const corrected = trgt.length === shown.length && trgt.some((count, index) => count !== shown[index]);
+  return corrected ? `${shown.join(' / ')} (TRGT ${trgt.join(' / ')})` : shown.join(' / ');
+};
+
 /** The mark of a count near a boundary while TRGT's counting units are not validated. */
 export const COUNT_UNIT_MARK = 'Near a boundary';
 

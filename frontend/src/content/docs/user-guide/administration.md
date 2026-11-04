@@ -15,13 +15,20 @@ the [admin dashboard](/admin), grouped in six areas.
 - **Monarch data** — load the Monarch release (gene–disease and disease–phenotype links) that powers
   [phenotype matching](#phenotype-matching) and the ranking. Load it once after installation and about
   monthly; loading it also rebuilds the Mendeliome panel.
-- **Repeat catalogue** — for each repeat locus, whether QA has validated that TRGT's count there is the
-  clinical repeat number, with the reason, who and when, and the history of these records. Until a
-  locus is validated, the repeat page marks its counts near a boundary
-  ([Structural variants, repeats, Paraphase and mtDNA](#specialised-analyses)). Each record needs a
-  reason and is kept in the clinical audit trail. Record a locus as validated only when TRGT's count
-  there is the clinical repeat number. A locus whose count needs a correction stays not validated: CoGA
-  applies no correction yet. The loci the stored calls name are listed first.
+- **Repeat catalogue** — for each repeat locus, QA's record of TRGT's count there, with the reason,
+  who and when, and the history of these records:
+  - a **count correction**, in repeats, added to TRGT's count before every call at the locus is
+    classified (−1 turns TRGT's 18 into 17; from −20 to 20). It applies whether or not the locus is
+    validated, and TRGT's own count stays shown beside the corrected one. **Set count correction**
+    changes it; on a validated locus a changed correction is recorded as not validated, until QA
+    validates the locus with it. No locus has one until QA enters it. At FMR1 a constant correction is wrong (TRGT is
+    1 to 3 low, by the number of AGG interruptions), and the page says so next to the field;
+  - whether the locus is **validated**: TRGT's count, with its correction, is the clinical repeat
+    number. Until it is, the repeat page marks its counts near a boundary
+    ([Structural variants, repeats, Paraphase and mtDNA](#specialised-analyses)).
+
+  Each change needs a reason and is kept in the clinical audit trail, with the record before and
+  after. The loci the stored calls name are listed first.
 
 ### User & Access Management
 

@@ -57,7 +57,7 @@ when the baselines are no longer re-applied:
 | `hpo_term`, `hpo_synonym`, `hpo_edge`, `hpo_closure` | one HPO release: terms, synonyms, `is_a` links, and every ancestor of a term with its distance |
 | `monarch_gene_disease`, `monarch_disease_phenotype` | Monarch gene-to-disease links (predicate, sources, causal or not) and disease-to-HPO annotations, including negated ones |
 | `repeat_loci` | the TRGT repeat catalogue (STRchive thresholds, genes, diseases, motifs): the built-in loci and the shipped STRchive release's, rewritten at every start, which removes STRchive loci the release does not list ([data-import.md](data-import.md#the-strchive-release)) |
-| `repeat_locus_count_units` | QA's record, per `repeat_loci` row, of whether TRGT's count at the locus is the clinical repeat number its ranges count (`validated`), with the `reason`, who (`updated_by`, `updated_by_name`) and when (below) |
+| `repeat_locus_count_units` | QA's record, per `repeat_loci` row: the count correction added to TRGT's count before it is classified (`count_offset`, repeat units, 0 for none), whether TRGT's count, so corrected, is the clinical repeat number its ranges count (`validated`), with the `reason`, who (`updated_by`, `updated_by_name`) and when (below) |
 | `reference_dataset_imports` | every reference import and upload: dataset, rows inserted, whether it replaced data, source, the release the source states (below), who and when |
 
 `clinical_cnvs` carries the knowledgebase's ClinVar support per region:
@@ -77,24 +77,29 @@ its gene and region rows and the assembly's gene-reference imports are unchanged
 `repeat_locus_count_units` holds the laboratory's own check, not catalogue data. TRGT counts
 the motif across the region its own catalogue gives a locus, which need not be the stretch the
 clinical repeat number counts (at FMR1 it leaves out the AGG interruptions; see
-[data-import.md](data-import.md), section 1). A locus without a row is not validated.
+[data-import.md](data-import.md), section 1). A locus without a row has no correction and is
+not validated. No row is written in advance: a correction exists only once QA enters it.
 
-- Until a locus is validated, the repeat page and the genome tracks mark a count within 3
-  repeats of a boundary its classification uses (`services/repeat_count_units.py`). The record
-  changes no status.
+- `count_offset` is added to TRGT's count before every classification of a call at the locus:
+  at import, on the repeat page, in the genome tracks and in the signed record
+  (`services/repeat_count_units.py`, `corrected_repeat_count`). A count it would take below 0
+  reads 0. It applies whether or not the locus is validated. TRGT's own count is shown beside
+  the corrected one. A `CHECK` holds it from -20 to 20 (`repeat_locus_count_units_count_offset_check`).
+- Until a locus is validated, the repeat page and the genome tracks mark a corrected count
+  within 3 repeats of a boundary its classification uses. The mark changes no status.
 - The catalogue seed upserts `repeat_loci` at every start but never writes this table, so a
   start keeps QA's record. `locus_id` references `repeat_loci` (a row for a locus the catalogue
   lacks is refused); a `CHECK` refuses a blank `reason`.
-- An admin sets it (`PUT /api/admin/repeat-loci/{locus_id}/count-units`, with a required
-  reason). Each change is a hash-chained `clinical_audit_events` row on a chain of its own,
+- An admin sets it on the *Repeat catalogue* page (`PUT /api/admin/repeat-loci/{locus_id}/count-units`,
+  with the correction, whether validated, and a required reason). Each change is a
+  hash-chained `clinical_audit_events` row on a chain of its own,
   `family_identifier = system:repeat-loci`, with the record before and after.
-- A sign-out freezes into the signed record the row of each locus the family's calls are
-  classified under, beside the warnings it led to (`repeat_expansions`,
-  [clinical-traceability.md](clinical-traceability.md)).
-- The corrections QA will supply (an offset per locus, or at FMR1 the AGG interruptions TRGT
-  reports beside the CGG copies) are not stored yet. They belong in this table, applied to the
-  count before it is classified. Until then a locus whose count needs a correction stays not
-  validated.
+- The family table and the genome track read the row in the statement that reads the calls. A
+  sign-out freezes it into the signed record beside the counts, statuses and warnings it led to
+  (`repeat_expansions`, [clinical-traceability.md](clinical-traceability.md)).
+- FMR1 has no constant correction: TRGT leaves out 1 to 3 AGG interruptions per allele. Its
+  correction stays 0 and the locus not validated until CoGA reads the interruptions TRGT
+  reports beside the CGG copies.
 
 `reference_dataset_imports.source_version` and `source_release_date` hold the release the
 source states about itself:
@@ -414,6 +419,7 @@ its start instead (below). The step is one transaction, so it applies whole or n
 | `0011` | drops three columns no code read (ENG-6): `auth_login_attempts.last_success_at` and `small_variant_reviews.compound_het_partner_variant_keys`, never written or read, and `structural_variant_reviews.variant_key`, never written, with its unique index; every row kept with its other values. It also removes the key `unresolved_roi` from the families' `metadata`, which an import wrote when it could not resolve a manifest's region of interest, and nothing read or cleared |
 | `0012` | gives `sample_interval_track_sources` the baseline's check, with `apcad_segregation` (an embryo's segregation table from the PGT pipeline, read by the `apcad` dataset for the parental-origin view) |
 | `0013` | writes the class labels in sentence case (ENG-6): where a mutable row holds a class label in another case ("Likely Pathogenic - class 4"), it writes the label as the code writes it now ("Likely pathogenic - class 4"). That is the classification, the compound-het pair's classification and the ACMG scoring's (`acmg`) of `small_variant_reviews`; the classification and the CNV scoring's (`cnv_acmg`) of `structural_variant_reviews`; and the classifications each filter preset filters on (`filters.classification`, a list or comma-separated text). Only the case changes; text that is no class label, every other value and `updated_at` stay. The append-only tables keep their text |
+| `0014` | gives `repeat_locus_count_units` its `count_offset` (QA's count correction per locus, CLIN-57), with the baseline's default 0 and check; every stored record kept with no correction |
 
 A database the baselines created before the ledger existed has an empty ledger, so its first
 start with the ledger runs every revision. Each revision ends at the baseline's definition,

@@ -6,20 +6,24 @@ the repeat page marks a count within 3 repeats of a classification boundary
 (``repeat_count_units``, #889). The signed record's ``repeat_expansions`` section
 (``signed_record_sections.repeat_expansion_calls``) now holds, as they stood at sign-out:
 
-* beside each allele its warning (``count_unit_warning``: the count, the nearest count within the
-  margin on each side that reads another status, the margin), null when there is none; the
-  allele's own status is the one on its side of the boundary;
-* per locus QA's record (``count_units``): validated or not, the reason, by whom and when, as
-  ``repeat_locus_count_units`` held it, all null but ``validated: false`` without a record;
+* per allele the count classified (``repeat_count``: TRGT's count with QA's correction for the
+  locus, CLIN-57) and TRGT's own count beside it (``trgt_repeat_count``);
+* beside each allele its warning (``count_unit_warning``: the corrected count, the nearest count
+  within the margin on each side that reads another status, the margin), null when there is
+  none; the allele's own status is the one on its side of the boundary;
+* per locus QA's record (``count_units``): the correction (``count_offset``), validated or not,
+  the reason, by whom and when, as ``repeat_locus_count_units`` held it, ``count_offset: 0``,
+  ``validated: false`` and the rest null without a record;
 * the margin in force (``count_unit_margin``).
 
-The record holds the warning the repeat page serves, made by the family table's own code; a
-validation or a withdrawal that commits between the table's read and the record's is frozen
-consistently. A validation or a withdrawal since sign-out changes what the check compares; a
-record signed before these fields is compared on what it holds
-(``repeat_expansions_comparable_with_record``), and nothing it predates is "not captured". The
-check itself is tested in test_report_signout.py, and all of it on Postgres and ClickHouse in
-e2e/test_e2e_signed_repeat_count_units.py. All samples and values are synthetic.
+The record holds the counts and warnings the repeat page serves, made by the family table's own
+code, beside QA's record as the table's own statement read it with the calls: no second read
+can freeze a record the calls were not classified with. A validation, a withdrawal or a
+correction since sign-out changes what the check compares; a record signed before these fields
+is compared on what it holds (``repeat_expansions_comparable_with_record``), and nothing it
+predates is "not captured". The check itself is tested in test_report_signout.py, and all of it
+on Postgres and ClickHouse in e2e/test_e2e_signed_repeat_count_units.py. All samples and values
+are synthetic.
 """
 
 from __future__ import annotations
@@ -90,11 +94,13 @@ def _table_row(
     gene: str,
     locus: dict[str, Any],
     validated: bool = False,
+    units: dict[str, Any] | None = None,
     chrom: str = "X",
     start: int = 147_912_049,
 ) -> dict[str, Any]:
-    """A row of the family table's query: the catalogue row's thresholds, and whether QA's record
-    for that row said validated when the query read it."""
+    """A row of the family table's query: the catalogue row's thresholds, and QA's record for that
+    row as the query read it with the call (``units``, from ``_units``; none: no record, or only
+    ``validated`` given)."""
     return {
         "sample_uuid": sample_uuid,
         "locus_id": locus_id,
@@ -107,7 +113,12 @@ def _table_row(
         "end": start + 60,
         "motif": "CGG" if gene == "FMR1" else "CAG",
         **locus,
+        "count_offset": 0,
         "count_units_validated": validated,
+        "count_units_reason": None,
+        "count_units_updated_by": None,
+        "count_units_updated_at": None,
+        **(units or {}),
         "status": "normal",
         "genotype": "1/2",
         "allele_count": len(counts),
@@ -116,30 +127,24 @@ def _table_row(
     }
 
 
-def _units(locus_id: str, *, validated: bool, reason: str, by: str = "qa-lead") -> dict[str, Any]:
-    """A ``repeat_locus_count_units`` row, as the section's query reads it."""
+def _units(*, validated: bool, reason: str, by: str = "qa-lead", count_offset: int = 0) -> dict[str, Any]:
+    """QA's ``repeat_locus_count_units`` row, as the family table's query reads it with a call."""
     return {
-        "locus_id": locus_id,
-        "validated": validated,
-        "reason": reason,
-        "updated_by_name": by,
-        "updated_at": RECORDED_AT,
+        "count_offset": count_offset,
+        "count_units_validated": validated,
+        "count_units_reason": reason,
+        "count_units_updated_by": by,
+        "count_units_updated_at": RECORDED_AT,
     }
 
 
 class _RepeatSession:
-    """Answers the family table's query, the counting-units records' and the catalogue's, each by
-    a fragment of its SQL (in that order: the table's query joins both other tables); keeps what
-    it was asked."""
+    """Answers the family table's query and the catalogue's, each by a fragment of its SQL (in
+    that order: the table's query joins the catalogue and QA's record); keeps what it was asked."""
 
-    def __init__(
-        self,
-        rows: list[dict[str, Any]],
-        units: list[dict[str, Any]] | None = None,
-    ) -> None:
+    def __init__(self, rows: list[dict[str, Any]]) -> None:
         self.answers = [
             ("FROM repeat_expansions", rows),
-            ("FROM repeat_locus_count_units", units or []),
             ("FROM repeat_loci", [{"locus_id": "FXS_FMR1", "gene": "FMR1", "source": "STRchive"}]),
         ]
         self.executed: list[tuple[str, Any]] = []
@@ -153,9 +158,9 @@ class _RepeatSession:
         return _Result([])
 
 
-def _freeze(rows: list[dict[str, Any]], units: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+def _freeze(rows: list[dict[str, Any]]) -> dict[str, Any]:
     """The section a sign-out freezes, read through the family table's own code."""
-    return asyncio.run(srs.repeat_expansion_calls(_RepeatSession(rows, units), _context()))
+    return asyncio.run(srs.repeat_expansion_calls(_RepeatSession(rows), _context()))
 
 
 def _locus(section: dict[str, Any], locus_id: str) -> dict[str, Any]:
@@ -180,11 +185,21 @@ def test_a_count_near_a_boundary_is_frozen_with_its_warning_while_the_locus_is_n
 
     assert section["count_unit_margin"] == COUNT_UNIT_MARGIN == 3
     locus = _locus(section, "FXS_FMR1")
-    # No QA record for the locus: not validated, and nothing else to say.
-    assert locus["count_units"] == {"validated": False, "reason": None, "updated_by": None, "updated_at": None}
+    # No QA record for the locus: no correction, not validated, and nothing else to say.
+    assert locus["count_units"] == {
+        "count_offset": 0,
+        "validated": False,
+        "reason": None,
+        "updated_by": None,
+        "updated_at": None,
+    }
     proband = _alleles(locus, "PROBAND1")
     # The 53 reads grey zone; the warning names the premutation at 55, the status it would read.
-    assert [(allele["repeat_count"], allele["status"]) for allele in proband] == [(30, "normal"), (53, "intermediate")]
+    # Without a correction the count classified is TRGT's own.
+    assert [(allele["repeat_count"], allele["trgt_repeat_count"], allele["status"]) for allele in proband] == [
+        (30, 30, "normal"),
+        (53, 53, "intermediate"),
+    ]
     assert [allele["count_unit_warning"] for allele in proband] == [None, WARNING_53]
     assert [allele["count_unit_warning"] for allele in _alleles(locus, "MOTHER1")] == [None, None]
     # The status is the classification's: the warning changes none.
@@ -205,11 +220,21 @@ def test_the_record_holds_the_warning_the_repeat_page_serves() -> None:
 
 
 def test_a_validated_locus_is_frozen_with_qas_record_and_no_warning() -> None:
-    rows = [_table_row(PROBAND_UUID, [30, 53], locus_id="FXS_FMR1", gene="FMR1", locus=FMR1, validated=True)]
-    section = _freeze(rows, [_units("FXS_FMR1", validated=True, reason="Validation report 13")])
+    rows = [
+        _table_row(
+            PROBAND_UUID,
+            [30, 53],
+            locus_id="FXS_FMR1",
+            gene="FMR1",
+            locus=FMR1,
+            units=_units(validated=True, reason="Validation report 13"),
+        )
+    ]
+    section = _freeze(rows)
 
     locus = _locus(section, "FXS_FMR1")
     assert locus["count_units"] == {
+        "count_offset": 0,
         "validated": True,
         "reason": "Validation report 13",
         "updated_by": "qa-lead",
@@ -221,11 +246,21 @@ def test_a_validated_locus_is_frozen_with_qas_record_and_no_warning() -> None:
 
 
 def test_a_withdrawn_validation_is_frozen_with_its_reason_and_the_warning_back() -> None:
-    rows = [_table_row(PROBAND_UUID, [30, 53], locus_id="FXS_FMR1", gene="FMR1", locus=FMR1)]
-    section = _freeze(rows, [_units("FXS_FMR1", validated=False, reason="New TRGT catalogue")])
+    rows = [
+        _table_row(
+            PROBAND_UUID,
+            [30, 53],
+            locus_id="FXS_FMR1",
+            gene="FMR1",
+            locus=FMR1,
+            units=_units(validated=False, reason="New TRGT catalogue"),
+        )
+    ]
+    section = _freeze(rows)
 
     locus = _locus(section, "FXS_FMR1")
     assert locus["count_units"] == {
+        "count_offset": 0,
         "validated": False,
         "reason": "New TRGT catalogue",
         "updated_by": "qa-lead",
@@ -239,10 +274,17 @@ def test_each_locus_is_frozen_with_its_own_record() -> None:
         _table_row(PROBAND_UUID, [30, 53], locus_id="FXS_FMR1", gene="FMR1", locus=FMR1),
         # HTT 35 would be marked near the pathogenic threshold at 36, but HTT is validated.
         _table_row(
-            PROBAND_UUID, [18, 35], locus_id="HD_HTT", gene="HTT", locus=HTT, validated=True, chrom="4", start=3_074_876
+            PROBAND_UUID,
+            [18, 35],
+            locus_id="HD_HTT",
+            gene="HTT",
+            locus=HTT,
+            units=_units(validated=True, reason="Validation report 7"),
+            chrom="4",
+            start=3_074_876,
         ),
     ]
-    session = _RepeatSession(rows, [_units("HD_HTT", validated=True, reason="Validation report 7")])
+    session = _RepeatSession(rows)
     section = asyncio.run(srs.repeat_expansion_calls(session, _context()))
 
     assert [locus["locus_id"] for locus in section["loci"]] == ["HD_HTT", "FXS_FMR1"]
@@ -251,10 +293,13 @@ def test_each_locus_is_frozen_with_its_own_record() -> None:
     assert [allele["count_unit_warning"] for allele in _alleles(htt, "PROBAND1")] == [None, None]
     assert fmr1["count_units"]["validated"] is False
     assert [allele["count_unit_warning"] for allele in _alleles(fmr1, "PROBAND1")] == [None, WARNING_53]
-    # The records are read for the loci the calls are classified under, bound, never spliced in.
-    [(sql, params)] = [(sql, params) for sql, params in session.executed if "FROM repeat_locus_count_units" in sql]
-    assert "ANY(CAST(:locus_ids AS text[]))" in sql
-    assert params == {"locus_ids": ["FXS_FMR1", "HD_HTT"]}
+    # QA's records are read with the calls, in the family table's one statement, and in no other:
+    # what is frozen beside a call is the record it was classified and marked with.
+    [table_sql] = [sql for sql, _params in session.executed if "FROM repeat_expansions" in sql]
+    assert "LEFT JOIN repeat_locus_count_units AS units ON units.locus_id = catalog.locus_id" in table_sql
+    assert not [
+        sql for sql, _params in session.executed if "repeat_locus_count_units" in sql and "FROM repeat_expansions" not in sql
+    ]
 
 
 def test_a_family_without_repeat_calls_reads_no_record_and_holds_the_margin() -> None:
@@ -265,11 +310,12 @@ def test_a_family_without_repeat_calls_reads_no_record_and_holds_the_margin() ->
     assert not [sql for sql, _params in session.executed if "FROM repeat_locus_count_units" in sql]
 
 
-# ---- A record changed between the two reads ---------------------------------------------------
+# ---- The record and the calls come from one statement ------------------------------------------
 
 
-def _stub_table(monkeypatch, *, validated: bool, warning: dict[str, Any] | None) -> None:
-    """The family table as its own statement read it: QA's record said ``validated`` then."""
+def _stub_table(monkeypatch, *, validated: bool, count_offset: int, counts: tuple[int, int], warning) -> None:
+    """The family table as its own statement read it: QA's record said ``validated`` and the
+    correction ``count_offset`` then, and the calls were classified and marked with it."""
 
     async def _table(session, *, context):
         return FamilyRepeatExpansionTableOut(
@@ -284,14 +330,23 @@ def _stub_table(monkeypatch, *, validated: bool, warning: dict[str, Any] | None)
                     end=147_912_111,
                     motif="CGG",
                     status="intermediate",
+                    count_offset=count_offset,
                     count_units_validated=validated,
+                    count_units_reason="Validation report 13",
+                    count_units_updated_by="qa-lead",
+                    count_units_updated_at=RECORDED_AT,
                     calls={
                         "PROBAND1": RepeatExpansionSampleCallOut(
                             sample="PROBAND1",
                             genotype="1/2",
                             alleles=[
-                                {"repeat_count": 30, "status": "normal"},
-                                {"repeat_count": 53, "status": "intermediate", "count_unit_warning": warning},
+                                {"repeat_count": counts[0], "trgt_repeat_count": 30, "status": "normal"},
+                                {
+                                    "repeat_count": counts[1],
+                                    "trgt_repeat_count": 53,
+                                    "status": "intermediate",
+                                    "count_unit_warning": warning,
+                                },
                             ],
                             status="intermediate",
                         )
@@ -304,28 +359,36 @@ def _stub_table(monkeypatch, *, validated: bool, warning: dict[str, Any] | None)
     monkeypatch.setattr(srs, "get_family_repeat_expansion_table_response", _table)
 
 
-def test_a_validation_committed_between_the_reads_leaves_no_warning_beside_a_validated_record(monkeypatch) -> None:
-    # The table read the locus as not validated and marked the 53; QA's validation committed
-    # before the record was read.
-    _stub_table(monkeypatch, validated=False, warning=WARNING_53)
-    session = _RepeatSession([], [_units("FXS_FMR1", validated=True, reason="Validation report 13")])
+@pytest.mark.parametrize(
+    ("validated", "count_offset", "counts", "warning"),
+    [
+        (False, 0, (30, 53), WARNING_53),
+        (True, 0, (30, 53), None),
+        # A correction is frozen with the counts it made, whatever an administrator commits after
+        # the table's statement: the section reads nothing else.
+        (False, 1, (31, 54), {"repeat_count": 54, "margin": 3, "boundaries": [{"repeat_count": 55, "status": "premutation"}]}),
+    ],
+)
+def test_the_record_frozen_beside_the_calls_is_the_one_the_tables_statement_read(
+    monkeypatch, validated, count_offset, counts, warning
+) -> None:
+    _stub_table(monkeypatch, validated=validated, count_offset=count_offset, counts=counts, warning=warning)
+    session = _RepeatSession([])
     section = asyncio.run(srs.repeat_expansion_calls(session, _context()))
 
     locus = _locus(section, "FXS_FMR1")
-    assert locus["count_units"]["validated"] is True
-    assert [allele["count_unit_warning"] for allele in _alleles(locus, "PROBAND1")] == [None, None]
-
-
-def test_a_withdrawal_committed_between_the_reads_puts_the_warning_beside_the_record(monkeypatch) -> None:
-    # The table read the locus as validated and marked nothing; the withdrawal committed before
-    # the record was read: the warning is made again, by the table's own function.
-    _stub_table(monkeypatch, validated=True, warning=None)
-    session = _RepeatSession([], [_units("FXS_FMR1", validated=False, reason="New TRGT catalogue")])
-    section = asyncio.run(srs.repeat_expansion_calls(session, _context()))
-
-    locus = _locus(section, "FXS_FMR1")
-    assert locus["count_units"]["validated"] is False
-    assert [allele["count_unit_warning"] for allele in _alleles(locus, "PROBAND1")] == [None, WARNING_53]
+    assert locus["count_units"] == {
+        "count_offset": count_offset,
+        "validated": validated,
+        "reason": "Validation report 13",
+        "updated_by": "qa-lead",
+        "updated_at": "2026-10-20T09:30:00+00:00",
+    }
+    alleles = _alleles(locus, "PROBAND1")
+    assert [(allele["repeat_count"], allele["trgt_repeat_count"]) for allele in alleles] == [(counts[0], 30), (counts[1], 53)]
+    assert [allele["count_unit_warning"] for allele in alleles] == [None, warning]
+    # No record is read apart from the calls (the catalogue identity is all the section reads).
+    assert not [sql for sql, _params in session.executed if "repeat_locus_count_units" in sql]
 
 
 # ---- What the check compares ------------------------------------------------------------------
@@ -339,21 +402,37 @@ def _before_count_units(section: dict[str, Any]) -> dict[str, Any]:
         for call in locus["calls"]:
             for allele in call["alleles"]:
                 allele.pop("count_unit_warning")
+                allele.pop("trgt_repeat_count")
     return old
 
 
-def test_a_validation_or_a_withdrawal_since_sign_out_changes_what_the_check_compares() -> None:
+def _before_count_offsets(section: dict[str, Any]) -> dict[str, Any]:
+    """The section as a record signed after CoGA froze the warnings but before QA's count
+    corrections holds it: no correction in ``count_units``, no TRGT count beside the count."""
+    old = copy.deepcopy(section)
+    for locus in old["loci"]:
+        locus["count_units"].pop("count_offset")
+        for call in locus["calls"]:
+            for allele in call["alleles"]:
+                allele.pop("trgt_repeat_count")
+    return old
+
+
+def test_a_validation_a_withdrawal_or_a_correction_since_sign_out_changes_what_the_check_compares() -> None:
     rows = [_table_row(PROBAND_UUID, [30, 53], locus_id="FXS_FMR1", gene="FMR1", locus=FMR1)]
     signed = _freeze(rows)
-    validated = _freeze(
-        [{**row, "count_units_validated": True} for row in rows],
-        [_units("FXS_FMR1", validated=True, reason="Validation report 13")],
-    )
-    withdrawn = _freeze(rows, [_units("FXS_FMR1", validated=False, reason="New TRGT catalogue")])
-    fingerprints = {rss._section_fingerprint(section) for section in (signed, validated, withdrawn)}
-    assert len(fingerprints) == 3
+    validated = _freeze([{**row, **_units(validated=True, reason="Validation report 13")} for row in rows])
+    withdrawn = _freeze([{**row, **_units(validated=False, reason="New TRGT catalogue")} for row in rows])
+    corrected = _freeze([{**row, **_units(validated=False, reason="Offset from VAL-7", count_offset=2)} for row in rows])
+    fingerprints = {rss._section_fingerprint(section) for section in (signed, validated, withdrawn, corrected)}
+    assert len(fingerprints) == 4
+    # The correction moved the 53 to 55: a premutation now, which the check sees.
+    assert [allele["status"] for allele in _alleles(_locus(corrected, "FXS_FMR1"), "PROBAND1")] == [
+        "normal",
+        "premutation",
+    ]
     # A record that holds them is compared whole: nothing is left out, nothing named.
-    for current in (validated, withdrawn):
+    for current in (validated, withdrawn, corrected):
         assert srs.repeat_expansions_comparable_with_record(signed, current) == (current, [])
 
 
@@ -364,12 +443,13 @@ def test_a_record_signed_before_the_warnings_is_compared_on_what_it_holds() -> N
 
     comparable, predated = srs.repeat_expansions_comparable_with_record(old, current)
     assert comparable == old
-    assert predated == ["repeat_expansions.count_units"]
+    # It predates QA's records and, with them, the corrections and TRGT's count beside the count.
+    assert predated == ["repeat_expansions.count_units", "repeat_expansions.count_offset"]
     assert rss._section_fingerprint(comparable) == rss._section_fingerprint(old)
     # What it holds is still compared: a count that changed since reads as a change.
     changed = _freeze([_table_row(PROBAND_UUID, [30, 56], locus_id="FXS_FMR1", gene="FMR1", locus=FMR1)])
     comparable, predated = srs.repeat_expansions_comparable_with_record(old, changed)
-    assert predated == ["repeat_expansions.count_units"]
+    assert predated == ["repeat_expansions.count_units", "repeat_expansions.count_offset"]
     assert rss._section_fingerprint(comparable) != rss._section_fingerprint(old)
     # The current section itself is left as it was.
     assert current["loci"][0]["count_units"]["validated"] is False
@@ -426,6 +506,38 @@ def test_entries_the_comparison_cannot_read_are_kept_as_they_are() -> None:
     ]
 
 
+def test_a_record_signed_before_the_corrections_is_compared_on_what_it_holds() -> None:
+    rows = [_table_row(PROBAND_UUID, [30, 53], locus_id="FXS_FMR1", gene="FMR1", locus=FMR1)]
+    current = _freeze(rows)
+    old = _before_count_offsets(current)
+
+    comparable, predated = srs.repeat_expansions_comparable_with_record(old, current)
+    assert comparable == old
+    assert predated == ["repeat_expansions.count_offset"]
+    assert rss._section_fingerprint(comparable) == rss._section_fingerprint(old)
+    # The count it holds is the count classified: a correction recorded since that moves it, or
+    # a validation since, still reads as a change.
+    for units in (
+        _units(validated=False, reason="Offset from VAL-7", count_offset=-1),
+        _units(validated=True, reason="Validation report 13"),
+    ):
+        since = _freeze([{**row, **units} for row in rows])
+        comparable, predated = srs.repeat_expansions_comparable_with_record(old, since)
+        assert predated == ["repeat_expansions.count_offset"]
+        assert rss._section_fingerprint(comparable) != rss._section_fingerprint(old)
+    # Both before the corrections: nothing to leave out, nothing to name.
+    assert srs.repeat_expansions_comparable_with_record(old, old) == (old, [])
+    # The current section itself is left as it was.
+    assert current["loci"][0]["count_units"]["count_offset"] == 0
+    assert _alleles(current["loci"][0], "PROBAND1")[1]["trgt_repeat_count"] == 53
+
+
+def test_a_record_with_the_corrections_but_no_locus_is_compared_whole() -> None:
+    signed = _freeze([])
+    current = _freeze([_table_row(PROBAND_UUID, [30, 53], locus_id="FXS_FMR1", gene="FMR1", locus=FMR1)])
+    assert srs.repeat_expansions_comparable_with_record(signed, current) == (current, [])
+
+
 # ---- Nothing it predates is "not captured" ------------------------------------------------------
 
 
@@ -434,3 +546,4 @@ def test_nothing_a_record_holds_or_predates_of_the_warnings_is_a_gap() -> None:
     assert srs.record_section_gaps({"repeat_expansions": section}) == []
     assert srs.record_section_gaps({"repeat_expansions": _before_count_units(section)}) == []
     assert rss.snapshot_gaps({"repeat_expansions": _before_count_units(section)}) == []
+    assert srs.record_section_gaps({"repeat_expansions": _before_count_offsets(section)}) == []

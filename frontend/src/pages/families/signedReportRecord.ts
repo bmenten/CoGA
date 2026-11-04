@@ -33,7 +33,7 @@ import {
 import { formatCount, joinWithAnd } from '../../lib/format';
 import type { HaplotypeRiskState } from '../../lib/haplotypeRisk';
 import { describePhaseCorrection, type HaplotypePhaseCorrection } from '../../lib/haplotypePhaseCorrections';
-import { COUNT_UNIT_MARK } from '../../lib/repeatStatus';
+import { COUNT_UNIT_MARK, describeCountOffset, formatCorrectedCounts } from '../../lib/repeatStatus';
 import { FATHER_STATE_LABELS, depth, niptEvidenceSummary, pct, readsText } from './niptClassification';
 import { formatAlleleFrequency } from './reportNarrative';
 import { formatCompoundHetPhaseStatus, formatLocus } from './smallVariantResultUtils';
@@ -181,12 +181,15 @@ export interface SignedFindingReviews {
 const frozenCalls = (kind: 'repeat' | 'paraphase', evidence: Json): SignedFindingCall[] =>
   kind === 'repeat'
     ? objects(evidence.calls).map((call) => {
-        const counts = objects(call.alleles)
-          .map((allele) => number(allele.repeat_count))
-          .filter((count): count is number => count !== null);
+        const alleles = objects(call.alleles);
         return {
           sample: text(call.sample) ?? 'a sample',
-          call: counts.length ? counts.join(' / ') : null,
+          // The counts classified, with TRGT's own beside them where QA's correction changed them
+          // (a review frozen before corrections holds only the count).
+          call: formatCorrectedCounts(
+            alleles.map((allele) => number(allele.repeat_count)),
+            alleles.map((allele) => number(allele.trgt_repeat_count)),
+          ),
           status: text(call.status),
         };
       })
@@ -563,7 +566,13 @@ export interface SignedCountUnitWarning {
 }
 
 export interface SignedRepeatAllele {
+  /** The count classified: TRGT's count with QA's correction for the locus (CLIN-57). */
   repeatCount: number | null;
+  /**
+   * TRGT's own count, before the correction; null for a record signed before corrections, whose
+   * count was TRGT's own.
+   */
+  trgtRepeatCount: number | null;
   bpLength: number | null;
   status: string;
   /** Null: no count near a boundary, or a record signed before CoGA froze the warnings. */
@@ -571,11 +580,14 @@ export interface SignedRepeatAllele {
 }
 
 /**
- * QA's record of whether TRGT's count at the locus is the clinical repeat number, as
- * `repeat_locus_count_units` held it when the version was signed. Without a record the locus
- * was not validated, and the reason, who and when are null.
+ * QA's record of TRGT's count at the locus, as `repeat_locus_count_units` held it when the version
+ * was signed: its count correction, and whether the count, so corrected, is the clinical repeat
+ * number. Without a record the locus had no correction and was not validated, and the reason, who
+ * and when are null.
  */
 export interface SignedCountUnits {
+  /** Repeat units added to TRGT's count before it was classified; null: signed before corrections. */
+  countOffset: number | null;
   validated: boolean;
   reason: string | null;
   updatedBy: string | null;
@@ -1480,6 +1492,7 @@ const parseCountUnitWarning = (value: unknown): SignedCountUnitWarning | null =>
 const parseCountUnits = (value: unknown): SignedCountUnits | null =>
   isObject(value)
     ? {
+        countOffset: number(value.count_offset),
         validated: value.validated === true,
         reason: text(value.reason),
         updatedBy: text(value.updated_by),
@@ -1513,6 +1526,7 @@ const parseRepeatExpansions = (value: Json): SignedRepeatExpansions => ({
         note: text(call.note),
         alleles: objects(call.alleles).map((allele) => ({
           repeatCount: number(allele.repeat_count),
+          trgtRepeatCount: number(allele.trgt_repeat_count),
           bpLength: number(allele.bp_length),
           status: text(allele.status) ?? 'unknown',
           countUnitWarning: parseCountUnitWarning(allele.count_unit_warning),
@@ -2163,15 +2177,22 @@ export const describeSignedCountUnitWarning = (warning: SignedCountUnitWarning):
   }`;
 };
 
+/** An allele's size as frozen: its count, with TRGT's own where QA's correction changed it. */
+const describeRepeatAlleleSize = (allele: SignedRepeatAllele): string => {
+  if (allele.repeatCount === null) return allele.bpLength !== null ? `${allele.bpLength} bp` : '?';
+  return allele.trgtRepeatCount !== null && allele.trgtRepeatCount !== allele.repeatCount
+    ? `${allele.repeatCount} (TRGT ${allele.trgtRepeatCount})`
+    : String(allele.repeatCount);
+};
+
 /**
- * One sample's call: "PROBAND 0/1: 18, 40 repeats — Pathogenic", and beside it each of its counts
- * the record froze near a boundary: "… — Grey zone ⚠ Near a boundary: 53 is within 3 repeats of
- * 55 (Premutation)".
+ * One sample's call: "PROBAND 0/1: 18, 40 repeats — Pathogenic", with TRGT's own count beside a
+ * count QA's correction changed ("17 (TRGT 18), 39 (TRGT 40) repeats"), and beside it each of its
+ * counts the record froze near a boundary: "… — Grey zone ⚠ Near a boundary: 53 is within 3
+ * repeats of 55 (Premutation)".
  */
 export const describeRepeatCall = (call: SignedRepeatCall): string => {
-  const sizes = call.alleles
-    .map((allele) => (allele.repeatCount !== null ? String(allele.repeatCount) : allele.bpLength !== null ? `${allele.bpLength} bp` : '?'))
-    .join(', ');
+  const sizes = call.alleles.map(describeRepeatAlleleSize).join(', ');
   const warnings = call.alleles
     .map((allele) => allele.countUnitWarning)
     .filter((warning): warning is SignedCountUnitWarning => warning !== null)
@@ -2183,11 +2204,12 @@ export const describeRepeatCall = (call: SignedRepeatCall): string => {
 
 /**
  * QA's record of a locus's counting units as the record froze it: "validated — Validation report
- * 13 (qa-lead, 2026-10-20 09:30 UTC)", "not validated — New TRGT catalogue (…)", or "not validated
- * (no QA record)".
+ * 13 (qa-lead, 2026-10-20 09:30 UTC)", "not validated, corrected to TRGT's count −1 — Offset
+ * from VAL-7 (…)", or "not validated (no QA record)".
  */
 export const describeCountUnits = (units: SignedCountUnits): string => {
-  const state = units.validated ? 'validated' : 'not validated';
+  const correction = describeCountOffset(units.countOffset);
+  const state = `${units.validated ? 'validated' : 'not validated'}${correction ? `, corrected to ${correction}` : ''}`;
   if (!units.reason) return `${state} (no QA record)`;
   const recorded = [units.updatedBy, units.updatedAt ? formatReportTime(units.updatedAt) : null]
     .filter((part): part is string => Boolean(part))
@@ -2211,6 +2233,15 @@ export const describeRepeatLocusCalls = (locus: SignedRepeatLocus): string => {
 /** Why a count was marked near a boundary, said once for the section. */
 export const describeCountUnitMargin = (margin: number): string =>
   `While QA had not validated TRGT’s counting units at a locus, a count within ${margin} repeats of a classification boundary was marked ⚠ ${COUNT_UNIT_MARK}: a difference of that size between TRGT’s count and the clinical repeat number could change its status. The status stands as classified.`;
+
+/**
+ * Why a count differs from TRGT's, said once for the section, where the record froze a count
+ * correction at any locus (CLIN-57); null where none was recorded or the record predates them.
+ */
+export const describeCountCorrections = (repeats: SignedRepeatExpansions): string | null =>
+  repeats.loci.some((locus) => Boolean(locus.countUnits?.countOffset))
+    ? 'Where QA had recorded a count correction for a locus, each count there is TRGT’s count with that correction, the count its status was classified from; TRGT’s own count follows in brackets.'
+    : null;
 
 const PARAPHASE_STATUS_WORDS: Record<string, string> = {
   pathogenic: 'Pathogenic',
@@ -2441,6 +2472,7 @@ const NOT_COMPARED_PART_LABELS: Record<string, string> = {
   'pgt_analysis.qc_verdict': 'the embryos’ QC verdicts',
   'pgt_analysis.inputs.blocks_outdated': 'whether the haplotype blocks were built for the family’s pedigree',
   'repeat_expansions.count_units': 'the repeat calls’ near-boundary warnings and QA’s records of their counting units',
+  'repeat_expansions.count_offset': 'QA’s count corrections and TRGT’s own counts beside the corrected ones',
   'nipt.coverage_notes': 'the NIPT coverage check’s notes on the coverage tracks it did not read as depth',
 };
 

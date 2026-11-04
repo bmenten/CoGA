@@ -731,7 +731,7 @@ describe('FamilyRepeatExpansionsPage — a count near a boundary while the count
   const call = (
     sample: string,
     status: string,
-    alleles: Array<{ repeat_count: number; status: string; count_unit_warning?: unknown }>,
+    alleles: Array<{ repeat_count: number; trgt_repeat_count?: number; status: string; count_unit_warning?: unknown }>,
   ) => ({
     sample,
     role: sample === 'PROBAND' ? 'proband' : 'mother',
@@ -911,6 +911,43 @@ describe('FamilyRepeatExpansionsPage — a count near a boundary while the count
       'Near a boundary: 11 is within 3 repeats of 10 (Normal) and 12 (Pathogenic).',
     );
     expect(screen.getByRole('tooltip')).not.toHaveTextContent('Known:');
+  });
+
+  // QA's count correction (CLIN-57): the count classified, with TRGT's own beside it, and the
+  // correction with its reason on the card.
+  it('shows each corrected count with TRGT’s own beside it, and the correction with its reason', async () => {
+    renderWith([
+      {
+        ...htt,
+        count_offset: -1,
+        count_units_reason: 'Offset from validation report VAL-7',
+        status: 'pathogenic',
+        calls: {
+          PROBAND: call('PROBAND', 'pathogenic', [
+            { repeat_count: 17, trgt_repeat_count: 18, status: 'normal' },
+            {
+              repeat_count: 36,
+              trgt_repeat_count: 37,
+              status: 'pathogenic',
+              count_unit_warning: near(36, 35, 'intermediate'),
+            },
+          ]),
+        },
+      },
+      // Without a correction the counts read as TRGT's, with nothing beside them.
+      fmr1(true),
+    ]);
+
+    const row = await screen.findByRole('article', { name: /HTT/ });
+    expect(within(row).getByText('17 / 36 (TRGT 18 / 37)').closest('.variant-card-gtline')).toHaveTextContent(
+      'Pathogenic',
+    );
+    expect(within(row).getByText('Count correction').nextElementSibling).toHaveTextContent(
+      'TRGT’s count −1 (Offset from validation report VAL-7)',
+    );
+    const fmr1Row = screen.getByRole('article', { name: /FMR1/ });
+    expect(within(fmr1Row).getByText('30 / 53')).toBeInTheDocument();
+    expect(within(fmr1Row).queryByText('Count correction')).not.toBeInTheDocument();
   });
 });
 

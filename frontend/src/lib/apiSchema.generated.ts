@@ -2918,6 +2918,7 @@ export interface RepeatCountUnitWarningOut {
 
 export interface RepeatExpansionAlleleOut {
   repeat_count: number | null;
+  trgt_repeat_count: number | null;
   bp_length: number | null;
   confidence_interval: string | null;
   support_reads: number | null;
@@ -2959,7 +2960,11 @@ export interface RepeatExpansionRowOut {
   benign_max: number | null;
   pathogenic_max: number | null;
   premutation_min: number | null;
+  count_offset: number;
   count_units_validated: boolean;
+  count_units_reason: string | null;
+  count_units_updated_by: string | null;
+  count_units_updated_at: string | null;
   count_units_note: string | null;
   status: "normal" | "review" | "not_assessed" | "intermediate" | "premutation" | "pathogenic" | "unknown";
   review_reason: "outside_ranges" | "male_x_alleles" | null;
@@ -2995,7 +3000,9 @@ export interface RepeatExpansionTrackItemOut {
   status: "normal" | "review" | "not_assessed" | "intermediate" | "premutation" | "pathogenic" | "unknown";
   review_reason: "outside_ranges" | "male_x_alleles" | null;
   allele_repeat_counts: number[];
+  allele_trgt_repeat_counts: number[];
   allele_bp_lengths: number[];
+  count_offset: number;
   count_units_validated: boolean;
   count_units_note: string | null;
   count_unit_warnings: RepeatCountUnitWarningOut[];
@@ -3013,6 +3020,7 @@ export interface RepeatExpansionUploadResult {
 
 export interface RepeatLocusCountUnitsCatalogueOut {
   margin: number;
+  offset_limit: number;
   loci: RepeatLocusCountUnitsOut[];
   changes: RepeatLocusCountUnitsChangeOut[];
 }
@@ -3024,6 +3032,7 @@ export interface RepeatLocusCountUnitsChangeOut {
   locus_id: string | null;
   gene: string | null;
   validated: boolean;
+  count_offset: number;
   summary: string | null;
   reason: string | null;
 }
@@ -3045,25 +3054,33 @@ export interface RepeatLocusCountUnitsOut {
   premutation_min: number | null;
   source: string;
   validated: boolean;
+  count_offset: number;
   reason: string | null;
   updated_by: string | null;
   updated_at: string | null;
   call_count: number;
   known_difference: string | null;
+  offset_note: string | null;
 }
 
 export interface RepeatLocusCountUnitsSetOut {
   locus_id: string;
   gene: string | null;
   validated: boolean;
+  count_offset: number;
   reason: string;
   updated_by: string | null;
   updated_at: string | null;
 }
 
-/** Whether TRGT's counting units at a locus are validated, and why (required). */
+/**
+ * A locus's whole record: its count correction, whether TRGT's counting units there are
+ * validated, and why (required). Every save states both, so none is left as it was by a
+ * client that did not say.
+ */
 export interface RepeatLocusCountUnitsUpdate {
   validated: boolean;
+  count_offset: number;
   reason: string;
 }
 
