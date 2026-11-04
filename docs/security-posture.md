@@ -283,6 +283,16 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   passwords, signing keys or cloud credentials; `OMIM_API_KEY` is its one credential. It reads
   ClinGen's recurrent CNV file only if its SHA-256 is pinned for the assembly, and stops
   otherwise (TRACE-14, [data-import.md](data-import.md)).
+- ✅ **Bounded input sizes and decompression.** A file read whole is read up to
+  `MAX_UPLOAD_BYTES` (1 GiB by default) and unpacked up to `MAX_DECOMPRESSED_UPLOAD_BYTES`
+  (2 GiB), so a small gzip "bomb" cannot fill the memory (`services/upload_safety.py`). That
+  covers the uploads of an SV file, a BED, a TRGT file, a PED, reference data and the NIPT
+  artifact table, and the package files read the same way. Above either limit an upload is
+  refused with 413; gzip that is not whole, or a BGZF file without its end-of-file block, with
+  400. The small-variant upload streams its file and refuses a line longer than 16 MiB (413). A
+  reference download is read up to 1 GiB and unpacked up to 4 GiB
+  (`services/bounded_download.py`). The paths a request or a package may read are bounded as
+  above.
 - 🟡 **QC-report links** carry a 5-minute token, scoped to the family and sample, in the query
   string, because a browser navigation cannot send a bearer token. The report is served with
   `Referrer-Policy: no-referrer`, `Cache-Control: no-store` and a sandbox CSP. The token is

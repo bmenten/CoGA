@@ -20,10 +20,12 @@ the genome overview on every page load. So:
 - **Chromosome view and ROI** — computed on demand for the visible window only: cheap, with
   untruncated breakpoints where the clinical call is made.
 
-**Staleness is guarded.** The precompute records a fingerprint of the pedigree, the member roles and
-the affected set. When any of these change, the stored colours are not served: the overview falls
-back to the role-coloured nuclear family with grey relatives until the background refresh has run.
-An edit can briefly grey the relatives, but never shows stale colours.
+**Staleness is guarded.** The precompute records a fingerprint of what decides the colours
+(`bed_service._lineage_hash`): the pedigree, each member's role and sex, the affected set, the
+parents' phase corrections, a digest of the stored haplotype blocks, and, for a family with a
+relative of unknown degree, the ROI. When any of these change, the stored colours are not served:
+the overview falls back to the role-coloured nuclear family with grey relatives until the
+background refresh has run. An edit can briefly grey the relatives, but never shows stale colours.
 
 ## Algorithm constants
 
@@ -83,7 +85,9 @@ again when the ROI changes). A window takes the relative's colours from the curr
 grey while there is none.
 
 A parent's phase switch (`haplotype_phase_correction.py`) is read from the couple's children
-(`couple_children`: the pedigree's core children), one chromosome at a time:
+(`couple_children`: the pedigree's core children), one chromosome at a time. The constants are in
+`haplotype_phase_correction.py`, except `PHASE_SWITCH_MIN_CHILD_MARKERS`, which is in
+`haplotype_block_builder.py`:
 
 | Constant | Value | Role |
 | --- | --- | --- |
