@@ -7,22 +7,20 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import text
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..core.coga_logging import describe_error
 from ..core.config import settings
 from ..core.pg_storable import ESCAPED_KEY, storable_columns
 from ..core.postgres import get_postgres_sessionmaker
 from ..schemas import UiEventOut, UiEventPageOut
 from .event_pipeline import (
     DELETED_USER_KEY,
-    enqueue_event,
+    insert_event_rows,
     new_event_id,
-    record_unlinked,
-    user_link_refused,
-    write_event_batch_with_retry,
-    write_event_now,
+    run_event_worker,
+    stop_event_worker,
+    write_batch_unlinking_deleted_user,
+    write_or_enqueue_event,
 )
 
 _UI_EVENT_PIPELINE_NAME = "ui_event"
@@ -155,76 +153,33 @@ def _ui_event_insert_params(
 async def _insert_ui_event_rows(
     payloads: list[UiEventPayload], *, unlink_user: bool = False
 ) -> None:
-    session_factory = get_postgres_sessionmaker()
-    async with session_factory() as session:
-        try:
-            await session.execute(
-                _INSERT_UI_EVENT_SQL,
-                [
-                    _ui_event_insert_params(payload, unlink_user=unlink_user)
-                    for payload in payloads
-                ],
-            )
-            await session.commit()
-        except Exception:
-            await session.rollback()
-            raise
+    await insert_event_rows(
+        get_postgres_sessionmaker(),
+        _INSERT_UI_EVENT_SQL,
+        [_ui_event_insert_params(payload, unlink_user=unlink_user) for payload in payloads],
+    )
 
 
 async def _write_ui_event_batch(payloads: list[UiEventPayload]) -> None:
-    if not payloads:
-        return
-    try:
-        await _insert_ui_event_rows(payloads)
-    except IntegrityError as exc:
-        # As in the request audit (audit_log_pg._write_audit_log_batch): one event whose user's
-        # account was deleted while it waited is stored without the link (SEC-17); a batch is
-        # left to the worker, which writes its events one at a time.
-        alone = len(payloads) == 1 and bool(payloads[0].user_id)
-        if not alone or not user_link_refused(exc, _USER_FOREIGN_KEY):
-            raise
-        await _insert_ui_event_rows(payloads, unlink_user=True)
-        record_unlinked(_UI_EVENT_PIPELINE_NAME, describe_error(exc))
-
-
-def _drain_ui_event_queue(limit: int) -> list[UiEventPayload]:
-    if _ui_event_queue is None:
-        return []
-    items: list[UiEventPayload] = []
-    while len(items) < limit:
-        try:
-            items.append(_ui_event_queue.get_nowait())
-        except asyncio.QueueEmpty:
-            break
-    return items
+    # As in the request audit (audit_log_pg._write_audit_log_batch): one event whose user's
+    # account was deleted while it waited is stored without the link (SEC-17).
+    await write_batch_unlinking_deleted_user(
+        _insert_ui_event_rows,
+        payloads,
+        name=_UI_EVENT_PIPELINE_NAME,
+        foreign_key=_USER_FOREIGN_KEY,
+    )
 
 
 async def _ui_event_worker() -> None:
     assert _ui_event_queue is not None
     assert _ui_event_shutdown_event is not None
-
-    while True:
-        if _ui_event_shutdown_event.is_set():
-            batch = _drain_ui_event_queue(settings.audit_log_batch_size)
-            if not batch:
-                return
-            await write_event_batch_with_retry(
-                _write_ui_event_batch, batch, name=_UI_EVENT_PIPELINE_NAME
-            )
-            continue
-
-        try:
-            first_item = await asyncio.wait_for(
-                _ui_event_queue.get(),
-                timeout=settings.audit_log_flush_interval_seconds,
-            )
-        except asyncio.TimeoutError:
-            continue
-
-        batch = [first_item, *_drain_ui_event_queue(settings.audit_log_batch_size - 1)]
-        await write_event_batch_with_retry(
-            _write_ui_event_batch, batch, name=_UI_EVENT_PIPELINE_NAME
-        )
+    await run_event_worker(
+        _ui_event_queue,
+        _ui_event_shutdown_event,
+        _write_ui_event_batch,
+        name=_UI_EVENT_PIPELINE_NAME,
+    )
 
 
 async def start_ui_event_worker() -> None:
@@ -243,15 +198,8 @@ async def start_ui_event_worker() -> None:
 async def stop_ui_event_worker() -> None:
     global _ui_event_queue, _ui_event_worker_task, _ui_event_shutdown_event
 
-    if _ui_event_worker_task is None or _ui_event_shutdown_event is None:
-        _ui_event_queue = None
-        _ui_event_worker_task = None
-        _ui_event_shutdown_event = None
-        return
-
-    _ui_event_shutdown_event.set()
     try:
-        await _ui_event_worker_task
+        await stop_event_worker(_ui_event_worker_task, _ui_event_shutdown_event)
     finally:
         _ui_event_queue = None
         _ui_event_worker_task = None
@@ -266,16 +214,7 @@ def ui_event_queue_depth() -> int:
 async def write_ui_event(payload: UiEventPayload) -> None:
     """Store a UI event. A write that fails is recorded (TF-13 S-5), not raised, as the
     worker records one it cannot store: it does not fail the batch the event came in."""
-    if settings.audit_log_mode == "off":
-        return
-    if settings.audit_log_mode != "async" or _ui_event_queue is None:
-        # As for the request audit (audit_log_pg.write_audit_log_event): sync mode, or no
-        # worker running.
-        await write_event_now(
-            payload, name=_UI_EVENT_PIPELINE_NAME, write_batch=_write_ui_event_batch
-        )
-        return
-    await enqueue_event(
+    await write_or_enqueue_event(
         _ui_event_queue,
         payload,
         name=_UI_EVENT_PIPELINE_NAME,

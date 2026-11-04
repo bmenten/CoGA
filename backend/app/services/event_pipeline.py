@@ -39,6 +39,11 @@ accountability trail (TF-13 S-5) is never silently lost:
 
 ``dropped_event_count`` exposes the per-pipeline drop tally for monitoring/alerting; ``GET
 /metrics`` serves it as ``coga_audit_events_not_persisted_total``.
+
+The two pipelines (``audit_log_pg``, ``ui_event_pg``) share their worker
+(``run_event_worker``), the choice between the queue and an immediate write
+(``write_or_enqueue_event``), and their batch writer's handling of a deleted user
+(``write_batch_unlinking_deleted_user``); each keeps its own queue, table and row.
 """
 
 from __future__ import annotations
@@ -46,11 +51,13 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable, Sequence
-from typing import Any
+from typing import Any, Protocol, TypeVar
 from uuid import uuid4
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.exc import TimeoutError as PoolTimeoutError
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.sql.base import Executable
 
 from ..core.coga_logging import describe_error
 from ..core.config import settings
@@ -58,6 +65,22 @@ from ..core.config import settings
 logger = logging.getLogger(__name__)
 
 WriteBatch = Callable[[list[Any]], Awaitable[None]]
+
+_Event = TypeVar("_Event")
+
+
+class UserEvent(Protocol):
+    """An event that names the user it came from (``AuditLogEventPayload``, ``UiEventPayload``)."""
+
+    @property
+    def user_id(self) -> str | None: ...
+
+
+class InsertRows(Protocol):
+    """A pipeline's INSERT of a list of its events; ``unlink_user`` stores each without its user
+    link and keeps the user's id in the row (``DELETED_USER_KEY``)."""
+
+    def __call__(self, payloads: list[Any], *, unlink_user: bool = ...) -> Awaitable[None]: ...
 
 # A write that failed with one of these never reached the database: it could not connect
 # (refused, unreachable, timed out, TLS), or no pooled connection came free in time. Every
@@ -193,6 +216,127 @@ async def enqueue_event(
     await write_event_now(
         payload, name=name, write_batch=write_batch, reason="synchronous fallback failed"
     )
+
+
+async def write_or_enqueue_event(
+    queue: asyncio.Queue[Any] | None,
+    payload: Any,
+    *,
+    name: str,
+    write_batch: WriteBatch,
+) -> None:
+    """Store one event of the named pipeline as ``AUDIT_LOG_MODE`` says.
+
+    ``off``: not at all. ``async`` with the pipeline's worker running: through its ``queue``
+    (``enqueue_event``). ``sync``, or no worker running (``queue`` None: before the lifespan
+    starts it, after shutdown, under an in-process ASGI client): written at once, and a failed
+    write counts toward the alert as the worker's would (``write_event_now``).
+    """
+    if settings.audit_log_mode == "off":
+        return
+    if settings.audit_log_mode != "async" or queue is None:
+        await write_event_now(payload, name=name, write_batch=write_batch)
+        return
+    await enqueue_event(queue, payload, name=name, write_batch=write_batch)
+
+
+def drain_queue(queue: asyncio.Queue[_Event], limit: int) -> list[_Event]:
+    """Up to ``limit`` events waiting in ``queue``, taken without waiting."""
+    items: list[_Event] = []
+    while len(items) < limit:
+        try:
+            items.append(queue.get_nowait())
+        except asyncio.QueueEmpty:
+            break
+    return items
+
+
+async def run_event_worker(
+    queue: asyncio.Queue[Any],
+    shutdown: asyncio.Event,
+    write_batch: WriteBatch,
+    *,
+    name: str,
+) -> None:
+    """The named pipeline's background worker.
+
+    As soon as an event waits in ``queue`` it takes it with up to ``AUDIT_LOG_BATCH_SIZE`` - 1
+    more that wait and writes them as one batch (``write_event_batch_with_retry``). Once
+    ``shutdown`` is set, it writes what is left in batches of ``AUDIT_LOG_BATCH_SIZE`` and ends.
+    """
+    while True:
+        if shutdown.is_set():
+            batch = drain_queue(queue, settings.audit_log_batch_size)
+            if not batch:
+                return
+            await write_event_batch_with_retry(write_batch, batch, name=name)
+            continue
+
+        try:
+            first_item = await asyncio.wait_for(
+                queue.get(),
+                timeout=settings.audit_log_flush_interval_seconds,
+            )
+        except asyncio.TimeoutError:
+            continue
+
+        batch = [first_item, *drain_queue(queue, settings.audit_log_batch_size - 1)]
+        await write_event_batch_with_retry(write_batch, batch, name=name)
+
+
+async def stop_event_worker(
+    task: asyncio.Task[None] | None, shutdown: asyncio.Event | None
+) -> None:
+    """Have a pipeline's worker write what is left in its queue, and wait until it ends. The
+    caller forgets the worker's queue, task and event afterwards, also when this raises."""
+    if task is None or shutdown is None:
+        return
+    shutdown.set()
+    await task
+
+
+async def insert_event_rows(
+    session_factory: async_sessionmaker[AsyncSession],
+    statement: Executable,
+    rows: list[dict[str, Any]],
+) -> None:
+    """Execute ``statement`` for each of ``rows`` in one transaction of a session of its own:
+    committed whole, or rolled back and the error raised."""
+    async with session_factory() as session:
+        try:
+            await session.execute(statement, rows)
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+
+
+async def write_batch_unlinking_deleted_user(
+    insert_rows: InsertRows,
+    payloads: list[Any],
+    *,
+    name: str,
+    foreign_key: str,
+) -> None:
+    """Write the named pipeline's ``payloads`` (``UserEvent``) with ``insert_rows``.
+
+    A row naming a user whose account was deleted while the row waited in the queue fails
+    ``foreign_key``, the row's link to its user. One such event written alone is written again
+    without the link, the user's id kept in the row, and logged without values (SEC-17,
+    ``record_unlinked``). A batch is left to the worker, which writes its events one at a time
+    after its last attempt (``write_event_batch_with_retry``).
+    """
+    if not payloads:
+        return
+    try:
+        await insert_rows(payloads)
+    except IntegrityError as exc:
+        first: UserEvent = payloads[0]
+        alone = len(payloads) == 1 and bool(first.user_id)
+        if not alone or not user_link_refused(exc, foreign_key):
+            raise
+        await insert_rows(payloads, unlink_user=True)
+        record_unlinked(name, describe_error(exc))
 
 
 async def write_event_batch_with_retry(

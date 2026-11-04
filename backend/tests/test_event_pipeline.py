@@ -427,6 +427,40 @@ async def test_the_workers_write_a_failed_batch_one_event_at_a_time(pipeline, mo
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("pipeline", sorted(_WORKERS))
+async def test_the_running_workers_write_queued_events_without_waiting_for_shutdown(pipeline, monkeypatch):
+    # While it runs, each worker writes an event as soon as it is queued, with the events
+    # queued beside it; a round in which nothing is queued writes nothing.
+    module, writer_name, start, stop, write_event, make_event = _WORKERS[pipeline]
+    calls, record = _recorder()
+    written = asyncio.Event()
+
+    async def write_batch(batch):
+        await record(batch)
+        written.set()
+
+    monkeypatch.setattr(settings, "audit_log_mode", "async")
+    monkeypatch.setattr(settings, "audit_log_batch_size", 50)
+    _fast_retries(monkeypatch, attempts=2)
+    monkeypatch.setattr(module, writer_name, write_batch)
+    events = [make_event("/api/first"), make_event("/api/second")]
+
+    await start()
+    try:
+        await asyncio.sleep(0.05)  # several flush intervals with an empty queue
+        assert calls == []
+        for event in events:
+            await write_event(event)
+        await asyncio.wait_for(written.wait(), timeout=5)
+        assert calls == [events]  # written before shutdown, in one batch
+    finally:
+        await stop()
+
+    assert calls == [events]
+    assert dropped_event_count(pipeline) == 0
+
+
+@pytest.mark.asyncio
 async def test_the_real_writer_stops_at_a_database_that_refuses_connections(monkeypatch, caplog):
     # The request audit's own writer and driver, against a local port nothing listens on:
     # asyncpg's refused connection reaches the pipeline as the OSError it is, so one write
