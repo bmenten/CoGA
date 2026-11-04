@@ -27,6 +27,7 @@ from ..services.reference_metadata_service import (
     list_reference_statuses,
     upload_reference_dataset,
 )
+from ..services.reference_auto_load import queue_missing_reference_loads
 from ..services.reference_source_service import (
     import_reference_from_ucsc,
     list_reference_source_assemblies,
@@ -87,13 +88,19 @@ async def import_reference_data(
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_admin_user),
 ) -> ReferenceAutoImportResult:
-    return await import_reference_from_ucsc(
+    result = await import_reference_from_ucsc(
         session,
         tax_id=request.tax_id,
         ucsc_genome=request.ucsc_genome,
         overwrite=request.overwrite,
         performed_by=user.email,
     )
+    # A GRCh37 or GRCh38 assembly without them gets its clinical CNV knowledgebase and its
+    # pinned DGV release, built and loaded in the background as this administrator.
+    result.follow_up_notes = await queue_missing_reference_loads(
+        session, assembly_name=result.assembly_name, requested_by=user
+    )
+    return result
 
 
 @router.get(

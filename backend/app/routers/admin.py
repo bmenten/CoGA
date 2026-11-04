@@ -22,6 +22,9 @@ from ..schemas import (
     ClinicalCnvKbJobOut,
     ClinicalCnvKbRebuildRequest,
     ClinicalCnvKbStatusOut,
+    DgvLoadJobOut,
+    DgvLoadRequest,
+    DgvLoadStatusOut,
     DataDeletionOut,
     FamilyDeletionOut,
     FamilyInventoryDetailOut,
@@ -37,6 +40,7 @@ from ..schemas import (
     HpoAdminTermOut,
     HpoOntologySyncOut,
     HpoOntologySyncRequest,
+    HpoReleaseCheckOut,
     MonarchRefreshSummaryOut,
     MonarchSearchOut,
     MonarchStatusOut,
@@ -118,6 +122,12 @@ from ..services.clinical_cnv_kb_jobs import (
     get_clinical_cnv_kb_status,
     queue_clinical_cnv_kb_rebuild,
 )
+from ..services.dgv_load_jobs import get_dgv_load_status, queue_dgv_load
+from ..services.hpo_release_download import (
+    HpoReleaseUnavailable,
+    download_hpo_release,
+    hpo_release_date,
+)
 from ..services.ped_service import build_pedigree_text
 from ..services.panel_metadata_service import regenerate_mendeliome
 from ..services.monarch_ingest import (
@@ -133,6 +143,7 @@ from ..services.gene_info_jobs_pg import (
 from ..services.hpo_service import (
     ensure_authorized_hpo_ontology_path,
     get_hpo_admin_summary,
+    hpo_release_check,
     list_hpo_admin_terms,
     sync_hpo_ontology,
 )
@@ -891,21 +902,45 @@ async def list_hpo_terms_for_admin(
     return await list_hpo_admin_terms(session, query=q, limit=limit)
 
 
+@router.get("/hpo/release-check", response_model=HpoReleaseCheckOut)
+async def check_hpo_release(
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_admin_user),
+) -> dict[str, Any]:
+    """The newest HPO release beside the loaded one; HPO unreachable is said in ``error``."""
+    del user
+    return await hpo_release_check(session)
+
+
 @router.post("/hpo/sync", response_model=HpoOntologySyncOut)
 async def sync_hpo_terms(
     payload: HpoOntologySyncRequest,
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_admin_user),
 ) -> dict[str, Any]:
+    """Preview, or apply, an ontology file on the server or an HPO release downloaded from its
+    own PURL. A downloaded release must state the release asked for (TRACE-18)."""
     del user
     try:
+        if payload.download_release is not None:
+            release = hpo_release_date(payload.download_release)
+            return await sync_hpo_ontology(
+                session,
+                ontology_bytes=await download_hpo_release(release),
+                release_version=release.isoformat(),
+                expected_sha256=payload.expected_sha256,
+                preview_only=payload.preview_only,
+            )
         return await sync_hpo_ontology(
             session,
-            path=ensure_authorized_hpo_ontology_path(payload.path),
+            path=ensure_authorized_hpo_ontology_path(payload.path or ""),
             release_version=payload.release_version,
             release_date=payload.release_date,
+            expected_sha256=payload.expected_sha256,
             preview_only=payload.preview_only,
         )
+    except HpoReleaseUnavailable as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
     except (OSError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -1008,6 +1043,26 @@ async def get_clinical_cnv_kb_rebuild_status(
     user: CurrentUser = Depends(get_current_admin_user),
 ) -> ClinicalCnvKbStatusOut:
     return await get_clinical_cnv_kb_status(session)
+
+
+@router.get("/dgv/status", response_model=DgvLoadStatusOut)
+async def get_dgv_load_status_route(
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_admin_user),
+) -> DgvLoadStatusOut:
+    del user
+    return await get_dgv_load_status(session)
+
+
+@router.post("/dgv/load", response_model=DgvLoadJobOut)
+async def request_dgv_load(
+    request: DgvLoadRequest,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_admin_user),
+) -> DgvLoadJobOut:
+    """Load the DGV release pinned for the assembly, replacing its DGV variants once the whole
+    file has been read and checked."""
+    return await queue_dgv_load(session, assembly=request.assembly, requested_by=user)
 
 
 @router.post("/clinical-cnv-kb/rebuild", response_model=ClinicalCnvKbJobOut)

@@ -61,7 +61,58 @@ calls, then imputed genotypes (`CALLSET_PREFERENCE`). Every callset's scan is ke
 
 A sample whose metadata marks a maternal-plasma cfDNA sample, and an embryo, are left out
 (`excluded`): a mixture, and a few amplified cells carrying their parents' alleles. A family with
-such samples is still projected for its other individuals.
+such samples is still projected for its other individuals. An embryo's callsets are still read
+and shown, so a user can choose one.
+
+## A user's choice per individual
+
+A user who may change the project can choose, for one individual, otherwise than CoGA's own
+reading (`ancestry_choices`, `PUT /api/families/{family_id}/ancestry/choices/{sample_id}`):
+
+- **one callset** (`mode = 'callset'`): one of the stored callsets that hold the individual, even
+  where another is preferred. This is also how an embryo is included;
+- with that callset, **the regions it covers**: a gene panel's (`panel_id`: the markers inside its
+  genes' GRCh38 regions that are also in the exome mask, the coding ones a panel captures) or a
+  BED file's (`…/choices/{sample_id}/bed`, multipart: every marker inside its intervals, BED being
+  0-based and half-open). The callset is then read as **regions** if it carries at least 75 % of
+  the expected non-reference calls inside them, an absent record counting as reference there;
+  otherwise as partial, with why. A callset with a call at nearly every marker stays complete;
+- **left out** (`mode = 'exclude'`); and back to CoGA's own reading (`mode = 'auto'`).
+
+A cfDNA sample takes no choice. A BED file is read and dropped: the choice keeps the markers
+inside it (`chrom:pos`), its interval count, name and SHA-256. A line that is no interval is
+refused by its number, never its content. Choices are append-only (`ancestry_sample_choices`), the
+latest of an individual holding; `keep_regions` keeps the current choice's regions when only the
+callset changes. Saving queues a calculation unless one is queued; a choice made while a run was
+running is picked up by the sweep, which also queues a run when a choice is newer than the latest
+run. Each result records the choice it read with each individual (`choice`), and a calculation
+publishes nothing if a choice was made while it read.
+
+## VCF files a package declares for ancestry
+
+A package may name, beside its datasets, VCF files only the ancestry PCA reads (`ancestry_files`),
+typically a gVCF, whose reference blocks say where an individual was sequenced and called
+reference, so no absence has to be assumed:
+
+```json
+{"metadata":{"ancestry":{"vcfs":[{"path":"ancestry/PROBAND.g.vcf.gz","label":"gVCF"}]}}}
+```
+
+- **Declared** after the import completed, outside the hold (`register_declared_files`): one row
+  per file inside the package (at most 8), reading none. It never fails or delays the import; what
+  goes wrong leaves a line in the import's log.
+- **Scanned** once by the ancestry worker when no run waits (`scan_next_file`): the file is read in
+  full, staged first if the package is in an object store, its SHA-256 taken as it is read, and
+  only its calls at the reference markers kept (`ancestry_file_scans`, with the reference's
+  checksum: a new reference scans it again). A record at a marker keeps its alleles, a gVCF's
+  `<NON_REF>` dropped; a reference block (`END=`) is an explicit call of the marker's own alleles
+  with the block's genotypes, passing unless the block names a failed filter (a gVCF writes
+  `FILTER=.` on its blocks and `PASS` on its variants). A file that cannot be read is recorded as
+  failed with a fixed reason. The sweep then queues a run.
+- **Read** like a stored callset, `file:<id>`, from its scan, by every calculation: the file is not
+  read again, and the rows it gave are part of the digest checked before publishing. Of the files
+  declared under one path, the latest declaration counts. It comes after direct calls and before
+  NIPT calls and imputed genotypes, and a choice can name it.
 
 ## The projection
 
@@ -72,16 +123,23 @@ out it does not shrink the point towards the centre, as filling them with the re
 A set of usable markers that cannot determine four components (fewer than four, or an
 ill-conditioned fit) gives no coordinates.
 
+Each projected individual has a **standard error** per PC (`pcs_se`,
+`bootstrap_standard_errors`): the standard deviation of the fits over 200 resamplings of its
+usable markers with replacement, seeded by the individual and its callset so a calculation of the
+same reading gives the same. It is the uncertainty a set of markers of that size leaves: small for
+a genome, larger for a panel. The plot draws a dashed ellipse of two standard errors around each
+family point; the table gives them under the coordinates.
+
 ## When it runs
 
-A run is a user's (**Calculate PCA projection**, `trigger = 'user'`) or the worker's own
+A run is a user's (**Calculate PCA projection** or a saved choice, `trigger = 'user'`) or the worker's own
 (`trigger = 'automatic'`, no requester). The ancestry worker runs where package imports run: in
 the import-worker processes ([application-scheme.md](application-scheme.md#import-worker-processes)),
 or in the API when it runs import workers itself. Every `SWEEP_INTERVAL_SECONDS` (30 s) it
 sweeps (`queue_changed_families`): it reads every family's small-variant data version from
 ClickHouse's `family_data_version` in one query and queues an automatic run for each family and
-project whose version no run has been queued for or read, once the family is on GRCh38, its last
-import completed and none is running. One sweep at a time across the worker processes (an
+project whose version no run has been queued for or read, or with a choice newer than its latest
+run, once the family is on GRCh38, its last import completed and none is running. One sweep at a time across the worker processes (an
 advisory lock); a failed sweep never stops the queued runs. Nothing in the import, the upload or
 any other writer of variants calls it: every write moves the data version, and the sweep sees it.
 
@@ -147,6 +205,6 @@ registers a file any more, and a manifest's `metadata.ancestry` is not read.
 
 ## Access
 
-A project reader can view the section; calculating by hand needs permission to change the project
+A project reader can view the section; calculating by hand and choosing need permission to change the project
 (`ReadOnlyAccess`). A family or project outside the caller's projects answers 404, like an
 unknown one. The tables are described in [database.md](database.md#exploratory-ancestry-pca).

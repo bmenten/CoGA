@@ -109,6 +109,10 @@ class CurrentUser(BaseModel):
     # family, sample and project checkpoints then refuse a reader (``require_change_access``).
     changes_records: bool = Field(default=False, exclude=True)
     created_at: datetime
+    # When the account was first active (None while it waits for approval), and when it was
+    # archived (None when it is not).
+    activated_at: datetime | None = None
+    archived_at: datetime | None = None
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 

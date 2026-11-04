@@ -21,6 +21,7 @@ The CAS server is replaced by an httpx mock transport, and the account store as 
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 from uuid import uuid4
@@ -297,7 +298,17 @@ def signer(monkeypatch: pytest.MonkeyPatch, store: _Store, cas_on: None) -> _Sig
     monkeypatch.setattr(auth_router, "microsoft_account_user", account)
     monkeypatch.setattr(auth_router, "get_cas_throttle_state", throttle)
     monkeypatch.setattr(auth_router, "record_refused_cas_ticket", refused)
-    monkeypatch.setattr(auth_router, "notify_admin", lambda email: signer.notified.append(email))
+    async def administrators(_session: Any) -> list[str]:
+        return ["the.admin@example.org"]
+
+    def notify(account: Any, recipients: list[str]) -> bool:
+        assert recipients == ["the.admin@example.org"]
+        assert account.sign_in == "cas"
+        signer.notified.append(account.email)
+        return True
+
+    monkeypatch.setattr(auth_router, "administrator_addresses", administrators)
+    monkeypatch.setattr(auth_router, "notify_account_request", notify)
     return signer
 
 
@@ -338,6 +349,27 @@ def test_a_first_cas_sign_in_makes_an_account_that_waits_for_approval(
     assert signer.notified == ["a.colleague@example.org"]
     (row,) = _rows(audit_rows, "/api/auth/cas/session")
     assert row.request_meta["account_change"]["created"] == "cas_sign_in"
+
+
+def test_an_account_active_once_is_told_it_is_not_active_rather_than_waiting(
+    client: TestClient, signer: _Signer, store: _Store, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Deactivated or archived since it was active: no approval is pending, and nobody is mailed.
+    object_id = str(uuid4())
+    store.accounts["a.colleague@example.org"] = _account(
+        "a.colleague@example.org",
+        "viewer",
+        azure_object_id=object_id,
+        is_active=False,
+        activated_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        archived_at=datetime(2026, 10, 1, tzinfo=timezone.utc),
+    )
+    _verified(monkeypatch, object_id)
+
+    response = client.post("/api/auth/cas/session", json={"ticket": _TICKET})
+
+    assert (response.status_code, response.json()) == (403, {"detail": auth_router.CAS_ACCOUNT_INACTIVE_DETAIL})
+    assert signer.notified == []
 
 
 def test_an_active_account_gets_a_session_that_signs_it_in(

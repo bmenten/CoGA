@@ -31,6 +31,7 @@ from ..core.config import (
 )
 from ..core.sql import canonical_uuid, is_missing_postgres_schema_error, require_uuid, rows_matched
 from .access_control import CurrentUser
+from . import hpo_release_download
 from .clinical_audit_service import record_clinical_event
 from .family_identifiers import visible as visible_text
 
@@ -157,7 +158,6 @@ def _empty_hpo_admin_summary() -> dict[str, Any]:
         "release_date": None,
         "release_sha256": None,
         "last_sync_date": None,
-        "automatic_update_supported": False,
         "ontology_loaded": False,
         "ontology_path": _configured_hpo_ontology_path(),
     }
@@ -864,8 +864,9 @@ def compute_hpo_closure(
 async def import_hpo_ontology(
     session: AsyncSession,
     *,
-    path: str | Path,
+    path: str | Path | None = None,
     ontology_text: str | None = None,
+    source_format: str | None = None,
     release_version: str | None = None,
     release_date: date | None = None,
     release_sha256: str | None = None,
@@ -873,9 +874,13 @@ async def import_hpo_ontology(
     """Import the ontology at ``path``, or ``ontology_text`` when given: the file's text as the
     caller read (and checked) it, so the file is not read again (TRACE-14). ``release_sha256``,
     the SHA-256 of those bytes, is kept on each term with its release (``metadata``,
-    ``release_sha256``), so the loaded release names the exact file (TRACE-18)."""
-    source_format = _hpo_source_format(path)
+    ``release_sha256``), so the loaded release names the exact file (TRACE-18). ``source_format``
+    is the text's format when there is no ``path`` to tell it (a downloaded release: OBO)."""
+    if path is None and ontology_text is None:
+        raise ValueError("No HPO ontology to import")
+    source_format = source_format or _hpo_source_format(path or "hp.obo")
     if ontology_text is None:
+        assert path is not None
         ontology = await asyncio.to_thread(parse_hpo_ontology_path, path)
         release_metadata = await asyncio.to_thread(parse_hpo_ontology_release_metadata_path, path)
     else:
@@ -1526,6 +1531,42 @@ async def get_loaded_hpo_release(session: AsyncSession) -> dict[str, Any] | None
     return dict(row) if row else None
 
 
+async def hpo_release_check(session: AsyncSession) -> dict[str, Any]:
+    """The newest HPO release beside the loaded one and the startup's pinned one, for the admin
+    page: whether a newer release than the loaded one has been published. When HPO cannot be
+    reached, ``error`` says so and the rest names what is known here."""
+    loaded: dict[str, Any] = {}
+    if await _postgres_tables_available(session, ("hpo_term",)):
+        loaded = await get_loaded_hpo_release(session) or {}
+    pinned = hpo_release_download.pinned_release_date()
+    result: dict[str, Any] = {
+        "loaded_release": loaded.get("release_version"),
+        "loaded_release_date": loaded.get("release_date"),
+        "pinned_release": hpo_release_download.hpo_release_version(pinned),
+        "pinned_release_date": pinned,
+        "latest_release": None,
+        "latest_release_date": None,
+        "published_at": None,
+        "download_url": None,
+        "newer_available": False,
+        "error": None,
+    }
+    try:
+        latest = await hpo_release_download.fetch_latest_hpo_release()
+    except hpo_release_download.HpoReleaseUnavailable as exc:
+        result["error"] = str(exc)
+        return result
+    loaded_date = loaded.get("release_date")
+    result.update(
+        latest_release=latest.release_version,
+        latest_release_date=latest.release_date,
+        published_at=latest.published_at,
+        download_url=latest.download_url,
+        newer_available=loaded_date is None or latest.release_date > loaded_date,
+    )
+    return result
+
+
 async def get_hpo_admin_summary(session: AsyncSession) -> dict[str, Any]:
     try:
         if not await _postgres_tables_available(session, ("hpo_term",)):
@@ -1552,7 +1593,6 @@ async def get_hpo_admin_summary(session: AsyncSession) -> dict[str, Any]:
     summary["release_date"] = loaded.get("release_date")
     summary["release_sha256"] = loaded.get("release_sha256")
     summary["last_sync_date"] = loaded.get("imported_at")
-    summary["automatic_update_supported"] = False
     summary["ontology_loaded"] = int(summary.get("total_terms") or 0) > 0
     summary["ontology_path"] = _configured_hpo_ontology_path()
     return summary
@@ -1726,9 +1766,18 @@ async def list_hpo_admin_terms(
 async def preview_hpo_ontology_sync(
     session: AsyncSession,
     *,
-    path: str | Path,
+    path: str | Path | None = None,
+    ontology_text: str | None = None,
+    source_format: str = "obo",
 ) -> dict[str, int]:
-    ontology = await asyncio.to_thread(parse_hpo_ontology_path, path)
+    """What importing the ontology would change: the file at ``path``, or ``ontology_text``, the
+    text the caller read and checked, when given."""
+    if ontology_text is not None:
+        ontology = await asyncio.to_thread(parse_hpo_ontology_text, ontology_text, source_format=source_format)
+    elif path is not None:
+        ontology = await asyncio.to_thread(parse_hpo_ontology_path, path)
+    else:
+        raise ValueError("No HPO ontology to preview")
     if not ontology.terms:
         raise ValueError("HPO ontology import found no terms")
     existing: dict[str, dict[str, Any]] = {}
@@ -1847,22 +1896,41 @@ def checked_hpo_file_release(
 async def sync_hpo_ontology(
     session: AsyncSession,
     *,
-    path: str | Path,
+    path: str | Path | None = None,
+    ontology_bytes: bytes | None = None,
     release_version: str | None = None,
     release_date: date | None = None,
+    expected_sha256: str | None = None,
     preview_only: bool = True,
 ) -> dict[str, Any]:
-    """Preview, or apply, the ontology file at ``path``. Its release is the one the file states
-    (``checked_hpo_file_release``): ``release_version`` and ``release_date`` are what the admin
-    expects, and the sync is refused when the file is another release. The terms keep the
-    SHA-256 of the bytes imported (TRACE-18)."""
-    preview = await preview_hpo_ontology_sync(session, path=path)
-    payload = await asyncio.to_thread(Path(path).read_bytes)
+    """Preview, or apply, the ontology file at ``path``, or ``ontology_bytes``: an OBO file as
+    HPO served it for a release (``hpo_release_download``). Its release is the one the file
+    states (``checked_hpo_file_release``): ``release_version`` and ``release_date`` are what the
+    admin expects, and the sync is refused when the file is another release. ``expected_sha256``
+    is the SHA-256 the preview showed: an apply with it imports only those bytes, and refuses a
+    file that changed (or a release HPO served anew) since. The terms keep the SHA-256 of the
+    bytes imported (TRACE-18)."""
+    if ontology_bytes is not None:
+        payload, source_format = ontology_bytes, "obo"
+    elif path is not None:
+        payload = await asyncio.to_thread(Path(path).read_bytes)
+        source_format = _hpo_source_format(path)
+    else:
+        raise ValueError("Name an ontology file, or an HPO release to download.")
     checked = checked_hpo_file_release(
         payload,
-        source_format=_hpo_source_format(path),
+        source_format=source_format,
         expected_version=release_version,
         expected_date=release_date,
+    )
+    expected = (expected_sha256 or "").strip().lower()
+    if expected and checked.sha256 != expected:
+        raise ValueError(
+            f"The ontology file is not the one previewed: its SHA-256 is {checked.sha256}, the "
+            f"preview's {expected}. Nothing was imported; preview it again."
+        )
+    preview = await preview_hpo_ontology_sync(
+        session, ontology_text=checked.text, source_format=source_format
     )
     if preview_only:
         current = await get_hpo_admin_summary(session)
@@ -1886,6 +1954,7 @@ async def sync_hpo_ontology(
     imported = await import_hpo_ontology(
         session,
         path=path,
+        source_format=source_format,
         ontology_text=checked.text,
         release_version=checked.release_version,
         release_date=checked.release_date,

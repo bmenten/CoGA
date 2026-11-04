@@ -1,5 +1,5 @@
-Administrator tools sit behind admin access. **Admin**, in the top-bar menu or on the dashboard, opens
-the [admin dashboard](/admin), grouped in six areas. A superuser sees five of its pages: **Gene panels**,
+Administrator tools sit behind admin access. **Admin**, in the top-bar menu, or **Open admin dashboard**
+on the dashboard opens the [admin dashboard](/admin), grouped in six areas. A superuser sees five of its pages: **Gene panels**,
 **Sequencing QC thresholds**, **Package import**, **Variant tags** and **Preset filters**. Every other
 page is an administrator's alone.
 
@@ -7,13 +7,15 @@ page is an administrator's alone.
 
 - **Species & assemblies** — the genome builds and their reference data (cytobands, genes, clinical
   CNVs, segmental duplications, DGV), with each dataset's status. Refresh the human gene information,
-  rebuild the clinical-CNV knowledgebase, or upload a reference file.
+  rebuild the clinical-CNV knowledgebase, load the pinned DGV release, or upload a reference file.
+  Adding GRCh37 or GRCh38 starts the clinical-CNV build and the DGV load for it.
 - **Gene panels** — the panel catalogue: create panels, import them from PanelApp, and see their genes.
   Deleting a panel asks first, naming the panel and its version: its genes, its regions and every
   archived version go with it.
-- **HPO terminology** — the HPO release in use and the SHA-256 of the file it came from; preview and
-  apply a new release. The release is the one the file states. A file that states no release, or
-  another than the expected release you enter, is refused.
+- **HPO terminology** — the HPO release in use and the SHA-256 of the file it came from, and whether
+  HPO has published a newer one; preview and apply a new release, downloaded from HPO or from a file
+  on the server. The release is the one the file states. A file that states no release, or another
+  than the release you asked for, is refused, and Apply imports only the file the preview showed.
 - **Monarch data** — load the Monarch release (gene–disease and disease–phenotype links) that powers
   [phenotype matching](#phenotype-matching) and the ranking. Load it once after installation and about
   monthly; loading it also rebuilds the Mendeliome panel.
@@ -45,8 +47,17 @@ page is an administrator's alone.
     analysis out; a **superuser** also has every project, member or not, and the gene panels, variant
     tags, preset filters, sequencing QC thresholds and package import; an **admin** has the whole
     administration. Give the supervisor role only to those the laboratory authorises to sign out.
-  - Activate a new account here. Deactivate one to revoke access without deleting its history. You
-    cannot deactivate your own: another administrator does that.
+  - Each account shows when it was added and where it stands. A sign-up, or a first sign-in through
+    the organisation, *waits for approval*: these accounts come first, and every active administrator
+    gets an e-mail about each when a mail server is set (the page says who, and **Send a test mail**
+    checks it). Activate the account, or **Delete** it when it is not relevant; only an account that
+    was never active can be deleted.
+  - Deactivate an account to revoke access without deleting its history. **Archive** one that is
+    not coming back: it is deactivated and leaves the list (tick **Show archived accounts** to see
+    it), every record still names it, and the same person signing in again makes no new request.
+    **Restore** brings it back, inactive. You cannot deactivate, archive or delete your own: another
+    administrator does that.
+  - Every change asks you to confirm it first, and is kept in the audit log.
   - When you deactivate an account, an import, a gene reference sync or a clinical CNV knowledgebase
     rebuild it asked for that has not started yet is not run, and a rebuild not yet loaded loads
     nothing: its job ends *failed*, saying why. The same holds once the account loses the role the job
@@ -55,8 +66,9 @@ page is an administrator's alone.
 - **Projects & access** — the projects (each tied to an assembly) and which families, samples and users
   belong to them. A user sees only the data of their projects; the cohort counts in the explorers
   follow the same scope.
-  - Tick a user to make them a member, and choose their level next to their name. A member added
-    starts as an analyst.
+  - The members are listed with their level; **Remove** takes one off. Under them, **Add a member**
+    lists a few users without access at a time: type part of a name or email to find the others, then
+    **Add** one (or press Enter when the search finds one user). A member added starts as an analyst.
   - An **analyst** reads the project's records and changes them as far as their role allows: a
     viewer changes nothing, whatever their level.
   - A **reader** (a student, say) reads, searches, exports and prints them and saves their own filter

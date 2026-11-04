@@ -2,6 +2,20 @@
 // Do not edit: change the backend's Pydantic models and regenerate. CI fails when this
 // file is out of date (`python scripts/generate-api-types.py --check`).
 
+/**
+ * Whether CoGA e-mails the administrators about an account that waits for approval, and
+ * to whom: every active administrator, when a mail server (SMTP_HOST) is set.
+ */
+export interface AccountRequestMailOut {
+  enabled: boolean;
+  recipients: string[];
+}
+
+/** The test mail went out to these addresses. */
+export interface AccountRequestMailTestOut {
+  recipients: string[];
+}
+
 export interface AcmgClassificationPayload {
   criteria?: AcmgCriterionSelection[];
   point_total?: number | null;
@@ -41,12 +55,13 @@ export interface AncestryAnalysisOut {
 export interface AncestryCallsetScanOut {
   callset: string;
   label: string;
-  kind: "complete" | "genome" | "exome" | "partial";
+  kind: "complete" | "genome" | "exome" | "regions" | "partial";
   carriers: number;
   expected_carriers: number;
   coverage_ratio: number;
   exome_ratio: number | null;
   outside_exome_ratio: number | null;
+  regions_ratio: number | null;
   explicit_calls: number;
   accepts_unfiltered: boolean;
   covered_markers: number;
@@ -55,6 +70,19 @@ export interface AncestryCallsetScanOut {
   qc: Record<string, number>;
   projectable: boolean;
   reason: string | null;
+}
+
+/** A VCF file the family's package declared for ancestry, and its latest scan. */
+export interface AncestryFileOut {
+  id: string;
+  label: string;
+  relative_path: string;
+  declared_at: string;
+  status: "pending" | "scanned" | "failed";
+  sha256: string | null;
+  error: string | null;
+  scanned_at: string | null;
+  columns: string[];
 }
 
 export interface AncestryReferenceOut {
@@ -79,6 +107,18 @@ export interface AncestryReferencePoint {
   pcs: number[];
 }
 
+/** The regions a user gave for a callset, as the reference markers inside them. */
+export interface AncestryRegionsOut {
+  source: "panel" | "bed";
+  name: string;
+  panel_id: string | null;
+  panel_version: number | null;
+  sha256: string | null;
+  interval_count: number;
+  covered_markers: number;
+  reference_sha256: string;
+}
+
 export interface AncestryRunOut {
   id: string;
   source_id: string | null;
@@ -91,17 +131,35 @@ export interface AncestryRunOut {
   finished_at: string | null;
 }
 
+/** How to read one individual: CoGA's own reading, one callset, or not at all. */
+export interface AncestrySampleChoiceIn {
+  mode: "auto" | "callset" | "exclude";
+  callset?: string | null;
+  panel_id?: string | null;
+  keep_regions?: boolean;
+}
+
+export interface AncestrySampleChoiceOut {
+  sample_id: string;
+  mode: "auto" | "callset" | "exclude";
+  callset: string | null;
+  regions: AncestryRegionsOut | null;
+  chosen_at: string;
+}
+
 export interface AncestrySampleOut {
   sample_id: string;
   status: "projected" | "insufficient_data" | "excluded";
   pcs: number[] | null;
+  pcs_se: number[] | null;
   call_rate: number;
   qc: Record<string, number>;
   callset: string | null;
-  kind: "complete" | "genome" | "exome" | "partial" | null;
+  kind: "complete" | "genome" | "exome" | "regions" | "partial" | null;
   usable_markers: number | null;
   reason: string | null;
   candidates: AncestryCallsetScanOut[];
+  choice: AncestrySampleChoiceOut | null;
 }
 
 /** The annotation/reference version manifest for a family (report provenance). */
@@ -256,6 +314,11 @@ export interface BlacklistRegionOut {
   start: number;
   end: number;
   label: string;
+}
+
+export interface Body_choose_family_ancestry_bed_api_families__family_id__ancestry_choices__sample_id__bed_put {
+  callset?: string | null;
+  file?: string | null;
 }
 
 export interface Body_import_nipt_artifacts_endpoint_api_admin_nipt_artifacts_import_post {
@@ -541,6 +604,42 @@ export interface DgvDensityBin {
   other: number;
 }
 
+/** A load of the pinned DGV release for an assembly (dgv_load_jobs). */
+export interface DgvLoadJobOut {
+  _id: string;
+  assembly_id: string;
+  assembly_name: string;
+  release: string;
+  source_url: string;
+  status: "queued" | "running" | "completed" | "failed";
+  requested_by: string | null;
+  requested_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+  bytes_read: number;
+  bytes_total: number | null;
+  inserted: number;
+  error: string | null;
+}
+
+export interface DgvLoadRequest {
+  assembly: string;
+}
+
+export interface DgvLoadStatusOut {
+  active_job: DgvLoadJobOut | null;
+  recent_jobs: DgvLoadJobOut[];
+  releases: DgvPinnedReleaseOut[];
+}
+
+/** The DGV release pinned for an assembly (DGV_PINNED_RELEASES), which a load reads. */
+export interface DgvPinnedReleaseOut {
+  assembly_name: string;
+  release: string;
+  source_url: string;
+  size_bytes: number;
+}
+
 /**
  * DGV is too dense to draw every variant at chromosome scale. The server
  * decides per request: `lines` (individual variants, when the in-view count is
@@ -577,6 +676,9 @@ export interface FamilyAncestryOut {
   analysis: AncestryAnalysisOut | null;
   runs: AncestryRunOut[];
   notices: string[];
+  choices: AncestrySampleChoiceOut[];
+  can_choose: boolean;
+  files: AncestryFileOut[];
 }
 
 /**
@@ -1528,7 +1630,6 @@ export interface HpoAdminSummaryOut {
   release_date: string | null;
   release_sha256: string | null;
   last_sync_date: string | null;
-  automatic_update_supported: boolean;
   ontology_loaded: boolean;
   ontology_path: string | null;
 }
@@ -1599,10 +1700,26 @@ export interface HpoOntologySyncOut {
 }
 
 export interface HpoOntologySyncRequest {
-  path: string;
+  path?: string | null;
+  download_release?: string | null;
   release_version?: string | null;
   release_date?: string | null;
+  expected_sha256?: string | null;
   preview_only?: boolean;
+}
+
+/** The newest HPO release beside the loaded one and the startup's pinned one. */
+export interface HpoReleaseCheckOut {
+  latest_release: string | null;
+  latest_release_date: string | null;
+  published_at: string | null;
+  download_url: string | null;
+  loaded_release: string | null;
+  loaded_release_date: string | null;
+  pinned_release: string;
+  pinned_release_date: string;
+  newer_available: boolean;
+  error: string | null;
 }
 
 export interface HpoTermOut {
@@ -2891,6 +3008,7 @@ export interface ReferenceAutoImportResult {
   gene_source_url: string;
   gene_source: string;
   gene_warning: string | null;
+  follow_up_notes: string[];
 }
 
 export interface ReferenceDatasetImportOut {
@@ -3853,6 +3971,8 @@ export interface UserRead {
   projects: string[];
   reader_projects: string[];
   created_at: string;
+  activated_at: string | null;
+  archived_at: string | null;
 }
 
 /** Minimal user reference used for assignment/reviewer pickers. */
@@ -3867,6 +3987,7 @@ export interface UserRefOut {
 export interface UserUpdate {
   is_active?: boolean | null;
   role?: "viewer" | "analyst" | "supervisor" | "superuser" | "admin" | null;
+  archived?: boolean | null;
   projects?: string[] | null;
 }
 

@@ -72,4 +72,5 @@ REVOKE UPDATE, DELETE, TRUNCATE ON
     qc_threshold_changes, family_structure_versions, ui_events
     FROM coga_app;
 REVOKE UPDATE, DELETE, TRUNCATE ON wgs_sources FROM coga_app;
-REVOKE UPDATE, DELETE, TRUNCATE ON ancestry_reference_panels, ancestry_results FROM coga_app;
+REVOKE UPDATE, DELETE, TRUNCATE ON ancestry_reference_panels, ancestry_results, ancestry_sample_choices FROM coga_app;
+REVOKE UPDATE, DELETE, TRUNCATE ON ancestry_files, ancestry_file_scans FROM coga_app;

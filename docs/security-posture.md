@@ -43,8 +43,12 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   without a document type declaration, so no entity is expanded. The account is bound to the
   Entra object ID the server releases (`azureObjectId`, `users.azure_object_id`), the same
   account a Microsoft sign-in finds, never linked by e-mail address. CAS admits every account
-  of the organisation, so a first sign-in makes an **inactive** viewer account in no project and
-  e-mails `ADMIN_EMAIL`; it signs in once an administrator activates it. A refused ticket
+  of the organisation, so a first sign-in makes an **inactive** viewer account in no project
+  that waits for approval, and every active administrator is e-mailed (with `SMTP_HOST`); it
+  signs in once an administrator activates it. An account that was never active can be deleted;
+  any other is archived (inactive, out of the default list, its row kept so every record that
+  names it still does). Each activation, archive, restore and deletion is asked for
+  confirmation on *Users* and recorded in the request audit (`request_meta.account_change`). A refused ticket
   answers 401 and counts against the source address (`auth_login_attempts`, scope `cas_ip`),
   which is throttled. The session is CoGA's own HS256 token, which then signs in only an
   account bound to an object ID, or the emergency administrator while `AZURE_ADMIN_OVERRIDE` is
@@ -56,8 +60,9 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   - an import job keeps its requester (`family_import_jobs.requested_by_id`); the worker runs
     the import as that account while it is an active superuser or administrator (*Session
     tokens*, below);
-  - so do a gene-reference refresh and a clinical CNV knowledgebase rebuild (`requested_by_id`
-    on `gene_info_refresh_jobs` and `clinical_cnv_kb_jobs`, SEC-35);
+  - so do a gene-reference refresh, a clinical CNV knowledgebase rebuild and a DGV load
+    (`requested_by_id` on `gene_info_refresh_jobs`, `clinical_cnv_kb_jobs` and `dgv_load_jobs`,
+    SEC-35);
   - a user's filter presets belong to the account (`owner_id`).
 
   A changed address or user name keeps them the user's. An account that later signs in with an
@@ -417,7 +422,10 @@ with nothing written; the log names neither the account nor its address:
 - a clinical CNV knowledgebase rebuild (`clinical_cnv_kb_jobs._run_job`) is checked as it
   starts and again before its load, its one write. It starts when queued, and its build, which
   writes nothing, runs for up to two hours. Nothing is loaded, and the previous knowledgebase
-  stays.
+  stays. The rebuild a start queues (`startup-bootstrap`) is no account's, and runs.
+- a DGV load (`dgv_load_jobs._run_job`) is checked as it starts and again before it commits.
+  Nothing is committed, and the DGV variants from before stay. The load a start queues
+  (`startup-bootstrap`) is no account's, and runs.
 
 The refresh and the rebuild used to run for whoever had asked, as neither acts with an
 account's rights. An import or a refresh already running when its account is deactivated or

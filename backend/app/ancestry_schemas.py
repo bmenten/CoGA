@@ -5,6 +5,10 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
+# The callsets a choice can name: the stored ones, or a declared VCF file (ancestry_files).
+CALLSET_PATTERN = r"^(clair3|nipt|glimpse2|file:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$"
+
+
 class AncestryReferencePoint(BaseModel):
     id: str
     population: str
@@ -41,7 +45,8 @@ class AncestryRunOut(BaseModel):
     finished_at: datetime | None = None
 
 
-AncestryCallsetKind = Literal["complete", "genome", "exome", "partial"]
+# ``regions``: a callset read inside the regions a user gave for it (ancestry_choices).
+AncestryCallsetKind = Literal["complete", "genome", "exome", "regions", "partial"]
 
 
 class AncestryCallsetScanOut(BaseModel):
@@ -57,6 +62,8 @@ class AncestryCallsetScanOut(BaseModel):
     coverage_ratio: float
     exome_ratio: float | None = None
     outside_exome_ratio: float | None = None
+    # Inside the regions a user gave for this callset, when they did.
+    regions_ratio: float | None = None
     # Markers with any genotype call, reference ones included.
     explicit_calls: int
     accepts_unfiltered: bool
@@ -69,10 +76,46 @@ class AncestryCallsetScanOut(BaseModel):
     reason: str | None = None
 
 
+class AncestryRegionsOut(BaseModel):
+    """The regions a user gave for a callset, as the reference markers inside them."""
+
+    source: Literal["panel", "bed"]
+    name: str
+    panel_id: str | None = None
+    panel_version: int | None = None
+    # The BED file's SHA-256; the file itself is not kept.
+    sha256: str | None = None
+    interval_count: int
+    covered_markers: int
+    reference_sha256: str
+
+
+class AncestrySampleChoiceIn(BaseModel):
+    """How to read one individual: CoGA's own reading, one callset, or not at all."""
+
+    mode: Literal["auto", "callset", "exclude"]
+    # A stored callset, or a VCF file the family's package declared for ancestry (file:<its id>).
+    callset: str | None = Field(default=None, pattern=CALLSET_PATTERN)
+    # With a callset: the regions of this gene panel's genes (their coding markers).
+    panel_id: str | None = None
+    # With a callset: keep the regions of the individual's current choice (a BED given before).
+    keep_regions: bool = False
+
+
+class AncestrySampleChoiceOut(BaseModel):
+    sample_id: str
+    mode: Literal["auto", "callset", "exclude"]
+    callset: str | None = None
+    regions: AncestryRegionsOut | None = None
+    chosen_at: datetime
+
+
 class AncestrySampleOut(BaseModel):
     sample_id: str
     status: Literal["projected", "insufficient_data", "excluded"]
     pcs: list[float] | None = None
+    # Each PC's standard error over resamplings of the usable markers (ancestry_projection).
+    pcs_se: list[float] | None = None
     call_rate: float = 0.0
     qc: dict[str, int] = Field(default_factory=dict)
     # The callset the projection read, how it was read, and why an individual has none.
@@ -81,6 +124,8 @@ class AncestrySampleOut(BaseModel):
     usable_markers: int | None = None
     reason: str | None = None
     candidates: list[AncestryCallsetScanOut] = Field(default_factory=list)
+    # The user's choice the calculation read for this individual, if any (ancestry_choices).
+    choice: AncestrySampleChoiceOut | None = None
 
 
 class AncestryAnalysisOut(BaseModel):
@@ -97,6 +142,21 @@ class AncestryAnalysisOut(BaseModel):
     current_reference: bool = False
 
 
+class AncestryFileOut(BaseModel):
+    """A VCF file the family's package declared for ancestry, and its latest scan."""
+
+    id: str
+    label: str
+    relative_path: str
+    declared_at: datetime
+    status: Literal["pending", "scanned", "failed"]
+    sha256: str | None = None
+    error: str | None = None
+    scanned_at: datetime | None = None
+    # The file's sample columns; those of the family's individuals are read.
+    columns: list[str] = Field(default_factory=list)
+
+
 class FamilyAncestryOut(BaseModel):
     project_id: str
     # ``ready`` when a calculation can run now, else why not (ancestry_service.STATE_NOTICES).
@@ -107,3 +167,8 @@ class FamilyAncestryOut(BaseModel):
     analysis: AncestryAnalysisOut | None = None
     runs: list[AncestryRunOut] = Field(default_factory=list)
     notices: list[str] = Field(default_factory=list)
+    # The latest choice of each individual that has one, and whether the caller may make one.
+    choices: list[AncestrySampleChoiceOut] = Field(default_factory=list)
+    can_choose: bool = False
+    files: list[AncestryFileOut] = Field(default_factory=list)
+

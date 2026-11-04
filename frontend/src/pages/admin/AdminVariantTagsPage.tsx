@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../../lib/api';
 import PageState from '../../components/PageState';
@@ -283,20 +282,6 @@ const AdminVariantTagsPage: React.FC = () => {
               deleted, and can no longer be added.
             </p>
           </div>
-          <div className="compact-toolbar dashboard-toolbar">
-            <Link to="/admin/data/families" className="button-secondary hover:no-underline">
-              Data inventory
-            </Link>
-            <Link to="/admin/variants/presets" className="button-secondary hover:no-underline">
-              Preset filters
-            </Link>
-            <Link to="/admin/operations/clickhouse" className="button-secondary hover:no-underline">
-              ClickHouse tables
-            </Link>
-            <Link to="/admin/monitoring/audit-logs" className="button-secondary hover:no-underline">
-              Audit logs
-            </Link>
-          </div>
         </div>
       </section>
 
@@ -339,7 +324,6 @@ const AdminVariantTagsPage: React.FC = () => {
                 <div className="admin-family-card-header">
                   <div>
                     <h3>{project.name}</h3>
-                    <p>{project.id}</p>
                   </div>
                 </div>
               </button>

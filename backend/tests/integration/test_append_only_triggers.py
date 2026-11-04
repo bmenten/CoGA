@@ -1,8 +1,9 @@
 """Integration tests that FIRE the append-only triggers (real Postgres, smoke job).
 
 These prove the database-level immutability controls on six append-only tables (and on the
-three of the exploratory ancestry PCA, outside the intended purpose: ``wgs_sources``,
-``ancestry_reference_panels`` and ``ancestry_results``) —
+six of the exploratory ancestry PCA, outside the intended purpose: ``wgs_sources``,
+``ancestry_reference_panels``, ``ancestry_results``, ``ancestry_sample_choices``,
+``ancestry_files`` and ``ancestry_file_scans``) —
 ``audit_log_events`` (the HTTP access log), ``clinical_audit_events`` (the clinical action
 log), ``report_signouts`` (frozen signed reports), ``qc_threshold_changes`` (the history of
 QC acceptance limits), ``family_structure_versions`` (the pedigree's history) and
@@ -126,6 +127,25 @@ _FIRED = {
         "INSERT INTO ancestry_results (run_id, source_id, reference_sha256, samples, calculation_version, assumptions) "
         "SELECT id, source_id, reference_sha256, '[]'::jsonb, 'marker', '{}'::jsonb FROM r RETURNING run_id",
         "UPDATE ancestry_results SET calculation_version = 'tampered' WHERE run_id = :id",
+    ),
+    # A user's choice of how an individual is read stays as it was made.
+    "ancestry_sample_choices": (
+        "INSERT INTO ancestry_sample_choices (family_uuid, project_id, sample_id, mode, chosen_by) "
+        "VALUES (gen_random_uuid(), gen_random_uuid(), 'p1-5-test', 'exclude', gen_random_uuid()) RETURNING id",
+        "UPDATE ancestry_sample_choices SET mode = 'auto' WHERE id = :id",
+    ),
+    # A declared ancestry file and what a scan of it found stay as they were recorded.
+    "ancestry_files": (
+        "INSERT INTO ancestry_files (family_uuid, family_identifier, project_id, package_path, relative_path, label) "
+        "VALUES (gen_random_uuid(), 'p1-5-test', gen_random_uuid(), '/p', 'a.g.vcf', 'gVCF') RETURNING id",
+        "UPDATE ancestry_files SET relative_path = 'tampered' WHERE id = :id",
+    ),
+    "ancestry_file_scans": (
+        "WITH f AS (INSERT INTO ancestry_files (family_uuid, family_identifier, project_id, package_path, "
+        "relative_path, label) VALUES (gen_random_uuid(), 'p1-5-test', gen_random_uuid(), '/p', 'a.g.vcf', 'gVCF') "
+        f"RETURNING id) INSERT INTO ancestry_file_scans (file_id, status, sha256, reference_sha256) "
+        f"SELECT id, 'scanned', 'aa', {_MARKER_SHA256} FROM f RETURNING id",
+        "UPDATE ancestry_file_scans SET sha256 = 'tampered' WHERE id = :id",
     ),
 }
 # The column a marker row is found by, where it is not ``id``.

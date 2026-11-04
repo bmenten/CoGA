@@ -7,8 +7,10 @@ from typing import Any, Iterable
 
 from fastapi import HTTPException
 from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.coga_logging import describe_error
 from ..core.config import settings
 from ..core.sql import require_uuid, uuid_list_bindparam, uuid_values
 from ..schemas import (
@@ -155,6 +157,8 @@ def _user_read_from_mapping(mapping: dict[str, Any]) -> UserRead:
         projects=_string_list(mapping.get("metadata_project_ids")),
         reader_projects=_string_list(mapping.get("reader_project_ids")),
         created_at=mapping["created_at"],
+        activated_at=mapping.get("activated_at"),
+        archived_at=mapping.get("archived_at"),
     )
 
 
@@ -275,6 +279,8 @@ async def _fetch_user_mapping_by_email(session: AsyncSession, email: str) -> dic
                 u.affiliation,
                 u.is_active,
                 u.created_at,
+                u.activated_at,
+                u.archived_at,
                 u.azure_object_id::text AS azure_object_id,
                 COALESCE(
                     ARRAY_AGG(DISTINCT pu.project_id::text)
@@ -313,6 +319,8 @@ async def _fetch_user_mapping_by_id(session: AsyncSession, user_id: str) -> dict
                 u.affiliation,
                 u.is_active,
                 u.created_at,
+                u.activated_at,
+                u.archived_at,
                 u.azure_object_id::text AS azure_object_id,
                 COALESCE(
                     ARRAY_AGG(DISTINCT pu.project_id::text)
@@ -350,6 +358,8 @@ async def _fetch_all_user_mappings(session: AsyncSession) -> list[dict[str, Any]
                 u.affiliation,
                 u.is_active,
                 u.created_at,
+                u.activated_at,
+                u.archived_at,
                 u.azure_object_id::text AS azure_object_id,
                 COALESCE(
                     ARRAY_AGG(DISTINCT pu.project_id::text)
@@ -399,6 +409,8 @@ def _current_user_from_mapping(mapping: dict[str, Any]) -> CurrentUser:
         metadata_project_ids=metadata_project_ids,
         reader_project_ids=_string_list(mapping.get("reader_project_ids")),
         created_at=mapping["created_at"],
+        activated_at=mapping.get("activated_at"),
+        archived_at=mapping.get("archived_at"),
     )
 
 
@@ -443,7 +455,8 @@ async def create_user_account(
                 affiliation,
                 is_active,
                 metadata,
-                created_at
+                created_at,
+                activated_at
             )
             VALUES (
                 :username,
@@ -455,7 +468,8 @@ async def create_user_account(
                 :affiliation,
                 false,
                 '{}'::jsonb,
-                :created_at
+                :created_at,
+                NULL
             )
             RETURNING id::text
             """
@@ -487,14 +501,33 @@ async def get_user_account_mapping(session: AsyncSession, user_id: str) -> dict[
     return await _fetch_user_mapping_by_id(session, user_id)
 
 
+# An archived account is inactive (users_archived_inactive_check): it is restored first.
+ARCHIVED_ACTIVATION_DETAIL = (
+    "This account is archived: restore it from the archive before activating it."
+)
+# Only an account that was never active is deleted: any other has done or been named in what
+# the records keep, and is archived instead.
+NOT_WAITING_DELETE_DETAIL = (
+    "Only an account that was never activated can be deleted. Archive this one instead."
+)
+KEPT_RECORDS_DELETE_DETAIL = (
+    "CoGA keeps records that name this account, so it cannot be deleted. Archive it instead."
+)
+
+
 async def update_user_account(
     session: AsyncSession,
     *,
     user_id: str,
     is_active: bool | None,
     role: str | None = None,
+    archived: bool | None = None,
 ) -> tuple[UserRead, dict[str, dict[str, Any]]]:
-    """Set an account's activation and its global role (SEC-4).
+    """Set an account's activation, its global role and whether it is archived (SEC-4).
+
+    Archiving deactivates the account; an archived account is restored before it is
+    activated again (409 otherwise). The first activation records when (``activated_at``),
+    which ends the account's wait for approval.
 
     Returns the account and what changed, each field as ``{"from": ..., "to": ...}``: the
     request audit records it (``request_meta.account_change``). The row is locked while it is
@@ -502,31 +535,55 @@ async def update_user_account(
     """
     current = (
         await session.execute(
-            text("SELECT role, is_active FROM users WHERE id = CAST(:user_id AS uuid) FOR UPDATE"),
+            text(
+                "SELECT role, is_active, activated_at, archived_at FROM users "
+                "WHERE id = CAST(:user_id AS uuid) FOR UPDATE"
+            ),
             {"user_id": user_id},
         )
     ).mappings().first()
     if current is None:
         raise HTTPException(status_code=404, detail="User not found")
 
+    was_archived = current["archived_at"] is not None
+    to_archived = was_archived if archived is None else archived
+    to_active = bool(current["is_active"]) if is_active is None else is_active
+    if to_archived and not was_archived:
+        to_active = False
+    if to_active and to_archived:
+        await session.rollback()
+        raise HTTPException(status_code=409, detail=ARCHIVED_ACTIVATION_DETAIL)
+
     changes: dict[str, dict[str, Any]] = {}
-    if is_active is not None and is_active != current["is_active"]:
-        changes["is_active"] = {"from": bool(current["is_active"]), "to": is_active}
+    if to_active != bool(current["is_active"]):
+        changes["is_active"] = {"from": bool(current["is_active"]), "to": to_active}
     if role is not None and role != current["role"]:
         changes["role"] = {"from": current["role"], "to": role}
+    if to_archived != was_archived:
+        changes["archived"] = {"from": was_archived, "to": to_archived}
     if changes:
         await session.execute(
             text(
                 """
                 UPDATE users
-                SET is_active = :is_active, role = :role
+                SET is_active = :is_active,
+                    role = :role,
+                    activated_at = CASE
+                        WHEN :is_active THEN COALESCE(activated_at, timezone('utc', now()))
+                        ELSE activated_at
+                    END,
+                    archived_at = CASE
+                        WHEN NOT :archived THEN NULL
+                        ELSE COALESCE(archived_at, timezone('utc', now()))
+                    END
                 WHERE id = CAST(:user_id AS uuid)
                 """
             ),
             {
                 "user_id": user_id,
-                "is_active": changes.get("is_active", {}).get("to", current["is_active"]),
+                "is_active": to_active,
                 "role": changes.get("role", {}).get("to", current["role"]),
+                "archived": to_archived,
             },
         )
     await session.commit()
@@ -535,6 +592,59 @@ async def update_user_account(
     if updated_mapping is None:
         raise HTTPException(status_code=404, detail="User not found")
     return _user_read_from_mapping(updated_mapping), changes
+
+
+async def delete_waiting_user_account(session: AsyncSession, *, user_id: str) -> dict[str, Any]:
+    """Delete an account that was never active: a sign-up or a first CAS sign-in an
+    administrator does not approve (SEC-4).
+
+    An account that is or was active is refused (409): it is archived instead, so that every
+    record naming it still does. A deletion the database refuses, for a record that names the
+    account, is refused the same way. Returns what the request audit records of the account
+    (``request_meta.account_change``): its row is gone once this returns.
+    """
+    row = (
+        await session.execute(
+            text(
+                """
+                SELECT id::text AS id, email, username, first_name, last_name, affiliation,
+                       is_active, activated_at, archived_at, created_at,
+                       azure_object_id IS NOT NULL AS organisation_account
+                FROM users
+                WHERE id = CAST(:user_id AS uuid)
+                FOR UPDATE
+                """
+            ),
+            {"user_id": user_id},
+        )
+    ).mappings().first()
+    if row is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    if row["is_active"] or row["activated_at"] is not None:
+        await session.rollback()
+        raise HTTPException(status_code=409, detail=NOT_WAITING_DELETE_DETAIL)
+    try:
+        async with session.begin_nested():
+            await session.execute(
+                text("DELETE FROM users WHERE id = CAST(:user_id AS uuid)"),
+                {"user_id": user_id},
+            )
+    except DBAPIError as exc:
+        await session.rollback()
+        logger.warning("account %s not deleted: %s", row["id"], describe_error(exc))
+        raise HTTPException(status_code=409, detail=KEPT_RECORDS_DELETE_DETAIL) from exc
+    await session.commit()
+    return {
+        "user_id": row["id"],
+        "email": row["email"],
+        "deleted": True,
+        "username": row["username"],
+        "name": f"{row['first_name'] or ''} {row['last_name'] or ''}".strip(),
+        "affiliation": row["affiliation"] or "",
+        "sign_in": organisation_sign_in_name() if row["organisation_account"] else "password",
+        "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+        "archived": row["archived_at"] is not None,
+    }
 
 
 async def list_species_records(session: AsyncSession) -> list[SpeciesOut]:
