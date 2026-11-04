@@ -92,6 +92,8 @@ from .variant_annotation_parser import (
 )
 from .clickhouse_variant_queries import NIPT_SMALL_VARIANT_SOURCE as _NIPT_SOURCE
 from .vcf_call_metrics import record_filter_values, single_sample_call_metrics
+# Under the names this module's readers, per_sample_small_variants and the tests use.
+from .vcf_fields import parse_format as _parse_format, parse_info as _parse_info
 from .vcf_header_provenance import (
     extract_header_provenance,
     extract_info_description_provenance,
@@ -238,30 +240,10 @@ def _iter_upload_text_lines(file: UploadFile, *, kind: str):
         raise HTTPException(status_code=400, detail=f"{kind} file must be plain text or gzipped") from exc
 
 
-def _parse_info(info_field: str) -> dict[str, str]:
-    info: dict[str, str] = {}
-    if info_field and info_field != ".":
-        for item in info_field.split(";"):
-            if "=" in item:
-                key, value = item.split("=", 1)
-                info[key] = value
-    return info
-
-
 def _parse_vep_tsv_annotation_upload(file: UploadFile) -> VepAnnotationLookup:
     return _parse_vep_tsv_annotation_lines(
         _iter_upload_text_lines(file, kind="VEP TSV annotation"),
     )
-
-
-def _parse_format(format_field: str, sample_field: str) -> dict[str, str]:
-    keys = format_field.split(":")
-    values = sample_field.split(":")
-    # A VCF sample field may legitimately carry fewer values than the FORMAT keys
-    # (trailing per-sample fields dropped). zip() already truncates to the shorter of
-    # the two, so keys without a matching value are simply absent from the mapping —
-    # never paired with a value from the wrong FORMAT key.
-    return {k: v for k, v in zip(keys, values)}
 
 
 def _parse_float_list(value: str | None) -> list[float]:

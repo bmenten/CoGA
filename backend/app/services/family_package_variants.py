@@ -29,7 +29,8 @@ from .variant_annotation_parser import (
 )
 
 from .structural_variant_ingest import SkippedRecords, breakend_mate, extent_not_stated, record_end, record_sv_len, sv_event, sv_type_from_alt
-from .family_package_common import MITO_SV_SOURCE, ParsedPed, _coerce_finite_float, _coerce_int, _first_info_value, _jsonb_safe, _metadata_dict, _missing_scalar, _parse_format, _parse_vcf_info, _split_gene_symbols, resolve_vcf_sample_id
+from .family_package_common import MITO_SV_SOURCE, ParsedPed, _coerce_finite_float, _coerce_int, _first_info_value, _jsonb_safe, _metadata_dict, _missing_scalar, _split_gene_symbols, resolve_vcf_sample_id
+from .vcf_fields import parse_format, parse_info
 
 
 def _unpositionable(start: int, end: int) -> bool:
@@ -142,7 +143,7 @@ def needlr_query_ids(text_value: str) -> set[str]:
         parts = line.split("\t")
         if len(parts) < 8:
             continue
-        query_id = _first_info_value(_parse_vcf_info(parts[7]), "Query_ID", "QueryId", "Sample", "SAMPLE")
+        query_id = _first_info_value(parse_info(parts[7], flags=True), "Query_ID", "QueryId", "Sample", "SAMPLE")
         if query_id is not None:
             queries.add(query_id)
     return queries
@@ -237,7 +238,7 @@ def _needlr_records(
         start = _coerce_int(pos_raw)
         if start is None:
             continue
-        info = _parse_vcf_info(info_raw)
+        info = parse_info(info_raw, flags=True)
         sv_type = _first_info_value(info, "SVTYPE") or sv_type_from_alt(ref, alt) or "SV"
         # A breakend's mate as every SV reader reads it (``breakend_mate``): the reader stored
         # none before CLIN-40, so a NeedlR translocation named no partner in the SV list.
@@ -451,7 +452,7 @@ def _iter_cnv_structural_records(
         start = _coerce_int(pos_raw)
         if start is None:
             continue
-        info = _parse_vcf_info(info_raw)
+        info = parse_info(info_raw, flags=True)
         sv_type = _first_info_value(info, "SVTYPE") or sv_type_from_alt(ref, alt) or "CNV"
         sv_len = _coerce_int(_first_info_value(info, "SVLEN"))
         end_written = _first_info_value(info, "END", "End_Pos")
@@ -472,7 +473,7 @@ def _iter_cnv_structural_records(
         copy_number: int | None = None
         gt = "./."
         if len(parts) > 9 + sample_column:
-            fmt_vals = _parse_format(parts[8], parts[9 + sample_column])
+            fmt_vals = parse_format(parts[8], parts[9 + sample_column])
             gt = fmt_vals.get("GT") or "./."
             copy_number = _coerce_int(fmt_vals.get("CN"))
         annotations = extract_small_variant_annotations(info, annotation_state)
@@ -738,7 +739,7 @@ def _iter_mito_sv_records(
         start = _coerce_int(pos_raw)
         if start is None:
             continue
-        info = _parse_vcf_info(info_raw)
+        info = parse_info(info_raw, flags=True)
         sv_type = (_first_info_value(info, "SVTYPE") or sv_type_from_alt(ref, alt) or "SV").upper()
         sv_len = _coerce_int(_first_info_value(info, "SVLEN"))
         if extent_not_stated(alt=alt, sv_len=sv_len, end=_first_info_value(info, "END")):
@@ -752,7 +753,7 @@ def _iter_mito_sv_records(
             continue
         remote_chr, remote_start = breakend_mate(sv_type=sv_type, alt=alt, info=info, chrom=chrom)
         fmt_vals = (
-            _parse_format(parts[8], parts[9 + sample_column]) if len(parts) > 9 + sample_column else {}
+            parse_format(parts[8], parts[9 + sample_column]) if len(parts) > 9 + sample_column else {}
         )
         gt = fmt_vals.get("GT") or "./."
         alleles = gt.replace("|", "/").split("/")

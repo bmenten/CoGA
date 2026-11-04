@@ -909,27 +909,6 @@ def _split_gene_symbols(value: str | None) -> list[str]:
     return genes
 
 
-def _parse_vcf_info(info_field: str) -> dict[str, str]:
-    info: dict[str, str] = {}
-    if not info_field or info_field == ".":
-        return info
-    for item in info_field.split(";"):
-        if not item:
-            continue
-        if "=" in item:
-            key, value = item.split("=", 1)
-            info[key] = value
-        else:
-            info[item] = "true"
-    return info
-
-
-def _parse_format(format_field: str, sample_field: str) -> dict[str, str]:
-    keys = format_field.split(":") if format_field else []
-    values = sample_field.split(":") if sample_field else []
-    return {key: value for key, value in zip(keys, values)}
-
-
 def _first_info_value(info: dict[str, str], *keys: str) -> str | None:
     for key in keys:
         value = info.get(key)

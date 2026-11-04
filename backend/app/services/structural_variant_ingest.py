@@ -7,6 +7,7 @@ from typing import Any, Dict, Iterable, Iterator, Literal, Optional
 
 from .clickhouse_column_bounds import UINT32, column_int
 from .data_scope import normalize_chromosome
+from .vcf_fields import parse_format, parse_info
 
 StructuralVariantRecordFormat = Literal["manual", "sniffles", "spectre"]
 
@@ -67,22 +68,6 @@ def extent_not_stated(*, alt: str, sv_len: int | None, end: Any) -> bool:
     if symbolic is None or symbolic.group(1).split(":", 1)[0].upper() not in _SPANNING_SYMBOLIC_TYPES:
         return False
     return sv_len is None and (end is None or str(end).strip() in {"", "."})
-
-
-def parse_info(info_field: str) -> Dict[str, str]:
-    info: Dict[str, str] = {}
-    if info_field and info_field != ".":
-        for item in info_field.split(";"):
-            if "=" in item:
-                key, value = item.split("=", 1)
-                info[key] = value
-    return info
-
-
-def parse_format(format_field: str, sample_field: str) -> Dict[str, str]:
-    keys = format_field.split(":")
-    values = sample_field.split(":")
-    return {key: value for key, value in zip(keys, values)}
 
 
 def parse_phase_set(value: str | None) -> int | None:

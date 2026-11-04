@@ -22,9 +22,10 @@ from .family_metadata_context import (
     SampleMetadataContext,
 )
 
-from .family_package_common import APCAD_PCF_SOURCE, APCAD_PCF_TRACK_TYPE, APCAD_SEGREGATION_TRACK_TYPE, APCAD_SOURCE, ParsedPed, _coerce_finite_float, _coerce_int, _is_vcf_file, _jsonb_safe, _missing_scalar, _normalize_header_key, _open_package_text, _parse_format, _parse_vcf_info, whole_package_text_handle
+from .family_package_common import APCAD_PCF_SOURCE, APCAD_PCF_TRACK_TYPE, APCAD_SEGREGATION_TRACK_TYPE, APCAD_SOURCE, ParsedPed, _coerce_finite_float, _coerce_int, _is_vcf_file, _jsonb_safe, _missing_scalar, _normalize_header_key, _open_package_text, whole_package_text_handle
 from .clickhouse_column_bounds import UINT64, column_int
 from .import_progress import bytes_read_on_disk, file_size, read_stats
+from .vcf_fields import parse_format, parse_info
 
 
 class EmptyTrackFileError(RuntimeError):
@@ -984,7 +985,7 @@ def _apcad_vcf_targets(
         vcf_sample_name = selected_vcf_sample or selected_sample_id
         sample_index = sample_index_by_name.get(vcf_sample_name)
         fmt_vals = (
-            _parse_format(":".join(fmt_keys), sample_fields[sample_index])
+            parse_format(":".join(fmt_keys), sample_fields[sample_index])
             if sample_index is not None and sample_index < len(sample_fields)
             else {}
         )
@@ -994,7 +995,7 @@ def _apcad_vcf_targets(
             sample_context = sample_contexts.get(sample_name)
             if sample_context is None:
                 continue
-            targets.append((sample_name, sample_context, _parse_format(":".join(fmt_keys), sample_field)))
+            targets.append((sample_name, sample_context, parse_format(":".join(fmt_keys), sample_field)))
     else:
         for sample_id, sample_context in sample_contexts.items():
             targets.append((sample_id, sample_context, {}))
@@ -1029,7 +1030,7 @@ def _apcad_vcf_samples_with_values(
             if len(fields) < 8 or _coerce_int(fields[1]) is None:
                 continue
             any_record = True
-            info = _parse_vcf_info(fields[7])
+            info = parse_info(fields[7], flags=True)
             for sample_id, _context, fmt_vals in _apcad_vcf_targets(
                 fields,
                 sample_names=sample_names,
@@ -1115,7 +1116,7 @@ async def _import_apcad_vcf_file(
             pos = _coordinate(pos_raw)
             if pos is None:
                 continue
-            info = _parse_vcf_info(info_raw)
+            info = parse_info(info_raw, flags=True)
             fmt_keys = fields[8].split(":") if len(fields) > 8 else []
             sample_fields = fields[9:] if len(fields) > 9 else []
             targets = _apcad_vcf_targets(
@@ -1147,12 +1148,12 @@ async def _import_apcad_vcf_file(
                     if father_id:
                         father_index = sample_index_by_name.get(father_id)
                         if father_index is not None and father_index < len(sample_fields):
-                            father_fmt = _parse_format(":".join(fmt_keys), sample_fields[father_index])
+                            father_fmt = parse_format(":".join(fmt_keys), sample_fields[father_index])
                     mother_id = parent_ids.get("mother")
                     if mother_id:
                         mother_index = sample_index_by_name.get(mother_id)
                         if mother_index is not None and mother_index < len(sample_fields):
-                            mother_fmt = _parse_format(":".join(fmt_keys), sample_fields[mother_index])
+                            mother_fmt = parse_format(":".join(fmt_keys), sample_fields[mother_index])
                     origin = _infer_apcad_origin_from_parent_genotypes(
                         father_fmt=father_fmt,
                         mother_fmt=mother_fmt,
