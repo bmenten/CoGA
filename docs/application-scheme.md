@@ -231,10 +231,11 @@ done:
 
 - the refresh worker in a process of its own;
 - import-worker processes on Google Cloud, where the imports still run in the API's instances;
-- the Variant Explorer's unfiltered page, which aggregates every carrier (#841); that benchmark
-  finds it the first query to fail;
+- the Variant Explorer's unfiltered page, which aggregates every carrier (found on 2026-10-13);
+  that benchmark finds it the first query to fail;
 - the ranked view's limit of 5,000 SVs, which a family with more than 50,000 SVs reaches more
-  often since #906.
+  often since a gene panel on the SV page keeps every SV it matches, not only those among the
+  first 50,000 (2026-10-20).
 
 ### Small-variant import
 

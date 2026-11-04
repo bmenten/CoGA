@@ -338,7 +338,7 @@ package takes its folder's name.
 
 Only the import or validation that downloaded a package reads its temporary folder. A typed
 folder path into it, or an import root linked there, is refused (`package_folder_not_allowed`);
-it used to read another import's staged copy (#850). The temporary folders lie in
+it used to read another import's staged copy. The temporary folders lie in
 `coga-family-imports` in the server's temp folder, which the backend makes private to itself.
 If it finds a symlink, a file or another user's folder there, it refuses to stage a bucket
 package rather than follow it (SEC-27).

@@ -111,10 +111,10 @@ Reading a panel is cheaper as well:
   0.2 s and more. As one array it keeps a plan that reads the `upper(hgnc_symbol)` and
   `upper(gene_id)` indexes: 0.05 s.
 
-Measured with #839's benchmark on the throwaway stack: a synthetic trio of 2,900 variants, a
-5,300-gene Mendeliome and sub-panels of it; before and after ENG-14 back to back on a shared
-machine; best / median of 7, in seconds; a gene reference of one row per gene and one of GENCODE's
-size (eight transcripts per gene, 247,200 rows):
+Measured with the sub-panel benchmark of 2026-10-13 on the throwaway stack: a synthetic trio of
+2,900 variants, a 5,300-gene Mendeliome and sub-panels of it; before and after ENG-14 back to
+back on a shared machine; best / median of 7, in seconds; a gene reference of one row per gene and
+one of GENCODE's size (eight transcripts per gene, 247,200 rows):
 
 | Request | One row per gene: before | after | GENCODE size: before | after |
 | --- | --- | --- | --- | --- |
@@ -180,8 +180,8 @@ answered gave the same answer before and after. The join costs about one more re
 rows: a five-region panel, which the per-row test handled in hundredths of a second, takes 0.2 to
 0.4 s longer, and the track a few hundredths.
 
-The record filter, on #839's synthetic trio and 5,300-gene Mendeliome (the benchmark above), with a
-gene reference of one row per gene and one of GENCODE's size:
+The record filter, on the same synthetic trio and 5,300-gene Mendeliome (the benchmark above),
+with a gene reference of one row per gene and one of GENCODE's size:
 
 | Request on the Mendeliome | One row per gene: before | after | GENCODE size: before | after |
 | --- | --- | --- | --- | --- |
@@ -477,7 +477,7 @@ gene filter and other filters; its intervals, excluded intervals and excluded ge
 search that asks for a structural-variant second hit, the genes the family's SVs hit as its SV→gene
 index holds them now. Its ranking thus goes under the key the query's next open reads. Until ENG-13
 it left out the intervals and exclusions and replayed the SV hit genes the stored ranking had
-resolved (#845), so its ranking went under a key no request read and took one of the family's six
+resolved, so its ranking went under a key no request read and took one of the family's six
 rows.
 
 ## When the cache misses

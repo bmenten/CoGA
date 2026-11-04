@@ -32,7 +32,7 @@ CoGA leest pakketten uit een lokale map, een AWS **S3**-bucket of **Google Cloud
 
 Een pakket uit de cloud wordt eerst naar een tijdelijke map gekopieerd, zodat dezelfde importlogica draait. Daarna wordt die map opgeruimd.
 
-- Alleen de import of validatie die het pakket kopieerde, leest die map. Een ingetypt pad erin, of een importmap die ernaar linkt, wordt geweigerd (`package_folder_not_allowed`); voorheen las zo'n pad de kopie van een andere import (#850).
+- Alleen de import of validatie die het pakket kopieerde, leest die map. Een ingetypt pad erin, of een importmap die ernaar linkt, wordt geweigerd (`package_folder_not_allowed`); voorheen las zo'n pad de kopie van een andere import.
 - De tijdelijke mappen staan in `coga-family-imports` in de tempmap van de server, die de backend voor zichzelf afschermt. Vindt hij daar een symbolische link, een bestand of de map van een andere gebruiker, dan volgt hij die niet en kopieert hij geen pakket uit een bucket (SEC-27).
 - De alignments (`.cram`, `.crai`, `.bam`, `.bai` en een `.csi` van een alignment) blijven in de bucket: geen importer leest ze, en een CRAM van een volledig genoom is tientallen gigabytes. Alleen de dataset `alignments` mag naar zo'n bestand verwijzen. De import controleert dat het object bestaat en legt zijn URI vast.
 - Omdat de tijdelijke map verdwijnt, noemen de joblog, het validatierapport, de herkomst van de familie en het register van bronbestanden de map en de objecten in de bucket.
