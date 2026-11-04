@@ -1,10 +1,13 @@
 import React, { useState } from 'react';
+import { Link } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../../lib/api';
 import { apiPath } from '../../lib/apiPath';
 import { getErrorMessage } from '../../lib/errorMessage';
 import type {
   AncestryAnalysisOut,
+  AncestryCallsetScanOut,
+  AncestrySampleOut,
   FamilyAncestryOut,
 } from '../../lib/apiSchema.generated';
 import AncestryPcaPlot from '../../components/visualizations/AncestryPcaPlot';
@@ -12,15 +15,18 @@ import InfoIcon from '../../components/InfoIcon';
 
 const PCA_HELP =
   'PCA places each individual on fixed axes computed from public reference genomes only. ' +
-  'Axis percentages are the share of reference variation each axis explains. Projection ' +
-  'needs at least 1,000 usable markers, 95% of the markers usable and, when absent records ' +
-  'are assumed reference, 20% of the markers observed as calls; an individual below these ' +
-  'thresholds is not plotted.';
+  'Axis percentages are the share of reference variation each axis explains. Each individual ' +
+  'is read from the family’s stored callsets: CoGA measures how much of the reference markers ' +
+  'a callset covers (a genome, an exome or only part of them) and fits the axes to the markers ' +
+  'it has. Projection needs at least 1,000 usable markers and 95% of the covered markers ' +
+  'usable; a panel or a subset of sites is not projected.';
 
 /** The QC counts a projection keeps, by the name the table shows them under. */
 const QC_LABELS: Record<string, string> = {
   filtered: 'filtered',
+  unfiltered: 'unfiltered, not accepted',
   no_call: 'no call',
+  outside_covered: 'outside what the callset covers',
   missing_record: 'no record',
   missing_sample: 'sample not in VCF',
   ambiguous_record: 'ambiguous record',
@@ -28,13 +34,29 @@ const QC_LABELS: Record<string, string> = {
   invalid_gt: 'invalid genotype',
 };
 
+/** How a callset was read, by the kind the scan found. */
+const KIND_LABELS: Record<string, string> = {
+  complete: 'a call at every marker',
+  genome: 'genome',
+  exome: 'exome',
+  partial: 'part of the markers',
+};
+
 const ASSUMPTION_LABELS: Record<string, string> = {
+  genotypes: 'Genotypes read',
+  callset_kinds: 'How a callset is read',
+  min_coverage_ratio: 'Minimum coverage ratio',
+  complete_share: 'Share of markers with a call for a complete callset',
+  exome_mask: 'Exome mask',
+  filters: 'Filters',
+  min_usable_markers: 'Minimum usable markers',
+  min_call_rate: 'Minimum share of covered markers usable',
+  excluded: 'Left out',
+  projection: 'Projection',
+  // A projection from before the callsets were read, of a registered WGS file.
   absent_record_is_hom_ref: 'Absent records taken as homozygous reference',
   allow_unfiltered: 'Unfiltered calls (FILTER=.) accepted',
-  min_usable_markers: 'Minimum usable markers',
-  min_call_rate: 'Minimum share of usable markers',
   min_observed_fraction: 'Minimum share of observed calls',
-  genotypes: 'Genotypes read',
   missing_calls: 'Missing calls',
   source_limitations: 'Source limitations',
 };
@@ -42,11 +64,40 @@ const ASSUMPTION_LABELS: Record<string, string> = {
 const formatAssumption = (value: unknown) =>
   typeof value === 'boolean' ? (value ? 'Yes' : 'No') : String(value);
 
+const percent = (value: number | null | undefined, digits = 0) =>
+  value === null || value === undefined ? '—' : `${(value * 100).toFixed(digits)}%`;
+
+/** A coverage ratio: a few calls in thousands of markers still reads as more than none. */
+const ratio = (value: number | null | undefined) =>
+  percent(value, value !== null && value !== undefined && value > 0 && value < 0.1 ? 1 : 0);
+
+/** Usable markers of those the callset covers; a callset covering none has its calls only. */
+const usableOf = (scan: AncestryCallsetScanOut) =>
+  scan.covered_markers
+    ? `${scan.usable_markers.toLocaleString()} of ${scan.covered_markers.toLocaleString()} (${percent(scan.call_rate, 1)})`
+    : `${scan.usable_markers.toLocaleString()} called`;
+
 const excludedCounts = (qc: Record<string, number>) =>
   Object.entries(QC_LABELS)
     .filter(([key]) => (qc[key] ?? 0) > 0)
     .map(([key, label]) => `${label}: ${qc[key].toLocaleString()}`)
     .join('; ') || '—';
+
+const readAs = (scan: AncestryCallsetScanOut) =>
+  `${scan.label} · ${KIND_LABELS[scan.kind] ?? scan.kind}`;
+
+/** The share of a sequenced genome's non-reference calls the callset holds where it covers. */
+const coverage = (scan: AncestryCallsetScanOut) =>
+  scan.kind === 'exome' ? `${ratio(scan.exome_ratio)} in the exome` : ratio(scan.coverage_ratio);
+
+const chosen = (sample: AncestrySampleOut) =>
+  sample.candidates?.find((scan) => scan.callset === sample.callset);
+
+const PROJECTION_LABELS: Record<AncestrySampleOut['status'], string> = {
+  projected: 'Projected',
+  insufficient_data: 'Not plotted',
+  excluded: 'Left out',
+};
 
 const SampleTable: React.FC<{ analysis: AncestryAnalysisOut }> = ({
   analysis,
@@ -59,10 +110,10 @@ const SampleTable: React.FC<{ analysis: AncestryAnalysisOut }> = ({
       <thead>
         <tr>
           <th>Individual</th>
-          <th>Projection</th>
-          <th>Observed calls</th>
-          <th>Assumed REF</th>
+          <th>Read from</th>
+          <th>Coverage</th>
           <th>Usable markers</th>
+          <th>Projection</th>
           <th>PC1</th>
           <th>PC2</th>
           <th>PC3</th>
@@ -71,31 +122,101 @@ const SampleTable: React.FC<{ analysis: AncestryAnalysisOut }> = ({
         </tr>
       </thead>
       <tbody>
-        {analysis.samples.map((sample) => (
-          <tr key={sample.sample_id}>
-            <td>{sample.sample_id}</td>
-            <td>
-              {sample.status === 'projected'
-                ? 'Projected'
-                : 'Insufficient data — not plotted'}
-            </td>
-            <td>
-              {(
-                (sample.qc.called ?? 0) + (sample.qc.called_unfiltered ?? 0)
-              ).toLocaleString()}
-            </td>
-            <td>{(sample.qc.assumed_ref ?? 0).toLocaleString()}</td>
-            <td>{(sample.call_rate * 100).toFixed(1)}%</td>
-            {[0, 1, 2, 3].map((pc) => (
-              <td key={pc}>{sample.pcs?.[pc]?.toFixed(3) ?? '—'}</td>
-            ))}
-            <td>{excludedCounts(sample.qc)}</td>
-          </tr>
-        ))}
+        {(analysis.samples ?? []).map((sample) => {
+          const scan = chosen(sample);
+          return (
+            <tr key={sample.sample_id}>
+              <td>{sample.sample_id}</td>
+              <td>{scan ? readAs(scan) : '—'}</td>
+              <td>{scan ? coverage(scan) : '—'}</td>
+              <td>
+                {scan
+                  ? usableOf(scan)
+                  : sample.status === 'excluded'
+                    ? '—'
+                    : percent(sample.call_rate, 1)}
+              </td>
+              <td>
+                {PROJECTION_LABELS[sample.status]}
+                {sample.reason ? (
+                  <span className="table-subtle ancestry-reason">{sample.reason}</span>
+                ) : null}
+              </td>
+              {[0, 1, 2, 3].map((pc) => (
+                <td key={pc}>{sample.pcs?.[pc]?.toFixed(3) ?? '—'}</td>
+              ))}
+              <td>{excludedCounts(sample.qc ?? {})}</td>
+            </tr>
+          );
+        })}
       </tbody>
     </table>
   </div>
 );
+
+/** Every callset that holds an individual, as the scan read it: what it covers and why it was or was not used. */
+const CallsetTable: React.FC<{ analysis: AncestryAnalysisOut }> = ({
+  analysis,
+}) => {
+  const rows = (analysis.samples ?? []).flatMap((sample) =>
+    (sample.candidates ?? []).map((scan) => ({ sample, scan }))
+  );
+  if (!rows.length) return null;
+  return (
+    <details>
+      <summary>Callsets per individual</summary>
+      <p className="table-subtle">
+        A sequenced genome carries the ALT allele at about{' '}
+        {Math.round(rows[0].scan.expected_carriers).toLocaleString()} of the
+        markers. A callset’s coverage is its non-reference calls against that
+        expectation, inside and outside the exome; it decides how an absent
+        record is read.
+      </p>
+      <div className="overflow-auto">
+        <table className="data-table ancestry-quality-table">
+          <caption>The family’s stored callsets at the reference markers</caption>
+          <thead>
+            <tr>
+              <th>Individual</th>
+              <th>Callset</th>
+              <th>Read as</th>
+              <th>Non-reference calls</th>
+              <th>In the exome</th>
+              <th>Outside the exome</th>
+              <th>Usable markers</th>
+              <th>Used</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(({ sample, scan }) => (
+              <tr key={`${sample.sample_id}:${scan.callset}`}>
+                <td>{sample.sample_id}</td>
+                <td>{scan.label}</td>
+                <td>{KIND_LABELS[scan.kind] ?? scan.kind}</td>
+                <td>
+                  {scan.carriers.toLocaleString()} ({ratio(scan.coverage_ratio)})
+                </td>
+                <td>{ratio(scan.exome_ratio)}</td>
+                <td>{ratio(scan.outside_exome_ratio)}</td>
+                <td>{usableOf(scan)}</td>
+                <td>
+                  {sample.callset === scan.callset && sample.status === 'projected'
+                    ? 'Projected'
+                    : scan.projectable
+                      ? 'Usable, not chosen'
+                      : 'Not usable'}
+                  {scan.reason ? (
+                    <span className="table-subtle ancestry-reason">{scan.reason}</span>
+                  ) : null}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </details>
+  );
+};
 
 interface Props {
   familyId: string;
@@ -104,8 +225,11 @@ interface Props {
 }
 
 /**
- * The family's exploratory ancestry PCA: the latest (or a chosen earlier) projection over its
- * own frozen reference axes, the marker quality of each individual, and the calculation.
+ * The family's exploratory ancestry PCA, a section of its Sample QC: the latest (or a chosen
+ * earlier) projection over its own frozen reference axes, the callset each individual was read
+ * from and its marker quality, and the calculation. Outside CoGA's intended purpose (TF-01 §4):
+ * it is not validated, never read clinically and never part of the sign-out or the signed
+ * record, so the section says so before anything else, whatever its data.
  */
 const FamilyAncestryPanel: React.FC<Props> = ({
   familyId,
@@ -129,9 +253,9 @@ const FamilyAncestryPanel: React.FC<Props> = ({
           { params }
         )
       ).data,
-    // A calculation takes minutes: look again every few seconds while one is queued or running.
+    // Look again every few seconds while a calculation is queued or running.
     refetchInterval: (q) =>
-      q.state.data?.runs.some((run) =>
+      (q.state.data?.runs ?? []).some((run) =>
         ['queued', 'running'].includes(run.status)
       )
         ? 5000
@@ -148,19 +272,19 @@ const FamilyAncestryPanel: React.FC<Props> = ({
     },
   });
   const data = query.data;
-  const busy = data?.runs.some((run) =>
-    ['queued', 'running'].includes(run.status)
-  );
+  // An answer without its lists is read as empty: the section never takes Sample QC down.
+  const runs = data?.runs ?? [];
+  const busy = runs.some((run) => ['queued', 'running'].includes(run.status));
   const analysis = data?.analysis;
   const error = query.error || calculate.error;
-  const completedRuns =
-    data?.runs.filter((run) => run.status === 'completed') ?? [];
+  const completedRuns = runs.filter((run) => run.status === 'completed');
   // The latest calculation that did not complete, when it is newer than the result shown.
-  const latestRun = data?.runs[0];
+  const latestRun = runs[0];
   const unfinished =
     latestRun && latestRun.status !== 'completed' ? latestRun : undefined;
   return (
     <section
+      id="ancestry"
       className="surface-card space-y-3"
       aria-labelledby="family-ancestry-heading"
     >
@@ -168,12 +292,14 @@ const FamilyAncestryPanel: React.FC<Props> = ({
         <div>
           <div className="ancestry-section-head">
             <h2 id="family-ancestry-heading" className="section-title">
-              Genetic similarity (PCA)
+              Ancestry (exploratory)
             </h2>
             <InfoIcon name="How the PCA is read" text={PCA_HELP} />
           </div>
           <p className="text-muted">
-            The family’s individuals beside public reference populations.
+            Genetic similarity of the family’s individuals to public reference
+            populations, read from their stored callsets. It is calculated
+            again automatically when the family’s genotypes change.
           </p>
         </div>
         <button
@@ -189,6 +315,12 @@ const FamilyAncestryPanel: React.FC<Props> = ({
             : 'Calculate PCA projection'}
         </button>
       </div>
+      <p className="status-note status-note--warning" role="note">
+        <strong>Exploratory — not for clinical use.</strong> It is not an
+        ancestry percentage or an ethnic identity, and it has not been
+        validated. It is never part of the sign-out or of the signed record.{' '}
+        <Link to="/docs/reference/ancestry-pca">How the PCA is calculated</Link>
+      </p>
       {error && (
         <div role="alert" className="status-note status-note--error">
           {getErrorMessage(error, 'Could not load ancestry.')}{' '}
@@ -209,7 +341,7 @@ const FamilyAncestryPanel: React.FC<Props> = ({
       )}
       {data && (
         <>
-          {data.notices.map((notice) => (
+          {(data.notices ?? []).map((notice) => (
             <p key={notice} className="status-note">
               {notice}
             </p>
@@ -221,7 +353,9 @@ const FamilyAncestryPanel: React.FC<Props> = ({
                 busy ? 'status-note' : 'status-note status-note--warning'
               }
             >
-              Calculation requested{' '}
+              {unfinished.trigger === 'automatic'
+                ? 'Automatic calculation'
+                : 'Calculation requested'}{' '}
               {new Date(unfinished.requested_at).toLocaleString()}:{' '}
               {unfinished.status}
               {unfinished.error ? ` — ${unfinished.error}` : ''}
@@ -229,18 +363,21 @@ const FamilyAncestryPanel: React.FC<Props> = ({
           )}
           {!analysis && (
             <p>
-              No PCA projection has been calculated for this family.
+              No PCA projection has been calculated for this family yet. It is
+              calculated automatically once its genotypes are imported.
               {data.reference
                 ? ' The plot shows the reference populations.'
                 : ''}
             </p>
           )}
           {analysis &&
-            (!analysis.current_source || !analysis.current_reference) && (
+            (!analysis.current_genotypes || !analysis.current_reference) && (
               <p role="status" className="status-note status-note--warning">
                 Earlier projection:{' '}
-                {!analysis.current_source
-                  ? 'the WGS source has changed or is unavailable. '
+                {!analysis.current_genotypes
+                  ? analysis.storage_version
+                    ? 'the family’s genotypes changed since it was calculated. '
+                    : 'it read a registered WGS file, before the stored callsets were read. '
                   : ''}
                 {!analysis.current_reference
                   ? 'It was calculated with an earlier reference model. '
@@ -255,7 +392,8 @@ const FamilyAncestryPanel: React.FC<Props> = ({
                 <option value="">Latest completed projection</option>
                 {completedRuns.map((run) => (
                   <option key={run.id} value={run.id}>
-                    {new Date(run.requested_at).toLocaleString()}
+                    {new Date(run.requested_at).toLocaleString()} ·{' '}
+                    {run.trigger === 'automatic' ? 'automatic' : 'requested'}
                   </option>
                 ))}
               </select>
@@ -269,6 +407,7 @@ const FamilyAncestryPanel: React.FC<Props> = ({
             />
           )}
           {analysis && <SampleTable analysis={analysis} />}
+          {analysis && <CallsetTable analysis={analysis} />}
           {data.reference && (
             <details>
               <summary>Reference and calculation</summary>
@@ -291,11 +430,16 @@ const FamilyAncestryPanel: React.FC<Props> = ({
                   <p>
                     Calculated {new Date(analysis.created_at).toLocaleString()}{' '}
                     ·{' '}
-                    {analysis.current_source
-                      ? 'current WGS source'
-                      : 'earlier WGS source'}{' '}
-                    · calculation <code>{analysis.calculation_version}</code> ·
-                    source record <code>{analysis.source_id}</code>
+                    {analysis.current_genotypes
+                      ? 'current genotypes'
+                      : 'earlier genotypes'}{' '}
+                    · calculation <code>{analysis.calculation_version}</code>
+                    {analysis.source_id ? (
+                      <>
+                        {' '}
+                        · WGS source record <code>{analysis.source_id}</code>
+                      </>
+                    ) : null}
                   </p>
                   <dl className="ancestry-assumptions">
                     {Object.entries(ASSUMPTION_LABELS)

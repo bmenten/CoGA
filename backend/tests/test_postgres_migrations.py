@@ -98,6 +98,14 @@ def test_the_revisions_give_the_tables_the_baselines_checks() -> None:
     )
 
 
+def test_revision_0016_gives_the_ancestry_runs_the_baselines_checks() -> None:
+    ancestry = migration_script().get_revision("0016").module
+    traceability = (_SCHEMA_DIR / "04_traceability.sql").read_text()
+
+    assert f"CONSTRAINT ancestry_runs_trigger_check {ancestry._TRIGGER_CHECK}," in traceability
+    assert f"CONSTRAINT ancestry_runs_requester_check {ancestry._REQUESTER_CHECK}," in traceability
+
+
 def test_revision_0004_runs_the_baselines_own_statements_for_the_structure_versions_and_the_ui_event_log() -> None:
     # SEC-7: the structure versions' chain and both tables' append-only guards, brought to a
     # database the baselines created before them by the baselines' own statements.

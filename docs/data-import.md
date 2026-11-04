@@ -2024,18 +2024,11 @@ capture panel takes the panel's key, the `assay_panel` of its cfDNA samples).
 Synthetic demo families and their loader are described in [demo/README.md](../demo/README.md);
 the helper scripts are listed in [scripts/README.md](../scripts/README.md).
 
-## Optional ancestry PCA after a full-WGS import
+## Exploratory ancestry PCA after an import
 
 The exploratory ancestry PCA is outside the intended purpose ([ancestry-pca.md](ancestry-pca.md)).
-A GRCh38 package can declare its family VCF a complete, joint, directly called whole genome for
-it:
-
-```json
-{"metadata":{"ancestry":{"full_wgs":true,"genome_build":"GRCh38","absent_record_is_hom_ref":true,"allow_unfiltered":false}}}
-```
-
-Once the import has completed, it registers the VCF as the family's WGS source; it never queues
-a calculation, and a source it cannot register leaves a line in its log without failing the
-import. Present no-calls, failed filters, split or duplicate loci and other alleles are never
-taken as reference. A retained small-variant upload can be registered from the ancestry page
-instead, without importing it again.
+Nothing in a package or an upload declares anything for it. Within half a minute of an import or
+upload that changed a GRCh38 family's small variants, the ancestry worker calculates a projection
+from the stored callsets, once no import of the family is running; it reads whether each covers a
+genome, an exome or only part of the markers. It never fails or delays the import. A manifest's
+`metadata.ancestry` block, which declared a whole-genome VCF before, is not read.

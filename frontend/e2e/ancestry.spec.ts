@@ -1,13 +1,15 @@
 import { expect, test } from './fixtures';
 import { E2E_EMAIL, E2E_PASSWORD, login } from './helpers';
 
-// The exploratory ancestry PCA against the bundled public reference: register a retained upload
-// as the WGS source, calculate, and read the plot. The upload is one record, far from a whole
-// genome: with absent records taken as reference it would otherwise project as all-reference,
-// so the individual must come out "Insufficient data", plotted nowhere.
-test('registers a WGS source, calculates the exploratory PCA and plots no individual from an incomplete VCF', async ({
+// The exploratory ancestry PCA against the bundled public reference, the last section of Sample
+// QC: a small-variant upload is calculated automatically (the worker's sweep queues it), and the
+// plot is read. The upload is one record, far from a genome or an exome: CoGA reads it as part of
+// the markers, so the individual is not plotted, and says why.
+test('calculates the exploratory PCA by itself after an upload and plots no individual from a partial VCF', async ({
   page,
 }) => {
+  // The worker's sweep looks for changed families every half minute.
+  test.setTimeout(150_000);
   await login(page);
   const token = await page.request.post('/api/auth/login', {
     data: { email: E2E_EMAIL, password: E2E_PASSWORD },
@@ -38,7 +40,17 @@ test('registers a WGS source, calculates the exploratory PCA and plots no indivi
       })
     ).ok()
   ).toBeTruthy();
-  const vcf = `##fileformat=VCFv4.2\n##reference=GRCh38\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t${sample}\n1\t10\t.\tA\tG\t50\t.\t.\tGT\t0/1\n`;
+  // Three of the reference's markers (public 1000 Genomes loci), unfiltered: far fewer
+  // non-reference calls than a sequenced genome or exome carries there.
+  const vcf =
+    `##fileformat=VCFv4.2\n##reference=GRCh38\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t${sample}\n` +
+    [
+      ['965125', 'G', 'C'],
+      ['973858', 'G', 'C'],
+      ['973862', 'A', 'G'],
+    ]
+      .map(([pos, ref, alt]) => `1\t${pos}\t.\t${ref}\t${alt}\t50\t.\t.\tGT\t0/1\n`)
+      .join('');
   expect(
     (
       await page.request.post(`/api/families/${family}/small-variants/upload`, {
@@ -55,44 +67,33 @@ test('registers a WGS source, calculates the exploratory PCA and plots no indivi
     ).ok()
   ).toBeTruthy();
   await page.goto(
-    `/families/${family}/ancestry?project_id=${encodeURIComponent(projectId)}`
+    `/families/${family}/qc?project_id=${encodeURIComponent(projectId)}`
   );
+  const ancestry = page.locator('section#ancestry');
   await expect(
-    page
+    ancestry.getByRole('heading', { name: 'Ancestry (exploratory)' })
+  ).toBeVisible({ timeout: 30_000 });
+  await expect(
+    ancestry
       .getByRole('note')
       .filter({ hasText: 'Exploratory — not for clinical use.' })
   ).toBeVisible();
-  const source = page.getByRole('region', { name: 'WGS source', exact: true });
-  const register = source.getByRole('button', {
-    name: 'Check and register the WGS source',
-  });
-  await expect(register).toBeDisabled();
-  await source
-    .getByRole('checkbox', { name: /This is a complete whole-genome callset/ })
-    .check();
-  await source.getByLabel('Absent positions').selectOption('reference');
-  await source
-    .getByRole('checkbox', { name: /Accept unfiltered calls/ })
-    .check();
-  await register.click();
-  await expect(source.getByText('WGS source registered.')).toBeVisible();
-  const calculate = page.getByRole('button', {
-    name: 'Calculate PCA projection',
-  });
-  await expect(calculate).toBeEnabled();
-  await calculate.click();
-  const ancestry = page
-    .locator('section')
-    .filter({
-      has: page.getByRole('heading', { name: 'Genetic similarity (PCA)' }),
-    });
   const table = ancestry.getByRole('table', {
     name: "Projections and marker quality of the family’s individuals",
   });
-  await expect(table).toBeVisible({ timeout: 30_000 });
+  // Calculated without a request: the section looks again while a run is queued, and the
+  // page is reloaded until the sweep has queued one.
+  await expect(async () => {
+    await page.reload();
+    await expect(table).toBeVisible({ timeout: 5_000 });
+  }).toPass({ timeout: 120_000, intervals: [5_000] });
+  const row = table.getByRole('row', { name: new RegExp(sample) });
+  await expect(row).toContainText('Not plotted');
+  await expect(row).toContainText('Direct calls · part of the markers');
+  await expect(row).toContainText('cannot be read as reference');
   await expect(
-    table.getByRole('row', { name: new RegExp(sample) })
-  ).toContainText('Insufficient data — not plotted');
+    ancestry.getByRole('combobox', { name: 'Projection' })
+  ).toContainText('automatic');
   await expect(ancestry.locator('svg [data-sample]')).toHaveCount(0);
   await expect(ancestry.locator('circle[data-population]')).toHaveCount(2504);
   await expect(ancestry.locator('svg .ancestry-exploratory-mark')).toHaveText(

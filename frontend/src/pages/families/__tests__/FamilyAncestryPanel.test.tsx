@@ -6,6 +6,7 @@ import {
   waitFor,
   within,
 } from '@testing-library/react';
+import { MemoryRouter } from 'react-router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import FamilyAncestryPanel from '../FamilyAncestryPanel';
 import { createTestQueryClient } from '../../../test/createTestQueryClient';
@@ -37,14 +38,36 @@ const reference = {
 };
 const run = {
   id: 'run1',
-  source_id: 'source1',
+  source_id: null,
+  trigger: 'automatic',
   reference_sha256: reference.sha256,
   status: 'completed',
   requested_at: '2026-01-01T12:00:00Z',
 };
+const scan = (callset: string, label: string, kind: string, extra = {}) => ({
+  callset,
+  label,
+  kind,
+  carriers: 3800,
+  expected_carriers: 3960.4,
+  coverage_ratio: 0.96,
+  exome_ratio: 0.97,
+  outside_exome_ratio: 0.95,
+  explicit_calls: 4100,
+  accepts_unfiltered: false,
+  covered_markers: 10000,
+  usable_markers: 9900,
+  call_rate: 0.99,
+  qc: { called: 4000, assumed_ref: 5900, no_call: 100 },
+  projectable: true,
+  reason: null,
+  ...extra,
+});
+const partialReason =
+  'The callset holds fewer non-reference calls than a sequenced genome or exome has at these markers.';
 const data = {
   project_id: 'project1',
-  source_state: 'ready',
+  state: 'ready',
   can_calculate: true,
   active_reference_sha256: reference.sha256,
   reference,
@@ -52,9 +75,10 @@ const data = {
   runs: [run],
   analysis: {
     run_id: run.id,
-    source_id: 'source1',
+    source_id: null,
     reference_sha256: reference.sha256,
-    current_source: true,
+    storage_version: '4:123',
+    current_genotypes: true,
     current_reference: true,
     samples: [
       {
@@ -62,34 +86,75 @@ const data = {
         status: 'projected',
         pcs: [1, 2, 3, 4],
         call_rate: 0.99,
-        qc: {
-          total: 10000,
-          called: 4000,
-          called_unfiltered: 0,
-          assumed_ref: 5900,
-          no_call: 100,
-        },
+        qc: { called: 4000, assumed_ref: 5900, no_call: 100 },
+        callset: 'clair3',
+        kind: 'genome',
+        usable_markers: 9900,
+        reason: null,
+        candidates: [scan('clair3', 'Direct calls', 'genome')],
+      },
+      {
+        sample_id: 'MOTHER',
+        status: 'projected',
+        pcs: [2, 1, 0, 1],
+        call_rate: 0.98,
+        qc: { called: 3500, assumed_ref: 4700, outside_covered: 1100 },
+        callset: 'clair3',
+        kind: 'exome',
+        usable_markers: 8200,
+        reason: null,
+        candidates: [
+          scan('clair3', 'Direct calls', 'exome', {
+            covered_markers: 8398,
+            usable_markers: 8200,
+            call_rate: 0.976,
+            exome_ratio: 0.93,
+            outside_exome_ratio: 0.08,
+          }),
+        ],
       },
       {
         sample_id: 'FATHER1',
         status: 'insufficient_data',
         pcs: null,
-        call_rate: 0.5,
-        qc: {
-          total: 10000,
-          called: 5000,
-          called_unfiltered: 0,
-          assumed_ref: 0,
-          no_call: 5000,
-        },
+        call_rate: 0,
+        qc: { called: 900 },
+        callset: 'glimpse2',
+        kind: 'partial',
+        usable_markers: 900,
+        reason: partialReason,
+        candidates: [
+          scan('glimpse2', 'Imputed genotypes', 'partial', {
+            carriers: 1750,
+            coverage_ratio: 0.44,
+            covered_markers: 0,
+            usable_markers: 900,
+            call_rate: 0,
+            projectable: false,
+            reason: partialReason,
+          }),
+        ],
+      },
+      {
+        sample_id: 'EMB1',
+        status: 'excluded',
+        pcs: null,
+        call_rate: 0,
+        qc: {},
+        callset: null,
+        kind: null,
+        usable_markers: null,
+        reason: 'An embryo is left out: its genotypes come from a few amplified cells and are its parents’ alleles.',
+        candidates: [],
       },
     ],
-    calculation_version: 'coga-ancestry-pca-v1',
+    calculation_version: 'coga-ancestry-pca-v2',
     assumptions: {
-      full_wgs: true,
-      absent_record_is_hom_ref: true,
-      min_observed_fraction: 0.2,
-      source_limitations: '',
+      genotypes: 'the family’s stored callsets at the reference markers',
+      min_coverage_ratio: 0.75,
+      exome_mask: 'CDS of protein-coding transcripts, GENCODE v50 basic annotation, ±20 bp',
+      exome_mask_sha256: '',
+      min_call_rate: 0.95,
     },
     created_at: '2026-01-01T12:01:00Z',
   },
@@ -97,7 +162,9 @@ const data = {
 const renderPanel = (familyId = 'F1') =>
   render(
     <QueryClientProvider client={createTestQueryClient()}>
-      <FamilyAncestryPanel familyId={familyId} projectId="project1" enabled />
+      <MemoryRouter>
+        <FamilyAncestryPanel familyId={familyId} projectId="project1" enabled />
+      </MemoryRouter>
     </QueryClientProvider>
   );
 
@@ -111,10 +178,11 @@ describe('family ancestry PCA', () => {
     const { container } = renderPanel();
     expect(
       await screen.findByRole('img', {
-        name: /not for clinical use\): 1 family individual/,
+        name: /not for clinical use\): 2 family individual/,
       })
     ).toBeInTheDocument();
-    // The plot carries the mark itself, so a screenshot or a print of it does too.
+    // The section and the plot carry the mark, so a screenshot or a print of it does too.
+    expect(screen.getByRole('note')).toHaveTextContent('Exploratory — not for clinical use.');
     expect(
       container.querySelector('.ancestry-exploratory-mark')
     ).toHaveTextContent('Exploratory — not for clinical use');
@@ -127,16 +195,27 @@ describe('family ancestry PCA', () => {
     expect(
       container.querySelector('[data-sample="FATHER1"]')
     ).not.toBeInTheDocument();
-    const proband = within(screen.getByRole('row', { name: /PROBAND/ }));
+    const table = screen.getByRole('table', { name: /Projections and marker quality/ });
+    const proband = within(within(table).getByRole('row', { name: /PROBAND/ }));
     expect(proband.getByText('Projected')).toBeInTheDocument();
-    // Observed calls and assumed reference calls are told apart; the share counts both.
-    expect(proband.getByText('4,000')).toBeInTheDocument();
-    expect(proband.getByText('5,900')).toBeInTheDocument();
-    expect(proband.getByText('99.0%')).toBeInTheDocument();
+    // Which callset, read how, and how much of a sequenced genome it covers.
+    expect(proband.getByText('Direct calls · genome')).toBeInTheDocument();
+    expect(proband.getByText('96%')).toBeInTheDocument();
+    expect(proband.getByText('9,900 of 10,000 (99.0%)')).toBeInTheDocument();
     expect(proband.getByText('no call: 100')).toBeInTheDocument();
-    expect(
-      screen.getByText('Insufficient data — not plotted')
-    ).toBeInTheDocument();
+    const mother = within(within(table).getByRole('row', { name: /MOTHER/ }));
+    expect(mother.getByText('Direct calls · exome')).toBeInTheDocument();
+    expect(mother.getByText('93% in the exome')).toBeInTheDocument();
+    expect(mother.getByText('outside what the callset covers: 1,100')).toBeInTheDocument();
+    const father = within(within(table).getByRole('row', { name: /FATHER1/ }));
+    expect(father.getByText('Not plotted')).toBeInTheDocument();
+    expect(father.getByText('Imputed genotypes · part of the markers')).toBeInTheDocument();
+    expect(father.getByText(partialReason)).toBeInTheDocument();
+    // A callset that covers none of the markers has its calls only.
+    expect(father.getByText('900 called')).toBeInTheDocument();
+    const embryo = within(within(table).getByRole('row', { name: /EMB1/ }));
+    expect(embryo.getByText('Left out')).toBeInTheDocument();
+    expect(embryo.getByText(/An embryo is left out/)).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('Vertical axis'), {
       target: { value: '2' },
     });
@@ -160,18 +239,33 @@ describe('family ancestry PCA', () => {
     expect(screen.getByLabelText('Center view')).toHaveValue('');
     expect(screen.getByLabelText('Zoom 1.0×')).toHaveValue('1');
   });
+  it('lists every callset of each individual with how it was read and whether it was used', async () => {
+    renderPanel();
+    await screen.findByRole('img');
+    const table = screen.getByRole('table', { name: /stored callsets at the reference markers/ });
+    const rows = within(table).getAllByRole('row').slice(1);
+    expect(rows.map((row) => row.firstChild?.textContent)).toEqual(['PROBAND', 'MOTHER', 'FATHER1']);
+    const father = within(rows[2]);
+    expect(father.getByText('1,750 (44%)')).toBeInTheDocument();
+    expect(father.getByText('Not usable')).toBeInTheDocument();
+    const mother = within(rows[1]);
+    expect(mother.getByText('8.0%')).toBeInTheDocument();
+    expect(mother.getByText('8,200 of 8,398 (97.6%)')).toBeInTheDocument();
+    expect(mother.getByText('Projected')).toBeInTheDocument();
+    expect(screen.getByText(/carries the ALT allele at about 3,960 of the markers/)).toBeInTheDocument();
+  });
   it('names the policies of the projection shown, in words', async () => {
     renderPanel();
     await screen.findByRole('img');
     expect(
-      screen.getByText('Absent records taken as homozygous reference')
-        .nextSibling
-    ).toHaveTextContent('Yes');
-    expect(
-      screen.getByText('Minimum share of observed calls').nextSibling
-    ).toHaveTextContent('0.2');
-    // An empty limitation is not listed.
-    expect(screen.queryByText('Source limitations')).not.toBeInTheDocument();
+      screen.getByText('Minimum coverage ratio').nextSibling
+    ).toHaveTextContent('0.75');
+    expect(screen.getByText('Exome mask').nextSibling).toHaveTextContent(
+      'CDS of protein-coding transcripts'
+    );
+    // An empty value is not listed.
+    expect(screen.queryByText('exome_mask_sha256')).not.toBeInTheDocument();
+    expect(screen.getByText(/current genotypes · calculation/)).toBeInTheDocument();
   });
   it('queues a scoped family calculation and reads a selected earlier result', async () => {
     renderPanel('SYN/F1');
@@ -204,9 +298,9 @@ describe('family ancestry PCA', () => {
         can_calculate: false,
         analysis: null,
         runs: [],
-        source_state: 'no_full_wgs_source',
+        state: 'import_in_progress',
         notices: [
-          'No WGS source is registered for this family: register a retained whole-genome VCF below.',
+          'An import of this family is running; ancestry PCA is calculated once it ends.',
         ],
       },
     });
@@ -215,8 +309,9 @@ describe('family ancestry PCA', () => {
       await screen.findByText(/No PCA projection has been calculated/)
     ).toBeInTheDocument();
     expect(
-      screen.getByText(/No WGS source is registered for this family/)
+      screen.getByText(/An import of this family is running/)
     ).toBeInTheDocument();
+    expect(screen.getByText(/calculated automatically once its genotypes are imported/)).toBeInTheDocument();
     expect(container.querySelectorAll('[data-sample]')).toHaveLength(0);
     expect(screen.queryByLabelText('Center view')).not.toBeInTheDocument();
     expect(
@@ -229,29 +324,30 @@ describe('family ancestry PCA', () => {
       id: 'run2',
       status: 'failed',
       requested_at: '2026-01-02T12:00:00Z',
-      error: 'A newer WGS source exists; request a new calculation.',
+      error: 'Genotypes were written during calculation; no results were published.',
     };
     api.get.mockResolvedValue({ data: { ...data, runs: [failed, run] } });
     renderPanel();
     expect(
-      await screen.findByText(/: failed — A newer WGS source exists/)
+      await screen.findByText(/: failed — Genotypes were written during calculation/)
     ).toHaveTextContent(new Date(failed.requested_at).toLocaleString());
+    expect(screen.getByText(/Automatic calculation/)).toBeInTheDocument();
   });
-  it('keeps earlier axes and projections identifiable when a source or reference changes', async () => {
+  it('keeps earlier axes and projections identifiable when the genotypes or the reference change', async () => {
     api.get.mockResolvedValue({
       data: {
         ...data,
-        can_calculate: false,
-        source_state: 'source_changed',
         analysis: {
           ...data.analysis,
-          current_source: false,
+          current_genotypes: false,
           current_reference: false,
         },
       },
     });
     renderPanel();
-    expect(await screen.findByText(/Earlier projection:/)).toBeInTheDocument();
+    expect(await screen.findByText(/Earlier projection:/)).toHaveTextContent(
+      'the family’s genotypes changed since it was calculated'
+    );
     expect(
       screen.getByText(/calculated with an earlier reference model/)
     ).toBeInTheDocument();

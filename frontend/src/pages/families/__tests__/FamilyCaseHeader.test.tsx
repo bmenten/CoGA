@@ -101,7 +101,6 @@ describe('FamilyCaseHeader', () => {
       expect(within(nav).getAllByRole('link').map((link) => link.textContent)).toEqual([
         'Small variants',
         'Repeat expansions',
-        'Ancestry (exploratory)',
       ]),
     );
     expect(within(nav).getByRole('link', { name: 'Repeat expansions' })).toHaveAttribute('aria-current', 'page');
@@ -161,7 +160,6 @@ describe('FamilyCaseHeader', () => {
       'Small variants',
       'Structural variants',
       'Repeat expansions',
-      'Ancestry (exploratory)',
       'mtDNA analysis',
       'Genome',
       'Variant summary',
@@ -202,10 +200,6 @@ describe('FamilyCaseHeader', () => {
       'href',
       '/families/F1/nipt/report?project_id=p1&panel_id=panel-1',
     );
-    // A cfDNA mixture is not an individual: the exploratory ancestry PCA is not offered.
-    const nav = screen.getByRole('navigation', { name: 'Variant analyses' });
-    await waitFor(() => expect(within(nav).getByRole('link', { name: 'Small variants' })).toBeInTheDocument());
-    expect(within(nav).queryByRole('link', { name: 'Ancestry (exploratory)' })).not.toBeInTheDocument();
   });
 
   it('keeps the page it is on in the row even when the check finds no data there', async () => {

@@ -26,14 +26,35 @@ export interface AlignmentManifestEntryOut {
 
 export interface AncestryAnalysisOut {
   run_id: string;
-  source_id: string;
+  source_id: string | null;
   reference_sha256: string;
   samples: AncestrySampleOut[];
   calculation_version: string;
   assumptions: Record<string, string | boolean | number>;
   created_at: string;
-  current_source: boolean;
+  storage_version: string | null;
+  current_genotypes: boolean;
   current_reference: boolean;
+}
+
+/** What one stored callset holds of one individual at the reference markers. */
+export interface AncestryCallsetScanOut {
+  callset: string;
+  label: string;
+  kind: "complete" | "genome" | "exome" | "partial";
+  carriers: number;
+  expected_carriers: number;
+  coverage_ratio: number;
+  exome_ratio: number | null;
+  outside_exome_ratio: number | null;
+  explicit_calls: number;
+  accepts_unfiltered: boolean;
+  covered_markers: number;
+  usable_markers: number;
+  call_rate: number;
+  qc: Record<string, number>;
+  projectable: boolean;
+  reason: string | null;
 }
 
 export interface AncestryReferenceOut {
@@ -47,6 +68,8 @@ export interface AncestryReferenceOut {
   sample_count: number;
   explained_variance: number[];
   populations: Record<string, string>;
+  exome_mask_sha256: string | null;
+  exome_mask_definition: string | null;
   points: AncestryReferencePoint[];
 }
 
@@ -58,7 +81,8 @@ export interface AncestryReferencePoint {
 
 export interface AncestryRunOut {
   id: string;
-  source_id: string;
+  source_id: string | null;
+  trigger: "user" | "automatic";
   reference_sha256: string;
   status: "queued" | "running" | "completed" | "failed" | "interrupted";
   error: string | null;
@@ -69,10 +93,15 @@ export interface AncestryRunOut {
 
 export interface AncestrySampleOut {
   sample_id: string;
-  status: "projected" | "insufficient_data";
+  status: "projected" | "insufficient_data" | "excluded";
   pcs: number[] | null;
   call_rate: number;
   qc: Record<string, number>;
+  callset: string | null;
+  kind: "complete" | "genome" | "exome" | "partial" | null;
+  usable_markers: number | null;
+  reason: string | null;
+  candidates: AncestryCallsetScanOut[];
 }
 
 /** The annotation/reference version manifest for a family (report provenance). */
@@ -541,7 +570,7 @@ export interface DgvVariantOut {
 
 export interface FamilyAncestryOut {
   project_id: string;
-  source_state: string;
+  state: string;
   can_calculate: boolean;
   active_reference_sha256: string | null;
   reference: AncestryReferenceOut | null;
@@ -4012,41 +4041,4 @@ export interface VariantPriorityOut {
 export interface VersionOut {
   version: string;
   git_sha: string;
-}
-
-/** A retained family small-variant upload that could be registered as the WGS source. */
-export interface WgsSourceCandidateOut {
-  file_id: string;
-  file_name: string;
-  file_size: number | null;
-}
-
-export interface WgsSourceDeclaration {
-  file_id: string;
-  full_wgs: true;
-  genome_build: "GRCh38";
-  absent_record_is_hom_ref: boolean;
-  allow_unfiltered?: boolean;
-}
-
-export interface WgsSourceOut {
-  id: string;
-  import_job_id: string | null;
-  package_path: string;
-  relative_vcf: string;
-  sha256: string;
-  storage_version: string;
-  storage_fingerprint: string;
-  file_size: number;
-  file_mtime_ns: number;
-  samples: string[];
-  absent_record_is_hom_ref: boolean;
-  imported_at: string;
-  raw_file_id: string | null;
-  qualification: Record<string, unknown>;
-}
-
-export interface WgsSourcesOut {
-  candidates: WgsSourceCandidateOut[];
-  can_register: boolean;
 }

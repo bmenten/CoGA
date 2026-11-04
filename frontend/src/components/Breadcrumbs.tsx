@@ -12,7 +12,6 @@ const ROUTE_WORDS: Record<string, string> = {
   hpo: 'HPO',
   igv: 'IGV',
   nipt: 'NIPT',
-  ancestry: 'Ancestry',
   qc: 'QC',
   roi: 'ROI',
   sv: 'SV',

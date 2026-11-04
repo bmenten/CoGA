@@ -175,10 +175,11 @@ MitImpact, which holds only such changes.
 
 ### Ancestry PCA (exploratory)
 
-**Exploratory — not for clinical use.** The **Ancestry (exploratory)** page places a family's
-individuals beside public reference populations on four principal components: genetic similarity,
-not an ancestry percentage or an ethnic identity. It is outside CoGA's intended purpose, has not been
-validated, and is never part of the sign-out or of the signed record. It reads one registered GRCh38
-whole-genome VCF of the family; the page says what it needs when the family has none.
+**Exploratory — not for clinical use.** The **Ancestry (exploratory)** section, at the end of a
+family's **Sample QC**, places its individuals beside public reference populations on four principal
+components: genetic similarity, not an ancestry percentage or an ethnic identity. It is outside
+CoGA's intended purpose, has not been validated, and is never part of the sign-out or of the signed
+record. It reads the family's stored GRCh38 callsets, measures whether each covers a genome, an
+exome or only part of the markers, and is calculated again automatically when the genotypes change.
 
 [Ancestry PCA reference](/docs/reference/ancestry-pca "further-reading")

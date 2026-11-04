@@ -495,8 +495,9 @@ CREATE TRIGGER family_structure_versions_immutable
     FOR EACH ROW EXECUTE FUNCTION family_structure_versions_block_mutation();
 
 -- The exploratory ancestry PCA (outside the intended purpose; docs/ancestry-pca.md): its
--- verified WGS sources, public reference snapshots, jobs and results. Nothing here enters a
--- sign-out. The sources, references and results are append-only.
+-- public reference snapshots, jobs and results, and the WGS file sources earlier projections
+-- read (a projection now reads the family's stored callsets). Nothing here enters a sign-out.
+-- The sources, references and results are append-only.
 CREATE TABLE IF NOT EXISTS wgs_sources (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     family_uuid uuid NOT NULL,
@@ -538,9 +539,15 @@ CREATE TABLE IF NOT EXISTS ancestry_runs (
     family_uuid uuid NOT NULL,
     family_identifier text NOT NULL,
     project_id uuid NOT NULL,
-    source_id uuid NOT NULL REFERENCES wgs_sources(id),
+    -- The WGS file source of a run from before the callsets were read; NULL since.
+    source_id uuid REFERENCES wgs_sources(id),
     reference_sha256 text NOT NULL REFERENCES ancestry_reference_panels(sha256),
-    requested_by uuid NOT NULL,
+    -- A user's request, or the worker's own once the family's genotypes changed (no user).
+    requested_by uuid,
+    trigger text NOT NULL DEFAULT 'user' CONSTRAINT ancestry_runs_trigger_check CHECK (trigger IN ('user','automatic')),
+    CONSTRAINT ancestry_runs_requester_check CHECK (trigger = 'automatic' OR requested_by IS NOT NULL),
+    -- The family's small-variant data version the run was queued for, then the one it read.
+    storage_version text,
     status text NOT NULL DEFAULT 'queued' CHECK (status IN ('queued','running','completed','failed','interrupted')),
     error text,
     requested_at timestamptz NOT NULL DEFAULT now(),
@@ -551,7 +558,9 @@ CREATE INDEX IF NOT EXISTS ancestry_runs_queue ON ancestry_runs(status, requeste
 CREATE INDEX IF NOT EXISTS ancestry_runs_family ON ancestry_runs(family_uuid, project_id, requested_at DESC);
 CREATE TABLE IF NOT EXISTS ancestry_results (
     run_id uuid PRIMARY KEY REFERENCES ancestry_runs(id),
-    source_id uuid NOT NULL REFERENCES wgs_sources(id),
+    source_id uuid REFERENCES wgs_sources(id),
+    -- The family's small-variant data version the projection read (NULL for a file source's).
+    storage_version text,
     reference_sha256 text NOT NULL REFERENCES ancestry_reference_panels(sha256),
     samples jsonb NOT NULL,
     calculation_version text NOT NULL,

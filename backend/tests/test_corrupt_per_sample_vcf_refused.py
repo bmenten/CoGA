@@ -11,9 +11,7 @@ raised out of the request, which failed with a 500. Now:
   pair;
 - the import's readers of a VCF's header (``read_vcf_sample_columns``, ``vcf_holds_a_data_line``)
   raise ``UnreadableVcf``, whose fixed message names the file, so a dataset that meets such a file
-  fails with that message;
-- the exploratory ancestry source's own copy of the header reader refuses it with
-  ``WgsInputError``.
+  fails with that message.
 
 All values are synthetic.
 """
@@ -30,7 +28,6 @@ import yaml
 from backend.app.core.config import settings
 from backend.app.schemas import FamilyPackageManifestBuildRequest
 from backend.app.services import family_package_common as common
-from backend.app.services import wgs_evidence
 from backend.app.services.family_package_discovery import discover_family_package_manifest
 from backend.app.services.family_package_validation import validate_family_package
 from backend.tests._family_import_fakes import signed_in_client
@@ -201,11 +198,3 @@ def test_a_whole_file_is_read_as_before(tmp_path: Path) -> None:
 
     assert common.read_vcf_sample_columns(path) == ["S1"]
     assert common.vcf_holds_a_data_line(path) is True
-
-
-def test_the_ancestry_sources_header_reader_refuses_it_too(tmp_path: Path) -> None:
-    path = tmp_path / "family.vcf.gz"
-    path.write_bytes(_damaged("S1"))
-
-    with pytest.raises(wgs_evidence.WgsInputError, match=r"^The WGS VCF could not be read"):
-        wgs_evidence.read_vcf_sample_columns(path)

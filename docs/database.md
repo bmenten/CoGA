@@ -862,18 +862,19 @@ data it loads is listed in [data-import.md](data-import.md), section 1.
 
 Four tables in `04_traceability.sql` hold the exploratory ancestry PCA, which is outside the
 intended purpose and never enters a sign-out or the signed record ([ancestry-pca.md](ancestry-pca.md)).
-They are new tables, so they need only their baseline.
+A projection reads the family's stored small variants in ClickHouse at the reference markers;
+revision 0016 (2026-11-04) gave the runs and results what that needs.
 
 | Table | Holds |
 | --- | --- |
-| `wgs_sources` | Append-only, project-scoped WGS source snapshots: the VCF's location, checksum, size and mtime, the family's samples, the data-version token and genotype fingerprint of its stored small variants, the absent-position and unfiltered-call policies, and the verification evidence. A retained upload is linked by `raw_file_id`, a family package by its import job. They establish what a projection read, not callable sequencing coverage |
-| `ancestry_reference_panels` | Append-only public reference snapshots keyed by the model NPZ's SHA-256: metadata, PC variance, population labels and reference coordinates |
-| `ancestry_runs` | Project-scoped jobs pinning a `wgs_sources` row, the reference checksum and the requester; queued, running, completed, failed or interrupted |
-| `ancestry_results` | One append-only snapshot per completed run: each individual's four PCs or insufficient-data state, marker QC, calculation version and policies |
+| `ancestry_reference_panels` | Append-only public reference snapshots keyed by the model NPZ's SHA-256: metadata, PC variance, population labels, the exome mask's checksum and definition, and reference coordinates |
+| `ancestry_runs` | Project-scoped jobs pinning the reference checksum: a user's (`trigger = 'user'`, with `requested_by`) or the worker's own once the family's genotypes changed (`trigger = 'automatic'`, no requester; a check makes a user's run name its requester). `storage_version` is the family's small-variant data version the run was queued for, then the one it read: the worker's sweep queues no second run for a version. Queued, running, completed, failed or interrupted |
+| `ancestry_results` | One append-only snapshot per completed run: each individual's four PCs or why there are none, the callset it was read from and how (genome, exome, a call at every marker), every callset's scan, the `storage_version` read, the calculation version and the rules, with a digest of the rows read |
+| `wgs_sources` | Append-only WGS file sources that projections read before revision 0016 (a retained upload by `raw_file_id`, a family package by its import job), with their checksum, the stored genotypes' version and fingerprint and the absence and unfiltered-call policies. A run or result from before then names one in `source_id`; nothing writes a source any more |
 
 `wgs_sources`, `ancestry_reference_panels` and `ancestry_results` have mutation-blocking triggers,
 and `coga_app` may not UPDATE, DELETE or TRUNCATE them (`05_grants.sql`). A running job holds its
 own row lock until it ends; a job whose process stopped loses it, and the next worker ends it as
 interrupted. Publication is checked again under the family's variant-write locks, so a family,
-source, genotype or permission change in between publishes nothing. Earlier projections keep
+genotype, member or permission change in between publishes nothing. Earlier projections keep
 their own reference snapshot.
