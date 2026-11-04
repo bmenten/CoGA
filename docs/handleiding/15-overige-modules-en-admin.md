@@ -22,7 +22,7 @@ De router `/api/cnvs` heeft drie leesendpoints, alle achter een login: één CNV
 
 **De cytoband.** Elk van die endpoints geeft een CNV met zijn cytoband: die uit de kennisbank, of anders de banden die de regio overspant in de cytobanden van de assembly, dezelfde die het ideogram tekent (`services/cytoband_labels.py`, ook gebruikt voor de small en structurele varianten). Zo krijgt ook een CNV een band als de build de cytobanden niet kon lezen, of als hij geladen werd voor de cytobanden van de assembly. Een assembly zonder cytobanden (T2T bewaart één band per chromosoom, met de naam van het chromosoom) geeft geen band.
 
-**De kennisbank herbouwen.** Een beheerder start een herbouw vanaf de pagina *Organisms and assemblies* (`/reference-data`).
+**De kennisbank herbouwen.** Een beheerder start een herbouw vanaf de pagina *Organisms and assemblies* (`/reference-data`). Voor een GRCh37- of GRCh38-assembly zonder klinische CNV's start de backend ze ook zelf: na een import van de assembly uit UCSC (als die beheerder) en bij een start (als `startup-bootstrap`, geen account; `REFERENCE_BOOTSTRAP_CLINICAL_CNVS`). Hetzelfde geldt voor de DGV-varianten: de vastgezette DGV-release (2025-12-01, per assembly op SHA-256 en grootte, `DGV_PINNED_RELEASES`) wordt gedownload en pas vastgelegd als het hele bestand klopt (`dgv_load_jobs`, `REFERENCE_BOOTSTRAP_DGV`; [data-import.md](../data-import.md#dgv)).
 
 - Het zware bouwscript (`scripts/clinical_cnv_knowledgebase.py`, dat o.a. ClinVar ophaalt) draait als een **apart proces**. Zo raken de downloads en de extra afhankelijkheden het API-proces niet.
 - Het resultaat gaat via de gewone referentielader naar `clinical_cnvs` en wordt als import geregistreerd (hoofdstuk 13).

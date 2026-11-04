@@ -7,6 +7,8 @@ import type {
   HpoAdminSummaryOut,
   HpoAdminTermOut,
   HpoOntologySyncOut,
+  HpoOntologySyncRequest,
+  HpoReleaseCheckOut,
 } from '../../lib/apiSchema.generated';
 import { getErrorMessage } from '../../lib/errorMessage';
 import { formatDate, formatDateTime } from '../../lib/format';
@@ -45,6 +47,10 @@ const HpoTerminologyAdminPage: React.FC = () => {
   // configured to load, from the summary: the page's own copy of that default had drifted
   // from the backend's (hpo.obo against hp.obo).
   const [syncPathDraft, setSyncPathDraft] = useState<string | null>(null);
+  // Where the ontology comes from: a release HPO publishes, downloaded from its own PURL, or a
+  // file on the server.
+  const [syncSource, setSyncSource] = useState<'download' | 'file'>('file');
+  const [downloadRelease, setDownloadRelease] = useState('');
   const [releaseVersion, setReleaseVersion] = useState('');
   const [releaseDate, setReleaseDate] = useState('');
   const [selectedTermId, setSelectedTermId] = useState<string | null>(null);
@@ -83,6 +89,16 @@ const HpoTerminologyAdminPage: React.FC = () => {
   const configuredPath = summaryQuery.data?.ontology_path ?? '';
   const syncPath = syncPathDraft ?? configuredPath;
 
+  // The newest release HPO has published, beside the loaded one. Read when the page opens;
+  // HPO unreachable is said in the answer's error.
+  const releaseCheckQuery = useQuery<HpoReleaseCheckOut>({
+    queryKey: ['admin', 'hpo', 'release-check'],
+    queryFn: async () => (await api.get('/admin/hpo/release-check')).data as HpoReleaseCheckOut,
+    staleTime: 15 * 60 * 1000,
+    retry: false,
+  });
+  const releaseCheck = releaseCheckQuery.data;
+
   const termsQuery = useQuery<HpoAdminTerm[]>({
     queryKey: ['admin', 'hpo', 'terms', appliedSearch],
     queryFn: async ({ signal }: { signal?: AbortSignal }) => {
@@ -116,11 +132,14 @@ const HpoTerminologyAdminPage: React.FC = () => {
     );
   }, [selectedTerm, terms]);
 
-  const syncRequest = {
-    path: syncPath.trim(),
-    release_version: releaseVersion.trim() || null,
-    release_date: releaseDate || null,
-  };
+  const syncRequest: HpoOntologySyncRequest =
+    syncSource === 'download'
+      ? { download_release: downloadRelease.trim() }
+      : {
+          path: syncPath.trim(),
+          release_version: releaseVersion.trim() || null,
+          release_date: releaseDate || null,
+        };
   const syncRequestKey = JSON.stringify(syncRequest);
   const shownResult = resultRequest === syncRequestKey ? syncResult : null;
   const previewedCurrentRequest = Boolean(shownResult?.preview_only);
@@ -129,6 +148,9 @@ const HpoTerminologyAdminPage: React.FC = () => {
     mutationFn: async ({ previewOnly }: { previewOnly: boolean; requestKey: string }) => {
       const response = await api.post('/admin/hpo/sync', {
         ...syncRequest,
+        // Apply imports exactly the bytes the preview showed: a file changed since, or a
+        // release HPO serves anew, is refused (TRACE-18).
+        ...(previewOnly ? {} : { expected_sha256: shownResult?.release_sha256 ?? null }),
         preview_only: previewOnly,
       });
       return response.data as HpoSyncResult;
@@ -177,7 +199,8 @@ const HpoTerminologyAdminPage: React.FC = () => {
   }
 
   const summary = summaryQuery.data;
-  const canSync = syncPath.trim().length > 0 && !syncMutation.isPending;
+  const syncTarget = syncSource === 'download' ? downloadRelease.trim() : syncPath.trim();
+  const canSync = syncTarget.length > 0 && !syncMutation.isPending;
   const canApply = canSync && previewedCurrentRequest;
   const pendingAction = syncMutation.isPending
     ? syncMutation.variables?.previewOnly
@@ -256,44 +279,112 @@ const HpoTerminologyAdminPage: React.FC = () => {
           <div className="space-y-2">
             <h2 className="section-title">HPO synchronization</h2>
             <p className="section-copy">
-              Preview ontology changes before applying a local HPO ontology file. The release is the one the
-              file states, and the terms keep the file&apos;s SHA-256. An expected release or date that the file
-              does not state stops the sync.
+              Preview ontology changes before applying an HPO release, downloaded from HPO or from a file on the
+              server. The release is the one the file states, and the terms keep the file&apos;s SHA-256. An
+              expected release or date that the file does not state stops the sync, and Apply imports only the
+              file the preview showed.
             </p>
           </div>
-          <span className="badge-chip">
-            Automatic updates {summary?.automatic_update_supported ? 'available' : 'not configured'}
-          </span>
         </div>
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(180px,0.4fr)_minmax(180px,0.4fr)]">
-          <label className="field-label" htmlFor="hpo-sync-path">
-            Ontology file path
+        <div className="space-y-2" aria-label="HPO release check">
+          {releaseCheckQuery.isLoading ? (
+            <p className="status-note status-note--info">Checking HPO for a newer release…</p>
+          ) : releaseCheckQuery.error || releaseCheck?.error ? (
+            <p className="status-note status-note--warning">
+              Could not check HPO for a newer release:{' '}
+              {releaseCheck?.error ?? getErrorMessage(releaseCheckQuery.error, 'the check failed.')}
+            </p>
+          ) : releaseCheck?.newer_available && releaseCheck.latest_release_date ? (
+            <div className="status-note status-note--info action-row">
+              <span>
+                A newer HPO release is available: <strong>{releaseCheck.latest_release_date}</strong>
+                {releaseCheck.published_at ? ` (published ${formatDate(releaseCheck.published_at)})` : ''}. Loaded:{' '}
+                {releaseCheck.loaded_release_date ?? 'none'}.
+              </span>
+              <button
+                type="button"
+                className="button-secondary"
+                onClick={() => {
+                  setSyncSource('download');
+                  setDownloadRelease(releaseCheck.latest_release_date ?? '');
+                }}
+              >
+                Use this release
+              </button>
+            </div>
+          ) : releaseCheck?.latest_release_date ? (
+            <p className="status-note status-note--success">
+              The loaded release is HPO&apos;s newest ({releaseCheck.latest_release_date}).
+            </p>
+          ) : null}
+          {releaseCheck ? (
+            <p className="table-subtle">
+              A start on an empty database imports the pinned release {releaseCheck.pinned_release_date}; moving
+              that pin is a reviewed code change.
+            </p>
+          ) : null}
+        </div>
+        <div className="action-row" role="radiogroup" aria-label="Ontology source">
+          <label className="analysis-checkbox">
             <input
-              id="hpo-sync-path"
-              value={syncPath}
-              onChange={(event) => setSyncPathDraft(event.target.value)}
-              placeholder={configuredPath || 'Path to the ontology file on the server'}
+              type="radio"
+              name="hpo-sync-source"
+              checked={syncSource === 'download'}
+              onChange={() => setSyncSource('download')}
             />
+            Download an HPO release
           </label>
-          <label className="field-label" htmlFor="hpo-release-version">
-            Expected release
+          <label className="analysis-checkbox">
             <input
-              id="hpo-release-version"
-              value={releaseVersion}
-              onChange={(event) => setReleaseVersion(event.target.value)}
-              placeholder="Optional, e.g. 2026-02-16"
+              type="radio"
+              name="hpo-sync-source"
+              checked={syncSource === 'file'}
+              onChange={() => setSyncSource('file')}
             />
-          </label>
-          <label className="field-label" htmlFor="hpo-release-date">
-            Expected release date
-            <input
-              id="hpo-release-date"
-              type="date"
-              value={releaseDate}
-              onChange={(event) => setReleaseDate(event.target.value)}
-            />
+            File on the server
           </label>
         </div>
+        {syncSource === 'download' ? (
+          <label className="field-label" htmlFor="hpo-download-release">
+            HPO release
+            <input
+              id="hpo-download-release"
+              value={downloadRelease}
+              onChange={(event) => setDownloadRelease(event.target.value)}
+              placeholder={releaseCheck?.latest_release_date ?? 'e.g. 2026-09-01'}
+            />
+          </label>
+        ) : (
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(180px,0.4fr)_minmax(180px,0.4fr)]">
+            <label className="field-label" htmlFor="hpo-sync-path">
+              Ontology file path
+              <input
+                id="hpo-sync-path"
+                value={syncPath}
+                onChange={(event) => setSyncPathDraft(event.target.value)}
+                placeholder={configuredPath || 'Path to the ontology file on the server'}
+              />
+            </label>
+            <label className="field-label" htmlFor="hpo-release-version">
+              Expected release
+              <input
+                id="hpo-release-version"
+                value={releaseVersion}
+                onChange={(event) => setReleaseVersion(event.target.value)}
+                placeholder="Optional, e.g. 2026-02-16"
+              />
+            </label>
+            <label className="field-label" htmlFor="hpo-release-date">
+              Expected release date
+              <input
+                id="hpo-release-date"
+                type="date"
+                value={releaseDate}
+                onChange={(event) => setReleaseDate(event.target.value)}
+              />
+            </label>
+          </div>
+        )}
         <div className="action-row">
           <button
             type="button"
@@ -308,11 +399,11 @@ const HpoTerminologyAdminPage: React.FC = () => {
             className="form-button"
             disabled={!canApply}
             onClick={() => {
-              if (
-                window.confirm(
-                  `Apply the HPO ontology in ${syncRequest.path} now? The terminology is replaced as previewed.`,
-                )
-              ) {
+              const what =
+                syncSource === 'download'
+                  ? `HPO release ${downloadRelease.trim()}, downloaded from HPO,`
+                  : `the HPO ontology in ${syncPath.trim()}`;
+              if (window.confirm(`Apply ${what} now? The terminology is replaced as previewed.`)) {
                 syncMutation.mutate({ previewOnly: false, requestKey: syncRequestKey });
               }
             }}
@@ -320,7 +411,7 @@ const HpoTerminologyAdminPage: React.FC = () => {
             {pendingAction === 'apply' ? 'Synchronizing...' : 'Apply sync'}
           </button>
         </div>
-        {!previewedCurrentRequest && syncPath.trim() && !syncMutation.isPending ? (
+        {!previewedCurrentRequest && syncTarget && !syncMutation.isPending ? (
           <p className="table-subtle">Preview these settings first; Apply sync applies what was previewed.</p>
         ) : null}
         {shownResult ? (

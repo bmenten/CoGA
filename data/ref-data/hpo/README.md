@@ -76,9 +76,11 @@ Replacing this ontology is a **TF-18 controlled change**:
    `HPO_PINNED_RELEASE` to the new `data-version` and `HPO_PINNED_ONTOLOGY_SHA256` to
    the new digest. Run `backend/tests/test_hpo_download_pin.py`.
 4. Existing databases keep their terms: the startup import only runs when none are
-   loaded. Apply the new file under Administration → HPO Terminology
-   (`/admin/reference/hpo`): preview, then apply, with the path
-   `/data/ref-data/hpo/hp.obo`, and enter the new release as the *Expected release*. The
+   loaded. Apply the new release under Administration → HPO Terminology
+   (`/admin/reference/hpo`), which says when HPO has published one newer than the loaded
+   release: choose *Download an HPO release* with the release's date (it is fetched from the
+   versioned PURL above and must state that release), or the path `/data/ref-data/hpo/hp.obo`
+   with the new release as the *Expected release*; preview, then apply. The
    sync records the release the file states and its SHA-256 with the terms, and refuses a
    file that states another release, or none (TRACE-18). A deployment that reads its reference data from a
    bucket needs the new file there too, or a start on an empty database refuses the

@@ -119,6 +119,48 @@ class ReferenceAutoImportResult(BaseModel):
     # retrieved from UCSC (e.g. T2T/hs1). The assembly + cytobands are still
     # created; genes can be uploaded manually afterwards.
     gene_warning: Optional[str] = None
+    # What the import started for the assembly, as sentences for the admin: the clinical CNV
+    # knowledgebase build and the pinned DGV release's load, for an assembly that had neither,
+    # or why one was not started (another one running).
+    follow_up_notes: List[str] = Field(default_factory=list)
+
+
+class DgvLoadJobOut(ApiDocumentModel):
+    """A load of the pinned DGV release for an assembly (dgv_load_jobs)."""
+
+    assembly_id: str
+    assembly_name: str
+    release: str
+    source_url: str
+    status: Literal["queued", "running", "completed", "failed"]
+    requested_by: Optional[str] = None
+    requested_at: datetime
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    # The download's progress: bytes read of the file's size.
+    bytes_read: int = 0
+    bytes_total: Optional[int] = None
+    inserted: int = 0
+    error: Optional[str] = None
+
+
+class DgvPinnedReleaseOut(BaseModel):
+    """The DGV release pinned for an assembly (DGV_PINNED_RELEASES), which a load reads."""
+
+    assembly_name: str
+    release: str
+    source_url: str
+    size_bytes: int
+
+
+class DgvLoadStatusOut(BaseModel):
+    active_job: Optional[DgvLoadJobOut] = None
+    recent_jobs: List[DgvLoadJobOut] = Field(default_factory=list)
+    releases: List[DgvPinnedReleaseOut] = Field(default_factory=list)
+
+
+class DgvLoadRequest(BaseModel):
+    assembly: str = Field(min_length=1, max_length=64)
 
 
 class ReferenceUploadResult(BaseModel):
