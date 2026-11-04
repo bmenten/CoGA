@@ -105,7 +105,7 @@ Numbered to mirror an IVDR Annex II/III dossier. Status legend: ✅ drafted ·
 | TF-11 | [Performance Evaluation Report](TF-11-performance-evaluation-report.md) | Annex XIII Part A | IVDR Annex XIII | ◐ template (awaiting study data) |
 | TF-12 | [Usability Engineering File](TF-12-usability.md) | Annex I §16 | IEC 62366-1 | ✅ |
 | TF-13 | [Cybersecurity Management & SBOM](TF-13-cybersecurity.md) | Annex I §16.4 | IEC 81001-5-1; MDCG 2019-16 | ✅ |
-| TF-14 | [Data Protection Impact Assessment](TF-14-dpia.md) | — | GDPR Art. 9 & 35 | ✅ (to reconcile with the signed DPIA, #518) |
+| TF-14 | [Data Protection Impact Assessment](TF-14-dpia.md) | — | GDPR Art. 9 & 35 | ✅ (to reconcile with the signed DPIA, an open owner and DPO action) |
 | TF-15 | [Instructions for Use & Labelling](TF-15-instructions-for-use.md) | Annex I §20 | IVDR Annex I §20 | ✅ |
 | TF-16 | [Post-Market Surveillance Plan (+ PMPF)](TF-16-post-market-surveillance-plan.md) | Annex II §9; Art. 5(5)(i) | IVDR Art. 78–81 | ✅ |
 | TF-17 | [Vigilance, Incident & CAPA Procedure](TF-17-vigilance-capa.md) | Art. 5(5)(i) | IVDR Art. 82–83 (model) | ✅ |
@@ -133,6 +133,12 @@ from the first release candidate also in `CHANGELOG.md` and the change log
 ([TF-18 §8](TF-18-change-configuration-management.md)).** The CMGG QMS governs approval,
 periodic review cadence and storage of the controlled master copy (ISO 15189 clause 8.3
 document control).
+
+The documents say what a change did: the behaviour, the decision with its date and the role
+that took it, or the test that verifies it, never only a pull-request or issue number. A unit
+test refuses such a number
+([test_regulatory_docs_cite_no_pr_numbers.py](../../backend/tests/test_regulatory_docs_cite_no_pr_numbers.py));
+an issue that tracks an open action may be cited as a full link the test lists.
 
 > **🔲 OWNER:** fill the Owner and Approver fields with names (from
 > [INPUTS A3](INPUTS-QUESTIONNAIRE.md) and [TF-07 §3](TF-07-software-lifecycle-plan.md)), or keep
