@@ -32,7 +32,7 @@ De router raakt hier geen SQL aan, de service geen HTTP of tokens. Zo ziet een r
 Twee dependencies komen in vrijwel elk beschermd endpoint terug:
 
 - `get_postgres_session` geeft per verzoek een verse databanksessie en sluit ze achteraf.
-- `get_current_user` controleert het token en laadt de gebruiker (hoofdstuk 5); `get_current_admin_user` eist daarbovenop een beheerdersrol.
+- `get_current_user` controleert het token en laadt de gebruiker (hoofdstuk 5); `get_current_superuser` eist daarbovenop de rol `superuser` of `admin`, `get_current_admin_user` de rol `admin` (hoofdstuk 2).
 
 Een router kan een dependency ook op al zijn endpoints tegelijk leggen. Zo eisen de routers voor DGV, CNV's, chromosomen, blacklist en segmentale duplicaties een geldig token voor elk endpoint, ook een toekomstig.
 
@@ -111,7 +111,7 @@ Alle routers staan in `backend/app/routers/__init__.py` en hangen onder `/api`. 
 | `variant_explorer.py` | `/variant-explorer` | Varianten over alle toegankelijke projecten heen (hoofdstuk 14) |
 | `genes.py` | `/genes` | Gene Explorer en genen per regio (hoofdstuk 13) |
 | `hpo.py` | `/hpo` | HPO-termen zoeken (hoofdstuk 12); de ontologie importeren loopt via `POST /api/admin/hpo/sync` |
-| `panels.py` | `/panels` | Genpanels, versies, PanelApp |
+| `panels.py` | `/panels` | Genpanels, versies, PanelApp; schrijven alleen voor een superuser of beheerder |
 | `bed.py` | `/bed` | Interval-tracks ophalen en uploaden |
 | `chromosomes.py` | `/chromosomes` | Chromosoomgroottes en cytobanden |
 | `blacklist.py` · `segmental_duplications.py` · `dgv.py` | `/blacklist` · `/segmental-duplications` · `/dgv` | Referentietracks |
@@ -120,9 +120,9 @@ Alle routers staan in `backend/app/routers/__init__.py` en hangen onder `/api`. 
 | `species.py` · `assemblies.py` | `/species` · `/assemblies` | Soorten en assemblies, met hun referentiestatus |
 | `cram.py` | `/cram` | CRAM/BAM voor de genoombrowser, met toegangscontrole |
 | `signal_tracks.py` | `/signal-tracks` | De signaalbestanden van de CNV-caller (bigWig, bedGraph) voor IGV |
-| `family_imports.py` | `/family-imports` | Pakketimport (hoofdstuk 6) |
+| `family_imports.py` | `/family-imports` | Pakketimport, alleen voor een superuser of beheerder; een bestaande familie overschrijven alleen voor een beheerder (hoofdstuk 6) |
 | `product.py` | `/product` | De releasecatalogus |
-| `admin.py` | `/admin` | Alle beheerfuncties, elk achter `get_current_admin_user` (hoofdstuk 15) |
+| `admin.py` | `/admin` | Alle beheerfuncties, elk achter `get_current_admin_user`; de varianttags, het overzicht van de presetfilters en de grenzen voor sequencing-QC achter `get_current_superuser` (hoofdstuk 15) |
 | `ui_events.py` | `/ui-events` | UI-telemetrie (hoofdstuk 15) |
 | `lookups.py` | `/family-statuses`, `/users` | De statuslijst voor de keuzelijst op de familiepagina, en de lijst van actieve accounts (alleen voor beheerders, SEC-33) |
 
@@ -214,7 +214,7 @@ Buiten die keten staat nog Starlettes `ServerErrorMiddleware`. Die beantwoordt e
 | --- | --- |
 | `backend/app/main.py` | Hangt de routers onder `/api` en zet de middlewareketen op |
 | `backend/app/routers/__init__.py` | De lijst van alle routers |
-| `backend/app/dependencies.py` | `get_current_user` en `get_current_admin_user` |
+| `backend/app/dependencies.py` | `get_current_user`, `get_current_superuser` en `get_current_admin_user` |
 | `backend/app/schemas/` | Alle request- en response-modellen |
 | `backend/app/core/sql.py` · `backend/app/core/clickhouse.py` | Geparametriseerde queries in Postgres en ClickHouse, grenzen per query |
 | `backend/app/services/clickhouse_variant_queries.py` | De opbouw van de variantqueries, met gehele `LIMIT`/`OFFSET` |

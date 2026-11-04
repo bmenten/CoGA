@@ -58,4 +58,4 @@ chromosome or type; each row shows the CNV, cytoband, location, size and **ClinV
   OMIM and DECIPHER. The same page opens when you click a clinical CNV in the viewers.
 
 > **Counts follow your access.** The variant explorer's cohort counts include only the projects you can
-> see.
+> see: your own, or every project for a superuser or an administrator.

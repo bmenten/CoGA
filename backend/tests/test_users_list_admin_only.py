@@ -62,9 +62,9 @@ def _user(email: str, role: str, *, active: bool = True, readers: bool = False) 
 _USERS = {
     ADMIN: _user(ADMIN, "admin"),
     SUPERUSER: _user(SUPERUSER, "superuser"),
-    # A viewer is an analyst or a reader in each of their projects; one in no project at all.
-    ANALYST: _user(ANALYST, "viewer"),
-    READER: _user(READER, "viewer", readers=True),
+    # An analyst in their project, one who reads it, and a viewer in no project at all.
+    ANALYST: _user(ANALYST, "analyst"),
+    READER: _user(READER, "analyst", readers=True),
     OUTSIDER: _user(OUTSIDER, "viewer"),
     INACTIVE_ADMIN: _user(INACTIVE_ADMIN, "admin", active=False),
 }
@@ -128,7 +128,9 @@ def _get(client: TestClient, path: str, email: str):
     return client.get(path, headers={"Authorization": f"Bearer {token}"})
 
 
-@pytest.mark.parametrize("email", [ANALYST, READER, OUTSIDER], ids=["analyst", "reader", "in-no-project"])
+@pytest.mark.parametrize(
+    "email", [SUPERUSER, ANALYST, READER, OUTSIDER], ids=["superuser", "analyst", "reader", "in-no-project"]
+)
 def test_a_user_who_is_no_administrator_is_refused_the_account_list(reads, email: str) -> None:
     client, calls, audit_rows = reads
 
@@ -144,7 +146,7 @@ def test_a_user_who_is_no_administrator_is_refused_the_account_list(reads, email
     assert (audit_rows[0].path, audit_rows[0].status_code, audit_rows[0].user_email) == ("/api/users", 403, email)
 
 
-@pytest.mark.parametrize("email", [ADMIN, SUPERUSER], ids=["admin", "superuser"])
+@pytest.mark.parametrize("email", [ADMIN], ids=["admin"])
 def test_an_administrator_still_gets_the_account_list(reads, email: str) -> None:
     client, calls, _audit_rows = reads
 

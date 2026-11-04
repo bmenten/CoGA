@@ -10,9 +10,9 @@ its row is dimmed.
 
 - **Tags.** The built-in tags are *Review*, *Send for validation*, *Validated*, *Validation did not
   confirm*, *Confident AR single hit*, *Excluded* and *Report*, the ACMG class tags, the VUS tiers and
-  *Secondary finding*. An administrator can add custom tags for one project or for everyone. A
-  renamed custom tag stays on every review that holds it. A deleted one stays too, marked *(deleted)*:
-  untick it to remove it from a review. It can no longer be added.
+  *Secondary finding*. A superuser or an administrator can add custom tags for one project or for
+  everyone. A renamed custom tag stays on every review that holds it. A deleted one stays too, marked
+  *(deleted)*: untick it to remove it from a review. It can no longer be added.
 - **Notes** keep your reasoning with the variant.
 - **Report** puts the variant in the family report.
 

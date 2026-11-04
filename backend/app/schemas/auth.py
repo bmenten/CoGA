@@ -49,9 +49,11 @@ class UserRead(BaseModel):
     created_at: datetime
 
 
-# The global roles (the CHECK on users.role): a viewer sees the records of their projects; an
-# admin or a superuser, every record, and the administration.
-UserRole = Literal["viewer", "superuser", "admin"]
+# The global roles (the CHECK on users.role), lowest first, each with every right of the ones
+# before it (services/access_control.py): a viewer reads the records of their projects; an
+# analyst also analyses them; a supervisor also signs an analysis out; a superuser also has
+# every project and the configuration the analyses read; an admin, the whole administration.
+UserRole = Literal["viewer", "analyst", "supervisor", "superuser", "admin"]
 
 
 class UserUpdate(BaseModel):

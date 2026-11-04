@@ -430,7 +430,7 @@ def test_a_viewer_cannot_replace_the_manifest_even_through_the_service(monkeypat
     assert session.statements == [] and session.commits == 0 and events == []
 
 
-@pytest.mark.parametrize("role", ["admin", "superuser"])
+@pytest.mark.parametrize("role", ["admin"])
 def test_replacing_the_manifest_records_the_prior_and_new_modules(monkeypatch, role) -> None:
     stored = {
         "modules": {"vep": {"version": "110", "cache": "110_GRCh38"}, "snpeff": "5.1"},

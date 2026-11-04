@@ -31,7 +31,7 @@ from backend.tests.e2e._harness import ensure_postgres_schema, status_and_body
 
 pytestmark = pytest.mark.integration
 
-HINT = "Choose an analyst of one of the family's projects or an administrator."
+HINT = "Choose an analyst of one of the family's projects, a superuser or an administrator."
 
 
 def _listed(resp: Any) -> tuple[int, Any]:
@@ -74,7 +74,7 @@ async def _exercise(run: str) -> dict[str, Any]:
                         """
                         INSERT INTO users (username, hashed_password, role, email, first_name, last_name,
                                            is_active, metadata, created_at)
-                        VALUES (:email, :hashed_password, 'viewer', :email, :first, 'Test',
+                        VALUES (:email, :hashed_password, 'analyst', :email, :first, 'Test',
                                 :active, '{}'::jsonb, now())
                         RETURNING id::text
                         """

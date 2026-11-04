@@ -36,14 +36,15 @@ IEC 81001-5-1 / MDCG 2019-16 below give the device-specific security detail.
   - Or users sign in through their organisation's CAS server, such as Ghent University's `login.ugent.be`, which signs them in with Entra ID behind it (`CAS_SERVER_URL`, `CAS_SERVICE_URL`). The browser comes back to CoGA's /login page with a one-time service ticket; the backend checks it with the CAS server over HTTPS, for CoGA's own service, reads the answer only when it is a CAS answer of reasonable size without a document type declaration, and binds the account to the Entra object ID the server releases (`azureObjectId`), so it is the account a Microsoft sign-in would find. CAS admits every account of the organisation, so a first sign-in makes an inactive account that an administrator approves (the administrator is e-mailed). A refused ticket answers 401 and counts against the source address, which is throttled. The session is then CoGA's own HS256 token, which signs in only an account bound to an object ID.
   - One local account, the emergency (break-glass) administrator, signs in with its password only while `AZURE_ADMIN_OVERRIDE` is on (default off). Each use is logged and flagged in the request audit.
   - A half Azure or CAS configuration, a CAS address that is not HTTPS, a CAS service other than CoGA's /login page, and both organisation sign-ins at once are refused at startup. Without Azure AD (development) the password sign-in issues HS256 tokens. Algorithm allow-list per path (no `alg=none` or key confusion).
+  - Five global roles, lowest first, each with the rights of the ones below it (REQ-SEC-008): a viewer reads the records of their projects; an analyst also changes them; a supervisor also signs an analysis out (TF-06 H15); a superuser also has every project and the configuration the analyses read (gene panels, variant tags, filter presets, sequencing QC thresholds) and package import; an admin, the whole administration. A superuser does not count as an admin anywhere.
   - An administrator sets global roles in the UI (not their own, not the emergency administrator's). Each change is recorded with its before and after in the request audit.
 - **AuthZ:**
   - Project-scoped RBAC enforced at one checkpoint on every PHI endpoint; SQL-level filtering, not post-filtering.
   - A record the caller may not see is answered exactly as an unknown one, so no answer tells whether it exists. A family or sample outside the caller's projects, a project outside them named to the Family Builder or the gene profile, and another user's filter preset named by its ID get the 404 an unknown ID gets, with the same body and headers. Only the request's audit row records that the record exists (`request_meta.record_hidden`, flagged on the admin *Audit logs* page). The one exception, a family or sample ID that is taken, is an accepted residual (below).
   - A UUID that names a record is read where the record is looked up, after the sign-in, role and project checks. A value that spells no UUID is answered as the route answers an unknown record, or with the 400 it gives an invalid ID; it is never bound into a query and never answered with a 500. The assembly of a NIPT artifact add, auto-seed or table import, and the project of an import request, are refused as unknown (404) before anything is written when they spell no UUID or name no record.
-  - Admin-gated mutations.
-  - A per-project access level (analyst: read and change; reader: read only). A reader's change and a reader's request for the clinical audit trail are refused at the same checkpoint (SEC-1).
-  - A case is assigned to, and recorded as reviewed by, only an active analyst of one of the family's projects or an active admin; a save naming anyone else is refused (422).
+  - Admin-gated mutations (`get_current_admin_user`), and superuser-gated configuration and package import (`get_current_superuser`); overwriting an existing family stays an admin's.
+  - A per-project access level (analyst: read and change; reader: read only), which only takes rights away: a viewer changes nothing whatever their level. A viewer's or reader's change and their request for the clinical audit trail are refused at the same checkpoint (SEC-1).
+  - A case is assigned to, and recorded as reviewed by, only an active analyst of one of the family's projects whose role is not viewer, or an active superuser or admin; a save naming anyone else is refused (422).
   - A 2026-06 review found no exploitable cross-project PHI access (IDOR); all reference and genomic-data endpoints require authentication.
 - **Accountability:**
   - An append-only (immutability-trigger-protected) HTTP audit log of who accessed what and when, and an append-only UI-event log beside it (SEC-7). Neither can be switched off outside development, nor kept from recording a request by what the request carries (S-5).
@@ -68,7 +69,7 @@ IEC 81001-5-1 / MDCG 2019-16 below give the device-specific security detail.
 - **Import-worker processes (process boundary):** the package imports may run in processes of their own beside the API (`python -m app.import_worker`, TF-02 §7).
   - Such a process adds no inbound interface: it serves nothing and listens on no port.
   - It runs the backend's image with the backend's settings and secrets, so the same refusals apply at its start (placeholder or weak secrets, an integrity-anchor key equal to `SECRET_KEY`, a build without its commit). It also refuses a database at another schema revision. It never migrates, so it can run as the restricted database role `coga_app`.
-  - It runs only jobs queued through the API, which only an administrator may queue. Each job runs as the account that queued it, while that account is an active administrator (SEC-32, SEC-35). It reads packages only below `FAMILY_IMPORT_ROOTS`, as the API's own workers did.
+  - It runs only jobs queued through the API, which only a superuser or an administrator may queue. Each job runs as the account that queued it, while that account is an active superuser or administrator, and an overwrite only while it is an administrator (SEC-32, SEC-35). It reads packages only below `FAMILY_IMPORT_ROOTS`, as the API's own workers did.
   - Its log carries no values: JSON lines, an exception by its kind and frames, a job by its ID.
 - **Supply chain:** hash-locked, audited dependencies (S-7); CodeQL SAST + gitleaks secret-scan + dependency-audit as **required** CI gates (S-6).
 
@@ -83,9 +84,9 @@ free ID creates the family.
 - **What is disclosed:** that an ID the request gave is taken, and nothing else. The answers
   name only the request's own IDs and nothing of the record: not its project, members,
   phenotypes, variants or reports. The PED upload (`POST /api/ped/upload`) gives the same 409s,
-  but only an admin may call it, and an admin sees every project.
-- **Why it is accepted:** only a signed-in analyst of the project the request names, or an
-  admin, reaches the check. A reader, a viewer in no project and a request naming another
+  but only an admin may call it, and an admin sees every project (as does a superuser).
+- **Why it is accepted:** only a signed-in analyst of the project the request names, or a
+  superuser or an admin, reaches the check. A reader, a viewer in no project and a request naming another
   team's project are refused before it (the last as an unknown project). The request audit
   records each attempt with its caller and its answer. Closing it would take IDs scoped per
   project, where an ID now names one family or sample in every record, folder and audit entry

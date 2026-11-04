@@ -11,6 +11,7 @@ import type {
   FamilyPackageManifestBuildOut,
   FamilyPackageManifestWriteOut,
 } from '../../lib/apiSchema.generated';
+import { isAdmin } from '../../lib/auth';
 import { getErrorMessage } from '../../lib/errorMessage';
 import { useProjectCatalog } from '../../lib/reference';
 import { apiPath } from '../../lib/apiPath';
@@ -62,6 +63,10 @@ const FamilyPackageImportPanel: React.FC = () => {
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [selectedFamilyId, setSelectedFamilyId] = useState('');
   const [conflictMode, setConflictMode] = useState<ImportConflictMode>('cancel');
+  // Overwriting an existing family replaces its data: an admin's (REQ-SEC-002). A superuser
+  // may dry-run it; the server refuses them the real one.
+  const userIsAdmin = isAdmin();
+  const overwriteRefused = conflictMode === 'overwrite' && !dryRun && !userIsAdmin;
   const [jobId, setJobId] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [statusTone, setStatusTone] = useState<'success' | 'error'>('success');
@@ -236,7 +241,8 @@ const FamilyPackageImportPanel: React.FC = () => {
     !startImportMutation.isPending &&
     !active &&
     (dryRun || Boolean(selectedProjectId)) &&
-    (targetMode === 'new' || Boolean(targetFamilyId));
+    (targetMode === 'new' || Boolean(targetFamilyId)) &&
+    !overwriteRefused;
   const canDiscover =
     folderPath.trim().length > 0 &&
     !discoverManifestMutation.isPending &&
@@ -418,6 +424,12 @@ const FamilyPackageImportPanel: React.FC = () => {
               <option value="update">Update: add missing datasets only</option>
               <option value="overwrite">Overwrite imported dataset rows</option>
             </select>
+            {overwriteRefused ? (
+              <span className="status-note status-note--error" role="note">
+                Only an administrator can overwrite an existing family. Run it as a dry run, or use
+                update to add the missing datasets.
+              </span>
+            ) : null}
           </label>
         </div>
         {familiesQuery.error ? (

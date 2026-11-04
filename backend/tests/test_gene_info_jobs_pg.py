@@ -489,7 +489,7 @@ async def test_a_refresh_whose_requester_lost_their_rights_is_not_run(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("role", ["admin", "superuser"])
+@pytest.mark.parametrize("role", ["admin"])
 async def test_the_refresh_of_an_active_administrator_runs(monkeypatch: pytest.MonkeyPatch, role: str) -> None:
     job = _RefreshJob(
         monkeypatch,

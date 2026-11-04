@@ -245,7 +245,7 @@ def test_sign_out_gates_on_the_drift_of_a_reported_cnvs_evidence(monkeypatch) ->
     # No repeat or Paraphase call, and no review of one (finding_review_pg).
     monkeypatch.setattr(rss, "finding_reviews_for_record", no_finding_reviews)
 
-    user = SimpleNamespace(username="signer", email="signer@example.org", id=None)
+    user = SimpleNamespace(username="signer", email="signer@example.org", id=None, role="supervisor")
     scoring = CnvAcmgClassificationPayload(
         kind="loss", criteria=[CnvAcmgCriterion(code="2A", points=1.0, accepted=True)]
     )
@@ -585,7 +585,7 @@ def test_a_classification_freezes_the_row_of_the_caller_it_was_made_on(monkeypat
         return ctx
 
     monkeypatch.setattr(ams, "build_family_metadata_context", _ctx)
-    user = SimpleNamespace(username="reviewer", email="reviewer@example.org", id=None)
+    user = SimpleNamespace(username="reviewer", email="reviewer@example.org", id=None, role="supervisor")
     scoring = CnvAcmgClassificationPayload(kind="loss", criteria=[CnvAcmgCriterion(code="2A", points=1.0, accepted=True)])
 
     async def _run() -> None:
@@ -674,7 +674,7 @@ def test_the_drift_check_compares_the_evidence_with_the_row_it_was_frozen_from(m
         return ctx
 
     monkeypatch.setattr(cds, "build_family_metadata_context", _ctx)
-    user = SimpleNamespace(username="reviewer", email="reviewer@example.org", id=None)
+    user = SimpleNamespace(username="reviewer", email="reviewer@example.org", id=None, role="supervisor")
 
     async def _run() -> None:
         try:

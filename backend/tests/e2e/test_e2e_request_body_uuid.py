@@ -79,6 +79,8 @@ TEXT_BODY_FIELDS = {
 }
 
 ADMIN_ONLY = (403, {"detail": "Admin access required"})
+# Package import is a superuser's too; the NIPT artifacts an admin's alone.
+SUPERUSER_ONLY = (403, {"detail": "Superuser access required"})
 ASSEMBLY_NOT_FOUND = (404, {"detail": "Assembly not found"})
 PROJECT_NOT_FOUND = (404, {"detail": "Project not found"})
 # A position on chr1 no golden-trio or demo variant is near: the table import finds no
@@ -633,7 +635,8 @@ def test_the_viewer_is_refused_whatever_the_id(snap: dict[str, Any]) -> None:
     answers = snap["responses"]["viewer"]
     assert len(answers) == 12
     for name, answer in answers.items():
-        assert _status(answer) == ADMIN_ONLY, (name, answer)
+        expected = SUPERUSER_ONLY if name.startswith("job_") else ADMIN_ONLY
+        assert _status(answer) == expected, (name, answer)
     # Nothing was written for them.
     written = {row["variant_id"] for row in snap["artifacts"]}
     assert not [variant for variant in written if variant.startswith("1-200-A-G-")]

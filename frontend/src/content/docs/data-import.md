@@ -14,13 +14,15 @@ bioinformatics team keeps the technical detail (file formats, manifest fields, c
 
 | Page | Who | What it does |
 | --- | --- | --- |
-| **Family builder** | the analysts of a project and administrators; PED upload for administrators | Build a new family by hand: add samples, set sex and roles, link parents and couples, set affected and carrier status. An administrator can also upload a PED file. Metadata only: no data files. |
-| **Package import** | administrators | Point at a family folder on the CoGA server, generate its manifest, validate it, then import the family **and all its data** in one job. |
+| **Family builder** | the analysts of a project (role analyst or higher), superusers and administrators; PED upload for administrators | Build a new family by hand: add samples, set sex and roles, link parents and couples, set affected and carrier status. An administrator can also upload a PED file. Metadata only: no data files. |
+| **Package import** | superusers and administrators; overwriting an existing family for administrators | Point at a family folder on the CoGA server, generate its manifest, validate it, then import the family **and all its data** in one job. |
 
-**What needs an administrator.** An analyst of a project can build a new family in it by hand, and add,
-change and remove a family's HPO terms; a reader of the project can do neither. Only administrators
-upload a PED file, replace an existing family, edit an existing family's members or structure, set the
-region of interest, and load or replace data.
+**What needs an administrator.** An analyst of a project (role analyst or higher) can build a new
+family in it by hand, and add, change and remove a family's HPO terms; a viewer, or a reader of the
+project, can do neither. A superuser can do both in every project, and imports packages: a new family,
+or the missing datasets of an existing one (*Update*). Only administrators upload a PED file, replace an
+existing family (with a PED file, the family builder or a package import with *Overwrite*), edit an
+existing family's members or structure, set the region of interest, and upload single data files.
 
 **Replacing a family** with a PED file or the family builder deletes its small and structural variants,
 once the family has been saved again. A replacement refused before then leaves the family and its
@@ -279,7 +281,9 @@ or runs through a link that loops.
    with a table of the data it found.
 5. **Write manifest.yaml** (edit it first if needed).
 6. **Validate, then import.** With **Dry run** ticked, **Validate package** checks everything without
-   writing anything. When it is clean, untick it and press **Start import**.
+   writing anything. When it is clean, untick it and press **Start import**. Only an administrator
+   overwrites an existing family: for anyone else, *Overwrite* without a dry run shows a note and
+   **Start import** stays disabled.
 7. **Follow the job** under *Recent family imports*: status, log, validation errors, warnings and a
    summary per dataset. While a dataset imports, the page shows how much of its files has been read and
    about how long it should still take, at the pace so far. A finished dataset shows how long it took.
@@ -289,7 +293,7 @@ or runs through a link that loops.
 | --- | --- |
 | Cancel if family or samples exist | the import stops |
 | Update: add missing datasets only | the data is added to the existing family; datasets that already hold data are skipped (tracks and Paraphase results sample by sample), and a dataset skipped whole shows *skipped* |
-| Overwrite imported dataset rows | the data is added to the existing family; the selected datasets are replaced |
+| Overwrite imported dataset rows | the data is added to the existing family; the selected datasets are replaced. For administrators only; a superuser may run it as a dry run |
 
 **Mitochondrial calls are replaced per sample.** A package holds one mitochondrial file per sample, and
 each file replaces only that sample's calls. The other members' calls stay, so the mtDNA analysis keeps
@@ -452,7 +456,7 @@ Paraphase results are replaced.
   part of the family's data may be gone, whichever import or upload it came from. The warning then names
   every dataset of that import as failed (the ones that imported too), and every dataset the family
   holds as possibly partly written or missing, those of its other packages and its uploads too. It stays
-  until each of these has been brought again with **overwrite**:
+  until an administrator has brought each of these again with **overwrite**:
   - the whole family, every package of it, imported again, not only the datasets that failed;
   - what an upload brought, uploaded again (an uploaded caller's SV calls, `sv_sniffles` say, or a BED
     track, `bed_coverage`);
@@ -637,7 +641,8 @@ an import failed for) is completed by an upload that brings it again, with or wi
   assembly's reference data before re-importing the family.
 - **The folder path** is a path on the CoGA server, under a configured import folder, not a path on
   your own machine.
-- **Only administrators load data.** Other users build new families by hand.
+- **Only superusers and administrators import packages**, and only administrators overwrite an existing
+  family or upload single files. Analysts build new families by hand.
 - **Missing index.** A compressed small-variant, structural-variant or repeat VCF without its index
   fails validation.
 - **An ID with a hidden character.** An ID copied from a spreadsheet or an e-mail can carry a tab, a

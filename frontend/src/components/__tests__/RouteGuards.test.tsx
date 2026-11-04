@@ -1,5 +1,6 @@
 // The route guards (REQ-UI-005): `RequireAuth` keeps a signed-out user out of the app and
-// `RequireAdmin` keeps a non-admin out of the admin pages. A signed-out user is sent to the
+// `RequireAdmin` keeps a non-admin out of the admin pages, and with `superuser` lets a superuser
+// into theirs (the configuration the analyses read and package import). A signed-out user is sent to the
 // sign-in page with the page they asked for in `next` (query and hash included), which the
 // sign-in page opens afterwards (REQ-UI-006, `LoginPage.test.tsx`). `SessionRedirect` sends
 // the root to the dashboard or to the sign-in page.
@@ -92,13 +93,49 @@ describe('RequireAdmin', () => {
     expect(screen.queryByText('Protected page')).not.toBeInTheDocument();
   });
 
-  it.each(['admin', 'superuser'])('renders the admin area for an authenticated %s', (role) => {
-    signIn(role);
+  it('renders the admin area for an authenticated admin', () => {
+    signIn('admin');
 
     renderGuarded(RequireAdmin, '/admin/users', '/admin/users');
 
     expect(screen.getByText('Protected page')).toBeInTheDocument();
   });
+
+  // A superuser has the configuration the analyses read and package import, not the rest of
+  // the administration; the roles below have neither.
+  it.each(['superuser', 'supervisor', 'analyst', 'viewer'])(
+    'sends an authenticated %s from an admin-only page to the dashboard',
+    (role) => {
+      signIn(role);
+
+      renderGuarded(RequireAdmin, '/admin/users', '/admin/users');
+
+      expect(screen.getByText('Dashboard')).toBeInTheDocument();
+      expect(screen.queryByText('Protected page')).not.toBeInTheDocument();
+    },
+  );
+
+  const SuperuserGuard: FC = () => <RequireAdmin superuser />;
+
+  it.each(['admin', 'superuser'])("renders a superuser's workspace for an authenticated %s", (role) => {
+    signIn(role);
+
+    renderGuarded(SuperuserGuard, '/admin/data/qc-thresholds', '/admin/data/qc-thresholds');
+
+    expect(screen.getByText('Protected page')).toBeInTheDocument();
+  });
+
+  it.each(['supervisor', 'analyst', 'viewer'])(
+    "sends an authenticated %s from a superuser's workspace to the dashboard",
+    (role) => {
+      signIn(role);
+
+      renderGuarded(SuperuserGuard, '/admin/data/qc-thresholds', '/admin/data/qc-thresholds');
+
+      expect(screen.getByText('Dashboard')).toBeInTheDocument();
+      expect(screen.queryByText('Protected page')).not.toBeInTheDocument();
+    },
+  );
 });
 
 describe('SessionRedirect', () => {

@@ -16,7 +16,7 @@ from ..schemas import (
     FamilyPackageImportJobOut,
     FamilyPackageValidationOut,
 )
-from .access_control import CurrentUser, RecordNotVisible, is_admin_user
+from .access_control import CurrentUser, RecordNotVisible, has_superuser_rights
 
 from .family_identifiers import IDENTIFIER_RULE, identifier_problem, visible
 from .family_package_source import package_folder_path
@@ -221,7 +221,7 @@ async def get_family_import_job(
     if row is None:
         raise HTTPException(status_code=404, detail=_JOB_NOT_FOUND)
     requester = row.get("requested_by_id")
-    if not is_admin_user(user) and (requester is None or str(requester) != user.id):
+    if not has_superuser_rights(user) and (requester is None or str(requester) != user.id):
         # Another user's job answers as an unknown one does (SEC-9, REQ-SEC-001). The
         # requester is the account, whatever its address is now (SEC-32).
         raise RecordNotVisible("import_job", _JOB_NOT_FOUND)
@@ -236,7 +236,7 @@ async def list_family_import_jobs(
 ) -> list[FamilyPackageImportJobOut]:
     clauses: list[str] = []
     params: dict[str, Any] = {"limit": limit}
-    if not is_admin_user(user):
+    if not has_superuser_rights(user):
         # The user's own jobs: those their account requested, whatever its address is now
         # (SEC-32).
         clauses.append("requested_by_id = CAST(:requested_by_id AS uuid)")

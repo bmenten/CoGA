@@ -1,12 +1,12 @@
-"""Every admin check treats ``superuser`` as an admin, as ``ADMIN_ROLES`` says.
+"""Each role check in the services answers as the user's role says (services/access_control.py).
 
-Twelve checks compared the role with the literal ``"admin"``. The admin routes let a
-superuser in through ``get_current_admin_user``, and then these checks refused it: editing
-variant tags and gene panels, creating a family from a PED file or by hand, reading import
-jobs, reading a gene profile outside its projects, and listing the user accounts. Each check
-is now ``is_admin_user``. These tests hold a superuser to the same answer as an admin, and a
-viewer to the refusal it had, except that a project outside the viewer's own now answers 404
-"Project not found", like one that does not exist (REQ-SEC-001).
+Twelve checks once compared the role with the literal ``"admin"`` and refused a superuser the
+routes let in. Each check now asks ``access_control`` by what it guards: a superuser's and an
+admin's (``has_superuser_rights``: every project, gene panels, variant tags, import jobs) or an
+admin's alone (``is_admin_user``: overwriting a family, the user list). These tests hold the
+roles that have the right to the same answer, and the roles below them to the refusal, except
+that a project outside the user's own answers 404 "Project not found", like one that does not
+exist (REQ-SEC-001).
 """
 
 from __future__ import annotations
@@ -35,7 +35,10 @@ from backend.app.services import (
 from backend.app.services.access_control import CurrentUser, RecordNotVisible
 
 APP_DIR = pathlib.Path(__file__).resolve().parents[1] / "app"
-ADMIN_ROLES = ["admin", "superuser"]
+# The roles with every project, gene panels, variant tags and import jobs.
+SUPERUSER_ROLES = ["admin", "superuser"]
+# The roles below them: each reads its own projects only, and configures nothing.
+BELOW_SUPERUSER = ["viewer", "analyst", "supervisor"]
 PROJECT = "11111111-1111-1111-1111-111111111111"
 JOB_ID = "22222222-2222-2222-2222-222222222222"
 
@@ -86,9 +89,15 @@ class _Session:
         return None
 
 
-def test_no_check_compares_a_role_with_the_literal_admin() -> None:
+ROLE_NAMES = {"viewer", "analyst", "supervisor", "superuser", "admin"}
+
+
+def test_no_check_compares_a_role_with_a_literal_role() -> None:
+    # access_control.py names the roles once; every other check asks it.
     offenders = []
     for path in sorted(APP_DIR.rglob("*.py")):
+        if path.name == "access_control.py":
+            continue
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             if not isinstance(node, ast.Compare):
                 continue
@@ -99,23 +108,24 @@ def test_no_check_compares_a_role_with_the_literal_admin() -> None:
                 for operand in operands
             )
             if names_a_role and any(
-                isinstance(operand, ast.Constant) and operand.value == "admin" for operand in operands
+                isinstance(operand, ast.Constant) and operand.value in ROLE_NAMES for operand in operands
             ):
                 offenders.append(f"{path.relative_to(APP_DIR)}:{node.lineno}")
-    assert offenders == [], "use is_admin_user(), which counts superuser too: " + ", ".join(offenders)
+    assert offenders == [], "ask access_control (is_admin_user, has_superuser_rights, ...): " + ", ".join(offenders)
 
 
 # --- gene panels ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("role", ADMIN_ROLES)
-def test_every_admin_role_may_change_gene_panels(role: str) -> None:
+@pytest.mark.parametrize("role", SUPERUSER_ROLES)
+def test_a_superuser_and_an_admin_may_change_gene_panels(role: str) -> None:
     panel_metadata_service._ensure_admin(_user(role))
 
 
-def test_a_viewer_may_not_change_gene_panels() -> None:
+@pytest.mark.parametrize("role", BELOW_SUPERUSER)
+def test_the_roles_below_superuser_may_not_change_gene_panels(role: str) -> None:
     with pytest.raises(HTTPException) as refused:
-        panel_metadata_service._ensure_admin(_user("viewer"))
+        panel_metadata_service._ensure_admin(_user(role))
     assert refused.value.status_code == 403
 
 
@@ -138,8 +148,8 @@ async def _gene_profile_in_project(monkeypatch, user: CurrentUser, *, project_ex
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("role", ADMIN_ROLES)
-async def test_every_admin_role_reads_a_gene_profile_in_any_project(monkeypatch, role: str) -> None:
+@pytest.mark.parametrize("role", SUPERUSER_ROLES)
+async def test_a_superuser_and_an_admin_read_a_gene_profile_in_any_project(monkeypatch, role: str) -> None:
     with pytest.raises(_PastTheProjectCheck):
         await _gene_profile_in_project(monkeypatch, _user(role))
 
@@ -194,13 +204,21 @@ async def test_a_family_gene_profile_reads_the_first_of_its_projects_the_user_se
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("role", ADMIN_ROLES)
-async def test_every_admin_role_may_create_families_in_any_project_and_overwrite(role: str) -> None:
+@pytest.mark.parametrize("role", SUPERUSER_ROLES)
+async def test_a_superuser_and_an_admin_may_create_families_in_any_project(role: str) -> None:
     user = _user(role)
     assert await ped_service._resolve_accessible_project_id(_Session(), user, None) is None
     found = _Session(_Result(scalar=PROJECT))
     assert await ped_service._resolve_accessible_project_id(found, user, PROJECT) == PROJECT
-    ped_service._ensure_user_can_replace_existing_families(user)
+
+
+def test_only_an_admin_may_overwrite_existing_families() -> None:
+    # Overwriting deletes the family there was: an admin's, as every deletion is.
+    ped_service._ensure_user_can_replace_existing_families(_user("admin"))
+    for role in ["superuser", *BELOW_SUPERUSER]:
+        with pytest.raises(HTTPException) as refused:
+            ped_service._ensure_user_can_replace_existing_families(_user(role))
+        assert refused.value.status_code == 403
 
 
 @pytest.mark.asyncio
@@ -239,8 +257,8 @@ def _job(requested_by: str, requested_by_id: str | None = OTHER_ACCOUNT) -> dict
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("role", ADMIN_ROLES)
-async def test_every_admin_role_sees_every_import_job(role: str) -> None:
+@pytest.mark.parametrize("role", SUPERUSER_ROLES)
+async def test_a_superuser_and_an_admin_see_every_import_job(role: str) -> None:
     user = _user(role)
     job = await family_package_jobs.get_family_import_job(
         _Session(_Result([_job("other@example.org")])), job_id=JOB_ID, user=user
@@ -323,8 +341,8 @@ async def _tag_refusals(user: CurrentUser) -> list[int]:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("role", ADMIN_ROLES)
-async def test_every_admin_role_gets_past_the_tag_admin_checks(role: str) -> None:
+@pytest.mark.parametrize("role", SUPERUSER_ROLES)
+async def test_a_superuser_and_an_admin_get_past_the_tag_checks(role: str) -> None:
     user = _user(role)
     # Create: the label is a built-in tag's (409); edit and delete: a built-in tag (400).
     assert await _tag_refusals(user) == [409, 400, 400]
@@ -336,12 +354,13 @@ async def test_every_admin_role_gets_past_the_tag_admin_checks(role: str) -> Non
 
 
 @pytest.mark.asyncio
-async def test_a_viewer_is_refused_by_the_tag_admin_checks() -> None:
-    viewer = _user("viewer")
-    assert await _tag_refusals(viewer) == [403, 403, 403]
+@pytest.mark.parametrize("role", BELOW_SUPERUSER)
+async def test_the_roles_below_superuser_are_refused_by_the_tag_checks(role: str) -> None:
+    user = _user(role)
+    assert await _tag_refusals(user) == [403, 403, 403]
     with pytest.raises(HTTPException) as refused:
         await small_variant_review_tags._ensure_projects_visible(
-            _Session(), project_ids=[PROJECT], user=viewer
+            _Session(), project_ids=[PROJECT], user=user
         )
     assert refused.value.status_code == 403
 
@@ -376,8 +395,11 @@ def signed_in_as(monkeypatch: pytest.MonkeyPatch):
     app.dependency_overrides = original_overrides
 
 
-@pytest.mark.parametrize(("role", "status"), [("admin", 200), ("superuser", 200), ("viewer", 403)])
-def test_the_user_list_is_open_to_every_admin_role(signed_in_as, role: str, status: int) -> None:
+@pytest.mark.parametrize(
+    ("role", "status"),
+    [("admin", 200), ("superuser", 403), ("supervisor", 403), ("analyst", 403), ("viewer", 403)],
+)
+def test_the_user_list_is_an_admins_alone(signed_in_as, role: str, status: int) -> None:
     with signed_in_as(role) as client:
         response = client.get("/api/auth/users")
     assert response.status_code == status

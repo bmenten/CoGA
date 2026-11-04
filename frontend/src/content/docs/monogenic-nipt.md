@@ -431,8 +431,8 @@ printout starts with *Draft* or *Not the signed report*, as the live family repo
 
 ## Sign-out
 
-**Sign out NIPT analysis** on the NIPT report signs the analysis out. This is the analyst's analytical
-sign-off: it closes and freezes the analysis into the family's signed record. The medical sign-off of
+**Sign out NIPT analysis** on the NIPT report signs the analysis out. This is the analytical sign-off,
+by a supervisor, a superuser or an administrator: it closes and freezes the analysis into the family's signed record. The medical sign-off of
 the patient report happens in the EPD, which refers to the record by its report code. It is the family
 sign-out, with its checks and report code: one record per family, whether signed out here or from the
 family report. The NIPT page itself offers no sign-out. Once signed, the button reads **Amend

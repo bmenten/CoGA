@@ -438,6 +438,29 @@ def test_revision_0014_gives_qas_repeat_record_the_baselines_count_correction() 
     assert module._COUNT_OFFSET_CHECK == "CHECK (((count_offset >= '-20'::integer) AND (count_offset <= 20)))"
 
 
+
+def test_revision_0015_gives_the_accounts_the_baselines_five_roles() -> None:
+    # The analyst and supervisor roles (owner, 2026-11-04): the check the baseline gives a new
+    # database, in the roles' order, lowest first; each viewer from before becomes an analyst.
+    from backend.app.services.access_control import USER_ROLES
+
+    module = migration_script().get_revision("0015").module
+    create = next(
+        statement
+        for statement in _statements("01_access.sql")
+        if statement.startswith("CREATE TABLE IF NOT EXISTS users ")
+    )
+
+    roles = ", ".join(f"'{role}'" for role in USER_ROLES)
+    assert f"role TEXT NOT NULL CHECK (role IN ({roles}))," in create
+    assert module._ROLE_CHECK == (
+        "CHECK ((role = ANY (ARRAY[" + ", ".join(f"'{role}'::text" for role in USER_ROLES) + "])))"
+    )
+    source = Path(module.__file__).read_text()
+    # Only the viewers change, and only on a database whose check is from before the roles.
+    assert "UPDATE users SET role = 'analyst' WHERE role = 'viewer'" in source
+    assert "if before != _ROLE_CHECK:" in source
+
 def test_the_ledger_table_is_alembics_own_and_its_revoke_follows_the_broad_grant() -> None:
     # Alembic finds the table the baseline created and uses it as its own.
     context = MigrationContext.configure(dialect_name="postgresql")

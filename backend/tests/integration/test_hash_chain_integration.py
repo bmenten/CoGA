@@ -267,7 +267,7 @@ def test_structural_variant_review_saves_are_chained_and_verify() -> None:
                 fam = await fresh_family(s, label)
                 await s.commit()
             context = SimpleNamespace(family_uuid=fam, family_id=label, project_ids=[])
-            user = SimpleNamespace(id=None, username="sv-reviewer", email="svr@x.org")
+            user = SimpleNamespace(id=None, username="sv-reviewer", email="svr@x.org", role="supervisor")
 
             for index, payload in enumerate(saves):
                 async with sm() as s:
@@ -421,7 +421,7 @@ def test_criterion_level_changes_are_chained_and_verify() -> None:
             async with sm() as s:
                 fam = await fresh_family(s, label)
                 await s.commit()
-            user = SimpleNamespace(id=None, username="criterion-reviewer", email="cr@x.org")
+            user = SimpleNamespace(id=None, username="criterion-reviewer", email="cr@x.org", role="supervisor")
 
             previous = None
             for state in snv_states:
@@ -635,7 +635,7 @@ def test_report_signout_real_writer_chain_and_read_verification(monkeypatch) -> 
                 holder["label"] = label
                 await s.commit()
 
-            user = SimpleNamespace(username="signer", email="s@x.org", id=None)
+            user = SimpleNamespace(username="signer", email="s@x.org", id=None, role="supervisor")
             # Two real sign-outs → a two-version chain persisted by the production INSERT.
             async with sm() as s:
                 await rss.sign_out_report(s, family_id=label, user=user)

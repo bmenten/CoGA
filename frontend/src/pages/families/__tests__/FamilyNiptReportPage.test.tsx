@@ -694,6 +694,8 @@ describe('FamilyNiptReportPage', () => {
               members: [],
               metadata: { analysis_type: 'monogenic_nipt' },
               read_only: readOnly,
+              // A supervisor or higher signs out; a reader never (SEC-1, TF-06 H15).
+              can_sign_out: !readOnly,
             },
           });
         }

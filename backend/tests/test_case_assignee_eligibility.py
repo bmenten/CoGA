@@ -1,10 +1,11 @@
 """A case is assigned to, and recorded as reviewed by, someone who may work on it (SEC-1).
 
 A family's "Assigned to" and "Reviewed by" name an active analyst of one of the family's
-projects or an active administrator. The pickers read the family's own list
+projects whose role lets them change records (not a viewer), or an active superuser or
+administrator. The pickers read the family's own list
 (``GET /families/{family_id}/assignable-users``, ``list_family_assignable_users``), answered like
 the family itself: 404 for a family outside the caller's projects. A save that names a reader,
-a user outside the family's projects or an inactive account is refused (422, saying why) and
+a viewer, a user outside the family's projects or an inactive account is refused (422, saying why) and
 changes nothing; a value the family already holds is kept as it is, so a save that leaves an
 assignee who has since become a reader is not refused.
 
@@ -39,16 +40,20 @@ def _uid(number: int) -> str:
 
 
 # The accounts: their name, role, whether active, and their level in each project.
-ANA, RITA, MIXED, OUTSIDER, ADMIN, GONE = (_uid(n) for n in range(1, 7))
+ANA, RITA, MIXED, OUTSIDER, ADMIN, GONE, VERA, SUPER = (_uid(n) for n in range(1, 9))
 ACCOUNTS: dict[str, dict[str, Any]] = {
-    ANA: {"first_name": "Ana", "last_name": "Lyst", "role": "viewer", "active": True, "levels": {PROJECT_A: "analyst"}},
-    RITA: {"first_name": "Rita", "last_name": "Reader", "role": "viewer", "active": True, "levels": {PROJECT_B: "reader"}},
+    ANA: {"first_name": "Ana", "last_name": "Lyst", "role": "analyst", "active": True, "levels": {PROJECT_A: "analyst"}},
+    RITA: {"first_name": "Rita", "last_name": "Reader", "role": "analyst", "active": True, "levels": {PROJECT_B: "reader"}},
     # A reader in A and an analyst in B.
-    MIXED: {"first_name": "", "last_name": "", "role": "viewer", "active": True,
+    MIXED: {"first_name": "", "last_name": "", "role": "supervisor", "active": True,
             "levels": {PROJECT_A: "reader", PROJECT_B: "analyst"}},
-    OUTSIDER: {"first_name": "Otto", "last_name": "Side", "role": "viewer", "active": True, "levels": {PROJECT_C: "analyst"}},
+    OUTSIDER: {"first_name": "Otto", "last_name": "Side", "role": "analyst", "active": True, "levels": {PROJECT_C: "analyst"}},
     ADMIN: {"first_name": "Ada", "last_name": "Admin", "role": "admin", "active": True, "levels": {}},
-    GONE: {"first_name": "Gil", "last_name": "Gone", "role": "viewer", "active": False, "levels": {PROJECT_A: "analyst"}},
+    GONE: {"first_name": "Gil", "last_name": "Gone", "role": "analyst", "active": False, "levels": {PROJECT_A: "analyst"}},
+    # A viewer, though an analyst in A by level: reads only.
+    VERA: {"first_name": "Vera", "last_name": "Viewer", "role": "viewer", "active": True, "levels": {PROJECT_A: "analyst"}},
+    # A superuser in no project: every project is theirs.
+    SUPER: {"first_name": "Sue", "last_name": "Per", "role": "superuser", "active": True, "levels": {}},
 }
 
 
@@ -138,10 +143,13 @@ class _Database:
                     for user_id, account in ACCOUNTS.items()
                     if account["active"]
                     and (
-                        account["role"] in params["admin_roles"]
-                        or any(
-                            level == params["analyst"] and project in projects
-                            for project, level in account["levels"].items()
+                        account["role"] in params["superuser_roles"]
+                        or (
+                            account["role"] in params["changing_roles"]
+                            and any(
+                                level == params["analyst"] and project in projects
+                                for project, level in account["levels"].items()
+                            )
                         )
                     )
                 ]
@@ -207,23 +215,25 @@ def _refusal(database: _Database, user: CurrentUser, **fields: Any) -> HTTPExcep
 def test_the_list_is_the_familys_analysts_and_the_administrators(database: _Database) -> None:
     listed = _list(database, "FAM_AB", _user(ANA))
 
-    # An analyst of A, an analyst of B (a reader in A) and the admin; not Rita, a reader of B,
-    # not the analyst of another project, nor the inactive analyst of A.
-    assert listed == [ANA, MIXED, ADMIN]
+    # An analyst of A, an analyst of B (a reader in A), the admin and the superuser; not Rita, a
+    # reader of B, not the analyst of another project, nor the inactive analyst of A, nor Vera,
+    # a viewer.
+    assert listed == [ANA, MIXED, ADMIN, SUPER]
     [query] = database.list_queries
-    assert query["admin_roles"] == ["admin", "superuser"]
+    assert query["superuser_roles"] == ["admin", "superuser"]
+    assert query["changing_roles"] == ["admin", "analyst", "superuser", "supervisor"]
     assert query["analyst"] == "analyst"
     assert query["project_ids"] == [UUID(PROJECT_A), UUID(PROJECT_B)]
 
 
 def test_each_family_lists_the_analysts_of_its_own_projects(database: _Database) -> None:
-    assert _list(database, "FAM_A", _user(ANA)) == [ANA, ADMIN]
-    assert _list(database, "FAM_B", _user(MIXED)) == [MIXED, ADMIN]
+    assert _list(database, "FAM_A", _user(ANA)) == [ANA, ADMIN, SUPER]
+    assert _list(database, "FAM_B", _user(MIXED)) == [MIXED, ADMIN, SUPER]
 
 
 def test_a_reader_reads_the_list(database: _Database) -> None:
     # Reading the family is theirs; the pickers that would use the list are disabled for them.
-    assert _list(database, "FAM_B", _user(RITA)) == [MIXED, ADMIN]
+    assert _list(database, "FAM_B", _user(RITA)) == [MIXED, ADMIN, SUPER]
 
 
 def test_a_family_outside_the_users_projects_answers_like_an_unknown_one(database: _Database) -> None:
@@ -242,11 +252,13 @@ def test_a_family_outside_the_users_projects_answers_like_an_unknown_one(databas
 
 def test_an_analyst_or_an_admin_may_be_assigned_and_record_the_review(database: _Database) -> None:
     assert _save(database, _user(ANA), assigned_to=MIXED, reviewed_by=ADMIN) == "record of FAM_AB"
+    assert _save(database, _user(ANA), assigned_to=SUPER) == "record of FAM_AB"
 
     assert database.updates == [
         {"family_uuid": "uuid-FAM_AB", "assigned_to_id": MIXED, "reviewed_by_id": ADMIN},
+        {"family_uuid": "uuid-FAM_AB", "assigned_to_id": SUPER},
     ]
-    assert database.commits == 1
+    assert database.commits == 2
 
 
 @pytest.mark.parametrize(
@@ -256,25 +268,32 @@ def test_an_analyst_or_an_admin_may_be_assigned_and_record_the_review(database: 
             "assigned_to",
             RITA,
             "Rita Reader cannot be assigned this case: they are a reader in this family's projects. "
-            "Choose an analyst of one of the family's projects or an administrator.",
+            "Choose an analyst of one of the family's projects, a superuser or an administrator.",
         ),
         (
             "reviewed_by",
             RITA,
             "Rita Reader cannot be recorded as this case's reviewer: they are a reader in this "
-            "family's projects. Choose an analyst of one of the family's projects or an administrator.",
+            "family's projects. Choose an analyst of one of the family's projects, a superuser or an "
+            "administrator.",
         ),
         (
             "assigned_to",
             OUTSIDER,
             "Otto Side cannot be assigned this case: they are not a member of this family's projects. "
-            "Choose an analyst of one of the family's projects or an administrator.",
+            "Choose an analyst of one of the family's projects, a superuser or an administrator.",
+        ),
+        (
+            "assigned_to",
+            VERA,
+            "Vera Viewer cannot be assigned this case: their role is viewer. "
+            "Choose an analyst of one of the family's projects, a superuser or an administrator.",
         ),
         (
             "reviewed_by",
             GONE,
             "Gil Gone cannot be recorded as this case's reviewer: their account is not active. "
-            "Choose an analyst of one of the family's projects or an administrator.",
+            "Choose an analyst of one of the family's projects, a superuser or an administrator.",
         ),
     ],
 )

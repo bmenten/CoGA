@@ -101,9 +101,13 @@ class FamilyOut(ApiDocumentModel):
     assigned_to: Optional[UserRefOut] = None
     reviewed_by: Optional[UserRefOut] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
-    # The caller's own access: True when they are a reader in each of the family's projects
-    # they belong to, so they may read the family but change nothing (SEC-1).
+    # The caller's own access: True when they may read the family but change nothing: their
+    # role is viewer, or they are a reader in each of the family's projects they belong to
+    # (SEC-1).
     read_only: bool = False
+    # Whether the caller may sign the family's analysis out: they may change the family, and
+    # their role is supervisor or higher (TF-06 H15).
+    can_sign_out: bool = False
 
 
 class FamilyMetadataUpdate(BaseModel):

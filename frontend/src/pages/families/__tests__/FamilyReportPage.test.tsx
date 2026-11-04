@@ -96,6 +96,8 @@ const mockApi = () => {
             { sample_id: 'FATHER', role: 'father', affected: false, sex: 'male' },
           ],
           projects: [],
+          // The signed-in user is a supervisor who may change the family (TF-06 H15).
+          can_sign_out: true,
         },
       });
     }
@@ -384,7 +386,7 @@ describe('FamilyReportPage', () => {
   it('shows an empty state when no variants are tagged for reporting', async () => {
     apiMock.get.mockImplementation((url: string) => {
       if (url === '/families/F1') {
-        return Promise.resolve({ data: { family_id: 'F1', members: [], projects: [] } });
+        return Promise.resolve({ data: { family_id: 'F1', members: [], projects: [], can_sign_out: true } });
       }
       if (url.startsWith('/families/F1/small-variants')) {
         return Promise.resolve({ data: { variants: [], total: 0 } });
@@ -493,7 +495,7 @@ describe('FamilyReportPage', () => {
   it('warns when a classification’s evidence has drifted since it was made', async () => {
     apiMock.get.mockImplementation((url: string) => {
       if (url === '/families/F1') {
-        return Promise.resolve({ data: { family_id: 'F1', members: [], projects: [] } });
+        return Promise.resolve({ data: { family_id: 'F1', members: [], projects: [], can_sign_out: true } });
       }
       if (url.startsWith('/families/F1/small-variants')) {
         return Promise.resolve({ data: { variants: [], total: 0 } });
@@ -551,7 +553,7 @@ describe('FamilyReportPage', () => {
     });
     apiMock.get.mockImplementation((url: string) => {
       if (url === '/families/F1') {
-        return Promise.resolve({ data: { family_id: 'F1', members: [], projects: [] } });
+        return Promise.resolve({ data: { family_id: 'F1', members: [], projects: [], can_sign_out: true } });
       }
       if (url.startsWith('/families/F1/small-variants')) {
         return Promise.resolve({ data: { variants: [], total: 0 } });
@@ -587,7 +589,7 @@ describe('FamilyReportPage', () => {
   it('names a moved consequence, LoF call or gene missense Z since a classification', async () => {
     apiMock.get.mockImplementation((url: string) => {
       if (url === '/families/F1') {
-        return Promise.resolve({ data: { family_id: 'F1', members: [], projects: [] } });
+        return Promise.resolve({ data: { family_id: 'F1', members: [], projects: [], can_sign_out: true } });
       }
       if (url.startsWith('/families/F1/small-variants')) {
         return Promise.resolve({ data: { variants: [], total: 0 } });
@@ -670,7 +672,7 @@ describe('FamilyReportPage', () => {
     });
     apiMock.get.mockImplementation((url: string) => {
       if (url === '/families/F1') {
-        return Promise.resolve({ data: { family_id: 'F1', members: [], projects: [] } });
+        return Promise.resolve({ data: { family_id: 'F1', members: [], projects: [], can_sign_out: true } });
       }
       if (url.startsWith('/families/F1/small-variants')) {
         return Promise.resolve({ data: { variants: [], total: 0 } });
@@ -738,7 +740,7 @@ describe('FamilyReportPage', () => {
   it('renders the immutable clinical audit trail', async () => {
     apiMock.get.mockImplementation((url: string) => {
       if (url === '/families/F1') {
-        return Promise.resolve({ data: { family_id: 'F1', members: [], projects: [] } });
+        return Promise.resolve({ data: { family_id: 'F1', members: [], projects: [], can_sign_out: true } });
       }
       if (url.startsWith('/families/F1/small-variants')) {
         return Promise.resolve({ data: { variants: [], total: 0 } });
@@ -800,7 +802,7 @@ describe('FamilyReportPage', () => {
     const mockAuditTrail = (olderPage: () => Promise<unknown>) => {
       apiMock.get.mockImplementation((url: string) => {
         if (url === '/families/F1') {
-          return Promise.resolve({ data: { family_id: 'F1', members: [], projects: [] } });
+          return Promise.resolve({ data: { family_id: 'F1', members: [], projects: [], can_sign_out: true } });
         }
         if (url.startsWith('/families/F1/small-variants')) {
           return Promise.resolve({ data: { variants: [], total: 0 } });
@@ -886,7 +888,7 @@ describe('FamilyReportPage', () => {
   function mockUnsignedFamily() {
     apiMock.get.mockImplementation((url: string) => {
       if (url === '/families/F1') {
-        return Promise.resolve({ data: { family_id: 'F1', members: [], projects: [] } });
+        return Promise.resolve({ data: { family_id: 'F1', members: [], projects: [], can_sign_out: true } });
       }
       if (url.startsWith('/families/F1/small-variants')) {
         return Promise.resolve({ data: { variants: [], total: 0 } });
@@ -1120,6 +1122,34 @@ describe('FamilyReportPage', () => {
     expect(retry).toHaveBeenCalledTimes(1);
   });
 
+  // TF-06 H15: an analyst analyses the family but signs nothing out; the button says why and
+  // sends nothing.
+  it('offers an analyst no sign-out, and says signing out is a supervisor’s', async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === '/families/F1') {
+        return Promise.resolve({
+          data: { family_id: 'F1', members: [], projects: [], read_only: false, can_sign_out: false },
+        });
+      }
+      if (url.startsWith('/families/F1/small-variants')) {
+        return Promise.resolve({ data: { variants: [], total: 0 } });
+      }
+      if (url === '/families/F1/report/sign-outs') {
+        return Promise.resolve({ data: { family_id: 'F1', latest: null, signouts: [] } });
+      }
+      return Promise.resolve({ data: [] });
+    });
+    renderPage();
+
+    const signOut = await screen.findByRole('button', { name: /sign out report/i });
+    await waitFor(() => expect(signOut).toBeDisabled());
+    expect(signOut).toHaveAttribute('title', expect.stringMatching(/Signing out needs the supervisor role/));
+    // Not read-only: the analyst still changes the family.
+    expect(screen.queryByText('Read-only access')).not.toBeInTheDocument();
+    fireEvent.click(signOut);
+    expect(apiMock.post).not.toHaveBeenCalled();
+  });
+
   // SEC-1: a reader in the family's project reads and prints the report but signs nothing out,
   // and is not shown the audit trail; the printout says why it holds none.
   it('lets a reader print the report but not sign it out, and says why the audit trail is not shown', async () => {
@@ -1143,7 +1173,7 @@ describe('FamilyReportPage', () => {
     await waitFor(() => expect(signOut).toBeDisabled());
     expect(signOut).toHaveAttribute('title', expect.stringMatching(/you are a reader in this family/));
     expect(screen.getByRole('button', { name: 'Print report' })).toBeEnabled();
-    expect(screen.getByText('Read-only access (reader)')).toBeInTheDocument();
+    expect(screen.getByText('Read-only access')).toBeInTheDocument();
     expect(screen.getByText('Clinical audit trail')).toBeInTheDocument();
     expect(screen.getByText(/Not shown: the audit trail is for analysts and administrators/)).toBeInTheDocument();
     // The trail is not asked for: the server refuses it to a reader.
@@ -3538,6 +3568,7 @@ describe('FamilyReportPage', () => {
                 family_id: 'F1',
                 members: [],
                 projects: [],
+                can_sign_out: true,
                 metadata: { import_incomplete: IMPORT_FLAG },
               },
             })

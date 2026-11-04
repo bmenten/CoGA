@@ -278,6 +278,9 @@ pull request updates this list only when it adds clinical behaviour that no area
   - The reviews frozen into the record beside every call
     (docs/repeat-paraphase-review-design.md).
 - **Sign-out and the signed record**
+  - Who may sign out: a supervisor of the family's project, a superuser or an admin; an
+    analyst, a viewer and a reader are refused before any gate, and nothing is written (TF-06
+    H15).
   - The frozen snapshot and its drift gates (small variants, SVs and CNVs); the
     sample-integrity, sample-QC, incomplete-import and assembly-scope gates.
   - The signed view rendered from its record in the release-candidate format.

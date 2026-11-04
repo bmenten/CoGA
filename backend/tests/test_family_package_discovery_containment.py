@@ -540,7 +540,7 @@ def test_an_id_leads_a_path_out_of_the_package_only_when_it_is_a_path_out_itself
 # --------------------------------------------------------------------------- #
 
 
-@pytest.mark.parametrize("role", ["viewer", "admin"])
+@pytest.mark.parametrize("role", ["viewer", "superuser", "admin"])
 def test_discover_stays_admin_only_and_reads_nothing_outside_through_the_route(
     monkeypatch: pytest.MonkeyPatch, imports: Path, role: str
 ) -> None:
@@ -566,7 +566,7 @@ def test_discover_stays_admin_only_and_reads_nothing_outside_through_the_route(
         )
 
     if role == "viewer":
-        assert (response.status_code, response.json()) == (403, {"detail": "Admin access required"})
+        assert (response.status_code, response.json()) == (403, {"detail": "Superuser access required"})
         assert calls == []
         return
     assert response.status_code == 200, response.text

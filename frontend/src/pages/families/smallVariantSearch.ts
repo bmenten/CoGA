@@ -179,7 +179,7 @@ export type SmallVariantTagDefinition = SmallVariantTagDefinitionOut;
 export type FamilyMember = ApiFamilyMember;
 export type SmallVariantFamily = Pick<
   ApiFamilyRecord,
-  'members' | 'relationships' | 'pedigree' | 'projects' | 'metadata' | 'read_only'
+  'members' | 'relationships' | 'pedigree' | 'projects' | 'metadata' | 'read_only' | 'can_sign_out'
 >;
 
 // A panel of the panel list (GenePanelOut), as the filters offer it.

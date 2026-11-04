@@ -9,12 +9,14 @@ no longer exists already was; the log names neither the account nor its address.
 already running when its requester is deactivated runs to its end: the account is checked
 once, when the import starts.
 
-Only an administrator queues an import (the import routes require one), and the import
+Only a superuser or an administrator queues an import (the import routes require one), and the import
 checked the requester's access to the job's project only: an administrator demoted to viewer
 since, an analyst of that project, still had the import run (SEC-35). Such a job now ends
 failed the same way, as the owner decided on 2026-10-28, and so does a job claimed again
-after its worker stopped while it was still ``validating``; an administrator of either admin
-role has the import run, and one demoted while the import runs has it run to its end.
+after its worker stopped while it was still ``validating``; a superuser or an administrator
+has the import run, and one demoted while the import runs has it run to its end. Overwriting an
+existing family is an admin's (REQ-SEC-002): an overwrite whose requester is no longer an admin
+ends failed the same way; a superuser's update or dry run runs.
 
 The job's row and the import are stand-ins: what this tests is whether the import runs, as
 whom, and how the job ends.
@@ -71,7 +73,7 @@ class _Job:
         self.ran_as: list[CurrentUser] = []
         self.ends: list[dict[str, Any]] = []
         self.during_import: list[Any] = []
-        row = {
+        self.row = row = {
             "id": JOB,
             "submitted_path": "/data/families/FAM001",
             "project_id": "project-uuid",
@@ -185,7 +187,7 @@ async def test_the_job_of_an_account_no_longer_an_administrator_ends_failed_and_
     ]
     assert raised == package_import.REQUESTER_NOT_ADMIN_ERROR
     # The job's record says why, and that nothing was written.
-    assert "no longer an administrator" in package_import.REQUESTER_NOT_ADMIN_ERROR
+    assert "no longer a superuser or an administrator" in package_import.REQUESTER_NOT_ADMIN_ERROR
     assert "Nothing of the family was written" in package_import.REQUESTER_NOT_ADMIN_ERROR
     # The log names neither the account nor its address.
     for personal in (REQUESTER_ID, REQUESTER_EMAIL, "Given-c1", "Surname-c1"):
@@ -258,3 +260,81 @@ async def test_an_import_already_running_when_its_requester_is_deactivated_or_de
     assert job.looked_up == [REQUESTER_ID]
     assert job.ran_as == [active]
     assert job.ends == [{"status": "completed", "completed": True}]
+
+
+# --------------------------------------------------------------------------- #
+# Overwriting an existing family is an admin's (REQ-SEC-002)
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_the_overwrite_of_an_account_no_longer_an_administrator_ends_failed_and_does_not_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # An admin queued an overwrite and was made a superuser since: a superuser imports and adds
+    # missing datasets, but replacing a family's data is an admin's.
+    job = _Job(monkeypatch, requester_id=REQUESTER_ID, accounts={REQUESTER_ID: _requester(is_active=True, role="superuser")})
+    job.row["metadata"] = {"conflict_mode": "overwrite"}
+
+    raised = await job.run()
+
+    assert job.ran_as == []
+    assert job.ends == [
+        {"status": "failed", "error": package_import.REQUESTER_CANNOT_OVERWRITE_ERROR, "completed": True}
+    ]
+    assert raised == package_import.REQUESTER_CANNOT_OVERWRITE_ERROR
+    assert "Nothing of the family was written" in package_import.REQUESTER_CANNOT_OVERWRITE_ERROR
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("role", "conflict_mode", "dry_run"),
+    [("admin", "overwrite", False), ("superuser", "overwrite", True), ("superuser", "update", False)],
+    ids=["an-admins-overwrite", "a-superusers-dry-run", "a-superusers-update"],
+)
+async def test_an_admins_overwrite_and_a_superusers_update_or_dry_run_run(
+    monkeypatch: pytest.MonkeyPatch, role: str, conflict_mode: str, dry_run: bool
+) -> None:
+    job = _Job(monkeypatch, requester_id=REQUESTER_ID, accounts={REQUESTER_ID: _requester(is_active=True, role=role)})
+    job.row["metadata"] = {"conflict_mode": conflict_mode}
+    job.row["dry_run"] = dry_run
+
+    assert await job.run() is None
+    assert [user.role for user in job.ran_as] == [role]
+
+
+@pytest.mark.parametrize(
+    ("role", "conflict_mode", "dry_run", "queued"),
+    [
+        ("superuser", "overwrite", False, False),
+        ("superuser", "overwrite", True, True),
+        ("superuser", "update", False, True),
+        ("admin", "overwrite", False, True),
+    ],
+    ids=["a-superusers-overwrite", "a-superusers-dry-run", "a-superusers-update", "an-admins-overwrite"],
+)
+def test_the_route_refuses_a_superuser_the_overwrite_before_queuing_it(
+    monkeypatch: pytest.MonkeyPatch, role: str, conflict_mode: str, dry_run: bool, queued: bool
+) -> None:
+    from backend.app.routers import family_imports
+    from backend.tests._family_import_fakes import signed_in_client
+
+    calls: list[dict[str, Any]] = []
+
+    async def queue(session: Any, **kwargs: Any) -> Any:
+        calls.append(kwargs)
+        raise RuntimeError("queued")
+
+    monkeypatch.setattr(family_imports, "queue_family_import_job", queue)
+    body = {"folder_path": "/data/families/FAM001", "dry_run": dry_run, "conflict_mode": conflict_mode}
+    with signed_in_client(role, raise_server_exceptions=False) as client:
+        response = client.post("/api/family-imports", json=body)
+
+    if queued:
+        assert [call["conflict_mode"] for call in calls] == [conflict_mode]
+        return
+    assert (response.status_code, response.json()) == (
+        403,
+        {"detail": family_imports.OVERWRITE_ADMIN_ONLY_DETAIL},
+    )
+    assert calls == []

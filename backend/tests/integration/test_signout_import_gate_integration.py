@@ -96,7 +96,7 @@ def test_sign_out_refuses_an_incomplete_import_unless_acknowledged(monkeypatch) 
     monkeypatch.setattr(rss, "get_family_sample_integrity_qc", _qc)
     monkeypatch.setattr(rss, "_canonical_sequencing_qc", _sequencing_qc)
 
-    user = SimpleNamespace(username="signer", email="signer@example.org", id=None)
+    user = SimpleNamespace(username="signer", email="signer@example.org", id=None, role="supervisor")
     signed_at = datetime(2026, 9, 1, 8, 30, 0, 250000, tzinfo=timezone.utc)
     # The snapshot the writer stored before the gate existed: none of its keys.
     pre_gate_snapshot = {

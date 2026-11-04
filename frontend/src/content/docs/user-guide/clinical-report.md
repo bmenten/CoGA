@@ -4,7 +4,7 @@ phenotype overlap — and is where you sign out the analysis. After sign-out, th
 the signed version.
 
 **Sign-out closes the analysis; the medical sign-off is in the EPD.** **Sign out report** is the
-analyst's analytical sign-off: it closes the analysis and freezes it into a signed version. The clinical
+analytical sign-off: it closes the analysis and freezes it into a signed version. The clinical
 report is drafted and medically signed in the hospital's electronic patient record (EPD), not in CoGA.
 It refers to exactly one signed version: the one it rests on.
 
@@ -24,10 +24,10 @@ It refers to exactly one signed version: the one it rests on.
   overlaps other genes. Re-review those variants.
 - The **Clinical audit trail**: who classified, tagged or annotated what, who reviewed a
   compound-heterozygous pair, who changed the pedigree or the family's phenotypes, and when. Entries
-  can never be changed or deleted. Only analysts and administrators see it; a reader of the family's
-  project sees, on screen and in print, that it is not shown. It opens on the 200 most recent entries;
-  when there are more, it says how many it shows, and **Show older events** loads the next 200. A
-  printout of only part of the trail says so.
+  can never be changed or deleted. Only analysts, superusers and administrators see it; a viewer, or a
+  reader of the family's project, sees on screen and in print that it is not shown. It opens on the
+  200 most recent entries; when there are more, it says how many it shows, and **Show older events**
+  loads the next 200. A printout of only part of the trail says so.
 - The **Analysis pipeline settings** recorded at import.
 - An **Import incomplete** warning at the top when a data import left the family partly loaded or has
   not finished (still running, or stopped part-way, for example by a server restart). It names the
@@ -104,9 +104,10 @@ signed version and its report code: quote that code in the EPD report. A mistype
 typo, never taken for another record's. **Report codes** in the main menu finds the signed version a
 code names.
 
-> **Only people the laboratory authorises sign out.** CoGA lets any analyst of the family's project
-> press **Sign out report** (a reader cannot) and checks that authority no further. The laboratory
-> decides who may sign out an analysis; CoGA records who did. The medical sign-off is given in the EPD.
+> **Only a supervisor signs out.** **Sign out report** is for a supervisor of the family's project, a
+> superuser or an administrator. For an analyst, a viewer or a reader the button is disabled and says
+> why, and CoGA refuses the sign-out. The laboratory decides who gets the supervisor role; CoGA records
+> who signed. The medical sign-off is given in the EPD.
 
 ### Is this the signed report?
 

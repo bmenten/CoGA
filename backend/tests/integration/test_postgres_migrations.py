@@ -59,6 +59,10 @@ the CI ``smoke`` job sets it.
   (``repeat_locus_count_units.count_offset``, revision 0014) with the baseline's default and
   check: a stored record is kept with no correction, a correction beyond 20 either way is
   refused, it ends at the same fingerprint, and a later start changes nothing.
+- A database at revision 0014 from before the analyst and supervisor roles gets the accounts'
+  check with the five roles (revision 0015): each viewer becomes an analyst, a superuser and an
+  admin keep their role, a role CoGA does not know is refused, it ends at the same fingerprint,
+  and a viewer made since stays one at a later start.
 - A ledger naming a revision this version does not have is refused, and nothing changes.
 - The restricted runtime role cannot run the migration; two instances that start together
   both come up, one after the other.
@@ -2100,5 +2104,111 @@ def test_a_database_from_before_clin57_gets_the_count_correction_with_every_reco
     }
     assert kept["repeat_locus_count_units"][0] == contents["repeat_locus_count_units"][0] == 1
     assert unchanged == kept
+    # The schema is the baselines'.
+    assert actual == expected, _differences(expected, actual)
+
+
+# The accounts' roles as a database had them before the analyst and supervisor roles (revision
+# 0015): viewer, superuser and admin only.
+_BEFORE_0015 = (
+    "ALTER TABLE users DROP CONSTRAINT users_role_check",
+    "ALTER TABLE users ADD CONSTRAINT users_role_check "
+    "CHECK (role = ANY (ARRAY['admin'::text, 'superuser'::text, 'viewer'::text]))",
+)
+
+
+@_MODES
+def test_a_database_from_before_the_analyst_role_makes_each_viewer_an_analyst_and_keeps_the_rest(
+    monkeypatch, reapply_baselines: bool
+) -> None:
+    from sqlalchemy.exc import IntegrityError
+
+    from backend.app.core import postgres_migrations
+    from backend.app.core.postgres_migrations import apply_postgres_schema, head_revision
+
+    monkeypatch.setattr(postgres_migrations, "REAPPLY_BASELINES_ON_EVERY_RUN", reapply_baselines)
+    accounts = {"viewer-roles": "viewer", "superuser-roles": "superuser", "admin-roles": "admin"}
+
+    async def _body(database: str):
+        engine = _engine(database)
+        try:
+            async with engine.begin() as conn:
+                await apply_postgres_schema(conn)
+            # A database at revision 0014, with the check from before and an account of each role.
+            async with engine.begin() as conn:
+                await conn.execute(text("UPDATE alembic_version SET version_num = '0014'"))
+                for statement in _BEFORE_0015:
+                    await conn.exec_driver_sql(statement)
+                for username, role in accounts.items():
+                    await conn.execute(
+                        text(
+                            "INSERT INTO users (username, hashed_password, role, email) "
+                            "VALUES (:u, '', :r, :e)"
+                        ),
+                        {"u": username, "r": role, "e": f"{username}@example.org"},
+                    )
+            contents = await _table_contents(database)
+            async with engine.begin() as conn:
+                revision = await apply_postgres_schema(conn)
+            kept = await _table_contents(database)
+            async with engine.connect() as conn:
+                roles = {
+                    str(row[0]): str(row[1])
+                    for row in (
+                        await conn.execute(
+                            text("SELECT username, role FROM users WHERE username = ANY(:names)"),
+                            {"names": list(accounts)},
+                        )
+                    ).all()
+                }
+                check = await _check_definition(conn, "users", "users_role_check")
+            # The check holds the five roles and no other.
+            stored, refused = [], 0
+            for role in ("analyst", "supervisor", "viewer", "signer"):
+                try:
+                    async with engine.begin() as conn:
+                        await conn.execute(
+                            text("UPDATE users SET role = :r WHERE username = 'viewer-roles'"), {"r": role}
+                        )
+                    stored.append(role)
+                except IntegrityError:
+                    refused += 1
+            # A viewer made after the revision stays a viewer at the next start.
+            async with engine.begin() as conn:
+                again = await apply_postgres_schema(conn)
+            async with engine.connect() as conn:
+                after_again = (
+                    await conn.execute(text("SELECT role FROM users WHERE username = 'viewer-roles'"))
+                ).scalar_one()
+        finally:
+            await engine.dispose()
+        reference = await _create_database()
+        try:
+            await _apply_baseline_files(reference)
+            fingerprints = await _fingerprint(reference), await _fingerprint(database)
+        finally:
+            await _drop_database(reference)
+        return (revision, again), roles, check, (stored, refused, after_again), (contents, kept), fingerprints
+
+    (revision, again), roles, check, (stored, refused, after_again), (contents, kept), (expected, actual) = _run(
+        _body
+    )
+
+    assert (revision.before, revision.after) == ("0014", head_revision())
+    assert (again.before, again.after) == (head_revision(), head_revision())
+    # The viewer from before becomes an analyst; the superuser and the admin keep their role.
+    assert roles == {"viewer-roles": "analyst", "superuser-roles": "superuser", "admin-roles": "admin"}
+    assert check == (
+        "CHECK ((role = ANY (ARRAY['viewer'::text, 'analyst'::text, 'supervisor'::text, "
+        "'superuser'::text, 'admin'::text])))"
+    )
+    assert (stored, refused) == (["analyst", "supervisor", "viewer"], 1)
+    assert after_again == "viewer"
+    # Every other table is as it was.
+    changed = {"alembic_version", "users"}
+    assert {table: rows for table, rows in kept.items() if table not in changed} == {
+        table: rows for table, rows in contents.items() if table not in changed
+    }
+    assert kept["users"][0] == contents["users"][0]
     # The schema is the baselines'.
     assert actual == expected, _differences(expected, actual)

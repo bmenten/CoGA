@@ -362,17 +362,22 @@ describe('UserListPage', () => {
       expect(within(rowOf('new.registrant@example.com')).getByText('Password')).toBeInTheDocument();
     });
 
-    it('shows each account’s role in a select of the three roles', async () => {
+    it('shows each account’s role in a select of the five roles, lowest first', async () => {
       renderPage();
       await screen.findByRole('table');
 
       const annRole = screen.getByRole('combobox', { name: 'Role: ann@example.com' });
       expect(annRole).toHaveValue('admin');
-      expect(within(annRole).getAllByRole('option').map((option) => option.textContent)).toEqual([
+      const options = within(annRole).getAllByRole('option');
+      expect(options.map((option) => option.textContent)).toEqual([
         'viewer',
+        'analyst',
+        'supervisor',
         'superuser',
         'admin',
       ]);
+      // Each says what the role may do; the supervisor's is the sign-out (TF-06 H15).
+      expect(options[2]).toHaveAttribute('title', 'Also signs an analysis out.');
       expect(screen.getByRole('combobox', { name: 'Role: peeters@example.com' })).toHaveValue('viewer');
     });
 

@@ -71,7 +71,7 @@ from .family_package_registration import is_whole_family_entry, unfinished_entry
 from .family_variant_write_lock import try_share_family_variant_writes
 from .pgt_analysis import comparable_with_record as pgt_analysis_comparable_with_record
 from .hash_chain import ChainVerification, canonical_hash, canonical_json, chain_row_hash, verify_chain
-from .access_control import CurrentUser, RecordNotVisible
+from .access_control import CurrentUser, RecordNotVisible, require_sign_out_authority
 from .nipt_service import SharedNiptAnalysis
 from .report_code import (
     ReportCodeError,
@@ -1414,7 +1414,7 @@ async def sign_out_report(
 ) -> dict[str, Any]:
     """Sign the family out: freeze, hash and append its report snapshot, past its gates.
 
-    Each gate an analyst may acknowledge (evidence drift, Sample QC, an incomplete import, an
+    Each gate the signer may acknowledge (evidence drift, Sample QC, an incomplete import, an
     abnormal repeat or Paraphase call without a review)
     is acknowledged with a reason and the fingerprint of the concerns its refusal listed
     (``*_concerns_fingerprint``, :func:`concerns_fingerprint`): the acknowledgement covers
@@ -1424,6 +1424,11 @@ async def sign_out_report(
     context = await build_family_metadata_context(
         session, family_identifier=family_id, user=user, project_id=project_id
     )
+    # Signing out is a supervisor's, a superuser's or an admin's (TF-06 H15). After the
+    # family's checkpoint, so a family the user may not see still answers 404 and a viewer or
+    # a reader is told they only read; before every gate, so an analyst is not sent through
+    # acknowledgements they cannot use.
+    require_sign_out_authority(user)
     # Off-scope gate (TF-06 H12), first and not overridable: a report on an assembly the
     # device is not validated on must not become a signed clinical record (#515). The
     # structured detail keeps the report page from offering the drift override for it.

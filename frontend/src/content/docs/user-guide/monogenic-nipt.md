@@ -97,7 +97,8 @@ reads and probabilities.
   reason.
 - Afterwards the signed version opens, with its report code. The NIPT report then shows **Amend
   sign-out** and says whether the data still matches the signed version.
-- A reader of the family's project cannot sign out, here or on the report: the button says why.
+- Only a supervisor of the family's project, a superuser or an administrator signs out. For an
+  analyst, a viewer or a reader the button is disabled, here and on the report, and says why.
 
 > **Screening, not diagnosis.** A NIPT call must be confirmed by an invasive diagnostic test. Check the
 > fetal fraction and the quality checks before you read any variant, and a de novo candidate's absence

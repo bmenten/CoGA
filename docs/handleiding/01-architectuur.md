@@ -71,9 +71,9 @@ De repository bevat twee applicatiemappen (`backend/`, `frontend/`), de document
 | `frontend/src/lib/` | Niet-visuele hulpcode: API-client, sessie, genotypes, ACMG-logica |
 | `frontend/src/content/docs/` | De in-app documentatie (gebruikersgids en referentiedocs), getoond op `/docs` |
 
-De routering gebruikt `react-router`. Alleen de aanmeldpagina's (`/login` en `/login/emergency`) en `/signup` zijn publiek. Alle andere schermen zitten achter de bewaker `RequireAuth`. De beheerschermen (o.a. `/admin/...`, `/package-import` en `/projects`) zitten daarbovenop achter `RequireAdmin`. Die bewakers zijn gebruiksgemak, geen beveiliging (hoofdstuk 2).
+De routering gebruikt `react-router`. Alleen de aanmeldpagina's (`/login` en `/login/emergency`) en `/signup` zijn publiek. Alle andere schermen zitten achter de bewaker `RequireAuth`. De beheerschermen (o.a. `/admin/...` en `/projects`) zitten daarbovenop achter `RequireAdmin`; het beheerdashboard `/admin` en de werkruimtes van een superuser (o.a. `/package-import`) achter `<RequireAdmin superuser />`, die ook een superuser doorlaat. Die bewakers zijn gebruiksgemak, geen beveiliging (hoofdstuk 2).
 
-Er is geen navigatiebalk. De hoofdonderdelen (*Projects*, *Variant explorer*, *Gene explorer*, *CNV explorer*, *Panels*, *Report codes*, voor een beheerder *Admin*, en *User guide*) staan in een menu achter een pijltje rechts in de kopbalk. Onder de kopbalk volgt een kruimelpad de route.
+Er is geen navigatiebalk. De hoofdonderdelen (*Projects*, *Variant explorer*, *Gene explorer*, *CNV explorer*, *Panels*, *Report codes*, voor een superuser of beheerder *Admin*, en *User guide*) staan in een menu achter een pijltje rechts in de kopbalk. Onder de kopbalk volgt een kruimelpad de route.
 
 **Waar in de code:** de routeboom in `frontend/src/index.tsx`; het menu in `frontend/src/components/HeaderMenu.tsx` en het kruimelpad in `Breadcrumbs.tsx`.
 
@@ -93,7 +93,7 @@ Wat de backend bij het opstarten doet (schema, eerste beheerder, referentiedata,
 
 ## Veiligheid en traceerbaarheid in de architectuur
 
-- **Toegangscontrole op de server.** Alle autorisatie gebeurt in de backend (`get_current_user`, `get_current_admin_user` en de projectscoping). De browser beslist niets.
+- **Toegangscontrole op de server.** Alle autorisatie gebeurt in de backend (`get_current_user`, `get_current_superuser`, `get_current_admin_user` en de projectscoping). De browser beslist niets.
 - **Elk verzoek laat een spoor na.** De request-logging-middleware schrijft elk HTTP-verzoek naar de append-only tabel `audit_log_events`. Het klinische auditspoor en de rapportondertekeningen zijn daarnaast append-only én hash-geketend: elke rij verwijst cryptografisch naar de vorige, zodat wijzigen of wissen zichtbaar wordt ([hoofdstuk 11](11-rapport-en-traceerbaarheid.md)).
 - **Geen schema-onthulling.** Buiten ontwikkeling staan `/docs`, `/redoc` en `/openapi.json` uit.
 - **Fail-closed configuratie.** De app start niet met zwakke geheimen of onveilige productie-instellingen (hoofdstuk 2).
@@ -117,7 +117,7 @@ Het veld `app_version` in de backend is de build-identiteit. Het wordt bij het b
 | `docs/application-scheme.md` | Architectuur en opslaggrenzen (Engels) |
 | `backend/app/main.py` | Bouwt de app: routers, CORS, middleware, opstartroutine |
 | `backend/app/routers/__init__.py` | Bundelt alle routers |
-| `backend/app/dependencies.py` | `get_current_user`, `get_current_admin_user` en tokenuitgifte |
+| `backend/app/dependencies.py` | `get_current_user`, `get_current_superuser`, `get_current_admin_user` en tokenuitgifte |
 | `backend/app/core/config.py` | Alle instellingen en de fail-closed controles |
 | `frontend/src/index.tsx` | Frontend-startpunt en routeboom met bewakers |
 | `frontend/src/lib/api.ts` | De gedeelde API-client: `/api`-basis, token en 401-afhandeling |

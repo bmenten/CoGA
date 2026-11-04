@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.postgres import get_postgres_session
 from ..dependencies import (
-    get_current_admin_user,
+    get_current_superuser,
     get_current_user,
 )
 from ..schemas import (
@@ -63,7 +63,7 @@ async def search_panelapp(
 async def check_panel_gene_symbols(
     payload: GeneSymbolCheckRequest,
     session: AsyncSession = Depends(get_postgres_session),
-    user: CurrentUser = Depends(get_current_admin_user),
+    user: CurrentUser = Depends(get_current_superuser),
 ) -> GeneSymbolCheckOut:
     """Which gene names a panel would get coordinates for, before an admin saves them. It only
     reads, but it is a POST (the names can be many) and so an admin's, like the edit it
@@ -75,7 +75,7 @@ async def check_panel_gene_symbols(
 async def import_panelapp_panel(
     request: PanelAppImportRequest,
     session: AsyncSession = Depends(get_postgres_session),
-    user: CurrentUser = Depends(get_current_admin_user),
+    user: CurrentUser = Depends(get_current_superuser),
 ) -> PanelAppImportResponse:
     return await import_panelapp_panel_data(session, request, user)
 
@@ -84,7 +84,7 @@ async def import_panelapp_panel(
 async def regenerate_mendeliome_panel(
     force: bool = Query(False, description="Create a new version even if the gene set is unchanged."),
     session: AsyncSession = Depends(get_postgres_session),
-    user: CurrentUser = Depends(get_current_admin_user),
+    user: CurrentUser = Depends(get_current_superuser),
 ) -> MendeliomeRegenerateResponse:
     return await regenerate_mendeliome(session, user, force=force)
 
@@ -121,7 +121,7 @@ async def get_panel(
 async def create_panel(
     panel: GenePanelCreate,
     session: AsyncSession = Depends(get_postgres_session),
-    user: CurrentUser = Depends(get_current_admin_user),
+    user: CurrentUser = Depends(get_current_superuser),
 ) -> GenePanelCreateResponse:
     return await create_panel_data(session, panel, user)
 
@@ -131,7 +131,7 @@ async def update_panel(
     panel_id: str,
     payload: GenePanelUpdate,
     session: AsyncSession = Depends(get_postgres_session),
-    user: CurrentUser = Depends(get_current_admin_user),
+    user: CurrentUser = Depends(get_current_superuser),
 ) -> GenePanelCreateResponse:
     return await update_panel_data(session, panel_id, payload, user)
 
@@ -140,6 +140,6 @@ async def update_panel(
 async def delete_panel(
     panel_id: str,
     session: AsyncSession = Depends(get_postgres_session),
-    user: CurrentUser = Depends(get_current_admin_user),
+    user: CurrentUser = Depends(get_current_superuser),
 ) -> None:
     await delete_panel_data(session, panel_id, user)

@@ -1,8 +1,9 @@
 """Project access levels (SEC-1): an analyst reads and changes a project's records, a reader
 only reads them.
 
-Each project member is an analyst or a reader (``project_users.access_level``); an admin has
-every right in every project. ``get_current_user`` records whether a request changes
+Each project member is an analyst or a reader (``project_users.access_level``); a member whose
+role is viewer only reads, whatever their level; a superuser or an admin has every right in every
+project. The members here who change records have the analyst role. ``get_current_user`` records whether a request changes
 something (its method, unless the route is marked ``changes_only_own_data``), and the family,
 sample and project checkpoints refuse a reader's change with a 403 that says why, after the
 visibility check, so a record outside the caller's projects still answers like an unknown one.
@@ -74,8 +75,8 @@ def _member(email: str, role: str, projects: list[str], readers: list[str]) -> C
 
 def _users() -> dict[str, CurrentUser]:
     return {
-        MIXED: _member(MIXED, "viewer", [PROJECT_A, PROJECT_B], [PROJECT_B]),
-        READER: _member(READER, "viewer", [PROJECT_B], [PROJECT_B]),
+        MIXED: _member(MIXED, "analyst", [PROJECT_A, PROJECT_B], [PROJECT_B]),
+        READER: _member(READER, "analyst", [PROJECT_B], [PROJECT_B]),
         ADMIN: _member(ADMIN, "admin", [], []),
     }
 
@@ -444,6 +445,28 @@ CHECKPOINT_ROUTES = {
     ("PUT", "/api/families/{family_id}/paraphase/{gene_symbol}/review"),
     ("POST", "/api/families/{family_id}/report/sign-out"),
 }
+# The configuration the analyses read, and package import: a superuser's or an admin's
+# (get_current_superuser). Every other route an admin's alone changes is get_current_admin_user's.
+SUPERUSER_CHANGE_ROUTES = {
+    ("POST", "/api/admin/variant-tags"),
+    ("PUT", "/api/admin/variant-tags/{tag_key}"),
+    ("DELETE", "/api/admin/variant-tags/{tag_key}"),
+    ("POST", "/api/admin/qc-thresholds/profiles"),
+    ("PUT", "/api/admin/qc-thresholds/{profile_key}"),
+    ("POST", "/api/families/{family_id}/small-variant-tags"),
+    ("PUT", "/api/families/{family_id}/small-variant-tags/{tag_key}"),
+    ("DELETE", "/api/families/{family_id}/small-variant-tags/{tag_key}"),
+    ("POST", "/api/panels/genes/check"),
+    ("POST", "/api/panels/import/panelapp"),
+    ("POST", "/api/panels/mendeliome/regenerate"),
+    ("POST", "/api/panels/"),
+    ("PUT", "/api/panels/{panel_id}"),
+    ("DELETE", "/api/panels/{panel_id}"),
+    ("POST", "/api/family-imports/manifest/discover"),
+    ("POST", "/api/family-imports/manifest/write"),
+    ("POST", "/api/family-imports"),
+    ("POST", "/api/family-imports/validate"),
+}
 # Sign-in and sign-up: no one is signed in yet.
 PUBLIC_ROUTES = {
     ("POST", "/api/auth/signup"),
@@ -458,11 +481,13 @@ def _change_routes() -> dict[tuple[str, str], Any]:
 
 
 def test_every_change_route_is_classified() -> None:
-    admin, own, checkpoint, public, unknown = set(), set(), set(), set(), set()
+    admin, superuser, own, checkpoint, public, unknown = set(), set(), set(), set(), set(), set()
     for key, route in _change_routes().items():
         calls = dependency_calls(route.dependant)
         if dependencies.get_current_admin_user in calls:
             admin.add(key)
+        elif dependencies.get_current_superuser in calls:
+            superuser.add(key)
         # Whether it signs its caller in comes before whether it changes only the caller's own
         # data: a route of the caller's own data that lost its sign-in is no longer one.
         elif dependencies.get_current_user not in calls:
@@ -474,15 +499,16 @@ def test_every_change_route_is_classified() -> None:
         else:
             unknown.add(key)
 
-    # A route that changes something must be an admin's, the caller's own data (marked
-    # changes_only_own_data) or refused a reader at a checkpoint: list a new one here once
-    # the e2e sweep shows how it answers a reader.
+    # A route that changes something must be an admin's, a superuser's, the caller's own data
+    # (marked changes_only_own_data) or refused a reader at a checkpoint: list a new one here
+    # once the e2e sweep shows how it answers a reader.
     assert unknown == set()
+    assert superuser == SUPERUSER_CHANGE_ROUTES
     assert own == OWN_DATA_ROUTES
     assert checkpoint == CHECKPOINT_ROUTES
     assert public == PUBLIC_ROUTES
     # A floor, so a walk that found no route cannot pass.
-    assert len(admin) >= 55, sorted(admin)
+    assert len(admin) >= 40, sorted(admin)
 
 
 # --------------------------------------------------------------------------- #

@@ -10,7 +10,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .core.azure import AzureTokenError, verify_azure_token
 from .core.config import LOCAL_TOKEN_ALGORITHM, settings
 from .core.postgres import get_postgres_session
-from .services.access_control import ADMIN_ROLES, CurrentUser, request_changes_records
+from .services.access_control import (
+    CurrentUser,
+    has_superuser_rights,
+    is_admin_user,
+    request_changes_records,
+)
 from .services.family_identifiers import request_value_problem
 from .services.metadata_service import get_auth_user_mapping_by_email, get_current_user_by_email
 from .services.user_accounts import is_emergency_admin, microsoft_account_user
@@ -188,6 +193,16 @@ async def get_current_user(
 
 
 async def get_current_admin_user(user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
-    if user.role not in ADMIN_ROLES:
+    """The signed-in user, when they are an admin: the whole administration."""
+    if not is_admin_user(user):
         raise HTTPException(status_code=403, detail="Admin access required")
+    return user
+
+
+async def get_current_superuser(user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
+    """The signed-in user, when they are a superuser or an admin: the configuration the
+    analyses read (gene panels, variant tags, filter presets, sequencing QC thresholds) and
+    package import."""
+    if not has_superuser_rights(user):
+        raise HTTPException(status_code=403, detail="Superuser access required")
     return user

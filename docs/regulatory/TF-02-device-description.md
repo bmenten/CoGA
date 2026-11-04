@@ -35,7 +35,7 @@ nuclear mitochondrial-disease testing from ONT long-read adaptive sampling).
 CoGA's regulated boundary **begins at validated digital inputs and ends at the closed, frozen
 analysis in CoGA**: *annotated VCF → closed, frozen analysis in CoGA; the clinical report is
 drafted and medically signed in the EPD and refers 1:1 to that analysis* (owner decision,
-2026-10-14). The analyst's sign-out is the analytical sign-off: it closes the analysis and
+2026-10-14). The sign-out, by a supervisor (TF-06 H15), is the analytical sign-off: it closes the analysis and
 freezes it into a signed version (§6, §8). The medical sign-off is not given in CoGA: the
 clinical report is drafted and medically signed in the hospital's electronic patient record
 (EPD), and each report refers to exactly one signed version (1:1). Everything upstream is out
@@ -111,7 +111,7 @@ The reference is written into the report by the person who drafts it.
 - Filtered/prioritized candidate-variant lists with annotations and internal/external frequencies.
 - Semi-automatic ACMG/AMP classification (5-class + VUS sub-tier), fully overridable, server-recomputed.
 - Application-specific derived calls: NIPT fetal-fraction + per-variant category and fetal-inheritance probabilities, triaged de novo candidates, per-gene recessive fetal risk and quality checks; PGT per-embryo ROI classification with QC. For the analyst's aneuploidy and large-SV review, each embryo's segment, copy-number and APCAD tracks (no automatic aneuploidy call).
-- A **signed-out analysis** (the family report, signed out by the analyst: the analytical sign-off) with a provenance footer, and an immutable clinical audit trail. Each signed version is frozen and content-hashed, rendered and printed from its frozen record, and downloadable; the live report says when it no longer matches the latest signed version (TF-06 H9). The clinical report is not a CoGA output: it is drafted and medically signed in the EPD and refers 1:1 to a signed version (§3).
+- A **signed-out analysis** (the family report, signed out by a supervisor: the analytical sign-off) with a provenance footer, and an immutable clinical audit trail. Each signed version is frozen and content-hashed, rendered and printed from its frozen record, and downloadable; the live report says when it no longer matches the latest signed version (TF-06 H9). The clinical report is not a CoGA output: it is drafted and medically signed in the EPD and refers 1:1 to a signed version (§3).
 
 **Which outputs are signed.** The sign-out freezes the family's analysis into one signed record,
 which the clinical report in the EPD quotes by its report code (§3; the owner's decision of
@@ -141,7 +141,7 @@ which the clinical report in the EPD quotes by its report code (§3; the owner's
 as above; TF-06 H5, H6, H9).
 
 > No output is an autonomous diagnosis. All outputs are reviewed by a qualified professional
-> (TF-01 §4). The analyst signs out the analysis in CoGA (the analytical sign-off), from the
+> (TF-01 §4). A supervisor signs out the analysis in CoGA (the analytical sign-off), from the
 > report page or, for a monogenic NIPT family, the NIPT page; the clinical report is medically
 > signed in the EPD (TF-01 §1).
 
@@ -173,7 +173,7 @@ These are product features and also risk controls / GSPR evidence:
 - **Per-family annotation/version manifest** and report **provenance footer**.
 - **Per-classification evidence snapshot** frozen at classification time; **evidence-drift detection** flags when underlying data changed.
 - **Immutable, append-only clinical audit trail** (who classified/tagged/edited/signed, with field-level deltas).
-- **Frozen, versioned, SHA-256 content-hashed case sign-out**, the analyst's analytical sign-off that closes the analysis; the clinical report in the EPD refers 1:1 to a signed version (§3). Amendments create new versions; signed snapshots are never changed.
+- **Frozen, versioned, SHA-256 content-hashed case sign-out**, the analytical sign-off (by a supervisor) that closes the analysis; the clinical report in the EPD refers 1:1 to a signed version (§3). Amendments create new versions; signed snapshots are never changed.
   - Sign-out is **refused**, with no override, for a family on an assembly outside the validated set, and while the family's data is being written: an import of it queued or running, or another write holding its variant-write locks (a sign-out shares those locks while it reads its snapshot, TF-06 H16).
   - Sign-out is **blocked**, until the analyst records a reason, by unacknowledged evidence drift, by a failed or unverifiable Sample QC, and by an incomplete import (an import that failed for some datasets, or an import, upload or deletion that did not finish, REQ-TRACE-013).
 - A signed version is **rendered and printed from its frozen record** alone, and says what that record does not hold (REQ-TRACE-007). The live report is labelled as not the signed version and is **checked against the latest signed version**: it says when the two differ. The signed version can be downloaded.

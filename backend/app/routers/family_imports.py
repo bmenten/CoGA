@@ -1,11 +1,11 @@
 import asyncio
 from functools import partial
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.postgres import get_postgres_session
-from ..dependencies import get_current_admin_user
+from ..dependencies import get_current_superuser
 from ..schemas import (
     FamilyPackageCandidateOut,
     FamilyPackageManifestBuildOut,
@@ -29,16 +29,23 @@ from ..services.family_package_jobs import (
 )
 from ..services.family_package_source import scan_family_import_packages
 from ..services.family_package_validation import validate_family_package
-from ..services.access_control import CurrentUser
+from ..services.access_control import CurrentUser, is_admin_user
 
 router = APIRouter(prefix="/family-imports", tags=["family_imports"])
+
+# Overwriting an existing family replaces its data: an admin's, as every replacement and deletion
+# of a family's data is (REQ-SEC-002). A superuser imports new families and adds missing datasets.
+OVERWRITE_ADMIN_ONLY_DETAIL = (
+    "Only an administrator can overwrite an existing family: import with update to add the "
+    "missing datasets, or ask an administrator."
+)
 
 
 @router.get("", response_model=list[FamilyPackageImportJobOut])
 async def list_family_package_import_jobs(
     limit: int = 25,
     session: AsyncSession = Depends(get_postgres_session),
-    user: CurrentUser = Depends(get_current_admin_user),
+    user: CurrentUser = Depends(get_current_superuser),
 ) -> list[FamilyPackageImportJobOut]:
     return await list_family_import_jobs(
         session,
@@ -51,7 +58,7 @@ async def list_family_package_import_jobs(
 async def discover_family_import_manifest(
     payload: FamilyPackageManifestBuildRequest,
     session: AsyncSession = Depends(get_postgres_session),
-    user: CurrentUser = Depends(get_current_admin_user),
+    user: CurrentUser = Depends(get_current_superuser),
 ) -> FamilyPackageManifestBuildOut:
     del user
     db_sample_ids = await existing_family_sample_ids(session, payload.family_id)
@@ -62,7 +69,7 @@ async def discover_family_import_manifest(
 async def write_family_import_manifest(
     payload: FamilyPackageManifestWriteRequest,
     session: AsyncSession = Depends(get_postgres_session),
-    user: CurrentUser = Depends(get_current_admin_user),
+    user: CurrentUser = Depends(get_current_superuser),
 ) -> FamilyPackageManifestWriteOut:
     del user
     fallback_ped_text = await db_pedigree_fallback(session, payload.family_id)
@@ -78,8 +85,10 @@ async def write_family_import_manifest(
 async def start_family_package_import(
     payload: FamilyPackageImportCreate,
     session: AsyncSession = Depends(get_postgres_session),
-    user: CurrentUser = Depends(get_current_admin_user),
+    user: CurrentUser = Depends(get_current_superuser),
 ) -> FamilyPackageImportJobOut:
+    if payload.conflict_mode == "overwrite" and not payload.dry_run and not is_admin_user(user):
+        raise HTTPException(status_code=403, detail=OVERWRITE_ADMIN_ONLY_DETAIL)
     return await queue_family_import_job(
         session,
         folder_path=payload.folder_path,
@@ -95,7 +104,7 @@ async def start_family_package_import(
 async def validate_family_import_package(
     payload: FamilyPackageImportCreate,
     session: AsyncSession = Depends(get_postgres_session),
-    user: CurrentUser = Depends(get_current_admin_user),
+    user: CurrentUser = Depends(get_current_superuser),
 ) -> FamilyPackageValidationOut:
     del user
     # When targeting an existing family, fall back to its database-configured
@@ -124,7 +133,7 @@ async def validate_family_import_package(
 
 @router.get("/packages", response_model=list[FamilyPackageCandidateOut])
 async def list_available_family_packages(
-    user: CurrentUser = Depends(get_current_admin_user),
+    user: CurrentUser = Depends(get_current_superuser),
 ) -> list[FamilyPackageCandidateOut]:
     del user
     # Offloaded: scanning an s3:// root makes blocking network calls.
@@ -136,7 +145,7 @@ async def list_available_family_packages(
 async def get_family_package_import_job(
     job_id: str,
     session: AsyncSession = Depends(get_postgres_session),
-    user: CurrentUser = Depends(get_current_admin_user),
+    user: CurrentUser = Depends(get_current_superuser),
 ) -> FamilyPackageImportJobOut:
     return await get_family_import_job(
         session,

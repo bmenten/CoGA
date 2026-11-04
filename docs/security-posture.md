@@ -54,7 +54,8 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   the account's e-mail address and user name from the token, so nothing a user owns is found by
   either. It is found by the account's id:
   - an import job keeps its requester (`family_import_jobs.requested_by_id`); the worker runs
-    the import as that account while it is an active administrator (*Session tokens*, below);
+    the import as that account while it is an active superuser or administrator (*Session
+    tokens*, below);
   - so do a gene-reference refresh and a clinical CNV knowledgebase rebuild (`requested_by_id`
     on `gene_info_refresh_jobs` and `clinical_cnv_kb_jobs`, SEC-35);
   - a user's filter presets belong to the account (`owner_id`).
@@ -64,25 +65,51 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   shows, the address and user name as they were when it was made.
 - ✅ **Without Microsoft sign-in** (development), the password sign-in issues JWT bearer tokens
   (HS256) for every account. See `backend/app/dependencies.py` (`get_current_user`,
-  `get_current_admin_user`). Roles are `admin`, `superuser` and `viewer`. Every admin check
-  goes through `ADMIN_ROLES` (`services/access_control.py`), so a superuser is an admin
-  everywhere; `test_admin_role_checks.py` fails on any comparison with the literal `"admin"`. A
-  `viewer` is an analyst or a reader in each of their projects (below).
+  `get_current_superuser`, `get_current_admin_user`).
+- ✅ **Five global roles, each with the rights of the ones below it** (the owner's decision of
+  2026-11-04; `users.role`, `services/access_control.py`):
+  - a **viewer** reads the records of their projects and changes none of them, whatever their
+    access level there (`403`, "your role is viewer"); every new account starts as one;
+  - an **analyst** also analyses them in the projects where they are an analyst: reviews, tags,
+    classifications, phenotypes, workflow fields, new families;
+  - a **supervisor** also signs an analysis out (TF-06 H15, below);
+  - a **superuser** also has every project, member or not, and the configuration the analyses
+    read: gene panels, variant tags, filter presets, sequencing QC thresholds, and package import
+    (`get_current_superuser`, `403 Superuser access required`);
+  - an **admin** also has the rest of the administration (`get_current_admin_user`,
+    `403 Admin access required`): accounts and roles, projects, reference data, data and
+    deletions, uploads, the annotation manifest, audit logs.
+
+  Every check asks `access_control` by what it guards (`is_admin_user`, `has_superuser_rights`,
+  `role_changes_records`, `may_sign_out`); `test_admin_role_checks.py` fails on any comparison
+  of a role with a literal role name elsewhere. The project access level (below) only takes
+  rights away. A role CoGA does not know has no right at all. Revision 0015 made each viewer of
+  a database from before an analyst, as a viewer could then change the records of each project
+  where it was an analyst; superusers and admins kept their role.
+- ✅ **Signing out is a supervisor's (TF-06 H15).** `sign_out_report` calls
+  `require_sign_out_authority` after the family's checkpoint (so a family the user may not see
+  still answers 404, and a viewer or reader is still told they only read) and before every
+  gate: an analyst is refused with `403` and the reason, and nothing is written. The family
+  record says whether the caller may sign it out (`can_sign_out`), so the report pages disable
+  *Sign out* with the reason; the server's refusal is the guard. Which supervisors the
+  laboratory authorises to sign out stays a procedural control (TF-15 §3 item 8).
 - ✅ **Roles are set in the UI, and audited.** An administrator sets an account's global role
-  (viewer, superuser, admin) on the *Users* page (`PATCH /api/auth/users/{id}` with `role`),
+  (viewer, analyst, supervisor, superuser, admin) on the *Users* page
+  (`PATCH /api/auth/users/{id}` with `role`; any other value is refused, `422`),
   confirming each change. Nobody changes their own role. The emergency administrator keeps its
   role and cannot be deactivated. Each change is audited, field by field
   (`request_meta.account_change`, §2). Project access stays on the project pages. A role
-  change takes effect at the account's next request, also for the jobs it queued as an
-  administrator that have not started: an import, gene-reference refresh or knowledgebase
-  rebuild of an account that is no longer an administrator is not run (*Session tokens*,
-  below).
+  change takes effect at the account's next request, also for the jobs it queued that have not
+  started: an import of an account that is no longer a superuser or an admin, and a
+  gene-reference refresh or knowledgebase rebuild of one that is no longer an admin, is not run
+  (*Session tokens*, below).
 - ✅ **Access is scoped by project.** Every family, sample and variant endpoint resolves
   access through one checkpoint: `build_family_metadata_context`
   (`services/family_metadata_context.py`) → `get_accessible_family_mapping`
   (`services/metadata_service.py`), which asks `user_can_access_metadata_projects`
-  (`services/access_control.py`); for samples, `get_accessible_sample_mapping`. A non-admin
-  reaches only the families and samples of their own projects; admins see all. List endpoints
+  (`services/access_control.py`); for samples, `get_accessible_sample_mapping`. A user below
+  superuser reaches only the families and samples of their own projects; superusers and admins
+  see all. List endpoints
   filter in SQL, not afterwards. `backend/tests/test_access_control.py` covers the cross-user
   and multi-project cases.
 - ✅ **A record outside your projects looks unknown.** A family or sample of another project
@@ -95,17 +122,18 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   carries (`main._answer_record_not_visible`); the admin *Audit logs* page flags it (§2). The
   same holds for deleting another user's filter preset (`404 Preset not found`, row naming
   `filter_preset`), and for another user's job in the import-job service
-  (`404 Family import job not found`, `import_job`), though only an admin may read a job
-  through the API (SEC-9).
+  (`404 Family import job not found`, `import_job`), though only a superuser or an admin may
+  read a job through the API (SEC-9).
   `backend/tests/e2e/test_e2e_inaccessible_records_look_unknown.py` calls every route with a
   family or sample ID in its path, on real Postgres, for a family of another project and for an
   unknown one, and requires the same status and body. Refusals for the caller's role
   (`403 Admin access required`) are unchanged: they say nothing about the record.
 - ✅ **Read-only project access: analyst or reader (SEC-1).** Each project membership has an
   access level (`project_users.access_level`):
-  - an **analyst** reads and changes the project's records;
-  - a **reader** (a student, say) only reads them;
-  - an admin has every right in every project, member or not.
+  - an **analyst** reads and changes the project's records, as far as their role lets them (a
+    viewer changes nothing);
+  - a **reader** (a student, say) only reads them, whatever their role;
+  - a superuser or an admin has every right in every project, member or not.
 
   One person may be an analyst in one project and a reader in another. An analyst of any one
   of a record's projects may change it. An admin sets each member's level on the *Projects &
@@ -116,10 +144,11 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   OPTIONS, unless its route is marked `changes_only_own_data` (`services/access_control.py`:
   the caller's own filter presets and interface events). The family, sample and project
   checkpoints (`get_accessible_family_mapping`, `get_accessible_sample_mapping`, and the Family
-  Builder's `_resolve_accessible_project_id`) then refuse a reader's change with `403` and the
-  reason (`require_change_access`). They do so after the visibility check, so a record outside
+  Builder's `_resolve_accessible_project_id`) then refuse the change of a reader, or of a
+  viewer, with `403` and the reason (`require_change_access`). They do so after the visibility check, so a record outside
   the caller's projects still looks unknown. Every route that names a record passes there, so
-  none can skip the check. A reader is also refused a family's clinical audit trail (`403`).
+  none can skip the check. A reader and a viewer are also refused a family's clinical audit
+  trail (`403`).
 
   A reader may view and search their projects' families, variants, tracks, reports and signed
   versions, export CSV, print the report and a signed version, and save their own filter
@@ -130,16 +159,16 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   what a reader may not use; the server's refusal is the guard.
 
   `test_project_access_levels.py` keeps the catalogue of every route that changes something
-  (an admin's, the caller's own data, or refused at a checkpoint).
+  (an admin's, a superuser's, the caller's own data, or refused at a checkpoint).
   `e2e/test_e2e_project_reader_role.py` calls each one as a reader on real Postgres. It then
   calls every route that reads a family or sample as a reader and as an analyst, and requires
   the same answer, except for the audit trail.
 
   A case is assigned to, and recorded as reviewed by, an active analyst of one of the family's
-  projects or an active admin. The family page's pickers read the family's own list
+  projects whose role is not viewer, or an active superuser or admin. The family page's pickers read the family's own list
   (`GET /api/families/{family_id}/assignable-users`, answered like the family: 404 outside the
-  caller's projects). A save naming a reader, a user outside the family's projects or an
-  inactive account is refused (`422`, saying why) and changes nothing. A value the family
+  caller's projects). A save naming a reader, a viewer, a user outside the family's projects or
+  an inactive account is refused (`422`, saying why) and changes nothing. A value the family
   already holds stays until it is changed, so a member made a reader stays named, marked
   *(not eligible)* (`test_case_assignee_eligibility.py`,
   `e2e/test_e2e_case_assignee_eligibility.py`).
@@ -158,12 +187,13 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   which families exist or who may see them. Every route that takes a path or query value signs
   its caller in, except the QC-report download, which checks its own signed link first
   (`test_request_control_characters.py`).
-- ✅ **Admin-only changes.** These require `get_current_admin_user`: structure changes and
-  deletions of families and data (member and structure edits, region of interest, project
-  assignment, family and sample deletions), replacing a family's annotation manifest,
-  reference data, imports and uploads. An analyst of a family's project can edit its
-  phenotypes, reviews and workflow fields, and sign its report out; a reader can do none of
-  these. Each phenotype change, also one an import makes, is an event on the family's clinical
+- ✅ **Admin-only and superuser changes.** These require `get_current_admin_user`: structure
+  changes and deletions of families and data (member and structure edits, region of interest,
+  project assignment, family and sample deletions), replacing a family's annotation manifest,
+  reference data and uploads. These require `get_current_superuser`: gene panels, variant tag
+  definitions, sequencing QC thresholds and package import. An analyst of a family's project can
+  edit its phenotypes, reviews and workflow fields; a supervisor can also sign its report out; a
+  reader and a viewer can do none of these. Each phenotype change, also one an import makes, is an event on the family's clinical
   audit trail. Every member saves their own filter presets.
 - ✅ **A UUID a request names a record by is read once.** asyncpg's uuid codec takes only hex
   digits and hyphens. So a path or query value that was no UUID
@@ -360,10 +390,12 @@ two things bound the damage an XSS could do:
   requests, SEC-32).
 
 Every request re-checks `is_active`, so deactivating a user ends their access at once, and the
-role, so a role change takes effect at the account's next request (`get_current_admin_user`).
-The jobs an administrator queues are held to the same (owner's decision, 2026-10-28, SEC-35).
-Each keeps its requester by the account's id, and is not run when that account is deactivated,
-no longer an administrator, or gone when the job starts. The job then ends failed, saying why,
+role, so a role change takes effect at the account's next request (`get_current_superuser`,
+`get_current_admin_user`). The jobs an administrator queues are held to the same (owner's
+decision, 2026-10-28, SEC-35). Each keeps its requester by the account's id, and is not run
+when that account is deactivated, no longer holds the role the job needs (an import: superuser
+or admin; a gene-reference refresh or knowledgebase rebuild: admin), or gone when the job
+starts. The job then ends failed, saying why,
 with nothing written; the log names neither the account nor its address:
 
 - an import job (`family_package_import.run_family_import_job`), which runs as the account
@@ -437,10 +469,12 @@ for an emergency, and off afterwards. The sign-in page does not link to it, so n
 to type a Microsoft password into CoGA.
 
 **The account list is for administrators (SEC-33).** `GET /api/users` returns the names and
-e-mail addresses of every active account, to administrators only (`get_current_admin_user`).
+e-mail addresses of every active account, to administrators only (`get_current_admin_user`;
+a superuser is refused too).
 Anyone else gets the 403 of the other admin routes; an inactive administrator gets the 401 of
 every inactive account. No screen reads it: the family page's assignee and reviewer pickers
-read the family's own list, its projects' analysts and the admins (§1), and the *Users* page
+read the family's own list, its projects' analysts, the superusers and the admins (§1), and
+the *Users* page
 reads `GET /api/auth/users`. This ends the accepted residual *staff roster* (owner's decision,
 2026-10-28): any signed-in user used to get the list, so with Microsoft sign-in a member of the
 directory who could sign in without being assigned to the lab's group (deployment-gcp.md

@@ -7,7 +7,7 @@ the same in plain words in the in-app reference
 ([clinical-traceability](../frontend/src/content/docs/clinical-traceability.md), at
 `/docs/reference/clinical-traceability`).
 
-**What sign-out is.** CoGA's sign-out is the analyst's analytical sign-off: it closes the analysis
+**What sign-out is.** CoGA's sign-out is the analytical sign-off, by a supervisor: it closes the analysis
 and freezes it into a signed version. It is not the medical sign-off. The device boundary is
 *annotated VCF → closed, frozen analysis in CoGA* ([TF-02 §3](regulatory/TF-02-device-description.md)).
 The clinical report is drafted and medically signed in the hospital's electronic patient record
@@ -325,7 +325,7 @@ checked.
 
 ## Sign-out
 
-A sign-out is the analyst's analytical sign-off (*What sign-out is*, above). The clinical report
+A sign-out is the analytical sign-off (*What sign-out is*, above). The clinical report
 in the EPD refers to the signed version by its report code (*The report code* below).
 
 `POST /families/{family_id}/report/sign-out` freezes:
@@ -1079,8 +1079,9 @@ anchors can be deleted without trace unless a copy is kept outside the database.
   of the gene reference, PanelApp and the clinical CNVs are frozen beside it (`reference_data`,
   `gene_panels`), not in it, so `GET …/annotation-manifest` and the live report's footer do not
   show them.
-- Any analyst of the family's project, and any admin, can sign out; a reader cannot. Sign-out is
-  not limited to a signer role.
+- A supervisor of the family's project, and any superuser or admin, can sign out; an analyst, a
+  viewer and a reader cannot (TF-06 H15). CoGA checks the role, not which supervisors the
+  laboratory has authorised: an administrator gives the role.
 - CoGA does not see the clinical report in the EPD. Nothing in CoGA checks that the report refers
   to a signed version, which one, or that it says what that version holds; whoever drafts the
   report writes the reference into it. The report code makes that reference short and refuses a

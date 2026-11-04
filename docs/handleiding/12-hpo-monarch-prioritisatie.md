@@ -28,7 +28,7 @@ De release is die welke het bestand zelf vermeldt (zijn `data-version`). De term
 **Veiligheid.**
 
 - Zoeken en lezen vraagt een login; importeren en synchroniseren alleen een beheerder.
-- De fenotypes van een familie toevoegen, wijzigen en verwijderen mag een analist van het project van de familie of een beheerder, geen lezer (hoofdstuk 2).
+- De fenotypes van een familie toevoegen, wijzigen en verwijderen mag een analist van het project van de familie met de rol `analyst` of hoger, een superuser of een beheerder; geen lezer en geen viewer (hoofdstuk 2).
 - Elke wijziging komt in het klinische auditspoor (hoofdstuk 11). Ook die van een pakketimport: per lid, op naam van wie de import startte.
 - Het bestandspad in een syncverzoek moet binnen een toegelaten map liggen. Zo kan een verzoek geen willekeurig bestand op de server laten inlezen.
 - Een fenotype kan niet naar een onbekende term wijzen (de verwijzing naar `hpo_term` is afgedwongen). Een import slaat onbekende termen over en meldt ze.

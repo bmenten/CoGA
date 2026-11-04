@@ -34,7 +34,7 @@ from ..schemas import (
     UserRefOut,
 )
 from .metadata_service import get_accessible_family_mapping, get_family_record
-from .access_control import ADMIN_ROLES, ANALYST, READER, CurrentUser
+from .access_control import ANALYST, CHANGING_ROLES, READER, SUPERUSER_ROLES, CurrentUser
 
 _HEX_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 _DEFAULT_STATUS_COLOR = "#5b6b79"
@@ -234,26 +234,34 @@ async def list_assignable_users(session: AsyncSession) -> list[UserRefOut]:
 
 
 # The users a family's case may be assigned to, or recorded as reviewed by: every active
-# administrator, and every active analyst of one of the family's projects. A reader of the
-# projects is not one of them: a reader reads the family and changes nothing (SEC-1).
+# superuser and administrator, and every active analyst of one of the family's projects whose
+# role lets them change records. A viewer, and a reader of the projects, is not one of them: they
+# read the family and change nothing (SEC-1).
 _FAMILY_ASSIGNABLE_USERS = text(
     """
     SELECT u.id::text AS id, u.username, u.email, u.first_name, u.last_name
     FROM users u
     WHERE u.is_active
       AND (
-          u.role IN :admin_roles
-          OR EXISTS (
-              SELECT 1
-              FROM project_users pu
-              WHERE pu.user_id = u.id
-                AND pu.access_level = :analyst
-                AND pu.project_id IN :project_ids
+          u.role IN :superuser_roles
+          OR (
+              u.role IN :changing_roles
+              AND EXISTS (
+                  SELECT 1
+                  FROM project_users pu
+                  WHERE pu.user_id = u.id
+                    AND pu.access_level = :analyst
+                    AND pu.project_id IN :project_ids
+              )
           )
       )
     ORDER BY lower(u.first_name), lower(u.last_name), lower(u.username), u.id
     """
-).bindparams(bindparam("admin_roles", expanding=True, type_=String()), uuid_list_bindparam("project_ids"))
+).bindparams(
+    bindparam("superuser_roles", expanding=True, type_=String()),
+    bindparam("changing_roles", expanding=True, type_=String()),
+    uuid_list_bindparam("project_ids"),
+)
 
 # A user a save names for the case, with what decides whether they may be named: whether
 # the account is active, its role, and its access level in each of the family's projects
@@ -281,7 +289,9 @@ _CANDIDATE_USER = text(
 
 # What the user a save names would be, per field, in the refusal.
 _CASE_ROLE = {"assigned_to": "assigned this case", "reviewed_by": "recorded as this case's reviewer"}
-_ELIGIBLE_USERS_HINT = "Choose an analyst of one of the family's projects or an administrator."
+_ELIGIBLE_USERS_HINT = (
+    "Choose an analyst of one of the family's projects, a superuser or an administrator."
+)
 
 
 def _family_project_ids(family_row: Mapping[str, Any]) -> list[str]:
@@ -300,7 +310,8 @@ async def list_family_assignable_users(
     result = await session.execute(
         _FAMILY_ASSIGNABLE_USERS,
         {
-            "admin_roles": sorted(ADMIN_ROLES),
+            "superuser_roles": sorted(SUPERUSER_ROLES),
+            "changing_roles": sorted(CHANGING_ROLES),
             "analyst": ANALYST,
             "project_ids": uuid_values(_family_project_ids(family_row)),
         },
@@ -315,11 +326,14 @@ def _shown_name(row: RowMapping) -> str:
 
 def _why_not_assignable(candidate: RowMapping) -> str | None:
     """Why this user may not be named for a family's case, or None when they may: an active
-    administrator, or an active analyst of one of the family's projects."""
+    superuser or administrator, or an active analyst of one of the family's projects whose role
+    lets them change records."""
     if not candidate.get("is_active"):
         return "their account is not active"
-    if candidate.get("role") in ADMIN_ROLES:
+    if candidate.get("role") in SUPERUSER_ROLES:
         return None
+    if candidate.get("role") not in CHANGING_ROLES:
+        return "their role is viewer"
     levels = set(candidate.get("access_levels") or [])
     if ANALYST in levels:
         return None

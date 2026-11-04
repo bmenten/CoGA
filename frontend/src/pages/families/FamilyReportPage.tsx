@@ -203,6 +203,8 @@ const LiveFamilyReport: React.FC = () => {
   // A reader in the family's projects reads and prints the report and its signed versions,
   // but signs nothing out and does not see the audit trail (SEC-1).
   const readOnly = Boolean(family?.read_only);
+  // A supervisor or higher who may change the family signs it out (TF-06 H15).
+  const canSignOut = Boolean(family?.can_sign_out);
 
   const members = useMemo<FamilyMember[]>(
     () => ((family?.members as FamilyMember[] | undefined) ?? []).filter((m) => m.active !== false),
@@ -484,10 +486,10 @@ const LiveFamilyReport: React.FC = () => {
         { search: reportViewSearch(location.search, { version }) },
         { state: { signedOut: { version } } },
       ),
-    { readOnly },
+    { readOnly, canSignOut },
   );
   const signOutBlocked = signOutRefusal(
-    { readOnly, assemblyValidated, signoutsFailed, signoutsPending },
+    { readOnly, canSignOut, assemblyValidated, signoutsFailed, signoutsPending },
     'report',
   );
 

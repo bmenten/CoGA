@@ -127,7 +127,7 @@ def test_a_viewer_may_not_read_or_change_the_limits(signed_in) -> None:
 
     for response in responses:
         assert response.status_code == 403, response.text
-        assert response.json() == {"detail": "Admin access required"}
+        assert response.json() == {"detail": "Superuser access required"}
     assert session.statements == []
     assert session.commits == 0
 

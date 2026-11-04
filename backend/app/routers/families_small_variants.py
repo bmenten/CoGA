@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.csv_export import csv_document, export_response_headers
 from ..core.postgres import get_postgres_session
-from ..dependencies import get_current_admin_user, get_current_user
+from ..dependencies import get_current_admin_user, get_current_superuser, get_current_user
 from ..schemas import (
     SmallVariantFilterPresetCreate,
     SmallVariantFilterPresetOut,
@@ -471,7 +471,7 @@ async def create_small_variant_tag(
     payload: SmallVariantTagDefinitionCreate,
     project_id: str | None = None,
     session: AsyncSession = Depends(get_postgres_session),
-    user: CurrentUser = Depends(get_current_admin_user),
+    user: CurrentUser = Depends(get_current_superuser),
 ) -> SmallVariantTagDefinitionOut:
     context = await build_family_metadata_context(
         session,
@@ -498,7 +498,7 @@ async def update_small_variant_tag(
     payload: SmallVariantTagDefinitionUpdate,
     project_id: str | None = None,
     session: AsyncSession = Depends(get_postgres_session),
-    user: CurrentUser = Depends(get_current_admin_user),
+    user: CurrentUser = Depends(get_current_superuser),
 ) -> SmallVariantTagDefinitionOut:
     context = await build_family_metadata_context(
         session,
@@ -522,7 +522,7 @@ async def delete_small_variant_tag(
     tag_key: str,
     project_id: str | None = None,
     session: AsyncSession = Depends(get_postgres_session),
-    user: CurrentUser = Depends(get_current_admin_user),
+    user: CurrentUser = Depends(get_current_superuser),
 ) -> Response:
     context = await build_family_metadata_context(
         session,

@@ -220,7 +220,9 @@ def test_a_uuid_of_no_record_is_looked_up_by_its_canonical_text_and_nothing_is_w
 @pytest.mark.parametrize("value", [NOT_A_UUID, UNKNOWN, CANONICAL])
 def test_a_viewer_is_refused_before_the_id_is_read(api: _Api, route: str, value: str) -> None:
     api.user = _user("viewer")
-    assert _send(api, route, value) == (403, {"detail": "Admin access required"})
+    # The NIPT artifacts are an admin's; package import is a superuser's too.
+    refusal = "Superuser access required" if route == "job" else "Admin access required"
+    assert _send(api, route, value) == (403, {"detail": refusal})
     assert api.session.calls == []
 
 

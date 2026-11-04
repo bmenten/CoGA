@@ -319,11 +319,18 @@ const FamilyNiptReportPage: React.FC = () => {
   } = useReportSignOut(
     familyId,
     (version) => navigate(signedVersionLink(version), { state: { signedOut: { version } } }),
-    // A reader in the family's project signs nothing out (SEC-1).
-    { readOnly: Boolean(family?.read_only) },
+    // A viewer or a reader in the family's project signs nothing out (SEC-1), nor does a user
+    // below supervisor (TF-06 H15).
+    { readOnly: Boolean(family?.read_only), canSignOut: Boolean(family?.can_sign_out) },
   );
   const signOutBlocked = signOutRefusal(
-    { readOnly: Boolean(family?.read_only), assemblyValidated, signoutsFailed, signoutsPending },
+    {
+      readOnly: Boolean(family?.read_only),
+      canSignOut: Boolean(family?.can_sign_out),
+      assemblyValidated,
+      signoutsFailed,
+      signoutsPending,
+    },
     'analysis',
   );
 

@@ -175,7 +175,7 @@ def test_a_classification_freezes_its_frequencies_and_scores_and_drifts_when_the
     monkeypatch.setattr(rss, "finding_reviews_for_record", no_finding_reviews)
     monkeypatch.setattr(family_variants, "_hydrate_small_variant_outs", _no_hydration)
 
-    user = SimpleNamespace(username="analyst", email="analyst@example.org", id=None)
+    user = SimpleNamespace(username="analyst", email="analyst@example.org", id=None, role="supervisor")
     # PS3 strong (4) + PM2 supporting (1) + PP3 supporting (1) = 6: likely pathogenic.
     classification = SmallVariantReviewUpdate(
         classification="Likely pathogenic - class 4",
@@ -474,7 +474,7 @@ def test_a_classification_freezes_its_consequence_lof_call_and_missense_z_and_dr
     monkeypatch.setattr(rss, "finding_reviews_for_record", no_finding_reviews)
     monkeypatch.setattr(family_variants, "_hydrate_small_variant_outs", _no_hydration)
 
-    user = SimpleNamespace(username="analyst", email="analyst@example.org", id=None)
+    user = SimpleNamespace(username="analyst", email="analyst@example.org", id=None, role="supervisor")
     # PM2 supporting (1) + PP2 supporting (1) + PP3 moderate (2) + PP4 supporting (1) = 5: VUS.
     missense_classification = SmallVariantReviewUpdate(
         classification="VUS - class 3",
@@ -785,7 +785,7 @@ def test_a_classification_freezes_the_vcfs_missense_z_when_the_genes_profile_hol
     monkeypatch.setattr(cds, "build_family_metadata_context", _ctx)
     monkeypatch.setattr(family_variants, "_hydrate_small_variant_outs", _no_hydration)
 
-    user = SimpleNamespace(username="analyst", email="analyst@example.org", id=None)
+    user = SimpleNamespace(username="analyst", email="analyst@example.org", id=None, role="supervisor")
     # PM2 supporting (1) + PP2 supporting (1) = 2: VUS.
     classification = SmallVariantReviewUpdate(
         classification="VUS - class 3",

@@ -1,5 +1,7 @@
 Administrator tools sit behind admin access. **Admin**, in the top-bar menu or on the dashboard, opens
-the [admin dashboard](/admin), grouped in six areas.
+the [admin dashboard](/admin), grouped in six areas. A superuser sees five of its pages: **Gene panels**,
+**Sequencing QC thresholds**, **Package import**, **Variant tags** and **Preset filters**. Every other
+page is an administrator's alone.
 
 ### Reference Data
 
@@ -35,27 +37,37 @@ the [admin dashboard](/admin), grouped in six areas.
 - **Users** — accounts, how each signs in (Microsoft or a password), roles and activation, and each
   user's projects with their level there (*analyst* or *reader*).
   - A colleague's first Microsoft sign-in creates their account: a viewer in no project.
-  - Set an account's role in its **Role** list. CoGA asks you to confirm; you cannot change your own.
+  - Set an account's role in its **Role** list; each role's tooltip says what it may do. CoGA asks you
+    to confirm; you cannot change your own.
+  - The roles, lowest first, each with every right of the ones before it: a **viewer** reads the
+    records of their projects and changes none; an **analyst** also analyses them (reviews, tags,
+    classifications, HPO terms, the case's workflow, new families); a **supervisor** also signs an
+    analysis out; a **superuser** also has every project, member or not, and the gene panels, variant
+    tags, preset filters, sequencing QC thresholds and package import; an **admin** has the whole
+    administration. Give the supervisor role only to those the laboratory authorises to sign out.
   - Activate a new account here. Deactivate one to revoke access without deleting its history. You
     cannot deactivate your own: another administrator does that.
   - When you deactivate an account, an import, a gene reference sync or a clinical CNV knowledgebase
     rebuild it asked for that has not started yet is not run, and a rebuild not yet loaded loads
-    nothing: its job ends *failed*, saying why. The same holds once you set an administrator's role
-    to viewer.
+    nothing: its job ends *failed*, saying why. The same holds once the account loses the role the job
+    needs: superuser or administrator for an import (administrator for one that overwrites a family),
+    administrator for the other two.
 - **Projects & access** — the projects (each tied to an assembly) and which families, samples and users
   belong to them. A user sees only the data of their projects; the cohort counts in the explorers
   follow the same scope.
   - Tick a user to make them a member, and choose their level next to their name. A member added
     starts as an analyst.
-  - An **analyst** reads and changes the project's records.
+  - An **analyst** reads the project's records and changes them as far as their role allows: a
+    viewer changes nothing, whatever their level.
   - A **reader** (a student, say) reads, searches, exports and prints them and saves their own filter
     presets, but changes nothing and does not see the audit trail.
-  - Administrators have every right in every project.
-  - A case can be assigned to, or reviewed by, an analyst of its projects or an administrator. A case
-    assigned to someone you make a reader keeps them, marked *(not eligible)*, until it is changed.
+  - Superusers and administrators have every right in every project, member or not.
+  - A case can be assigned to, or reviewed by, an analyst of its projects whose role is not viewer, a
+    superuser or an administrator. A case assigned to someone who became a reader or a viewer keeps
+    them, marked *(not eligible)*, until it is changed.
   - Deleting a project asks first and says what it unlinks. Its families and samples stay, but lose
     their link to it; its members lose the access it gave them; its review tags are deleted. A family
-    in no other project can then be opened by administrators only.
+    in no other project can then be opened by superusers and administrators only.
 
 ### Data Management
 
@@ -82,7 +94,8 @@ the [admin dashboard](/admin), grouped in six areas.
 - **Sequencing QC thresholds** — the warning and error cut-offs per assay behind the **Seq. QC** chip.
   None ship by default. A metric without a cut-off reads as *not assessed*, and a sample with no
   cut-off for any of its metrics shows *Not run* on the chip.
-- **Package import** — import a family package (see [Case setup and data import](#case-setup)).
+- **Package import** — import a family package (see [Case setup and data import](#case-setup)). A
+  superuser imports too; only an administrator overwrites an existing family.
 
 ### Variant Configuration
 

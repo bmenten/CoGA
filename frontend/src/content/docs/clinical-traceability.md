@@ -5,7 +5,7 @@ ties the reported result to what produced it: the annotation and reference versi
 variants, each classification and its evidence. Sign-out freezes this into a signed record that can
 never change.
 
-**Sign-out is the analyst's analytical sign-off, not the medical one.** It closes and freezes the
+**Sign-out is the analytical sign-off, not the medical one.** It closes and freezes the
 analysis. The clinical report is drafted and medically signed in the hospital's electronic patient
 record (EPD), outside CoGA. It refers to exactly one signed version of the analysis, by its **report
 code** (below). CoGA does not see the EPD report and does not check that reference.
@@ -158,8 +158,8 @@ applied in the variant explorer is not written for any family.
 
 Each entry is written together with the change itself, and entries can never be changed or deleted.
 This is the record of clinical actions; the record of who opened what (**Admin → Audit logs**) is
-separate. The trail is for analysts and administrators: a reader of the family's project does not see
-it.
+separate. The trail is for analysts, superusers and administrators: a viewer, or a reader of the
+family's project, does not see it.
 
 The trail opens on its 200 most recent entries. When it holds more, it says how many it shows
 (*Showing the 200 most recent of 450 events; the older ones are not shown.*), and **Show older
@@ -360,10 +360,11 @@ stopped import's warning names of that sample alone: nothing of a sample that is
 
 ### Who may sign out
 
-Only people the laboratory has authorised to sign out an analysis. CoGA lets any analyst of the
-family's project press **Sign out report** (a reader cannot); it does not check that authority itself.
-It records who signed each version, in the signed record and in the audit trail. The medical sign-off
-of the clinical report is given in the EPD, under its own signing rights.
+A supervisor of the family's project, a superuser or an administrator. For an analyst, a viewer or a
+reader, **Sign out report** is disabled and says why, and CoGA refuses the sign-out. The laboratory
+still decides who gets the supervisor role: an administrator gives it only to those it authorises to
+sign out an analysis. CoGA records who signed each version, in the signed record and in the audit
+trail. The medical sign-off of the clinical report is given in the EPD, under its own signing rights.
 
 ### Amendments
 
