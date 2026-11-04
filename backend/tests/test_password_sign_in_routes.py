@@ -303,7 +303,16 @@ def _signed_up(client: TestClient, monkeypatch: pytest.MonkeyPatch, *, existing:
     monkeypatch.setattr(auth_router, "get_signup_throttle_state", allowed)
     monkeypatch.setattr(auth_router, "record_signup_attempt", record)
     monkeypatch.setattr(auth_router, "create_user_account", create)
-    monkeypatch.setattr(auth_router, "notify_admin", lambda email: recorded.__setitem__("notified", email))
+    async def administrators(_session):
+        return ["the.admin@example.org"]
+
+    def notify(account, recipients):
+        assert (account.sign_in, recipients) == ("password", ["the.admin@example.org"])
+        recorded["notified"] = account.email
+        return True
+
+    monkeypatch.setattr(auth_router, "administrator_addresses", administrators)
+    monkeypatch.setattr(auth_router, "notify_account_request", notify)
 
     response = client.post("/api/auth/signup", json=_payload())
     return response, recorded["ip"], recorded["notified"]

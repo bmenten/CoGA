@@ -2,6 +2,20 @@
 // Do not edit: change the backend's Pydantic models and regenerate. CI fails when this
 // file is out of date (`python scripts/generate-api-types.py --check`).
 
+/**
+ * Whether CoGA e-mails the administrators about an account that waits for approval, and
+ * to whom: every active administrator, when a mail server (SMTP_HOST) is set.
+ */
+export interface AccountRequestMailOut {
+  enabled: boolean;
+  recipients: string[];
+}
+
+/** The test mail went out to these addresses. */
+export interface AccountRequestMailTestOut {
+  recipients: string[];
+}
+
 export interface AcmgClassificationPayload {
   criteria?: AcmgCriterionSelection[];
   point_total?: number | null;
@@ -3957,6 +3971,8 @@ export interface UserRead {
   projects: string[];
   reader_projects: string[];
   created_at: string;
+  activated_at: string | null;
+  archived_at: string | null;
 }
 
 /** Minimal user reference used for assignment/reviewer pickers. */
@@ -3971,6 +3987,7 @@ export interface UserRefOut {
 export interface UserUpdate {
   is_active?: boolean | null;
   role?: "viewer" | "analyst" | "supervisor" | "superuser" | "admin" | null;
+  archived?: boolean | null;
   projects?: string[] | null;
 }
 

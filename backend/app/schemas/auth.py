@@ -47,6 +47,11 @@ class UserRead(BaseModel):
     projects: List[str] = Field(default_factory=list)
     reader_projects: List[str] = Field(default_factory=list)
     created_at: datetime
+    # When the account was first active; None while it waits for an administrator's approval
+    # (a sign-up, a first CAS sign-in): only such an account can be deleted.
+    activated_at: Optional[datetime] = None
+    # When an administrator archived the account (it is then inactive); None otherwise.
+    archived_at: Optional[datetime] = None
 
 
 # The global roles (the CHECK on users.role), lowest first, each with every right of the ones
@@ -59,7 +64,23 @@ UserRole = Literal["viewer", "analyst", "supervisor", "superuser", "admin"]
 class UserUpdate(BaseModel):
     is_active: Optional[bool] = None
     role: Optional[UserRole] = None
+    # True archives the account, which deactivates it; False restores it, still inactive.
+    archived: Optional[bool] = None
     projects: Optional[List[str]] = None
+
+
+class AccountRequestMailOut(BaseModel):
+    """Whether CoGA e-mails the administrators about an account that waits for approval, and
+    to whom: every active administrator, when a mail server (SMTP_HOST) is set."""
+
+    enabled: bool
+    recipients: List[str] = Field(default_factory=list)
+
+
+class AccountRequestMailTestOut(BaseModel):
+    """The test mail went out to these addresses."""
+
+    recipients: List[str]
 
 
 class Token(BaseModel):

@@ -36,6 +36,8 @@ from .common import (
     GeneLocation,
 )
 from .auth import (
+    AccountRequestMailOut,
+    AccountRequestMailTestOut,
     UserCreate,
     UserLogin,
     UserRead,
@@ -433,6 +435,8 @@ __all__ = [
     "ApiId",
     "ApiDocumentModel",
     "GeneLocation",
+    "AccountRequestMailOut",
+    "AccountRequestMailTestOut",
     "UserCreate",
     "UserLogin",
     "UserRead",

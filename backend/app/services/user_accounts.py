@@ -211,16 +211,17 @@ async def microsoft_account_user(
         return user, None
     if profile is None:
         raise HTTPException(status_code=403, detail=source.no_email_detail)
+    now = datetime.now(timezone.utc)
     created = await session.execute(
         text(
             """
             INSERT INTO users (
                 username, hashed_password, role, email, first_name, last_name, affiliation,
-                is_active, metadata, created_at, azure_object_id
+                is_active, metadata, created_at, azure_object_id, activated_at
             )
             VALUES (
                 :username, :hashed_password, :role, :email, :first_name, :last_name, '',
-                :is_active, '{}'::jsonb, :created_at, CAST(:object_id AS uuid)
+                :is_active, '{}'::jsonb, :created_at, CAST(:object_id AS uuid), :activated_at
             )
             ON CONFLICT DO NOTHING
             RETURNING id::text
@@ -233,9 +234,12 @@ async def microsoft_account_user(
             "email": profile["email"],
             "first_name": profile.get("first_name", ""),
             "last_name": profile.get("last_name", ""),
-            "created_at": datetime.now(timezone.utc),
+            "created_at": now,
             "object_id": identity.object_id,
             "is_active": source.active,
+            # An account that waits for approval was never active until an administrator
+            # activates it; only then may it no longer be deleted.
+            "activated_at": now if source.active else None,
         },
     )
     user_id = created.scalar_one_or_none()

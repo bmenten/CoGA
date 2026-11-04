@@ -1,6 +1,8 @@
 // Pins the admin Users page: it reads /auth/users and /projects, lists each account with how it
-// signs in and its project names, and its two writes each PATCH one field: the activation
-// checkbox is_active, the role select (once confirmed) the role (SEC-4).
+// signs in, when it was added, where it stands and its project names. Each write is asked for
+// confirmation first and then PATCHes one field (the activation checkbox is_active, the role
+// select the role, Archive and Restore archived) or DELETEs an account that was never active
+// (SEC-4).
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClientProvider } from '@tanstack/react-query';
@@ -12,11 +14,13 @@ import api from '../../../lib/api';
 import { createTestQueryClient } from '../../../test/createTestQueryClient';
 
 vi.mock('../../../lib/api', () => ({
-  default: { get: vi.fn(), patch: vi.fn() },
+  default: { get: vi.fn(), patch: vi.fn(), post: vi.fn(), delete: vi.fn() },
 }));
 
 const mockedGet = vi.mocked(api.get);
 const mockedPatch = vi.mocked(api.patch);
+const mockedPost = vi.mocked(api.post);
+const mockedDelete = vi.mocked(api.delete);
 
 type TestUser = {
   id: string;
@@ -25,11 +29,15 @@ type TestUser = {
   last_name?: string;
   affiliation?: string;
   role: string;
-  sign_in?: 'microsoft' | 'password';
+  sign_in?: 'microsoft' | 'cas' | 'password';
   is_active: boolean;
   projects: string[];
   // The projects among `projects` where the user only reads (SEC-1).
   reader_projects?: string[];
+  created_at: string;
+  // None while the account waits for approval; set once it was first active.
+  activated_at?: string | null;
+  archived_at?: string | null;
 };
 
 const ANN: TestUser = {
@@ -42,6 +50,8 @@ const ANN: TestUser = {
   sign_in: 'microsoft',
   is_active: true,
   projects: ['p1', 'p2'],
+  created_at: '2026-01-10T09:00:00Z',
+  activated_at: '2026-01-10T09:00:00Z',
 };
 // A fresh self-registration: inactive until an administrator approves it.
 const PENDING: TestUser = {
@@ -51,6 +61,8 @@ const PENDING: TestUser = {
   sign_in: 'password',
   is_active: false,
   projects: [],
+  created_at: '2026-11-03T14:30:00Z',
+  activated_at: null,
 };
 const SURNAME_ONLY: TestUser = {
   id: 'u3',
@@ -61,8 +73,36 @@ const SURNAME_ONLY: TestUser = {
   is_active: true,
   projects: ['p3'],
   reader_projects: ['p3'],
+  created_at: '2026-02-01T08:00:00Z',
+  activated_at: '2026-02-01T08:00:00Z',
 };
 const USERS = [ANN, PENDING, SURNAME_ONLY];
+// A former colleague: active once, archived since.
+const ARCHIVED: TestUser = {
+  id: 'u4',
+  email: 'former@example.com',
+  first_name: 'Former',
+  last_name: 'Colleague',
+  role: 'analyst',
+  sign_in: 'cas',
+  is_active: false,
+  projects: [],
+  created_at: '2025-05-01T08:00:00Z',
+  activated_at: '2025-05-01T08:00:00Z',
+  archived_at: '2026-10-01T08:00:00Z',
+};
+// Deactivated after it was active: it is archived, never deleted.
+const DEACTIVATED: TestUser = {
+  id: 'u5',
+  email: 'left@example.com',
+  role: 'analyst',
+  sign_in: 'password',
+  is_active: false,
+  projects: [],
+  created_at: '2025-06-01T08:00:00Z',
+  activated_at: '2025-06-02T08:00:00Z',
+};
+const MAIL = { enabled: true, recipients: ['ann@example.com'] };
 
 // As /projects serves them (ProjectDashboardOut): a project's id is `_id`. The page read `id`,
 // which the backend never sends, so it listed no user's projects (ENG-7).
@@ -72,13 +112,20 @@ const PROJECTS = [
   { _id: 'p3', name: 'Oncology' },
 ];
 
-// Serve the two lists the page reads; any other GET is a request it should not make.
-const serve = (users: TestUser[]) => {
+// Serve the lists the page reads; any other GET is a request it should not make.
+const serve = (users: TestUser[], mail: unknown = MAIL) => {
   mockedGet.mockImplementation((url: string) => {
     if (url === '/auth/users') return Promise.resolve({ data: users });
     if (url === '/projects') return Promise.resolve({ data: PROJECTS });
+    if (url === '/auth/account-request-mail') return Promise.resolve({ data: mail });
     return Promise.reject(new Error(`unexpected GET ${url}`));
   });
+};
+
+// The open confirmation, and its confirming button.
+const confirmDialog = async (name: RegExp | string, button: string) => {
+  const dialog = await screen.findByRole('dialog', { name });
+  await userEvent.click(within(dialog).getByRole('button', { name: button }));
 };
 
 const renderPage = () => {
@@ -103,6 +150,8 @@ describe('UserListPage', () => {
   beforeEach(() => {
     mockedGet.mockReset();
     mockedPatch.mockReset();
+    mockedPost.mockReset();
+    mockedDelete.mockReset();
     serve(USERS);
   });
 
@@ -191,6 +240,9 @@ describe('UserListPage', () => {
     // What the server holds after the change; the page must show that, not a local guess.
     serve([{ ...ANN, is_active: false }, PENDING, SURNAME_ONLY]);
     await user.click(within(rowOf('ann@example.com')).getByRole('checkbox'));
+    // Nothing is sent before the change is confirmed.
+    expect(mockedPatch).not.toHaveBeenCalled();
+    await confirmDialog('Deactivate ann@example.com?', 'Deactivate');
 
     await waitFor(() =>
       expect(within(rowOf('ann@example.com')).getByRole('checkbox')).not.toBeChecked(),
@@ -212,6 +264,7 @@ describe('UserListPage', () => {
     await screen.findByRole('table');
 
     await user.click(within(rowOf('new.registrant@example.com')).getByRole('checkbox'));
+    await confirmDialog('Activate new.registrant@example.com?', 'Activate');
 
     await waitFor(() =>
       expect(mockedPatch).toHaveBeenCalledWith('/auth/users/u2', { is_active: true }),
@@ -226,6 +279,7 @@ describe('UserListPage', () => {
     await screen.findByRole('table');
 
     await user.click(within(rowOf('new.registrant@example.com')).getByRole('checkbox'));
+    await confirmDialog('Activate new.registrant@example.com?', 'Activate');
 
     // An id must not be able to steer the PATCH at another endpoint (#521).
     await waitFor(() =>
@@ -249,6 +303,7 @@ describe('UserListPage', () => {
 
     const annBox = within(rowOf('ann@example.com')).getByRole('checkbox');
     await user.click(annBox);
+    await confirmDialog('Deactivate ann@example.com?', 'Deactivate');
 
     await waitFor(() => expect(mockedPatch).toHaveBeenCalledTimes(1));
     expect(annBox).toBeDisabled();
@@ -271,6 +326,7 @@ describe('UserListPage', () => {
 
     const annBox = within(rowOf('ann@example.com')).getByRole('checkbox');
     await user.click(annBox);
+    await confirmDialog('Deactivate ann@example.com?', 'Deactivate');
 
     await waitFor(() =>
       expect(queryClient.getMutationCache().getAll()[0]?.state.status).toBe('error'),
@@ -291,14 +347,20 @@ describe('UserListPage', () => {
     expect(screen.getByRole('checkbox', { name: 'Active: ann@example.com' })).toBeInTheDocument();
   });
 
-  it('has no project-access editor: the activation checkbox and the role select are the only controls', async () => {
+  it('has no project-access editor: an account has its activation, its role, Archive and, never active, Delete', async () => {
     renderPage();
     await screen.findByRole('table');
 
     expect(screen.getAllByRole('checkbox')).toHaveLength(USERS.length);
     expect(screen.getAllByRole('combobox')).toHaveLength(USERS.length);
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+    const table = screen.getByRole('table');
+    expect(within(table).getAllByRole('button').map((button) => button.getAttribute('aria-label'))).toEqual([
+      'Archive: new.registrant@example.com',
+      'Delete: new.registrant@example.com',
+      'Archive: ann@example.com',
+      'Archive: peeters@example.com',
+    ]);
     expect(
       screen.getByText(/Project access is managed from\s+the project settings view/),
     ).toBeInTheDocument();
@@ -342,15 +404,11 @@ describe('UserListPage', () => {
   });
 
   describe('the role of an account (SEC-4)', () => {
-    let confirmSpy: ReturnType<typeof vi.spyOn>;
-
     beforeEach(() => {
       localStorage.clear();
-      confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
     });
 
     afterEach(() => {
-      confirmSpy.mockRestore();
       localStorage.clear();
     });
 
@@ -390,7 +448,10 @@ describe('UserListPage', () => {
       serve([ANN, PENDING, { ...SURNAME_ONLY, role: 'admin' }]);
       await user.selectOptions(screen.getByRole('combobox', { name: 'Role: peeters@example.com' }), 'admin');
 
-      expect(confirmSpy).toHaveBeenCalledWith('Change the role of peeters@example.com from viewer to admin?');
+      const dialog = await screen.findByRole('dialog', { name: 'Change the role of peeters@example.com?' });
+      expect(dialog).toHaveTextContent('From viewer to admin.');
+      expect(mockedPatch).not.toHaveBeenCalled();
+      await user.click(within(dialog).getByRole('button', { name: 'Change role' }));
       await waitFor(() => expect(mockedPatch).toHaveBeenCalledWith('/auth/users/u3', { role: 'admin' }));
       expect(mockedPatch).toHaveBeenCalledTimes(1);
       expect(await screen.findByRole('status')).toHaveTextContent('peeters@example.com is now admin.');
@@ -401,13 +462,13 @@ describe('UserListPage', () => {
 
     it('sends nothing when the change is not confirmed', async () => {
       const user = userEvent.setup();
-      confirmSpy.mockReturnValue(false);
       renderPage();
       await screen.findByRole('table');
 
       await user.selectOptions(screen.getByRole('combobox', { name: 'Role: peeters@example.com' }), 'superuser');
+      await confirmDialog('Change the role of peeters@example.com?', 'Cancel');
 
-      expect(confirmSpy).toHaveBeenCalledTimes(1);
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
       expect(mockedPatch).not.toHaveBeenCalled();
       expect(screen.getByRole('combobox', { name: 'Role: peeters@example.com' })).toHaveValue('viewer');
     });
@@ -444,6 +505,7 @@ describe('UserListPage', () => {
       await screen.findByRole('table');
 
       await user.selectOptions(screen.getByRole('combobox', { name: 'Role: ann@example.com' }), 'viewer');
+      await confirmDialog('Change the role of ann@example.com?', 'Change role');
 
       expect(await screen.findByRole('alert')).toHaveTextContent(
         'Could not change the role of ann@example.com: The emergency administrator’s role cannot be changed.',
@@ -459,10 +521,219 @@ describe('UserListPage', () => {
       await screen.findByRole('table');
 
       await user.selectOptions(screen.getByRole('combobox', { name: 'Role: peeters@example.com' }), 'admin');
+      await confirmDialog('Change the role of peeters@example.com?', 'Change role');
 
       await waitFor(() =>
         expect(mockedPatch).toHaveBeenCalledWith('/auth/users/..%2Fprojects%2Fp1', { role: 'admin' }),
       );
+    });
+  });
+
+  describe('accounts waiting for approval, archived and deleted (SEC-4)', () => {
+    it('says when each account was added and where it stands, the accounts waiting for approval first', async () => {
+      serve([ANN, DEACTIVATED, PENDING, SURNAME_ONLY]);
+      renderPage();
+      await screen.findByRole('table');
+
+      const emails = screen
+        .getAllByRole('row')
+        .slice(1)
+        .map((row) => within(row).getAllByRole('cell')[0].textContent);
+      expect(emails).toEqual(['new.registrant@example.com', 'ann@example.com', 'left@example.com', 'peeters@example.com']);
+      expect(screen.getByText('1 account waits for approval.')).toBeInTheDocument();
+
+      const added = within(rowOf('new.registrant@example.com')).getByText(
+        (_text, element) => element?.tagName === 'TIME',
+      );
+      expect(added).toHaveAttribute('dateTime', '2026-11-03T14:30:00Z');
+      expect(added.textContent).toMatch(/2026/);
+      expect(within(rowOf('new.registrant@example.com')).getByText('Waiting for approval')).toBeInTheDocument();
+      expect(within(rowOf('ann@example.com')).getByText('Active')).toBeInTheDocument();
+      expect(within(rowOf('left@example.com')).getByText('Inactive')).toBeInTheDocument();
+    });
+
+    it('offers Delete only for an account that was never active', async () => {
+      serve([ANN, DEACTIVATED, PENDING]);
+      renderPage();
+      await screen.findByRole('table');
+
+      expect(screen.getByRole('button', { name: 'Delete: new.registrant@example.com' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Delete: left@example.com' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Delete: ann@example.com' })).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Archive: left@example.com' })).toBeEnabled();
+    });
+
+    it('deletes an account waiting for approval only once confirmed, and shows the reloaded list', async () => {
+      const user = userEvent.setup();
+      mockedDelete.mockResolvedValue({ data: null });
+      renderPage();
+      await screen.findByRole('table');
+
+      await user.click(screen.getByRole('button', { name: 'Delete: new.registrant@example.com' }));
+      const dialog = await screen.findByRole('dialog', { name: 'Delete new.registrant@example.com?' });
+      expect(dialog).toHaveTextContent('never activated');
+      expect(dialog).toHaveTextContent('This cannot be undone.');
+      expect(mockedDelete).not.toHaveBeenCalled();
+
+      serve([ANN, SURNAME_ONLY]);
+      await user.click(within(dialog).getByRole('button', { name: 'Delete account' }));
+
+      await waitFor(() => expect(mockedDelete).toHaveBeenCalledWith('/auth/users/u2'));
+      expect(await screen.findByRole('status')).toHaveTextContent('new.registrant@example.com is deleted.');
+      await waitFor(() => expect(screen.queryByRole('cell', { name: 'new.registrant@example.com' })).not.toBeInTheDocument());
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
+
+    it('sends no deletion when it is cancelled', async () => {
+      const user = userEvent.setup();
+      renderPage();
+      await screen.findByRole('table');
+
+      await user.click(screen.getByRole('button', { name: 'Delete: new.registrant@example.com' }));
+      await confirmDialog('Delete new.registrant@example.com?', 'Cancel');
+
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      expect(mockedDelete).not.toHaveBeenCalled();
+    });
+
+    it('says why a refused deletion was refused', async () => {
+      const user = userEvent.setup();
+      mockedDelete.mockRejectedValue({
+        response: {
+          status: 409,
+          data: { detail: 'Only an account that was never activated can be deleted. Archive this one instead.' },
+        },
+      });
+      renderPage();
+      await screen.findByRole('table');
+
+      await user.click(screen.getByRole('button', { name: 'Delete: new.registrant@example.com' }));
+      await confirmDialog('Delete new.registrant@example.com?', 'Delete account');
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(
+        'Could not delete new.registrant@example.com: Only an account that was never activated can be deleted.',
+      );
+      expect(screen.getByRole('cell', { name: 'new.registrant@example.com' })).toBeInTheDocument();
+    });
+
+    it('archives an account only once confirmed, PATCHing archived and nothing else', async () => {
+      const user = userEvent.setup();
+      mockedPatch.mockResolvedValue({ data: { ...SURNAME_ONLY, is_active: false, archived_at: '2026-11-04T10:00:00Z' } });
+      renderPage();
+      await screen.findByRole('table');
+
+      await user.click(screen.getByRole('button', { name: 'Archive: peeters@example.com' }));
+      const dialog = await screen.findByRole('dialog', { name: 'Archive peeters@example.com?' });
+      expect(dialog).toHaveTextContent('deactivated');
+      expect(mockedPatch).not.toHaveBeenCalled();
+
+      serve([ANN, PENDING, { ...SURNAME_ONLY, is_active: false, archived_at: '2026-11-04T10:00:00Z' }]);
+      await user.click(within(dialog).getByRole('button', { name: 'Archive' }));
+
+      await waitFor(() => expect(mockedPatch).toHaveBeenCalledWith('/auth/users/u3', { archived: true }));
+      expect(await screen.findByRole('status')).toHaveTextContent('peeters@example.com is archived.');
+      // An archived account leaves the list until it is asked for.
+      await waitFor(() => expect(screen.queryByRole('cell', { name: 'peeters@example.com' })).not.toBeInTheDocument());
+      expect(screen.getByRole('checkbox', { name: 'Show archived accounts (1)' })).not.toBeChecked();
+    });
+
+    it('lists the archived accounts when asked, each to be restored and none to be activated as it is', async () => {
+      const user = userEvent.setup();
+      serve([ANN, ARCHIVED]);
+      mockedPatch.mockResolvedValue({ data: { ...ARCHIVED, archived_at: null } });
+      renderPage();
+      await screen.findByRole('table');
+
+      expect(screen.queryByRole('cell', { name: 'former@example.com' })).not.toBeInTheDocument();
+      await user.click(screen.getByRole('checkbox', { name: 'Show archived accounts (1)' }));
+
+      const row = rowOf('former@example.com');
+      expect(within(row).getByText('Archived')).toBeInTheDocument();
+      const active = within(row).getByRole('checkbox', { name: 'Active: former@example.com' });
+      expect(active).toBeDisabled();
+      expect(active).toHaveAttribute('title', 'Restore the account from the archive before activating it.');
+      // It was active once: it is never deleted.
+      expect(within(row).queryByRole('button', { name: /Delete/ })).not.toBeInTheDocument();
+
+      await user.click(within(row).getByRole('button', { name: 'Restore: former@example.com' }));
+      await confirmDialog('Restore former@example.com from the archive?', 'Restore');
+
+      await waitFor(() => expect(mockedPatch).toHaveBeenCalledWith('/auth/users/u4', { archived: false }));
+      expect(await screen.findByRole('status')).toHaveTextContent(
+        'former@example.com is restored from the archive. It stays inactive until you activate it.',
+      );
+    });
+
+    it('does not let the signed-in administrator archive their own account', async () => {
+      localStorage.setItem('username', 'ann@example.com');
+      try {
+        renderPage();
+        await screen.findByRole('table');
+
+        const own = screen.getByRole('button', { name: 'Archive: ann@example.com' });
+        expect(own).toBeDisabled();
+        expect(own).toHaveAttribute('title', 'You cannot archive your own account.');
+      } finally {
+        localStorage.clear();
+      }
+    });
+
+    it('names an account waiting for approval in the activation’s confirmation, and what activating it does', async () => {
+      const user = userEvent.setup();
+      serve([{ ...PENDING, first_name: 'New', last_name: 'Registrant', affiliation: 'UZ Gent' }]);
+      renderPage();
+      await screen.findByRole('table');
+
+      await user.click(screen.getByRole('checkbox', { name: 'Active: new.registrant@example.com' }));
+      const dialog = await screen.findByRole('dialog', { name: 'Activate new.registrant@example.com?' });
+      expect(dialog).toHaveTextContent('New Registrant (new.registrant@example.com), UZ Gent.');
+      expect(dialog).toHaveTextContent('Signs in with a password');
+      expect(dialog).toHaveTextContent('as a viewer');
+      expect(dialog).toHaveTextContent('it can no longer be deleted, only archived');
+      await user.keyboard('{Escape}');
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      expect(mockedPatch).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('the mail about an account waiting for approval', () => {
+    it('names the administrators it reaches, and sends them a test mail', async () => {
+      const user = userEvent.setup();
+      mockedPost.mockResolvedValue({ data: { recipients: ['ann@example.com'] } });
+      renderPage();
+      await screen.findByRole('table');
+
+      expect(
+        await screen.findByText(/e-mailed to every active administrator: ann@example.com\./),
+      ).toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: 'Send a test mail' }));
+
+      expect(mockedPost).toHaveBeenCalledWith('/auth/account-request-mail/test');
+      expect(await screen.findByRole('status')).toHaveTextContent('A test mail went to ann@example.com.');
+    });
+
+    it('says why the test mail was not sent', async () => {
+      const user = userEvent.setup();
+      mockedPost.mockRejectedValue({
+        response: { status: 502, data: { detail: 'The mail server could not take the mail (ConnectionRefusedError).' } },
+      });
+      renderPage();
+      await screen.findByRole('table');
+
+      await user.click(await screen.findByRole('button', { name: 'Send a test mail' }));
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(
+        'The test mail was not sent: The mail server could not take the mail (ConnectionRefusedError).',
+      );
+    });
+
+    it('says no mail goes out without a mail server, and offers no test', async () => {
+      serve(USERS, { enabled: false, recipients: ['ann@example.com'] });
+      renderPage();
+      await screen.findByRole('table');
+
+      expect(await screen.findByText(/no mail server is set \(SMTP_HOST\)/)).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Send a test mail' })).not.toBeInTheDocument();
     });
   });
 });
