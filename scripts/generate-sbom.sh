@@ -17,6 +17,13 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PLATFORM="linux/amd64"
 PYTHON_IMAGE="python:3.12"
 NODE_IMAGE="node:22"
+if [ "${1:-}" != "--native" ]; then
+  # At the digests ci/pinned-images.Dockerfile pins, which Dependabot refreshes.
+  # shellcheck source=scripts/pinned-image.sh
+  source "${REPO_ROOT}/scripts/pinned-image.sh"
+  PYTHON_IMAGE="$(pinned_image "${PYTHON_IMAGE}")"
+  NODE_IMAGE="$(pinned_image "${NODE_IMAGE}")"
+fi
 CYCLONEDX_PY_VERSION="7.3.0"            # pip: cyclonedx-bom
 CYCLONEDX_NPM_VERSION="5.0.0"           # npm: @cyclonedx/cyclonedx-npm
 

@@ -9,7 +9,11 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=scripts/pinned-image.sh
+source "${REPO_ROOT}/scripts/pinned-image.sh"
 PYTHON_IMAGE="python:3.12"
+# At the digest ci/pinned-images.Dockerfile pins, which Dependabot refreshes.
+PYTHON_IMAGE="$(pinned_image "${PYTHON_IMAGE}")"
 PLATFORM="linux/amd64"  # match CI/prod arch (see compile-requirements.sh)
 REQ_FILE="${1:-requirements-dev.txt}"
 

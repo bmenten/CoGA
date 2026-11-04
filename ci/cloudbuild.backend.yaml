@@ -8,8 +8,10 @@
 #   gcloud builds submit --config=ci/cloudbuild.backend.yaml \
 #     --substitutions=_IMAGE=<url>,_APP_VERSION=<v>,_GIT_SHA=<sha> .
 
+# The builder at the tag and digest ci/pinned-images.Dockerfile pins, which Dependabot
+# refreshes (backend/tests/test_pinned_images.py holds the two alike).
 steps:
-  - name: gcr.io/cloud-builders/docker
+  - name: gcr.io/cloud-builders/docker:20.10.24@sha256:fbc05705e6f24467e40ae8a4097ab9b8fae1116551f838fa2c55f4367427fc36
     args:
       - build
       - -f

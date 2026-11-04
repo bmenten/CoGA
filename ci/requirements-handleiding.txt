@@ -1,0 +1,7 @@
+# The handleiding generator's one dependency (docs/handleiding/build_site.py), as the
+# catalogue job of .github/workflows/ci.yml installs it. Locally:
+#   pip install -r ci/requirements-handleiding.txt
+# Pinned here so that Dependabot's pip ecosystem proposes its updates
+# (.github/dependabot.yml, directory /ci); backend/tests/test_pinned_images.py fails until
+# the workflow installs the version pinned here.
+markdown==3.10.3

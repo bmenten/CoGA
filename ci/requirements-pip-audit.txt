@@ -1,0 +1,5 @@
+# pip-audit, as the deps job of .github/workflows/security.yml installs it (pip install
+# pip-audit==<version>). Pinned here so that Dependabot's pip ecosystem proposes its
+# updates (.github/dependabot.yml, directory /ci); backend/tests/test_pinned_images.py
+# fails until the workflow installs the version pinned here.
+pip-audit==2.9.0
