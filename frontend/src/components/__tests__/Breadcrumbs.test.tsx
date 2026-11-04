@@ -69,6 +69,30 @@ test('shows the clinical CNV name in the breadcrumb instead of its id', () => {
   expect(explorerLink).toHaveAttribute('href', '/cnv-explorer');
 });
 
+test('shows the gene panel name in the breadcrumb instead of its id', () => {
+  const panelId = '6f1c2a40-1111-4222-8333-944455556666';
+  const queryClient = new QueryClient();
+  queryClient.setQueryData(['panel', panelId], { _id: panelId, name: 'Cardiomyopathy', genes: [], regions: [] });
+
+  render(
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={[`/panels/${panelId}`]}>
+        <Breadcrumbs />
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+
+  expect(screen.getByText('Cardiomyopathy')).toHaveClass('breadcrumb-current');
+  expect(screen.queryByText(panelId)).not.toBeInTheDocument();
+  expect(screen.getByText('Panels').closest('a')).toHaveAttribute('href', '/panels');
+});
+
+test('shows the gene panel id until its page has read the panel', () => {
+  renderAt('/panels/6f1c2a40-1111-4222-8333-944455556666');
+
+  expect(screen.getByText('6f1c2a40-1111-4222-8333-944455556666')).toHaveClass('breadcrumb-current');
+});
+
 test.each([['mitochondrial-dna', 'Mitochondrial DNA'], ['ancestry', 'Ancestry']])('reads %s in sentence case and shows identifiers as they are stored', (route, label) => {
   renderAt(`/families/demo_family/${route}`);
 

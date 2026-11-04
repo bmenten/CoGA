@@ -323,6 +323,18 @@ describe('Layout footer: the device label', () => {
     ).toBeInTheDocument();
   });
 
+  it("names no person's address: the configured problem-report route is the way to reach the lab", () => {
+    renderLayout();
+    const footer = screen.getByRole('contentinfo');
+
+    expect(within(footer).queryByRole('link', { name: 'Contact' })).not.toBeInTheDocument();
+    expect(
+      within(footer)
+        .getAllByRole('link')
+        .filter((link) => link.getAttribute('href')?.startsWith('mailto:')),
+    ).toEqual([]);
+  });
+
   it('sends a problem report to the configured CMGGMC route, not to GitHub', () => {
     vi.stubEnv('VITE_PROBLEM_REPORT_URL', CMGGMC_ROUTE);
     renderLayout();
@@ -348,7 +360,7 @@ describe('Layout footer: the device label', () => {
     ).toEqual([]);
     // The rest of the footer is unchanged.
     expect(within(footer).getByRole('link', { name: 'New features' })).toBeInTheDocument();
-    expect(within(footer).getByRole('link', { name: 'Contact' })).toBeInTheDocument();
+    expect(within(footer).getByRole('link', { name: 'GitHub' })).toBeInTheDocument();
   });
 
   it('keeps the GitHub issue form in a development build without that route', () => {

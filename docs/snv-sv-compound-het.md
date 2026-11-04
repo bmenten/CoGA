@@ -1,45 +1,54 @@
 # SNV + SV compound heterozygosity — developer notes
 
-The small-variant page flags genes hit by both a small variant and a structural variant (the
-cross-type "second hit"), offers an "Also hit by an SV" filter, and gives each hit a trans / cis
-verdict. The behaviour lab users see — the badge, the filter, the phase rules and their limits — is in
-the in-app reference [`frontend/src/content/docs/sv-second-hit.md`](../frontend/src/content/docs/sv-second-hit.md)
+The small-variant page flags genes hit by both a small variant and a structural variant (SV): the
+cross-type "second hit". It offers an "Also hit by an SV" filter and gives each hit a trans / cis
+verdict. What lab users see (the badge, the filter, the phase rules and their limits) is in the
+in-app reference [`frontend/src/content/docs/sv-second-hit.md`](../frontend/src/content/docs/sv-second-hit.md)
 (shown at `/docs/reference/sv-second-hit`). That page is the canonical home; this note covers the
 implementation.
 
-- **Index.** `family_sv_gene_index` (one row per family and gene: `sv_count` and the SVs as JSONB, each SV
-  once, however many of the family's projects store it, with each sample's genotype, phase set and copy
-  number) and
+- **Index.** In baseline `backend/db/schema/postgres/03_assay.sql`: `family_sv_gene_index` (one row
+  per family and gene: `sv_count` and the SVs as JSONB, each SV once however many of the family's
+  projects store it, with each sample's genotype, phase set and copy number) and
   `family_sv_gene_index_status` (the SV and gene counts and `sv_data_version`, the SV data version the
-  index was built from), in baseline `backend/db/schema/postgres/03_assay.sql`.
-  `_ensure_family_sv_gene_index` (`clickhouse_family_variants.py`) reads the family's current SV data
-  version, and scans the family's SVs to (re)build the index when the stored version differs;
-  `store_sv_gene_index` replaces it under a per-family advisory lock.
+  index was built from). `_ensure_family_sv_gene_index` (`clickhouse_family_variants.py`) reads the
+  family's current SV data version and, when the stored one differs, scans the family's SVs to
+  (re)build the index. `store_sv_gene_index` replaces it under a per-family advisory lock.
 - **Invalidation.** Every SV insert and delete in `clickhouse_variant_storage.py`, and the snapshot
   restore in `clickhouse_family_snapshot.py`, appends a token to ClickHouse `SV/family_data_version`
-  (`bump_family_structural_variant_data_version`), so any write path moves the version: package import,
-  per-sample upload, admin delete, or a structure edit that clears the family's genomic data. A write that
-  bypasses those helpers must bump the version itself. The package import also clears the index (`clear_family_sv_gene_index`).
-- **Page time.** `_attach_sv_second_hits` looks up the page's genes (`get_sv_second_hits`) and attaches
-  `sv_second_hit`, summarised by `summarize_second_hit` (`sv_gene_index_service.py`). The
+  (`bump_family_structural_variant_data_version`), so every write path moves the version: package
+  import, per-sample upload, admin delete, or a structure edit that clears the family's genomic data.
+  A write that bypasses those helpers must bump the version itself. The package import also clears
+  the index (`clear_family_sv_gene_index`).
+- **Page time.** `_attach_sv_second_hits` looks up the page's genes (`get_sv_second_hits`) and
+  attaches `sv_second_hit`, summarised by `summarize_second_hit` (`sv_gene_index_service.py`). The
   `require_sv_second_hit` filter restricts the query to `get_sv_hit_genes`.
 - **Phase.** Each SV of the gene that an affected member carries is phased on its own
-  (`_sv_second_hit`). `_read_phase_verdict` compares the SNV's and that SV's haplotype within a shared
-  phase set in an affected sample. It reads each call with `phased_alt_haplotype` (`compound_het_phase.py`),
-  as `_pair_phase_for_sample` does for an SNV + SNV pair: a call places its alt only when it is phased, both
-  alleles are called and exactly one is an alt, so a half call (`.|1`, `1|.`) places nothing. Otherwise
-  `_phase_verdict` applies `segregation_phase` (`compound_het_phase.py`) to the SNV genotypes and
-  `_sv_carriage` of that SV, with the pedigree from `_family_pedigree` (the parent links the de novo check
-  uses). `_sv_carriage` reads the SV's own record; a sample it holds no call for (an SV file of one sample)
-  carries the SV when an SV of their own may be the same one (`_same_sv`: the same type without subtype,
-  overlapping it or within `SAME_SV_MAX_DISTANCE`, 1 kb). `summarize_second_hit` returns each SV with its
-  verdict (`svs`, by position) and draws the gene's from them: a copy loss in trans (`_copy_loss`: a `DEL`
-  of any subtype, a `LOSS` or `CNV_LOSS`, or a `CNV` unless the copy numbers stored for its carriers show
-  none lost) sets `deletion_unmasked` and trans whatever the other SVs say; otherwise trans when one is in
-  trans, and cis only when every one is. The copy-loss rule is `sv_copy_change.copy_change`, which the SV
-  ranking reads too (`variant_prioritization.structural_pathogenicity_score`, CLIN-47), and which the SV
-  list serves with each SV (`copy_change`) for the genome, chromosome and Circos views to draw it by
-  (CLIN-54). SNV + SNV pairs go
-  through the same `segregation_phase` after read phasing, in `_compound_het_pair_verdict`
-  (`clickhouse_variant_queries.py`), which also sets `phase_evidence` (`read` or `segregation`); a pair
-  traced to one parent is dropped. The rule itself is described for lab users in the in-app reference.
+  (`_sv_second_hit`):
+  - From the reads: `_read_phase_verdict` compares the SNV's and the SV's haplotype within a shared
+    phase set in an affected sample. It reads each call with `phased_alt_haplotype`
+    (`compound_het_phase.py`), as `_pair_phase_for_sample` does for an SNV + SNV pair. A call places
+    its alt only when it is phased, both alleles are called and exactly one is an alt; a half call
+    (`.|1`, `1|.`) places nothing.
+  - Otherwise from the family: `_phase_verdict` applies `segregation_phase` (`compound_het_phase.py`)
+    to the SNV genotypes and `_sv_carriage` of that SV, with the pedigree from `_family_pedigree`
+    (the parent links the de novo check uses). `_sv_carriage` reads the SV's own record; a sample it
+    holds no call for (an SV file of one sample) carries the SV when an SV of their own may be the
+    same one (`_same_sv`: the same type without subtype, overlapping it or within
+    `SAME_SV_MAX_DISTANCE`, 1 kb).
+
+  `summarize_second_hit` returns each SV with its verdict (`svs`, by position) and draws the gene's
+  verdict from them:
+  - a copy loss in trans (`_copy_loss`: a `DEL` of any subtype, a `LOSS` or `CNV_LOSS`, or a `CNV`
+    unless the copy numbers stored for its carriers show none lost) sets `deletion_unmasked` and
+    trans, whatever the other SVs say;
+  - otherwise trans when one SV is in trans;
+  - cis only when every one is.
+
+  The copy-loss rule is `sv_copy_change.copy_change`, which the SV ranking reads too
+  (`variant_prioritization.structural_pathogenicity_score`, CLIN-47); the SV list serves it with each
+  SV (`copy_change`) for the genome, chromosome and Circos views to draw (CLIN-54).
+  SNV + SNV pairs go through the same `segregation_phase` after read phasing, in
+  `_compound_het_pair_verdict` (`clickhouse_variant_queries.py`), which also sets `phase_evidence`
+  (`read` or `segregation`); a pair traced to one parent is dropped. The in-app reference describes
+  the rule for lab users.

@@ -1,13 +1,12 @@
 # Release record — CoGA `<version>`
 
 > Copy this file, fill every field, and file it per the CMGG QMS
-> ([TF-18 §7](regulatory/TF-18-change-configuration-management.md)). Produced by the
-> procedure in [`RELEASING.md`](../RELEASING.md).
+> ([TF-18 §7](regulatory/TF-18-change-configuration-management.md)). The procedure in
+> [`RELEASING.md`](../RELEASING.md) produces it.
 >
-> This record is what ties a signed-out analysis, and so the clinical report in the EPD that
-> refers to it, back to a specific build. If a result is ever questioned, this is the document
-> that says which code, which dependencies and which infrastructure produced it — so prefer
-> "unknown" over a plausible guess in any field.
+> This record ties a signed-out analysis, and so the EPD clinical report that refers to it, to a
+> specific build. If a result is questioned, it says which code, dependencies and infrastructure
+> produced it. So in any field, prefer "unknown" over a plausible guess.
 
 ## 1. Identification
 
@@ -34,9 +33,9 @@
 | `build.yml` run | `<url>` |
 | Deploy job outcome | ☐ applied ☐ **skipped (no GCP credentials)** ☐ failed |
 
-*Copy the digests from the summary of the `build.yml` run, where each build job wrote the
-digest of the image it pushed; deploy runs each image by that digest (RELEASING.md §4). A
-record without digests cannot identify the deployed artefact, because the tag is mutable.*
+*Copy the digests from the `build.yml` run summary, where each build job wrote the digest of the
+image it pushed. Deploy runs each image by that digest (RELEASING.md §4). The tag is mutable, so a
+record without digests cannot identify the deployed artefact.*
 
 ## 3. Verification evidence
 
@@ -66,9 +65,9 @@ Leave blank for a pre-release; every box is required for a clinical release
 
 ## 5. Reference-data baseline
 
-The versions in force for this build — assembly, HPO release, gene panels, ClinVar/gnomAD/
-dbNSFP and any other annotation source. A clinical result is only reproducible against the
-reference data that produced it.
+The versions in force for this build: assembly, HPO release, gene panels, ClinVar/gnomAD/dbNSFP
+and any other annotation source. A clinical result is reproducible only against the reference
+data that produced it.
 
 | Source | Version / release | Recorded where |
 | --- | --- | --- |
@@ -76,9 +75,9 @@ reference data that produced it.
 
 ## 6. Deviations
 
-Anything that did not follow the procedure — a skipped step, a failed job that was re-run, a
-bypassed check, a manual fix applied during the release. **An empty section means "nothing
-deviated", so do not leave it empty by default.**
+Anything that did not follow the procedure: a skipped step, a re-run failed job, a bypassed
+check, a manual fix during the release. **An empty section means "nothing deviated", so do not
+leave it empty by default.**
 
 | Deviation | Why | Accepted by |
 | --- | --- | --- |

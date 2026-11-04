@@ -5,11 +5,10 @@
 CoGA (Comprehensive Genomic Analysis) is a web application for filtering, visualising and
 interpreting a family's genome data, and for tracing the result back to what produced it. A
 lab user opens a family, sees its pedigree, phenotypes and sample QC, filters and classifies
-the variants, and signs out the analysis: the analyst's sign-off, which closes the analysis
-and freezes it. The clinical report is drafted and medically signed in the hospital's
-electronic patient record (EPD), not in CoGA, and refers to that frozen analysis. CoGA starts
-from variant files that an upstream pipeline has already called and annotated; it does not
-call variants itself.
+the variants, and signs out the analysis: the analyst's sign-off, which closes and freezes
+it. The clinical report is drafted and medically signed in the hospital's electronic patient
+record (EPD), not in CoGA, and refers to that frozen analysis. CoGA starts from variant files
+that an upstream pipeline has already called and annotated; it does not call variants itself.
 
 It serves five clinical applications: rare-disorder diagnostics, expanded carrier screening,
 preimplantation genetic testing (PGT), monogenic non-invasive prenatal testing (NIPT), and
@@ -46,14 +45,14 @@ is Google Cloud, deployed with Terraform.
   classification, also for families with one known parent and a donor.
 - **Genome views** — whole-genome and chromosome views, a Circos plot and an embedded IGV
   browser.
-- **Sign-out** — the analyst's analytical sign-off: it closes the analysis and freezes it
-  into a versioned record, bound to the software version and the annotation and reference
-  versions, to which the clinical report in the EPD refers. Sign-out is refused for a family
-  on an assembly outside the validated scope or while its data is being written, and needs an
+- **Sign-out** — the analyst's analytical sign-off. It closes the analysis and freezes it
+  into a versioned record, bound to the software, annotation and reference versions; the
+  clinical report in the EPD refers to that record. Sign-out is refused for a family on an
+  assembly outside the validated scope, or while its data is being written. It needs an
   acknowledgement with a reason when the evidence behind a classification has changed,
   sample QC flags a possible sample swap, or an import left the family's data incomplete.
-  Sign-outs and changes to the classifications, tags and notes of small variants, structural
-  variants and CNVs are kept in an append-only, hash-chained audit trail.
+  Sign-outs, and changes to the classifications, tags and notes of small variants, structural
+  variants and CNVs, are kept in an append-only, hash-chained audit trail.
 - **Explorers** — genes (with MANE and RefSeq transcript badges), small variants across every
   project you can access, clinical CNVs, HPO terms and gene panels.
 - **Administration** — users and projects, family-package import, reference data, ClickHouse

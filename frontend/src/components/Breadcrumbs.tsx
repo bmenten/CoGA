@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
-import type { ApiClinicalCnv } from '../lib/apiTypes';
+import type { ApiClinicalCnv, GenePanel } from '../lib/apiTypes';
 
 /** Words a route spells in lower case that read as acronyms or brand names. */
 const ROUTE_WORDS: Record<string, string> = {
@@ -57,6 +57,17 @@ const Breadcrumbs: React.FC = () => {
     },
   });
 
+  // On a gene panel's page, show the panel's name instead of its id, from the page's own
+  // request in the same way.
+  const panelDetailId = segments[0] === 'panels' && segments[1] ? segments[1] : null;
+  const { data: panelCrumb } = useQuery<GenePanel>({
+    queryKey: ['panel', panelDetailId],
+    enabled: false,
+    queryFn: () => {
+      throw new Error('disabled');
+    },
+  });
+
   if (segments.length === 0 || ['login', 'signup'].includes(segments[0])) {
     return null;
   }
@@ -82,6 +93,8 @@ const Breadcrumbs: React.FC = () => {
       label = 'CNV explorer';
     } else if (segment === cnvDetailId && cnvCrumb?.label) {
       label = cnvCrumb.label;
+    } else if (index === 1 && segment === panelDetailId && panelCrumb?.name) {
+      label = panelCrumb.name;
     }
     const isLast = index === others.length - 1;
     let to = path;

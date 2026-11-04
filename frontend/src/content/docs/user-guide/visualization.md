@@ -38,20 +38,22 @@ genotype. Without a parent in the family there is one row.
 > that data was loaded for the sample, so an empty track usually means the layer is missing, not that
 > the viewer failed. When a view holds too many variants to draw, the track says so: zoom in or filter.
 
-Coverage is drawn one track per CNV caller, on the axis of what the track holds. The callers' log2
-ratios share the log2-ratio axis, with the gain and loss colours and the caller's segments. Read depth is
-drawn on a depth axis from 0, without those colours or segments: a coverage BED declared as read depth,
-and a HiFiCNV depth file without autosomal depth, which gives no baseline to take a ratio against, so its
-depths are kept as read (the track's header says so). A coverage BED says what it holds when it is
-loaded; one that does not is drawn on its own range without an axis, and its header warns that it is
-read as neither depth nor a log2 ratio.
+Coverage is drawn as one track per CNV caller, on the axis of what the track holds:
+
+- The callers' log2 ratios share the log2-ratio axis, with the gain and loss colours and the caller's
+  segments.
+- Read depth is drawn on a depth axis from 0, without those colours or segments. This covers a coverage
+  BED declared as read depth, and a HiFiCNV depth file without autosomal depth: that file gives no
+  baseline to take a ratio against, so its depths are kept as read (the track's header says so).
+- A coverage BED says what it holds when it is loaded. One that does not is drawn on its own range
+  without an axis, and its header warns that it is read as neither depth nor a log2 ratio.
 
 In a PGT family, judge each embryo's aneuploidy and large (>10 Mb) structural variants yourself, on its
 segment, copy-number (coverage) and APCAD tracks. CoGA shows the tracks but makes no aneuploidy call.
 
-For an aneuploidy, tick **Parental origin (aneuploidy)** under *Tracks*, in the genome view and in the
-chromosome view. It is offered for an embryo whose PGT pipeline run wrote its segregation table, and is
-off until you ask for it. It draws the embryo's sites as the pipeline's own plots do, in two panels:
+For an aneuploidy, tick **Parental origin (aneuploidy)** under *Tracks* in the genome and chromosome
+views. It is offered for an embryo whose PGT pipeline run wrote its segregation table, and is
+off until you tick it. It draws the embryo's sites as the pipeline's own plots do, in two panels:
 **Mother heterozygous** (the pipeline's group 2: the mother heterozygous, the father homozygous) and
 **Father heterozygous** (group 3). Each site is at the embryo's allele fraction, from 0 to 1, coloured by
 the other parent's homozygous allele: amber for the reference (2B, 3B), the heterozygous parent's
@@ -72,7 +74,7 @@ Read the result against the centromere on the chromosome view's ideogram:
 - isodisomy along the whole chromosome points to a mitotic error, usually as a mosaic, where the bands
   sit between those of a disomy and a trisomy.
 
-Which parent gave the extra copy of an isodisomic trisomy, the APCAD track shows. The pipeline keeps only
+The APCAD track shows which parent gave the extra copy of an isodisomic trisomy. The pipeline keeps only
 sites the embryo was read deeply at, so a trisomic chromosome has many more sites than the others, and a
 monosomy almost none. CoGA draws the sites and makes no call from them.
 

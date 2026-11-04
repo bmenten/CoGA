@@ -4,68 +4,71 @@
 reference populations. It is not validated, not for clinical interpretation, and never part of
 the sign-out or of the signed record ([TF-01 §4](regulatory/TF-01-intended-purpose.md),
 [TF-15 §3](regulatory/TF-15-instructions-for-use.md)). The page and its plot say so:
-*Exploratory — not for clinical use*. What a user reads is the in-app reference
+*Exploratory — not for clinical use*. Users read the in-app reference
 ([frontend/src/content/docs/ancestry-pca.md](../frontend/src/content/docs/ancestry-pca.md),
-`/docs/reference/ancestry-pca`); this page is how it works.
+`/docs/reference/ancestry-pca`); this page explains how it works.
 
 The family page **Ancestry (exploratory)** (`FamilyAncestryPage.tsx`) is offered for a family
 with small variants that is not a monogenic NIPT family. It projects each individual onto four
 fixed principal components of a public reference and plots them beside the reference
-individuals: axes, population toggles, centring on an individual and zoom.
+individuals, with axis choice, population toggles, centring on an individual and zoom.
 
 ## The WGS source
 
 A projection reads one **WGS source** (`wgs_sources`): a complete, joint, directly called GRCh38
-whole-genome VCF with diploid GT calls. That the VCF is a whole genome is the user's
-declaration; a variant distribution cannot prove callable coverage. A source records the file's
-location, checksum, size and modification time, the family's samples, the data-version token
-and genotype fingerprint of the family's stored small variants, and the two policies: absent
-records taken as homozygous reference, and `FILTER=.` calls accepted. It is *ready* only while
-all of these still hold (`wgs_source_storage.source_state`); the page names the first that does
-not.
+whole-genome VCF with diploid GT calls. The user declares that the VCF is a whole genome; a
+variant distribution cannot prove callable coverage. A source records:
 
-There are two ways to register one:
+- the file's location, checksum, size and modification time;
+- the family's samples;
+- the data-version token and genotype fingerprint of the family's stored small variants;
+- two policies: absent records taken as homozygous reference, and `FILTER=.` calls accepted.
+
+It is *ready* only while all of these still hold (`wgs_source_storage.source_state`); the page
+names the first that does not.
+
+Two ways to register one:
 
 - **A retained upload** (`POST /api/families/{family_id}/wgs-source`, `wgs_source_service`). The
-  user picks one of the family's retained small-variant uploads (a directly called nuclear
-  callset: the upload records its callset in the raw file's metadata) and the policies. CoGA reads
-  the file whole: its checksum, its sample columns (exactly the family's samples), its build, no
-  imputed or gVCF records, and a fingerprint of every call (`gt_hash`) that must equal the same
-  fingerprint computed over the stored calls in ClickHouse; then the checksum again. Nothing is
-  imported again.
+  user picks the policies and one of the family's retained small-variant uploads that is a
+  directly called nuclear callset (the raw file's metadata records the callset). CoGA reads the
+  whole file and checks its checksum, its sample columns (exactly the family's samples), its
+  build, that it has no imputed or gVCF records, and a fingerprint of every call (`gt_hash`).
+  That fingerprint must equal the same fingerprint over the stored calls in ClickHouse. Then it
+  checks the checksum again. Nothing is imported again.
 - **A family package** whose manifest declares its family VCF:
 
   ```json
   {"metadata":{"ancestry":{"full_wgs":true,"genome_build":"GRCh38","absent_record_is_hom_ref":true,"allow_unfiltered":false}}}
   ```
 
-  The import takes the VCF's checksum before any dataset reads it, notes the family's
-  data-version token once its datasets are written, and registers the source after it has
-  released the family's variant writes, checking that the file and the token are unchanged and
-  that the VCF's columns are exactly the family's samples (`PackageAncestrySource`). None of this
-  can fail the import: a source that cannot be registered leaves a line in the import's log.
+  The import takes the VCF's checksum before any dataset reads it and notes the family's
+  data-version token once its datasets are written. After it releases the family's variant
+  writes, it registers the source if the file and the token are unchanged and the VCF's columns
+  are exactly the family's samples (`PackageAncestrySource`). None of this can fail the import: a
+  source that cannot be registered leaves a line in the import's log.
 
 A family with an embryo or a maternal-plasma cfDNA sample, or a monogenic NIPT family, has no
 source (`unsupported_samples`): its samples are not individuals' own diploid genotypes.
 
 ## Locks: an import or a sign-out never waits for the PCA
 
-Reading a whole-genome VCF takes minutes. Neither the registration nor the calculation holds a
-lock of the family's variant writes while it reads: each checks the source under those locks
-(`try_share_family_variant_writes`), ends that transaction, reads the file, and takes them again
-only to check that nothing was written in between (the data-version token, and for a
-calculation the full genotype fingerprint) and to store its row. A write in between makes it
-refuse. The e2e tests take a writer's locks while the file is being read
+Reading a whole-genome VCF takes minutes, so neither the registration nor the calculation holds
+the family's variant-write locks while it reads. Each checks the source under those locks
+(`try_share_family_variant_writes`), ends that transaction and reads the file. It takes the locks
+again only to store its row, after checking that nothing was written in between (the
+data-version token; for a calculation also the full genotype fingerprint). A write in between
+makes it refuse. The e2e tests take a writer's locks while the file is being read
 (`writer_could_lock`).
 
 ## The calculation
 
 **Calculate PCA projection** queues a job (`ancestry_runs`) that pins the source and the
-reference checksum; queueing never happens by itself. The job runs where the package imports
-run: in the import-worker processes ([application-scheme.md](application-scheme.md#import-worker-processes)),
-or in the API when it runs import workers itself. A running job holds its own row lock on a
-connection of its own until it ends; a job whose process stopped loses it, and the next worker
-to look ends it as interrupted. A cancelled or failed job publishes nothing. A completed one
+reference checksum; nothing queues one automatically. The job runs where package imports run:
+in the import-worker processes ([application-scheme.md](application-scheme.md#import-worker-processes)),
+or in the API when it runs import workers itself. A running job holds a row lock on its own
+connection until it ends. A job whose process stopped loses the lock, and the next worker to
+look ends it as interrupted. A cancelled or failed job publishes nothing. A completed one
 writes one append-only snapshot (`ancestry_results`): each individual's four PCs or
 *insufficient data*, the marker QC by category, the calculation version and the policies.
 
@@ -73,12 +76,13 @@ Per individual and reference SNP (`ancestry_projection.project_vcf`), the dosage
 of ALT alleles of a PASS (or accepted unfiltered) diploid call whose REF and ALT are exactly the
 SNP's. A no-call, a failed filter, another allele, an invalid genotype or two records at one
 position leave the marker out; an absent record is reference only under that policy. The
-standardised dosage `(dosage − mean) / scale` of every usable marker, 0 for the others, times the
-loadings gives the PCs. An individual is projected only with at least `MIN_MARKERS` (1,000) usable
+PCs are the standardised dosages `(dosage − mean) / scale` (0 for unusable markers) times the
+loadings. An individual is projected only with at least `MIN_MARKERS` (1,000) usable
 markers, `MIN_CALL_RATE` (95 %) of the markers usable and, under the hom-ref policy,
 `MIN_OBSERVED_FRACTION` (20 %) of them observed as calls. A whole genome carries a non-reference
 allele at about two in five of these SNPs; without the last threshold an exome or a one-record
-VCF would project as an all-reference point. No strand flips, liftover or dosage inference.
+VCF would project as an all-reference point. There are no strand flips, liftover or dosage
+inference.
 
 ## The reference
 
@@ -99,11 +103,11 @@ python scripts/prepare_ancestry_reference.py --source /path/to/public-peddy-file
 ```
 
 `ANCESTRY_REFERENCE_PATH` selects an operator's own model, checked against its own JSON sidecar.
-A missing or invalid model blocks new calculations; every earlier projection keeps the reference
+A missing or invalid model blocks new calculations. Every earlier projection keeps the reference
 snapshot it was calculated with (`ancestry_reference_panels`) and stays readable on its own axes.
 
 ## Access
 
-A reader of the project can view the page; registering and calculating need permission to change
-the project (`ReadOnlyAccess`). A family or project outside the caller's projects answers 404, as
-an unknown one does. The tables are described in [database.md](database.md#exploratory-ancestry-pca).
+A project reader can view the page; registering and calculating need permission to change the
+project (`ReadOnlyAccess`). A family or project outside the caller's projects answers 404, like an
+unknown one. The tables are described in [database.md](database.md#exploratory-ancestry-pca).

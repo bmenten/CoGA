@@ -1237,6 +1237,7 @@ export interface GenePanelOut {
 export interface GenePanelUpdate {
   genes?: string[];
   description?: string | null;
+  expected_version?: number | null;
 }
 
 export interface GenePanelVersionDetail {
@@ -1324,6 +1325,20 @@ export interface GeneSearchResultOut {
   end: number;
   transcript_count: number;
   assembly_count: number;
+}
+
+/**
+ * The names a loaded assembly knows as a gene symbol, and those none does: a panel gets
+ * no coordinates for those, so a filter on it finds no variant in them. Each name once,
+ * trimmed, in the order given.
+ */
+export interface GeneSymbolCheckOut {
+  found: string[];
+  missing: string[];
+}
+
+export interface GeneSymbolCheckRequest {
+  genes?: string[];
 }
 
 export interface GeneTranscriptOut {
@@ -2312,7 +2327,7 @@ export interface ParaphaseRegionInfoOut {
 }
 
 export interface ParaphaseReviewUpdate {
-  expected_updated_at?: string | null;
+  expected_updated_at: string | null;
   classification?: "affected" | "carrier" | "risk_allele" | "normal" | "uncertain" | null;
   tags?: string[];
   note?: string | null;
@@ -2922,7 +2937,7 @@ export interface RepeatExpansionMotifCountOut {
 }
 
 export interface RepeatExpansionReviewUpdate {
-  expected_updated_at?: string | null;
+  expected_updated_at: string | null;
   classification?: "pathogenic_expansion" | "reduced_penetrance" | "premutation" | "intermediate" | "normal" | "uncertain" | null;
   tags?: string[];
   note?: string | null;

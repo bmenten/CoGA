@@ -37,35 +37,43 @@
   overflow-x: auto;
 }
 
+/* The catalogue: one table for every species, so the assemblies' columns line up across
+   species. Each species is a heading row over its assemblies. */
+.reference-catalog-table {
+  font-size: var(--fs-xs);
+}
+
 .reference-catalog-table th,
 .reference-catalog-table td {
-  padding-top: 0.375rem;
+  padding-top: 0.25rem;
+  padding-bottom: 0.25rem;
+  text-align: left;
+  vertical-align: middle;
+}
+
+/* The counts: right-aligned under a right-aligned heading, each count before its action. */
+.reference-catalog-table .reference-count-column {
+  width: 6.5rem;
+  text-align: right;
+}
+
+.reference-catalog-species-row > th {
+  padding-top: 0.5rem;
   padding-bottom: 0.375rem;
-  vertical-align: top;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-surface-muted);
+  font-weight: 400;
 }
 
-.reference-catalog-table td:first-child {
-  width: 38%;
-}
-
-.reference-catalog-table td:nth-child(2) {
-  width: 34%;
-}
-
-.reference-catalog-species-row td {
-  background: var(--color-surface);
-}
-
-.reference-catalog-species-main {
-  display: grid;
-  gap: 0.125rem;
+.reference-catalog-species-group:first-of-type .reference-catalog-species-row > th {
+  border-top: 0;
 }
 
 .reference-catalog-species-head {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: 0.3125rem;
+  align-items: baseline;
+  gap: 0.375rem;
 }
 
 .reference-catalog-species-title {
@@ -76,62 +84,39 @@
   color: var(--color-heading);
 }
 
-.reference-catalog-species-meta,
-.reference-catalog-latest-main .dashboard-link-note {
-  margin: 0;
+.reference-catalog-species-meta {
+  margin-right: 0.25rem;
   font-size: var(--fs-xs);
   line-height: 1.45;
   color: var(--color-text-muted);
 }
 
-.reference-catalog-summary-cell {
-  min-width: 15rem;
+/* An assembly row sits under its species: its first cell is indented. */
+.reference-catalog-assembly-row > td:first-child {
+  padding-left: 1.25rem;
 }
 
-.reference-catalog-latest-cell {
-  min-width: 12rem;
-}
-
-.reference-catalog-latest-main {
-  display: grid;
-  gap: 0.125rem;
-}
-
-.reference-catalog-detail-row td {
-  padding: 0;
-  background: var(--color-surface-muted);
-}
-
-.reference-catalog-detail {
-  padding: 0.25rem 0.375rem 0.375rem;
-}
-
-.reference-catalog-assembly-table {
-  font-size: var(--fs-xs);
-}
-
-.reference-catalog-assembly-table th,
-.reference-catalog-assembly-table td {
-  padding-top: 0.25rem;
-  padding-bottom: 0.25rem;
-  /* Keep every column in the nested assemblies table left-aligned, and vertically
-     centre cell content so the count+icon cells line up with the plain-text ones. */
-  text-align: left;
-  vertical-align: middle;
+.reference-catalog-empty {
+  padding-left: 1.25rem;
+  color: var(--color-text-muted);
 }
 
 .reference-catalog-assembly-main {
   display: flex;
-  flex-wrap: wrap;
   align-items: baseline;
   gap: 0.25rem;
+  white-space: nowrap;
 }
 
 .reference-count-with-action {
   display: inline-flex;
   align-items: center;
-  justify-content: flex-start;
+  justify-content: flex-end;
   gap: 0.25rem;
+}
+
+.reference-count-value {
+  font-variant-numeric: tabular-nums;
 }
 
 .reference-refresh-icon {
@@ -203,16 +188,6 @@
   }
 }
 
-@media (max-width: 960px) {
-  .reference-catalog-table td:first-child,
-  .reference-catalog-table td:nth-child(2),
-  .reference-catalog-summary-cell,
-  .reference-catalog-latest-cell {
-    width: auto;
-    min-width: 0;
-  }
-}
-
 /* Gene panels: a block of the external-panel section (PanelApp import, the Mendeliome), and
    the custom-panel form, kept to a readable width on a wide page. */
 .panel-admin-block {
@@ -237,4 +212,82 @@
   min-height: var(--control-height-sm);
   padding: 0 0.5rem;
   font-size: var(--fs-xs);
+}
+
+/* Gene panel detail: the names that got no coordinates, the changes listed for the next
+   version, and the bin on each gene's row. */
+.panel-unresolved-note {
+  margin-top: 0.5rem;
+}
+
+.panel-unresolved-note p {
+  margin: 0;
+}
+
+.panel-gene-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin: 0.25rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.panel-gene-chip-note {
+  font-weight: 600;
+}
+
+.panel-change-label {
+  margin: 0;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--color-heading);
+}
+
+.panel-gene-add-input {
+  flex: 1 1 16rem;
+  max-width: 28rem;
+}
+
+.panel-gene-action-cell {
+  width: 1%;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.panel-gene-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  min-height: 0;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.panel-gene-remove:hover:not(:disabled) {
+  border-color: var(--color-border);
+  background: var(--color-surface-hover);
+  color: var(--color-signature-red);
+}
+
+.panel-gene-remove:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.panel-gene-trash-icon {
+  width: 0.875rem;
+  height: 0.875rem;
+}
+
+/* A gene listed for removal: its rows stay, struck through, until the change is saved. */
+.panel-gene-row--removed > td:not(.panel-gene-action-cell) {
+  color: var(--color-text-muted);
+  text-decoration: line-through;
 }

@@ -167,6 +167,32 @@ export const buildMitoIgvHref = (
   return routePath`/families/${familyId}/igv${raw(`?${params.toString()}`)}`;
 };
 
+/**
+ * The variant on VarSome. CoGA's chrM positions are rCRS (NC_012920.1), as MITOMAP reads
+ * them. VarSome reads rCRS as `MT` on hg38, while `chrM` on hg19 is the older NC_001807, so
+ * the link always names hg38 and MT, whatever the family's assembly.
+ */
+export const buildMitoVarsomeHref = (variant: Pick<ApiMitoDNAVariant, 'position' | 'ref' | 'alt'>): string =>
+  `https://varsome.com/variant/hg38/${encodeURIComponent(`MT-${variant.position}-${variant.ref}-${variant.alt}`)}`;
+
+/**
+ * The variant on MitImpact, or null when MitImpact has no entry for it. MitImpact holds only
+ * the single-base changes in the 13 protein-coding genes that change the protein, on rCRS: no
+ * indel, no tRNA, rRNA or control-region variant, and no synonymous change.
+ */
+export const buildMitoMitimpactHref = (
+  variant: Pick<ApiMitoDNAVariant, 'position' | 'ref' | 'alt' | 'type'> & {
+    annotation: Pick<ApiMitoDNAVariant['annotation'], 'category' | 'consequence_terms'>;
+  },
+): string | null => {
+  if (variant.type !== 'SNV' || variant.annotation.category !== 'protein coding') return null;
+  if ((variant.annotation.consequence_terms ?? []).includes('synonymous_variant')) return null;
+  // MitImpact's search, by position and change as MITOMAP writes it (8901A>G).
+  return `https://mitimpact.mcb2lab.org/search?q=${encodeURIComponent(
+    `${variant.position}${variant.ref}>${variant.alt}`,
+  )}`;
+};
+
 const buildMitoChromosomeHref = (
   familyId: string,
   start: number,
@@ -891,6 +917,7 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
           {filteredVariants.map((variant) => {
             const gene = variant.annotation.gene || variant.annotation.region;
             const mitomapQuery = variant.annotation.mitomap_query || variant.label;
+            const mitimpactHref = buildMitoMitimpactHref(variant);
             const sortedReviewTags = sortReviewTagKeys(variant.review?.tags || [], tagMap);
             const visibleReviewTags = visibleReviewTagKeys(sortedReviewTags);
             const quickTags = [
@@ -1115,6 +1142,26 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
                     >
                       MITOMAP
                     </button>
+                    {mitimpactHref ? (
+                      <a
+                        href={mitimpactHref}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="variant-card-resource variant-card-resource--clinical"
+                        aria-label={`Open MitImpact for ${mitomapQuery}`}
+                      >
+                        MitImpact
+                      </a>
+                    ) : null}
+                    <a
+                      href={buildMitoVarsomeHref(variant)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="variant-card-resource variant-card-resource--clinical"
+                      aria-label={`Open VarSome for ${mitomapQuery}`}
+                    >
+                      VarSome
+                    </a>
                   </FindingLinks>
                 }
               />

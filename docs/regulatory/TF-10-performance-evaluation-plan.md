@@ -10,21 +10,21 @@
 | Date | 2026-06-25 |
 | Basis | IVDR (EU) 2017/746 **Annex XIII Part A**; MDCG 2020-1 (clinical evaluation of MDSW) |
 
-> Performance of a software-only interpretive device is established along the three IVDR
-> pillars — **scientific validity, analytical performance, clinical performance** — adapted
-> to the fact that CoGA produces *interpretation/decision support*, not a measured analyte.
-> The core method is **concordance of CoGA's outputs against CMGG's already-validated,
-> accredited reference assays** (the comparator/predicate methods), on defined validation
-> sample sets, per clinical application. The resulting evidence is reported in
+> CoGA's performance is established along the three IVDR pillars: **scientific validity,
+> analytical performance, clinical performance**. They are adapted to a software-only
+> interpretive device: CoGA produces *interpretation/decision support*, not a measured analyte.
+> The core method is **concordance of CoGA's outputs with CMGG's already-validated, accredited
+> reference assays** (the comparator/predicate methods), on defined validation sample sets, per
+> clinical application. The evidence is reported in
 > [TF-11 Performance Evaluation Report](TF-11-performance-evaluation-report.md).
 >
-> **In CMGG QMS terms (H11.1-OP5 §5.2 / H11.1-OP1 §8):** this is the **klinische validatie**
-> performed **per analysis/method** that uses CoGA, distinct from the software's bio-IT
-> ingangsvalidatie ([TF-09](TF-09-verification-validation.md)), and coordinated by the
-> **business contactpersoon** with the bio-IT team. The SOP's performance characteristics
+> **In CMGG QMS terms (H11.1-OP5 §5.2 / H11.1-OP1 §8):** this is the **klinische validatie**,
+> done **per analysis/method** that uses CoGA. It is separate from the software's bio-IT
+> ingangsvalidatie ([TF-09](TF-09-verification-validation.md)). The **business
+> contactpersoon** coordinates it with the bio-IT team. The SOP's performance characteristics
 > (accuracy, precision, reportable range, reference interval where applicable, positive/negative
-> controls) become the concordance metrics of §2–§3; how they map onto the CMGG form
-> (H11.1-F11, report `VAL-Pxx`) is in §7.
+> controls) become the concordance metrics of §2–§3; §7 maps them onto the CMGG form
+> (H11.1-F11, report `VAL-Pxx`).
 
 ---
 
@@ -32,20 +32,20 @@
 
 | Pillar | For CoGA this means | Evidence |
 | --- | --- | --- |
-| **Scientific validity** | The association of the variants/results CoGA surfaces with the clinical conditions is established by the scientific community (ACMG/AMP 2015, ClinGen, gnomAD, ClinVar, GenCC, established inheritance genetics) — CoGA applies, not invents, these associations. | Literature & database references; this is **not** re-established empirically. |
-| **Analytical performance** | Does CoGA correctly *process and present* its inputs and correctly *derive* its outputs? Concordance of CoGA's variant lists, classifications, and derived calls against the validated comparator; reproducibility/repeatability. | This plan §3–§4; TF-09 software V&V. |
+| **Scientific validity** | The scientific community has established the association of the variants/results CoGA surfaces with the clinical conditions (ACMG/AMP 2015, ClinGen, gnomAD, ClinVar, GenCC, established inheritance genetics). CoGA applies these associations; it does not invent them. | Literature and database references; **not** re-established empirically. |
+| **Analytical performance** | Does CoGA correctly *process and present* its inputs and correctly *derive* its outputs? Concordance of CoGA's variant lists, classifications and derived calls with the validated comparator; reproducibility/repeatability. | This plan §3–§4; TF-09 software V&V. |
 | **Clinical performance** | Does the conclusion of the analysis the analyst signs out in CoGA (the closed, frozen analysis the clinical report in the EPD refers to, [TF-02 §3](TF-02-device-description.md)) agree with the validated assay's clinical conclusion on real cases? | This plan §3 concordance studies (the validation cases). |
 
-Because the upstream wet-lab and bioinformatics workflows are separately validated and
-accredited, this evaluation isolates **CoGA's contribution**: given the same validated
-inputs, does CoGA lead the analyst to the same clinical conclusion as the established assay?
+The upstream wet-lab and bioinformatics workflows are separately validated and accredited, so
+this evaluation isolates **CoGA's contribution**: given the same validated inputs, does CoGA
+lead the analyst to the same clinical conclusion as the established assay?
 
 ## 2. Validation design (overview)
 
 **Method:** retrospective/prospective **concordance study** per application. For each
-validation case, the established (already-validated, accredited) assay/result is the
-**comparator ("truth")**; the case is independently analysed in CoGA by a qualified
-analyst following the intended workflow, and CoGA's outcome is compared to the comparator.
+validation case the established (already-validated, accredited) assay/result is the
+**comparator ("truth")**. A qualified analyst analyses the case independently in CoGA, following
+the intended workflow, and CoGA's outcome is compared with the comparator.
 
 **Validation sample matrix (as specified by CMGG):**
 
@@ -58,35 +58,35 @@ analyst following the intended workflow, and CoGA's outcome is compared to the c
 | Mitochondrial disease (ONT adaptive sampling) | **mtDNA + nuclear mito-gene cases** | **🔲 N (define)** | Validated comparator (‹established mtDNA assay + nuclear mito-gene NGS result; orthogonal heteroplasmy quantitation›) |
 
 **Acceptance — carrier screening (C1).** CoGA's **sensitivity and specificity must be at least
-equal to the current gold-standard method**. 🔲 To make that criterion testable *before* the study
-runs, the current method's numeric sensitivity/specificity — documented in the CMGG
-**kwaliteitshandboek (KHB)** — must be cited here with its **document ID and version**. A purely
+equal to the current gold-standard method**. 🔲 To make that criterion testable *before* the
+study runs, the current method's numeric sensitivity/specificity, documented in the CMGG
+**kwaliteitshandboek (KHB)**, must be cited here with its **document ID and version**. A purely
 comparative criterion with no stated baseline cannot be failed, which H11.1-F11 does not permit.
 
-**Analytical baseline (C6).** A run against **GIAB** reference material is included, to establish
-analytical performance independently of the clinical comparators above. Record the GIAB sample(s)
-and truth-set version used; that baseline is captured on the commit the validation blesses, and is
-not reconstructable afterwards.
+**Analytical baseline (C6).** A run on **GIAB** reference material is included to establish
+analytical performance independently of the clinical comparators above. Record the GIAB
+sample(s) and truth-set version used. The baseline is captured on the commit the validation
+blesses and cannot be reconstructed afterwards.
 
-> **🔲 INPUT NEEDED (per application):** name the exact comparator method, define
-> the unit of analysis and the "truth" source, and set the **acceptance criteria** (the
-> §3 tables propose defaults to confirm). Also confirm prospective vs retrospective,
-> case selection (consecutive vs enriched for positives), and that positive/at-risk cases
-> are sufficiently represented to power agreement on the clinically critical calls.
+> **🔲 INPUT NEEDED (per application):** name the exact comparator method, define the unit of
+> analysis and the "truth" source, and set the **acceptance criteria** (the §3 tables propose
+> defaults to confirm). Also confirm prospective vs retrospective, case selection (consecutive
+> vs enriched for positives), and that positive/at-risk cases are represented well enough to
+> power agreement on the clinically critical calls.
 
-**Statistics:** report agreement as **PPA** (positive percent agreement), **NPA**,
-**OPA** (overall percent agreement), and **Cohen's κ** where applicable, each with **95%
-confidence intervals** (Clopper–Pearson / Wilson). All **discordances are adjudicated** and
-root-caused (CoGA error · comparator error · upstream-input difference · genuine
-interpretive disagreement). Enrichment for positive/at-risk cases is documented and its
-effect on agreement estimates noted.
+**Statistics:** report agreement as **PPA** (positive percent agreement), **NPA**, **OPA**
+(overall percent agreement) and **Cohen's κ** where applicable, each with **95% confidence
+intervals** (Clopper–Pearson / Wilson). All **discordances are adjudicated** and root-caused
+(CoGA error · comparator error · upstream-input difference · genuine interpretive
+disagreement). Document any enrichment for positive/at-risk cases and note its effect on the
+agreement estimates.
 
 ## 3. Per-application performance protocols
 
 ### 3.1 Expanded carrier screening — BeGECS (50 couples)
 - **Unit of analysis:** per-variant carrier calls and the **couple-level at-risk** conclusion (both partners carrying a variant in the same recessive gene / X-linked finding).
 - **Inputs:** validated long-read annotated VCFs over the BeGECS gene set; CoGA carrier-screening workflow.
-- **Metrics:** variant-level PPA/NPA/OPA of carrier calls vs comparator; couple-level at-risk concordance (the clinically actionable output); concordance of reported ACMG class for reportable variants.
+- **Metrics:** variant-level PPA/NPA/OPA of carrier calls vs comparator; couple-level at-risk concordance (the clinically actionable output); concordance of the reported ACMG class for reportable variants.
 - **Proposed acceptance (confirm):** ≥99% OPA on carrier variant detection; **100% agreement on couple-level at-risk conclusions** (any discordance investigated and resolved); all clinically reportable (P/LP) carrier variants concordant.
 - **Edge cases:** technically difficult genes/regions on long-read; pseudogene/Paraphase-relevant loci; CNV/SV-mediated carrier findings.
 
@@ -94,17 +94,17 @@ effect on agreement estimates noted.
 - **Units of analysis:** per-embryo **ROI segregation call** (affected/at-risk · carrier · unaffected · uninformative); **direct mutation** genotype; the **aneuploidy** status and the **large (>10 Mb) SV** status as the analyst reads them on CoGA's segment, copy-number and APCAD tracks (CoGA makes no automatic aneuploidy call, REQ-PGT-008).
 - **Inputs:** shallow-WGS per-embryo and family VCFs, phased/imputed markers, segment/CN/APCAD tracks, pedigree (incl. single-parent/donor).
 - **Metrics:**
-  - Haplotype segregation: concordance of per-embryo call vs comparator (and vs born-child/confirmatory outcome where available); rate and handling of **uninformative** calls.
+  - Haplotype segregation: concordance of the per-embryo call with the comparator (and with the born-child/confirmatory outcome where available); rate and handling of **uninformative** calls.
   - Direct mutation detection: PPA/NPA vs comparator genotype.
   - Aneuploidy, as the analyst reads it on CoGA's tracks: per-chromosome PPA/NPA/OPA vs comparator, at the claimed limit of that review, **> 35 % mosaicism** (TF-01 §3.3).
   - Large SV, as the analyst reads it on CoGA's tracks and SV calls: concordance at the claimed **> 10 Mb** threshold; characterize the size/type limit of that review.
 - **Proposed acceptance (confirm):** 100% concordance on **informative** embryo segregation calls; no **false "unaffected"** on truly at-risk embryos (the safety-critical error); aneuploidy and >10 Mb SV concordance ≥‹threshold›.
-- **Edge cases:** recombination near the ROI, sparse informative markers, donor/single-parent families (expected "uninformative" for recessive — verify safe behavior), mosaic embryos, sex chromosomes; embryo data missing at the ROI (expected "uninformative"); X-linked embryos of unrecorded sex (never "carrier" or "unaffected" where a son and a daughter would differ); male embryos at a pseudo-autosomal locus (read on both copies).
+- **Edge cases:** recombination near the ROI; sparse informative markers; donor/single-parent families (expected "uninformative" for recessive — verify safe behavior); mosaic embryos; sex chromosomes; embryo data missing at the ROI (expected "uninformative"); X-linked embryos of unrecorded sex (never "carrier" or "unaffected" where a son and a daughter would differ); male embryos at a pseudo-autosomal locus (read on both copies).
 
 ### 3.3 Rare-disorder diagnostics — WGS trios (30 trios)
 - **Unit of analysis:** the **diagnostic conclusion** (causal/candidate variant(s) identified and their ACMG class) and the set of reported variants.
 - **Inputs:** comprehensive long-read trio data: SNV/indel, SV, repeat expansions (TRGT), Paraphase, mtDNA; HPO; pedigree.
-- **Metrics:** concordance of the reported causal/candidate variant(s) with the established diagnosis; PPA for known causal variants across **each data type** (SNV/indel, SV, repeat, Paraphase, mtDNA); ACMG-class concordance; de novo / inheritance-mode concordance via the trio logic.
+- **Metrics:** concordance of the reported causal/candidate variant(s) with the established diagnosis; PPA for known causal variants across **each data type** (SNV/indel, SV, repeat, Paraphase, mtDNA); ACMG-class concordance; de novo / inheritance-mode concordance through the trio logic.
 - **Proposed acceptance (confirm):** 100% detection of the known causal variant(s) among CoGA candidates for previously-solved trios; ACMG class within one tier and same actionability; correct inheritance/de-novo assignment.
 - **Edge cases:** each non-SNV data type represented; compound-het (SNV+SV second hit); repeat-expansion and Paraphase-resolved loci; mtDNA heteroplasmy.
 - **🔲 OWNER (clinical):** TF-01 §3.4 also claims proband-only analysis, but this protocol validates trios only. Add a proband-only arm, or narrow the claim.
@@ -121,55 +121,55 @@ effect on agreement estimates noted.
 ### 3.5 Mitochondrial disease — ONT adaptive sampling (N to define)
 - **Units of analysis:** the **mtDNA variant + heteroplasmy** call set (variant detection and heteroplasmy fraction), the **nuclear mito-gene** variant/diagnostic conclusion, and the combined **diagnostic conclusion**.
 - **Inputs:** annotated VCF(s)/tracks from the validated ONT adaptive-sampling run (complete mtDNA + nuclear mito-gene panel); HPO; pedigree (incl. mother where available).
-- **Metrics:** mtDNA variant PPA/NPA vs comparator; **heteroplasmy quantitation** agreement (bias/correlation, Bland–Altman) vs an orthogonal method; nuclear mito-gene causal-variant detection + ACMG-class concordance; maternal-inheritance concordance; **sample-swap detection** exercised — the Sample QC and the analyst's haplogroup comparison (deliberate-mismatch controls where feasible).
+- **Metrics:** mtDNA variant PPA/NPA vs comparator; **heteroplasmy quantitation** agreement (bias/correlation, Bland–Altman) vs an orthogonal method; nuclear mito-gene causal-variant detection + ACMG-class concordance; maternal-inheritance concordance; **sample-swap detection** exercised: the Sample QC and the analyst's haplogroup comparison (deliberate-mismatch controls where feasible).
 - **Proposed acceptance (confirm):** 100% detection of known causal mtDNA/nuclear variant(s); heteroplasmy within ‹±X%› of comparator; swaps caught on the mismatch controls; no missed causal variant.
 - **Edge cases:** low heteroplasmy near the limit of detection, homoplasmy, mtDNA coverage gaps, nuclear–mtDNA dual findings, single- vs multi-tissue heteroplasmy.
 - **🔲 INPUT NEEDED:** validation N, comparator method(s), heteroplasmy-agreement tolerance, and which tissues are validated.
 
 ## 4. Reproducibility, robustness & cross-cutting checks
-- **Reproducibility/repeatability:** same validated input → identical signed report (content-hash equality); re-analysis by a second analyst (inter-operator) on a subset.
-- **Robustness:** behavior on degraded inputs (low coverage, missing tracks, malformed VCF) — should fail safe / warn, not silently mis-call.
+- **Reproducibility/repeatability:** the same validated input gives an identical signed report (content-hash equality); a second analyst re-analyses a subset (inter-operator).
+- **Robustness:** behavior on degraded inputs (low coverage, missing tracks, malformed VCF) should fail safe / warn, not silently mis-call.
 - **Analytical baseline:** the GIAB run of §2 (C6).
 - **Software V&V cross-reference:** unit/integration/system tests and requirements traceability are in [TF-09](TF-09-verification-validation.md); this plan covers the *clinical/analytical concordance* layer above them.
 
 ## 5. Acceptance, discordance handling & reporting
-- A study **passes** when every application meets its confirmed acceptance criteria and all discordances are adjudicated with documented root cause and (where a CoGA defect) a fix + re-test.
-- Safety-critical errors (false-negative at-risk/affected calls in NIPT/PGT/carrier; missed causal variant in diagnostics) trigger **failure** and a CAPA, regardless of aggregate concordance.
-- Results, stratified analyses, CIs, discordance adjudication, limitations, and the
-  resulting **claimed performance** and **validated scope** (panels, assays, assemblies,
-  populations) are documented in [TF-11](TF-11-performance-evaluation-report.md) and feed
-  the IFU (TF-15), the GSPR §9.1 line (TF-03), and the residual-risk review (TF-06).
+- A study **passes** when every application meets its confirmed acceptance criteria and all discordances are adjudicated with a documented root cause and, for a CoGA defect, a fix and re-test.
+- Safety-critical errors (false-negative at-risk/affected calls in NIPT/PGT/carrier; missed causal variant in diagnostics) trigger **failure** and a CAPA, whatever the aggregate concordance.
+- [TF-11](TF-11-performance-evaluation-report.md) documents the results, stratified analyses,
+  CIs, discordance adjudication, limitations, and the resulting **claimed performance** and
+  **validated scope** (panels, assays, assemblies, populations). These feed the IFU (TF-15),
+  the GSPR §9.1 line (TF-03) and the residual-risk review (TF-06).
 
 ## 6. Post-market performance follow-up (PMPF)
-Ongoing concordance monitoring, drift events, and any new edge cases observed in clinical
-use feed back per [TF-16 PMS](TF-16-post-market-surveillance-plan.md); the validated scope
-is re-confirmed on material change (new panel, assay, assembly, or algorithm version) via
-TF-18 change control, which defines when re-validation is required.
+Ongoing concordance monitoring, drift events and new edge cases seen in clinical use feed back
+per [TF-16 PMS](TF-16-post-market-surveillance-plan.md). The validated scope is re-confirmed on
+material change (new panel, assay, assembly or algorithm version) through TF-18 change control,
+which defines when re-validation is required.
 
 ## 7. Mapping to the CMGG report form (H11.1-F11)
 
 Each clinical application's evaluation is reported **per method/analysis** on **template
 H11.1-F11** (v6, 05-01-2023) as report `VAL-Pxx` (xx follows the analysis-protocol code
-H10.1-Pxx; the form adds the year to the file name), signed by the
-laboratoriumverantwoordelijke(n) and kwaliteitsbeheerder.
-CoGA's qualitative/interpretive outputs map onto the form's performance vocabulary as follows:
+H10.1-Pxx; the form adds the year to the file name). The laboratoriumverantwoordelijke(n) and
+the kwaliteitsbeheerder sign it. CoGA's qualitative/interpretive outputs map onto the form's
+performance vocabulary:
 
 | H11.1-F11 parameter | For CoGA |
 | --- | --- |
 | Type test | **Qualitative** (variant/embryo/fetal-risk present or not); NIPT fetal fraction is a derived quantitative QC value. |
-| **Analytical performance** — qualitative: **analytische sensitiviteit / specificiteit** | = **PPA / NPA** vs the validated comparator (§2–§3). Genetic-test target: **~100% sensitivity** (no missed at-risk/causal call) — CoGA's safety-critical error in each §3 protocol. |
+| **Analytical performance** — qualitative: **analytische sensitiviteit / specificiteit** | = **PPA / NPA** vs the validated comparator (§2–§3). Genetic-test target: **~100% sensitivity** (no missed at-risk/causal call, the safety-critical error in each §3 protocol). |
 | Trueness / precision (quantitative) | NIPT FF bias (Bland–Altman) + repeatability; mtDNA heteroplasmy agreement (§3.5). |
 | Herhaalbaarheid / reproduceerbaarheid | Content-hash reproducibility + inter-operator subset (§4). |
 | Vergelijking met een 2e onafhankelijke methode; controlemateriaal; **3/n regel**; EKE/interlab | The comparator assay is the independent method; reference material (the GIAB baseline, §2); estimate sens/spec with the **3/n rule** when control counts are small; EKE/interlab where available. |
 | Robuustheid, detectielimiet | Degraded-input fail-safe (REQ-PERF-003); the limits of the analyst's >10 Mb SV and aneuploidy review on CoGA's tracks (§3.2); heteroplasmy detection limit (§3.5). |
 | Risico op staalverwisseling; subjectiviteit | Sample QC (sample-swap, TF-06 H4); inter-operator/blind re-read on a subset (§4). |
-| **Clinical performance** — diagnostische sens/spec, PPV/NPV, likelihood ratio, verwachte waarden | The conclusion of the signed-out analysis vs the established diagnosis (§3); for new applications, accumulate via PMPF (§6). |
+| **Clinical performance** — diagnostische sens/spec, PPV/NPV, likelihood ratio, verwachte waarden | The conclusion of the signed-out analysis vs the established diagnosis (§3); for new applications, accumulate through PMPF (§6). |
 | Risicoanalyse — veiligheidseisen IVDR (§19) | [TF-06](TF-06-risk-management-plan.md) (shared with the bio-IT validation). |
 | Gevolgen voor kwaliteitsdocumentatie (§21) | Update the analysis protocol (H10.1-Pxx), IFU ([TF-15](TF-15-instructions-for-use.md)), and CMGGMC. |
 
-Pre-defined **aanvaardingscriteria** (the §3 "proposed acceptance" rows, confirmed with the
-clinical leads) go in the form's acceptance column; **🔲 INPUT NEEDED** items in §2–§3 are the
-fields still to fix before the form is signed.
+The pre-defined **aanvaardingscriteria** (the §3 "proposed acceptance" rows, confirmed with the
+clinical leads) go in the form's acceptance column. The **🔲 INPUT NEEDED** items in §2–§3 are
+the fields still to fix before the form is signed.
 
 ## 8. Clinical behaviour developed before the release candidate
 
@@ -181,105 +181,125 @@ release candidate QA confirms the list as the validation scope; from then on eac
 assessed and recorded in [TF-18 §8](TF-18-change-configuration-management.md). A pre-release
 pull request updates this list only when it adds clinical behaviour that no area below covers.
 
-- **Variant filtering and genotypes** — one genotype classification for every filter,
-  inheritance check and count, including haploid and multi-allelic calls; frequency presets
-  that also bound popmax; the ClinVar P/LP frequency override; unreadable filter values and
-  location filters refused, not dropped; gene-panel regions per assembly; a gene panel of any
-  size, the Mendeliome included, keeping the variants in its regions as well as those
-  annotated with its genes, so the default view also lists a variant inside a Mendeliome gene
-  whose annotation names another gene.
-- **Inheritance** — de novo and hemizygous calls on a son's X and Y, and the sex-aware
-  PM6/PS2 rule; compound-heterozygote pairing with read-backed phasing and informative
-  relatives; the SV second-hit index; expanded carrier screening, which keeps the genes in
-  which both partners carry a variant and, on chrX outside the pseudo-autosomal regions, a
-  female partner's variant on its own (never a mitochondrial variant), its preset reading
-  rare high- or moderate-impact variants with the ClinVar P/LP frequency override, so a
-  long-read genome's screen reaches chrX within the candidate window.
-- **Structural variants, CNVs and repeats** — SV gene and panel filters before the candidate
-  cap, a gene panel of any size, the Mendeliome included, keeping the SVs whose annotation
-  names one of its genes as well as those overlapping one of its regions; SV length filters that measure a call's SVLEN (without one, the length its alleles
-  state for a call written as its sequence, END − POS otherwise), an insertion written with
-  END at POS included, and let a translocation pass any minimum but no exact length; SV
-  records written without END or SVTYPE read as VCF 4.4 defines them by every reader, a
-  deletion over its SVLEN and a breakend as a BND, and a breakend's mate read alike by every
-  reader (a TRA's from INFO/CHR2 and END), and a deletion, duplication, inversion or CNV that
-  states neither END nor SVLEN left out and counted; an uploaded CNV's copy number, which gives it its
-  gain or loss; two events on one position two SVs, by an order of the events, in an upload as
-  in a NeedlR import; NeedlR calls stored one SV per event, named by its
-  coordinates as an uploaded call is, two calls under one record ID never one SV, and each
-  sample keeping its own call where one event's lines merge; the clinical CNV knowledge base (ClinGen curation
-  and recurrent regions, ClinVar support, GRCh37 and GRCh38 builds); repeat-expansion
-  status, including contraction loci,
-  unclassifiable alleles and an FMR1 premutation told from the grey zone; CNV caller ingestion (HiFiCNV, WisecondorX, QDNAseq) and their
-  signal tracks.
-- **Interpretation** — the ACMG suggestions (conflicting ClinVar, parents from the pedigree, PP2
-  offered for review, never applied, at a gnomAD missense Z of 3.09 or more, the gene profile's or,
-  when it holds none, the VCF's own),
-  classifications that reopen with their saved criteria, CNV classifications preserved by
-  review edits, and the prioritised ranking and its cache keys.
-- **Application logic** — monogenic NIPT (one fetal fraction, paternally allowed fetal
-  states, the R NIPT-M validation's quality filter and model constants, paternity from how
-  many of the father's homozygous and of his heterozygous alleles the plasma shows, the fetal
-  sex from the father's X alleles and the plasma's chrY coverage, the maternal-plasma sex
-  profile and the per-target coverage check, the fetal-inheritance probabilities, the de novo
-  triage, the per-gene recessive risk, an allele written as an MNV in one sample and as SNVs
-  in the other, the audited artifact list and its import from the pipeline's recurrent
-  table, a report that says when it is incomplete); PGT embryo calls that are uninformative
-  without supporting data, and that carry a warning when their phasing QC at the ROI falls below
-  its provisional thresholds over the ROI and 1 Mb on each side (informative sites, Mendelian
-  error rate, markers on each flank of the ROI on each side the call reads), that are not
-  called where their markers at the ROI mix both of a parent's homologs (a trisomy the blocks
-  cannot show), and the
-  risk-haplotype display, with a parent's phase switches undone where the embryos switch
-  together, a relative of unknown degree coloured along the genome when it is the linked
-  member's parent or child and otherwise at the ROI where both flanks name the haplotype
-  it shares, relatives and a donor family's embryos coloured on chrX by their recorded sex
-  (a man's one X between the PARs, none passed from a man to his son), and the affected
-  parent's and the index's statuses from the inheritance model; the mtDNA
-  haplogroup and per-sample mitochondrial imports; the Sample QC read from sites across
-  every autosome, so sibling embryos read as siblings, and its sex check from chrX outside
-  the pseudo-autosomal regions.
-- **Data integrity** — package imports (long-read layout; the long-read couple without a
-  PED, its members and their sex from the pipeline's folders and TRGT's karyotype, and its one
-  SNV VCF per partner read as one callset, a partner without a record at the other's variant
-  read as reference; the PGT pipeline layout, with the
-  embryo roles and the index its PED lacks, and each embryo's segregation table, drawn as the
-  parental-origin view of an aneuploid chromosome; the monogenic NIPT pair, one VCF per sample with
-  the father's noise left out, and the per-target coverage tables; bucket sources;
-  snapshot/restore); coverage BEDs that declare whether they hold read depth or a log2 ratio,
-  read as depth only when declared so, an undeclared one drawn without an axis;
-  serialised per-family variant writes; per-sample and per-source rewrites and deletes that
-  keep every other call; calls from two callsets or sources both kept; concurrent review
-  saves refused when stale.
-- **Review of repeat expansions and Paraphase findings** — one review per family and assembly
-  per repeat locus and Paraphase region, with tags, a note and a classification on the type's
-  own scale beside the unchanged automatic status; the calls a classification or the Report
-  tag rests on frozen and compared at sign-out (a re-import, a catalogue threshold or a
-  validation of the counting units changes them), counted in the evidence-drift gate; an
-  abnormal call without a review (a count near a boundary at a locus not validated included,
-  a grey zone alone not) acknowledged with a reason; the reviews frozen into the record beside
-  every call (docs/repeat-paraphase-review-design.md).
-- **Sign-out and the signed record** — the frozen snapshot and its drift gates (small
-  variants, SVs and CNVs), sample-integrity, sample-QC, incomplete-import and assembly-scope
-  gates; the signed view rendered from its record in the release-candidate format; the
-  software, annotation, reference, HPO and QC-limit versions it binds; what the analysis
-  looked at, frozen with it (each reported variant's description and genotypes, the gene-panel
-  versions the family's searches applied, the reference-data releases, the repeat-expansion
-  and Paraphase calls with their status, in a PGT family each embryo's call at the ROI as
-  the family page shows it, and a monogenic NIPT family's NIPT results as the NIPT page
-  computes them, signed out from the NIPT report too, a failed NIPT quality check gating the
-  sign-out with the Sample QC; and what each coverage track held, read depth, a log2 ratio or
-  unknown, and where it was loaded from); the report code the EPD report quotes, its check
-  symbol and its lookup; the device label and the build identity; every review,
-  classification and phenotype change on the clinical audit trail,
-  a compound-het pair review, every change of a family's pedigree and members and a family's
-  deletion included, and the pedigree's structure versions, append-only and hash-chained per
-  family.
+- **Variant filtering and genotypes**
+  - One genotype classification for every filter, inheritance check and count, haploid and
+    multi-allelic calls included.
+  - Frequency presets that also bound popmax; the ClinVar P/LP frequency override.
+  - Unreadable filter values and location filters refused, not dropped.
+  - Gene-panel regions per assembly.
+  - A gene panel of any size, the Mendeliome included, keeps the variants in its regions as
+    well as those annotated with its genes. So the default view also lists a variant inside a
+    Mendeliome gene whose annotation names another gene.
+- **Inheritance**
+  - De novo and hemizygous calls on a son's X and Y, and the sex-aware PM6/PS2 rule.
+  - Compound-heterozygote pairing with read-backed phasing and informative relatives; the SV
+    second-hit index.
+  - Expanded carrier screening keeps the genes in which both partners carry a variant and, on
+    chrX outside the pseudo-autosomal regions, a female partner's variant on its own (never a
+    mitochondrial variant). Its preset reads rare high- or moderate-impact variants with the
+    ClinVar P/LP frequency override, so a long-read genome's screen reaches chrX within the
+    candidate window.
+- **Structural variants, CNVs and repeats**
+  - SV gene and panel filters before the candidate cap. A gene panel of any size, the
+    Mendeliome included, keeps the SVs whose annotation names one of its genes as well as
+    those overlapping one of its regions.
+  - SV length filters measure a call's SVLEN (without one, the length its alleles state for a
+    call written as its sequence, END − POS otherwise), include an insertion written with END
+    at POS, and let a translocation pass any minimum but no exact length.
+  - Every reader reads SV records written without END or SVTYPE as VCF 4.4 defines them (a
+    deletion over its SVLEN, a breakend as a BND), and a breakend's mate alike (a TRA's from
+    INFO/CHR2 and END). A deletion, duplication, inversion or CNV that states neither END nor
+    SVLEN is left out and counted.
+  - An uploaded CNV's copy number, which gives it its gain or loss.
+  - Two events on one position are two SVs, by an order of the events, in an upload as in a
+    NeedlR import. NeedlR calls are stored one SV per event, named by its coordinates as an
+    uploaded call is; two calls under one record ID are never one SV; each sample keeps its own
+    call where one event's lines merge.
+  - The clinical CNV knowledge base (ClinGen curation and recurrent regions, ClinVar support,
+    GRCh37 and GRCh38 builds).
+  - Repeat-expansion status, including contraction loci, unclassifiable alleles and an FMR1
+    premutation told from the grey zone.
+  - CNV caller ingestion (HiFiCNV, WisecondorX, QDNAseq) and their signal tracks.
+- **Interpretation**
+  - The ACMG suggestions: conflicting ClinVar; parents from the pedigree; PP2 offered for
+    review, never applied, at a gnomAD missense Z of 3.09 or more (the gene profile's or, when
+    it holds none, the VCF's own).
+  - Classifications that reopen with their saved criteria; CNV classifications preserved by
+    review edits.
+  - The prioritised ranking and its cache keys.
+- **Application logic**
+  - Monogenic NIPT: one fetal fraction; paternally allowed fetal states; the R NIPT-M
+    validation's quality filter and model constants; paternity from how many of the father's
+    homozygous and of his heterozygous alleles the plasma shows; the fetal sex from the
+    father's X alleles and the plasma's chrY coverage; the maternal-plasma sex profile and the
+    per-target coverage check; the fetal-inheritance probabilities; the de novo triage; the
+    per-gene recessive risk; an allele written as an MNV in one sample and as SNVs in the
+    other; the audited artifact list and its import from the pipeline's recurrent table; a
+    report that says when it is incomplete.
+  - PGT embryo calls that are uninformative without supporting data; that carry a warning when
+    their phasing QC at the ROI falls below its provisional thresholds over the ROI and 1 Mb on
+    each side (informative sites, Mendelian error rate, markers on each flank of the ROI on
+    each side the call reads); and that are not called where their markers at the ROI mix both
+    of a parent's homologs (a trisomy the blocks cannot show).
+  - The risk-haplotype display: a parent's phase switches undone where the embryos switch
+    together; a relative of unknown degree coloured along the genome when it is the linked
+    member's parent or child, and otherwise at the ROI where both flanks name the haplotype it
+    shares; relatives and a donor family's embryos coloured on chrX by their recorded sex (a
+    man's one X between the PARs, none passed from a man to his son); the affected parent's
+    and the index's statuses from the inheritance model.
+  - The mtDNA haplogroup and per-sample mitochondrial imports.
+  - The Sample QC read from sites across every autosome, so sibling embryos read as siblings,
+    and its sex check from chrX outside the pseudo-autosomal regions.
+- **Data integrity**
+  - Package imports:
+    - the long-read layout;
+    - the long-read couple without a PED: its members and their sex from the pipeline's
+      folders and TRGT's karyotype, and its one SNV VCF per partner read as one callset, a
+      partner without a record at the other's variant read as reference;
+    - the PGT pipeline layout, with the embryo roles and the index its PED lacks, and each
+      embryo's segregation table, drawn as the parental-origin view of an aneuploid chromosome;
+    - the monogenic NIPT pair: one VCF per sample with the father's noise left out, and the
+      per-target coverage tables;
+    - bucket sources; snapshot/restore.
+  - Coverage BEDs that declare whether they hold read depth or a log2 ratio: read as depth
+    only when declared so; an undeclared one drawn without an axis.
+  - Serialised per-family variant writes.
+  - Per-sample and per-source rewrites and deletes that keep every other call; calls from two
+    callsets or sources both kept.
+  - Concurrent review saves refused when stale.
+- **Review of repeat expansions and Paraphase findings**
+  - One review per family and assembly per repeat locus and Paraphase region, with tags, a
+    note and a classification on the type's own scale, beside the unchanged automatic status.
+  - The calls a classification or the Report tag rests on, frozen and compared at sign-out (a
+    re-import, a catalogue threshold or a validation of the counting units changes them), and
+    counted in the evidence-drift gate.
+  - An abnormal call without a review acknowledged with a reason (a count near a boundary at a
+    locus not validated included, a grey zone alone not).
+  - The reviews frozen into the record beside every call
+    (docs/repeat-paraphase-review-design.md).
+- **Sign-out and the signed record**
+  - The frozen snapshot and its drift gates (small variants, SVs and CNVs); the
+    sample-integrity, sample-QC, incomplete-import and assembly-scope gates.
+  - The signed view rendered from its record in the release-candidate format.
+  - The software, annotation, reference, HPO and QC-limit versions it binds.
+  - What the analysis looked at, frozen with it: each reported variant's description and
+    genotypes; the gene-panel versions the family's searches applied; the reference-data
+    releases; the repeat-expansion and Paraphase calls with their status; in a PGT family, each
+    embryo's call at the ROI as the family page shows it; in a monogenic NIPT family, its NIPT
+    results as the NIPT page computes them, signed out from the NIPT report too, with a failed
+    NIPT quality check gating the sign-out with the Sample QC; and what each coverage track
+    held (read depth, a log2 ratio or unknown) and where it was loaded from.
+  - The report code the EPD report quotes, its check symbol and its lookup.
+  - The device label and the build identity.
+  - Every review, classification and phenotype change on the clinical audit trail, a
+    compound-het pair review, every change of a family's pedigree and members and a family's
+    deletion included, and the pedigree's structure versions, append-only and hash-chained per
+    family.
 - **Reference data** — the gene reference (HGNC register, GENCODE loci, per-source releases),
   dbNSFP 5.4, HPO releases, and T2T-CHM13v2.0 as an optional assembly outside the validated
   scope.
-- **Failures shown as failures** — viewers, tracks, reports, searches and exports that show a
-  failed or capped request as such, never as empty or complete data; a sample whose sequencing
+- **Failures shown as failures** — viewers, tracks, reports, searches and exports show a
+  failed or capped request as such, never as empty or complete data. A sample whose sequencing
   QC was not assessed (no limit configured, or no verdict served) reads *Not run* in the
   family members table, never as a pass.
 - **Platform** — Python 3.12 and ClickHouse 26.8 LTS under the validated build.

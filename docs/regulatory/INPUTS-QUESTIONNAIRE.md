@@ -7,11 +7,11 @@
 | Owner | ‹CMGG software lead› |
 | Date | 2026-06-25 |
 
-> Groups A–F below feed specific documents (cited). Answers are folded into the controlled
-> documents. ✅ = answered · ◐ = partly answered · "—" = not yet answered.
+> Each group A–F feeds the documents named in its heading; answers are folded into those
+> controlled documents. ✅ = answered · ◐ = partly answered · "—" = not yet answered.
 >
 > The governing SOP `H11.1-OP5` already answers the identifier scheme, the roles, the change
-> control and the validation split; those answers are in the TF documents
+> control and the validation split; the TF documents hold those answers
 > ([README §1a](README.md)). What remains is mostly **names and dates** and the
 > **per-application clinical comparators and thresholds**.
 
@@ -22,7 +22,7 @@
 | --- | --- | --- |
 | A1 | Exact legal manufacturer name & address (CMGG / UZ Gent) for the declaration | ✅ **Center for Medical Genetics, Ghent University Hospital, C. Heymanslaan 10, 9000 Ghent**. 🔲 RA: the accreditation certificate is issued to Universiteit Gent, so confirm which legal person declares ([TF-04 §1](TF-04-declaration-of-conformity.md)). |
 | A2 | BELAC ISO 15189 accreditation number and the relevant scope reference | ✅ **351-MED** (ISO 15189 — Medical laboratories). Scope: [351-MED scope PDF](https://ng3.economie.fgov.be/NI/belac/medilabs/scope_pdf/351-MED.pdf). ✅ TF-04 §1 cites the renewed certificate, version 9 (2026-09-11 → 2031-09-10), and scope annex V. 21 (owner, 2026-09-30). 🔲 QA: file a dated copy of both in the CMGG QMS. |
-| A3 | Named responsible persons: device owner, quality/RA lead, lab director, (Art. 15 PRRC-equivalent if used) | ✅ Named in the CMGG QMS (KHB, organigram), not in this public repository: the developer and project lead, who is also the lab director; the IT-coördinator, who was the independent reviewer (since 2026-10-14 QA reviews the changes per release instead, D2); the head of department; the QC-verantwoordelijke (kwaliteitsbeheerder) (confirmed by the owner, 2026-09-30). See [TF-07 §3](TF-07-software-lifecycle-plan.md) — note the recorded developer/lab-director concentration. 🔲 OWNER: TF-07 §3 calls the lab director "Lab director / Head of CMGG"; confirm the titles and who signs [TF-04 §6](TF-04-declaration-of-conformity.md) as "Head of Center for Medical Genetics". |
+| A3 | Named responsible persons: device owner, quality/RA lead, lab director, (Art. 15 PRRC-equivalent if used) | ✅ Named in the CMGG QMS (KHB, organigram), not in this public repository: the developer and project lead, who is also the lab director; the IT-coördinator, the former independent reviewer (since 2026-10-14 QA reviews the changes per release, D2); the head of department; the QC-verantwoordelijke (kwaliteitsbeheerder) (confirmed by the owner, 2026-09-30). [TF-07 §3](TF-07-software-lifecycle-plan.md) records the developer/lab-director concentration. 🔲 OWNER: TF-07 §3 calls the lab director "Lab director / Head of CMGG"; confirm the titles, and who signs [TF-04 §6](TF-04-declaration-of-conformity.md) as "Head of Center for Medical Genetics". |
 | A4 | Confirm device scope: **one device, five applications** (recommended) vs separate files | ✅ **One device, five applications** (may be extended in future). PGT-mitoDNA is a **sub-scope of the PGT application**, not a sixth application. |
 | A5 | Confirm IVDR Annex VIII risk class to state for transparency (expected Class C) | ✅ **Class C** |
 | A6 | Confirm Belgian in-house transitional dates & any national provisions with FAMHP | 🔲 **Open** — to confirm with FAMHP / RA. |
@@ -42,7 +42,7 @@
 ## C. Performance evaluation → TF-10, TF-11
 | # | Question | Answer |
 | --- | --- | --- |
-| C1 | Carrier (50 couples): exact validated comparator method + "truth" source; acceptance thresholds | ✅ Comparator = **current gold standard: WES + FraX + SMA + DMD deletions (MLPA) + CYP21A2**. Acceptance: **sensitivity and specificity at least equal to the current method**. 🔲 The current method's numeric figures are documented in the **CMGG KHB** — cite the document ID, version and the figures in TF-10 so the criterion is falsifiable before the study starts. |
+| C1 | Carrier (50 couples): exact validated comparator method + "truth" source; acceptance thresholds | ✅ Comparator = **current gold standard: WES + FraX + SMA + DMD deletions (MLPA) + CYP21A2**. Acceptance: **sensitivity and specificity at least equal to the current method**. 🔲 The current method's figures are in the **CMGG KHB**: cite the document ID, version and figures in TF-10, so the criterion is falsifiable before the study starts. |
 | C2 | PGT (100 embryos): comparator (SNP-array / current PGT method) + confirmatory source; acceptance thresholds; aneuploidy & SV detection-limit claims | ✅ Comparator = **current GENType / HOPLA method**. The claims of B4, limits of the analyst's review (mosaicism > 35%; SV > 10 Mb). 🔲 Acceptance thresholds still to be stated numerically. |
 | C3 | WGS trios (30): comparator/established-diagnosis source; per-data-type acceptance | — |
 | C4 | Monogenic NIPT (30): comparator/known-fetal-genotype source; FF agreement tolerance; concordance threshold | — |
@@ -55,12 +55,12 @@
 | # | Question | Answer |
 | --- | --- | --- |
 | D1 | Confirm IEC 62304 safety class (C) and any justified lower-class decomposition | ✅ **Class C**; no lower-class decomposition claimed. |
-| D2 | Named role holders incl. **independent reviewer** for Class C | ✅ Holders are from the **CMGG bio-IT group** (authoritative register: KHB + organigram); the roles for CoGA in [TF-07 §3](TF-07-software-lifecycle-plan.md). **Independent reviewer:** since 2026-10-14 **QA**, which reviews the changes per release, before the tag, and signs off: every change to the clinical-critical modules and a sample of the rest (owner decision, REG-8; [TF-18 §6](TF-18-change-configuration-management.md)). Before that, the IT-coördinator, per change. |
+| D2 | Named role holders incl. **independent reviewer** for Class C | ✅ Holders are from the **CMGG bio-IT group** (authoritative register: KHB + organigram); CoGA's roles are in [TF-07 §3](TF-07-software-lifecycle-plan.md). **Independent reviewer:** since 2026-10-14 **QA**. Per release, before the tag, QA reviews every change to the clinical-critical modules and a sample of the rest, and signs off (owner decision, REG-8; [TF-18 §6](TF-18-change-configuration-management.md)). Before that, the IT-coördinator, per change. |
 | D3 | Device version / UDI-equivalent scheme & where reference-data versions attach | ✅ Answered by H11.1-OP5: CMGGMC software number **`Sxxxx`** + semantic `x.y.z`; reference-data versions attach via the per-case manifest. Still needed: the **assigned `Sxxxx`**. |
 | D4 | Approval to **pin all backend runtime dependencies** to exact versions | ✅ **Approved and implemented.** `backend/requirements.txt` pins every package to an exact, hash-verified version and is installed with `--require-hashes` ([TF-08 §A.1](TF-08-soup-register.md)). |
 | D5 | Production Postgres & ClickHouse versions; pin container base-image digests | ✅ PostgreSQL 16 (Cloud SQL `POSTGRES_16` on Google Cloud) and ClickHouse 26.8 LTS; every container image is pinned by digest ([TF-08 §A.3](TF-08-soup-register.md)). |
 | D6 | Confirm SRS will be produced as a controlled document / requirements register | ✅ Yes — [TF-09a](TF-09a-software-requirements-specification.md) is the SRS, revised under change control (TF-18). |
-| D7 | Enforce CI gates as **required status checks** on `main`? (owner + date) | ✅ **Done**: twelve required checks in the ruleset `CoGA_branch_protect`, without the up-to-date requirement since 2026-10-13. Still open: an administrator can change the ruleset. No approving review is required on a pull request, by the owner's decision of 2026-10-14: the four-eyes principle is met per release instead, by QA's signed review of the changes (a compensating measure for the one-developer team). See [TF-18 §6](TF-18-change-configuration-management.md). |
+| D7 | Enforce CI gates as **required status checks** on `main`? (owner + date) | ✅ **Done**: twelve required checks in the ruleset `CoGA_branch_protect`, without the up-to-date requirement since 2026-10-13. Still open: an administrator can change the ruleset. By the owner's decision of 2026-10-14, a pull request needs no approving review: QA's signed review of the changes per release meets the four-eyes principle instead (a compensating measure for the one-developer team). See [TF-18 §6](TF-18-change-configuration-management.md). |
 
 ## E. Security, usability & data protection → TF-12, TF-13, TF-14
 | # | Question | Answer |
@@ -68,7 +68,7 @@
 | E1 | Production deployment topology (managed PG/CH, TLS, secrets manager, network isolation, download audit) — owner & target date for S-1…S-8 | ◐ Decided: Google Cloud, codified in `terraform/` and not yet applied ([TF-02 §10](TF-02-device-description.md)); open items and go-live switches in [TF-13 §3](TF-13-cybersecurity.md). Open: owner and target date for the first apply and for each go-live switch. |
 | E2 | Vulnerability-disclosure handling with UZ Gent IT security | — |
 | E3 | Summative usability evaluation: participant count per user group, schedule, facilitator | — |
-| E4 | DPO consultation date; lawful basis & Art. 9 condition confirmation | ◐ A DPIA signed with the UZ Gent DPO exists outside this repository (owner, 2026-09-29). [TF-14](TF-14-dpia.md) is to be reconciled with it and filed, including the lawful basis and the Art. 9 condition (#518). |
+| E4 | DPO consultation date; lawful basis & Art. 9 condition confirmation | ◐ A DPIA signed with the UZ Gent DPO exists outside this repository (owner, 2026-09-29). [TF-14](TF-14-dpia.md) is to be reconciled with it, including the lawful basis and the Art. 9 condition, and filed (#518). |
 | E5 | Pseudonymization extent within CoGA; retention period; erasure-vs-record-keeping policy | — |
 | E6 | Supported browser(s) for the IFU minimum-requirements section | — (proposal to confirm: a current Chrome or Edge — the browser tests run in Chromium only, [TF-09d](TF-09d-browser-e2e-verification.md)) |
 

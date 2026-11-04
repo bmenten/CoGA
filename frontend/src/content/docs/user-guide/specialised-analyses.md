@@ -13,35 +13,37 @@ the affected members as carriers. Its filters are **Phenotype**, **Inheritance a
 *Mendeliome*, *Dominant*, *Recessive-like* and *Any affected*. **Phenotype prioritization** ranks SVs by
 the same phenotype score as small variants. **Clear all filters** removes the default.
 
-A gene panel keeps an SV whose annotation names one of its genes or that overlaps one of its regions,
-whatever the panel's size, as on the small-variant page: the Mendeliome also keeps an SV in one of its
-genes whose annotation names that gene otherwise, and a small panel also keeps an SV whose annotation
-names one of its genes without overlapping it, such as a gene a few kilobases away. With a gene panel
-and a **Gene symbol** both filled in, an SV must meet both.
+As on the small-variant page, a gene panel of any size keeps an SV whose annotation names one of its
+genes or that overlaps one of its regions. So the Mendeliome also keeps an SV in one of its genes whose
+annotation names that gene otherwise, and a small panel an SV annotated with one of its genes that does
+not overlap it, such as a gene a few kilobases away. With both a gene panel and a **Gene symbol**
+filled in, an SV must meet both.
 
 **Min length** and **Exact length**, under **Class and Breakpoints**, measure an SV by the **Length**
-the list shows, without the minus sign of a deletion: the caller's SVLEN; for a call written as its
-sequence without an SVLEN (as VCF 4.4 writes one), the bases it inserts or deletes; otherwise the end
-minus the start. An insertion is as long as the sequence it inserts, although most callers write its end
-at its start. A length typed with a minus sign, as the list writes a deletion's, is read without it.
-A translocation (BND, TRA) has no length: the list shows none, every minimum keeps it, and no exact length
-finds it.
+the list shows, without a deletion's minus sign. That length is:
 
-A filtered search reads at most 50,000 SVs of the callset before it applies the filters, and with
+- the caller's SVLEN;
+- for a call written as its sequence without an SVLEN (as VCF 4.4 writes one), the bases it inserts or
+  deletes;
+- otherwise, the end minus the start.
+
+An insertion is as long as the sequence it inserts, although most callers write its end at its start.
+A length typed with a minus sign, as the list writes a deletion's, is read without it. A translocation
+(BND, TRA) has no length: the list shows none, every minimum keeps it, and no exact length finds it.
+
+A filtered search reads at most 50,000 SVs of the callset before it applies the filters. With
 **Phenotype prioritization** on (the default) it ranks at most 5,000 of the SVs that match. When a
 search reaches either limit, a warning says *"Results may be incomplete"* (*"Ranking may be incomplete"*
-when the list is ranked), the count shows a `+`, and an SV beyond the limit is not shown: narrow the
-search with a region, a gene panel or a gene. A gene panel of any size, the Mendeliome included, and a
-gene are applied before the 50,000 are read, so the limit counts only the SVs they keep. The family
-report's list of reported SVs is not cut by this cap: it reads the reported SVs themselves, not the
-first 50,000.
+when the list is ranked), the count shows a `+`, and an SV beyond the limit is not shown. Narrow the
+search with a region, a gene panel or a gene. A gene panel of any size (the Mendeliome included) and a
+gene are applied before the 50,000 are read, so the limit counts only the SVs they keep. The family report's list of
+reported SVs is not cut by this limit: it reads the reported SVs themselves, not the first 50,000.
 
 **ACMG (CNV)** on a row opens the ClinGen copy-number classifier (Riggs et al. 2020): choose
 *Copy-number loss* or *Copy-number gain*, check the pre-selected criteria and add the rest.
 
 **Variant summary** on the family page summarises the structural variants of every caller, HiFiCNV's
-copy-number calls included: counts per chromosome and type, sharing between members, and size
-distributions. The button appears when the family has structural variants. Small variants are not in
+copy-number calls included: counts per chromosome and type, sharing between members, and size distributions. The button appears when the family has structural variants. Small variants are not in
 it, nor are the WisecondorX and QDNAseq segments, which are coverage tracks rather than variants.
 
 ### Repeat expansions
@@ -57,7 +59,6 @@ each allele, and a status read against the locus's thresholds in the repeat cata
   pathogenic by contraction.
 - *Review: two chrX alleles in a male*: a male's call with two different chrX alleles, where he
   carries one; a note explains it.
-- The genome tracks colour each call by the status the repeat page gives it.
 - *Not assessed*: a call at a locus without thresholds. No catalogued locus matches its TRID (a locus
   the catalogue lacks, or a TRID spelled differently), or the catalogue gives the locus no threshold.
   CoGA cannot say whether such a count is normal; its cutoff reads *No reference cutoff*. Where the
@@ -65,7 +66,7 @@ each allele, and a status read against the locus's thresholds in the repeat cata
   inside the range reads *Normal* and any other count *Not assessed*; the cutoff reads
   *normal 10 · no threshold*. The count is the one TRGT reports for the catalogued motif across
   the whole locus, flanking copies included, so it can run higher than the count the range
-  describes: in the TRGT catalogue in use (TRID `CPEO_POLG`), POLG's common allele of 10 repeats
+  describes. In the TRGT catalogue in use (TRID `CPEO_POLG`), POLG's common allele of 10 repeats
   counts 14 and stays *Not assessed*.
 - A gene with several repeat tracts, each a locus of its own in STRchive (ARX, HOXA13), has
   thresholds per tract. A call whose TRID is the gene's name is read against the tract its region
@@ -74,45 +75,52 @@ each allele, and a status read against the locus's thresholds in the repeat cata
 - *Unknown*: no call.
 
 **Aberrant only**, ticked when the page opens, keeps every locus whose status is not *Normal* or
-*Unknown*, *Not assessed* included, and the page header counts the calls not assessed. The genome tracks colour each locus by
-the status its call was imported with, and keep it until the call is imported again; this page
-classifies every call again, against the catalogue as it is now.
+*Unknown*, *Not assessed* included. The page header counts the calls not assessed. This page and the
+genome tracks classify every call again, against the catalogue as it is now, and the tracks colour
+each call by the status the repeat page gives it.
 
 **Near a boundary.** TRGT counts the motif across the region its own catalogue gives a locus, which need
-not be the clinical repeat number the locus's ranges count. At FMR1 it leaves out the AGG
-interruptions, so an allele reads 1 to 3 below its clinical number (a premutation of 55 repeats can
-read 53, in the grey zone); at HTT it also counts the CAG after the CAA interruption, one above the
-usual count; at POLG it counts four flanking GCT copies, so the common 10-repeat allele reads 14. Until
-QA and the laboratory director have validated a locus's counting units, a count within 3 repeats of a
-boundary the locus's classification uses is marked *Near a boundary* beside its call. Hover over or
-focus the mark for the count, the nearest count on each side that reads another status, and what is
+not be the clinical repeat number the locus's ranges count:
+
+- at FMR1 it leaves out the AGG interruptions, so an allele reads 1 to 3 below its clinical number (a
+  premutation of 55 repeats can read 53, in the grey zone);
+- at HTT it also counts the CAG after the CAA interruption, one above the usual count;
+- at POLG it counts four flanking GCT copies, so the common 10-repeat allele reads 14.
+
+Until QA and the laboratory director have validated a locus's counting units, a count within 3 repeats
+of a boundary the locus's classification uses is marked *Near a boundary* beside its call. Hover over
+or focus the mark for the count, the nearest count on each side that reads another status, and what is
 known of TRGT's count at the gene. The status itself is not changed: read the call with the mark in
 mind. **Aberrant only** keeps such a locus whatever its status, the page header counts the calls near a
-boundary, and a genome track says it in the locus's tooltip. An administrator records each locus's
-validation, with its reason, on the admin page **Repeat catalogue**; a validated locus is no longer
-marked. Signing out freezes the mark beside its call, and for each locus whether QA had validated its
-counting units, with the reason, by whom and when: a locus validated or withdrawn after sign-out makes
-the report say the repeat expansions changed since.
+boundary, and a genome track says it in the locus's tooltip.
+
+An administrator records each locus's validation, with its reason, on the admin page **Repeat
+catalogue**; a validated locus is no longer marked. Signing out freezes the mark beside its call and,
+for each locus, whether QA had validated its counting units, with the reason, by whom and when. A
+locus validated or withdrawn after sign-out makes the report say the repeat expansions changed since.
 
 ### Paraphase
 
 Some genes lie in regions with nearly identical copies, such as *SMN1/SMN2* or *PMS2*, where standard
 variant calling fails. The **Paraphase** page shows, per locus, what Paraphase found there for each
-member: the copy number, and a status read from a catalogue of medical regions. Where the catalogue has
-a rule for the locus, the copy number reads as *normal*, *carrier* or *pathogenic*, or as *review* when it
-fits none of them; at a locus without a rule, a copy-number change or a fusion reads as *review*. A change
-is a copy number outside the normal range the catalogue records for the locus (6 for *NEB*, 4 for a gene
-with its pseudogene). On chrX a man has one copy and a woman two, by the sex
-Paraphase infers, else the pedigree's; without a sex a chrX value is not called normal. A field without a
-fixed normal value (*highest_total_cn*) and a no-call are no change. **Copy-number changes and abnormal
-calls only**, ticked when the page opens, shows the regions with such a change or with a member's call
-that reads *Pathogenic*, *Carrier* or *Review*: a fusion is reviewed without any change in copy number.
-Untick it to see every region.
+member: the copy number, and a status read from a catalogue of medical regions.
+
+- Where the catalogue has a rule for the locus, the copy number reads as *normal*, *carrier* or
+  *pathogenic*, or as *review* when it fits none of them.
+- At a locus without a rule, a copy-number change or a fusion reads as *review*. A change is a copy
+  number outside the normal range the catalogue records for the locus (6 for *NEB*, 4 for a gene with
+  its pseudogene).
+- On chrX a man has one copy and a woman two, by the sex Paraphase infers, else the pedigree's. Without
+  a sex, a chrX value is not called normal.
+- A field without a fixed normal value (*highest_total_cn*) and a no-call are no change.
+
+**Copy-number changes and abnormal calls only**, ticked when the page opens, shows the regions with such
+a change or with a member's call that reads *Pathogenic*, *Carrier* or *Review*: a fusion is reviewed
+without any change in copy number. Untick it to see every region.
 
 ### Reviewing a repeat locus or a Paraphase region
 
-Each repeat locus and Paraphase region has a review of its own, kept per family and reference
-assembly, and its card the controls of every variant card: **Review**, **Exclude** and **Report**
+Each repeat locus and Paraphase region has its own review, kept per family and reference assembly. Its card has the controls of every variant card: **Review**, **Exclude** and **Report**
 toggle their tag, and **Tags & notes** opens the review. There you give your classification on the
 type's own scale, beside CoGA's status, which it never changes:
 
@@ -120,36 +128,40 @@ type's own scale, beside CoGA's status, which it never changes:
   zone)*, *Normal* or *Uncertain significance*;
 - a Paraphase region: *Affected*, *Carrier*, *Risk allele*, *Normal* or *Uncertain significance*.
 
-The ACMG class tags and VUS tiers are not offered here: they are the small variants' ACMG classes. A
-review that already holds one lists it, marked, so you can untick it. The card shows your
-classification as *Review: …*, and *Differs from CoGA's status* when it agrees with none of the
-members' calls (a *Normal* where every call reads *Pathogenic*, say): a review is of the locus or
-region, so a classification that fits one member's call is not marked. **Exclude** folds the card
-to its heading; it stays in the list, **Aberrant only** included.
+The ACMG class tags and VUS tiers are for small variants and are not offered here. A review that
+already holds one lists it, marked, so you can untick it. The card shows your
+classification as *Review: …*. It adds *Differs from CoGA's status* when the classification agrees
+with none of the members' calls (a *Normal* where every call reads *Pathogenic*, say). A review is of
+the locus or region, so a classification that fits one member's call is not marked. **Exclude** folds
+the card to its heading; the card stays in the list, **Aberrant only** included.
 
-A classification, and the **Report** tag, rest on the calls as they were when you saved them: CoGA
-freezes them. When the calls change after that (a new import, a locus whose counting units QA
-validated), the card says *Changed since review*, and the tooltip names what changed; *No call since
-review* when the family holds no call there any more. A save of tags or a note alone keeps the calls
-your classification rests on. Sign-out checks them again (see *Clinical report*).
+CoGA freezes the calls a classification, or the **Report** tag, rests on when you save it. When the
+calls change after that (a new import, a locus whose counting units QA validated), the card says
+*Changed since review*, and the tooltip names what changed. It says *No call since review* when the
+family holds no call there any more. A save of tags or a note alone keeps the calls your classification
+rests on. Sign-out checks them again (see *Clinical report*).
 
 ### mtDNA
 
-Each sample's row in the family summary of the **mtDNA analysis** page gives its mean chrM depth and
-the share of chrM covered, and a QC status judged against the lab's limits (**Sequencing QC thresholds**). The depth
-comes from one coverage track that holds read depth: the sample's coverage BED when it was declared as
-read depth, otherwise HiFiCNV's depth where the import stored it as read. WisecondorX's and QDNAseq's
-bins, HiFiCNV's normalised depth and a coverage BED declared as a log2 ratio hold log2 ratios, not
-depths, and never count, nor does a coverage BED that does not say what it holds. A sample without a
-track of read depth shows the depth of its chrM calls, and the page's QC notes name each track left
-out and why.
+On the **mtDNA analysis** page, each sample's row in the family summary gives its mean chrM depth, the
+share of chrM covered, and a QC status judged against the lab's limits (**Sequencing QC thresholds**).
+The depth comes from one coverage track that holds read depth: the sample's coverage BED when it was
+declared as read depth, otherwise HiFiCNV's depth where the import stored it as read. These never
+count: WisecondorX's and QDNAseq's bins, HiFiCNV's normalised depth and a coverage BED declared as a
+log2 ratio (they hold log2 ratios, not depths), and a coverage BED that does not say what it holds. A
+sample without a track of read depth shows the depth of its chrM calls, and the page's QC notes name
+each track left out and why.
 
 Each mtDNA variant has the same review as a small variant, and its card the same controls:
-**Review**, **Exclude** and **Report**, **Tags & notes** and **ACMG classify**. It is one review:
-the same variant on the **Small variants** page shows the same tags and note, and **Report** puts it on
-the report with the other reported small variants. **Exclude** folds the card to its heading, as on
-the other variant pages.
-**ACMG classify** on a variant from the **mtDNA analysis** page uses the mitochondrial rule set.
+**Review**, **Exclude**, **Report**, **Tags & notes** and **ACMG classify**. It is one review: the
+same variant on the **Small variants** page shows the same tags and note, and **Report** puts it on
+the report with the other reported small variants. **ACMG classify** on a variant from the **mtDNA
+analysis** page uses the mitochondrial rule set.
+
+A card links to IGV, the chromosome view, OMIM (for a variant in a gene), MITOMAP and VarSome. VarSome
+opens the variant on the revised Cambridge Reference Sequence, whatever the family's assembly. A
+single-base change that alters the protein of one of the 13 protein-coding genes also links to
+MitImpact, which holds only such changes.
 
 [ACMG classification reference (including the CNV classifier)](/docs/reference/acmg-classification "further-reading")
 

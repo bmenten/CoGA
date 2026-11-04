@@ -169,11 +169,19 @@ class FindingReviewOut(BaseModel):
     drift: Optional[FindingReviewDriftOut] = None
 
 
-class RepeatExpansionReviewUpdate(_VariantReviewUpdate):
+class _FindingReviewUpdate(_VariantReviewUpdate):
+    # A repeat-locus or Paraphase-region review save must say which version of the review it
+    # was made against (REQ-TRACE-010): the ``updated_at`` it loaded, or null when it loaded
+    # none. Left out, the save is refused (422), so no client can overwrite another
+    # reviewer's edit unchecked.
+    expected_updated_at: Optional[datetime]
+
+
+class RepeatExpansionReviewUpdate(_FindingReviewUpdate):
     classification: Optional[RepeatReviewClassification] = None
 
 
-class ParaphaseReviewUpdate(_VariantReviewUpdate):
+class ParaphaseReviewUpdate(_FindingReviewUpdate):
     classification: Optional[ParaphaseReviewClassification] = None
 
 

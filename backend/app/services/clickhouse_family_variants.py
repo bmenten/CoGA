@@ -12,7 +12,7 @@ from typing import Any, Collection, Literal, Mapping, Sequence
 
 from fastapi import HTTPException
 from clickhouse_connect.driver.exceptions import ClickHouseError
-from sqlalchemy import bindparam, text
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.clickhouse import execute_clickhouse
@@ -30,6 +30,7 @@ from ..schemas import (
     VariantPage,
     VariantPriorityOut,
 )
+from .cytoband_labels import fetch_cytoband_labels
 from .data_scope import normalize_chromosome
 from .family_metadata_context import FamilyMetadataContext
 from .family_variant_filters import (
@@ -90,7 +91,6 @@ from .clickhouse_variant_queries import (
     _StructuralPanelMatch,
     _append_limit_offset,
     _append_unique,
-    _band_name_for_position,
     _can_use_small_native_page,
     _can_use_structural_native_page,
     _clamp_small_variant_page,
@@ -103,7 +103,6 @@ from .clickhouse_variant_queries import (
     _family_pedigree,
     _filter_expanded_carrier_screening,
     _float_list,
-    _format_cytoband_label,
     _group_review_for_pair,
     _indexed,
     _inheritance_result_items,
@@ -176,74 +175,13 @@ _SMALL_TRACK_RESULT_LIMIT = 10000
 MAX_VARIANT_PAGE_SIZE = _SMALL_TRACK_RESULT_LIMIT
 
 
-async def _fetch_cytoband_label_map(
-    session: AsyncSession,
-    *,
-    assembly_id: str | None,
-    loci: Sequence[tuple[str, str, int, int]],
-) -> dict[str, str]:
-    """Cytoband label per locus, keyed by the caller's id.
-
-    ``loci`` is ``(key, chromosome, start, end)``. Shared by structural and small
-    variants: both need the band the call sits in, and neither carries it in the
-    payload — it comes from the assembly's cytoband track.
-    """
-    if not assembly_id or not loci:
-        return {}
-    chromosomes = list(
-        dict.fromkeys(
-            alias
-            for _key, chrom, _start, _end in loci
-            for alias in (normalize_chromosome(chrom), f"chr{normalize_chromosome(chrom)}")
-        )
-    )
-    result = await session.execute(
-        text(
-            """
-            SELECT chr, bands
-            FROM chromosomes
-            WHERE assembly_id = CAST(:assembly_id AS uuid)
-              AND chr IN :chromosomes
-            """
-        ).bindparams(bindparam("chromosomes", expanding=True)),
-        {
-            "assembly_id": assembly_id,
-            "chromosomes": chromosomes or [""],
-        },
-    )
-    band_map: dict[str, list[dict[str, Any]]] = {}
-    for row in result.mappings().all():
-        bands = row.get("bands") or []
-        if isinstance(bands, str):
-            try:
-                bands = json.loads(bands)
-            except json.JSONDecodeError:
-                bands = []
-        if not isinstance(bands, list):
-            continue
-        normalized = normalize_chromosome(str(row["chr"]))
-        band_map[normalized] = [band for band in bands if isinstance(band, dict)]
-
-    cytobands: dict[str, str] = {}
-    for key, chrom, start, end in loci:
-        bands = band_map.get(normalize_chromosome(chrom))
-        if not bands:
-            continue
-        start_band = _band_name_for_position(bands, start)
-        end_band = _band_name_for_position(bands, end)
-        label = _format_cytoband_label(chrom, start_band, end_band)
-        if label:
-            cytobands[key] = label
-    return cytobands
-
-
 async def _fetch_structural_cytoband_map(
     session: AsyncSession,
     *,
     assembly_id: str | None,
     records: Sequence[StructuralVariantRecord],
 ) -> dict[str, str]:
-    return await _fetch_cytoband_label_map(
+    return await fetch_cytoband_labels(
         session,
         assembly_id=assembly_id,
         loci=[(record.variant_id, record.chr, record.start, record.end) for record in records],
@@ -1000,7 +938,7 @@ async def _hydrate_small_variant_outs(
             variant.gene_missense_z = metrics.get("gene_missense_z")
 
     try:
-        cytoband_map = await _fetch_cytoband_label_map(
+        cytoband_map = await fetch_cytoband_labels(
             session,
             assembly_id=context.assembly_id,
             loci=[
