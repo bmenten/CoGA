@@ -1,11 +1,9 @@
 """Exploratory ancestry PCA on the family's stored callsets; excluded from clinical sign-out."""
-from typing import Literal
-
 from fastapi import APIRouter, Depends, File, Form, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.postgres import get_postgres_session
-from ..ancestry_schemas import AncestryRunOut, AncestrySampleChoiceIn, FamilyAncestryOut
+from ..ancestry_schemas import CALLSET_PATTERN, AncestryRunOut, AncestrySampleChoiceIn, FamilyAncestryOut
 from ..dependencies import get_current_user
 from ..services.access_control import CurrentUser
 from ..services import ancestry_service
@@ -40,7 +38,7 @@ async def choose_family_ancestry_reading(family_id: str, sample_id: str, choice:
 
 @router.put("/families/{family_id}/ancestry/choices/{sample_id}/bed", response_model=FamilyAncestryOut)
 async def choose_family_ancestry_bed(family_id: str, sample_id: str,
-                                     callset: Literal["clair3", "nipt", "glimpse2"] | None = Form(None),
+                                     callset: str | None = Form(None, pattern=CALLSET_PATTERN),
                                      file: UploadFile | None = File(None), project_id: str | None = None,
                                      session: AsyncSession = Depends(get_postgres_session),
                                      user: CurrentUser = Depends(get_current_user)) -> FamilyAncestryOut:

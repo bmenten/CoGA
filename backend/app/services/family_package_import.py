@@ -21,6 +21,7 @@ from ..schemas import (
     FamilyPackageValidationOut,
 )
 from .family_identifiers import identifier_problem
+from .ancestry_files import register_declared_files
 from .family_metadata_context import (
     FamilyMetadataContext,
     SampleMetadataContext,
@@ -573,6 +574,15 @@ async def _execute_family_package_import_local(
             job_id=job_id,
             import_mark=import_mark,
             user=user,
+        )
+    if result.completed and not result.error:
+        # VCF files the manifest declares for the exploratory ancestry PCA (outside the intended
+        # purpose): recorded after the family's variant writes are released, reading no file. It
+        # cannot fail the import (ancestry_files.register_declared_files).
+        await register_declared_files(
+            session, bundle=bundle, family_uuid=family_context.family_uuid,
+            family_identifier=family_context.family_id, project_ids=family_context.project_ids,
+            project_id=project_id, job_id=job_id, logs=result.logs,
         )
     return result
 

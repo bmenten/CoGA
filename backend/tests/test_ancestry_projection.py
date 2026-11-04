@@ -146,3 +146,29 @@ def test_a_changed_bundled_mask_or_reference_is_refused(tmp_path, monkeypatch):
     bad.with_suffix(".json").write_text(json.dumps({"sha256": hashlib.sha256(b"x").hexdigest()}))
     with pytest.raises(AncestryInputError, match="reference is unavailable or failed validation"):
         ancestry.load_reference(bad)
+
+
+def _random_model(n: int, seed: int = 5):
+    loadings, _ = np.linalg.qr(np.random.default_rng(seed).normal(size=(n, 4)))
+    return ancestry.AncestryReference(reference().public, [AncestryMarker("1", i + 1, "A", "G") for i in range(n)],
+                                      np.ones(n), np.ones(n), loadings)
+
+
+def test_a_points_spread_grows_as_its_markers_shrink_and_is_the_same_on_every_calculation():
+    model = _random_model(2000)
+    dosages = np.random.default_rng(9).integers(0, 3, 2000).astype(float)
+    every = np.ones(2000, dtype=bool)
+    few = np.arange(2000) < 200
+    full = ancestry.bootstrap_standard_errors(model, dosages, every, "PROBAND:clair3")
+    panel = ancestry.bootstrap_standard_errors(model, dosages, few, "PROBAND:clair3")
+    assert full is not None and panel is not None and all(f < p for f, p in zip(full, panel))
+    assert ancestry.bootstrap_standard_errors(model, dosages, every, "PROBAND:clair3") == full
+    assert ancestry.bootstrap_standard_errors(model, dosages, every, "MOTHER:clair3") != full
+
+
+def test_a_point_exactly_on_the_axes_has_no_spread_and_too_few_markers_have_none():
+    model = _random_model(300)
+    dosages = 1 + (model.loadings * np.array([2.0, -1.0, 0.5, 0.0])).sum(axis=1)
+    spread = ancestry.bootstrap_standard_errors(model, dosages, np.ones(300, dtype=bool), "S:clair3")
+    assert spread == pytest.approx([0, 0, 0, 0], abs=1e-9)
+    assert ancestry.bootstrap_standard_errors(model, dosages, np.arange(300) < 3, "S:clair3") is None

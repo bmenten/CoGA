@@ -58,6 +58,19 @@ export interface AncestryCallsetScanOut {
   reason: string | null;
 }
 
+/** A VCF file the family's package declared for ancestry, and its latest scan. */
+export interface AncestryFileOut {
+  id: string;
+  label: string;
+  relative_path: string;
+  declared_at: string;
+  status: "pending" | "scanned" | "failed";
+  sha256: string | null;
+  error: string | null;
+  scanned_at: string | null;
+  columns: string[];
+}
+
 export interface AncestryReferenceOut {
   sha256: string;
   name: string;
@@ -107,7 +120,7 @@ export interface AncestryRunOut {
 /** How to read one individual: CoGA's own reading, one callset, or not at all. */
 export interface AncestrySampleChoiceIn {
   mode: "auto" | "callset" | "exclude";
-  callset?: "clair3" | "nipt" | "glimpse2" | null;
+  callset?: string | null;
   panel_id?: string | null;
   keep_regions?: boolean;
 }
@@ -124,6 +137,7 @@ export interface AncestrySampleOut {
   sample_id: string;
   status: "projected" | "insufficient_data" | "excluded";
   pcs: number[] | null;
+  pcs_se: number[] | null;
   call_rate: number;
   qc: Record<string, number>;
   callset: string | null;
@@ -289,7 +303,7 @@ export interface BlacklistRegionOut {
 }
 
 export interface Body_choose_family_ancestry_bed_api_families__family_id__ancestry_choices__sample_id__bed_put {
-  callset?: "clair3" | "nipt" | "glimpse2" | null;
+  callset?: string | null;
   file?: string | null;
 }
 
@@ -614,6 +628,7 @@ export interface FamilyAncestryOut {
   notices: string[];
   choices: AncestrySampleChoiceOut[];
   can_choose: boolean;
+  files: AncestryFileOut[];
 }
 
 /**

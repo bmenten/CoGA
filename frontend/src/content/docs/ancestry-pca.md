@@ -50,6 +50,14 @@ Under **Choose how each individual is read** you can, for one individual:
 
 **Save** calculates the projection again. Each projection records the choices it read.
 
+## VCF files read for ancestry only
+
+A family's package can declare VCF files that only the ancestry PCA reads, such as a **gVCF**:
+its reference blocks say where an individual was sequenced and called reference. CoGA reads such
+a file once in the background, keeps its calls at the markers and its checksum, and offers it as
+one more callset (*VCF file: …*), after the direct calls. **VCF files declared for ancestry**
+lists them, and whether each has been read.
+
 ## When it is calculated
 
 **Automatically.** Every half minute CoGA looks for families whose stored genotypes changed since
@@ -68,7 +76,9 @@ An absent record counts as reference only as the table above says.
 
 The PCs are the **least-squares fit** of the reference axes to the markers the individual has a
 usable genotype at, so a marker left out neither counts as reference nor pulls the point towards
-the centre. An individual is **projected** when its callset is a genome, an exome or has a call at
+the centre. Each coordinate has a **standard error** (± under it in the table, a dashed ellipse of
+two around the point on the plot): how far the point moves when its markers are drawn again. It
+is small for a genome and larger the fewer markers an individual has. An individual is **projected** when its callset is a genome, an exome or has a call at
 every marker, and:
 
 - at least **1,000** markers are usable, and

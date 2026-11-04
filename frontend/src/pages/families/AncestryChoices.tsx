@@ -18,10 +18,11 @@ const CALLSET_LABELS: Record<string, string> = {
   glimpse2: 'Imputed genotypes',
 };
 
-const describe = (choice?: AncestrySampleChoiceOut) => {
+const describe = (choice: AncestrySampleChoiceOut | undefined, labels: Map<string, string>) => {
   if (!choice || choice.mode === 'auto') return 'Automatic';
   if (choice.mode === 'exclude') return 'Left out';
-  const label = CALLSET_LABELS[choice.callset ?? ''] ?? choice.callset;
+  const label =
+    labels.get(choice.callset ?? '') ?? CALLSET_LABELS[choice.callset ?? ''] ?? choice.callset;
   return choice.regions
     ? `${label}, in ${choice.regions.name} (${choice.regions.covered_markers.toLocaleString()} markers)`
     : `${label}`;
@@ -36,7 +37,8 @@ const ChoiceRow: React.FC<{
   queryKey: unknown[];
 }> = ({ familyId, projectId, sample, choice, panels, queryKey }) => {
   const client = useQueryClient();
-  const callsets = (sample.candidates ?? []).map((scan) => scan.callset);
+  // The callsets that hold the individual, as the scan names them (a declared VCF file by its label).
+  const labels = new Map((sample.candidates ?? []).map((scan) => [scan.callset, scan.label]));
   const [mode, setMode] = useState(
     choice?.mode === 'callset' ? `callset:${choice.callset}` : (choice?.mode ?? 'auto')
   );
@@ -51,7 +53,9 @@ const ChoiceRow: React.FC<{
   const params = projectId ? { project_id: projectId } : {};
   const save = useMutation({
     mutationFn: async () => {
-      const [kind, callset] = mode.split(':');
+      const [kind, ...rest] = mode.split(':');
+      // A declared file's callset holds a colon itself (file:<id>).
+      const callset = rest.join(':');
       if (kind === 'callset' && regions === 'bed') {
         const form = new FormData();
         form.append('callset', callset);
@@ -77,7 +81,7 @@ const ChoiceRow: React.FC<{
   return (
     <tr>
       <td>{sample.sample_id}</td>
-      <td>{describe(choice)}</td>
+      <td>{describe(choice, labels)}</td>
       <td>
         <select
           aria-label={`How ${sample.sample_id} is read`}
@@ -85,9 +89,9 @@ const ChoiceRow: React.FC<{
           onChange={(e) => setMode(e.target.value)}
         >
           <option value="auto">Automatic</option>
-          {callsets.map((callset) => (
+          {[...labels].map(([callset, label]) => (
             <option key={callset} value={`callset:${callset}`}>
-              {CALLSET_LABELS[callset] ?? callset}
+              {label}
             </option>
           ))}
           <option value="exclude">Leave out</option>
