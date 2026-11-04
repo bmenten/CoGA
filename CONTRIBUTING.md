@@ -64,7 +64,7 @@ node scripts/audit-frontend-prod.mjs   # production dependency audit
 Run both `tsc` and `vitest` for any frontend change: the type check misses broken component
 tests, and vitest misses type errors in the tests. In CI, vitest also enforces the coverage
 floors in `frontend/vite.config.mts` (`npm run test:coverage`). The handleiding check needs
-the generator's pinned dependency: `pip install markdown==3.10.3`.
+the generator's pinned dependency: `pip install -r ci/requirements-handleiding.txt`.
 
 The rules these gates enforce, and the ones they cannot:
 

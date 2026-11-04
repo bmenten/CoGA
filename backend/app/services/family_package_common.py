@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 import re
 from typing import Any, Awaitable, Callable, Iterable, TextIO
+import zlib
 
 from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field
@@ -575,33 +576,83 @@ def whole_package_text_handle(path: Path) -> TextIO:
     return package_text_handle(path)
 
 
-def read_vcf_sample_columns(path: Path) -> list[str]:
+# What reading a file's start can raise when the file is broken: gzip's EOFError for a file
+# cut short, its BadGzipFile (an OSError) for one that is not gzip, zlib.error for damaged
+# compressed data, an OSError for one the disk will not give.
+UNREADABLE_FILE_ERRORS: tuple[type[BaseException], ...] = (OSError, EOFError, zlib.error)
+
+
+def _unreadable_reason(path: Path) -> str:
+    if path.name.lower().endswith(".gz"):
+        return ": it is cut short or damaged, or is not gzip"
+    return ""
+
+
+class UnreadableVcf(ValueError):
+    """A VCF whose header could not be read: a gzip file cut short or damaged, a file named
+    ``.gz`` that is not gzip, or one the disk would not give (DATA-11). Its message names the
+    file by its name, with ``label`` (the VCF, the SNV file of a sample), and never the
+    error's own text, which can quote the file. A ValueError, so a reader that left such a
+    file to the import still does."""
+
+    def __init__(self, path: Path, *, label: str = "The VCF") -> None:
+        self.path = path
+        super().__init__(f"{label} ({path.name}) could not be read{_unreadable_reason(path)}")
+
+
+DATASET_VCF_UNREADABLE = "dataset_vcf_unreadable"
+
+
+def unreadable_vcf_issue(
+    root: Path, path: Path, *, dataset: str, label: str, sample_id: str | None = None
+) -> FamilyImportValidationIssue:
+    """The refusal of a VCF Discover or the validation could not read (``UnreadableVcf``),
+    naming the file as the package does and, when given, the sample (DATA-11)."""
+    return _issue(
+        DATASET_VCF_UNREADABLE,
+        f"{label} ({_display_path(root, path)}) could not be read{_unreadable_reason(path)}. "
+        "Copy it again from where the pipeline wrote it.",
+        dataset=dataset,
+        sample_id=sample_id,
+        path=path,
+    )
+
+
+def read_vcf_sample_columns(path: Path, *, label: str = "The VCF") -> list[str]:
     """Sample columns from a VCF's ``#CHROM`` line, reading only as far as that line.
 
     Used by validation to check sample names without materialising a multi-GB VCF.
     Returns ``[]`` for a headerless or sample-less file (the annotated NeedlR VCF has
-    only the eight fixed columns).
+    only the eight fixed columns). A file it cannot read raises ``UnreadableVcf``, named
+    with ``label``.
     """
-    with package_text_handle(path) as handle:
-        for line in handle:
-            if line.startswith("#CHROM"):
-                return line.rstrip("\n\r").split("\t")[9:]
-            if not line.startswith("#"):
-                break
+    try:
+        with package_text_handle(path) as handle:
+            for line in handle:
+                if line.startswith("#CHROM"):
+                    return line.rstrip("\n\r").split("\t")[9:]
+                if not line.startswith("#"):
+                    break
+    except UNREADABLE_FILE_ERRORS as exc:
+        raise UnreadableVcf(path, label=label) from exc
     return []
 
 
-def vcf_holds_a_data_line(path: Path) -> bool:
+def vcf_holds_a_data_line(path: Path, *, label: str = "The VCF") -> bool:
     """Whether a VCF holds a line after its header, reading only as far as the first one.
 
     Used by validation to report a data file the import refuses for holding no record
     (SAFE-3) without materialising a multi-GB VCF. Any line counts: only the loader reads a
-    record, so a file whose lines it cannot read passes here and fails at import.
+    record, so a file whose lines it cannot read passes here and fails at import. A file it
+    cannot read at all raises ``UnreadableVcf``, named with ``label``.
     """
-    with package_text_handle(path) as handle:
-        for line in handle:
-            if line.strip() and not line.startswith("#"):
-                return True
+    try:
+        with package_text_handle(path) as handle:
+            for line in handle:
+                if line.strip() and not line.startswith("#"):
+                    return True
+    except UNREADABLE_FILE_ERRORS as exc:
+        raise UnreadableVcf(path, label=label) from exc
     return False
 
 

@@ -22,6 +22,8 @@ resources.
 
 Every small variant across the projects you can access, one row per variant: gene, variant,
 classification, consequence and tags, with the number of carriers (het and hom) and of families.
+A variant reviewed in more than one family shows the most severe classification of those reviews, and
+the tags of all of them.
 
 - Filter as on the family page (gene, consequence, ClinVar, frequency, in-silico scores), plus tags and
   classification — for example every variant tagged *Report*.

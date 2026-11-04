@@ -36,7 +36,7 @@ describe('AcmgScaleBar', () => {
       classification: { points: 5, classKey: 'acmg_class_3', label: 'VUS - class 3', standAloneBenign: false, vusTier: 'hot' },
       points: '+5 pts',
       tier: 'Hot VUS',
-      ariaLabel: 'ACMG classification: VUS - class 3 (Hot VUS), +5 points',
+      ariaLabel: 'ACMG classification: VUS - class 3 (hot VUS), +5 points',
       arrow: 75,
     },
     {

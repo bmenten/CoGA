@@ -757,7 +757,9 @@ in the same places) under `datasets.coverage.per_sample` as `target_table`. Its 
 (`nipt_pair_detected`) names the samples it took for the plasma and for the father: check both
 before the import. A VCF whose one column is named neither after its sample nor after its entry's
 `vcf_sample` (another tube's name, say) is warned of too (`nipt_vcf_column_named_otherwise`), as
-in validation. How the pair is imported: [Monogenic NIPT pairs](#monogenic-nipt-pairs).
+in validation. A parent's VCF that Discover cannot read (cut short, damaged, not gzip) is refused
+by name (`dataset_vcf_unreadable`), and no pair is drafted from it. How the pair is imported:
+[Monogenic NIPT pairs](#monogenic-nipt-pairs).
 
 Discover knows several file names per dataset and shows what it found. The exact patterns are the
 `standard_v1` entry of `NAMING_SCHEMES` in `backend/app/services/family_package_discovery.py`. A
@@ -1396,9 +1398,12 @@ Discover, dry run and import check:
   `analysis_type: monogenic_nipt`, or as the primary callset of germline calls made one sample at
   a time when the dataset says `source_format: clair3` (otherwise
   `dataset_per_sample_unsupported`). Each VCF holds exactly one sample
-  (`dataset_vcf_not_single_sample`) and needs no index. A NIPT pair's VCF whose one column is
-  named neither as its member nor as its entry's `vcf_sample` is a warning
-  (`nipt_vcf_column_named_otherwise`, [Monogenic NIPT pairs](#monogenic-nipt-pairs)).
+  (`dataset_vcf_not_single_sample`) and needs no index. A VCF whose header cannot be read (a
+  `.vcf.gz` cut short or damaged, or a plain-text file named `.gz`) is refused by its sample and
+  file name (`dataset_vcf_unreadable`); the validation used to fail with a 500 (DATA-11). A
+  NIPT pair's VCF whose one column is named neither as its member nor as its entry's
+  `vcf_sample` is a warning (`nipt_vcf_column_named_otherwise`,
+  [Monogenic NIPT pairs](#monogenic-nipt-pairs)).
 - **Coverage**: a per-target coverage table's header names `chromosome`, `start`, `end`,
   `attribute` and `mean` (`coverage_target_table_columns`). A coverage BED's `content` is
   `read_depth` or `log2_ratio` (`coverage_content_invalid`); a BED without one is a warning
@@ -1963,6 +1968,7 @@ capture panel takes the panel's key, the `assay_panel` of its cfDNA samples).
 | `ped_proposed_from_folders` (warning) | Discover found no PED and took the members from the long-read per-sample folders (a couple when of opposite sex). Check them before writing the manifest. |
 | "The family's callset also holds the calls of …" | A per-sample SNV import that does not bring every sample's file would drop the others' calls: import every sample's SNV file together. |
 | `dataset_vcf_not_single_sample` | A VCF under `snv.per_sample` (a NIPT pair's, or a long-read sample's) holds no sample column or more than one. |
+| `dataset_vcf_unreadable` | A sample's VCF under `snv.per_sample` (or a NIPT pair's parent VCF, in Discover) could not be read: a `.vcf.gz` cut short or damaged in a copy, or a plain-text VCF named `.gz`. The message names the sample and the file. Copy the file again from where the pipeline wrote it. An import that meets such a file fails its dataset with "… could not be read: it is cut short or damaged, or is not gzip". |
 | `nipt_vcf_column_named_otherwise` (warning) | A NIPT pair's VCF names its one sample column neither as the member nor as the entry's `vcf_sample`; the import reads it as the member's calls ([Monogenic NIPT pairs](#monogenic-nipt-pairs)). Check that the file holds the member's verified tube: if so, set the entry's `vcf_sample` to the column's name; if not, correct the manifest. |
 | `coverage_target_table_columns` | A per-target coverage table's header lacks `chromosome`, `start`, `end`, `attribute` or `mean`. |
 | `coverage_content_undeclared` (warning) | A coverage BED's manifest entry has no `content`: it imports as `unknown`, drawn without an axis and never read as depth. Add `content: read_depth` or `content: log2_ratio` and import again. |

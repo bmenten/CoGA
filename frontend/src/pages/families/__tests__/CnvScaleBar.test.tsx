@@ -39,13 +39,13 @@ describe('CnvScaleBar', () => {
     // A Likely-pathogenic 0.90 must not read "+0.9" beside a Pathogenic "+0.99".
     const { unmount } = render(
       <CnvScaleBar
-        classification={{ pointTotal: 0.9, classKey: 'cnv_class_4', classLabel: 'Likely Pathogenic' }}
+        classification={{ pointTotal: 0.9, classKey: 'cnv_class_4', classLabel: 'Likely pathogenic - class 4' }}
       />,
     );
     expect(screen.getByText('+0.90 pts')).toBeInTheDocument();
     expect(screen.getByRole('img')).toHaveAttribute(
       'aria-label',
-      expect.stringContaining('Likely Pathogenic, +0.90 points'),
+      expect.stringContaining('Likely pathogenic - class 4, +0.90 points'),
     );
     unmount();
 

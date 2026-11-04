@@ -69,25 +69,25 @@ describe('SmallVariantReviewDialog classification', () => {
 
   it('replaces it with the class the user ticks', async () => {
     const payload = await saveWith({ classification: 'Pathogenic - class 5' }, () =>
-      fireEvent.click(box('Likely Pathogenic - class 4')),
+      fireEvent.click(box('Likely pathogenic - class 4')),
     );
-    expect(payload.classification).toBe('Likely Pathogenic - class 4');
+    expect(payload.classification).toBe('Likely pathogenic - class 4');
     expect(payload.tags).toEqual(['acmg_class_4']);
   });
 
   it('keeps a class shown from its tag as it is', async () => {
     const payload = await saveWith({
-      classification: 'Likely Pathogenic - class 4',
+      classification: 'Likely pathogenic - class 4',
       tags: ['acmg_class_4', 'report'],
     });
-    expect(payload.classification).toBe('Likely Pathogenic - class 4');
+    expect(payload.classification).toBe('Likely pathogenic - class 4');
     expect(payload.tags).toEqual(['acmg_class_4', 'report']);
   });
 
   it('sends an explicit clear when the user unticks the class shown', async () => {
     const payload = await saveWith(
-      { classification: 'Likely Pathogenic - class 4', tags: ['acmg_class_4'] },
-      () => fireEvent.click(box('Likely Pathogenic - class 4')),
+      { classification: 'Likely pathogenic - class 4', tags: ['acmg_class_4'] },
+      () => fireEvent.click(box('Likely pathogenic - class 4')),
     );
     expect(payload).toHaveProperty('classification', null);
     expect(payload.tags).toEqual([]);

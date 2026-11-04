@@ -93,6 +93,8 @@ function legendStyle(item: (typeof LEGEND)[number]) {
   return { left: `${(left + right) / 2}%`, transform: 'translateX(-50%)' };
 }
 
+// The chip, which starts with the tier; within a sentence the tier is lowercase, as the tier
+// tags write it ("VUS — hot").
 const VUS_TIER_LABELS: Record<NonNullable<AcmgClassification['vusTier']>, string> = {
   hot: 'Hot',
   warm: 'Warm',
@@ -104,7 +106,7 @@ export default function AcmgScaleBar({ classification }: AcmgScaleBarProps) {
   const arrowPct = scalePositionPct(standAloneBenign ? -Infinity : points);
   const pointsLabel = standAloneBenign ? 'BA1' : points > 0 ? `+${points}` : `${points}`;
   const ariaLabel = `ACMG classification: ${label}${
-    vusTier ? ` (${VUS_TIER_LABELS[vusTier]} VUS)` : ''
+    vusTier ? ` (${vusTier} VUS)` : ''
   }, ${pointsLabel} points`;
 
   return (

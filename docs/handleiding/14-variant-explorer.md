@@ -107,7 +107,7 @@ Dit is voor een auditor het belangrijkste deel. Elke vraag is hard beperkt tot d
 
 Het bestand `backend/app/services/data_scope.py` gaat, ondanks de naam, niet over deze afscherming maar over chromosoomnamen. De toegangsscope staat in `variant_explorer_service.py` (`resolve_scope`).
 
-**Traceerbaarheid.** Elke drager is terug te voeren op zijn familie en project. De review (tags, classificatie, laatste review) komt uit `small_variant_reviews` (hoofdstuk 10).
+**Traceerbaarheid.** Elke drager is terug te voeren op zijn familie en project. De review (tags, classificatie, laatste review) komt uit `small_variant_reviews` (hoofdstuk 10). Is een variant in meer families beoordeeld, dan toont de rij de tags van alle reviews en de ernstigste classificatie (`_classification_rank`). Die leest de klasse uit de opgeslagen tekst, in elke vorm: het label van het reviewvenster ("Pathogenic - class 5"), een klassesleutel (`acmg_class_5`, `cnv_class_5`) of het klassewoord, in welke schrijfwijze ook. Tekst die geen klasse noemt, telt het laagst. Vroeger telde elk opgeslagen label als 0 en won de eerste gelezen review (CLIN-69).
 
 **Waar in de code:** `resolve_scope` in `backend/app/services/variant_explorer_service.py`; de rolregels in `backend/app/services/access_control.py`.
 

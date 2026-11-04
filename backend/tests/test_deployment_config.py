@@ -335,7 +335,8 @@ def _cloud_build(name: str, **substitutions: str) -> dict[str, object]:
     substitutions; the others keep the config's defaults."""
     config = yaml.safe_load((REPO / "ci" / f"cloudbuild.{name}.yaml").read_text())
     (step,) = config["steps"]
-    assert step["name"] == "gcr.io/cloud-builders/docker"
+    # By tag and digest: test_pinned_images.py holds it to ci/pinned-images.Dockerfile.
+    assert step["name"].startswith("gcr.io/cloud-builders/docker:")
     values = {**(config.get("substitutions") or {}), "_IMAGE": "registry.example/coga:tag", **substitutions}
     return _docker_build([re.sub(r"\$\{(_\w+)\}", lambda match: values[match.group(1)], arg) for arg in step["args"]])
 

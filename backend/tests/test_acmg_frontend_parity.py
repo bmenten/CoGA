@@ -11,6 +11,9 @@ only by a client calling the API.
 
 The missense Z the dialog's PP2 suggestion reads is frozen by the server with the
 classification (TRACE-15): the dialog's sources and their order are the server's.
+
+The class labels the server stores with a classification are the ones the dialogs show, and
+the built-in classification and VUS-tier tags carry them; all are in sentence case (ENG-6).
 """
 
 from __future__ import annotations
@@ -190,3 +193,61 @@ def test_a_save_keeps_every_point_value_the_dialog_offers(kind: str) -> None:
             )
             blob, _total, _class = _normalize_cnv_acmg_payload(payload)
             assert blob is not None and blob["criteria"][0]["points"] == points, (kind, code, points)
+
+
+# --- the class labels and the classification tags (ENG-6) ----------------------------------------
+
+SMALL_VARIANT_SEARCH_TS = FRONTEND_LIB.parent / "pages" / "families" / "smallVariantSearch.ts"
+
+
+def _ts_record(path: Path, declaration: str) -> dict[str, str]:
+    """The ``key: 'label'`` entries of the object ``declaration`` opens in ``path``."""
+    source = path.read_text(encoding="utf-8")
+    body = re.search(re.escape(declaration) + r"\s*=\s*\{([^}]*)\}", source)
+    assert body, f"{declaration} not found in {path.name}"
+    return dict(re.findall(r"(\w+):\s*'([^']*)'", body.group(1)))
+
+
+def _ts_tags(declaration: str) -> dict[str, str]:
+    """The ``{ key, label }`` entries of the tag list ``declaration`` opens in smallVariantSearch.ts."""
+    source = SMALL_VARIANT_SEARCH_TS.read_text(encoding="utf-8")
+    body = re.search(re.escape(declaration) + r"\s*=\s*\[(.*?)\n\]", source, re.S)
+    assert body, f"{declaration} not found in {SMALL_VARIANT_SEARCH_TS.name}"
+    return dict(re.findall(r"\{\s*key:\s*'(\w+)',\s*label:\s*'([^']*)'\s*\}", body.group(1)))
+
+
+def _in_sentence_case(label: str) -> bool:
+    """The first word capitalised and every other in lowercase; an acronym (VUS, AR) as it is."""
+    first, *rest = re.findall(r"[A-Za-z]+", label)
+    return (
+        first[0].isupper()
+        and (first.isupper() or first[1:].islower())
+        and all(word.islower() or word.isupper() for word in rest)
+    )
+
+
+def test_the_class_labels_and_the_classification_tags_are_in_sentence_case_as_the_dialogs_write_them() -> None:
+    # ENG-6 (the owner's decision of 2026-10-28): "Likely pathogenic - class 4", "VUS — hot".
+    # The server stores the label its scoring computes, so it is the label the dialogs show.
+    assert acmg_points.CLASS_LABELS == _ts_record(
+        ACMG_CRITERIA_TS, "export const ACMG_CLASS_LABELS: Record<AcmgClassKey, string>"
+    )
+    assert cnv_acmg_points.CLASS_LABELS == _ts_record(
+        CNV_CRITERIA_TS, "export const CNV_CLASS_LABELS: Record<string, string>"
+    )
+    # A review's class tag reads as its class: the tag's label is the class label.
+    from backend.app.services.small_variant_review_tags import DEFAULT_SMALL_VARIANT_TAGS
+
+    built_in = {entry["key"]: entry["label"] for entry in DEFAULT_SMALL_VARIANT_TAGS}
+    classification_tags = _ts_tags("export const ACMG_CLASSIFICATION_TAGS")
+    vus_tier_tags = _ts_tags("export const ACMG_VUS_TIER_TAGS")
+    assert classification_tags == acmg_points.CLASS_LABELS
+    assert {key: built_in[key] for key in classification_tags} == classification_tags
+    assert vus_tier_tags == {
+        "acmg_vus_hot": "VUS — hot",
+        "acmg_vus_warm": "VUS — warm",
+        "acmg_vus_cold": "VUS — cold",
+    }
+    assert {key: built_in[key] for key in vus_tier_tags} == vus_tier_tags
+    labels = [*built_in.values(), *acmg_points.CLASS_LABELS.values(), *cnv_acmg_points.CLASS_LABELS.values()]
+    assert [label for label in labels if not _in_sentence_case(label)] == []

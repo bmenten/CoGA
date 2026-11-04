@@ -82,7 +82,7 @@ export const CNV_SECTION_TITLES: Record<string, string> = {
 
 export const CNV_CLASS_LABELS: Record<string, string> = {
   cnv_class_5: 'Pathogenic - class 5',
-  cnv_class_4: 'Likely Pathogenic - class 4',
+  cnv_class_4: 'Likely pathogenic - class 4',
   cnv_class_3: 'VUS - class 3',
   cnv_class_2: 'Likely benign - class 2',
   cnv_class_1: 'Benign - class 1',

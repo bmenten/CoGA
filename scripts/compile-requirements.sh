@@ -16,7 +16,11 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=scripts/pinned-image.sh
+source "${REPO_ROOT}/scripts/pinned-image.sh"
 PYTHON_IMAGE="python:3.12"
+# At the digest ci/pinned-images.Dockerfile pins, which Dependabot refreshes.
+PYTHON_IMAGE="$(pinned_image "${PYTHON_IMAGE}")"
 # Resolve on the deploy/CI architecture (linux/amd64) so the committed lock is
 # faithful to where it runs, not to the developer's host arch. On Apple Silicon
 # this runs under emulation (slower, but the canonical lock must be amd64).

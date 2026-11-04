@@ -1970,6 +1970,72 @@ def test_signout_check_flags_a_review_changed_after_signout(monkeypatch) -> None
     assert out["changed_sections"] == ["reported_variants"]
 
 
+def _labelled_reviews(label: str) -> tuple[list[dict], list[dict]]:
+    """A reported small variant and SV/CNV whose classifications all carry ``label``."""
+    small = {
+        **_REVIEW,
+        "classification": label,
+        "acmg": {"criteria": [], "point_total": 7, "classification": label, "vus_tier": None},
+        "compound_het": {"partner_variant_ids": ["1-2-C-T"], "classification": label},
+    }
+    structural = {
+        "variant_id": "1-1000-5000-DEL---",
+        "classification": label,
+        "cnv_class": "cnv_class_4",
+        "cnv_acmg": {"kind": "loss", "criteria": [], "point_total": 0.9, "classification": label},
+        "tags": ["report"],
+    }
+    return [small], [structural]
+
+
+def _patch_labelled_reviews(monkeypatch, label: str) -> None:
+    small, structural = _labelled_reviews(label)
+    _patch_check(monkeypatch, reviews=small)
+
+    async def _structural(session, family_uuid):
+        return structural
+
+    monkeypatch.setattr(rss, "_reported_structural_reviews", _structural)
+
+
+def test_signout_check_reads_a_class_label_signed_in_another_case_as_unchanged(monkeypatch) -> None:
+    # ENG-6: the class labels were put in sentence case and revision 0013 rewrote the stored
+    # reviews. A record signed before keeps "Likely Pathogenic - class 4": that case alone is no
+    # change since sign-out, in the small variants' and the SVs'/CNVs' classifications alike.
+    _patch_labelled_reviews(monkeypatch, "Likely Pathogenic - class 4")
+    signed = asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
+    assert signed["reported_variants"][0]["classification"] == "Likely Pathogenic - class 4"
+    _patch_labelled_reviews(monkeypatch, "Likely pathogenic - class 4")
+
+    out = asyncio.run(
+        rss.compare_report_with_latest_signout(_CheckSession(_signed_row(signed)), family_id="FAM1", user=_user())
+    )
+
+    assert out["changed_sections"] == [] and out["matches"] is True
+    # Another class is still a change.
+    _patch_labelled_reviews(monkeypatch, "Pathogenic - class 5")
+    out = asyncio.run(
+        rss.compare_report_with_latest_signout(_CheckSession(_signed_row(signed)), family_id="FAM1", user=_user())
+    )
+    # The structural drift section names each SV/CNV classification too.
+    assert out["changed_sections"] == ["reported_variants", "reported_structural_variants", "structural_drift"]
+
+
+def test_only_a_classification_s_class_label_is_read_whatever_its_case() -> None:
+    value = {
+        "classification": "LIKELY pathogenic - CLASS 4",
+        "note": "Likely Pathogenic - class 4",
+        "acmg": {"classification": "likely benign - class 2"},
+        "pair": [{"classification": "Not a class label"}],
+    }
+    assert rss._with_current_class_labels(value) == {
+        "classification": "Likely pathogenic - class 4",
+        "note": "Likely Pathogenic - class 4",
+        "acmg": {"classification": "Likely benign - class 2"},
+        "pair": [{"classification": "Not a class label"}],
+    }
+
+
 def test_signout_check_does_not_compare_a_section_the_record_does_not_hold(monkeypatch) -> None:
     # A section CoGA adds after a record was signed is not in that record: it is not
     # comparable, and does not on its own make the page "changed".

@@ -24,7 +24,7 @@ the family genotypes, and scores them on the ClinGen points scale.
 - Each criterion shows as **checked** (the data supports it), **●** (consider), **✕** (the data argues
   against) or **n/a** (cannot apply). Hover it for the evidence; click to change it, and pick its
   strength. Only checked criteria count.
-- The bar at the top shows the points, the class and, for a VUS, the tier (*Hot*, *Warm* or *Cold*).
+- The bar at the top shows the points, the class and, for a VUS, the tier (*hot*, *warm* or *cold*).
 - The header links to gnomAD, ClinVar, DECIPHER and a PubMed search on the gene and the patient's HPO
   terms.
 - **Save classification** stores the class as the variant's classification and review tag, with every
