@@ -449,6 +449,51 @@ def test_an_edit_that_changes_nothing_archives_nothing() -> None:
     assert db.writes(since=before_edit) == []
 
 
+def test_an_edit_made_on_an_older_version_is_refused_and_writes_nothing() -> None:
+    # The genes an edit sends replace the panel's whole list: saved over a version the editor
+    # never saw, they would undo its changes unseen.
+    admin = _admin()
+    db = _PanelDb(admin)
+    created = _create(db, admin, ["TTN", "BRCA1"])
+    _edit(db, admin, created.panel.id, ["TTN", "BRCA1", "CFTR"])
+    before_stale_edit = len(db.statements)
+
+    with pytest.raises(HTTPException) as excinfo:
+        asyncio.run(
+            pms.update_panel_data(
+                db, created.panel.id, GenePanelUpdate(genes=["TTN"], expected_version=1), admin
+            )
+        )
+
+    assert excinfo.value.status_code == 409
+    assert "now at version 2, not 1" in excinfo.value.detail
+    assert db.writes(since=before_stale_edit) == []
+    assert db.panels[created.panel.id]["version"] == 2
+    # Its row is read FOR UPDATE: a second edit waits for the first one's commit.
+    assert any(
+        sql.startswith("SELECT id::text AS id, name, version") and sql.endswith("FOR UPDATE")
+        for sql in db.statements[before_stale_edit:]
+    )
+
+    out = asyncio.run(
+        pms.update_panel_data(db, created.panel.id, GenePanelUpdate(genes=["TTN"], expected_version=2), admin)
+    )
+    assert out.panel.version == 3
+    assert out.panel.genes == ["TTN"]
+
+
+def test_the_gene_check_names_what_a_panel_would_get_no_coordinates_for() -> None:
+    admin = _admin()
+    db = _PanelDb(admin)
+
+    out = asyncio.run(pms.check_gene_symbols(db, [" ttn", "NOTAGENE1", "BRCA1", "TTN ", "", "ttn"]))
+
+    # Each name once, trimmed, in the order given; a gene is known in any letter case.
+    assert out.found == ["ttn", "BRCA1", "TTN"]
+    assert out.missing == ["NOTAGENE1"]
+    assert db.writes() == []
+
+
 def test_a_panel_change_whose_version_cannot_be_archived_is_not_committed() -> None:
     admin = _admin()
     db = _PanelDb(admin)

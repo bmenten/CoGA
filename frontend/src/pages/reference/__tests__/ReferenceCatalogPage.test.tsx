@@ -1,5 +1,5 @@
 import { QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 
@@ -128,6 +128,58 @@ describe('ReferenceCatalogPage', () => {
     expect(screen.getByText('132')).toBeInTheDocument();
     expect(screen.getByText('48')).toBeInTheDocument();
     expect(screen.getByText('64')).toBeInTheDocument();
+  });
+
+  it('lists every species as a heading over its assemblies, under one row of column headings', async () => {
+    const get = api.get as unknown as Mock;
+    const working = get.getMockImplementation()!;
+    get.mockImplementation((url: string, config?: unknown) => {
+      if (url === '/species') {
+        return Promise.resolve({
+          data: [
+            { _id: 'species-1', name: 'Homo sapiens', common_name: 'human', tax_id: 9606 },
+            { _id: 'species-2', name: 'Mus musculus', common_name: 'house mouse', tax_id: 10090 },
+            { _id: 'species-3', name: 'Danio rerio', common_name: 'zebrafish', tax_id: 7955 },
+          ],
+        });
+      }
+      if (url === '/assemblies') {
+        return Promise.resolve({
+          data: [
+            { _id: 'assembly-1', species_id: 'species-1', assembly_name: 'GRCh38', version: 'p14', release_date: '2024-01-01' },
+            { _id: 'assembly-2', species_id: 'species-1', assembly_name: 'GRCh37', version: 'p13', release_date: '2013-06-28' },
+            { _id: 'assembly-3', species_id: 'species-2', assembly_name: 'GRCm39', version: 'v39', release_date: '2020-06-24' },
+          ],
+        });
+      }
+      return working(url, config);
+    });
+    renderPage();
+
+    await screen.findByRole('heading', { name: 'Mus musculus' });
+    // One table, so the assemblies' columns line up across species, and one row of headings.
+    const table = screen.getByRole('heading', { name: 'Homo sapiens' }).closest('table')!;
+    expect(screen.getByRole('heading', { name: 'Mus musculus' }).closest('table')).toBe(table);
+    expect(within(table).getAllByRole('columnheader', { name: 'Genes' })).toHaveLength(1);
+    // The latest assembly is no column of its own: it is the first row under its species.
+    expect(screen.queryByRole('columnheader', { name: /latest assembly/i })).not.toBeInTheDocument();
+    expect(within(table).queryByText(/in catalog/)).not.toBeInTheDocument();
+
+    const groups = table.querySelectorAll('tbody.reference-catalog-species-group');
+    const groupText = (group: Element) =>
+      Array.from(group.querySelectorAll('tr')).map(
+        (row) =>
+          (row.querySelector('h3') ?? row.querySelector('.reference-assembly-title') ?? row.querySelector('td'))
+            ?.textContent,
+      );
+    expect(Array.from(groups).map(groupText)).toEqual([
+      ['Homo sapiens', 'GRCh38', 'GRCh37'],
+      ['Mus musculus', 'GRCm39'],
+      ['Danio rerio', 'No assemblies have been added for this species yet.'],
+    ]);
+    expect(within(groups[0] as HTMLElement).getByText('2 assemblies')).toBeInTheDocument();
+    expect(within(groups[0] as HTMLElement).getByText('1 with genes')).toBeInTheDocument();
+    expect(within(groups[2] as HTMLElement).queryByText(/with genes/)).not.toBeInTheDocument();
   });
 
   // #610 — a failed list read "No species are configured yet", with counts of 0.

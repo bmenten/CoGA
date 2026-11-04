@@ -1237,6 +1237,7 @@ export interface GenePanelOut {
 export interface GenePanelUpdate {
   genes?: string[];
   description?: string | null;
+  expected_version?: number | null;
 }
 
 export interface GenePanelVersionDetail {
@@ -1324,6 +1325,20 @@ export interface GeneSearchResultOut {
   end: number;
   transcript_count: number;
   assembly_count: number;
+}
+
+/**
+ * The names a loaded assembly knows as a gene symbol, and those none does: a panel gets
+ * no coordinates for those, so a filter on it finds no variant in them. Each name once,
+ * trimmed, in the order given.
+ */
+export interface GeneSymbolCheckOut {
+  found: string[];
+  missing: string[];
+}
+
+export interface GeneSymbolCheckRequest {
+  genes?: string[];
 }
 
 export interface GeneTranscriptOut {

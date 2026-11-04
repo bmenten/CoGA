@@ -18,6 +18,7 @@ from ..schemas import (
     GenePanelVersionDetail,
     GenePanelVersionListOut,
     GenePanelVersionSummary,
+    GeneSymbolCheckOut,
     MendeliomeRegenerateResponse,
     PanelAppImportRequest,
     PanelAppImportResponse,
@@ -280,6 +281,19 @@ async def _resolve_gene_regions(
                 )
             )
     return regions, missing_genes
+
+
+async def check_gene_symbols(session: AsyncSession, symbols: list[str]) -> GeneSymbolCheckOut:
+    """Which names a panel would get coordinates for, and which it would not, before an
+    admin saves them: a name no loaded assembly knows (a typo, an old symbol) is kept in the
+    panel's gene list but has no region, so a filter on the panel finds nothing in it."""
+    names = list(dict.fromkeys(symbol.strip() for symbol in symbols if symbol and symbol.strip()))
+    _regions, missing_genes = await _resolve_gene_regions(session, names)
+    missing = set(missing_genes)
+    return GeneSymbolCheckOut(
+        found=[name for name in names if name not in missing],
+        missing=missing_genes,
+    )
 
 
 async def _assembly_id_by_name(session: AsyncSession, assembly_name: str) -> str | None:
@@ -563,6 +577,7 @@ async def update_panel_data(
                 SELECT id::text AS id, name, version,
                        COALESCE(source, 'local') AS source, description
                 FROM gene_panels WHERE id = CAST(:panel_id AS uuid)
+                FOR UPDATE
                 """
             ),
             {"panel_id": panel_id},
@@ -576,6 +591,16 @@ async def update_panel_data(
             detail=(
                 f"The '{existing['source']}' panel '{existing['name']}' is generated/imported; "
                 "update it by regenerating or re-importing rather than editing genes."
+            ),
+        )
+    # Locked until the commit (FOR UPDATE above): a second edit waits, then finds this one's
+    # version instead of saving its own list over it.
+    if payload.expected_version is not None and payload.expected_version != int(existing["version"]):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"The panel has changed since you opened it: it is now at version "
+                f"{int(existing['version'])}, not {payload.expected_version}."
             ),
         )
 

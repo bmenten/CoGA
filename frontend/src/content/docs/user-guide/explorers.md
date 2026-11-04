@@ -44,6 +44,10 @@ classification, consequence and tags, with the number of carriers (het and hom) 
 The catalogue of known clinical CNVs (syndromes and recurrent regions) for an assembly. Search by name,
 chromosome or type; each row shows the CNV, cytoband, location, size and **ClinVar P/LP**.
 
+- **Cytoband** is the band the knowledgebase states. Where it states none, CoGA reads the bands the
+  region spans from the assembly's cytobands, the ones the ideogram draws. An assembly without
+  cytobands, such as T2T, shows none.
+
 - **ClinVar P/LP**, for example *12 loss · 3 gain*, counts the pathogenic or likely pathogenic ClinVar
   copy-number variants that overlap the region by at least 30% both ways, as counted when the
   knowledgebase was built.

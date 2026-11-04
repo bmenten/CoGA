@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router';
 import api from '../../lib/api';
-import type { ApiChromosome, ApiClinicalCnv } from '../../lib/apiTypes';
+import type { ApiClinicalCnv } from '../../lib/apiTypes';
 import PageState from '../../components/PageState';
 import { sanitizeHtml } from '../../lib/sanitizeHtml';
 import { apiPath } from '../../lib/apiPath';
@@ -17,18 +17,6 @@ import { formatRegionSize } from '../../lib/format';
 const formatBp = (bp: number) => bp.toLocaleString();
 
 const chromNumber = (chr: string) => chr.replace(/^chr/i, '');
-
-const computeCytoband = (cnv: ApiClinicalCnv, chromosome?: ApiChromosome): string => {
-  if (!chromosome?.bands?.length) return '';
-  const overlapping = chromosome.bands
-    .filter((band) => band.end > cnv.start && band.start < cnv.end)
-    .sort((a, b) => a.start - b.start);
-  if (!overlapping.length) return '';
-  const chr = chromNumber(cnv.chr);
-  const first = overlapping[0].name;
-  const last = overlapping[overlapping.length - 1].name;
-  return first === last ? `${chr}${first}` : `${chr}${first}–${chr}${last}`;
-};
 
 const omimHref = (cnv: ApiClinicalCnv) =>
   cnv.omim_id
@@ -56,17 +44,6 @@ const CnvDetailsPage: React.FC = () => {
     },
     enabled: Boolean(cnvId),
   });
-
-  const { data: chromosome } = useQuery<ApiChromosome>({
-    queryKey: ['chromosome', cnv?.assembly, cnv?.chr],
-    queryFn: async () => {
-      const res = await api.get(apiPath`/chromosomes/${cnv?.assembly}/${cnv?.chr}`);
-      return res.data as ApiChromosome;
-    },
-    enabled: Boolean(cnv?.assembly && cnv?.chr),
-  });
-
-  const cytoband = useMemo(() => (cnv ? computeCytoband(cnv, chromosome) : ''), [cnv, chromosome]);
 
   // details_html comes from imported reference data — strip it to a safe allowlist before
   // it reaches dangerouslySetInnerHTML (defense-in-depth alongside backend sanitisation).
@@ -138,7 +115,9 @@ const CnvDetailsPage: React.FC = () => {
           </div>
           <div>
             <dt>Cytoband</dt>
-            <dd>{cnv.cytoband || cytoband || '—'}</dd>
+            {/* The band the knowledgebase stated, else the one the server read from the
+                assembly's cytoband track. */}
+            <dd>{cnv.cytoband || '—'}</dd>
           </div>
           <div>
             <dt>Type</dt>
