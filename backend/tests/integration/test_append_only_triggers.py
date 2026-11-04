@@ -1,8 +1,8 @@
 """Integration tests that FIRE the append-only triggers (real Postgres, smoke job).
 
 These prove the database-level immutability controls on six append-only tables (and on the
-three of the exploratory ancestry PCA, outside the intended purpose: ``wgs_sources``,
-``ancestry_reference_panels`` and ``ancestry_results``) —
+four of the exploratory ancestry PCA, outside the intended purpose: ``wgs_sources``,
+``ancestry_reference_panels``, ``ancestry_results`` and ``ancestry_sample_choices``) —
 ``audit_log_events`` (the HTTP access log), ``clinical_audit_events`` (the clinical action
 log), ``report_signouts`` (frozen signed reports), ``qc_threshold_changes`` (the history of
 QC acceptance limits), ``family_structure_versions`` (the pedigree's history) and
@@ -126,6 +126,12 @@ _FIRED = {
         "INSERT INTO ancestry_results (run_id, source_id, reference_sha256, samples, calculation_version, assumptions) "
         "SELECT id, source_id, reference_sha256, '[]'::jsonb, 'marker', '{}'::jsonb FROM r RETURNING run_id",
         "UPDATE ancestry_results SET calculation_version = 'tampered' WHERE run_id = :id",
+    ),
+    # A user's choice of how an individual is read stays as it was made.
+    "ancestry_sample_choices": (
+        "INSERT INTO ancestry_sample_choices (family_uuid, project_id, sample_id, mode, chosen_by) "
+        "VALUES (gen_random_uuid(), gen_random_uuid(), 'p1-5-test', 'exclude', gen_random_uuid()) RETURNING id",
+        "UPDATE ancestry_sample_choices SET mode = 'auto' WHERE id = :id",
     ),
 }
 # The column a marker row is found by, where it is not ``id``.

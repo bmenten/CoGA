@@ -41,7 +41,8 @@ class AncestryRunOut(BaseModel):
     finished_at: datetime | None = None
 
 
-AncestryCallsetKind = Literal["complete", "genome", "exome", "partial"]
+# ``regions``: a callset read inside the regions a user gave for it (ancestry_choices).
+AncestryCallsetKind = Literal["complete", "genome", "exome", "regions", "partial"]
 
 
 class AncestryCallsetScanOut(BaseModel):
@@ -57,6 +58,8 @@ class AncestryCallsetScanOut(BaseModel):
     coverage_ratio: float
     exome_ratio: float | None = None
     outside_exome_ratio: float | None = None
+    # Inside the regions a user gave for this callset, when they did.
+    regions_ratio: float | None = None
     # Markers with any genotype call, reference ones included.
     explicit_calls: int
     accepts_unfiltered: bool
@@ -67,6 +70,39 @@ class AncestryCallsetScanOut(BaseModel):
     qc: dict[str, int] = Field(default_factory=dict)
     projectable: bool
     reason: str | None = None
+
+
+class AncestryRegionsOut(BaseModel):
+    """The regions a user gave for a callset, as the reference markers inside them."""
+
+    source: Literal["panel", "bed"]
+    name: str
+    panel_id: str | None = None
+    panel_version: int | None = None
+    # The BED file's SHA-256; the file itself is not kept.
+    sha256: str | None = None
+    interval_count: int
+    covered_markers: int
+    reference_sha256: str
+
+
+class AncestrySampleChoiceIn(BaseModel):
+    """How to read one individual: CoGA's own reading, one callset, or not at all."""
+
+    mode: Literal["auto", "callset", "exclude"]
+    callset: Literal["clair3", "nipt", "glimpse2"] | None = None
+    # With a callset: the regions of this gene panel's genes (their coding markers).
+    panel_id: str | None = None
+    # With a callset: keep the regions of the individual's current choice (a BED given before).
+    keep_regions: bool = False
+
+
+class AncestrySampleChoiceOut(BaseModel):
+    sample_id: str
+    mode: Literal["auto", "callset", "exclude"]
+    callset: str | None = None
+    regions: AncestryRegionsOut | None = None
+    chosen_at: datetime
 
 
 class AncestrySampleOut(BaseModel):
@@ -81,6 +117,8 @@ class AncestrySampleOut(BaseModel):
     usable_markers: int | None = None
     reason: str | None = None
     candidates: list[AncestryCallsetScanOut] = Field(default_factory=list)
+    # The user's choice the calculation read for this individual, if any (ancestry_choices).
+    choice: AncestrySampleChoiceOut | None = None
 
 
 class AncestryAnalysisOut(BaseModel):
@@ -107,3 +145,7 @@ class FamilyAncestryOut(BaseModel):
     analysis: AncestryAnalysisOut | None = None
     runs: list[AncestryRunOut] = Field(default_factory=list)
     notices: list[str] = Field(default_factory=list)
+    # The latest choice of each individual that has one, and whether the caller may make one.
+    choices: list[AncestrySampleChoiceOut] = Field(default_factory=list)
+    can_choose: bool = False
+

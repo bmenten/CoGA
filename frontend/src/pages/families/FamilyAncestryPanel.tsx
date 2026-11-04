@@ -12,6 +12,7 @@ import type {
 } from '../../lib/apiSchema.generated';
 import AncestryPcaPlot from '../../components/visualizations/AncestryPcaPlot';
 import InfoIcon from '../../components/InfoIcon';
+import AncestryChoices from './AncestryChoices';
 
 const PCA_HELP =
   'PCA places each individual on fixed axes computed from public reference genomes only. ' +
@@ -39,6 +40,7 @@ const KIND_LABELS: Record<string, string> = {
   complete: 'a call at every marker',
   genome: 'genome',
   exome: 'exome',
+  regions: 'the regions given',
   partial: 'part of the markers',
 };
 
@@ -88,7 +90,11 @@ const readAs = (scan: AncestryCallsetScanOut) =>
 
 /** The share of a sequenced genome's non-reference calls the callset holds where it covers. */
 const coverage = (scan: AncestryCallsetScanOut) =>
-  scan.kind === 'exome' ? `${ratio(scan.exome_ratio)} in the exome` : ratio(scan.coverage_ratio);
+  scan.kind === 'exome'
+    ? `${ratio(scan.exome_ratio)} in the exome`
+    : scan.kind === 'regions'
+      ? `${ratio(scan.regions_ratio)} in the regions`
+      : ratio(scan.coverage_ratio);
 
 const chosen = (sample: AncestrySampleOut) =>
   sample.candidates?.find((scan) => scan.callset === sample.callset);
@@ -408,6 +414,14 @@ const FamilyAncestryPanel: React.FC<Props> = ({
           )}
           {analysis && <SampleTable analysis={analysis} />}
           {analysis && <CallsetTable analysis={analysis} />}
+          {data.can_choose && analysis && (
+            <AncestryChoices
+              familyId={familyId}
+              projectId={projectId}
+              data={data}
+              queryKey={queryKey}
+            />
+          )}
           {data.reference && (
             <details>
               <summary>Reference and calculation</summary>
