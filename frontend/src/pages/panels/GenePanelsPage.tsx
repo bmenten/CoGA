@@ -13,6 +13,7 @@ import type {
 } from '../../lib/apiSchema.generated';
 import { apiPath } from '../../lib/apiPath';
 import type { ApiErrorLike } from '../../lib/errorMessage';
+import ConfirmDeleteDialog from '../../components/ConfirmDeleteDialog';
 import PageHeader from '../../components/PageHeader';
 import QueryFailure from '../../components/QueryFailure';
 import { formatDateTime } from '../../lib/format';
@@ -121,15 +122,24 @@ const GenePanelsPage: React.FC = () => {
     }
   };
 
+  // A delete asks first, naming the panel and its version (UI-7): it takes the panel's genes,
+  // regions and version history with it. Only the dialog's confirmation sends it.
+  const [panelToDelete, setPanelToDelete] = useState<GenePanel | null>(null);
+  const [deletingPanel, setDeletingPanel] = useState(false);
   const handleDelete = async (id: string) => {
+    setDeletingPanel(true);
     try {
       await api.delete(apiPath`/panels/${id}`);
       setStatus('Panel deleted');
       refetch();
     } catch (err) {
       setStatus(panelWriteErrorMessage(err, 'Error deleting panel'));
+    } finally {
+      setDeletingPanel(false);
+      setPanelToDelete(null);
     }
   };
+  const panelLabel = (panel: GenePanel) => `${panel.name} v${panel.version ?? 1}`;
 
   const searchPanelApp = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -457,7 +467,7 @@ const GenePanelsPage: React.FC = () => {
                 <td className="project-catalog-note-cell">{p.description || '—'}</td>
                 {userIsAdmin && (
                   <td>
-                    <button onClick={() => handleDelete(p._id)} className="button-danger">
+                    <button type="button" onClick={() => setPanelToDelete(p)} className="button-danger">
                       Delete
                     </button>
                   </td>
@@ -469,6 +479,23 @@ const GenePanelsPage: React.FC = () => {
           </table>
         </div>
       </section>
+      {panelToDelete ? (
+        <ConfirmDeleteDialog
+          title={`Delete gene panel ${panelLabel(panelToDelete)}`}
+          confirmLabel="Delete panel"
+          busy={deletingPanel}
+          onCancel={() => setPanelToDelete(null)}
+          onConfirm={() => void handleDelete(panelToDelete._id)}
+        >
+          <p>
+            This deletes the gene panel <strong>{panelLabel(panelToDelete)}</strong>
+            {panelToDelete.external_version
+              ? ` (${formatSource(panelToDelete)} ${panelToDelete.external_version})`
+              : ''}
+            , with its genes, its regions and every archived version.
+          </p>
+        </ConfirmDeleteDialog>
+      ) : null}
     </div>
   );
 };
