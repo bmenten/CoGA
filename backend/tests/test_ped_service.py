@@ -14,6 +14,9 @@
   is replaced or written (SAFE-12): a family's annotation manifest or import state, another
   analysis type, a sample's sequencing QC or assay panel, an assay that is no text. So is a
   pedigree it cannot store.
+* A refusal that quotes an ID or a PED field (an unknown father or mother, a carrier outside
+  the PED, a missing family, an unknown phenotype) writes each character a reader cannot see
+  (a control, text-direction or zero-width character) as its escape (SEC-15).
 * The PED download (``build_pedigree_text``) is written from the family's current members and
   parent-child relationships in the database, not the text stored on the family; a family
   without members is not found (404).
@@ -308,6 +311,13 @@ def test_the_inheritance_model_is_one_the_analysis_knows(given: str, recorded: s
     assert ped_service._normalize_inheritance_model(given) == recorded
 
 
+def test_an_unknown_phenotype_is_quoted_with_its_unseen_characters_escaped() -> None:
+    with pytest.raises(HTTPException) as refused:
+        ped_service._pedigree_status_from_phenotype("2\u202e")
+    assert refused.value.status_code == 400
+    assert str(refused.value.detail).startswith("Unsupported PED phenotype '2\\u202e'. ")
+
+
 def test_an_inheritance_model_the_analysis_does_not_know_is_refused() -> None:
     with pytest.raises(HTTPException) as refused:
         ped_service._normalize_inheritance_model("dominant")
@@ -357,6 +367,32 @@ async def test_a_ped_upload_records_the_inheritance_model_and_each_carrier(monke
         "clinical_status": "affected",
         "affected": True,
     }
+
+
+@pytest.mark.asyncio
+async def test_a_carrier_outside_the_ped_is_quoted_with_its_unseen_characters_escaped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    written = _no_database(monkeypatch)
+    ped = "FAM1 FATHER1 0 0 1 1\nFAM1 MOTHER1 0 0 2 1\n"
+    upload = UploadFile(file=io.BytesIO(ped.encode()), filename="family.ped")
+
+    with pytest.raises(HTTPException) as refused:
+        await ped_service.upload_ped_data(
+            _CommitSession(),  # type: ignore[arg-type]
+            upload,
+            False,
+            _FakeUser(),  # type: ignore[arg-type]
+            None,
+            obligate_carriers="FATHER1; MOTHER\u202e1",
+            proven_carriers="CARRIER\x1b1",
+        )
+
+    assert (refused.value.status_code, refused.value.detail) == (
+        400,
+        "Carrier sample IDs are not present in the PED: CARRIER\\x1b1, MOTHER\\u202e1",
+    )
+    assert all("created" not in step for step in written)
 
 
 async def _uploaded_roles(monkeypatch: pytest.MonkeyPatch, ped: str) -> dict[str, str]:
@@ -590,6 +626,25 @@ _PARENTS = [_member("FATHER1", "male"), _member("MOTHER1", "female")]
         ),
         pytest.param([_member("CHILD1", father_id="FATHER9")], [], "Father id not found: FATHER9", id="unknown-father"),
         pytest.param([_member("CHILD1", mother_id="MOTHER9")], [], "Mother id not found: MOTHER9", id="unknown-mother"),
+        # A parent's ID is quoted with each character a reader cannot see escaped (SEC-15).
+        pytest.param(
+            [_member("CHILD1", father_id="FATHER\u202e9")],
+            [],
+            "Father id not found: FATHER\\u202e9",
+            id="unknown-father-text-direction",
+        ),
+        pytest.param(
+            [_member("CHILD1", mother_id="MOTHER\x1b9")],
+            [],
+            "Mother id not found: MOTHER\\x1b9",
+            id="unknown-mother-control-character",
+        ),
+        pytest.param(
+            [_member("CHILD1", father_id="FATHER\u200b1")],
+            [],
+            "Father id not found: FATHER\\u200b1",
+            id="unknown-father-zero-width",
+        ),
         pytest.param(
             [*_PARENTS, _member("CHILD1", father_id="MOTHER1")],
             [],
@@ -700,3 +755,16 @@ async def test_build_pedigree_text_missing_family_raises() -> None:
     )
     # Its relationships are not read.
     assert session.statements == 1
+
+
+@pytest.mark.asyncio
+async def test_a_missing_familys_id_is_quoted_with_its_unseen_characters_escaped() -> None:
+    session = _QueuedSession([])
+
+    with pytest.raises(HTTPException) as missing:
+        await ped_service.build_pedigree_text(session, family_id="FAM\u202e1")  # type: ignore[arg-type]
+
+    assert (missing.value.status_code, missing.value.detail) == (
+        404,
+        "Family 'FAM\\u202e1' was not found or has no members",
+    )
