@@ -100,8 +100,10 @@ describe('Dashboard', () => {
       'href',
       '/admin/monitoring/audit-logs',
     );
-    // And the toolbar's way into the admin area.
-    expect(screen.getByRole('link', { name: 'Admin' })).toHaveAttribute('href', '/admin');
+    // The way into the admin area is the section's, not the toolbar's: the menu has it too.
+    expect(
+      screen.getAllByRole('link').filter((link) => link.getAttribute('href') === '/admin'),
+    ).toHaveLength(1);
     expect(screen.queryByRole('link', { name: /^tags$/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /preset filters/i })).not.toBeInTheDocument();
   });
@@ -111,7 +113,7 @@ describe('Dashboard', () => {
     renderDashboard();
     expect(screen.queryByText('Admin')).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Operational controls and setup' })).not.toBeInTheDocument();
-    // No link into the admin area at all: neither the toolbar's nor the section's.
+    // No link into the admin area at all.
     expect(
       screen.queryAllByRole('link').filter((link) => link.getAttribute('href')?.startsWith('/admin')),
     ).toEqual([]);

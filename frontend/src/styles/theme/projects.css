@@ -699,17 +699,65 @@
   color: var(--color-text-muted);
 }
 
-.project-form-grid,
-.project-access-grid {
+.project-form-grid {
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
 }
 
-/* A project member and, once ticked, their access level (SEC-1). */
-.project-member-row {
+/* Notes sits in a row of one-line fields, so it is one line tall like them; it can still be
+   dragged taller to read or write a longer note. */
+.project-form-grid textarea {
+  height: var(--control-height);
+  min-height: var(--control-height);
+}
+
+/* Who may open a project (SEC-1): its members in a table, and below it a search that lists a
+   few users without access at a time, so the section stays short however many accounts there
+   are. */
+.project-member-picker {
+  display: grid;
+  gap: 0.625rem;
+  justify-items: start;
+}
+
+.project-member-table td {
+  vertical-align: middle;
+}
+
+.project-member-table select {
+  width: auto;
+  min-height: var(--control-height-sm);
+  padding-top: 0;
+  padding-bottom: 0;
+  font-size: var(--fs-xs);
+}
+
+.project-member-action {
+  min-height: var(--control-height-sm);
+  padding: 0 0.5rem;
+}
+
+.project-member-add {
+  display: grid;
+  gap: 0.375rem;
+  width: min(100%, 32rem);
+}
+
+.project-member-candidates {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  font-size: var(--fs-xs);
+}
+
+.project-member-candidates li {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: 0.3125rem;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.1875rem 0.5rem;
+}
+
+.project-member-candidates li + li {
+  border-top: 1px solid var(--color-border);
 }
 
 .project-form-actions {

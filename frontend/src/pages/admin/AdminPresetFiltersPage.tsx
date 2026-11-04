@@ -1,5 +1,4 @@
 import React from 'react';
-import { Link } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import api from '../../lib/api';
 import PageState from '../../components/PageState';
@@ -56,32 +55,6 @@ const AdminPresetFiltersPage: React.FC = () => {
               Audit reusable small-variant presets in one place, independent
               from family and ClickHouse operations.
             </p>
-          </div>
-          <div className="compact-toolbar dashboard-toolbar">
-            <Link
-              to="/admin/data/families"
-              className="button-secondary hover:no-underline"
-            >
-              Family & sample data
-            </Link>
-            <Link
-              to="/admin/variants/tags"
-              className="button-secondary hover:no-underline"
-            >
-              Variant tags
-            </Link>
-            <Link
-              to="/admin/operations/clickhouse"
-              className="button-secondary hover:no-underline"
-            >
-              ClickHouse tables
-            </Link>
-            <Link
-              to="/admin/monitoring/audit-logs"
-              className="button-secondary hover:no-underline"
-            >
-              Audit logs
-            </Link>
           </div>
         </div>
       </section>
