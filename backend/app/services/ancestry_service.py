@@ -14,7 +14,8 @@ the job as interrupted.
 
 A run is a user's request, or the worker's own: every half minute it queues one for each
 family whose small-variant data version no run has read yet, once no import of the family is
-running. Nothing in the import or the upload calls it.
+running. Nothing in the import or the upload calls it. When no run waits, it scans a VCF file
+a package declared for ancestry (``ancestry_files``); every calculation reads the scan.
 """
 from __future__ import annotations
 
@@ -49,6 +50,7 @@ from .access_control import (
     visible_metadata_project_ids,
 )
 from . import ancestry_choices as choices_store
+from . import ancestry_files
 from .ancestry_callsets import (
     CALLSET_LABELS,
     COMPLETE_SHARE,
@@ -216,7 +218,8 @@ async def family_ancestry(session: AsyncSession, family_id: str, user: CurrentUs
                              active_reference_sha256=active.sha256 if active else None, runs=runs, notices=notices,
                              can_calculate=state == "ready" and active is not None and can_change,
                              choices=await choices_store.choices_out(session, context.family_uuid, project),
-                             can_choose=can_change)
+                             can_choose=can_change,
+                             files=await ancestry_files.family_files(session, context.family_uuid, project))
 
 
 async def _insert_run(session: AsyncSession, *, family_uuid: str, family_identifier: str, project: str,
@@ -355,11 +358,16 @@ async def queue_changed_families(session: AsyncSession, family_uuids: list[str] 
             NOT EXISTS (
               SELECT 1 FROM ancestry_runs r WHERE r.family_uuid = f.id AND r.project_id = fp.project_id
                 AND r.storage_version = (CAST(:versions AS jsonb) ->> f.id::text))
-            -- Or a user's choice made after the latest run was queued.
+            -- Or a user's choice made, or a declared VCF file scanned, after the latest run was queued.
             OR EXISTS (
               SELECT 1 FROM ancestry_sample_choices c WHERE c.family_uuid = f.id AND c.project_id = fp.project_id
                 AND c.chosen_at > (SELECT max(r.requested_at) FROM ancestry_runs r
-                                   WHERE r.family_uuid = f.id AND r.project_id = fp.project_id)))
+                                   WHERE r.family_uuid = f.id AND r.project_id = fp.project_id))
+            OR EXISTS (
+              SELECT 1 FROM ancestry_files af JOIN ancestry_file_scans sc ON sc.file_id = af.id
+              WHERE af.family_uuid = f.id AND af.project_id = fp.project_id
+                AND sc.scanned_at > (SELECT max(r.requested_at) FROM ancestry_runs r
+                                     WHERE r.family_uuid = f.id AND r.project_id = fp.project_id)))
         ORDER BY f.family_id, fp.project_id
     """), {"families": sorted(versions), "versions": json.dumps(versions)})).mappings().all()
     queued = 0
@@ -472,6 +480,7 @@ async def calculate_run(run_id: str) -> None:
                 await _check_family(check, run)
                 members = await _members(check, family_uuid)
                 choices = await choices_store.current_choices(check, family_uuid, project)
+                declared_rows, labels = await ancestry_files.file_rows(check, family_uuid, project)
                 version = await get_family_small_variant_data_version("GRCh38", family_uuid)
                 await check.rollback()
             await hold.execute(text("UPDATE ancestry_runs SET storage_version = :version WHERE id = CAST(:id AS uuid)"),
@@ -479,13 +488,15 @@ async def calculate_run(run_id: str) -> None:
             reference = await asyncio.to_thread(configured_reference)
             if reference.public.sha256 != run["reference_sha256"]:
                 raise AncestryInputError("The ancestry reference changed after queueing; request a new calculation.")
-            rows = await read_marker_rows(family_uuid, project, reference)
-            samples = await asyncio.to_thread(project_family, rows, reference, members, choices)
+            rows = await read_marker_rows(family_uuid, project, reference) + declared_rows
+            samples = await asyncio.to_thread(project_family, rows, reference, members, choices, labels)
             # Publish: the requester, the family and its genotypes must all still hold, checked
             # under the family's variant-write locks in the transaction that writes the result.
             await _check_family(hold, run)
+            again = await read_marker_rows(family_uuid, project, reference) + (
+                await ancestry_files.file_rows(hold, family_uuid, project))[0]
             if (await get_family_small_variant_data_version("GRCh38", family_uuid) != version
-                    or rows_digest(await read_marker_rows(family_uuid, project, reference)) != rows_digest(rows)):
+                    or rows_digest(again) != rows_digest(rows)):
                 raise AncestryInputError("Genotypes were written during calculation; no results were published.")
             if await _members(hold, family_uuid) != members:
                 raise AncestryInputError("The family's members changed during calculation; no results were published.")
@@ -520,6 +531,16 @@ async def process_next_run() -> bool:
     return True
 
 
+async def scan_next_declared_file() -> bool:
+    """Scan one VCF file a package declared for ancestry, if one waits (ancestry_files)."""
+    try:
+        reference = await asyncio.to_thread(configured_reference)
+    except AncestryInputError:
+        return False
+    async with get_postgres_sessionmaker()() as session:
+        return await ancestry_files.scan_next_file(session, reference)
+
+
 async def sweep_changed_families() -> int:
     async with get_postgres_sessionmaker()() as session:
         try:
@@ -549,6 +570,11 @@ async def ancestry_worker(stop: asyncio.Event) -> None:
                 except Exception as exc:  # noqa: BLE001 - a failed sweep never stops the queued runs
                     logger.warning("Ancestry sweep failed: %s", describe_error(exc))
             if await process_next_run():
+                continue
+            # Idle: scan a declared VCF file (minutes for a whole genome), then sweep at once so
+            # the family's projection reads it.
+            if await scan_next_declared_file():
+                next_sweep = 0.0
                 continue
         except asyncio.CancelledError:
             raise

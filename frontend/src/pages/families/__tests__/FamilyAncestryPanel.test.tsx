@@ -85,6 +85,7 @@ const data = {
         sample_id: 'PROBAND',
         status: 'projected',
         pcs: [1, 2, 3, 4],
+        pcs_se: [0.05, 0.1, 0.2, 0.4],
         call_rate: 0.99,
         qc: { called: 4000, assumed_ref: 5900, no_call: 100 },
         callset: 'clair3',
@@ -203,6 +204,10 @@ describe('family ancestry PCA', () => {
     expect(proband.getByText('96%')).toBeInTheDocument();
     expect(proband.getByText('9,900 of 10,000 (99.0%)')).toBeInTheDocument();
     expect(proband.getByText('no call: 100')).toBeInTheDocument();
+    // Each coordinate with its standard error, and an ellipse of two around the point.
+    expect(proband.getByText('± 0.050')).toBeInTheDocument();
+    expect(container.querySelector('[data-uncertainty="PROBAND"]')).toBeInTheDocument();
+    expect(container.querySelector('[data-uncertainty="MOTHER"]')).not.toBeInTheDocument();
     const mother = within(within(table).getByRole('row', { name: /MOTHER/ }));
     expect(mother.getByText('Direct calls · exome')).toBeInTheDocument();
     expect(mother.getByText('93% in the exome')).toBeInTheDocument();
@@ -320,6 +325,69 @@ describe('family ancestry PCA', () => {
       expect(api.put).toHaveBeenLastCalledWith(
         '/families/F1/ancestry/choices/PROBAND',
         { mode: 'exclude', callset: null, panel_id: null, keep_regions: false },
+        { params: { project_id: 'project1' } }
+      )
+    );
+  });
+  it('lists the declared VCF files and lets a user read one', async () => {
+    const fileCallset = 'file:0f8fad5b-d9cb-469f-a165-70867728950e';
+    const withFile = {
+      ...data,
+      can_choose: true,
+      choices: [],
+      files: [
+        {
+          id: '0f8fad5b-d9cb-469f-a165-70867728950e',
+          label: 'Father gVCF',
+          relative_path: 'ancestry/FATHER1.g.vcf.gz',
+          declared_at: '2026-01-01T12:00:00Z',
+          status: 'scanned',
+          sha256: 'ab'.repeat(32),
+          scanned_at: '2026-01-01T12:05:00Z',
+          columns: ['FATHER1'],
+        },
+        {
+          id: '1f8fad5b-d9cb-469f-a165-70867728950e',
+          label: 'Old gVCF',
+          relative_path: 'old.g.vcf.gz',
+          declared_at: '2026-01-01T12:00:00Z',
+          status: 'failed',
+          error: 'The VCF file could not be read.',
+          columns: [],
+        },
+      ],
+      analysis: {
+        ...data.analysis,
+        samples: data.analysis.samples.map((sample) =>
+          sample.sample_id === 'FATHER1'
+            ? {
+                ...sample,
+                candidates: [
+                  ...sample.candidates,
+                  scan(fileCallset, 'VCF file: Father gVCF', 'complete'),
+                ],
+              }
+            : sample
+        ),
+      },
+    };
+    api.get.mockImplementation((url: string) =>
+      Promise.resolve({ data: url === '/panels' ? [] : withFile })
+    );
+    api.put.mockResolvedValue({ data: {} });
+    renderPanel();
+    await screen.findByRole('img');
+    expect(screen.getByText('Father gVCF')).toBeInTheDocument();
+    expect(screen.getByText(/ancestry\/FATHER1\.g\.vcf\.gz/).closest('li')).toHaveTextContent(`SHA-256 ${'ab'.repeat(32)}`);
+    expect(screen.getByText(/not read: The VCF file could not be read\./)).toBeInTheDocument();
+    const table = screen.getByRole('table', { name: 'Choices per individual' });
+    const father = within(within(table).getByRole('row', { name: /FATHER1/ }));
+    fireEvent.change(father.getByLabelText('How FATHER1 is read'), { target: { value: `callset:${fileCallset}` } });
+    fireEvent.click(father.getByRole('button', { name: 'Save' }));
+    await waitFor(() =>
+      expect(api.put).toHaveBeenCalledWith(
+        '/families/F1/ancestry/choices/FATHER1',
+        { mode: 'callset', callset: fileCallset, panel_id: null, keep_regions: false },
         { params: { project_id: 'project1' } }
       )
     );

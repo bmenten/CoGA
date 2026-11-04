@@ -20,7 +20,9 @@ const PCA_HELP =
   'is read from the family’s stored callsets: CoGA measures how much of the reference markers ' +
   'a callset covers (a genome, an exome or only part of them) and fits the axes to the markers ' +
   'it has. Projection needs at least 1,000 usable markers and 95% of the covered markers ' +
-  'usable; a panel or a subset of sites is not projected.';
+  'usable; a panel or a subset of sites is not projected. Each point carries its standard ' +
+  'errors (± under its coordinates, a dashed ellipse of two on the plot): how far it moves ' +
+  'when its markers are drawn again, larger the fewer markers it has.';
 
 /** The QC counts a projection keeps, by the name the table shows them under. */
 const QC_LABELS: Record<string, string> = {
@@ -149,7 +151,14 @@ const SampleTable: React.FC<{ analysis: AncestryAnalysisOut }> = ({
                 ) : null}
               </td>
               {[0, 1, 2, 3].map((pc) => (
-                <td key={pc}>{sample.pcs?.[pc]?.toFixed(3) ?? '—'}</td>
+                <td key={pc}>
+                  {sample.pcs?.[pc]?.toFixed(3) ?? '—'}
+                  {sample.pcs && sample.pcs_se ? (
+                    <span className="table-subtle ancestry-reason">
+                      ± {sample.pcs_se[pc].toFixed(3)}
+                    </span>
+                  ) : null}
+                </td>
               ))}
               <td>{excludedCounts(sample.qc ?? {})}</td>
             </tr>
@@ -414,6 +423,30 @@ const FamilyAncestryPanel: React.FC<Props> = ({
           )}
           {analysis && <SampleTable analysis={analysis} />}
           {analysis && <CallsetTable analysis={analysis} />}
+          {(data.files ?? []).length > 0 && (
+            <details>
+              <summary>VCF files declared for ancestry</summary>
+              <p className="table-subtle">
+                Files the family’s package declared for the ancestry PCA without
+                importing them, such as a gVCF. Each is read once in the
+                background; a projection reads what was kept of it, its calls at
+                the reference markers.
+              </p>
+              <ul className="report-criteria-list">
+                {(data.files ?? []).map((file) => (
+                  <li key={file.id}>
+                    <strong>{file.label}</strong> · <code>{file.relative_path}</code>{' '}
+                    ·{' '}
+                    {file.status === 'pending'
+                      ? 'waiting to be read'
+                      : file.status === 'failed'
+                        ? `not read: ${file.error ?? ''}`
+                        : `read ${file.scanned_at ? new Date(file.scanned_at).toLocaleString() : ''}, SHA-256 ${file.sha256 ?? ''}`}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
           {data.can_choose && analysis && (
             <AncestryChoices
               familyId={familyId}
