@@ -41,12 +41,13 @@ export interface AncestryAnalysisOut {
 export interface AncestryCallsetScanOut {
   callset: string;
   label: string;
-  kind: "complete" | "genome" | "exome" | "partial";
+  kind: "complete" | "genome" | "exome" | "regions" | "partial";
   carriers: number;
   expected_carriers: number;
   coverage_ratio: number;
   exome_ratio: number | null;
   outside_exome_ratio: number | null;
+  regions_ratio: number | null;
   explicit_calls: number;
   accepts_unfiltered: boolean;
   covered_markers: number;
@@ -79,6 +80,18 @@ export interface AncestryReferencePoint {
   pcs: number[];
 }
 
+/** The regions a user gave for a callset, as the reference markers inside them. */
+export interface AncestryRegionsOut {
+  source: "panel" | "bed";
+  name: string;
+  panel_id: string | null;
+  panel_version: number | null;
+  sha256: string | null;
+  interval_count: number;
+  covered_markers: number;
+  reference_sha256: string;
+}
+
 export interface AncestryRunOut {
   id: string;
   source_id: string | null;
@@ -91,6 +104,22 @@ export interface AncestryRunOut {
   finished_at: string | null;
 }
 
+/** How to read one individual: CoGA's own reading, one callset, or not at all. */
+export interface AncestrySampleChoiceIn {
+  mode: "auto" | "callset" | "exclude";
+  callset?: "clair3" | "nipt" | "glimpse2" | null;
+  panel_id?: string | null;
+  keep_regions?: boolean;
+}
+
+export interface AncestrySampleChoiceOut {
+  sample_id: string;
+  mode: "auto" | "callset" | "exclude";
+  callset: string | null;
+  regions: AncestryRegionsOut | null;
+  chosen_at: string;
+}
+
 export interface AncestrySampleOut {
   sample_id: string;
   status: "projected" | "insufficient_data" | "excluded";
@@ -98,10 +127,11 @@ export interface AncestrySampleOut {
   call_rate: number;
   qc: Record<string, number>;
   callset: string | null;
-  kind: "complete" | "genome" | "exome" | "partial" | null;
+  kind: "complete" | "genome" | "exome" | "regions" | "partial" | null;
   usable_markers: number | null;
   reason: string | null;
   candidates: AncestryCallsetScanOut[];
+  choice: AncestrySampleChoiceOut | null;
 }
 
 /** The annotation/reference version manifest for a family (report provenance). */
@@ -256,6 +286,11 @@ export interface BlacklistRegionOut {
   start: number;
   end: number;
   label: string;
+}
+
+export interface Body_choose_family_ancestry_bed_api_families__family_id__ancestry_choices__sample_id__bed_put {
+  callset?: "clair3" | "nipt" | "glimpse2" | null;
+  file?: string | null;
 }
 
 export interface Body_import_nipt_artifacts_endpoint_api_admin_nipt_artifacts_import_post {
@@ -577,6 +612,8 @@ export interface FamilyAncestryOut {
   analysis: AncestryAnalysisOut | null;
   runs: AncestryRunOut[];
   notices: string[];
+  choices: AncestrySampleChoiceOut[];
+  can_choose: boolean;
 }
 
 /**

@@ -441,6 +441,8 @@ CHECKPOINT_ROUTES = {
     ("PUT", "/api/families/{family_id}/structural-variants/{variant_id}/review"),
     ("PUT", "/api/families/{family_id}/repeat-expansions/{locus_id}/review"),
     ("POST", "/api/families/{family_id}/ancestry/calculate"),
+    ("PUT", "/api/families/{family_id}/ancestry/choices/{sample_id}"),
+    ("PUT", "/api/families/{family_id}/ancestry/choices/{sample_id}/bed"),
     ("PUT", "/api/families/{family_id}/paraphase/{gene_symbol}/review"),
     ("POST", "/api/families/{family_id}/report/sign-out"),
 }

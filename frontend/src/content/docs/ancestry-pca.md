@@ -36,6 +36,20 @@ When an individual has more than one callset that can be projected, CoGA reads i
 calls** first, then NIPT per-sample calls, then imputed genotypes. A maternal-plasma cfDNA sample
 (a mixture of mother and fetus) and an embryo are left out.
 
+## Choosing how an individual is read
+
+Under **Choose how each individual is read** you can, for one individual:
+
+- read **one callset** instead of CoGA's choice. This is also how you include an embryo;
+- give the **regions** that callset covers: a **gene panel** (the coding markers of its genes) or
+  a **BED file** of a capture kit. The callset is then read inside them, an absent record counting
+  as reference there, if it holds the non-reference calls a sequenced genome has in them; if not,
+  the table says the regions are not what it covers. Only the markers inside a BED file and its
+  checksum are kept, not the file;
+- **leave it out**, or go back to **Automatic**.
+
+**Save** calculates the projection again. Each projection records the choices it read.
+
 ## When it is calculated
 
 **Automatically.** Every half minute CoGA looks for families whose stored genotypes changed since
@@ -86,5 +100,5 @@ changed since.
 
 ## Who may do what
 
-A reader of the project can view the section. Calculating by hand needs permission to change the
-project. A family outside your projects is not found.
+A reader of the project can view the section. Calculating by hand and choosing how an individual
+is read need permission to change the project. A family outside your projects is not found.

@@ -583,3 +583,32 @@ $$ LANGUAGE plpgsql;
 DROP TRIGGER IF EXISTS ancestry_results_no_mutation ON ancestry_results;
 CREATE TRIGGER ancestry_results_no_mutation BEFORE UPDATE OR DELETE ON ancestry_results
     FOR EACH ROW EXECUTE FUNCTION ancestry_results_block_mutation();
+-- A user's choice, per individual, of how the ancestry PCA reads it (ancestry_choices.py):
+-- CoGA's own reading (auto), one callset, possibly with the regions it covers, or left out.
+-- The latest choice of an individual holds; append-only, so each calculation's is kept.
+CREATE TABLE IF NOT EXISTS ancestry_sample_choices (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    family_uuid uuid NOT NULL,
+    project_id uuid NOT NULL,
+    sample_id text NOT NULL,
+    mode text NOT NULL CONSTRAINT ancestry_sample_choices_mode_check CHECK (mode IN ('auto','callset','exclude')),
+    -- A stored callset, or a VCF file the family's package declared for ancestry (file:<its id>).
+    callset text CONSTRAINT ancestry_sample_choices_callset_check
+        CHECK (callset IN ('clair3','nipt','glimpse2') OR callset ~ '^file:[0-9a-f-]{36}$'),
+    -- The regions the chosen callset covers, as the reference markers inside them; never a file.
+    regions jsonb,
+    chosen_by uuid NOT NULL,
+    chosen_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+    CONSTRAINT ancestry_sample_choices_callset_mode_check CHECK ((mode = 'callset') = (callset IS NOT NULL)),
+    CONSTRAINT ancestry_sample_choices_regions_check CHECK (regions IS NULL OR mode = 'callset')
+);
+CREATE INDEX IF NOT EXISTS ancestry_sample_choices_family
+    ON ancestry_sample_choices(family_uuid, project_id, sample_id, chosen_at DESC);
+CREATE OR REPLACE FUNCTION ancestry_sample_choices_block_mutation() RETURNS trigger AS $$
+BEGIN
+    RAISE EXCEPTION 'ancestry_sample_choices is append-only; % is not permitted', TG_OP;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS ancestry_sample_choices_no_mutation ON ancestry_sample_choices;
+CREATE TRIGGER ancestry_sample_choices_no_mutation BEFORE UPDATE OR DELETE ON ancestry_sample_choices
+    FOR EACH ROW EXECUTE FUNCTION ancestry_sample_choices_block_mutation();
