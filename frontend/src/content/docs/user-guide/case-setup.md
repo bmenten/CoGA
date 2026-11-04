@@ -1,14 +1,15 @@
 Choose the way in that matches how your data arrives.
 
 ```cards
-Family builder | Build a new family by hand: add samples, set sex and roles, link parents and couples, and set affected and carrier status. Open to the analysts of a project, who add families to it, and to administrators; uploading a PED file here is for administrators.
-Package import | An administrator points at a family folder on the CoGA server, lets CoGA write its manifest, validates it, and imports the family with all its data in one job.
+Family builder | Build a new family by hand: add samples, set sex and roles, link parents and couples, and set affected and carrier status. Open to the analysts of a project whose role is analyst or higher, who add families to it, and to superusers and administrators; uploading a PED file here is for administrators.
+Package import | A superuser or an administrator points at a family folder on the CoGA server, lets CoGA write its manifest, validates it, and imports the family with all its data in one job.
 ```
 
-- **Loading data is for administrators**: package import, single uploads on the **Upload family and
-  sample data** page, and replacing an existing family. So is editing an existing family's members or
-  structure. HPO terms are added, changed and removed by the analysts of the family's project and by
-  administrators.
+- **Package import is for superusers and administrators.** The rest of loading data is for
+  administrators: single uploads on the **Upload family and sample data** page, and replacing an
+  existing family, by a package import with *Overwrite* too. So is editing an existing family's members
+  or structure. HPO terms are added, changed and removed by the analysts of the family's project (role
+  analyst or higher), by superusers and by administrators.
 - For a **monogenic NIPT** case, tick *Monogenic NIPT (cfDNA from maternal plasma)* in the family builder:
   see [Monogenic NIPT](#monogenic-nipt).
 - Each kind of data switches on part of CoGA:

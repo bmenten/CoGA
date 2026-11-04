@@ -64,7 +64,7 @@ Een app die zelf niet migreert, leest bij het opstarten alleen het migratiegroot
 
 ### De eerste beheerder
 
-`init_postgres_admin_user` maakt de eerste beheerder aan uit `ADMIN_USERNAME`, `ADMIN_PASSWORD` en `ADMIN_EMAIL`, met de rol `admin`. Bestaat die gebruiker al, dan vervangt de functie alleen de opgeslagen hash als die niet meer bij `ADMIN_PASSWORD` past: wie het geheim roteert, roteert zo het wachtwoord (hoofdstuk 5). Een account met die naam dat aan een Microsoft-account gekoppeld is, blijft ongemoeid. Het wachtwoord wordt nooit in klare tekst bewaard: de backend hasht het met bcrypt, dat hij rechtstreeks aanroept (hoofdstuk 5). De functie werkt ook onder de beperkte rol `coga_app`, die bewust `INSERT`- en `UPDATE`-recht op `users` houdt.
+`init_postgres_admin_user` maakt de eerste beheerder aan uit `ADMIN_USERNAME`, `ADMIN_PASSWORD` en `ADMIN_EMAIL`, met de rol `admin`. Bestaat die gebruiker al, dan vervangt de functie alleen de opgeslagen hash als die niet meer bij `ADMIN_PASSWORD` past: wie het geheim roteert, roteert zo het wachtwoord (hoofdstuk 5). Zijn rol laat ze staan; alleen met de rol `admin` is hij de noodbeheerder (hoofdstuk 5). Een account met die naam dat aan een Microsoft-account gekoppeld is, blijft ongemoeid. Het wachtwoord wordt nooit in klare tekst bewaard: de backend hasht het met bcrypt, dat hij rechtstreeks aanroept (hoofdstuk 5). De functie werkt ook onder de beperkte rol `coga_app`, die bewust `INSERT`- en `UPDATE`-recht op `users` houdt.
 
 **Waar in de code:** `init_postgres_admin_user` in `backend/app/db_migrate.py`.
 

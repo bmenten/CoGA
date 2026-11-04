@@ -30,8 +30,9 @@ for their traceability. It does not generate primary sequence, call variants, or
 autonomous diagnostic result. Every interpretive output is **reviewed and confirmed by a
 qualified clinical laboratory professional**, and two sign-offs follow, in two places:
 
-- **The analytical sign-off, in CoGA.** The analyst signs out the analysis (*Sign out*): this
-  closes the analysis and freezes it into a signed version, the device's output.
+- **The analytical sign-off, in CoGA.** A supervisor signs out the analysis (*Sign out*; a user
+  with the supervisor role or higher, TF-06 H15): this closes the analysis and freezes it into a
+  signed version, the device's output.
 - **The medical sign-off, in the EPD.** The clinical report is drafted and medically signed
   in the hospital's electronic patient record (EPD) by a signatory the laboratory has
   authorised, who remains responsible for the final clinical conclusion. The report refers
@@ -124,7 +125,7 @@ statements and risk controls):
    - **Contamination is not measured.** An excess of Mendelian errors, heterozygous calls on a male's X outside the pseudo-autosomal regions and, for NIPT, an excess of de novo sites are signs consistent with it, among other causes; a pass does not rule it out. Where a mitochondrial contamination estimate is imported with a sample, the mtDNA page judges it against the laboratory's limits (REQ-QC-006).
    - **The review is mandatory** for the family/trio- and lineage-based applications (3.1, 3.3, 3.4), and especially for combined mtDNA/nuclear testing (3.5). There the analyst also compares the samples' mtDNA haplogroups, since a maternal-lineage mismatch is a further swap signal; CoGA shows each sample's haplogroup but does not compare them.
    - **Sign-out is blocked** when a Sample QC check fails, or cannot confirm a declared relationship or a sample's identity, unless the analyst records a reason (REQ-TRACE-012). For a monogenic NIPT family the gate acts on the sign-out of its analysis, from the NIPT page or the report page. A NIPT quality check that failed (no fetal-fraction estimate, fetal-sex signals that disagree, male DNA given as the maternal plasma) blocks it too, under the same acknowledgement ([TF-02 §6](TF-02-device-description.md)).
-8. **The clinical report is signed in the EPD, outside the device.** CoGA's sign-out is the analyst's analytical sign-off: it closes the analysis and freezes it into a signed version. The clinical report is drafted and medically signed in the hospital's electronic patient record (EPD) and refers 1:1 to the signed version it rests on. CoGA does not see the EPD report and does not check it against that version ([TF-02 §3](TF-02-device-description.md)).
+8. **The clinical report is signed in the EPD, outside the device.** CoGA's sign-out is the analytical sign-off, given by a supervisor: it closes the analysis and freezes it into a signed version. The clinical report is drafted and medically signed in the hospital's electronic patient record (EPD) and refers 1:1 to the signed version it rests on. CoGA does not see the EPD report and does not check it against that version ([TF-02 §3](TF-02-device-description.md)).
 
 **Not intended for:**
 - Primary base-calling, alignment, or variant calling (these are upstream).

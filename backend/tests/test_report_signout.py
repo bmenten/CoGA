@@ -1,7 +1,8 @@
 """Signing a family's analysis out (``services/report_signout_service.py``): its gates, the signed
 record and its chain, and the check of the report against the latest record.
 
-The sections, in order: the assembly-scope gate (TF-06 H12); a family whose data is being
+The sections, in order: the signer's role (TF-06 H15); the assembly-scope gate (TF-06 H12); a
+family whose data is being
 written (TF-06 H16); a family made again under its ID (TRACE-13); the evidence-drift gate and
 the content hash; the Sample-QC gate, its could-not-run checks (#330) and the reasons it names
 (CLIN-8, CLIN-58); the sequencing QC cut-offs and what a record could not capture (#514); the
@@ -28,6 +29,7 @@ from fastapi import HTTPException
 from backend.app.schemas import ReportSignoutDetail
 from backend.app.services import annotation_manifest_service as ams
 from backend.app.services import report_signout_service as rss
+from backend.app.services.access_control import SIGN_OUT_ROLE_DETAIL
 from backend.app.services.access_control import RecordNotVisible
 from backend.app.services.nipt_quality_checks import PLASMA_PROFILE_VERDICTS
 from backend.app.services.report_code import parse_report_code, report_code
@@ -98,7 +100,7 @@ def test_canonical_hash_is_stable_and_order_independent() -> None:
 
 
 def _user():
-    return types.SimpleNamespace(username="lab-signer", email="b@x.org", id=None)
+    return types.SimpleNamespace(username="lab-signer", email="b@x.org", id=None, role="supervisor")
 
 
 def _through_the_dialogs(session, **kwargs):
@@ -184,6 +186,47 @@ async def _no_import_job(session, family_identifier):
 
 async def _variant_writes_shared(session, family_uuid):
     return True
+
+
+# ---------------------------------------------------------------------------
+# The signer's role (TF-06 H15)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("role", ["viewer", "analyst"])
+def test_sign_out_is_refused_below_supervisor_before_any_gate(monkeypatch, role: str) -> None:
+    # The family's checkpoint let the user through (a viewer's change is refused there, with its
+    # own reason; here it is stubbed). Signing out is a supervisor's: refused before any gate,
+    # so the analyst is not sent through acknowledgements they cannot use, and nothing written.
+    _patch_common(monkeypatch, drifted_count=0)
+    checked: list[str] = []
+
+    async def _ctx(session, *, family_identifier, user, project_id=None):
+        checked.append(family_identifier)
+        return types.SimpleNamespace(family_uuid="u1", family_id="FAM1", assembly_name="T2T-CHM13v2.0")
+
+    async def _must_not_build(*args, **kwargs):
+        raise AssertionError("a sign-out below supervisor must be refused before its snapshot is built")
+
+    monkeypatch.setattr(rss, "build_family_metadata_context", _ctx)
+    monkeypatch.setattr(rss, "build_report_snapshot", _must_not_build)
+    session = _Session()
+    user = types.SimpleNamespace(username="lab-analyst", email="a@x.org", id=None, role=role)
+    with pytest.raises(HTTPException) as excinfo:
+        asyncio.run(rss.sign_out_report(session, family_id="FAM1", user=user))
+
+    assert (excinfo.value.status_code, excinfo.value.detail) == (403, SIGN_OUT_ROLE_DETAIL)
+    # After the family's checkpoint: a family the user may not see still answers 404 there.
+    assert checked == ["FAM1"]
+    assert session.executed == [], "nothing may be written for a refused sign-out"
+
+
+@pytest.mark.parametrize("role", ["supervisor", "superuser", "admin"])
+def test_a_supervisor_and_above_sign_out(monkeypatch, role: str) -> None:
+    _patch_common(monkeypatch, drifted_count=0)
+    user = types.SimpleNamespace(username="lab-signer", email="b@x.org", id=None, role=role)
+    out = asyncio.run(rss.sign_out_report(_Session(), family_id="FAM1", user=user))
+    assert out["version"] == 1
 
 
 # ---------------------------------------------------------------------------

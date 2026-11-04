@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router';
-import { isAdmin } from '../../lib/auth';
+import { hasSuperuserRights, isAdmin } from '../../lib/auth';
 import ProjectCatalogWorkspace from '../../components/ProjectCatalogWorkspace';
 
 const Dashboard: React.FC = () => {
   const userIsAdmin = isAdmin();
+  // A superuser has the admin dashboard too, with its own workspaces there.
+  const userHasAdminDashboard = hasSuperuserRights();
   const [catalogSearch, setCatalogSearch] = useState('');
 
   return (
@@ -44,7 +46,7 @@ const Dashboard: React.FC = () => {
           <Link to="/family-builder" className="button-secondary hover:no-underline">
             Family builder
           </Link>
-          {userIsAdmin && (
+          {userHasAdminDashboard && (
             <Link to="/admin" className="button-secondary hover:no-underline">
               Admin
             </Link>
@@ -62,14 +64,14 @@ const Dashboard: React.FC = () => {
         </div>
       </section>
 
-      {userIsAdmin && (
+      {userHasAdminDashboard && (
         <section className="surface-card-flat catalog-card dashboard-admin-card">
           <div className="catalog-card-header">
             <div>
               <p className="page-kicker">Administration</p>
               <h2 className="catalog-card-title">Operational controls and setup</h2>
             </div>
-            <span className="badge-chip badge-chip--signature">Admin</span>
+            <span className="badge-chip badge-chip--signature">{userIsAdmin ? 'Admin' : 'Superuser'}</span>
           </div>
           <div className="compact-toolbar dashboard-toolbar">
             <Link to="/admin" className="button-secondary hover:no-underline">
@@ -78,12 +80,16 @@ const Dashboard: React.FC = () => {
             <Link to="/admin/data/upload" className="button-secondary hover:no-underline">
               Package import
             </Link>
-            <Link to="/admin/data/families" className="button-secondary hover:no-underline">
-              Family & sample data
-            </Link>
-            <Link to="/admin/monitoring/audit-logs" className="button-secondary hover:no-underline">
-              Audit logs
-            </Link>
+            {userIsAdmin && (
+              <Link to="/admin/data/families" className="button-secondary hover:no-underline">
+                Family & sample data
+              </Link>
+            )}
+            {userIsAdmin && (
+              <Link to="/admin/monitoring/audit-logs" className="button-secondary hover:no-underline">
+                Audit logs
+              </Link>
+            )}
           </div>
         </section>
       )}

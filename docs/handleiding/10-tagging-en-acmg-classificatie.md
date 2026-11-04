@@ -36,19 +36,19 @@ Wie een compound-heterozygoot paar opslaat, schrijft ook de review van de partne
 ### Welke tags bestaan
 
 - **Systeemtags** zijn ingebouwd en niet te wijzigen: samenwerkingstags (bv. `review`, `send_for_validation`, `validated`, `report`, `excluded`) en de klassetags (`acmg_class_1` tot `acmg_class_5`, de VUS-niveaus `acmg_vus_hot`, `acmg_vus_warm` en `acmg_vus_cold`, en `secondary_finding`).
-- **Eigen tags** maakt een beheerder aan. Ze gelden overal (`global`) of voor één project (`project`); een projecttag kan met extra projecten gedeeld worden.
+- **Eigen tags** maakt een superuser of een beheerder aan. Ze gelden overal (`global`) of voor één project (`project`); een projecttag kan met extra projecten gedeeld worden.
 
 Bij het opslaan controleert de backend of elke tag die de review *toevoegt* bestaat en in deze familie gebruikt mag worden; een onbekende tag geeft `400`. Een tag die de review al draagt, blijft staan, ook als hij intussen verwijderd is. De snelknoppen en de reviewdialoog sturen de opgeslagen tags immers mee terug; anders mislukte elke volgende opslag van die variant, ook die welke de tag weghaalt.
 
 Reviews, bewaarde filterpresets en de audit trail noemen een tag bij zijn **sleutel** (`key`). Die wordt bij het aanmaken afgeleid van het label en ligt dan vast. Hernoemen wijzigt alleen het label; de tag blijft dus op elke review en in elke filter staan. Een label dat leest als dat van een andere actieve tag of van een systeemtag, wordt geweigerd (`409`). Krijgt een nieuwe tag het label van een hernoemde of verwijderde tag, dan krijgt hij een genummerde sleutel (bv. `probe_x_2`). Hij neemt geen reviews van de oude tag over.
 
-Alleen een beheerder (`admin` of `superuser`) maakt eigen tags aan, wijzigt of verwijdert ze. Verwijderen wist een tag niet, maar zet hem op inactief. Reviews die hem dragen, tonen hem nog met zijn label, gemarkeerd als *(deleted)*. Hij kan er weggehaald worden, maar aan geen enkele review meer toegevoegd. Het beheerscherm staat onder Administratie (`frontend/src/pages/admin/AdminVariantTagsPage.tsx`).
+Alleen een superuser of een beheerder (`get_current_superuser`, hoofdstuk 2) maakt eigen tags aan, wijzigt of verwijdert ze, op de beheerpagina en op de routes van een familie; een ander krijgt `403 Superuser access required`. Verwijderen wist een tag niet, maar zet hem op inactief. Reviews die hem dragen, tonen hem nog met zijn label, gemarkeerd als *(deleted)*. Hij kan er weggehaald worden, maar aan geen enkele review meer toegevoegd. Het beheerscherm staat onder Administratie (`frontend/src/pages/admin/AdminVariantTagsPage.tsx`).
 
 **Waar in de code:** `backend/app/services/small_variant_review_tags.py`; de tabellen `small_variant_tag_definitions` en `small_variant_tag_definition_project_links` in `03_assay.sql`.
 
 ### Filterpresets en de lichte reviewdialoog
 
-Een analist kan zijn filterinstellingen bewaren als **preset**. Alleen wie de preset bewaarde, krijgt hem aangeboden en kan hem verwijderen; een beheerder ziet de presets voor small variants van iedereen (hoofdstuk 15). De eigenaar is het account (`owner_id`), niet de gebruikersnaam: verandert die bij een aanmelding met Microsoft, dan blijft de preset van hem (SEC-32). De preset toont de gebruikersnaam waaronder hij laatst bewaard werd (`owner`). Een preset voor small variants geldt in elke familie die de eigenaar kan openen. Een preset voor structurele varianten geldt voor één familie, of herbruikbaar voor al zijn families.
+Een analist kan zijn filterinstellingen bewaren als **preset**; ook een viewer of een lezer kan dat, want het zijn zijn eigen gegevens (hoofdstuk 2). Alleen wie de preset bewaarde, krijgt hem aangeboden en kan hem verwijderen; een superuser of beheerder ziet de presets voor small variants van iedereen (hoofdstuk 15). De eigenaar is het account (`owner_id`), niet de gebruikersnaam: verandert die bij een aanmelding met Microsoft, dan blijft de preset van hem (SEC-32). De preset toont de gebruikersnaam waaronder hij laatst bewaard werd (`owner`). Een preset voor small variants geldt in elke familie die de eigenaar kan openen. Een preset voor structurele varianten geldt voor één familie, of herbruikbaar voor al zijn families.
 
 Naast de volledige ACMG-classificator is er een **lichte reviewdialoog**: een klasse kiezen, tags aan- of uitzetten en een notitie schrijven, met de prioriteitsscore (hoofdstuk 12) als hulp.
 

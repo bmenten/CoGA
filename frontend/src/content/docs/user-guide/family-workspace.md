@@ -8,10 +8,14 @@ of them you can work on the case and move between analyses.
 
 - One line gives the members, the assembly and the projects, then the page's own figures.
 - **Status**, **Assigned to** and **Reviewed by** track the case's workflow. An analyst of the family's
-  project can change them; a reader only sees them.
-- **Assigned to** and **Reviewed by** offer the active analysts of the family's projects and the
-  administrators, never a reader. Someone chosen before they became a reader (or left the family's
-  projects) stays shown, marked *(not eligible)*, until you change it.
+  project (role analyst or higher), a superuser or an administrator can change them; a viewer and a
+  reader only see them.
+- **Assigned to** and **Reviewed by** offer the active analysts of the family's projects whose role is
+  not viewer, the superusers and the administrators; never a reader or a viewer. Someone chosen before
+  they became a reader or a viewer (or left the family's projects) stays shown, marked
+  *(not eligible)*, until you change it.
+- *Read-only access* in the header means you only read this family: your role is viewer, or you are a
+  reader in its project.
 - A *Not validated for clinical use* banner shows when the family is outside the validated scope.
 
 A row of links at the foot of the header leads to the family's analyses: **Small variants**,
@@ -66,7 +70,8 @@ Only an administrator edits a member:
 2. Change the fields and press **Apply to pending**.
 3. Press **Save pending updates** on the family page.
 
-In the same dialog, an analyst of the family's project or an administrator adds and removes HPO terms.
+In the same dialog, an analyst of the family's project (role analyst or higher), a superuser or an
+administrator adds and removes HPO terms.
 Affected status and carrier status are separate: an unaffected person can be a carrier. **Remove
 member** in the dialog takes the person out of the family at once, after you confirm. Members are
 added in **Admin → Family & sample data**.

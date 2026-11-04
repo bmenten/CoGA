@@ -54,6 +54,7 @@ AUDIT_TRAIL_REFUSED = (
     },
 )
 ADMIN_ONLY = (403, {"detail": "Admin access required"})
+SUPERUSER_ONLY = (403, {"detail": "Superuser access required"})
 SEIZURE = "HP:0001250"
 # The routes whose change touches only the caller's own data: a reader may call them.
 OWN_DATA = {
@@ -202,7 +203,12 @@ async def _exercise(run: str) -> dict[str, Any]:
 
     from backend.app.core.clickhouse import init_clickhouse_schema
     from backend.app.core.postgres import get_postgres_sessionmaker
-    from backend.app.dependencies import get_current_admin_user, get_current_user, get_password_hash
+    from backend.app.dependencies import (
+        get_current_admin_user,
+        get_current_superuser,
+        get_current_user,
+        get_password_hash,
+    )
     from backend.app.main import app
     from backend.app.services.clinical_audit_service import verify_clinical_audit_chain
     from backend.tests.e2e import _harness
@@ -230,7 +236,7 @@ async def _exercise(run: str) -> dict[str, Any]:
                     text(
                         """
                         INSERT INTO users (username, hashed_password, role, email, metadata, created_at)
-                        VALUES (:email, :hashed_password, 'viewer', :email, '{}'::jsonb, now())
+                        VALUES (:email, :hashed_password, 'analyst', :email, '{}'::jsonb, now())
                         RETURNING id::text
                         """
                     ),
@@ -327,6 +333,8 @@ async def _exercise(run: str) -> dict[str, Any]:
                         continue
                     if get_current_admin_user in calls:
                         expected = "admin"
+                    elif get_current_superuser in calls:
+                        expected = "superuser"
                     elif key in OWN_DATA:
                         expected = "own"
                     else:
@@ -474,6 +482,7 @@ def test_every_route_that_changes_something_refuses_a_reader_with_the_reason(ran
         key: probe
         for key, probe in swept.items()
         if (probe["expected"] == "admin" and probe["answer"] != ADMIN_ONLY)
+        or (probe["expected"] == "superuser" and probe["answer"] != SUPERUSER_ONLY)
         or (probe["expected"] == "read-only" and probe["answer"] != READ_ONLY)
         or (probe["expected"] == "own" and (probe["answer"][0] == 403 or not 200 <= probe["answer"][0] < 500))
     }

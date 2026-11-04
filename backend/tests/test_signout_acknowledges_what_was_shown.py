@@ -182,7 +182,7 @@ def family(monkeypatch) -> _Family:
 
 
 def _user():
-    return types.SimpleNamespace(username="lab-signer", email="signer@example.org", id=None)
+    return types.SimpleNamespace(username="lab-signer", email="signer@example.org", id=None, role="supervisor")
 
 
 def _sign_out(session=None, **kwargs):

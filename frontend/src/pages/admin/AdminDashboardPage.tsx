@@ -3,11 +3,14 @@ import { Link } from 'react-router';
 
 import InfoTip from '../../components/InfoTip';
 import PageHeader from '../../components/PageHeader';
+import { isAdmin } from '../../lib/auth';
 
 type AdminModule = {
   label: string;
   to: string;
   description: string;
+  /** A superuser's workspace too; every other one is an admin's alone. */
+  superuser?: true;
 };
 
 type AdminGroupIcon = 'reference' | 'access' | 'data' | 'variants' | 'database' | 'audit';
@@ -33,6 +36,7 @@ const adminGroups: AdminGroup[] = [
       },
       {
         label: 'Gene panels',
+        superuser: true,
         to: '/admin/reference/gene-panels',
         description: 'Panel catalog, source metadata, and panel membership.',
       },
@@ -89,11 +93,13 @@ const adminGroups: AdminGroup[] = [
       },
       {
         label: 'Sequencing QC thresholds',
+        superuser: true,
         to: '/admin/data/qc-thresholds',
         description: 'Set the warning and error cut-offs that flag an inadequate sequencing run.',
       },
       {
         label: 'Package import',
+        superuser: true,
         to: '/admin/data/upload',
         description: 'Validate manifests and run package-based initial or incremental imports.',
       },
@@ -106,11 +112,13 @@ const adminGroups: AdminGroup[] = [
     modules: [
       {
         label: 'Variant tags',
+        superuser: true,
         to: '/admin/variants/tags',
         description: 'Review tag definitions and project-scoped tag configuration.',
       },
       {
         label: 'Preset filters',
+        superuser: true,
         to: '/admin/variants/presets',
         description: 'Saved small-variant filter presets for consistent review.',
       },
@@ -165,6 +173,14 @@ const GroupIcon: React.FC<{ icon: AdminGroupIcon }> = ({ icon }) => (
   </svg>
 );
 
+/** The groups with the workspaces the user's role opens: all of them for an admin, a
+ * superuser's for a superuser. A group without one is left out. */
+export function visibleAdminGroups(admin: boolean): AdminGroup[] {
+  return adminGroups
+    .map((group) => ({ ...group, modules: group.modules.filter((module) => admin || module.superuser) }))
+    .filter((group) => group.modules.length > 0);
+}
+
 const AdminDashboardPage: React.FC = () => (
   <div className="page-shell admin-compact space-y-5">
     <PageHeader
@@ -174,7 +190,7 @@ const AdminDashboardPage: React.FC = () => (
     />
 
     <nav className="surface-card admin-nav" aria-label="Admin workspaces">
-      {adminGroups.map((group) => (
+      {visibleAdminGroups(isAdmin()).map((group) => (
         <section key={group.title} className="admin-nav-group" aria-labelledby={`admin-group-${group.icon}`}>
           <h2 id={`admin-group-${group.icon}`} className="admin-nav-title">
             <GroupIcon icon={group.icon} />

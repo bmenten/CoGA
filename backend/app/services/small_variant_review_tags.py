@@ -14,7 +14,7 @@ from ..schemas import (
     SmallVariantTagDefinitionOut,
     SmallVariantTagDefinitionUpdate,
 )
-from .access_control import CurrentUser, is_admin_user
+from .access_control import CurrentUser, has_superuser_rights
 
 
 DEFAULT_SMALL_VARIANT_TAGS: list[dict[str, str]] = [
@@ -309,7 +309,7 @@ async def _ensure_projects_visible(
     if not normalized:
         return []
 
-    if not is_admin_user(user):
+    if not has_superuser_rights(user):
         visible = set(_string_list(getattr(user, "metadata_project_ids", [])))
         unauthorized = [project_id for project_id in normalized if project_id not in visible]
         if unauthorized:
@@ -458,8 +458,8 @@ async def create_small_variant_tag_definition(
     default_project_id: str | None = None,
 ) -> SmallVariantTagDefinitionOut:
     del family_uuid
-    if not is_admin_user(user):
-        raise HTTPException(status_code=403, detail="Only admins can create variant tags")
+    if not has_superuser_rights(user):
+        raise HTTPException(status_code=403, detail="Only superusers and admins can create variant tags")
     slug = _slugify_tag(payload.label)
     _refuse_a_built_in_label(slug)
 
@@ -568,8 +568,8 @@ async def update_small_variant_tag_definition(
     default_project_id: str | None = None,
 ) -> SmallVariantTagDefinitionOut:
     del family_uuid
-    if not is_admin_user(user):
-        raise HTTPException(status_code=403, detail="Only admins can edit variant tags")
+    if not has_superuser_rights(user):
+        raise HTTPException(status_code=403, detail="Only superusers and admins can edit variant tags")
 
     normalized_tag_key = str(tag_key).strip().lower()
     if not normalized_tag_key:
@@ -738,8 +738,8 @@ async def delete_small_variant_tag_definition(
     user: CurrentUser,
 ) -> None:
     del family_uuid
-    if not is_admin_user(user):
-        raise HTTPException(status_code=403, detail="Only admins can delete variant tags")
+    if not has_superuser_rights(user):
+        raise HTTPException(status_code=403, detail="Only superusers and admins can delete variant tags")
 
     normalized_tag_key = str(tag_key).strip().lower()
     if not normalized_tag_key:

@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { useParams } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../../lib/api';
-import { isAdmin } from '../../lib/auth';
+import { hasSuperuserRights } from '../../lib/auth';
 import PageState from '../../components/PageState';
 import QueryFailure from '../../components/QueryFailure';
 import { getErrorMessage, type ApiErrorLike } from '../../lib/errorMessage';
@@ -67,7 +67,8 @@ const TrashIcon: React.FC = () => (
 const GenePanelDetailPage: React.FC = () => {
   const { panelId } = useParams();
   const queryClient = useQueryClient();
-  const userIsAdmin = isAdmin();
+  // Gene panels are a superuser's or an admin's to change.
+  const userIsAdmin = hasSuperuserRights();
   const {
     data: panel,
     isError: panelFailed,

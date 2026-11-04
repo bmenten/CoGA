@@ -11,7 +11,8 @@ braces or after ``urn:uuid:`` failed the same way. Each route now reads the valu
 Over the real API (an in-process ``httpx.ASGITransport`` client, see test_e2e_api_contract.py)
 and Postgres and ClickHouse, with synthetic records made for the test (a family in each of two
 projects, an HPO annotation, a gene panel, filter presets, a NIPT artifact, a raw import file,
-an import job and a clinical CNV), the seeded admin and a viewer of the second project only:
+an import job and a clinical CNV), the seeded admin and a viewer of the second project only (a
+non-admin with the analyst role, who may change their own project's records):
 
 * a value that is no UUID is answered as a UUID that names no record is: with the route's own
   404, with an empty list where the route lists by it, or with the 400 the route answers an
@@ -255,7 +256,7 @@ async def _collect(run: str) -> dict[str, Any]:
                 text(
                     """
                     INSERT INTO users (username, hashed_password, role, email, metadata, created_at)
-                    VALUES (:email, :hashed, 'viewer', :email, '{}'::jsonb, :created_at)
+                    VALUES (:email, :hashed, 'analyst', :email, '{}'::jsonb, :created_at)
                     RETURNING id::text
                     """
                 ),

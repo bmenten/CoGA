@@ -33,7 +33,7 @@ from .family_variant_write_lock import (
 )
 from .hpo_service import PACKAGE_IMPORT, PhenotypeImport
 from .metadata_service import get_current_user_by_id
-from .access_control import CurrentUser, is_admin_user
+from .access_control import CurrentUser, has_superuser_rights, is_admin_user
 from . import ped_service
 from .bed_service import precompute_family_haplotype_lineage
 from .clickhouse_family_snapshot import (
@@ -144,12 +144,20 @@ REQUESTER_GONE_ERROR = "Requesting user no longer exists"
 REQUESTER_INACTIVE_ERROR = (
     "Not run: the account that requested this import has been deactivated, and an import runs "
     "as the account that requested it. Nothing of the family was written. To import the "
-    "package, an active administrator queues it again."
+    "package, an active superuser or administrator queues it again."
 )
 REQUESTER_NOT_ADMIN_ERROR = (
-    "Not run: the account that requested this import is no longer an administrator, and an "
-    "import runs only for an administrator, as the account that requested it. Nothing of the "
-    "family was written. To import the package, an active administrator queues it again."
+    "Not run: the account that requested this import is no longer a superuser or an "
+    "administrator, and an import runs only for one of them, as the account that requested it. "
+    "Nothing of the family was written. To import the package, an active superuser or "
+    "administrator queues it again."
+)
+# An overwrite queued by an account that is no longer an admin (REQ-SEC-002).
+REQUESTER_CANNOT_OVERWRITE_ERROR = (
+    "Not run: the account that requested this import is no longer an administrator, and only "
+    "an administrator overwrites an existing family. Nothing of the family was written. To "
+    "import the package, import it with update, or an active administrator queues the "
+    "overwrite again."
 )
 # How long a backup table of an import run outside a job is kept: nothing records whether
 # that import still runs (drop_orphaned_import_backups).
@@ -1272,9 +1280,19 @@ async def run_family_import_job(
                 raise RuntimeError(REQUESTER_GONE_ERROR)
             if not user.is_active:
                 raise RuntimeError(REQUESTER_INACTIVE_ERROR)
-            if not is_admin_user(user):
+            if not has_superuser_rights(user):
                 raise RuntimeError(REQUESTER_NOT_ADMIN_ERROR)
             job_metadata = json_object(job_row.get("metadata"))
+            # Overwriting an existing family replaces its data: an admin's, as every
+            # replacement and deletion of a family's data is (REQ-SEC-002). A superuser imports
+            # new families and adds missing datasets; the route refuses them the overwrite, and
+            # so does the job of an admin demoted to superuser since it queued one.
+            if (
+                str(job_metadata.get("conflict_mode") or "cancel") == "overwrite"
+                and not bool(job_row["dry_run"])
+                and not is_admin_user(user)
+            ):
+                raise RuntimeError(REQUESTER_CANNOT_OVERWRITE_ERROR)
             result = await execute_family_package_import(
                 session,
                 folder_path=str(job_row["submitted_path"]),

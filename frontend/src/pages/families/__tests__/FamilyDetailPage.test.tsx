@@ -1391,7 +1391,7 @@ describe('FamilyDetailPage', () => {
     for (const name of ['Family status', 'Assigned to', 'Reviewed by']) {
       expect(screen.getByRole('combobox', { name })).toBeDisabled();
     }
-    expect(screen.getByText('Read-only access (reader)')).toBeInTheDocument();
+    expect(screen.getByText('Read-only access')).toBeInTheDocument();
   });
 
   it('does not offer to remove the family’s last member', async () => {

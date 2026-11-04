@@ -20,7 +20,7 @@ from ..schemas import (
     VariantCarriersOut,
     VariantExplorerAssemblyOut,
 )
-from ..services.access_control import CurrentUser, is_admin_user
+from ..services.access_control import CurrentUser, has_superuser_rights
 from ..services.small_variant_review_tags import list_small_variant_tag_definitions
 from ..services.variant_explorer_service import (
     GlobalVariantFilters,
@@ -83,7 +83,7 @@ async def list_explorer_tag_definitions(
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ) -> List[SmallVariantTagDefinitionOut]:
-    if is_admin_user(user):
+    if has_superuser_rights(user):
         return await list_small_variant_tag_definitions(
             session,
             family_uuid="",

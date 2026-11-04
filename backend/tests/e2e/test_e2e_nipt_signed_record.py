@@ -100,7 +100,7 @@ async def _add_reader(project_id: str, email: str) -> tuple[str, str]:
                 text(
                     """
                     INSERT INTO users (username, hashed_password, role, email)
-                    VALUES (:email, :marker, 'viewer', :email)
+                    VALUES (:email, :marker, 'analyst', :email)
                     RETURNING id::text
                     """
                 ),

@@ -4,7 +4,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '../../lib/api';
 import { apiPath } from '../../lib/apiPath';
 import type { ReportSignoutRequest } from '../../lib/apiSchema.generated';
-import { READ_ONLY_HINT } from '../../lib/familyAccess';
+import { READ_ONLY_HINT, SIGN_OUT_ROLE_HINT } from '../../lib/familyAccess';
 import ModalDialog from '../../components/ModalDialog';
 import {
   failuresByJob,
@@ -110,8 +110,11 @@ const NO_FLAG: FamilyImportIncomplete = {
 
 /** What decides whether a page offers the sign-out (`signOutRefusal`). */
 export interface SignOutOffer {
-  /** The family is read-only for the signed-in user: a reader in its project (SEC-1). */
+  /** The family is read-only for the signed-in user: a viewer, or a reader in its project (SEC-1). */
   readOnly: boolean;
+  /** The signed-in user may sign the family out: `can_sign_out`, a supervisor or higher who may
+   * change the family (TF-06 H15). */
+  canSignOut: boolean;
   /** False off the validated assembly scope; null or undefined while it is not known. */
   assemblyValidated: boolean | null | undefined;
   signoutsFailed: boolean;
@@ -121,14 +124,16 @@ export interface SignOutOffer {
 /**
  * Why a page does not offer the sign-out, or null when it does; the button is disabled with
  * this as its reason. The live report and the NIPT report both read it, so a family is offered
- * the sign-out alike on both: never to a reader in its project, who signs nothing out (SEC-1;
- * the server refuses them with 403); never off the validated assembly scope, which the server
+ * the sign-out alike on both: never to a viewer or a reader in its project, who signs nothing out
+ * (SEC-1; the server refuses them with 403); never to an analyst, as signing out is a
+ * supervisor's (TF-06 H15; 403 too); never off the validated assembly scope, which the server
  * refuses anyway (#515); and not while the sign-out record is unknown, as the analysis may be
  * signed already (#605). ``subject`` names what is signed out: the report, or the NIPT
  * analysis.
  */
 export const signOutRefusal = (offer: SignOutOffer, subject: 'report' | 'analysis'): string | null => {
   if (offer.readOnly) return READ_ONLY_HINT;
+  if (!offer.canSignOut) return SIGN_OUT_ROLE_HINT;
   if (offer.assemblyValidated === false) {
     return `Not validated for clinical use — this ${subject} cannot be signed out`;
   }
@@ -145,13 +150,14 @@ export const signOutRefusal = (offer: SignOutOffer, subject: 'report' | 'analysi
  * signed record and with the fingerprint of the concerns it listed, so the acknowledgement
  * covers what the dialog showed (TRACE-19); one that cannot be acknowledged (the assembly
  * scope, data being written) is said in `error`. ``onSigned`` is
- * given the new version. For a reader in the family's project (``readOnly``) it sends
- * nothing, whatever calls it: a reader signs nothing out (SEC-1).
+ * given the new version. For a viewer or a reader in the family's project (``readOnly``), and for
+ * a user below supervisor (``canSignOut`` false), it sends nothing, whatever calls it: they sign
+ * nothing out (SEC-1, TF-06 H15).
  */
 export const useReportSignOut = (
   familyId: string | undefined,
   onSigned: (version: number) => void,
-  { readOnly }: { readOnly: boolean },
+  { readOnly, canSignOut }: { readOnly: boolean; canSignOut: boolean },
 ): ReportSignOut => {
   const queryClient = useQueryClient();
 
@@ -395,7 +401,7 @@ export const useReportSignOut = (
   };
 
   const handleSignOut = () => {
-    if (readOnly) {
+    if (readOnly || !canSignOut) {
       return;
     }
     void attemptSignOut({

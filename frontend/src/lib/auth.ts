@@ -10,7 +10,22 @@ export const AUTH_STORAGE_KEYS = {
   signIn: 'sign_in',
 } as const;
 
-export type UserRole = 'admin' | 'superuser' | 'viewer' | null;
+/**
+ * The global roles, lowest first; each has every right of the roles before it. A viewer reads
+ * the records of their projects; an analyst also analyses them; a supervisor also signs an
+ * analysis out; a superuser also has every project and the configuration the analyses read
+ * (gene panels, variant tags, filter presets, sequencing QC thresholds, package import); an
+ * admin, the whole administration. The server decides; the screens only follow it.
+ */
+export const USER_ROLES = ['viewer', 'analyst', 'supervisor', 'superuser', 'admin'] as const;
+
+export type KnownUserRole = (typeof USER_ROLES)[number];
+
+export type UserRole = KnownUserRole | null;
+
+function isKnownRole(role: string | null): role is KnownUserRole {
+  return (USER_ROLES as readonly string[]).includes(role ?? '');
+}
 
 export type SignInMethod = 'microsoft' | 'cas' | 'password';
 
@@ -24,7 +39,13 @@ export function getStoredUsername(): string | null {
 
 export function getStoredRole(): UserRole {
   const role = storage.getItem(AUTH_STORAGE_KEYS.role);
-  return role === 'admin' || role === 'superuser' || role === 'viewer' ? role : null;
+  return isKnownRole(role) ? role : null;
+}
+
+/** Whether the signed-in user's role is `role` or a higher one. */
+export function hasRole(role: KnownUserRole): boolean {
+  const stored = getStoredRole();
+  return stored !== null && USER_ROLES.indexOf(stored) >= USER_ROLES.indexOf(role);
 }
 
 export function getSessionSignIn(): SignInMethod {
@@ -36,9 +57,17 @@ export function isAuthenticated(): boolean {
   return Boolean(getAuthToken());
 }
 
+/** Whether the signed-in user has the whole administration: an admin. */
 export function isAdmin(): boolean {
-  const role = getStoredRole();
-  return role === 'admin' || role === 'superuser';
+  return getStoredRole() === 'admin';
+}
+
+/**
+ * Whether the signed-in user has the configuration the analyses read and package import, and
+ * so the admin dashboard with those workspaces: a superuser or an admin.
+ */
+export function hasSuperuserRights(): boolean {
+  return hasRole('superuser');
 }
 
 export function persistSession(

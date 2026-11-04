@@ -4,12 +4,13 @@ Dit hoofdstuk behandelt de modules zonder eigen hoofdstuk: de Clinical CNV Explo
 
 ## Toegang als rode draad
 
-Bijna elke module hangt aan een van twee poorten (hoofdstuk 2):
+Bijna elke module hangt aan een van drie poorten (hoofdstuk 2):
 
 | Dependency | Betekenis | Toegepast op |
 | --- | --- | --- |
 | `get_current_user` | Elke ingelogde gebruiker met een geldig token | De CNV-catalogus, panels lezen, releases, UI-events insturen |
-| `get_current_admin_user` | Alleen beheerders: de rol `admin` of `superuser` (`ADMIN_ROLES`) | De volledige beheerrouter `/api/admin`, panels aanmaken en wijzigen, de PanelApp-import |
+| `get_current_superuser` | Een superuser of een beheerder: de rol `superuser` of `admin` (`has_superuser_rights`) | Panels aanmaken, wijzigen en verwijderen, de PanelApp-import en het Mendeliome; de varianttags, het overzicht van de presetfilters en de grenzen voor sequencing-QC; de pakketimport (een bestaande familie overschrijven alleen een beheerder) |
+| `get_current_admin_user` | Alleen beheerders: de rol `admin` (`is_admin_user`) | De rest van de beheerrouter `/api/admin`, projecten, de accountlijst en de rollen, PED- en andere uploads |
 
 De actor van een handeling komt altijd uit het token, nooit uit de inhoud van het verzoek.
 
@@ -46,19 +47,19 @@ De andere bronnen leest het script zoals ze die dag gepubliceerd zijn: de dosisc
 Een **genpanel** is een benoemde lijst genen (eventueel met regio's en repeatloci) die variantfilters afbakent. De catalogus voedt het panelfilter op de filterpagina's (hoofdstuk 8) en in de Variant Explorer, die een panel toepast zoals de familiepagina (hoofdstuk 14), en het panellidmaatschap in de Gene Explorer (hoofdstuk 13).
 
 - **Lezen** (elke ingelogde gebruiker): de lijst, één panel, zijn versies, en zoeken in PanelApp.
-- **Schrijven** (alleen beheerders): aanmaken, wijzigen, verwijderen, een PanelApp-panel importeren en het Mendeliome opnieuw opbouwen. Ook het nakijken van gennamen voor een bewerking (`POST /api/panels/genes/check`) is voor beheerders: het leest alleen, maar is een POST, zoals de bewerking die het dient.
+- **Schrijven** (alleen een superuser of beheerder, `get_current_superuser`): aanmaken, wijzigen, verwijderen, een PanelApp-panel importeren en het Mendeliome opnieuw opbouwen. Ook het nakijken van gennamen voor een bewerking (`POST /api/panels/genes/check`) is voor hen: het leest alleen, maar is een POST, zoals de bewerking die het dient.
 
 **Versies.** Een panel krijgt versie 1 bij het aanmaken, het opbouwen (het Mendeliome) of de eerste import uit PanelApp. Het krijgt een volgende versie telkens zijn genen of regio's veranderen: door een bewerking (bij een lokaal panel ook een nieuwe beschrijving), een nieuw opgebouwd Mendeliome met andere genen, of een nieuwe PanelApp-import met andere genen of regio's. Elke versie wordt bewaard met de volledige genen- en regiolijst, de bron, de externe versie en wie de wijziging deed (ook als tekst, zodat die herkenbaar blijft als het account verdwijnt). Zo is terug te vinden welke genset een panel op een bepaald moment had. De app herschrijft een bewaarde versie nooit, en de databank weigert een tweede versie met hetzelfde nummer. Geen trigger maakt de tabel `gene_panel_versions` echter append-only. **Let op:** een panel verwijderen wist ook zijn versiegeschiedenis. Daarom vraagt *Delete* in de lijst eerst een bevestiging, die het panel en zijn versie noemt; pas die stuurt `DELETE /api/panels/{panel_id}`. *Cancel* en Escape sturen niets.
 
 **Onbekende namen.** Een gennaam die geen geladen assembly kent (een tikfout, een oud symbool), blijft in de genlijst van het panel maar krijgt geen regio: een filter op het panel vindt er geen variant in. De pagina van het panel noemt zulke namen *not imported* (de genen zonder regio in welke assembly ook).
 
-**Een lokaal panel bewerken.** Op de pagina van het panel verwijdert een beheerder een gen met het vuilbakje op zijn rij, voegt hij namen toe, of bewerkt hij de hele lijst. Alle drie leveren dezelfde lijst wijzigingen op (*Changes for version N*). Er wordt pas iets bewaard na de bevestiging. De toe te voegen namen worden vooraf nagekeken (`POST /api/panels/genes/check`); een naam die geen assembly kent, wordt gemarkeerd. De bevestiging stuurt de volledige nieuwe genlijst met de versie waarop de wijziging gemaakt werd (`expected_version`). De backend leest het panel `FOR UPDATE` en weigert met `409` als het intussen een nieuwere versie heeft: de lijst zou anders de wijzigingen van die versie ongezien terugdraaien. De pagina laadt het panel dan opnieuw en houdt de wijzigingen klaar om opnieuw te bevestigen.
+**Een lokaal panel bewerken.** Op de pagina van het panel verwijdert een superuser of beheerder een gen met het vuilbakje op zijn rij, voegt hij namen toe, of bewerkt hij de hele lijst. Alle drie leveren dezelfde lijst wijzigingen op (*Changes for version N*). Er wordt pas iets bewaard na de bevestiging. De toe te voegen namen worden vooraf nagekeken (`POST /api/panels/genes/check`); een naam die geen assembly kent, wordt gemarkeerd. De bevestiging stuurt de volledige nieuwe genlijst met de versie waarop de wijziging gemaakt werd (`expected_version`). De backend leest het panel `FOR UPDATE` en weigert met `409` als het intussen een nieuwere versie heeft: de lijst zou anders de wijzigingen van die versie ongezien terugdraaien. De pagina laadt het panel dan opnieuw en houdt de wijzigingen klaar om opnieuw te bevestigen.
 
-**PanelApp.** Beheerders zoeken en importeren panels uit Genomics England PanelApp. Ze kiezen het betrouwbaarheidsniveau, de assembly, en of regio's en repeats meekomen. Het PanelApp-id, de versie en de bron-URL worden bij het panel bewaard. De versie van PanelApp (`external_version`) staat los van de versie van het panel in CoGA. Een panel dat al in de catalogus staat opnieuw importeren (uit een andere release of met andere keuzes), geeft het een nieuwe versie als zijn genen of regio's veranderen. Blijven die gelijk, dan houdt het panel zijn versie en wordt er niets bewaard; de import legt wel de PanelApp-versie, de keuzes en het tijdstip vast. De sleutel van de ranking-cache (hoofdstuk 12) bevat de versie van het panel en zijn genen en regio's. Een rangschikking op de vorige genen is dus geen exacte treffer meer, en bedient ook geen ander panel meer.
+**PanelApp.** Een superuser of beheerder zoekt en importeert panels uit Genomics England PanelApp. Hij kiest het betrouwbaarheidsniveau, de assembly, en of regio's en repeats meekomen. Het PanelApp-id, de versie en de bron-URL worden bij het panel bewaard. De versie van PanelApp (`external_version`) staat los van de versie van het panel in CoGA. Een panel dat al in de catalogus staat opnieuw importeren (uit een andere release of met andere keuzes), geeft het een nieuwe versie als zijn genen of regio's veranderen. Blijven die gelijk, dan houdt het panel zijn versie en wordt er niets bewaard; de import legt wel de PanelApp-versie, de keuzes en het tijdstip vast. De sleutel van de ranking-cache (hoofdstuk 12) bevat de versie van het panel en zijn genen en regio's. Een rangschikking op de vorige genen is dus geen exacte treffer meer, en bedient ook geen ander panel meer.
 
 **Mendeliome.** Een gegenereerd panel met de genen die in de Monarch-kennisgraaf een oorzakelijke of geassocieerde relatie met een aandoening hebben. Het wordt opnieuw opgebouwd wanneer een nieuwe Monarch-release wordt geladen, en krijgt dan een nieuwe versie als zijn genen veranderen (hoofdstuk 12).
 
-De UI verbergt de schrijfknoppen voor niet-beheerders, maar de afscherming zit op de server.
+De UI verbergt de schrijfknoppen voor wie geen superuser of beheerder is, maar de afscherming zit op de server.
 
 **Waar in de code:** `backend/app/routers/panels.py`, `backend/app/services/panel_metadata_service.py` en `panelapp_service.py`; de pagina's in `frontend/src/pages/panels/`.
 
@@ -89,13 +90,13 @@ Een familie met een embryo of een cfDNA-sample uit maternaal plasma, of een mono
 
 ## Beheerfuncties
 
-De hele beheer-API staat in `backend/app/routers/admin.py` (`/api/admin`); elk endpoint vraagt `get_current_admin_user`. De schermen staan in `frontend/src/pages/admin/`, met `AdminDashboardPage.tsx` als ingang.
+De hele beheer-API staat in `backend/app/routers/admin.py` (`/api/admin`); elk endpoint vraagt `get_current_admin_user`, behalve de varianttags, het overzicht van de presetfilters en de grenzen voor sequencing-QC, die `get_current_superuser` vragen. De schermen staan in `frontend/src/pages/admin/`, met `AdminDashboardPage.tsx` als ingang. Een superuser ziet daar alleen zijn vijf werkruimtes: *Gene panels*, *Sequencing QC thresholds*, *Package import*, *Variant tags* en *Preset filters* (`visibleAdminGroups`); de andere zijn voor een beheerder (hoofdstuk 2).
 
 ### Gebruikers en projecten
 
-- **Gebruikers:** per gebruiker e-mail, naam, affiliatie, rol, actief en projecttoegang. Een beheerder activeert of deactiveert een account (`PATCH /api/auth/users/{user_id}`); projecttoegang wordt daar alleen getoond.
+- **Gebruikers:** per gebruiker e-mail, naam, affiliatie, rol, actief en projecttoegang. Een beheerder activeert of deactiveert een account en zet zijn rol, een van de vijf (`PATCH /api/auth/users/{user_id}`, hoofdstuk 2); projecttoegang wordt daar alleen getoond.
 - **Projecten van een familie:** welke projecten een familie zien. De data-inventaris (`GET /api/admin/data`) toont ze per familie; `PUT /api/admin/families/{family_id}/projects` wijzigt ze.
-- **Een project verwijderen** (`ProjectsPage.tsx`, `DELETE /api/projects/{project_id}`): de databank wist met het project ook zijn koppelingen (`ON DELETE CASCADE`). Zijn families en samples blijven, maar zonder koppeling aan het project; zijn leden verliezen de toegang die het hun gaf; de reviewtags van het project worden gewist. Een familie die in geen ander project zit, kan daarna alleen een beheerder nog openen. Daarom vraagt *Delete project* eerst een bevestiging die dat zegt, met de aantallen: families, samples, families die in geen ander project zitten, en leden. De pagina telt ze uit de projectenlijst, die een beheerder volledig ziet. Pas de bevestiging stuurt het verzoek. *Cancel* en Escape sturen niets.
+- **Een project verwijderen** (`ProjectsPage.tsx`, `DELETE /api/projects/{project_id}`): de databank wist met het project ook zijn koppelingen (`ON DELETE CASCADE`). Zijn families en samples blijven, maar zonder koppeling aan het project; zijn leden verliezen de toegang die het hun gaf; de reviewtags van het project worden gewist. Een familie die in geen ander project zit, kan daarna alleen een superuser of beheerder nog openen. Daarom vraagt *Delete project* eerst een bevestiging die dat zegt, met de aantallen: families, samples, families die in geen ander project zitten, en leden. De pagina telt ze uit de projectenlijst, die een beheerder volledig ziet. Pas de bevestiging stuurt het verzoek. *Cancel* en Escape sturen niets.
 
 ### Datamanagement en herkomst
 
@@ -110,14 +111,14 @@ Per assembly: de status van de tabellen, en onderhoudsacties achter een bevestig
 
 ### Familiestatussen
 
-De catalogus van werkstatussen (bv. "Solved", "Analysis in progress"). Een status verwijderen verwijdert geen familie: haar statusveld wordt leeg. De status en de toewijzing van een familie zelf zet elke gebruiker met toegang tot die familie.
+De catalogus van werkstatussen (bv. "Solved", "Analysis in progress"). Een status verwijderen verwijdert geen familie: haar statusveld wordt leeg. De status en de toewijzing van een familie zelf zet wie de familie mag wijzigen: een analist van een van haar projecten met de rol `analyst` of hoger, een superuser of een beheerder (hoofdstuk 2).
 
 ### Grenzen voor sequencing-QC
 
-Op de pagina *Sequencing QC thresholds* stelt een beheerder per QC-metriek een **waarschuwings-** en een **foutgrens** in, per profiel:
+Op de pagina *Sequencing QC thresholds* stelt een superuser of beheerder per QC-metriek een **waarschuwings-** en een **foutgrens** in, per profiel:
 
 - **Een profiel per assay.** Eén grens kan geen twee assays dienen: wat normaal is voor een long-read-genoom, is een fout voor een panel. Een familie gebruikt het profiel uit haar metadata, en anders het standaardprofiel (er is er precies één).
-- **De metrieken staan in de code, de grenzen in de databank.** Welke metrieken bestaan en of een lage of een hoge waarde de foutkant is, volgt uit wat de QC-parsers schrijven; een beheerder kan de richting niet omdraaien. Een grens op een metriek die uit de catalogus verdween, beoordeelt niets meer. De pagina toont ze onder de catalogus, met *Remove*, langs dezelfde bevestiging en reden als elke wijziging (vroeger stond ze er niet, en weigerde de server ze te wissen).
+- **De metrieken staan in de code, de grenzen in de databank.** Welke metrieken bestaan en of een lage of een hoge waarde de foutkant is, volgt uit wat de QC-parsers schrijven; wie de grenzen instelt, kan de richting niet omdraaien. Een grens op een metriek die uit de catalogus verdween, beoordeelt niets meer. De pagina toont ze onder de catalogus, met *Remove*, langs dezelfde bevestiging en reden als elke wijziging (vroeger stond ze er niet, en weigerde de server ze te wissen).
 - **Geen standaardgrenzen.** Een grens is een klinische beslissing; er worden er geen meegeleverd. Zonder grens wordt een metriek gemeld als *niet beoordeeld*, nooit als geslaagd.
 - **Eén oordeel voor iedereen.** De backend evalueert de grenzen, zodat de werkruimte, de sample-QC en het rapport hetzelfde oordeel tonen. Ook de mtDNA-grenzen komen van hier.
 - **Het oordeel in de ledentabel.** De chip *Seq. QC* op de familiepagina toont per sample het slechtste oordeel naast de gemiddelde diepte. Een geslaagd sample toont alleen het getal. Elk ander oordeel staat er als woord: *Warning* (oranje), *Fail* (rood), of *Not run* (grijs) voor een sample dat niet beoordeeld werd, omdat voor geen van zijn metrieken een grens is ingesteld of de server geen oordeel teruggaf. Zo leest een niet beoordeeld sample nooit als geslaagd, ook niet zonder kleur. Heeft een sample geen gemiddelde diepte of N50, dan toont de chip het oordeel met de waarde van de metriek die het bepaalde (*Fail ADO 14.2%*): de eerste metriek, in de volgorde van de catalogus, met het oordeel van het sample. Dat is zo bij een embryo dat alleen in de familietabellen van de PGT-pipeline staat; zijn QC is dan alleen zijn `pgt`-deel (allel-drop-out en -drop-in en de Mendel-concordantie voor en na imputatie, in %). Bepaalde geen metriek het oordeel (*Not run*), dan staat alleen het oordeel er. Een `-` betekent dat er voor het sample geen sequencing-QC te tonen is. De tooltip verschijnt bij de muis en bij de toetsenbordfocus, ook op een chip zonder QC-rapport. Hij noemt elke metriek over haar grens, met haar waarde afgerond zoals op de chip en de grens zoals ingesteld, in de eenheid van de metriek (*Mean depth 18.6x below 20x*), of zegt waarom het sample niet beoordeeld werd.
@@ -134,7 +135,7 @@ Op de pagina *Sequencing QC thresholds* stelt een beheerder per QC-metriek een *
 
 ### Presets en tags
 
-Een overzicht van de bewaarde filterpresets voor small variants van alle gebruikers, elk met de gebruikersnaam waaronder hij laatst bewaard werd (de eigenaar is het account, hoofdstuk 10), en het beheer van de eigen varianttags (hoofdstuk 10).
+Een overzicht van de bewaarde filterpresets voor small variants van alle gebruikers, elk met de gebruikersnaam waaronder hij laatst bewaard werd (de eigenaar is het account, hoofdstuk 10), en het beheer van de eigen varianttags (hoofdstuk 10). Beide zijn ook voor een superuser.
 
 ### Auditlogs en integriteit
 
@@ -181,7 +182,7 @@ Naast de HTTP-auditlog legt CoGA **betekenisvolle interacties** in de interface 
 
 | Bestand | Rol |
 | --- | --- |
-| `backend/app/routers/admin.py` | De volledige beheer-API, alleen voor beheerders |
+| `backend/app/routers/admin.py` | De volledige beheer-API: voor een beheerder, de varianttags, presetfilters en QC-grenzen ook voor een superuser |
 | `backend/app/routers/cnvs.py` · `backend/app/services/clinical_cnv_kb_jobs.py` | De CNV-catalogus en de herbouw van de kennisbank |
 | `backend/app/routers/panels.py` · `backend/app/services/panel_metadata_service.py` | Genpanels, versies, Mendeliome |
 | `backend/app/services/panelapp_service.py` | PanelApp |

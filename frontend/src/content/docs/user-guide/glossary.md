@@ -3,7 +3,8 @@
 - **Affected versus carrier** — affected status describes the person, carrier status the genotype. They
   are recorded separately: an unaffected person can be a carrier.
 - **Analyst / reader** — a member's level in a project. An analyst reads and changes the project's
-  records; a reader only reads them. An administrator has every right in every project.
+  records, as far as their role allows; a reader only reads them. A superuser or an administrator has
+  every right in every project.
 - **APCAD** — *What the abbreviation stands for is to be filled in by the laboratory.* A sample's track
   of allele fractions at single-nucleotide sites. For an embryo, read from the PGT pipeline's VCF, each
   point is the share of the embryo's reads that carry the alternate allele (0 to 1) at a site where only
@@ -61,7 +62,11 @@
 - **Recombination** — a crossover between the two homologs at meiosis; the haplotype an embryo carries
   changes at that point.
 - **ROI** — region of interest: the gene or locus a family is about.
-- **Sign-out** — the analyst's analytical sign-off in CoGA: it closes the analysis and freezes it into a
+- **Role** — what an account may do, lowest first, each with every right of the ones before it:
+  *viewer* (reads), *analyst* (also analyses), *supervisor* (also signs out), *superuser* (also every
+  project, the configuration the analyses read and package import) and *admin* (the whole
+  administration).
+- **Sign-out** — the analytical sign-off in CoGA, by a supervisor, a superuser or an administrator: it closes the analysis and freezes it into a
   signed version that can never change. The medical sign-off is given on the clinical report, in the
   EPD.
 - **Trans / cis** — two variants on opposite homologs (trans) or on the same homolog (cis).

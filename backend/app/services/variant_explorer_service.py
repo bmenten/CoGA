@@ -63,7 +63,7 @@ from .clickhouse_variant_queries import (
 from .clickhouse_variant_records import PanelFilterConstraints, Region, _status_filter_terms
 from .family_variant_filters import SmallVariantQueryFilters
 from .genotypes import ALT_CLASSES, HET, HOM_ALT, classify_genotype, clickhouse_genotype_condition
-from .access_control import CurrentUser, is_admin_user, user_metadata_project_ids
+from .access_control import CurrentUser, has_superuser_rights, user_metadata_project_ids
 from .variant_ranking_cache import panel_members_digest
 
 
@@ -343,7 +343,7 @@ async def _accessible_project_rows(session: AsyncSession, user: CurrentUser) -> 
         JOIN assemblies a ON a.id = p.assembly_id
         LEFT JOIN species sp ON sp.id = p.species_id
     """
-    if is_admin_user(user):
+    if has_superuser_rights(user):
         result = await session.execute(text(base_query))
     else:
         project_ids = user_metadata_project_ids(user)

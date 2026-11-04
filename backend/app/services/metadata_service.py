@@ -32,10 +32,11 @@ from .access_control import (
     READER,
     CurrentUser,
     RecordNotVisible,
-    is_admin_user,
+    has_superuser_rights,
     require_change_access,
     user_can_access_metadata_projects,
     user_can_change_metadata_projects,
+    user_can_sign_out_metadata_projects,
     user_metadata_project_ids,
     visible_metadata_project_ids,
 )
@@ -220,6 +221,7 @@ def _family_out_from_mapping(
     structure_version: FamilyStructureVersionOut | None = None,
     *,
     read_only: bool = False,
+    can_sign_out: bool = False,
 ) -> FamilyOut:
     roi = None
     if family_mapping.get("roi_query"):
@@ -254,6 +256,7 @@ def _family_out_from_mapping(
         reviewed_by=_user_ref_from_mapping(family_mapping, "reviewed_by_"),
         metadata=_normalize_metadata(family_mapping.get("metadata")),
         read_only=read_only,
+        can_sign_out=can_sign_out,
     )
 
 
@@ -933,6 +936,7 @@ async def _fetch_project_family_rows(
             relationships_by_family.get(family_uuid, []),
             structure_versions_by_family.get(family_uuid),
             read_only=not user_can_change_metadata_projects(family_project_ids.get(family_uuid), user),
+            can_sign_out=user_can_sign_out_metadata_projects(family_project_ids.get(family_uuid), user),
         )
 
     families_by_project: dict[str, list[str]] = defaultdict(list)
@@ -1058,7 +1062,7 @@ async def list_project_dashboards(
     session: AsyncSession,
     user: CurrentUser,
 ) -> list[ProjectDashboardOut]:
-    project_ids = None if is_admin_user(user) else _string_list(user.metadata_project_ids)
+    project_ids = None if has_superuser_rights(user) else _string_list(user.metadata_project_ids)
     project_rows = await _fetch_project_mappings(session, project_ids=project_ids)
     if not project_rows:
         return []
@@ -1319,6 +1323,7 @@ def _family_out_from_rows(
         family_row.get("relationships", []),
         family_row.get("structure_version"),
         read_only=not user_can_change_metadata_projects(project_ids, user),
+        can_sign_out=user_can_sign_out_metadata_projects(project_ids, user),
     )
 
 
@@ -1328,7 +1333,7 @@ async def list_family_records(
 ) -> list[FamilyOut]:
     family_rows = await _fetch_family_rows(
         session,
-        metadata_project_ids=None if is_admin_user(user) else user_metadata_project_ids(user),
+        metadata_project_ids=None if has_superuser_rights(user) else user_metadata_project_ids(user),
     )
     family_uuids = [row["id"] for row in family_rows]
     sample_rows_by_family = await _fetch_family_sample_rows(session, family_uuids)

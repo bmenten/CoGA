@@ -20,7 +20,7 @@ CoGA is operated as an **in-house IVD under IVDR Article 5(5)** by the Center fo
 Genetics Ghent (CMGG), under its ISO 15189 accreditation. The device boundary is _annotated
 VCF → closed, frozen analysis in CoGA; the clinical report is drafted and medically signed in
 the EPD and refers 1:1 to that analysis_. The EPD is outside the device: CoGA's sign-out is
-the analyst's analytical sign-off, and the medical sign-off is given in the EPD
+the analytical sign-off, by a supervisor, and the medical sign-off is given in the EPD
 ([TF-02 §3](docs/regulatory/TF-02-device-description.md)). CoGA is **not CE-marked**: its
 validation covers CMGG's own laboratory and workflow and does not travel with the source
 code. Anyone who deploys it for diagnostic use elsewhere is responsible for their own
@@ -45,7 +45,7 @@ is Google Cloud, deployed with Terraform.
   classification, also for families with one known parent and a donor.
 - **Genome views** — whole-genome and chromosome views, a Circos plot and an embedded IGV
   browser.
-- **Sign-out** — the analyst's analytical sign-off. It closes the analysis and freezes it
+- **Sign-out** — the analytical sign-off, by a supervisor. It closes the analysis and freezes it
   into a versioned record, bound to the software, annotation and reference versions; the
   clinical report in the EPD refers to that record. Sign-out is refused for a family on an
   assembly outside the validated scope, or while its data is being written. It needs an

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { NavLink } from 'react-router';
-import { isAdmin } from '../lib/auth';
+import { hasSuperuserRights } from '../lib/auth';
 
 /**
  * The main sections — the projects, the explorers, the gene panels, the report-code lookup,
@@ -69,7 +69,7 @@ const HeaderMenu: React.FC = () => {
         <NavLink to="/report-codes" onClick={close}>
           Report codes
         </NavLink>
-        {isAdmin() && (
+        {hasSuperuserRights() && (
           <NavLink to="/admin" onClick={close}>
             Admin
           </NavLink>

@@ -3,7 +3,8 @@ search.
 
 ### Recording phenotypes
 
-HPO terms are kept per person. An analyst of the family's project or an administrator adds them:
+HPO terms are kept per person. An analyst of the family's project (role analyst or higher), a
+superuser or an administrator adds them:
 
 1. Click the person's sample name on the family page.
 2. Under **HPO Phenotypes**, search a term and choose *present*, *absent* or *unknown*.
@@ -11,13 +12,13 @@ HPO terms are kept per person. An analyst of the family's project or an administ
 
 Only *present* terms are used for matching. Each term added, changed or removed is an entry on the
 family's **Clinical audit trail**. A package import can bring terms in too: what it adds or changes is
-one entry per person, naming who ran the import and the package. A reader sees the terms but cannot
-change them.
+one entry per person, naming who ran the import and the package. A viewer or a reader sees the terms
+but cannot change them.
 
 ### Gene panels
 
-The **Panel catalog** holds reusable gene lists. Administrators create them or import them from
-PanelApp. To limit a search to a panel's genes, choose the panel in the **Locations** filter of the
+The **Panel catalog** holds reusable gene lists. Superusers and administrators create them or import
+them from PanelApp. To limit a search to a panel's genes, choose the panel in the **Locations** filter of the
 small-variant or structural-variant page.
 
 The **Mendeliome** is the default scope of both pages: every gene that Monarch says causes a disease
@@ -36,7 +37,7 @@ So the Mendeliome, too, keeps a variant inside one of its genes whose annotation
 A gene name that no loaded assembly knows, such as a typo or an old symbol, gets no position. The
 panel's page lists it as *not imported*: a filter on the panel finds no variant in it.
 
-Administrators change a local panel's genes on its page, in three ways that can be combined: the bin
+Superusers and administrators change a local panel's genes on its page, in three ways that can be combined: the bin
 on a gene's row, **Add to changes** for new names, and **Edit the whole list**. Each change is listed
 under **Changes for version N**, where a name no assembly knows is flagged. Nothing is saved until you
 press **Confirm and save version N**; the earlier version stays in the version history. If someone

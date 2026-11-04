@@ -23,7 +23,7 @@ from ..schemas import (
     PanelAppImportRequest,
     PanelAppImportResponse,
 )
-from .access_control import CurrentUser, is_admin_user
+from .access_control import CurrentUser, has_superuser_rights
 from .panelapp_service import (
     extract_panelapp_import_content,
     fetch_panelapp_panel,
@@ -35,7 +35,8 @@ from .stored_values import json_object as _jsonb_dict
 
 
 def _ensure_admin(user: CurrentUser) -> None:
-    if not is_admin_user(user):
+    # Gene panels are a superuser's or an admin's to change.
+    if not has_superuser_rights(user):
         raise HTTPException(status_code=403, detail="Not authorized")
 
 

@@ -4,7 +4,7 @@ import api from '../../lib/api';
 import PageState from '../../components/PageState';
 import { apiPath } from '../../lib/apiPath';
 import type { ProjectDashboardOut, UserRead, UserUpdate } from '../../lib/apiSchema.generated';
-import { getStoredUsername } from '../../lib/auth';
+import { USER_ROLES, getStoredUsername } from '../../lib/auth';
 import { getErrorMessage } from '../../lib/errorMessage';
 import { userAccountsQuery } from '../../lib/users';
 import { memberAccessLevel } from '../../lib/familyAccess';
@@ -13,9 +13,17 @@ import type { ProjectOption } from './dataManagementTypes';
 type User = UserRead;
 type Role = NonNullable<UserUpdate['role']>;
 
-// The global roles (SEC-4): a viewer sees the records of their projects; an admin or a
-// superuser, every record, and the administration.
-const ROLES: Role[] = ['viewer', 'superuser', 'admin'];
+// The global roles, lowest first, each with every right of the ones before it (lib/auth.ts).
+const ROLES: readonly Role[] = USER_ROLES;
+// What each role may do, as the role picker's tooltip says it.
+const ROLE_HINTS: Record<Role, string> = {
+  viewer: 'Reads the records of their projects; changes none.',
+  analyst: 'Also analyses them in the projects where they are an analyst: reviews, tags, classifications, phenotypes.',
+  supervisor: 'Also signs an analysis out.',
+  superuser:
+    'Also every project, and the gene panels, variant tags, preset filters, sequencing QC thresholds and package import.',
+  admin: 'Also the whole administration: accounts, projects, reference data, data, audit logs.',
+};
 const SIGN_IN_LABELS: Record<User['sign_in'], string> = {
   microsoft: 'Microsoft',
   cas: 'Organisation (CAS)',
@@ -142,9 +150,13 @@ const UserListPage: React.FC = () => {
             <p className="page-kicker">Administration</p>
             <h1 className="catalog-card-title">Users</h1>
             <p className="catalog-card-copy">
-              Set each account&apos;s role and activation, and review its project access. Project
-              access is managed from the project settings view, where each member is an analyst, who
-              reads and changes the project&rsquo;s records, or a reader, who only reads them.
+              Set each account&apos;s role and activation, and review its project access. The roles,
+              lowest first, each with the rights of the ones before it: a viewer reads, an analyst
+              analyses, a supervisor also signs an analysis out, a superuser also has every project and
+              the configuration the analyses read, an admin the whole administration. Project access is
+              managed from the project settings view, where each member is an analyst, who reads and
+              changes the project&rsquo;s records, or a reader, who only reads them; a viewer only
+              reads, whatever their access there.
             </p>
           </div>
         </div>
@@ -192,7 +204,7 @@ const UserListPage: React.FC = () => {
                     onChange={(event) => changeRole(u, event.target.value as Role)}
                   >
                     {ROLES.map((role) => (
-                      <option key={role} value={role}>
+                      <option key={role} value={role} title={ROLE_HINTS[role]}>
                         {role}
                       </option>
                     ))}

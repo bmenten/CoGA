@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router';
 import api from '../../lib/api';
-import { isAdmin } from '../../lib/auth';
+import { hasSuperuserRights } from '../../lib/auth';
 import type { GeneLocation, GenePanel } from '../../lib/apiTypes';
 import type {
   GenePanelCreateResponse,
@@ -80,7 +80,8 @@ const GenePanelsPage: React.FC = () => {
   const [panelAppAssembly, setPanelAppAssembly] = useState<'GRCh38' | 'GRCh37'>('GRCh38');
   const [includePanelAppRegions, setIncludePanelAppRegions] = useState(true);
   const [includePanelAppStrs, setIncludePanelAppStrs] = useState(true);
-  const userIsAdmin = isAdmin();
+  // Gene panels are a superuser's or an admin's to change.
+  const userIsAdmin = hasSuperuserRights();
 
   const formatSpan = (total: number) =>
     total >= 1_000_000 ? `${(total / 1_000_000).toFixed(2)} Mb` : `${(total / 1000).toFixed(2)} kb`;

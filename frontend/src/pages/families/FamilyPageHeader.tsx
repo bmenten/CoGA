@@ -88,10 +88,10 @@ const FamilyPageHeader: React.FC<{
                   </Link>
                 )}
               </h1>
-              {/* On every family page, so a reader knows why nothing can be changed. */}
+              {/* On every family page, so a viewer or a reader knows why nothing can be changed. */}
               {family?.read_only ? (
                 <span className="badge-chip" title={READ_ONLY_HINT}>
-                  Read-only access (reader)
+                  Read-only access
                 </span>
               ) : null}
             </div>

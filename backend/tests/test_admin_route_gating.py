@@ -1,15 +1,18 @@
-"""Admin-only routes refuse anyone else at the route (REQ-SEC-002).
+"""Admin and superuser routes refuse anyone else at the route (REQ-SEC-002).
 
-``get_current_admin_user`` refuses a signed-in user who holds neither admin role with
-``403 Admin access required``. Every route that names it among its dependencies is walked from
-the app and asked by a viewer: each answers that 403 before it reads the database, so a guard
-that runs after something else fails here. Every route under ``/api/admin`` is an admin's, and
-the admin routes elsewhere that only read are listed, so a route that loses its admin guard
-fails the walk's catalogue; the routes that change something are catalogued in
-``test_project_access_levels.py``. The examples named are the panel and tag-definition
-changes (admin enforced at the route, not just in the service), the import of the NIPT-M
-pipeline's recurrent-artefact table (REQ-NIPT-016) and the replacement of a family's annotation
-manifest.
+``get_current_admin_user`` refuses a signed-in user who is not an admin with
+``403 Admin access required``; ``get_current_superuser`` refuses one who is neither a superuser
+nor an admin with ``403 Superuser access required``. Every route that names one of them among
+its dependencies is walked from the app: an admin route is asked by a viewer and by a superuser,
+a superuser route by a viewer, an analyst and a supervisor, and each answers its 403 before it
+reads the database, so a guard that runs after something else fails here. Every route under
+``/api/admin`` is one of the two, the superuser's are listed (the configuration the analyses
+read: variant tags, filter presets, sequencing QC thresholds), and the admin and superuser
+routes elsewhere that only read are listed, so a route that loses its guard fails the walk's
+catalogue; the routes that change something are catalogued in ``test_project_access_levels.py``.
+The examples named are the panel and tag-definition changes (enforced at the route, not just in
+the service), the import of the NIPT-M pipeline's recurrent-artefact table (REQ-NIPT-016) and the
+replacement of a family's annotation manifest.
 """
 
 from contextlib import contextmanager
@@ -27,13 +30,20 @@ from backend.app.services.access_control import CurrentUser
 from backend.tests._app_routes import dependency_calls, filled_path, route_operations
 
 ADMIN_ONLY = (403, {"detail": "Admin access required"})
+SUPERUSER_ONLY = (403, {"detail": "Superuser access required"})
 ADMIN_OPERATIONS = sorted(
     key
     for key, route in route_operations().items()
     if dependencies.get_current_admin_user in dependency_calls(route.dependant)
 )
+SUPERUSER_OPERATIONS = sorted(
+    key
+    for key, route in route_operations().items()
+    if dependencies.get_current_superuser in dependency_calls(route.dependant)
+)
 ADMIN_CHANGES = [key for key in ADMIN_OPERATIONS if key[0] != "GET"]
 ADMIN_READS = [key for key in ADMIN_OPERATIONS if key[0] == "GET"]
+SUPERUSER_READS = [key for key in SUPERUSER_OPERATIONS if key[0] == "GET"]
 # The admin routes outside /api/admin that only read. One that changes something is held by
 # test_project_access_levels.py::test_every_change_route_is_classified.
 ADMIN_READS_OUTSIDE_THE_ADMIN_PREFIX = {
@@ -41,10 +51,17 @@ ADMIN_READS_OUTSIDE_THE_ADMIN_PREFIX = {
     ("GET", "/api/assemblies/reference-import/organisms"),
     ("GET", "/api/assemblies/reference-import/recent"),
     ("GET", "/api/auth/users"),
+    ("GET", "/api/users"),
+}
+# The superuser routes that only read: the admin dashboard's superuser workspaces and package
+# import's jobs and packages.
+SUPERUSER_READS_EXPECTED = {
+    ("GET", "/api/admin/small-variant-filter-presets"),
+    ("GET", "/api/admin/variant-tags"),
+    ("GET", "/api/admin/qc-thresholds"),
     ("GET", "/api/family-imports"),
     ("GET", "/api/family-imports/packages"),
     ("GET", "/api/family-imports/{job_id}"),
-    ("GET", "/api/users"),
 }
 
 
@@ -97,21 +114,30 @@ def viewer_client(monkeypatch: pytest.MonkeyPatch):
 
 
 def test_every_admin_route_is_walked_and_none_is_left_unguarded() -> None:
-    # Every route under /api/admin is an admin's.
+    # No route has both guards: each is an admin's or a superuser's.
+    assert not set(ADMIN_OPERATIONS) & set(SUPERUSER_OPERATIONS)
+    # Every route under /api/admin is an admin's or a superuser's.
     under_the_prefix = {key for key in route_operations() if key[1].startswith("/api/admin/")}
-    assert under_the_prefix and under_the_prefix <= set(ADMIN_OPERATIONS)
+    assert under_the_prefix and under_the_prefix <= set(ADMIN_OPERATIONS) | set(SUPERUSER_OPERATIONS)
     # The others that only read are listed: one that lost its guard is missing here.
     elsewhere = {key for key in ADMIN_READS if not key[1].startswith("/api/admin/")}
     assert elsewhere == ADMIN_READS_OUTSIDE_THE_ADMIN_PREFIX
+    assert set(SUPERUSER_READS) == SUPERUSER_READS_EXPECTED
+    assert {
+        ("POST", "/api/admin/nipt/artifacts/import"),
+        ("PUT", "/api/families/{family_id}/annotation-manifest"),
+        ("PUT", "/api/families/{family_id}/structure"),
+        ("POST", "/api/projects/"),
+    } <= set(ADMIN_CHANGES)
     assert {
         ("DELETE", "/api/panels/{panel_id}"),
         ("POST", "/api/panels/mendeliome/regenerate"),
         ("DELETE", "/api/families/{family_id}/small-variant-tags/{tag_key}"),
-        ("POST", "/api/admin/nipt/artifacts/import"),
-        ("PUT", "/api/families/{family_id}/annotation-manifest"),
-    } <= set(ADMIN_CHANGES)
+        ("PUT", "/api/admin/qc-thresholds/{profile_key}"),
+        ("POST", "/api/family-imports"),
+    } <= set(SUPERUSER_OPERATIONS)
     # A floor, so a walk that found no route cannot pass.
-    assert len(ADMIN_CHANGES) >= 55 and len(ADMIN_READS) >= 30
+    assert len(ADMIN_CHANGES) >= 40 and len(ADMIN_READS) >= 25 and len(SUPERUSER_OPERATIONS) >= 24
 
 
 @pytest.mark.parametrize(("method", "path"), ADMIN_CHANGES, ids=_ids(ADMIN_CHANGES))
@@ -127,6 +153,24 @@ def test_admin_reads_reject_a_viewer(viewer_client, method: str, path: str) -> N
     client, session = viewer_client
     response = client.request(method, filled_path(path))
     assert (response.status_code, response.json()) == ADMIN_ONLY, f"{method} {path}"
+    assert session.statements == []
+
+
+@pytest.mark.parametrize(("method", "path"), ADMIN_OPERATIONS, ids=_ids(ADMIN_OPERATIONS))
+def test_admin_routes_reject_a_superuser(method: str, path: str) -> None:
+    # A superuser has the configuration the analyses read, not the rest of the administration.
+    with _client_as("superuser") as client:
+        response = client.request(method, filled_path(path))
+    assert (response.status_code, response.json()) == ADMIN_ONLY, f"{method} {path}"
+
+
+@pytest.mark.parametrize("role", ["viewer", "analyst", "supervisor"])
+@pytest.mark.parametrize(("method", "path"), SUPERUSER_OPERATIONS, ids=_ids(SUPERUSER_OPERATIONS))
+def test_superuser_routes_reject_the_roles_below_superuser(method: str, path: str, role: str) -> None:
+    session = _FakeSession()
+    with _client_as(role, session) as client:
+        response = client.request(method, filled_path(path))
+    assert (response.status_code, response.json()) == SUPERUSER_ONLY, f"{role}: {method} {path}"
     assert session.statements == []
 
 
@@ -156,6 +200,15 @@ def _record_manifest_writes(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
 
     monkeypatch.setattr(families_reports, "set_family_annotation_manifest", _set_manifest)
     return calls
+
+
+@pytest.mark.parametrize("role", ["viewer", "superuser"])
+def test_only_an_admin_can_replace_a_family_annotation_manifest(monkeypatch, role) -> None:
+    calls = _record_manifest_writes(monkeypatch)
+    with _client_as(role) as client:
+        response = client.put(_MANIFEST_PATH, json=_MANIFEST_BODY)
+    assert (response.status_code, response.json()) == ADMIN_ONLY
+    assert calls == []  # refused before the manifest service is reached
 
 
 def test_a_viewer_cannot_replace_a_family_annotation_manifest(viewer_client, monkeypatch) -> None:
@@ -195,7 +248,7 @@ def _client_as(role: str, session=None):
         app.dependency_overrides = original_overrides
 
 
-@pytest.mark.parametrize("role", ["admin", "superuser"])
+@pytest.mark.parametrize("role", ["admin"])
 def test_an_admin_can_replace_a_family_annotation_manifest(monkeypatch, role) -> None:
     calls = _record_manifest_writes(monkeypatch)
     with _client_as(role) as client:

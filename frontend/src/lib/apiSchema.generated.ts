@@ -785,6 +785,7 @@ export interface FamilyOut {
   reviewed_by: UserRefOut | null;
   metadata: Record<string, unknown>;
   read_only: boolean;
+  can_sign_out: boolean;
 }
 
 /** A family package discovered under the configured import roots. */
@@ -3836,7 +3837,7 @@ export interface UserRefOut {
 
 export interface UserUpdate {
   is_active?: boolean | null;
-  role?: "viewer" | "superuser" | "admin" | null;
+  role?: "viewer" | "analyst" | "supervisor" | "superuser" | "admin" | null;
   projects?: string[] | null;
 }
 

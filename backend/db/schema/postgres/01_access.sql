@@ -31,11 +31,15 @@ CREATE TABLE IF NOT EXISTS chromosomes (
     UNIQUE (assembly_id, chr)
 );
 
+-- An account's global role, lowest first, each with every right of the ones before it
+-- (services/access_control.py): a viewer reads the records of their projects; an analyst also
+-- analyses them; a supervisor also signs an analysis out; a superuser also has every project
+-- and the configuration the analyses read; an admin, the whole administration.
 CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     username TEXT NOT NULL UNIQUE,
     hashed_password TEXT NOT NULL,
-    role TEXT NOT NULL CHECK (role IN ('admin', 'superuser', 'viewer')),
+    role TEXT NOT NULL CHECK (role IN ('viewer', 'analyst', 'supervisor', 'superuser', 'admin')),
     email TEXT NOT NULL UNIQUE,
     first_name TEXT NOT NULL DEFAULT '',
     last_name TEXT NOT NULL DEFAULT '',
@@ -65,8 +69,9 @@ CREATE TABLE IF NOT EXISTS projects (
 );
 
 -- A project's members and what each may do in it (SEC-1): an analyst reads and changes the
--- project's records, a reader only reads them. An administrator (users.role admin or
--- superuser) has every right in every project, member or not.
+-- project's records, a reader only reads them. The level only takes rights away: a member whose
+-- role (users.role) is viewer changes nothing. A superuser or an admin has every right in every
+-- project, member or not.
 CREATE TABLE IF NOT EXISTS project_users (
     project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,

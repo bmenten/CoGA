@@ -5,7 +5,7 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import GenePanelDetailPage from '../GenePanelDetailPage';
 import api from '../../../lib/api';
-import { isAdmin } from '../../../lib/auth';
+import { hasSuperuserRights } from '../../../lib/auth';
 import { createTestQueryClient } from '../../../test/createTestQueryClient';
 
 const panelData = {
@@ -28,7 +28,8 @@ const panelData = {
 vi.mock('../../../lib/api', () => ({
   default: { get: vi.fn(), put: vi.fn(), post: vi.fn() },
 }));
-vi.mock('../../../lib/auth', () => ({ isAdmin: vi.fn(() => false) }));
+// Gene panels are a superuser's or an admin's to change.
+vi.mock('../../../lib/auth', () => ({ hasSuperuserRights: vi.fn(() => false) }));
 
 const versionsPayload = {
   panel_id: '1',
@@ -68,7 +69,7 @@ const renderPage = () =>
 
 describe('GenePanelDetailPage', () => {
   beforeEach(() => {
-    vi.mocked(isAdmin).mockReturnValue(false);
+    vi.mocked(hasSuperuserRights).mockReturnValue(false);
     vi.mocked(api.get).mockImplementation((url: string) =>
       url.endsWith('/versions')
         ? Promise.resolve({ data: versionsPayload })
@@ -133,7 +134,7 @@ describe('GenePanelDetailPage', () => {
 
   describe('editing a local panel', () => {
     beforeEach(() => {
-      vi.mocked(isAdmin).mockReturnValue(true);
+      vi.mocked(hasSuperuserRights).mockReturnValue(true);
       vi.mocked(api.put).mockReset();
       vi.mocked(api.post).mockReset();
       vi.mocked(api.put).mockResolvedValue({
@@ -293,7 +294,7 @@ describe('GenePanelDetailPage', () => {
   });
 
   it('lets an admin remove a name that was not imported from the next version', async () => {
-    vi.mocked(isAdmin).mockReturnValue(true);
+    vi.mocked(hasSuperuserRights).mockReturnValue(true);
     vi.mocked(api.get).mockImplementation((url: string) =>
       url.endsWith('/versions')
         ? Promise.resolve({ data: versionsPayload })

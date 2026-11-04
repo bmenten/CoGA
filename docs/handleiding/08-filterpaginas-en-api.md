@@ -167,7 +167,7 @@ Elke SV komt met `copy_change`: `loss` als hij een kopie verwijdert van wat hij 
 
 ## Veiligheid en traceerbaarheid in deel A
 
-- **Toegang aan de poort.** Elk endpoint vraagt `get_current_user` (uploads en tagbeheer `get_current_admin_user`) en doorloopt het toegangscheckpoint van de familie.
+- **Toegang aan de poort.** Elk endpoint vraagt `get_current_user` (uploads `get_current_admin_user`, het beheer van de eigen tags `get_current_superuser`) en doorloopt het toegangscheckpoint van de familie.
 - **Scoping in elke query.** De WHERE-bouwers beginnen altijd met de familie en voegen de projectfilter toe. Een extra filter beperkt de rijen tot de samples die de gebruiker mag zien; is die lijst leeg, dan krijgt de query een voorwaarde die niets oplevert. Parameters manipuleren helpt dus niet.
 - **Geen injectie.** Waarden gaan alleen als parameter mee; tabelnamen komen uit een veilige functie; paginagroottes zijn begrensd, en bij small variants ook het paginanummer.
 - **Een mislukte vraag is geen leeg resultaat.** Mislukt een zoekopdracht, dan tonen de SV- en de NIPT-pagina "Could not load … — this is not an empty result", met de reden, een knop *Retry* en tellers "—" in plaats van 0. De small-variantpagina toont dan *Unable to load small variants* met de reden, in plaats van de resultaten. Een mislukte panellijst zegt dat de standaard-Mendeliome-scope niet is toegepast.

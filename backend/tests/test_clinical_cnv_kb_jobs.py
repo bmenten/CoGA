@@ -707,7 +707,7 @@ def test_a_rebuild_whose_requester_lost_their_rights_while_it_built_loads_nothin
         assert personal not in caplog.text
 
 
-@pytest.mark.parametrize("role", ["admin", "superuser"])
+@pytest.mark.parametrize("role", ["admin"])
 def test_the_rebuild_of_an_active_administrator_is_loaded(
     script: Path, monkeypatch: pytest.MonkeyPatch, role: str
 ) -> None:

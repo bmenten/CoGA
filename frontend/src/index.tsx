@@ -284,18 +284,55 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
               />
               <Route path="/docs" element={routeElement(<UserGuidePage />)} />
               <Route path="/docs/reference/:slug" element={routeElement(<ReferenceDocPage />)} />
-              <Route element={<RequireAdmin />}>
+              {/* A superuser's workspaces: the admin dashboard, with the configuration the analyses
+                  read and package import. The server is the gate (get_current_superuser). */}
+              <Route element={<RequireAdmin superuser />}>
                 <Route
                   path="/admin"
                   element={routeElement(<AdminDashboardPage />)}
                 />
                 <Route
-                  path="/admin/reference/assemblies"
-                  element={routeElement(<ReferenceCatalogPage />)}
-                />
-                <Route
                   path="/admin/reference/gene-panels"
                   element={routeElement(<GenePanelsPage />)}
+                />
+                <Route
+                  path="/package-import"
+                  element={routeElement(<PackageImportPage />)}
+                />
+                <Route
+                  path="/admin/data/upload"
+                  element={routeElement(<PackageImportPage />)}
+                />
+                <Route
+                  path="/admin/upload"
+                  element={routeElement(<PackageImportPage />)}
+                />
+                <Route
+                  path="/admin/variants/tags"
+                  element={routeElement(<AdminVariantTagsPage />)}
+                />
+                <Route
+                  path="/admin/variants/presets"
+                  element={routeElement(<AdminPresetFiltersPage />)}
+                />
+                <Route
+                  path="/admin/data/qc-thresholds"
+                  element={routeElement(<AdminQcThresholdsPage />)}
+                />
+                <Route
+                  path="/admin/data/presets"
+                  element={routeElement(<AdminPresetFiltersPage />)}
+                />
+                <Route
+                  path="/admin/data/tags"
+                  element={routeElement(<AdminVariantTagsPage />)}
+                />
+              </Route>
+              {/* The rest of the administration: an admin's alone (get_current_admin_user). */}
+              <Route element={<RequireAdmin />}>
+                <Route
+                  path="/admin/reference/assemblies"
+                  element={routeElement(<ReferenceCatalogPage />)}
                 />
                 <Route
                   path="/admin/reference/gene-reference"
@@ -330,26 +367,6 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
                   element={routeElement(<DataManagementPage />)}
                 />
                 <Route
-                  path="/package-import"
-                  element={routeElement(<PackageImportPage />)}
-                />
-                <Route
-                  path="/admin/data/upload"
-                  element={routeElement(<PackageImportPage />)}
-                />
-                <Route
-                  path="/admin/upload"
-                  element={routeElement(<PackageImportPage />)}
-                />
-                <Route
-                  path="/admin/variants/tags"
-                  element={routeElement(<AdminVariantTagsPage />)}
-                />
-                <Route
-                  path="/admin/variants/presets"
-                  element={routeElement(<AdminPresetFiltersPage />)}
-                />
-                <Route
                   path="/admin/operations/clickhouse"
                   element={routeElement(<AdminClickhouseManagementPage />)}
                 />
@@ -374,20 +391,8 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
                   element={routeElement(<AdminFamilyStatusesPage />)}
                 />
                 <Route
-                  path="/admin/data/qc-thresholds"
-                  element={routeElement(<AdminQcThresholdsPage />)}
-                />
-                <Route
                   path="/admin/data/clickhouse"
                   element={routeElement(<AdminClickhouseManagementPage />)}
-                />
-                <Route
-                  path="/admin/data/presets"
-                  element={routeElement(<AdminPresetFiltersPage />)}
-                />
-                <Route
-                  path="/admin/data/tags"
-                  element={routeElement(<AdminVariantTagsPage />)}
                 />
                 <Route
                   path="/admin/data/logs"

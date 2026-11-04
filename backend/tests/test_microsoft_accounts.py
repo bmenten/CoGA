@@ -310,7 +310,8 @@ def test_the_emergency_administrator_is_the_local_admin_username_account(monkeyp
     local = {"username": "coga-emergency", "azure_object_id": None, "role": "admin"}
 
     assert user_accounts.is_emergency_admin(local)
-    assert user_accounts.is_emergency_admin({**local, "role": "superuser"})
+    # A superuser does not have the whole administration: no emergency administrator.
+    assert not user_accounts.is_emergency_admin({**local, "role": "superuser"})
     assert not user_accounts.is_emergency_admin({**local, "role": "viewer"})
     assert user_accounts.is_emergency_admin_account({**local, "role": "viewer"})
     assert not user_accounts.is_emergency_admin({**local, "username": "another-admin"})

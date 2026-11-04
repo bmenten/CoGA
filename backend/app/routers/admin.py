@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.content_disposition import content_disposition
 from ..core.postgres import get_postgres_session
-from ..dependencies import get_current_admin_user
+from ..dependencies import get_current_admin_user, get_current_superuser
 from ..schemas import (
     AuditLogPageOut,
     IntegrityAnchorOut,
@@ -509,7 +509,7 @@ async def verify_raw_import_file(
 )
 async def list_small_variant_filter_presets(
     session: AsyncSession = Depends(get_postgres_session),
-    user: CurrentUser = Depends(get_current_admin_user),
+    user: CurrentUser = Depends(get_current_superuser),
 ) -> List[SmallVariantFilterPresetOut]:
     return await list_small_variant_filter_presets_for_admin(
         session=session,
@@ -523,7 +523,7 @@ async def list_small_variant_filter_presets(
 async def list_variant_tags(
     project_id: str | None = Query(default=None),
     session: AsyncSession = Depends(get_postgres_session),
-    user: CurrentUser = Depends(get_current_admin_user),
+    user: CurrentUser = Depends(get_current_superuser),
 ) -> List[SmallVariantTagDefinitionOut]:
     del user
     return await list_small_variant_tag_definitions(
@@ -543,7 +543,7 @@ async def create_variant_tag(
     payload: SmallVariantTagDefinitionCreate,
     project_id: str | None = Query(default=None),
     session: AsyncSession = Depends(get_postgres_session),
-    user: CurrentUser = Depends(get_current_admin_user),
+    user: CurrentUser = Depends(get_current_superuser),
 ) -> SmallVariantTagDefinitionOut:
     return await create_small_variant_tag_definition(
         session,
@@ -563,7 +563,7 @@ async def update_variant_tag(
     payload: SmallVariantTagDefinitionUpdate,
     project_id: str | None = Query(default=None),
     session: AsyncSession = Depends(get_postgres_session),
-    user: CurrentUser = Depends(get_current_admin_user),
+    user: CurrentUser = Depends(get_current_superuser),
 ) -> SmallVariantTagDefinitionOut:
     return await update_small_variant_tag_definition(
         session,
@@ -579,7 +579,7 @@ async def update_variant_tag(
 async def delete_variant_tag(
     tag_key: str,
     session: AsyncSession = Depends(get_postgres_session),
-    user: CurrentUser = Depends(get_current_admin_user),
+    user: CurrentUser = Depends(get_current_superuser),
 ) -> None:
     await delete_small_variant_tag_definition(
         session,
@@ -631,7 +631,7 @@ async def delete_family_status_admin(
 @router.get("/qc-thresholds", response_model=QcThresholdCatalogueOut)
 async def list_qc_thresholds_admin(
     session: AsyncSession = Depends(get_postgres_session),
-    user: CurrentUser = Depends(get_current_admin_user),
+    user: CurrentUser = Depends(get_current_superuser),
 ) -> QcThresholdCatalogueOut:
     """The gateable sequencing-QC metrics and every configured threshold profile."""
     del user
@@ -661,7 +661,7 @@ async def list_qc_thresholds_admin(
 async def create_qc_threshold_profile_admin(
     payload: QcThresholdProfileCreate,
     session: AsyncSession = Depends(get_postgres_session),
-    user: CurrentUser = Depends(get_current_admin_user),
+    user: CurrentUser = Depends(get_current_superuser),
 ) -> dict:
     """Add an empty QC threshold profile.
 
@@ -683,7 +683,7 @@ async def set_qc_threshold_admin(
     profile_key: str,
     payload: QcThresholdUpdate,
     session: AsyncSession = Depends(get_postgres_session),
-    user: CurrentUser = Depends(get_current_admin_user),
+    user: CurrentUser = Depends(get_current_superuser),
 ) -> dict:
     """Set or clear one metric's cut-offs.
 

@@ -101,7 +101,7 @@ De reviews van de rijen (tags, classificatie, laatste review) zoekt de export in
 
 Dit is voor een auditor het belangrijkste deel. Elke vraag is hard beperkt tot de projecten van de gebruiker:
 
-- De scope wordt op één plaats bepaald. **Beheerders** (`admin` of `superuser`) zien alle projecten, **andere gebruikers** alleen hun eigen projecten. Zonder projecten is het resultaat gegarandeerd leeg.
+- De scope wordt op één plaats bepaald. **Een superuser en een beheerder** (`superuser`, `admin`; `has_superuser_rights`) zien alle projecten, **andere gebruikers** alleen hun eigen projecten. Zonder projecten is het resultaat gegarandeerd leeg.
 - Elke vraag naar `entries` krijgt die projecten verplicht mee (`project_guid IN …`): de lijstvraag, de begrensde telling, de voorwaarden per sample en de dragervraag. `project_guid` is gelijk aan de project-UUID in Postgres. Rijen van andere projecten vallen dus weg voordat er iets geteld wordt. De annotatiefilters en het panel lezen per variant de tabellen `annotations`, `annotation_index` en `gene_index`; de annotatie van de zichtbare pagina komt daarna uit de annotatie-index. Geen van die tabellen bevat project-, familie- of samplegegevens.
 - De frontend toont alleen een melding als er niets is ("… in your accessible projects"); de afscherming zit volledig op de server.
 

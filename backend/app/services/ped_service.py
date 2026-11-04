@@ -32,6 +32,7 @@ from .hpo_service import (
 from .access_control import (
     CurrentUser,
     RecordNotVisible,
+    has_superuser_rights,
     is_admin_user,
     require_change_access,
     user_can_access_metadata_projects,
@@ -259,7 +260,7 @@ async def _resolve_accessible_project_id(
 ) -> str | None:
     normalized_project_id = _stripped_or_none(project_id)
     if normalized_project_id is None:
-        if is_admin_user(user):
+        if has_superuser_rights(user):
             return None
         raise HTTPException(status_code=400, detail="Project assignment is required")
 
