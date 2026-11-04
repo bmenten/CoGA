@@ -21,6 +21,7 @@ from ..core.object_storage import (
     download_prefix,
     is_remote_uri,
     list_remote_package_candidates,
+    parse_remote_uri,
     remote_uri_within,
 )
 from ..schemas import FamilyImportValidationIssue
@@ -121,6 +122,28 @@ def within_remote_import_roots(uri: str) -> bool:
     the only folders package files are read from, so the only place a location the
     import recorded may point."""
     return any(remote_uri_within(uri, root) for root in _authorized_s3_roots())
+
+
+def within_family_package(uri: str, package_folder: object) -> bool:
+    """Whether the remote URI ``uri`` names an object in a family's own package folder,
+    ``package_folder``: the bucket folder its import read
+    (``families.metadata.package_import.folder_path``), below a remote FAMILY_IMPORT_ROOTS
+    entry. A location the import recorded on a sample (its aligned reads, its signal files)
+    is served only from there (SEC-27): a changed row can point at most at another of the
+    family's own files, never at another family's package in the import area.
+
+    False for a family without such a folder (never imported from a bucket), and for a folder
+    that is a bucket's root, holds an empty, ``.`` or ``..`` segment, or lies outside the
+    import roots. The URI is checked against the import roots too."""
+    if not isinstance(package_folder, str) or not within_remote_import_roots(package_folder):
+        return False
+    try:
+        folder = parse_remote_uri(package_folder)
+    except ValueError:
+        return False
+    if any(segment in {"", ".", ".."} for segment in folder.key.strip("/").split("/")):
+        return False
+    return remote_uri_within(uri, package_folder) and within_remote_import_roots(uri)
 
 
 def _load_manifest_dict(manifest_path: Path) -> dict[str, Any]:

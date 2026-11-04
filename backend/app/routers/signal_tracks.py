@@ -24,9 +24,10 @@ Two things differ from the alignment endpoints next door:
 In remote mode (STORAGE_BACKEND=gcs/s3) the files are served from the object store
 through signed URLs, as the alignments are: the staging copy of a package imported
 from a bucket is deleted after the import. The location the import recorded (``uris``)
-comes first, under the CRAM endpoint's rules (an object with the file's own extension
-under the configured import roots), so a tampered row can at most point at another file of
-that kind there, never at any other object; the fallback is the package layout under the storage prefix,
+comes first, under the CRAM endpoint's rules (an object with the file's own extension in
+the family's own package folder under the configured import roots), so a tampered row can at
+most point at another file of that kind of the family's package, never at any other object
+(SEC-27); the fallback is the package layout under the storage prefix,
 ``<prefix>/<family>/<recorded path>``, where the CRAM endpoint probes too. The manifest
 hands out the signed URLs; the GET redirects to one; the HEAD answers the object's
 size itself, since a URL signed for GET cannot be used for a HEAD.
@@ -58,7 +59,7 @@ from ..core.postgres import get_postgres_session
 from ..core.url_path import url_path
 from ..dependencies import get_current_user
 from ..schemas import SignalTrackManifestEntryOut
-from ..services.family_package_source import within_remote_import_roots
+from ..services.family_package_source import within_family_package, within_remote_import_roots
 from ..services.metadata_service import get_family_record
 from ..services.access_control import CurrentUser
 
@@ -119,34 +120,39 @@ async def _accessible_sample_ids(
 
 async def _signal_track_rows(
     session: AsyncSession, sample_ids: list[str]
-) -> list[tuple[str, dict[str, Any]]]:
-    """``(sample_id, metadata['signal_tracks'])`` for the samples that have one."""
+) -> list[tuple[str, dict[str, Any], str | None]]:
+    """``(sample_id, metadata['signal_tracks'], package folder)`` for the samples that have
+    one. The package folder is the bucket folder the sample's family's import read
+    (``families.metadata.package_import.folder_path``), where a recorded URI must lie."""
 
     if not sample_ids:
         return []
     result = await session.execute(
         text(
             """
-            SELECT sample_id, metadata -> 'signal_tracks' AS signal_tracks
-            FROM samples
-            WHERE sample_id = ANY(:sample_ids)
-              AND metadata ? 'signal_tracks'
+            SELECT s.sample_id,
+                   s.metadata -> 'signal_tracks' AS signal_tracks,
+                   f.metadata -> 'package_import' ->> 'folder_path' AS package_folder
+            FROM samples s
+            JOIN families f ON f.id = s.family_id
+            WHERE s.sample_id = ANY(:sample_ids)
+              AND s.metadata ? 'signal_tracks'
             """
         ),
         {"sample_ids": sample_ids},
     )
     return [
-        (str(sample_id), signal_tracks)
-        for sample_id, signal_tracks in result.all()
+        (str(sample_id), signal_tracks, package_folder if isinstance(package_folder, str) else None)
+        for sample_id, signal_tracks, package_folder in result.all()
         if isinstance(signal_tracks, dict)
     ]
 
 
-def _track_paths(rows: list[tuple[str, dict[str, Any]]]) -> dict[str, dict[str, dict[str, str]]]:
+def _track_paths(rows: list[tuple[str, dict[str, Any], str | None]]) -> dict[str, dict[str, dict[str, str]]]:
     """``sample_id -> source -> kind -> package-relative path``, as the import left it."""
 
     recorded: dict[str, dict[str, dict[str, str]]] = {}
-    for sample_id, signal_tracks in rows:
+    for sample_id, signal_tracks, _package_folder in rows:
         by_source = {
             str(source): {
                 str(kind): str(path)
@@ -162,18 +168,25 @@ def _track_paths(rows: list[tuple[str, dict[str, Any]]]) -> dict[str, dict[str, 
     return recorded
 
 
-def _track_uris(rows: list[tuple[str, dict[str, Any]]]) -> dict[str, dict[str, dict[str, Any]]]:
+def _track_uris(rows: list[tuple[str, dict[str, Any], str | None]]) -> dict[str, dict[str, dict[str, Any]]]:
     """``sample_id -> source -> kind -> recorded object URI``, for a package imported from
-    a bucket. The values are data from the database and are checked before any use."""
+    a bucket. The values are data from the database and are checked before any use: here,
+    that each lies in its sample's family's own package folder (``within_family_package``,
+    SEC-27), else it is left out and the track is looked for at the package layout; then
+    by ``_recorded_track_key``."""
 
     recorded: dict[str, dict[str, dict[str, Any]]] = {}
-    for sample_id, signal_tracks in rows:
+    for sample_id, signal_tracks, package_folder in rows:
         by_source: dict[str, dict[str, Any]] = {}
         for source, entry in signal_tracks.items():
             uris = entry.get("uris") if isinstance(entry, dict) else None
             if not isinstance(uris, dict):
                 continue
-            kinds = {str(kind): uri for kind, uri in uris.items() if kind in _TRACK_KINDS}
+            kinds = {
+                str(kind): uri
+                for kind, uri in uris.items()
+                if kind in _TRACK_KINDS and isinstance(uri, str) and within_family_package(uri, package_folder)
+            }
             if kinds:
                 by_source[str(source)] = kinds
         if by_source:
@@ -224,7 +237,8 @@ def _recorded_track_key(uri: object, kind: str) -> str | None:
     The CRAM endpoint's rules (routers/cram.py): an object in the configured bucket
     whose URI holds nothing but scheme, bucket and a key without empty, ``.`` or ``..``
     segments (``configured_object_key``), below a remote FAMILY_IMPORT_ROOTS entry --
-    and with an extension of the track's kind.
+    and with an extension of the track's kind. ``_track_uris`` has kept only a URI in the
+    family's own package folder.
     """
     key = configured_object_key(uri)
     if key is None or not _has_kind_extension(key, kind) or not within_remote_import_roots(str(uri)):

@@ -13,8 +13,9 @@ keeps its reads (``imports/<family>/bams/<sample>.cram``). These tests pin the c
 * the alignments importer asks the store whether the file exists and records its URI;
 * raw-file provenance still names every file, including the ones left in the store;
 * the CRAM endpoint serves the recorded object first -- but only an object in the
-  configured bucket below FAMILY_IMPORT_ROOTS, so a tampered metadata row cannot make it
-  sign a URL for anything else -- and falls back to the layout probes.
+  configured bucket below FAMILY_IMPORT_ROOTS, in the package folder the family's own
+  import read (SEC-27), so a tampered metadata row cannot make it sign a URL for anything
+  else, another family's package included -- and falls back to the layout probes.
 """
 
 from __future__ import annotations
@@ -400,16 +401,25 @@ def _recorded(scheme: str = "gs", *, index: bool = True, **overrides: Any) -> di
 
 
 class _RecordedAlignmentsSession:
-    """Answers the endpoint's query for each sample's ``metadata -> 'alignment'``."""
+    """Answers the endpoint's query for each sample's ``metadata -> 'alignment'`` and its
+    family's package folder, ``families.metadata.package_import.folder_path`` (``F1``'s
+    folder in the store ``use_store`` sets up, unless given)."""
 
-    def __init__(self, alignments: dict[str, Any]) -> None:
+    def __init__(self, alignments: dict[str, Any], package_folder: Any = "gs://phi/imports/F1") -> None:
         self.alignments = alignments
+        self.package_folder = package_folder
         self.queries = 0
+        self.sql: list[str] = []
 
     async def execute(self, statement: Any, params: Any = None) -> Any:
         self.queries += 1
+        self.sql.append(" ".join(str(statement).split()))
         wanted = set((params or {}).get("sample_ids") or [])
-        rows = [(sample_id, value) for sample_id, value in self.alignments.items() if sample_id in wanted]
+        rows = [
+            (sample_id, value, self.package_folder)
+            for sample_id, value in self.alignments.items()
+            if sample_id in wanted
+        ]
         return SimpleNamespace(all=lambda: rows)
 
 
@@ -441,7 +451,7 @@ async def test_manifest_signs_the_recorded_objects(monkeypatch: pytest.MonkeyPat
     )
     _family_members(monkeypatch, "S1", "S2")
     _sign_urls(monkeypatch)
-    session = _RecordedAlignmentsSession({"S1": _recorded(scheme)})
+    session = _RecordedAlignmentsSession({"S1": _recorded(scheme)}, package_folder=f"{scheme}://{BUCKET}/imports/F1")
 
     entries = await cram.get_alignment_manifest(
         "F1", sample_ids=["S1", "S2"], session=session, user=object()  # type: ignore[arg-type]
@@ -558,6 +568,79 @@ async def test_a_location_another_import_root_allows_is_not_signed_in_the_config
     assert exc.value.status_code == 404
     assert await cram.get_alignment_manifest("F1", sample_ids=["S1"], session=session, user=object()) == []
     assert signed == []
+
+
+@pytest.mark.asyncio
+async def test_another_familys_package_in_the_import_area_is_never_signed(monkeypatch: pytest.MonkeyPatch) -> None:
+    # SEC-27: F2's sample row changed to name F1's reads, which lie in the import area. The
+    # location was checked against the import area alone and signed; it must lie in the
+    # package folder F2's own import read.
+    use_store(monkeypatch, "gs", {"imports/F1/bams/S1.cram": "cram", "imports/F1/bams/S1.cram.crai": "crai"})
+    _family_members(monkeypatch, "S2")
+    signed = _sign_urls(monkeypatch)
+    session: Any = _RecordedAlignmentsSession({"S2": _recorded()}, package_folder="gs://phi/imports/F2")
+
+    for endpoint in (cram.get_cram, cram.head_cram, cram.get_crai):
+        with pytest.raises(HTTPException) as exc:
+            await endpoint("F2", "S2", session=session, user=object())
+        assert exc.value.status_code == 404
+    assert await cram.get_alignment_manifest("F2", sample_ids=["S2"], session=session, user=object()) == []
+    assert signed == []
+    # The family's package folder is read with each sample's row, from the sample's family.
+    assert "JOIN families f ON f.id = s.family_id" in session.sql[0]
+    assert "f.metadata -> 'package_import' ->> 'folder_path'" in session.sql[0]
+
+
+# The family's package folder a recorded location must lie in, as a changed or missing
+# families row could hold it.
+UNUSABLE_PACKAGE_FOLDERS = {
+    "none recorded (never imported from a bucket)": None,
+    "the import root itself": "gs://phi/imports",
+    "the bucket's root": "gs://phi",
+    "a dot segment": "gs://phi/imports/F1/..",
+    "an empty segment": "gs://phi/imports//F1",
+    "outside FAMILY_IMPORT_ROOTS": "gs://phi/elsewhere/F1",
+    "not a URI": 42,
+}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("package_folder", UNUSABLE_PACKAGE_FOLDERS.values(), ids=UNUSABLE_PACKAGE_FOLDERS.keys())
+async def test_no_location_is_signed_without_a_package_folder_it_lies_in(
+    monkeypatch: pytest.MonkeyPatch, package_folder: Any
+) -> None:
+    use_store(monkeypatch, "gs", {"imports/F1/bams/S1.cram": "cram", "imports/F1/bams/S1.cram.crai": "crai"})
+    _family_members(monkeypatch, "S1")
+    signed = _sign_urls(monkeypatch)
+    session: Any = _RecordedAlignmentsSession({"S1": _recorded()}, package_folder=package_folder)
+
+    with pytest.raises(HTTPException) as exc:
+        await cram.get_cram("F1", "S1", session=session, user=object())
+    assert exc.value.status_code == 404
+    assert await cram.get_alignment_manifest("F1", sample_ids=["S1"], session=session, user=object()) == []
+    assert signed == []
+
+
+@pytest.mark.asyncio
+async def test_a_package_folder_written_with_a_trailing_slash_holds_its_files(monkeypatch: pytest.MonkeyPatch) -> None:
+    use_store(monkeypatch, "gs", {"imports/F1/bams/S1.cram": "cram", "imports/F1/bams/S1.cram.crai": "crai"})
+    _family_members(monkeypatch, "S1")
+    _sign_urls(monkeypatch)
+    session: Any = _RecordedAlignmentsSession({"S1": _recorded()}, package_folder="gs://phi/imports/F1/")
+
+    response = await cram.get_cram("F1", "S1", session=session, user=object())
+
+    assert response.headers["location"] == "https://signed.example/imports/F1/bams/S1.cram"
+
+
+def test_a_folder_named_like_the_package_is_not_inside_it(monkeypatch: pytest.MonkeyPatch) -> None:
+    # `imports/F1` does not hold `imports/F10/...`: the folder ends on a segment boundary.
+    monkeypatch.setattr(settings, "family_import_roots", ["gs://phi/imports"])
+    within = family_package_source.within_family_package
+
+    assert within("gs://phi/imports/F1/bams/S1.cram", "gs://phi/imports/F1") is True
+    assert within("gs://phi/imports/F10/bams/S1.cram", "gs://phi/imports/F1") is False
+    assert within("gs://other/imports/F1/bams/S1.cram", "gs://phi/imports/F1") is False
 
 
 @pytest.mark.asyncio
