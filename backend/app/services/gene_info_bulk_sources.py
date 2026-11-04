@@ -919,7 +919,6 @@ def _dbnsfp_homologs(row: dict[str, str]) -> list[dict[str, Any]]:
                 "common_name": "mouse",
                 "symbol": mouse_symbol,
                 "homology_type": "dbNSFP model organism ortholog",
-                "in_platform": False,
             }
         )
     zebrafish_symbol = _row_value(row, "ZFIN_zebrafish_gene")
@@ -930,7 +929,6 @@ def _dbnsfp_homologs(row: dict[str, str]) -> list[dict[str, Any]]:
                 "common_name": "zebrafish",
                 "symbol": zebrafish_symbol,
                 "homology_type": "dbNSFP model organism ortholog",
-                "in_platform": False,
             }
         )
     return homologs

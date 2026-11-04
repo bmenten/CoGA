@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 import pytest
 from fastapi import HTTPException
 
-from backend.app.schemas import CnvAcmgClassificationPayload, CnvAcmgCriterion, SmallVariantReviewUpdate
+from backend.app.schemas import CnvAcmgClassificationPayload, CnvAcmgCriterion, StructuralVariantReviewUpdate
 from backend.app.services import clinical_audit_service as cas
 from backend.app.services import structural_variant_review_pg as svr
 from backend.app.services.access_control import CurrentUser
@@ -295,7 +295,7 @@ class _ReviewTable:
         return None
 
 
-def _save(table: _ReviewTable, payload: SmallVariantReviewUpdate, variant_id: str = "sv1"):
+def _save(table: _ReviewTable, payload: StructuralVariantReviewUpdate, variant_id: str = "sv1"):
     return asyncio.run(
         svr.upsert_structural_variant_review(
             table, context=CONTEXT, variant_id=variant_id, payload=payload, user=USER
@@ -305,7 +305,7 @@ def _save(table: _ReviewTable, payload: SmallVariantReviewUpdate, variant_id: st
 
 def test_a_new_review_stores_the_recomputed_classification() -> None:
     table = _ReviewTable()
-    review = _save(table, SmallVariantReviewUpdate(cnv_acmg=_payload("loss", ("2A", 1.0, True), point_total=0.0)))
+    review = _save(table, StructuralVariantReviewUpdate(cnv_acmg=_payload("loss", ("2A", 1.0, True), point_total=0.0)))
 
     stored = table.rows["sv1"]
     assert (stored["cnv_point_total"], stored["cnv_class"]) == (1.0, "cnv_class_5")
@@ -316,8 +316,8 @@ def test_a_new_review_stores_the_recomputed_classification() -> None:
 
 def test_a_second_save_updates_the_review_in_place() -> None:
     table = _ReviewTable()
-    _save(table, SmallVariantReviewUpdate(note="first look"))
-    review = _save(table, SmallVariantReviewUpdate(note="second look", classification="likely_pathogenic"))
+    _save(table, StructuralVariantReviewUpdate(note="first look"))
+    review = _save(table, StructuralVariantReviewUpdate(note="second look", classification="likely_pathogenic"))
 
     assert len(table.rows) == 1
     assert "UPDATE" in table.statements
@@ -326,8 +326,8 @@ def test_a_second_save_updates_the_review_in_place() -> None:
 
 def test_an_empty_save_deletes_the_review() -> None:
     table = _ReviewTable()
-    _save(table, SmallVariantReviewUpdate(note="to be cleared"))
-    review = _save(table, SmallVariantReviewUpdate(note="  "))
+    _save(table, StructuralVariantReviewUpdate(note="to be cleared"))
+    review = _save(table, StructuralVariantReviewUpdate(note="  "))
 
     assert table.rows == {}
     assert (review.variant_id, review.tags, review.note) == ("sv1", [], None)
@@ -335,7 +335,7 @@ def test_an_empty_save_deletes_the_review() -> None:
 
 def test_an_empty_save_of_an_sv_without_a_review_writes_and_records_nothing() -> None:
     table = _ReviewTable()
-    review = _save(table, SmallVariantReviewUpdate(note="  "))
+    review = _save(table, StructuralVariantReviewUpdate(note="  "))
 
     assert (review.variant_id, review.tags, review.note) == ("sv1", [], None)
     assert table.rows == {} and table.audit == []
@@ -350,7 +350,7 @@ def test_an_empty_save_of_an_sv_without_a_review_writes_and_records_nothing() ->
 def _scored(table: _ReviewTable) -> dict:
     _save(
         table,
-        SmallVariantReviewUpdate(
+        StructuralVariantReviewUpdate(
             classification="Pathogenic - class 5",
             note="scored",
             cnv_acmg=_payload("loss", ("2A", 1.0, True)),
@@ -367,7 +367,7 @@ def test_a_save_without_cnv_acmg_keeps_the_stored_scoring() -> None:
     table = _ReviewTable()
     scored = _scored(table)
     # What the tag toggle and the review dialog send: no cnv_acmg.
-    review = _save(table, SmallVariantReviewUpdate(classification="Pathogenic - class 5", note="and noted"))
+    review = _save(table, StructuralVariantReviewUpdate(classification="Pathogenic - class 5", note="and noted"))
 
     assert _scoring(table.rows["sv1"]) == _scoring(scored)
     assert table.rows["sv1"]["cnv_class"] == "cnv_class_5"
@@ -378,7 +378,7 @@ def test_a_save_without_cnv_acmg_keeps_the_stored_scoring() -> None:
 def test_emptying_the_review_fields_keeps_a_stored_scoring() -> None:
     table = _ReviewTable()
     scored = _scored(table)
-    review = _save(table, SmallVariantReviewUpdate())  # the review dialog, everything cleared
+    review = _save(table, StructuralVariantReviewUpdate())  # the review dialog, everything cleared
 
     assert "sv1" in table.rows  # not deleted: the scoring is still a classification
     assert _scoring(table.rows["sv1"]) == _scoring(scored)
@@ -389,7 +389,7 @@ def test_emptying_the_review_fields_keeps_a_stored_scoring() -> None:
 def test_an_explicit_null_clears_the_scoring() -> None:
     table = _ReviewTable()
     _scored(table)
-    _save(table, SmallVariantReviewUpdate(note="scored", cnv_acmg=None))
+    _save(table, StructuralVariantReviewUpdate(note="scored", cnv_acmg=None))
 
     assert _scoring(table.rows["sv1"]) == (None, None, None)
     assert table.rows["sv1"]["note"] == "scored"
@@ -398,7 +398,7 @@ def test_an_explicit_null_clears_the_scoring() -> None:
 def test_a_scoring_without_criteria_clears_it() -> None:
     table = _ReviewTable()
     _scored(table)
-    _save(table, SmallVariantReviewUpdate(note="scored", cnv_acmg=_payload("loss")))
+    _save(table, StructuralVariantReviewUpdate(note="scored", cnv_acmg=_payload("loss")))
 
     assert _scoring(table.rows["sv1"]) == (None, None, None)
 
@@ -406,7 +406,7 @@ def test_a_scoring_without_criteria_clears_it() -> None:
 def test_clearing_the_scoring_and_the_rest_deletes_the_review() -> None:
     table = _ReviewTable()
     _scored(table)
-    _save(table, SmallVariantReviewUpdate(cnv_acmg=None))
+    _save(table, StructuralVariantReviewUpdate(cnv_acmg=None))
 
     assert table.rows == {}
 
@@ -414,7 +414,7 @@ def test_clearing_the_scoring_and_the_rest_deletes_the_review() -> None:
 def test_a_sent_scoring_replaces_the_stored_one() -> None:
     table = _ReviewTable()
     _scored(table)
-    _save(table, SmallVariantReviewUpdate(note="scored", cnv_acmg=_payload("gain", ("2C", -1.0, True))))
+    _save(table, StructuralVariantReviewUpdate(note="scored", cnv_acmg=_payload("gain", ("2C", -1.0, True))))
 
     stored = table.rows["sv1"]
     assert (stored["cnv_point_total"], stored["cnv_class"]) == (-1.0, "cnv_class_1")
@@ -425,7 +425,7 @@ def test_an_unreadable_stored_scoring_survives_a_save_that_leaves_it_out() -> No
     table = _ReviewTable()
     _scored(table)
     table.rows["sv1"]["cnv_acmg"] = "{not json"  # stored, but no longer readable (#514)
-    review = _save(table, SmallVariantReviewUpdate(classification="Pathogenic - class 5", note="noted"))
+    review = _save(table, StructuralVariantReviewUpdate(classification="Pathogenic - class 5", note="noted"))
 
     assert table.rows["sv1"]["cnv_acmg"] == "{not json"
     assert review.acmg_unreadable is True
@@ -437,7 +437,7 @@ def test_a_scoring_with_a_repeated_criterion_is_refused_and_writes_nothing() -> 
     audited = len(table.audit)
     repeated = _payload("loss", ("2B", 0.9, True), ("2B", 0.9, True))
     with pytest.raises(HTTPException) as refused:
-        _save(table, SmallVariantReviewUpdate(classification="Pathogenic - class 5", note="scored", cnv_acmg=repeated))
+        _save(table, StructuralVariantReviewUpdate(classification="Pathogenic - class 5", note="scored", cnv_acmg=repeated))
     assert refused.value.status_code == 400
     assert table.rows["sv1"] == scored
     assert len(table.audit) == audited
@@ -458,7 +458,7 @@ def test_a_stored_scoring_with_a_repeated_criterion_is_still_served_and_kept() -
         "classification": "Pathogenic - class 5",
     }
     table.rows["sv1"]["cnv_acmg"] = written_before
-    review = _save(table, SmallVariantReviewUpdate(classification="Pathogenic - class 5", note="noted"))
+    review = _save(table, StructuralVariantReviewUpdate(classification="Pathogenic - class 5", note="noted"))
 
     assert table.rows["sv1"]["cnv_acmg"] == written_before
     assert review.acmg_unreadable is False and review.cnv_acmg is not None
@@ -467,8 +467,8 @@ def test_a_stored_scoring_with_a_repeated_criterion_is_still_served_and_kept() -
 
 def test_a_save_against_a_changed_review_is_refused_and_writes_nothing() -> None:
     table = _ReviewTable()
-    _save(table, SmallVariantReviewUpdate(note="another reviewer's note"))
-    stale = SmallVariantReviewUpdate(
+    _save(table, StructuralVariantReviewUpdate(note="another reviewer's note"))
+    stale = StructuralVariantReviewUpdate(
         note="mine", expected_updated_at=datetime(2020, 1, 1, tzinfo=timezone.utc)
     )
     with pytest.raises(HTTPException) as refused:
@@ -485,7 +485,7 @@ def test_an_unknown_tag_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(svr, "list_small_variant_tag_definitions", definitions)
     with pytest.raises(HTTPException) as refused:
-        _save(_ReviewTable(), SmallVariantReviewUpdate(tags=["candidate", "not-a-tag"]))
+        _save(_ReviewTable(), StructuralVariantReviewUpdate(tags=["candidate", "not-a-tag"]))
     assert refused.value.status_code == 400
     assert "not-a-tag" in refused.value.detail
 
@@ -503,22 +503,22 @@ def test_a_tag_the_review_holds_is_kept_after_its_definition_is_gone(monkeypatch
 
     monkeypatch.setattr(svr, "list_small_variant_tag_definitions", definitions)
     table = _ReviewTable()
-    _save(table, SmallVariantReviewUpdate(tags=["probe_x"], note="tagged"))
+    _save(table, StructuralVariantReviewUpdate(tags=["probe_x"], note="tagged"))
     allowed = ["report"]  # probe_x is deleted
     reads.clear()
 
-    review = _save(table, SmallVariantReviewUpdate(tags=["probe_x"], note="noted again"))
+    review = _save(table, StructuralVariantReviewUpdate(tags=["probe_x"], note="noted again"))
     assert (review.tags, review.note) == (["probe_x"], "noted again")
     assert reads == []  # the save adds no tag: the family's tags are not even read
 
-    review = _save(table, SmallVariantReviewUpdate(tags=["probe_x", "report"], note="noted again"))
+    review = _save(table, StructuralVariantReviewUpdate(tags=["probe_x", "report"], note="noted again"))
     assert review.tags == ["probe_x", "report"] and len(reads) == 1
 
-    review = _save(table, SmallVariantReviewUpdate(tags=["report"], note="noted again"))
+    review = _save(table, StructuralVariantReviewUpdate(tags=["report"], note="noted again"))
     assert table.rows["sv1"]["tags"] == ["report"]
     # Once removed, the deleted tag cannot be added back.
     with pytest.raises(HTTPException) as refused:
-        _save(table, SmallVariantReviewUpdate(tags=["probe_x", "report"], note="noted again"))
+        _save(table, StructuralVariantReviewUpdate(tags=["probe_x", "report"], note="noted again"))
     assert (refused.value.status_code, refused.value.detail) == (
         400,
         "Unknown structural-variant tag(s): probe_x",
@@ -533,11 +533,11 @@ def test_a_save_adding_an_unknown_tag_is_refused_beside_a_held_deleted_one(monke
 
     monkeypatch.setattr(svr, "list_small_variant_tag_definitions", definitions)
     table = _ReviewTable()
-    _save(table, SmallVariantReviewUpdate(tags=["probe_x"]))
+    _save(table, StructuralVariantReviewUpdate(tags=["probe_x"]))
     allowed = ["report"]  # probe_x is deleted
 
     with pytest.raises(HTTPException) as refused:
-        _save(table, SmallVariantReviewUpdate(tags=["probe_x", "probe_y"]))
+        _save(table, StructuralVariantReviewUpdate(tags=["probe_x", "probe_y"]))
     # Named alone: the held tag is not what the save got wrong.
     assert refused.value.detail == "Unknown structural-variant tag(s): probe_y"
     assert table.rows["sv1"]["tags"] == ["probe_x"]
@@ -545,7 +545,7 @@ def test_a_save_adding_an_unknown_tag_is_refused_beside_a_held_deleted_one(monke
 
 def test_a_blank_variant_id_is_refused() -> None:
     with pytest.raises(HTTPException) as refused:
-        _save(_ReviewTable(), SmallVariantReviewUpdate(note="x"), variant_id="  ")
+        _save(_ReviewTable(), StructuralVariantReviewUpdate(note="x"), variant_id="  ")
     assert refused.value.status_code == 400
 
 
@@ -569,7 +569,7 @@ def test_a_cnv_classification_is_recorded_in_the_audit_trail() -> None:
     table = _ReviewTable()
     _save(
         table,
-        SmallVariantReviewUpdate(
+        StructuralVariantReviewUpdate(
             classification="Pathogenic - class 5",
             cnv_acmg=_payload("loss", ("2A", 1.0, True), ("3A", 0.0, False)),
         ),
@@ -601,8 +601,8 @@ def test_a_cnv_classification_is_recorded_in_the_audit_trail() -> None:
 
 def test_tag_and_note_changes_are_recorded_as_separate_events() -> None:
     table = _ReviewTable()
-    _save(table, SmallVariantReviewUpdate(note="first look"))
-    _save(table, SmallVariantReviewUpdate(note="second look", tags=[]))
+    _save(table, StructuralVariantReviewUpdate(note="first look"))
+    _save(table, StructuralVariantReviewUpdate(note="second look", tags=[]))
     table.audit.clear()
 
     async def definitions(session, *, family_uuid, project_ids):
@@ -610,7 +610,7 @@ def test_tag_and_note_changes_are_recorded_as_separate_events() -> None:
 
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(svr, "list_small_variant_tag_definitions", definitions)
-        _save(table, SmallVariantReviewUpdate(note="second look", tags=["report"]))
+        _save(table, StructuralVariantReviewUpdate(note="second look", tags=["report"]))
 
     [event] = _audit_rows(table)
     assert (event["action"], event["summary"]) == ("tags", "Tags added report")
@@ -619,7 +619,7 @@ def test_tag_and_note_changes_are_recorded_as_separate_events() -> None:
 
 def test_an_unchanged_save_records_nothing() -> None:
     table = _ReviewTable()
-    payload = SmallVariantReviewUpdate(note="same", cnv_acmg=_payload("gain", ("2C", -1.0, True)))
+    payload = StructuralVariantReviewUpdate(note="same", cnv_acmg=_payload("gain", ("2C", -1.0, True)))
     _save(table, payload)
     recorded = len(table.audit)
     _save(table, payload)
@@ -628,8 +628,8 @@ def test_an_unchanged_save_records_nothing() -> None:
 
 def test_cleared_cnv_scoring_is_recorded() -> None:
     table = _ReviewTable()
-    _save(table, SmallVariantReviewUpdate(note="scored", cnv_acmg=_payload("loss", ("2A", 1.0, True))))
-    _save(table, SmallVariantReviewUpdate(note="scored", cnv_acmg=_payload("loss")))
+    _save(table, StructuralVariantReviewUpdate(note="scored", cnv_acmg=_payload("loss", ("2A", 1.0, True))))
+    _save(table, StructuralVariantReviewUpdate(note="scored", cnv_acmg=_payload("loss")))
 
     event = _audit_rows(table)[-1]
     assert event["action"] == "classification"
@@ -639,8 +639,8 @@ def test_cleared_cnv_scoring_is_recorded() -> None:
 
 def test_a_points_only_change_is_recorded_as_a_criteria_update() -> None:
     table = _ReviewTable()
-    _save(table, SmallVariantReviewUpdate(cnv_acmg=_payload("loss", ("2B", 0.15, True))))
-    _save(table, SmallVariantReviewUpdate(cnv_acmg=_payload("loss", ("2B", 0.30, True))))
+    _save(table, StructuralVariantReviewUpdate(cnv_acmg=_payload("loss", ("2B", 0.15, True))))
+    _save(table, StructuralVariantReviewUpdate(cnv_acmg=_payload("loss", ("2B", 0.30, True))))
 
     event = _audit_rows(table)[-1]
     assert event["summary"] == "CNV criteria updated (VUS - class 3): 2B 0.15 → 0.3 points; total 0.15 → 0.3"
@@ -658,10 +658,10 @@ def test_an_evidence_only_rescoring_is_recorded() -> None:
         )
 
     table = _ReviewTable()
-    _save(table, SmallVariantReviewUpdate(cnv_acmg=scoring("HI gene")))
+    _save(table, StructuralVariantReviewUpdate(cnv_acmg=scoring("HI gene")))
     table.audit.clear()
-    _save(table, SmallVariantReviewUpdate(cnv_acmg=scoring("HI gene, whole")))
-    _save(table, SmallVariantReviewUpdate(cnv_acmg=scoring("HI gene, whole")))  # unchanged
+    _save(table, StructuralVariantReviewUpdate(cnv_acmg=scoring("HI gene, whole")))
+    _save(table, StructuralVariantReviewUpdate(cnv_acmg=scoring("HI gene, whole")))  # unchanged
 
     [event] = _audit_rows(table)
     assert event["summary"] == "CNV criteria updated (Pathogenic - class 5): 2A evidence edited"
@@ -678,12 +678,12 @@ def test_deleting_a_review_records_what_was_removed() -> None:
         patch.setattr(svr, "list_small_variant_tag_definitions", definitions)
         _save(
             table,
-            SmallVariantReviewUpdate(
+            StructuralVariantReviewUpdate(
                 classification="Likely pathogenic", tags=["report"], note="to report"
             ),
         )
     table.audit.clear()
-    _save(table, SmallVariantReviewUpdate())  # an empty save deletes the review
+    _save(table, StructuralVariantReviewUpdate())  # an empty save deletes the review
 
     assert table.rows == {}
     events = _audit_rows(table)
@@ -699,7 +699,7 @@ def test_a_save_that_keeps_the_scoring_records_only_what_changed() -> None:
     table = _ReviewTable()
     _save(
         table,
-        SmallVariantReviewUpdate(
+        StructuralVariantReviewUpdate(
             classification="Pathogenic - class 5",
             note="scored",
             cnv_acmg=_payload("loss", ("2A", 1.0, True)),
@@ -707,7 +707,7 @@ def test_a_save_that_keeps_the_scoring_records_only_what_changed() -> None:
     )
     table.audit.clear()
     # The review dialog: no cnv_acmg, so the scoring is kept and not recorded as cleared.
-    _save(table, SmallVariantReviewUpdate(classification="Pathogenic - class 5", note="scored, noted"))
+    _save(table, StructuralVariantReviewUpdate(classification="Pathogenic - class 5", note="scored, noted"))
 
     assert [(event["action"], event["summary"]) for event in _audit_rows(table)] == [
         ("note", "Note updated")
@@ -716,16 +716,16 @@ def test_a_save_that_keeps_the_scoring_records_only_what_changed() -> None:
 
 def test_the_recorded_events_form_a_verifiable_chain() -> None:
     table = _ReviewTable()
-    _save(table, SmallVariantReviewUpdate(note="n1", cnv_acmg=_payload("loss", ("2A", 1.0, True))))
+    _save(table, StructuralVariantReviewUpdate(note="n1", cnv_acmg=_payload("loss", ("2A", 1.0, True))))
     # 0.30 + 0.15 - 0.45 is a hair below zero and rounds to a -0.0 point total.
     _save(
         table,
-        SmallVariantReviewUpdate(
+        StructuralVariantReviewUpdate(
             note="n2",
             cnv_acmg=_payload("loss", ("4C", 0.30, True), ("2H", 0.15, True), ("5D", -0.45, True)),
         ),
     )
-    _save(table, SmallVariantReviewUpdate(cnv_acmg=None))  # clears the scoring: the review is deleted
+    _save(table, StructuralVariantReviewUpdate(cnv_acmg=None))  # clears the scoring: the review is deleted
 
     rows = _audit_rows(table)
     assert len(rows) == 6

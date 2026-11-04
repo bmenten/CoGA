@@ -20,6 +20,7 @@ import {
   parseSerializedGenotypeSelection,
 } from '../../lib/sampleFilterState';
 import type {
+  CnvAcmgReviewPayload,
   GenePanel,
   SmallVariantReview,
   SmallVariantReviewSavePayload,
@@ -88,14 +89,17 @@ export const getPresetScopeLabel = (scope: StructuralVariantFilterPreset['scope'
 export type StructuralVariantTagDefinition = SmallVariantTagDefinition;
 export type StructuralVariantReview = SmallVariantReview;
 // An SV review save takes no small-variant `acmg` or `compound_het`: the SV route does not
-// (#853). A CNV classification names the caller (`source`) of the row it was made on: callers
-// that share an SV id share its review, and the save freezes the evidence of that caller's row
-// (TRACE-11). Typed from the API's request model, so tsc fails when the API stops taking it.
+// (#853). Its CNV (ClinGen) classification, `cnv_acmg`, is an SV's alone: the small-variant
+// save refuses it (ENG-4). A CNV classification names the caller (`source`) of the row it was
+// made on: callers that share an SV id share its review, and the save freezes the evidence of
+// that caller's row (TRACE-11). Typed from the API's request model, so tsc fails when the API
+// stops taking it.
 export type StructuralVariantReviewSavePayload = Omit<
   SmallVariantReviewSavePayload,
   'acmg' | 'compound_het'
-> &
-  Pick<StructuralVariantReviewUpdate, 'source'>;
+> & {
+  cnv_acmg?: CnvAcmgReviewPayload;
+} & Pick<StructuralVariantReviewUpdate, 'source'>;
 
 export type StructuralGenePanel = GenePanel;
 

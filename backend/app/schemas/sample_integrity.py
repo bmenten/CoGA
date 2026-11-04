@@ -46,12 +46,10 @@ class SampleIntegrityMendelianCheckOut(BaseModel):
 class SampleIntegrityPaternityCheckOut(BaseModel):
     """NIPT paternity: the father's homozygous alleles must all be in the plasma, his het
     ones half. ``transmitted_sites`` counts the sites where his allele is seen, of both
-    kinds; ``hom_alt_absent_sites`` his homozygous sites where it is not (the count
-    ``hom_alt_not_transmitted`` holds)."""
+    kinds; ``hom_alt_not_transmitted`` his homozygous sites where it is not."""
 
     father: str
     transmitted_sites: int
-    hom_alt_absent_sites: int
     informative_sites: int
     hom_alt_transmitted: int = 0
     hom_alt_not_transmitted: int = 0

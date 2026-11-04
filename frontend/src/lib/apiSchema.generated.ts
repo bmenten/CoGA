@@ -1112,13 +1112,16 @@ export interface GeneExternalLinkOut {
   href: string;
 }
 
+/**
+ * A model-organism ortholog, as dbNSFP names it (a mouse and a zebrafish gene symbol). A
+ * homolog cached with fields no source sets any more (an Ensembl gene id, percent identity or
+ * coverage, an "in the platform" flag that was always false) loads without them (ENG-4).
+ */
 export interface GeneHomologOut {
   species_name: string;
   common_name: string | null;
   symbol: string | null;
-  ensembl_gene_id: string | null;
   homology_type: string | null;
-  in_platform: boolean;
 }
 
 export interface GeneInfoRefreshJobOut {
@@ -3239,13 +3242,11 @@ export interface SampleIntegrityMendelianCheckOut {
 /**
  * NIPT paternity: the father's homozygous alleles must all be in the plasma, his het
  * ones half. ``transmitted_sites`` counts the sites where his allele is seen, of both
- * kinds; ``hom_alt_absent_sites`` his homozygous sites where it is not (the count
- * ``hom_alt_not_transmitted`` holds).
+ * kinds; ``hom_alt_not_transmitted`` his homozygous sites where it is not.
  */
 export interface SampleIntegrityPaternityCheckOut {
   father: string;
   transmitted_sites: number;
-  hom_alt_absent_sites: number;
   informative_sites: number;
   hom_alt_transmitted: number;
   hom_alt_not_transmitted: number;
@@ -3490,7 +3491,6 @@ export interface SmallVariantReviewUpdate {
   note?: string | null;
   compound_het?: SmallVariantCompoundHetReviewUpdate | null;
   acmg?: AcmgClassificationPayload | null;
-  cnv_acmg?: CnvAcmgClassificationPayload | null;
 }
 
 export interface SmallVariantSampleSummaryOut {

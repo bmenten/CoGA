@@ -166,11 +166,6 @@ class PaternityCheck:
         return self.hom_alt_transmitted + self.het_transmitted
 
     @property
-    def hom_alt_absent_sites(self) -> int:
-        """His homozygous sites where his allele is not seen."""
-        return self.hom_alt_not_transmitted
-
-    @property
     def informative_sites(self) -> int:
         return (
             self.hom_alt_transmitted
