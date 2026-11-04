@@ -55,6 +55,10 @@ frontend/playwright/.cache/
 /data/families/
 /data/family-packages/
 /data/imports/
+# Uploaded source files (services/raw_import_files_pg.py), and a network share mounted for
+# imports (docs/deployment-vm.md, step 8).
+/data/raw_imports/
+/data/share/
 /data/**/*.cram
 /data/**/*.cram.crai
 /data/**/*.bam
