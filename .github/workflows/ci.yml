@@ -330,11 +330,11 @@ jobs:
 
   lock:
     # TF-13 S-7: the hash-locked backend requirements are what scripts/compile-requirements.sh
-    # compiles from backend/requirements*.in: pip-tools 7.4.1 on Python 3.12, in Docker, for
-    # linux/amd64 (this runner's own platform). pip-compile keeps each pin that still meets the
-    # .in files and reuses the hashes listed for it, so a diff means a lock was edited by hand,
-    # compiled another way (another Python, platform or pip-tools), or not compiled again after
-    # an .in change. It pulls python:3.12 from Docker Hub and reads PyPI.
+    # compiles from backend/requirements*.in: pip-tools 7.4.1 with click 8.1.8 on Python 3.12,
+    # in Docker, for linux/amd64 (this runner's own platform). pip-compile keeps each pin that
+    # still meets the .in files and reuses the hashes listed for it, so a diff means a lock was
+    # edited by hand, compiled another way (another Python, platform or pip-tools), or not
+    # compiled again after an .in change. It pulls python:3.12 from Docker Hub and reads PyPI.
     name: lock (compile-requirements.sh reproduces the backend locks)
     runs-on: ubuntu-latest
     steps:
@@ -346,21 +346,14 @@ jobs:
       - name: Compile the backend requirements
         run: ./scripts/compile-requirements.sh
       - name: Fail when a compiled lock differs from the committed one
-        # The header's command line lists pip-compile's options as click renders them, and the
-        # script does not pin click: two runs of the same pip-tools wrote different lists there
-        # (June and September 2026). A difference on that line alone is a warning; any other
-        # difference fails.
+        # The whole file is compared, the header's command line too: click renders that line,
+        # and the script pins click, so it writes the same line on every run.
         run: |
-          if ! git diff --exit-code -I '^#    pip-compile ' -- backend/requirements.txt backend/requirements-dev.txt; then
+          if ! git diff --exit-code -- backend/requirements.txt backend/requirements-dev.txt; then
             echo "::error::A backend lock differs from what ./scripts/compile-requirements.sh compiles (the diff above). Run the script and commit both locks."
             exit 1
           fi
-          if git diff --quiet -- backend/requirements.txt backend/requirements-dev.txt; then
-            echo "Both backend locks are what ./scripts/compile-requirements.sh compiles."
-          else
-            git diff -- backend/requirements.txt backend/requirements-dev.txt
-            echo "::warning::Only the pip-compile command line in a lock's header differs from what the script writes (the diff above)."
-          fi
+          echo "Both backend locks are what ./scripts/compile-requirements.sh compiles."
 
   images:
     # build.yml builds the release images in Cloud Build only after a merge, and not at all
