@@ -93,7 +93,7 @@ def _pedigree_status_from_phenotype(phenotype: str) -> str:
         return "unknown"
     raise HTTPException(
         status_code=400,
-        detail=f"Unsupported PED phenotype '{phenotype}'. Use 0/-9 for missing, 1 for unaffected, or 2 for affected.",
+        detail=f"Unsupported PED phenotype '{visible(phenotype)}'. Use 0/-9 for missing, 1 for unaffected, or 2 for affected.",
     )
 
 
@@ -184,7 +184,7 @@ async def build_pedigree_text(session: AsyncSession, *, family_id: str) -> str:
     if not members:
         raise HTTPException(
             status_code=404,
-            detail=f"Family '{family_id}' was not found or has no members",
+            detail=f"Family '{visible(family_id)}' was not found or has no members",
         )
 
     relationship_result = await session.execute(
@@ -354,7 +354,7 @@ def _validate_manual_family(family: ManualPedFamilyCreate) -> list[ManualPedMemb
         if not sample_id:
             raise HTTPException(status_code=400, detail="Sample id is required for every member")
         _require_storable_id(sample_id, kind="Sample ID")
-        _require_manual_metadata(member.metadata, MANUAL_SAMPLE_METADATA, f"Sample {sample_id}")
+        _require_manual_metadata(member.metadata, MANUAL_SAMPLE_METADATA, f"Sample {visible(sample_id)}")
         clinical_status = _manual_clinical_status(member)
         carrier_status = _normalize_carrier_status(member.carrier_status, member.carrier_type)
         normalized_members.append(
@@ -384,9 +384,9 @@ def _validate_manual_family(family: ManualPedFamilyCreate) -> list[ManualPedMemb
         if member.father_id and member.mother_id and member.father_id == member.mother_id:
             raise HTTPException(status_code=400, detail="Father and mother must be different individuals")
         if member.father_id and member.father_id not in member_map:
-            raise HTTPException(status_code=400, detail=f"Father id not found: {member.father_id}")
+            raise HTTPException(status_code=400, detail=f"Father id not found: {visible(member.father_id)}")
         if member.mother_id and member.mother_id not in member_map:
-            raise HTTPException(status_code=400, detail=f"Mother id not found: {member.mother_id}")
+            raise HTTPException(status_code=400, detail=f"Mother id not found: {visible(member.mother_id)}")
         if member.father_id and member_map[member.father_id].sex == "female":
             raise HTTPException(status_code=400, detail="Father must not have female sex")
         if member.mother_id and member_map[member.mother_id].sex == "male":
@@ -473,7 +473,7 @@ async def _replace_existing_families(
     if not overwrite:
         raise HTTPException(
             status_code=409,
-            detail=f"Family id already exists: {', '.join(existing_family_ids)}",
+            detail=f"Family id already exists: {', '.join(map(visible, existing_family_ids))}",
         )
     _ensure_user_can_replace_existing_families(user)
     assembly_rows_by_family: dict[str, set[str]] = {}
@@ -596,7 +596,7 @@ async def _ensure_sample_ids_are_available(
     if existing_sample_ids:
         raise HTTPException(
             status_code=409,
-            detail=f"Sample id already exists: {', '.join(existing_sample_ids)}",
+            detail=f"Sample id already exists: {', '.join(map(visible, existing_sample_ids))}",
         )
 
 
@@ -999,7 +999,7 @@ async def _upload_ped_data(
     if unknown_carrier_ids:
         raise HTTPException(
             status_code=400,
-            detail=f"Carrier sample IDs are not present in the PED: {', '.join(unknown_carrier_ids)}",
+            detail=f"Carrier sample IDs are not present in the PED: {', '.join(map(visible, unknown_carrier_ids))}",
         )
     roi_payload: dict[str, Any] | None = None
     if roi_query and roi_query.strip():
