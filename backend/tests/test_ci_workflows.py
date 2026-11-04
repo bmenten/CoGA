@@ -180,7 +180,8 @@ def _first_pin_changed(text: str) -> str:
 
 
 def _header_command_changed(text: str) -> str:
-    """The lock with another option list in its header's pip-compile command line."""
+    """The lock with another option list in its header's pip-compile command line, as an
+    unpinned click wrote it."""
     assert re.search(r"^#    pip-compile .* --strip-extras ", text, re.M)
     return text.replace(" --strip-extras ", " --emit-index-url --strip-extras ", 1)
 
@@ -188,14 +189,14 @@ def _header_command_changed(text: str) -> str:
 # Differences between the lock the script writes and the committed one that the check fails
 # on: a pin (pip-compile changes it when the .in files no longer allow it, with its hashes),
 # a hash, the dependency that pulls a package in, the Python it was compiled for (#894
-# compiled with 3.13 and kept the 3.12 line), and a pin beside a changed header command line,
-# which alone is only a warning.
+# compiled with 3.13 and kept the 3.12 line), and the header's command line, which the
+# pinned click writes the same on every run.
 EDITS = {
     "a pin": _first_pin_changed,
     "a hash": lambda text: re.sub(r"^    --hash=sha256:[0-9a-f]{64} \\\n", "", text, count=1, flags=re.M),
     "a via line": lambda text: re.sub(r"^    # via .*$", "    # via another-package", text, count=1, flags=re.M),
     "the Python": lambda text: text.replace("with Python 3.12", "with Python 3.13", 1),
-    "a pin and the header command": lambda text: _first_pin_changed(_header_command_changed(text)),
+    "the header command": _header_command_changed,
 }
 
 
@@ -219,21 +220,6 @@ def test_the_lock_check_fails_on_a_lock_the_script_would_not_write(tmp_path: Pat
     result = run_step(check, repo, dict(GIT_ENV))
     assert result.returncode != 0, f"{edit} in {lock} passed"
     assert "::error::" in result.stdout
-
-
-def test_the_lock_check_warns_when_only_the_header_command_differs(tmp_path: Path) -> None:
-    # The command line in the header lists pip-compile's options as click renders them. The
-    # job still reports a difference on that line alone, not fails it: it was written while
-    # the script left click unpinned, and two runs of the same pinned pip-tools wrote
-    # different lists there.
-    _, _, check = _lock_steps()
-    repo = _lock_repo(tmp_path)
-    for lock in LOCKS:
-        path = repo / lock
-        path.write_text(_header_command_changed(path.read_text()))
-    result = run_step(check, repo, dict(GIT_ENV))
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert "::warning::" in result.stdout and "::error::" not in result.stdout
 
 
 # ---- GitHub's merge queue (OPS-22) ------------------------------------------------------------
