@@ -4,4 +4,4 @@
 # Pinned here so that Dependabot's pip ecosystem proposes its updates
 # (.github/dependabot.yml, directory /ci); backend/tests/test_pinned_images.py fails until
 # the workflow installs the version pinned here.
-markdown==3.10.3
+markdown==3.11.2
