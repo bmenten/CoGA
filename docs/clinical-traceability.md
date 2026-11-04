@@ -218,7 +218,7 @@ imported it; for the Mendeliome, the Monarch release.
 - One event per panel version and family. A version already recorded writes nothing; the check
   runs again under the family's audit-chain lock, so two searches at once record it once.
 - A panel edited or imported again since (each such version is archived in
-  `gene_panel_versions`, #809), or a PanelApp version imported over the same genes, is recorded
+  `gene_panel_versions`), or a PanelApp version imported over the same genes, is recorded
   again at the next search that applies it.
 - A search whose event cannot be recorded fails with it.
 - A panel applied in the variant explorer, which searches across families, is recorded for no
@@ -436,9 +436,9 @@ in the EPD refers to the signed version by its report code (*The report code* be
     (`pgt_analysis.embryo_has_haplotype_blocks`, TRACE-19). The import reads a child of unknown
     sex and unknown or unaffected status as an embryo, as a NIPT PED usually gives the fetus, and
     the NIPT trio takes that embryo for the fetus. But the fetus has no sequencing column, so no
-    blocks and no call. Such a record held the fetus's PGT analysis all the same (#922). The
-    blocks an embryo call reads are the narrowest input that makes the section a PGT analysis: a
-    NIPT family with them keeps it, as the family page calls such an embryo;
+    blocks and no call. Such a record held the fetus's PGT analysis all the same (found on
+    2026-10-20). The blocks an embryo call reads are the narrowest input that makes the section
+    a PGT analysis: a NIPT family with them keeps it, as the family page calls such an embryo;
   - `nipt`, a monogenic NIPT family's only (`services/signed_record_nipt.py`; REQ-NIPT-001,
     -004, -006, -010 to -013, -015): the NIPT analysis as the NIPT page computes it at sign-out,
     by the backend's code (`nipt_service`, `nipt_quality_checks`), never the browser. It holds:
@@ -528,9 +528,9 @@ what is frozen.
   seen and not seen), not the totals the Sample QC page is served.
 - The Sample QC's summary (`application_summary`) is frozen as it read. A record signed before
   ENG-4 says paternity was confirmed from "categories 7/8", named after the check's logic before
-  #749; one signed since says it is read from the father's alleles in the plasma. So the sign-out
-  check names the sample-integrity QC as changed for a NIPT family whose latest record holds the
-  old wording, until it is signed again.
+  the NIPT-M pair rework (2026-10-04); one signed since says it is read from the father's
+  alleles in the plasma. So the sign-out check names the sample-integrity QC as changed for a
+  NIPT family whose latest record holds the old wording, until it is signed again.
 - A NIPT variant whose review, or compound-het pair review, is tagged `report` is frozen in
   `reported_variants` and `variant_descriptions` like any reported small variant, with its
   classification, and in `nipt` with its category, reads and probabilities. The recessive fetal
@@ -588,7 +588,7 @@ Six gates run first, in this order:
    refuses the sign-out. That record is not best-effort. An import whose job cannot record it (a
    database error, or another worker has claimed the job) stops without writing anything of the
    family; its job ends `failed` with the reason while it is still this worker's and can be
-   updated (#736). The job's later updates (logs, dataset summaries, heartbeat) are
+   updated. The job's later updates (logs, dataset summaries, heartbeat) are
    informational: one that fails leaves the status and the family as they are.
 
    - A job whose worker stopped keeps refusing until a worker claims it again.
@@ -599,7 +599,7 @@ Six gates run first, in this order:
      the family stays marked (gate 5).
    - An import whose process is alive but could not write its heartbeat stops where it is once
      its heartbeat reaches the database again and finds the job ended, leaving the family marked
-     the same way (#746). Between the claim and that stop the job no longer refuses a sign-out,
+     the same way. Between the claim and that stop the job no longer refuses a sign-out,
      but the import's variant-write locks do (`variant_writes_in_progress`) while their
      connection holds them.
    - An import whose heartbeat has not reached the database for five minutes stops itself the
@@ -958,8 +958,8 @@ missense variant's entry. The entry the check recomputes also holds them as they
 (`evidence_to`).
 
 The release candidate's snapshot format is the first one CoGA reads: records signed by earlier
-development builds get no reading of their own (#681). They still verify, since verification
-re-hashes the record as stored.
+development builds get no reading of their own (the owner's decision of 2026-09-30). They still
+verify, since verification re-hashes the record as stored.
 
 Both views download the frozen record as JSON.
 

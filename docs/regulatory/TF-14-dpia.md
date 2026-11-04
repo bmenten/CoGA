@@ -4,7 +4,7 @@
 | --- | --- |
 | Document ID | TF-14 |
 | Version | v0.1 DRAFT |
-| Status | Draft for internal review. A DPIA signed with the UZ Gent DPO exists outside this repository (owner, 2026-09-29); this draft is to be reconciled with it and filed (#518). |
+| Status | Draft for internal review. A DPIA signed with the UZ Gent DPO exists outside this repository (owner, 2026-09-29); this draft is to be reconciled with it and filed, an open owner and DPO action tracked in the [technical-file sign-off issue](https://github.com/bmenten/CoGA/issues/518). |
 | Owner | ‹CMGG software lead + UZ Gent DPO› |
 | Approver | ‹UZ Gent Data Protection Officer› |
 | Date | 2026-06-25 |
@@ -12,7 +12,7 @@
 
 > A DPIA is **required** (GDPR Art. 35): CoGA processes **genetic and health data** (special
 > category) on a large scale in a clinical setting. The signed DPIA and this draft's
-> reconciliation with it: see Status (#518).
+> reconciliation with it: see Status.
 
 ---
 
@@ -24,7 +24,7 @@
 | Data subjects | Patients, pregnant individuals + partner, prospective parents/couples, embryos (and, via family/pedigree, relatives). |
 | Categories of data | **Special category:** genetic data (variants, genotypes, haplotypes), health/clinical status, phenotype (HPO), reproductive/pregnancy data; identifiers/pedigree metadata; user account data (staff). |
 | Processing operations | Ingestion of validated genomic files, storage (Postgres + ClickHouse + file/object store), filtering/analysis/visualization, classification, reporting, audit logging. |
-| Hosting / processors | Production target: **Google Cloud**, deployed with Terraform (owner decision, #627). The configuration is in `terraform/` and not yet applied, so no patient data is processed yet. Google Cloud will store and process the data as a **processor** for the institution: Cloud SQL, a ClickHouse VM and CMEK-encrypted storage buckets in the configured region (default `europe-west1`), behind an HTTPS load balancer that go-live restricts to institutional networks ([TF-13 §3](TF-13-cybersecurity.md)). Local development uses Docker Compose on synthetic data only. The data-processing agreement with Google is being signed (owner, 2026-09-29). **🔲 OWNER/DPO (#518):** file the signed DPIA and the executed agreement with this file; record the region, any sub-processors and transfers; settle whether Google is a *processor* (this file, TF-02) or a *sub-processor*. |
+| Hosting / processors | Production target: **Google Cloud**, deployed with Terraform (owner decision of 2026-09-29). The configuration is in `terraform/` and not yet applied, so no patient data is processed yet. Google Cloud will store and process the data as a **processor** for the institution: Cloud SQL, a ClickHouse VM and CMEK-encrypted storage buckets in the configured region (default `europe-west1`), behind an HTTPS load balancer that go-live restricts to institutional networks ([TF-13 §3](TF-13-cybersecurity.md)). Local development uses Docker Compose on synthetic data only. The data-processing agreement with Google is being signed (owner, 2026-09-29). **🔲 OWNER/DPO:** file the signed DPIA and the executed agreement with this file; record the region, any sub-processors and transfers; settle whether Google is a *processor* (this file, TF-02) or a *sub-processor*. |
 | Scale & duration | All CMGG cases across the five applications; retention per clinical/legal record requirements. |
 
 ## 2. Lawful basis & special-category condition
@@ -58,9 +58,9 @@ patient data.
 | Incidental findings / familial implications | Clinical governance, reporting policy ‹CMGG SOP› | ‹…› |
 | Data integrity / wrong record | Immutable audit, content-hash, provenance | ‹…› |
 | Breach (confidentiality) | TF-13 controls + incident process (TF-17) + breach notification per GDPR Art. 33/34 | ‹…› |
-| Processing by a cloud provider | Data-processing agreement, EU region, CMEK encryption at rest, TLS in transit, least-privilege service accounts, audit logging (TF-13; `terraform/`) | ‹… — owner/DPO, #518› |
+| Processing by a cloud provider | Data-processing agreement, EU region, CMEK encryption at rest, TLS in transit, least-privilege service accounts, audit logging (TF-13; `terraform/`) | ‹… — owner/DPO› |
 
 ## 7. Consultation & sign-off
-- **UZ Gent DPO opinion:** copied from the signed DPIA when it is filed (#518). The governing SOP **H11.1-OP5 §4.2** requires the DPO's advice in the **functional-analysis** phase whenever personal data is processed, so DPO consultation is a standing step of CoGA's lifecycle, not a one-off.
+- **UZ Gent DPO opinion:** copied from the signed DPIA when it is filed. The governing SOP **H11.1-OP5 §4.2** requires the DPO's advice in the **functional-analysis** phase whenever personal data is processed, so DPO consultation is a standing step of CoGA's lifecycle, not a one-off.
 - Prior consultation with the supervisory authority (Belgian DPA) **only if** a high residual risk cannot be mitigated (Art. 36) — ‹assess with DPO›.
 - Review on material change to processing or device (TF-18) and at the PMS cadence (TF-16).

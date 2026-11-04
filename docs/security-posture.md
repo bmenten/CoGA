@@ -215,10 +215,10 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
     that loops, is refused (`manifest_outside_package`): Discover and validation do not read
     it, and **Write manifest** does not write through it. A linked manifest gave a package the
     family of any YAML or JSON file the backend could read, and Write manifest replaced the
-    file it pointed at (SEC-21, #842; [data-import.md](data-import.md)).
+    file it pointed at (SEC-21; [data-import.md](data-import.md)).
   - A package staged from a bucket is read only by the import or validation that staged it. A
     typed folder in the staging folder, or an import root linked there, is refused
-    (`package_folder_not_allowed`); it used to read another import's staged copy (#850).
+    (`package_folder_not_allowed`); it used to read another import's staged copy.
   - The staging folder, `coga-family-imports` in the temp folder, is private to the backend
     (mode 0700). One found there that is a symlink, no folder or another user's is refused, not
     followed, so a link planted in a shared temp folder cannot widen the rule (SEC-27).
@@ -265,7 +265,7 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   with a default password), the demo loaders and the CI checks stay out.
 - ✅ **Passwords at sign-up** need at least 15 characters (`SIGNUP_PASSWORD_MIN_LENGTH`,
   following NIST SP 800-63B-4 for a single-factor password); a shorter one gets a 422 before
-  any throttling or hashing. The device owner confirmed this policy (#626).
+  any throttling or hashing. The device owner confirmed this policy on 2026-09-29.
 - ✅ **Reference routers need a signed-in user**, the species list included. Reference data
   (genes, assemblies, the CNV catalogue) is not project-scoped: it is public and not PHI. Every
   route signs its caller in except the sign-in and sign-up, the sign-in configuration, health,
@@ -369,8 +369,8 @@ takes, after a renewal or its next sign-in, never under another account. A batch
 until the API acknowledges it, so the flush at page close also sends one still in flight. The
 browser gives each event its id (`event_id`), under which the API stores it once (SEC-17, §2),
 so a batch sent again stores nothing twice. This closed two losses (found while fixing the
-page-close flush, #1018): the events of a session ended by another request's 401 were dropped,
-as no token was left to send them, and a batch in flight as the page closed was lost.
+page-close flush on 2026-10-27): the events of a session ended by another request's 401 were
+dropped, as no token was left to send them, and a batch in flight as the page closed was lost.
 
 The page-close `keepalive` keeps its events the same way before it is sent. They leave the
 browser only once the API has taken them (a 2xx answer). A keepalive that fails, is refused,
@@ -622,10 +622,10 @@ What the application relies on there:
   (`SAME_SITE_PATH` in `pages/auth/LoginPage.tsx`, REQ-UI-006). Any other value opens the
   dashboard, as an absent one does: a scheme, `//`, a backslash, whitespace or a control
   character, and a path that starts with a percent-encoded character, such as `/%09/host`,
-  which a browser reads as `//host` once the query string is decoded (#833). The backend reads
+  which a browser reads as `//host` once the query string is decoded. The backend reads
   no `next` and builds no redirect from user input. The proxy rewrites only a redirect on the
   backend's own internal origin, into a path on this site with one leading slash, so it never
-  turns one into `//host` or `/\host` (`frontend/proxyLocation.mjs`, #948).
+  turns one into `//host` or `/\host` (`frontend/proxyLocation.mjs`).
 - ✅ **Encoded path segments.** API paths are built with `apiPath` (`lib/apiPath.ts`), which
   percent-encodes every identifier, so an imported id such as `../families/F1` cannot redirect
   a call. Query strings go through `raw()`.
@@ -648,7 +648,7 @@ What the application relies on there:
     `/` whole. Raw, `?` and `#` cut the path short and `/` added a segment no route matched
     (SEC-15). A guard test finds any route template left raw.
   - The IGV page's Back link takes its `back_path` only when it is one of the family pages, as
-    the HPO page's does (#526): a link could send it to another site.
+    the HPO page's does: a link could send it to another site.
   - A file named after an ID (the PED download, a variant export, a signed URL's file) carries
     its name in `Content-Disposition` encoded as RFC 6266 has it
     (`backend/app/core/content_disposition.py`). A name with a quote, a backslash, a percent

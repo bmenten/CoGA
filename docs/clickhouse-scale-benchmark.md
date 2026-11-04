@@ -4,24 +4,27 @@ Can CoGA hold and search 1,000 whole genomes? This page records how the ClickHou
 storage behaves as a synthetic cohort grows, where it fails, and what hardware 1,000 genomes need.
 The benchmark is
 [`scripts/benchmark_clickhouse_scale.py`](../scripts/benchmark_clickhouse_scale.py); every figure
-below comes from its results, measured on 2 and 3 November 2026.
+below comes from its results, measured on 2 and 3 November 2026. On 2 November the family
+search's annotation filters were narrowed to the variants the family carries
+(`_small_family_key_condition`); this page calls that change *the family-key bound*.
 
 ## Summary
 
 - **Storage: about 240 GB of small variants for 1,000 genomes** (2.4 billion `entries` rows at
   82 B each; 61 M distinct variants at about 0.8 KB each). The GCP deployment's default ClickHouse
   disk (`clickhouse_data_disk_gb = 200`) fills at about 800 genomes, before any room for merges.
-- **Since #1092 the family search runs at every size measured, but slows as the cohort grows.**
-  Its annotation filters still read the whole cohort's annotation table twice per search (list and
-  count): 360 M rows at 250 genomes, about 750 M at 1,000. On a quiet machine a broad search took
-  2.4–4.8 s at 250 genomes; at 1,000 it will take about 5–10 s, and it keeps growing with the
-  cohort.
-- **Before #1092 the rare-only search failed at about 250 genomes:** its queries held 3 GiB for the
-  set of matching variants (75 % of the 4 GB cap) and passed the 110 s limit, which the app answers
-  with "This filter combination matches too many variants". #1092 holds that set to the family's
-  own variants: 0.55 GiB for a trio at every step.
-- **#1092 costs every narrow search about 240 MiB:** a one-gene search went from 26 MiB to 240 MiB
-  and from 0.4 s to 1.1 s; a rare and HIGH/MODERATE search from 100 MiB to 240 MiB.
+- **Since the family-key bound, the family search runs at every size measured, but slows as the
+  cohort grows.** Its annotation filters still read the whole cohort's annotation table twice per
+  search (list and count): 360 M rows at 250 genomes, about 750 M at 1,000. On a quiet machine a
+  broad search took 2.4–4.8 s at 250 genomes; at 1,000 it will take about 5–10 s, and it keeps
+  growing with the cohort.
+- **Before the family-key bound, the rare-only search failed at about 250 genomes:** its queries
+  held 3 GiB for the set of matching variants (75 % of the 4 GB cap) and passed the 110 s limit,
+  which the app answers with "This filter combination matches too many variants". The family-key
+  bound holds that set to the family's own variants: 0.55 GiB for a trio at every step.
+- **The family-key bound costs every narrow search about 240 MiB:** a one-gene search went from
+  26 MiB to 240 MiB and from 0.4 s to 1.1 s; a rare and HIGH/MODERATE search from 100 MiB to
+  240 MiB.
 - **The Variant Explorer's unfiltered page fails first:** it passes the 110 s limit from about
   20 M `entries` rows, three or four whole-genome families. Its filtered pages read every `entries`
   row of the cohort and the cohort's annotations, twice: 189 M rows and 7 s at 60 M `entries` rows;
@@ -34,9 +37,10 @@ below comes from its results, measured on 2 and 3 November 2026.
   about 50 GB at 1,000.
 - **The integrity check reads every byte of the variant tables:** 0.7–1.4 GB a second on a quiet
   machine, so 3 to 6 minutes every 6 hours at 1,000 genomes.
-- **The storage writer writes about 2,600 records a second since #1093** (1,100–1,400 before).
-  Writing a whole-genome trio takes about 40 minutes; 1,000 genomes take about 10 days of one
-  core's work, shared by the import-worker processes (`IMPORT_WORKER_REPLICAS`, one core each).
+- **The storage writer writes about 2,600 records a second since the import reads each annotation
+  once and inserts synchronously (2 November 2026)** (1,100–1,400 before). Writing a
+  whole-genome trio takes about 40 minutes; 1,000 genomes take about 10 days of one core's work,
+  shared by the import-worker processes (`IMPORT_WORKER_REPLICAS`, one core each).
 
 ## Hardware for 1,000 genomes
 
@@ -56,8 +60,8 @@ better").
 | Operation | Fails at | How |
 | --- | --- | --- |
 | Variant Explorer, unfiltered | about 20 M `entries` rows: 3–4 whole-genome families | 110 s limit (it spills to disk past 2 GiB, then runs out of time) |
-| Family search, rare only, before #1092 | about 250 genomes (28 M distinct variants) | 110 s limit at 3 GiB; the 4 GB cap is the next limit |
-| Family search, since #1092 | not within 250 genomes | rows read grow with the cohort: about 750 M per broad search at 1,000 genomes, about 5–10 s here |
+| Family search, rare only, before the family-key bound | about 250 genomes (28 M distinct variants) | 110 s limit at 3 GiB; the 4 GB cap is the next limit |
+| Family search, since the family-key bound | not within 250 genomes | rows read grow with the cohort: about 750 M per broad search at 1,000 genomes, about 5–10 s here |
 | Overwrite of a whole-genome trio | on a loaded machine | the snapshot's copy of 6.3 M rows passed the 110 s limit |
 | Delete or overwrite of a family | a project of more than about 70 GB of `entries`, some 350 genomes in one project (extrapolated) | the delete rewrites its project's parts at about 0.6 GB a second, past the client's 120 s read timeout (`CLICKHOUSE_SEND_RECEIVE_TIMEOUT`) |
 | GCP default disk (200 GB) | about 800 genomes | full |
@@ -83,16 +87,16 @@ passes:
 | A | every table, every family, at a quarter of the variants per genome (`--variant-scale 0.25`) | 10, 20 and 40 genomes |
 | B | the cohort's annotation tables at full size, `entries` only for the measured families (`--entries probes --skip-details`) | 50, 100 and 250 genomes |
 | C | every family, at a quarter of the variants per genome, without `variants/details` | 100 genomes |
-| D | as B, on a quieter machine, with `main`'s code (after #1092) | 250 genomes |
+| D | as B, on a quieter machine, with `main`'s code (after the family-key bound) | 250 genomes |
 
 Pass B grows exactly what the family search's annotation filters read; passes A and C grow what the
-Variant Explorer, the overwrite and the integrity check read. #1092 changes the family search only.
-The query code measured:
+Variant Explorer, the overwrite and the integrity check read. The family-key bound changes the
+family search only. The query code measured:
 
-- pass B: each step with the code before #1092 (commit `64631e0e`) and after it (`main` at
-  `3ff4c84b`);
+- pass B: each step with the code before the family-key bound (commit `64631e0e`) and after it
+  (`main` at `3ff4c84b`);
 - pass A: its last step with both;
-- pass C: the code after #1092.
+- pass C: the code after the family-key bound.
 
 A 500-genome step of pass B was dropped: with every broad query passing the time limit on the
 overloaded machine, it would have measured the machine, not the code. Pass C was cut to one step
@@ -123,7 +127,7 @@ Pass B, the trio (6.3 M `entries` rows) and the singleton (4.8 M). Memory is the
 search's queries; rows read are the list and the count together; time is the median of three runs
 on the loaded machine:
 
-| Search | Genomes (distinct variants) | Before #1092: memory, rows read, time | Since #1092: memory, rows read, time |
+| Search | Genomes (distinct variants) | Before the family-key bound: memory, rows read, time | Since the family-key bound: memory, rows read, time |
 | --- | --- | --- | --- |
 | Rare only, trio | 50 (14.5 M) | 1.0 GiB, 185 M, 11 s | 584 MiB, 198 M, 5 s |
 | | 100 (18.7 M) | 1.6 GiB, 235 M, 15 s | 582 MiB, 248 M, 12 s |
@@ -139,11 +143,11 @@ on the loaded machine:
 
 - Every search with a frequency, impact or ClinVar filter reads the cohort's whole
   `variants/annotations` table in its list query and again in its count query. The rows read grow
-  by the six transcript rows of each new distinct variant, before and since #1092: #1092 bounds the
-  set those rows build, not the reading.
+  by the six transcript rows of each new distinct variant, before and since the family-key bound:
+  the bound limits the set those rows build, not the reading.
 - The panel and one-gene searches read the `gene_index` by gene first (its sort key), so they read
-  little of the cohort. Since #1092 they also read the family's keys, twice: most of the 240 MiB
-  and the extra rows.
+  little of the cohort. Since the family-key bound they also read the family's keys, twice: most
+  of the 240 MiB and the extra rows.
 - The 250-genome failures are the 110 s limit (ClickHouse code 159), answered as HTTP 422. The
   rare-only set grew by about 0.15 GiB per million distinct variants (1.0, 1.6 and 3.0 GiB). Had the
   time limit not stopped it first, it would have passed the 4 GB cap at about 33 M distinct
@@ -164,8 +168,8 @@ That is 75–150 M rows a second. At 1,000 genomes a broad search reads about 75
 about 5–10 s on this machine: twice its time at 250 genomes, and growing with every genome added.
 The scan, not the memory, now limits the family search.
 
-At smaller scale (pass A, 3.4 M distinct variants) every search took under 2.2 s, and #1092 already
-cut the rare-only memory from 326 to 216 MiB for a quarter-size trio.
+At smaller scale (pass A, 3.4 M distinct variants) every search took under 2.2 s, and the
+family-key bound already cut the rare-only memory from 326 to 216 MiB for a quarter-size trio.
 
 ### Variant Explorer
 
@@ -245,7 +249,8 @@ failed here, but it reads the whole data disk four times a day.
 ### Writing the rows
 
 The storage writer (`insert_small_variant_records`), on trio records with six transcripts each,
-wrote 1,100 to 1,400 records a second before #1093 and 2,605 a second since (20,000 records in
+wrote 1,100 to 1,400 records a second before the import read each annotation once and inserted
+synchronously (2 November 2026), and 2,605 a second since (20,000 records in
 7.7 s, on the same loaded machine). That is about 40 minutes for the 6.3 M records of a
 whole-genome trio, and some 10 days of one core for the 2.4 billion of 1,000 genomes. The
 [import-worker processes](application-scheme.md#import-worker-processes) share that work, each on a
@@ -263,7 +268,7 @@ This benchmark generates each shared row once and does not measure that merge lo
   search. Reading only the annotations of the family's own keys, or keeping the values the filters
   test (frequencies, impacts, ClinVar) on the family's `entries` rows, would make a search's cost
   the family's alone.
-- **#1092's family-key set** could be left out of a narrow subquery (a gene, a panel's genes), which
+- **The family-key bound** could be left out of a narrow subquery (a gene, a panel's genes), which
   reads little of the cohort without it.
 - **The Variant Explorer** needs a per-variant summary of carriers, kept up to date at import,
   instead of aggregating every carrier of the cohort on each page.

@@ -68,7 +68,7 @@
 | E1 | Production deployment topology (managed PG/CH, TLS, secrets manager, network isolation, download audit) — owner & target date for S-1…S-8 | ◐ Decided: Google Cloud, codified in `terraform/` and not yet applied ([TF-02 §10](TF-02-device-description.md)); open items and go-live switches in [TF-13 §3](TF-13-cybersecurity.md). Open: owner and target date for the first apply and for each go-live switch. |
 | E2 | Vulnerability-disclosure handling with UZ Gent IT security | — |
 | E3 | Summative usability evaluation: participant count per user group, schedule, facilitator | — |
-| E4 | DPO consultation date; lawful basis & Art. 9 condition confirmation | ◐ A DPIA signed with the UZ Gent DPO exists outside this repository (owner, 2026-09-29). [TF-14](TF-14-dpia.md) is to be reconciled with it, including the lawful basis and the Art. 9 condition, and filed (#518). |
+| E4 | DPO consultation date; lawful basis & Art. 9 condition confirmation | ◐ A DPIA signed with the UZ Gent DPO exists outside this repository (owner, 2026-09-29). [TF-14](TF-14-dpia.md) is to be reconciled with it, including the lawful basis and the Art. 9 condition, and filed: an open owner and DPO action ([TF-14](TF-14-dpia.md) Status). |
 | E5 | Pseudonymization extent within CoGA; retention period; erasure-vs-record-keeping policy | — |
 | E6 | Supported browser(s) for the IFU minimum-requirements section | — (proposal to confirm: a current Chrome or Edge — the browser tests run in Chromium only, [TF-09d](TF-09d-browser-e2e-verification.md)) |
 

@@ -135,8 +135,9 @@ Two limits bound what the gates evidence: one open gap, and one arrangement the 
 
 - **🔲 An administrator can change the ruleset** — it lists no bypass actors, so its checks
   apply to administrators too, but nothing prevents an administrator from editing or disabling
-  it. On 2026-10-13 the required checks were removed for some minutes, and #820 merged
-  with its `smoke` check failing (#823 corrected the test).
+  it. On 2026-10-13 the required checks were removed for some minutes, and a fix to the
+  audit-log writer merged with its `smoke` check failing (a change the same day corrected
+  the test).
 - **🔲 No approving review is required on a pull request, by decision.** The ruleset has no
   pull-request review rule and there is no `CODEOWNERS`. This is the chosen arrangement, not a
   gap: the owner decided on 2026-10-14 (REG-8) that pull requests need no approval, because

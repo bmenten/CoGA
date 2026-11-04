@@ -40,16 +40,16 @@ The summative evaluation must cover each of them.
 
 | ID | Hazard-related use scenario | Linked hazard | UI risk control |
 | --- | --- | --- | --- |
-| U1 | Analyst overlooks a low fetal-fraction / wide-CI warning and trusts a NIPT category call | H6 | FF gauge, CI and low-confidence flag shown prominently; a fetal fraction that could not be loaded is reported as such on the NIPT page and report, never shown as "no estimate" or a count of 0 (#612, #613) |
-| U2 | Analyst trusts a PGT embryo call despite recombination near the ROI, sparse informative markers, or missing embryo data at the ROI | H5 | Raw-marker overlay, informative-marker count, recombination warning, explicit "uninformative"; an embryo without its own haplotype across the ROI reads "uninformative", with a missing-data warning; the risk haplotype is distinguished by line style, not colour alone, and drawn only on the ROI's chromosome; haplotypes that could not be loaded read "segregation not derived" (#577, #592, #614) |
-| U3 | Analyst signs out while evidence has drifted, without realizing it | H8 | Drift badge; sign-out is blocked until the drift is acknowledged with a reason; a drift check that could not be made is reported as such, not shown as "no drift" (#612) |
-| U4 | Analyst misreads the filter funnel and believes nothing was dropped when variants were filtered out | H1 | Explicit drop counts at each funnel stage; a track with more than it can draw says "too many to display" instead of drawing part of the view (#590); an empty view says "no region in view" (#603); an unreadable location filter is refused, never partly applied; the NIPT search applies the filters it shows (#615) |
-| U5 | Analyst signs out the wrong variant / wrong candidate set | H10 | Clear "report"-tagged set; a signed version is shown and printed from its record; the live report is labelled as not the signed version and says whether it matches the latest; audit trail; a report whose family or reported variants could not be loaded is not shown; a part that could not be loaded marks the printout incomplete (#612) |
-| U6 | Analyst misreads a Mendel-error/QC flag indicating sample swap | H4 | Mendel-error rate per child with guidance; on the pedigree each sample's QC verdict is a ring whose line and badge (✓ ! ✕) distinguish pass, warn and fail, keeping the affected and carrier fills (#577); sign-out blocked on a failed or unverifiable Sample QC until a reason is recorded (REQ-TRACE-012) |
-| U7 | Analyst acts on data from the wrong assembly/panel/assay scope | H12 | Assembly/assay context displayed; sign-out refused off the validated assembly (GRCh38), with a "Not validated for clinical use" label on the family and report pages; panel coordinates scoped per assembly; if the project catalogue cannot be loaded, the pages say the validated scope is unconfirmed and the report is not prepared (#611) |
-| U8 | Analyst loses half-finished review or ACMG input through a stray backdrop click or Escape, or two reviewers overwrite each other's classification | H3, H9 | Clinical dialogs (review, ACMG, family-member and QC cut-off among them) ask before discarding unsaved input, respond to Escape as soon as they are drawn, trap focus and ignore a text-selection drag onto the backdrop (#547, #575, #601); a save against a review changed since it was loaded is refused and the current review shown (REQ-TRACE-010) |
-| U9 | Two workstations colour the same coverage differently (per-browser gain/loss thresholds) and the analyst reads a CNV call from the colour | H1, H7 | The chart always shows the thresholds in use and marks custom (this-browser) values; Settings explains the scope and resets them (#547) |
-| U10 | Analyst misjudges how strong an ACMG total is, reading the points as a linear probability (a VUS of 5 points as nearly pathogenic) | H3, H10 | The ACMG score bar places the points on the Tavtigian model's posterior-probability scale (prior 0.10): Benign and Pathogenic as end caps at 0.1% and 99%, one cell per VUS point, ticks at the class boundaries and at each VUS point's probability, and the arrow in the current total's cell (#765, REQ-UI-003) |
+| U1 | Analyst overlooks a low fetal-fraction / wide-CI warning and trusts a NIPT category call | H6 | FF gauge, CI and low-confidence flag shown prominently; a fetal fraction that could not be loaded is reported as such on the NIPT page and report, never shown as "no estimate" or a count of 0 |
+| U2 | Analyst trusts a PGT embryo call despite recombination near the ROI, sparse informative markers, or missing embryo data at the ROI | H5 | Raw-marker overlay, informative-marker count, recombination warning, explicit "uninformative"; an embryo without its own haplotype across the ROI reads "uninformative", with a missing-data warning; the risk haplotype is distinguished by line style, not colour alone, and drawn only on the ROI's chromosome; haplotypes that could not be loaded read "segregation not derived" |
+| U3 | Analyst signs out while evidence has drifted, without realizing it | H8 | Drift badge; sign-out is blocked until the drift is acknowledged with a reason; a drift check that could not be made is reported as such, not shown as "no drift" |
+| U4 | Analyst misreads the filter funnel and believes nothing was dropped when variants were filtered out | H1 | Explicit drop counts at each funnel stage; a track with more than it can draw says "too many to display" instead of drawing part of the view; an empty view says "no region in view"; an unreadable location filter is refused, never partly applied; the NIPT search applies the filters it shows |
+| U5 | Analyst signs out the wrong variant / wrong candidate set | H10 | Clear "report"-tagged set; a signed version is shown and printed from its record; the live report is labelled as not the signed version and says whether it matches the latest; audit trail; a report whose family or reported variants could not be loaded is not shown; a part that could not be loaded marks the printout incomplete |
+| U6 | Analyst misreads a Mendel-error/QC flag indicating sample swap | H4 | Mendel-error rate per child with guidance; on the pedigree each sample's QC verdict is a ring whose line and badge (✓ ! ✕) distinguish pass, warn and fail, keeping the affected and carrier fills; sign-out blocked on a failed or unverifiable Sample QC until a reason is recorded (REQ-TRACE-012) |
+| U7 | Analyst acts on data from the wrong assembly/panel/assay scope | H12 | Assembly/assay context displayed; sign-out refused off the validated assembly (GRCh38), with a "Not validated for clinical use" label on the family and report pages; panel coordinates scoped per assembly; if the project catalogue cannot be loaded, the pages say the validated scope is unconfirmed and the report is not prepared |
+| U8 | Analyst loses half-finished review or ACMG input through a stray backdrop click or Escape, or two reviewers overwrite each other's classification | H3, H9 | Clinical dialogs (review, ACMG, family-member and QC cut-off among them) ask before discarding unsaved input, respond to Escape as soon as they are drawn, trap focus and ignore a text-selection drag onto the backdrop; a save against a review changed since it was loaded is refused and the current review shown (REQ-TRACE-010) |
+| U9 | Two workstations colour the same coverage differently (per-browser gain/loss thresholds) and the analyst reads a CNV call from the colour | H1, H7 | The chart always shows the thresholds in use and marks custom (this-browser) values; Settings explains the scope and resets them |
+| U10 | Analyst misjudges how strong an ACMG total is, reading the points as a linear probability (a VUS of 5 points as nearly pathogenic) | H3, H10 | The ACMG score bar places the points on the Tavtigian model's posterior-probability scale (prior 0.10): Benign and Pathogenic as end caps at 0.1% and 99%, one cell per VUS point, ticks at the class boundaries and at each VUS point's probability, and the arrow in the current total's cell (REQ-UI-003) |
 
 ## 4. User interface specification & risk controls
 The UI-level risk controls above are requirements, traced in the TF-09 RTM. Design principles:
@@ -58,20 +58,20 @@ The UI-level risk controls above are requirements, traced in the TF-09 RTM. Desi
 - Destructive or irreversible actions (sign-out) require confirmation and are gated.
 - Derived calls always display their QC basis.
 - **A clinical state is not conveyed by colour alone** (WCAG 1.4.1): a shape, line style,
-  glyph or text carries it too. #577 applies this to the pedigree QC ring, the
-  risk-haplotype line and the small-variant marks; #594 to the Review, Exclude and Report
+  glyph or text carries it too. It is applied to the pedigree QC ring, the
+  risk-haplotype line, the small-variant marks and the Review, Exclude and Report
   toggles, whose pressed state carries a check mark and is announced as pressed to screen
   readers. Two colour codes remain, each named in a tooltip: the pedigree's carrier-type
   half-fill, and the MODERATE versus LOW small-variant dots.
 - Every chart, track, ideogram and the pedigree is an image with a **text name that states
   what it shows now** (WCAG 1.1.1): the counts and the salient items, or that it is loading or
-  failed to load; a failure never reads as "none" (#587).
+  failed to load; a failure never reads as "none".
 - The charts' pointer-only interactions have **keyboard or text equivalents** (WCAG 2.1.1):
 
 | Pointer interaction | Equivalent |
 | --- | --- |
 | Dragging to zoom, or selecting on the ideogram | The chromosome view's start/end fields, gene or locus jump, and pan/zoom buttons |
-| Clicking a chromosome on the genome overview, the APCAD chart or the Circos plot | The overview's chromosome buttons (#575) |
+| Clicking a chromosome on the genome overview, the APCAD chart or the Circos plot | The overview's chromosome buttons |
 | Track tooltips, and clicks through to a variant or CNV | The small-variant and SV tables, with their IGV and View links, and the clinical CNV explorer |
 
 The point values of the coverage and APCAD charts have no text equivalent beyond the charts'
