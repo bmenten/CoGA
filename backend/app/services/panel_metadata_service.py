@@ -8,7 +8,7 @@ from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..core.sql import require_uuid, uuid_list_bindparam, uuid_values
+from ..core.sql import require_uuid, rows_matched, uuid_list_bindparam, uuid_values
 from ..schemas import (
     GeneLocation,
     GenePanelCreate,
@@ -916,7 +916,7 @@ async def delete_panel_data(
         text("DELETE FROM gene_panels WHERE id = CAST(:panel_id AS uuid)"),
         {"panel_id": panel_id},
     )
-    if result.rowcount == 0:
+    if rows_matched(result) == 0:
         raise HTTPException(status_code=404, detail="Panel not found")
     await session.commit()
 

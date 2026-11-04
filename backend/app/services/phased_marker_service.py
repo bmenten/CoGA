@@ -34,7 +34,7 @@ haplotype block builder reads chrX by the same rule, with the same helpers.
 """
 from __future__ import annotations
 
-from typing import Any, Mapping
+from typing import Any, Mapping, cast
 
 from ..schemas import (
     PhasedMarker,
@@ -122,8 +122,8 @@ def _two_different_alleles(gt_value: str | None) -> bool:
 def compute_phased_markers(
     rows: list[tuple[int, list[str], list[str]]],
     *,
-    father: str,
-    mother: str,
+    father: str | None,
+    mother: str | None,
     children: list[str],
     father_shade: dict[int, int],
     mother_shade: dict[int, int],
@@ -271,8 +271,10 @@ def compute_phased_markers(
             # Two known parents (trio): classic Mendelian parent-of-origin. Count the
             # jointly-informative site and flag a Mendelian inconsistency before any
             # marker decision — a Mendel error draws no marker but is the signal we want.
-            father_alleles = parent_alleles[father]
-            mother_alleles = parent_alleles[mother]
+            # Both parents are named here: the caller names one at least, and one alone is
+            # the single-parent branch above.
+            father_alleles = parent_alleles[cast(str, father)]
+            mother_alleles = parent_alleles[cast(str, mother)]
             child_qc["informative_sites"] += 1
             if not _is_mendelian_consistent(father_alleles, mother_alleles, child_alleles):
                 child_qc["mendel_errors"] += 1
@@ -309,8 +311,8 @@ async def _parent_block_shade_maps(
     context: FamilyMetadataContext,
     *,
     chr: str,
-    father: str,
-    mother: str,
+    father: str | None,
+    mother: str | None,
     start: int,
     end: int,
 ) -> tuple[dict[int, int], dict[int, int]]:
@@ -319,8 +321,8 @@ async def _parent_block_shade_maps(
     with no block here (or no resolvable uuid) yields an empty map -> identity
     orientation downstream."""
     name_to_uuid = context.sample_name_to_uuid
-    father_uuid = name_to_uuid.get(father)
-    mother_uuid = name_to_uuid.get(mother)
+    father_uuid = name_to_uuid.get(father) if father is not None else None
+    mother_uuid = name_to_uuid.get(mother) if mother is not None else None
     sample_uuids = [uuid for uuid in (father_uuid, mother_uuid) if uuid]
     if not sample_uuids or not context.assembly_name:
         return {}, {}
@@ -372,7 +374,8 @@ async def get_family_phased_markers_response(
     if father and mother:
         children = sorted(pedigree.children_of.get(father, set()) & pedigree.children_of.get(mother, set()))
     else:
-        children = sorted(pedigree.children_of.get(father or mother, set()))
+        known_parent = father or mother
+        children = sorted(pedigree.children_of.get(known_parent, set())) if known_parent is not None else []
     relatives = [
         name
         for name in context.sample_name_to_uuid

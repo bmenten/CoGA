@@ -3,7 +3,7 @@ from __future__ import annotations
 import csv
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 import zlib
 
 from fastapi import HTTPException
@@ -1589,7 +1589,9 @@ def _validate_manifest_hpo_annotations(
                     sample_id=row.individual_id,
                 )
             )
-    status = "error" if len(errors) > before_errors else "warning" if len(warnings) > before_warnings else "valid"
+    status: Literal["error", "warning", "valid"] = (
+        "error" if len(errors) > before_errors else "warning" if len(warnings) > before_warnings else "valid"
+    )
     return FamilyImportDatasetSummary(
         dataset_type="phenotypes",
         enabled=True,
@@ -1681,7 +1683,7 @@ def _validate_and_load_package(
     try:
         root = _ensure_authorized_package_path(Path(folder_path))
     except HTTPException as exc:
-        errors = [
+        refusal = [
             _issue(
                 "package_folder_not_allowed",
                 str(exc.detail),
@@ -1690,7 +1692,7 @@ def _validate_and_load_package(
                 path=package_folder_path(folder_path),
             )
         ]
-        return FamilyPackageValidationOut(valid=False, errors=errors), None
+        return FamilyPackageValidationOut(valid=False, errors=refusal), None
     errors: list[FamilyImportValidationIssue] = []
     warnings: list[FamilyImportValidationIssue] = []
     summaries: list[FamilyImportDatasetSummary] = []

@@ -199,11 +199,12 @@ def phenomizer_score(
     score = max(0.0, min(1.0, raw / max_ic))
 
     # Explanation: the patient terms that matched the gene best.
-    matched = sorted(
-        ({"hpo_id": term, "ic": value} for term, value in patient_best.items() if value > 0),
-        key=lambda item: item["ic"],
+    best_first = sorted(
+        ((term, value) for term, value in patient_best.items() if value > 0),
+        key=lambda pair: pair[1],
         reverse=True,
     )[:5]
+    matched: list[dict[str, Any]] = [{"hpo_id": term, "ic": value} for term, value in best_first]
     return GenePhenotypeScore(score=score, matched=matched)
 
 

@@ -69,12 +69,12 @@ async def fetch_gene_constraint_metrics(
     for row in result.mappings().all():
         doc = dict(row)
         metrics = _extract_gene_constraint_metrics(doc)
-        symbol = str(doc.get("hgnc_symbol") or "").strip().upper()
-        gene_id = str(doc.get("gene_id") or "").strip()
-        if symbol and symbol not in by_symbol:
-            by_symbol[symbol] = metrics
-        if gene_id and gene_id not in by_gene_id:
-            by_gene_id[gene_id] = metrics
+        row_symbol = str(doc.get("hgnc_symbol") or "").strip().upper()
+        row_gene_id = str(doc.get("gene_id") or "").strip()
+        if row_symbol and row_symbol not in by_symbol:
+            by_symbol[row_symbol] = metrics
+        if row_gene_id and row_gene_id not in by_gene_id:
+            by_gene_id[row_gene_id] = metrics
     found: dict[str, dict[str, float | None]] = {}
     for key, symbol, gene_id in genes:
         if gene_id and gene_id in by_gene_id:

@@ -8,7 +8,7 @@ import json
 import logging
 from datetime import date
 from pathlib import Path
-from typing import Any, Iterable, Literal, Mapping
+from typing import Any, Iterable, Literal, Mapping, Sequence
 
 from fastapi import HTTPException, UploadFile
 from sqlalchemy import bindparam, text
@@ -125,7 +125,7 @@ def _normalized_transcript(value: object) -> str | None:
     return text_value.split(".", 1)[0].upper()
 
 
-def _transcript_id_from_gene_row(row: dict[str, object]) -> str:
+def _transcript_id_from_gene_row(row: dict[str, Any]) -> str:
     extra = _json_dict(row.get("extra"))
     return str(extra.get("transcript_id") or row.get("gene_id") or row.get("hgnc_symbol") or "")
 
@@ -154,7 +154,7 @@ def _transcript_matches_reference(value: object, transcript_id: str) -> bool:
 _ENSEMBL_CANONICAL_TAG = "Ensembl_canonical"
 
 
-def _gene_transcript_priority(row: dict[str, object]) -> tuple[int, int, int, str]:
+def _gene_transcript_priority(row: dict[str, Any]) -> tuple[int, int, int, str]:
     """A transcript row's rank among its gene's: MANE Select first, then the Ensembl
     canonical transcript, then the longest, the one with most exons.
 
@@ -180,10 +180,10 @@ def _gene_transcript_priority(row: dict[str, object]) -> tuple[int, int, int, st
     return (rank, -length, -exon_count, transcript_id)
 
 
-def _select_preferred_gene_rows(rows: Iterable[dict[str, object]]) -> list[dict[str, object]]:
+def _select_preferred_gene_rows(rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
     # Cache each gene's winning priority tuple so the stored winner is not
     # re-scored against every later candidate (priority is computed once per row).
-    preferred_by_gene: dict[tuple[str, str], tuple[tuple, dict[str, object]]] = {}
+    preferred_by_gene: dict[tuple[str, str], tuple[tuple, dict[str, Any]]] = {}
     for row in rows:
         gene_key = (str(row.get("chr") or ""), str(row.get("hgnc_symbol") or "").upper())
         priority = _gene_transcript_priority(row)
@@ -715,7 +715,7 @@ def parse_dgv_row(
     *,
     header_index: dict[str, int] | None,
     assembly_id: str,
-) -> dict[str, object] | None:
+) -> dict[str, Any] | None:
     """Build a dgv_variants insert dict from one TSV row, or None to skip it.
 
     Columns are resolved by header name when a header is present, otherwise by
@@ -761,7 +761,7 @@ def parse_dgv_row(
     }
 
 
-async def insert_dgv_batch(session: AsyncSession, rows: list[dict[str, object]]) -> None:
+async def insert_dgv_batch(session: AsyncSession, rows: list[dict[str, Any]]) -> None:
     await session.execute(
         text(
             """
@@ -827,7 +827,7 @@ async def apply_reference_dataset_text(
     inserted = 0
 
     if dataset_type == "cytobands":
-        chromosomes: dict[str, dict[str, object]] = {}
+        chromosomes: dict[str, dict[str, Any]] = {}
         for row in _reader_from_text(text_value):
             if len(row) < 5 or row[0].startswith("#"):
                 continue
@@ -851,7 +851,7 @@ async def apply_reference_dataset_text(
             )
             entry["size"] = max(int(entry["size"]), end_i)
 
-        rows = [
+        chromosome_rows = [
             {
                 "assembly_id": assembly_id,
                 "chr": chrom,
@@ -860,7 +860,7 @@ async def apply_reference_dataset_text(
             }
             for chrom, data in chromosomes.items()
         ]
-        if not rows:
+        if not chromosome_rows:
             raise HTTPException(status_code=400, detail="No valid cytoband rows found")
         await session.execute(
             text(
@@ -869,12 +869,12 @@ async def apply_reference_dataset_text(
                 VALUES (CAST(:assembly_id AS uuid), :chr, :size, CAST(:bands AS jsonb))
                 """
             ),
-            rows,
+            chromosome_rows,
         )
-        inserted = len(rows)
+        inserted = len(chromosome_rows)
 
     elif dataset_type == "genes":
-        rows: list[dict[str, object]] = []
+        rows: list[dict[str, Any]] = []
         for row in _reader_from_text(text_value):
             if not row or row[0].startswith("#") or len(row) < 12:
                 continue
@@ -1029,14 +1029,15 @@ async def apply_reference_dataset_text(
         for row in body_rows:
             if header_index is not None:
                 # Named-column format (e.g. the knowledgebase builder output).
-                chrom = _cell(row, header_index.get("chr"))
-                start = _cell(row, header_index.get("start"))
-                end = _cell(row, header_index.get("end"))
-                if chrom is None or start is None or end is None:
+                chrom_cell = _cell(row, header_index.get("chr"))
+                start_cell = _cell(row, header_index.get("start"))
+                end_cell = _cell(row, header_index.get("end"))
+                if chrom_cell is None or start_cell is None or end_cell is None:
                     continue
+                chrom = chrom_cell
                 try:
-                    start_i = int(str(start).replace(",", ""))
-                    end_i = int(str(end).replace(",", ""))
+                    start_i = int(str(start_cell).replace(",", ""))
+                    end_i = int(str(end_cell).replace(",", ""))
                 except ValueError:
                     continue
                 label = _cell(row, header_index.get("label")) or chrom
@@ -1159,18 +1160,18 @@ async def apply_reference_dataset_text(
         inserted = len(rows)
 
     elif dataset_type == "dgv":
-        header_index: dict[str, int] | None = None
-        batch: list[dict[str, object]] = []
+        dgv_header_index: dict[str, int] | None = None
+        batch: list[dict[str, Any]] = []
         for row in _reader_from_text(text_value):
             if not row:
                 continue
             first = row[0].strip().lower()
-            if header_index is None and first in {"variantaccession", "variant_accession"}:
-                header_index = {name.strip().lower(): idx for idx, name in enumerate(row)}
+            if dgv_header_index is None and first in {"variantaccession", "variant_accession"}:
+                dgv_header_index = {name.strip().lower(): idx for idx, name in enumerate(row)}
                 continue
             if first.startswith("#") or first.startswith("track"):
                 continue
-            parsed = parse_dgv_row(row, header_index=header_index, assembly_id=assembly_id)
+            parsed = parse_dgv_row(row, header_index=dgv_header_index, assembly_id=assembly_id)
             if parsed is None:
                 continue
             batch.append(parsed)
@@ -1638,7 +1639,7 @@ _CLINICAL_CNV_COLUMNS = (
 
 
 def _clinical_cnv_out(
-    row: Mapping[str, Any], *, assembly: str | None, track_cytoband: str | None = None
+    row: Mapping[Any, Any], *, assembly: str | None, track_cytoband: str | None = None
 ) -> ClinicalCnvOut:
     return ClinicalCnvOut(
         _id=row["id"],
@@ -1667,7 +1668,7 @@ def _clinical_cnv_out(
 
 async def _clinical_cnv_outs(
     session: AsyncSession,
-    rows: list[Mapping[str, Any]],
+    rows: Sequence[Mapping[Any, Any]],
     *,
     assembly_id: str,
     assembly: str,

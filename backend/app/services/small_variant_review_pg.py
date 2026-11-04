@@ -391,14 +391,15 @@ async def upsert_small_variant_review(
     payload: SmallVariantReviewUpdate,
     user: CurrentUser,
 ) -> SmallVariantReviewOut:
+    assembly_name = context.assembly_name
     variant = None
-    if context.assembly_name:
+    if assembly_name:
         variant = await get_small_variant_family_record(
-            assembly_name=context.assembly_name,
+            assembly_name=assembly_name,
             family_guid=context.family_uuid,
             variant_id=variant_id,
         )
-    if variant is None:
+    if variant is None or not assembly_name:
         raise HTTPException(status_code=404, detail="Variant not found")
 
     # Resolve the allowed-tag set lazily (a GROUP BY/ARRAY_AGG join) and only when
@@ -510,7 +511,7 @@ async def upsert_small_variant_review(
             if compound_het_partner_id == variant_id:
                 raise HTTPException(status_code=400, detail="Compound-het partner must be a different variant")
             partner_variant = await get_small_variant_family_record(
-                assembly_name=context.assembly_name,
+                assembly_name=assembly_name,
                 family_guid=context.family_uuid,
                 variant_id=compound_het_partner_id,
             )
@@ -536,6 +537,8 @@ async def upsert_small_variant_review(
             target_group_id = None
             if (
                 existing_group_id
+                and existing is not None
+                and partner_existing is not None
                 and existing_group_id == partner_group_id
                 and compound_het_partner_id in (existing.get("compound_het_partner_variant_ids") or [])
                 and variant_id in (partner_existing.get("compound_het_partner_variant_ids") or [])

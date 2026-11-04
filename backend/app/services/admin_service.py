@@ -385,7 +385,7 @@ async def _structural_sample_counts(
         sample_counts = await count_family_structural_variants_by_sample(
             context.assembly_name,
             context.family_uuid,
-            sample_ids=context.sample_name_to_uuid.keys(),
+            sample_ids=list(context.sample_name_to_uuid),
             project_ids=context.project_ids,
         )
         for sample_name, count in sample_counts.items():

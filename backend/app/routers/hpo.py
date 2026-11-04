@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import List
+from typing import Any, List
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,6 +20,6 @@ async def search_hpo(
     limit: int = Query(default=20, ge=1, le=50),
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
-) -> List[HpoTermOut]:
+) -> list[dict[str, Any]]:
     _ = user
     return await search_hpo_terms(session, query=q, limit=limit)

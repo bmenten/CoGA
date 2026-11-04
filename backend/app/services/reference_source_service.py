@@ -237,7 +237,8 @@ def _build_gene_import_text(
             continue
         if len(row) < len(columns):
             continue
-        values = dict(zip(columns, row))
+        # Keyed by column name; the None check above leaves no key None.
+        values: dict[str | None, str] = dict(zip(columns, row))
         chrom = str(values.get(chrom_key, "")).strip()
         gene_id = str(values.get(gene_id_key, "")).strip()
         gene_symbol = str(values.get(gene_symbol_key, "")).strip() or gene_id

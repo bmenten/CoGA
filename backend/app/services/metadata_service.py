@@ -11,9 +11,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.sql import require_uuid, uuid_list_bindparam, uuid_values
 from ..schemas import (
+    ApiId,
     AssemblyOut,
     FamilyMemberOut,
     FamilyOut,
+    FamilyRegionOfInterestOut,
     FamilyRelationshipOut,
     FamilyStatusRef,
     FamilyStructureVersionOut,
@@ -93,6 +95,10 @@ def _string_list(values: Iterable[Any] | None) -> list[str]:
     return result
 
 
+def _api_id_list(values: Iterable[Any] | None) -> list[ApiId]:
+    return [ApiId(value) for value in _string_list(values)]
+
+
 def _normalize_metadata(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
@@ -129,7 +135,7 @@ def _family_member_out_from_row(row: dict[str, Any]) -> FamilyMemberOut:
 
 def _user_read_from_mapping(mapping: dict[str, Any]) -> UserRead:
     return UserRead(
-        id=str(mapping["id"]),
+        id=ApiId(str(mapping["id"])),
         username=mapping["username"],
         email=mapping["email"],
         first_name=mapping.get("first_name") or "",
@@ -146,7 +152,7 @@ def _user_read_from_mapping(mapping: dict[str, Any]) -> UserRead:
 
 def _species_out_from_mapping(mapping: dict[str, Any]) -> SpeciesOut:
     return SpeciesOut(
-        id=str(mapping["id"]),
+        _id=ApiId(str(mapping["id"])),
         name=mapping["name"],
         common_name=mapping["common_name"],
         tax_id=int(mapping["tax_id"]),
@@ -155,8 +161,8 @@ def _species_out_from_mapping(mapping: dict[str, Any]) -> SpeciesOut:
 
 def _assembly_out_from_mapping(mapping: dict[str, Any]) -> AssemblyOut:
     return AssemblyOut(
-        id=str(mapping["id"]),
-        species_id=str(mapping["species_id"]),
+        _id=ApiId(str(mapping["id"])),
+        species_id=ApiId(str(mapping["species_id"])),
         assembly_name=mapping["assembly_name"],
         version=mapping["version"],
         release_date=mapping["release_date"],
@@ -165,13 +171,13 @@ def _assembly_out_from_mapping(mapping: dict[str, Any]) -> AssemblyOut:
 
 def _project_out_from_mapping(mapping: dict[str, Any]) -> ProjectOut:
     return ProjectOut(
-        id=str(mapping["id"]),
+        _id=ApiId(str(mapping["id"])),
         name=mapping["name"],
         description=mapping.get("description"),
-        species_id=str(mapping["species_id"]),
-        assembly_id=str(mapping["assembly_id"]),
-        user_ids=_string_list(mapping.get("user_ids")),
-        reader_user_ids=_string_list(mapping.get("reader_user_ids")),
+        species_id=ApiId(str(mapping["species_id"])),
+        assembly_id=ApiId(str(mapping["assembly_id"])),
+        user_ids=_api_id_list(mapping.get("user_ids")),
+        reader_user_ids=_api_id_list(mapping.get("reader_user_ids")),
         metadata=_normalize_metadata(mapping.get("metadata")),
     )
 
@@ -181,7 +187,7 @@ def _user_ref_from_mapping(family_mapping: dict[str, Any], prefix: str) -> UserR
     if not user_id:
         return None
     return UserRefOut(
-        id=str(user_id),
+        id=ApiId(str(user_id)),
         username=family_mapping.get(f"{prefix}username") or "",
         email=family_mapping[f"{prefix}email"],
         first_name=family_mapping.get(f"{prefix}first_name") or "",
@@ -210,7 +216,7 @@ def _family_out_from_mapping(
 ) -> FamilyOut:
     roi = None
     if family_mapping.get("roi_query"):
-        roi = {
+        roi = FamilyRegionOfInterestOut.model_validate({
             "query": family_mapping["roi_query"],
             "label": family_mapping.get("roi_label") or family_mapping["roi_query"],
             "source": family_mapping["roi_source"],
@@ -222,10 +228,10 @@ def _family_out_from_mapping(
             "chr": family_mapping["roi_chr"],
             "start": family_mapping["roi_start"],
             "end": family_mapping["roi_end"],
-        }
+        })
 
     return FamilyOut(
-        id=str(family_mapping["id"]),
+        _id=ApiId(str(family_mapping["id"])),
         family_id=family_mapping["family_id"],
         created_at=family_mapping["created_at"],
         members=members,
@@ -235,7 +241,7 @@ def _family_out_from_mapping(
             family_mapping["family_id"], members, relationships or [], family_mapping.get("pedigree")
         ),
         roi=roi,
-        projects=project_ids,
+        projects=[ApiId(project_id) for project_id in project_ids],
         status=_family_status_ref_from_mapping(family_mapping),
         assigned_to=_user_ref_from_mapping(family_mapping, "assigned_to_"),
         reviewed_by=_user_ref_from_mapping(family_mapping, "reviewed_by_"),
@@ -1069,13 +1075,13 @@ async def list_project_dashboards(
         )
         dashboards.append(
             ProjectDashboardOut(
-                id=row["id"],
+                _id=row["id"],
                 name=row["name"],
                 description=row.get("description"),
                 species_id=row["species_id"],
                 assembly_id=row["assembly_id"],
-                user_ids=_string_list(row.get("user_ids")),
-                reader_user_ids=_string_list(row.get("reader_user_ids")),
+                user_ids=_api_id_list(row.get("user_ids")),
+                reader_user_ids=_api_id_list(row.get("reader_user_ids")),
                 read_only=not user_can_change_metadata_projects([row["id"]], user),
                 metadata=_normalize_metadata(row.get("metadata")),
                 species_name=row.get("species_name"),

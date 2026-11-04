@@ -20,11 +20,12 @@ from datetime import datetime, timezone
 from typing import Any, Mapping
 
 from fastapi import HTTPException
-from sqlalchemy import String, bindparam, text
+from sqlalchemy import RowMapping, String, bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.sql import canonical_uuid, require_uuid, uuid_list_bindparam, uuid_values
 from ..schemas import (
+    ApiId,
     FamilyMetadataUpdate,
     FamilyOut,
     FamilyStatusCreate,
@@ -53,7 +54,7 @@ def _slugify_status(label: str) -> str:
 
 def _status_out_from_row(row: dict[str, Any]) -> FamilyStatusOut:
     return FamilyStatusOut(
-        id=str(row["id"]),
+        id=ApiId(str(row["id"])),
         key=row["key"],
         label=row["label"],
         description=row.get("description"),
@@ -206,7 +207,7 @@ async def delete_family_status(session: AsyncSession, *, key: str) -> None:
     await session.commit()
 
 
-def _user_ref(row: Mapping[str, Any]) -> UserRefOut:
+def _user_ref(row: RowMapping) -> UserRefOut:
     return UserRefOut(
         id=row["id"],
         username=row["username"],
@@ -307,12 +308,12 @@ async def list_family_assignable_users(
     return [_user_ref(row) for row in result.mappings().all()]
 
 
-def _shown_name(row: Mapping[str, Any]) -> str:
+def _shown_name(row: RowMapping) -> str:
     name = f"{row.get('first_name') or ''} {row.get('last_name') or ''}".strip()
     return name or str(row.get("username") or row.get("email") or row["id"])
 
 
-def _why_not_assignable(candidate: Mapping[str, Any]) -> str | None:
+def _why_not_assignable(candidate: RowMapping) -> str | None:
     """Why this user may not be named for a family's case, or None when they may: an active
     administrator, or an active analyst of one of the family's projects."""
     if not candidate.get("is_active"):

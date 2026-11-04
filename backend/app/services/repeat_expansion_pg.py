@@ -8,22 +8,25 @@ import logging
 import math
 from pathlib import Path
 import re
-from typing import Any, Iterable, Mapping
+from typing import Any, Iterable, Mapping, cast
 
 from fastapi import HTTPException, UploadFile
-from sqlalchemy import bindparam, text
+from sqlalchemy import RowMapping, bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.coga_logging import scrub_log
 from ..core.config import STRCHIVE_PINNED_LOCI_SHA256, settings
 from ..core.sql import uuid_list_bindparam, uuid_values
 from ..schemas import (
+    FamilyMemberOut,
     FamilyRepeatExpansionTableOut,
+    RepeatExpansionAlleleOut,
     RepeatExpansionRowOut,
     RepeatExpansionSampleCallOut,
     RepeatExpansionTrackItemOut,
     RepeatExpansionTrackResponse,
 )
+from ..schemas.tracks import RepeatReviewReason, RepeatStatus
 from .data_scope import chromosome_aliases, normalize_chromosome
 from .family_metadata_context import FamilyMetadataContext, SampleMetadataContext
 from .stored_values import int_or_none as _as_int, json_object
@@ -530,11 +533,13 @@ def classify_repeat_count(
             return "normal"
         return "not_assessed"
 
-    has_benign_range = benign_min is not None and benign_max is not None
-    non_monotonic = (
-        has_benign_range and pathogenic_min is not None and benign_max >= pathogenic_min
-    )
-    if non_monotonic:
+    # Non-monotonic: a benign count at or above the pathogenic threshold.
+    if (
+        benign_min is not None
+        and benign_max is not None
+        and pathogenic_min is not None
+        and benign_max >= pathogenic_min
+    ):
         if benign_min <= repeat_count <= benign_max:
             return "normal"
         upper = pathogenic_max if pathogenic_max is not None else repeat_count
@@ -548,7 +553,14 @@ def classify_repeat_count(
         return "premutation"
     if warning_min is not None and repeat_count >= warning_min:
         return "intermediate"
-    if warning_min is None and pathogenic_min is not None and has_benign_range and repeat_count > benign_max:
+    # A pathogenic threshold and a benign range below it, without a grey zone of its own.
+    if (
+        warning_min is None
+        and pathogenic_min is not None
+        and benign_min is not None
+        and benign_max is not None
+        and repeat_count > benign_max
+    ):
         return "intermediate"
     return "normal"
 
@@ -739,7 +751,7 @@ def _call_status(alleles: list[dict[str, Any]], *, note: str | None) -> str:
     return status
 
 
-def _review_reason(alleles: list[dict[str, Any]], status: str) -> str | None:
+def _review_reason(alleles: list[dict[str, Any]], status: str) -> RepeatReviewReason | None:
     """Why a call reads ``review``: a count the catalogue cannot classify (an allele's own
     status), else the male chrX note that raised it. The page said "outside catalogued
     ranges" for both, the wrong reason for the note (CLIN-14). None for any other status."""
@@ -751,8 +763,8 @@ def _review_reason(alleles: list[dict[str, Any]], status: str) -> str | None:
 
 
 def _classified_call(
-    row: Mapping[str, Any], *, sex: str | None, assembly_name: str | None
-) -> tuple[list[dict[str, Any]], str, str | None]:
+    row: Mapping[str, Any] | RowMapping, *, sex: str | None, assembly_name: str | None
+) -> tuple[list[dict[str, Any]], RepeatStatus, str | None]:
     """A stored call as the family table and the genome track read it (CLIN-14): its alleles
     reclassified against the catalogue row that classifies it (``_CALL_CATALOGUE_COLUMNS``),
     each with its count-unit warning, and the call's status with the male chrX note, which
@@ -785,7 +797,9 @@ def _classified_call(
     status = _call_status(alleles, note=note)
     if status == "unknown":
         status = row.get("status", "unknown")
-    return alleles, status, note
+    # A status classify_repeat_count gives, or the one stored with the call; the response
+    # models refuse any other.
+    return alleles, cast(RepeatStatus, status), note
 
 
 _REPEAT_LOCI_LOOKUP_SQL = text(
@@ -1833,7 +1847,7 @@ async def get_family_repeat_expansion_table_response(
             sex=meta.get("sex"),
             genotype=row.get("genotype", "./."),
             allele_count=int(row.get("allele_count", 0)),
-            alleles=alleles,
+            alleles=[RepeatExpansionAlleleOut.model_validate(allele) for allele in alleles],
             status=row_status,
             review_reason=review_reason,
             note=call_note,
@@ -1842,12 +1856,14 @@ async def get_family_repeat_expansion_table_response(
     ordered_rows = [RepeatExpansionRowOut(**row) for row in grouped.values()]
     ordered_rows.sort(key=lambda row: (row.chr, row.start, row.gene, row.locus_id))
     samples = [
-        {
-            "sample_id": row["sample_id"],
-            "role": row.get("role", "sibling"),
-            "affected": bool(row.get("affected", False)),
-            "sex": row.get("sex", "und"),
-        }
+        FamilyMemberOut.model_validate(
+            {
+                "sample_id": row["sample_id"],
+                "role": row.get("role", "sibling"),
+                "affected": bool(row.get("affected", False)),
+                "sex": row.get("sex", "und"),
+            }
+        )
         for row in context.sample_rows
     ]
     return FamilyRepeatExpansionTableOut(

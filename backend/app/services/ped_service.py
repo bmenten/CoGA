@@ -8,7 +8,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.sql import require_uuid
-from ..schemas import ManualPedFamilyCreate, ManualPedMemberCreate, PedUploadResult
+from ..schemas import ManualPedFamilyCreate, ManualPedMemberCreate, PedFamilyResult, PedUploadResult
 from .family_identifiers import IDENTIFIER_RULE, identifier_problem, visible
 from .family_structure_audit import (
     FAMILY_CREATED,
@@ -1096,7 +1096,7 @@ async def _upload_ped_data(
         )
     await _delete_replaced_family_data(replaced, deletions)
     await session.commit()
-    return PedUploadResult(families=inserted)
+    return PedUploadResult(families=[PedFamilyResult.model_validate(family) for family in inserted])
 
 
 async def create_manual_family_data(
@@ -1180,4 +1180,4 @@ async def _create_manual_family_data(
     )
     await _delete_replaced_family_data(replaced, deletions)
     await session.commit()
-    return PedUploadResult(families=[inserted])
+    return PedUploadResult(families=[PedFamilyResult.model_validate(inserted)])

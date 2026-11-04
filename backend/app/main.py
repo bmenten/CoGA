@@ -1,7 +1,7 @@
 import asyncio
 from contextlib import asynccontextmanager
 import logging
-from typing import cast
+from typing import TypedDict, cast
 
 from fastapi import APIRouter, FastAPI, Request, Response
 from fastapi.exception_handlers import http_exception_handler
@@ -154,7 +154,13 @@ async def lifespan(app: FastAPI):
         await close_postgres_engine()
 
 
-def _docs_kwargs() -> dict[str, str | None]:
+class _DocsKwargs(TypedDict, total=False):
+    docs_url: str | None
+    redoc_url: str | None
+    openapi_url: str | None
+
+
+def _docs_kwargs() -> _DocsKwargs:
     """Disable the interactive API docs / OpenAPI route outside development.
 
     Returns the FastAPI kwargs that turn off /docs, /redoc and /openapi.json in

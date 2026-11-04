@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Any, Iterable, Sequence
+from typing import Any, Iterable, Mapping, Sequence
 
 from .data_scope import normalize_chromosome
 
@@ -110,7 +110,7 @@ def _at_least(probabilities: Sequence[float], count: int) -> float:
 
 
 def expected_chance_clusters(
-    switches_by_child: dict[str, Sequence[int]],
+    switches_by_child: Mapping[str, Sequence[int]],
     extents_by_child: dict[str, int],
     *,
     children_switching: int,
@@ -136,7 +136,7 @@ def expected_chance_clusters(
 
 
 def find_phase_switches(
-    switches_by_child: dict[str, Sequence[int]],
+    switches_by_child: Mapping[str, Sequence[int]],
     *,
     informative_children: int,
     extents_by_child: dict[str, int],
