@@ -144,10 +144,10 @@ reference file is recorded under its file name.
 A `CHECK` (`sample_interval_track_sources_track_type_check`) holds
 `sample_interval_track_sources.track_type` to the track types above. The baseline creates the
 table only when it is missing, so a database created before `target_coverage` was in the list
-(#749) kept the old check, and importing a per-target coverage table failed. Revision `0003`
-gives it the current check at its next start ([Schema Migrations](#schema-migrations)); revision
-`0012` gives it the check with `apcad_segregation` (an embryo's segregation table, for the
-parental-origin view).
+(2026-10-04, for the NIPT-M pair) kept the old check, and importing a per-target coverage table
+failed. Revision `0003` gives it the current check at its next start
+([Schema Migrations](#schema-migrations)); revision `0012` gives it the check with
+`apcad_segregation` (an embryo's segregation table, for the parental-origin view).
 
 `repeat_expansions.status` is a call's status as its import classified it: `normal`, `review`,
 `not_assessed`, `intermediate`, `premutation`, `pathogenic` or `unknown` (no call).
@@ -159,7 +159,7 @@ rule reads normal on both at once (CLIN-14; before, the tracks showed the stored
 the call was imported again).
 
 A `CHECK` (`repeat_expansions_status_check`) holds the status to these values. A database
-created before `not_assessed` was in the list (#826) kept the old check, and a TRGT import with
+created before `not_assessed` was in the list (2026-10-13) kept the old check, and a TRGT import with
 a call at a locus without thresholds failed, with the whole repeat dataset. Revision `0002`
 gives it the current check at its next start ([Schema Migrations](#schema-migrations)).
 
@@ -402,8 +402,8 @@ its start instead (below). The step is one transaction, so it applies whole or n
 | Revision | What it does |
 | --- | --- |
 | `0001` | applies the five baseline files |
-| `0002` | gives `repeat_expansions` the baseline's `repeat_expansions_status_check`, with `review` and `premutation` (#763) and `not_assessed` (#826) |
-| `0003` | gives `family_relationships` and `sample_interval_track_sources` the baseline's checks, with `relative` (#747) and `target_coverage` (#749) |
+| `0002` | gives `repeat_expansions` the baseline's `repeat_expansions_status_check`, with `review` and `premutation` (2026-10-07) and `not_assessed` (2026-10-13) |
+| `0003` | gives `family_relationships` and `sample_interval_track_sources` the baseline's checks, with `relative` (2026-10-02) and `target_coverage` (2026-10-04) |
 | `0004` | gives `family_structure_versions` its hash chain (`family_identifier`, `row_hash`, `prev_hash` and the chain's index), and a nullable `family_id` that the family's deletion nulls; gives it and `ui_events` their append-only trigger and REVOKE (SEC-7); by running those statements of the baselines |
 | `0005` | gives `project_users` its `access_level` (`analyst` or `reader`, with its check), each stored membership an analyst's (SEC-1), by running the statement `01_access.sql` adds it with |
 | `0006` | gives `users` its `azure_object_id` (a unique UUID, empty for a password account) for Microsoft sign-in (SEC-4), each stored account kept without one, by running the statement `01_access.sql` adds it with |
