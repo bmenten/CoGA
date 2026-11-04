@@ -1,7 +1,7 @@
 services:
   postgres:
     # Digest-pinned (tag kept for readability) for reproducible local stacks.
-    image: postgres:16@sha256:ca0bd484cb98bf4b24eb1010e73fb3fcbd6714d240fbc1a10eea5b7dbecb641d
+    image: postgres:16@sha256:5db6dac2ef5dcff512f4f00a009c3c332b9f2f28f24277175bf3e4a3d02ef83a
     restart: always
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
@@ -19,7 +19,7 @@ services:
       - "127.0.0.1:5432:5432"
 
   clickhouse:
-    image: clickhouse/clickhouse-server:26.8@sha256:4769eec6a9b9842a7d102c8bdfca0400128bc6edf65dec4e19a7d3a2b25f32db
+    image: clickhouse/clickhouse-server:26.8@sha256:d426d2f612e1e189c90f9a3f8dcd85a03c6851273833817a296bb327e63aa7a7
     restart: always
     # ClickHouse needs time to finish flushing/merging on SIGTERM. Docker's
     # default 10s grace can SIGKILL it mid-flush, truncating parts into
