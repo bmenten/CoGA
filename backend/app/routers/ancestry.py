@@ -40,13 +40,16 @@ async def choose_family_ancestry_reading(family_id: str, sample_id: str, choice:
 
 @router.put("/families/{family_id}/ancestry/choices/{sample_id}/bed", response_model=FamilyAncestryOut)
 async def choose_family_ancestry_bed(family_id: str, sample_id: str,
-                                     callset: Literal["clair3", "nipt", "glimpse2"] = Form(...),
-                                     file: UploadFile = File(...), project_id: str | None = None,
+                                     callset: Literal["clair3", "nipt", "glimpse2"] | None = Form(None),
+                                     file: UploadFile | None = File(None), project_id: str | None = None,
                                      session: AsyncSession = Depends(get_postgres_session),
                                      user: CurrentUser = Depends(get_current_user)) -> FamilyAncestryOut:
     """Read one individual from one callset inside the regions of a BED file (a capture kit's).
-    Only the reference markers inside it and its checksum are kept, not the file."""
-    data = await file.read(MAX_BED_BYTES + 1)
+    Only the reference markers inside it and its checksum are kept, not the file.
+
+    The form's fields are optional to FastAPI so that a reader is refused for what they are
+    (403) before a missing field is (422)."""
+    bed = (file.filename or "", await file.read(MAX_BED_BYTES + 1)) if file is not None else None
     return await ancestry_service.set_choice(
         session, family_id, user, project_id, sample_id,
-        AncestrySampleChoiceIn(mode="callset", callset=callset), bed=(file.filename or "", data))
+        AncestrySampleChoiceIn(mode="callset", callset=callset), bed=bed, bed_required=True)

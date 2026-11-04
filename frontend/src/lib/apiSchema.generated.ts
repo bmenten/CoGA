@@ -289,8 +289,8 @@ export interface BlacklistRegionOut {
 }
 
 export interface Body_choose_family_ancestry_bed_api_families__family_id__ancestry_choices__sample_id__bed_put {
-  callset: "clair3" | "nipt" | "glimpse2";
-  file: string;
+  callset?: "clair3" | "nipt" | "glimpse2" | null;
+  file?: string | null;
 }
 
 export interface Body_import_nipt_artifacts_endpoint_api_admin_nipt_artifacts_import_post {

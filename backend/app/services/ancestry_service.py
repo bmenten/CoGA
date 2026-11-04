@@ -258,13 +258,16 @@ async def queue_family(session: AsyncSession, family_id: str, user: CurrentUser,
 
 async def set_choice(session: AsyncSession, family_id: str, user: CurrentUser, project_id: str | None,
                      sample_id: str, choice: AncestrySampleChoiceIn,
-                     bed: tuple[str, bytes] | None = None) -> FamilyAncestryOut:
+                     bed: tuple[str, bytes] | None = None, bed_required: bool = False) -> FamilyAncestryOut:
     """Record how one individual is read from now on, and queue a calculation that reads it.
 
     ``bed``, a BED file's name and bytes, gives the regions of a chosen callset; the file is not
-    kept, only the reference markers inside it and its checksum.
+    kept, only the reference markers inside it and its checksum. ``bed_required``: the request
+    was to give one (checked after the caller may change the project).
     """
     context, project = await family_scope(session, family_id, user, project_id, change=True)
+    if bed_required and (bed is None or choice.callset is None):
+        raise HTTPException(422, "Send the callset and the BED file.")
     member = next((m for m in await _members(session, context.family_uuid) if m["sample_id"] == sample_id), None)
     choices_store.check_choice(member, choice)
     if bed is not None and (choice.mode != "callset" or choice.panel_id is not None):
