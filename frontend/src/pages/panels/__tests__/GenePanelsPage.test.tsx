@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
@@ -71,6 +71,12 @@ const renderPage = (role: 'viewer' | 'admin') => {
 };
 
 const panelRequests = () => (api.get as unknown as Mock).mock.calls.filter(([url]) => url === '/panels').length;
+
+/** Clicks a panel's Delete, then confirms in the dialog that asks first (UI-7). */
+const deletePanel = async () => {
+  await userEvent.click(screen.getByRole('button', { name: 'Delete' }));
+  await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete panel' }));
+};
 
 describe('GenePanelsPage', () => {
   beforeEach(() => {
@@ -227,12 +233,12 @@ describe('GenePanelsPage', () => {
     renderPage('admin');
     await screen.findByRole('link', { name: 'PanelA' });
 
-    await userEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    await deletePanel();
     expect(await screen.findByText('PanelA is applied in a signed analysis: BRCA1, BRCA2')).toBeInTheDocument();
     expect(api.delete).toHaveBeenCalledWith('/panels/1');
 
     const before = panelRequests();
-    await userEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    await deletePanel();
     expect(await screen.findByText('Panel deleted')).toBeInTheDocument();
     await waitFor(() => expect(panelRequests()).toBeGreaterThan(before));
 
@@ -240,6 +246,41 @@ describe('GenePanelsPage', () => {
     await userEvent.type(screen.getByLabelText(/Panel name/i), 'New');
     await userEvent.click(screen.getByRole('button', { name: 'Create panel' }));
     expect(await screen.findByText('Error creating panel')).toBeInTheDocument();
+  });
+
+  // UI-7: a panel was deleted on one click, with its genes, regions and version history. The
+  // delete now asks first, naming the panel and its version, and sends nothing until confirmed:
+  // neither on Cancel nor on Escape.
+  it('asks before deleting a panel, naming it and its version, and sends nothing on cancel', async () => {
+    (api.get as unknown as Mock).mockResolvedValue({
+      data: [{ ...PANEL_A, version: 3, source: 'panelapp', external_version: '1.345' }],
+    });
+    renderPage('admin');
+    await screen.findByRole('link', { name: 'PanelA' });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    const dialog = screen.getByRole('dialog', { name: 'Delete gene panel PanelA v3' });
+    expect(dialog).toHaveTextContent(
+      'This deletes the gene panel PanelA v3 (PanelApp 1.345), with its genes, its regions and every archived version.',
+    );
+    expect(dialog).toHaveTextContent('This cannot be undone.');
+    // The safe choice has the focus: Enter on the opened dialog cancels.
+    expect(within(dialog).getByRole('button', { name: 'Cancel' })).toHaveFocus();
+    expect(api.delete).not.toHaveBeenCalled();
+
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    await userEvent.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(api.delete).not.toHaveBeenCalled();
+    expect(screen.getByRole('link', { name: 'PanelA' })).toBeInTheDocument();
+
+    await deletePanel();
+    await waitFor(() => expect(api.delete).toHaveBeenCalledTimes(1));
+    expect(api.delete).toHaveBeenCalledWith('/panels/1');
+    expect(await screen.findByText('Panel deleted')).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
   it('imports a selected PanelApp panel for admins', async () => {

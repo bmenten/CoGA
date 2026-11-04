@@ -7,6 +7,8 @@ the [admin dashboard](/admin), grouped in six areas.
   CNVs, segmental duplications, DGV), with each dataset's status. Refresh the human gene information,
   rebuild the clinical-CNV knowledgebase, or upload a reference file.
 - **Gene panels** — the panel catalogue: create panels, import them from PanelApp, and see their genes.
+  Deleting a panel asks first, naming the panel and its version: its genes, its regions and every
+  archived version go with it.
 - **HPO terminology** — the HPO release in use and the SHA-256 of the file it came from; preview and
   apply a new release. The release is the one the file states. A file that states no release, or
   another than the expected release you enter, is refused.
@@ -44,6 +46,9 @@ the [admin dashboard](/admin), grouped in six areas.
   - Administrators have every right in every project.
   - A case can be assigned to, or reviewed by, an analyst of its projects or an administrator. A case
     assigned to someone you make a reader keeps them, marked *(not eligible)*, until it is changed.
+  - Deleting a project asks first and says what it unlinks. Its families and samples stay, but lose
+    their link to it; its members lose the access it gave them; its review tags are deleted. A family
+    in no other project can then be opened by administrators only.
 
 ### Data Management
 
