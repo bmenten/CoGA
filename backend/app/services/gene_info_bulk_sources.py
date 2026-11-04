@@ -244,12 +244,6 @@ class GeneBulkSourceDataset:
 class HumanGeneBulkContext:
     datasets: dict[str, GeneBulkSourceDataset] = field(default_factory=dict)
 
-    def dbnsfp_record_for_symbol(self, symbol: str) -> dict[str, Any] | None:
-        dataset = self.datasets.get("dbnsfp_gene")
-        if dataset is None or dataset.status != "success":
-            return None
-        return dataset.records_by_symbol.get(_normalize_symbol(symbol))
-
 
 def build_bulk_gene_bundle(
     *,
