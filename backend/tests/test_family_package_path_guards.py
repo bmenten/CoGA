@@ -1147,9 +1147,9 @@ def test_the_routes_refuse_a_nul_without_a_500(imports: Path) -> None:
     assert (package / "manifest.yaml").read_bytes() == before
 
 
-def test_a_written_manifest_is_neither_world_readable_nor_world_writable(imports: Path) -> None:
+def test_a_written_manifest_is_read_and_written_by_its_owner_alone(imports: Path) -> None:
     # A manifest names the samples and may hold HPO terms and notes: whatever the umask, it is
-    # written owner read-write and group read, nothing for others (CodeQL
+    # written owner read-write only, nothing for the group or others (CodeQL
     # py/overly-permissive-file).
     package = _package(imports)
     previous = os.umask(0)
@@ -1158,5 +1158,5 @@ def test_a_written_manifest_is_neither_world_readable_nor_world_writable(imports
     finally:
         os.umask(previous)
 
-    assert stat.S_IMODE((package / "manifest.yaml").stat().st_mode) == 0o640
+    assert stat.S_IMODE((package / "manifest.yaml").stat().st_mode) == 0o600
     assert written.manifest_path == str(package / "manifest.yaml")

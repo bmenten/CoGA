@@ -2129,11 +2129,11 @@ def _write_manifest_in_folder(root: Path, manifest_yaml: str) -> Path:
     folder = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     temporary = f".{_MANIFEST_FILE}.{uuid4().hex}.tmp"
     try:
-        # Owner read-write, group read, nothing for others: a manifest names the samples and
-        # may hold HPO terms and notes, so it is never world-readable or writable, whatever
-        # the umask.
+        # Owner read-write only: a manifest names the samples and may hold HPO terms and
+        # notes, so neither the group nor others read or write it, whatever the umask. CoGA
+        # reads it as the same user that writes it.
         descriptor = os.open(
-            temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o640, dir_fd=folder
+            temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=folder
         )
         try:
             with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
