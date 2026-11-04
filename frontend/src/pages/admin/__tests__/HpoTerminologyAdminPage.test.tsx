@@ -1,5 +1,7 @@
-// Pins the HPO terminology admin page: the installed release and its gaps, the term browser
-// (search, details, 20-child cap), and that a sync previews freely but applies only once confirmed.
+// Pins the HPO terminology admin page: the installed release and its gaps, the check for a newer
+// HPO release, the term browser (search, details, 20-child cap), and that a sync, of a file on the
+// server or of a release downloaded from HPO, previews freely but applies only once confirmed and
+// only the file the preview showed.
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClientProvider } from '@tanstack/react-query';
@@ -38,7 +40,6 @@ const SUMMARY = {
   // The SHA-256 of the file the terms came from (TRACE-18).
   release_sha256: '8d6c23798667d4506767ce643fc3c028f0d1c85e7e1d8810e491181a345d53cd',
   last_sync_date: '2026-07-01T09:30:00Z',
-  automatic_update_supported: false,
   ontology_loaded: true,
   // The file the backend is configured to load (HPO_ONTOLOGY_PATH, default hp.obo).
   ontology_path: '/data/ref-data/hpo/hp.obo',
@@ -73,11 +74,37 @@ const OBSOLETE: Term = {
   child_count: 0,
 };
 
+// The newest HPO release beside the loaded one (GET /admin/hpo/release-check).
+const RELEASE_CHECK = {
+  latest_release: 'hp/releases/2026-09-01',
+  latest_release_date: '2026-09-01',
+  published_at: '2026-09-03T06:08:39Z',
+  download_url: 'https://purl.obolibrary.org/obo/hp/releases/2026-09-01/hp.obo',
+  loaded_release: 'hp/releases/2026-06-06',
+  loaded_release_date: '2026-06-06',
+  pinned_release: 'hp/releases/2026-02-16',
+  pinned_release_date: '2026-02-16',
+  newer_available: true,
+  error: null,
+};
+
+// A downloaded release's preview, as the backend answers it.
+const PREVIEW_REPLY_DOWNLOADED = {
+  preview_only: true,
+  release_version: 'hp/releases/2026-09-01',
+  release_date: '2026-09-01',
+  release_sha256: 'cd'.repeat(32),
+  current: SUMMARY,
+  preview: { terms: 19944 },
+  imported: null,
+};
+
 const apiError = (detail: string) => ({ response: { status: 400, data: { detail } } });
 
-// What the two GETs answer; a Promise is handed back as-is (pending or rejected).
+// What the GETs answer; a Promise is handed back as-is (pending or rejected).
 let summaryReply: () => unknown;
 let termsReply: (q: string | undefined) => unknown;
+let releaseCheckReply: () => unknown;
 
 const reply = (value: unknown) => (value instanceof Promise ? value : Promise.resolve({ data: value }));
 
@@ -126,8 +153,10 @@ describe('HpoTerminologyAdminPage', () => {
     mockedPost.mockReset();
     summaryReply = () => SUMMARY;
     termsReply = () => [SEIZURE, OBSOLETE];
+    releaseCheckReply = () => RELEASE_CHECK;
     mockedGet.mockImplementation((url: string, config?: { params?: unknown }) => {
       if (url === '/admin/hpo/summary') return reply(summaryReply());
+      if (url === '/admin/hpo/release-check') return reply(releaseCheckReply());
       if (url === '/admin/hpo/terms') return reply(termsReply((config?.params as { q?: string } | undefined)?.q));
       return Promise.reject(new Error(`Unexpected GET ${url}`));
     });
@@ -138,7 +167,7 @@ describe('HpoTerminologyAdminPage', () => {
   });
 
   describe('release status', () => {
-    it('shows the installed release: term counts, version, dates and the update mode', async () => {
+    it('shows the installed release: term counts, version and dates', async () => {
       renderPage();
 
       expect(await screen.findByRole('heading', { name: 'HPO terminology' })).toBeInTheDocument();
@@ -149,7 +178,6 @@ describe('HpoTerminologyAdminPage', () => {
       expect(statValue('Release date')).toMatch(/2026/);
       expect(statValue('File SHA-256')).toBe('8d6c23798667…');
       expect(statValue('Last sync')).toBe(new Date('2026-07-01T09:30:00Z').toLocaleString());
-      expect(screen.getByText('Automatic updates not configured')).toBeInTheDocument();
       expect(screen.queryByText(/No HPO terminology is installed/)).not.toBeInTheDocument();
     });
 
@@ -177,7 +205,6 @@ describe('HpoTerminologyAdminPage', () => {
         release_version: null,
         release_date: null,
         last_sync_date: null,
-        automatic_update_supported: true,
         ontology_loaded: false,
         ontology_path: '/data/ref-data/hpo/hp.obo',
       });
@@ -194,7 +221,6 @@ describe('HpoTerminologyAdminPage', () => {
       expect(statValue('Release date')).toBe('Not installed');
       expect(statValue('File SHA-256')).toBe('Not installed');
       expect(statValue('Last sync')).toBe('Not synced');
-      expect(screen.getByText('Automatic updates available')).toBeInTheDocument();
     });
 
     it('says a loaded ontology without a recorded release is unknown, not "Not installed"', async () => {
@@ -240,6 +266,109 @@ describe('HpoTerminologyAdminPage', () => {
       summaryReply = () => Promise.reject({});
       renderPage();
       expect(await screen.findByText('HPO summary could not be loaded.')).toBeInTheDocument();
+    });
+  });
+
+  describe('newer release', () => {
+    const notes = async () => within(await screen.findByLabelText('HPO release check'));
+
+    it('says a newer HPO release than the loaded one is out, and the startup pin', async () => {
+      renderPage();
+
+      expect(await (await notes()).findByText(/A newer HPO release is available:/)).toHaveTextContent(
+        `A newer HPO release is available: 2026-09-01 (published ${new Date('2026-09-03T06:08:39Z').toLocaleDateString()}). Loaded: 2026-06-06.`,
+      );
+      expect(
+        (await notes()).getByText(/A start on an empty database imports the pinned release 2026-02-16/),
+      ).toBeInTheDocument();
+    });
+
+    it('says when the loaded release is the newest', async () => {
+      releaseCheckReply = () => ({ ...RELEASE_CHECK, newer_available: false, loaded_release_date: '2026-09-01' });
+      renderPage();
+
+      expect(await (await notes()).findByText("The loaded release is HPO's newest (2026-09-01).")).toHaveClass(
+        'status-note--success',
+      );
+      expect((await notes()).queryByRole('button', { name: 'Use this release' })).not.toBeInTheDocument();
+    });
+
+    it('says when HPO could not be reached, and the sync still works from a file', async () => {
+      releaseCheckReply = () => ({
+        ...RELEASE_CHECK,
+        latest_release: null,
+        latest_release_date: null,
+        newer_available: false,
+        error: "HPO's release list could not be read: timed out",
+      });
+      renderPage();
+
+      expect(
+        await (await notes()).findByText("Could not check HPO for a newer release: HPO's release list could not be read: timed out"),
+      ).toHaveClass('status-note--warning');
+      expect(screen.getByLabelText('Ontology file path')).toBeInTheDocument();
+    });
+
+    it('downloads the newest release, previews it, and applies only the previewed file once confirmed', async () => {
+      const user = userEvent.setup();
+      const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+      mockedPost.mockResolvedValueOnce({
+        data: {
+          preview_only: true,
+          release_version: 'hp/releases/2026-09-01',
+          release_date: '2026-09-01',
+          release_sha256: 'cd'.repeat(32),
+          current: SUMMARY,
+          preview: { terms: 19944, new_terms: 120 },
+          imported: null,
+        },
+      });
+      renderPage();
+
+      await user.click(await (await notes()).findByRole('button', { name: 'Use this release' }));
+      expect(screen.getByRole('radio', { name: 'Download an HPO release' })).toBeChecked();
+      expect(screen.getByLabelText('HPO release')).toHaveValue('2026-09-01');
+      expect(screen.queryByLabelText('Ontology file path')).not.toBeInTheDocument();
+
+      await user.click(screen.getByRole('button', { name: 'Preview changes' }));
+      await waitFor(() =>
+        expect(mockedPost).toHaveBeenCalledWith('/admin/hpo/sync', { download_release: '2026-09-01', preview_only: true }),
+      );
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Apply sync' })).toBeEnabled());
+      expect(screen.getByText(/^File: release hp\/releases\/2026-09-01/)).toHaveTextContent(`SHA-256 ${'cd'.repeat(32)}.`);
+
+      mockedPost.mockResolvedValueOnce({
+        data: { ...PREVIEW_REPLY_DOWNLOADED, preview_only: false, imported: { terms: 19944, synonyms: 1, edges: 1, closure_rows: 1 } },
+      });
+      await user.click(screen.getByRole('button', { name: 'Apply sync' }));
+
+      expect(confirm).toHaveBeenCalledWith(
+        'Apply HPO release 2026-09-01, downloaded from HPO, now? The terminology is replaced as previewed.',
+      );
+      await waitFor(() =>
+        expect(mockedPost).toHaveBeenLastCalledWith('/admin/hpo/sync', {
+          download_release: '2026-09-01',
+          expected_sha256: 'cd'.repeat(32),
+          preview_only: false,
+        }),
+      );
+      expect(await screen.findByText('HPO terminology synchronized.')).toBeInTheDocument();
+    });
+
+    it('asks for a release before a download can be previewed, and keeps no preview across sources', async () => {
+      const user = userEvent.setup();
+      releaseCheckReply = () => ({ ...RELEASE_CHECK, newer_available: false });
+      renderPage();
+
+      await user.click(await screen.findByRole('radio', { name: 'Download an HPO release' }));
+      const release = screen.getByLabelText('HPO release');
+      expect(release).toHaveValue('');
+      expect(release).toHaveAttribute('placeholder', '2026-09-01');
+      expect(screen.getByRole('button', { name: 'Preview changes' })).toBeDisabled();
+
+      await user.type(release, '2026-06-06');
+      expect(screen.getByRole('button', { name: 'Preview changes' })).toBeEnabled();
+      expect(screen.getByRole('button', { name: 'Apply sync' })).toBeDisabled();
     });
   });
 
@@ -500,6 +629,7 @@ describe('HpoTerminologyAdminPage', () => {
         preview_only: true,
         release_version: 'hp/releases/2026-09-01',
         release_date: '2026-09-01',
+        release_sha256: 'ab'.repeat(32),
         current: SUMMARY,
         preview: { terms: 19120 },
         imported: null,
@@ -579,6 +709,8 @@ describe('HpoTerminologyAdminPage', () => {
           path: '/data/ref-data/hpo/hp.obo',
           release_version: null,
           release_date: null,
+          // Only the file the preview showed is imported (TRACE-18).
+          expected_sha256: 'ab'.repeat(32),
           preview_only: false,
         }),
       );

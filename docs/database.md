@@ -50,6 +50,7 @@ when the baselines are no longer re-applied:
 | `clinical_cnvs` | known CNV syndromes per assembly, with their ClinVar support (below) |
 | `clinical_cnv_kb_jobs` | admin-triggered rebuilds of the clinical CNV knowledgebase, per assembly: status (`queued`, `running`, `completed` or `failed`), rows inserted, the error (for a failed build, the last reason it gave) and the tail of the build log. At most one job is queued or running (`idx_clinical_cnv_kb_jobs_one_active`, a unique index on a constant). `worker_id` and `heartbeat_at` mark the worker running a job; a job whose heartbeat is ten minutes old is closed as failed. `requested_by_id` is the account that asked for the rebuild (SEC-35). The rebuild runs, and loads what it built, only while that account is an active administrator, checked at the start and before the load; otherwise it ends `failed`, with the reason, and loads nothing. `requested_by` is the e-mail address it was asked under, shown with the job. Deleting the account keeps the job, linked to no account; it can then no longer run. |
 | `dgv_variants` | Database of Genomic Variants entries per assembly, with a gain/loss/mixed class |
+| `dgv_load_jobs` | loads of the pinned DGV release for an assembly (`DGV_PINNED_RELEASES`), asked for on the Reference page or queued by a start or an assembly import: release, source URL, status (`queued`, `running`, `completed` or `failed`), the download's progress (`bytes_read` of `bytes_total`), rows inserted and the error. As for `clinical_cnv_kb_jobs`: at most one job queued or running (`idx_dgv_load_jobs_one_active`), `worker_id` and `heartbeat_at` mark its worker and a job silent for ten minutes is closed as failed, and an administrator's load (`requested_by_id`, SEC-35) runs and commits only while that account is an active administrator. A load a start queues is `startup-bootstrap`'s, no account's. A load commits nothing unless the whole file is the pinned one ([data-import.md](data-import.md#dgv)) |
 | `segmental_duplications` | segmental duplications and low-copy repeats per assembly |
 | `gene_panels`, `gene_panel_genes` | panels and their gene lists |
 | `gene_panel_regions` | a panel's coordinates, one row per gene (or PanelApp region) per assembly (below) |
@@ -111,6 +112,8 @@ source states about itself:
   SHA-256 …`), then each file read as published that day by file name and SHA-256 (`read as
   published: UCSC cytobands: cytoBand.txt.gz, SHA-256 …`; TRACE-18;
   [data-import.md](data-import.md)).
+- A DGV load records the pinned release, the file and its SHA-256 (`2025-12-01
+  (GRCh38_hg38_variants_2025-12-01.txt, SHA-256 …)`), and the release's date.
 - No other source states one: UCSC tables, a GTF without that header, uploads, the built-in
   reference files and the DGV script. Their `source_version` is `not stated` (as is a
   knowledgebase rebuild's from before the pin), and `source_release_date` is NULL.

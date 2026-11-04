@@ -39,7 +39,8 @@ alone.
 | GRCh38 gene loci | GENCODE GTF (see below); the UCSC gene table if GENCODE fails | `REFERENCE_GENCODE_GTF_URL`, `REFERENCE_GENCODE_REFSEQ_METADATA_URL` |
 | T2T-CHM13v2.0 (off by default) | UCSC `hs1` RefSeq GTF. UCSC has no `hs1` cytoband table, so each chromosome gets one band spanning it, from UCSC's chromosome sizes; without UCSC, none | `REFERENCE_BOOTSTRAP_T2T`, `REFERENCE_T2T_GTF_URL` |
 | Segmental duplications / LCRs | The ClinGen recurrent-CNV BED in `data/ref-data/`: ClinGen's V2.1 GRCh38 file, unchanged ([checked against ClinGen by SHA-256](../data/ref-data/clinical_cnv_syndromes_hg38_bundle/COGA-PROVENANCE.md)). The file read (the setting's, else the repository's) must be that file byte for byte, SHA-256 `e6a7428f58b0…` (`SEGMENTAL_DUPLICATIONS_PINNED_SHA256`; no setting overrides it). Another file is not loaded: the log names it, both digests and the fix (copy the repository's file there unchanged), and the start goes on without the track. GRCh38 only (below) | `REFERENCE_SEGMENTAL_DUPLICATIONS_PATH`, `REFERENCE_BOOTSTRAP_ASSEMBLY_NAME` |
-| Clinical CNV syndromes | Not loaded on startup: the knowledgebase rebuild loads them (below). The removed `REFERENCE_CLINICAL_CNVS_PATH`, read unpinned and whose default file was never shipped, is ignored if still set (OPS-17) | |
+| Clinical CNV syndromes | Built, not read from a file: for a GRCh37 or GRCh38 assembly without clinical CNVs, a start queues the knowledgebase build in the background, which downloads its sources ([below](#loading-or-replacing-reference-data)). The removed `REFERENCE_CLINICAL_CNVS_PATH`, read unpinned and whose default file was never shipped, is ignored if still set (OPS-17) | `REFERENCE_BOOTSTRAP_CLINICAL_CNVS` |
+| DGV | For a GRCh37 or GRCh38 assembly without DGV rows, a start queues the load of the pinned DGV release in the background, from dgv.tcag.ca, committed only if the whole file matches its SHA-256 ([DGV](#dgv)) | `REFERENCE_BOOTSTRAP_DGV`, `DGV_LOAD_TIMEOUT_SECONDS` |
 | HPO ontology | `data/ref-data/hpo/hp.obo`, imported only if its SHA-256 is the vendored file's. Another file in place (another release, say) is refused and logged (the file, both digests, the fix), and nothing is imported or downloaded instead. With no ontology file, the same release is downloaded over HTTPS from its versioned URL, under the same check. URL and SHA-256 are fixed in code ([the pin](../data/ref-data/hpo/README.md#the-download-fallback)): the removed `HPO_ONTOLOGY_URL` and `HPO_ONTOLOGY_SHA256` are ignored if still set | `HPO_BOOTSTRAP_ON_STARTUP`, `HPO_ONTOLOGY_PATH`, `HPO_DOWNLOAD_IF_MISSING` |
 | TRGT repeat catalogue | The built-in loci (`repeat_expansion_catalog.py`) and the shipped STRchive release, `data/ref-data/STRchive-loci.json`, both refreshed on every start; any other STRchive file stops the start ([The STRchive release](#the-strchive-release)). A built-in locus carries its STRchive row's thresholds, so a call classifies the same whether its TRID is the gene name or STRchive's locus ID; for ARX and HOXA13 the call's region picks the locus. A call whose TRID no row names, or whose row states no intermediate, premutation or pathogenic threshold (STRchive's MUC1 and POLG), is not assessed (`not_assessed`), never normal, except a count inside the benign range such a row states (POLG: exactly 10; MUC1 states none). TRGT counts the catalogue motif across the locus, flanking copies included: in the TRGT catalogue in use (TRID `CPEO_POLG`, chr15:89333579-89333629, motifs GCT and GTT), POLG's common allele of 10 repeats counts 14 and stays not assessed. In a row without a grey zone of its own (24 of STRchive's 75 loci, ABCD3 and PRTS_ARX among them), a count between the benign range and the pathogenic threshold is grey zone (`intermediate`, where it read normal; the owner's decision of 2026-10-27, CLIN-14). The repeat page and the genome tracks both classify imported calls against the current catalogue (CLIN-14) | `TRGT_STRCHIVE_LOCI_PATH` |
 | First gene reference sync | Queued only when the dbNSFP gene file is present and no gene has been synced yet | `GENE_REFERENCE_BOOTSTRAP_ON_STARTUP`, `GENE_REFERENCE_DBNSFP_GENE_PATH` |
@@ -151,14 +152,28 @@ Admins manage reference data on **Admin → Species & assemblies**
 
 - **Add organism / assembly (from UCSC)** downloads cytobands and genes for any UCSC genome
   (`POST /assemblies/reference-import`). Human GRCh38 and T2T genes come from their GTFs as
-  above; other genomes use a UCSC gene table.
+  above; other genomes use a UCSC gene table. For GRCh37 and GRCh38 the import then starts, in
+  the background and as the importing administrator, what the assembly does not have yet: the
+  clinical CNV knowledgebase build and the load of the pinned DGV release (below). Its result
+  says what it started, or that it waits on another rebuild or load.
+- **A start** does the same for a GRCh37 or GRCh38 assembly already there, the bootstrap
+  assembly (`REFERENCE_BOOTSTRAP_ASSEMBLY_NAME`) first, as no account (`startup-bootstrap`):
+  `REFERENCE_BOOTSTRAP_CLINICAL_CNVS` and `REFERENCE_BOOTSTRAP_DGV` (both on by default, under
+  `REFERENCE_BOOTSTRAP_ENABLED`) switch each off. One rebuild and one DGV load run at a time, so a
+  second assembly's waits for the next start or its button. An assembly that already has the data
+  gets nothing new: a newer release is an administrator's step.
+- **Rebuild** (the ↻ beside *Clin CNVs*) builds the clinical CNV knowledgebase again from ClinGen,
+  UCSC, ClinVar, Orphanet and OMIM (`POST /admin/clinical-cnv-kb/rebuild`).
+- **Load DGV** (the ↻ beside *DGV*, for an assembly with a pinned release) loads the pinned DGV
+  release (`POST /admin/dgv/load`; [DGV](#dgv) below).
 - **Upload** loads one file into one assembly
   (`POST /assemblies/{assembly_id}/reference-upload/{dataset_type}`). If the assembly already
   holds that dataset, the upload is refused unless `overwrite=true`, which replaces it.
 
 Every import and upload is recorded with who ran it, the source, and the release the source
 states: for a GENCODE import its version and date, for a clinical CNV knowledgebase rebuild the
-files it read (above), for every other import `not stated` (see [database.md](database.md)).
+files it read (above), for a DGV load the release, the file and its SHA-256, for every other
+import `not stated` (see [database.md](database.md)).
 The imports show under "Recent reference activity".
 
 | `dataset_type` | File format |
@@ -170,16 +185,53 @@ The imports show under "Recent reference activity".
 | `segmental_duplications` | BED-like intervals; the ClinGen recurrent-CNV BED is supported |
 | `dgv` | The Database of Genomic Variants TSV (variantaccession, chr, start, end, varianttype, variantsubtype, …) |
 
-The full DGV file (about 2 million rows) is too large for the upload. Load it inside the backend
-container with `scripts/import_dgv.py`, which inserts in batches (see
-[scripts/README.md](../scripts/README.md)).
+The full DGV file (about 2 million rows) is too large for the upload: load the pinned release
+([DGV](#dgv)), or another DGV file with `scripts/import_dgv.py` inside the backend container
+([scripts/README.md](../scripts/README.md)).
+
+### DGV
+
+The DGV track shows the Database of Genomic Variants. It is a display track: no score, filter or
+signed record reads it. CoGA loads one DGV release per assembly, pinned in `DGV_PINNED_RELEASES`
+(`backend/app/core/config.py`) by URL, size and SHA-256 (TRACE-14): DGV's *variants* file of
+release **2025-12-01**, DGV's newest, for GRCh38 (`GRCh38_hg38_variants_2025-12-01.txt`, 364 MB)
+and GRCh37 (`GRCh37_hg19_variants_2025-12-01.txt`, 367 MB). The file states no release of its
+own; its name does.
+
+A load (`services/dgv_load_jobs.py`, a row of `dgv_load_jobs`) streams the file from dgv.tcag.ca
+over HTTPS and inserts its rows as they arrive, in one transaction that first deletes the
+assembly's DGV rows. It commits only once the whole file is read and its size and SHA-256 are the
+pinned ones; any other file, a failed download or a stopped load commits nothing, and the DGV rows
+from before stay. A download that stalls (DGV's server does) or drops is resumed from the byte it
+reached, up to five times. Rows without a chromosome (about 4,300 per file) are skipped, as the
+upload and the script skip them. The Reference page shows the load's progress, and a failed load
+with its reason. The import record names the release, the file and its SHA-256. An administrator's
+load runs and commits only while that account is an active administrator (SEC-35).
+
+To move to a new DGV release (a reviewed change): download the release's variants file per
+assembly, compute its size and SHA-256 (`shasum -a 256`), check that the parser reads it (the
+header, the row count), and update `DGV_PINNED_RELEASES`, this section and the SOUP register
+([TF-08](regulatory/TF-08-soup-register.md)). Then load it on the Reference page: an assembly
+that already has DGV rows is not reloaded on its own.
 
 ### Updating the HPO ontology
 
-To move to a newer HPO release, put the new `hp.obo` in `/data/ref-data/hpo/` and run the sync on
-**Admin → HPO terminology** (`POST /admin/hpo/sync`). The page starts from the file the backend
-is configured to load (`HPO_ONTOLOGY_PATH`). The sync previews the changes first, and reads only
-files inside the configured ontology folders.
+**Admin → HPO terminology** says whether HPO has published a newer release than the loaded one
+(`GET /admin/hpo/release-check`, which reads HPO's latest GitHub release, at most every 15 minutes).
+The sync (`POST /admin/hpo/sync`) takes the new release from either source:
+
+- **Download an HPO release**: the release's own PURL,
+  `https://purl.obolibrary.org/obo/hp/releases/<date>/hp.obo`, which never floats. *Use this
+  release* fills in the newest one. Every request, each redirect included, goes over HTTPS, and the
+  file must be an OBO file that states the release asked for. Nothing is written to disk.
+- **File on the server**: a new `hp.obo` put in `/data/ref-data/hpo/`. The page starts from the
+  file the backend is configured to load (`HPO_ONTOLOGY_PATH`), and the sync reads only files
+  inside the configured ontology folders.
+
+Either way the sync previews the changes first, and nothing is imported until an administrator
+applies it. Apply sends the SHA-256 the preview showed, and the sync imports only those bytes: a
+file changed since the preview, or a release HPO serves anew, is refused. A newer release is never
+imported on its own: it changes phenotype matching, so it is an administrator's step.
 
 - The release is the one the file states about itself (its `data-version`). The terms keep the
   SHA-256 of the imported bytes (`metadata.release_sha256`), which the admin page, the loaded

@@ -252,6 +252,7 @@ class _App:
 _STEPS_AFTER_THE_CATALOGUE = (
     "ensure_human_grch38_reference_on_startup",
     "ensure_human_t2t_reference_on_startup",
+    "queue_startup_reference_loads",
     "ensure_hpo_ontology_on_startup",
     "seed_builtin_reference_tracks",
     "queue_startup_gene_reference_refresh_if_needed",

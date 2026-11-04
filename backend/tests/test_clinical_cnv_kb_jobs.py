@@ -716,3 +716,89 @@ def test_the_rebuild_of_an_active_administrator_is_loaded(
     assert len(run.applied) == 1
     assert run.updates[-1][0].startswith("status = 'completed'")
     assert run.looked_up == [REQUESTER_ID, REQUESTER_ID]
+
+
+# --- the rebuild a start or an assembly import queues ------------------------------------------
+
+
+def test_a_rebuild_a_start_queues_is_no_accounts(script: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def run_job(job_id: str) -> None:
+        return None
+
+    monkeypatch.setattr(kb, "_run_job", run_job)
+    session = _Session(assembly={"id": "asm-1", "assembly_name": "GRCh38"})
+    asyncio.run(kb.queue_clinical_cnv_kb_rebuild(session, assembly="GRCh38", skip_clinvar=False, requested_by=None))
+
+    [params] = [params for sql, params in session.statements if sql.startswith("INSERT INTO clinical_cnv_kb_jobs")]
+    assert (params["requested_by"], params["requested_by_id"]) == (kb.STARTUP_REQUESTER, None)
+
+
+def test_a_rebuild_a_start_queued_is_built_and_loaded_as_it_is(script: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # It is no account's, so there is no account to look up; a job whose account was deleted
+    # (requested_by_id cleared, an address kept) is still refused.
+    run = _run(monkeypatch, row={**_ROW, "requested_by": kb.STARTUP_REQUESTER, "requested_by_id": None})
+
+    assert len(run.applied) == 1 and run.looked_up == []
+    assert run.updates[-1][0].startswith("status = 'completed'")
+
+
+class _MissingSession(_Session):
+    """The assembly lookup of ``queue_clinical_cnv_kb_rebuild_if_missing``: whether it has CNVs."""
+
+    def __init__(self, *, loaded: bool | None, **kwargs) -> None:
+        assembly = None if loaded is None else {"id": "asm-1", "assembly_name": "GRCh38", "loaded": loaded}
+        super().__init__(assembly=assembly, **kwargs)
+
+
+@pytest.mark.parametrize(
+    ("assembly_name", "loaded"),
+    [("T2T-CHM13", False), ("GRCh38", None), ("GRCh38", True)],
+    ids=["an-assembly-the-build-does-not-know", "no-such-assembly", "clinical-cnvs-already-loaded"],
+)
+def test_a_rebuild_is_queued_only_for_a_known_assembly_without_clinical_cnvs(
+    script: Path, monkeypatch: pytest.MonkeyPatch, assembly_name: str, loaded: bool | None
+) -> None:
+    started: list[str] = []
+
+    async def run_job(job_id: str) -> None:
+        started.append(job_id)
+
+    monkeypatch.setattr(kb, "_run_job", run_job)
+    session = _MissingSession(loaded=loaded)
+    job, note = asyncio.run(
+        kb.queue_clinical_cnv_kb_rebuild_if_missing(session, assembly_name=assembly_name, requested_by=None)
+    )
+    assert (job, note, started) == (None, None, [])
+    assert not any(sql.startswith("INSERT") for sql, _ in session.statements)
+
+
+def test_no_rebuild_is_queued_without_the_build_script(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(kb, "_script_path", lambda: None)
+    job, note = asyncio.run(
+        kb.queue_clinical_cnv_kb_rebuild_if_missing(_MissingSession(loaded=False), assembly_name="GRCh38", requested_by=None)
+    )
+    assert (job, note) == (None, None)
+
+
+def test_an_assembly_without_clinical_cnvs_gets_its_rebuild(script: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def run_job(job_id: str) -> None:
+        return None
+
+    monkeypatch.setattr(kb, "_run_job", run_job)
+    session = _MissingSession(loaded=False)
+    job, note = asyncio.run(
+        kb.queue_clinical_cnv_kb_rebuild_if_missing(session, assembly_name="GRCh38", requested_by=_account())
+    )
+
+    assert job is not None and job.skip_clinvar is False
+    assert note == "The clinical CNV knowledgebase build for GRCh38 has started in the background."
+    [params] = [params for sql, params in session.statements if sql.startswith("INSERT INTO clinical_cnv_kb_jobs")]
+    assert params["requested_by_id"] == REQUESTER_ID  # the importing administrator's, checked as any
+
+
+def test_a_rebuild_that_waits_on_another_says_so(script: Path) -> None:
+    session = _MissingSession(loaded=False, insert_error=IntegrityError("INSERT", {}, Exception("duplicate key")))
+    job, note = asyncio.run(
+        kb.queue_clinical_cnv_kb_rebuild_if_missing(session, assembly_name="GRCh38", requested_by=None)
+    )
+    assert job is None and note is not None and "another rebuild is running" in note

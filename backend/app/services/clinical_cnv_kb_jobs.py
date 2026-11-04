@@ -31,6 +31,11 @@ starts and again before the load, the rebuild's one write, as the build runs for
 ``CLINICAL_CNV_KB_BUILD_TIMEOUT_SECONDS`` before it. A job whose account no longer exists, has
 been deactivated or is no longer an administrator ends failed, saying why, with nothing
 loaded: the knowledgebase from before stays as it was.
+
+A start, and an assembly import from UCSC, queue a rebuild for a GRCh37 or GRCh38 assembly that
+has no clinical CNVs yet (``queue_clinical_cnv_kb_rebuild_if_missing``). A rebuild a start
+queues is no account's (``STARTUP_REQUESTER``, as for the gene-reference refresh), so it runs as
+it is; one an import queues is the importing administrator's, checked as above.
 """
 
 from __future__ import annotations
@@ -86,6 +91,15 @@ _SOURCES_UNRECORDED = (
     "knowledgebase was not loaded; the one loaded before stays as it was."
 )
 _SHA256_HEX = re.compile(r"[0-9a-f]{64}")
+# Who asked for the rebuild a start queues: no account, so it runs as it is (the gene-reference
+# refresh's requester for the same case).
+STARTUP_REQUESTER = "startup-bootstrap"
+# The assemblies the build knows (its --assembly choices): each has ClinGen's pinned recurrent
+# CNV file. Only these are rebuilt without being asked.
+KNOWLEDGEBASE_ASSEMBLIES = ("GRCh38", "GRCh37")
+# Each queued rebuild's task, kept until it ends: the event loop holds only a weak reference to a
+# task, and one nothing else refers to may be collected before it is done.
+_RUNNING: set[asyncio.Task[None]] = set()
 
 
 def _requester_lost(lapse: str) -> str:
@@ -282,11 +296,12 @@ async def queue_clinical_cnv_kb_rebuild(
     *,
     assembly: str,
     skip_clinvar: bool,
-    requested_by: CurrentUser,
+    requested_by: CurrentUser | None,
 ) -> ClinicalCnvKbJobOut:
     """Queue the rebuild an administrator asked for, and start it. The job keeps its requester
     by the account's id, which its run checks (SEC-35), and the e-mail address it was asked
-    under, which it shows: a Microsoft sign-in may change the address (SEC-32)."""
+    under, which it shows: a Microsoft sign-in may change the address (SEC-32). None is a
+    rebuild a start queues, which is no account's (``STARTUP_REQUESTER``)."""
     if _script_path() is None:
         raise HTTPException(status_code=503, detail=_SCRIPT_MISSING)
     assembly_row = (
@@ -327,8 +342,8 @@ async def queue_clinical_cnv_kb_rebuild(
                     "assembly_id": assembly_row["id"],
                     "assembly_name": assembly_row["assembly_name"],
                     "skip_clinvar": skip_clinvar,
-                    "requested_by": requested_by.email,
-                    "requested_by_id": requested_by.id,
+                    "requested_by": requested_by.email if requested_by is not None else STARTUP_REQUESTER,
+                    "requested_by_id": requested_by.id if requested_by is not None else None,
                 },
             )
         ).mappings().first()
@@ -344,8 +359,51 @@ async def queue_clinical_cnv_kb_rebuild(
         raise RuntimeError("The clinical CNV knowledgebase rebuild was not recorded")
     job = _job_out(row)
     # Run the build in the background; it manages its own DB session.
-    asyncio.create_task(_run_job(str(job.id)))
+    task = asyncio.create_task(_run_job(str(job.id)))
+    _RUNNING.add(task)
+    task.add_done_callback(_RUNNING.discard)
     return job
+
+
+
+async def queue_clinical_cnv_kb_rebuild_if_missing(
+    session: AsyncSession,
+    *,
+    assembly_name: str,
+    requested_by: CurrentUser | None,
+) -> tuple[ClinicalCnvKbJobOut | None, str | None]:
+    """Queue the rebuild for an assembly that has no clinical CNVs yet, as an assembly import
+    and a start do. The job, or None, and a sentence for the admin when there is one to say:
+    None when the assembly is not one the build knows (``KNOWLEDGEBASE_ASSEMBLIES``), is not
+    there, already has clinical CNVs, or the build script is missing."""
+    if assembly_name not in KNOWLEDGEBASE_ASSEMBLIES or _script_path() is None:
+        return None, None
+    assembly_row = (
+        await session.execute(
+            text(
+                "SELECT a.id::text AS id, "
+                "EXISTS (SELECT 1 FROM clinical_cnvs c WHERE c.assembly_id = a.id) AS loaded "
+                "FROM assemblies a WHERE a.assembly_name = :assembly ORDER BY a.version DESC LIMIT 1"
+            ),
+            {"assembly": assembly_name},
+        )
+    ).mappings().first()
+    if assembly_row is None or assembly_row["loaded"]:
+        return None, None
+    try:
+        job = await queue_clinical_cnv_kb_rebuild(
+            session, assembly=assembly_name, skip_clinvar=False, requested_by=requested_by
+        )
+    except HTTPException as exc:
+        if exc.status_code != 409:
+            raise
+        return None, (
+            f"The clinical CNV knowledgebase build for {assembly_name} was not started: another "
+            "rebuild is running. Rebuild it on the Reference page once that one has ended."
+        )
+    return job, (
+        f"The clinical CNV knowledgebase build for {assembly_name} has started in the background."
+    )
 
 
 async def _claim_job(job_id: str, worker_id: str) -> dict[str, Any] | None:
@@ -413,10 +471,13 @@ async def _record_failure(job_id: str, worker_id: str | None, error: str) -> Non
         )
 
 
-async def _requester_refusal(requester_id: str | None) -> str | None:
+async def _requester_refusal(requester_id: str | None, requested_by: str | None = None) -> str | None:
     """Why the rebuild is not run, or not loaded, for the account that asked for it: it no
     longer exists (its deletion unlinks the job), has been deactivated, or is no longer an
-    administrator, as the route required (SEC-35). None while it is an active administrator."""
+    administrator, as the route required (SEC-35). None while it is an active administrator,
+    and for a rebuild a start queued, which is no account's."""
+    if requester_id is None and requested_by == STARTUP_REQUESTER:
+        return None
     user = None
     if requester_id:
         sessionmaker = get_postgres_sessionmaker()
@@ -491,7 +552,7 @@ async def _run_job(job_id: str) -> None:
             return
         owner = worker_id
         # Run only for an active administrator (SEC-35); the log names the job, not the account.
-        refusal = await _requester_refusal(row.get("requested_by_id"))
+        refusal = await _requester_refusal(row.get("requested_by_id"), row.get("requested_by"))
         if refusal is not None:
             logger.warning(
                 "Clinical CNV knowledgebase rebuild %s not run: the account that requested it "
@@ -567,7 +628,7 @@ async def _run_job(job_id: str) -> None:
         # account deleted, deactivated or demoted meanwhile has nothing loaded (SEC-35).
         if not await _update_job(job_id, owner, "heartbeat_at = now()", {}):
             raise _JobClosed()
-        refusal = await _requester_refusal(row.get("requested_by_id"))
+        refusal = await _requester_refusal(row.get("requested_by_id"), row.get("requested_by"))
         if refusal is not None:
             logger.warning(
                 "Clinical CNV knowledgebase rebuild %s not loaded: the account that requested it "

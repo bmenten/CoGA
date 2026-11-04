@@ -604,6 +604,42 @@ export interface DgvDensityBin {
   other: number;
 }
 
+/** A load of the pinned DGV release for an assembly (dgv_load_jobs). */
+export interface DgvLoadJobOut {
+  _id: string;
+  assembly_id: string;
+  assembly_name: string;
+  release: string;
+  source_url: string;
+  status: "queued" | "running" | "completed" | "failed";
+  requested_by: string | null;
+  requested_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+  bytes_read: number;
+  bytes_total: number | null;
+  inserted: number;
+  error: string | null;
+}
+
+export interface DgvLoadRequest {
+  assembly: string;
+}
+
+export interface DgvLoadStatusOut {
+  active_job: DgvLoadJobOut | null;
+  recent_jobs: DgvLoadJobOut[];
+  releases: DgvPinnedReleaseOut[];
+}
+
+/** The DGV release pinned for an assembly (DGV_PINNED_RELEASES), which a load reads. */
+export interface DgvPinnedReleaseOut {
+  assembly_name: string;
+  release: string;
+  source_url: string;
+  size_bytes: number;
+}
+
 /**
  * DGV is too dense to draw every variant at chromosome scale. The server
  * decides per request: `lines` (individual variants, when the in-view count is
@@ -1594,7 +1630,6 @@ export interface HpoAdminSummaryOut {
   release_date: string | null;
   release_sha256: string | null;
   last_sync_date: string | null;
-  automatic_update_supported: boolean;
   ontology_loaded: boolean;
   ontology_path: string | null;
 }
@@ -1665,10 +1700,26 @@ export interface HpoOntologySyncOut {
 }
 
 export interface HpoOntologySyncRequest {
-  path: string;
+  path?: string | null;
+  download_release?: string | null;
   release_version?: string | null;
   release_date?: string | null;
+  expected_sha256?: string | null;
   preview_only?: boolean;
+}
+
+/** The newest HPO release beside the loaded one and the startup's pinned one. */
+export interface HpoReleaseCheckOut {
+  latest_release: string | null;
+  latest_release_date: string | null;
+  published_at: string | null;
+  download_url: string | null;
+  loaded_release: string | null;
+  loaded_release_date: string | null;
+  pinned_release: string;
+  pinned_release_date: string;
+  newer_available: boolean;
+  error: string | null;
 }
 
 export interface HpoTermOut {
@@ -2957,6 +3008,7 @@ export interface ReferenceAutoImportResult {
   gene_source_url: string;
   gene_source: string;
   gene_warning: string | null;
+  follow_up_notes: string[];
 }
 
 export interface ReferenceDatasetImportOut {

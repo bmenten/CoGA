@@ -14,6 +14,8 @@ import type {
   AssemblyReferenceStatusOut,
   ClinicalCnvKbJobOut,
   ClinicalCnvKbStatusOut,
+  DgvLoadJobOut,
+  DgvLoadStatusOut,
   GeneReferenceAdminStatusOut,
   ReferenceAutoImportResult,
   ReferenceDatasetImportOut,
@@ -33,6 +35,16 @@ type GeneMetadataStatus = Pick<
 >;
 
 const formatCatalogCount = (value: number | undefined) => (value ?? 0).toLocaleString();
+
+const formatMegabytes = (bytes: number) => `${Math.round(bytes / 1_000_000).toLocaleString()} MB`;
+
+// How far a DGV load has come: the share of the file downloaded and the variants inserted.
+const dgvLoadProgress = (job: DgvLoadJobOut) => {
+  if (job.status === 'queued') return 'queued';
+  const total = job.bytes_total ?? 0;
+  const share = total > 0 ? `${Math.min(100, Math.floor((job.bytes_read / total) * 100))} % downloaded` : 'downloading';
+  return `${share}, ${job.inserted.toLocaleString()} variants read`;
+};
 
 // The assembly table's count columns, in order: the status count each shows and the
 // dataset its refresh or upload action targets.
@@ -166,6 +178,14 @@ const ReferenceCatalogPage: React.FC = () => {
     retry: false,
   });
 
+  const { data: dgvStatus } = useQuery<DgvLoadStatusOut>({
+    queryKey: ['admin', 'dgv', 'status'],
+    enabled: userIsAdmin,
+    queryFn: async () => (await api.get('/admin/dgv/status')).data as DgvLoadStatusOut,
+    refetchInterval: (query) => (query.state.data?.active_job ? 3000 : false),
+    retry: false,
+  });
+
   const { data: geneMetaStatus } = useQuery<GeneMetadataStatus>({
     queryKey: ['admin', 'gene-reference-status'],
     enabled: userIsAdmin,
@@ -245,6 +265,20 @@ const ReferenceCatalogPage: React.FC = () => {
     }
     return [...newest.values()].filter((job) => job.status === 'failed');
   }, [cnvKbStatus]);
+
+  // The same for DGV loads: the newest per assembly, shown while it failed.
+  const failedDgvLoads = useMemo(() => {
+    const newest = new Map<string, DgvLoadJobOut>();
+    for (const job of dgvStatus?.recent_jobs ?? []) {
+      if (!newest.has(job.assembly_name)) newest.set(job.assembly_name, job);
+    }
+    return [...newest.values()].filter((job) => job.status === 'failed');
+  }, [dgvStatus]);
+
+  const dgvReleaseByAssembly = useMemo(
+    () => new Map((dgvStatus?.releases ?? []).map((release) => [release.assembly_name, release])),
+    [dgvStatus]
+  );
 
   const populatedSpeciesCount = useMemo(
     () => species.filter((entry) => (assembliesBySpecies.get(entry.id) ?? []).length > 0).length,
@@ -394,6 +428,10 @@ const ReferenceCatalogPage: React.FC = () => {
       if (data.gene_warning) {
         message += ` No gene table was available from UCSC (${data.gene_warning}) — you can upload genes manually for this assembly.`;
       }
+      // The clinical CNV knowledgebase build and the DGV load it started, or why not.
+      for (const note of data.follow_up_notes ?? []) {
+        message += ` ${note}`;
+      }
       setAutoImportSuccess(message);
       setAutoImportForm((current) => ({
         ...current,
@@ -403,6 +441,8 @@ const ReferenceCatalogPage: React.FC = () => {
       await queryClient.invalidateQueries({ queryKey: ['assemblies', 'all'] });
       await queryClient.invalidateQueries({ queryKey: ['assemblies', 'reference-status'] });
       await queryClient.invalidateQueries({ queryKey: ['assemblies', 'reference-import', 'recent'] });
+      await queryClient.invalidateQueries({ queryKey: ['admin', 'clinical-cnv-kb', 'status'] });
+      await queryClient.invalidateQueries({ queryKey: ['admin', 'dgv', 'status'] });
     } catch (err: unknown) {
       setAutoImportError(getErrorMessage(err, 'Automatic reference import failed.'));
     } finally {
@@ -425,6 +465,18 @@ const ReferenceCatalogPage: React.FC = () => {
     }
   };
 
+  const performDgvLoad = async (assemblyName: string) => {
+    setError(null);
+    setSuccess(null);
+    try {
+      await api.post('/admin/dgv/load', { assembly: assemblyName });
+      setSuccess(`Started the DGV load for ${assemblyName}.`);
+      await queryClient.invalidateQueries({ queryKey: ['admin', 'dgv', 'status'] });
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Could not start the DGV load.'));
+    }
+  };
+
   const performRefreshGeneMetadata = async () => {
     setError(null);
     setSuccess(null);
@@ -443,6 +495,17 @@ const ReferenceCatalogPage: React.FC = () => {
       message: `Rebuild the clinical CNV knowledgebase for ${assemblyName}? This pulls from ClinGen, UCSC, and ClinVar / OMIM / Orphanet, runs in the background, and may take several minutes.`,
       confirmLabel: 'Rebuild',
       run: () => performCnvRebuild(assemblyName),
+    });
+  };
+
+  const requestDgvLoad = (assemblyName: string) => {
+    const release = dgvReleaseByAssembly.get(assemblyName);
+    if (!release) return;
+    setConfirmAction({
+      title: 'Load DGV variants',
+      message: `Load DGV release ${release.release} for ${assemblyName}? This downloads DGV's variants file (${formatMegabytes(release.size_bytes)}) from dgv.tcag.ca, checks it against its pinned SHA-256, and replaces the assembly's DGV variants only once the whole file is read and matches. It runs in the background and may take several minutes.`,
+      confirmLabel: 'Load',
+      run: () => performDgvLoad(assemblyName),
     });
   };
 
@@ -520,6 +583,22 @@ const ReferenceCatalogPage: React.FC = () => {
           aria-label="Rebuild clinical CNV knowledgebase"
           disabled={Boolean(cnvKbStatus?.active_job)}
           onClick={() => requestCnvRebuild(assembly.assembly_name)}
+        >
+          ↻
+        </button>
+      );
+    }
+
+    const dgvRelease = datasetType === 'dgv' ? dgvReleaseByAssembly.get(assembly.assembly_name) : undefined;
+    if (dgvRelease) {
+      return (
+        <button
+          type="button"
+          className="reference-refresh-icon"
+          title={`Load DGV release ${dgvRelease.release} for ${assembly.assembly_name}`}
+          aria-label="Load DGV variants"
+          disabled={Boolean(dgvStatus?.active_job)}
+          onClick={() => requestDgvLoad(assembly.assembly_name)}
         >
           ↻
         </button>
@@ -642,6 +721,28 @@ const ReferenceCatalogPage: React.FC = () => {
               {job.completed_at ? ` (${formatDateTime(job.completed_at)})` : ''}:{' '}
               {job.error || 'no reason was recorded'}. Nothing was loaded: the clinical CNVs from
               before it are unchanged.
+            </p>
+          ))}
+        </section>
+      )}
+
+      {dgvStatus?.active_job ? (
+        <section className="surface-card" aria-label="DGV load in progress">
+          <p className="section-copy" aria-live="polite">
+            Loading DGV release {dgvStatus.active_job.release} for {dgvStatus.active_job.assembly_name}:{' '}
+            {dgvLoadProgress(dgvStatus.active_job)}. The DGV variants from before stay until the whole file
+            is read and checked.
+          </p>
+        </section>
+      ) : null}
+
+      {failedDgvLoads.length > 0 && (
+        <section className="surface-card" aria-label="Failed DGV loads">
+          {failedDgvLoads.map((job) => (
+            <p key={job._id} className="section-copy" style={{ color: 'var(--color-signature-red-dark)' }}>
+              The DGV load for {job.assembly_name} failed
+              {job.completed_at ? ` (${formatDateTime(job.completed_at)})` : ''}:{' '}
+              {job.error || 'no reason was recorded'}
             </p>
           ))}
         </section>

@@ -60,8 +60,9 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   - an import job keeps its requester (`family_import_jobs.requested_by_id`); the worker runs
     the import as that account while it is an active superuser or administrator (*Session
     tokens*, below);
-  - so do a gene-reference refresh and a clinical CNV knowledgebase rebuild (`requested_by_id`
-    on `gene_info_refresh_jobs` and `clinical_cnv_kb_jobs`, SEC-35);
+  - so do a gene-reference refresh, a clinical CNV knowledgebase rebuild and a DGV load
+    (`requested_by_id` on `gene_info_refresh_jobs`, `clinical_cnv_kb_jobs` and `dgv_load_jobs`,
+    SEC-35);
   - a user's filter presets belong to the account (`owner_id`).
 
   A changed address or user name keeps them the user's. An account that later signs in with an
@@ -421,7 +422,10 @@ with nothing written; the log names neither the account nor its address:
 - a clinical CNV knowledgebase rebuild (`clinical_cnv_kb_jobs._run_job`) is checked as it
   starts and again before its load, its one write. It starts when queued, and its build, which
   writes nothing, runs for up to two hours. Nothing is loaded, and the previous knowledgebase
-  stays.
+  stays. The rebuild a start queues (`startup-bootstrap`) is no account's, and runs.
+- a DGV load (`dgv_load_jobs._run_job`) is checked as it starts and again before it commits.
+  Nothing is committed, and the DGV variants from before stay. The load a start queues
+  (`startup-bootstrap`) is no account's, and runs.
 
 The refresh and the rebuild used to run for whoever had asked, as neither acts with an
 account's rights. An import or a refresh already running when its account is deactivated or

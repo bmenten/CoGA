@@ -7,13 +7,15 @@ page is an administrator's alone.
 
 - **Species & assemblies** — the genome builds and their reference data (cytobands, genes, clinical
   CNVs, segmental duplications, DGV), with each dataset's status. Refresh the human gene information,
-  rebuild the clinical-CNV knowledgebase, or upload a reference file.
+  rebuild the clinical-CNV knowledgebase, load the pinned DGV release, or upload a reference file.
+  Adding GRCh37 or GRCh38 starts the clinical-CNV build and the DGV load for it.
 - **Gene panels** — the panel catalogue: create panels, import them from PanelApp, and see their genes.
   Deleting a panel asks first, naming the panel and its version: its genes, its regions and every
   archived version go with it.
-- **HPO terminology** — the HPO release in use and the SHA-256 of the file it came from; preview and
-  apply a new release. The release is the one the file states. A file that states no release, or
-  another than the expected release you enter, is refused.
+- **HPO terminology** — the HPO release in use and the SHA-256 of the file it came from, and whether
+  HPO has published a newer one; preview and apply a new release, downloaded from HPO or from a file
+  on the server. The release is the one the file states. A file that states no release, or another
+  than the release you asked for, is refused, and Apply imports only the file the preview showed.
 - **Monarch data** — load the Monarch release (gene–disease and disease–phenotype links) that powers
   [phenotype matching](#phenotype-matching) and the ranking. Load it once after installation and about
   monthly; loading it also rebuilds the Mendeliome panel.
