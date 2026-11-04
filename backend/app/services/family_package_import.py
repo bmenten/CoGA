@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..core.postgres import get_postgres_sessionmaker
 from ..schemas import (
     FamilyImportDatasetSummary,
+    FamilyImportValidationIssue,
     FamilyPackageValidationOut,
 )
 from .family_identifiers import identifier_problem
@@ -97,11 +98,13 @@ from .family_package_registration import (
     _existing_package_entity_warnings,
     family_sample_ids,
     is_whole_family_entry,
+    manifest_roi_issue,
     pending_datasets,
     scope_with_samples,
     unfinished_entry_writer,
 )
 from .family_package_datasets import _import_dataset
+from .family_package_manifest import _manifest_roi_value
 from .import_progress import DatasetTimer
 
 logger = logging.getLogger(__name__)
@@ -434,6 +437,17 @@ async def _execute_family_package_import_local(
                         ],
                     }
                 )
+    if dry_run and session is not None and hasattr(session, "execute") and bundle is not None:
+        # The import looks the manifest's region of interest up when it registers the family,
+        # and leaves the family without one if it is not found (DATA-10): the dry run says so.
+        roi_issue = await manifest_roi_issue(
+            session,
+            roi_query=_manifest_roi_value(bundle.manifest),
+            project_id=project_id,
+            family_id=_package_family_id(validation, bundle),
+        )
+        if roi_issue is not None:
+            validation = validation.model_copy(update={"warnings": [*validation.warnings, roi_issue]})
     datasets = [summary.model_copy() for summary in validation.datasets]
     if progress is not None:
         await progress(validation, datasets, logs, validation.family_id)
@@ -479,6 +493,7 @@ async def _execute_family_package_import_local(
         scopes=dataset_scopes(bundle, dataset_types),
     )
     logs.append("Registering family metadata and package provenance.")
+    registration_warnings: list[FamilyImportValidationIssue] = []
     try:
         family_context, family_created = await _ensure_family_from_ped(
             session,
@@ -488,6 +503,7 @@ async def _execute_family_package_import_local(
             validation=validation,
             conflict_mode=conflict_mode,
             import_mark=import_mark,
+            warnings=registration_warnings,
         )
     except Exception:
         # Failed before its first dataset: if it had marked the family, the mark becomes
@@ -500,6 +516,13 @@ async def _execute_family_package_import_local(
     logs.append(
         f"Family {family_context.family_id} is registered with {len(sample_contexts)} sample(s)."
     )
+    if registration_warnings:
+        # A region of interest the manifest names and the import did not find (DATA-10): in
+        # the import's result, with the package's warnings.
+        validation = validation.model_copy(
+            update={"warnings": [*validation.warnings, *registration_warnings]}
+        )
+        logs.append("The manifest's region of interest was not found: see the warnings.")
     if progress is not None:
         await progress(validation, datasets, logs, family_context.family_id)
 

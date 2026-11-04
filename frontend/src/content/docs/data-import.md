@@ -391,6 +391,12 @@ Paraphase results are replaced.
 - A sample's SNV file that cannot be read (a `.vcf.gz` cut short or damaged in a copy, or a plain-text VCF
   named `.gz`) is an error that names the sample and the file (`dataset_vcf_unreadable`), in Discover too
   for a NIPT pair's parent file. Copy the file again from where the pipeline wrote it.
+- A manifest's `roi` (a gene, or a region such as `chr7:117480025-117668665`) is looked up in the
+  assembly of the import's project, or of the existing family. One the import does not find clears the
+  family's region of interest, so no embryo is called at a region the package does not name. The import
+  warns (`manifest_roi_unresolved`) and names the region it cleared: set it on the family page. The dry
+  run gives the same warning ahead; with no project and no existing family to look it up in, it says
+  the region was not checked (`manifest_roi_not_checked`).
 - A dataset type CoGA does not know is an error. A missing small-variant or structural-variant dataset is
   a warning; other missing datasets are simply absent.
 - A data file with nothing after its header, that the import would refuse for holding no record, is a

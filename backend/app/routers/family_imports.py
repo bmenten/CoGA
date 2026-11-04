@@ -21,7 +21,7 @@ from ..services.family_package_discovery import (
     discover_family_package_manifest,
     write_family_package_manifest,
 )
-from ..services.family_package_registration import existing_family_sample_ids
+from ..services.family_package_registration import existing_family_sample_ids, manifest_roi_issue
 from ..services.family_package_jobs import (
     get_family_import_job,
     list_family_import_jobs,
@@ -103,13 +103,23 @@ async def validate_family_import_package(
     fallback_ped_text = await db_pedigree_fallback(session, payload.family_id)
     # Offloaded: validating an s3:// source stages (downloads) the package, which
     # would otherwise block the event loop.
-    return await asyncio.to_thread(
+    validation = await asyncio.to_thread(
         partial(
             validate_family_package,
             payload.folder_path,
             fallback_ped_text=fallback_ped_text,
         )
     )
+    # The manifest's region of interest, looked up as the import will (DATA-10).
+    roi_issue = await manifest_roi_issue(
+        session,
+        roi_query=validation.metadata.get("roi"),
+        project_id=payload.project_id,
+        family_id=validation.family_id or payload.family_id,
+    )
+    if roi_issue is not None:
+        validation = validation.model_copy(update={"warnings": [*validation.warnings, roi_issue]})
+    return validation
 
 
 @router.get("/packages", response_model=list[FamilyPackageCandidateOut])
