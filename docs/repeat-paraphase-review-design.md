@@ -95,7 +95,7 @@ dezelfde `GRANT`s als de andere reviewtabellen in `05_grants.sql` en een rij in 
 repeat_expansion_reviews
   id uuid PK
   family_id uuid NOT NULL → families ON DELETE CASCADE
-  assembly_id uuid NOT NULL → assemblies
+  assembly_id uuid NOT NULL → assemblies ON DELETE CASCADE
   locus_id text NOT NULL
   classification text NULL  CHECK (classification IN (… §4.3 repeat …))
   tags jsonb NOT NULL DEFAULT '[]'

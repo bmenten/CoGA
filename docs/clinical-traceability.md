@@ -1070,24 +1070,31 @@ anchors can be deleted without trace unless a copy is kept outside the database.
   genome overview and the chromosome view show each member's risk state from the browser's
   implementation of the same rules, which the parity cases pin but do not prove equal on every
   input.
-- No threshold gates an embryo call on its QC. A call whose phasing QC at the ROI does not meet
-  the thresholds of `services/pgt_embryo_qc.py`, counted over the ROI and 1 Mb on each side (at
-  least 50 informative sites, a Mendelian error rate of at most 2 %, at least 6 markers on each
-  flank of the ROI on each parental side the call reads), carries a warning beside it on the
-  family page and in the signed version; so does one whose QC was not counted. The call stands,
-  the sign-out is not held up, and the analyst decides (the owner's decision of 2026-10-20). The
-  thresholds are provisional: the laboratory director and QA are to confirm them. The markers are
-  counted over the ROI as a whole, not on each flank of the locus.
+- One QC measure gates an embryo call; the others only warn. The QC is counted over the ROI and
+  1 Mb on each side. An embryo whose markers there, on a parental side the call reads, mix both of
+  that parent's homologs (a discordance above 10 % over at least 20 markers, `mixed_homolog_sides`
+  in `services/pgt_embryo_qc.py`) is not called: it reads as uninformative, whatever its blocks
+  say (the owner's decision of 2026-10-30). This gate is a safety net, not an aneuploidy check:
+  two copies of one homolog leave the markers in agreement, and a trisomy away from the ROI is
+  not looked at. A call whose phasing QC does not meet the other thresholds of
+  `services/pgt_embryo_qc.py` (at least 50 informative sites, a Mendelian error rate of at most
+  2 %, at least 6 markers on each flank of the ROI on each parental side the call reads) carries a
+  warning beside it on the family page and in the signed version; so does one whose QC was not
+  counted. Such a call stands, the sign-out is not held up, and the analyst decides (the owner's
+  decision of 2026-10-20). The markers are counted on each flank apart, left and right of the ROI;
+  the ROI's own sites count on neither. The thresholds are provisional: the laboratory director
+  and QA are to confirm them.
 - A NIPT family's record freezes the NIPT classification of the variants tagged `report`, not
   every candidate the NIPT report or a view of the NIPT page lists, and their recessive fetal risk
   over the reported variants alone. It freezes the coverage of every capture target and each gene
   with a weak target, not the coverage of a search's gene panel or genes as the NIPT page's
-  coverage card reads it. Without a per-target coverage table it holds no coverage QC at all (the
-  page reads its coverage over a coverage track for a search's genes or the family's region of
-  interest): `coverage_tracks` holds what the plasma's coverage tracks held, so which kind of
-  coverage that check rested on, not its result. The artifact list and the de novo recurrence are
-  shared by every family of the assay: a change to the list, or another pregnancy of the assay
-  imported since, makes the sign-out check name `nipt` as changed.
+  coverage card reads it. Without a per-target coverage table it holds the coverage check's notes
+  on the plasma's coverage tracks (`nipt.coverage_notes`), not the coverage the check read or its
+  verdict. The check is run as the NIPT page runs it without a gene or panel, over the family's
+  region of interest, not for the genes or panel of a search; `coverage_tracks` says which kind of
+  coverage it rested on. The artifact list and the de novo recurrence are shared by every family
+  of the assay: a change to the list, or another pregnancy of the assay imported since, makes the
+  sign-out check name `nipt` as changed.
 - `coverage_tracks` names each coverage track of the members as their records list it, not the
   chromosomes a depth check read: the mtDNA coverage reads a track only where it has rows on
   chrM, the NIPT coverage check its targets' chromosomes, and a sample with two read-depth tracks

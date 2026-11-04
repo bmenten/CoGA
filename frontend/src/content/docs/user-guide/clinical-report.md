@@ -54,7 +54,7 @@ version also holds what the analysis looked at:
   package loaded it;
 - in a PGT family, each embryo's call at the region of interest as the family page shows it, with its
   phasing QC and that QC's verdict against the thresholds;
-- in a monogenic NIPT family, its NIPT results (the NIPT page uses this same sign-out; see the NIPT
+- in a monogenic NIPT family, its NIPT results (the NIPT report uses this same sign-out; see the NIPT
   chapter).
 
 The EPD refers to the signed version by its **report code** (for example `7KQM2X-2-4PHT`). Sign-out
