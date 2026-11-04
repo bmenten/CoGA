@@ -192,6 +192,37 @@ describe('CircosPlot', () => {
       expect(screen.getByText('Other')).toBeInTheDocument();
     });
 
+    // ENG-20: the tooltip wrote the chromosome as the data stores it (`1:10 → 1:40`), where the
+    // viewer and the other tooltips write `chr1` and `chrX` (#602), however it is stored.
+    it('names the chromosomes in its tooltip as the viewer does, however they are stored', () => {
+      const chroms: Chromosome[] = [...twoChroms, { chr: 'X', size: 90, bands: [] }];
+      const variants: Variant[] = [
+        { chr: '1', start: 10, end: 40, type: 'DEL' },
+        { chr: '1', start: 20, type: 'BND', remote_chr: 'chr2', remote_start: 30 },
+        { chr: 'x', start: 50, type: 'INS' },
+        { chr: 'chr2', start: 5, end: 15, type: 'DUP', remote_chr: '2' },
+      ];
+      const { container } = render(
+        <CircosPlot chromData={chroms} selected={{ '1': true, '2': true, X: true }} variants={variants} />,
+      );
+      // Every one is drawn, its chromosomes read however they are stored.
+      expect(
+        screen.getByRole('img', {
+          name: 'Circos plot of 4 structural variants across 3 chromosomes: 1 DEL, 1 DUP, 1 INS, 1 BND',
+        }),
+      ).toBeInTheDocument();
+      const tooltips = [...container.querySelectorAll('path.circos-variant')].map((link) => {
+        fireEvent.mouseOver(link);
+        return document.querySelector('.circos-tooltip')?.innerHTML;
+      });
+      expect(tooltips).toEqual([
+        '<strong>DEL</strong><br>chr1:10 → chr1:40',
+        '<strong>BND</strong><br>chr1:20 → chr2:30',
+        '<strong>INS</strong><br>chrX:50',
+        '<strong>DUP</strong><br>chr2:5 → chr2:15',
+      ]);
+    });
+
     it('names a CNV in its tooltip with the copy change it is drawn by', () => {
       const { container } = render(
         <CircosPlot

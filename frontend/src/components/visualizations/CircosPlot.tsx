@@ -9,7 +9,7 @@ import {
 import { getStainColor } from '../../lib/stainColors';
 import { escapeHtml } from '../../lib/escapeHtml';
 import { countOf } from '../../lib/countOf';
-import { NUCLEAR_CHROMOSOMES } from '../../lib/chromosomes';
+import { NUCLEAR_CHROMOSOMES, formatChromosomeLabel, normalizeChrom } from '../../lib/chromosomes';
 import {
   describeSvType,
   svTypeColors,
@@ -77,13 +77,14 @@ const describeCircos = (
   variants: Variant[] | undefined,
   tooManyVariants = false,
 ): string => {
-  const shown = new Set(chroms.filter((chrom) => selected[chrom.chr]).map((chrom) => chrom.chr));
+  const shown = new Set(chroms.filter((chrom) => selected[chrom.chr]).map((chrom) => normalizeChrom(chrom.chr)));
   if (shown.size === 0) return 'Circos plot: no chromosomes selected';
   const across = countOf(shown.size, 'chromosome');
   if (tooManyVariants) return `Circos plot of ${across}; too many structural variants to draw`;
   if (variants === undefined) return `Circos plot of ${across}; structural variants not loaded`;
 
-  const isShown = (chr?: string) => !!chr && (shown.has(chr) || shown.has(chr.replace(/^chr/i, '')));
+  // Read however it is stored (`chrX`, `x`), as the layout below reads it.
+  const isShown = (chr?: string) => !!chr && shown.has(normalizeChrom(chr));
   const byType = new Map<SvTypeKey, number>();
   variants.forEach((v) => {
     if (!isShown(v.chr) || !isShown(v.remote_chr || v.chr)) return;
@@ -445,7 +446,7 @@ const CircosPlot: FC<CircosPlotProps> = ({
         .scaleLinear()
         .domain([0, chrom.size])
         .range([visualStartAngle, visualEndAngle]);
-      angleScales[chrom.chr] = scale;
+      angleScales[normalizeChrom(chrom.chr)] = scale;
       const acenBands = renderBands.filter((band) => band.stain === 'acen');
       const sortedAcenBands = [...acenBands].sort((a, b) => a.start - b.start);
       const [firstAcen, secondAcen] = sortedAcenBands;
@@ -671,10 +672,8 @@ const CircosPlot: FC<CircosPlotProps> = ({
       .linkRadial<RadialLink, RadialNode>()
       .angle((d) => d.angle)
       .radius((d) => d.radius);
-    const getScale = (chr?: string) => {
-      if (!chr) return undefined;
-      return angleScales[chr] || angleScales[chr.replace(/^chr/i, '')];
-    };
+    // A chromosome is looked up however it is stored (`chr1`, `x`): by its name without `chr`.
+    const getScale = (chr?: string) => (chr ? angleScales[normalizeChrom(chr)] : undefined);
 
     const variantRenders: VariantRender[] = (variants ?? [])
       .map((v, index): VariantRender | null => {
@@ -696,7 +695,7 @@ const CircosPlot: FC<CircosPlotProps> = ({
           targetAngle =
             targetAngle >= sourceAngle ? sourceAngle + minAngle : sourceAngle - minAngle;
         }
-        const isIntrachrom = !v.remote_chr || v.remote_chr === v.chr;
+        const isIntrachrom = !v.remote_chr || normalizeChrom(v.remote_chr) === normalizeChrom(v.chr);
 
         let strokeWidth = 1;
         let d: string | null = null;
@@ -770,12 +769,14 @@ const CircosPlot: FC<CircosPlotProps> = ({
           .attr('stroke-width', render.strokeWidth)
           .style('cursor', render.clickable && onVariantClickRef.current ? 'pointer' : 'default')
           .on('mouseover', (event) => {
-            const endChr = v.remote_chr || v.chr;
+            // The chromosomes as the viewer names them (`chr1`, `chrX`; #602), however stored.
+            const startChr = formatChromosomeLabel(v.chr);
+            const endChr = formatChromosomeLabel(v.remote_chr || v.chr);
             const endPos = v.remote_start ?? v.end ?? v.start;
             const coords =
-              endChr === v.chr && endPos === v.start
-                ? `${v.chr}:${v.start}`
-                : `${v.chr}:${v.start} → ${endChr}:${endPos}`;
+              endChr === startChr && endPos === v.start
+                ? `${startChr}:${v.start}`
+                : `${startChr}:${v.start} → ${endChr}:${endPos}`;
             tooltip
               .style('opacity', 1)
               .style('left', `${event.pageX + 8}px`)
