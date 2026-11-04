@@ -15,6 +15,11 @@ from app.routers import cram
 # --------------------------------------------------------------------------- #
 # cram manifest                                                               #
 # --------------------------------------------------------------------------- #
+async def _nothing_recorded(session, sample_ids):
+    """No sample records where its import put its reads."""
+    return {}
+
+
 @pytest.mark.asyncio
 async def test_get_alignment_manifest_dedups_preserves_order_and_filters(monkeypatch):
     async def fake_sample_ids(session, family_id, user):
@@ -32,6 +37,7 @@ async def test_get_alignment_manifest_dedups_preserves_order_and_filters(monkeyp
 
     monkeypatch.setattr(cram, "_get_accessible_family_sample_ids", fake_sample_ids)
     monkeypatch.setattr(cram, "_resolve_alignment_manifest_entry", fake_resolve)
+    monkeypatch.setattr(cram, "_recorded_alignments", _nothing_recorded)
 
     result = await cram.get_alignment_manifest(
         "FAM1",
@@ -68,6 +74,7 @@ async def test_get_cram_header_offloads_blocking_read(monkeypatch):
         return await real_to_thread(func, *args, **kwargs)
 
     monkeypatch.setattr(cram, "_ensure_accessible_alignment_sample", fake_ensure)
+    monkeypatch.setattr(cram, "_recorded_alignments", _nothing_recorded)
     monkeypatch.setattr(cram, "_read_alignment_header", fake_read)
     monkeypatch.setattr(cram.asyncio, "to_thread", spy_to_thread)
 

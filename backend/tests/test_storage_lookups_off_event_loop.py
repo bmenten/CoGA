@@ -31,13 +31,13 @@ def recorded_report(monkeypatch: pytest.MonkeyPatch) -> set[int]:
     """The report path the sample records, read on the request's own thread, which it notes."""
     loop_threads: set[int] = set()
 
-    async def recorded_path(_session: Any, *, family_id: str, sample_id: str, user: Any) -> str:
+    async def recorded_path(_session: Any, *, family_id: str, sample_id: str, user: Any) -> Any:
         loop_threads.add(threading.get_ident())
-        return _REPORT
+        return family_qc_reports._RecordedReport(_REPORT)
 
-    async def recorded(_session: Any, *, family_id: str, sample_id: str) -> str:
+    async def recorded(_session: Any, *, family_id: str, sample_id: str) -> Any:
         loop_threads.add(threading.get_ident())
-        return _REPORT
+        return family_qc_reports._RecordedReport(_REPORT)
 
     monkeypatch.setattr(family_qc_reports, "_recorded_report_path", recorded_path)
     monkeypatch.setattr(family_qc_reports, "_recorded_report", recorded)
@@ -85,7 +85,7 @@ def test_the_qc_report_routes_read_the_file_system_off_the_event_loop(
     report_file.write_text("<html></html>")
     lookups: list[int] = []
 
-    def resolve(family_id: str, relative_path: str) -> Path:
+    def resolve(family_id: str, relative_path: str, package_folder: object = None) -> Path:
         lookups.append(threading.get_ident())
         return report_file
 

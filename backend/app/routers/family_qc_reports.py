@@ -9,9 +9,10 @@ origin without isolation. Two things enforce that:
   into an opaque origin — it cannot read the application origin's storage (where the
   session token lives) or call the API as the user;
 * the served path is never client-supplied. It comes from the path recorded on the
-  sample at import time and is re-checked for containment inside the family's own
-  folders, below the authorized import roots, so this endpoint cannot be turned into an
-  arbitrary file read, nor into a read of another family's report.
+  sample at import time and is re-checked for containment inside the package folder the
+  family's import read or the family's own folders, below the authorized import roots, so
+  this endpoint cannot be turned into an arbitrary file read, nor into a read of another
+  family's report.
 
 Access is a two-step flow because the SPA authenticates with a bearer token, which a
 plain ``<a href>`` navigation cannot carry: the client asks for a link, gets a
@@ -24,6 +25,7 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 import os
 from pathlib import Path
+from typing import NamedTuple
 from urllib.parse import urlencode
 
 import jwt
@@ -40,7 +42,7 @@ from ..core.url_path import url_path
 from ..dependencies import get_current_user
 from ..schemas import FamilyQcReportLinkOut
 from ..services.family_package_common import _metadata_dict
-from ..services.family_package_source import _ensure_authorized_package_path
+from ..services.family_package_source import _ensure_authorized_package_path, local_family_package_folder
 from ..services.metadata_service import get_family_record
 from ..services.access_control import CurrentUser
 
@@ -87,13 +89,24 @@ def _verify_qc_report_token(token: str, family_id: str, sample_id: str) -> None:
         raise HTTPException(status_code=403, detail="QC report link is invalid or expired")
 
 
-async def _recorded_report(session: AsyncSession, *, family_id: str, sample_id: str) -> str:
-    """The report path recorded in the sample's metadata at import, as stored (unstripped);
-    404 when none is recorded. No access check: the callers make their own."""
+class _RecordedReport(NamedTuple):
+    """The report path recorded on a sample at import, relative to the package, and the
+    package folder the family's import read (``families.metadata.package_import.folder_path``,
+    ``None`` when none is recorded). Both are data from the database, checked before use
+    (``_resolve_report_file``)."""
+
+    path: str
+    package_folder: str | None = None
+
+
+async def _recorded_report(session: AsyncSession, *, family_id: str, sample_id: str) -> _RecordedReport:
+    """The report path recorded in the sample's metadata at import, as stored (unstripped),
+    with the family's package folder; 404 when no path is recorded. No access check: the
+    callers make their own."""
     result = await session.execute(
         text(
             """
-            SELECT s.metadata
+            SELECT s.metadata, f.metadata -> 'package_import' ->> 'folder_path' AS package_folder
             FROM samples s
             JOIN family_members fm ON fm.sample_id = s.id
             JOIN families f ON f.id = fm.family_id
@@ -102,11 +115,13 @@ async def _recorded_report(session: AsyncSession, *, family_id: str, sample_id: 
         ),
         {"family_id": family_id, "sample_id": sample_id},
     )
-    metadata = _metadata_dict(result.scalar_one_or_none())
+    row = result.one_or_none()
+    metadata = _metadata_dict(row[0] if row is not None else None)
+    package_folder = row[1] if row is not None and isinstance(row[1], str) else None
     report = _metadata_dict(metadata.get("sequencing_qc")).get("report")
     if not isinstance(report, str) or not report.strip():
         raise HTTPException(status_code=404, detail="No QC report is recorded for this sample")
-    return report
+    return _RecordedReport(report, package_folder)
 
 
 async def _recorded_report_path(
@@ -115,8 +130,9 @@ async def _recorded_report_path(
     family_id: str,
     sample_id: str,
     user: CurrentUser,
-) -> str:
-    """The package-relative report path recorded on the sample at import.
+) -> _RecordedReport:
+    """The package-relative report path recorded on the sample at import, stripped, with the
+    family's package folder.
 
     Reading the family through ``get_family_record`` applies the project-scoped RBAC
     and confirms the sample belongs to this family.
@@ -125,7 +141,7 @@ async def _recorded_report_path(
     if sample_id not in {member.sample_id for member in family.members}:
         raise HTTPException(status_code=404, detail="Sample not found in family")
     report = await _recorded_report(session, family_id=family_id, sample_id=sample_id)
-    return report.strip()
+    return _RecordedReport(report.path.strip(), report.package_folder)
 
 
 def _stored_report_url(family_id: str, relative_path: str) -> str:
@@ -138,10 +154,12 @@ def _stored_report_url(family_id: str, relative_path: str) -> str:
     return presigned_get_url(key, filename=Path(relative_path).name)
 
 
-def _resolve_report_file(family_id: str, relative_path: str) -> Path:
-    """The file the recorded relative path names in the family's package folder,
-    ``<data>/families/<family>``, else in its flat folder ``<data>/<family>``; 404 when
-    neither holds it.
+def _resolve_report_file(family_id: str, relative_path: str, package_folder: object = None) -> Path:
+    """The file the recorded relative path names in the package folder the family's import
+    read, ``package_folder``, when that lies below a local import root
+    (``local_family_package_folder``: a package on a share mounted as a second root is read
+    where it lies), else in the family's package folder ``<data>/families/<family>``, else
+    in its flat folder ``<data>/<family>``; 404 when none holds it.
 
     The path comes back from ``samples.metadata`` as data: an edited row can hold ``..``
     or an absolute path. It is joined to the folder and normalised as a string, and one
@@ -152,6 +170,11 @@ def _resolve_report_file(family_id: str, relative_path: str) -> Path:
     (``core/family_folders.py``). The folder must lie under the configured import roots
     (``_ensure_authorized_package_path``).
     """
+    imported = local_family_package_folder(package_folder)
+    if imported is not None:
+        path = path_in_family_folder(imported, [imported], relative_path)
+        if path is not None and os.path.isfile(path):
+            return Path(path)
     folders = family_folders(DATA_DIR, family_id)
     for parent in (PACKAGES_FOLDER, ""):
         folder = folders.get(parent)
@@ -177,9 +200,8 @@ async def get_family_qc_report_link(
     user: CurrentUser = Depends(get_current_user),
 ) -> FamilyQcReportLinkOut:
     """Short-lived URL for the sample's QC report, for the client to open in a new tab."""
-    relative_path = await _recorded_report_path(
-        session, family_id=family_id, sample_id=sample_id, user=user
-    )
+    report = await _recorded_report_path(session, family_id=family_id, sample_id=sample_id, user=user)
+    relative_path = report.path
     expires_at = datetime.now(timezone.utc) + QC_REPORT_LINK_TTL
     if storage_is_remote():
         return FamilyQcReportLinkOut(
@@ -189,7 +211,7 @@ async def get_family_qc_report_link(
         )
     # Confirm the file is there before handing out a link that would 404 on click; the file
     # system is read in a worker thread (SEC-14).
-    await asyncio.to_thread(_resolve_report_file, family_id, relative_path)
+    await asyncio.to_thread(_resolve_report_file, family_id, relative_path, report.package_folder)
     token = _qc_report_token(family_id, sample_id)
     # Each ID one encoded segment: an ID may hold `/`, `?`, `#`, `%` or `..`.
     path = url_path("families", family_id, "qc-report", sample_id)
@@ -214,13 +236,14 @@ async def get_family_qc_report(
     ``get_family_qc_report_link``.
     """
     _verify_qc_report_token(token, family_id, sample_id)
-    relative_path = await _recorded_report(session, family_id=family_id, sample_id=sample_id)
+    report = await _recorded_report(session, family_id=family_id, sample_id=sample_id)
+    relative_path = report.path.strip()
     if storage_is_remote():
         return RedirectResponse(
-            await asyncio.to_thread(_stored_report_url, family_id, relative_path.strip()),
+            await asyncio.to_thread(_stored_report_url, family_id, relative_path),
             status_code=302,
         )
-    path = await asyncio.to_thread(_resolve_report_file, family_id, relative_path.strip())
+    path = await asyncio.to_thread(_resolve_report_file, family_id, relative_path, report.package_folder)
     return FileResponse(
         path,
         media_type="text/html",

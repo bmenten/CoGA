@@ -139,8 +139,9 @@ recorded for the [report](/docs/reference/clinical-traceability).
 
 A package is one family folder on the CoGA server, holding the PED, the data files and a manifest that
 maps them. The folder must sit under an import folder the server is configured for; it is **not** a
-folder on your own computer. On a cloud installation the import folder is a storage bucket. CoGA then
-copies the package for the import, except the aligned reads (CRAM/BAM): they stay in the bucket, where
+folder on your own computer. CoGA reads a package where it lies, and the genome browser reads its aligned
+reads (CRAM/BAM) from the package folder. On a cloud installation the import folder is a storage bucket.
+CoGA then copies the package for the import, except the aligned reads: they stay in the bucket, where
 the genome browser reads them. A bucket package must already hold its manifest.
 
 A standard package looks like this. Only the PED is needed to start: CoGA writes `manifest.yaml` for

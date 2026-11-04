@@ -1015,7 +1015,7 @@ data is synthetic, so none is migrated: import or upload such a BED again with w
 | `cnv` (HiFiCNV) | structural variants, source `hificnv`, each named by its coordinates, type and source, never by the record's ID (its annotation keeps it); one event in two samples' VCFs is one SV with both calls (CLIN-39). The depth bigWig as `coverage` and the copy-number bedGraph as `segments`, both stored as log2 ratios like the other callers, each with its transform recorded in its `sample_interval_track_sources` row ([database.md](database.md)); a depth file without autosomal depth gives no median to normalise by, so its depths are stored as read, recorded as `none`. The MAF bigWig as `apcad` |
 | `mito` | chrM small variants, source `mito`, annotated from the mutserve table, from a chrM VCF per sample or a sample's rows of one mtDNA-Server table for all samples (`table`, `table_id`); each sample's mtDNA haplogroup is the one most of its annotated variants name. The chrM SV file (`sv_vcf`, Sniffles2 `--mosaic`) as structural variants, source `mito_sv`, with each sample's heteroplasmy (`INFO/VAF`) and the mtDNA genes it overlaps, shown on the mtDNA page |
 | `qc` | the sample's sequencing QC, shown as a chip in the family members table: NanoPlot and mosdepth, or the PGT pipeline's mean coverage, Qualimap summary and report, and ngs-bits sex. The PGT pipeline's family tables (`ado_adi`, `concordance`, `imputed_concordance`) go onto each embryo, its KING table (`kinship`) onto the family |
-| `alignments` | the CRAM/BAM location, used by IGV: the package-relative path and, for a package in a bucket, the object's URI |
+| `alignments` | the CRAM/BAM location, used by IGV: the package-relative path and, for a package in a bucket, the object's URI. IGV reads the file there, under any name, in the package folder the import read (a local one below `FAMILY_IMPORT_ROOTS`, such as a share mounted as a second root) |
 | `pipeline_info` | tool versions in the annotation manifest; run parameters on the family (for the PGT pipeline also the affected parent, the ROI, the QDNAseq bin size, and the callset and phasing panel it started from) |
 
 Each caller's rows carry their own source tag, so re-importing one callset never removes another,
@@ -1207,10 +1207,10 @@ rule, below):
 
 (HiFiCNV's depths stored as read used to be left off the chart, and a coverage BED was drawn on
 the log2-ratio axis whatever it held: TRACE-7, TRACE-9.) The three HiFiCNV files are also served
-unchanged to the genome browser (IGV). With local storage they come from the family's package
-folder, `data/families/<family>/`, at the path the import recorded, and never from outside the
-family's own folders (a recorded path or a symlink that leads elsewhere names no file); for a
-package in a bucket, from the bucket.
+unchanged to the genome browser (IGV). With local storage they come from the package folder
+the family's import read, at the path the import recorded, then from `data/families/<family>/`,
+and never from outside that folder (a recorded path or a symlink that leads elsewhere names no
+file); for a package in a bucket, from the bucket.
 
 The readers that take coverage as read depth (the mtDNA coverage with its depth verdict, and the
 NIPT coverage check without a per-target table) read one coverage track per sample whose values

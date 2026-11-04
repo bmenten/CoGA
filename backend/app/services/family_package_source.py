@@ -146,6 +146,39 @@ def within_family_package(uri: str, package_folder: object) -> bool:
     return remote_uri_within(uri, package_folder) and within_remote_import_roots(uri)
 
 
+def local_family_package_folder(package_folder: object) -> str | None:
+    """The local folder a family's import read (``families.metadata.package_import.folder_path``),
+    as its real path, when it lies below a local FAMILY_IMPORT_ROOTS entry; ``None`` otherwise.
+
+    A file the import of a local package recorded on a sample, relative to the package (its
+    aligned reads, its signal files, its QC report), is looked up in this folder first
+    (``routers/cram.py``, ``routers/signal_tracks.py``, ``routers/family_qc_reports.py``). A
+    package is read where it lies, so one on a share mounted as a second import root
+    (``/data/share``) keeps its files there; they used to be looked up only under
+    ``<data>/families/<family>``, and the genome browser found none of them.
+
+    The folder comes back from the database as data, so it is checked as the import checks a
+    folder it reads: ``None`` for no folder, a ``gs://`` or ``s3://`` URI (a package imported
+    from a bucket, ``within_family_package``), a relative path or one holding NUL, the import
+    root itself, and a folder that lies, symlinks resolved, outside every local import root.
+    Also ``None`` for any folder when no local import root is configured: the empty
+    FAMILY_IMPORT_ROOTS of development admits any folder to import from, but nothing is served
+    from a folder no root lists. Blocking: the folder's symlinks are resolved on disk.
+    """
+    if not isinstance(package_folder, str) or not package_folder or is_remote_uri(package_folder):
+        return None
+    if NUL in package_folder or not os.path.isabs(package_folder):
+        return None
+    try:
+        folder = os.path.realpath(package_folder)
+        roots = [str(root) for root in _authorized_local_roots()]
+    except (OSError, RuntimeError, ValueError):
+        return None
+    if not any(folder.startswith(root.rstrip(os.sep) + os.sep) for root in roots):
+        return None
+    return folder
+
+
 def _load_manifest_dict(manifest_path: Path) -> dict[str, Any]:
     """Loosely load a manifest (YAML/JSON) to a dict, or {} on any error."""
     try:

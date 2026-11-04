@@ -107,7 +107,9 @@ def test_cram_manifest_uses_presigned_urls_in_s3_mode(monkeypatch):
 
 def test_cram_manifest_relative_urls_in_local_mode(monkeypatch):
     monkeypatch.setattr(cram, "storage_is_remote", lambda: False)
-    monkeypatch.setattr(cram, "_alignment_exists", lambda fam, sample, ext, suffix="": ext == "cram")
+    monkeypatch.setattr(
+        cram, "_alignment_path", lambda fam, sample, ext, suffix="": Path(f"{sample}.{ext}{suffix}") if ext == "cram" else None
+    )
     entry = cram._resolve_alignment_manifest_entry("F1", "S1")
     assert entry is not None
     assert entry.url == "/cram/F1/S1.cram"

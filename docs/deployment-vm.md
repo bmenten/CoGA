@@ -427,10 +427,17 @@ rsync -av --progress <package folder> <user>@coga-test.example.org:/srv/coga/dat
 Package Import's **Discover** and **Write manifest** draft a manifest for a folder without one.
 A long-read small-variant dataset takes hours to import.
 
+**Aligned reads** stay in their package. The manifest's `alignments` dataset names each
+sample's CRAM and its index, whatever they are called, and the genome browser (IGV) reads them
+from the package folder its import read. A sample with none recorded is looked for as
+`<sample>.cram` with `<sample>.cram.crai`, named by the sample and family IDs in CoGA, in
+`data/families/<family>/` (or its `bams/` or `alignments/` folder) and `data/<family>/`.
+
 ### A network share
 
 A share holding packages and their CRAM files is read where it is: imports read the packages
-in place, and the genome browser reads a CRAM from the path its import recorded. Mount it
+in place, and the genome browser reads a CRAM, the CNV caller's signal files and the QC report
+from the path its import recorded, in the package folder on the share. Mount it
 read-only on `/srv/coga/data/share` (which git ignores), as a second import root. At Ghent
 University (`files.ugent.be`, SMB 3.1.1, with ICT's options `vers=3.11`, `sec=ntlmv2i` and
 `echo_interval=5`):
