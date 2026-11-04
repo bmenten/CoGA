@@ -673,7 +673,6 @@ describe('FamilySampleQcPage', () => {
         paternity_check: {
           father: 'FATHER',
           transmitted_sites: 90,
-          hom_alt_absent_sites: 1,
           informative_sites: 151,
           hom_alt_transmitted: 40,
           hom_alt_not_transmitted: 1,

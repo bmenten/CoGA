@@ -886,7 +886,7 @@ def test_service_nipt_paternity_ignores_sites_without_a_confident_father_call(mo
     )
 
     assert report.paternity_check is not None
-    assert (report.paternity_check.transmitted_sites, report.paternity_check.hom_alt_absent_sites) == (0, 24)
+    assert (report.paternity_check.transmitted_sites, report.paternity_check.hom_alt_not_transmitted) == (0, 24)
     assert report.paternity_check.status == "fail"
     assert report.overall_status == "fail"
 

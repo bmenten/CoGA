@@ -237,7 +237,6 @@ async def get_family_sample_integrity_qc_endpoint(
             SampleIntegrityPaternityCheckOut(
                 father=report.paternity_check.father,
                 transmitted_sites=report.paternity_check.transmitted_sites,
-                hom_alt_absent_sites=report.paternity_check.hom_alt_absent_sites,
                 informative_sites=report.paternity_check.informative_sites,
                 hom_alt_transmitted=report.paternity_check.hom_alt_transmitted,
                 hom_alt_not_transmitted=report.paternity_check.hom_alt_not_transmitted,

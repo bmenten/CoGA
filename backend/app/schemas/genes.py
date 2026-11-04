@@ -85,12 +85,14 @@ class GeneAssemblyLocationOut(BaseModel):
 
 
 class GeneHomologOut(BaseModel):
+    """A model-organism ortholog, as dbNSFP names it (a mouse and a zebrafish gene symbol). A
+    homolog cached with fields no source sets any more (an Ensembl gene id, percent identity or
+    coverage, an "in the platform" flag that was always false) loads without them (ENG-4)."""
+
     species_name: str
     common_name: Optional[str] = None
     symbol: Optional[str] = None
-    ensembl_gene_id: Optional[str] = None
     homology_type: Optional[str] = None
-    in_platform: bool = False
 
 
 class GeneVariantCountsOut(BaseModel):

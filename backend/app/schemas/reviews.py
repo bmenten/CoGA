@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from .common import (
     ApiDocumentModel,
@@ -102,18 +102,23 @@ class _VariantReviewUpdate(BaseModel):
 
 
 class SmallVariantReviewUpdate(_VariantReviewUpdate):
+    # A field the save does not take is refused (422, naming it), not left out without a word:
+    # ``cnv_acmg``, a structural variant's CNV classification, was accepted here and never read
+    # (ENG-4). No page sends one.
+    model_config = ConfigDict(extra="forbid")
+
     compound_het: Optional[SmallVariantCompoundHetReviewUpdate] = None
-    # For ``acmg`` and ``cnv_acmg`` alike: left out, the stored classification is kept;
-    # sent, it replaces it; sent as null or with no criteria, it is cleared.
+    # The ACMG classification: left out, the stored one is kept; sent, it replaces it; sent as
+    # null or with no criteria, it is cleared.
     acmg: Optional[AcmgClassificationPayload] = None
-    # CNV (ClinGen) classification — only populated for structural-variant reviews.
-    cnv_acmg: Optional[CnvAcmgClassificationPayload] = None
 
 
 class StructuralVariantReviewUpdate(_VariantReviewUpdate):
-    # A small variant's ``acmg`` and ``compound_het`` are not taken: the SV save never read
-    # them (#853). A client that still sends them is answered as before, the two left out,
-    # as Pydantic leaves out every field a model does not have.
+    # A field the save does not take is refused (422, naming it), as the small-variant save's
+    # is: a small variant's ``acmg`` and ``compound_het``, which the SV save never read, were
+    # left out without a word (owner's decision, 2026-11-04). No page sends them.
+    model_config = ConfigDict(extra="forbid")
+
     # The CNV (ClinGen) classification: left out, the stored one is kept; sent, it replaces
     # it; sent as null or with no criteria, it is cleared.
     cnv_acmg: Optional[CnvAcmgClassificationPayload] = None

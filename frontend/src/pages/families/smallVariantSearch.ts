@@ -167,7 +167,6 @@ export type SmallVariantReviewSavePayload = {
     note?: string;
   };
   acmg?: AcmgReviewPayload;
-  cnv_acmg?: CnvAcmgReviewPayload;
 };
 
 // A small-variant preset is its owner's, reusable in every family they can open.

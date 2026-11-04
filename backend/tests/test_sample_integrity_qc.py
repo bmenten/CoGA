@@ -470,7 +470,7 @@ def _paternity(hom: tuple[int, int], het: tuple[int, int]):
 def test_evaluate_paternity_supported_vs_mixup() -> None:
     # The true father: his homozygous alleles all seen but a few dropouts, half his het ones.
     ok = _paternity((485, 15), (1020, 980))
-    assert ok.status == "pass" and ok.transmitted_sites == 485 + 1020 and ok.hom_alt_absent_sites == 15
+    assert ok.status == "pass" and ok.transmitted_sites == 485 + 1020 and ok.hom_alt_not_transmitted == 15
     # Another man's file: far from all his homozygous alleles, and a quarter of his het ones.
     # Pooled, a third of its alleles were absent, which the old 40% warning let through.
     bad = _paternity((200, 300), (500, 1500))
@@ -494,13 +494,14 @@ def test_evaluate_paternity_supported_vs_mixup() -> None:
 # served as ``cat7_transmitted`` and ``cat8_absent``, and the NIPT summary said paternity was
 # confirmed from "paternal-transmitted sites (categories 7/8)": the logic before #749, which
 # counted the classification's categories 7 and 8. They are now ``transmitted_sites`` (the
-# sites where his allele is seen, homozygous and heterozygous) and ``hom_alt_absent_sites``
-# (his homozygous sites where it is not, ``hom_alt_not_transmitted``). A record signed from
-# now on stores the new summary (checked with the other NIPT checks it names, above). No
-# signed record holds either total: the snapshot keeps the check's four counts, which both
-# are worked out from.
+# sites where his allele is seen, homozygous and heterozygous) and ``hom_alt_not_transmitted``
+# (his homozygous sites where it is not). That count was also served a second time, as
+# ``hom_alt_absent_sites`` (ENG-4); it is served once, under the name the check's other counts
+# and the signed record share. A record signed from now on stores the new summary (checked
+# with the other NIPT checks it names, above). No signed record holds a total: the snapshot
+# keeps the check's four counts, which the totals are worked out from.
 
-_OLD_TOTAL_NAMES = {"cat7_transmitted", "cat8_absent"}
+_OLD_TOTAL_NAMES = {"cat7_transmitted", "cat8_absent", "hom_alt_absent_sites"}
 
 
 def _nipt_report() -> SampleIntegrityReport:
@@ -533,13 +534,13 @@ async def test_the_paternity_check_serves_its_totals_under_what_they_count(monke
     check = served.paternity_check.model_dump()
     assert not _OLD_TOTAL_NAMES & set(check)
     assert check["transmitted_sites"] == 485 + 1020
-    assert check["hom_alt_absent_sites"] == check["hom_alt_not_transmitted"] == 15
+    assert check["hom_alt_not_transmitted"] == 15
     assert check["informative_sites"] == 485 + 15 + 1020 + 980
     assert check["status"] == "pass"
 
     schema = app.openapi()["components"]["schemas"]["SampleIntegrityPaternityCheckOut"]
     assert not _OLD_TOTAL_NAMES & set(schema["properties"])
-    assert {"transmitted_sites", "hom_alt_absent_sites"} <= set(schema["required"])
+    assert "transmitted_sites" in schema["required"]
 
 
 def test_a_record_signed_now_stores_the_new_summary_and_neither_total() -> None:

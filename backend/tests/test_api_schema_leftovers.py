@@ -16,7 +16,15 @@
   structure edit, which keeps the field, is the one that clears data). A request that still
   sends it is answered as before.
 - The SV review save takes no ``acmg`` or ``compound_het``, a small variant's, which it never
-  read (#853). A page loaded before this still sends them, and is answered as before.
+  read. A request that sends them, or any field the save does not take, is refused (422)
+  naming the field, as the small-variant save's is.
+- A gene's homologs carry no Ensembl gene id and no "in the platform" flag: no source set the
+  one, the other was always false, and no screen shows homologs. A homolog cached with them
+  still loads.
+- The small-variant review save takes no ``cnv_acmg``, a structural variant's CNV
+  classification, which it accepted and never read. No page sends it; a request that does is
+  refused (422) naming the field, as is any field the save does not take, so that a client is
+  told its value went nowhere.
 
 All data here are synthetic.
 """
@@ -35,6 +43,7 @@ from backend.app.dependencies import get_current_admin_user, get_current_user
 from backend.app.main import app
 from backend.app.routers import cnvs as cnvs_router
 from backend.app.routers import families as families_router
+from backend.app.routers import families_small_variants as small_router
 from backend.app.routers import families_structural_variants as sv_router
 from backend.app.schemas import (
     FamilyMemberImpactOut,
@@ -45,6 +54,7 @@ from backend.app.schemas import (
     FamilyStructureUpdate,
     GeneHomologOut,
     SmallVariantReviewOut,
+    SmallVariantReviewUpdate,
     StructuralVariantReviewUpdate,
 )
 from backend.app.services import gene_info_bulk_sources, reference_source_service
@@ -129,6 +139,23 @@ def test_a_gene_homolog_serves_no_percent_identity_or_coverage() -> None:
     )
     assert cached.symbol == "Brca1"
     assert not {"percent_id", "percent_coverage"} & set(cached.model_dump())
+
+
+def test_a_gene_homolog_serves_no_ensembl_id_or_platform_flag() -> None:
+    assert not {"ensembl_gene_id", "in_platform"} & set(_properties("GeneHomologOut"))
+
+    # dbNSFP, the one source of homologs, names a mouse and a zebrafish gene by symbol only.
+    written = gene_info_bulk_sources._dbnsfp_homologs(
+        {"mgi_mouse_gene": "Brca1", "zfin_zebrafish_gene": "brca1"}
+    )
+    assert [set(entry) for entry in written] == [{"species_name", "common_name", "symbol", "homology_type"}] * 2
+
+    # A homolog cached with the flag (always false) still loads, without either field.
+    cached = GeneHomologOut.model_validate(
+        {"species_name": "Mus Musculus", "symbol": "Brca1", "ensembl_gene_id": None, "in_platform": False}
+    )
+    assert cached.symbol == "Brca1"
+    assert not {"ensembl_gene_id", "in_platform"} & set(cached.model_dump())
 
 
 @pytest.mark.asyncio
@@ -277,12 +304,22 @@ def test_the_sv_review_request_takes_no_small_variant_acmg_or_compound_het() -> 
     assert {"expected_updated_at", "classification", "tags", "note", "cnv_acmg", "source"} <= set(sv_body)
     # The small-variant save keeps both: it reads them.
     assert {"acmg", "compound_het"} <= set(small_body)
-    # Fields it does not know are left out, as before, not refused.
-    assert StructuralVariantReviewUpdate.model_config.get("extra", "ignore") == "ignore"
+    # A field it does not take is refused, not left out.
+    assert _schemas()[_request_body("/api/families/{family_id}/structural-variants/{variant_id}/review")].get(
+        "additionalProperties"
+    ) is False
+    assert StructuralVariantReviewUpdate.model_config.get("extra") == "forbid"
 
 
-def test_an_sv_review_save_that_still_sends_them_is_answered_as_before(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        pytest.param("acmg", {"criteria": [{"code": "PVS1", "strength": "very_strong", "accepted": True}]}, id="acmg"),
+        pytest.param("compound_het", {"partner_variant_id": "1-100-A-G", "tags": []}, id="compound-het"),
+    ],
+)
+def test_an_sv_review_save_with_a_small_variant_field_is_refused(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, field: str, value: Any
 ) -> None:
     saved: list[StructuralVariantReviewUpdate] = []
 
@@ -298,16 +335,76 @@ def test_an_sv_review_save_that_still_sends_them_is_answered_as_before(
 
     response = client.put(
         f"/api/families/{FAMILY}/structural-variants/sv1/review",
-        json={
-            "tags": ["report"],
-            "note": "Breakpoints checked.",
-            "acmg": {"criteria": [{"code": "PVS1", "strength": "very_strong", "accepted": True}]},
-            "compound_het": {"partner_variant_id": "1-100-A-G", "tags": []},
-        },
+        json={"tags": ["report"], "note": "Breakpoints checked.", field: value},
     )
 
+    # Before, the save went through and the value was dropped without a word.
+    assert response.status_code == 422
+    [error] = response.json()["detail"]
+    assert (error["type"], error["loc"]) == ("extra_forbidden", ["body", field])
+    assert saved == []
+
+    # Without it, the same save is made.
+    response = client.put(
+        f"/api/families/{FAMILY}/structural-variants/sv1/review",
+        json={"tags": ["report"], "note": "Breakpoints checked."},
+    )
     assert response.status_code == 200
     assert response.json()["tags"] == ["report"]
     (payload,) = saved
     assert payload.model_fields_set == {"tags", "note"}
-    assert not hasattr(payload, "acmg") and not hasattr(payload, "compound_het")
+
+
+def test_the_small_variant_review_request_takes_no_cnv_classification() -> None:
+    small_body = _request_body("/api/families/{family_id}/small-variants/{variant_id}/review")
+    assert small_body == "SmallVariantReviewUpdate"
+    assert "cnv_acmg" not in _properties(small_body)
+    # What it takes is what the save reads; any other field is refused, not left out.
+    assert {"expected_updated_at", "classification", "tags", "note", "compound_het", "acmg"} == set(
+        _properties(small_body)
+    )
+    assert _schemas()[small_body].get("additionalProperties") is False
+    assert SmallVariantReviewUpdate.model_config.get("extra") == "forbid"
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        pytest.param("cnv_acmg", {"kind": "loss", "criteria": [{"code": "2A", "points": 1.0, "accepted": True}]}, id="cnv-acmg"),
+        pytest.param("source", "sniffles", id="an-sv-field"),
+    ],
+)
+def test_a_small_variant_review_save_with_a_field_it_does_not_take_is_refused(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, field: str, value: Any
+) -> None:
+    saved: list[SmallVariantReviewUpdate] = []
+
+    async def context(*_args: Any, **_kwargs: Any) -> Any:
+        return SimpleNamespace(family_uuid="fam-uuid", family_id=FAMILY)
+
+    async def save(_session: Any, *, payload: SmallVariantReviewUpdate, variant_id: str, **_kwargs: Any) -> SmallVariantReviewOut:
+        saved.append(payload)
+        return SmallVariantReviewOut(variant_id=variant_id, tags=list(payload.tags), note=payload.note)
+
+    monkeypatch.setattr(small_router, "build_family_metadata_context", context)
+    monkeypatch.setattr(small_router, "upsert_small_variant_review_record", save)
+
+    response = client.put(
+        f"/api/families/{FAMILY}/small-variants/1-100-A-G/review",
+        json={"tags": ["report"], "note": "Checked.", field: value},
+    )
+
+    # Before, the save went through and the value was dropped without a word.
+    assert response.status_code == 422
+    [error] = response.json()["detail"]
+    assert (error["type"], error["loc"]) == ("extra_forbidden", ["body", field])
+    assert saved == []
+
+    # Without it, the same save is made.
+    response = client.put(
+        f"/api/families/{FAMILY}/small-variants/1-100-A-G/review",
+        json={"tags": ["report"], "note": "Checked."},
+    )
+    assert response.status_code == 200
+    (payload,) = saved
+    assert payload.model_fields_set == {"tags", "note"}

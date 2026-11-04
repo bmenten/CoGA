@@ -16,7 +16,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from fastapi import HTTPException
 
-from backend.app.schemas import SmallVariantReviewUpdate
+from backend.app.schemas import SmallVariantReviewUpdate, StructuralVariantReviewUpdate
 from backend.app.services import small_variant_review_pg as svr
 from backend.app.services import structural_variant_review_pg as strv
 from backend.app.services.review_pg_utils import _raise_on_stale_review
@@ -184,7 +184,7 @@ def test_a_stale_structural_variant_save_writes_nothing(monkeypatch) -> None:
                 session,
                 context=_context(),
                 variant_id="DEL-1-1000-2000",
-                payload=SmallVariantReviewUpdate(note="second reviewer", expected_updated_at=T1),
+                payload=StructuralVariantReviewUpdate(note="second reviewer", expected_updated_at=T1),
                 user=_user(),
             )
         )

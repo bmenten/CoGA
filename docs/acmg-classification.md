@@ -44,6 +44,10 @@ differs.
   - a strength the criterion does not take (`ALLOWED_STRENGTHS`, the dialog's `allowedStrengths`:
     BS1 at very strong would score −8).
 
+  The route takes no `cnv_acmg`, a structural variant's classification: a request that sends it,
+  or any other field the save does not take, is refused (`422`) naming the field
+  (`SmallVariantReviewUpdate`).
+
   It then recomputes the points and class, stores the VUS tier in the JSON record, and freezes the
   evidence snapshot (`build_evidence_snapshot`) that the report's drift check later compares
   against. The snapshot holds, as the dialog reads them from the variant's primary transcript
