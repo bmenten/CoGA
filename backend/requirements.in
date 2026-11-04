@@ -27,8 +27,8 @@ asyncpg
 # MarkupSafe.
 alembic==1.20.1
 clickhouse-connect[async]>=1.11.0,<2
-pydantic[email]>=2.14.1
-pydantic-settings>=2.16.1
+pydantic[email]>=2.14.2
+pydantic-settings>=2.16.2
 # PyJWT (not python-jose): python-jose pulls the `ecdsa` package, which has no
 # fix for the Minerva P-256 timing attack (GHSA-wj6h-64fc-37mp). We only use
 # HS256 + RS256, never ECDSA, and PyJWT verifies both without depending on ecdsa.
@@ -44,7 +44,7 @@ prometheus-client==0.26.0
 python-dotenv
 httpx
 # Fixed-reference exploratory ancestry PCA (also already required by pandas).
-numpy==2.2.6
+numpy==2.5.4
 pysam
 # Reading the bigWig signal tracks HiFiCNV ships in a long-read family package
 # (read depth, minor allele fraction) -- see app/services/family_package_bigwig.py.
