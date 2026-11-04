@@ -78,7 +78,7 @@ const reportVariant = {
         { code: 'PP3', strength: 'supporting', accepted: true, auto_suggested: true },
       ],
       point_total: 3,
-      classification: 'Likely Pathogenic - class 4',
+      classification: 'Likely pathogenic - class 4',
     },
   },
 };
@@ -167,7 +167,7 @@ describe('FamilyReportPage', () => {
     // ACMG motivation writes out the accepted criteria.
     expect(screen.getByText('PM2')).toBeInTheDocument();
     expect(screen.getByText('PP3')).toBeInTheDocument();
-    expect(screen.getAllByText(/Likely Pathogenic - class 4/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Likely pathogenic - class 4/).length).toBeGreaterThan(0);
 
     // Gene description and HPO overlap.
     expect(screen.getByText(/tumour suppressor/)).toBeInTheDocument();
@@ -682,7 +682,7 @@ describe('FamilyReportPage', () => {
             drifted: [
               {
                 variant_id: '1-100-A-G',
-                classification: 'Likely Pathogenic - class 4',
+                classification: 'Likely pathogenic - class 4',
                 classified_by: 'bob',
                 classified_at: null,
                 status: 'variant_missing',
@@ -1389,7 +1389,7 @@ describe('FamilyReportPage', () => {
             { code: 'BP4', strength: 'supporting', accepted: false, evidence: null, auto_suggested: true },
           ],
           point_total: 7,
-          classification: 'Likely Pathogenic - class 4',
+          classification: 'Likely pathogenic - class 4',
           vus_tier: null,
         },
         tags: ['acmg_class_4', 'report'],
@@ -1520,7 +1520,7 @@ describe('FamilyReportPage', () => {
       // The reported small variant as signed: classification, the accepted criteria, the
       // evidence frozen when it was classified, and the note.
       const variant = screen.getByRole('heading', { name: '17-43000000-A-G' }).closest('article')!;
-      expect(variant).toHaveTextContent('Likely Pathogenic - class 4 · 7 pts');
+      expect(variant).toHaveTextContent('Likely pathogenic - class 4 · 7 pts');
       expect(variant).toHaveTextContent('based on PS3, PM2 and PP3');
       expect(within(variant).queryByText('BP4')).not.toBeInTheDocument();
       expect(variant).toHaveTextContent('Evidence: Functional assay shows loss of function.');
@@ -1610,7 +1610,7 @@ describe('FamilyReportPage', () => {
       expect(sv).toHaveTextContent('4L-0.30 pts');
       // A small variant's ACMG points are whole and keep their own format.
       const variant = screen.getByRole('heading', { name: '17-43000000-A-G' }).closest('article')!;
-      expect(variant).toHaveTextContent('Likely Pathogenic - class 4 · 7 pts');
+      expect(variant).toHaveTextContent('Likely pathogenic - class 4 · 7 pts');
     });
 
     it('says what the signed record does not hold, for the report and for each variant', async () => {

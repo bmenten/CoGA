@@ -230,7 +230,7 @@ describe('collectReportCriteria', () => {
             { code: 'PP3', strength: 'supporting', accepted: false, auto_suggested: true },
           ],
           point_total: 2,
-          classification: 'Likely Pathogenic - class 4',
+          classification: 'Likely pathogenic - class 4',
         },
       }),
     });

@@ -488,6 +488,28 @@ def test_review_filter_reads_one_id_past_its_cap_in_variant_id_order() -> None:
     ) == (["1-100-A-G", "1-200-A-G"], False)
 
 
+def test_the_classification_filter_matches_a_review_whatever_the_case_of_its_label() -> None:
+    # ENG-6: the class labels are in sentence case ("Likely pathogenic - class 4"); a review or
+    # a filter saved before holds "Likely Pathogenic - class 4". Both sides are lowercased, as
+    # the family page compares them.
+    from backend.app.services.variant_explorer_service import _variant_ids_matching_reviews
+
+    session = _RecordingSession(rows=[("1-100-A-G",)])
+    asyncio.run(
+        _variant_ids_matching_reviews(
+            session,
+            project_ids=[_PROJECT],
+            classifications=["Likely Pathogenic - class 4", " likely pathogenic - class 4", "VUS - class 3"],
+            tags=[],
+            limit=10,
+        )
+    )
+    statement, params = session.calls[0]
+    assert params["classifications"] == ["likely pathogenic - class 4", "vus - class 3"]
+    assert "lower(btrim(r.classification)) IN" in str(statement)
+    assert "lower(btrim(r.compound_het_classification)) IN" in str(statement)
+
+
 def test_review_display_map_binds_any_number_of_variant_ids_as_one_parameter() -> None:
     # An export hydrates up to 50,001 rows. One bind parameter per id (an expanding IN) put
     # more parameters in the statement than the 32,767 asyncpg takes, so every export of a

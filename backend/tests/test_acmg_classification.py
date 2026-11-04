@@ -58,7 +58,7 @@ def test_normalize_stores_vus_tier_only_for_vus() -> None:
     )
     assert hot_blob["vus_tier"] == "hot"
 
-    # Likely Pathogenic → no tier.
+    # Likely pathogenic → no tier.
     lp_blob, _, lp_class = _normalize_acmg_payload(
         AcmgClassificationPayload(criteria=[crit("PVS1", "very_strong"), crit("PM2", "supporting")])
     )
@@ -89,7 +89,7 @@ def test_normalize_recomputes_and_ignores_client_total() -> None:
     assert total == 9
     assert class_key == "acmg_class_4"
     assert blob["point_total"] == 9
-    assert blob["classification"] == "Likely Pathogenic - class 4"
+    assert blob["classification"] == "Likely pathogenic - class 4"
     assert {c["code"] for c in blob["criteria"]} == {"PVS1", "PM2"}
 
 

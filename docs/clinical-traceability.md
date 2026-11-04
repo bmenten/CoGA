@@ -566,6 +566,13 @@ matches* and beside what changed (*This page still matches signed version 2 in e
 version holds. Not in signed version 2, so not compared: the HPO version.*), so neither reads as
 covering it (TRACE-19). Before, they showed `matches` and `changed_sections` alone.
 
+The check reads a class label whatever its case. The class labels were put in sentence case
+(ENG-6), and revision `0013` rewrote the reviews to match; a version signed before keeps
+*Likely Pathogenic - class 4*, and the signed view shows it as signed. Compared as written, every
+such version would read as changed after the upgrade, although only the case differs. Only a
+`classification` that names a class label is read so (`_with_current_class_labels` in
+`report_signout_service.py`); a different class is still a change.
+
 Six gates run first, in this order:
 
 1. **Assembly scope.** A family whose assembly is not in `VALIDATED_ASSEMBLIES` (default

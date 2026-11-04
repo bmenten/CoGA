@@ -668,7 +668,7 @@ describe('FamilySmallVariantsPage', () => {
         expect.stringContaining('classification=Pathogenic+-+class+5'),
       );
       expect(apiMock.get).toHaveBeenCalledWith(
-        expect.stringContaining('classification=Likely+Pathogenic+-+class+4'),
+        expect.stringContaining('classification=Likely+pathogenic+-+class+4'),
       );
       expect(apiMock.get).toHaveBeenCalledWith(
         expect.stringContaining('classification=VUS+-+class+3'),
@@ -884,7 +884,7 @@ describe('FamilySmallVariantsPage', () => {
                   group_id: 'grp-1',
                   partner_variant_ids: ['v2'],
                   gene: 'GENE1',
-                  classification: 'Likely Pathogenic - class 4',
+                  classification: 'Likely pathogenic - class 4',
                   tags: [],
                   tag_metadata: {},
                   note: 'Strong pair-level fit.',

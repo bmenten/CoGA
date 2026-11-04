@@ -5,7 +5,9 @@ tag / classification filter without saying so either, and failed outright past 3
 the review lookup for its rows bound one parameter per variant, more than asyncpg takes.
 Against the real engines this checks that the export reads one row past its cap and says
 when it was cut, that the tag / classification filter takes its first ids in variant_id
-order and says when more matched, and that the review lookup takes any number of ids.
+order and says when more matched, and that the review lookup takes any number of ids. It also
+checks that the classification filter finds a review's class label whatever its case (ENG-6), and
+that a variant reviewed in two families shows the more severe classification (CLIN-69).
 
 ``resolve_scope`` is monkeypatched to one fresh project, so no user is needed; the project,
 its family and the reviews are real Postgres rows, the variants real ClickHouse rows. The
@@ -167,5 +169,65 @@ def test_explorer_export_says_when_it_was_cut(monkeypatch) -> None:
             )
         assert list(reviews) == ["1-100-A-G"]
         assert reviews["1-100-A-G"]["tags"] == {"report"}
+
+    run_closing_stores(_scenario)
+
+
+def test_explorer_finds_and_shows_a_classification_whatever_the_case_of_its_label(monkeypatch) -> None:
+    # ENG-6: the class labels are in sentence case. A review saved before holds "Likely
+    # Pathogenic - class 4"; the classification filter, lowercased on both sides in Postgres,
+    # finds it by either spelling. CLIN-69: a variant reviewed in two families shows the more
+    # severe classification, as stored, whichever review Postgres reads first.
+    import backend.app.services.variant_explorer_service as svc
+    from sqlalchemy import text
+
+    from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
+
+    async def _scenario() -> None:
+        await init_postgres_schema()
+        session_factory = get_postgres_sessionmaker()
+        project, assembly_id = await _seed(session_factory)
+        _scope_to(monkeypatch, svc, project, assembly_id)
+        async with session_factory() as session:
+            for variant_id, classification, pair in (
+                ("1-400-A-G", "Likely benign - class 2", None),
+                ("1-400-A-G", "Likely Pathogenic - class 4", None),
+                ("1-500-A-G", None, "likely pathogenic - CLASS 4"),
+            ):
+                family = (
+                    await session.execute(
+                        text("INSERT INTO families (family_id) VALUES (:f) RETURNING id::text"),
+                        {"f": f"explorer-classified-{uuid4().hex[:12]}"},
+                    )
+                ).scalar_one()
+                await session.execute(
+                    text(
+                        "INSERT INTO family_projects (family_id, project_id) "
+                        "VALUES (CAST(:f AS uuid), CAST(:p AS uuid))"
+                    ),
+                    {"f": family, "p": project},
+                )
+                await session.execute(
+                    text(
+                        "INSERT INTO small_variant_reviews (family_id, variant_id, classification, "
+                        "compound_het_classification, updated_by) VALUES (CAST(:f AS uuid), :v, :c, :p, 'reviewer')"
+                    ),
+                    {"f": family, "v": variant_id, "c": classification, "p": pair},
+                )
+            await session.commit()
+
+        async def _export(**filters):
+            async with session_factory() as session:
+                return await svc.export_global_small_variants(
+                    session, user=None, filters=svc.GlobalVariantFilters(**filters), assembly_id=assembly_id, limit=50
+                )
+
+        for wanted in ("Likely pathogenic - class 4", "Likely Pathogenic - class 4"):
+            found = await _export(classifications=[wanted])
+            assert sorted(row.variant_id for row in found.rows) == ["1-400-A-G", "1-500-A-G"], wanted
+        shown = {row.variant_id: row.classification for row in (await _export()).rows}
+        assert shown["1-400-A-G"] == "Likely Pathogenic - class 4"
+        assert shown["1-500-A-G"] == "likely pathogenic - CLASS 4"
+        assert (await _export(classifications=["likely benign - class 2"])).rows[0].variant_id == "1-400-A-G"
 
     run_closing_stores(_scenario)

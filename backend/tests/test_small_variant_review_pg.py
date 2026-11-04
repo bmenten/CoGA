@@ -4,7 +4,8 @@ A review list selects every field a review is served with and binds its variant 
 array (DATA-3); the summary counts a review that holds only an ACMG record; clearing a review,
 and a re-classification that changes only a criterion's strength, are on the clinical audit
 trail in the save's transaction; a tag the review holds is kept whatever became of its
-definition, and only a tag the save adds is checked.
+definition, and only a tag the save adds is checked. A classification filter, here and on the
+structural-variant page, matches a review's label whatever its case (ENG-6).
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ from backend.app.schemas import AcmgClassificationPayload, AcmgCriterionSelectio
 from backend.app.services import clinical_audit_service
 from backend.app.services import small_variant_review_pg
 from backend.app.services import small_variant_review_tags
+from backend.app.services import structural_variant_review_pg
 from backend.app.services.small_variant_review_acmg import _normalize_acmg_payload
 
 
@@ -44,6 +46,52 @@ class _RecordingSession:
         self.sql = str(statement)
         self.params = params
         return _FakeResult(self.rows)
+
+
+@pytest.mark.parametrize(
+    "lister",
+    [
+        small_variant_review_pg.list_matching_small_variant_review_ids,
+        structural_variant_review_pg.list_matching_structural_variant_review_ids,
+    ],
+    ids=["small", "structural"],
+)
+def test_a_classification_filter_matches_a_review_whatever_the_case_of_its_label(lister) -> None:
+    # ENG-6: the class labels are in sentence case ("Likely pathogenic - class 4"). A review or a
+    # link saved before holds "Likely Pathogenic - class 4"; each finds the other.
+    session = _RecordingSession(
+        [
+            {"variant_id": "1-100-A-G", "classification": "Likely Pathogenic - class 4", "tags": [], "note": None},
+            {"variant_id": "1-200-A-G", "classification": "Likely pathogenic - class 4", "tags": [], "note": None},
+            {"variant_id": "1-300-A-G", "classification": "VUS - class 3", "tags": [], "note": None},
+            {"variant_id": "1-400-A-G", "classification": None, "tags": [], "note": None},
+        ]
+    )
+    for wanted in ("Likely pathogenic - class 4", "Likely Pathogenic - class 4", " likely PATHOGENIC - class 4 "):
+        assert asyncio.run(lister(session, family_uuid="f1", classifications=[wanted])) == {
+            "1-100-A-G",
+            "1-200-A-G",
+        }, wanted
+    assert asyncio.run(lister(session, family_uuid="f1", classifications=["vus - CLASS 3"])) == {"1-300-A-G"}
+
+
+def test_a_compound_het_pair_classification_matches_whatever_its_case() -> None:
+    session = _RecordingSession(
+        [
+            {
+                "variant_id": "1-100-A-G",
+                "classification": None,
+                "tags": [],
+                "compound_het_classification": "Likely Pathogenic - class 4",
+                "compound_het_tags": [],
+            }
+        ]
+    )
+    assert asyncio.run(
+        small_variant_review_pg.list_matching_small_variant_review_ids(
+            session, family_uuid="f1", classifications=["Likely pathogenic - class 4"]
+        )
+    ) == {"1-100-A-G"}
 
 
 @pytest.mark.asyncio
@@ -95,7 +143,7 @@ _STORED_REVIEW = {
     "family_id": "family-uuid",
     "variant_key": 7,
     "variant_id": "var-1",
-    "classification": "Likely Pathogenic - class 4",
+    "classification": "Likely pathogenic - class 4",
     "tags": ["acmg_class_4", "report"],
     "tag_metadata": {"report": {"updated_by": "admin", "updated_at": "2026-09-01T10:00:00+00:00"}},
     "note": "kept",
@@ -273,6 +321,7 @@ def _clear(monkeypatch, existing: dict, payload: SmallVariantReviewUpdate):
 
     async def _update(session_, **kwargs):
         writes.append("update")
+        session.written = kwargs.get("fields")
 
     async def _delete(session_, review_id):
         writes.append("delete")
@@ -409,6 +458,27 @@ def test_a_save_removing_a_tag_whose_definition_is_gone_goes_ahead(monkeypatch) 
 
     assert (writes, reads) == (["update"], [])
     assert audits[0]["new_state"]["tags"] == ["report"]
+
+
+def test_a_class_label_saved_in_another_case_is_stored_as_the_label_is_now(monkeypatch) -> None:
+    # ENG-6: a page loaded before the labels were put in sentence case sends "Likely Pathogenic -
+    # class 4" back with a save that leaves the class alone, and so may any other client. It is
+    # stored as the label is now, so the review keeps the case revision 0013 gave it; text that
+    # names no class label is stored as sent.
+    from backend.app.services.review_pg_utils import _stored_classification
+
+    existing = _stored_review(classification="Likely pathogenic - class 4", tags=["acmg_class_4", "report"])
+    payload = SmallVariantReviewUpdate(
+        classification=" Likely Pathogenic - class 4 ", tags=["acmg_class_4", "report"], note="reported"
+    )
+    _audits, writes, session = _clear(monkeypatch, existing, payload)
+
+    assert writes == ["update"]
+    assert session.written["classification"] == "Likely pathogenic - class 4"
+
+    assert _stored_classification("vus - CLASS 3") == "VUS - class 3"
+    assert _stored_classification("Likely pathogenic, see note") == "Likely pathogenic, see note"
+    assert _stored_classification("   ") is None and _stored_classification(None) is None
 
 
 def test_a_save_may_add_a_usable_tag_beside_one_whose_definition_is_gone(monkeypatch) -> None:

@@ -151,7 +151,7 @@ vi.mock('../../../lib/api', () => ({
             },
             {
               key: 'acmg_class_4',
-              label: 'Likely Pathogenic - class 4',
+              label: 'Likely pathogenic - class 4',
               group: 'classification',
               color: '#ea580c',
               sort_order: 120,

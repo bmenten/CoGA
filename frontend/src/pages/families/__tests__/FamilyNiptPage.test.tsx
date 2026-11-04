@@ -576,7 +576,7 @@ describe('FamilyNiptPage', () => {
             name: 'Reported, classified',
             filters: {
               review_tags: ['report'],
-              classification: ['Pathogenic - class 5', 'Likely Pathogenic - class 4'],
+              classification: ['Pathogenic - class 5', 'Likely pathogenic - class 4'],
               has_notes: true,
               prioritize: true,
             },
