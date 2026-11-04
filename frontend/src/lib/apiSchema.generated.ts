@@ -2312,7 +2312,7 @@ export interface ParaphaseRegionInfoOut {
 }
 
 export interface ParaphaseReviewUpdate {
-  expected_updated_at?: string | null;
+  expected_updated_at: string | null;
   classification?: "affected" | "carrier" | "risk_allele" | "normal" | "uncertain" | null;
   tags?: string[];
   note?: string | null;
@@ -2922,7 +2922,7 @@ export interface RepeatExpansionMotifCountOut {
 }
 
 export interface RepeatExpansionReviewUpdate {
-  expected_updated_at?: string | null;
+  expected_updated_at: string | null;
   classification?: "pathogenic_expansion" | "reduced_penetrance" | "premutation" | "intermediate" | "normal" | "uncertain" | null;
   tags?: string[];
   note?: string | null;

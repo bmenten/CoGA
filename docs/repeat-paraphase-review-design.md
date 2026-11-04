@@ -243,7 +243,8 @@ request-ID's.
 - de controle-op-stuurtekens van request-parameters geldt ook voor `locus_id` en `gene_symbol`.
 
 **Concurrency (REQ-TRACE-010):**
-- `expected_updated_at` verplicht;
+- `expected_updated_at` verplicht: de `updated_at` die de client laadde, of null als er geen review was;
+  zonder dat veld weigert de API de opslag (422, `_FindingReviewUpdate` in `schemas/reviews.py`);
 - een review die intussen gewijzigd is, geeft 409 met de huidige review;
 - opslagen van één sleutel worden geserialiseerd (rijlock in dezelfde transactie).
 
