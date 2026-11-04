@@ -1,6 +1,6 @@
 # 5. Login & authenticatie
 
-Dit hoofdstuk beschrijft hoe een gebruiker toegang krijgt tot CoGA. Bij de ingebruikname meldt iedereen zich aan met zijn Microsoft-account van het ziekenhuis of de universiteit (Microsoft Entra ID, vroeger Azure AD; zie *Aanmelden met Microsoft*). Daarnaast bestaat het lokale aanmelden met e-mailadres en wachtwoord: in ontwikkeling voor iedereen, naast Microsoft alleen voor de noodbeheerder. Het hoofdstuk volgt eerst dat lokale aanmelden, van formulier tot token en sessie, en het registreren. Wat een ingelogde gebruiker daarna mag zien, staat in [hoofdstuk 2](02-beveiliging-rollen-rechten.md).
+Dit hoofdstuk beschrijft hoe een gebruiker toegang krijgt tot CoGA. Bij de ingebruikname meldt iedereen zich aan met zijn Microsoft-account van het ziekenhuis of de universiteit (Microsoft Entra ID, vroeger Azure AD; zie *Aanmelden met Microsoft*), of via de CAS-server van de organisatie, zoals `login.ugent.be` (zie *Aanmelden via CAS*). Daarnaast bestaat het lokale aanmelden met e-mailadres en wachtwoord: in ontwikkeling voor iedereen, naast Microsoft alleen voor de noodbeheerder. Het hoofdstuk volgt eerst dat lokale aanmelden, van formulier tot token en sessie, en het registreren. Wat een ingelogde gebruiker daarna mag zien, staat in [hoofdstuk 2](02-beveiliging-rollen-rechten.md).
 
 ## Begrippen
 
@@ -123,7 +123,7 @@ Iedereen kan zich registreren via `POST /auth/signup` (pagina `frontend/src/page
 
 Een gebruiker kan pas inloggen nadat een beheerder het account activeert (`PATCH /auth/users/{user_id}`, alleen voor beheerders). Hetzelfde endpoint zet ook de globale rol (`viewer`, `superuser` of `admin`); op de pagina *Users* gebeurt dat met een keuzelijst die eerst om bevestiging vraagt. Niemand wijzigt zijn eigen rol of deactiveert zijn eigen account. De rol van de noodbeheerder verandert niet, en hij kan niet worden gedeactiveerd. De auditregel van het verzoek legt vast wat er veranderde, elk veld van en naar (`request_meta.account_change`). Projecttoegang regelt een beheerder in de projectinstellingen.
 
-Met Microsoft-aanmelding bestaat registreren niet: `POST /auth/signup` antwoordt `403`, en de eerste aanmelding met Microsoft maakt het account (hieronder).
+Met Microsoft-aanmelding of aanmelding via CAS bestaat registreren niet: `POST /auth/signup` antwoordt `403`, en de eerste aanmelding maakt het account (hieronder).
 
 **Waar in de code:** `signup` en `update_user` in `backend/app/routers/auth.py`; het aanmaken van het account in `backend/app/services/metadata_service.py`; de minimale lengte in `backend/app/schemas/auth.py`.
 
@@ -160,13 +160,30 @@ Meldt in een ander tabblad een ander account zich aan (op een inlogpagina die da
 
 **Waar in de code:** `backend/app/core/azure.py` (de controle van het token), `backend/app/services/user_accounts.py` (het account en de noodbeheerder), de Microsoft-tak in `get_current_user` (`backend/app/dependencies.py`), `GET /auth/config` in `backend/app/routers/auth.py`, en in de browser `frontend/src/lib/microsoftSignIn.ts` en `frontend/src/pages/auth/LoginPage.tsx`.
 
+## Aanmelden via CAS (login.ugent.be)
+
+Biedt de organisatie geen app-registratie in Entra ID aan maar een CAS-server, dan meldt iedereen zich daar aan (SEC-4). Aan de UGent is dat `login.ugent.be`, dat zelf via Microsoft Entra ID aanmeldt. De backend zet het aan met `CAS_SERVER_URL` (de CAS-server, `https://login.ugent.be`) en `CAS_SERVICE_URL` (de inlogpagina van CoGA zelf, `https://<host>/login`). Het zijn beide of geen van beide; naast Microsoft-aanmelding, met een adres dat geen HTTPS is (buiten ontwikkeling) of met een andere service dan `/login` start de backend niet. `CAS_DISPLAY_NAME` (standaard `UGent`) is de naam op de knop.
+
+De CAS-server geeft CoGA de attributen die bij de registratie van de applicatie gekozen zijn. CoGA heeft er vier nodig: `azureObjectId` (het object-ID van de gebruiker in Entra ID), `mail`, `givenName` en `surname` (de namen zijn instelbaar met `CAS_*_ATTRIBUTE`). Zonder object-ID weigert CoGA de aanmelding.
+
+1. De inlogpagina vraagt de backend hoe gebruikers zich aanmelden (`GET /auth/config`: de inlogpagina van de CAS-server voor de service van CoGA, en zijn afmeldpagina). Met CAS toont ze alleen de knop *Sign in with UGent*, zonder wachtwoordformulier en zonder registratie.
+2. De browser gaat naar de CAS-server. De pagina die de gebruiker vroeg, wacht in de sessieopslag van het tabblad: de CAS-server stuurt de browser terug naar precies `/login`.
+3. De CAS-server stuurt de browser terug naar `/login` met een *service ticket*, dat één keer bruikbaar is. De pagina haalt het uit de adresbalk en geeft het aan de API (`POST /auth/cas/session`).
+4. De backend controleert het ticket bij de CAS-server (`/serviceValidate`, over HTTPS, voor de service van CoGA). Een waarde die geen service ticket is, gaat niet naar de CAS-server. Het antwoord leest hij alleen als het een CAS-antwoord is van hoogstens 64 KiB, zonder documenttype, zodat er geen entiteit wordt uitgevouwen.
+5. Het account hoort bij het object-ID, nooit bij een e-mailadres: het is hetzelfde account dat een latere Microsoft-aanmelding vindt. Is er nog geen, dan maakt de eerste aanmelding het aan als viewer zonder project, **inactief**, en krijgt `ADMIN_EMAIL` een mail. CAS laat elk account van de organisatie binnen, ook studenten: daarom wacht het nieuwe account op een beheerder, die het op de pagina *Users* activeert. Tot dan antwoordt de aanmelding `403` met die boodschap.
+6. Is het account actief, dan krijgt de browser het eigen token van CoGA (HS256), zoals bij een wachtwoord. Met CAS meldt zo'n token alleen een account aan dat aan een object-ID gebonden is, of de noodbeheerder zolang `AZURE_ADMIN_OVERRIDE` aan staat.
+
+Een geweigerd ticket antwoordt `401` en telt mee voor het bron-IP (`auth_login_attempts`, scope `cas_ip`); na te veel weigeringen antwoordt de aanmelding `429`. Een geslaagde aanmelding telt niet, zodat collega's achter hetzelfde adres elkaar niet ophouden. Het ticket en het antwoord van de CAS-server komen niet in de log. **Afmelden** wist de sessie van CoGA; de inlogpagina biedt daarna *Sign out of UGent* aan, dat de sessie op de CAS-server beëindigt.
+
+**Waar in de code:** `backend/app/core/cas.py` (het ticket en het antwoord), `cas_session` in `backend/app/routers/auth.py`, `_cas_session_user` in `backend/app/dependencies.py`, `backend/app/services/user_accounts.py` (het account), en in de browser `frontend/src/lib/casSignIn.ts` en `frontend/src/pages/auth/LoginPage.tsx`.
+
 ## Veiligheid en traceerbaarheid
 
 - **Elk verzoek wordt gelogd,** ook elke loginpoging, met statuscode, tijdstip, bron-IP en user-agent (hoofdstuk 7). Een mislukte login is herkenbaar aan `400`, `403` of `429`.
 - **Wachtwoorden en tokens komen niet in de logs.** De auditlog maskeert gevoelige velden, ook in het formulier van `/auth/token`.
 - **De tabel `auth_login_attempts`** toont per e-mailadres en IP de mislukkingen en blokkeringen: bruikbaar om een aanval te herkennen.
 - **De noodaanmelding laat altijd een spoor na** in de log en in de auditregel van elk verzoek (`request_meta.emergency_sign_in`).
-- **Een account dat de eerste Microsoft-aanmelding maakte, en elke wijziging van rol of activatie,** staan in de auditregel van het verzoek, elk veld van en naar (`request_meta.account_change`).
+- **Een account dat de eerste Microsoft- of CAS-aanmelding maakte, en elke wijziging van rol of activatie,** staan in de auditregel van het verzoek, elk veld van en naar (`request_meta.account_change`).
 - **Korte tokens en uitloggen bij `401`** beperken de gevolgen van een gelekt token.
 
 ## Belangrijkste bestanden
@@ -176,10 +193,12 @@ Meldt in een ander tabblad een ander account zich aan (op een inlogpagina die da
 | `backend/app/routers/auth.py` | Login, token, registratie, profiel en gebruikersbeheer |
 | `backend/app/dependencies.py` | Wachtwoorden (bcrypt), tokens maken en controleren, Microsoft-tak en noodbeheerder |
 | `backend/app/core/azure.py` | Controle van Microsoft-tokens |
+| `backend/app/core/cas.py` | Controle van een CAS-ticket bij de CAS-server |
 | `backend/app/services/user_accounts.py` | Het account van een Microsoft-aanmelding; de noodbeheerder |
 | `backend/app/services/auth_rate_limit_pg.py` | Rate limiting en lockout |
 | `backend/app/schemas/auth.py` | Invoer van login en registratie (minimale wachtwoordlengte) |
 | `backend/db/schema/postgres/01_access.sql` | De tabellen `users` en `auth_login_attempts` |
 | `frontend/src/pages/auth/LoginPage.tsx` · `SignupPage.tsx` | Inloggen (ook met Microsoft en op `/login/emergency`) en registreren |
 | `frontend/src/lib/microsoftSignIn.ts` | De aanmelding met Microsoft in de browser (MSAL) |
+| `frontend/src/lib/casSignIn.ts` | De aanmelding via CAS in de browser |
 | `frontend/src/lib/auth.ts` · `frontend/src/lib/storage.ts` | De sessie in de browser |

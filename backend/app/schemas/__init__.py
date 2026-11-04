@@ -43,6 +43,8 @@ from .auth import (
     Token,
     SignupAck,
     UserRefOut,
+    CasSignInOut,
+    CasTicketIn,
     MicrosoftSignInOut,
     SignInConfigOut,
 )
@@ -432,6 +434,8 @@ __all__ = [
     "UserUpdate",
     "Token",
     "SignupAck",
+    "CasSignInOut",
+    "CasTicketIn",
     "MicrosoftSignInOut",
     "SignInConfigOut",
     "UserRefOut",

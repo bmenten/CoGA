@@ -36,9 +36,10 @@ class UserRead(BaseModel):
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     affiliation: Optional[str] = None
-    # How the account signs in (SEC-4): with Microsoft, bound to its object ID in the
-    # directory, or with a local password.
-    sign_in: Literal["microsoft", "password"] = "password"
+    # How the account signs in (SEC-4): through the organisation, bound to its object ID in
+    # the directory (with Microsoft, or through the organisation's CAS server when that is the
+    # sign-in configured), or with a local password.
+    sign_in: Literal["microsoft", "cas", "password"] = "password"
     is_active: bool
     role: str
     # The projects the user is a member of, and those among them where they are a reader
@@ -73,11 +74,28 @@ class MicrosoftSignInOut(BaseModel):
     api_scope: str
 
 
+class CasSignInOut(BaseModel):
+    """Where the browser signs a user in through the organisation's CAS server, and signs out
+    of it: none of it is secret."""
+
+    display_name: str
+    login_url: str
+    logout_url: str
+
+
 class SignInConfigOut(BaseModel):
-    """How users sign in: with Microsoft when ``microsoft`` is given, else with a password
-    (and then a new user signs up)."""
+    """How users sign in: with Microsoft when ``microsoft`` is given, through the
+    organisation's CAS server when ``cas`` is, else with a password (and then a new user
+    signs up)."""
 
     microsoft: Optional[MicrosoftSignInOut] = None
+    cas: Optional[CasSignInOut] = None
+
+
+class CasTicketIn(BaseModel):
+    """The service ticket the CAS server sent the browser back with."""
+
+    ticket: str = Field(min_length=1, max_length=256)
 
 
 class SignupAck(BaseModel):

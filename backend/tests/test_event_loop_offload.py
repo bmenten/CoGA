@@ -109,8 +109,9 @@ def test_gene_phenotype_scoring_runs_off_the_event_loop(monkeypatch: pytest.Monk
 class _FakeSmtp:
     sent: list[tuple[str, object]] = []
 
-    def __init__(self, host: str) -> None:
+    def __init__(self, host: str, timeout: float | None = None) -> None:
         self.host = host
+        self.timeout = timeout
 
     def __enter__(self) -> "_FakeSmtp":
         return self

@@ -5,13 +5,14 @@ export const AUTH_STORAGE_KEYS = {
   username: 'username',
   role: 'role',
   // How this session signed in: with Microsoft, whose access token the API client renews
-  // before it expires, or with a password (SEC-4).
+  // before it expires, through the organisation's CAS server, or with a password (SEC-4). The
+  // last two hold a token this server issued.
   signIn: 'sign_in',
 } as const;
 
 export type UserRole = 'admin' | 'superuser' | 'viewer' | null;
 
-export type SignInMethod = 'microsoft' | 'password';
+export type SignInMethod = 'microsoft' | 'cas' | 'password';
 
 export function getAuthToken(): string | null {
   return storage.getItem(AUTH_STORAGE_KEYS.token);
@@ -27,7 +28,8 @@ export function getStoredRole(): UserRole {
 }
 
 export function getSessionSignIn(): SignInMethod {
-  return storage.getItem(AUTH_STORAGE_KEYS.signIn) === 'microsoft' ? 'microsoft' : 'password';
+  const signIn = storage.getItem(AUTH_STORAGE_KEYS.signIn);
+  return signIn === 'microsoft' || signIn === 'cas' ? signIn : 'password';
 }
 
 export function isAuthenticated(): boolean {

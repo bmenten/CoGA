@@ -1064,7 +1064,7 @@ python docs/handleiding/build_site.py
 </table></div>
 </section><section id="hs-5" class="chapter">
 <h1>5. Login &amp; authenticatie</h1>
-<p>Dit hoofdstuk beschrijft hoe een gebruiker toegang krijgt tot CoGA. Bij de ingebruikname meldt iedereen zich aan met zijn Microsoft-account van het ziekenhuis of de universiteit (Microsoft Entra ID, vroeger Azure AD; zie <em>Aanmelden met Microsoft</em>). Daarnaast bestaat het lokale aanmelden met e-mailadres en wachtwoord: in ontwikkeling voor iedereen, naast Microsoft alleen voor de noodbeheerder. Het hoofdstuk volgt eerst dat lokale aanmelden, van formulier tot token en sessie, en het registreren. Wat een ingelogde gebruiker daarna mag zien, staat in <a href="#hs-2">hoofdstuk 2</a>.</p>
+<p>Dit hoofdstuk beschrijft hoe een gebruiker toegang krijgt tot CoGA. Bij de ingebruikname meldt iedereen zich aan met zijn Microsoft-account van het ziekenhuis of de universiteit (Microsoft Entra ID, vroeger Azure AD; zie <em>Aanmelden met Microsoft</em>), of via de CAS-server van de organisatie, zoals <code>login.ugent.be</code> (zie <em>Aanmelden via CAS</em>). Daarnaast bestaat het lokale aanmelden met e-mailadres en wachtwoord: in ontwikkeling voor iedereen, naast Microsoft alleen voor de noodbeheerder. Het hoofdstuk volgt eerst dat lokale aanmelden, van formulier tot token en sessie, en het registreren. Wat een ingelogde gebruiker daarna mag zien, staat in <a href="#hs-2">hoofdstuk 2</a>.</p>
 <h2>Begrippen</h2>
 <ul>
 <li><strong>JWT</strong> (<em>JSON Web Token</em>): een klein, digitaal ondertekend bewijs dat de server na een geslaagde login meegeeft. Het bevat enkele gegevens (<em>claims</em>), zoals wie je bent en tot wanneer het geldt. Omdat het ondertekend is met een geheime sleutel, kan de client het niet vervalsen.</li>
@@ -1214,7 +1214,7 @@ python docs/handleiding/build_site.py
 <li>De pagina toont die bevestiging: het account wacht op activatie.</li>
 </ul>
 <p>Een gebruiker kan pas inloggen nadat een beheerder het account activeert (<code>PATCH /auth/users/{user_id}</code>, alleen voor beheerders). Hetzelfde endpoint zet ook de globale rol (<code>viewer</code>, <code>superuser</code> of <code>admin</code>); op de pagina <em>Users</em> gebeurt dat met een keuzelijst die eerst om bevestiging vraagt. Niemand wijzigt zijn eigen rol of deactiveert zijn eigen account. De rol van de noodbeheerder verandert niet, en hij kan niet worden gedeactiveerd. De auditregel van het verzoek legt vast wat er veranderde, elk veld van en naar (<code>request_meta.account_change</code>). Projecttoegang regelt een beheerder in de projectinstellingen.</p>
-<p>Met Microsoft-aanmelding bestaat registreren niet: <code>POST /auth/signup</code> antwoordt <code>403</code>, en de eerste aanmelding met Microsoft maakt het account (hieronder).</p>
+<p>Met Microsoft-aanmelding of aanmelding via CAS bestaat registreren niet: <code>POST /auth/signup</code> antwoordt <code>403</code>, en de eerste aanmelding maakt het account (hieronder).</p>
 <p class="waar"><strong>Waar in de code:</strong> <code>signup</code> en <code>update_user</code> in <code>backend/app/routers/auth.py</code>; het aanmaken van het account in <code>backend/app/services/metadata_service.py</code>; de minimale lengte in <code>backend/app/schemas/auth.py</code>.</p>
 <h2>Aanmelden met Microsoft (Azure AD / Entra ID)</h2>
 <p>Bij de ingebruikname meldt iedereen zich met zijn Microsoft-account aan (SEC-4). Microsoft Entra ID controleert dan het wachtwoord en de tweede factor (MFA); IT regelt het opnieuw instellen van een wachtwoord en het afsluiten van wie vertrekt. De backend zet het aan zodra <code>AZURE_TENANT_ID</code> (het ID van de organisatie) en <code>AZURE_CLIENT_ID</code> (het ID van de app-registratie van CoGA) zijn ingesteld. Het zijn beide of geen van beide: met de helft ervan, een tenant die geen GUID is (zoals <code>common</code>) of de noodoverride zonder Microsoft start de backend niet. Wat IT daarvoor aanmaakt, staat in <code>docs/deployment-gcp.md</code> §12.12.</p>
@@ -1240,13 +1240,26 @@ python docs/handleiding/build_site.py
 <p>Afmelden in één tabblad beëindigt de sessie in elk tabblad van de browser. De tabbladen delen de sessie, en de browser meldt elk ander tabblad dat het token weg is. Dat tabblad wist dan zijn gegevens in de cache en de tokens van MSAL, en toont de inlogpagina (<code>Layout.tsx</code>). Vroeger bleef een tabblad dat het token zelf had geschreven (bij een aanmelding of een vernieuwd Microsoft-token) na zo'n afmelding aangemeld: het toonde de gegevens van de gebruiker, en zijn volgende vernieuwing meldde elk tabblad weer aan (gevonden bij SEC-36).</p>
 <p>Meldt in een ander tabblad een ander account zich aan (op een inlogpagina die daar nog openstond), dan eindigt de sessie op dezelfde manier. De andere tabbladen zien de gebruikersnaam, het adres van het account, veranderen. Ook de sessie van dat andere account wordt gewist, zodat geen tabblad verdergaat als een account dat het niet toont; dat account meldt zich opnieuw aan. Een vernieuwd token, en een nieuwe aanmelding van hetzelfde account, laten de gebruikersnaam staan, en de sessie loopt door. Vroeger verving zo'n aanmelding de sessie zonder afmelden: een tabblad toonde dan nog de pagina's van het eerste account, terwijl zijn verzoeken, en dus wat de audit vastlegt over wie wat deed, als het andere account vertrokken (gevonden bij SEC-36).</p>
 <p class="waar"><strong>Waar in de code:</strong> <code>backend/app/core/azure.py</code> (de controle van het token), <code>backend/app/services/user_accounts.py</code> (het account en de noodbeheerder), de Microsoft-tak in <code>get_current_user</code> (<code>backend/app/dependencies.py</code>), <code>GET /auth/config</code> in <code>backend/app/routers/auth.py</code>, en in de browser <code>frontend/src/lib/microsoftSignIn.ts</code> en <code>frontend/src/pages/auth/LoginPage.tsx</code>.</p>
+<h2>Aanmelden via CAS (login.ugent.be)</h2>
+<p>Biedt de organisatie geen app-registratie in Entra ID aan maar een CAS-server, dan meldt iedereen zich daar aan (SEC-4). Aan de UGent is dat <code>login.ugent.be</code>, dat zelf via Microsoft Entra ID aanmeldt. De backend zet het aan met <code>CAS_SERVER_URL</code> (de CAS-server, <code>https://login.ugent.be</code>) en <code>CAS_SERVICE_URL</code> (de inlogpagina van CoGA zelf, <code>https://&lt;host&gt;/login</code>). Het zijn beide of geen van beide; naast Microsoft-aanmelding, met een adres dat geen HTTPS is (buiten ontwikkeling) of met een andere service dan <code>/login</code> start de backend niet. <code>CAS_DISPLAY_NAME</code> (standaard <code>UGent</code>) is de naam op de knop.</p>
+<p>De CAS-server geeft CoGA de attributen die bij de registratie van de applicatie gekozen zijn. CoGA heeft er vier nodig: <code>azureObjectId</code> (het object-ID van de gebruiker in Entra ID), <code>mail</code>, <code>givenName</code> en <code>surname</code> (de namen zijn instelbaar met <code>CAS_*_ATTRIBUTE</code>). Zonder object-ID weigert CoGA de aanmelding.</p>
+<ol>
+<li>De inlogpagina vraagt de backend hoe gebruikers zich aanmelden (<code>GET /auth/config</code>: de inlogpagina van de CAS-server voor de service van CoGA, en zijn afmeldpagina). Met CAS toont ze alleen de knop <em>Sign in with UGent</em>, zonder wachtwoordformulier en zonder registratie.</li>
+<li>De browser gaat naar de CAS-server. De pagina die de gebruiker vroeg, wacht in de sessieopslag van het tabblad: de CAS-server stuurt de browser terug naar precies <code>/login</code>.</li>
+<li>De CAS-server stuurt de browser terug naar <code>/login</code> met een <em>service ticket</em>, dat één keer bruikbaar is. De pagina haalt het uit de adresbalk en geeft het aan de API (<code>POST /auth/cas/session</code>).</li>
+<li>De backend controleert het ticket bij de CAS-server (<code>/serviceValidate</code>, over HTTPS, voor de service van CoGA). Een waarde die geen service ticket is, gaat niet naar de CAS-server. Het antwoord leest hij alleen als het een CAS-antwoord is van hoogstens 64 KiB, zonder documenttype, zodat er geen entiteit wordt uitgevouwen.</li>
+<li>Het account hoort bij het object-ID, nooit bij een e-mailadres: het is hetzelfde account dat een latere Microsoft-aanmelding vindt. Is er nog geen, dan maakt de eerste aanmelding het aan als viewer zonder project, <strong>inactief</strong>, en krijgt <code>ADMIN_EMAIL</code> een mail. CAS laat elk account van de organisatie binnen, ook studenten: daarom wacht het nieuwe account op een beheerder, die het op de pagina <em>Users</em> activeert. Tot dan antwoordt de aanmelding <code>403</code> met die boodschap.</li>
+<li>Is het account actief, dan krijgt de browser het eigen token van CoGA (HS256), zoals bij een wachtwoord. Met CAS meldt zo'n token alleen een account aan dat aan een object-ID gebonden is, of de noodbeheerder zolang <code>AZURE_ADMIN_OVERRIDE</code> aan staat.</li>
+</ol>
+<p>Een geweigerd ticket antwoordt <code>401</code> en telt mee voor het bron-IP (<code>auth_login_attempts</code>, scope <code>cas_ip</code>); na te veel weigeringen antwoordt de aanmelding <code>429</code>. Een geslaagde aanmelding telt niet, zodat collega's achter hetzelfde adres elkaar niet ophouden. Het ticket en het antwoord van de CAS-server komen niet in de log. <strong>Afmelden</strong> wist de sessie van CoGA; de inlogpagina biedt daarna <em>Sign out of UGent</em> aan, dat de sessie op de CAS-server beëindigt.</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/core/cas.py</code> (het ticket en het antwoord), <code>cas_session</code> in <code>backend/app/routers/auth.py</code>, <code>_cas_session_user</code> in <code>backend/app/dependencies.py</code>, <code>backend/app/services/user_accounts.py</code> (het account), en in de browser <code>frontend/src/lib/casSignIn.ts</code> en <code>frontend/src/pages/auth/LoginPage.tsx</code>.</p>
 <h2>Veiligheid en traceerbaarheid</h2>
 <ul>
 <li><strong>Elk verzoek wordt gelogd,</strong> ook elke loginpoging, met statuscode, tijdstip, bron-IP en user-agent (hoofdstuk 7). Een mislukte login is herkenbaar aan <code>400</code>, <code>403</code> of <code>429</code>.</li>
 <li><strong>Wachtwoorden en tokens komen niet in de logs.</strong> De auditlog maskeert gevoelige velden, ook in het formulier van <code>/auth/token</code>.</li>
 <li><strong>De tabel <code>auth_login_attempts</code></strong> toont per e-mailadres en IP de mislukkingen en blokkeringen: bruikbaar om een aanval te herkennen.</li>
 <li><strong>De noodaanmelding laat altijd een spoor na</strong> in de log en in de auditregel van elk verzoek (<code>request_meta.emergency_sign_in</code>).</li>
-<li><strong>Een account dat de eerste Microsoft-aanmelding maakte, en elke wijziging van rol of activatie,</strong> staan in de auditregel van het verzoek, elk veld van en naar (<code>request_meta.account_change</code>).</li>
+<li><strong>Een account dat de eerste Microsoft- of CAS-aanmelding maakte, en elke wijziging van rol of activatie,</strong> staan in de auditregel van het verzoek, elk veld van en naar (<code>request_meta.account_change</code>).</li>
 <li><strong>Korte tokens en uitloggen bij <code>401</code></strong> beperken de gevolgen van een gelekt token.</li>
 </ul>
 <h2>Belangrijkste bestanden</h2>
@@ -1271,6 +1284,10 @@ python docs/handleiding/build_site.py
 <td>Controle van Microsoft-tokens</td>
 </tr>
 <tr>
+<td><code>backend/app/core/cas.py</code></td>
+<td>Controle van een CAS-ticket bij de CAS-server</td>
+</tr>
+<tr>
 <td><code>backend/app/services/user_accounts.py</code></td>
 <td>Het account van een Microsoft-aanmelding; de noodbeheerder</td>
 </tr>
@@ -1293,6 +1310,10 @@ python docs/handleiding/build_site.py
 <tr>
 <td><code>frontend/src/lib/microsoftSignIn.ts</code></td>
 <td>De aanmelding met Microsoft in de browser (MSAL)</td>
+</tr>
+<tr>
+<td><code>frontend/src/lib/casSignIn.ts</code></td>
+<td>De aanmelding via CAS in de browser</td>
 </tr>
 <tr>
 <td><code>frontend/src/lib/auth.ts</code> · <code>frontend/src/lib/storage.ts</code></td>

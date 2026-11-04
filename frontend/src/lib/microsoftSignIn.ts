@@ -26,10 +26,11 @@ let clientRequest: Promise<PublicClientApplication> | null = null;
 let redirectRequest: Promise<CompletedMicrosoftSignIn | null> | null = null;
 let tokenRequest: Promise<string | null> | null = null;
 
-/** How users sign in, as the backend says: with Microsoft, or (null) with a password. */
+/** How users sign in, as the backend says: with Microsoft, through the organisation's CAS
+ * server, or (both null) with a password. */
 export const fetchSignInConfig = async (): Promise<SignInConfigOut> => {
-  const response = await api.get('/auth/config');
-  return { microsoft: (response?.data as SignInConfigOut | undefined)?.microsoft ?? null };
+  const data = (await api.get('/auth/config'))?.data as SignInConfigOut | undefined;
+  return { microsoft: data?.microsoft ?? null, cas: data?.cas ?? null };
 };
 
 export const signInConfigQuery = queryOptions({

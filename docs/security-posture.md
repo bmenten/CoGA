@@ -33,6 +33,23 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   (below). A half configuration is refused at startup, in every environment: a tenant without
   a client ID, a tenant that is no GUID (such as `common`), a scope or the override without
   Azure AD.
+- ✅ **Sign-in through the organisation's CAS server (SEC-4).** Where the organisation offers
+  CAS rather than an Entra app registration, such as Ghent University's `login.ugent.be`
+  (`CAS_SERVER_URL`, `CAS_SERVICE_URL`; not beside Microsoft sign-in), the browser goes to the
+  CAS login page for CoGA's service and comes back to /login with a one-time service ticket.
+  `core/cas.py` checks the ticket with the CAS server (`/serviceValidate`, over HTTPS, for that
+  same service, ten-second timeout, no redirects followed), refuses a value that is no service
+  ticket before asking, and reads the answer only when it is a CAS answer of at most 64 KiB
+  without a document type declaration, so no entity is expanded. The account is bound to the
+  Entra object ID the server releases (`azureObjectId`, `users.azure_object_id`), the same
+  account a Microsoft sign-in finds, never linked by e-mail address. CAS admits every account
+  of the organisation, so a first sign-in makes an **inactive** viewer account in no project and
+  e-mails `ADMIN_EMAIL`; it signs in once an administrator activates it. A refused ticket
+  answers 401 and counts against the source address (`auth_login_attempts`, scope `cas_ip`),
+  which is throttled. The session is CoGA's own HS256 token, which then signs in only an
+  account bound to an object ID, or the emergency administrator while `AZURE_ADMIN_OVERRIDE` is
+  on (logged and flagged). There is no password sign-in or sign-up. Neither the ticket nor the
+  CAS answer reaches the log.
 - ✅ **A user's own records stay with the account (SEC-32).** A later Microsoft sign-in updates
   the account's e-mail address and user name from the token, so nothing a user owns is found by
   either. It is found by the account's id:

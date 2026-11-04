@@ -445,7 +445,12 @@ CHECKPOINT_ROUTES = {
     ("POST", "/api/families/{family_id}/report/sign-out"),
 }
 # Sign-in and sign-up: no one is signed in yet.
-PUBLIC_ROUTES = {("POST", "/api/auth/signup"), ("POST", "/api/auth/login"), ("POST", "/api/auth/token")}
+PUBLIC_ROUTES = {
+    ("POST", "/api/auth/signup"),
+    ("POST", "/api/auth/login"),
+    ("POST", "/api/auth/token"),
+    ("POST", "/api/auth/cas/session"),
+}
 
 
 def _change_routes() -> dict[tuple[str, str], Any]:

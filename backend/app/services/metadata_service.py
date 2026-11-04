@@ -9,6 +9,7 @@ from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.config import settings
 from ..core.sql import require_uuid, uuid_list_bindparam, uuid_values
 from ..schemas import (
     ApiId,
@@ -133,6 +134,12 @@ def _family_member_out_from_row(row: dict[str, Any]) -> FamilyMemberOut:
     )
 
 
+def organisation_sign_in_name() -> str:
+    """How an account bound to an object ID signs in (SEC-4): through the organisation's CAS
+    server when that is the sign-in configured, else with Microsoft."""
+    return "cas" if settings.cas_enabled else "microsoft"
+
+
 def _user_read_from_mapping(mapping: dict[str, Any]) -> UserRead:
     return UserRead(
         id=ApiId(str(mapping["id"])),
@@ -141,7 +148,7 @@ def _user_read_from_mapping(mapping: dict[str, Any]) -> UserRead:
         first_name=mapping.get("first_name") or "",
         last_name=mapping.get("last_name") or "",
         affiliation=mapping.get("affiliation") or "",
-        sign_in="microsoft" if mapping.get("azure_object_id") else "password",
+        sign_in=organisation_sign_in_name() if mapping.get("azure_object_id") else "password",
         is_active=bool(mapping["is_active"]),
         role=mapping["role"],
         projects=_string_list(mapping.get("metadata_project_ids")),

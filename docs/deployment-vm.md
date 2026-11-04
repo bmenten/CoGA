@@ -239,10 +239,27 @@ here too, with `AZURE_ADMIN_OVERRIDE` in `.env` in place of the Terraform variab
 - The backend reads these settings when it starts. After a change, `docker compose up -d`
   recreates the backend and the import worker; nothing needs rebuilding.
 
-At Ghent University the UGent accounts are in Entra ID, so CoGA's Microsoft sign-in serves
-them as it is: ask ICT, through ICT self-service, for that app registration in the UGent
-tenant. The sign-in ICT documents for web applications is CAS (`login.ugent.be`). CoGA has no
-CAS client, so if ICT offers only CAS, a test VM keeps the password sign-in.
+**At Ghent University** ICT registers web applications on its CAS server, `login.ugent.be`
+(the self-service form for a URL/OAuth application), not in Entra ID. CoGA signs in there
+instead of with Microsoft ([security-posture.md](security-posture.md), SEC-4):
+
+```env
+CAS_SERVER_URL=https://login.ugent.be
+CAS_SERVICE_URL=https://coga-test.example.org/login
+CAS_DISPLAY_NAME=UGent
+```
+
+- In ICT's form, the endpoint URL is `CAS_SERVICE_URL`, and the attributes are `mail`,
+  `surname` and `azureObjectId` (public) and `givenName` (protected: the motivation is the
+  user's name in the app and in the audit log). Ask for nothing else, and no guest accounts.
+- The service needs HTTPS: set these once the certificate of step 6 is in place, then
+  `docker compose up -d`.
+- CAS admits every UGent account, students included. A first sign-in makes an account that
+  waits until an administrator activates it on *Users*; `ADMIN_EMAIL` is told when
+  `SMTP_HOST` is set.
+- The first administrator: sign in once through CAS, then sign in at `/login/emergency` as the
+  emergency administrator with `AZURE_ADMIN_OVERRIDE=true`, activate your account and make it
+  an administrator, and switch the override off again.
 
 **The dbNSFP gene file** is not in the repository (its download needs a registration,
 [data-import.md](data-import.md)). Copy `dbNSFP5.4_gene.gz` to `/srv/coga/data/ref-data/`
