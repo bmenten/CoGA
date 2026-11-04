@@ -30,7 +30,13 @@ from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..ancestry_schemas import AncestryAnalysisOut, AncestryReferenceOut, AncestryRunOut, FamilyAncestryOut
+from ..ancestry_schemas import (
+    AncestryAnalysisOut,
+    AncestryReferenceOut,
+    AncestryRunOut,
+    AncestrySampleChoiceIn,
+    FamilyAncestryOut,
+)
 from ..core.coga_logging import describe_error
 from ..core.config import settings
 from ..core.postgres import get_postgres_sessionmaker
@@ -42,6 +48,7 @@ from .access_control import (
     user_can_change_metadata_projects,
     visible_metadata_project_ids,
 )
+from . import ancestry_choices as choices_store
 from .ancestry_callsets import (
     CALLSET_LABELS,
     COMPLETE_SHARE,
@@ -204,10 +211,12 @@ async def family_ancestry(session: AsyncSession, family_id: str, user: CurrentUs
             current_reference=active is not None and row["reference_sha256"] == active.sha256)
     if state != "ready":
         notices.append(STATE_NOTICES.get(state, "Ancestry PCA is unavailable for this family."))
+    can_change = user_can_change_metadata_projects([project], user)
     return FamilyAncestryOut(project_id=project, state=state, reference=reference, analysis=analysis,
                              active_reference_sha256=active.sha256 if active else None, runs=runs, notices=notices,
-                             can_calculate=state == "ready" and active is not None
-                             and user_can_change_metadata_projects([project], user))
+                             can_calculate=state == "ready" and active is not None and can_change,
+                             choices=await choices_store.choices_out(session, context.family_uuid, project),
+                             can_choose=can_change)
 
 
 async def _insert_run(session: AsyncSession, *, family_uuid: str, family_identifier: str, project: str,
@@ -247,6 +256,74 @@ async def queue_family(session: AsyncSession, family_id: str, user: CurrentUser,
     return next(r for r in (await family_ancestry(session, family_id, user, project)).runs if r.id == run)
 
 
+async def set_choice(session: AsyncSession, family_id: str, user: CurrentUser, project_id: str | None,
+                     sample_id: str, choice: AncestrySampleChoiceIn,
+                     bed: tuple[str, bytes] | None = None, bed_required: bool = False) -> FamilyAncestryOut:
+    """Record how one individual is read from now on, and queue a calculation that reads it.
+
+    ``bed``, a BED file's name and bytes, gives the regions of a chosen callset; the file is not
+    kept, only the reference markers inside it and its checksum. ``bed_required``: the request
+    was to give one (checked after the caller may change the project).
+    """
+    context, project = await family_scope(session, family_id, user, project_id, change=True)
+    if bed_required and (bed is None or choice.callset is None):
+        raise HTTPException(422, "Send the callset and the BED file.")
+    member = next((m for m in await _members(session, context.family_uuid) if m["sample_id"] == sample_id), None)
+    choices_store.check_choice(member, choice)
+    if bed is not None and (choice.mode != "callset" or choice.panel_id is not None):
+        raise HTTPException(422, "A BED file gives the regions of a chosen callset, instead of a panel.")
+    regions = None
+    if choice.mode == "callset" and (bed is not None or choice.panel_id is not None):
+        try:
+            reference = await asyncio.to_thread(configured_reference)
+        except AncestryInputError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        if bed is not None:
+            name, data = bed
+            intervals = choices_store.parse_bed(data)
+            regions = choices_store.regions_record(
+                source="bed", name=choices_store.file_label(name),
+                loci=choices_store.marker_loci_in(reference, intervals, coding_only=False),
+                interval_count=sum(len(spans) for spans in intervals.values()),
+                reference_sha256=reference.public.sha256, data=data)
+        else:
+            panel, intervals = await choices_store.panel_intervals(session, str(choice.panel_id), context.assembly_id)
+            if not intervals:
+                raise HTTPException(409, "The gene panel has no regions on this family's assembly.")
+            regions = choices_store.regions_record(
+                source="panel", name=str(panel["name"]),
+                loci=choices_store.marker_loci_in(reference, intervals, coding_only=True),
+                interval_count=sum(len(spans) for spans in intervals.values()),
+                reference_sha256=reference.public.sha256, panel_id=str(panel["id"]),
+                panel_version=int(panel["version"]))
+    elif choice.mode == "callset" and choice.keep_regions:
+        regions = (await choices_store.current_choices(session, context.family_uuid, project)).get(sample_id, {}).get("regions")
+        if regions is None:
+            raise HTTPException(409, "There are no regions to keep for this individual.")
+    await session.execute(text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
+                          {"key": f"ancestry-queue:{context.family_uuid}:{project}"})
+    await choices_store.insert_choice(session, family_uuid=context.family_uuid, project=project, sample_id=sample_id,
+                                      mode=choice.mode, callset=choice.callset, regions=regions, user_id=user.id)
+    # A calculation that reads the choice: unless one is queued (it will read it), and when the
+    # family can be read now. A run already running is followed by the sweep.
+    state = await family_state(session, context.family_uuid, context.family_id, context.assembly_name)
+    queued = (await session.execute(text("""
+        SELECT 1 FROM ancestry_runs WHERE family_uuid = CAST(:family AS uuid) AND project_id = CAST(:project AS uuid)
+          AND status = 'queued' LIMIT 1
+    """), {"family": context.family_uuid, "project": project})).first()
+    if state == "ready" and queued is None:
+        try:
+            reference_out = (await asyncio.to_thread(configured_reference)).public
+        except AncestryInputError:
+            reference_out = None
+        if reference_out is not None:
+            await _insert_run(session, family_uuid=context.family_uuid, family_identifier=context.family_id,
+                              project=project, reference=reference_out, trigger="user", requested_by=user.id,
+                              storage_version=await _storage_version(context.family_uuid))
+    await session.commit()
+    return await family_ancestry(session, family_id, user, project)
+
+
 async def queue_changed_families(session: AsyncSession, family_uuids: list[str] | None = None) -> int:
     """Queue an automatic run for each family and project whose current small-variant data
     version no run has been queued for or read, once no import of the family runs. Returns how
@@ -271,9 +348,18 @@ async def queue_changed_families(session: AsyncSession, family_uuids: list[str] 
         FROM families f JOIN family_projects fp ON fp.family_id = f.id
         WHERE f.id::text = ANY(CAST(:families AS text[]))
           AND NOT EXISTS (
-            SELECT 1 FROM ancestry_runs r
-            WHERE r.family_uuid = f.id AND r.project_id = fp.project_id
-              AND (r.status IN ('queued', 'running') OR r.storage_version = (CAST(:versions AS jsonb) ->> f.id::text)))
+            SELECT 1 FROM ancestry_runs r WHERE r.family_uuid = f.id AND r.project_id = fp.project_id
+              AND r.status IN ('queued', 'running'))
+          AND (
+            -- Genotypes no run has been queued for or read.
+            NOT EXISTS (
+              SELECT 1 FROM ancestry_runs r WHERE r.family_uuid = f.id AND r.project_id = fp.project_id
+                AND r.storage_version = (CAST(:versions AS jsonb) ->> f.id::text))
+            -- Or a user's choice made after the latest run was queued.
+            OR EXISTS (
+              SELECT 1 FROM ancestry_sample_choices c WHERE c.family_uuid = f.id AND c.project_id = fp.project_id
+                AND c.chosen_at > (SELECT max(r.requested_at) FROM ancestry_runs r
+                                   WHERE r.family_uuid = f.id AND r.project_id = fp.project_id)))
         ORDER BY f.family_id, fp.project_id
     """), {"families": sorted(versions), "versions": json.dumps(versions)})).mappings().all()
     queued = 0
@@ -385,6 +471,7 @@ async def calculate_run(run_id: str) -> None:
             async with get_postgres_sessionmaker()() as check:
                 await _check_family(check, run)
                 members = await _members(check, family_uuid)
+                choices = await choices_store.current_choices(check, family_uuid, project)
                 version = await get_family_small_variant_data_version("GRCh38", family_uuid)
                 await check.rollback()
             await hold.execute(text("UPDATE ancestry_runs SET storage_version = :version WHERE id = CAST(:id AS uuid)"),
@@ -393,7 +480,7 @@ async def calculate_run(run_id: str) -> None:
             if reference.public.sha256 != run["reference_sha256"]:
                 raise AncestryInputError("The ancestry reference changed after queueing; request a new calculation.")
             rows = await read_marker_rows(family_uuid, project, reference)
-            samples = await asyncio.to_thread(project_family, rows, reference, members)
+            samples = await asyncio.to_thread(project_family, rows, reference, members, choices)
             # Publish: the requester, the family and its genotypes must all still hold, checked
             # under the family's variant-write locks in the transaction that writes the result.
             await _check_family(hold, run)
@@ -402,11 +489,14 @@ async def calculate_run(run_id: str) -> None:
                 raise AncestryInputError("Genotypes were written during calculation; no results were published.")
             if await _members(hold, family_uuid) != members:
                 raise AncestryInputError("The family's members changed during calculation; no results were published.")
+            if await choices_store.current_choices(hold, family_uuid, project) != choices:
+                raise AncestryInputError("A choice of how an individual is read was made during calculation; "
+                                         "no results were published.")
             await hold.execute(text("""
                 INSERT INTO ancestry_results(run_id, reference_sha256, samples, storage_version, calculation_version, assumptions)
                 VALUES (CAST(:run AS uuid), :sha, CAST(:samples AS jsonb), :version, :calculation, CAST(:assumptions AS jsonb))
             """), {"run": run_id, "sha": reference.public.sha256,
-                    "samples": json.dumps([s.model_dump() for s in samples]), "version": version,
+                    "samples": json.dumps([s.model_dump(mode="json") for s in samples]), "version": version,
                     "calculation": CALCULATION_VERSION,
                     "assumptions": json.dumps(_assumptions(reference, rows_digest(rows)))})
             await hold.execute(text("UPDATE ancestry_runs SET status = 'completed', finished_at = now() WHERE id = CAST(:id AS uuid)"),

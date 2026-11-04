@@ -181,5 +181,7 @@ components: genetic similarity, not an ancestry percentage or an ethnic identity
 CoGA's intended purpose, has not been validated, and is never part of the sign-out or of the signed
 record. It reads the family's stored GRCh38 callsets, measures whether each covers a genome, an
 exome or only part of the markers, and is calculated again automatically when the genotypes change.
+For one individual you can choose another callset, give the regions of a gene panel or a BED file,
+include an embryo or leave the individual out.
 
 [Ancestry PCA reference](/docs/reference/ancestry-pca "further-reading")

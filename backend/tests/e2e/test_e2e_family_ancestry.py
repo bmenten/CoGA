@@ -232,13 +232,70 @@ async def exercise(root: Path, monkeypatch):
             assert current["analysis"]["current_genotypes"] and current["analysis"]["run_id"] != first_run
             assert await sweep() == 0
 
+            # A user's choice of how an individual is read: saved, read by the calculation it queues.
+            choices = f"{url}/choices"
+            response = await ac.put(f"{choices}/{father}", params=params, json={"mode": "exclude"})
+            assert response.status_code == 200, response.text
+            chosen = response.json()
+            assert [(c["sample_id"], c["mode"]) for c in chosen["choices"]] == [(father, "exclude")]
+            assert chosen["can_choose"] and chosen["runs"][0]["trigger"] == "user"
+            assert chosen["runs"][0]["status"] == "queued"
+            assert await service.process_next_run()
+            samples = {r["sample_id"]: r for r in (await snapshot())["analysis"]["samples"]}
+            assert samples[father]["status"] == "excluded" and samples[father]["choice"]["mode"] == "exclude"
+            assert samples[proband]["pcs"] == [-1, 0, 1, -1] and samples[proband]["choice"] is None
+            # A BED file's regions: only the markers inside it and its checksum are kept.
+            bed = "".join(f"1\t{i}\t{i + 1}\n" for i in range(0, 500))
+            response = await ac.put(f"{choices}/{proband}/bed", params=params, data={"callset": "clair3"},
+                                    files={"file": ("kits/capture.bed", bed.encode(), "text/plain")})
+            assert response.status_code == 200, response.text
+            regions = next(c for c in response.json()["choices"] if c["sample_id"] == proband)["regions"]
+            assert (regions["source"], regions["name"], regions["covered_markers"]) == ("bed", "capture.bed", 500)
+            assert len(regions["sha256"]) == 64 and "loci" not in regions
+            async with sm() as session:
+                stored = (await session.execute(text(
+                    "SELECT regions FROM ancestry_sample_choices WHERE sample_id = :s ORDER BY chosen_at DESC LIMIT 1"),
+                    {"s": proband})).scalar_one()
+            assert len(stored["loci"]) == 500 and "1\t0\t1" not in json.dumps(stored)
+            assert await service.process_next_run()
+            samples = {r["sample_id"]: r for r in (await snapshot())["analysis"]["samples"]}
+            # The proband's callset has a call at every marker: complete, whatever the regions.
+            assert samples[proband]["kind"] == "complete" and samples[proband]["choice"]["regions"]["covered_markers"] == 500
+            # Back to CoGA's own reading; an unknown sample, an inconsistent choice, a BED that is
+            # no list of intervals, a reader and an outsider are refused.
+            assert (await ac.put(f"{choices}/{proband}", params=params, json={"mode": "auto"})).status_code == 200
+            assert (await ac.put(f"{choices}/UNKNOWN_{family}", params=params, json={"mode": "auto"})).status_code == 404
+            assert (await ac.put(f"{choices}/{proband}", params=params, json={"mode": "callset"})).status_code == 422
+            assert (await ac.put(f"{choices}/{proband}/bed", params=params, data={"callset": "clair3"},
+                                 files={"file": ("x.bed", b"chr1\tten\t20\n", "text/plain")})).status_code == 400
+            with monkeypatch.context():
+                app.dependency_overrides[get_current_user] = scoped_user
+                assert (await ac.put(f"{choices}/{proband}", params=params, json={"mode": "auto"})).status_code == 403
+                app.dependency_overrides[get_current_user] = outside_user
+                assert (await ac.put(f"{choices}/{proband}", params=params, json={"mode": "auto"})).status_code == 404
+            app.dependency_overrides.clear()
+            assert await service.process_next_run()
+            current = await snapshot()
+            assert {c["sample_id"]: c["mode"] for c in current["choices"]} == {father: "exclude", proband: "auto"}
+            # A choice made while a run was running: the sweep queues one that reads it.
+            async with sm() as session:
+                await session.execute(text(
+                    "INSERT INTO ancestry_sample_choices (family_uuid, project_id, sample_id, mode, chosen_by) "
+                    "VALUES (CAST(:f AS uuid), CAST(:p AS uuid), :s, 'auto', CAST(:u AS uuid))"),
+                    {"f": family_uuid, "p": project, "s": father, "u": admin.id})
+                await session.commit()
+            assert await sweep() == 1 and await sweep() == 0
+            assert await service.process_next_run()
+            samples = {r["sample_id"]: r for r in (await snapshot())["analysis"]["samples"]}
+            assert samples[father]["status"] == "insufficient_data" and samples[father]["choice"] is None
+
             # No ancestry values or reference snapshots enter the clinical signed record.
             from backend.app.services.report_signout_service import build_report_snapshot
             async with sm() as session:
                 signed = await build_report_snapshot(session, family_id=family, user=admin, project_id=project)
                 count = (await session.execute(text("SELECT count(*) FROM ancestry_results WHERE run_id IN (SELECT id FROM ancestry_runs WHERE family_identifier = :f)"),
                                                {"f": family})).scalar_one()
-            assert count == 2 and "coga-ancestry-pca" not in json.dumps(signed)
+            assert count == 6 and "coga-ancestry-pca" not in json.dumps(signed)
             assert "ancestry" not in signed and first_run not in json.dumps(signed)
     finally:
         app.dependency_overrides.clear()

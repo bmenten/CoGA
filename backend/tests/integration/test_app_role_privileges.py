@@ -51,6 +51,7 @@ _APPEND_ONLY = (
     "wgs_sources",
     "ancestry_reference_panels",
     "ancestry_results",
+    "ancestry_sample_choices",
 )
 
 # A syntactically-valid UPDATE per table (a real column); the privilege check fires before
@@ -66,6 +67,7 @@ _UPDATE_SQL = {
     "wgs_sources": "UPDATE wgs_sources SET sha256=sha256",
     "ancestry_reference_panels": "UPDATE ancestry_reference_panels SET snapshot = snapshot",
     "ancestry_results": "UPDATE ancestry_results SET samples = samples",
+    "ancestry_sample_choices": "UPDATE ancestry_sample_choices SET mode = mode",
 }
 
 # coga_app's privileges on one table, read from the catalogue without running a mutation
