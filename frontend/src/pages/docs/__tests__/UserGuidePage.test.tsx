@@ -1,6 +1,6 @@
 import { render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import UserGuidePage from '../UserGuidePage';
 
@@ -60,5 +60,30 @@ describe('UserGuidePage', () => {
     expect(container.querySelectorAll('.user-guide-mini-grid > .user-guide-mini-card')).toHaveLength(6);
     expect(container.querySelector('.user-guide-section-prose pre')).toBeNull();
     expect(container.querySelectorAll('.user-guide-section-prose .content-table-wrap > table')).toHaveLength(3);
+  });
+
+  // Another page links to one section (the users page to /docs#administration): the guide
+  // opens there, which an in-app navigation does not do by itself.
+  it('scrolls to the section the link names', () => {
+    // jsdom has no scrollIntoView: the test gives the elements one.
+    const scrolled: string[] = [];
+    const scrollIntoView = vi.fn(function (this: HTMLElement) {
+      scrolled.push(this.id);
+    });
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      value: scrollIntoView,
+      configurable: true,
+      writable: true,
+    });
+    try {
+      render(
+        <MemoryRouter initialEntries={['/docs#administration']}>
+          <UserGuidePage />
+        </MemoryRouter>
+      );
+      expect(scrolled).toEqual(['administration']);
+    } finally {
+      delete (HTMLElement.prototype as Partial<HTMLElement>).scrollIntoView;
+    }
   });
 });

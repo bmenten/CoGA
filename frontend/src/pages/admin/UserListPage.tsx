@@ -1,4 +1,5 @@
 import React from 'react';
+import { Link } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../../lib/api';
 import PageState from '../../components/PageState';
@@ -357,20 +358,11 @@ const UserListPage: React.FC = () => {
           <div className="space-y-2">
             <p className="page-kicker">Administration</p>
             <h1 className="catalog-card-title">Users</h1>
+            {/* The rules (roles, approval, archive) are in the user guide, not repeated here. */}
             <p className="catalog-card-copy">
-              Set each account&apos;s role and activation, and review its project access. The roles,
-              lowest first, each with the rights of the ones before it: a viewer reads, an analyst
-              analyses, a supervisor also signs an analysis out, a superuser also has every project and
-              the configuration the analyses read, an admin the whole administration. Project access is
-              managed from the project settings view, where each member is an analyst, who reads and
-              changes the project&rsquo;s records, or a reader, who only reads them; a viewer only
-              reads, whatever their access there.
-            </p>
-            <p className="catalog-card-copy">
-              A sign-up, or a first sign-in through the organisation, waits for approval: activate it,
-              or delete it when it is not relevant. An account that was ever active is archived
-              instead: it can no longer sign in, and every record that names it keeps doing so. Each
-              change is asked for confirmation first and recorded in the audit log.
+              Approve new accounts and set each account&apos;s role and activation. Project access is
+              set in <Link to="/admin/access/projects">Projects &amp; access</Link>.{' '}
+              <Link to="/docs#administration">How accounts and roles work</Link>
             </p>
             <AccountRequestMail />
           </div>

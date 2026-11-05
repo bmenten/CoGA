@@ -1,4 +1,4 @@
-import { useEffect, useRef, useMemo, type FC } from 'react';
+import { useLayoutEffect, useRef, useMemo, type FC } from 'react';
 import * as d3 from 'd3';
 import { cssVar } from '../../lib/colors';
 import {
@@ -370,7 +370,9 @@ const CircosPlot: FC<CircosPlotProps> = ({
     [chromData, selected, variants, tooManyVariants],
   );
 
-  useEffect(() => {
+  // Drawn before the browser paints: the page takes its loader down in the render that hands
+  // the plot its SVs, and the first frame without the loader must already show their links.
+  useLayoutEffect(() => {
     if (!svgRef.current) return;
     const selectedChroms = sortedChroms.filter((d) => selected[d.chr]);
     const svg = d3.select(svgRef.current);
