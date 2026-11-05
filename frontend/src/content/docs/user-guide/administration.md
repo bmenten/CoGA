@@ -10,6 +10,9 @@ page is an administrator's alone.
   rebuild the clinical-CNV knowledgebase, load the pinned DGV release, or upload a reference file.
   Adding GRCh37 or GRCh38 starts the clinical-CNV build and the DGV load for it.
 - **Gene panels** — the panel catalogue: create panels, import them from PanelApp, and see their genes.
+  A PanelApp search shows each panel's genes, regions and STRs by confidence level (green, amber, red).
+  A panel can be imported green only, green + amber, or green + amber + red: each is a panel of its
+  own, to filter on apart.
   Deleting a panel asks first, naming the panel and its version: its genes, its regions and every
   archived version go with it.
 - **HPO terminology** — the HPO release in use and the SHA-256 of the file it came from, and whether

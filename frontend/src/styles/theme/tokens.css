@@ -110,6 +110,11 @@
      parents' colours for colour-blind vision too (ΔE 16 and 35). */
   --color-segregation-reference: #e0a030;
 
+  /* PanelApp's confidence levels, as PanelApp shows them: green, amber and red. */
+  --color-panelapp-green: #3c8d40;
+  --color-panelapp-amber: #e0a106;
+  --color-panelapp-red: #c62828;
+
   --color-coverage-gain: #556f87;
   --color-coverage-loss: #8d3f44;
   --color-coverage-neutral: #8d9499;

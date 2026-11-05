@@ -205,6 +205,52 @@
   max-width: 40rem;
 }
 
+/* PanelApp search results: each kind of entity with its count per confidence level, and an
+   import for each choice of levels (green; green + amber; green + amber + red). */
+.panelapp-confidence-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.125rem 0.625rem;
+}
+
+.panelapp-confidence-total {
+  font-weight: 600;
+}
+
+.panelapp-confidence-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  white-space: nowrap;
+}
+
+.panelapp-confidence-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+
+.panelapp-confidence-dot--green {
+  background: var(--color-panelapp-green);
+}
+
+.panelapp-confidence-dot--amber {
+  background: var(--color-panelapp-amber);
+}
+
+.panelapp-confidence-dot--red {
+  background: var(--color-panelapp-red);
+}
+
+.panelapp-import-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-bottom: 0.25rem;
+}
+
 /* Monarch data: the loaded release, with the small action that replaces it by the latest. */
 .monarch-release-action {
   justify-self: start;

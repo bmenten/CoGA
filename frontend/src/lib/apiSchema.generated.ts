@@ -1384,6 +1384,7 @@ export interface GenePanelOut {
   description: string | null;
   source: string;
   external_id: string | null;
+  external_selection: string | null;
   external_version: string | null;
   external_url: string | null;
   source_updated_at: string | null;
@@ -2468,6 +2469,19 @@ export interface NiptVariantPage {
   not_classified: NiptNotClassifiedOut[];
 }
 
+/**
+ * How many of a PanelApp panel's entities of one kind (genes, STRs or regions) hold each
+ * confidence level: green (3), amber (2), red (1), and none of these (``unrated``: level 0,
+ * which PanelApp gives an entity without a rating or one an expert review removed).
+ */
+export interface PanelAppConfidenceCounts {
+  total: number;
+  green: number;
+  amber: number;
+  red: number;
+  unrated: number;
+}
+
 export interface PanelAppImportRequest {
   panelapp_id: number;
   version?: string | null;
@@ -2484,6 +2498,14 @@ export interface PanelAppImportResponse {
   missing_genes: string[];
   imported_gene_count: number;
   imported_region_count: number;
+}
+
+export interface PanelAppPanelCountsOut {
+  panelapp_id: number;
+  version: string | null;
+  genes: PanelAppConfidenceCounts;
+  strs: PanelAppConfidenceCounts;
+  regions: PanelAppConfidenceCounts;
 }
 
 export interface PanelAppPanelSearchResponse {

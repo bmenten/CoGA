@@ -7,6 +7,10 @@ import pytest
 import backend.app.services.panelapp_service as panelapp_service
 from backend.app.services.panelapp_service import (
     extract_panelapp_import_content,
+    panelapp_confidence_counts,
+    panelapp_default_panel_name,
+    panelapp_selection,
+    panelapp_selection_label,
     panelapp_summary,
 )
 
@@ -111,6 +115,44 @@ def test_extract_panelapp_import_content_can_include_amber_entities() -> None:
         ("AAAS", "12"),
         ("AMBER", "1"),
     ]
+
+
+def test_the_counts_give_each_kind_of_entity_by_confidence_level() -> None:
+    # The search lists only each panel's totals; the panel's entities give their levels.
+    payload = _panelapp_payload()
+    payload["genes"] += [
+        {"entity_name": "RED1", "confidence_level": "1"},
+        {"entity_name": "RED2", "confidence_level": 1},
+        {"entity_name": "REMOVED", "confidence_level": "0"},
+        {"entity_name": "NOLEVEL"},
+        "not an entity",
+    ]
+    payload["strs"] = None
+
+    counts = panelapp_confidence_counts(payload)
+
+    assert (counts.panelapp_id, counts.version) == (20, "1.345")
+    assert counts.genes.model_dump() == {"total": 6, "green": 1, "amber": 1, "red": 2, "unrated": 2}
+    assert counts.strs.model_dump() == {"total": 0, "green": 0, "amber": 0, "red": 0, "unrated": 0}
+    assert counts.regions.model_dump() == {"total": 1, "green": 1, "amber": 0, "red": 0, "unrated": 0}
+
+
+@pytest.mark.parametrize(
+    ("levels", "selection", "label"),
+    [
+        (["3"], "3", "green"),
+        (["3", "2"], "2,3", "green + amber"),
+        (["2", "3", "2"], "2,3", "green + amber"),
+        (["1", "2", "3"], "1,2,3", "green + amber + red"),
+        (["2"], "2", "amber"),
+    ],
+)
+def test_a_choice_of_levels_is_one_selection_whatever_its_order(levels, selection, label) -> None:
+    # The selection is the panel's key next to the PanelApp id: the same levels in another
+    # order, or named twice, are the same panel.
+    assert panelapp_selection(levels) == selection
+    assert panelapp_selection_label(levels) == label
+    assert panelapp_default_panel_name(_panelapp_payload(), levels) == f"PanelApp 20: Hereditary ataxia ({label})"
 
 
 @pytest.mark.asyncio

@@ -330,12 +330,23 @@ CREATE TABLE IF NOT EXISTS gene_panels (
     created_by uuid NOT NULL,
     created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
     version integer DEFAULT 1 NOT NULL,
+    -- The part of the external panel the panel holds: for a PanelApp panel, the confidence
+    -- levels it was imported with, lowest first ('3', '2,3', '1,2,3'). NULL for a panel that
+    -- holds all of its source (the Mendeliome, a local panel).
+    external_selection text,
     CONSTRAINT gene_panels_pkey PRIMARY KEY (id),
     CONSTRAINT gene_panels_name_key UNIQUE (name),
     CONSTRAINT gene_panels_created_by_fkey FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE RESTRICT
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_gene_panels_source_external ON gene_panels USING btree (source, external_id) WHERE (external_id IS NOT NULL);
+-- A database made before the selection gains the column here; a no-op on a database the
+-- CREATE TABLE above made. Revision 0020 runs it too.
+ALTER TABLE gene_panels ADD COLUMN IF NOT EXISTS external_selection text;
+
+-- One panel per external panel and selection: one PanelApp panel imported green only, green
+-- and amber, and green, amber and red is three panels. Revision 0020 drops the index this one
+-- replaced, idx_gene_panels_source_external, which allowed one panel per external panel.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_gene_panels_source_external_selection ON gene_panels USING btree (source, external_id, external_selection) NULLS NOT DISTINCT WHERE (external_id IS NOT NULL);
 
 -- ---------------------------------------------------------------------------
 -- gene_panel_genes

@@ -29,6 +29,8 @@ from .panelapp_service import (
     fetch_panelapp_panel,
     panelapp_default_panel_name,
     panelapp_panel_url,
+    panelapp_selection,
+    panelapp_selection_label,
 )
 from .sex_chromosomes import assembly_display_rank
 from .stored_values import json_object as _jsonb_dict
@@ -79,6 +81,7 @@ def _panel_out_from_rows(
         description=panel_row.get("description"),
         source=panel_row.get("source") or "local",
         external_id=panel_row.get("external_id"),
+        external_selection=panel_row.get("external_selection"),
         external_version=panel_row.get("external_version"),
         external_url=panel_row.get("external_url"),
         source_updated_at=panel_row.get("source_updated_at"),
@@ -103,6 +106,7 @@ async def _fetch_panel_rows(
                     gp.description,
                     COALESCE(gp.source, 'local') AS source,
                     gp.external_id,
+                    gp.external_selection,
                     gp.external_version,
                     gp.external_url,
                     gp.source_updated_at,
@@ -129,6 +133,7 @@ async def _fetch_panel_rows(
                 gp.description,
                 COALESCE(gp.source, 'local') AS source,
                 gp.external_id,
+                gp.external_selection,
                 gp.external_version,
                 gp.external_url,
                 gp.source_updated_at,
@@ -668,13 +673,16 @@ async def import_panelapp_panel_data(
 ) -> PanelAppImportResponse:
     """Import a PanelApp panel, or import again one the catalog already holds.
 
-    The first import archives the panel as version 1. An import that gives the panel other
-    genes or regions (from another PanelApp release, with other confidence levels or
-    options, or with another assembly loaded) makes the next version and archives it; one
-    that leaves both as they are keeps the version and archives nothing, but still records
-    PanelApp's version, the options and the time of the import. The prioritised-ranking
-    cache keys a panel on its version, so a ranking built on the earlier genes is no longer
-    an exact hit. ``external_version`` stays PanelApp's own version of the panel.
+    A panel is a PanelApp panel with the confidence levels it takes (``external_selection``):
+    the same PanelApp panel imported green only, green and amber, or green, amber and red is
+    three panels, each with its own name, versions and genes. The first import of a selection
+    archives its panel as version 1. An import that gives the panel other genes or regions
+    (from another PanelApp release, with other options, or with another assembly loaded)
+    makes the next version and archives it; one that leaves both as they are keeps the
+    version and archives nothing, but still records PanelApp's version, the options and the
+    time of the import. The prioritised-ranking cache keys a panel on its version, so a
+    ranking built on the earlier genes is no longer an exact hit. ``external_version`` stays
+    PanelApp's own version of the panel.
     """
     _ensure_admin(user)
     if not request.confidence_levels:
@@ -717,6 +725,7 @@ async def import_panelapp_panel_data(
         raise HTTPException(status_code=400, detail="No PanelApp entities matched the selected import options")
 
     external_id = str(request.panelapp_id)
+    external_selection = panelapp_selection(request.confidence_levels)
     # Locked until the commit: the version this import makes, and whether it makes one,
     # are decided against the panel as it is, not as another import is leaving it.
     existing = (
@@ -726,14 +735,19 @@ async def import_panelapp_panel_data(
                 SELECT id::text AS id, version
                 FROM gene_panels
                 WHERE source = 'panelapp' AND external_id = :external_id
+                  AND external_selection = :external_selection
                 FOR UPDATE
                 """
             ),
-            {"external_id": external_id},
+            {"external_id": external_id, "external_selection": external_selection},
         )
     ).mappings().first()
     existing_panel_id = existing["id"] if existing is not None else None
-    name = request.name.strip() if request.name and request.name.strip() else panelapp_default_panel_name(payload)
+    name = (
+        request.name.strip()
+        if request.name and request.name.strip()
+        else panelapp_default_panel_name(payload, request.confidence_levels)
+    )
     await _ensure_panel_name_available(session, name, existing_panel_id=existing_panel_id)
 
     source_metadata = {
@@ -745,7 +759,8 @@ async def import_panelapp_panel_data(
     external_version = str(payload.get("version") or request.version or "")
     description = (
         f"Imported from PanelApp {request.panelapp_id}"
-        f" version {payload.get('version') or request.version or 'latest'}."
+        f" version {payload.get('version') or request.version or 'latest'},"
+        f" confidence {panelapp_selection_label(request.confidence_levels)}."
     )
     if payload.get("disease_group"):
         description += f" Disease group: {payload['disease_group']}."
@@ -780,6 +795,7 @@ async def import_panelapp_panel_data(
                     description,
                     source,
                     external_id,
+                    external_selection,
                     external_version,
                     external_url,
                     source_updated_at,
@@ -810,6 +826,7 @@ async def import_panelapp_panel_data(
                     description,
                     source,
                     external_id,
+                    external_selection,
                     external_version,
                     external_url,
                     source_updated_at,
@@ -822,6 +839,7 @@ async def import_panelapp_panel_data(
                     :description,
                     'panelapp',
                     :external_id,
+                    :external_selection,
                     :external_version,
                     :external_url,
                     :source_updated_at,
@@ -837,6 +855,7 @@ async def import_panelapp_panel_data(
                     description,
                     source,
                     external_id,
+                    external_selection,
                     external_version,
                     external_url,
                     source_updated_at,
@@ -847,6 +866,7 @@ async def import_panelapp_panel_data(
                 "name": name,
                 "description": description,
                 "external_id": external_id,
+                "external_selection": external_selection,
                 "external_version": external_version,
                 "external_url": panelapp_panel_url(request.panelapp_id),
                 "source_updated_at": now,
@@ -881,8 +901,7 @@ async def import_panelapp_panel_data(
     panel_out = _panel_out_from_rows(panel_row, genes, [region.model_dump() for region in regions])
     contents = (
         f"{len(genes)} genes and {len(regions)} regions"
-        f" from confidence level{'s' if len(request.confidence_levels) != 1 else ''} "
-        f"{', '.join(request.confidence_levels)}"
+        f" ({panelapp_selection_label(request.confidence_levels)})"
     )
     if existing is None:
         message = f"PanelApp panel imported as version {version} with {contents}"

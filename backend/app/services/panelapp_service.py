@@ -7,10 +7,19 @@ from typing import Any, Sequence
 import httpx
 from fastapi import HTTPException
 
-from ..schemas import GeneLocation, PanelAppPanelSummaryOut
+from ..schemas import (
+    GeneLocation,
+    PanelAppConfidenceCounts,
+    PanelAppPanelCountsOut,
+    PanelAppPanelSummaryOut,
+)
 
 PANELAPP_API_ROOT = "https://panelapp.genomicsengland.co.uk/api/v1"
 PANELAPP_WEB_ROOT = "https://panelapp.genomicsengland.co.uk"
+
+# PanelApp's confidence levels by name, highest first. Level 0 (no rating, or removed by an
+# expert review) is none of them: it is counted, never imported.
+PANELAPP_CONFIDENCE_NAMES: dict[str, str] = {"3": "green", "2": "amber", "1": "red"}
 
 
 @dataclass(frozen=True)
@@ -93,6 +102,42 @@ async def fetch_panelapp_panel(panelapp_id: int, *, version: str | None = None) 
 
 def _entity_confidence(entity: dict[str, Any]) -> str:
     return str(entity.get("confidence_level") or "").strip()
+
+
+def panelapp_selection(confidence_levels: Sequence[str]) -> str:
+    """The confidence levels an import takes, as the panel's ``external_selection`` keeps
+    them: each once, lowest first ("3", "2,3", "1,2,3"). Each selection of one PanelApp panel
+    is a panel of its own."""
+    return ",".join(sorted({str(level) for level in confidence_levels}))
+
+
+def panelapp_selection_label(confidence_levels: Sequence[str]) -> str:
+    """The confidence levels by name, highest first: "green", "green + amber",
+    "green + amber + red"."""
+    selected = {str(level) for level in confidence_levels}
+    return " + ".join(name for level, name in PANELAPP_CONFIDENCE_NAMES.items() if level in selected)
+
+
+def _confidence_counts(entities: Any) -> PanelAppConfidenceCounts:
+    counts = {"green": 0, "amber": 0, "red": 0, "unrated": 0}
+    for entity in entities if isinstance(entities, list) else []:
+        if not isinstance(entity, dict):
+            continue
+        counts[PANELAPP_CONFIDENCE_NAMES.get(_entity_confidence(entity), "unrated")] += 1
+    return PanelAppConfidenceCounts(total=sum(counts.values()), **counts)
+
+
+def panelapp_confidence_counts(payload: dict[str, Any]) -> PanelAppPanelCountsOut:
+    """How many of the panel's genes, STRs and regions hold each confidence level, as the
+    panel's entities give them (the panel list's ``stats`` holds only the totals)."""
+    summary = panelapp_summary(payload)
+    return PanelAppPanelCountsOut(
+        panelapp_id=summary.panelapp_id,
+        version=summary.version,
+        genes=_confidence_counts(payload.get("genes")),
+        strs=_confidence_counts(payload.get("strs")),
+        regions=_confidence_counts(payload.get("regions")),
+    )
 
 
 def _entity_symbol(entity: dict[str, Any]) -> str | None:
@@ -273,6 +318,8 @@ def extract_panelapp_import_content(
     )
 
 
-def panelapp_default_panel_name(payload: dict[str, Any]) -> str:
+def panelapp_default_panel_name(payload: dict[str, Any], confidence_levels: Sequence[str]) -> str:
+    """The panel's name unless the import gives one, with the confidence levels it takes:
+    each selection of one PanelApp panel is a panel of its own, and a panel's name is unique."""
     summary = panelapp_summary(payload)
-    return f"PanelApp {summary.panelapp_id}: {summary.name}"
+    return f"PanelApp {summary.panelapp_id}: {summary.name} ({panelapp_selection_label(confidence_levels)})"
