@@ -37,9 +37,9 @@ class UserRead(BaseModel):
     last_name: Optional[str] = None
     affiliation: Optional[str] = None
     # How the account signs in (SEC-4): through the organisation, bound to its object ID in
-    # the directory (with Microsoft, or through the organisation's CAS server when that is the
-    # sign-in configured), or with a local password.
-    sign_in: Literal["microsoft", "cas", "password"] = "password"
+    # the directory (with Microsoft, or through the organisation's CAS or OAuth server when that
+    # is the sign-in configured), or with a local password.
+    sign_in: Literal["microsoft", "cas", "oauth", "password"] = "password"
     is_active: bool
     role: str
     # The projects the user is a member of, and those among them where they are a reader
@@ -106,19 +106,39 @@ class CasSignInOut(BaseModel):
     logout_url: str
 
 
+class OAuthSignInOut(BaseModel):
+    """Where the browser signs a user in through the organisation's OAuth 2.0 server (the
+    authorization page for CoGA's client, to which the browser adds its own state and PKCE
+    challenge), and signs out of it when the server has a sign-out page: none of it is
+    secret."""
+
+    display_name: str
+    authorize_url: str
+    logout_url: Optional[str] = None
+
+
 class SignInConfigOut(BaseModel):
     """How users sign in: with Microsoft when ``microsoft`` is given, through the
-    organisation's CAS server when ``cas`` is, else with a password (and then a new user
-    signs up)."""
+    organisation's CAS server when ``cas`` is, through its OAuth 2.0 server when ``oauth`` is,
+    else with a password (and then a new user signs up)."""
 
     microsoft: Optional[MicrosoftSignInOut] = None
     cas: Optional[CasSignInOut] = None
+    oauth: Optional[OAuthSignInOut] = None
 
 
 class CasTicketIn(BaseModel):
     """The service ticket the CAS server sent the browser back with."""
 
     ticket: str = Field(min_length=1, max_length=256)
+
+
+class OAuthCodeIn(BaseModel):
+    """The authorization code the OAuth server sent the browser back with, and the PKCE code
+    verifier the browser kept for it. The request audit masks both by their names."""
+
+    authorization_code: str = Field(min_length=1, max_length=2048)
+    code_verifier: str = Field(min_length=43, max_length=128)
 
 
 class SignupAck(BaseModel):

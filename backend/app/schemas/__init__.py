@@ -48,6 +48,8 @@ from .auth import (
     CasSignInOut,
     CasTicketIn,
     MicrosoftSignInOut,
+    OAuthCodeIn,
+    OAuthSignInOut,
     SignInConfigOut,
 )
 from .hpo import (
@@ -445,6 +447,8 @@ __all__ = [
     "SignupAck",
     "CasSignInOut",
     "CasTicketIn",
+    "OAuthCodeIn",
+    "OAuthSignInOut",
     "MicrosoftSignInOut",
     "SignInConfigOut",
     "UserRefOut",

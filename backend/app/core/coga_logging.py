@@ -201,8 +201,17 @@ class CoGALogger:
 
 # The keys whose values the request audit and the UI events mask, as a key starts with one,
 # in any case: a request body's and a query string's keys, a UI event's detail keys. One list
-# for both, which kept a copy each, so that neither can come to mask less (ENG-8).
-SENSITIVE_KEY_PREFIXES = ("password", "secret", "token", "authorization", "api_key", "access_key")
+# for both, which kept a copy each, so that neither can come to mask less (ENG-8). The OAuth
+# sign-in's body carries `authorization_code` and `code_verifier` (SEC-4).
+SENSITIVE_KEY_PREFIXES = (
+    "password",
+    "secret",
+    "token",
+    "authorization",
+    "api_key",
+    "access_key",
+    "code_verifier",
+)
 
 
 def is_sensitive_key(key: object) -> bool:

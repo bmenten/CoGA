@@ -23,8 +23,8 @@ const SignupPage: React.FC = () => {
   const [acknowledgement, setAcknowledgement] = useState<string | null>(null);
   // With Microsoft sign-in there is no sign-up: the first sign-in makes the account (SEC-4).
   const [microsoftSignIn, setMicrosoftSignIn] = useState(false);
-  // Nor with the organisation's CAS sign-in, whose first sign-in makes an account that waits
-  // for an administrator: the name the sign-in goes by, such as UGent.
+  // Nor with the organisation's CAS or OAuth sign-in, whose first sign-in makes an account that
+  // waits for an administrator: the name the sign-in goes by, such as UGent.
   const [casSignIn, setCasSignIn] = useState<string | null>(null);
 
   useEffect(() => {
@@ -33,7 +33,7 @@ const SignupPage: React.FC = () => {
       .then((config) => {
         if (!current) return;
         setMicrosoftSignIn(Boolean(config.microsoft));
-        setCasSignIn(config.cas?.display_name ?? null);
+        setCasSignIn(config.cas?.display_name ?? config.oauth?.display_name ?? null);
       })
       .catch(() => undefined);
     return () => {

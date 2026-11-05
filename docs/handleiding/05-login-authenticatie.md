@@ -1,6 +1,6 @@
 # 5. Login & authenticatie
 
-Dit hoofdstuk beschrijft hoe een gebruiker toegang krijgt tot CoGA. Bij de ingebruikname meldt iedereen zich aan met zijn Microsoft-account van het ziekenhuis of de universiteit (Microsoft Entra ID, vroeger Azure AD; zie *Aanmelden met Microsoft*), of via de CAS-server van de organisatie, zoals `login.ugent.be` (zie *Aanmelden via CAS*). Daarnaast bestaat het lokale aanmelden met e-mailadres en wachtwoord: in ontwikkeling voor iedereen, naast Microsoft alleen voor de noodbeheerder. Het hoofdstuk volgt eerst dat lokale aanmelden, van formulier tot token en sessie, en het registreren. Wat een ingelogde gebruiker daarna mag zien, staat in [hoofdstuk 2](02-beveiliging-rollen-rechten.md).
+Dit hoofdstuk beschrijft hoe een gebruiker toegang krijgt tot CoGA. Bij de ingebruikname meldt iedereen zich aan met zijn Microsoft-account van het ziekenhuis of de universiteit (Microsoft Entra ID, vroeger Azure AD; zie *Aanmelden met Microsoft*), of via de aanmeldserver van de organisatie, zoals `login.ugent.be`, met CAS (zie *Aanmelden via CAS*) of OAuth 2.0 (zie *Aanmelden via OAuth*). Daarnaast bestaat het lokale aanmelden met e-mailadres en wachtwoord: in ontwikkeling voor iedereen, naast Microsoft alleen voor de noodbeheerder. Het hoofdstuk volgt eerst dat lokale aanmelden, van formulier tot token en sessie, en het registreren. Wat een ingelogde gebruiker daarna mag zien, staat in [hoofdstuk 2](02-beveiliging-rollen-rechten.md).
 
 ## Begrippen
 
@@ -123,15 +123,15 @@ Iedereen kan zich registreren via `POST /auth/signup` (pagina `frontend/src/page
 
 Een gebruiker kan pas inloggen nadat een beheerder het account activeert (`PATCH /auth/users/{user_id}`, alleen voor beheerders). Hetzelfde endpoint zet ook de globale rol (`viewer`, `analyst`, `supervisor`, `superuser` of `admin`; een andere waarde krijgt `422`); op de pagina *Users* gebeurt dat met een keuzelijst die de vijf rollen van laag naar hoog toont, elk met een tooltip. Niemand wijzigt zijn eigen rol of deactiveert zijn eigen account. De rol van de noodbeheerder verandert niet, en hij kan niet worden gedeactiveerd. De auditregel van het verzoek legt vast wat er veranderde, elk veld van en naar (`request_meta.account_change`). Projecttoegang regelt een beheerder in de projectinstellingen.
 
-**Wachten op goedkeuring, archiveren en verwijderen.** Een account dat nog nooit actief was (een registratie, een eerste aanmelding via CAS), *wacht op goedkeuring*: `users.activated_at` is leeg tot een beheerder het voor het eerst activeert. De pagina *Users* toont per account de datum waarop het werd toegevoegd en zijn status (*Waiting for approval*, *Active*, *Inactive*, *Archived*), met de wachtende accounts bovenaan. Elke wijziging (activeren, deactiveren, rol, archiveren, herstellen, verwijderen) vraagt eerst om bevestiging in een dialoogvenster; aanvinken alleen schrijft niets weg.
+**Wachten op goedkeuring, archiveren en verwijderen.** Een account dat nog nooit actief was (een registratie, een eerste aanmelding via CAS of OAuth), *wacht op goedkeuring*: `users.activated_at` is leeg tot een beheerder het voor het eerst activeert. De pagina *Users* toont per account de datum waarop het werd toegevoegd en zijn status (*Waiting for approval*, *Active*, *Inactive*, *Archived*), met de wachtende accounts bovenaan. Elke wijziging (activeren, deactiveren, rol, archiveren, herstellen, verwijderen) vraagt eerst om bevestiging in een dialoogvenster; aanvinken alleen schrijft niets weg.
 
 - **Verwijderen** (`DELETE /auth/users/{user_id}`) kan alleen voor een account dat nooit actief was. Elk ander antwoordt `409` en wordt gearchiveerd. Noemt een record het account toch (zoals een genpanel dat het maakte), dan weigert de databank de verwijdering en antwoordt de backend ook `409`. De auditregel bewaart wie het was (id, e-mailadres, naam, aanmeldwijze). Meldt dezelfde persoon zich later opnieuw aan, dan wacht een nieuw account op goedkeuring.
 - **Archiveren** (`PATCH` met `archived: true`) deactiveert het account en haalt het uit de standaardlijst (*Show archived accounts* toont het). De rij blijft, zodat elk record dat het account noemt dat blijft doen, en een nieuwe aanmelding van dezelfde persoon geen nieuwe aanvraag maakt. Een gearchiveerd account wordt eerst hersteld (`archived: false`, het blijft inactief) voor het weer geactiveerd kan worden (anders `409`); de databank laat geen actief gearchiveerd account toe (`users_archived_inactive_check`).
 - Niemand archiveert of verwijdert zijn eigen account of dat van de noodbeheerder (`403`).
 
-**De mail aan de beheerders.** Een account dat op goedkeuring wacht, wordt per e-mail gemeld aan elke actieve beheerder, via de mailserver in `SMTP_HOST` (poort `SMTP_PORT`, afzender `SMTP_FROM` of anders `ADMIN_EMAIL`; met `SMTP_USERNAME` en `SMTP_PASSWORD` meldt CoGA zich aan, na `SMTP_STARTTLS`, wat buiten ontwikkeling verplicht is). Zonder `SMTP_HOST` gaat er geen mail uit. De mail noemt naam, e-mailadres, affiliatie, aanmeldwijze en tijdstip, en linkt naar *Users* als CoGA zijn eigen adres kent (dat van `CAS_SERVICE_URL`); ze bevat geen patiëntgegevens. De pagina *Users* toont naar wie de mail gaat en stuurt een testmail (`GET /api/auth/account-request-mail`, `POST /api/auth/account-request-mail/test`). Een mail die niet vertrekt, laat de registratie of aanmelding ongemoeid; de log noemt alleen het type van de fout, nooit een adres of de tekst van de server (SEC-11).
+**De mail aan de beheerders.** Een account dat op goedkeuring wacht, wordt per e-mail gemeld aan elke actieve beheerder, via de mailserver in `SMTP_HOST` (poort `SMTP_PORT`, afzender `SMTP_FROM` of anders `ADMIN_EMAIL`; met `SMTP_USERNAME` en `SMTP_PASSWORD` meldt CoGA zich aan, na `SMTP_STARTTLS`, wat buiten ontwikkeling verplicht is). Zonder `SMTP_HOST` gaat er geen mail uit. De mail noemt naam, e-mailadres, affiliatie, aanmeldwijze en tijdstip, en linkt naar *Users* als CoGA zijn eigen adres kent (dat van `CAS_SERVICE_URL` of `OAUTH_REDIRECT_URL`); ze bevat geen patiëntgegevens. De pagina *Users* toont naar wie de mail gaat en stuurt een testmail (`GET /api/auth/account-request-mail`, `POST /api/auth/account-request-mail/test`). Een mail die niet vertrekt, laat de registratie of aanmelding ongemoeid; de log noemt alleen het type van de fout, nooit een adres of de tekst van de server (SEC-11).
 
-Met Microsoft-aanmelding of aanmelding via CAS bestaat registreren niet: `POST /auth/signup` antwoordt `403`, en de eerste aanmelding maakt het account (hieronder).
+Met Microsoft-aanmelding of aanmelding via CAS of OAuth bestaat registreren niet: `POST /auth/signup` antwoordt `403`, en de eerste aanmelding maakt het account (hieronder).
 
 **Waar in de code:** `signup`, `update_user` en `delete_user` in `backend/app/routers/auth.py`; het aanmaken, wijzigen en verwijderen van het account in `backend/app/services/metadata_service.py`; de mail in `backend/app/services/account_notifications.py`; de minimale lengte in `backend/app/schemas/auth.py`; de pagina in `frontend/src/pages/admin/UserListPage.tsx`.
 
@@ -183,7 +183,24 @@ De CAS-server geeft CoGA de attributen die bij de registratie van de applicatie 
 
 Een geweigerd ticket antwoordt `401` en telt mee voor het bron-IP (`auth_login_attempts`, scope `cas_ip`); na te veel weigeringen antwoordt de aanmelding `429`. Een geslaagde aanmelding telt niet, zodat collega's achter hetzelfde adres elkaar niet ophouden. Het ticket en het antwoord van de CAS-server komen niet in de log. **Afmelden** wist de sessie van CoGA; de inlogpagina biedt daarna *Sign out of UGent* aan, dat de sessie op de CAS-server beëindigt.
 
-**Waar in de code:** `backend/app/core/cas.py` (het ticket en het antwoord), `cas_session` in `backend/app/routers/auth.py`, `_cas_session_user` in `backend/app/dependencies.py`, `backend/app/services/user_accounts.py` (het account), en in de browser `frontend/src/lib/casSignIn.ts` en `frontend/src/pages/auth/LoginPage.tsx`.
+**Waar in de code:** `backend/app/core/cas.py` (het ticket en het antwoord), `cas_session` in `backend/app/routers/auth.py`, `_redirect_session_user` in `backend/app/dependencies.py`, `backend/app/services/user_accounts.py` (het account), en in de browser `frontend/src/lib/casSignIn.ts` en `frontend/src/pages/auth/LoginPage.tsx`.
+
+## Aanmelden via OAuth (OAuth-applicatie van de UGent)
+
+Registreert de organisatie CoGA als OAuth-applicatie, zoals de ICT van de UGent via haar formulier doet, dan meldt iedereen zich aan met de *authorization code flow* met PKCE (SEC-4). De backend zet het aan met zes instellingen, alle zes of geen: `OAUTH_AUTHORIZE_URL`, `OAUTH_TOKEN_URL` en `OAUTH_USERINFO_URL` (de adressen van de server), `OAUTH_REDIRECT_URL` (de inlogpagina van CoGA zelf, `https://<host>/login`), `OAUTH_CLIENT_ID` en `OAUTH_CLIENT_SECRET`. De adressen en de client-gegevens staan op de pagina waar ICT de credentials geeft. Naast Microsoft- of CAS-aanmelding, met een adres dat geen HTTPS is (buiten ontwikkeling), met een andere redirect dan `/login` of met een plaatshouder als secret start de backend niet. `OAUTH_DISPLAY_NAME` (standaard `UGent`) is de naam op de knop; `OAUTH_SCOPE`, `OAUTH_TOKEN_AUTH_METHOD` (het secret in de Basic-header, standaard, of in het formulier) en `OAUTH_LOGOUT_URL` zijn optioneel.
+
+De gebruikersinfo moet dezelfde vier velden bevatten als bij CAS: `azureObjectId`, `mail`, `givenName` en `surname` (instelbaar met `OAUTH_*_CLAIM`). Een veld mag bovenaan staan of in een object `attributes`, met één waarde of een lijst.
+
+1. De inlogpagina vraagt de backend hoe gebruikers zich aanmelden (`GET /auth/config`: de autorisatiepagina voor de client van CoGA, en de afmeldpagina als die er is). Ze toont alleen de knop *Sign in with UGent*.
+2. Het tabblad maakt een eenmalige `state` en een *code verifier*, en bewaart ze met de gevraagde pagina in zijn sessieopslag. De browser gaat naar de autorisatiepagina met de `state` en de S256-*challenge* van de verifier; de verifier zelf gaat niet mee.
+3. De server stuurt de browser terug naar `/login` met een eenmalige *code* en dezelfde `state`. De pagina haalt beide uit de adresbalk en neemt de code alleen aan als de `state` die van dit tabblad is: zo kan niemand een tabblad aanmelden met zijn eigen code. Ze geeft de code en de verifier aan de API (`POST /auth/oauth/session`). Weigert de server, dan toont de pagina alleen de foutcode (zoals `access_denied`), nooit de beschrijving.
+4. De backend wisselt de code in bij `OAUTH_TOKEN_URL` (over HTTPS, met client-ID, secret, redirect en verifier) en haalt met het access token de gebruikersinfo op bij `OAUTH_USERINFO_URL`, die hij alleen leest als JSON-object van hoogstens 64 KiB. Een waarde die geen code of verifier is, gaat niet naar de server. De server geeft een code maar één keer, alleen aan de client van CoGA en alleen met de juiste verifier: een code uit de adresbalk is voor een ander niets waard.
+5. Het account hoort bij het object-ID, zoals bij CAS: een eerste aanmelding maakt een **inactief** account dat wacht op goedkeuring, en elke actieve beheerder krijgt een mail.
+6. Is het account actief, dan krijgt de browser het eigen token van CoGA (HS256), met dezelfde regel als bij CAS.
+
+Een geweigerde code antwoordt `401` en telt mee voor het bron-IP (scope `oauth_ip`). Het secret staat alleen in `.env`: nooit in de log, in een antwoord of in de browser. De code, de verifier, het token en het antwoord van de server komen niet in de log; bij een weigering logt de backend alleen de foutcode van de server. De auditregel van het verzoek maskeert `authorization_code` en `code_verifier` (`SENSITIVE_KEY_PREFIXES`). **Afmelden** wist de sessie van CoGA; met `OAUTH_LOGOUT_URL` biedt de inlogpagina daarna *Sign out of UGent* aan.
+
+**Waar in de code:** `backend/app/core/oauth.py` (de code inwisselen en de gebruikersinfo lezen), `oauth_session` in `backend/app/routers/auth.py`, en in de browser `frontend/src/lib/oauthSignIn.ts` en `frontend/src/pages/auth/LoginPage.tsx`.
 
 ## Veiligheid en traceerbaarheid
 
@@ -191,7 +208,7 @@ Een geweigerd ticket antwoordt `401` en telt mee voor het bron-IP (`auth_login_a
 - **Wachtwoorden en tokens komen niet in de logs.** De auditlog maskeert gevoelige velden, ook in het formulier van `/auth/token`.
 - **De tabel `auth_login_attempts`** toont per e-mailadres en IP de mislukkingen en blokkeringen: bruikbaar om een aanval te herkennen.
 - **De noodaanmelding laat altijd een spoor na** in de log en in de auditregel van elk verzoek (`request_meta.emergency_sign_in`).
-- **Een account dat de eerste Microsoft- of CAS-aanmelding maakte, en elke wijziging van rol of activatie,** staan in de auditregel van het verzoek, elk veld van en naar (`request_meta.account_change`).
+- **Een account dat de eerste Microsoft-, CAS- of OAuth-aanmelding maakte, en elke wijziging van rol of activatie,** staan in de auditregel van het verzoek, elk veld van en naar (`request_meta.account_change`).
 - **Korte tokens en uitloggen bij `401`** beperken de gevolgen van een gelekt token.
 
 ## Belangrijkste bestanden
@@ -202,6 +219,7 @@ Een geweigerd ticket antwoordt `401` en telt mee voor het bron-IP (`auth_login_a
 | `backend/app/dependencies.py` | Wachtwoorden (bcrypt), tokens maken en controleren, Microsoft-tak en noodbeheerder |
 | `backend/app/core/azure.py` | Controle van Microsoft-tokens |
 | `backend/app/core/cas.py` | Controle van een CAS-ticket bij de CAS-server |
+| `backend/app/core/oauth.py` | Een OAuth-code inwisselen en de gebruikersinfo lezen |
 | `backend/app/services/user_accounts.py` | Het account van een Microsoft-aanmelding; de noodbeheerder |
 | `backend/app/services/auth_rate_limit_pg.py` | Rate limiting en lockout |
 | `backend/app/schemas/auth.py` | Invoer van login en registratie (minimale wachtwoordlengte) |
@@ -209,4 +227,5 @@ Een geweigerd ticket antwoordt `401` en telt mee voor het bron-IP (`auth_login_a
 | `frontend/src/pages/auth/LoginPage.tsx` · `SignupPage.tsx` | Inloggen (ook met Microsoft en op `/login/emergency`) en registreren |
 | `frontend/src/lib/microsoftSignIn.ts` | De aanmelding met Microsoft in de browser (MSAL) |
 | `frontend/src/lib/casSignIn.ts` | De aanmelding via CAS in de browser |
+| `frontend/src/lib/oauthSignIn.ts` | De aanmelding via OAuth in de browser (state en PKCE) |
 | `frontend/src/lib/auth.ts` · `frontend/src/lib/storage.ts` | De sessie in de browser |

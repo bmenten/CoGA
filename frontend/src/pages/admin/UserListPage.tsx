@@ -36,17 +36,19 @@ const ROLE_HINTS: Record<Role, string> = {
 const SIGN_IN_LABELS: Record<User['sign_in'], string> = {
   microsoft: 'Microsoft',
   cas: 'Organisation (CAS)',
+  oauth: 'Organisation (OAuth)',
   password: 'Password',
 };
 // How each confirmation says it: "Signs in with …".
 const SIGN_IN_PHRASES: Record<User['sign_in'], string> = {
   microsoft: 'Microsoft',
   cas: 'the organisation sign-in (CAS)',
+  oauth: 'the organisation sign-in (OAuth)',
   password: 'a password',
 };
 
-// Where an account stands: waiting for approval (never active: a sign-up or a first CAS
-// sign-in), active, inactive (deactivated since it was active), or archived.
+// Where an account stands: waiting for approval (never active: a sign-up or a first CAS or
+// OAuth sign-in), active, inactive (deactivated since it was active), or archived.
 type AccountState = 'waiting' | 'active' | 'inactive' | 'archived';
 const accountState = (user: User): AccountState => {
   if (user.archived_at) return 'archived';

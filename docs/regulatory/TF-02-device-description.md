@@ -207,7 +207,9 @@ configuration management.
   access token Entra ID issues for CoGA's API. Where the organisation offers it, users sign in
   through its CAS server instead (such as `login.ugent.be`): the backend checks the service ticket
   with that server and binds the account to the Entra object ID it releases; a first sign-in
-  waits for an administrator's approval. One local emergency administrator signs in with a
+  waits for an administrator's approval. Where the organisation registers CoGA as an OAuth 2.0
+  application, the backend redeems the authorization code (with PKCE and the client secret) and
+  binds the account the same way. One local emergency administrator signs in with a
   password only while `AZURE_ADMIN_OVERRIDE` is on. Without Azure AD (development) accounts sign in
   with a password and an HS256 token (SEC-4, [TF-13 §2](TF-13-cybersecurity.md)). Project-scoped
   RBAC; admin-gated mutations.

@@ -239,26 +239,54 @@ here too, with `AZURE_ADMIN_OVERRIDE` in `.env` in place of the Terraform variab
 - The backend reads these settings when it starts. After a change, `docker compose up -d`
   recreates the backend and the import worker; nothing needs rebuilding.
 
-**At Ghent University** ICT registers web applications on its CAS server, `login.ugent.be`
-(the self-service form for a URL/OAuth application), not in Entra ID. CoGA signs in there
-instead of with Microsoft ([security-posture.md](security-posture.md), SEC-4):
+**At Ghent University** ICT registers web applications on its sign-in server, `login.ugent.be`,
+through a self-service form, not in Entra ID. CoGA signs in there instead of with Microsoft
+([security-posture.md](security-posture.md), SEC-4), in either of the two ways the form offers:
 
-```env
-CAS_SERVER_URL=https://login.ugent.be
-CAS_SERVICE_URL=https://coga-test.example.org/login
-CAS_DISPLAY_NAME=UGent
-```
+- **An OAuth application** (the form's "OAuth"): ask for the redirect URL
+  `https://<host name>/login` and the attributes `mail`, `surname` and `azureObjectId` (public)
+  and `givenName` (protected: the motivation is the user's name in the app and in the audit
+  log). Ask for nothing else, and no guest accounts. Once it is approved, request the credentials
+  through the link in ICT's mail: the page gives the client ID and secret and the server's
+  addresses. Put them in `.env`, the secret only there:
 
-- In ICT's form, the endpoint URL is `CAS_SERVICE_URL`, and the attributes are `mail`,
-  `surname` and `azureObjectId` (public) and `givenName` (protected: the motivation is the
-  user's name in the app and in the audit log). Ask for nothing else, and no guest accounts.
-- The service needs HTTPS: set these once the certificate of step 6 is in place, then
+  ```env
+  OAUTH_AUTHORIZE_URL=<authorization address from the credentials page>
+  OAUTH_TOKEN_URL=<token address>
+  OAUTH_USERINFO_URL=<user-info address>
+  OAUTH_REDIRECT_URL=https://coga-test.example.org/login
+  OAUTH_CLIENT_ID=<client ID>
+  OAUTH_CLIENT_SECRET=<client secret>
+  OAUTH_DISPLAY_NAME=UGent
+  ```
+
+  Set `OAUTH_SCOPE` when the page names scopes, `OAUTH_TOKEN_AUTH_METHOD=client_secret_post`
+  when it says the secret goes in the form, `OAUTH_LOGOUT_URL` when it gives a sign-out
+  address, and the `OAUTH_*_CLAIM` settings when the user info names the fields otherwise.
+- **A CAS service** (the form's "URL"): the endpoint URL is the app's `/login` page, with the
+  same attributes, and `.env` names the server and that page:
+
+  ```env
+  CAS_SERVER_URL=https://login.ugent.be
+  CAS_SERVICE_URL=https://coga-test.example.org/login
+  CAS_DISPLAY_NAME=UGent
+  ```
+
+  A CAS sign-in to an OAuth registration ends on login.ugent.be with "Ongeldige service-URL":
+  the service is not registered as a URL.
+
+Either way:
+
+- The redirect needs HTTPS: set these once the certificate of step 6 is in place, then
   `docker compose up -d`.
-- CAS admits every UGent account, students included. A first sign-in makes an account that
-  waits for approval on *Users*, where an administrator activates it, or deletes or archives
-  it when it is not relevant. Every active administrator is told by e-mail when `SMTP_HOST` is
-  set.
-- The first administrator: sign in once through CAS, then sign in at `/login/emergency` as the
+- If a sign-in is refused, `docker compose logs backend | grep "sign-in"` says why: the field
+  the user info or the CAS answer lacks, the error code the server named, or that it could not
+  be reached. Neither the code, the ticket, a token nor the secret is logged.
+- The server admits every UGent account, students included. A first sign-in makes an account
+  that waits for approval on *Users*, where an administrator activates it, or deletes or
+  archives it when it is not relevant. Every active administrator is told by e-mail when
+  `SMTP_HOST` is set.
+- The first administrator: sign in once through UGent, then sign in at `/login/emergency` as the
   emergency administrator with `AZURE_ADMIN_OVERRIDE=true`, activate your account and make it
   an administrator, and switch the override off again.
 

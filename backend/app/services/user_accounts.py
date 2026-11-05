@@ -95,6 +95,14 @@ CAS_SIGN_IN = SignInSource(
     email_taken_detail=CAS_EMAIL_TAKEN_DETAIL,
     log_name="cas sign-in",
 )
+# The OAuth server admits every account of the organisation too: the same as CAS.
+OAUTH_SIGN_IN = SignInSource(
+    created="oauth_sign_in",
+    active=False,
+    no_email_detail=CAS_NO_EMAIL_DETAIL,
+    email_taken_detail=CAS_EMAIL_TAKEN_DETAIL,
+    log_name="oauth sign-in",
+)
 
 
 def is_emergency_admin(account: Mapping[str, Any]) -> bool:
@@ -196,8 +204,9 @@ async def microsoft_account_user(
     identity: AzureIdentity,
     source: SignInSource = MICROSOFT_SIGN_IN,
 ) -> tuple[CurrentUser, dict[str, Any] | None]:
-    """The account a verified organisation sign-in (a Microsoft token, or a CAS answer) signs
-    in, made at the user's first sign-in: active for Microsoft, waiting for approval for CAS.
+    """The account a verified organisation sign-in (a Microsoft token, a CAS answer or OAuth
+    user info) signs in, made at the user's first sign-in: active for Microsoft, waiting for
+    approval for CAS and OAuth.
 
     Returns the user and, when this sign-in made the account, what the request audit records
     of it (``request_meta.account_change``). Raises 403 when the sign-in gives no e-mail

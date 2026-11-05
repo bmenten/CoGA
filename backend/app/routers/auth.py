@@ -6,8 +6,8 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request,
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..core import cas
-from ..core.azure import authority as azure_authority
+from ..core import cas, oauth
+from ..core.azure import AzureIdentity, authority as azure_authority
 from ..core.config import settings
 from ..core.postgres import get_postgres_session
 from ..core.sql import require_uuid
@@ -25,6 +25,8 @@ from ..schemas import (
     CasSignInOut,
     CasTicketIn,
     MicrosoftSignInOut,
+    OAuthCodeIn,
+    OAuthSignInOut,
     SignInConfigOut,
     SignupAck,
     SmallVariantFilterPresetOut,
@@ -54,6 +56,8 @@ from ..services.metadata_service import (
 )
 from ..services.user_accounts import (
     CAS_SIGN_IN,
+    OAUTH_SIGN_IN,
+    SignInSource,
     is_emergency_admin,
     is_emergency_admin_account,
     microsoft_account_user,
@@ -63,9 +67,11 @@ from ..services.auth_rate_limit_pg import (
     clear_login_failures,
     get_cas_throttle_state,
     get_login_throttle_state,
+    get_oauth_throttle_state,
     get_signup_throttle_state,
     record_failed_login,
     record_refused_cas_ticket,
+    record_refused_oauth_code,
     record_signup_attempt,
 )
 from ..services.small_variant_review_presets import (
@@ -82,7 +88,7 @@ logger = logging.getLogger(__name__)
 # Computed once at import so it matches the configured bcrypt work factor.
 _DUMMY_LOGIN_PASSWORD_HASH = get_password_hash("coga-login-timing-equalizer")
 
-# With the organisation's sign-in (Microsoft, or its CAS server; SEC-4), the password sign-in
+# With the organisation's sign-in (Microsoft, or its CAS or OAuth server; SEC-4), the password sign-in
 # serves the emergency administrator alone, and only while AZURE_ADMIN_OVERRIDE is on; accounts
 # come from the first sign-in through the organisation.
 PASSWORD_SIGN_IN_OFF_DETAIL = (
@@ -95,7 +101,8 @@ EMERGENCY_ONLY_DETAIL = (
 SIGNUP_OFF_DETAIL = (
     "Accounts are made at the first sign-in with an organisation account: there is no sign-up."
 )
-# A first CAS sign-in makes an account that waits for an administrator's approval (SEC-4).
+# A first CAS or OAuth sign-in makes an account that waits for an administrator's approval
+# (SEC-4).
 CAS_ACCOUNT_WAITING_DETAIL = (
     "Your CoGA account waits for an administrator's approval. You can sign in once it is "
     "activated."
@@ -104,6 +111,8 @@ CAS_ACCOUNT_WAITING_DETAIL = (
 CAS_ACCOUNT_INACTIVE_DETAIL = "Your CoGA account is not active. Ask a CoGA administrator."
 CAS_TICKET_REFUSED_DETAIL = "The sign-in could not be confirmed. Sign in again."
 CAS_SIGN_IN_OFF_DETAIL = "The organisation sign-in through CAS is not configured."
+OAUTH_CODE_REFUSED_DETAIL = CAS_TICKET_REFUSED_DETAIL
+OAUTH_SIGN_IN_OFF_DETAIL = "The organisation sign-in through OAuth is not configured."
 OWN_ROLE_DETAIL = "You cannot change your own role: ask another administrator."
 OWN_ACTIVE_DETAIL = "You cannot deactivate your own account: ask another administrator."
 OWN_ARCHIVE_DETAIL = "You cannot archive your own account: ask another administrator."
@@ -125,6 +134,13 @@ NO_ADMIN_ADDRESS_DETAIL = "There is no active administrator to send the mail to.
 # user, and what each changed from and to is in its ``request_meta.account_change``, so no value
 # of the request, its token included, reaches the application log.
 ACCOUNT_CHANGE_FIELDS = ("role", "is_active", "archived")
+
+
+def _organisation_sign_in_phrase() -> str:
+    """The organisation's sign-in, as a log line names it."""
+    if settings.azure_ad_enabled:
+        return "Microsoft sign-in"
+    return "the CAS sign-in" if settings.cas_enabled else "the OAuth sign-in"
 
 
 def _request_remote_ip(request: Request) -> str | None:
@@ -207,7 +223,7 @@ async def _authenticate_and_issue_token(
             "azure_admin_override: the emergency administrator %s signed in with its password "
             "beside %s",
             user["id"],
-            "Microsoft sign-in" if settings.azure_ad_enabled else "the CAS sign-in",
+            _organisation_sign_in_phrase(),
         )
         request.state.emergency_sign_in = True
     access_token = create_access_token(data={"sub": user["email"]})
@@ -328,6 +344,14 @@ async def sign_in_config() -> SignInConfigOut:
                 logout_url=cas.logout_url(),
             )
         )
+    if settings.oauth_enabled:
+        return SignInConfigOut(
+            oauth=OAuthSignInOut(
+                display_name=settings.oauth_display_name,
+                authorize_url=oauth.authorize_url(),
+                logout_url=oauth.logout_url(),
+            )
+        )
     if not settings.azure_ad_enabled:
         return SignInConfigOut(microsoft=None)
     return SignInConfigOut(
@@ -372,7 +396,20 @@ async def cas_session(
         await record_refused_cas_ticket(session, remote_ip=remote_ip)
         await session.commit()
         raise HTTPException(status_code=401, detail=CAS_TICKET_REFUSED_DETAIL) from exc
-    user, created = await microsoft_account_user(session, identity, CAS_SIGN_IN)
+    return await _organisation_session(session, request, identity, CAS_SIGN_IN, "cas")
+
+
+async def _organisation_session(
+    session: AsyncSession,
+    request: Request,
+    identity: AzureIdentity,
+    source: SignInSource,
+    sign_in: str,
+) -> Token:
+    """The session of the account a confirmed CAS or OAuth sign-in names: made at its first
+    sign-in, waiting for an administrator's approval (403 until then, every active
+    administrator told), and CoGA's own token once it is active."""
+    user, created = await microsoft_account_user(session, identity, source)
     if created is not None:
         request.state.account_change = created
         # Every active administrator is told now, not as a background task: the answer below
@@ -382,7 +419,7 @@ async def cas_session(
             first_name=user.first_name,
             last_name=user.last_name,
             affiliation=user.affiliation,
-            sign_in="cas",
+            sign_in=sign_in,
             created_at=user.created_at,
         )
         await asyncio.to_thread(
@@ -396,6 +433,43 @@ async def cas_session(
         )
     access_token = create_access_token(data={"sub": user.email})
     return Token(access_token=access_token, token_type="bearer", role=user.role)
+
+
+@router.post(
+    "/oauth/session",
+    response_model=Token,
+    summary="Sign in with an OAuth authorization code",
+    description=(
+        "Redeems the authorization code the organisation's OAuth server sent the browser back "
+        "with, for CoGA's own client and with the browser's PKCE code verifier, reads the user "
+        "it signs in and starts that account's session. A first sign-in makes an account that "
+        "waits for an administrator's approval (403 until then)."
+    ),
+)
+async def oauth_session(
+    code_in: OAuthCodeIn,
+    request: Request,
+    session: AsyncSession = Depends(get_postgres_session),
+) -> Token:
+    if not settings.oauth_enabled:
+        raise HTTPException(status_code=404, detail=OAUTH_SIGN_IN_OFF_DETAIL)
+    remote_ip = _request_remote_ip(request)
+    throttle_state = await get_oauth_throttle_state(session, remote_ip=remote_ip)
+    if throttle_state is not None:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many sign-in attempts. Try again later.",
+            headers={"Retry-After": str(throttle_state.retry_after_seconds)},
+        )
+    try:
+        identity = await oauth.verify_authorization_code(code_in.authorization_code, code_in.code_verifier)
+    except oauth.OAuthError as exc:
+        # Why, never the code, the verifier, a token or the server's answer.
+        logger.warning("oauth sign-in: code refused: %s", exc)
+        await record_refused_oauth_code(session, remote_ip=remote_ip)
+        await session.commit()
+        raise HTTPException(status_code=401, detail=OAUTH_CODE_REFUSED_DETAIL) from exc
+    return await _organisation_session(session, request, identity, OAUTH_SIGN_IN, "oauth")
 
 
 @router.get("/me", response_model=UserRead)

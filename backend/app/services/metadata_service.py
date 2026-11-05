@@ -139,8 +139,10 @@ def _family_member_out_from_row(row: dict[str, Any]) -> FamilyMemberOut:
 
 def organisation_sign_in_name() -> str:
     """How an account bound to an object ID signs in (SEC-4): through the organisation's CAS
-    server when that is the sign-in configured, else with Microsoft."""
-    return "cas" if settings.cas_enabled else "microsoft"
+    or OAuth server when that is the sign-in configured, else with Microsoft."""
+    if settings.cas_enabled:
+        return "cas"
+    return "oauth" if settings.oauth_enabled else "microsoft"
 
 
 def _user_read_from_mapping(mapping: dict[str, Any]) -> UserRead:

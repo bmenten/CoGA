@@ -54,6 +54,26 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   account bound to an object ID, or the emergency administrator while `AZURE_ADMIN_OVERRIDE` is
   on (logged and flagged). There is no password sign-in or sign-up. Neither the ticket nor the
   CAS answer reaches the log.
+- ✅ **Sign-in through the organisation's OAuth 2.0 server (SEC-4).** Where the organisation
+  registers CoGA as an OAuth application, as Ghent University's ICT does (`OAUTH_*`: the
+  authorization, token and user-info addresses, `/login` as the redirect, the client ID and
+  secret; not beside Microsoft or CAS sign-in), the authorization code flow with PKCE runs.
+  The browser makes a one-time `state` and code verifier, keeps them in its tab, and goes to the
+  authorization page with the verifier's S256 challenge; back on /login it hands the code over
+  only when the `state` is the one it kept, so nobody can sign a tab in with their own code.
+  `core/oauth.py` refuses a value that is no code or verifier before asking, redeems the code at
+  the token endpoint (over HTTPS, ten-second timeout, no redirects followed, the client secret
+  in HTTP Basic or the form), and reads the user info with the access token as a JSON object of
+  at most 64 KiB. The server gives a code once, to CoGA's client only and with the verifier
+  whose challenge it saw, so a code read from the address bar is worth nothing to anyone else.
+  The account is bound to the Entra object ID in the user info (`azureObjectId` by default), as
+  with CAS; a first sign-in makes an inactive account waiting for approval, a refused code
+  answers 401 and counts against the source address (scope `oauth_ip`), and the session is
+  CoGA's own HS256 token with the same rule. The client secret lives in `.env` only: it is
+  never in a log, an answer or the browser, and the backend refuses a placeholder outside
+  development. Neither the code, the verifier, a token nor the server's answer reaches the log;
+  a refusal logs the server's error code only, and the request audit masks the body's
+  `authorization_code` and `code_verifier` (`SENSITIVE_KEY_PREFIXES`).
 - ✅ **A user's own records stay with the account (SEC-32).** A later Microsoft sign-in updates
   the account's e-mail address and user name from the token, so nothing a user owns is found by
   either. It is found by the account's id:

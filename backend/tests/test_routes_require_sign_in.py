@@ -34,6 +34,7 @@ from backend.tests._app_routes import dependency_calls, filled_path, route_opera
 PUBLIC_OPERATIONS = {
     ("GET", "/api/auth/config"),
     ("POST", "/api/auth/cas/session"),
+    ("POST", "/api/auth/oauth/session"),
     ("POST", "/api/auth/login"),
     ("POST", "/api/auth/signup"),
     ("POST", "/api/auth/token"),

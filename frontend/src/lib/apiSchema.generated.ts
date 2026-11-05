@@ -2391,6 +2391,27 @@ export interface NiptVariantPage {
   not_classified: NiptNotClassifiedOut[];
 }
 
+/**
+ * The authorization code the OAuth server sent the browser back with, and the PKCE code
+ * verifier the browser kept for it. The request audit masks both by their names.
+ */
+export interface OAuthCodeIn {
+  authorization_code: string;
+  code_verifier: string;
+}
+
+/**
+ * Where the browser signs a user in through the organisation's OAuth 2.0 server (the
+ * authorization page for CoGA's client, to which the browser adds its own state and PKCE
+ * challenge), and signs out of it when the server has a sign-out page: none of it is
+ * secret.
+ */
+export interface OAuthSignInOut {
+  display_name: string;
+  authorize_url: string;
+  logout_url: string | null;
+}
+
 export interface PanelAppImportRequest {
   panelapp_id: number;
   version?: string | null;
@@ -3537,12 +3558,13 @@ export type SharedStructuralVariantCountsOut = Record<string, Record<string, num
 
 /**
  * How users sign in: with Microsoft when ``microsoft`` is given, through the
- * organisation's CAS server when ``cas`` is, else with a password (and then a new user
- * signs up).
+ * organisation's CAS server when ``cas`` is, through its OAuth 2.0 server when ``oauth`` is,
+ * else with a password (and then a new user signs up).
  */
 export interface SignInConfigOut {
   microsoft: MicrosoftSignInOut | null;
   cas: CasSignInOut | null;
+  oauth: OAuthSignInOut | null;
 }
 
 /** One caller signal file the genome browser can draw. */
@@ -3965,7 +3987,7 @@ export interface UserRead {
   first_name: string | null;
   last_name: string | null;
   affiliation: string | null;
-  sign_in: "microsoft" | "cas" | "password";
+  sign_in: "microsoft" | "cas" | "oauth" | "password";
   is_active: boolean;
   role: string;
   projects: string[];

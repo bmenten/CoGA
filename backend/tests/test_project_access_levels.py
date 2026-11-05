@@ -474,6 +474,7 @@ PUBLIC_ROUTES = {
     ("POST", "/api/auth/login"),
     ("POST", "/api/auth/token"),
     ("POST", "/api/auth/cas/session"),
+    ("POST", "/api/auth/oauth/session"),
 }
 
 

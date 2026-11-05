@@ -260,7 +260,7 @@ def _rows(audit_rows: list[Any], path: str) -> list[Any]:
 def test_without_azure_the_browser_is_told_to_use_the_password_sign_in(client: TestClient) -> None:
     response = client.get("/api/auth/config")
     assert response.status_code == 200, response.text
-    assert response.json() == {"microsoft": None, "cas": None}
+    assert response.json() == {"microsoft": None, "cas": None, "oauth": None}
 
 
 def test_with_azure_the_browser_gets_the_application_authority_and_scope(
@@ -275,6 +275,7 @@ def test_with_azure_the_browser_gets_the_application_authority_and_scope(
             "api_scope": f"api://{azure['client']}/access_as_user",
         },
         "cas": None,
+        "oauth": None,
     }
 
     monkeypatch.setattr(settings, "azure_api_scope", "api://coga.example.org/use_coga")

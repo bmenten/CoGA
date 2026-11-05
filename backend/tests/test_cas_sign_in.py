@@ -332,6 +332,7 @@ def test_the_browser_is_told_where_to_sign_in_through_cas(client: TestClient, ca
             "login_url": cas.login_url(),
             "logout_url": "https://login.example.org/logout",
         },
+        "oauth": None,
     }
 
 

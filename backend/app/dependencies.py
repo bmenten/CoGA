@@ -130,10 +130,10 @@ async def _emergency_admin(token: str, session: AsyncSession, request: Request |
     return user
 
 
-def _cas_session_user(user: CurrentUser, request: Request) -> CurrentUser:
-    """With the CAS sign-in, a token this server issued signs in an account the CAS sign-in
-    bound to an object ID, or the emergency administrator while AZURE_ADMIN_OVERRIDE is on,
-    each use logged and flagged in the request audit; no other local account (SEC-4)."""
+def _redirect_session_user(user: CurrentUser, request: Request) -> CurrentUser:
+    """With the CAS or OAuth sign-in, a token this server issued signs in an account that
+    sign-in bound to an object ID, or the emergency administrator while AZURE_ADMIN_OVERRIDE is
+    on, each use logged and flagged in the request audit; no other local account (SEC-4)."""
     if user.azure_object_id:
         return user
     account = {"username": user.username, "azure_object_id": user.azure_object_id, "role": user.role}
@@ -141,7 +141,7 @@ def _cas_session_user(user: CurrentUser, request: Request) -> CurrentUser:
         raise _refused()
     logger.warning(
         "azure_admin_override: the emergency administrator %s (role=%s) used a password "
-        "sign-in beside the CAS sign-in; switch AZURE_ADMIN_OVERRIDE off when the emergency "
+        "sign-in beside the organisation sign-in; switch AZURE_ADMIN_OVERRIDE off when the emergency "
         "is over",
         user.id,
         user.role,
@@ -173,7 +173,7 @@ async def get_current_user(
         found = await get_current_user_by_email(session, email) if email else None
         if found is None or not found.is_active:
             raise _refused()
-        user = _cas_session_user(found, request) if settings.cas_enabled else found
+        user = _redirect_session_user(found, request) if settings.redirect_sign_in_enabled else found
     request.state.current_user = user
     # Whether this request changes something a reader may not change (SEC-1). The family,
     # sample and project checkpoints read it, so every route that names a record is held to

@@ -40,6 +40,7 @@ SUBJECT = "CoGA: a new account waits for approval"
 TEST_SUBJECT = "CoGA: test of the account-request mail"
 SIGN_IN_LABELS = {
     "cas": "the organisation's sign-in (CAS)",
+    "oauth": "the organisation's sign-in (OAuth)",
     "password": "a sign-up with a password",
 }
 
@@ -85,9 +86,9 @@ async def administrator_addresses(session: AsyncSession) -> list[str]:
 
 
 def users_page_url() -> str | None:
-    """The *Users* page's address, when CoGA knows its own: the origin of the CAS service URL,
-    which is CoGA's own sign-in page."""
-    service = (settings.cas_service_url or "").strip()
+    """The *Users* page's address, when CoGA knows its own: the origin of the CAS service URL
+    or the OAuth redirect, each CoGA's own sign-in page."""
+    service = (settings.cas_service_url or settings.oauth_redirect_url or "").strip()
     if not service:
         return None
     parts = urlsplit(service)

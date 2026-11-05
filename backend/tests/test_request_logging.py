@@ -61,7 +61,7 @@ def test_the_request_audit_and_the_ui_events_mask_one_list_of_keys() -> None:
     from app.routers import ui_events
 
     assert not hasattr(rl, "_SENSITIVE_PREFIXES") and not hasattr(ui_events, "_SENSITIVE_PREFIXES")
-    for key in ("Password", "secret_value", "TOKEN", "authorization", "api_key_id", "access_key"):
+    for key in ("Password", "secret_value", "TOKEN", "authorization", "api_key_id", "access_key", "authorization_code", "code_verifier"):
         assert coga_logging.is_sensitive_key(key)
         assert _sanitize_for_logging({key: "value"}) == {key: "***"}
         assert ui_events._sanitize_detail({key: "value"}) == {key: "***"}

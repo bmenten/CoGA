@@ -282,3 +282,28 @@ async def record_refused_cas_ticket(
     now: datetime | None = None,
 ) -> LoginThrottleState | None:
     return await _record_attempt_for_scopes(session, scopes=_cas_scope_rows(remote_ip), now=now)
+
+
+def _oauth_scope_rows(remote_ip: str | None) -> list[tuple[str, str]]:
+    # The OAuth sign-in counts refused codes per source IP only, in a bucket of its own, as the
+    # CAS sign-in counts its tickets: a code names no account before the server confirms it.
+    normalized_ip = _normalize_remote_ip(remote_ip)
+    return [("oauth_ip", normalized_ip)] if normalized_ip else []
+
+
+async def get_oauth_throttle_state(
+    session: AsyncSession,
+    *,
+    remote_ip: str | None,
+    now: datetime | None = None,
+) -> LoginThrottleState | None:
+    return await _throttle_state_for_scopes(session, scopes=_oauth_scope_rows(remote_ip), now=now)
+
+
+async def record_refused_oauth_code(
+    session: AsyncSession,
+    *,
+    remote_ip: str | None,
+    now: datetime | None = None,
+) -> LoginThrottleState | None:
+    return await _record_attempt_for_scopes(session, scopes=_oauth_scope_rows(remote_ip), now=now)

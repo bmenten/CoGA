@@ -5,7 +5,7 @@ import ipaddress
 import json
 import re
 from urllib.parse import urlsplit
-from typing import Annotated, NamedTuple
+from typing import Annotated, Literal, NamedTuple
 from pydantic import Field
 from pydantic import field_validator
 from pydantic import model_validator
@@ -676,6 +676,37 @@ class Settings(BaseSettings):
     cas_email_attribute: str = Field(default="mail", alias="CAS_EMAIL_ATTRIBUTE")
     cas_given_name_attribute: str = Field(default="givenName", alias="CAS_GIVEN_NAME_ATTRIBUTE")
     cas_family_name_attribute: str = Field(default="surname", alias="CAS_FAMILY_NAME_ATTRIBUTE")
+    # Sign-in through the organisation's OAuth 2.0 server (SEC-4), such as an OAuth application
+    # Ghent University's ICT registered for CoGA (core/oauth.py): the authorization code flow
+    # with PKCE. The browser goes to OAUTH_AUTHORIZE_URL and comes back to OAUTH_REDIRECT_URL,
+    # the app's own /login page, with a one-time code; the backend redeems it at
+    # OAUTH_TOKEN_URL with the client ID and secret, and reads the user from
+    # OAUTH_USERINFO_URL. All six or none, and not beside Microsoft sign-in or CAS: one
+    # organisation sign-in at a time.
+    oauth_authorize_url: str | None = Field(default=None, alias="OAUTH_AUTHORIZE_URL")
+    oauth_token_url: str | None = Field(default=None, alias="OAUTH_TOKEN_URL")
+    oauth_userinfo_url: str | None = Field(default=None, alias="OAUTH_USERINFO_URL")
+    oauth_redirect_url: str | None = Field(default=None, alias="OAUTH_REDIRECT_URL")
+    oauth_client_id: str | None = Field(default=None, alias="OAUTH_CLIENT_ID")
+    # Never in a log, a repr or an answer: only the token request carries it.
+    oauth_client_secret: str | None = Field(default=None, alias="OAUTH_CLIENT_SECRET", repr=False)
+    # The scopes the browser asks for, separated by spaces; blank asks for none (the server's
+    # default for the application).
+    oauth_scope: str = Field(default="", alias="OAUTH_SCOPE")
+    # How the token request presents the client secret: HTTP Basic (client_secret_basic, which
+    # every OAuth server must accept) or in the form (client_secret_post).
+    oauth_token_auth_method: Literal["client_secret_basic", "client_secret_post"] = Field(
+        default="client_secret_basic", alias="OAUTH_TOKEN_AUTH_METHOD"
+    )
+    # The server's sign-out page, offered after a CoGA sign-out; blank offers none.
+    oauth_logout_url: str | None = Field(default=None, alias="OAUTH_LOGOUT_URL")
+    oauth_display_name: str = Field(default="UGent", alias="OAUTH_DISPLAY_NAME")
+    # The user-info fields (claims) that name the user, as for CAS: the object ID in the
+    # organisation's Microsoft Entra ID binds the account (users.azure_object_id).
+    oauth_object_id_claim: str = Field(default="azureObjectId", alias="OAUTH_OBJECT_ID_CLAIM")
+    oauth_email_claim: str = Field(default="mail", alias="OAUTH_EMAIL_CLAIM")
+    oauth_given_name_claim: str = Field(default="givenName", alias="OAUTH_GIVEN_NAME_CLAIM")
+    oauth_family_name_claim: str = Field(default="surname", alias="OAUTH_FAMILY_NAME_CLAIM")
 
     # Resolve the project root .env if present (repo root), otherwise fallback to CWD
     _env_path = Path(__file__).resolve().parents[3] / ".env"
@@ -746,7 +777,18 @@ class Settings(BaseSettings):
             return stripped.lower() if _GUID_PATTERN.fullmatch(stripped) else stripped
         return value
 
-    @field_validator("cas_server_url", "cas_service_url", mode="before")
+    @field_validator(
+        "cas_server_url",
+        "cas_service_url",
+        "oauth_authorize_url",
+        "oauth_token_url",
+        "oauth_userinfo_url",
+        "oauth_redirect_url",
+        "oauth_client_id",
+        "oauth_client_secret",
+        "oauth_logout_url",
+        mode="before",
+    )
     @classmethod
     def normalize_blank_cas_values(cls, value: object) -> object:
         # An unset variable arrives as an empty value: that is no value. A trailing slash is
@@ -847,19 +889,67 @@ class Settings(BaseSettings):
             self.cas_server_url = cas_server.rstrip("/")
             self._check_cas_url("CAS_SERVER_URL", self.cas_server_url, path=None)
             self._check_cas_url("CAS_SERVICE_URL", cas_service, path="/login")
-        if self.azure_admin_override and not tenant and not cas_server:
+        self._check_oauth_settings(tenant=tenant, cas_server=cas_server)
+        if self.azure_admin_override and not self.organisation_sign_in_enabled:
             raise ValueError(
                 "AZURE_ADMIN_OVERRIDE=true opens the emergency administrator's password "
                 "sign-in beside the organisation's sign-in, and neither Microsoft sign-in "
-                "(AZURE_TENANT_ID, AZURE_CLIENT_ID) nor the CAS sign-in (CAS_SERVER_URL, "
-                "CAS_SERVICE_URL) is configured. Without one, every local account signs in "
-                "with its password already: set AZURE_ADMIN_OVERRIDE=false."
+                "(AZURE_TENANT_ID, AZURE_CLIENT_ID), the CAS sign-in (CAS_SERVER_URL, "
+                "CAS_SERVICE_URL) nor the OAuth sign-in (OAUTH_*) is configured. Without one, "
+                "every local account signs in with its password already: set "
+                "AZURE_ADMIN_OVERRIDE=false."
             )
         return self
 
-    def _check_cas_url(self, name: str, url: str, *, path: str | None) -> None:
-        """A CAS address: HTTPS (plain HTTP in development only, for a local test server), a
-        host, no user name, query or fragment; the service is the app's /login page."""
+    def _check_oauth_settings(self, *, tenant: str | None, cas_server: str | None) -> None:
+        """The OAuth sign-in: all six settings or none, alone, its addresses HTTPS, and the
+        browser sent back to the app's own /login page."""
+        required = {
+            "OAUTH_AUTHORIZE_URL": self.oauth_authorize_url,
+            "OAUTH_TOKEN_URL": self.oauth_token_url,
+            "OAUTH_USERINFO_URL": self.oauth_userinfo_url,
+            "OAUTH_REDIRECT_URL": self.oauth_redirect_url,
+            "OAUTH_CLIENT_ID": self.oauth_client_id,
+            "OAUTH_CLIENT_SECRET": self.oauth_client_secret,
+        }
+        missing = [name for name, value in required.items() if not value]
+        if len(missing) == len(required):
+            return
+        if missing:
+            raise ValueError(
+                "The OAuth sign-in needs OAUTH_AUTHORIZE_URL, OAUTH_TOKEN_URL, "
+                "OAUTH_USERINFO_URL, OAUTH_REDIRECT_URL, OAUTH_CLIENT_ID and "
+                f"OAUTH_CLIENT_SECRET, and {', '.join(missing)} is not set."
+            )
+        if tenant or cas_server:
+            other = "AZURE_TENANT_ID" if tenant else "CAS_SERVER_URL"
+            raise ValueError(
+                f"The OAuth sign-in and {other} are both set: CoGA uses one organisation "
+                "sign-in at a time. Leave one of them empty."
+            )
+        for name in ("OAUTH_AUTHORIZE_URL", "OAUTH_TOKEN_URL", "OAUTH_USERINFO_URL"):
+            self._check_cas_url(name, str(required[name]), path=None)
+        self._check_cas_url(
+            "OAUTH_REDIRECT_URL", str(self.oauth_redirect_url), path="/login", returns_with="code"
+        )
+        if self.oauth_logout_url:
+            self._check_cas_url("OAUTH_LOGOUT_URL", self.oauth_logout_url, path=None)
+        if not self.oauth_display_name.strip():
+            raise ValueError("OAUTH_DISPLAY_NAME names the sign-in on its button: it cannot be blank.")
+        claims = {
+            "OAUTH_OBJECT_ID_CLAIM": self.oauth_object_id_claim,
+            "OAUTH_EMAIL_CLAIM": self.oauth_email_claim,
+            "OAUTH_GIVEN_NAME_CLAIM": self.oauth_given_name_claim,
+            "OAUTH_FAMILY_NAME_CLAIM": self.oauth_family_name_claim,
+        }
+        blank = [name for name, value in claims.items() if not value.strip()]
+        if blank:
+            raise ValueError(f"{', '.join(blank)} cannot be blank: it names a field of the user info.")
+
+    def _check_cas_url(self, name: str, url: str, *, path: str | None, returns_with: str = "ticket") -> None:
+        """An organisation sign-in address (CAS or OAuth): HTTPS (plain HTTP in development
+        only, for a local test server), a host, no user name, query or fragment; the address
+        the browser comes back to is the app's /login page."""
         parts = urlsplit(url)
         allowed = {"https", "http"} if self.is_development else {"https"}
         if parts.scheme not in allowed or not parts.hostname:
@@ -869,7 +959,7 @@ class Settings(BaseSettings):
         if path is not None and parts.path != path:
             raise ValueError(
                 f"{name} must be the app's own sign-in page, https://<host name>{path}: the "
-                "CAS server sends the browser back there with the ticket."
+                f"organisation's server sends the browser back there with the {returns_with}."
             )
 
     @property
@@ -883,10 +973,28 @@ class Settings(BaseSettings):
         return bool(self.cas_server_url and self.cas_service_url)
 
     @property
+    def oauth_enabled(self) -> bool:
+        """Whether users sign in through the organisation's OAuth 2.0 server."""
+        return bool(
+            self.oauth_authorize_url
+            and self.oauth_token_url
+            and self.oauth_userinfo_url
+            and self.oauth_redirect_url
+            and self.oauth_client_id
+            and self.oauth_client_secret
+        )
+
+    @property
+    def redirect_sign_in_enabled(self) -> bool:
+        """Whether users sign in on the organisation's own server (CAS or OAuth), which sends
+        the browser back with a one-time proof for which CoGA issues its own session token."""
+        return self.cas_enabled or self.oauth_enabled
+
+    @property
     def organisation_sign_in_enabled(self) -> bool:
-        """Whether users sign in through their organisation (Microsoft or its CAS server), so
-        that no password sign-in or sign-up serves them (SEC-4)."""
-        return self.azure_ad_enabled or self.cas_enabled
+        """Whether users sign in through their organisation (Microsoft, or its CAS or OAuth
+        server), so that no password sign-in or sign-up serves them (SEC-4)."""
+        return self.azure_ad_enabled or self.redirect_sign_in_enabled
 
     @property
     def azure_api_scope_value(self) -> str:
@@ -979,6 +1087,12 @@ class Settings(BaseSettings):
             metrics_token in _INSECURE_SECRET_VALUES or len(metrics_token) < _MIN_SECRET_KEY_LENGTH
         ):
             insecure_fields.append("METRICS_TOKEN")
+        # The OAuth client secret redeems the sign-in codes for CoGA: a placeholder is none.
+        if self.oauth_client_secret and self.oauth_client_secret in {
+            *_INSECURE_SECRET_VALUES,
+            *_INSECURE_PASSWORD_VALUES,
+        }:
+            insecure_fields.append("OAUTH_CLIENT_SECRET")
         if insecure_fields:
             raise ValueError(
                 "Refusing to start outside development/test with missing or weak secrets: "
