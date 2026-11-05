@@ -529,6 +529,10 @@ async def _execute_family_package_import_local(
         requested_family_id=requested_family_id,
         conflict_mode=conflict_mode,
     )
+    # The job's record is written from the validation's metadata as the import goes, so the
+    # delivery it imports is merged in too: the job keeps naming it once it has run.
+    if delivery is not None:
+        request_metadata["delivery"] = delivery
     validation = _merge_validation_metadata(validation, request_metadata)
     # A package staged from a bucket is named by its source folder: the staging copy
     # is gone once the import ends.
