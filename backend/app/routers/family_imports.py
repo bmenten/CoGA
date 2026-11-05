@@ -29,7 +29,7 @@ from ..services.family_package_jobs import (
 )
 from ..services.family_package_source import scan_family_import_packages
 from ..services.family_package_validation import validate_family_package
-from ..services.imported_package_folders import imported_package_folders
+from ..services.imported_package_folders import folders_changed_during_import, imported_package_folders
 from ..services.access_control import CurrentUser, is_admin_user
 
 router = APIRouter(prefix="/family-imports", tags=["family_imports"])
@@ -146,9 +146,15 @@ async def list_available_family_packages(
     del user
     # Offloaded: scanning an s3:// root makes blocking network calls.
     packages = await asyncio.to_thread(scan_family_import_packages)
-    imported = await imported_package_folders(session, [str(package["folder_path"]) for package in packages])
+    folders = [str(package["folder_path"]) for package in packages]
+    imported = await imported_package_folders(session, folders)
+    changed = await folders_changed_during_import(session, folders)
     return [
-        FamilyPackageCandidateOut(**package, imported_families=imported.get(str(package["folder_path"]), []))
+        FamilyPackageCandidateOut(
+            **package,
+            imported_families=imported.get(str(package["folder_path"]), []),
+            changed_during_import=str(package["folder_path"]) in changed,
+        )
         for package in packages
     ]
 

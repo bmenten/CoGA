@@ -199,6 +199,42 @@ describe('PackageImportPage', () => {
     expect(screen.queryByText(/this folder was imported/i)).not.toBeInTheDocument();
   });
 
+  it('offers again a folder whose last import was undone because the package changed', async () => {
+    get.mockImplementation((url, config) =>
+      url === '/family-imports/packages'
+        ? Promise.resolve({
+            data: [
+              {
+                folder_path: '/data/families/REDOFAM',
+                name: 'REDOFAM',
+                family_id: 'REDOFAM',
+                has_manifest: true,
+                has_ped: true,
+                analysis_type: null,
+                imported_families: [
+                  { family_id: 'REDOFAM', registered_at: '2026-11-05T10:00:00Z', import_incomplete: false },
+                ],
+                changed_during_import: true,
+              },
+            ],
+          })
+        : factory(url, config),
+    );
+    renderPage();
+
+    const select = await screen.findByLabelText(/discovered family folder/i);
+    expect(
+      await screen.findByRole('option', { name: 'REDOFAM · changed during import: import it again' })
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: /show imported folders/i })).not.toBeInTheDocument();
+
+    fireEvent.change(select, { target: { value: '/data/families/REDOFAM' } });
+    expect(screen.getByText(/the last import from this folder was undone/i)).toHaveTextContent(
+      /run the dry run first/i
+    );
+    expect(screen.queryByText(/this folder was imported:/i)).not.toBeInTheDocument();
+  });
+
   it('says every family is imported when the import folder holds no other', async () => {
     get.mockImplementation((url, config) =>
       url === '/family-imports/packages'
