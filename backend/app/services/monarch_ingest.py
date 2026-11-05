@@ -7,6 +7,9 @@ the `monarch_gene_disease` table.
 
 Reference data only; keyed by HGNC and joined onto the gene profile by symbol at
 read time. See docs/monarch-integration.md.
+
+A start on a database without Monarch associations loads Monarch's newest release
+(``ensure_monarch_on_startup``); after that, a newer release is an administrator's refresh.
 """
 
 from __future__ import annotations
@@ -23,6 +26,8 @@ import httpx
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.coga_logging import describe_error, scrub_log
+from ..core.config import settings
 from .bounded_download import download_text
 from .monarch_phenotype_score import reset_information_content_cache
 
@@ -472,6 +477,76 @@ async def refresh_monarch(session: AsyncSession) -> dict[str, Any]:
         "completed_at": completed_at,
         "duration_seconds": (completed_at - started_at).total_seconds(),
     }
+    return summary
+
+
+async def _monarch_loaded(session: AsyncSession) -> bool:
+    return bool(
+        (
+            await session.execute(
+                text(
+                    "SELECT EXISTS (SELECT 1 FROM monarch_gene_disease) "
+                    "OR EXISTS (SELECT 1 FROM monarch_disease_phenotype)"
+                )
+            )
+        ).scalar()
+    )
+
+
+async def _rollback_quietly(session: AsyncSession) -> None:
+    """End the failed transaction, so the start's later steps get a usable session."""
+    try:
+        await session.rollback()
+    except Exception as exc:  # noqa: BLE001 - a rollback that fails too is left to the next step
+        logger.warning("Could not roll back after the Monarch load at start (%s)", describe_error(exc))
+
+
+async def ensure_monarch_on_startup(session: AsyncSession) -> dict[str, Any] | None:
+    """Load Monarch's newest release when no Monarch association is loaded yet.
+
+    A new instance had no Monarch data until an administrator loaded it, so phenotype matching
+    and the phenotype ranking had nothing to match against. A start now loads it as the admin
+    refresh does (``refresh_monarch``): the newest release, both tables in one transaction,
+    refused when the release cannot be read (the signed record names it) or a file holds no
+    association. A database that has Monarch data keeps it: a newer release stays the
+    administrator's refresh, which also rebuilds the Mendeliome panel. The start builds no
+    panel (a panel is created by an account); the Gene panels page builds it.
+
+    With ``REFERENCE_BOOTSTRAP_ENABLED`` and ``REFERENCE_BOOTSTRAP_MONARCH``. Never stops the
+    start: a failure is logged and nothing is loaded, and the next start, or the admin page,
+    tries again.
+    """
+    if not (settings.reference_bootstrap_enabled and settings.reference_bootstrap_monarch):
+        return None
+    try:
+        if await _monarch_loaded(session):
+            return None
+    except Exception as exc:  # noqa: BLE001 - a start never stops on it; logged by type
+        logger.error("Could not read whether Monarch data is loaded (%s)", describe_error(exc))
+        await _rollback_quietly(session)
+        return None
+    try:
+        summary = await refresh_monarch(session)
+    except (httpx.HTTPError, MonarchSourceError) as exc:
+        # Monarch unreachable, or its release or files refused: our messages, and the URL.
+        logger.warning(
+            "Monarch's newest release was not loaded at start (%s). Phenotype matching and the "
+            "phenotype ranking have no Monarch data until it is loaded (Administration, Monarch data).",
+            scrub_log(exc),
+        )
+        await _rollback_quietly(session)
+        return None
+    except Exception:
+        logger.exception("Monarch's newest release was not loaded at start")
+        await _rollback_quietly(session)
+        return None
+    logger.info(
+        "Loaded Monarch release %s at start: %s gene-disease and %s disease-phenotype pairs. "
+        "Build the Mendeliome panel on the Gene panels page.",
+        scrub_log(summary["release_version"]),
+        summary["gene_disease_pairs"],
+        summary["disease_phenotype_pairs"],
+    )
     return summary
 
 
