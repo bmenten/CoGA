@@ -404,7 +404,9 @@ If it finds a symlink, a file or another user's folder there, it refuses to stag
 package rather than follow it (SEC-27).
 
 **Discover** and **Write manifest** work on local folders only, so a package in a bucket must
-already contain its manifest.
+already contain its manifest. A local folder CoGA cannot write, such as a share mounted
+read-only, needs no manifest of its own: import it with the manifest CoGA keeps
+([below](#a-manifest-kept-in-coga)).
 
 ### The import job
 
@@ -433,9 +435,34 @@ The API behind the page:
 | `GET /family-imports/packages` | lists the packages under `FAMILY_IMPORT_ROOTS` |
 | `POST /family-imports/manifest/discover` | reads the PED, looks for the expected files and returns a draft manifest |
 | `POST /family-imports/manifest/write` | saves the manifest into the folder |
-| `POST /family-imports/validate` | validates at once, without creating a job |
-| `POST /family-imports` | queues a job: `folder_path`, `project_id`, `dry_run`, `family_id` (for an existing family; one that is not an ID is refused with 400 before the job is written), `conflict_mode` |
+| `POST /family-imports/validate` | validates at once, without creating a job; with `manifest_yaml`, with that manifest instead of the folder's |
+| `POST /family-imports` | queues a job: `folder_path`, `project_id`, `dry_run`, `family_id` (for an existing family; one that is not an ID is refused with 400 before the job is written), `conflict_mode`, and `manifest_yaml`, a manifest the job keeps and reads instead of the folder's ([below](#a-manifest-kept-in-coga)) |
 | `GET /family-imports`, `GET /family-imports/{job_id}` | job status, logs, validation errors and warnings, and a summary per dataset |
+
+#### A manifest kept in CoGA
+
+Validation and the import read a package's manifest from its folder. A folder CoGA cannot write,
+such as a share mounted read-only as a second import root, holds none unless its pipeline wrote
+one, and **Write manifest.yaml** cannot add it: it answers 409, saying so, instead of failing with
+a 500 (a read-only mount, or a folder whose permissions refuse the backend's user). Such a
+package imports with the manifest CoGA keeps. On the Package Import page, Discover the manifest,
+edit it if needed, and tick **Import with this manifest, kept in CoGA**; the page sends the draft
+only with the folder Discover drafted it for.
+
+- The request gives the manifest as `manifest_yaml` (YAML, at most 1,000,000 characters). The job
+  keeps it in `family_import_jobs.manifest_text`, with its SHA-256 in `manifest_sha256`, which the
+  job's record shows; a worker that takes the job up, also again after its worker stopped, reads
+  the kept text. One that holds a NUL or a lone surrogate is refused (400) before the job is
+  written.
+- Validation and the import read it instead of a file in the folder. Its paths are relative to the
+  package folder, as a folder manifest's are, and the same guards hold: a path out of the folder is
+  refused. A folder that holds a manifest of its own too is warned that it is not read
+  (`manifest_in_folder_not_read`).
+- The validation report names the manifest read in its metadata: `manifest_source` (`coga`, or
+  `folder` for the folder's file) and `manifest_sha256` (of the kept text, or of the file's bytes
+  as read). The family's package record (`families.metadata.package_import`) keeps both, with
+  `manifest_path` null for a kept manifest, and the family's raw files hold a managed copy of it,
+  as dataset `manifest`, for download and **Verify** ([database.md](database.md)).
 
 `conflict_mode` decides what happens when the family or its samples already exist:
 

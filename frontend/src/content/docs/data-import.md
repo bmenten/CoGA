@@ -262,7 +262,7 @@ dropped silently.
 sample ID that is a path out of the folder (an absolute path, or one that climbs out with `..`) names no
 file Discover looks for; Discover warns about it under *Check before writing the manifest*.
 
-**The manifest is a file in the family folder.** A `manifest.yaml` that is a link to a file elsewhere,
+**The manifest is a file in the family folder**, or the one CoGA keeps for the import (step 5). A `manifest.yaml` that is a link to a file elsewhere,
 or a link that loops, is refused (`manifest_outside_package`): Discover drafts nothing, and **Write
 manifest.yaml** does not write through the link. Every path in the manifest is relative to the family
 folder. A path is refused when it leads out of the folder, starts with `~` (CoGA reads no home folder)
@@ -280,7 +280,10 @@ or runs through a link that loops.
    edit the manifest before you write it.
 4. **Discover manifest.** CoGA reads the PED, looks for the expected files and shows a draft manifest
    with a table of the data it found.
-5. **Write manifest.yaml** (edit it first if needed).
+5. **Write manifest.yaml** (edit it first if needed). A folder CoGA cannot write, such as a share
+   mounted read-only, gets no file: tick **Import with this manifest, kept in CoGA** instead. The
+   import job keeps the manifest and reads it instead of a file in the folder, and the family's files
+   hold a copy of it. The draft is used only with the folder it was drafted for.
 6. **Validate, then import.** With **Dry run** ticked, **Validate package** checks everything without
    writing anything. When it is clean, untick it and press **Start import**. Only an administrator
    overwrites an existing family: for anyone else, *Overwrite* without a dry run shows a note and

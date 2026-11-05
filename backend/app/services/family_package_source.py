@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager, contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 import errno
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -564,15 +565,20 @@ def _package_folder_link_message(root: Path, folder: Path, target: str) -> str:
     )
 
 
-def _parse_manifest(path: Path) -> tuple[dict[str, Any], PackageManifest]:
-    """Return both the raw parsed payload and the validated model so callers can
-    inspect the original keys (e.g. schema_version presence) without re-reading
-    and re-parsing the file from disk."""
-    raw_text = path.read_text(encoding="utf-8")
-    if path.suffix.lower() == ".json":
-        payload = json.loads(raw_text)
-    else:
-        payload = yaml.safe_load(raw_text)
+def _parse_manifest(path: Path) -> tuple[dict[str, Any], PackageManifest, str]:
+    """Return the raw parsed payload, the validated model and the SHA-256 of the file's
+    bytes as read, so callers can inspect the original keys (e.g. schema_version presence)
+    without re-reading and re-parsing the file from disk, and record which manifest they
+    read."""
+    raw = path.read_bytes()
+    payload, manifest = parse_manifest_text(raw.decode("utf-8"), json_format=path.suffix.lower() == ".json")
+    return payload, manifest, hashlib.sha256(raw).hexdigest()
+
+
+def parse_manifest_text(raw_text: str, *, json_format: bool = False) -> tuple[dict[str, Any], PackageManifest]:
+    """A manifest's text parsed: its raw payload and its validated model. JSON with
+    ``json_format``, else YAML (which a manifest CoGA keeps for an import job is)."""
+    payload = json.loads(raw_text) if json_format else yaml.safe_load(raw_text)
     if not isinstance(payload, dict):
         raise ValueError("Manifest must contain a mapping/object at the top level")
     return payload, PackageManifest.model_validate(payload)

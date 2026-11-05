@@ -87,7 +87,7 @@ def _package_bundle(root: Path, *, source_uri: str | None, remote_only_files: fr
 async def _record(bundle: FamilyPackageBundle) -> dict[str, dict[str, Any]]:
     session = _ProvenanceSession()
     await family_package_registration._record_package_raw_files(
-        session, bundle=bundle, family_uuid="family-uuid"  # type: ignore[arg-type]
+        session, bundle=bundle, family_uuid="family-uuid", family_identifier="FAM1"  # type: ignore[arg-type]
     )
     return session.by_path()
 

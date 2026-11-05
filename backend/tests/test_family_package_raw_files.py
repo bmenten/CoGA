@@ -53,7 +53,7 @@ class _RawFileSession:
 async def _raw_file_rows(bundle: FamilyPackageBundle) -> dict[str, dict[str, Any]]:
     session = _RawFileSession(bundle.ped.sample_ids)
     await family_package_registration._record_package_raw_files(
-        session, bundle=bundle, family_uuid="family-uuid"  # type: ignore[arg-type]
+        session, bundle=bundle, family_uuid="family-uuid", family_identifier="FAM1"  # type: ignore[arg-type]
     )
     return session.rows
 

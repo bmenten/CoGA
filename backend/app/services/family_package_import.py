@@ -350,6 +350,7 @@ async def execute_family_package_import(
     progress: ProgressCallback | None = None,
     job_id: str | None = None,
     record_family: FamilyRecordCallback | None = None,
+    manifest_text: str | None = None,
 ) -> PackageExecutionResult:
     """Run an import, staging the package to a temp dir first when the source is a
     gs:// or s3:// URI (cleaned up afterwards; its alignments stay in the store).
@@ -357,7 +358,8 @@ async def execute_family_package_import(
     ``record_family``, if given, is awaited with the family's identifier before anything
     of the family is written; if it raises, the import writes nothing. The job's runner
     records there the family a report sign-out finds the import by. ``progress`` is
-    informational: what it fails to record changes nothing a sign-out reads."""
+    informational: what it fails to record changes nothing a sign-out reads.
+    ``manifest_text`` is the manifest the job keeps, read instead of the folder's own."""
     async with staged_package_source_async(folder_path) as staged:
         return await _execute_family_package_import_local(
             session,
@@ -372,6 +374,7 @@ async def execute_family_package_import(
             progress=progress,
             job_id=job_id,
             record_family=record_family,
+            manifest_text=manifest_text,
         )
 
 
@@ -389,6 +392,7 @@ async def _execute_family_package_import_local(
     job_id: str | None = None,
     remote_only_files: frozenset[str] = frozenset(),
     record_family: FamilyRecordCallback | None = None,
+    manifest_text: str | None = None,
 ) -> PackageExecutionResult:
     # The existing family the request names, read as every ID is: without the whitespace
     # around it.
@@ -399,6 +403,7 @@ async def _execute_family_package_import_local(
         fallback_ped_text=fallback_ped_text,
         remote_only_files=remote_only_files,
         source_uri=source_uri,
+        manifest_text=manifest_text,
     )
     conflict_mode = _normalized_conflict_mode(conflict_mode)
     request_metadata = _execution_metadata(
@@ -1099,7 +1104,8 @@ async def run_family_import_job(
                     dry_run,
                     requested_by_id::text AS requested_by_id,
                     metadata,
-                    logs
+                    logs,
+                    manifest_text
                 FROM family_import_jobs
                 WHERE id = CAST(:job_id AS uuid)
                   AND worker_id = :worker_id
@@ -1299,6 +1305,7 @@ async def run_family_import_job(
                 progress=progress,
                 job_id=job_id,
                 record_family=record_family,
+                manifest_text=job_row.get("manifest_text"),
             )
             if result.error:
                 await record_end(

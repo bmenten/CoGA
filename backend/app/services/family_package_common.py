@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass, field
 import errno
 import gzip
+import hashlib
 import json
 import logging
 import math
@@ -212,7 +213,9 @@ class ParsedPed:
 @dataclass(slots=True)
 class FamilyPackageBundle:
     root: Path
-    manifest_path: Path
+    # The folder's manifest file; None when the import reads the manifest CoGA keeps for its
+    # job (``kept_manifest_text``) instead.
+    manifest_path: Path | None
     manifest: PackageManifest
     # None when the manifest names the members itself (family.add_members, no PED file).
     ped_path: Path | None
@@ -223,6 +226,12 @@ class FamilyPackageBundle:
     # Package-relative paths of files staging left in the object store (a remote
     # package's alignments): they exist although ``root`` does not hold them.
     remote_only_files: frozenset[str] = frozenset()
+    # The SHA-256 of the manifest the import read (``manifest_text_sha256``): the folder's file
+    # as it was read, or the text CoGA keeps for the job.
+    manifest_sha256: str | None = None
+    # The manifest CoGA keeps for the import's job, read instead of the folder's own; None when
+    # the import read the folder's manifest file.
+    kept_manifest_text: str | None = None
 
 
 @dataclass(slots=True)
@@ -672,6 +681,31 @@ def runs_through_symlink_loop(path: str | os.PathLike[str]) -> bool:
 
 NUL = "\x00"
 NUL_IN_PATH = "holds a NUL character, which no file or folder name can hold"
+
+# What the package record and the job record call a manifest CoGA keeps for the import's job,
+# read instead of the package folder's own (``manifest_source``).
+MANIFEST_KEPT_IN_COGA = "coga"
+MANIFEST_IN_FOLDER = "folder"
+
+
+def manifest_text_problem(manifest_text: str) -> str | None:
+    """Why the manifest text a request gives cannot be kept or read, or None: one that holds a
+    NUL (no path or name holds one, and Postgres stores no NUL in text), or a lone surrogate,
+    which a JSON body can carry as an escape and no UTF-8 text holds."""
+    if NUL in manifest_text:
+        return "The manifest holds a NUL character, which no path or name can hold"
+    try:
+        manifest_text.encode("utf-8")
+    except UnicodeEncodeError:
+        return "The manifest holds a character that is not valid text (a lone surrogate)"
+    return None
+
+
+def manifest_text_sha256(manifest_text: str) -> str:
+    """The SHA-256 of a manifest's text, UTF-8 encoded, as hex: what the job and the package
+    record name the manifest an import read by. The text is one ``manifest_text_problem``
+    finds nothing in."""
+    return hashlib.sha256(manifest_text.encode("utf-8")).hexdigest()
 
 
 def nul_location(value: Any, where: str = "") -> str | None:

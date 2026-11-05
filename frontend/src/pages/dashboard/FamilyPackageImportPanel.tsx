@@ -59,6 +59,11 @@ const FamilyPackageImportPanel: React.FC = () => {
   const [manifestYaml, setManifestYaml] = useState('');
   const [manifestOverwrite, setManifestOverwrite] = useState(false);
   const [manifestResult, setManifestResult] = useState<ManifestBuildResult | null>(null);
+  // The folder Discover drafted the manifest for, and whether the import reads the draft, kept
+  // in CoGA by its job, instead of a manifest in the folder: for a folder CoGA cannot write,
+  // such as a share mounted read-only. A draft is sent only with the folder it was drafted for.
+  const [manifestFolder, setManifestFolder] = useState<string | null>(null);
+  const [keepManifest, setKeepManifest] = useState(false);
   const [dryRun, setDryRun] = useState(true);
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [selectedFamilyId, setSelectedFamilyId] = useState('');
@@ -172,6 +177,7 @@ const FamilyPackageImportPanel: React.FC = () => {
     onSuccess: (result) => {
       setManifestResult(result);
       setManifestYaml(result.manifest_yaml);
+      setManifestFolder(folderPath.trim());
       setStatusTone(result.valid ? 'success' : 'error');
       setStatusMessage(
         result.valid
@@ -209,6 +215,10 @@ const FamilyPackageImportPanel: React.FC = () => {
     },
   });
 
+  const draftMatchesFolder =
+    manifestYaml.trim().length > 0 && manifestFolder !== null && manifestFolder === folderPath.trim();
+  const sendKeptManifest = keepManifest && draftMatchesFolder;
+
   const startImportMutation = useMutation({
     mutationFn: async () => {
       const response = await api.post('/family-imports', {
@@ -217,13 +227,19 @@ const FamilyPackageImportPanel: React.FC = () => {
         dry_run: dryRun,
         family_id: targetFamilyId || null,
         conflict_mode: conflictMode,
+        // Sent only when the import is to read the draft instead of the folder's manifest.
+        ...(sendKeptManifest ? { manifest_yaml: manifestYaml } : {}),
       });
       return response.data as FamilyImportJob;
     },
     onSuccess: (job) => {
       setJobId(job._id);
       setStatusTone('success');
-      setStatusMessage(`Started ${dryRun ? 'dry-run' : 'import'} job ${job._id}.`);
+      setStatusMessage(
+        `Started ${dryRun ? 'dry-run' : 'import'} job ${job._id}${
+          job.manifest_sha256 ? ', with the manifest kept in CoGA' : ''
+        }.`
+      );
       queryClient.setQueryData(['family-import-job', job._id], job);
       queryClient.invalidateQueries({ queryKey: ['family-import-jobs'] });
     },
@@ -598,6 +614,25 @@ const FamilyPackageImportPanel: React.FC = () => {
             />
           </label>
         ) : null}
+
+        {manifestYaml ? (
+          <div className="space-y-1">
+            <label className="inline-flex items-center gap-2 text-sm text-(--color-text-muted)">
+              <input
+                type="checkbox"
+                checked={sendKeptManifest}
+                disabled={!draftMatchesFolder}
+                onChange={(event) => setKeepManifest(event.target.checked)}
+              />
+              Import with this manifest, kept in CoGA (not written to the folder)
+            </label>
+            <p className="field-hint">
+              {draftMatchesFolder
+                ? 'For a folder CoGA cannot write, such as a share mounted read-only. The import job keeps the manifest and reads it instead of a manifest in the folder.'
+                : 'Discover the manifest for this folder first: a draft is used only with the folder it was drafted for.'}
+            </p>
+          </div>
+        ) : null}
       </div>
 
       <div className="action-row">
@@ -737,6 +772,12 @@ const FamilyPackageImportPanel: React.FC = () => {
           <div className="text-sm leading-7 text-(--color-text-muted)">
             Requested {formatTimestamp(currentJob.requested_at)} · Last update{' '}
             {formatTimestamp(currentJob.heartbeat_at)}
+            {currentJob.manifest_sha256 ? (
+              <>
+                {' '}
+                · Manifest kept in CoGA (SHA-256 <code>{currentJob.manifest_sha256.slice(0, 12)}</code>)
+              </>
+            ) : null}
           </div>
 
           {currentJob.status === 'running' && currentJobProgress ? (

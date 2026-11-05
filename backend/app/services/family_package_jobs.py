@@ -20,7 +20,14 @@ from .access_control import CurrentUser, RecordNotVisible, has_superuser_rights
 
 from .family_identifiers import IDENTIFIER_RULE, identifier_problem, visible
 from .family_package_source import package_folder_path
-from .family_package_common import _dataset_summary_list, _issue_list, _json_list, _model_list_json
+from .family_package_common import (
+    _dataset_summary_list,
+    _issue_list,
+    _json_list,
+    _model_list_json,
+    manifest_text_problem,
+    manifest_text_sha256,
+)
 from .stored_values import json_object
 
 
@@ -68,6 +75,7 @@ def _serialize_job(mapping: dict[str, Any]) -> FamilyPackageImportJobOut:
         datasets=_dataset_summary_list(mapping.get("dataset_summaries")),
         metadata=json_object(mapping.get("metadata")),
         error=mapping.get("error"),
+        manifest_sha256=mapping.get("manifest_sha256"),
     )
 
 
@@ -101,10 +109,18 @@ async def queue_family_import_job(
     requested_family_id: str | None = None,
     conflict_mode: str = "cancel",
     requested_by: CurrentUser,
+    manifest_text: str | None = None,
 ) -> FamilyPackageImportJobOut:
     """Queue the import a user asked for. The job keeps its requester by the account's id,
     which the import runs as and the requester's job list reads, and the e-mail address it
-    was asked under, which it shows: a Microsoft sign-in may change the address (SEC-32)."""
+    was asked under, which it shows: a Microsoft sign-in may change the address (SEC-32).
+
+    ``manifest_text``, when given, is the manifest the import validates and imports the package
+    with instead of the folder's own. The job keeps it, with its SHA-256
+    (``manifest_text_sha256``), so a worker that takes the job up, also again after its worker
+    stopped, reads the manifest the user gave, and the job's record names it. One that holds a
+    NUL or a lone surrogate is refused before the job is written (400,
+    ``manifest_text_problem``): the job could not store it."""
     # The existing family the request names, read as every ID is. One that no family can be
     # stored under is refused before the job is written: the job could not even store a NUL.
     requested_family_id = (requested_family_id or "").strip() or None
@@ -115,6 +131,9 @@ async def queue_family_import_job(
                 status_code=400,
                 detail=f"family_id '{visible(requested_family_id)}' {problem}. {IDENTIFIER_RULE}",
             )
+    manifest_problem = manifest_text_problem(manifest_text) if manifest_text is not None else None
+    if manifest_problem is not None:
+        raise HTTPException(status_code=400, detail=manifest_problem)
     project_uuid = await _require_import_project(session, project_id) if project_id else None
     metadata = {
         "requested_family_id": requested_family_id,
@@ -131,7 +150,9 @@ async def queue_family_import_job(
                 metadata,
                 requested_by,
                 requested_by_id,
-                requested_at
+                requested_at,
+                manifest_text,
+                manifest_sha256
             )
             VALUES (
                 :submitted_path,
@@ -141,7 +162,9 @@ async def queue_family_import_job(
                 CAST(:metadata AS jsonb),
                 :requested_by,
                 CAST(:requested_by_id AS uuid),
-                :requested_at
+                :requested_at,
+                :manifest_text,
+                :manifest_sha256
             )
             RETURNING
                 id::text AS id,
@@ -161,7 +184,8 @@ async def queue_family_import_job(
                 logs,
                 dataset_summaries,
                 metadata,
-                error
+                error,
+                manifest_sha256
             """
         ),
         {
@@ -172,6 +196,8 @@ async def queue_family_import_job(
             "requested_by": requested_by.email,
             "requested_by_id": requested_by.id,
             "requested_at": datetime.now(timezone.utc),
+            "manifest_text": manifest_text,
+            "manifest_sha256": manifest_text_sha256(manifest_text) if manifest_text is not None else None,
         },
     )
     await session.commit()
@@ -210,7 +236,8 @@ async def get_family_import_job(
                 logs,
                 dataset_summaries,
                 metadata,
-                error
+                error,
+                manifest_sha256
             FROM family_import_jobs
             WHERE id = CAST(:job_id AS uuid)
             """
@@ -263,7 +290,8 @@ async def list_family_import_jobs(
                 logs,
                 dataset_summaries,
                 metadata,
-                error
+                error,
+                manifest_sha256
             FROM family_import_jobs
             {where}
             ORDER BY requested_at DESC
@@ -362,6 +390,7 @@ async def claim_next_family_import_job(
                 job.dataset_summaries,
                 job.metadata,
                 job.error,
+                job.manifest_sha256,
                 candidate.claimed_from
             """
         ),

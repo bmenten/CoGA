@@ -935,6 +935,7 @@ export interface FamilyPackageImportCreate {
   dry_run?: boolean;
   family_id?: string | null;
   conflict_mode?: "cancel" | "update" | "overwrite";
+  manifest_yaml?: string | null;
 }
 
 export interface FamilyPackageImportJobOut {
@@ -956,6 +957,7 @@ export interface FamilyPackageImportJobOut {
   datasets: FamilyImportDatasetSummary[];
   metadata: Record<string, unknown>;
   error: string | null;
+  manifest_sha256: string | null;
 }
 
 export interface FamilyPackageManifestBuildOut {

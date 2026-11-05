@@ -373,7 +373,7 @@ async def test_provenance_names_the_store_location_of_files_left_in_the_store(
     monkeypatch.setattr(family_package_registration, "record_raw_import_file", record)
 
     await family_package_registration._record_package_raw_files(
-        _SampleRowsSession(), bundle=bundle, family_uuid="family-uuid"  # type: ignore[arg-type]
+        _SampleRowsSession(), bundle=bundle, family_uuid="family-uuid", family_identifier="FAM1"  # type: ignore[arg-type]
     )
 
     assert {(row["dataset"], row["storage_path"]) for row in rows} == {

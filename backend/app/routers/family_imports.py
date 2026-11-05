@@ -97,6 +97,7 @@ async def start_family_package_import(
         requested_family_id=payload.family_id,
         conflict_mode=payload.conflict_mode,
         requested_by=user,
+        manifest_text=payload.manifest_yaml,
     )
 
 
@@ -111,12 +112,14 @@ async def validate_family_import_package(
     # pedigree so a PED file is not required to validate the package.
     fallback_ped_text = await db_pedigree_fallback(session, payload.family_id)
     # Offloaded: validating an s3:// source stages (downloads) the package, which
-    # would otherwise block the event loop.
+    # would otherwise block the event loop. A manifest the request gives is read instead of
+    # the folder's own, as the import reads the one its job keeps.
     validation = await asyncio.to_thread(
         partial(
             validate_family_package,
             payload.folder_path,
             fallback_ped_text=fallback_ped_text,
+            manifest_text=payload.manifest_yaml,
         )
     )
     # The manifest's region of interest, looked up as the import will (DATA-10).
