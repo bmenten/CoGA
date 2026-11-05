@@ -296,7 +296,7 @@ async def test_import_reference_from_ucsc_creates_records_and_loads_cytobands_an
 
     async def fake_download_cytobands(client, *, ucsc_genome: str):
         assert ucsc_genome == "hg38"
-        return "chr1\t0\t100\tp36.33\tgneg\n", "https://example.org/cytoBandIdeo.txt.gz"
+        return reference_source_service.CytobandFile("chr1\t0\t100\tp36.33\tgneg\n", "https://example.org/cytoBandIdeo.txt.gz")
 
     async def fake_download_genes(client, *, ucsc_genome: str):
         assert ucsc_genome == "hg38"
@@ -320,6 +320,7 @@ async def test_import_reference_from_ucsc_creates_records_and_loads_cytobands_an
         performed_by=None,
         source=None,
         source_url=None,
+        source_version=None,
     ):
         applied_calls.append((assembly_id, dataset_type, text_value, overwrite, commit))
         applied_sources[dataset_type] = (source, source_url)
@@ -534,7 +535,7 @@ async def test_download_genes_falls_back_when_first_track_is_empty(
 async def test_download_cytobands_falls_back_to_single_band_chromosome_sizes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def fake_get_optional_gzip_text(client, url: str):
+    async def fake_get_optional_gzip(client, url: str):
         return None
 
     async def fake_get_json(client, url: str, *, params=None):
@@ -547,10 +548,10 @@ async def test_download_cytobands_falls_back_to_single_band_chromosome_sizes(
             }
         }
 
-    monkeypatch.setattr(reference_source_service, "_get_optional_gzip_text", fake_get_optional_gzip_text)
+    monkeypatch.setattr(reference_source_service, "_get_optional_gzip", fake_get_optional_gzip)
     monkeypatch.setattr(reference_source_service, "_get_json", fake_get_json)
 
-    text_value, source_url = await reference_source_service._download_cytobands(
+    text_value, source_url, _source, _version = await reference_source_service._download_cytobands(
         client=None,  # type: ignore[arg-type]
         ucsc_genome="noBands1",
     )

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import csv
 import gzip
+import hashlib
 import io
 import itertools
 import logging
@@ -10,7 +11,8 @@ import re
 import time
 from collections import defaultdict
 from datetime import date
-from typing import Any, NoReturn
+from pathlib import Path
+from typing import Any, NamedTuple, NoReturn
 
 import httpx
 from fastapi import HTTPException
@@ -18,7 +20,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.coga_logging import scrub_log
-from ..core.config import settings
+from ..core.config import CYTOBAND_BACKUP_FILES, settings
 from ..schemas import (
     ReferenceAutoImportResult,
     ReferenceImportSourceAssemblyOut,
@@ -118,7 +120,9 @@ async def _get_optional_text(client: httpx.AsyncClient, url: str) -> str | None:
     return response.text
 
 
-async def _get_optional_gzip_text(client: httpx.AsyncClient, url: str) -> str | None:
+async def _get_optional_gzip(client: httpx.AsyncClient, url: str) -> tuple[bytes, str] | None:
+    """The gzipped file at ``url`` as served (the bytes a SHA-256 is taken over) and as text;
+    None for a 404. HTTPException 502 when it cannot be downloaded or read."""
     try:
         raw = await download_bounded_bytes(client, url, source=url, none_on_404=True)
     except httpx.HTTPError as exc:
@@ -126,9 +130,14 @@ async def _get_optional_gzip_text(client: httpx.AsyncClient, url: str) -> str | 
     if raw is None:
         return None
     try:
-        return gunzip_bounded(raw, source=url).decode()
+        return raw, gunzip_bounded(raw, source=url).decode()
     except ValueError as exc:
         raise HTTPException(status_code=502, detail=f"Unexpected compressed response from {url}") from exc
+
+
+async def _get_optional_gzip_text(client: httpx.AsyncClient, url: str) -> str | None:
+    served = await _get_optional_gzip(client, url)
+    return served[1] if served is not None else None
 
 
 def _parse_release_date(description: str) -> date | None:
@@ -467,17 +476,114 @@ def _safe_ucsc_genome(ucsc_genome: str) -> str:
     return ucsc_genome
 
 
+class CytobandFile(NamedTuple):
+    """The cytobands an assembly import loads, and what its import record says of them: the
+    source label, the URL or file read, and (``source_version``) the file by name and SHA-256."""
+
+    text: str
+    source_url: str
+    source: str = "ucsc"
+    source_version: str | None = None
+
+
+def cytoband_backup_candidates(file_name: str) -> list[Path]:
+    """Where a shipped cytoband backup may be: the reference-data mount (on Cloud Run the
+    bucket's copy), then the repository's."""
+    repo_root = Path(__file__).resolve().parents[3]
+    return [
+        Path("/data/ref-data/cytobands") / file_name,
+        repo_root / "data" / "ref-data" / "cytobands" / file_name,
+    ]
+
+
+def read_cytoband_backup(ucsc_genome: str) -> CytobandFile | None:
+    """The shipped cytoband backup of the UCSC genome, if it has one and the file found is the
+    pinned file byte for byte (TRACE-14). None, with one logged line, when the genome has no
+    backup file in place, or the file found is another (refused, the error naming the file, both
+    digests and the fix) or cannot be read."""
+    pin = CYTOBAND_BACKUP_FILES.get(ucsc_genome)
+    if pin is None:
+        return None
+    path = next((candidate for candidate in cytoband_backup_candidates(pin.file_name) if candidate.is_file()), None)
+    if path is None:
+        logger.warning(
+            "No cytoband backup for %s was found (checked %s)",
+            ucsc_genome,
+            ", ".join(str(candidate) for candidate in cytoband_backup_candidates(pin.file_name)),
+        )
+        return None
+    try:
+        raw = path.read_bytes()
+    except OSError as exc:
+        logger.error("The cytoband backup %s cannot be read (%s)", scrub_log(path), type(exc).__name__)
+        return None
+    digest = hashlib.sha256(raw).hexdigest()
+    if digest != pin.sha256:
+        logger.error(
+            "Refused the cytoband backup %s: its SHA-256 is %s, the shipped file's is %s. Copy the "
+            "repository's data/ref-data/cytobands/%s there unchanged.",
+            scrub_log(path),
+            digest,
+            pin.sha256,
+            pin.file_name,
+        )
+        return None
+    try:
+        text_value = gunzip_bounded(raw, source=str(path)).decode()
+    except (ValueError, UnicodeDecodeError) as exc:  # pragma: no cover - the pinned file is valid
+        logger.error("The cytoband backup %s cannot be read (%s)", scrub_log(path), type(exc).__name__)
+        return None
+    return CytobandFile(
+        text=text_value,
+        source_url=str(path),
+        source="ucsc (coga backup)",
+        source_version=(
+            f"UCSC cytobands {ucsc_genome} as served on {pin.served_on} (CoGA backup): "
+            f"{pin.file_name}, SHA-256 {digest}"
+        ),
+    )
+
+
 async def _download_cytobands(
     client: httpx.AsyncClient,
     *,
     ucsc_genome: str,
-) -> tuple[str, str]:
+) -> CytobandFile:
+    """The assembly's cytobands: UCSC's table as published today, recorded by file name and
+    SHA-256; when UCSC cannot be reached or serves no table, the shipped backup of the genome
+    (``read_cytoband_backup``); for a genome without either, one band per chromosome built from
+    UCSC's chromosome sizes. When UCSC cannot be reached and there is no usable backup, the
+    download's HTTPException stands."""
     ucsc_genome = _safe_ucsc_genome(ucsc_genome)
-    for table_name in ("cytoBandIdeo", "cytoBand"):
-        source_url = f"{UCSC_DOWNLOAD_ROOT}/{ucsc_genome}/database/{table_name}.txt.gz"
-        text_value = await _get_optional_gzip_text(client, source_url)
-        if text_value:
-            return text_value, source_url
+    unreachable: HTTPException | None = None
+    try:
+        for table_name in ("cytoBandIdeo", "cytoBand"):
+            source_url = f"{UCSC_DOWNLOAD_ROOT}/{ucsc_genome}/database/{table_name}.txt.gz"
+            served = await _get_optional_gzip(client, source_url)
+            if served is not None and served[1]:
+                raw, text_value = served
+                return CytobandFile(
+                    text=text_value,
+                    source_url=source_url,
+                    source_version=(
+                        f"read as published: UCSC cytobands: {table_name}.txt.gz, "
+                        f"SHA-256 {hashlib.sha256(raw).hexdigest()}"
+                    ),
+                )
+    except HTTPException as exc:
+        unreachable = exc
+
+    backup = await asyncio.to_thread(read_cytoband_backup, ucsc_genome)
+    if backup is not None:
+        logger.warning(
+            "UCSC served no cytoband table for %s (%s); loading the shipped backup %s instead",
+            ucsc_genome,
+            scrub_log(unreachable.detail) if unreachable is not None else "no table",
+            scrub_log(backup.source_url),
+        )
+        return backup
+    if unreachable is not None:
+        raise unreachable
 
     chromosome_sizes_payload = await _get_json(
         client,
@@ -487,9 +593,9 @@ async def _download_cytobands(
     chromosome_sizes = chromosome_sizes_payload.get("chromosomes")
     if not isinstance(chromosome_sizes, dict):
         raise HTTPException(status_code=502, detail=f"Unexpected UCSC chromosome-size payload for {ucsc_genome}")
-    return (
-        _build_single_band_cytobands_text(chromosome_sizes),
-        f"{UCSC_API_ROOT}/list/chromosomes?genome={ucsc_genome}",
+    return CytobandFile(
+        text=_build_single_band_cytobands_text(chromosome_sizes),
+        source_url=f"{UCSC_API_ROOT}/list/chromosomes?genome={ucsc_genome}",
     )
 
 
@@ -880,16 +986,20 @@ async def import_reference_from_ucsc(
 
     async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
         if not missing_only or cytobands_existing == 0 or overwrite:
-            cytoband_text, cytoband_source_url = await _download_cytobands(client, ucsc_genome=ucsc_genome)
+            cytoband_file = await _download_cytobands(client, ucsc_genome=ucsc_genome)
+            cytoband_source_url = cytoband_file.source_url
             cytobands = await apply_reference_dataset_text(
                 session,
                 assembly_id=assembly_id,
                 dataset_type="cytobands",
-                text_value=cytoband_text,
+                text_value=cytoband_file.text,
                 overwrite=overwrite,
                 commit=False,
                 performed_by=performed_by,
-                source="ucsc",
+                source=cytoband_file.source,
+                source_url=cytoband_file.source_url,
+                # UCSC's table states no release: the file read, by name and SHA-256.
+                source_version=cytoband_file.source_version,
             )
             cytobands_inserted = cytobands.inserted
             cytobands_replaced = cytobands.replaced

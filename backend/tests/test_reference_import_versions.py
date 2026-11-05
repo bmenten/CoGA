@@ -118,7 +118,7 @@ def _patch_ucsc_import(
         return "assembly-1", False
 
     async def fake_cytobands(_client, *, ucsc_genome: str):
-        return "chr1\t0\t100\tp36.33\tgneg\n", f"https://example.org/{ucsc_genome}/cytoBandIdeo.txt.gz"
+        return rss.CytobandFile("chr1\t0\t100\tp36.33\tgneg\n", f"https://example.org/{ucsc_genome}/cytoBandIdeo.txt.gz")
 
     async def fake_download(_client, url, **_kwargs):
         if url == gtf_url:
@@ -155,7 +155,8 @@ def test_a_gencode_import_records_the_release_its_gtf_states(monkeypatch: pytest
     assert genes.get("source_url") == GENCODE_GTF_URL
     assert genes.get("source_version") == "v50 (Ensembl 116)"
     assert genes.get("source_release_date") == date(2026, 4, 8)
-    # UCSC table dumps state no release.
+    # A cytoband file the import does not name states no release (a real download names UCSC's
+    # file by SHA-256, or the shipped backup: test_cytoband_backup.py).
     cytobands = records["cytobands"]
     assert cytobands.get("source") == "ucsc"
     assert cytobands.get("source_version") == "not stated"
