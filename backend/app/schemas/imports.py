@@ -77,6 +77,10 @@ class FamilyPackageValidationOut(BaseModel):
     warnings: List[FamilyImportValidationIssue] = Field(default_factory=list)
     datasets: List[FamilyImportDatasetSummary] = Field(default_factory=list)
     metadata: Dict[str, Any] = Field(default_factory=dict)
+    # The fingerprint of the local package folder, taken before the validation read it
+    # (family_package_fingerprint.py); None for a package in a bucket, and for one that could not
+    # be read.
+    package_fingerprint: Optional[str] = None
 
 
 class FamilyManifestFileAvailability(BaseModel):
@@ -144,6 +148,8 @@ class FamilyPackageCandidateOut(BaseModel):
 # The longest manifest text an import request may give: a manifest names files and members,
 # with at most a few HPO terms and notes each, and is a few kilobytes long.
 MANIFEST_YAML_MAX_LENGTH = 1_000_000
+# A package fingerprint as the API gives it: a SHA-256, 64 lowercase hexadecimal digits.
+PACKAGE_FINGERPRINT_PATTERN = r"^[0-9a-f]{64}$"
 
 
 class FamilyPackageImportCreate(BaseModel):
@@ -156,6 +162,10 @@ class FamilyPackageImportCreate(BaseModel):
     # instead of the package folder's own: for a folder CoGA cannot write, such as a share
     # mounted read-only, where Write manifest cannot put one. None reads the folder's.
     manifest_yaml: Optional[str] = Field(default=None, min_length=1, max_length=MANIFEST_YAML_MAX_LENGTH)
+    # The package fingerprint of the dry run or validation the import follows: the import is
+    # refused (409) when the folder's, read with the same manifest, differs now. None queues the
+    # import with the folder as it is.
+    expected_package_fingerprint: Optional[str] = Field(default=None, pattern=PACKAGE_FINGERPRINT_PATTERN)
 
 
 class FamilyPackageImportJobOut(ApiDocumentModel):
@@ -179,6 +189,10 @@ class FamilyPackageImportJobOut(ApiDocumentModel):
     # The SHA-256 of the manifest CoGA keeps for the job (FamilyPackageImportCreate.manifest_yaml);
     # None for a job that reads the package folder's own.
     manifest_sha256: Optional[str] = None
+    # The fingerprint of the local package folder when the job was queued: the job imports nothing
+    # when the folder's differs as it starts. None for a package in a bucket, one the queue could
+    # not read, and a job queued before fingerprints.
+    package_fingerprint: Optional[str] = None
 
 
 class ManualPedMemberCreate(BaseModel):

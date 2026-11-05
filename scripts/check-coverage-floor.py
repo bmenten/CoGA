@@ -48,6 +48,9 @@ MODULE_FLOORS: dict[str, float] = {
     "backend/app/services/coverage_content.py": 97.0,  # (100.0, measured when added for TRACE-9)
     "backend/app/services/coverage_read_depth.py": 97.0,  # (100.0, measured when added for CLIN-46)
     "backend/app/services/family_identifiers.py": 97.0,  # (100.0)
+    # (100.0 measured locally when it was added: the package fingerprint an import is queued
+    # and checked with)
+    "backend/app/services/family_package_fingerprint.py": 97.0,
     "backend/app/services/family_package_jobs.py": 94.0,  # (97.3, 2026-11-03; also floored combined)
     "backend/app/services/family_structure_audit.py": 95.0,  # (98.6, 2026-11-03; 96.7 when added for SEC-7)
     "backend/app/services/family_variant_filters.py": 96.0,  # (99.3)

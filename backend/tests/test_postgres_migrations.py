@@ -112,6 +112,14 @@ def test_revision_0018_gives_the_import_jobs_the_baselines_check() -> None:
     assert kept_manifest._MANIFEST_CHECK == _baseline_check("family_import_jobs_manifest_check")
 
 
+def test_revision_0019_gives_the_import_jobs_the_baselines_fingerprint_check() -> None:
+    package_fingerprint = migration_script().get_revision("0019").module
+
+    assert package_fingerprint._PACKAGE_FINGERPRINT_CHECK == _baseline_check(
+        "family_import_jobs_package_fingerprint_check"
+    )
+
+
 def test_revision_0004_runs_the_baselines_own_statements_for_the_structure_versions_and_the_ui_event_log() -> None:
     # SEC-7: the structure versions' chain and both tables' append-only guards, brought to a
     # database the baselines created before them by the baselines' own statements.

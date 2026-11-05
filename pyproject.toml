@@ -48,6 +48,7 @@ files = [
     "backend/app/services/coverage_read_depth.py",
     "backend/app/services/family_identifiers.py",
     "backend/app/services/family_package_datasets.py",
+    "backend/app/services/family_package_fingerprint.py",
     "backend/app/services/family_package_import.py",
     "backend/app/services/family_package_jobs.py",
     "backend/app/services/family_package_registration.py",
