@@ -137,6 +137,7 @@ classification ([clinical-traceability.md](../clinical-traceability.md)).
 | Source | Role | Version capture | Notes |
 | --- | --- | --- | --- |
 | Reference assembly (GRCh38, …) | Coordinate system | `assemblies` table (version, release_date) | Per-family manifest |
+| UCSC cytobands | Band names for CNV and region labels, the ideograms | `reference_dataset_imports.source_version`: the file and its SHA-256 | Read as published when the assembly is imported. When UCSC cannot serve it, the shipped backup for hg38 or hg19, pinned by SHA-256 (`CYTOBAND_BACKUP_FILES`, TRACE-14; [README](../../data/ref-data/cytobands/README.md)) |
 | VEP (+ cache) | Functional annotation | per-family pipeline manifest / VCF header | Produced upstream; version recorded |
 | ClinVar | Clinical significance | reference import bookkeeping / manifest | Release date pinned |
 | gnomAD | Population frequency | manifest | Version pinned |

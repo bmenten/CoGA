@@ -3,7 +3,9 @@
 # start, and a copy with other line endings refuses it. The HPO ontology
 # (HPO_PINNED_ONTOLOGY_SHA256) and the segmental-duplication file, ClinGen's recurrent CNV file
 # with its CRLF line ends (SEGMENTAL_DUPLICATIONS_PINNED_SHA256), are checked before a start
-# loads them (TRACE-14), and the reference-data bucket takes its copies from a checkout.
+# loads them (TRACE-14), as are the cytoband backups (CYTOBAND_BACKUP_FILES) before an
+# assembly import loads one; and the reference-data bucket takes its copies from a checkout.
 data/ref-data/STRchive-loci.json -text
 data/ref-data/hpo/hp.obo -text
+data/ref-data/cytobands/*.gz -text
 data/ref-data/clinical_cnv_syndromes_hg38_bundle/ClinGen_recurrent_CNV_V2.1-hg38.bed -text

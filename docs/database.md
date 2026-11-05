@@ -116,7 +116,12 @@ source states about itself:
   [data-import.md](data-import.md)).
 - A DGV load records the pinned release, the file and its SHA-256 (`2025-12-01
   (GRCh38_hg38_variants_2025-12-01.txt, SHA-256 …)`), and the release's date.
-- No other source states one: UCSC tables, a GTF without that header, uploads, the built-in
+- An assembly's cytobands from UCSC record the table read as published that day by file name
+  and SHA-256 (`read as published: UCSC cytobands: cytoBandIdeo.txt.gz, SHA-256 …`), or, when
+  UCSC could not serve it, the shipped backup by name, the day it was taken and SHA-256
+  (`source` `ucsc (coga backup)`; [data/ref-data/cytobands/README.md](../data/ref-data/cytobands/README.md)).
+- No other source states one: UCSC gene tables, one band per chromosome built from UCSC's
+  chromosome sizes (T2T), a GTF without that header, uploads, the built-in
   reference files and the DGV script. Their `source_version` is `not stated` (as is a
   knowledgebase rebuild's from before the pin), and `source_release_date` is NULL.
 

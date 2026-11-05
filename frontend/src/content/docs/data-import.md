@@ -55,14 +55,16 @@ Genes, cytobands and the clinical annotation layers belong to an **assembly**. A
 place coordinates, or an empty gene lookup, almost always means the assembly's reference data is
 missing. Load it before you load a family.
 
-- **At first start** CoGA creates *Homo sapiens / GRCh38* and loads its cytobands (from UCSC) and genes
-  (from GENCODE, with the UCSC gene table as fallback) when they are missing. If the download fails,
-  the assembly is created empty, to be filled later.
+- **At first start** CoGA creates *Homo sapiens / GRCh38* and loads its cytobands (from UCSC, or the
+  copy CoGA ships when UCSC cannot be reached) and genes (from GENCODE, with the UCSC gene table as
+  fallback) when they are missing. If the download fails, the assembly is created empty, to be filled
+  later.
 - **Segmental duplications** load at start-up when their source file is on the server, into GRCh38
   only: the file CoGA ships holds GRCh38 coordinates. Another assembly gets them from an upload.
-- **Clinical CNVs** never load at start-up. An administrator builds them with the clinical CNV
-  knowledgebase rebuild (*Species & assemblies*), or uploads a file. An empty *Clinical CNV explorer*
-  means they are not loaded for that assembly.
+- **Clinical CNVs** are built in the background after the first start, for a GRCh37 or GRCh38
+  assembly that has none: the clinical CNV knowledgebase rebuild, which an administrator can also run
+  (*Species & assemblies*), or upload a file. An empty *Clinical CNV explorer* means they are not
+  loaded for that assembly yet.
 - The segmental-duplication file and the HPO ontology must be the files CoGA ships, recognized by their
   SHA-256. Another file is not loaded, and the server log says which file and how to fix it.
 - In the **Reference catalogue** an administrator can set up another assembly (cytobands and genes are

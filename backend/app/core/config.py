@@ -92,6 +92,36 @@ HPO_LATEST_RELEASE_API_URL = (
 HPO_RELEASE_URL_TEMPLATE = "https://purl.obolibrary.org/obo/hp/releases/{release}/hp.obo"
 
 
+class CytobandBackup(NamedTuple):
+    """One shipped cytoband file, the backup of UCSC's table for a UCSC genome (TRACE-14)."""
+
+    file_name: str  # in data/ref-data/cytobands/
+    sha256: str
+    served_on: str  # the day the copy was taken from UCSC, as UCSC served it
+
+
+# The cytoband backups: UCSC's cytoBandIdeo table for each human genome CoGA imports, as UCSC
+# served it on the day named (hg38's last changed at UCSC in October 2022, hg19's in March
+# 2020). Adding the assembly from UCSC, at a start or by an administrator, reads UCSC's table as
+# published that day; only when UCSC cannot be reached, or serves no table, does it load this
+# file instead, and only if its SHA-256 is the one here: another file is refused with a logged
+# error. Without either, the genes cannot be loaded either, since both come in one import. No
+# setting overrides the pins; they move with the files, in a reviewed change
+# (data/ref-data/cytobands/README.md), and test_cytoband_backup.py fails until they agree.
+CYTOBAND_BACKUP_FILES: dict[str, CytobandBackup] = {
+    "hg38": CytobandBackup(
+        "hg38.cytoBandIdeo.txt.gz",
+        "c092fd7f0c1d0a3a543d1d826b3ae07a55bc9c8a9818580232ff9c8f13c60865",
+        "2026-11-06",
+    ),
+    "hg19": CytobandBackup(
+        "hg19.cytoBandIdeo.txt.gz",
+        "ba056331d70e840f6874bf7211a6483e2e4ed01f9e3e36c4b9def6966f50ffd2",
+        "2026-11-06",
+    ),
+}
+
+
 class DgvPinnedRelease(NamedTuple):
     """One DGV release file as the reference loader downloads it (TRACE-14)."""
 

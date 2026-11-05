@@ -116,7 +116,7 @@ On start the backend (`backend/app/main.py`):
    ([db-runtime-role-runbook.md](db-runtime-role-runbook.md));
 2. starts the writers for the audit log and the UI events;
 3. seeds the built-in repeat catalogue; makes sure GRCh38 exists, with its cytobands (from
-   UCSC) and gene loci (from GENCODE, or the UCSC gene track when GENCODE cannot be fetched);
+   UCSC, or the shipped backup when UCSC cannot serve them) and gene loci (from GENCODE, or the UCSC gene track when GENCODE cannot be fetched);
    also imports T2T-CHM13 when `REFERENCE_BOOTSTRAP_T2T` is set; loads the HPO ontology if none
    is loaded (HPO's newest release, downloaded; the vendored release as the backup), and Monarch's newest release if no Monarch data is loaded (`REFERENCE_BOOTSTRAP_MONARCH`); loads GRCh38's segmental duplications from the shipped file (into a GRCh38
    assembly only; not the clinical CNVs, which the knowledgebase rebuild loads); and queues the
