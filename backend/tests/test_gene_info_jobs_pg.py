@@ -143,6 +143,136 @@ async def test_queue_startup_gene_reference_refresh_if_needed_uses_local_dbnsfp(
     assert session.commits == 1
 
 
+def _startup_sync(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    dbnsfp: bool,
+    cached: int,
+    synced_with_dbnsfp: bool = False,
+    active_job: bool = False,
+):
+    """A start with GRCh38 genes loaded: the dbNSFP gene file present or not, ``cached`` genes
+    already in gene_info, any of them synced with dbNSFP or not, and a sync already queued or
+    not. Returns the session, which records the SQL it ran and whether a job was inserted."""
+    assembly_uuid = "11111111-1111-4111-8111-111111111111"
+    now = datetime.now(timezone.utc)
+    job_row = {
+        "id": "22222222-2222-4222-8222-222222222222", "scope": "all_human", "symbol": None,
+        "status": "queued", "active_slot": gene_info_jobs_pg.ACTIVE_GENE_REFERENCE_SLOT,
+        "worker_id": None, "requested_by": "startup-bootstrap", "requested_at": now,
+        "started_at": None, "heartbeat_at": None, "completed_at": None, "total_symbols": 0,
+        "completed_symbols": 0, "updated_records": 0, "human_assemblies": 0,
+        "current_symbol": None, "error": None, "metadata": {},
+    }
+
+    class _Session:
+        def __init__(self) -> None:
+            self.sql: list[str] = []
+            self.inserted = False
+
+        async def execute(self, statement, params=None):
+            sql = str(statement)
+            self.sql.append(sql)
+            if "COUNT(*) FROM gene_info" in sql:
+                return _ScalarResult(cached)
+            if "'dbnsfp_gene'" in sql:
+                assert params == {"assembly_ids": [UUID(assembly_uuid)]}
+                return _ScalarResult(synced_with_dbnsfp)
+            if "FROM gene_info_refresh_jobs" in sql and "LIMIT 1" in sql:
+                return _ScalarResult("33333333-3333-4333-8333-333333333333" if active_job else None)
+            if "INSERT INTO gene_info_refresh_jobs" in sql:
+                self.inserted = True
+                return _JobInsertResult(job_row)
+            raise AssertionError(f"Unexpected SQL: {sql}")
+
+        async def commit(self):
+            return None
+
+    async def human_context(_session):
+        return gene_info_jobs_pg.HumanGeneContext(
+            species={"name": "Homo sapiens"},
+            assemblies=[{"id": assembly_uuid, "assembly_name": "GRCh38", "version": "hg38"}],
+        )
+
+    async def gene_symbols(_session, *, assembly_ids):
+        return 3
+
+    monkeypatch.setattr(
+        gene_info_jobs_pg,
+        "find_local_dbnsfp_gene_path",
+        lambda: Path("/data/ref-data/dbNSFP5.4_gene.gz") if dbnsfp else None,
+    )
+    monkeypatch.setattr(gene_info_jobs_pg, "_get_human_context", human_context)
+    monkeypatch.setattr(gene_info_jobs_pg, "_count_distinct_human_gene_symbols", gene_symbols)
+    return _Session()
+
+
+@pytest.mark.asyncio
+async def test_a_new_instance_without_the_dbnsfp_file_still_queues_the_gene_sync(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    # The file is not shipped, so a new instance never got gene information on its own: the
+    # bulk sources (HGNC, ClinGen, GenCC, ClinVar) need no file.
+    session = _startup_sync(monkeypatch, dbnsfp=False, cached=0)
+    caplog.set_level(logging.INFO, logger=gene_info_jobs_pg.logger.name)
+
+    job = await gene_info_jobs_pg.queue_startup_gene_reference_refresh_if_needed(session)
+
+    assert job is not None and job.scope == "all_human" and session.inserted
+    [queued] = [record.getMessage() for record in caplog.records if "Queued" in record.getMessage()]
+    # The log says what the sync lacks and why it is slow.
+    assert "without a dbNSFP gene file" in queued and "NCBI" in queued
+
+
+@pytest.mark.asyncio
+async def test_a_dbnsfp_file_added_after_the_first_sync_is_taken_in(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    session = _startup_sync(monkeypatch, dbnsfp=True, cached=40_000, synced_with_dbnsfp=False)
+    caplog.set_level(logging.INFO, logger=gene_info_jobs_pg.logger.name)
+
+    job = await gene_info_jobs_pg.queue_startup_gene_reference_refresh_if_needed(session)
+
+    assert job is not None and session.inserted
+    assert any("to add the dbNSFP gene file" in record.getMessage() for record in caplog.records)
+
+
+@pytest.mark.parametrize(
+    ("dbnsfp", "synced_with_dbnsfp"),
+    [(True, True), (False, False)],
+    ids=["already-synced-with-dbnsfp", "no-dbnsfp-file"],
+)
+@pytest.mark.asyncio
+async def test_cached_gene_information_is_left_to_the_administrator(
+    monkeypatch: pytest.MonkeyPatch, dbnsfp: bool, synced_with_dbnsfp: bool
+) -> None:
+    # Once a sync has used the file, or while there is no file to add, a start queues nothing:
+    # a later sync is the administrator's, so a start never repeats an hours-long sync.
+    session = _startup_sync(monkeypatch, dbnsfp=dbnsfp, cached=40_000, synced_with_dbnsfp=synced_with_dbnsfp)
+
+    assert await gene_info_jobs_pg.queue_startup_gene_reference_refresh_if_needed(session) is None
+    assert not session.inserted
+    # Without a file there is nothing to ask about.
+    assert any("'dbnsfp_gene'" in sql for sql in session.sql) is dbnsfp
+
+
+@pytest.mark.asyncio
+async def test_a_queued_or_running_sync_is_not_queued_twice(monkeypatch: pytest.MonkeyPatch) -> None:
+    session = _startup_sync(monkeypatch, dbnsfp=False, cached=0, active_job=True)
+
+    assert await gene_info_jobs_pg.queue_startup_gene_reference_refresh_if_needed(session) is None
+    assert not session.inserted
+
+
+@pytest.mark.asyncio
+async def test_the_startup_sync_can_be_switched_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    session = _startup_sync(monkeypatch, dbnsfp=True, cached=0)
+    monkeypatch.setattr(gene_info_jobs_pg.settings, "gene_reference_bootstrap_on_startup", False)
+
+    assert await gene_info_jobs_pg.queue_startup_gene_reference_refresh_if_needed(session) is None
+    assert session.sql == []
+
+
 def _hgnc_context(records: dict[str, dict]) -> object:
     from backend.app.services.gene_info_bulk_sources import (
         GeneBulkSourceDataset,

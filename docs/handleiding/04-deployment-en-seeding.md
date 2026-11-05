@@ -106,7 +106,7 @@ Twee installaties die op een ander moment starten, kunnen dus met een andere HPO
 
 ### De gen-referentie (dbNSFP)
 
-De verrijkte geninformatie (aliassen, id's, constraint, ziekteassociaties) laadt een achtergrondjob, niet de start. Bij het opstarten zet de backend alleen een eerste job in de wachtrij, als dat aanstaat (`GENE_REFERENCE_BOOTSTRAP_ON_STARTUP`), het lokale dbNSFP-genbestand aanwezig is, er GRCh38-genen zijn en de cache `gene_info` nog leeg is. Een aparte worker voert de job uit; hoofdstuk 13 beschrijft hoe.
+De verrijkte geninformatie (aliassen, id's, constraint, ziekteassociaties) laadt een achtergrondjob, niet de start. Bij het opstarten zet de backend een eerste job in de wachtrij als dat aanstaat (`GENE_REFERENCE_BOOTSTRAP_ON_STARTUP`), er GRCh38-genen zijn en de cache `gene_info` nog leeg is, **ook zonder het lokale dbNSFP-genbestand** (beslissing van de eigenaar, 2026-11-05). Dat bestand zit niet in de repository, dus vroeger kreeg een nieuwe installatie zonder handwerk nooit geninformatie. De andere bronnen (HGNC, ClinGen, GenCC, ClinVar) zijn telkens de actuele export. Zonder dbNSFP kost elk gen één aanvraag bij NCBI, dus de job duurt uren, en de velden van dbNSFP (constraint, orthologen) blijven leeg. Staat het bestand er later wel, terwijl geen enkel gen in de cache ermee gesynchroniseerd werd, dan zet de volgende start opnieuw een job in de wachtrij die het toevoegt. Daarna is een nieuwe synchronisatie de taak van een beheerder. Een aparte worker voert de job uit; hoofdstuk 13 beschrijft hoe.
 
 **Waar in de code:** `backend/app/services/gene_info_jobs_pg.py`.
 
