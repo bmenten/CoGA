@@ -30,6 +30,7 @@ type PackageTargetMode = 'new' | 'existing';
 type ImportConflictMode = 'cancel' | 'update' | 'overwrite';
 
 type FamilyImportJob = FamilyPackageImportJobOut;
+type DryRunCheck = { jobId: string; folder: string; manifest: string | null };
 type ManifestBuildResult = FamilyPackageManifestBuildOut;
 
 const activeStatuses = new Set<ImportStatus>(['queued', 'validating', 'running']);
@@ -64,6 +65,10 @@ const FamilyPackageImportPanel: React.FC = () => {
   // such as a share mounted read-only. A draft is sent only with the folder it was drafted for.
   const [manifestFolder, setManifestFolder] = useState<string | null>(null);
   const [keepManifest, setKeepManifest] = useState(false);
+  // The dry run an import may follow: its job, and the folder and kept manifest (null: the
+  // folder's own) it ran with. An import of that folder with that manifest is checked against
+  // the dry run's package fingerprint, and refused if the package changed since.
+  const [dryRunCheck, setDryRunCheck] = useState<DryRunCheck | null>(null);
   const [dryRun, setDryRun] = useState(true);
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [selectedFamilyId, setSelectedFamilyId] = useState('');
@@ -218,27 +223,51 @@ const FamilyPackageImportPanel: React.FC = () => {
   const draftMatchesFolder =
     manifestYaml.trim().length > 0 && manifestFolder !== null && manifestFolder === folderPath.trim();
   const sendKeptManifest = keepManifest && draftMatchesFolder;
+  const sentManifest = sendKeptManifest ? manifestYaml : null;
+  // The completed dry run of this folder, with this manifest, that a real import follows.
+  const currentJob = jobQuery.data;
+  const followedDryRun =
+    !dryRun &&
+    currentJob?.dry_run &&
+    currentJob.status === 'completed' &&
+    currentJob.package_fingerprint &&
+    dryRunCheck?.jobId === currentJob._id &&
+    dryRunCheck.folder === folderPath.trim() &&
+    dryRunCheck.manifest === sentManifest
+      ? currentJob
+      : null;
 
   const startImportMutation = useMutation({
     mutationFn: async () => {
+      const folder = folderPath.trim();
       const response = await api.post('/family-imports', {
-        folder_path: folderPath.trim(),
+        folder_path: folder,
         project_id: selectedProjectId || null,
         dry_run: dryRun,
         family_id: targetFamilyId || null,
         conflict_mode: conflictMode,
         // Sent only when the import is to read the draft instead of the folder's manifest.
-        ...(sendKeptManifest ? { manifest_yaml: manifestYaml } : {}),
+        ...(sentManifest !== null ? { manifest_yaml: sentManifest } : {}),
+        // Sent only when the import follows a dry run of this folder with this manifest.
+        ...(followedDryRun ? { expected_package_fingerprint: followedDryRun.package_fingerprint } : {}),
       });
-      return response.data as FamilyImportJob;
+      return {
+        job: response.data as FamilyImportJob,
+        folder,
+        manifest: sentManifest,
+        checked: Boolean(followedDryRun),
+      };
     },
-    onSuccess: (job) => {
+    onSuccess: ({ job, folder, manifest, checked }) => {
       setJobId(job._id);
+      if (job.dry_run) {
+        setDryRunCheck({ jobId: job._id, folder, manifest });
+      }
       setStatusTone('success');
       setStatusMessage(
         `Started ${dryRun ? 'dry-run' : 'import'} job ${job._id}${
           job.manifest_sha256 ? ', with the manifest kept in CoGA' : ''
-        }.`
+        }${checked ? ', checked against its dry run' : ''}.`
       );
       queryClient.setQueryData(['family-import-job', job._id], job);
       queryClient.invalidateQueries({ queryKey: ['family-import-jobs'] });
@@ -249,7 +278,6 @@ const FamilyPackageImportPanel: React.FC = () => {
     },
   });
 
-  const currentJob = jobQuery.data;
   const recentJobs = recentJobsQuery.data || [];
   const active = currentJob ? activeStatuses.has(currentJob.status) : startImportMutation.isPending;
   const canSubmit =
@@ -653,6 +681,12 @@ const FamilyPackageImportPanel: React.FC = () => {
           {startImportMutation.isPending ? 'Starting...' : dryRun ? 'Validate package' : 'Start import'}
         </button>
       </div>
+      {followedDryRun ? (
+        <p className="field-hint">
+          Checked against dry run {followedDryRun._id}: the import is refused if a file in the folder was
+          added, removed or changed since.
+        </p>
+      ) : null}
 
       {projectsError ? (
         <p className="status-note status-note--error">Project list could not be loaded.</p>
@@ -776,6 +810,12 @@ const FamilyPackageImportPanel: React.FC = () => {
               <>
                 {' '}
                 · Manifest kept in CoGA (SHA-256 <code>{currentJob.manifest_sha256.slice(0, 12)}</code>)
+              </>
+            ) : null}
+            {currentJob.package_fingerprint ? (
+              <>
+                {' '}
+                · Package fingerprint <code>{currentJob.package_fingerprint.slice(0, 12)}</code>
               </>
             ) : null}
           </div>

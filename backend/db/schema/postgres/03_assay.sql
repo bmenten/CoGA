@@ -229,7 +229,11 @@ CREATE INDEX IF NOT EXISTS idx_family_structure_versions_chain ON family_structu
 -- job, linked to no account (it can then no longer run). manifest_text is the manifest CoGA
 -- keeps for the job, which its validation and import read instead of the package folder's own
 -- (a folder CoGA cannot write, such as a share mounted read-only), with its SHA-256; both are
--- NULL for a job that reads the folder's manifest.
+-- NULL for a job that reads the folder's manifest. package_fingerprint is the fingerprint of the
+-- local package folder when the job was queued (family_package_fingerprint.py: SHA-256 over each
+-- file's path, size and modification time, and the kept manifest's SHA-256); the job imports
+-- nothing when the folder's differs as it starts. NULL for a package in a bucket, one the queue
+-- could not read, and a job queued before fingerprints.
 CREATE TABLE IF NOT EXISTS family_import_jobs (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
     submitted_path text NOT NULL,
@@ -252,8 +256,10 @@ CREATE TABLE IF NOT EXISTS family_import_jobs (
     error text,
     manifest_text text,
     manifest_sha256 text,
+    package_fingerprint text,
     CONSTRAINT family_import_jobs_pkey PRIMARY KEY (id),
     CONSTRAINT family_import_jobs_manifest_check CHECK (((manifest_text IS NULL) = (manifest_sha256 IS NULL))),
+    CONSTRAINT family_import_jobs_package_fingerprint_check CHECK (((package_fingerprint IS NULL) OR (package_fingerprint ~ '^[0-9a-f]{64}$'::text))),
     CONSTRAINT family_import_jobs_status_check CHECK ((status = ANY (ARRAY['queued'::text, 'validating'::text, 'running'::text, 'completed'::text, 'failed'::text]))),
     CONSTRAINT family_import_jobs_project_id_fkey FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL,
     CONSTRAINT family_import_jobs_requested_by_id_fkey FOREIGN KEY (requested_by_id) REFERENCES users(id) ON DELETE SET NULL

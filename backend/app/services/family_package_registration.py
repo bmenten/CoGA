@@ -445,6 +445,9 @@ async def _register_package_provenance(
         ),
         "manifest_source": MANIFEST_KEPT_IN_COGA if bundle.kept_manifest_text is not None else MANIFEST_IN_FOLDER,
         "manifest_sha256": bundle.manifest_sha256,
+        # The fingerprint of the package folder the import read, taken before it read the folder
+        # (family_package_fingerprint.py); None for a package staged from a bucket.
+        "package_fingerprint": bundle.package_fingerprint,
         "ped_path": _display_path(bundle.root, bundle.ped_path) if bundle.ped_path is not None else None,
         "schema_version": bundle.manifest.schema_version,
         "family_id": validation.family_id,

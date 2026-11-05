@@ -464,6 +464,38 @@ only with the folder Discover drafted it for.
   `manifest_path` null for a kept manifest, and the family's raw files hold a managed copy of it,
   as dataset `manifest`, for download and **Verify** ([database.md](database.md)).
 
+#### A package that changes after it was checked
+
+A package folder is a pipeline's output on a share that other hosts write, and an import is
+validated, queued and run at different moments. CoGA takes the package's **fingerprint** to tell
+that the folder changed in between, without reading the files' content: a SHA-256 over each
+entry of the folder at any depth (a file's path, size and modification time in nanoseconds; a
+symbolic link's path and target, not followed), and over the manifest CoGA keeps for the import,
+if any. Files a file browser writes and no import reads (`.DS_Store`, `Thumbs.db`, `desktop.ini`,
+`._*`) are left out, and an empty folder adds nothing.
+
+- Validation takes it before reading the folder and reports it (`package_fingerprint`). A folder
+  that holds more than 100,000 entries (`package_folder_too_large`, most likely an import folder
+  named by mistake) or that cannot be listed (`package_folder_unreadable`) is refused before
+  anything in it is read.
+- The job keeps the fingerprint of the folder as it is queued (`family_import_jobs.package_fingerprint`,
+  shown with the job). An import request may give the fingerprint of the dry run it follows
+  (`expected_package_fingerprint`): it is refused (409) before a job is written when the folder's
+  differs now, or the folder can no longer be read. The Package Import page sends it for an import
+  of the folder, with the manifest, that the shown dry run checked, and says so.
+- As the job starts, its validation takes the fingerprint again. When it differs from the one the
+  job was queued with, the job ends `failed` with `package_changed_since_queued`, having written
+  nothing. The job's log names the fingerprint the import read the folder with.
+- Once the import has read the folder, the fingerprint is taken once more. When it differs from the
+  one the validation took, the job keeps its result with the warning `package_changed_during_import`:
+  what the import read may be partly the old package and partly the new. Nothing is undone; check
+  the package with its pipeline's owner and, if it changed, import it again with overwrite.
+- The family's package record keeps the fingerprint it was imported with
+  (`families.metadata.package_import.package_fingerprint`).
+
+A package in a bucket (`gs://`, `s3://`) has no fingerprint: the job downloads it again, and a
+copy's times are the download's. Its log says it is not checked.
+
 `conflict_mode` decides what happens when the family or its samples already exist:
 
 - `cancel` (default): the import fails (`existing_family_or_samples`). A dry run only warns.

@@ -60,6 +60,7 @@ from .family_package_common import (
     _issue,
     _json_list,
 )
+from .family_package_fingerprint import PackageFolderTooLarge, package_fingerprint
 from .family_package_source import package_folder_path, staged_package_source_async
 from .stored_values import json_object
 from .family_package_validation import load_validated_family_package
@@ -321,6 +322,92 @@ def _datasets_set_out(
     return sorted(names)
 
 
+# Why a job imports nothing when the package folder's fingerprint differs from the one it was
+# queued with (family_package_jobs.queue_family_import_job).
+PACKAGE_CHANGED_SINCE_QUEUED = (
+    "The package changed after the import was queued: a file in the folder was added, removed or "
+    "changed (by name, size or modification time) since, or the manifest the import reads is "
+    "another. Nothing was imported. Run the dry run again, check its report, then import."
+)
+
+# What the job says when the package folder's fingerprint, taken again once the import has read
+# the folder, differs from the one its validation took before reading it.
+PACKAGE_CHANGED_DURING_IMPORT = (
+    "The package folder changed while it was imported: a file was added, removed or changed (by "
+    "name, size or modification time) after the import's validation began reading the folder, or "
+    "the folder could no longer be read. What the import read may be partly the package as it "
+    "was and partly as it is now. Check the package with its pipeline's owner; if it changed, "
+    "an administrator imports it again with overwrite."
+)
+
+
+def _check_queued_package_fingerprint(
+    validation: FamilyPackageValidationOut,
+    logs: list[str],
+    *,
+    source_uri: str | None,
+    queued: str | None,
+) -> FamilyPackageValidationOut:
+    """The validation, refused (``package_changed_since_queued``) when the fingerprint its
+    validation took of the local package folder, before reading it, differs from ``queued``, the
+    one the job was queued with: the import then writes nothing. The log says which fingerprint
+    the import read the folder with, and what it was compared with.
+
+    A package staged from a bucket has none, and is not checked. A folder the validation refuses
+    for another reason (gone, outside the import folders) has none either: that refusal says why.
+    """
+    if source_uri is not None:
+        logs.append(
+            "A package staged from a bucket has no fingerprint: whether it changed since the job "
+            "was queued is not checked."
+        )
+        return validation
+    current = validation.package_fingerprint
+    if current is not None and queued is None:
+        logs.append(f"Package fingerprint {current[:12]}; there is no earlier fingerprint to compare it with.")
+        return validation
+    if queued is None or current == queued:
+        if current is not None:
+            logs.append(f"Package fingerprint {current[:12]}: the folder is as it was when the job was queued.")
+        return validation
+    if current is None and validation.errors:
+        return validation
+    logs.append(
+        f"Package fingerprint {current[:12] if current else 'none'} differs from {queued[:12]}, "
+        "taken when the job was queued."
+    )
+    return validation.model_copy(
+        update={
+            "valid": False,
+            "errors": [*validation.errors, _issue("package_changed_since_queued", PACKAGE_CHANGED_SINCE_QUEUED)],
+        }
+    )
+
+
+async def _note_package_changed_during_import(result: PackageExecutionResult, *, bundle: FamilyPackageBundle) -> None:
+    """Take the local package folder's fingerprint again once the import has read it, and record
+    in ``result`` a warning (``package_changed_during_import``) and a log line when it differs
+    from the one the validation took before reading the folder. The import has written the
+    family by then: nothing is undone, and a person checks the package. A package staged from a
+    bucket has no fingerprint, and is not checked."""
+    if bundle.package_fingerprint is None:
+        return
+    kept_manifest_sha256 = bundle.manifest_sha256 if bundle.kept_manifest_text is not None else None
+    try:
+        after = await asyncio.to_thread(package_fingerprint, bundle.root, kept_manifest_sha256=kept_manifest_sha256)
+    except (OSError, PackageFolderTooLarge):
+        after = None
+    if after is not None and after.sha256 == bundle.package_fingerprint:
+        result.logs.append(f"The package folder did not change while it was imported (fingerprint {after.short}).")
+        return
+    result.logs.append(
+        f"The package folder changed while it was imported: its fingerprint is "
+        f"{after.short if after is not None else 'unreadable'}, not {bundle.package_fingerprint[:12]}."
+    )
+    issue = _issue("package_changed_during_import", PACKAGE_CHANGED_DURING_IMPORT, path=bundle.root)
+    result.validation = result.validation.model_copy(update={"warnings": [*result.validation.warnings, issue]})
+
+
 async def db_pedigree_fallback(
     session: AsyncSession | None,
     requested_family_id: str | None,
@@ -351,6 +438,7 @@ async def execute_family_package_import(
     job_id: str | None = None,
     record_family: FamilyRecordCallback | None = None,
     manifest_text: str | None = None,
+    queued_package_fingerprint: str | None = None,
 ) -> PackageExecutionResult:
     """Run an import, staging the package to a temp dir first when the source is a
     gs:// or s3:// URI (cleaned up afterwards; its alignments stay in the store).
@@ -359,7 +447,9 @@ async def execute_family_package_import(
     of the family is written; if it raises, the import writes nothing. The job's runner
     records there the family a report sign-out finds the import by. ``progress`` is
     informational: what it fails to record changes nothing a sign-out reads.
-    ``manifest_text`` is the manifest the job keeps, read instead of the folder's own."""
+    ``manifest_text`` is the manifest the job keeps, read instead of the folder's own.
+    ``queued_package_fingerprint`` is the package fingerprint the job was queued with: the
+    import writes nothing when the folder's differs (``_check_queued_package_fingerprint``)."""
     async with staged_package_source_async(folder_path) as staged:
         return await _execute_family_package_import_local(
             session,
@@ -375,6 +465,7 @@ async def execute_family_package_import(
             job_id=job_id,
             record_family=record_family,
             manifest_text=manifest_text,
+            queued_package_fingerprint=queued_package_fingerprint,
         )
 
 
@@ -393,6 +484,7 @@ async def _execute_family_package_import_local(
     remote_only_files: frozenset[str] = frozenset(),
     record_family: FamilyRecordCallback | None = None,
     manifest_text: str | None = None,
+    queued_package_fingerprint: str | None = None,
 ) -> PackageExecutionResult:
     # The existing family the request names, read as every ID is: without the whitespace
     # around it.
@@ -414,6 +506,9 @@ async def _execute_family_package_import_local(
     # A package staged from a bucket is named by its source folder: the staging copy
     # is gone once the import ends.
     logs = [f"Validated package path {source_uri or package_folder_path(folder_path)}."]
+    validation = _check_queued_package_fingerprint(
+        validation, logs, source_uri=source_uri, queued=queued_package_fingerprint
+    )
     if requested_family_id and validation.family_id and requested_family_id != validation.family_id:
         validation = validation.model_copy(
             update={
@@ -580,6 +675,9 @@ async def _execute_family_package_import_local(
             import_mark=import_mark,
             user=user,
         )
+    # Read again once the import has read it: a package that changed meanwhile may have given
+    # the import part of the old folder and part of the new.
+    await _note_package_changed_during_import(result, bundle=bundle)
     if result.completed and not result.error:
         # VCF files the manifest declares for the exploratory ancestry PCA (outside the intended
         # purpose): recorded after the family's variant writes are released, reading no file. It
@@ -1105,7 +1203,8 @@ async def run_family_import_job(
                     requested_by_id::text AS requested_by_id,
                     metadata,
                     logs,
-                    manifest_text
+                    manifest_text,
+                    package_fingerprint
                 FROM family_import_jobs
                 WHERE id = CAST(:job_id AS uuid)
                   AND worker_id = :worker_id
@@ -1306,6 +1405,7 @@ async def run_family_import_job(
                 job_id=job_id,
                 record_family=record_family,
                 manifest_text=job_row.get("manifest_text"),
+                queued_package_fingerprint=job_row.get("package_fingerprint"),
             )
             if result.error:
                 await record_end(

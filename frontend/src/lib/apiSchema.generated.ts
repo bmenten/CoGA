@@ -936,6 +936,7 @@ export interface FamilyPackageImportCreate {
   family_id?: string | null;
   conflict_mode?: "cancel" | "update" | "overwrite";
   manifest_yaml?: string | null;
+  expected_package_fingerprint?: string | null;
 }
 
 export interface FamilyPackageImportJobOut {
@@ -958,6 +959,7 @@ export interface FamilyPackageImportJobOut {
   metadata: Record<string, unknown>;
   error: string | null;
   manifest_sha256: string | null;
+  package_fingerprint: string | null;
 }
 
 export interface FamilyPackageManifestBuildOut {
@@ -1005,6 +1007,7 @@ export interface FamilyPackageValidationOut {
   warnings: FamilyImportValidationIssue[];
   datasets: FamilyImportDatasetSummary[];
   metadata: Record<string, unknown>;
+  package_fingerprint: string | null;
 }
 
 export interface FamilyParaphaseTableOut {

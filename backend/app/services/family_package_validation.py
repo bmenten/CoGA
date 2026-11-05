@@ -25,6 +25,7 @@ from .hpo_service import (
 
 from .family_package_common import CORE_DATASETS, HAPLOTYPE_ORIGIN_ROLES, IDENTIFIER_ISSUE_CODES, LONG_READ_DATASET_ROLES, MANIFEST_IN_FOLDER, MANIFEST_KEPT_IN_COGA, PCF_ROLE_KEYS, QC_FAMILY_ROLES, FamilyPackageBundle, ManifestDataset, PackageManifest, ParsedPed, SUPPORTED_DATASETS, _display_path, _is_uncompressed_vcf, _issue, _package_path_or_none, _resolve_package_path, _vcf_index_candidates, family_id_issue, manifest_text_problem, manifest_text_sha256, package_text_handle, read_vcf_sample_columns, sample_id_issues, unreadable_vcf_issue, UnreadableVcf, vcf_holds_a_data_line
 from .family_package_manifest import _manifest_added_member_entries, _manifest_added_ped_rows, _manifest_derived_statuses, _manifest_pgt_metadata, _manifest_relationship_issues, _manifest_roi_value, _normalize_manifest_samples, _parse_ped_text_strict
+from .family_package_fingerprint import PackageFingerprint, PackageFolderTooLarge, package_fingerprint
 from .family_package_mito_table import mito_sample_calls, read_mito_table
 from .family_package_pgt import pgt_roi_phasing_issue
 from .family_package_source import _ensure_authorized_package_path, _find_manifest, _parse_manifest, manifest_link_out_of_package, manifest_outside_package_issue, package_folder_link_issues, package_folder_path, parse_manifest_text, staged_package_source
@@ -1630,7 +1631,19 @@ def load_validated_family_package(
 
     ``manifest_text`` is the manifest CoGA keeps for the import's job, read instead of the
     folder's own (``_validate_and_load_package``); None reads the folder's.
+
+    The fingerprint of a local package folder, read with that manifest, is taken before the
+    validation reads anything in it (``take_package_fingerprint``), and given with the report
+    (``package_fingerprint``) and the bundle: a change while the validation reads the folder
+    then shows as a fingerprint the folder no longer has. A folder too large to be a package,
+    or one that cannot be listed, is refused before anything in it is read. A package staged
+    from a bucket has none.
     """
+    fingerprint: PackageFingerprint | None = None
+    if source_uri is None:
+        fingerprint, refusal = take_package_fingerprint(folder_path, manifest_text=manifest_text)
+        if refusal is not None:
+            return FamilyPackageValidationOut(valid=False, errors=[refusal]), None
     validation, bundle = _validate_and_load_package(
         folder_path,
         fallback_ped_text=fallback_ped_text,
@@ -1641,11 +1654,46 @@ def load_validated_family_package(
         folder_name=remote_folder_name(source_uri) if source_uri else None,
     )
     if source_uri is None:
+        if fingerprint is not None:
+            validation = validation.model_copy(update={"package_fingerprint": fingerprint.sha256})
+            if bundle is not None:
+                bundle.package_fingerprint = fingerprint.sha256
         return validation, bundle
     if bundle is not None:
         bundle.source_uri = source_uri
     staged_root = Path(folder_path).expanduser().resolve()
     return _report_staged_paths_as_objects(validation, staged_root, source_uri), bundle
+
+
+def take_package_fingerprint(
+    folder_path: str | Path, *, manifest_text: str | None
+) -> tuple[PackageFingerprint | None, FamilyImportValidationIssue | None]:
+    """The fingerprint of the local package folder ``folder_path``, read with the manifest CoGA
+    keeps for the import (``manifest_text``) or the folder's own, and why the folder is refused.
+
+    None and no refusal for a folder the validation refuses or reports itself: one outside the
+    import folders, one that does not exist or is no folder, and a kept manifest no text can
+    hold. Refused, with no fingerprint: a folder that holds more entries than a package does
+    (``package_folder_too_large``) and one that cannot be listed (``package_folder_unreadable``).
+    """
+    try:
+        root = _ensure_authorized_package_path(Path(folder_path))
+    except HTTPException:
+        return None, None
+    if not root.is_dir():
+        return None, None
+    kept_manifest_sha256: str | None = None
+    if manifest_text is not None:
+        if manifest_text_problem(manifest_text) is not None:
+            return None, None
+        kept_manifest_sha256 = manifest_text_sha256(manifest_text)
+    try:
+        return package_fingerprint(root, kept_manifest_sha256=kept_manifest_sha256), None
+    except PackageFolderTooLarge as exc:
+        return None, _issue("package_folder_too_large", str(exc), path=root)
+    except OSError as exc:
+        reason = exc.strerror or type(exc).__name__
+        return None, _issue("package_folder_unreadable", f"The package folder could not be listed: {reason}", path=root)
 
 
 def _staged_path_as_object(path: str | None, staged_root: Path, source_uri: str) -> str | None:

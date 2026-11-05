@@ -98,6 +98,7 @@ async def start_family_package_import(
         conflict_mode=payload.conflict_mode,
         requested_by=user,
         manifest_text=payload.manifest_yaml,
+        expected_package_fingerprint=payload.expected_package_fingerprint,
     )
 
 

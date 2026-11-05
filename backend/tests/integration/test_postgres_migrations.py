@@ -73,6 +73,10 @@ the CI ``smoke`` job sets it.
   ``manifest_text`` and ``manifest_sha256`` with the baseline's check (revision 0018): each job
   stored before keeps its row and neither, a job that keeps one but not the other is refused, it
   ends at the same fingerprint, and a later start changes nothing.
+- A database at revision 0018 from before an import job kept its package's fingerprint gets the
+  job's ``package_fingerprint`` with the baseline's check (revision 0019): each job stored before
+  keeps its row and none, a fingerprint that is no SHA-256 is refused, it ends at the same
+  fingerprint, and a later start changes nothing.
 - A ledger naming a revision this version does not have is refused, and nothing changes.
 - The restricted runtime role cannot run the migration; two instances that start together
   both come up, one after the other.
@@ -2412,6 +2416,90 @@ def test_a_database_from_before_kept_manifests_gives_each_import_job_none(monkey
     assert (again.before, again.after) == (head_revision(), head_revision())
     assert [tuple(row) for row in stored] == [(None, None)]
     assert check == "CHECK (((manifest_text IS NULL) = (manifest_sha256 IS NULL)))"
+    assert refused is True
+    # Every other table is as it was; the job keeps its row.
+    changed = {"alembic_version", "family_import_jobs"}
+    assert {table: rows for table, rows in kept.items() if table not in changed} == {
+        table: rows for table, rows in contents.items() if table not in changed
+    }
+    assert kept["family_import_jobs"][0] == contents["family_import_jobs"][0]
+    # The schema is the baselines'.
+    assert actual == expected, _differences(expected, actual)
+
+
+_BEFORE_0019 = (
+    "ALTER TABLE family_import_jobs DROP CONSTRAINT family_import_jobs_package_fingerprint_check",
+    "ALTER TABLE family_import_jobs DROP COLUMN package_fingerprint",
+)
+
+
+@_MODES
+def test_a_database_from_before_package_fingerprints_gives_each_import_job_none(
+    monkeypatch, reapply_baselines: bool
+) -> None:
+    from sqlalchemy.exc import IntegrityError
+
+    from backend.app.core import postgres_migrations
+    from backend.app.core.postgres_migrations import apply_postgres_schema, head_revision
+
+    monkeypatch.setattr(postgres_migrations, "REAPPLY_BASELINES_ON_EVERY_RUN", reapply_baselines)
+
+    async def _body(database: str):
+        engine = _engine(database)
+        try:
+            async with engine.begin() as conn:
+                await apply_postgres_schema(conn)
+            # A database at revision 0018, from before the column and its check, with a job
+            # queued without a fingerprint.
+            async with engine.begin() as conn:
+                await conn.execute(text("UPDATE alembic_version SET version_num = '0018'"))
+                for statement in _BEFORE_0019:
+                    await conn.exec_driver_sql(statement)
+                await conn.execute(
+                    text(
+                        "INSERT INTO family_import_jobs (submitted_path, status, requested_by) "
+                        "VALUES ('/data/families/FAM1', 'completed', 'superuser@example.org')"
+                    )
+                )
+            contents = await _table_contents(database)
+            async with engine.begin() as conn:
+                revision = await apply_postgres_schema(conn)
+            kept = await _table_contents(database)
+            async with engine.connect() as conn:
+                stored = (await conn.execute(text("SELECT package_fingerprint FROM family_import_jobs"))).all()
+                check = await _check_definition(
+                    conn, "family_import_jobs", "family_import_jobs_package_fingerprint_check"
+                )
+            # A fingerprint that is no SHA-256 is refused; one that is, is kept.
+            try:
+                async with engine.begin() as conn:
+                    await conn.execute(text("UPDATE family_import_jobs SET package_fingerprint = 'ABC'"))
+                refused = False
+            except IntegrityError:
+                refused = True
+            async with engine.begin() as conn:
+                await conn.execute(
+                    text("UPDATE family_import_jobs SET package_fingerprint = :fingerprint"),
+                    {"fingerprint": "0" * 64},
+                )
+            async with engine.begin() as conn:
+                again = await apply_postgres_schema(conn)
+        finally:
+            await engine.dispose()
+        reference = await _create_database()
+        try:
+            await _apply_baseline_files(reference)
+            fingerprints = await _fingerprint(reference), await _fingerprint(database)
+        finally:
+            await _drop_database(reference)
+        return (revision, again), stored, check, refused, (contents, kept), fingerprints
+
+    (revision, again), stored, check, refused, (contents, kept), (expected, actual) = _run(_body)
+
+    assert (revision.before, revision.after) == ("0018", head_revision())
+    assert (again.before, again.after) == (head_revision(), head_revision())
+    assert [tuple(row) for row in stored] == [(None,)]
+    assert check == "CHECK (((package_fingerprint IS NULL) OR (package_fingerprint ~ '^[0-9a-f]{64}$'::text)))"
     assert refused is True
     # Every other table is as it was; the job keeps its row.
     changed = {"alembic_version", "family_import_jobs"}

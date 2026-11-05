@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Iterable
 from datetime import datetime, timedelta, timezone
 import json
@@ -9,6 +10,7 @@ from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.object_storage import is_remote_uri
 from ..core.sql import require_uuid, rows_matched
 from ..schemas import (
     ApiId,
@@ -19,7 +21,9 @@ from ..schemas import (
 from .access_control import CurrentUser, RecordNotVisible, has_superuser_rights
 
 from .family_identifiers import IDENTIFIER_RULE, identifier_problem, visible
+from .family_package_fingerprint import PackageFingerprint
 from .family_package_source import package_folder_path
+from .family_package_validation import take_package_fingerprint
 from .family_package_common import (
     _dataset_summary_list,
     _issue_list,
@@ -76,6 +80,7 @@ def _serialize_job(mapping: dict[str, Any]) -> FamilyPackageImportJobOut:
         metadata=json_object(mapping.get("metadata")),
         error=mapping.get("error"),
         manifest_sha256=mapping.get("manifest_sha256"),
+        package_fingerprint=mapping.get("package_fingerprint"),
     )
 
 
@@ -100,6 +105,25 @@ async def _require_import_project(session: AsyncSession, project_id: str) -> str
     return project_uuid
 
 
+# Why an import that follows a dry run or a validation is refused when the package's fingerprint
+# differs from the one that dry run or validation took.
+PACKAGE_CHANGED_SINCE_CHECKED = (
+    "The package changed since its dry run or validation: a file in the folder was added, removed "
+    "or changed (by name, size or modification time), or the folder can no longer be read. Nothing "
+    "was queued. Run the dry run again, check its report, then import."
+)
+
+
+async def _queued_package_fingerprint(folder_path: str, *, manifest_text: str | None) -> PackageFingerprint | None:
+    """The fingerprint of the local package folder ``folder_path`` as the job is queued, read with
+    the kept manifest ``manifest_text``; None for a package in a bucket and a folder that cannot be
+    read, whose validation reports why. Taken in a worker thread: it lists the whole folder."""
+    if is_remote_uri(folder_path):
+        return None
+    fingerprint, _refusal = await asyncio.to_thread(take_package_fingerprint, folder_path, manifest_text=manifest_text)
+    return fingerprint
+
+
 async def queue_family_import_job(
     session: AsyncSession,
     *,
@@ -110,6 +134,7 @@ async def queue_family_import_job(
     conflict_mode: str = "cancel",
     requested_by: CurrentUser,
     manifest_text: str | None = None,
+    expected_package_fingerprint: str | None = None,
 ) -> FamilyPackageImportJobOut:
     """Queue the import a user asked for. The job keeps its requester by the account's id,
     which the import runs as and the requester's job list reads, and the e-mail address it
@@ -120,7 +145,15 @@ async def queue_family_import_job(
     (``manifest_text_sha256``), so a worker that takes the job up, also again after its worker
     stopped, reads the manifest the user gave, and the job's record names it. One that holds a
     NUL or a lone surrogate is refused before the job is written (400,
-    ``manifest_text_problem``): the job could not store it."""
+    ``manifest_text_problem``): the job could not store it.
+
+    The job keeps the fingerprint of a local package folder as it is queued, read with that
+    manifest (``package_fingerprint``): the worker imports nothing when the folder's differs as
+    the job starts. Given ``expected_package_fingerprint``, the fingerprint of the dry run or the
+    validation the import follows, the import is refused (409, ``PACKAGE_CHANGED_SINCE_CHECKED``)
+    before the job is written when the folder's differs, or the folder can no longer be read: the
+    package is not the one the user checked. A package in a bucket, and a folder the queue cannot
+    read, are queued without one; the job's validation reports such a folder."""
     # The existing family the request names, read as every ID is. One that no family can be
     # stored under is refused before the job is written: the job could not even store a NUL.
     requested_family_id = (requested_family_id or "").strip() or None
@@ -135,6 +168,11 @@ async def queue_family_import_job(
     if manifest_problem is not None:
         raise HTTPException(status_code=400, detail=manifest_problem)
     project_uuid = await _require_import_project(session, project_id) if project_id else None
+    fingerprint = await _queued_package_fingerprint(folder_path, manifest_text=manifest_text)
+    if expected_package_fingerprint is not None and (
+        fingerprint is None or fingerprint.sha256 != expected_package_fingerprint
+    ):
+        raise HTTPException(status_code=409, detail=PACKAGE_CHANGED_SINCE_CHECKED)
     metadata = {
         "requested_family_id": requested_family_id,
         "conflict_mode": conflict_mode,
@@ -152,7 +190,8 @@ async def queue_family_import_job(
                 requested_by_id,
                 requested_at,
                 manifest_text,
-                manifest_sha256
+                manifest_sha256,
+                package_fingerprint
             )
             VALUES (
                 :submitted_path,
@@ -164,7 +203,8 @@ async def queue_family_import_job(
                 CAST(:requested_by_id AS uuid),
                 :requested_at,
                 :manifest_text,
-                :manifest_sha256
+                :manifest_sha256,
+                :package_fingerprint
             )
             RETURNING
                 id::text AS id,
@@ -185,7 +225,8 @@ async def queue_family_import_job(
                 dataset_summaries,
                 metadata,
                 error,
-                manifest_sha256
+                manifest_sha256,
+                package_fingerprint
             """
         ),
         {
@@ -198,6 +239,7 @@ async def queue_family_import_job(
             "requested_at": datetime.now(timezone.utc),
             "manifest_text": manifest_text,
             "manifest_sha256": manifest_text_sha256(manifest_text) if manifest_text is not None else None,
+            "package_fingerprint": fingerprint.sha256 if fingerprint is not None else None,
         },
     )
     await session.commit()
@@ -237,7 +279,8 @@ async def get_family_import_job(
                 dataset_summaries,
                 metadata,
                 error,
-                manifest_sha256
+                manifest_sha256,
+                package_fingerprint
             FROM family_import_jobs
             WHERE id = CAST(:job_id AS uuid)
             """
@@ -291,7 +334,8 @@ async def list_family_import_jobs(
                 dataset_summaries,
                 metadata,
                 error,
-                manifest_sha256
+                manifest_sha256,
+                package_fingerprint
             FROM family_import_jobs
             {where}
             ORDER BY requested_at DESC
@@ -391,6 +435,7 @@ async def claim_next_family_import_job(
                 job.metadata,
                 job.error,
                 job.manifest_sha256,
+                job.package_fingerprint,
                 candidate.claimed_from
             """
         ),

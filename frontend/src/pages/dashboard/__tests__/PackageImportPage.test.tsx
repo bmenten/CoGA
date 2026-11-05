@@ -414,6 +414,107 @@ describe('PackageImportPage', () => {
     expect(screen.getByText(/discover the manifest for this folder first/i)).toBeInTheDocument();
   });
 
+  it('checks an import against the dry run of the same folder, and only that one', async () => {
+    const fingerprint = 'b'.repeat(64);
+    const dryRunJob = {
+      _id: 'job-dry',
+      submitted_path: '/data/FAM-100',
+      family_id: 'FAM-100',
+      status: 'completed',
+      dry_run: true,
+      requested_by: 'admin@example.com',
+      requested_at: '2026-04-29T12:00:00Z',
+      heartbeat_at: '2026-04-29T12:00:01Z',
+      validation_errors: [],
+      validation_warnings: [],
+      logs: [],
+      datasets: [],
+      package_fingerprint: fingerprint,
+    };
+    const importJob = { ...dryRunJob, _id: 'job-import', status: 'queued', dry_run: false };
+    get.mockImplementation((url, config) =>
+      url === '/family-imports/job-dry'
+        ? Promise.resolve({ data: dryRunJob })
+        : url === '/family-imports/job-import'
+          ? Promise.resolve({ data: importJob })
+          : factory(url, config),
+    );
+    vi.mocked(api.post).mockImplementation((_url: string, payload: unknown) => {
+      const body = payload as { dry_run: boolean };
+      return Promise.resolve({
+        data: body.dry_run ? { ...dryRunJob, status: 'queued' } : importJob,
+      });
+    });
+
+    renderPage();
+    await waitForProject();
+
+    const folder = screen.getByLabelText(/family folder path/i);
+    fireEvent.change(folder, { target: { value: '/data/FAM-100' } });
+    fireEvent.click(screen.getByRole('button', { name: /validate package/i }));
+    expect(await screen.findByText(/package fingerprint/i)).toHaveTextContent(fingerprint.slice(0, 12));
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /dry run/i }));
+    expect(screen.getByText(/checked against dry run job-dry/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /start import/i }));
+
+    await waitFor(() =>
+      expect(api.post).toHaveBeenLastCalledWith('/family-imports', {
+        folder_path: '/data/FAM-100',
+        project_id: ACCESSIBLE_PROJECT_ID,
+        dry_run: false,
+        family_id: null,
+        conflict_mode: 'cancel',
+        expected_package_fingerprint: fingerprint,
+      })
+    );
+    expect(await screen.findByText(/checked against its dry run/i)).toBeInTheDocument();
+  });
+
+  it('does not check an import of another folder against a dry run', async () => {
+    const dryRunJob = {
+      _id: 'job-dry',
+      submitted_path: '/data/FAM-100',
+      family_id: 'FAM-100',
+      status: 'completed',
+      dry_run: true,
+      requested_by: 'admin@example.com',
+      requested_at: '2026-04-29T12:00:00Z',
+      validation_errors: [],
+      validation_warnings: [],
+      logs: [],
+      datasets: [],
+      package_fingerprint: 'b'.repeat(64),
+    };
+    get.mockImplementation((url, config) =>
+      url === '/family-imports/job-dry' ? Promise.resolve({ data: dryRunJob }) : factory(url, config),
+    );
+    vi.mocked(api.post).mockResolvedValue({ data: { ...dryRunJob, status: 'queued' } });
+
+    renderPage();
+    await waitForProject();
+
+    const folder = screen.getByLabelText(/family folder path/i);
+    fireEvent.change(folder, { target: { value: '/data/FAM-100' } });
+    fireEvent.click(screen.getByRole('button', { name: /validate package/i }));
+    await screen.findByText(/package fingerprint/i);
+    fireEvent.click(screen.getByRole('checkbox', { name: /dry run/i }));
+    fireEvent.change(folder, { target: { value: '/data/FAM-200' } });
+
+    expect(screen.queryByText(/checked against dry run/i)).not.toBeInTheDocument();
+    vi.mocked(api.post).mockClear();
+    fireEvent.click(screen.getByRole('button', { name: /start import/i }));
+    await waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith('/family-imports', {
+        folder_path: '/data/FAM-200',
+        project_id: ACCESSIBLE_PROJECT_ID,
+        dry_run: false,
+        family_id: null,
+        conflict_mode: 'cancel',
+      })
+    );
+  });
+
   it("shows what Discover proposed for checking, not the datasets it did not find", async () => {
     vi.mocked(api.post).mockImplementation((url: string, payload: unknown) => {
       if (url === '/family-imports/manifest/discover') {

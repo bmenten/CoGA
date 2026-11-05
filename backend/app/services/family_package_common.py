@@ -232,6 +232,9 @@ class FamilyPackageBundle:
     # The manifest CoGA keeps for the import's job, read instead of the folder's own; None when
     # the import read the folder's manifest file.
     kept_manifest_text: str | None = None
+    # The fingerprint of the local package folder, taken before the validation read it
+    # (family_package_fingerprint.py); None for a package staged from a bucket.
+    package_fingerprint: str | None = None
 
 
 @dataclass(slots=True)
