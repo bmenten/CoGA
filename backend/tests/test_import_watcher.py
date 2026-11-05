@@ -4,7 +4,10 @@ The watcher looks into the folders of FAMILY_IMPORT_WATCH_ROOTS that lie under F
 (never a bucket), at each package folder there that holds a ready marker. It compares the
 marker's samples with the package's members and the files the import reads with the ones the
 marker lists; a check that fails is recorded with a fixed sentence, never the error; a folder that
-changed while it was checked is left to the next round. Its loop runs only while it holds the
+changed while it was checked is left to the next round. An open delivery seen again is checked
+again only when what CoGA holds has changed in what its check read (the project its marker names,
+the family and samples of its package), never after a check that could not read them. Its loop
+runs only while it holds the
 leadership, logs a failed round without values, and returns at once when nothing is watched. The
 rounds against a real database are in e2e/test_e2e_import_watcher.py.
 
@@ -272,7 +275,7 @@ async def test_a_delivery_that_cannot_be_stored_is_kept_without_what_it_found(
     monkeypatch.setattr(watcher, "_store_delivery", store)
     caplog.set_level(logging.WARNING, logger=watcher.logger.name)
 
-    assert await watcher.look_at_folder(_factory([]), tmp_path, folder) == "needs_attention"
+    assert await watcher.look_at_folder(_factory([]), tmp_path, folder) == ("new", "needs_attention")
     assert [issue.code for issue in stored[1].issues] == ["watch_store_failed"]
     assert stored[1].family_id is None
     assert "could not store a delivery: RuntimeError" in caplog.text and "FAM1" not in caplog.text
@@ -314,6 +317,215 @@ async def test_a_folder_without_a_fingerprint_is_left_alone(tmp_path: Path, monk
 @pytest.mark.asyncio
 async def test_a_folder_that_cannot_be_fingerprinted_has_none(tmp_path: Path) -> None:
     assert await watcher._fingerprint(tmp_path / "missing") is None
+
+
+
+# --- checking an open delivery again ----------------------------------------------------------
+
+
+def _seen(**fields: Any) -> dict[str, Any]:
+    """An open delivery's row as the watcher sees it again: one of a project CoGA lacked."""
+    row: dict[str, Any] = {
+        "id": "d" * 8,
+        "state": "needs_attention",
+        "issues": [{"code": "marker_project_unknown", "message": "", "path": None}],
+        "project_id": None,
+        "marker": {"project": "LATER", "assembly": "GRCh38"},
+        "validation": {"family_id": "FAM1", "sample_ids": ["PROBAND"]},
+    }
+    row.update(fields)
+    return row
+
+
+def _coga(monkeypatch: pytest.MonkeyPatch, *, project: tuple[str, str | None] | None, existing: tuple[str, ...] = ()) -> None:
+    """What CoGA holds now: the project the marker names, and the codes of a family or samples
+    that exist."""
+
+    async def find_project(_session: Any, _name: str) -> tuple[str, str | None] | None:
+        return project
+
+    async def find_existing(_session: Any, **_kwargs: Any) -> list[Any]:
+        return [SimpleNamespace(code=code, message="", path=None) for code in existing]
+
+    monkeypatch.setattr(watcher, "_project", find_project)
+    monkeypatch.setattr(watcher, "_existing_package_entity_warnings", find_existing)
+
+
+@pytest.mark.asyncio
+async def test_a_project_added_since_the_check_is_a_change(monkeypatch: pytest.MonkeyPatch) -> None:
+    _coga(monkeypatch, project=("p1", "GRCh38"))
+    assert await watcher._coga_side_changed(_Session([]), _seen()) is True
+
+    _coga(monkeypatch, project=None)
+    assert await watcher._coga_side_changed(_Session([]), _seen()) is False
+
+
+@pytest.mark.asyncio
+async def test_a_project_deleted_or_of_another_assembly_since_the_check_is_a_change(monkeypatch: pytest.MonkeyPatch) -> None:
+    ready = _seen(state="ready", issues=[], project_id="p1")
+    _coga(monkeypatch, project=("p1", "GRCh38"))
+    assert await watcher._coga_side_changed(_Session([]), ready) is False
+
+    # Deleted: the row's project_id was set to NULL with it.
+    _coga(monkeypatch, project=None)
+    assert await watcher._coga_side_changed(_Session([]), {**ready, "project_id": None}) is True
+
+    _coga(monkeypatch, project=("p1", "GRCh37"))
+    assert await watcher._coga_side_changed(_Session([]), ready) is True
+
+
+@pytest.mark.asyncio
+async def test_a_family_imported_or_deleted_since_the_check_is_a_change(monkeypatch: pytest.MonkeyPatch) -> None:
+    ready = _seen(state="ready", issues=[], project_id="p1")
+    _coga(monkeypatch, project=("p1", "GRCh38"), existing=("existing_family", "existing_samples"))
+    assert await watcher._coga_side_changed(_Session([]), ready) is True
+
+    existing = _seen(
+        project_id="p1",
+        issues=[{"code": "existing_family"}, {"code": "existing_samples"}],
+    )
+    assert await watcher._coga_side_changed(_Session([]), existing) is False
+
+    _coga(monkeypatch, project=("p1", "GRCh38"))
+    assert await watcher._coga_side_changed(_Session([]), existing) is True
+
+
+@pytest.mark.asyncio
+async def test_what_a_check_did_not_read_is_never_a_change(monkeypatch: pytest.MonkeyPatch) -> None:
+    _coga(monkeypatch, project=("p1", "GRCh38"), existing=("existing_family",))
+    # A marker that could not be read: the check read neither the project nor the family.
+    unread = _seen(issues=[{"code": "marker_invalid"}], validation=None)
+    assert await watcher._coga_side_changed(_Session([]), unread) is False
+    # A check that failed, or could not be stored: nothing it read is kept.
+    failed = _seen(issues=[{"code": "watch_check_failed"}], marker=None, validation=None)
+    assert await watcher._coga_side_changed(_Session([]), failed) is False
+    # The rows' JSON as text reads the same.
+    assert await watcher._coga_side_changed(_Session([]), {**unread, "marker": '{"project": "LATER"}'}) is False
+
+
+class _SeenSession(_Session):
+    """Finds the delivery ``row`` when the watcher sees its folder again."""
+
+    def __init__(self, store: list[str], row: dict[str, Any]) -> None:
+        super().__init__(store)
+        self.row = row
+
+    async def execute(self, statement: Any, _params: Any = None) -> Any:
+        self.store.append(str(statement))
+        row = self.row if "SET last_seen_at" in str(statement) else None
+        return SimpleNamespace(first=lambda: row, mappings=lambda: SimpleNamespace(first=lambda: row, all=lambda: []), all=lambda: [])
+
+
+@pytest.mark.asyncio
+async def test_an_open_delivery_seen_again_is_checked_again_only_when_coga_changed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    folder = _package(tmp_path, "FAM1")
+    assessed: list[Path] = []
+    updated: list[tuple[str, str]] = []
+    changed = {"value": False}
+
+    async def fingerprint(_folder: Path) -> str:
+        return "a" * 64
+
+    async def coga_side_changed(_session: Any, _row: Any) -> bool:
+        return changed["value"]
+
+    async def assess(_factory: Any, checked: Path) -> Any:
+        assessed.append(checked)
+        return watcher.DeliveryAssessment(state="ready", project_id="p1")
+
+    async def update(_factory: Any, _folder: Path, delivery_id: str, _fingerprint: str, assessment: Any) -> str:
+        updated.append((delivery_id, assessment.state))
+        return assessment.state
+
+    monkeypatch.setattr(watcher, "_fingerprint", fingerprint)
+    monkeypatch.setattr(watcher, "_coga_side_changed", coga_side_changed)
+    monkeypatch.setattr(watcher, "assess_delivery", assess)
+    monkeypatch.setattr(watcher, "_update_checked_again", update)
+    store: list[str] = []
+
+    def factory(row: dict[str, Any]) -> Any:
+        return lambda: _SeenSession(store, row)
+
+    assert await watcher.look_at_folder(factory(_seen()), tmp_path, folder) is None
+    assert assessed == [] and updated == []
+
+    changed["value"] = True
+    assert await watcher.look_at_folder(factory(_seen()), tmp_path, folder) == ("checked_again", "ready")
+    assert assessed == [folder] and updated == [("d" * 8, "ready")]
+    assert not any("INSERT INTO import_deliveries" in statement for statement in store)
+
+    # A delivery decided (or still copying) is never checked again.
+    for state in ("refused", "queued", "imported", "incomplete", "superseded"):
+        assert await watcher.look_at_folder(factory(_seen(state=state)), tmp_path, folder) is None
+    assert len(assessed) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_check_again_that_cannot_be_stored_is_kept_without_what_it_found(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog
+) -> None:
+    folder = _package(tmp_path, "FAM1")
+    stored: list[Any] = []
+
+    async def fingerprint(_folder: Path) -> str:
+        return "a" * 64
+
+    async def changed(_session: Any, _row: Any) -> bool:
+        return True
+
+    async def assess(*_args: Any) -> Any:
+        return watcher.DeliveryAssessment(state="ready", family_id="FAM1", project_id="p1")
+
+    async def update(_factory: Any, _folder: Path, _id: str, _fingerprint: str, assessment: Any) -> str:
+        stored.append(assessment)
+        if len(stored) == 1:
+            raise RuntimeError("a value of FAM1")
+        return assessment.state
+
+    monkeypatch.setattr(watcher, "_fingerprint", fingerprint)
+    monkeypatch.setattr(watcher, "_coga_side_changed", changed)
+    monkeypatch.setattr(watcher, "assess_delivery", assess)
+    monkeypatch.setattr(watcher, "_update_checked_again", update)
+    caplog.set_level(logging.WARNING, logger=watcher.logger.name)
+
+    looked = await watcher.look_at_folder(lambda: _SeenSession([], _seen()), tmp_path, folder)
+    assert looked == ("checked_again", "needs_attention")
+    # Without the project or the validation, it is not checked again in the next round.
+    assert [issue.code for issue in stored[1].issues] == ["watch_store_failed"]
+    assert (stored[1].project_id, stored[1].validation) == (None, None)
+    assert "could not store a delivery: RuntimeError" in caplog.text and "FAM1" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_a_folder_that_changed_while_it_was_checked_again_is_left_to_the_next_round(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    folder = _package(tmp_path, "FAM1")
+    fingerprints = iter(["a" * 64, "b" * 64])
+    updated: list[Any] = []
+
+    async def fingerprint(_folder: Path) -> str:
+        return next(fingerprints)
+
+    async def changed(_session: Any, _row: Any) -> bool:
+        return True
+
+    async def assess(*_args: Any) -> Any:
+        return watcher.DeliveryAssessment(state="ready")
+
+    async def update(*args: Any) -> str:
+        updated.append(args)
+        return "ready"
+
+    monkeypatch.setattr(watcher, "_fingerprint", fingerprint)
+    monkeypatch.setattr(watcher, "_coga_side_changed", changed)
+    monkeypatch.setattr(watcher, "assess_delivery", assess)
+    monkeypatch.setattr(watcher, "_update_checked_again", update)
+
+    assert await watcher.look_at_folder(lambda: _SeenSession([], _seen()), tmp_path, folder) is None
+    assert updated == []
 
 
 # --- the loop --------------------------------------------------------------------------------

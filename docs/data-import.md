@@ -787,8 +787,8 @@ path that leaves the folder, a file listed twice, a file without a checksum, or 
 file.
 
 **A round.** In each watched folder, every package folder that holds a marker is a delivery per
-package fingerprint (above): a folder that changes is a new delivery. One seen before is only
-seen again. A new one is checked once:
+package fingerprint (above): a folder that changes is a new delivery. One seen before is seen
+again, and checked again only when what CoGA holds has changed (below). A new one is checked:
 
 1. the marker is read;
 2. every listed file is there with its listed size; if not, the delivery is `incomplete` (the copy
@@ -809,6 +809,17 @@ Any of these that fails makes the delivery `needs_attention`, each failure an is
 passes them all is `ready`. A check that cannot run (an error) is the issue `watch_check_failed`,
 with a fixed sentence. A folder that changed while it was checked is left to the next round.
 
+**Checked again when CoGA changes.** Some issues come from what CoGA holds, not from the folder:
+the project the marker names (`marker_project_unknown`, `marker_assembly_differs`) and a family or
+samples that already exist (`existing_family`, `existing_samples`). In each round, an open delivery
+(`ready` or `needs_attention`) seen again is compared with what CoGA holds now: a project added,
+deleted or of another assembly, a family or samples imported or deleted. When that differs from
+what its check found, it is checked again as a whole, in place (the same delivery), and the event
+`import_delivery_checked_again` records the state and issue codes before and after. So adding the
+project a marker names makes its delivery `ready` in the next round, without touching the folder.
+Only what the check read is compared: a delivery whose marker could not be read, or whose check
+could not run or be stored, is checked again only when its folder changes.
+
 **States** (`import_deliveries.state`): `incomplete`, `ready`, `needs_attention`, `superseded` (a
 newer delivery of the same folder came before anyone decided), `gone` (its folder, or its marker,
 missing for two rounds while the watched folder could be read); and, once a person decided,
@@ -819,7 +830,8 @@ skipped for the round: nothing is decided on it.
 
 **The record.** Each change of a delivery's state is an event on the clinical audit chain
 `system:import-inbox`, by `system:import-watcher`: the folder, its fingerprint, the marker's
-SHA-256, the run and the family, the state and its issue codes. Verify it with
+SHA-256, the run and the family, the state and its issue codes (for a delivery checked again, also
+the state and issue codes it had). Verify it with
 `GET /admin/integrity/verify?table=clinical_audit_events&family_id=system:import-inbox`. The logs
 name counts only, never a folder or a family.
 
@@ -837,7 +849,8 @@ Nothing is imported until a superuser decides, on the Package Import page or thr
   `acknowledge_warnings`. A delivery that is `ready` is a new family, approved with `cancel`. One
   that needs attention only because its family exists (`existing_family`, with
   `existing_samples`) is approved with `update` (add the missing datasets) or `overwrite` (an
-  administrator's, as every overwrite). Any other issue is resolved in the package, which makes a
+  administrator's, as every overwrite). A project CoGA lacks is resolved in CoGA, after which the
+  watcher checks the delivery again; any other issue is resolved in the package, which makes a
   new delivery. A delivery with warnings is approved only once they are acknowledged. Its folder
   must be as it was checked (the same package fingerprint), or the approval answers 409 and the
   watcher checks it again as a new delivery.
