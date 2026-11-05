@@ -17,8 +17,9 @@ page is an administrator's alone.
   on the server. The release is the one the file states. A file that states no release, or another
   than the release you asked for, is refused, and Apply imports only the file the preview showed.
 - **Monarch data** — load the Monarch release (gene–disease and disease–phenotype links) that powers
-  [phenotype matching](#phenotype-matching) and the ranking. Load it once after installation and about
-  monthly; loading it also rebuilds the Mendeliome panel.
+  [phenotype matching](#phenotype-matching) and the ranking. A new installation loads the newest
+  release at its first start; load a newer one about monthly. Loading it here also rebuilds the
+  Mendeliome panel; after the first start, build that panel on the Gene panels page.
 - **Repeat catalogue** — for each repeat locus, QA's record of TRGT's count there, with the reason,
   who and when, and the history of these records:
   - a **count correction**, in repeats, added to TRGT's count before every call at the locus is

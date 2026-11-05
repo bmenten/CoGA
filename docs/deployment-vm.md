@@ -24,7 +24,7 @@ worker and the frontend; a reverse proxy on the VM terminates TLS. This is the s
 | Disks | a system disk of 50 GB, and a separate SSD data disk (500 GB to 1 TB) for the Docker volumes and the family packages; snapshots of the data disk, if the provider offers them |
 | Host name | a DNS name, such as `coga-test.example.org` |
 | Inbound traffic | 443 (and 80 for an ACME certificate) from the institution's network or VPN only; 22 from the administrators' addresses only. Nothing else: Postgres, ClickHouse and the backend listen on loopback |
-| Outbound traffic | HTTPS to the internet: Docker pulls the images from Docker Hub, the image builds fetch packages from PyPI and npm, and the first start downloads the reference data (GENCODE, UCSC, HGNC, NCBI, ClinGen, GenCC, HPO) |
+| Outbound traffic | HTTPS to the internet: Docker pulls the images from Docker Hub, the image builds fetch packages from PyPI and npm, and the first start downloads the reference data (GENCODE, UCSC, HGNC, NCBI, ClinGen, GenCC, HPO, Monarch) |
 | TLS certificate | from the institution's certificate service when the VM is reachable only from inside, since an ACME HTTP challenge cannot reach it; Let's Encrypt when port 80 is open to the internet |
 | Mail relay (optional) | an SMTP relay CoGA may send through (port 25 without sign-in, or 587 with STARTTLS and an account), for the mail to the administrators about an account that waits for approval |
 

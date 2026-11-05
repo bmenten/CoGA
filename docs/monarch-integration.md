@@ -41,10 +41,13 @@ Both are in Postgres (baseline `backend/db/schema/postgres/02_reference.sql`); c
 
 - **Ingest** — `backend/app/services/monarch_ingest.py`. `refresh_monarch()` downloads the release once
   and replaces both tables in one transaction, so a failed refresh never leaves them on different
-  releases. An administrator triggers it (**Admin → Monarch data**, `POST /api/admin/monarch/refresh`);
-  nothing runs at start-up. A refresh also re-versions the Mendeliome panel
+  releases. A start on a database without Monarch data runs it (`ensure_monarch_on_startup`,
+  `REFERENCE_BOOTSTRAP_MONARCH`), so a new instance begins on the newest release; a failure is logged
+  and the start goes on. After that an administrator refreshes it (**Admin → Monarch data**,
+  `POST /api/admin/monarch/refresh`). The administrator's refresh also re-versions the Mendeliome panel
   (`panel_metadata_service.regenerate_mendeliome`: genes with a `causes` or
-  `gene_associated_with_condition` link) and invalidates the information-content cache.
+  `gene_associated_with_condition` link) and invalidates the information-content cache. The start
+  builds no panel, as a panel is created by an account: build the Mendeliome on the Gene panels page.
 - **Gene profile** — `gene_metadata_service.py` returns `monarch_associations` on the gene profile,
   causal pairs first. With a `family_id`, each disease's expected phenotypes are matched against the
   family's present HPO terms, expanded to their ancestors through `hpo_closure`.

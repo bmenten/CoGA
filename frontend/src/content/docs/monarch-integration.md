@@ -101,11 +101,12 @@ Supporting). When you apply PP4, cite the matched phenotypes shown in the score 
 
 | Surface | Source | Freshness |
 | --- | --- | --- |
-| Gene profile associations, Mendeliome panel, variant ranking, PP4 | Monarch release loaded into CoGA by an administrator | as of the last load |
+| Gene profile associations, Mendeliome panel, variant ranking, PP4 | Monarch release loaded into CoGA at the first start, then by an administrator | as of the last load |
 | Candidate-gene panel (family page) | a live call to Monarch's similarity service | at the time you press the button |
 
-An administrator loads the Monarch release from **Admin → Monarch data**, about monthly. Loading it
-also rebuilds the Mendeliome panel. The release is recorded, so the report's provenance footer shows
+A new installation loads Monarch's newest release at its first start. After that an administrator
+loads a newer release from **Admin → Monarch data**, about monthly; loading it there also rebuilds
+the Mendeliome panel. The release is recorded, so the report's provenance footer shows
 which Monarch release backed an interpretation.
 
 Until the release is loaded, the gene profile shows no Monarch associations and the ranking has no

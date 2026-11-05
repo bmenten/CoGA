@@ -623,6 +623,10 @@ class Settings(BaseSettings):
         alias="REFERENCE_BOOTSTRAP_CLINICAL_CNVS",
     )
     reference_bootstrap_dgv: bool = Field(default=True, alias="REFERENCE_BOOTSTRAP_DGV")
+    # Whether a start on a database without Monarch associations loads Monarch's newest release
+    # (with REFERENCE_BOOTSTRAP_ENABLED), as the admin page's refresh does: a few megabytes
+    # from data.monarchinitiative.org, loaded during the start.
+    reference_bootstrap_monarch: bool = Field(default=True, alias="REFERENCE_BOOTSTRAP_MONARCH")
     # A DGV load longer than this is stopped and its job marked failed, with nothing loaded; a
     # normal one takes minutes, so the bound only catches a load that hangs.
     dgv_load_timeout_seconds: int = Field(

@@ -119,7 +119,8 @@ On start the backend (`backend/app/main.py`):
    UCSC) and gene loci (from GENCODE, or the UCSC gene track when GENCODE cannot be fetched);
    also imports T2T-CHM13 when `REFERENCE_BOOTSTRAP_T2T` is set; loads the HPO ontology if none
    is loaded; loads GRCh38's segmental duplications from the shipped file (into a GRCh38
-   assembly only; not the clinical CNVs, which the knowledgebase rebuild loads); and queues the
+   assembly only; not the clinical CNVs, which the knowledgebase rebuild loads); loads Monarch's
+   newest release when no Monarch data is loaded (`REFERENCE_BOOTSTRAP_MONARCH`); and queues the
    first gene-reference sync when the local dbNSFP gene file is present and no gene
    information is cached;
 4. waits for ClickHouse and creates the database; refuses to start when a variant table's sort

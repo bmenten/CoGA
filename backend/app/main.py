@@ -55,6 +55,7 @@ from .services.reference_source_service import (
     ensure_human_t2t_reference_on_startup,
 )
 from .services.hpo_service import ensure_hpo_ontology_on_startup
+from .services.monarch_ingest import ensure_monarch_on_startup
 from .services.reference_auto_load import queue_startup_reference_loads
 from .services.audit_log_pg import start_audit_log_worker, stop_audit_log_worker
 from .services.clickhouse_integrity_monitor import (
@@ -110,6 +111,8 @@ async def lifespan(app: FastAPI):
             download_if_missing=settings.hpo_download_if_missing,
             enabled=settings.hpo_bootstrap_on_startup,
         )
+        # On a database without Monarch data: Monarch's newest release; never blocks startup.
+        await ensure_monarch_on_startup(session)
         await seed_builtin_reference_tracks(session)
         await queue_startup_gene_reference_refresh_if_needed(session)
 
