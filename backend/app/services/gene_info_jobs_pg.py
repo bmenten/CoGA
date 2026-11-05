@@ -15,7 +15,7 @@ from sqlalchemy import RowMapping, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..core.coga_logging import describe_error
+from ..core.coga_logging import describe_error, scrub_log
 from ..core.config import settings
 from ..core.postgres import get_postgres_sessionmaker
 from ..core.sql import rows_matched, uuid_list_bindparam, uuid_values
@@ -536,15 +536,44 @@ async def queue_gene_reference_refresh_job(
     return _serialize_job(dict(row))
 
 
+async def _gene_info_has_dbnsfp_release(session: AsyncSession, *, assembly_ids: list[str]) -> bool:
+    """Whether any cached gene was synced with a dbNSFP gene file: each gene a sync writes with
+    the file carries its release (``source_status.dbnsfp_gene.release``), found or not; one
+    written without the file carries none."""
+    result = await session.execute(
+        text(
+            """
+            SELECT EXISTS (
+                SELECT 1
+                FROM gene_info
+                WHERE assembly_id IN :assembly_ids
+                  AND source_status -> 'dbnsfp_gene' ->> 'release' IS NOT NULL
+            )
+            """
+        ).bindparams(uuid_list_bindparam("assembly_ids")),
+        {"assembly_ids": uuid_values(assembly_ids)},
+    )
+    return bool(result.scalar_one())
+
+
 async def queue_startup_gene_reference_refresh_if_needed(
     session: AsyncSession,
 ) -> GeneInfoRefreshJobOut | None:
-    if not settings.gene_reference_bootstrap_on_startup:
-        return None
+    """At a start, queue the whole-cohort gene reference sync, as no account, when the cached
+    gene information needs it (``GENE_REFERENCE_BOOTSTRAP_ON_STARTUP``):
 
-    dbnsfp_gene_path = find_local_dbnsfp_gene_path()
-    if dbnsfp_gene_path is None:
-        logger.info("Skipping startup gene reference sync: local dbNSFP gene file was not found")
+    - **no gene is cached yet**, with or without the local dbNSFP gene file. The sync used to
+      wait for the file, which is not shipped, so a new instance never got gene information on
+      its own. Its bulk sources (HGNC, ClinGen, GenCC, ClinVar) are each source's current export.
+      Without the file, every gene costs one NCBI request (for its summary), so the sync takes
+      hours, and dbNSFP's constraint metrics and orthologues stay empty until the file is added;
+    - **the dbNSFP gene file is there now, and no cached gene was synced with it**, so the file
+      added after the first sync is taken in. Once one sync has used it, a start queues nothing
+      more: a later sync is the administrator's (Administration, Gene reference).
+
+    The genes must be loaded first (the assembly bootstrap), and no sync may be queued or running.
+    """
+    if not settings.gene_reference_bootstrap_on_startup:
         return None
 
     try:
@@ -562,6 +591,7 @@ async def queue_startup_gene_reference_refresh_if_needed(
         logger.info("Skipping startup gene reference sync: no human reference genes are loaded")
         return None
 
+    dbnsfp_gene_path = find_local_dbnsfp_gene_path()
     cached_result = await session.execute(
         text("SELECT COUNT(*) FROM gene_info WHERE assembly_id IN :assembly_ids").bindparams(
             uuid_list_bindparam("assembly_ids")
@@ -569,7 +599,20 @@ async def queue_startup_gene_reference_refresh_if_needed(
         {"assembly_ids": uuid_values(assembly_ids)},
     )
     if int(cached_result.scalar_one() or 0) > 0:
-        return None
+        if dbnsfp_gene_path is None or await _gene_info_has_dbnsfp_release(session, assembly_ids=assembly_ids):
+            return None
+        reason = (
+            f"to add the dbNSFP gene file {scrub_log(dbnsfp_gene_path)}: the cached gene "
+            "information was synced without it"
+        )
+    elif dbnsfp_gene_path is None:
+        reason = (
+            "without a dbNSFP gene file: every gene costs one NCBI request, so it takes hours, and "
+            "constraint metrics and orthologues stay empty until the file is added (a later start "
+            "then syncs again)"
+        )
+    else:
+        reason = f"with the dbNSFP gene file {scrub_log(dbnsfp_gene_path)}"
 
     active_result = await session.execute(
         text(
@@ -592,10 +635,7 @@ async def queue_startup_gene_reference_refresh_if_needed(
             scope="all_human",
             requested_by=None,
         )
-        logger.info(
-            "Queued startup dbNSFP-backed human gene reference sync from %s",
-            dbnsfp_gene_path,
-        )
+        logger.info("Queued the startup human gene reference sync %s", reason)
         return job
     except HTTPException as exc:
         if exc.status_code == 409:

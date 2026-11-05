@@ -275,8 +275,10 @@ CAS_DISPLAY_NAME=UGent
 **The dbNSFP gene file** is not in the repository (its download needs a registration,
 [data-import.md](data-import.md)). Copy `dbNSFP5.4_gene.gz` to `/srv/coga/data/ref-data/`
 (from your own machine:
-`scp dbNSFP5.4_gene.gz <user>@<host name>:/srv/coga/data/ref-data/`); without it the first
-gene reference sync does not run.
+`scp dbNSFP5.4_gene.gz <user>@<host name>:/srv/coga/data/ref-data/`). Without it the first
+gene reference sync still runs, from the online sources, but it takes hours (one NCBI request per
+gene) and leaves dbNSFP's fields empty. The first start after you copy the file in syncs again
+with it.
 
 ## 5. Build and start
 
