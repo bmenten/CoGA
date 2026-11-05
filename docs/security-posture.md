@@ -339,13 +339,16 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   version, metrics and the QC-report download. Every admin route refuses anyone else before it
   reads anything (`test_routes_require_sign_in.py`, `test_admin_route_gating.py`, both walking
   the app).
-- ✅ **Outbound downloads.** The HPO bootstrap downloads only when it finds no ontology file:
-  over HTTPS only, capped in size, and checked to be an OBO file. It fetches the vendored
-  file's release from its versioned URL and uses the file only if its SHA-256 is the vendored
-  file's; another file is refused and logged before anything is written. The URL and SHA-256
-  are fixed in the code; no setting changes them, and the removed `HPO_ONTOLOGY_URL` and
-  `HPO_ONTOLOGY_SHA256` are ignored if still set. An accepted file is written atomically
-  ([data/ref-data/hpo/README.md](../data/ref-data/hpo/README.md#the-download-fallback)). The
+- ✅ **Outbound downloads.** The HPO bootstrap, on a database without HPO terms, reads HPO's
+  newest release from GitHub and downloads it from the release's versioned PURL: every request,
+  each redirect included, over HTTPS only, each answer capped in size, and the file imported
+  only if it is an OBO file that states the release asked for; its SHA-256 is kept with the
+  terms. Its backup download fetches the vendored file's release from its versioned URL and uses
+  the file only if its SHA-256 is the vendored file's; another file is refused and logged before
+  anything is written. The URLs and the backup's SHA-256 are fixed in the code; no setting
+  changes them, and the removed `HPO_ONTOLOGY_URL` and `HPO_ONTOLOGY_SHA256` are ignored if
+  still set. An accepted backup file is written atomically
+  ([data/ref-data/hpo/README.md](../data/ref-data/hpo/README.md#how-a-start-loads-hpo)). The
   clinical-CNV knowledgebase script runs with an allowlisted environment: no database
   passwords, signing keys or cloud credentials; `OMIM_API_KEY` is its one credential. It reads
   ClinGen's recurrent CNV file only if its SHA-256 is pinned for the assembly, and stops

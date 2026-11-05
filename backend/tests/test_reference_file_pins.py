@@ -6,7 +6,9 @@ start loads were not checked:
 - the segmental-duplication file (``REFERENCE_SEGMENTAL_DUPLICATIONS_PATH``, on Cloud Run the
   reference-data bucket's copy), ClinGen's V2.1 recurrent CNV file for GRCh38 as shipped in
   ``data/ref-data/clinical_cnv_syndromes_hg38_bundle/``;
-- an HPO ontology file already in place: only the download was checked.
+- an HPO ontology file already in place: only the download was checked. (A start now imports
+  HPO's newest release first, ``test_hpo_startup_latest_release.py``; the file in place is its
+  backup, used here with HPO out of reach.)
 
 Both are held to their pin now, by the STRchive rule: the shipped, validated file is the
 source, an identical copy passes wherever it lies, and any other file is refused before
@@ -16,7 +18,7 @@ segmental duplications are a track shown for orientation that no classification 
 download is refused the same way (OPS-6), and both imports only fill an empty table, so a
 refusal never changes data a running system shows. The clinical CNV knowledgebase build's pin
 of the same ClinGen file is tested in test_clinical_cnv_knowledgebase_sources.py. Nothing here
-goes to the network.
+goes to the network: HPO's newest release cannot be reached.
 
 The segmental-duplication file holds GRCh38 coordinates, so the start loads it into a GRCh38
 assembly only, whichever assembly ``REFERENCE_BOOTSTRAP_ASSEMBLY_NAME`` names (OPS-17).
@@ -38,7 +40,7 @@ import pytest
 from backend.app import main as app_main
 from backend.app.core import config
 from backend.app.core.config import settings
-from backend.app.services import hpo_service
+from backend.app.services import hpo_release_download, hpo_service
 from backend.app.services import reference_metadata_service as rms
 from backend.tests._lifespan import LifespanApp, stub_lifespan_steps
 
@@ -320,7 +322,8 @@ class _HpoSession:
 
 
 def _hpo_start(monkeypatch: pytest.MonkeyPatch) -> tuple[list[dict[str, Any]], list[str]]:
-    """An empty HPO terminology. The first list collects what is imported, the second every
+    """An empty HPO terminology, and HPO's newest release out of reach, so the start imports the
+    file in place, its backup. The first list collects what is imported, the second every backup
     download requested (none should be)."""
     imported: list[dict[str, Any]] = []
     requested: list[str] = []
@@ -336,6 +339,10 @@ def _hpo_start(monkeypatch: pytest.MonkeyPatch) -> tuple[list[dict[str, Any]], l
         requested.append(request.full_url)
         raise AssertionError("a file was in place: nothing may be downloaded")
 
+    async def hpo_unreachable() -> Any:
+        raise hpo_release_download.HpoReleaseUnavailable("HPO's release list could not be read")
+
+    monkeypatch.setattr(hpo_release_download, "fetch_latest_hpo_release", hpo_unreachable)
     monkeypatch.setattr(hpo_service, "_hpo_term_count", no_terms)
     monkeypatch.setattr(hpo_service, "import_hpo_ontology", record_import)
     monkeypatch.setattr(hpo_service, "urlopen", no_download)

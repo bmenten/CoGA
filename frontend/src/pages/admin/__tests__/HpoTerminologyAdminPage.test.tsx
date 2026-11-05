@@ -272,15 +272,17 @@ describe('HpoTerminologyAdminPage', () => {
   describe('newer release', () => {
     const notes = async () => within(await screen.findByLabelText('HPO release check'));
 
-    it('says a newer HPO release than the loaded one is out, and the startup pin', async () => {
+    it('says a newer HPO release than the loaded one is out, and what a start imports', async () => {
       renderPage();
 
       expect(await (await notes()).findByText(/A newer HPO release is available:/)).toHaveTextContent(
         `A newer HPO release is available: 2026-09-01 (published ${new Date('2026-09-03T06:08:39Z').toLocaleDateString()}). Loaded: 2026-06-06.`,
       );
       expect(
-        (await notes()).getByText(/A start on an empty database imports the pinned release 2026-02-16/),
-      ).toBeInTheDocument();
+        (await notes()).getByText(/A start on an empty database downloads and imports HPO's newest release/),
+      ).toHaveTextContent(
+        "A start on an empty database downloads and imports HPO's newest release. When HPO cannot be reached, it imports the vendored release 2026-02-16 instead.",
+      );
     });
 
     it('says when the loaded release is the newest', async () => {
