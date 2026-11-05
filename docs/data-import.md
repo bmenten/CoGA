@@ -422,6 +422,20 @@ followed wherever it leads; Discover and validation report it
 ([A package folder that is a symbolic link](#4-package-layout-and-manifest)). A typed path to a
 folder the list leaves out is refused with the reason (`package_folder_not_allowed`).
 
+**Imported folders are hidden.** A package folder stays on the share after its import: CoGA never
+moves it, and serves the alignments and the QC report from it. The list gives each folder the
+families whose package record names it as the folder they were imported from
+(`families.metadata.package_import.folder_path`; a bucket folder's URI with or without its closing
+`/`), with when their last import registered them, and whether that import did not complete or
+still runs (the family is flagged import-incomplete, or carries an import's unfinished mark). The
+page hides a folder whose families all imported completely; **Show imported folders** lists them,
+marked *imported as …*. A folder whose last import did not complete stays listed, marked *import
+incomplete*. A folder chosen or typed that families were imported from says so, with when: import
+it again only to add or replace data, with update or overwrite. The list reads the families'
+records, not the folders, so families imported before the list was told count too, and a folder
+whose family is deleted is listed again. It does not tell whether a folder changed after its
+import.
+
 You choose a project, a new or existing family, and what to do with data that already exists.
 **Discover manifest** drafts a manifest; edit it and save it with **Write manifest.yaml**. **Dry
 run** is on by default: it validates without writing anything. Untick it and **Start import** to
@@ -432,7 +446,7 @@ The API behind the page:
 
 | Call | Does |
 | --- | --- |
-| `GET /family-imports/packages` | lists the packages under `FAMILY_IMPORT_ROOTS` |
+| `GET /family-imports/packages` | lists the packages under `FAMILY_IMPORT_ROOTS`, each with the families imported from it (`imported_families`: `family_id`, `registered_at`, `import_incomplete`) |
 | `POST /family-imports/manifest/discover` | reads the PED, looks for the expected files and returns a draft manifest |
 | `POST /family-imports/manifest/write` | saves the manifest into the folder |
 | `POST /family-imports/validate` | validates at once, without creating a job; with `manifest_yaml`, with that manifest instead of the folder's |

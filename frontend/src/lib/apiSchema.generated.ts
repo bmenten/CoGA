@@ -927,6 +927,7 @@ export interface FamilyPackageCandidateOut {
   has_manifest: boolean;
   has_ped: boolean;
   analysis_type: string | null;
+  imported_families: ImportedPackageFamily[];
 }
 
 export interface FamilyPackageImportCreate {
@@ -1745,6 +1746,13 @@ export interface IdeogramBandOut {
   start: number;
   end: number;
   stain: string;
+}
+
+/** A family whose package record names a scanned folder as the one it was imported from. */
+export interface ImportedPackageFamily {
+  family_id: string;
+  registered_at: string | null;
+  import_incomplete: boolean;
 }
 
 /** A signed chain-head anchor (the verbatim signed blob is self-verifying). */

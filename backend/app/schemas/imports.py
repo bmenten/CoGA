@@ -134,6 +134,17 @@ class FamilyPackageManifestWriteOut(BaseModel):
     validation: FamilyPackageValidationOut
 
 
+class ImportedPackageFamily(BaseModel):
+    """A family whose package record names a scanned folder as the one it was imported from."""
+
+    family_id: str
+    # When its last import registered it (families.metadata.package_import.registered_at).
+    registered_at: Optional[datetime] = None
+    # Its last import did not complete, or is still running: the family is flagged
+    # import-incomplete, or carries an import's unfinished mark.
+    import_incomplete: bool = False
+
+
 class FamilyPackageCandidateOut(BaseModel):
     """A family package discovered under the configured import roots."""
 
@@ -143,6 +154,9 @@ class FamilyPackageCandidateOut(BaseModel):
     has_manifest: bool
     has_ped: bool
     analysis_type: Optional[str] = None
+    # The families imported from this folder, by their package record (none for a folder not
+    # imported yet): the import page hides a folder whose families all imported completely.
+    imported_families: List[ImportedPackageFamily] = Field(default_factory=list)
 
 
 # The longest manifest text an import request may give: a manifest names files and members,

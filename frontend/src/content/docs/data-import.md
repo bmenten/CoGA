@@ -273,7 +273,10 @@ or runs through a link that loops.
 1. **Family folder.** Pick the folder from the list of families found in the import folder (or type
    its path), and the **Project** the family goes into. The PED is found automatically. A folder that
    is a link leading out of the import folder, or a link that loops, is not listed, and CoGA reads
-   nothing in it; typed, it is refused with the reason.
+   nothing in it; typed, it is refused with the reason. A folder a family was imported from is
+   hidden: tick **Show imported folders** to list it, marked *imported as …*. A folder whose last
+   import did not complete stays listed, marked *import incomplete*. Choose or type an imported
+   folder, and the page says which family came from it, and when.
 2. **Family destination.** Choose *New family* or *Existing family*, and the **Existing data policy**
    (table below).
 3. **HPO terms and notes** for the family (optional). To add a phenotype file or HPO terms per person,

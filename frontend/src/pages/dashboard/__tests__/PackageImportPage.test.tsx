@@ -158,6 +158,76 @@ describe('PackageImportPage', () => {
     );
   });
 
+  it('hides the folders families were imported from, unless asked, and keeps an incomplete one', async () => {
+    const candidate = (name: string, imported: { family_id: string; import_incomplete: boolean }[]) => ({
+      folder_path: `/data/families/${name}`,
+      name,
+      family_id: name,
+      has_manifest: true,
+      has_ped: true,
+      analysis_type: null,
+      imported_families: imported.map((family) => ({ ...family, registered_at: '2026-11-05T10:00:00Z' })),
+    });
+    get.mockImplementation((url, config) =>
+      url === '/family-imports/packages'
+        ? Promise.resolve({
+            data: [
+              candidate('NEWFAM', []),
+              candidate('DONEFAM', [{ family_id: 'DONEFAM', import_incomplete: false }]),
+              candidate('HALFFAM', [{ family_id: 'HALFFAM', import_incomplete: true }]),
+            ],
+          })
+        : factory(url, config),
+    );
+    renderPage();
+
+    const select = await screen.findByLabelText(/discovered family folder/i);
+    await screen.findByRole('option', { name: 'NEWFAM' });
+    expect(screen.getByRole('option', { name: 'HALFFAM · import incomplete (HALFFAM)' })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: /DONEFAM/ })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Show imported folders (1)' }));
+    expect(screen.getByRole('option', { name: 'DONEFAM · imported as DONEFAM' })).toBeInTheDocument();
+
+    fireEvent.change(select, { target: { value: '/data/families/DONEFAM' } });
+    expect(screen.getByText(/this folder was imported: DONEFAM \(/i)).toHaveTextContent(
+      /import it again only to add or replace data/i
+    );
+    fireEvent.change(select, { target: { value: '/data/families/HALFFAM' } });
+    expect(screen.getByText(/the last import from this folder did not complete/i)).toBeInTheDocument();
+    fireEvent.change(select, { target: { value: '/data/families/NEWFAM' } });
+    expect(screen.queryByText(/this folder was imported/i)).not.toBeInTheDocument();
+  });
+
+  it('says every family is imported when the import folder holds no other', async () => {
+    get.mockImplementation((url, config) =>
+      url === '/family-imports/packages'
+        ? Promise.resolve({
+            data: [
+              {
+                folder_path: '/data/families/DONEFAM',
+                name: 'DONEFAM',
+                family_id: 'DONEFAM',
+                has_manifest: true,
+                has_ped: true,
+                analysis_type: null,
+                imported_families: [{ family_id: 'DONEFAM', registered_at: null, import_incomplete: false }],
+              },
+            ],
+          })
+        : factory(url, config),
+    );
+    renderPage();
+
+    expect(
+      await screen.findByRole('option', { name: 'Every family in the import folder is imported' })
+    ).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText(/family folder path/i), {
+      target: { value: '/data/families/DONEFAM' },
+    });
+    expect(screen.getByText('This folder was imported: DONEFAM. Import it again only to add or replace data, with update or overwrite.')).toBeInTheDocument();
+  });
+
   // #610 — a failed folder scan read "No families found in the import folder".
   it('says the import folder could not be scanned, not that it is empty', async () => {
     get.mockImplementation((url, config) =>

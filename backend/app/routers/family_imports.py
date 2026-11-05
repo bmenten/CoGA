@@ -29,6 +29,7 @@ from ..services.family_package_jobs import (
 )
 from ..services.family_package_source import scan_family_import_packages
 from ..services.family_package_validation import validate_family_package
+from ..services.imported_package_folders import imported_package_folders
 from ..services.access_control import CurrentUser, is_admin_user
 
 router = APIRouter(prefix="/family-imports", tags=["family_imports"])
@@ -137,12 +138,19 @@ async def validate_family_import_package(
 
 @router.get("/packages", response_model=list[FamilyPackageCandidateOut])
 async def list_available_family_packages(
+    session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_superuser),
 ) -> list[FamilyPackageCandidateOut]:
+    # A superuser and an administrator see every project's families, so the families imported
+    # from a folder tell the caller nothing they may not know.
     del user
     # Offloaded: scanning an s3:// root makes blocking network calls.
     packages = await asyncio.to_thread(scan_family_import_packages)
-    return [FamilyPackageCandidateOut(**package) for package in packages]
+    imported = await imported_package_folders(session, [str(package["folder_path"]) for package in packages])
+    return [
+        FamilyPackageCandidateOut(**package, imported_families=imported.get(str(package["folder_path"]), []))
+        for package in packages
+    ]
 
 
 @router.get("/{job_id}", response_model=FamilyPackageImportJobOut)
