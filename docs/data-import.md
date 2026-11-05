@@ -450,6 +450,7 @@ The API behind the page:
 | Call | Does |
 | --- | --- |
 | `GET /family-imports/packages` | lists the packages under `FAMILY_IMPORT_ROOTS`, each with the families imported from it (`imported_families`: `family_id`, `registered_at`, `import_incomplete`) and whether its latest import was undone because the package changed (`changed_during_import`) |
+| `GET /family-imports/deliveries` | lists the packages pipelines delivered into the watched import folders, with their state ([below](#watched-import-folders)) |
 | `POST /family-imports/manifest/discover` | reads the PED, looks for the expected files and returns a draft manifest |
 | `POST /family-imports/manifest/write` | saves the manifest into the folder |
 | `POST /family-imports/validate` | validates at once, without creating a job; with `manifest_yaml`, with that manifest instead of the folder's |
@@ -739,6 +740,89 @@ whatever callset it stores. Such a record was written before imports recorded th
 (these were not rewritten), or by an import that could not read its family VCF when it began (it
 then fails on the file, or registers it only). A family such a record marks stays marked, and its
 sign-out needs the acknowledgement.
+
+### Watched import folders
+
+A pipeline, or the step that copies its output onto the share, can deliver a package without
+anyone typing its path: it writes the package folder into a **watched import folder** and, last,
+its **ready marker** `coga-ready.json`. The import watcher
+([import_watcher.py](../backend/app/services/import_watcher.py)) finds it, checks it once and
+records where it stands. It imports nothing: an approval queue on the Package Import page, a
+later step, will let a person approve each delivery that is ready, and only then queue its
+import.
+
+**Settings.** `FAMILY_IMPORT_WATCH_ROOTS` names the watched folders: local folders under
+`FAMILY_IMPORT_ROOTS`, comma-separated or a JSON list (a bucket, or a folder outside the import
+roots, is not watched, and the log says how many). Empty, the default, means no watcher.
+`FAMILY_IMPORT_WATCH_INTERVAL_SECONDS` (default 300, 30 to 86400) is the time between rounds. The
+watcher runs where the import workers run: in each import-worker process, and in the API when it
+runs import workers itself (`FAMILY_IMPORT_WORKER_COUNT` above 0). One watcher looks at a time: it
+holds a Postgres advisory lock on a connection of its own, and the others skip their rounds until
+that connection is gone.
+
+**The ready marker** (format `coga-ready/1`, [import_ready_marker.py](../backend/app/services/import_ready_marker.py)).
+A JSON object, at most 20 MB, written last, under a temporary name first and then renamed:
+
+| Field | Required | What CoGA does with it |
+| --- | --- | --- |
+| `schema` | yes | `coga-ready/1`; another value is not read |
+| `written_at` | yes | kept |
+| `project` | yes | the unique project name; a project CoGA lacks needs attention |
+| `family_id` | yes | must be the package's family, and an ID a family can be stored under |
+| `analysis_type` | yes | one of `wgs`, `wgs_trio`, `pgt_m`, `monogenic_nipt`, `long_read_wgs`, `long_read_couple` |
+| `assembly` | yes | must be the project's assembly |
+| `pipeline.name`, `pipeline.version` | yes | kept and shown |
+| `run.id` | yes | kept and shown: one id per run |
+| `files` | yes | each file of the package: `path` (in the folder), `size`, and `sha256` or `md5` |
+| `samples` | no | each `sample_id` must be a member of the package, of the `sex` the PED gives; a member it does not name is a warning (a fetus has no data of its own) |
+| `qc.status` | no | `fail` needs attention, `warn` is a warning |
+| `request_id`, `manifest`, `reference`, `supersedes`, `priority`, `notes` | no | kept |
+
+A field the format does not know is kept. A missing required field needs attention, and so does a
+path that leaves the folder, a file listed twice, a file without a checksum, or a link listed as a
+file.
+
+**A round.** In each watched folder, every package folder that holds a marker is a delivery per
+package fingerprint (above): a folder that changes is a new delivery. One seen before is only
+seen again. A new one is checked once:
+
+1. the marker is read;
+2. every listed file is there with its listed size; if not, the delivery is `incomplete` (the copy
+   runs still; its fingerprint changes once it has finished, which makes a new delivery);
+3. every file's SHA-256, or MD5, is the listed one: a file that differs is a copy that is not what
+   the pipeline made. A file in the folder that the marker does not list is a warning (a file
+   browser's own files are not counted);
+4. the project, its assembly, the analysis type, the family ID and the pipeline's QC;
+5. the manifest: the folder's own or, without one, the draft Discover makes, which the delivery
+   keeps (`manifest_text`), with Discover's notes as warnings;
+6. the package's validation, as **Validate package** runs it, and the region of interest;
+7. every file the import reads (the PED, and each file an enabled dataset names) is listed in the
+   marker with a matching checksum;
+8. the marker's samples against the PED, and a family or samples that already exist: an existing
+   family needs an approver's choice of update or overwrite, never a new family.
+
+Any of these that fails makes the delivery `needs_attention`, each failure an issue; one that
+passes them all is `ready`. A check that cannot run (an error) is the issue `watch_check_failed`,
+with a fixed sentence. A folder that changed while it was checked is left to the next round.
+
+**States** (`import_deliveries.state`): `incomplete`, `ready`, `needs_attention`, `superseded` (a
+newer delivery of the same folder came before anyone decided), `gone` (its folder, or its marker,
+missing for two rounds while the watched folder could be read). The states `approved`, `queued`,
+`imported`, `failed`, `refused` and `changed_after_import` are for the approval queue and the
+watch over imported packages, which come later. A watched folder that cannot be read, or that is
+empty while it had open deliveries (a share that is not mounted reads as an empty folder), is
+skipped for the round: nothing is decided on it.
+
+**The record.** Each change of a delivery's state is an event on the clinical audit chain
+`system:import-inbox`, by `system:import-watcher`: the folder, its fingerprint, the marker's
+SHA-256, the run and the family, the state and its issue codes. Verify it with
+`GET /admin/integrity/verify?table=clinical_audit_events&family_id=system:import-inbox`. The logs
+name counts only, never a folder or a family.
+
+**The list.** `GET /family-imports/deliveries` (superuser) gives the deliveries, the latest change
+first, with their state, issues, warnings and what the marker says (project, analysis type,
+pipeline, run, request); `state` (repeatable) keeps those in the states named, `limit` (at most
+200) how many.
 
 ## 4. Package layout and manifest
 

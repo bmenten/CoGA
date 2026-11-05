@@ -117,6 +117,39 @@ def test_the_process_checks_what_the_api_checks_and_never_migrates(monkeypatch) 
     assert not hasattr(import_worker, "init_postgres_schema")
 
 
+@pytest.mark.parametrize("watched", [[], ["/data/share"]])
+def test_the_process_runs_the_import_watcher_only_when_a_folder_is_watched(monkeypatch, watched: list[str]) -> None:
+    from backend.app.core.config import settings
+
+    recorder = _Recorder()
+    _patch_process(monkeypatch, recorder)
+    monkeypatch.setattr(settings, "family_import_watch_roots", watched)
+
+    async def watcher_waits_for_its_stop(stop_event: asyncio.Event) -> None:
+        recorder.calls.append("import_watcher")
+        await stop_event.wait()
+
+    async def stop_watcher(task: asyncio.Task[None], stop_event: asyncio.Event) -> None:
+        recorder.calls.append("stop_import_watcher")
+        stop_event.set()
+        await task
+
+    monkeypatch.setattr(import_worker, "import_watcher", watcher_waits_for_its_stop)
+    monkeypatch.setattr(import_worker, "stop_import_watcher", stop_watcher)
+
+    async def run() -> int:
+        stop = asyncio.Event()
+        running = asyncio.create_task(import_worker.run_import_workers(1, stop))
+        while "ancestry_worker" not in recorder.calls or (watched and "import_watcher" not in recorder.calls):
+            await asyncio.sleep(0)
+        stop.set()
+        return await running
+
+    assert asyncio.run(run()) == import_worker.EXIT_STOPPED
+    expected = ["import_watcher", "stop_import_watcher"] if watched else []
+    assert [call for call in recorder.calls if "watcher" in call] == expected
+
+
 def test_a_start_that_fails_runs_no_worker_and_closes_the_clients(monkeypatch) -> None:
     recorder = _Recorder()
     _patch_process(monkeypatch, recorder, failing="verify_postgres_schema_revision")

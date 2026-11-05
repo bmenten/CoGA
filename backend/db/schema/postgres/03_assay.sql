@@ -296,6 +296,52 @@ CREATE INDEX IF NOT EXISTS idx_family_import_jobs_requested ON family_import_job
 CREATE INDEX IF NOT EXISTS idx_family_import_jobs_status ON family_import_jobs USING btree (status, requested_at);
 
 -- ---------------------------------------------------------------------------
+-- import_deliveries
+-- ---------------------------------------------------------------------------
+-- A package a pipeline delivered into a watched import folder (FAMILY_IMPORT_WATCH_ROOTS): one row
+-- per package folder and package fingerprint (family_package_fingerprint.py), so a folder that
+-- changes is a new delivery. The import watcher (import_watcher.py) writes it from the folder's
+-- ready marker (coga-ready.json: marker, its text's SHA-256 and the run it names) and its checks:
+-- state is where the delivery stands, issues why it needs attention, warnings what an approver
+-- should see. manifest_text is the manifest Discover drafted for a folder without one, with its
+-- SHA-256. Mutable state: each change of state is an event on the clinical audit chain
+-- system:import-inbox, which is the record.
+CREATE TABLE IF NOT EXISTS import_deliveries (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    watch_root text NOT NULL,
+    folder_path text NOT NULL,
+    folder_name text NOT NULL,
+    package_fingerprint text NOT NULL,
+    marker_sha256 text,
+    marker jsonb,
+    run_id text,
+    family_id text,
+    project_id uuid,
+    state text NOT NULL,
+    issues jsonb DEFAULT '[]'::jsonb NOT NULL,
+    warnings jsonb DEFAULT '[]'::jsonb NOT NULL,
+    validation jsonb,
+    manifest_text text,
+    manifest_sha256 text,
+    job_id uuid,
+    missing_rounds integer DEFAULT 0 NOT NULL,
+    first_seen_at timestamp with time zone DEFAULT now() NOT NULL,
+    last_seen_at timestamp with time zone DEFAULT now() NOT NULL,
+    state_changed_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT import_deliveries_pkey PRIMARY KEY (id),
+    CONSTRAINT import_deliveries_folder_fingerprint_key UNIQUE (folder_path, package_fingerprint),
+    CONSTRAINT import_deliveries_fingerprint_check CHECK ((package_fingerprint ~ '^[0-9a-f]{64}$'::text)),
+    CONSTRAINT import_deliveries_marker_sha256_check CHECK (((marker_sha256 IS NULL) OR (marker_sha256 ~ '^[0-9a-f]{64}$'::text))),
+    CONSTRAINT import_deliveries_manifest_check CHECK (((manifest_text IS NULL) = (manifest_sha256 IS NULL))),
+    CONSTRAINT import_deliveries_state_check CHECK ((state = ANY (ARRAY['incomplete'::text, 'ready'::text, 'needs_attention'::text, 'approved'::text, 'queued'::text, 'imported'::text, 'failed'::text, 'refused'::text, 'superseded'::text, 'changed_after_import'::text, 'gone'::text]))),
+    CONSTRAINT import_deliveries_project_id_fkey FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL,
+    CONSTRAINT import_deliveries_job_id_fkey FOREIGN KEY (job_id) REFERENCES family_import_jobs(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_import_deliveries_folder ON import_deliveries USING btree (folder_path, first_seen_at);
+CREATE INDEX IF NOT EXISTS idx_import_deliveries_state ON import_deliveries USING btree (state, state_changed_at);
+
+-- ---------------------------------------------------------------------------
 -- individual_hpo
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS individual_hpo (

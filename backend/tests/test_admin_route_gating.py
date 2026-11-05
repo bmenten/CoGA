@@ -55,13 +55,14 @@ ADMIN_READS_OUTSIDE_THE_ADMIN_PREFIX = {
     ("GET", "/api/users"),
 }
 # The superuser routes that only read: the admin dashboard's superuser workspaces and package
-# import's jobs and packages.
+# import's jobs, packages and deliveries.
 SUPERUSER_READS_EXPECTED = {
     ("GET", "/api/admin/small-variant-filter-presets"),
     ("GET", "/api/admin/variant-tags"),
     ("GET", "/api/admin/qc-thresholds"),
     ("GET", "/api/family-imports"),
     ("GET", "/api/family-imports/packages"),
+    ("GET", "/api/family-imports/deliveries"),
     ("GET", "/api/family-imports/{job_id}"),
 }
 

@@ -1749,6 +1749,46 @@ export interface IdeogramBandOut {
   stain: string;
 }
 
+/**
+ * Why a delivery needs attention, or what an approver should see: a code and a sentence;
+ * ``path`` a path in the package when it is about one file.
+ */
+export interface ImportDeliveryIssue {
+  code: string;
+  message: string;
+  path: string | null;
+}
+
+/**
+ * A package a pipeline delivered into a watched import folder (import_watcher.py): the
+ * folder, its fingerprint and ready marker, what the marker says it is, and where the delivery
+ * stands.
+ */
+export interface ImportDeliveryOut {
+  _id: string;
+  watch_root: string;
+  folder_path: string;
+  folder_name: string;
+  state: "incomplete" | "ready" | "needs_attention" | "approved" | "queued" | "imported" | "failed" | "refused" | "superseded" | "changed_after_import" | "gone";
+  package_fingerprint: string;
+  marker_sha256: string | null;
+  run_id: string | null;
+  family_id: string | null;
+  project_id: string | null;
+  project: string | null;
+  analysis_type: string | null;
+  pipeline_name: string | null;
+  pipeline_version: string | null;
+  request_id: string | null;
+  issues: ImportDeliveryIssue[];
+  warnings: ImportDeliveryIssue[];
+  manifest_sha256: string | null;
+  job_id: string | null;
+  first_seen_at: string;
+  last_seen_at: string;
+  state_changed_at: string;
+}
+
 /** A family whose package record names a scanned folder as the one it was imported from. */
 export interface ImportedPackageFamily {
   family_id: string;

@@ -212,6 +212,58 @@ class FamilyPackageImportJobOut(ApiDocumentModel):
     package_fingerprint: Optional[str] = None
 
 
+ImportDeliveryState = Literal[
+    "incomplete",
+    "ready",
+    "needs_attention",
+    "approved",
+    "queued",
+    "imported",
+    "failed",
+    "refused",
+    "superseded",
+    "changed_after_import",
+    "gone",
+]
+
+
+class ImportDeliveryIssue(BaseModel):
+    """Why a delivery needs attention, or what an approver should see: a code and a sentence;
+    ``path`` a path in the package when it is about one file."""
+
+    code: str
+    message: str
+    path: Optional[str] = None
+
+
+class ImportDeliveryOut(ApiDocumentModel):
+    """A package a pipeline delivered into a watched import folder (import_watcher.py): the
+    folder, its fingerprint and ready marker, what the marker says it is, and where the delivery
+    stands."""
+
+    watch_root: str
+    folder_path: str
+    folder_name: str
+    state: ImportDeliveryState
+    package_fingerprint: str
+    marker_sha256: Optional[str] = None
+    run_id: Optional[str] = None
+    family_id: Optional[str] = None
+    project_id: Optional[ApiId] = None
+    project: Optional[str] = None
+    analysis_type: Optional[str] = None
+    pipeline_name: Optional[str] = None
+    pipeline_version: Optional[str] = None
+    request_id: Optional[str] = None
+    issues: List[ImportDeliveryIssue] = Field(default_factory=list)
+    warnings: List[ImportDeliveryIssue] = Field(default_factory=list)
+    manifest_sha256: Optional[str] = None
+    job_id: Optional[ApiId] = None
+    first_seen_at: datetime
+    last_seen_at: datetime
+    state_changed_at: datetime
+
+
 class ManualPedMemberCreate(BaseModel):
     sample_id: str = Field(min_length=1)
     father_id: Optional[str] = None

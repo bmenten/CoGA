@@ -586,6 +586,15 @@ class Settings(BaseSettings):
     # import-worker process's (python -m app.import_worker). 0 in the API leaves every job to
     # import-worker processes, as docker-compose.yml does; such a process refuses 0.
     family_import_worker_count: int = Field(default=1, ge=0, le=8, alias="FAMILY_IMPORT_WORKER_COUNT")
+    # The import folders the import watcher looks into, every FAMILY_IMPORT_WATCH_INTERVAL_SECONDS,
+    # for packages a pipeline delivered with a ready marker (coga-ready.json): local folders under
+    # FAMILY_IMPORT_ROOTS, comma-separated or a JSON list. Empty, the default: no watcher.
+    family_import_watch_roots: Annotated[list[str], NoDecode] = Field(
+        default_factory=list, alias="FAMILY_IMPORT_WATCH_ROOTS"
+    )
+    family_import_watch_interval_seconds: int = Field(
+        default=300, ge=30, le=86_400, alias="FAMILY_IMPORT_WATCH_INTERVAL_SECONDS"
+    )
     # Reverse proxies in front of the backend that each append to X-Forwarded-For; the
     # client address is taken that many entries from the right (#520). 0 leaves it to
     # uvicorn. Google's external Application Load Balancer appends two (client, LB).
@@ -722,7 +731,7 @@ class Settings(BaseSettings):
             return [origin.strip() for origin in stripped.split(",") if origin.strip()]
         return value
 
-    @field_validator("family_import_roots", "validated_assemblies", mode="before")
+    @field_validator("family_import_roots", "family_import_watch_roots", "validated_assemblies", mode="before")
     @classmethod
     def parse_family_import_roots(cls, value: object) -> object:
         if isinstance(value, str):

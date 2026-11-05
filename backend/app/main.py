@@ -47,6 +47,7 @@ from .services.family_package_import import (
     stop_family_package_import_worker,
 )
 from .services.ancestry_service import ancestry_worker, stop_ancestry_worker
+from .services.import_watcher import import_watcher, stop_import_watcher
 from .services.repeat_expansion_pg import seed_builtin_repeat_catalog
 from .services.reference_metadata_service import seed_builtin_reference_tracks
 from .services.reference_source_service import (
@@ -140,9 +141,18 @@ async def lifespan(app: FastAPI):
     ancestry_task = (
         asyncio.create_task(ancestry_worker(ancestry_stop)) if family_import_worker_tasks else None
     )
+    # So does the import watcher, when FAMILY_IMPORT_WATCH_ROOTS names a folder: one at a time.
+    watcher_stop = asyncio.Event()
+    watcher_task = (
+        asyncio.create_task(import_watcher(watcher_stop))
+        if family_import_worker_tasks and settings.family_import_watch_roots
+        else None
+    )
     try:
         yield
     finally:
+        if watcher_task is not None:
+            await stop_import_watcher(watcher_task, watcher_stop)
         if ancestry_task is not None:
             await stop_ancestry_worker(ancestry_task, ancestry_stop)
         await stop_gene_reference_worker(worker_task, worker_stop)
