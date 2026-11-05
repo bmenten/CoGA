@@ -843,6 +843,7 @@ async def test_a_package_imports_status_refresh_is_checked_for_a_pedigree_change
         manifest_sha256=None,
         kept_manifest_text=None,
         package_fingerprint=None,
+        delivery=None,
     )
     monkeypatch.setattr(family_package_registration, "_manifest_pgt_metadata", lambda manifest: {})
     monkeypatch.setattr(family_package_registration, "_normalize_manifest_samples", lambda samples: {})

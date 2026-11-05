@@ -63,6 +63,7 @@ Every suite in `backend/tests/e2e/` is listed here.
 
 | Stage verified | Evidence (test) |
 | --- | --- |
+| A person approves or refuses a delivery of a watched import folder: warnings acknowledged first, the import queued as the approver runs and the delivery becomes imported, the family names its delivery; a changed folder is not approved; a refusal needs a reason; each decision is on a chain that verifies (REQ-DATA-005, TF-06 H4) | [test_e2e_import_delivery_approval.py](../../backend/tests/e2e/test_e2e_import_delivery_approval.py) |
 | Package import → per-stage persistence (Postgres + ClickHouse) | [test_e2e_import_golden.py](../../backend/tests/e2e/test_e2e_import_golden.py) |
 | Query/API contracts feeding the UI (small/SV pages, explorer, BED, haplotypes, track-availability) | [test_e2e_api_contract.py](../../backend/tests/e2e/test_e2e_api_contract.py) |
 | Clinical review → ACMG recompute, immutable audit chain, signed report | [test_e2e_review_audit.py](../../backend/tests/e2e/test_e2e_review_audit.py) |

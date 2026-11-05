@@ -258,10 +258,35 @@ class ImportDeliveryOut(ApiDocumentModel):
     issues: List[ImportDeliveryIssue] = Field(default_factory=list)
     warnings: List[ImportDeliveryIssue] = Field(default_factory=list)
     manifest_sha256: Optional[str] = None
+    # The last import job the delivery was approved for (a dry run, or the import), and where it
+    # stands.
     job_id: Optional[ApiId] = None
+    job_status: Optional[Literal["queued", "validating", "running", "completed", "failed"]] = None
+    job_dry_run: Optional[bool] = None
     first_seen_at: datetime
     last_seen_at: datetime
     state_changed_at: datetime
+
+
+class ImportDeliveryApprove(BaseModel):
+    """A delivery approved for import: as a dry run or for real; ``cancel`` for a new family,
+    ``update`` or ``overwrite`` (an administrator's) for one whose family exists; its warnings
+    acknowledged when it has any."""
+
+    dry_run: bool = False
+    conflict_mode: Literal["cancel", "update", "overwrite"] = "cancel"
+    acknowledge_warnings: bool = False
+
+
+class ImportDeliveryRefuse(BaseModel):
+    """A delivery refused, and why."""
+
+    reason: str = Field(min_length=1, max_length=2000)
+
+
+class ImportDeliveryApproveOut(BaseModel):
+    delivery: ImportDeliveryOut
+    job: FamilyPackageImportJobOut
 
 
 class ManualPedMemberCreate(BaseModel):

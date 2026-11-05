@@ -15,7 +15,10 @@ from ..schemas import (
     FamilyPackageManifestWriteOut,
     FamilyPackageManifestWriteRequest,
     FamilyPackageValidationOut,
+    ImportDeliveryApprove,
+    ImportDeliveryApproveOut,
     ImportDeliveryOut,
+    ImportDeliveryRefuse,
 )
 from ..schemas.imports import ImportDeliveryState
 from ..services.family_package_import import db_pedigree_fallback
@@ -31,6 +34,8 @@ from ..services.family_package_jobs import (
 )
 from ..services.family_package_source import scan_family_import_packages
 from ..services.family_package_validation import validate_family_package
+from ..services.family_package_common import manifest_text_problem
+from ..services.import_delivery_review import approve_delivery, refuse_delivery
 from ..services.import_watcher import list_import_deliveries
 from ..services.imported_package_folders import folders_changed_during_import, imported_package_folders
 from ..services.access_control import CurrentUser, is_admin_user
@@ -173,6 +178,42 @@ async def list_family_package_deliveries(
     ``state`` (repeatable) keeps those in one of the states named."""
     del user
     return await list_import_deliveries(session, states=list(state) if state else None, limit=limit)
+
+
+@router.post("/deliveries/{delivery_id}/approve", response_model=ImportDeliveryApproveOut)
+async def approve_family_package_delivery(
+    delivery_id: str,
+    payload: ImportDeliveryApprove,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_superuser),
+) -> ImportDeliveryApproveOut:
+    """Queue the import of a delivery that is ready, or whose family exists (update or overwrite),
+    as a dry run or for real, as the caller (import_delivery_review.py)."""
+    if payload.conflict_mode == "overwrite" and not payload.dry_run and not is_admin_user(user):
+        raise HTTPException(status_code=403, detail=OVERWRITE_ADMIN_ONLY_DETAIL)
+    delivery, job = await approve_delivery(
+        session,
+        delivery_id=delivery_id,
+        user=user,
+        dry_run=payload.dry_run,
+        conflict_mode=payload.conflict_mode,
+        acknowledge_warnings=payload.acknowledge_warnings,
+    )
+    return ImportDeliveryApproveOut(delivery=delivery, job=job)
+
+
+@router.post("/deliveries/{delivery_id}/refuse", response_model=ImportDeliveryOut)
+async def refuse_family_package_delivery(
+    delivery_id: str,
+    payload: ImportDeliveryRefuse,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_superuser),
+) -> ImportDeliveryOut:
+    """Refuse an open delivery, with a reason the audit trail keeps."""
+    reason = payload.reason.strip()
+    if not reason or manifest_text_problem(reason) is not None:
+        raise HTTPException(status_code=400, detail="Give a reason in plain text to refuse the delivery.")
+    return await refuse_delivery(session, delivery_id=delivery_id, user=user, reason=reason)
 
 
 @router.get("/{job_id}", response_model=FamilyPackageImportJobOut)

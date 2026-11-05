@@ -483,6 +483,10 @@ async def _register_package_provenance(
         "datasets": _dataset_provenance(validation),
         "registered_at": now,
     }
+    if bundle.delivery is not None:
+        # The delivery of a watched import folder it came from: its id, the pipeline's run, the
+        # ready marker's SHA-256 and the package fingerprint the delivery was checked with.
+        family_metadata["package_import"]["delivery"] = bundle.delivery
     # Promote a declared analysis type (e.g. monogenic_nipt) to the top level so
     # the workspace surfaces the matching analysis section.
     analysis_type = bundle.manifest.analysis_type

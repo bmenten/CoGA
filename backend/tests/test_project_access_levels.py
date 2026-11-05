@@ -467,6 +467,8 @@ SUPERUSER_CHANGE_ROUTES = {
     ("POST", "/api/family-imports/manifest/write"),
     ("POST", "/api/family-imports"),
     ("POST", "/api/family-imports/validate"),
+    ("POST", "/api/family-imports/deliveries/{delivery_id}/approve"),
+    ("POST", "/api/family-imports/deliveries/{delivery_id}/refuse"),
 }
 # Sign-in and sign-up: no one is signed in yet.
 PUBLIC_ROUTES = {
