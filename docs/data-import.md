@@ -451,6 +451,8 @@ The API behind the page:
 | --- | --- |
 | `GET /family-imports/packages` | lists the packages under `FAMILY_IMPORT_ROOTS`, each with the families imported from it (`imported_families`: `family_id`, `registered_at`, `import_incomplete`) and whether its latest import was undone because the package changed (`changed_during_import`) |
 | `GET /family-imports/deliveries` | lists the packages pipelines delivered into the watched import folders, with their state ([below](#watched-import-folders)) |
+| `POST /family-imports/deliveries/{id}/approve` | queues the import, or a dry run, of a delivery that is ready or whose family exists (`dry_run`, `conflict_mode`, `acknowledge_warnings`) |
+| `POST /family-imports/deliveries/{id}/refuse` | refuses an open delivery, with a `reason` |
 | `POST /family-imports/manifest/discover` | reads the PED, looks for the expected files and returns a draft manifest |
 | `POST /family-imports/manifest/write` | saves the manifest into the folder |
 | `POST /family-imports/validate` | validates at once, without creating a job; with `manifest_yaml`, with that manifest instead of the folder's |
@@ -747,9 +749,8 @@ A pipeline, or the step that copies its output onto the share, can deliver a pac
 anyone typing its path: it writes the package folder into a **watched import folder** and, last,
 its **ready marker** `coga-ready.json`. The import watcher
 ([import_watcher.py](../backend/app/services/import_watcher.py)) finds it, checks it once and
-records where it stands. It imports nothing: an approval queue on the Package Import page, a
-later step, will let a person approve each delivery that is ready, and only then queue its
-import.
+records where it stands. It imports nothing by itself: a person approves each delivery, on the
+Package Import page, and only then is its import queued (below).
 
 **Settings.** `FAMILY_IMPORT_WATCH_ROOTS` names the watched folders: local folders under
 `FAMILY_IMPORT_ROOTS`, comma-separated or a JSON list (a bucket, or a folder outside the import
@@ -807,9 +808,9 @@ with a fixed sentence. A folder that changed while it was checked is left to the
 
 **States** (`import_deliveries.state`): `incomplete`, `ready`, `needs_attention`, `superseded` (a
 newer delivery of the same folder came before anyone decided), `gone` (its folder, or its marker,
-missing for two rounds while the watched folder could be read). The states `approved`, `queued`,
-`imported`, `failed`, `refused` and `changed_after_import` are for the approval queue and the
-watch over imported packages, which come later. A watched folder that cannot be read, or that is
+missing for two rounds while the watched folder could be read); and, once a person decided,
+`queued`, `imported`, `failed` or `refused` (below). `approved` and `changed_after_import` are for
+the watch over imported packages, which comes later. A watched folder that cannot be read, or that is
 empty while it had open deliveries (a share that is not mounted reads as an empty folder), is
 skipped for the round: nothing is decided on it.
 
@@ -820,9 +821,38 @@ SHA-256, the run and the family, the state and its issue codes. Verify it with
 name counts only, never a folder or a family.
 
 **The list.** `GET /family-imports/deliveries` (superuser) gives the deliveries, the latest change
-first, with their state, issues, warnings and what the marker says (project, analysis type,
-pipeline, run, request); `state` (repeatable) keeps those in the states named, `limit` (at most
-200) how many.
+first, with their state, issues, warnings, what the marker says (project, analysis type,
+pipeline, run, request) and the last import job it was approved for (`job_id`, `job_status`,
+`job_dry_run`); `state` (repeatable) keeps those in the states named, `limit` (at most 200) how
+many. The Package Import page shows them under **Deliveries**, the open ones first (the decided
+and superseded ones on request), with how many wait.
+
+**Approving a delivery** ([import_delivery_review.py](../backend/app/services/import_delivery_review.py)).
+Nothing is imported until a superuser decides, on the Package Import page or through the API:
+
+- `POST /family-imports/deliveries/{id}/approve` with `dry_run`, `conflict_mode` and
+  `acknowledge_warnings`. A delivery that is `ready` is a new family, approved with `cancel`. One
+  that needs attention only because its family exists (`existing_family`, with
+  `existing_samples`) is approved with `update` (add the missing datasets) or `overwrite` (an
+  administrator's, as every overwrite). Any other issue is resolved in the package, which makes a
+  new delivery. A delivery with warnings is approved only once they are acknowledged. Its folder
+  must be as it was checked (the same package fingerprint), or the approval answers 409 and the
+  watcher checks it again as a new delivery.
+- The import job is queued as the approver, into the project the marker names, with the manifest
+  the delivery keeps, and names the delivery (its id, run, marker's SHA-256 and fingerprint) in
+  its metadata; the family's package record keeps it (`families.metadata.package_import.delivery`).
+  The job's own checks (its fingerprint as it starts, the undo of a package that changes while it
+  is read) hold as for any import. A real approval makes the delivery `queued`; a dry run leaves
+  it as it is. The delivery is locked while it is decided, so two approvals of it queue one job.
+- `POST /family-imports/deliveries/{id}/refuse` with a `reason` (plain text, at most 2,000
+  characters) refuses an open delivery (`incomplete`, `ready`, `needs_attention`): the watcher
+  leaves its folder as it is until it changes.
+- At the start of each round the watcher records the end of each queued delivery's import job:
+  `imported` when it completed, `failed` when it failed.
+
+Each decision is an event on the `system:import-inbox` chain, by the person who made it (the
+reason of a refusal, the job, the policy and whether the warnings were acknowledged), and in the
+request audit.
 
 ## 4. Package layout and manifest
 

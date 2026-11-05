@@ -569,6 +569,7 @@ class WatchRound:
     roots_skipped: int = 0
     deliveries: dict[str, int] = field(default_factory=dict)
     gone: int = 0
+    jobs_ended: int = 0
 
 
 async def _open_deliveries(session_factory: async_sessionmaker[AsyncSession], root: Path) -> int:
@@ -586,8 +587,13 @@ async def _open_deliveries(session_factory: async_sessionmaker[AsyncSession], ro
 
 
 async def run_watch_round(session_factory: async_sessionmaker[AsyncSession], roots: list[Path]) -> WatchRound:
-    """One round over the watched folders ``roots`` (see the module's docstring)."""
+    """One round over the watched folders ``roots`` (see the module's docstring). It first records
+    the end of each queued delivery's import job (``import_delivery_review.sync_delivery_jobs``)."""
+    # Imported here: the review module reads this one's chain and list.
+    from .import_delivery_review import sync_delivery_jobs
+
     result = WatchRound()
+    result.jobs_ended = await sync_delivery_jobs(session_factory)
     for root in roots:
         folders = await asyncio.to_thread(marked_folders, root)
         if folders is None or (not folders and await _open_deliveries(session_factory, root)):
@@ -667,11 +673,13 @@ async def import_watcher(stop: asyncio.Event) -> None:
             try:
                 if await leadership.hold():
                     done = await run_watch_round(get_postgres_sessionmaker(), roots)
-                    if done.deliveries or done.gone or done.roots_skipped:
+                    if done.deliveries or done.gone or done.roots_skipped or done.jobs_ended:
                         logger.info(
-                            "Import watch round: new deliveries %s, %d gone, %d of %d import folder(s) skipped",
+                            "Import watch round: new deliveries %s, %d gone, %d import job(s) ended, "
+                            "%d of %d import folder(s) skipped",
                             dict(sorted(done.deliveries.items())),
                             done.gone,
+                            done.jobs_ended,
                             done.roots_skipped,
                             len(roots),
                         )
@@ -698,6 +706,14 @@ async def stop_import_watcher(task: asyncio.Task[None], stop: asyncio.Event) -> 
 
 # The deliveries the list shows at most.
 DELIVERY_LIST_LIMIT = 200
+
+# A fixed column list (never input), with the delivery's import job's status.
+_DELIVERY_COLUMNS = """
+    d.id::text AS id, d.watch_root, d.folder_path, d.folder_name, d.state, d.package_fingerprint,
+    d.marker_sha256, d.marker, d.run_id, d.family_id, d.project_id::text AS project_id, d.issues,
+    d.warnings, d.manifest_sha256, d.job_id::text AS job_id, d.first_seen_at, d.last_seen_at,
+    d.state_changed_at, j.status AS job_status, j.dry_run AS job_dry_run
+"""
 
 
 def _text(value: Any) -> str | None:
@@ -727,6 +743,8 @@ def _delivery_out(row: Any) -> ImportDeliveryOut:
         warnings=[ImportDeliveryIssue.model_validate(item) for item in _json_list(row["warnings"])],
         manifest_sha256=row["manifest_sha256"],
         job_id=ApiId(row["job_id"]) if row["job_id"] else None,
+        job_status=row["job_status"],
+        job_dry_run=row["job_dry_run"],
         first_seen_at=row["first_seen_at"],
         last_seen_at=row["last_seen_at"],
         state_changed_at=row["state_changed_at"],
@@ -740,14 +758,12 @@ async def list_import_deliveries(
     rows = (
         await session.execute(
             text(
-                """
-                SELECT id::text AS id, watch_root, folder_path, folder_name, state, package_fingerprint,
-                       marker_sha256, marker, run_id, family_id, project_id::text AS project_id, issues,
-                       warnings, manifest_sha256, job_id::text AS job_id, first_seen_at, last_seen_at,
-                       state_changed_at
-                FROM import_deliveries
-                WHERE CAST(:states AS text[]) IS NULL OR state = ANY(CAST(:states AS text[]))
-                ORDER BY state_changed_at DESC, id
+                f"""
+                SELECT {_DELIVERY_COLUMNS}
+                FROM import_deliveries d
+                LEFT JOIN family_import_jobs j ON j.id = d.job_id
+                WHERE CAST(:states AS text[]) IS NULL OR d.state = ANY(CAST(:states AS text[]))
+                ORDER BY d.state_changed_at DESC, d.id
                 LIMIT :limit
                 """
             ),
@@ -755,3 +771,21 @@ async def list_import_deliveries(
         )
     ).mappings().all()
     return [_delivery_out(row) for row in rows]
+
+
+async def get_import_delivery(session: AsyncSession, delivery_id: str) -> ImportDeliveryOut | None:
+    """The delivery ``delivery_id`` (a canonical UUID), or None."""
+    row = (
+        await session.execute(
+            text(
+                f"""
+                SELECT {_DELIVERY_COLUMNS}
+                FROM import_deliveries d
+                LEFT JOIN family_import_jobs j ON j.id = d.job_id
+                WHERE d.id = CAST(:id AS uuid)
+                """
+            ),
+            {"id": delivery_id},
+        )
+    ).mappings().first()
+    return _delivery_out(row) if row is not None else None

@@ -2,6 +2,7 @@ import React from 'react';
 import { Link } from 'react-router';
 
 import FamilyPackageImportPanel from './FamilyPackageImportPanel';
+import ImportDeliveriesPanel from './ImportDeliveriesPanel';
 
 const PackageImportPage: React.FC = () => {
   return (
@@ -21,6 +22,8 @@ const PackageImportPage: React.FC = () => {
           </Link>
         </div>
       </section>
+
+      <ImportDeliveriesPanel />
 
       <FamilyPackageImportPanel />
     </div>

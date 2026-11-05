@@ -58,6 +58,9 @@ MODULE_FLOORS: dict[str, float] = {
     "backend/app/services/genotypes.py": 97.0,  # (100.0)
     "backend/app/services/haplotype_lineage_service.py": 91.0,  # (94.6, 2026-11-03)
     "backend/app/services/hash_chain.py": 97.0,  # (100.0, 2026-11-03)
+    # (90.1 measured locally when it was added: approving and refusing a delivery; the e2e tests
+    # run the job sync)
+    "backend/app/services/import_delivery_review.py": 87.0,
     # (99.0 measured locally when it was added: the ready marker a pipeline writes last)
     "backend/app/services/import_ready_marker.py": 96.0,
     # (100.0 measured locally when it was added: the families imported from each listed folder)

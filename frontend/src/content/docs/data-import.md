@@ -268,6 +268,27 @@ manifest.yaml** does not write through the link. Every path in the manifest is r
 folder. A path is refused when it leads out of the folder, starts with `~` (CoGA reads no home folder)
 or runs through a link that loops.
 
+### Deliveries from the pipelines
+
+A pipeline can deliver a package by itself: it writes the family folder into a watched import folder
+and, last, a ready marker (`coga-ready.json`) that lists every file with its checksum and names the
+project, the family and the run. CoGA checks each delivery once and lists it under **Deliveries** at
+the top of the page, with how many wait. Nothing is imported until you approve it.
+
+- **Ready**: every check passed. **Dry run** checks it as an import would; **Approve…** imports it
+  into the project the marker names. Tick several ready deliveries to approve them together.
+- **Needs attention**: something stands in the way, and the reasons are listed. When the only reason
+  is that the family exists already, **Approve…** asks for *Update* (add the missing datasets) or
+  *Overwrite* (administrators). Any other reason is fixed in the package; the corrected folder comes
+  back as a new delivery.
+- **Still copying**: a listed file is not there yet, or not complete. It is checked again when the
+  copy has finished.
+- A delivery with warnings is approved only once you tick *I checked the warnings*.
+- **Refuse…** sets a delivery aside, with a reason: CoGA leaves the folder alone until it changes.
+
+An approved delivery shows its import job, and becomes *Imported* or *Import failed* when the job
+ends. The decided and superseded deliveries are listed on request.
+
 ### The steps
 
 1. **Family folder.** Pick the folder from the list of families found in the import folder (or type

@@ -1750,6 +1750,22 @@ export interface IdeogramBandOut {
 }
 
 /**
+ * A delivery approved for import: as a dry run or for real; ``cancel`` for a new family,
+ * ``update`` or ``overwrite`` (an administrator's) for one whose family exists; its warnings
+ * acknowledged when it has any.
+ */
+export interface ImportDeliveryApprove {
+  dry_run?: boolean;
+  conflict_mode?: "cancel" | "update" | "overwrite";
+  acknowledge_warnings?: boolean;
+}
+
+export interface ImportDeliveryApproveOut {
+  delivery: ImportDeliveryOut;
+  job: FamilyPackageImportJobOut;
+}
+
+/**
  * Why a delivery needs attention, or what an approver should see: a code and a sentence;
  * ``path`` a path in the package when it is about one file.
  */
@@ -1784,9 +1800,16 @@ export interface ImportDeliveryOut {
   warnings: ImportDeliveryIssue[];
   manifest_sha256: string | null;
   job_id: string | null;
+  job_status: "queued" | "validating" | "running" | "completed" | "failed" | null;
+  job_dry_run: boolean | null;
   first_seen_at: string;
   last_seen_at: string;
   state_changed_at: string;
+}
+
+/** A delivery refused, and why. */
+export interface ImportDeliveryRefuse {
+  reason: string;
 }
 
 /** A family whose package record names a scanned folder as the one it was imported from. */

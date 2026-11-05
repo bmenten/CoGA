@@ -135,6 +135,8 @@ async def queue_family_import_job(
     requested_by: CurrentUser,
     manifest_text: str | None = None,
     expected_package_fingerprint: str | None = None,
+    delivery: dict[str, Any] | None = None,
+    commit: bool = True,
 ) -> FamilyPackageImportJobOut:
     """Queue the import a user asked for. The job keeps its requester by the account's id,
     which the import runs as and the requester's job list reads, and the e-mail address it
@@ -153,7 +155,12 @@ async def queue_family_import_job(
     validation the import follows, the import is refused (409, ``PACKAGE_CHANGED_SINCE_CHECKED``)
     before the job is written when the folder's differs, or the folder can no longer be read: the
     package is not the one the user checked. A package in a bucket, and a folder the queue cannot
-    read, are queued without one; the job's validation reports such a folder."""
+    read, are queued without one; the job's validation reports such a folder.
+
+    ``delivery`` is the delivery of a watched import folder the job imports (its id, run,
+    marker's SHA-256 and package fingerprint; import_delivery_review.py), kept in the job's
+    metadata for the family's package record. With ``commit`` False the caller commits, so that
+    the job and what the caller writes with it are one transaction."""
     # The existing family the request names, read as every ID is. One that no family can be
     # stored under is refused before the job is written: the job could not even store a NUL.
     requested_family_id = (requested_family_id or "").strip() or None
@@ -173,10 +180,12 @@ async def queue_family_import_job(
         fingerprint is None or fingerprint.sha256 != expected_package_fingerprint
     ):
         raise HTTPException(status_code=409, detail=PACKAGE_CHANGED_SINCE_CHECKED)
-    metadata = {
+    metadata: dict[str, Any] = {
         "requested_family_id": requested_family_id,
         "conflict_mode": conflict_mode,
     }
+    if delivery is not None:
+        metadata["delivery"] = delivery
     result = await session.execute(
         text(
             """
@@ -242,8 +251,10 @@ async def queue_family_import_job(
             "package_fingerprint": fingerprint.sha256 if fingerprint is not None else None,
         },
     )
-    await session.commit()
-    return _serialize_job(dict(result.mappings().one()))
+    job = _serialize_job(dict(result.mappings().one()))
+    if commit:
+        await session.commit()
+    return job
 
 
 _JOB_NOT_FOUND = "Family import job not found"

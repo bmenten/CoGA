@@ -235,6 +235,9 @@ class FamilyPackageBundle:
     # The fingerprint of the local package folder, taken before the validation read it
     # (family_package_fingerprint.py); None for a package staged from a bucket.
     package_fingerprint: str | None = None
+    # The delivery of a watched import folder the import's job imports (its id, run, marker's
+    # SHA-256 and package fingerprint; import_delivery_review.py); None for a package a user chose.
+    delivery: dict[str, Any] | None = None
 
 
 @dataclass(slots=True)

@@ -461,6 +461,7 @@ async def execute_family_package_import(
     record_family: FamilyRecordCallback | None = None,
     manifest_text: str | None = None,
     queued_package_fingerprint: str | None = None,
+    delivery: dict[str, Any] | None = None,
 ) -> PackageExecutionResult:
     """Run an import, staging the package to a temp dir first when the source is a
     gs:// or s3:// URI (cleaned up afterwards; its alignments stay in the store).
@@ -471,7 +472,9 @@ async def execute_family_package_import(
     informational: what it fails to record changes nothing a sign-out reads.
     ``manifest_text`` is the manifest the job keeps, read instead of the folder's own.
     ``queued_package_fingerprint`` is the package fingerprint the job was queued with: the
-    import writes nothing when the folder's differs (``_check_queued_package_fingerprint``)."""
+    import writes nothing when the folder's differs (``_check_queued_package_fingerprint``).
+    ``delivery`` is the delivery of a watched import folder the job imports, which the family's
+    package record names."""
     async with staged_package_source_async(folder_path) as staged:
         return await _execute_family_package_import_local(
             session,
@@ -488,6 +491,7 @@ async def execute_family_package_import(
             record_family=record_family,
             manifest_text=manifest_text,
             queued_package_fingerprint=queued_package_fingerprint,
+            delivery=delivery,
         )
 
 
@@ -507,6 +511,7 @@ async def _execute_family_package_import_local(
     record_family: FamilyRecordCallback | None = None,
     manifest_text: str | None = None,
     queued_package_fingerprint: str | None = None,
+    delivery: dict[str, Any] | None = None,
 ) -> PackageExecutionResult:
     # The existing family the request names, read as every ID is: without the whitespace
     # around it.
@@ -531,6 +536,13 @@ async def _execute_family_package_import_local(
     validation = _check_queued_package_fingerprint(
         validation, logs, source_uri=source_uri, queued=queued_package_fingerprint
     )
+    if delivery is not None:
+        logs.append(
+            f"The package was delivered into a watched import folder (delivery {str(delivery.get('id'))[:8]}, "
+            f"run {delivery.get('run_id') or 'not named'})."
+        )
+        if bundle is not None:
+            bundle.delivery = delivery
     if requested_family_id and validation.family_id and requested_family_id != validation.family_id:
         validation = validation.model_copy(
             update={
@@ -1477,6 +1489,7 @@ async def run_family_import_job(
                 record_family=record_family,
                 manifest_text=job_row.get("manifest_text"),
                 queued_package_fingerprint=job_row.get("package_fingerprint"),
+                delivery=job_metadata.get("delivery") if isinstance(job_metadata.get("delivery"), dict) else None,
             )
             if result.error:
                 await record_end(
