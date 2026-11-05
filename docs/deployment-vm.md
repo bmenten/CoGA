@@ -249,9 +249,19 @@ CAS_SERVICE_URL=https://coga-test.example.org/login
 CAS_DISPLAY_NAME=UGent
 ```
 
-- In ICT's form, the endpoint URL is `CAS_SERVICE_URL`, and the attributes are `mail`,
-  `surname` and `azureObjectId` (public) and `givenName` (protected: the motivation is the
-  user's name in the app and in the audit log). Ask for nothing else, and no guest accounts.
+- In ICT's form, register a **URL** (a CAS service), not an OAuth application: CoGA speaks
+  CAS only. The endpoint URL is `CAS_SERVICE_URL`, and the attributes are `mail`, `surname`
+  and `azureObjectId` (public) and `givenName` (protected: the motivation is the user's name in
+  the app and in the audit log). Ask for nothing else, and no guest accounts.
+- An OAuth registration does not register the service: after the UGent sign-in,
+  `login.ugent.be` answers "Ongeldige service-URL" (your service is not registered). Register
+  the URL as well; the OAuth credentials are not needed. The same page appears when the
+  registered URL differs from `CAS_SERVICE_URL` in any character: give ICT the tracking ID the
+  page shows.
+- A sign-in CoGA refuses after the CAS server let it through says why in
+  `docker compose logs backend | grep "cas sign-in"`: an attribute the answer lacks, the code
+  the CAS server named (such as `INVALID_SERVICE`), or that the server could not be reached.
+  Neither the ticket nor the answer is logged.
 - The service needs HTTPS: set these once the certificate of step 6 is in place, then
   `docker compose up -d`.
 - CAS admits every UGent account, students included. A first sign-in makes an account that
