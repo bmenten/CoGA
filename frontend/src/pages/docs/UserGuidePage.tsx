@@ -1,5 +1,5 @@
 import React from 'react';
-import { Link } from 'react-router';
+import { Link, useLocation } from 'react-router';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
@@ -108,51 +108,60 @@ const WorkspaceLinkRow: React.FC<{ links: GuideLink[] }> = ({ links }) => (
   </div>
 );
 
-const UserGuidePage: React.FC = () => (
-  <div className="page-shell content-shell user-guide-page">
-    <PageHeader
-      kicker="Documentation"
-      title="CoGA user guide"
-      description="An in-app manual for lab staff and administrators. It follows a case from setup to sign-out: each section says what a page is for and how to use it, and links to the in-depth reference that holds the rules."
-    />
+const UserGuidePage: React.FC = () => {
+  // A link from another page to one section (`/docs#administration`) opens the guide there: an
+  // in-app navigation, unlike a page load, does not scroll to the fragment by itself.
+  const { hash } = useLocation();
+  React.useEffect(() => {
+    if (hash.length > 1) document.getElementById(hash.slice(1))?.scrollIntoView?.();
+  }, [hash]);
 
-    <div className="user-guide-layout">
-      <aside id="user-guide-contents" className="user-guide-toc">
-        <p className="user-guide-eyebrow">On this page</p>
-        <nav aria-label="User guide contents">
-          <ol className="user-guide-toc-list">
-            {guideSections.map((section, index) => (
-              <li key={section.id}>
-                <a href={`#${section.id}`} className="user-guide-toc-link">
-                  <span className="user-guide-toc-index">{formatSectionIndex(index)}</span>
-                  <span className="user-guide-toc-title">{section.title}</span>
-                </a>
-              </li>
-            ))}
-          </ol>
-        </nav>
-      </aside>
+  return (
+    <div className="page-shell content-shell user-guide-page">
+      <PageHeader
+        kicker="Documentation"
+        title="CoGA user guide"
+        description="An in-app manual for lab staff and administrators. It follows a case from setup to sign-out: each section says what a page is for and how to use it, and links to the in-depth reference that holds the rules."
+      />
 
-      <div className="user-guide-content">
-        {guideSections.map((section, index) => (
-          <section key={section.id} id={section.id} className="user-guide-section">
-            <div className="user-guide-section-header">
-              <span className="user-guide-section-index">{formatSectionIndex(index)}</span>
-              <h2 className="user-guide-section-title">{section.title}</h2>
-              <p className="user-guide-section-summary">{section.summary}</p>
-            </div>
-            {section.quickLinks?.length ? <WorkspaceLinkRow links={section.quickLinks} /> : null}
-            <div className="content-prose user-guide-section-prose">
-              <GuideMarkdown markdown={section.markdown} />
-            </div>
-            <a href="#user-guide-contents" className="subtle-link user-guide-backlink">
-              Back to top
-            </a>
-          </section>
-        ))}
+      <div className="user-guide-layout">
+        <aside id="user-guide-contents" className="user-guide-toc">
+          <p className="user-guide-eyebrow">On this page</p>
+          <nav aria-label="User guide contents">
+            <ol className="user-guide-toc-list">
+              {guideSections.map((section, index) => (
+                <li key={section.id}>
+                  <a href={`#${section.id}`} className="user-guide-toc-link">
+                    <span className="user-guide-toc-index">{formatSectionIndex(index)}</span>
+                    <span className="user-guide-toc-title">{section.title}</span>
+                  </a>
+                </li>
+              ))}
+            </ol>
+          </nav>
+        </aside>
+
+        <div className="user-guide-content">
+          {guideSections.map((section, index) => (
+            <section key={section.id} id={section.id} className="user-guide-section">
+              <div className="user-guide-section-header">
+                <span className="user-guide-section-index">{formatSectionIndex(index)}</span>
+                <h2 className="user-guide-section-title">{section.title}</h2>
+                <p className="user-guide-section-summary">{section.summary}</p>
+              </div>
+              {section.quickLinks?.length ? <WorkspaceLinkRow links={section.quickLinks} /> : null}
+              <div className="content-prose user-guide-section-prose">
+                <GuideMarkdown markdown={section.markdown} />
+              </div>
+              <a href="#user-guide-contents" className="subtle-link user-guide-backlink">
+                Back to top
+              </a>
+            </section>
+          ))}
+        </div>
       </div>
     </div>
-  </div>
-);
+  );
+};
 
 export default UserGuidePage;

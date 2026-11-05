@@ -361,9 +361,23 @@ describe('UserListPage', () => {
       'Archive: ann@example.com',
       'Archive: peeters@example.com',
     ]);
-    expect(
-      screen.getByText(/Project access is managed from\s+the project settings view/),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Projects & access' })).toHaveAttribute(
+      'href',
+      '/admin/access/projects',
+    );
+  });
+
+  // The rules for accounts and roles are in the user guide; the page says what it is for and
+  // links there, rather than repeating them.
+  it('says in one line what the page is for, and links to the guide for the rules', async () => {
+    renderPage();
+    await screen.findByRole('table');
+
+    expect(screen.getByRole('link', { name: 'How accounts and roles work' })).toHaveAttribute(
+      'href',
+      '/docs#administration',
+    );
+    expect(screen.queryByText(/The roles,\s+lowest first/)).not.toBeInTheDocument();
   });
 
   it.each([

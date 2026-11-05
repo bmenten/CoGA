@@ -120,6 +120,7 @@ const CircosPlotPage: FC = () => {
   const {
     data: svPage,
     isError: variantsFailed,
+    isFetching: variantsFetching,
     refetch: refetchVariants,
   } = useQuery<{ variants: Variant[]; capped: boolean; limit: number | null }>({
     queryKey: ['family-circos', familyId, queryParams.toString()],
@@ -250,6 +251,12 @@ const CircosPlotPage: FC = () => {
         }
       />
     );
+  }
+
+  // The page's loader stays up until the SVs are in too: drawn before them, the plot showed
+  // the chromosomes alone, with no sign that their links were still coming.
+  if (variantsFetching && !svPage) {
+    return loadingState;
   }
 
   const chromData = placement.drawn;

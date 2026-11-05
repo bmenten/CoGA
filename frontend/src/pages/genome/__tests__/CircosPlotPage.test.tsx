@@ -191,6 +191,30 @@ describe('CircosPlotPage', () => {
     expect(requestedUrls()).toContain('/families/F1/structural-variants?project_id=p1&page_size=0');
   });
 
+  it('keeps its loader up until the SVs are in, not only the chromosomes', async () => {
+    let answer: (value: unknown) => void = () => {};
+    const tra = { chr: '1', start: 70, end: 71, type: 'TRA', remote_chr: '2', remote_start: 30 };
+    serve('GRCh38', {
+      '/families/F1/structural-variants?project_id=p1&page_size=0': () =>
+        new Promise((resolve) => {
+          answer = resolve;
+        }),
+    });
+    renderPage();
+
+    await waitFor(() => expect(requestedUrls()).toContain('/chromosomes/GRCh38/details'));
+    await act(async () => {});
+    expect(screen.getByText('Loading circos plot')).toBeInTheDocument();
+    expect(screen.queryByTestId('circos-plot')).not.toBeInTheDocument();
+
+    await act(async () => answer({ data: { variants: [tra] } }));
+    expect(await screen.findByTestId('circos-plot')).toBeInTheDocument();
+    expect(screen.queryByText('Loading circos plot')).not.toBeInTheDocument();
+    // The plot is first drawn with its SVs, never without them.
+    expect(circosSpy.mock.calls.every(([props]) => props.variants !== undefined)).toBe(true);
+    expect(circosSpy.mock.calls.at(-1)?.[0].variants).toEqual([tra]);
+  });
+
   describe('fails visibly instead of drawing GRCh38', () => {
     it('for a family without a linked project', async () => {
       serve('GRCh38', { '/families/F1': ok({ projects: [] }) });
