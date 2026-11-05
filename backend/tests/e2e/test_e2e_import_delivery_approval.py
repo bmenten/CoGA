@@ -95,6 +95,12 @@ async def _exercise(base: Path, run: str) -> dict[str, Any]:
         await claim_import_job(job_id, worker)
         await package_import.run_family_import_job(job_id=job_id, worker_id=worker)
         out["job"] = await job_outcome(job_id)
+        async with sessionmaker() as session:
+            out["job_delivery"] = (
+                await session.execute(
+                    text("SELECT metadata -> 'delivery' FROM family_import_jobs WHERE id = CAST(:j AS uuid)"), {"j": job_id}
+                )
+            ).scalar_one()
         out["sync_round"] = await import_watcher.run_watch_round(sessionmaker, roots)
         out["new_after"] = await delivery_of(names["NEW"])
         async with sessionmaker() as session:
@@ -213,14 +219,17 @@ def test_the_approved_import_runs_and_the_delivery_is_imported(ran) -> None:
     assert ran["new_after"]["state"] == "imported"
 
 
-def test_the_family_names_the_delivery_it_came_from(ran) -> None:
+def test_the_family_and_the_job_name_the_delivery_it_came_from(ran) -> None:
     before = ran["new_before"]
-    assert ran["record"] == {
+    expected = {
         "id": before["id"],
         "run_id": before["run_id"],
         "marker_sha256": before["marker_sha256"],
         "package_fingerprint": before["package_fingerprint"],
     }
+    assert ran["record"] == expected
+    # The job's record, written from the validation's metadata as the import ran, keeps it too.
+    assert ran["job_delivery"] == expected
 
 
 def test_a_dry_run_leaves_the_delivery_as_it_was(ran) -> None:
