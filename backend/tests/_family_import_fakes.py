@@ -15,6 +15,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -95,6 +96,11 @@ def signed_in_client(role: str = "admin", *, raise_server_exceptions: bool = Tru
     )
 
     class _Session:
+        async def execute(self, *_args: Any, **_kwargs: Any) -> Any:
+            # No database: a look-up finds nothing (the package list's families imported
+            # from each folder).
+            return SimpleNamespace(mappings=lambda: SimpleNamespace(all=lambda: []))
+
         async def rollback(self) -> None:
             return None
 

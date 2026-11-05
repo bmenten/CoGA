@@ -58,6 +58,8 @@ MODULE_FLOORS: dict[str, float] = {
     "backend/app/services/genotypes.py": 97.0,  # (100.0)
     "backend/app/services/haplotype_lineage_service.py": 91.0,  # (94.6, 2026-11-03)
     "backend/app/services/hash_chain.py": 97.0,  # (100.0, 2026-11-03)
+    # (100.0 measured locally when it was added: the families imported from each listed folder)
+    "backend/app/services/imported_package_folders.py": 97.0,
     "backend/app/services/integrity_anchor_service.py": 97.0,  # (100.0, 2026-11-03; also floored combined)
     "backend/app/services/mitochondrial_analysis.py": 90.0,  # (93.0, 2026-11-03)
     "backend/app/services/monarch_semsim.py": 97.0,  # (100.0, 2026-11-03)

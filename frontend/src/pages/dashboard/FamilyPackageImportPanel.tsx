@@ -35,6 +35,21 @@ type ManifestBuildResult = FamilyPackageManifestBuildOut;
 
 const activeStatuses = new Set<ImportStatus>(['queued', 'validating', 'running']);
 
+// A folder is listed as imported when families were imported from it, each completely: the list
+// hides it unless asked. A folder whose last import did not complete, or still runs, stays listed.
+const isImportedPackage = (pkg: FamilyPackageCandidateOut) =>
+  (pkg.imported_families ?? []).length > 0 &&
+  !(pkg.imported_families ?? []).some((family) => family.import_incomplete);
+
+const importedFamiliesText = (pkg: FamilyPackageCandidateOut) => {
+  const families = pkg.imported_families ?? [];
+  if (families.length === 0) return '';
+  const names = families.map((family) => family.family_id).join(', ');
+  return families.some((family) => family.import_incomplete)
+    ? ` · import incomplete (${names})`
+    : ` · imported as ${names}`;
+};
+
 const issueLabel = (issue: FamilyImportValidationIssue) =>
   [issue.dataset, issue.sample_id, issue.path].filter(Boolean).join(' · ');
 
@@ -102,6 +117,14 @@ const FamilyPackageImportPanel: React.FC = () => {
     },
   });
   const packages = packagesQuery.data || [];
+  // Folders families were imported from are hidden unless asked for (they stay on the share).
+  const [showImported, setShowImported] = useState(false);
+  const importedCount = packages.filter(isImportedPackage).length;
+  const listedPackages = showImported ? packages : packages.filter((pkg) => !isImportedPackage(pkg));
+  // The folder chosen or typed, when families were imported from it.
+  const chosenImported = packages.find(
+    (pkg) => pkg.folder_path === folderPath.trim() && (pkg.imported_families ?? []).length > 0
+  );
 
   React.useEffect(() => {
     if (projectOptions.length === 0) {
@@ -328,7 +351,7 @@ const FamilyPackageImportPanel: React.FC = () => {
               <select
                 aria-label="Discovered family folder"
                 className="flex-1"
-                value={packages.some((pkg) => pkg.folder_path === folderPath) ? folderPath : ''}
+                value={listedPackages.some((pkg) => pkg.folder_path === folderPath) ? folderPath : ''}
                 disabled={packagesQuery.isLoading}
                 onChange={(event) => {
                   if (event.target.value) {
@@ -344,13 +367,16 @@ const FamilyPackageImportPanel: React.FC = () => {
                       ? 'The import folder could not be scanned'
                       : packages.length === 0
                         ? 'No families found in the import folder'
-                        : 'Select a discovered family…'}
+                        : listedPackages.length === 0
+                          ? 'Every family in the import folder is imported'
+                          : 'Select a discovered family…'}
                 </option>
-                {packages.map((pkg) => (
+                {listedPackages.map((pkg) => (
                   <option key={pkg.folder_path} value={pkg.folder_path}>
                     {pkg.name}
                     {pkg.analysis_type ? ` · ${pkg.analysis_type}` : ''}
                     {pkg.has_manifest ? '' : ' · no manifest'}
+                    {importedFamiliesText(pkg)}
                   </option>
                 ))}
               </select>
@@ -366,6 +392,16 @@ const FamilyPackageImportPanel: React.FC = () => {
             {packagesQuery.isError ? (
               <QueryFailure what="the import folder's families" error={packagesQuery.error} />
             ) : null}
+            {importedCount > 0 ? (
+              <label className="inline-flex items-center gap-2 text-sm text-(--color-text-muted)">
+                <input
+                  type="checkbox"
+                  checked={showImported}
+                  onChange={(event) => setShowImported(event.target.checked)}
+                />
+                Show imported folders ({importedCount})
+              </label>
+            ) : null}
           </div>
           <label className="field-label" htmlFor="family-package-folder">
             Family folder path
@@ -376,6 +412,21 @@ const FamilyPackageImportPanel: React.FC = () => {
               placeholder="…or type a folder path (e.g. /data/families/FAM001)"
             />
           </label>
+          {chosenImported ? (
+            <p className="status-note status-note--info">
+              {chosenImported.imported_families.some((family) => family.import_incomplete)
+                ? 'The last import from this folder did not complete, or still runs: '
+                : 'This folder was imported: '}
+              {chosenImported.imported_families
+                .map((family) =>
+                  family.registered_at
+                    ? `${family.family_id} (${formatTimestamp(family.registered_at)})`
+                    : family.family_id
+                )
+                .join(', ')}
+              . Import it again only to add or replace data, with update or overwrite.
+            </p>
+          ) : null}
           <p className="text-xs text-(--color-text-muted)">
             The pedigree (<code>.ped</code>) is auto-discovered in the folder — no need to
             enter it below.
