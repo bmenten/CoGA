@@ -120,8 +120,8 @@ On start the backend (`backend/app/main.py`):
    also imports T2T-CHM13 when `REFERENCE_BOOTSTRAP_T2T` is set; loads the HPO ontology if none
    is loaded (HPO's newest release, downloaded; the vendored release as the backup); loads GRCh38's segmental duplications from the shipped file (into a GRCh38
    assembly only; not the clinical CNVs, which the knowledgebase rebuild loads); and queues the
-   first gene-reference sync when the local dbNSFP gene file is present and no gene
-   information is cached;
+   first gene-reference sync when no gene information is cached (with or without the local
+   dbNSFP gene file), or when the file is there and no cached gene was synced with it;
 4. waits for ClickHouse and creates the database; refuses to start when a variant table's sort
    key leaves out the callset, or the small-variant calls table lacks the per-call FILTER and
    metrics columns ([Storage identity](#storage-identity)); drops the backup tables of

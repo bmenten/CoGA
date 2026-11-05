@@ -1,6 +1,6 @@
-from typing import List
+from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Path, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.postgres import get_postgres_session
@@ -20,6 +20,7 @@ from ..schemas import (
     MendeliomeRegenerateResponse,
     PanelAppImportRequest,
     PanelAppImportResponse,
+    PanelAppPanelCountsOut,
     PanelAppPanelSearchResponse,
 )
 from ..services.access_control import CurrentUser
@@ -35,7 +36,11 @@ from ..services.panel_metadata_service import (
     regenerate_mendeliome,
     update_panel_data,
 )
-from ..services.panelapp_service import search_panelapp_panels
+from ..services.panelapp_service import (
+    fetch_panelapp_panel,
+    panelapp_confidence_counts,
+    search_panelapp_panels,
+)
 
 router = APIRouter(prefix="/panels", tags=["panels"])
 
@@ -57,6 +62,18 @@ async def search_panelapp(
     del current_user
     results, count = await search_panelapp_panels(query, page_size=page_size)
     return PanelAppPanelSearchResponse(results=results, count=count)
+
+
+@router.get("/panelapp/{panelapp_id}/counts", response_model=PanelAppPanelCountsOut)
+async def panelapp_panel_counts(
+    panelapp_id: int = Path(ge=1),
+    version: Optional[str] = Query(None, max_length=32, pattern=r"^[0-9]+(\.[0-9]+)*$"),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> PanelAppPanelCountsOut:
+    """How many of a PanelApp panel's genes, STRs and regions are green, amber, red or
+    unrated, at the version given (PanelApp's current one without), read from PanelApp."""
+    del current_user
+    return panelapp_confidence_counts(await fetch_panelapp_panel(panelapp_id, version=version))
 
 
 @router.post("/genes/check", response_model=GeneSymbolCheckOut)

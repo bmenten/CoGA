@@ -14,6 +14,7 @@ import type {
 import type { GenePanelCreateResponse, GeneSymbolCheckOut } from '../../lib/apiSchema.generated';
 import { apiPath } from '../../lib/apiPath';
 import { formatDateTime } from '../../lib/format';
+import { panelAppSelectionLabel } from './panelAppConfidence';
 
 // The region table's columns: the field each sorts and filters on, and its heading.
 const REGION_COLUMNS: Array<['gene' | 'assembly' | 'chr' | 'start' | 'end', string]> = [
@@ -369,6 +370,7 @@ const GenePanelDetailPage: React.FC = () => {
               {sourceLabel}
               {panel.external_id ? ` ${panel.external_id}` : ''}
               {panel.external_version ? ` · version ${panel.external_version}` : ''}
+              {panel.external_selection ? ` · ${panelAppSelectionLabel(panel.external_selection)}` : ''}
               {panel.source_updated_at ? ` · updated ${formatDateTime(panel.source_updated_at)}` : ''}
             </p>
             {panel.description && <p className="catalog-card-copy">{panel.description}</p>}

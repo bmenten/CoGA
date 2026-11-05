@@ -26,6 +26,8 @@ when the baselines are no longer re-applied:
   `0008`.
 - `02_reference.sql` does the same for `gene_info_refresh_jobs.requested_by_id` and
   `clinical_cnv_kb_jobs.requested_by_id` (SEC-35). Revision `0010`.
+- `02_reference.sql` adds `gene_panels.external_selection` with `ALTER TABLE … ADD COLUMN IF
+  NOT EXISTS`, before the unique index that reads it. Revision `0020`.
 
 ### 01_access.sql: genome foundation and access
 
@@ -52,7 +54,7 @@ when the baselines are no longer re-applied:
 | `dgv_variants` | Database of Genomic Variants entries per assembly, with a gain/loss/mixed class |
 | `dgv_load_jobs` | loads of the pinned DGV release for an assembly (`DGV_PINNED_RELEASES`), asked for on the Reference page or queued by a start or an assembly import: release, source URL, status (`queued`, `running`, `completed` or `failed`), the download's progress (`bytes_read` of `bytes_total`), rows inserted and the error. As for `clinical_cnv_kb_jobs`: at most one job queued or running (`idx_dgv_load_jobs_one_active`), `worker_id` and `heartbeat_at` mark its worker and a job silent for ten minutes is closed as failed, and an administrator's load (`requested_by_id`, SEC-35) runs and commits only while that account is an active administrator. A load a start queues is `startup-bootstrap`'s, no account's. A load commits nothing unless the whole file is the pinned one ([data-import.md](data-import.md#dgv)) |
 | `segmental_duplications` | segmental duplications and low-copy repeats per assembly |
-| `gene_panels`, `gene_panel_genes` | panels and their gene lists |
+| `gene_panels`, `gene_panel_genes` | panels and their gene lists. An external panel's `source` and `external_id` (the PanelApp panel's id; `mendeliome` for the Mendeliome) say where it comes from, and `external_selection` which part of it the panel holds: for a PanelApp panel, the confidence levels it was imported with, lowest first (`3` green only, `2,3` green and amber, `1,2,3` green, amber and red). Each choice of levels of one PanelApp panel is a panel of its own, with its own name, versions and genes: `idx_gene_panels_source_external_selection` holds one panel per source, external id and selection (NULL equal to NULL, so there is one Mendeliome) |
 | `gene_panel_regions` | a panel's coordinates, one row per gene (or PanelApp region) per assembly (below) |
 | `gene_panel_versions` | a snapshot of every version of a panel: genes, regions, source, external version and author. Version 1 is archived when a panel is created by hand, built (the Mendeliome) or first imported from PanelApp. The next version is archived at each hand edit of a local panel (its genes or description), each Mendeliome rebuild that changes its genes (or is forced) and each PanelApp import that changes the panel's genes or regions. The app never rewrites a snapshot, and `UNIQUE (panel_id, version)` refuses a second one under the same number. But no trigger makes the table append-only, and deleting a panel deletes its versions (`ON DELETE CASCADE`). The panel page lists the versions; no screen shows one version's genes. `GET /api/panels/{id}/versions/{version}` returns them, to look up the panel version a report names |
 | `hpo_term`, `hpo_synonym`, `hpo_edge`, `hpo_closure` | one HPO release: terms, synonyms, `is_a` links, and every ancestor of a term with its distance |
@@ -434,6 +436,7 @@ its start instead (below). The step is one transaction, so it applies whole or n
 | `0017` | gives `users` its `activated_at` and `archived_at` with `users_archived_inactive_check`. An active account, and an inactive one with a request of its own in `audit_log_events` (it signed in once), get their creation's time as `activated_at`; an inactive one without such a row never signed in and waits for approval (NULL). No account is archived |
 | `0018` | gives `family_import_jobs` its `manifest_text` and `manifest_sha256` with `family_import_jobs_manifest_check`: an import job can keep the manifest it validates and imports with. Every job stored before read its folder's manifest and keeps neither |
 | `0019` | gives `family_import_jobs` its `package_fingerprint` with `family_import_jobs_package_fingerprint_check`: an import job keeps the fingerprint of the package folder it was queued for. Every job stored before was queued without one and keeps none |
+| `0020` | gives `gene_panels` its `external_selection` and replaces the unique index on source and external id (`idx_gene_panels_source_external`) with one on source, external id and selection (`idx_gene_panels_source_external_selection`), so one PanelApp panel can be imported once per choice of confidence levels, each a panel of its own. Each PanelApp panel stored before gets the levels its last import took, as its `source_metadata` records them (`import_options.confidence_levels`, lowest first); one whose metadata records none, and every other panel, gets none |
 
 A database the baselines created before the ledger existed has an empty ledger, so its first
 start with the ledger runs every revision. Each revision ends at the baseline's definition,

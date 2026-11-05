@@ -17,7 +17,8 @@ schema:
 * a PanelApp import archives version 1; imported again with the same genes it keeps the
   version (its genes and regions, read back from the real tables, compare equal) and
   archives nothing; with another gene it archives version 2, and the panel's part of the
-  ranking-cache key moves with it.
+  ranking-cache key moves with it. Imported with other confidence levels it is a panel of its
+  own, at version 1, beside the first, which the schema's unique index lets through.
 
 Every record is the test's own (unique names and gene symbols) and is removed at the end.
 Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``smoke`` job sets it.
@@ -217,7 +218,8 @@ def test_a_panelapp_import_is_version_1_and_an_import_with_other_genes_the_next(
     """A PanelApp import archives version 1. Imported again with the same genes, read back
     from the real tables with their regions, it keeps the version and archives nothing;
     with another gene it archives version 2, PanelApp's own version stays the release
-    imported, and the panel's part of the ranking-cache key moves with it."""
+    imported, and the panel's part of the ranking-cache key moves with it. Imported with
+    other confidence levels, it is a panel of its own beside the first."""
     from backend.app.core.postgres import (
         close_postgres_engine,
         get_postgres_sessionmaker,
@@ -261,21 +263,45 @@ def test_a_panelapp_import_is_version_1_and_an_import_with_other_genes_the_next(
             async with sm() as s:
                 first_key = await _panel_version(s, first.panel.id)
 
-            # Other confidence levels that select the same genes: nothing to archive.
+            # The same genes again, the levels named in another way: nothing to archive.
             async with sm() as s:
                 same = await pms.import_panelapp_panel_data(
-                    s, PanelAppImportRequest(panelapp_id=panelapp_id, confidence_levels=["3", "2"]), admin
+                    s, PanelAppImportRequest(panelapp_id=panelapp_id, confidence_levels=["3", "3"]), admin
                 )
             assert (same.panel.id, same.panel.version) == (first.panel.id, 1)
             async with sm() as s:
                 assert await _panel_version(s, first.panel.id) == first_key
 
-            imported_genes.append(third_gene)  # an amber gene taken in as well
+            imported_genes.append(third_gene)  # a gene the release now rates green
             async with sm() as s:
                 again = await pms.import_panelapp_panel_data(
-                    s, PanelAppImportRequest(panelapp_id=panelapp_id, confidence_levels=["3", "2"]), admin
+                    s, PanelAppImportRequest(panelapp_id=panelapp_id), admin
                 )
             assert (again.panel.id, again.panel.version) == (first.panel.id, 2)
+
+            # Green and amber: a panel of its own, at version 1, beside the green one.
+            async with sm() as s:
+                amber = await pms.import_panelapp_panel_data(
+                    s, PanelAppImportRequest(panelapp_id=panelapp_id, confidence_levels=["3", "2"]), admin
+                )
+            panel_ids.append(amber.panel.id)
+            assert amber.panel.id != first.panel.id
+            assert (amber.panel.version, amber.panel.external_id, amber.panel.external_selection) == (
+                1,
+                str(panelapp_id),
+                "2,3",
+            )
+            async with sm() as s:
+                stored_panels = (
+                    await s.execute(
+                        text(
+                            "SELECT external_selection, version FROM gene_panels "
+                            "WHERE source = 'panelapp' AND external_id = :e ORDER BY external_selection"
+                        ),
+                        {"e": str(panelapp_id)},
+                    )
+                ).all()
+            assert [tuple(row) for row in stored_panels] == [("2,3", 1), ("3", 2)]
             assert again.panel.external_version == "3.1"
 
             async with sm() as s:

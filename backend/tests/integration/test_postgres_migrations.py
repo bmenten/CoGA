@@ -77,6 +77,13 @@ the CI ``smoke`` job sets it.
   job's ``package_fingerprint`` with the baseline's check (revision 0019): each job stored before
   keeps its row and none, a fingerprint that is no SHA-256 is refused, it ends at the same
   fingerprint, and a later start changes nothing.
+- A database at revision 0019 from before a PanelApp panel could be imported once per choice of
+  confidence levels gets ``gene_panels.external_selection`` and the unique index on source,
+  external id and selection (revision 0020): each PanelApp panel gets the levels its metadata
+  records, lowest first, one without them none, every other panel none; the index it replaces
+  is gone, so the same PanelApp panel with other levels is stored, while the same selection
+  twice, or a second Mendeliome, is refused; it ends at the same fingerprint, and a later start
+  changes nothing.
 - A ledger naming a revision this version does not have is refused, and nothing changes.
 - The restricted runtime role cannot run the migration; two instances that start together
   both come up, one after the other.
@@ -2507,5 +2514,146 @@ def test_a_database_from_before_package_fingerprints_gives_each_import_job_none(
         table: rows for table, rows in contents.items() if table not in changed
     }
     assert kept["family_import_jobs"][0] == contents["family_import_jobs"][0]
+    # The schema is the baselines'.
+    assert actual == expected, _differences(expected, actual)
+
+
+_BEFORE_0020 = (
+    "DROP INDEX idx_gene_panels_source_external_selection",
+    "ALTER TABLE gene_panels DROP COLUMN external_selection",
+    "CREATE UNIQUE INDEX idx_gene_panels_source_external ON gene_panels USING btree (source, external_id) "
+    "WHERE (external_id IS NOT NULL)",
+)
+
+
+@_MODES
+def test_a_database_from_before_panelapp_selections_gives_each_panelapp_panel_its_levels(
+    monkeypatch, reapply_baselines: bool
+) -> None:
+    from sqlalchemy.exc import IntegrityError
+
+    from backend.app.core import postgres_migrations
+    from backend.app.core.postgres_migrations import apply_postgres_schema, head_revision
+
+    monkeypatch.setattr(postgres_migrations, "REAPPLY_BASELINES_ON_EVERY_RUN", reapply_baselines)
+    insert_panel = text(
+        "INSERT INTO gene_panels (name, source, external_id, source_metadata, created_by) "
+        "SELECT :name, :source, :external_id, CAST(:metadata AS jsonb), id FROM users"
+    )
+
+    async def _body(database: str):
+        engine = _engine(database)
+        try:
+            async with engine.begin() as conn:
+                await apply_postgres_schema(conn)
+            # A database at revision 0019, one panel per external panel: a PanelApp panel whose
+            # last import took green and amber, one whose metadata records no levels, the
+            # Mendeliome and a local panel.
+            async with engine.begin() as conn:
+                await conn.execute(text("UPDATE alembic_version SET version_num = '0019'"))
+                for statement in _BEFORE_0020:
+                    await conn.exec_driver_sql(statement)
+                await conn.execute(
+                    text(
+                        "INSERT INTO users (username, hashed_password, role, email) "
+                        "VALUES ('panels@example.org', '', 'admin', 'panels@example.org')"
+                    )
+                )
+                for name, source, external_id, metadata in (
+                    ("PanelApp 20", "panelapp", "20", '{"import_options": {"confidence_levels": ["3", "2"]}}'),
+                    ("PanelApp 21", "panelapp", "21", "{}"),
+                    ("Mendeliome", "mendeliome", "mendeliome", '{"import_options": {"confidence_levels": ["3"]}}'),
+                    ("Local", "local", None, "{}"),
+                ):
+                    await conn.execute(
+                        insert_panel,
+                        {"name": name, "source": source, "external_id": external_id, "metadata": metadata},
+                    )
+            contents = await _table_contents(database)
+            async with engine.begin() as conn:
+                revision = await apply_postgres_schema(conn)
+            kept = await _table_contents(database)
+            async with engine.connect() as conn:
+                stored = (
+                    await conn.execute(text("SELECT name, external_selection FROM gene_panels ORDER BY name"))
+                ).all()
+                indexes = (
+                    await conn.execute(
+                        text("SELECT indexname FROM pg_indexes WHERE tablename = 'gene_panels' ORDER BY 1")
+                    )
+                ).scalars().all()
+            # The same PanelApp panel with other levels is a panel of its own; the same
+            # selection twice is refused, and so is a second Mendeliome (no selection).
+            async with engine.begin() as conn:
+                await conn.execute(
+                    text(
+                        "INSERT INTO gene_panels (name, source, external_id, external_selection, created_by) "
+                        "SELECT 'PanelApp 20 green', 'panelapp', '20', '3', id FROM users"
+                    )
+                )
+            refused = []
+            for name, source, external_id, selection in (
+                ("PanelApp 20 again", "panelapp", "20", "2,3"),
+                ("Mendeliome again", "mendeliome", "mendeliome", None),
+            ):
+                try:
+                    async with engine.begin() as conn:
+                        await conn.execute(
+                            text(
+                                "INSERT INTO gene_panels "
+                                "(name, source, external_id, external_selection, created_by) "
+                                "SELECT :name, :source, :external_id, :selection, id FROM users"
+                            ),
+                            {"name": name, "source": source, "external_id": external_id, "selection": selection},
+                        )
+                    refused.append(False)
+                except IntegrityError:
+                    refused.append(True)
+            async with engine.begin() as conn:
+                again = await apply_postgres_schema(conn)
+            async with engine.connect() as conn:
+                after_again = (
+                    await conn.execute(text("SELECT name, external_selection FROM gene_panels ORDER BY name"))
+                ).all()
+        finally:
+            await engine.dispose()
+        reference = await _create_database()
+        try:
+            await _apply_baseline_files(reference)
+            fingerprints = await _fingerprint(reference), await _fingerprint(database)
+        finally:
+            await _drop_database(reference)
+        return (revision, again), (stored, after_again), indexes, refused, (contents, kept), fingerprints
+
+    (revision, again), (stored, after_again), indexes, refused, (contents, kept), (expected, actual) = _run(_body)
+
+    assert (revision.before, revision.after) == ("0019", head_revision())
+    assert (again.before, again.after) == (head_revision(), head_revision())
+    assert [tuple(row) for row in stored] == [
+        ("Local", None),
+        ("Mendeliome", None),
+        ("PanelApp 20", "2,3"),
+        ("PanelApp 21", None),
+    ]
+    assert indexes == [
+        "gene_panels_name_key",
+        "gene_panels_pkey",
+        "idx_gene_panels_source_external_selection",
+    ]
+    assert refused == [True, True]
+    # A later start changes nothing: the panel made since keeps its selection.
+    assert [tuple(row) for row in after_again] == [
+        ("Local", None),
+        ("Mendeliome", None),
+        ("PanelApp 20", "2,3"),
+        ("PanelApp 20 green", "3"),
+        ("PanelApp 21", None),
+    ]
+    # Every other table is as it was; the panels keep their rows.
+    changed = {"alembic_version", "gene_panels"}
+    assert {table: rows for table, rows in kept.items() if table not in changed} == {
+        table: rows for table, rows in contents.items() if table not in changed
+    }
+    assert kept["gene_panels"][0] == contents["gene_panels"][0]
     # The schema is the baselines'.
     assert actual == expected, _differences(expected, actual)

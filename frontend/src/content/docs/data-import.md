@@ -87,8 +87,10 @@ administrator rebuilds it with the ↻ button next to the clinical-CNV count in 
   the recurrent CNV file by release and SHA-256, and each other file (the ClinGen dosage curation, the
   cytobands, ClinVar, Orphanet, a DECIPHER map) by name and SHA-256.
 
-**Gene reference refresh.** From the Reference catalogue an administrator can refresh the cached gene
-information for all human genes. The refresh reads a local dbNSFP gene file, the ACMG
+**Gene reference refresh.** A new installation refreshes the cached gene information for all human
+genes in the background after its first start, and again once the dbNSFP gene file is added, if
+its first refresh ran without it. From the Reference catalogue an administrator can refresh it at
+any time. The refresh reads a local dbNSFP gene file, the ACMG
 secondary-findings list that ships with CoGA (ACMG SF v3.3), and the HGNC, ClinGen, GenCC and ClinVar
 downloads for every gene. It asks NCBI Gene for a summary of the genes dbNSFP does not cover. It adds
 identifiers, names and aliases, disease context (OMIM, Orphanet, GenCC), ClinGen dosage, HPO and pathway

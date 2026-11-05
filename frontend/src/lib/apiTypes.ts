@@ -921,6 +921,9 @@ export interface GenePanel {
   description?: string | null;
   source?: string;
   external_id?: string | null;
+  // For a PanelApp panel, the confidence levels it was imported with, lowest first ('3',
+  // '2,3', '1,2,3'): each choice of levels of one PanelApp panel is a panel of its own.
+  external_selection?: string | null;
   external_version?: string | null;
   external_url?: string | null;
   source_updated_at?: string | null;
