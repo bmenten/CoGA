@@ -508,7 +508,7 @@ def read_cytoband_backup(ucsc_genome: str) -> CytobandFile | None:
     if path is None:
         logger.warning(
             "No cytoband backup for %s was found (checked %s)",
-            ucsc_genome,
+            scrub_log(ucsc_genome),
             ", ".join(str(candidate) for candidate in cytoband_backup_candidates(pin.file_name)),
         )
         return None
@@ -577,7 +577,7 @@ async def _download_cytobands(
     if backup is not None:
         logger.warning(
             "UCSC served no cytoband table for %s (%s); loading the shipped backup %s instead",
-            ucsc_genome,
+            scrub_log(ucsc_genome),
             scrub_log(unreachable.detail) if unreachable is not None else "no table",
             scrub_log(backup.source_url),
         )
