@@ -5,8 +5,9 @@ newer release had been published. The HPO admin page now shows the newest releas
 loaded one, read from HPO's GitHub releases, and its sync can take a release's file from the
 release's own PURL, which never floats. Nothing is imported without the administrator: a
 downloaded file goes through the sync as a file on the server does, must state the release
-asked for, and is applied only with the SHA-256 its preview showed (TRACE-18). The startup
-import stays pinned to the vendored release (TRACE-14, ``test_hpo_download_pin.py``).
+asked for, and is applied only with the SHA-256 its preview showed (TRACE-18). A start on an
+empty database imports the newest release the same way (``test_hpo_startup_latest_release.py``),
+with the vendored release as its backup (TRACE-14, ``test_hpo_download_pin.py``).
 """
 
 from __future__ import annotations
@@ -64,7 +65,7 @@ def test_a_release_is_downloaded_from_its_own_purl() -> None:
     assert release_download.hpo_release_url(date(2026, 9, 1)) == (
         "https://purl.obolibrary.org/obo/hp/releases/2026-09-01/hp.obo"
     )
-    # The startup's pinned URL follows the same form.
+    # The vendored backup's pinned URL follows the same form.
     assert config.HPO_PINNED_ONTOLOGY_URL == release_download.hpo_release_url(release_download.pinned_release_date())
 
 

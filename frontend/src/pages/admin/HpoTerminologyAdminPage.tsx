@@ -319,8 +319,8 @@ const HpoTerminologyAdminPage: React.FC = () => {
           ) : null}
           {releaseCheck ? (
             <p className="table-subtle">
-              A start on an empty database imports the pinned release {releaseCheck.pinned_release_date}; moving
-              that pin is a reviewed code change.
+              A start on an empty database downloads and imports HPO&apos;s newest release. When HPO cannot be
+              reached, it imports the vendored release {releaseCheck.pinned_release_date} instead.
             </p>
           ) : null}
         </div>

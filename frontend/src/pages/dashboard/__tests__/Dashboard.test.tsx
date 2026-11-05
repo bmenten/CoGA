@@ -92,10 +92,11 @@ describe('Dashboard', () => {
       'href',
       '/admin/data/families',
     );
-    expect(screen.getByRole('link', { name: /package import/i })).toHaveAttribute(
-      'href',
-      '/admin/data/upload',
-    );
+    const packageImport = screen.getByRole('link', { name: /package import/i });
+    expect(packageImport).toHaveAttribute('href', '/admin/data/upload');
+    // Package import leads the admin toolbar as its one primary button.
+    expect(packageImport).toHaveClass('form-button');
+    expect(packageImport.parentElement?.firstElementChild).toBe(packageImport);
     expect(screen.getByRole('link', { name: /audit logs/i })).toHaveAttribute(
       'href',
       '/admin/monitoring/audit-logs',

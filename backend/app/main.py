@@ -104,10 +104,11 @@ async def lifespan(app: FastAPI):
         # The clinical CNV knowledgebase and the pinned DGV release for a GRCh37/GRCh38 assembly
         # that has none yet, built and loaded in the background; never blocks startup.
         await queue_startup_reference_loads(session)
+        # On an empty database: HPO's newest release, downloaded; the vendored one as the backup.
         await ensure_hpo_ontology_on_startup(
             session,
             ontology_path=settings.hpo_ontology_path,
-            download_if_missing=settings.hpo_download_if_missing,
+            download_latest=settings.hpo_download_latest_on_startup,
             enabled=settings.hpo_bootstrap_on_startup,
         )
         await seed_builtin_reference_tracks(session)

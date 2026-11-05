@@ -1716,7 +1716,7 @@ export interface HpoOntologySyncRequest {
   preview_only?: boolean;
 }
 
-/** The newest HPO release beside the loaded one and the startup's pinned one. */
+/** The newest HPO release beside the loaded one and the vendored one, the startup's backup. */
 export interface HpoReleaseCheckOut {
   latest_release: string | null;
   latest_release_date: string | null;
