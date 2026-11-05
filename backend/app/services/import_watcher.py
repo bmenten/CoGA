@@ -14,6 +14,12 @@ new delivery is checked once, and its state stored (``import_deliveries``):
   manifest, the package's validation, the family or its samples stand in the way, each an issue;
 - ``ready``: it can be approved for import (an approval queue the import page will offer).
 
+Some of those issues come from what CoGA holds, not from the folder: a project the marker names
+that CoGA lacks, or of another assembly, and a family or samples that already exist. An open
+delivery (``ready``, ``needs_attention``) seen again is checked again, as a whole, when that has
+changed since its check (a project added, a family imported or deleted): its row then holds what
+the new check found, and the chain the change.
+
 A delivery still open whose folder, or marker, has been missing for ``GONE_AFTER_ROUNDS`` rounds
 while its watched folder could be read is ``gone``. A watched folder that cannot be read, or that
 is empty while it had open deliveries (a share not mounted reads as an empty folder), is skipped
@@ -29,6 +35,7 @@ until that connection is gone.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 import json
 import logging
@@ -76,6 +83,13 @@ WATCHER_ACTOR = "system:import-watcher"
 _LEADER_LOCK = "coga:import-watcher"
 # A delivery is open while nobody has decided on it.
 OPEN_STATES = ("incomplete", "ready", "needs_attention")
+# The open deliveries checked again when what CoGA holds changes (an incomplete one's folder
+# changes once its copy has finished, which is a new delivery).
+_CHECKED_AGAIN_STATES = ("ready", "needs_attention")
+# The issues a check takes from what CoGA holds, not from the folder: the project the marker
+# names, and the family and samples the package holds.
+_PROJECT_ISSUES = frozenset({"marker_project_unknown", "marker_assembly_differs"})
+_EXISTING_ISSUES = frozenset({"existing_family", "existing_samples"})
 GONE_AFTER_ROUNDS = 2
 # How many unlisted files a warning names.
 _UNLISTED_NAMED = 5
@@ -178,6 +192,30 @@ async def _project(session: AsyncSession, name: str) -> tuple[str, str | None] |
     return (str(row["id"]), row["assembly_name"]) if row is not None else None
 
 
+async def _project_issues(
+    session: AsyncSession, name: str | None, assembly: str | None
+) -> tuple[str | None, list[MarkerIssue]]:
+    """The project the marker names (``name``, with its ``assembly``) as CoGA holds it now: the
+    project's id, None when CoGA has no such project, and the issues: a project CoGA lacks, or one
+    of another assembly."""
+    if not name:
+        return None, []
+    project = await _project(session, name)
+    if project is None:
+        return None, [
+            _issue(
+                "marker_project_unknown",
+                f"coga-ready.json names the project '{name}', which CoGA does not have. Once it does, "
+                "CoGA checks the delivery again.",
+            )
+        ]
+    if assembly and project[1] and assembly != project[1]:
+        return project[0], [
+            _issue("marker_assembly_differs", f"coga-ready.json gives the assembly {assembly}; the project's is {project[1]}.")
+        ]
+    return project[0], []
+
+
 def _relative(root: Path, path: str | None) -> str | None:
     if not path:
         return None
@@ -275,18 +313,9 @@ async def assess_delivery(session_factory: async_sessionmaker[AsyncSession], fol
         warnings.append(_issue("marker_qc_warned", "The pipeline's QC warned (coga-ready.json, qc.status)."))
 
     async with session_factory() as session:
-        project = await _project(session, marker.project) if marker.project else None
-    if marker.project and project is None:
-        issues.append(_issue("marker_project_unknown", f"coga-ready.json names the project '{marker.project}', which CoGA does not have."))
-    elif project is not None:
-        assessment.project_id = project[0]
-        if marker.assembly and project[1] and marker.assembly != project[1]:
-            issues.append(
-                _issue(
-                    "marker_assembly_differs",
-                    f"coga-ready.json gives the assembly {marker.assembly}; the project's is {project[1]}.",
-                )
-            )
+        project_id, project_issues = await _project_issues(session, marker.project, marker.assembly)
+    assessment.project_id = project_id
+    issues.extend(project_issues)
 
     # The manifest: the folder's own, or the one Discover drafts, which the delivery keeps.
     if await asyncio.to_thread(_find_manifest, folder) is None:
@@ -339,9 +368,9 @@ async def assess_delivery(session_factory: async_sessionmaker[AsyncSession], fol
                 session, family_id=validation.family_id, sample_ids=validation.sample_ids
             )
         )
-        if project is not None:
+        if project_id is not None:
             roi = await manifest_roi_issue(
-                session, roi_query=validation.metadata.get("roi"), project_id=project[0], family_id=validation.family_id
+                session, roi_query=validation.metadata.get("roi"), project_id=project_id, family_id=validation.family_id
             )
             if roi is not None:
                 warnings.append(_as_issue(roi))
@@ -376,42 +405,110 @@ async def _fingerprint(folder: Path) -> str | None:
         return None
 
 
-async def look_at_folder(session_factory: async_sessionmaker[AsyncSession], root: Path, folder: Path) -> str | None:
-    """Look at one marked package folder: a delivery seen before is seen again; a new one is
-    checked and stored, and an open one before it of the folder superseded. Returns the new
-    delivery's state, or None when the folder was seen before or changed while it was checked
-    (the next round takes it)."""
-    fingerprint = await _fingerprint(folder)
-    if fingerprint is None:
-        return None
-    async with session_factory() as session:
-        seen = await session.execute(
-            text(
-                """
-                UPDATE import_deliveries
-                SET last_seen_at = now(), missing_rounds = 0
-                WHERE folder_path = :folder AND package_fingerprint = :fingerprint
-                RETURNING id
-                """
-            ),
-            {"folder": str(folder), "fingerprint": fingerprint},
-        )
-        if seen.first() is not None:
-            await session.commit()
+def _json_object(value: Any) -> dict[str, Any] | None:
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError:
             return None
+    return value if isinstance(value, dict) else None
+
+
+async def _coga_side_changed(session: AsyncSession, delivery: Mapping[Any, Any]) -> bool:
+    """Whether what CoGA holds has changed, since the open delivery ``delivery`` was checked, in what
+    its check read there: the project its marker names (added, deleted, or of another assembly),
+    and the family and samples its package holds (imported, or deleted). It compares only what the
+    check read: the project when the marker could be read (the check named it unknown, kept its id,
+    or went on to validate the package), the family and samples when it validated the package. So
+    a check that could not run, or a marker that could not be read, is never checked again: what
+    it found holds until the folder changes."""
+    codes = {str(item.get("code")) for item in _json_list(delivery["issues"]) if isinstance(item, dict)}
+    marker = _json_object(delivery["marker"])
+    validation = _json_object(delivery["validation"])
+    project_read = "marker_project_unknown" in codes or delivery["project_id"] is not None or validation is not None
+    if marker is not None and project_read:
+        project_id, project_issues = await _project_issues(session, _text(marker.get("project")), _text(marker.get("assembly")))
+        if project_id != delivery["project_id"] or {issue.code for issue in project_issues} != codes & _PROJECT_ISSUES:
+            return True
+    if validation is not None:
+        existing = await _existing_package_entity_warnings(
+            session,
+            family_id=_text(validation.get("family_id")),
+            sample_ids=[str(sample) for sample in validation.get("sample_ids") or []],
+        )
+        if {str(issue.code) for issue in existing} != codes & _EXISTING_ISSUES:
+            return True
+    return False
+
+
+async def _assess(session_factory: async_sessionmaker[AsyncSession], folder: Path) -> DeliveryAssessment:
+    """``assess_delivery``, or, when the check fails, the delivery as one that needs attention for it."""
     try:
-        assessment = await assess_delivery(session_factory, folder)
+        return await assess_delivery(session_factory, folder)
     except asyncio.CancelledError:
         raise
     except Exception as exc:  # noqa: BLE001 - one folder's failure never stops the round
         logger.warning("Import watcher could not check a delivery: %s", describe_error(exc))
-        assessment = DeliveryAssessment(
+        return DeliveryAssessment(
             state="needs_attention",
             issues=[_issue("watch_check_failed", "CoGA could not check the delivery; it tries again when the folder changes.")],
         )
+
+
+async def look_at_folder(
+    session_factory: async_sessionmaker[AsyncSession], root: Path, folder: Path
+) -> tuple[str, str] | None:
+    """Look at one marked package folder: a new delivery is checked and stored, and an open one
+    before it of the folder superseded; a delivery seen before is seen again, and checked again
+    when it is open (``ready`` or ``needs_attention``) and what CoGA holds has changed in what its
+    check read (``_coga_side_changed``). Returns ``("new", state)`` or ``("checked_again",
+    state)``, or None when the delivery was only seen again or the folder changed while it was
+    checked (the next round takes it)."""
+    fingerprint = await _fingerprint(folder)
+    if fingerprint is None:
+        return None
+    async with session_factory() as session:
+        seen = (
+            await session.execute(
+                text(
+                    """
+                    UPDATE import_deliveries
+                    SET last_seen_at = now(), missing_rounds = 0
+                    WHERE folder_path = :folder AND package_fingerprint = :fingerprint
+                    RETURNING id::text AS id, state, issues, project_id::text AS project_id, marker, validation
+                    """
+                ),
+                {"folder": str(folder), "fingerprint": fingerprint},
+            )
+        ).mappings().first()
+        if seen is not None:
+            check_again = seen["state"] in _CHECKED_AGAIN_STATES and await _coga_side_changed(session, seen)
+            await session.commit()
+            if not check_again:
+                return None
+    if seen is not None:
+        assessment = await _assess(session_factory, folder)
+        if await _fingerprint(folder) != fingerprint:
+            return None
+        state = await _store_check_again(session_factory, folder, str(seen["id"]), fingerprint, assessment)
+        return ("checked_again", state) if state is not None else None
+    assessment = await _assess(session_factory, folder)
     # Changed while it was checked: what was checked is not what is there.
     if await _fingerprint(folder) != fingerprint:
         return None
+    stored = await _store_new_delivery(session_factory, root, folder, fingerprint, assessment)
+    return ("new", stored) if stored is not None else None
+
+
+async def _store_new_delivery(
+    session_factory: async_sessionmaker[AsyncSession],
+    root: Path,
+    folder: Path,
+    fingerprint: str,
+    assessment: DeliveryAssessment,
+) -> str | None:
+    """``_store_delivery``; when that fails, the delivery without what its check found, so it is
+    not checked again each round."""
     try:
         return await _store_delivery(session_factory, root, folder, fingerprint, assessment)
     except asyncio.CancelledError:
@@ -522,6 +619,119 @@ async def _store_delivery(
     return assessment.state
 
 
+async def _store_check_again(
+    session_factory: async_sessionmaker[AsyncSession],
+    folder: Path,
+    delivery_id: str,
+    fingerprint: str,
+    assessment: DeliveryAssessment,
+) -> str | None:
+    """``_update_checked_again``; when that fails, the delivery without what its check found, so it
+    is not checked again each round."""
+    try:
+        return await _update_checked_again(session_factory, folder, delivery_id, fingerprint, assessment)
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # noqa: BLE001 - kept without what it could not store, never retried each round
+        logger.warning("Import watcher could not store a delivery: %s", describe_error(exc))
+    unstored = DeliveryAssessment(
+        state="needs_attention",
+        issues=[_issue("watch_store_failed", "CoGA could not keep what the delivery's check found; it checks again when the folder changes.")],
+    )
+    try:
+        return await _update_checked_again(session_factory, folder, delivery_id, fingerprint, unstored)
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # noqa: BLE001 - one folder's failure never stops the round
+        logger.warning("Import watcher could not store a delivery: %s", describe_error(exc))
+        return None
+
+
+async def _update_checked_again(
+    session_factory: async_sessionmaker[AsyncSession],
+    folder: Path,
+    delivery_id: str,
+    fingerprint: str,
+    assessment: DeliveryAssessment,
+) -> str | None:
+    """Store what checking the delivery ``delivery_id`` again found, in its row, and record it on
+    the chain with what it replaced, in one transaction. The row is locked first: a delivery
+    decided meanwhile (approved, refused) is left as it is. What the marker said is kept when the
+    check could not read it (the folder is the same). Returns its state, or None when it was left."""
+    async with session_factory() as session:
+        before = (
+            await session.execute(
+                text(
+                    """
+                    SELECT state, issues, marker_sha256, run_id, family_id
+                    FROM import_deliveries
+                    WHERE id = CAST(:id AS uuid) AND package_fingerprint = :fingerprint
+                    FOR UPDATE
+                    """
+                ),
+                {"id": delivery_id, "fingerprint": fingerprint},
+            )
+        ).mappings().first()
+        if before is None or before["state"] not in _CHECKED_AGAIN_STATES:
+            return None
+        await session.execute(
+            text(
+                """
+                UPDATE import_deliveries
+                SET marker_sha256 = COALESCE(:marker_sha256, marker_sha256),
+                    marker = COALESCE(CAST(:marker AS jsonb), marker),
+                    run_id = COALESCE(:run_id, run_id),
+                    family_id = COALESCE(:family_id, family_id),
+                    project_id = CAST(:project_id AS uuid),
+                    state = :state,
+                    issues = CAST(:issues AS jsonb),
+                    warnings = CAST(:warnings AS jsonb),
+                    validation = CAST(:validation AS jsonb),
+                    manifest_text = :manifest_text,
+                    manifest_sha256 = :manifest_sha256,
+                    state_changed_at = CASE WHEN state = :state THEN state_changed_at ELSE now() END
+                WHERE id = CAST(:id AS uuid)
+                """
+            ),
+            {
+                "id": delivery_id,
+                "marker_sha256": assessment.marker_sha256,
+                "marker": json.dumps(assessment.marker) if assessment.marker is not None else None,
+                "run_id": assessment.run_id,
+                "family_id": assessment.family_id,
+                "project_id": assessment.project_id,
+                "state": assessment.state,
+                "issues": _issues_json(assessment.issues),
+                "warnings": _issues_json(assessment.warnings),
+                "validation": json.dumps(assessment.validation) if assessment.validation is not None else None,
+                "manifest_text": assessment.manifest_text,
+                "manifest_sha256": (
+                    manifest_text_sha256(assessment.manifest_text) if assessment.manifest_text is not None else None
+                ),
+            },
+        )
+        previous = [str(item.get("code")) for item in _json_list(before["issues"]) if isinstance(item, dict)]
+        await _record(
+            session,
+            action="import_delivery_checked_again",
+            delivery_id=delivery_id,
+            after={
+                "folder": folder.name,
+                "package_fingerprint": fingerprint,
+                "marker_sha256": assessment.marker_sha256 or before["marker_sha256"],
+                "run_id": assessment.run_id or before["run_id"],
+                "family_id": assessment.family_id or before["family_id"],
+                "state": assessment.state,
+                "issues": [issue.code for issue in assessment.issues],
+                "previous_state": before["state"],
+                "previous_issues": previous,
+            },
+            summary=f"Delivery {folder.name}: checked again, what CoGA holds changed; {assessment.state.replace('_', ' ')}",
+        )
+        await session.commit()
+    return assessment.state
+
+
 async def mark_missing(session_factory: async_sessionmaker[AsyncSession], root: Path, seen: set[str]) -> int:
     """Count a round against each open delivery of the watched folder ``root`` whose folder, or
     marker, was not seen; one missing for ``GONE_AFTER_ROUNDS`` rounds is gone. Returns how many
@@ -568,6 +778,7 @@ class WatchRound:
     roots_watched: int = 0
     roots_skipped: int = 0
     deliveries: dict[str, int] = field(default_factory=dict)
+    checked_again: dict[str, int] = field(default_factory=dict)
     gone: int = 0
     jobs_ended: int = 0
 
@@ -601,9 +812,11 @@ async def run_watch_round(session_factory: async_sessionmaker[AsyncSession], roo
             continue
         result.roots_watched += 1
         for folder in folders:
-            state = await look_at_folder(session_factory, root, folder)
-            if state is not None:
-                result.deliveries[state] = result.deliveries.get(state, 0) + 1
+            looked = await look_at_folder(session_factory, root, folder)
+            if looked is not None:
+                kind, state = looked
+                counts = result.deliveries if kind == "new" else result.checked_again
+                counts[state] = counts.get(state, 0) + 1
         result.gone += await mark_missing(session_factory, root, {str(folder) for folder in folders})
     return result
 
@@ -673,11 +886,12 @@ async def import_watcher(stop: asyncio.Event) -> None:
             try:
                 if await leadership.hold():
                     done = await run_watch_round(get_postgres_sessionmaker(), roots)
-                    if done.deliveries or done.gone or done.roots_skipped or done.jobs_ended:
+                    if done.deliveries or done.checked_again or done.gone or done.roots_skipped or done.jobs_ended:
                         logger.info(
-                            "Import watch round: new deliveries %s, %d gone, %d import job(s) ended, "
-                            "%d of %d import folder(s) skipped",
+                            "Import watch round: new deliveries %s, checked again %s, %d gone, "
+                            "%d import job(s) ended, %d of %d import folder(s) skipped",
                             dict(sorted(done.deliveries.items())),
+                            dict(sorted(done.checked_again.items())),
                             done.gone,
                             done.jobs_ended,
                             done.roots_skipped,

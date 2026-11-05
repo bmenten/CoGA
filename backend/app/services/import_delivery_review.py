@@ -134,7 +134,10 @@ async def approve_delivery(
     if state == "needs_attention" and not (existing and codes <= _RESOLVED_BY_A_CHOICE):
         raise HTTPException(
             status_code=409,
-            detail="The delivery needs attention: resolve its issues in the package, which makes a new delivery.",
+            detail=(
+                "The delivery needs attention: resolve its issues in the package, which makes a new "
+                "delivery, or, for its project, in CoGA, after which the watcher checks it again."
+            ),
         )
     if existing and conflict_mode == "cancel":
         raise HTTPException(

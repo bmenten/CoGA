@@ -272,15 +272,17 @@ or runs through a link that loops.
 
 A pipeline can deliver a package by itself: it writes the family folder into a watched import folder
 and, last, a ready marker (`coga-ready.json`) that lists every file with its checksum and names the
-project, the family and the run. CoGA checks each delivery once and lists it under **Deliveries** at
+project, the family and the run. CoGA checks each delivery as it arrives and lists it under **Deliveries** at
 the top of the page, with how many wait. Nothing is imported until you approve it.
 
 - **Ready**: every check passed. **Dry run** checks it as an import would; **Approve…** imports it
   into the project the marker names. Tick several ready deliveries to approve them together.
 - **Needs attention**: something stands in the way, and the reasons are listed. When the only reason
   is that the family exists already, **Approve…** asks for *Update* (add the missing datasets) or
-  *Overwrite* (administrators). Any other reason is fixed in the package; the corrected folder comes
-  back as a new delivery.
+  *Overwrite* (administrators). A project CoGA does not have is fixed in CoGA: add the project, and
+  CoGA checks the delivery again in its next look at the folders. The same happens when the
+  delivery's family is imported or deleted meanwhile. Any other reason is fixed in the package; the
+  corrected folder comes back as a new delivery.
 - **Still copying**: a listed file is not there yet, or not complete. It is checked again when the
   copy has finished.
 - A delivery with warnings is approved only once you tick *I checked the warnings*.

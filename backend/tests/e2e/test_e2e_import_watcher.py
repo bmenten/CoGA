@@ -17,6 +17,9 @@ In a watched folder of synthetic packages, as rounds go:
   ``superseded``;
 - the copying package's folder goes: after two rounds its delivery is ``gone``;
 - a watched folder that is empty while it had an open delivery is skipped, its delivery kept open;
+- what CoGA holds changes: the project CoGA lacked is added, and the delivery that named it is
+  checked again, now ``ready``; the family of a ready delivery is imported (it needs attention),
+  then deleted (ready again); a round after that, with nothing changed, checks nothing again;
 - the list (``GET /family-imports/deliveries``) shows them, by state when asked, and the chain
   verifies; one watcher holds the leadership at a time.
 
@@ -97,7 +100,8 @@ async def _exercise(base: Path, second: Path, run: str) -> dict[str, Any]:
         family_id=names["COPYING"],
         extra_files=({"path": "snv/family.vcf.tbi", "size": 10, "sha256": "0" * 64},),
     )
-    write_marker(folders["NOPROJECT"], project=f"NO_SUCH_PROJECT_{run}", family_id=names["NOPROJECT"])
+    later_project = f"E2E_WATCH_LATER_PROJECT_{run}"
+    write_marker(folders["NOPROJECT"], project=later_project, family_id=names["NOPROJECT"])
     (folders["NOMANIFEST"] / "manifest.yaml").unlink()
     write_marker(folders["NOMANIFEST"], project=project, family_id=names["NOMANIFEST"])
 
@@ -116,6 +120,7 @@ async def _exercise(base: Path, second: Path, run: str) -> dict[str, Any]:
         return [dict(row) for row in rows]
 
     out: dict[str, Any] = {"names": names, "project_id": project_id}
+    run_round = import_watcher.run_watch_round
     roots = [base.resolve()]
     out["round1"] = await import_watcher.run_watch_round(sessionmaker, roots)
     out["after1"] = await deliveries()
@@ -138,7 +143,8 @@ async def _exercise(base: Path, second: Path, run: str) -> dict[str, Any]:
     lone_folder = one_sample_package(second / lone, lone, variants=2, datasets=("snv",))
     write_marker(lone_folder, project=project, family_id=lone)
     await import_watcher.run_watch_round(sessionmaker, [second.resolve()])
-    shutil.move(str(lone_folder), str(base / "moved-away"))
+    # Out of both watched folders, so no later round of either finds it.
+    shutil.move(str(lone_folder), str(second.parent / f"moved-away-{run}"))
     out["empty_rounds"] = [await import_watcher.run_watch_round(sessionmaker, [second.resolve()]) for _ in range(3)]
     async with sessionmaker() as session:
         out["lone"] = (
@@ -146,6 +152,32 @@ async def _exercise(base: Path, second: Path, run: str) -> dict[str, Any]:
                 text("SELECT state, missing_rounds FROM import_deliveries WHERE folder_name = :n"), {"n": lone}
             )
         ).one()
+
+    # What CoGA holds changes: the project the delivery named is added, of the e2e assembly.
+    async with sessionmaker() as session:
+        await session.execute(
+            text(
+                "INSERT INTO projects (name, description, species_id, assembly_id, metadata) "
+                "SELECT :name, 'E2E watcher', species_id, assembly_id, '{}'::jsonb FROM projects WHERE id = CAST(:p AS uuid)"
+            ),
+            {"name": later_project, "p": project_id},
+        )
+        await session.commit()
+    out["round_project"] = await run_round(sessionmaker, roots)
+    out["after_project"] = await deliveries()
+    # The family of the ready delivery Discover drafted for is imported, then deleted.
+    async with sessionmaker() as session:
+        await session.execute(text("INSERT INTO families (family_id) VALUES (:f)"), {"f": names["NOMANIFEST"]})
+        await session.commit()
+    out["round_family"] = await run_round(sessionmaker, roots)
+    out["after_family"] = await deliveries()
+    async with sessionmaker() as session:
+        await session.execute(text("DELETE FROM families WHERE family_id = :f"), {"f": names["NOMANIFEST"]})
+        await session.commit()
+    out["round_family_gone"] = await run_round(sessionmaker, roots)
+    out["after_family_gone"] = await deliveries()
+    out["round_still"] = await run_round(sessionmaker, roots)
+    out["final"] = await deliveries()
 
     transport = ASGITransport(app=app, raise_app_exceptions=False)
     async with AsyncClient(transport=transport, base_url="http://e2e") as client:
@@ -173,6 +205,21 @@ async def _exercise(base: Path, second: Path, run: str) -> dict[str, Any]:
                     {"chain": import_watcher.IMPORT_INBOX_CHAIN, "run": f"%{run}"},
                 )
             ).all()
+        ]
+        out["checked_again"] = [
+            dict(row)
+            for row in (
+                await session.execute(
+                    text(
+                        "SELECT after ->> 'folder' AS folder, metadata ->> 'delivery_id' AS delivery_id, "
+                        "after ->> 'previous_state' AS previous_state, after -> 'previous_issues' AS previous_issues, "
+                        "after ->> 'state' AS state, after -> 'issues' AS issues FROM clinical_audit_events "
+                        "WHERE family_identifier = :chain AND action = 'import_delivery_checked_again' "
+                        "AND after ->> 'folder' LIKE :run ORDER BY created_at, id"
+                    ),
+                    {"chain": import_watcher.IMPORT_INBOX_CHAIN, "run": f"%{run}"},
+                )
+            ).mappings().all()
         ]
 
     first, other = import_watcher.WatcherLeadership(), import_watcher.WatcherLeadership()
@@ -230,6 +277,7 @@ def test_the_first_round_checks_each_marked_folder_once(ran) -> None:
 
 def test_a_round_that_finds_nothing_new_checks_nothing_again(ran) -> None:
     assert ran["round2"].deliveries == {}
+    assert ran["round2"].checked_again == {} and ran["round3"].checked_again == {} and ran["round5"].checked_again == {}
     before = {row["id"]: row["last_seen_at"] for row in ran["after1"]}
     after = {row["id"]: row["last_seen_at"] for row in ran["after2"]}
     assert set(after) == set(before)
@@ -257,13 +305,49 @@ def test_an_empty_watched_folder_with_open_deliveries_is_skipped(ran) -> None:
     assert state in ("ready", "needs_attention") and missing == 0
 
 
+def test_a_delivery_is_checked_again_when_what_coga_holds_changes(ran) -> None:
+    names = ran["names"]
+    before = _by_name(ran, ran["after5"])
+    [project_added] = _by_name(ran, ran["after_project"])["NOPROJECT"]
+    assert project_added["id"] == before["NOPROJECT"][0]["id"]
+    assert (project_added["state"], _codes(project_added)) == ("ready", [])
+    assert project_added["project_id"] is not None and project_added["project_id"] != ran["project_id"]
+    assert (ran["round_project"].deliveries, ran["round_project"].checked_again) == ({}, {"ready": 1})
+
+    [family_imported] = _by_name(ran, ran["after_family"])["NOMANIFEST"]
+    assert (family_imported["state"], _codes(family_imported)) == ("needs_attention", ["existing_family"])
+    assert family_imported["kept_manifest"] is True
+    assert ran["round_family"].checked_again == {"needs_attention": 1}
+    [family_gone] = _by_name(ran, ran["after_family_gone"])["NOMANIFEST"]
+    assert (family_gone["state"], _codes(family_gone)) == ("ready", [])
+    assert ran["round_family_gone"].checked_again == {"ready": 1}
+
+    # Nothing changed since: nothing is checked again, and every other delivery is as it was.
+    assert (ran["round_still"].deliveries, ran["round_still"].checked_again) == ({}, {})
+    unchanged = {
+        row["id"]: (row["state"], _codes(row)) for row in ran["after5"] if row["folder_name"] not in (names["NOPROJECT"], names["NOMANIFEST"])
+    }
+    assert {row["id"]: (row["state"], _codes(row)) for row in ran["final"] if row["id"] in unchanged} == unchanged
+
+    # Each check again is on the chain, with what it replaced.
+    assert [
+        (event["folder"], event["previous_state"], event["previous_issues"], event["state"], event["issues"])
+        for event in ran["checked_again"]
+    ] == [
+        (names["NOPROJECT"], "needs_attention", ["marker_project_unknown"], "ready", []),
+        (names["NOMANIFEST"], "ready", [], "needs_attention", ["existing_family"]),
+        (names["NOMANIFEST"], "needs_attention", ["existing_family"], "ready", []),
+    ]
+    assert ran["checked_again"][0]["delivery_id"] == project_added["id"]
+
+
 def test_the_list_shows_the_deliveries_by_state_when_asked(ran) -> None:
     listed = ran["listed"]
     assert listed["status"] == 200, listed
     names = set(ran["names"].values())
     mine = [item for item in listed["json"] if item["folder_name"] in names]
     assert sorted((item["folder_name"], item["state"]) for item in mine) == sorted(
-        (row["folder_name"], row["state"]) for row in ran["after5"]
+        (row["folder_name"], row["state"]) for row in ran["final"] if row["folder_name"] in names
     )
     ready = next(item for item in mine if item["state"] == "ready" and item["folder_name"] == ran["names"]["READY"])
     assert (ready["analysis_type"], ready["pipeline_name"], ready["pipeline_version"], ready["project_id"]) == (
@@ -274,7 +358,7 @@ def test_the_list_shows_the_deliveries_by_state_when_asked(ran) -> None:
     )
     assert ready["run_id"].startswith("run-") and len(ready["marker_sha256"]) == 64
     filtered = [item for item in ran["listed_ready"]["json"] if item["folder_name"] in names]
-    assert sorted(item["state"] for item in filtered) == ["gone", "ready", "ready"]
+    assert sorted(item["state"] for item in filtered) == ["gone", "ready", "ready", "ready"]
     assert ran["listed_bad_state"]["status"] == 422
 
 
@@ -282,7 +366,7 @@ def test_each_change_of_state_is_on_the_import_inbox_chain_which_verifies(ran) -
     actions = [action for action, actor, _folder in ran["events"]]
     assert {actor for _action, actor, _folder in ran["events"]} == {"system:import-watcher"}
     assert {"import_delivery_ready", "import_delivery_needs_attention", "import_delivery_incomplete"} <= set(actions)
-    assert {"import_delivery_superseded", "import_delivery_gone"} <= set(actions)
+    assert {"import_delivery_superseded", "import_delivery_gone", "import_delivery_checked_again"} <= set(actions)
     verified = ran["verified"]
     assert verified["status"] == 200, verified
     assert verified["json"]["verified"] is True and verified["json"]["first_bad_row"] is None
