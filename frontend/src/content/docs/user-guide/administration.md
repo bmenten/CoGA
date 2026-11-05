@@ -16,6 +16,8 @@ page is an administrator's alone.
   HPO has published a newer one; preview and apply a new release, downloaded from HPO or from a file
   on the server. The release is the one the file states. A file that states no release, or another
   than the release you asked for, is refused, and Apply imports only the file the preview showed.
+  A new installation starts on HPO's newest release, downloaded at its first start; when HPO
+  cannot be reached it starts on the release shipped with CoGA, which the page names.
 - **Monarch data** — load the Monarch release (gene–disease and disease–phenotype links) that powers
   [phenotype matching](#phenotype-matching) and the ranking. A new installation loads the newest
   release at its first start; load a newer one about monthly. Loading it here also rebuilds the

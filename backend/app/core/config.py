@@ -65,12 +65,15 @@ AZURE_DEFAULT_SCOPE_NAME = "access_as_user"
 # report's link, signed with SECRET_KEY: fixed, not a setting (SEC-12), so no environment
 # variable changes how they are signed or which algorithm a check accepts.
 LOCAL_TOKEN_ALGORITHM = "HS256"
-# The HPO release the startup imports, pinned (OPS-6, TRACE-14): the release of the vendored
-# data/ref-data/hpo/hp.obo (its `data-version:` header) and that file's SHA-256. The startup
-# imports an ontology file it finds only if its SHA-256 is this one, and refuses any other. It
-# downloads only when it finds no ontology file. It then fetches this release from its own
-# PURL, which never floats, and uses the file only if its SHA-256 is this one. These two values
-# are the pin, and the URL is built from the release. No setting overrides them: the release
+# The vendored HPO release, the startup's backup (TRACE-14): the release of the committed
+# data/ref-data/hpo/hp.obo (its `data-version:` header) and that file's SHA-256. A start on an
+# empty database imports HPO's newest release, downloaded from its own versioned PURL
+# (HPO_LATEST_RELEASE_API_URL and HPO_RELEASE_URL_TEMPLATE below, as the admin sync does), and
+# records the release and SHA-256 of the file it imported. Only when that download fails, or
+# HPO_DOWNLOAD_LATEST_ON_STARTUP is off, does it import an ontology file it finds, and then only
+# if its SHA-256 is this one. With no file in place it fetches this release from its own PURL,
+# which never floats, and uses the file only if its SHA-256 is this one. These two values are the
+# pin, and the URL is built from the release. No setting overrides them: the backup release
 # changes only through a reviewed code change, with the vendored file (the HPO_ONTOLOGY_URL and
 # HPO_ONTOLOGY_SHA256 settings were removed; Settings ignores them, like every name it does not
 # define). data/ref-data/hpo/README.md says how, and test_hpo_download_pin.py fails until the
@@ -78,11 +81,11 @@ LOCAL_TOKEN_ALGORITHM = "HS256"
 HPO_PINNED_RELEASE = "hp/releases/2026-02-16"
 HPO_PINNED_ONTOLOGY_SHA256 = "8d6c23798667d4506767ce643fc3c028f0d1c85e7e1d8810e491181a345d53cd"
 HPO_PINNED_ONTOLOGY_URL = f"https://purl.obolibrary.org/obo/{HPO_PINNED_RELEASE}/hp.obo"
-# Where the HPO admin page reads which HPO release is the newest (the release check), and the
-# URL a release's ontology file is downloaded from when the admin sync fetches one: its own
-# versioned PURL, which never floats. Neither is a setting. A downloaded file is imported only
-# as the admin sync imports a file on disk: previewed, checked to state the release asked for,
-# and applied by an administrator with the SHA-256 the preview showed (TRACE-18).
+# Where the HPO admin page and a start on an empty database read which HPO release is the
+# newest (the release check), and the URL a release's ontology file is downloaded from: its own
+# versioned PURL, which never floats. Neither is a setting. A downloaded file is imported only if
+# it states the release asked for, and its SHA-256 is kept with the terms (TRACE-18); the admin
+# sync also previews it and applies it with the SHA-256 the preview showed.
 HPO_LATEST_RELEASE_API_URL = (
     "https://api.github.com/repos/obophenotype/human-phenotype-ontology/releases/latest"
 )
@@ -529,16 +532,18 @@ class Settings(BaseSettings):
         alias="GENE_REFERENCE_BOOTSTRAP_ON_STARTUP",
     )
     hpo_bootstrap_on_startup: bool = Field(default=True, alias="HPO_BOOTSTRAP_ON_STARTUP")
-    # The ontology file the startup imports first. Whichever file it imports must be the
-    # pinned release, byte for byte (HPO_PINNED_ONTOLOGY_SHA256 above), or nothing is imported.
+    # The backup ontology file: what a start on an empty database imports when it cannot
+    # download HPO's newest release, or is not to (below). It must be the vendored release, byte
+    # for byte (HPO_PINNED_ONTOLOGY_SHA256 above), or nothing is imported.
     hpo_ontology_path: str | None = Field(
         default="/data/ref-data/hpo/hp.obo",
         alias="HPO_ONTOLOGY_PATH",
     )
-    # Whether the startup may download the ontology when it finds no file. What it downloads
-    # is not a setting: the pinned release from its PURL, checked against the pinned SHA-256
-    # (HPO_PINNED_ONTOLOGY_URL and HPO_PINNED_ONTOLOGY_SHA256 above).
-    hpo_download_if_missing: bool = Field(default=True, alias="HPO_DOWNLOAD_IF_MISSING")
+    # Whether a start on an empty database downloads HPO's newest release and imports it (the
+    # default), and, when that fails and no backup file is in place, the vendored release from
+    # its PURL. Off (an air-gapped deployment), the start downloads nothing and imports the
+    # backup file. Which release is the newest, and where it comes from, is not a setting.
+    hpo_download_latest_on_startup: bool = Field(default=True, alias="HPO_DOWNLOAD_LATEST_ON_STARTUP")
     # Storage backend for raw family data (IGV alignments + family-package sources).
     # "local" reads from the local filesystem (dev); "s3"/"gcs" read from a cloud
     # object store (production) via presigned/signed URLs for IGV and temp staging

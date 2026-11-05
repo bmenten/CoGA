@@ -1,14 +1,15 @@
-"""The HPO startup download is pinned to the vendored release (OPS-6).
+"""The startup's backup HPO download is pinned to the vendored release (OPS-6).
 
-At startup the backend imports the vendored data/ref-data/hpo/hp.obo. Only when it finds no
-ontology file, as on a deployment whose reference data lacks it, does it download one. That
-download was the floating hp.obo, unchecked unless HPO_ONTOLOGY_SHA256 was set, so such a
-deployment imported whatever HPO release was current on its first start. It now fetches the
-vendored file's own release from its versioned PURL, and uses the file only if its SHA-256 is
+A start on an empty database imports HPO's newest release (``test_hpo_startup_latest_release.py``).
+When it cannot, it imports the backup: the vendored data/ref-data/hpo/hp.obo, and only when it
+finds no ontology file, as on a deployment whose reference data lacks it, does it download one.
+That download was the floating hp.obo, unchecked unless HPO_ONTOLOGY_SHA256 was set. It fetches
+the vendored file's own release from its versioned PURL, and uses the file only if its SHA-256 is
 the vendored file's. The URL and the digest are code constants: the HPO_ONTOLOGY_URL and
-HPO_ONTOLOGY_SHA256 settings that could replace them were removed (owner decision), so the
+HPO_ONTOLOGY_SHA256 settings that could replace them were removed (owner decision), so the backup
 release changes only through a reviewed code change, and a deployment that still sets either
-variable gets the pin. Nothing here goes to the network: urlopen is replaced.
+variable gets the pin. Nothing here goes to the network: urlopen is replaced, and HPO's newest
+release cannot be reached.
 """
 
 from __future__ import annotations
@@ -30,7 +31,7 @@ from backend.app.core.config import (
     HPO_PINNED_RELEASE,
     Settings,
 )
-from backend.app.services import hpo_service
+from backend.app.services import hpo_release_download, hpo_service
 from backend.tests._lifespan import LifespanApp, stub_lifespan_steps
 
 _VENDORED_HPO = Path(__file__).resolve().parents[2] / "data" / "ref-data" / "hpo" / "hp.obo"
@@ -73,9 +74,13 @@ class _Session:
 
 
 def _start_without_an_ontology_file(monkeypatch: pytest.MonkeyPatch, target: Path) -> list[dict[str, Any]]:
-    """An empty HPO terminology and no ontology file, so the startup downloads one to
-    ``target``. The list collects what is imported (the file and its release)."""
+    """An empty HPO terminology, HPO's newest release out of reach and no ontology file, so the
+    startup downloads the backup to ``target``. The list collects what is imported (the file and
+    its release)."""
     imported: list[dict[str, Any]] = []
+
+    async def hpo_unreachable() -> Any:
+        raise hpo_release_download.HpoReleaseUnavailable("HPO's release list could not be read")
 
     async def no_terms(_session: Any) -> int:
         return 0
@@ -85,6 +90,7 @@ def _start_without_an_ontology_file(monkeypatch: pytest.MonkeyPatch, target: Pat
         return {"terms": 1, "synonyms": 0, "edges": 0, "closure_rows": 1}
 
     monkeypatch.setattr(hpo_service, "_hpo_term_count", no_terms)
+    monkeypatch.setattr(hpo_release_download, "fetch_latest_hpo_release", hpo_unreachable)
     monkeypatch.setattr(hpo_service, "hpo_ontology_candidate_paths", lambda _path=None: [target])
     monkeypatch.setattr(hpo_service, "import_hpo_ontology", record_import)
     return imported
@@ -117,7 +123,7 @@ def test_no_setting_and_no_argument_moves_the_pin(monkeypatch: pytest.MonkeyPatc
     assert set(inspect.signature(hpo_service.ensure_hpo_ontology_on_startup).parameters) == {
         "session",
         "ontology_path",
-        "download_if_missing",
+        "download_latest",
         "enabled",
     }
 
@@ -128,8 +134,9 @@ async def test_a_deployment_that_still_sets_the_removed_variables_imports_the_pi
     tmp_path: Path,
 ) -> None:
     # An operator once pointed the download at a mirror serving a later release and set that
-    # release's digest. The variables were removed: the startup, as the backend runs it,
-    # downloads the pinned release from its PURL and imports the vendored file's bytes.
+    # release's digest. The variables were removed: the startup, as the backend runs it, with
+    # HPO's newest release out of reach, downloads the pinned release from its PURL and imports
+    # the vendored file's bytes.
     payload, release, _digest = _vendored()
     monkeypatch.setenv("HPO_ONTOLOGY_URL", _MIRROR_URL)
     monkeypatch.setenv("HPO_ONTOLOGY_SHA256", hashlib.sha256(_LATER_RELEASE).hexdigest())
@@ -137,7 +144,7 @@ async def test_a_deployment_that_still_sets_the_removed_variables_imports_the_pi
         _env_file=None,
         APP_ENV="test",
         HPO_BOOTSTRAP_ON_STARTUP=True,
-        HPO_DOWNLOAD_IF_MISSING=True,
+        HPO_DOWNLOAD_LATEST_ON_STARTUP=True,
         FAMILY_IMPORT_WORKER_COUNT=1,
     )
     monkeypatch.setattr(app_main, "settings", deployment)
@@ -166,7 +173,7 @@ async def test_a_deployment_that_still_sets_the_removed_variables_imports_the_pi
 
 
 @pytest.mark.asyncio
-async def test_without_an_ontology_file_the_startup_downloads_and_imports_the_pinned_release(
+async def test_without_hpo_or_an_ontology_file_the_startup_downloads_and_imports_the_pinned_release(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:

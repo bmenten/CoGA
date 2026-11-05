@@ -69,11 +69,12 @@ const Dashboard: React.FC = () => {
             <span className="badge-chip badge-chip--signature">{userIsAdmin ? 'Admin' : 'Superuser'}</span>
           </div>
           <div className="compact-toolbar dashboard-toolbar">
+            {/* The task an admin comes here for most: first, and the one primary button. */}
+            <Link to="/admin/data/upload" className="form-button hover:no-underline">
+              Package import
+            </Link>
             <Link to="/admin" className="button-secondary hover:no-underline">
               Open admin dashboard
-            </Link>
-            <Link to="/admin/data/upload" className="button-secondary hover:no-underline">
-              Package import
             </Link>
             {userIsAdmin && (
               <Link to="/admin/data/families" className="button-secondary hover:no-underline">

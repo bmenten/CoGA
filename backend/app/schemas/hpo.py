@@ -80,7 +80,7 @@ class HpoOntologySyncRequest(BaseModel):
 
 
 class HpoReleaseCheckOut(BaseModel):
-    """The newest HPO release beside the loaded one and the startup's pinned one."""
+    """The newest HPO release beside the loaded one and the vendored one, the startup's backup."""
 
     latest_release: Optional[str] = None
     latest_release_date: Optional[date] = None

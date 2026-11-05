@@ -587,7 +587,8 @@ async def test_hpo_startup_bootstrap_imports_empty_database(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    # The startup imports only the pinned release, byte for byte (TRACE-14): the vendored file.
+    # Without the download, the startup imports only its backup, the vendored release byte for
+    # byte (TRACE-14).
     ontology_path = tmp_path / "hpo.obo"
     ontology_path.write_bytes((Path(__file__).resolve().parents[2] / "data" / "ref-data" / "hpo" / "hp.obo").read_bytes())
     session = _FakeSession(
@@ -607,7 +608,7 @@ async def test_hpo_startup_bootstrap_imports_empty_database(
     result = await ensure_hpo_ontology_on_startup(
         session,
         ontology_path=ontology_path,
-        download_if_missing=False,
+        download_latest=False,
     )
 
     assert result is not None

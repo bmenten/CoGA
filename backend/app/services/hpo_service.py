@@ -613,34 +613,35 @@ def _read_bounded(response: Any, max_bytes: int) -> bytes:
 
 
 class HpoOntologyChecksumMismatch(RuntimeError):
-    """The ontology, downloaded (OPS-6) or found in place (TRACE-14), is not the pinned file,
-    so it was refused."""
+    """The backup ontology, downloaded (OPS-6) or found in place (TRACE-14), is not the vendored
+    file, so it was refused."""
 
 
 _HPO_PINNED_FILE_REMEDY = (
     "Copy the repository's data/ref-data/hpo/hp.obo there unchanged (on Cloud Run: gcloud storage "
     "cp data/ref-data/hpo/hp.obo gs://<reference-data bucket>/hpo/), or set HPO_ONTOLOGY_PATH to "
-    "such a copy. Another HPO release needs a reviewed change that moves HPO_PINNED_RELEASE and "
-    "HPO_PINNED_ONTOLOGY_SHA256 with the vendored file (data/ref-data/hpo/README.md)."
+    "such a copy. A start that can reach HPO imports its newest release instead, and an "
+    "administrator can apply any release under Administration, HPO terminology. Another backup "
+    "release needs a reviewed change that moves HPO_PINNED_RELEASE and HPO_PINNED_ONTOLOGY_SHA256 "
+    "with the vendored file (data/ref-data/hpo/README.md)."
 )
 
 
 def read_pinned_hpo_ontology(path: Path) -> bytes:
-    """The ontology file's bytes, if it is the pinned release byte for byte (TRACE-14).
+    """The backup ontology file's bytes, if it is the vendored release byte for byte (TRACE-14).
 
-    The startup imports only the vendored release: a file already in place is held to the pin
-    (``HPO_PINNED_ONTOLOGY_SHA256``, which no setting overrides) as the download is. Any other
-    file raises ``HpoOntologyChecksumMismatch`` before anything is written; one that cannot be
-    read raises ``OSError``. The bytes checked are the bytes returned, so the import parses
-    exactly what was checked."""
+    A file already in place is held to the pin (``HPO_PINNED_ONTOLOGY_SHA256``, which no setting
+    overrides) as the backup download is. Any other file raises ``HpoOntologyChecksumMismatch``
+    before anything is written; one that cannot be read raises ``OSError``. The bytes checked are
+    the bytes returned, so the import parses exactly what was checked."""
     payload = path.read_bytes()
     digest = hashlib.sha256(payload).hexdigest()
     if digest != HPO_PINNED_ONTOLOGY_SHA256:
         raise HpoOntologyChecksumMismatch(
-            f"Refused the HPO ontology file {scrub_log(path)}: it is not the pinned release "
-            f"{HPO_PINNED_RELEASE}. Its SHA-256 is {digest}, the pinned file's is "
+            f"Refused the HPO ontology file {scrub_log(path)}: it is not the vendored release "
+            f"{HPO_PINNED_RELEASE}, the backup. Its SHA-256 is {digest}, the vendored file's is "
             f"{HPO_PINNED_ONTOLOGY_SHA256}. Nothing was imported, and no file was downloaded "
-            f"in its place: the HPO terminology stays empty until the pinned file is there. "
+            f"in its place: the HPO terminology stays empty until a release is loaded. "
             f"{_HPO_PINNED_FILE_REMEDY}"
         )
     return payload
@@ -653,7 +654,8 @@ def _download_hpo_ontology_file(
     expected_sha256: str = HPO_PINNED_ONTOLOGY_SHA256,
     max_bytes: int = MAX_HPO_ONTOLOGY_BYTES,
 ) -> Path:
-    """Download the pinned HPO ontology over HTTPS, bounded, checked, and written atomically.
+    """Download the vendored HPO release, the startup's backup, over HTTPS, bounded, checked,
+    and written atomically.
 
     The bootstrap trusts this file as the phenotype ontology, so it is fetched over TLS
     only, capped in size, must look like an OBO file (an HTML error page would otherwise
@@ -718,22 +720,25 @@ async def ensure_hpo_ontology_on_startup(
     session: AsyncSession,
     *,
     ontology_path: str | Path | None = None,
-    download_if_missing: bool = True,
+    download_latest: bool = True,
     enabled: bool = True,
 ) -> dict[str, Any] | None:
-    """Import the HPO ontology when no terms are loaded yet.
+    """Import the HPO ontology when no terms are loaded yet: HPO's newest release, with the
+    vendored release as the backup.
 
-    It reads the ontology file it finds (the vendored ``hp.obo``). Only when it finds none,
-    and ``download_if_missing``, does it download one: always the pinned release from its
-    PURL, checked against the pinned SHA-256 (``HPO_PINNED_ONTOLOGY_URL`` and
-    ``HPO_PINNED_ONTOLOGY_SHA256``). No setting changes either: the release moves only with
-    the vendored file, through a reviewed code change (OPS-6).
+    With ``download_latest`` (``HPO_DOWNLOAD_LATEST_ON_STARTUP``, the default) the start reads
+    which release HPO published last and downloads it from the release's own PURL, which never
+    floats (``hpo_release_download``, as the admin sync does). The file is imported only if it
+    states that release. The terms keep the release and the SHA-256 of the bytes imported
+    (TRACE-18), and every sign-out freezes both. Neither the release nor the URL is a setting.
 
-    The file it finds is held to the same pin (TRACE-14): it is imported, from the bytes that
-    were checked, only if its SHA-256 is the pinned one. Another file, or one that cannot be
-    read, is refused with one logged error, nothing is imported and nothing is downloaded in
-    its place, as for a refused download. The start goes on: the terminology stays empty,
-    which the admin HPO page shows, until the pinned file is in place.
+    When HPO cannot be reached, or what it serves is refused, or ``download_latest`` is off, the
+    start imports the backup instead: the ontology file it finds (the vendored ``hp.obo``), only
+    if its SHA-256 is the vendored file's (TRACE-14). With no file in place, and
+    ``download_latest``, it downloads the vendored release from its PURL, held to the same
+    SHA-256 (OPS-6). Another file, or one that cannot be read, is refused with one logged error,
+    and nothing is imported. The start goes on: the terminology stays empty, which the admin HPO
+    page shows, until a later start or an administrator loads a release.
     """
     if not enabled:
         return None
@@ -746,9 +751,66 @@ async def ensure_hpo_ontology_on_startup(
             return None
         raise
 
+    if download_latest:
+        try:
+            source, latest = await _download_latest_hpo_release()
+        except (hpo_release_download.HpoReleaseUnavailable, ValueError) as exc:
+            # The expected failures, in messages written here: what failed, and the URL.
+            logger.warning(
+                "HPO's newest release was not downloaded (%s). Importing the vendored release %s, "
+                "the backup.",
+                scrub_log(exc),
+                HPO_PINNED_RELEASE,
+            )
+        except Exception:
+            # A defect: logged with its traceback, and the start still gets the backup.
+            logger.exception(
+                "HPO's newest release was not downloaded. Importing the vendored release %s, the backup.",
+                HPO_PINNED_RELEASE,
+            )
+        else:
+            return await _import_startup_ontology(
+                session,
+                source=source,
+                path=None,
+                ontology_text=latest.text,
+                source_format="obo",
+                release_version=latest.release_version,
+                release_date=latest.release_date,
+                release_sha256=latest.sha256,
+            )
+    return await _import_backup_hpo_ontology(session, ontology_path=ontology_path, download=download_latest)
+
+
+async def _download_latest_hpo_release() -> tuple[str, HpoFileRelease]:
+    """HPO's newest release: the release's PURL, and the ontology file HPO serves there, checked
+    to state that release, with the SHA-256 of its bytes (TRACE-18). HpoReleaseUnavailable when
+    HPO cannot be reached or serves no OBO file; ValueError when HPO has no such file, or it
+    states another release, or none."""
+    latest = await hpo_release_download.fetch_latest_hpo_release()
+    payload = await hpo_release_download.download_hpo_release(latest.release_date)
+    checked = await asyncio.to_thread(
+        checked_hpo_file_release,
+        payload,
+        source_format="obo",
+        expected_version=latest.release_version,
+        expected_date=latest.release_date,
+    )
+    return latest.download_url, checked
+
+
+async def _import_backup_hpo_ontology(
+    session: AsyncSession,
+    *,
+    ontology_path: str | Path | None,
+    download: bool,
+) -> dict[str, Any] | None:
+    """Import the vendored release, the backup: the ontology file in place, or, with none and
+    ``download``, the vendored release from its PURL; either only if it is the vendored file byte
+    for byte (TRACE-14, OPS-6)."""
     candidate_paths = hpo_ontology_candidate_paths(ontology_path)
     resolved_path = resolve_hpo_ontology_path(ontology_path)
-    if resolved_path is None and download_if_missing:
+    if resolved_path is None and download:
         try:
             resolved_path = await asyncio.to_thread(
                 _download_hpo_ontology_file,
@@ -759,7 +821,7 @@ async def ensure_hpo_ontology_on_startup(
             logger.info("Downloaded HPO ontology to %s", resolved_path)
         except Exception as exc:
             if isinstance(exc, HpoOntologyChecksumMismatch):
-                # Not the pinned file (OPS-6): an expected refusal, logged without a traceback.
+                # Not the vendored file (OPS-6): an expected refusal, logged without a traceback.
                 logger.error("%s The HPO ontology was not imported.", exc)
             else:
                 logger.exception("Failed to download HPO ontology from %s", HPO_PINNED_ONTOLOGY_URL)
@@ -776,7 +838,7 @@ async def ensure_hpo_ontology_on_startup(
         return None
 
     # Reading, checking and parsing the ontology file is CPU and disk work: keep it off the
-    # event loop (#527). The file is imported only if it is the pinned release (TRACE-14),
+    # event loop (#527). The file is imported only if it is the vendored release (TRACE-14),
     # whether it was found in place or just downloaded.
     try:
         payload = await asyncio.to_thread(read_pinned_hpo_ontology, resolved_path)
@@ -787,7 +849,7 @@ async def ensure_hpo_ontology_on_startup(
     except OSError as exc:
         logger.error(
             "Refused the HPO ontology file %s: it cannot be read (%s), so it cannot be checked "
-            "against the pinned release %s (SHA-256 %s). Nothing was imported. %s",
+            "against the vendored release %s (SHA-256 %s). Nothing was imported. %s",
             scrub_log(resolved_path),
             type(exc).__name__,
             HPO_PINNED_RELEASE,
@@ -796,38 +858,65 @@ async def ensure_hpo_ontology_on_startup(
         )
         return None
     ontology_text = payload.decode("utf-8")
-    metadata = parse_hpo_ontology_release_metadata_text(
-        ontology_text, source_format=_hpo_source_format(resolved_path)
+    source_format = _hpo_source_format(resolved_path)
+    metadata = parse_hpo_ontology_release_metadata_text(ontology_text, source_format=source_format)
+    return await _import_startup_ontology(
+        session,
+        source=str(resolved_path),
+        path=resolved_path,
+        ontology_text=ontology_text,
+        source_format=source_format,
+        release_version=metadata.release_version,
+        release_date=metadata.release_date,
+        # read_pinned_hpo_ontology returned these bytes only because this is their SHA-256.
+        release_sha256=HPO_PINNED_ONTOLOGY_SHA256,
     )
+
+
+async def _import_startup_ontology(
+    session: AsyncSession,
+    *,
+    source: str,
+    path: Path | None,
+    ontology_text: str,
+    source_format: str,
+    release_version: str | None,
+    release_date: date | None,
+    release_sha256: str,
+) -> dict[str, Any] | None:
+    """Import the checked ontology text the start chose; None, rolled back and logged, when the
+    import fails."""
     try:
         imported = await import_hpo_ontology(
             session,
-            path=resolved_path,
+            path=path,
             ontology_text=ontology_text,
-            release_version=metadata.release_version,
-            release_date=metadata.release_date,
-            # read_pinned_hpo_ontology returned these bytes only because this is their SHA-256.
-            release_sha256=HPO_PINNED_ONTOLOGY_SHA256,
+            source_format=source_format,
+            release_version=release_version,
+            release_date=release_date,
+            release_sha256=release_sha256,
         )
     except Exception:
-        logger.exception("Failed to bootstrap HPO ontology from %s", resolved_path)
+        logger.exception("Failed to bootstrap HPO ontology from %s", scrub_log(source))
         try:
             await session.rollback()
         except Exception:  # pragma: no cover
             logger.exception("Failed to roll back failed HPO bootstrap")
         return None
     logger.info(
-        "Bootstrapped HPO ontology from %s (%s terms, release=%s, release_date=%s)",
-        resolved_path,
+        "Bootstrapped HPO ontology from %s (%s terms, release=%s, release_date=%s, sha256=%s)",
+        scrub_log(source),
         imported["terms"],
-        metadata.release_version or "unknown",
-        metadata.release_date.isoformat() if metadata.release_date else "unknown",
+        release_version or "unknown",
+        release_date.isoformat() if release_date else "unknown",
+        release_sha256,
     )
     return {
         **imported,
-        "path": str(resolved_path),
-        "release_version": metadata.release_version,
-        "release_date": metadata.release_date,
+        "source": source,
+        "release_version": release_version,
+        "release_date": release_date,
+        "release_sha256": release_sha256,
     }
 
 
@@ -1532,8 +1621,8 @@ async def get_loaded_hpo_release(session: AsyncSession) -> dict[str, Any] | None
 
 
 async def hpo_release_check(session: AsyncSession) -> dict[str, Any]:
-    """The newest HPO release beside the loaded one and the startup's pinned one, for the admin
-    page: whether a newer release than the loaded one has been published. When HPO cannot be
+    """The newest HPO release beside the loaded one and the vendored one (the startup's backup),
+    for the admin page: whether a newer release than the loaded one has been published. When HPO cannot be
     reached, ``error`` says so and the rest names what is known here."""
     loaded: dict[str, Any] = {}
     if await _postgres_tables_available(session, ("hpo_term",)):
