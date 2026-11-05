@@ -59,7 +59,7 @@ from .family_variant_write_lock import VARIANT_TYPES, lock_family_variant_writes
 from .hpo_service import PHENOTYPES_ROLLED_BACK, PhenotypeImport, record_phenotypes_deleted_with_family
 from .access_control import CurrentUser
 from . import ped_service
-from .raw_import_files_pg import record_raw_import_file, store_managed_file
+from .raw_import_files_pg import family_managed_files, record_raw_import_file, store_managed_file
 
 from .family_package_common import HAPLOTYPE_ORIGIN_ROLES, LONG_READ_DATASET_ROLES, MANIFEST_IN_FOLDER, MANIFEST_KEPT_IN_COGA, PCF_ROLE_KEYS, QC_FAMILY_ROLES, FamilyPackageBundle, ManifestDataset, _display_path, _issue, _metadata_dict, _resolve_package_path, manifest_text_sha256
 from .family_package_manifest import _manifest_carrier_types, _manifest_member_status_overrides, _manifest_pgt_metadata, _manifest_relationships, _manifest_roi_value, _normalize_manifest_samples, _ped_carrier_type, _ped_is_carrier, _ped_members_for_import
@@ -376,6 +376,34 @@ async def _record_package_raw_files(
 
 
 # The file name a manifest CoGA kept for an import is recorded and stored under.
+# The key of a package record (``families.metadata.package_import``) that keeps the record the
+# family had before this import registered it again, itself without one: an import undone because
+# its package changed while it was read puts it back (``put_back_family_package_record``).
+PREVIOUS_IMPORT_KEY = "previous_import"
+
+
+async def put_back_family_package_record(session: AsyncSession, family_uuid: str) -> None:
+    """Put the family's package record back as it was before the import that registered it last
+    (its ``previous_import``; none, when it had none), and commit: an import undone because its
+    package changed while it was read leaves the family naming the package it was imported from
+    before, not the one that changed."""
+    await session.execute(
+        text(
+            """
+            UPDATE families
+            SET metadata = CASE
+                WHEN jsonb_typeof(metadata -> 'package_import' -> 'previous_import') = 'object'
+                    THEN jsonb_set(metadata, '{package_import}', metadata -> 'package_import' -> 'previous_import')
+                ELSE COALESCE(metadata, '{}'::jsonb) - 'package_import'
+            END
+            WHERE id = CAST(:family_uuid AS uuid)
+            """
+        ),
+        {"family_uuid": family_uuid},
+    )
+    await session.commit()
+
+
 KEPT_MANIFEST_FILE_NAME = "manifest.yaml"
 
 
@@ -467,6 +495,16 @@ async def _register_package_provenance(
             UPDATE families
             SET metadata = COALESCE(metadata, '{}'::jsonb)
                     || CAST(:metadata AS jsonb)
+                    -- The record the family had before, if any, kept in the new one without its
+                    -- own previous record, for an import undone to put back.
+                    || CASE
+                        WHEN jsonb_typeof(metadata -> 'package_import') = 'object' THEN jsonb_build_object(
+                            'package_import',
+                            (CAST(:metadata AS jsonb) -> 'package_import')
+                                || jsonb_build_object('previous_import', (metadata -> 'package_import') - 'previous_import')
+                        )
+                        ELSE '{}'::jsonb
+                    END
                     || CASE
                         WHEN CAST(:pgt AS jsonb) IS NULL THEN '{}'::jsonb
                         ELSE jsonb_build_object(
@@ -1976,7 +2014,7 @@ async def _delete_family_shell(
     user: CurrentUser | None = None,
     *,
     phenotype_import: PhenotypeImport,
-) -> None:
+) -> list[tuple[str, str]]:
     """Compensating cleanup for a failed import that created a fresh family.
 
     Removes the family's ClickHouse variant rows and the Postgres family shell
@@ -1985,6 +2023,10 @@ async def _delete_family_shell(
     deletion recipe in ``ped_service``. The deletion is the family's last clinical audit
     event, as made by ``user``, the import's (SEC-7); the phenotypes the family goes with are
     recorded as removed just before it, as made by ``phenotype_import``, the failed import.
+
+    Returns the kept copies of the family's files (a manifest CoGA kept for the import), read
+    before its rows go: the caller unlinks them once the deletion has committed
+    (``unlink_managed_files``), as an administrator's deletion does (SAFE-35).
     """
     assembly_name = family_context.assembly_name
     family_uuid = family_context.family_uuid
@@ -2020,10 +2062,12 @@ async def _delete_family_shell(
                 family_context.family_id,
                 exc_info=True,
             )
+    managed_files = await family_managed_files(session, family_uuid)
     await session.execute(
         text("DELETE FROM families WHERE id = CAST(:family_uuid AS uuid)"),
         {"family_uuid": family_uuid},
     )
+    return managed_files
 
 
 async def _flag_family_import_incomplete(

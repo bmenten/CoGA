@@ -157,6 +157,9 @@ class FamilyPackageCandidateOut(BaseModel):
     # The families imported from this folder, by their package record (none for a folder not
     # imported yet): the import page hides a folder whose families all imported completely.
     imported_families: List[ImportedPackageFamily] = Field(default_factory=list)
+    # The folder's latest import was undone because the package changed while it was read: the
+    # import page offers the folder again, whatever families were imported from it before.
+    changed_during_import: bool = False
 
 
 # The longest manifest text an import request may give: a manifest names files and members,

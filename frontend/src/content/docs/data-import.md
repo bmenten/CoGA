@@ -293,8 +293,9 @@ or runs through a link that loops.
    **Start import** stays disabled. An import of the same folder, with the same manifest, is checked
    against that dry run: if a file in the folder was added, removed or changed since, the import is
    refused and nothing is queued. Run the dry run again and check its report. A job also imports
-   nothing when the folder changed after it was queued, and warns when it changed while it was read
-   (*package fingerprint*, shown with the job).
+   nothing when the folder changed after it was queued, and is undone when it changed while it was
+   read: a new family is removed, an existing family put back as it was (*package fingerprint*,
+   shown with the job). The folder is then listed again, marked *changed during import*.
 7. **Follow the job** under *Recent family imports*: status, log, validation errors, warnings and a
    summary per dataset. While a dataset imports, the page shows how much of its files has been read and
    about how long it should still take, at the pace so far. A finished dataset shows how long it took.

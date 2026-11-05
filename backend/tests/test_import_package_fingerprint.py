@@ -7,8 +7,9 @@ modification time, or a link's target, and of the manifest CoGA keeps for the im
 that the folder changed without reading a file's content. The validation takes it before reading
 the folder and reports it; an import that follows a dry run is refused (409) when the folder's
 differs from the dry run's; the job keeps the one it was queued with, and imports nothing when the
-folder's differs as it starts; once the import has read the folder, it is taken again, and a
-change is a warning on the job. The family's package record keeps it.
+folder's differs as it starts; after each dataset it is taken again, and a change stops and
+undoes the import (test_import_undone_when_package_changes.py). The family's package record
+keeps it.
 
 All samples and values here are synthetic.
 """
@@ -27,7 +28,7 @@ import pytest
 from backend.app.core.config import settings
 from backend.app.schemas import FamilyPackageImportCreate, FamilyPackageValidationOut
 from backend.app.services import family_package_fingerprint, family_package_import, family_package_jobs, family_package_validation
-from backend.app.services.family_package_common import PackageExecutionResult, _issue
+from backend.app.services.family_package_common import _issue
 from backend.app.services.family_package_fingerprint import PackageFolderTooLarge, package_fingerprint
 from backend.app.services.family_package_validation import load_validated_family_package, take_package_fingerprint
 
@@ -490,48 +491,38 @@ def test_a_folder_the_validation_refused_keeps_that_refusal_alone() -> None:
     assert logs == []
 
 
-def _result() -> PackageExecutionResult:
-    return PackageExecutionResult(
-        validation=FamilyPackageValidationOut(valid=True), datasets=[], logs=[], family_id="FAM1", completed=True
-    )
-
-
 @pytest.mark.asyncio
-async def test_an_import_whose_folder_did_not_change_while_it_was_read_says_so(package: Path) -> None:
+async def test_a_folder_as_the_validation_read_it_has_not_changed(package: Path) -> None:
     _validation_out, bundle = load_validated_family_package(package)
     assert bundle is not None
-    result = _result()
+    logs: list[str] = []
 
-    await family_package_import._note_package_changed_during_import(result, bundle=bundle)
-
-    assert result.validation.warnings == []
-    assert result.logs == [
+    assert await family_package_import._package_changed_since_validation(bundle, logs) is False
+    assert logs == []
+    assert await family_package_import._package_changed_since_validation(bundle, logs, say_unchanged=True) is False
+    assert logs == [
         f"The package folder did not change while it was imported (fingerprint {bundle.package_fingerprint[:12]})."  # type: ignore[index]
     ]
 
 
 @pytest.mark.asyncio
-async def test_an_import_whose_folder_changed_while_it_was_read_is_warned(package: Path) -> None:
+async def test_a_folder_changed_since_the_validation_read_it_is_told(package: Path) -> None:
     (package / "manifest.yaml").unlink()
     _validation_out, bundle = load_validated_family_package(package, manifest_text=_MANIFEST)
     assert bundle is not None and bundle.package_fingerprint is not None
     (package / "snv" / "family.vcf").write_text("##fileformat=VCFv4.2\n#rerun\n", encoding="utf-8")
-    result = _result()
+    logs: list[str] = []
 
-    await family_package_import._note_package_changed_during_import(result, bundle=bundle)
-
+    assert await family_package_import._package_changed_since_validation(bundle, logs) is True
     after = _fingerprint(package, _sha256(_MANIFEST))
-    assert [(issue.code, issue.message) for issue in result.validation.warnings] == [
-        ("package_changed_during_import", family_package_import.PACKAGE_CHANGED_DURING_IMPORT)
-    ]
-    assert result.logs == [
+    assert logs == [
         f"The package folder changed while it was imported: its fingerprint is {after[:12]}, "
         f"not {bundle.package_fingerprint[:12]}."
     ]
 
 
 @pytest.mark.asyncio
-async def test_an_import_whose_folder_could_no_longer_be_read_is_warned(package: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_a_folder_that_can_no_longer_be_read_counts_as_changed(package: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _validation_out, bundle = load_validated_family_package(package)
     assert bundle is not None and bundle.package_fingerprint is not None
 
@@ -539,23 +530,21 @@ async def test_an_import_whose_folder_could_no_longer_be_read_is_warned(package:
         raise PermissionError(13, "Permission denied")
 
     monkeypatch.setattr(family_package_import, "package_fingerprint", refuse)
-    result = _result()
+    logs: list[str] = []
 
-    await family_package_import._note_package_changed_during_import(result, bundle=bundle)
-
-    assert [issue.code for issue in result.validation.warnings] == ["package_changed_during_import"]
-    assert result.logs == [
+    assert await family_package_import._package_changed_since_validation(bundle, logs) is True
+    assert logs == [
         f"The package folder changed while it was imported: its fingerprint is unreadable, "
         f"not {bundle.package_fingerprint[:12]}."
     ]
 
 
 @pytest.mark.asyncio
-async def test_an_import_from_a_bucket_is_not_read_again(package: Path) -> None:
+async def test_a_package_from_a_bucket_is_not_read_again(package: Path) -> None:
     _validation_out, bundle = load_validated_family_package(package, source_uri="gs://bucket/packages/FAM1")
     assert bundle is not None
-    result = _result()
+    (package / "late.txt").write_text("changed", encoding="utf-8")
+    logs: list[str] = []
 
-    await family_package_import._note_package_changed_during_import(result, bundle=bundle)
-
-    assert (result.logs, result.validation.warnings) == ([], [])
+    assert await family_package_import._package_changed_since_validation(bundle, logs) is False
+    assert logs == []

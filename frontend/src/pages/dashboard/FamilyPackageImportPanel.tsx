@@ -36,12 +36,15 @@ type ManifestBuildResult = FamilyPackageManifestBuildOut;
 const activeStatuses = new Set<ImportStatus>(['queued', 'validating', 'running']);
 
 // A folder is listed as imported when families were imported from it, each completely: the list
-// hides it unless asked. A folder whose last import did not complete, or still runs, stays listed.
+// hides it unless asked. A folder whose last import did not complete, or still runs, stays listed,
+// and so does one whose last import was undone because the package changed while it was read.
 const isImportedPackage = (pkg: FamilyPackageCandidateOut) =>
+  !pkg.changed_during_import &&
   (pkg.imported_families ?? []).length > 0 &&
   !(pkg.imported_families ?? []).some((family) => family.import_incomplete);
 
 const importedFamiliesText = (pkg: FamilyPackageCandidateOut) => {
+  if (pkg.changed_during_import) return ' · changed during import: import it again';
   const families = pkg.imported_families ?? [];
   if (families.length === 0) return '';
   const names = families.map((family) => family.family_id).join(', ');
@@ -124,6 +127,10 @@ const FamilyPackageImportPanel: React.FC = () => {
   // The folder chosen or typed, when families were imported from it.
   const chosenImported = packages.find(
     (pkg) => pkg.folder_path === folderPath.trim() && (pkg.imported_families ?? []).length > 0
+  );
+  // The folder chosen or typed, when its last import was undone because the package changed.
+  const chosenChanged = packages.some(
+    (pkg) => pkg.folder_path === folderPath.trim() && pkg.changed_during_import
   );
 
   React.useEffect(() => {
@@ -412,7 +419,13 @@ const FamilyPackageImportPanel: React.FC = () => {
               placeholder="…or type a folder path (e.g. /data/families/FAM001)"
             />
           </label>
-          {chosenImported ? (
+          {chosenChanged ? (
+            <p className="status-note status-note--info">
+              The last import from this folder was undone: the package changed while it was imported.
+              Import it again once it is complete: run the dry run first.
+            </p>
+          ) : null}
+          {chosenImported && !chosenChanged ? (
             <p className="status-note status-note--info">
               {chosenImported.imported_families.some((family) => family.import_incomplete)
                 ? 'The last import from this folder did not complete, or still runs: '

@@ -9,12 +9,17 @@ folder's URI), so the list is told, per folder, which families were imported fro
 last import registered them, and whether that import did not complete or is still running
 (``import_incomplete``, ``import_unfinished``). This holds for families imported before the list
 was told, too. Nothing in the folders is read: the record is the family's.
+
+A folder whose last import was undone because the package changed while it was read
+(``package_changed_during_import``, the owner's decision of 2026-11-05) is offered again: the
+list says so (``folders_changed_during_import``), by the folder its latest import job names.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterable
 from datetime import datetime
+import json
 from typing import Any
 
 from sqlalchemy import text
@@ -78,3 +83,35 @@ async def imported_package_folders(
         for folder_path in asked.get(folder_key(str(row["folder_path"])), []):
             found.setdefault(folder_path, []).append(family)
     return found
+
+
+_LATEST_IMPORT_JOBS = text(
+    """
+    SELECT DISTINCT ON (rtrim(submitted_path, '/'))
+           rtrim(submitted_path, '/') AS folder,
+           validation_errors @> CAST(:changed AS jsonb) AS changed
+    FROM family_import_jobs
+    WHERE NOT dry_run
+      AND rtrim(submitted_path, '/') = ANY(CAST(:folders AS text[]))
+    ORDER BY rtrim(submitted_path, '/'), requested_at DESC
+    """
+)
+
+# The validation error an import job ends with when its import was undone because the package
+# changed while it was read (family_package_import.PACKAGE_CHANGED_DURING_IMPORT).
+_CHANGED_DURING_IMPORT = json.dumps([{"code": "package_changed_during_import"}])
+
+
+async def folders_changed_during_import(session: AsyncSession, folder_paths: Iterable[str]) -> set[str]:
+    """The folders of ``folder_paths``, as given, whose latest import (no dry run) was undone
+    because the package changed while it was read: the list offers them again. A job is found by
+    the folder it was asked for, which is the listed one when it was chosen from the list."""
+    asked: dict[str, list[str]] = {}
+    for folder_path in folder_paths:
+        asked.setdefault(folder_key(folder_path), []).append(folder_path)
+    if not asked:
+        return set()
+    rows = (
+        await session.execute(_LATEST_IMPORT_JOBS, {"folders": list(asked), "changed": _CHANGED_DURING_IMPORT})
+    ).mappings().all()
+    return {folder_path for row in rows if row["changed"] for folder_path in asked.get(str(row["folder"]), [])}

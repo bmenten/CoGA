@@ -101,9 +101,20 @@ async def test_delete_family_shell_also_clears_interval_tracks(monkeypatch) -> N
         return None
 
     monkeypatch.setattr("app.services.family_package_registration.record_family_deleted", no_event)
+    kept_copy = ("/data/raw_imports/F1/manifest.yaml", "raw-file-1")
+
+    async def managed_files(_session, family_uuid):
+        assert family_uuid == "uuid-1"
+        return [kept_copy]
+
+    monkeypatch.setattr("app.services.family_package_registration.family_managed_files", managed_files)
 
     session = _FakeSession()
-    await fpi._delete_family_shell(session, _ctx(), phenotype_import=origin)
+    removed = await fpi._delete_family_shell(session, _ctx(), phenotype_import=origin)
+
+    # The kept copies of its files, read before its rows go, for the caller to unlink once
+    # the deletion has committed.
+    assert removed == [kept_copy]
 
     # Coverage/segment/haplotype interval tracks are cleared alongside the variants.
     assert calls == {"small": 1, "structural": 1, "interval": 1}

@@ -434,7 +434,10 @@ incomplete*. A folder chosen or typed that families were imported from says so, 
 it again only to add or replace data, with update or overwrite. The list reads the families'
 records, not the folders, so families imported before the list was told count too, and a folder
 whose family is deleted is listed again. It does not tell whether a folder changed after its
-import.
+import. A folder whose latest import was undone because the package changed while it was read
+(`changed_during_import`) stays listed, marked *changed during import*, whatever families were
+imported from it before; a job is found by the folder it was asked for, the listed one when it was
+chosen from the list.
 
 You choose a project, a new or existing family, and what to do with data that already exists.
 **Discover manifest** drafts a manifest; edit it and save it with **Write manifest.yaml**. **Dry
@@ -446,7 +449,7 @@ The API behind the page:
 
 | Call | Does |
 | --- | --- |
-| `GET /family-imports/packages` | lists the packages under `FAMILY_IMPORT_ROOTS`, each with the families imported from it (`imported_families`: `family_id`, `registered_at`, `import_incomplete`) |
+| `GET /family-imports/packages` | lists the packages under `FAMILY_IMPORT_ROOTS`, each with the families imported from it (`imported_families`: `family_id`, `registered_at`, `import_incomplete`) and whether its latest import was undone because the package changed (`changed_during_import`) |
 | `POST /family-imports/manifest/discover` | reads the PED, looks for the expected files and returns a draft manifest |
 | `POST /family-imports/manifest/write` | saves the manifest into the folder |
 | `POST /family-imports/validate` | validates at once, without creating a job; with `manifest_yaml`, with that manifest instead of the folder's |
@@ -500,10 +503,19 @@ if any. Files a file browser writes and no import reads (`.DS_Store`, `Thumbs.db
 - As the job starts, its validation takes the fingerprint again. When it differs from the one the
   job was queued with, the job ends `failed` with `package_changed_since_queued`, having written
   nothing. The job's log names the fingerprint the import read the folder with.
-- Once the import has read the folder, the fingerprint is taken once more. When it differs from the
-  one the validation took, the job keeps its result with the warning `package_changed_during_import`:
-  what the import read may be partly the old package and partly the new. Nothing is undone; check
-  the package with its pipeline's owner and, if it changed, import it again with overwrite.
+- After each dataset, and once more after the last, the import takes the fingerprint again. When it
+  differs from the one the validation took, or the folder can no longer be read, what the import
+  read may be partly the package as it was and partly as it is now: the import stops and is
+  **undone** (the owner's decision of 2026-11-05). Every dataset it wrote, or had still to run,
+  counts as failed (one an update skipped wrote nothing and stays skipped). A family it created is
+  removed with everything of it, the managed copy of a kept manifest included. An existing family's
+  datasets are put back from the snapshot taken before the datasets (for an update as for an
+  overwrite, whenever the package has a fingerprint), and so is its package record; the pedigree
+  and descriptive metadata the registration refreshed from the validated package stay, as for any
+  failed overwrite, each change on the family's clinical audit trail. Where the family cannot be put
+  back, it is flagged import-incomplete. The job ends `failed` with `package_changed_during_import`,
+  and the package list offers the folder again (below): import it again once it is complete, dry
+  run first.
 - The family's package record keeps the fingerprint it was imported with
   (`families.metadata.package_import.package_fingerprint`).
 

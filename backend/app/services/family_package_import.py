@@ -62,6 +62,7 @@ from .family_package_common import (
 )
 from .family_package_fingerprint import PackageFolderTooLarge, package_fingerprint
 from .family_package_source import package_folder_path, staged_package_source_async
+from .raw_import_files_pg import unlink_managed_files
 from .stored_values import json_object
 from .family_package_validation import load_validated_family_package
 from .family_package_jobs import (
@@ -73,6 +74,7 @@ from .family_package_jobs import (
     _update_job_progress,
 )
 from .family_package_registration import (
+    put_back_family_package_record,
     FailuresLeft,
     ImportMark,
     _FINISHED_DATASET_STATUSES,
@@ -330,14 +332,15 @@ PACKAGE_CHANGED_SINCE_QUEUED = (
     "another. Nothing was imported. Run the dry run again, check its report, then import."
 )
 
-# What the job says when the package folder's fingerprint, taken again once the import has read
-# the folder, differs from the one its validation took before reading it.
+# Why a job ends failed, and its import is undone, when the package folder's fingerprint, taken
+# again after a dataset, differs from the one its validation took before reading the folder.
 PACKAGE_CHANGED_DURING_IMPORT = (
-    "The package folder changed while it was imported: a file was added, removed or changed (by "
-    "name, size or modification time) after the import's validation began reading the folder, or "
-    "the folder could no longer be read. What the import read may be partly the package as it "
-    "was and partly as it is now. Check the package with its pipeline's owner; if it changed, "
-    "an administrator imports it again with overwrite."
+    "The package changed while it was imported: a file in the folder was added, removed or "
+    "changed (by name, size or modification time) after the import's validation began reading "
+    "the folder, or the folder could no longer be read. What the import read may be partly the "
+    "package as it was and partly as it is now, so the import was undone: a family it created "
+    "is removed, and an existing family's data are put back as they were. Import the package "
+    "again once it is complete: run the dry run, check its report, then import."
 )
 
 
@@ -384,28 +387,47 @@ def _check_queued_package_fingerprint(
     )
 
 
-async def _note_package_changed_during_import(result: PackageExecutionResult, *, bundle: FamilyPackageBundle) -> None:
-    """Take the local package folder's fingerprint again once the import has read it, and record
-    in ``result`` a warning (``package_changed_during_import``) and a log line when it differs
-    from the one the validation took before reading the folder. The import has written the
-    family by then: nothing is undone, and a person checks the package. A package staged from a
-    bucket has no fingerprint, and is not checked."""
+async def _package_changed_since_validation(
+    bundle: FamilyPackageBundle, logs: list[str], *, say_unchanged: bool = False
+) -> bool:
+    """Whether the local package folder's fingerprint, taken now, differs from the one the
+    validation took before reading it, or the folder can no longer be read; said in ``logs``
+    when it does, and with ``say_unchanged`` when it does not. A package staged from a bucket
+    has no fingerprint, and never changes here."""
     if bundle.package_fingerprint is None:
-        return
+        return False
     kept_manifest_sha256 = bundle.manifest_sha256 if bundle.kept_manifest_text is not None else None
     try:
-        after = await asyncio.to_thread(package_fingerprint, bundle.root, kept_manifest_sha256=kept_manifest_sha256)
+        now = await asyncio.to_thread(package_fingerprint, bundle.root, kept_manifest_sha256=kept_manifest_sha256)
     except (OSError, PackageFolderTooLarge):
-        after = None
-    if after is not None and after.sha256 == bundle.package_fingerprint:
-        result.logs.append(f"The package folder did not change while it was imported (fingerprint {after.short}).")
-        return
-    result.logs.append(
+        now = None
+    if now is not None and now.sha256 == bundle.package_fingerprint:
+        if say_unchanged:
+            logs.append(f"The package folder did not change while it was imported (fingerprint {now.short}).")
+        return False
+    logs.append(
         f"The package folder changed while it was imported: its fingerprint is "
-        f"{after.short if after is not None else 'unreadable'}, not {bundle.package_fingerprint[:12]}."
+        f"{now.short if now is not None else 'unreadable'}, not {bundle.package_fingerprint[:12]}."
     )
-    issue = _issue("package_changed_during_import", PACKAGE_CHANGED_DURING_IMPORT, path=bundle.root)
-    result.validation = result.validation.model_copy(update={"warnings": [*result.validation.warnings, issue]})
+    return True
+
+
+# What a dataset of an import undone for a changed package is recorded as.
+_UNDONE_DATASET_MESSAGE = "Not kept: the package changed while it was imported, and the import was undone."
+
+
+def _fail_datasets_of_changed_package(
+    datasets: list[FamilyImportDatasetSummary], *, ran: list[FamilyImportDatasetSummary]
+) -> None:
+    """Record as failed every dataset the import undone for a changed package wrote or had still
+    to run: one that imported, with warnings or not, registered its files, or did not run. One
+    an update skipped (its data was there) wrote nothing and stays skipped; one that failed
+    keeps its own message."""
+    set_out = {summary.dataset_type for summary in ran}
+    for index, dataset in enumerate(datasets):
+        if dataset.dataset_type not in set_out or dataset.status in {"failed", "skipped"}:
+            continue
+        datasets[index] = dataset.model_copy(update={"status": "failed", "message": _UNDONE_DATASET_MESSAGE})
 
 
 async def db_pedigree_fallback(
@@ -675,9 +697,6 @@ async def _execute_family_package_import_local(
             import_mark=import_mark,
             user=user,
         )
-    # Read again once the import has read it: a package that changed meanwhile may have given
-    # the import part of the old folder and part of the new.
-    await _note_package_changed_during_import(result, bundle=bundle)
     if result.completed and not result.error:
         # VCF files the manifest declares for the exploratory ancestry PCA (outside the intended
         # purpose): recorded after the family's variant writes are released, reading no file. It
@@ -718,7 +737,18 @@ async def _import_family_datasets(
 
     Each change of the family's phenotypes it makes (the package's, a restore putting them
     back, the family it created removed again) is on the family's clinical audit trail as
-    made by ``user``, who runs the import."""
+    made by ``user``, who runs the import.
+
+    After each dataset the local package folder's fingerprint is taken again. When it differs
+    from the one the validation took before reading the folder, the package changed while it
+    was imported, and what the import read may be partly the package as it was and partly as
+    it is now: the import stops, and is undone (the owner's decision of 2026-11-05). Every
+    dataset it wrote, or had still to run, counts as failed: a family it created is removed
+    with everything of it; an existing family's datasets are put back from the snapshot taken
+    before the loop (for an update as for an overwrite, when the package has a fingerprint),
+    and its package record as it was (its ``previous_import``). Where the family cannot be
+    put back, it is flagged import-incomplete, as for any failed import. The job ends failed
+    with ``package_changed_during_import``, and the package list offers the folder again."""
     import_key = import_mark.key if import_mark is not None else None
     # The import as the phenotypes' audit events name it: who runs it, the package (by the
     # folder or bucket it was read from, as its log says) and its job.
@@ -749,9 +779,13 @@ async def _import_family_datasets(
     # Only overwrite is destructive — update mode is skip-if-exists, so nothing prior is
     # lost and the flag path below suffices. Best-effort: if a snapshot can't be taken we
     # degrade to the flag rather than failing the import.
+    # An update is snapshotted too when the package has a fingerprint: an import whose package
+    # changed while it was read is undone, an update as much as an overwrite. An update that
+    # fails otherwise is not restored, as before: its imported datasets are kept, and the
+    # family flagged.
     clickhouse_snapshot = None
     postgres_snapshot = None
-    if not family_created and conflict_mode == "overwrite":
+    if not family_created and (conflict_mode == "overwrite" or bundle.package_fingerprint is not None):
         try:
             postgres_snapshot = await snapshot_family_postgres_state(
                 session, family_context.family_uuid
@@ -775,6 +809,7 @@ async def _import_family_datasets(
             clickhouse_snapshot = None
             postgres_snapshot = None
 
+    package_changed = False
     for summary in _enabled_dataset_summaries(validation):
         index = next(
             (idx for idx, item in enumerate(datasets) if item.dataset_type == summary.dataset_type),
@@ -841,6 +876,27 @@ async def _import_family_datasets(
             await _record_family_import_finished(session, family_context, import_mark, finished)
         if progress is not None:
             await progress(validation, datasets, logs, family_context.family_id)
+        if await _package_changed_since_validation(bundle, logs):
+            package_changed = True
+            break
+
+    # Once more after the last dataset, whichever way it ended: one that failed is not checked
+    # in the loop, and the package may have changed while it ran.
+    if not package_changed:
+        package_changed = await _package_changed_since_validation(bundle, logs, say_unchanged=True)
+    if package_changed:
+        _fail_datasets_of_changed_package(datasets, ran=_enabled_dataset_summaries(validation))
+        validation = validation.model_copy(
+            update={
+                "valid": False,
+                "errors": [
+                    *validation.errors,
+                    _issue("package_changed_during_import", PACKAGE_CHANGED_DURING_IMPORT, path=bundle.root),
+                ],
+            }
+        )
+        if progress is not None:
+            await progress(validation, datasets, logs, family_context.family_id)
 
     failed_datasets = [dataset.dataset_type for dataset in datasets if dataset.status == "failed"]
     # Imported in full, or with warnings (the rows its input got wrong left out, each named in
@@ -894,19 +950,26 @@ async def _import_family_datasets(
     # import whose process stops before this, leave it.
     compensated = False
     restored = False
-    if failed_datasets and not imported_datasets and family_created:
+    if family_created and (package_changed or (failed_datasets and not imported_datasets)):
         await session.rollback()
         # Every dataset counts as pending again until the family is gone: a stop in the
         # middle leaves a family part-removed.
         if import_mark is not None:
             await _record_family_import_finished(session, family_context, import_mark, ())
-        await _delete_family_shell(session, family_context, user, phenotype_import=phenotype_import)
+        # The kept copies of its files (a manifest CoGA kept), unlinked once its rows have gone.
+        managed_files = await _delete_family_shell(session, family_context, user, phenotype_import=phenotype_import)
         await session.commit()
+        await unlink_managed_files(managed_files or [])
         compensated = True
         logs.append(
-            "No dataset imported successfully; rolled back the newly-created family shell."
+            "The package changed while it was imported; removed the newly-created family with "
+            "everything the import wrote of it."
+            if package_changed
+            else "No dataset imported successfully; rolled back the newly-created family shell."
         )
-    elif failed_datasets and (clickhouse_snapshot is not None or postgres_snapshot is not None):
+    elif (clickhouse_snapshot is not None or postgres_snapshot is not None) and (
+        package_changed or (failed_datasets and conflict_mode == "overwrite")
+    ):
         # The restore rewrites every table's rows of the family, table by table, whichever
         # import wrote them: until it has put the family back, every dataset of the family
         # counts as pending, this import's finished ones too and those of other imports
@@ -925,9 +988,14 @@ async def _import_family_datasets(
                     family_identifier=family_context.family_id,
                     phenotype_import=phenotype_import,
                 )
+            if package_changed:
+                await put_back_family_package_record(session, family_context.family_uuid)
             restored = True
             logs.append(
-                "Import failed; atomically restored the family's data to its pre-import state."
+                "The package changed while it was imported; restored the family's data, and its "
+                "package record, to their state before the import."
+                if package_changed
+                else "Import failed; atomically restored the family's data to its pre-import state."
             )
         except Exception as exc:  # restore failed; fall back to the flag
             # A restore refused for a missing backup table deleted nothing (and the Postgres
@@ -1028,7 +1096,10 @@ async def _import_family_datasets(
     if clickhouse_snapshot is not None:
         await discard_family_clickhouse_snapshot(clickhouse_snapshot)
 
-    if failed_datasets:
+    if package_changed:
+        error = PACKAGE_CHANGED_DURING_IMPORT
+        logs.append(error)
+    elif failed_datasets:
         error = "Family package import failed for dataset(s): " + ", ".join(
             sorted(set(failed_datasets))
         )

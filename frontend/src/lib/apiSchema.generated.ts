@@ -928,6 +928,7 @@ export interface FamilyPackageCandidateOut {
   has_ped: boolean;
   analysis_type: string | null;
   imported_families: ImportedPackageFamily[];
+  changed_during_import: boolean;
 }
 
 export interface FamilyPackageImportCreate {
