@@ -3239,7 +3239,13 @@ def _phenotype_files(bundle: FamilyPackageBundle, tsv_files: Sequence[str]) -> t
     inline = isinstance(individuals, Mapping) and any(
         isinstance(entry, Mapping) and entry.get("hpo") is not None for entry in individuals.values()
     )
-    manifest = [_display_path(bundle.root, bundle.manifest_path)] if inline else []
+    if not inline:
+        manifest: list[str] = []
+    elif bundle.manifest_path is not None:
+        manifest = [_display_path(bundle.root, bundle.manifest_path)]
+    else:
+        # The manifest CoGA kept for the import's job: no file of the package.
+        manifest = [f"manifest kept in CoGA (sha256 {bundle.manifest_sha256})"]
     return tuple(dict.fromkeys([*tsv_files, *manifest]))
 
 

@@ -59,9 +59,9 @@ from .family_variant_write_lock import VARIANT_TYPES, lock_family_variant_writes
 from .hpo_service import PHENOTYPES_ROLLED_BACK, PhenotypeImport, record_phenotypes_deleted_with_family
 from .access_control import CurrentUser
 from . import ped_service
-from .raw_import_files_pg import record_raw_import_file
+from .raw_import_files_pg import record_raw_import_file, store_managed_file
 
-from .family_package_common import HAPLOTYPE_ORIGIN_ROLES, LONG_READ_DATASET_ROLES, PCF_ROLE_KEYS, QC_FAMILY_ROLES, FamilyPackageBundle, ManifestDataset, _display_path, _issue, _metadata_dict, _resolve_package_path
+from .family_package_common import HAPLOTYPE_ORIGIN_ROLES, LONG_READ_DATASET_ROLES, MANIFEST_IN_FOLDER, MANIFEST_KEPT_IN_COGA, PCF_ROLE_KEYS, QC_FAMILY_ROLES, FamilyPackageBundle, ManifestDataset, _display_path, _issue, _metadata_dict, _resolve_package_path, manifest_text_sha256
 from .family_package_manifest import _manifest_carrier_types, _manifest_member_status_overrides, _manifest_pgt_metadata, _manifest_relationships, _manifest_roi_value, _normalize_manifest_samples, _ped_carrier_type, _ped_is_carrier, _ped_members_for_import
 
 
@@ -238,10 +238,17 @@ async def _record_package_raw_files(
     *,
     bundle: FamilyPackageBundle,
     family_uuid: str,
+    family_identifier: str,
 ) -> None:
     """Record provenance rows for every raw file referenced by the package manifest,
     grouped into family-level and individual-level scope. Files are referenced in
     place (not copied). Best-effort: never fails the import.
+
+    A manifest CoGA kept for the import's job, read instead of the folder's own, is no file
+    of the package: it is stored as a managed copy (``data/raw_imports``), as an uploaded file
+    is, and recorded as the family's ``manifest`` with its SHA-256, for download and Verify.
+    The copy is written before the registration commits, so a commit that fails leaves it
+    without a record.
 
     Each row identifies its file's content. A local file is hashed where it lies. For a
     package staged from a bucket the row names the object's URI -- the staging copy is
@@ -360,8 +367,47 @@ async def _record_package_raw_files(
                         dataset_type=dataset_type,
                         sample_uuid=sample_uuid,
                     )
+        if bundle.kept_manifest_text is not None:
+            await _record_kept_manifest(
+                session, bundle=bundle, family_uuid=family_uuid, family_identifier=family_identifier
+            )
     except Exception:  # pragma: no cover - provenance is non-critical
         logger.warning("Failed to record raw import file provenance", exc_info=True)
+
+
+# The file name a manifest CoGA kept for an import is recorded and stored under.
+KEPT_MANIFEST_FILE_NAME = "manifest.yaml"
+
+
+async def _record_kept_manifest(
+    session: AsyncSession,
+    *,
+    bundle: FamilyPackageBundle,
+    family_uuid: str,
+    family_identifier: str,
+) -> None:
+    """Store the manifest CoGA kept for the import's job as a managed copy and record it as the
+    family's ``manifest`` file, with the SHA-256 the job and the package record name it by."""
+    text_value = bundle.kept_manifest_text
+    if text_value is None:
+        return
+    content = text_value.encode("utf-8")
+    stored = await store_managed_file(family_identifier, KEPT_MANIFEST_FILE_NAME, content)
+    await record_raw_import_file(
+        session,
+        family_uuid=family_uuid,
+        sample_uuid=None,
+        scope="family",
+        dataset="manifest",
+        file_name=KEPT_MANIFEST_FILE_NAME,
+        storage_path=str(stored),
+        managed=True,
+        source="family_package",
+        file_size=len(content),
+        sha256=bundle.manifest_sha256 or manifest_text_sha256(text_value),
+        compute_checksum=False,
+        metadata={"manifest_source": MANIFEST_KEPT_IN_COGA},
+    )
 
 
 async def _register_package_provenance(
@@ -391,7 +437,14 @@ async def _register_package_provenance(
         # The folder the package was imported from: for a bucket, its gs:// or s3://
         # URI, since the staging copy is deleted after the import.
         "folder_path": bundle.source_uri or str(bundle.root),
-        "manifest_path": _display_path(bundle.root, bundle.manifest_path),
+        # The manifest the import read: the folder's file (its path in the package), or the text
+        # CoGA kept for the import's job (no path; the family's raw files hold its copy), with
+        # its SHA-256.
+        "manifest_path": (
+            _display_path(bundle.root, bundle.manifest_path) if bundle.manifest_path is not None else None
+        ),
+        "manifest_source": MANIFEST_KEPT_IN_COGA if bundle.kept_manifest_text is not None else MANIFEST_IN_FOLDER,
+        "manifest_sha256": bundle.manifest_sha256,
         "ped_path": _display_path(bundle.root, bundle.ped_path) if bundle.ped_path is not None else None,
         "schema_version": bundle.manifest.schema_version,
         "family_id": validation.family_id,
@@ -530,7 +583,9 @@ async def _register_package_provenance(
         user=user,
         source=PACKAGE_IMPORT,
     )
-    await _record_package_raw_files(session, bundle=bundle, family_uuid=family_uuid)
+    await _record_package_raw_files(
+        session, bundle=bundle, family_uuid=family_uuid, family_identifier=family_identifier
+    )
     await session.commit()
 
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import suppress
+import errno
 import glob
 import os
 from pathlib import Path
@@ -2150,6 +2151,16 @@ def _write_manifest_in_folder(root: Path, manifest_yaml: str) -> Path:
     return root / _MANIFEST_FILE
 
 
+# The errors writing into a folder CoGA may not write gives: a read-only mount (EROFS), or a
+# folder whose permissions refuse the backend's user (EACCES, EPERM).
+_UNWRITABLE_FOLDER_ERRORS = frozenset({errno.EROFS, errno.EACCES, errno.EPERM})
+MANIFEST_FOLDER_NOT_WRITABLE = (
+    "The package folder cannot be written (it is read-only, as a share mounted read-only is), "
+    "so manifest.yaml was not written. Import the package with this manifest kept in CoGA "
+    "instead: the import job keeps it, and reads it instead of a file in the folder."
+)
+
+
 def write_family_package_manifest(
     *,
     folder_path: str | Path,
@@ -2183,7 +2194,14 @@ def write_family_package_manifest(
             detail=f"Manifest YAML holds a NUL character at {nul_at}, which no path or name can hold",
         )
     PackageManifest.model_validate(payload)
-    manifest_path = _write_manifest_in_folder(root, manifest_yaml)
+    try:
+        manifest_path = _write_manifest_in_folder(root, manifest_yaml)
+    except OSError as exc:
+        # A folder CoGA cannot write, such as a share mounted read-only: said as such, not as a
+        # server error, with what to do instead.
+        if exc.errno not in _UNWRITABLE_FOLDER_ERRORS:
+            raise
+        raise HTTPException(status_code=409, detail=MANIFEST_FOLDER_NOT_WRITABLE) from exc
     return FamilyPackageManifestWriteOut(
         manifest_path=str(manifest_path),
         validation=validate_family_package(root, fallback_ped_text=fallback_ped_text),

@@ -23,11 +23,11 @@ from .hpo_service import (
     parse_manifest_inline_hpo,
 )
 
-from .family_package_common import CORE_DATASETS, HAPLOTYPE_ORIGIN_ROLES, IDENTIFIER_ISSUE_CODES, LONG_READ_DATASET_ROLES, PCF_ROLE_KEYS, QC_FAMILY_ROLES, FamilyPackageBundle, ManifestDataset, PackageManifest, ParsedPed, SUPPORTED_DATASETS, _display_path, _is_uncompressed_vcf, _issue, _package_path_or_none, _resolve_package_path, _vcf_index_candidates, family_id_issue, package_text_handle, read_vcf_sample_columns, sample_id_issues, unreadable_vcf_issue, UnreadableVcf, vcf_holds_a_data_line
+from .family_package_common import CORE_DATASETS, HAPLOTYPE_ORIGIN_ROLES, IDENTIFIER_ISSUE_CODES, LONG_READ_DATASET_ROLES, MANIFEST_IN_FOLDER, MANIFEST_KEPT_IN_COGA, PCF_ROLE_KEYS, QC_FAMILY_ROLES, FamilyPackageBundle, ManifestDataset, PackageManifest, ParsedPed, SUPPORTED_DATASETS, _display_path, _is_uncompressed_vcf, _issue, _package_path_or_none, _resolve_package_path, _vcf_index_candidates, family_id_issue, manifest_text_problem, manifest_text_sha256, package_text_handle, read_vcf_sample_columns, sample_id_issues, unreadable_vcf_issue, UnreadableVcf, vcf_holds_a_data_line
 from .family_package_manifest import _manifest_added_member_entries, _manifest_added_ped_rows, _manifest_derived_statuses, _manifest_pgt_metadata, _manifest_relationship_issues, _manifest_roi_value, _normalize_manifest_samples, _parse_ped_text_strict
 from .family_package_mito_table import mito_sample_calls, read_mito_table
 from .family_package_pgt import pgt_roi_phasing_issue
-from .family_package_source import _ensure_authorized_package_path, _find_manifest, _parse_manifest, manifest_link_out_of_package, manifest_outside_package_issue, package_folder_link_issues, package_folder_path, staged_package_source
+from .family_package_source import _ensure_authorized_package_path, _find_manifest, _parse_manifest, manifest_link_out_of_package, manifest_outside_package_issue, package_folder_link_issues, package_folder_path, parse_manifest_text, staged_package_source
 from .family_package_nipt import nipt_vcf_column_issue
 from .nipt import MONOGENIC_NIPT_ANALYSIS_TYPE
 from .nipt_target_coverage import target_table_missing_columns
@@ -1617,6 +1617,7 @@ def load_validated_family_package(
     fallback_ped_text: str | None = None,
     remote_only_files: frozenset[str] = frozenset(),
     source_uri: str | None = None,
+    manifest_text: str | None = None,
 ) -> tuple[FamilyPackageValidationOut, FamilyPackageBundle | None]:
     """Validate the package at ``folder_path`` and load it for import.
 
@@ -1626,11 +1627,15 @@ def load_validated_family_package(
     import, so the report -- which the import job stores and the import panel shows --
     names the source folder's objects rather than staged paths, and the bundle carries
     ``source_uri`` for the records the import writes.
+
+    ``manifest_text`` is the manifest CoGA keeps for the import's job, read instead of the
+    folder's own (``_validate_and_load_package``); None reads the folder's.
     """
     validation, bundle = _validate_and_load_package(
         folder_path,
         fallback_ped_text=fallback_ped_text,
         remote_only_files=remote_only_files,
+        manifest_text=manifest_text,
         # A manifest without family_id names the family after its folder: for a bucket,
         # the source folder, never the staging directory the copy sits in (pkg-...).
         folder_name=remote_folder_name(source_uri) if source_uri else None,
@@ -1679,7 +1684,20 @@ def _validate_and_load_package(
     fallback_ped_text: str | None,
     remote_only_files: frozenset[str],
     folder_name: str | None,
+    manifest_text: str | None = None,
 ) -> tuple[FamilyPackageValidationOut, FamilyPackageBundle | None]:
+    """Validate the package at ``folder_path`` and load it for import.
+
+    The manifest is the folder's own (``manifest.yaml``, ``.yml`` or ``.json``), or, given
+    ``manifest_text``, the manifest CoGA keeps for the import's job: a folder CoGA cannot write,
+    such as a share mounted read-only, holds none unless the pipeline wrote one, and Write
+    manifest cannot add it. Its paths are read relative to the package folder as a folder
+    manifest's are, and a file is read only when it lies in the package. A folder that holds a
+    manifest of its own too is told that it is not read (``manifest_in_folder_not_read``). The
+    report's metadata names the manifest read (``manifest_source``, ``folder`` or ``coga``) and
+    its SHA-256 (``manifest_sha256``: of the file's bytes, or of the kept text), as the job and
+    the family's package record keep them.
+    """
     try:
         root = _ensure_authorized_package_path(Path(folder_path))
     except HTTPException as exc:
@@ -1716,35 +1734,66 @@ def _validate_and_load_package(
     # the package (_resolve_package_path).
     warnings.extend(package_folder_link_issues(root))
 
-    manifest_path = _find_manifest(root)
-    if manifest_path is None:
-        errors.append(
-            _issue(
-                "manifest_missing",
-                "Manifest file not found; expected manifest.yaml, manifest.yml, or manifest.json",
-                path=root,
+    manifest_path: Path | None
+    if manifest_text is not None:
+        # The manifest CoGA keeps for the job, never the folder's.
+        manifest_path = None
+        manifest_source = MANIFEST_KEPT_IN_COGA
+        folder_manifest = _find_manifest(root)
+        if folder_manifest is not None:
+            warnings.append(
+                _issue(
+                    "manifest_in_folder_not_read",
+                    f"The package folder holds its own {folder_manifest.name}, which this import "
+                    "does not read: it reads the manifest CoGA keeps for it.",
+                    path=folder_manifest,
+                )
             )
-        )
-        return FamilyPackageValidationOut(valid=False, errors=errors, warnings=warnings, datasets=summaries), None
+        problem = manifest_text_problem(manifest_text)
+        try:
+            if problem is not None:
+                raise ValueError(problem)
+            manifest_payload, manifest = parse_manifest_text(manifest_text)
+        except (json.JSONDecodeError, ValueError, ValidationError, yaml.YAMLError) as exc:
+            errors.append(_issue("manifest_parse_failed", f"Manifest could not be parsed: {exc}"))
+            return FamilyPackageValidationOut(valid=False, errors=errors, warnings=warnings, datasets=summaries), None
+        manifest_sha256 = manifest_text_sha256(manifest_text)
+    else:
+        manifest_path = _find_manifest(root)
+        manifest_source = MANIFEST_IN_FOLDER
+        if manifest_path is None:
+            errors.append(
+                _issue(
+                    "manifest_missing",
+                    "Manifest file not found; expected manifest.yaml, manifest.yml, or manifest.json. "
+                    "A folder CoGA cannot write can be imported with the manifest Discover drafts, "
+                    "kept in CoGA instead of written to the folder.",
+                    path=root,
+                )
+            )
+            return FamilyPackageValidationOut(valid=False, errors=errors, warnings=warnings, datasets=summaries), None
 
-    try:
-        manifest_payload, manifest = _parse_manifest(manifest_path)
-    except (OSError, json.JSONDecodeError, ValueError, ValidationError, yaml.YAMLError) as exc:
-        errors.append(_issue("manifest_parse_failed", f"Manifest could not be parsed: {exc}", path=manifest_path))
-        return (
-            FamilyPackageValidationOut(
-                valid=False,
-                manifest_path=str(manifest_path),
-                errors=errors,
-                warnings=warnings,
-                datasets=summaries,
-            ),
-            None,
-        )
+        try:
+            manifest_payload, manifest, manifest_sha256 = _parse_manifest(manifest_path)
+        except (OSError, json.JSONDecodeError, ValueError, ValidationError, yaml.YAMLError) as exc:
+            errors.append(_issue("manifest_parse_failed", f"Manifest could not be parsed: {exc}", path=manifest_path))
+            return (
+                FamilyPackageValidationOut(
+                    valid=False,
+                    manifest_path=str(manifest_path),
+                    errors=errors,
+                    warnings=warnings,
+                    datasets=summaries,
+                ),
+                None,
+            )
+    shown_manifest_path = str(manifest_path) if manifest_path is not None else None
 
     metadata = {
         "schema_version": manifest.schema_version,
         "manifest_metadata": manifest.metadata,
+        "manifest_source": manifest_source,
+        "manifest_sha256": manifest_sha256,
     }
     roi_query = _manifest_roi_value(manifest)
     if roi_query:
@@ -1780,7 +1829,7 @@ def _validate_and_load_package(
         return (
             FamilyPackageValidationOut(
                 valid=False,
-                manifest_path=str(manifest_path),
+                manifest_path=shown_manifest_path,
                 errors=errors,
                 warnings=warnings,
                 datasets=summaries,
@@ -1960,7 +2009,7 @@ def _validate_and_load_package(
     validation = FamilyPackageValidationOut(
         valid=not errors,
         family_id=family_id,
-        manifest_path=str(manifest_path),
+        manifest_path=shown_manifest_path,
         ped_path=str(ped_path) if ped_path is not None else None,
         sample_ids=ped.sample_ids if ped is not None else [],
         errors=errors,
@@ -1977,6 +2026,8 @@ def _validate_and_load_package(
         ped_path=ped_path,
         ped=ped,
         remote_only_files=remote_only_files,
+        manifest_sha256=manifest_sha256,
+        kept_manifest_text=manifest_text,
     )
 
 
@@ -1984,12 +2035,16 @@ def validate_family_package(
     folder_path: str | Path,
     *,
     fallback_ped_text: str | None = None,
+    manifest_text: str | None = None,
 ) -> FamilyPackageValidationOut:
+    """Validate the package at ``folder_path``, with the folder's manifest or, given
+    ``manifest_text``, the manifest CoGA keeps for an import (``_validate_and_load_package``)."""
     with staged_package_source(folder_path) as staged:
         validation, _bundle = load_validated_family_package(
             staged.root,
             fallback_ped_text=fallback_ped_text,
             remote_only_files=staged.remote_only_files,
             source_uri=staged.source_uri,
+            manifest_text=manifest_text,
         )
     return validation

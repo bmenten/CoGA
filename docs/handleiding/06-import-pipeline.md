@@ -18,8 +18,8 @@ Alleen een superuser of een beheerder kan importeren: elk endpoint van de router
 | `GET /family-imports/packages` | Importeerbare familiemappen vinden |
 | `POST /family-imports/manifest/discover` | Een manifestvoorstel opbouwen uit wat in de map staat |
 | `POST /family-imports/manifest/write` | `manifest.yaml` wegschrijven |
-| `POST /family-imports/validate` | Meteen valideren, zonder job |
-| `POST /family-imports` | Een import of dry-run in de wachtrij zetten (een `project_id` zonder project krijgt `404` vóór er een job is) |
+| `POST /family-imports/validate` | Meteen valideren, zonder job; met `manifest_yaml` met dat manifest in plaats van dat in de map |
+| `POST /family-imports` | Een import of dry-run in de wachtrij zetten (een `project_id` zonder project krijgt `404` vóór er een job is); met `manifest_yaml` een manifest dat de job bewaart |
 | `GET /family-imports` en `GET /family-imports/{job_id}` | De status volgen |
 
 De import draait niet in het webverzoek maar in een **achtergrondworker**, zodat een groot pakket de server niet blokkeert. De worker neemt de volgende job, valideert het pakket, registreert de familie en importeert dan dataset per dataset. Onder Docker Compose draaien de workers in een eigen proces, de dienst `import-worker`, niet in de backend. Zo krijgt elke import een eigen processorkern en houdt hij de verzoeken van gebruikers niet op (hoofdstuk 4). Een job blijft `queued` zolang geen worker draait.
@@ -31,6 +31,12 @@ De import draait niet in het webverzoek maar in een **achtergrondworker**, zodat
 CoGA leest pakketten uit een lokale map, een AWS **S3**-bucket of **Google Cloud Storage** (GCS). Het pad bepaalt de bron: `s3://` of `gs://` leest uit die bucket, elk ander pad is een lokale map. (`STORAGE_BACKEND` bepaalt alleen waar de genoombrowser en de QC-rapporten hun bestanden lezen.) Het manifest ontdekken en *Write manifest.yaml* werken alleen op een lokale map; een pakket in een bucket brengt zijn manifest mee. Het verschil tussen `s3://` en `gs://` zit in één module; de rest van de importcode weet niet waar de bytes vandaan komen.
 
 Een pakket uit de cloud wordt eerst naar een tijdelijke map gekopieerd, zodat dezelfde importlogica draait. Daarna wordt die map opgeruimd.
+
+**Een manifest dat CoGA bewaart.** Een map waarin CoGA niet kan schrijven, zoals een share die read-only gemount is als tweede importmap, heeft geen manifest tenzij de pipeline er een schreef. *Write manifest.yaml* kan er geen toevoegen: het antwoordt `409` en zegt wat te doen, waar het vroeger met een `500` faalde. Zo'n pakket importeer je met het manifest dat CoGA bewaart. Laat de ontdekkingsstap het manifest opstellen, pas het aan waar nodig, en vink *Import with this manifest, kept in CoGA* aan. De pagina stuurt het concept alleen mee met de map waarvoor het werd opgesteld.
+
+- De aanvraag geeft het manifest als `manifest_yaml`. De job bewaart het in `family_import_jobs.manifest_text`, met zijn SHA-256 in `manifest_sha256`. Een worker die de job oppakt, ook opnieuw nadat zijn worker stopte, leest de bewaarde tekst. Een manifest met een NUL of een losse surrogaat krijgt `400` vóór er een job is.
+- De controle en de import lezen het in plaats van een bestand in de map. De paden zijn relatief tot de pakketmap en dezelfde bewakers gelden: een pad uit de map wordt geweigerd. Staat er toch een manifest in de map, dan volgt de waarschuwing dat het niet gelezen wordt (`manifest_in_folder_not_read`).
+- Het validatierapport noemt het gelezen manifest: `manifest_source` (`coga`, of `folder` voor het bestand in de map) en `manifest_sha256` (van de bewaarde tekst, of van de bytes van het bestand). Het pakketrecord van de familie (`families.metadata.package_import`) bewaart beide, met `manifest_path` leeg voor een bewaard manifest. De bestanden van de familie (`raw_import_files`) houden er een beheerde kopie van, als dataset `manifest`, om te downloaden en te verifiëren.
 
 - Alleen de import of validatie die het pakket kopieerde, leest die map. Een ingetypt pad erin, of een importmap die ernaar linkt, wordt geweigerd (`package_folder_not_allowed`); voorheen las zo'n pad de kopie van een andere import.
 - De tijdelijke mappen staan in `coga-family-imports` in de tempmap van de server, die de backend voor zichzelf afschermt. Vindt hij daar een symbolische link, een bestand of de map van een andere gebruiker, dan volgt hij die niet en kopieert hij geen pakket uit een bucket (SEC-27).
@@ -150,7 +156,7 @@ De dry-run is de veiligheidspoort van de import. Hij voert dezelfde pakketcontro
 De controles, in volgorde:
 
 1. **Pad** — de map moet binnen `FAMILY_IMPORT_ROOTS` liggen, en haar pad moet te volgen zijn: geen symbolische link die in een kring loopt, geen `~` voor een thuismap die de server niet heeft.
-2. **Bestaan** — de map bestaat, en het manifest bestaat als bestand in de map. Een manifest dat een symbolische link uit de map is of in een kring loopt, is een fout (`manifest_outside_package`).
+2. **Bestaan** — de map bestaat, en het manifest bestaat als bestand in de map, of de aanvraag geeft het manifest dat CoGA voor de job bewaart. Een manifest dat een symbolische link uit de map is of in een kring loopt, is een fout (`manifest_outside_package`).
 3. **Manifestversie** — `schema_version` moet `1` zijn (ontbreekt ze, dan volgt een waarschuwing).
 4. **ID's** — de familie-ID (uit het manifest, anders de mapnaam) en elke sample-ID zijn afdrukbare tekst zonder spaties, en geen pad. Sample-ID's komen uit de PED of de opgeslagen stamboom en uit `family.add_members`; bij het ontdekken ook uit de naam van een map per sample van een long-read-pakket, uit de samplesheet van de PGT-pipeline, of van een ouder die de PED noemt maar niet als lid heeft. De witruimte errond valt weg. Een fout (`family_id_invalid`, `sample_id_invalid`) is een ID met:
     - een stuurteken (C0, zoals een regeleinde, een tab, een escape of een NUL; DEL; of C1, `\x80`–`\x9f`) of witruimte erin;

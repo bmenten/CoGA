@@ -365,7 +365,7 @@ def test_provenance_of_a_package_imported_from_fake_gcs(gcs_backend, monkeypatch
             assert bundle is not None
             async with sm() as session:
                 await family_package_registration._record_package_raw_files(
-                    session, bundle=bundle, family_uuid=family.uuid
+                    session, bundle=bundle, family_uuid=family.uuid, family_identifier=family.label
                 )
                 await session.commit()
         async with sm() as session:

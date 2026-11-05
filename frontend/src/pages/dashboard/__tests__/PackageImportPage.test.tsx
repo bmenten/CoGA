@@ -344,6 +344,76 @@ describe('PackageImportPage', () => {
     expect(screen.getByText(/wrote \/data\/fam-100\/manifest.yaml/i)).toBeInTheDocument();
   });
 
+  it('imports with the drafted manifest kept in CoGA, only for the folder it was drafted for', async () => {
+    const draft = 'schema_version: 1\nfamily_id: FAM-100\nped: family.ped\n';
+    vi.mocked(api.post).mockImplementation((url: string) => {
+      if (url === '/family-imports/manifest/discover') {
+        return Promise.resolve({
+          data: {
+            valid: true,
+            family_id: 'FAM-100',
+            ped_path: 'family.ped',
+            manifest_path: '/data/share/FAM-100/manifest.yaml',
+            naming_scheme: 'standard_v1',
+            sample_ids: ['S1'],
+            manifest_yaml: draft,
+            datasets: [],
+            errors: [],
+            warnings: [],
+            metadata: {},
+          },
+        });
+      }
+      return Promise.resolve({
+        data: {
+          _id: 'job-1',
+          submitted_path: '/data/share/FAM-100',
+          family_id: null,
+          status: 'queued',
+          dry_run: true,
+          requested_by: 'admin@example.com',
+          requested_at: '2026-04-29T12:00:00Z',
+          validation_errors: [],
+          validation_warnings: [],
+          logs: [],
+          datasets: [],
+          manifest_sha256: 'a'.repeat(64),
+        },
+      });
+    });
+
+    renderPage();
+    await waitForProject();
+
+    const folder = screen.getByLabelText(/family folder path/i);
+    fireEvent.change(folder, { target: { value: '/data/share/FAM-100' } });
+    fireEvent.click(screen.getByRole('button', { name: /discover manifest/i }));
+    const keep = await screen.findByRole('checkbox', { name: /import with this manifest, kept in coga/i });
+    expect(keep).not.toBeChecked();
+    fireEvent.click(keep);
+    expect(keep).toBeChecked();
+    fireEvent.click(screen.getByRole('button', { name: /validate package/i }));
+
+    await waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith('/family-imports', {
+        folder_path: '/data/share/FAM-100',
+        project_id: ACCESSIBLE_PROJECT_ID,
+        dry_run: true,
+        family_id: null,
+        conflict_mode: 'cancel',
+        manifest_yaml: draft,
+      })
+    );
+    expect(await screen.findByText(/with the manifest kept in coga/i)).toBeInTheDocument();
+
+    // Another folder: the draft is not sent with it.
+    vi.mocked(api.post).mockClear();
+    fireEvent.change(folder, { target: { value: '/data/share/FAM-200' } });
+    expect(keep).not.toBeChecked();
+    expect(keep).toBeDisabled();
+    expect(screen.getByText(/discover the manifest for this folder first/i)).toBeInTheDocument();
+  });
+
   it("shows what Discover proposed for checking, not the datasets it did not find", async () => {
     vi.mocked(api.post).mockImplementation((url: string, payload: unknown) => {
       if (url === '/family-imports/manifest/discover') {

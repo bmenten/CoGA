@@ -141,12 +141,21 @@ class FamilyPackageCandidateOut(BaseModel):
     analysis_type: Optional[str] = None
 
 
+# The longest manifest text an import request may give: a manifest names files and members,
+# with at most a few HPO terms and notes each, and is a few kilobytes long.
+MANIFEST_YAML_MAX_LENGTH = 1_000_000
+
+
 class FamilyPackageImportCreate(BaseModel):
     folder_path: str = Field(min_length=1)
     project_id: Optional[str] = None
     dry_run: bool = False
     family_id: Optional[str] = None
     conflict_mode: Literal["cancel", "update", "overwrite"] = "cancel"
+    # The manifest to validate and import the package with, kept by CoGA (the job stores it),
+    # instead of the package folder's own: for a folder CoGA cannot write, such as a share
+    # mounted read-only, where Write manifest cannot put one. None reads the folder's.
+    manifest_yaml: Optional[str] = Field(default=None, min_length=1, max_length=MANIFEST_YAML_MAX_LENGTH)
 
 
 class FamilyPackageImportJobOut(ApiDocumentModel):
@@ -167,6 +176,9 @@ class FamilyPackageImportJobOut(ApiDocumentModel):
     datasets: List[FamilyImportDatasetSummary] = Field(default_factory=list)
     metadata: Dict[str, Any] = Field(default_factory=dict)
     error: Optional[str] = None
+    # The SHA-256 of the manifest CoGA keeps for the job (FamilyPackageImportCreate.manifest_yaml);
+    # None for a job that reads the package folder's own.
+    manifest_sha256: Optional[str] = None
 
 
 class ManualPedMemberCreate(BaseModel):

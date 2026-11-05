@@ -1390,11 +1390,11 @@ python docs/handleiding/build_site.py
 </tr>
 <tr>
 <td><code>POST /family-imports/validate</code></td>
-<td>Meteen valideren, zonder job</td>
+<td>Meteen valideren, zonder job; met <code>manifest_yaml</code> met dat manifest in plaats van dat in de map</td>
 </tr>
 <tr>
 <td><code>POST /family-imports</code></td>
-<td>Een import of dry-run in de wachtrij zetten (een <code>project_id</code> zonder project krijgt <code>404</code> vóór er een job is)</td>
+<td>Een import of dry-run in de wachtrij zetten (een <code>project_id</code> zonder project krijgt <code>404</code> vóór er een job is); met <code>manifest_yaml</code> een manifest dat de job bewaart</td>
 </tr>
 <tr>
 <td><code>GET /family-imports</code> en <code>GET /family-imports/{job_id}</code></td>
@@ -1407,8 +1407,16 @@ python docs/handleiding/build_site.py
 <h2>Waar het pakket vandaan komt</h2>
 <p>CoGA leest pakketten uit een lokale map, een AWS <strong>S3</strong>-bucket of <strong>Google Cloud Storage</strong> (GCS). Het pad bepaalt de bron: <code>s3://</code> of <code>gs://</code> leest uit die bucket, elk ander pad is een lokale map. (<code>STORAGE_BACKEND</code> bepaalt alleen waar de genoombrowser en de QC-rapporten hun bestanden lezen.) Het manifest ontdekken en <em>Write manifest.yaml</em> werken alleen op een lokale map; een pakket in een bucket brengt zijn manifest mee. Het verschil tussen <code>s3://</code> en <code>gs://</code> zit in één module; de rest van de importcode weet niet waar de bytes vandaan komen.</p>
 <p>Een pakket uit de cloud wordt eerst naar een tijdelijke map gekopieerd, zodat dezelfde importlogica draait. Daarna wordt die map opgeruimd.</p>
+<p><strong>Een manifest dat CoGA bewaart.</strong> Een map waarin CoGA niet kan schrijven, zoals een share die read-only gemount is als tweede importmap, heeft geen manifest tenzij de pipeline er een schreef. <em>Write manifest.yaml</em> kan er geen toevoegen: het antwoordt <code>409</code> en zegt wat te doen, waar het vroeger met een <code>500</code> faalde. Zo'n pakket importeer je met het manifest dat CoGA bewaart. Laat de ontdekkingsstap het manifest opstellen, pas het aan waar nodig, en vink <em>Import with this manifest, kept in CoGA</em> aan. De pagina stuurt het concept alleen mee met de map waarvoor het werd opgesteld.</p>
 <ul>
-<li>Alleen de import of validatie die het pakket kopieerde, leest die map. Een ingetypt pad erin, of een importmap die ernaar linkt, wordt geweigerd (<code>package_folder_not_allowed</code>); voorheen las zo'n pad de kopie van een andere import.</li>
+<li>De aanvraag geeft het manifest als <code>manifest_yaml</code>. De job bewaart het in <code>family_import_jobs.manifest_text</code>, met zijn SHA-256 in <code>manifest_sha256</code>. Een worker die de job oppakt, ook opnieuw nadat zijn worker stopte, leest de bewaarde tekst. Een manifest met een NUL of een losse surrogaat krijgt <code>400</code> vóór er een job is.</li>
+<li>De controle en de import lezen het in plaats van een bestand in de map. De paden zijn relatief tot de pakketmap en dezelfde bewakers gelden: een pad uit de map wordt geweigerd. Staat er toch een manifest in de map, dan volgt de waarschuwing dat het niet gelezen wordt (<code>manifest_in_folder_not_read</code>).</li>
+<li>
+<p>Het validatierapport noemt het gelezen manifest: <code>manifest_source</code> (<code>coga</code>, of <code>folder</code> voor het bestand in de map) en <code>manifest_sha256</code> (van de bewaarde tekst, of van de bytes van het bestand). Het pakketrecord van de familie (<code>families.metadata.package_import</code>) bewaart beide, met <code>manifest_path</code> leeg voor een bewaard manifest. De bestanden van de familie (<code>raw_import_files</code>) houden er een beheerde kopie van, als dataset <code>manifest</code>, om te downloaden en te verifiëren.</p>
+</li>
+<li>
+<p>Alleen de import of validatie die het pakket kopieerde, leest die map. Een ingetypt pad erin, of een importmap die ernaar linkt, wordt geweigerd (<code>package_folder_not_allowed</code>); voorheen las zo'n pad de kopie van een andere import.</p>
+</li>
 <li>De tijdelijke mappen staan in <code>coga-family-imports</code> in de tempmap van de server, die de backend voor zichzelf afschermt. Vindt hij daar een symbolische link, een bestand of de map van een andere gebruiker, dan volgt hij die niet en kopieert hij geen pakket uit een bucket (SEC-27).</li>
 <li>De alignments (<code>.cram</code>, <code>.crai</code>, <code>.bam</code>, <code>.bai</code> en een <code>.csi</code> van een alignment) blijven in de bucket: geen importer leest ze, en een CRAM van een volledig genoom is tientallen gigabytes. Alleen de dataset <code>alignments</code> mag naar zo'n bestand verwijzen. De import controleert dat het object bestaat en legt zijn URI vast.</li>
 <li>Omdat de tijdelijke map verdwijnt, noemen de joblog, het validatierapport, de herkomst van de familie en het register van bronbestanden de map en de objecten in de bucket.</li>
@@ -1529,7 +1537,7 @@ python docs/handleiding/build_site.py
 <p>De controles, in volgorde:</p>
 <ol>
 <li><strong>Pad</strong> — de map moet binnen <code>FAMILY_IMPORT_ROOTS</code> liggen, en haar pad moet te volgen zijn: geen symbolische link die in een kring loopt, geen <code>~</code> voor een thuismap die de server niet heeft.</li>
-<li><strong>Bestaan</strong> — de map bestaat, en het manifest bestaat als bestand in de map. Een manifest dat een symbolische link uit de map is of in een kring loopt, is een fout (<code>manifest_outside_package</code>).</li>
+<li><strong>Bestaan</strong> — de map bestaat, en het manifest bestaat als bestand in de map, of de aanvraag geeft het manifest dat CoGA voor de job bewaart. Een manifest dat een symbolische link uit de map is of in een kring loopt, is een fout (<code>manifest_outside_package</code>).</li>
 <li><strong>Manifestversie</strong> — <code>schema_version</code> moet <code>1</code> zijn (ontbreekt ze, dan volgt een waarschuwing).</li>
 <li>
 <p><strong>ID's</strong> — de familie-ID (uit het manifest, anders de mapnaam) en elke sample-ID zijn afdrukbare tekst zonder spaties, en geen pad. Sample-ID's komen uit de PED of de opgeslagen stamboom en uit <code>family.add_members</code>; bij het ontdekken ook uit de naam van een map per sample van een long-read-pakket, uit de samplesheet van de PGT-pipeline, of van een ouder die de PED noemt maar niet als lid heeft. De witruimte errond valt weg. Een fout (<code>family_id_invalid</code>, <code>sample_id_invalid</code>) is een ID met:</p>

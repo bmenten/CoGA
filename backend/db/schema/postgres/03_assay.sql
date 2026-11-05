@@ -226,7 +226,10 @@ CREATE INDEX IF NOT EXISTS idx_family_structure_versions_chain ON family_structu
 -- runs as that account, and a user who is no administrator sees only their own jobs.
 -- requested_by is the e-mail address it was asked under, shown with the job; a Microsoft
 -- sign-in may change the account's address later (SEC-4). The account's deletion keeps the
--- job, linked to no account (it can then no longer run).
+-- job, linked to no account (it can then no longer run). manifest_text is the manifest CoGA
+-- keeps for the job, which its validation and import read instead of the package folder's own
+-- (a folder CoGA cannot write, such as a share mounted read-only), with its SHA-256; both are
+-- NULL for a job that reads the folder's manifest.
 CREATE TABLE IF NOT EXISTS family_import_jobs (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
     submitted_path text NOT NULL,
@@ -247,7 +250,10 @@ CREATE TABLE IF NOT EXISTS family_import_jobs (
     dataset_summaries jsonb DEFAULT '[]'::jsonb NOT NULL,
     metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
     error text,
+    manifest_text text,
+    manifest_sha256 text,
     CONSTRAINT family_import_jobs_pkey PRIMARY KEY (id),
+    CONSTRAINT family_import_jobs_manifest_check CHECK (((manifest_text IS NULL) = (manifest_sha256 IS NULL))),
     CONSTRAINT family_import_jobs_status_check CHECK ((status = ANY (ARRAY['queued'::text, 'validating'::text, 'running'::text, 'completed'::text, 'failed'::text]))),
     CONSTRAINT family_import_jobs_project_id_fkey FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL,
     CONSTRAINT family_import_jobs_requested_by_id_fkey FOREIGN KEY (requested_by_id) REFERENCES users(id) ON DELETE SET NULL

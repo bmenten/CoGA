@@ -69,6 +69,10 @@ the CI ``smoke`` job sets it.
   without waits for approval; none is archived. An archived account that is active is refused,
   it ends at the same fingerprint, and an account waiting for approval made since still waits at
   a later start.
+- A database at revision 0017 from before an import job could keep its manifest gets the job's
+  ``manifest_text`` and ``manifest_sha256`` with the baseline's check (revision 0018): each job
+  stored before keeps its row and neither, a job that keeps one but not the other is refused, it
+  ends at the same fingerprint, and a later start changes nothing.
 - A ledger naming a revision this version does not have is refused, and nothing changes.
 - The restricted runtime role cannot run the migration; two instances that start together
   both come up, one after the other.
@@ -2335,5 +2339,85 @@ def test_a_database_from_before_the_archive_tells_each_account_waiting_for_appro
         table: rows for table, rows in contents.items() if table not in changed
     }
     assert kept["users"][0] == contents["users"][0]
+    # The schema is the baselines'.
+    assert actual == expected, _differences(expected, actual)
+
+
+_BEFORE_0018 = (
+    "ALTER TABLE family_import_jobs DROP CONSTRAINT family_import_jobs_manifest_check",
+    "ALTER TABLE family_import_jobs DROP COLUMN manifest_sha256",
+    "ALTER TABLE family_import_jobs DROP COLUMN manifest_text",
+)
+
+
+@_MODES
+def test_a_database_from_before_kept_manifests_gives_each_import_job_none(monkeypatch, reapply_baselines: bool) -> None:
+    from sqlalchemy.exc import IntegrityError
+
+    from backend.app.core import postgres_migrations
+    from backend.app.core.postgres_migrations import apply_postgres_schema, head_revision
+
+    monkeypatch.setattr(postgres_migrations, "REAPPLY_BASELINES_ON_EVERY_RUN", reapply_baselines)
+
+    async def _body(database: str):
+        engine = _engine(database)
+        try:
+            async with engine.begin() as conn:
+                await apply_postgres_schema(conn)
+            # A database at revision 0017, from before the two columns and their check, with a
+            # job that read its folder's manifest.
+            async with engine.begin() as conn:
+                await conn.execute(text("UPDATE alembic_version SET version_num = '0017'"))
+                for statement in _BEFORE_0018:
+                    await conn.exec_driver_sql(statement)
+                await conn.execute(
+                    text(
+                        "INSERT INTO family_import_jobs (submitted_path, status, requested_by) "
+                        "VALUES ('/data/families/FAM1', 'completed', 'superuser@example.org')"
+                    )
+                )
+            contents = await _table_contents(database)
+            async with engine.begin() as conn:
+                revision = await apply_postgres_schema(conn)
+            kept = await _table_contents(database)
+            async with engine.connect() as conn:
+                stored = (
+                    await conn.execute(
+                        text("SELECT manifest_text, manifest_sha256 FROM family_import_jobs")
+                    )
+                ).all()
+                check = await _check_definition(conn, "family_import_jobs", "family_import_jobs_manifest_check")
+            # A job that keeps a manifest without its SHA-256 is refused.
+            try:
+                async with engine.begin() as conn:
+                    await conn.execute(text("UPDATE family_import_jobs SET manifest_text = 'family_id: FAM1'"))
+                refused = False
+            except IntegrityError:
+                refused = True
+            async with engine.begin() as conn:
+                again = await apply_postgres_schema(conn)
+        finally:
+            await engine.dispose()
+        reference = await _create_database()
+        try:
+            await _apply_baseline_files(reference)
+            fingerprints = await _fingerprint(reference), await _fingerprint(database)
+        finally:
+            await _drop_database(reference)
+        return (revision, again), stored, check, refused, (contents, kept), fingerprints
+
+    (revision, again), stored, check, refused, (contents, kept), (expected, actual) = _run(_body)
+
+    assert (revision.before, revision.after) == ("0017", head_revision())
+    assert (again.before, again.after) == (head_revision(), head_revision())
+    assert [tuple(row) for row in stored] == [(None, None)]
+    assert check == "CHECK (((manifest_text IS NULL) = (manifest_sha256 IS NULL)))"
+    assert refused is True
+    # Every other table is as it was; the job keeps its row.
+    changed = {"alembic_version", "family_import_jobs"}
+    assert {table: rows for table, rows in kept.items() if table not in changed} == {
+        table: rows for table, rows in contents.items() if table not in changed
+    }
+    assert kept["family_import_jobs"][0] == contents["family_import_jobs"][0]
     # The schema is the baselines'.
     assert actual == expected, _differences(expected, actual)

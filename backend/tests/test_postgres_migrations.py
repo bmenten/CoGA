@@ -106,6 +106,12 @@ def test_revision_0016_gives_the_ancestry_runs_the_baselines_checks() -> None:
     assert f"CONSTRAINT ancestry_runs_requester_check {ancestry._REQUESTER_CHECK}," in traceability
 
 
+def test_revision_0018_gives_the_import_jobs_the_baselines_check() -> None:
+    kept_manifest = migration_script().get_revision("0018").module
+
+    assert kept_manifest._MANIFEST_CHECK == _baseline_check("family_import_jobs_manifest_check")
+
+
 def test_revision_0004_runs_the_baselines_own_statements_for_the_structure_versions_and_the_ui_event_log() -> None:
     # SEC-7: the structure versions' chain and both tables' append-only guards, brought to a
     # database the baselines created before them by the baselines' own statements.

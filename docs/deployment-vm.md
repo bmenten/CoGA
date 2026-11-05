@@ -465,8 +465,11 @@ sudo systemctl daemon-reload && sudo mount /srv/coga/data/share
   ```
 
 - Set `FAMILY_IMPORT_ROOTS=/data/families,/data/share` in `.env` and run `docker compose up -d`.
-- The mount is read-only, so a package there must bring its own manifest: Write manifest
-  cannot add one.
+- The mount is read-only, so Write manifest cannot add a manifest to a package there (it says
+  so). Discover the manifest, edit it if needed, and tick **Import with this manifest, kept in
+  CoGA**: the import job keeps the manifest and reads it instead of a file in the folder
+  ([data-import.md](data-import.md#a-manifest-kept-in-coga)). A package whose pipeline wrote
+  its own manifest imports as before.
 
 ## 9. Run it
 
