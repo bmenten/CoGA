@@ -154,6 +154,8 @@ from .genes import (
     MendeliomeRegenerateResponse,
     PanelAppPanelSummaryOut,
     PanelAppPanelSearchResponse,
+    PanelAppConfidenceCounts,
+    PanelAppPanelCountsOut,
     PanelAppImportRequest,
     PanelAppImportResponse,
 )
@@ -551,6 +553,8 @@ __all__ = [
     "MendeliomeRegenerateResponse",
     "PanelAppPanelSummaryOut",
     "PanelAppPanelSearchResponse",
+    "PanelAppConfidenceCounts",
+    "PanelAppPanelCountsOut",
     "PanelAppImportRequest",
     "PanelAppImportResponse",
     "PedFamilyResult",
