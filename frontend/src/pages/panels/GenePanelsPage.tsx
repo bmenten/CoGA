@@ -19,6 +19,8 @@ import QueryFailure from '../../components/QueryFailure';
 import { formatDateTime } from '../../lib/format';
 import { compareAssemblyNames } from '../../lib/reference';
 import { routePath } from '../../lib/routePath';
+import PanelAppSearchRow from './PanelAppSearchRow';
+import { panelAppSelection, panelAppSelectionLabel } from './panelAppConfidence';
 
 // A panel request's error detail: a message, a validation list, or a message naming genes.
 type PanelErrorDetail =
@@ -75,8 +77,10 @@ const GenePanelsPage: React.FC = () => {
   const [panelAppQuery, setPanelAppQuery] = useState('');
   const [panelAppResults, setPanelAppResults] = useState<PanelAppPanelSummaryOut[]>([]);
   const [panelAppLoading, setPanelAppLoading] = useState(false);
-  const [panelAppImporting, setPanelAppImporting] = useState<number | null>(null);
-  const [confidencePreset, setConfidencePreset] = useState('3');
+  // The PanelApp panel and choice of confidence levels being imported, if any.
+  const [panelAppImporting, setPanelAppImporting] = useState<{ panelappId: number; selection: string } | null>(
+    null,
+  );
   const [panelAppAssembly, setPanelAppAssembly] = useState<'GRCh38' | 'GRCh37'>('GRCh38');
   const [includePanelAppRegions, setIncludePanelAppRegions] = useState(true);
   const [includePanelAppStrs, setIncludePanelAppStrs] = useState(true);
@@ -105,7 +109,6 @@ const GenePanelsPage: React.FC = () => {
     if (panel.source === 'mendeliome') return 'Mendeliome';
     return 'Local';
   };
-  const confidenceLevels = confidencePreset.split(',');
 
   const [mendeliomeBusy, setMendeliomeBusy] = useState(false);
   const mendeliome = panels?.find((p) => p.source === 'mendeliome');
@@ -161,8 +164,10 @@ const GenePanelsPage: React.FC = () => {
     }
   };
 
-  const importPanelApp = async (panel: PanelAppPanelSummaryOut) => {
-    setPanelAppImporting(panel.panelapp_id);
+  // Each choice of confidence levels of a PanelApp panel is a panel of its own; importing one
+  // the catalogue holds updates that panel only.
+  const importPanelApp = async (panel: PanelAppPanelSummaryOut, confidenceLevels: string[]) => {
+    setPanelAppImporting({ panelappId: panel.panelapp_id, selection: panelAppSelection(confidenceLevels) });
     setStatus('');
     try {
       const res = await api.post<PanelAppImportResponse>('/panels/import/panelapp', {
@@ -228,7 +233,9 @@ const GenePanelsPage: React.FC = () => {
               </h2>
               <p className="section-copy">
                 Panels CoGA takes from an external source: a PanelApp panel at its current version,
-                and the Mendeliome built from the loaded Monarch release.
+                and the Mendeliome built from the loaded Monarch release. A PanelApp panel can be
+                imported green only, green + amber, or green + amber + red: each is a panel of its
+                own, to filter on apart.
               </p>
             </div>
 
@@ -242,17 +249,6 @@ const GenePanelsPage: React.FC = () => {
                     onChange={(e) => setPanelAppQuery(e.target.value)}
                     placeholder="Ataxia, R169, cardiomyopathy"
                   />
-                </label>
-                <label className="field-label">
-                  <span>Confidence</span>
-                  <select
-                    value={confidencePreset}
-                    onChange={(event) => setConfidencePreset(event.target.value)}
-                  >
-                    <option value="3">Green only</option>
-                    <option value="2,3">Green + amber</option>
-                    <option value="1,2,3">All confidence levels</option>
-                  </select>
                 </label>
                 <label className="field-label">
                   <span>Assembly</span>
@@ -291,42 +287,28 @@ const GenePanelsPage: React.FC = () => {
                       <tr>
                         <th>Panel</th>
                         <th>Version</th>
-                        <th>Content</th>
+                        <th>Content by confidence</th>
                         <th>Type</th>
-                        <th>Action</th>
+                        <th>Import as panel</th>
                       </tr>
                     </thead>
                     <tbody>
                       {panelAppResults.map((panel) => (
-                        <tr key={panel.panelapp_id}>
-                          <td>
-                            <div className="font-semibold">{panel.name}</div>
-                            <div className="table-subtle">
-                              PanelApp {panel.panelapp_id}
-                              {panel.disease_group ? ` · ${panel.disease_group}` : ''}
-                            </div>
-                          </td>
-                          <td>
-                            {panel.version || 'latest'}
-                            {panel.version_created && (
-                              <div className="table-subtle">{formatDateTime(panel.version_created)}</div>
-                            )}
-                          </td>
-                          <td>
-                            {panel.gene_count} genes · {panel.region_count} regions · {panel.str_count} STRs
-                          </td>
-                          <td>{panel.types.join(', ') || 'PanelApp'}</td>
-                          <td>
-                            <button
-                              type="button"
-                              className="form-button"
-                              onClick={() => importPanelApp(panel)}
-                              disabled={panelAppImporting === panel.panelapp_id}
-                            >
-                              {panelAppImporting === panel.panelapp_id ? 'Importing...' : 'Import'}
-                            </button>
-                          </td>
-                        </tr>
+                        <PanelAppSearchRow
+                          key={panel.panelapp_id}
+                          panel={panel}
+                          imported={(panels ?? []).filter(
+                            (entry) =>
+                              entry.source === 'panelapp' && entry.external_id === String(panel.panelapp_id),
+                          )}
+                          importing={
+                            panelAppImporting?.panelappId === panel.panelapp_id ? panelAppImporting.selection : null
+                          }
+                          busy={panelAppImporting !== null}
+                          includeRegions={includePanelAppRegions}
+                          includeStrs={includePanelAppStrs}
+                          onImport={(found, levels) => void importPanelApp(found, levels)}
+                        />
                       ))}
                     </tbody>
                   </table>
@@ -442,7 +424,13 @@ const GenePanelsPage: React.FC = () => {
             ?.filter((p) => {
               const q = panelSearch.trim().toLowerCase();
               if (!q) return true;
-              return [p.name, formatSource(p), p.description || '', p.external_version || '']
+              return [
+                p.name,
+                formatSource(p),
+                p.description || '',
+                p.external_version || '',
+                panelAppSelectionLabel(p.external_selection),
+              ]
                 .some((value) => String(value).toLowerCase().includes(q));
             })
             .map((p) => {
@@ -458,8 +446,10 @@ const GenePanelsPage: React.FC = () => {
                 <td>{formatSize(p.regions)}</td>
                 <td>
                   {formatSource(p)}
-                  {p.external_version ? (
-                    <div className="table-subtle">{p.external_version}</div>
+                  {p.external_version || p.external_selection ? (
+                    <div className="table-subtle">
+                      {[p.external_version, panelAppSelectionLabel(p.external_selection)].filter(Boolean).join(' · ')}
+                    </div>
                   ) : null}
                 </td>
                 <td>v{p.version ?? 1}</td>

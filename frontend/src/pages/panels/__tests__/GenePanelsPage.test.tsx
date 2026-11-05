@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
@@ -57,6 +57,30 @@ const ATAXIA = {
   region_count: 3,
   types: ['Rare Disease 100K'],
   url: 'https://panelapp.genomicsengland.co.uk/panels/20/',
+};
+
+/** ATAXIA's entities by confidence level, as /panels/panelapp/20/counts reads them. */
+const ATAXIA_COUNTS = {
+  panelapp_id: 20,
+  version: '1.345',
+  genes: { total: 168, green: 120, amber: 30, red: 16, unrated: 2 },
+  strs: { total: 14, green: 10, amber: 2, red: 2, unrated: 0 },
+  regions: { total: 3, green: 3, amber: 0, red: 0, unrated: 0 },
+};
+
+/** The API as the PanelApp import reads it: the catalogue, a search finding ATAXIA, and its counts. */
+const panelAppApi =
+  (catalogue: unknown[] = [PANEL_A], counts: () => Promise<unknown> = () => Promise.resolve({ data: ATAXIA_COUNTS })) =>
+  (url: string) => {
+    if (url === '/panels/panelapp/search') return Promise.resolve({ data: { count: 1, results: [ATAXIA] } });
+    if (url === '/panels/panelapp/20/counts') return counts();
+    return Promise.resolve({ data: catalogue });
+  };
+
+const searchAtaxia = async () => {
+  await userEvent.type(screen.getByLabelText(/PanelApp search/i), 'ataxia');
+  await userEvent.click(screen.getByRole('button', { name: /search panelapp/i }));
+  await screen.findByText('Hereditary ataxia');
 };
 
 const renderPage = (role: 'viewer' | 'admin') => {
@@ -283,34 +307,28 @@ describe('GenePanelsPage', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
-  it('imports a selected PanelApp panel for admins', async () => {
-    (api.get as unknown as Mock).mockImplementation((url: string) => {
-      if (url === '/panels/panelapp/search') {
-        return Promise.resolve({ data: { count: 1, results: [ATAXIA] } });
-      }
-      return Promise.resolve({ data: [PANEL_A] });
-    });
+  it('imports a selected PanelApp panel green only for admins', async () => {
+    (api.get as unknown as Mock).mockImplementation(panelAppApi());
     (api.post as unknown as Mock).mockResolvedValueOnce({
       data: {
-        message: 'PanelApp panel imported with 168 genes and 185 regions',
+        message: 'PanelApp panel imported with 120 genes and 185 regions',
       },
     });
 
     renderPage('admin');
 
     await waitFor(() => expect(screen.getByText('PanelA')).toBeInTheDocument());
-    await userEvent.type(screen.getByLabelText(/PanelApp search/i), 'ataxia');
-    await userEvent.click(screen.getByRole('button', { name: /search panelapp/i }));
-
-    await waitFor(() => expect(screen.getByText('Hereditary ataxia')).toBeInTheDocument());
-    await userEvent.click(screen.getByRole('button', { name: /^import$/i }));
+    await searchAtaxia();
+    await userEvent.click(await screen.findByRole('button', { name: 'Green (120)' }));
 
     await waitFor(() =>
-      expect(screen.getByText(/PanelApp panel imported with 168 genes/)).toBeInTheDocument(),
+      expect(screen.getByText(/PanelApp panel imported with 120 genes/)).toBeInTheDocument(),
     );
     expect(api.get).toHaveBeenCalledWith('/panels/panelapp/search', {
       params: { query: 'ataxia', page_size: 20 },
     });
+    // The counts are read for the version the search found, the one the import takes.
+    expect(api.get).toHaveBeenCalledWith('/panels/panelapp/20/counts', { params: { version: '1.345' } });
     expect(api.post).toHaveBeenCalledWith('/panels/import/panelapp', {
       panelapp_id: 20,
       version: '1.345',
@@ -321,13 +339,117 @@ describe('GenePanelsPage', () => {
     });
   });
 
+  // After a search, each panel's genes, regions and STRs are counted per confidence level: the
+  // total, then green, amber and red, and the unrated ones PanelApp lists apart.
+  it('counts the genes, regions and STRs of each panel found by confidence level', async () => {
+    (api.get as unknown as Mock).mockImplementation(panelAppApi());
+    renderPage('admin');
+    await screen.findByRole('link', { name: 'PanelA' });
+    await searchAtaxia();
+
+    const row = screen.getByText('Hereditary ataxia').closest('tr') as HTMLElement;
+    await within(row).findByText('120 green');
+    const lines = Array.from(row.querySelectorAll('.panelapp-confidence-line')).map((line) =>
+      Array.from(line.children).map((part) => part.textContent),
+    );
+    expect(lines).toEqual([
+      ['168 genes', '120 green', '30 amber', '16 red', '2 unrated'],
+      ['3 regions', '3 green', '0 amber', '0 red'],
+      ['14 STRs', '10 green', '2 amber', '2 red'],
+    ]);
+    // Each choice of levels names the genes it takes.
+    expect(within(row).getAllByRole('button').map((button) => button.textContent)).toEqual([
+      'Green (120)',
+      'Green + amber (150)',
+      'Green + amber + red (166)',
+    ]);
+  });
+
+  // Each choice of levels of one PanelApp panel is a panel of its own: those in the catalogue
+  // are listed with their version, and importing another choice adds a panel next to them.
+  it('lists the choices already in the catalogue, and imports another as a panel of its own', async () => {
+    const imported = (id: string, selection: string, version: number) => ({
+      ...PANEL_A,
+      _id: id,
+      name: `PanelApp 20: Hereditary ataxia (${selection})`,
+      source: 'panelapp',
+      external_id: '20',
+      external_selection: selection,
+      external_version: '1.345',
+      version,
+    });
+    const catalogue = [
+      PANEL_A,
+      imported('g', '3', 2),
+      imported('ga', '2,3', 1),
+      { ...imported('other', '3', 1), external_id: '21' },
+    ];
+    (api.get as unknown as Mock).mockImplementation(panelAppApi(catalogue));
+    (api.post as unknown as Mock).mockResolvedValueOnce({ data: { message: 'PanelApp panel imported as version 1' } });
+    renderPage('admin');
+    await screen.findByRole('link', { name: 'PanelA' });
+    await searchAtaxia();
+
+    const row = screen.getByText('Hereditary ataxia').closest('tr') as HTMLElement;
+    expect(within(row).getByText(/In catalogue/).textContent).toBe('In catalogue: green v2 · green + amber v1');
+    expect(within(row).getByRole('link', { name: 'green v2' })).toHaveAttribute('href', '/panels/g');
+    expect(within(row).getByRole('link', { name: 'green + amber v1' })).toHaveAttribute('href', '/panels/ga');
+    // The catalogue names the choice under each PanelApp panel's version.
+    expect(screen.getAllByText('1.345 · green + amber')).toHaveLength(1);
+
+    await userEvent.click(await within(row).findByRole('button', { name: 'Green + amber + red (166)' }));
+    await screen.findByText('PanelApp panel imported as version 1');
+    expect(api.post).toHaveBeenCalledWith('/panels/import/panelapp', {
+      panelapp_id: 20,
+      version: '1.345',
+      confidence_levels: ['1', '2', '3'],
+      include_regions: true,
+      include_strs: true,
+      assembly: 'GRCh38',
+    });
+  });
+
+  // A choice PanelApp rates nothing of cannot be imported (the import would be refused); counts
+  // that cannot be read say so, and leave every choice to import.
+  it('disables a choice that takes nothing, and says when the counts cannot be read', async () => {
+    const noGreen = {
+      ...ATAXIA_COUNTS,
+      genes: { total: 5, green: 0, amber: 3, red: 2, unrated: 0 },
+      strs: { total: 0, green: 0, amber: 0, red: 0, unrated: 0 },
+      regions: { total: 1, green: 1, amber: 0, red: 0, unrated: 0 },
+    };
+    (api.get as unknown as Mock).mockImplementation(panelAppApi([PANEL_A], () => Promise.resolve({ data: noGreen })));
+    renderPage('admin');
+    await screen.findByRole('link', { name: 'PanelA' });
+    await searchAtaxia();
+
+    // The green region is a green import; without regions there is nothing green to take.
+    expect(await screen.findByRole('button', { name: 'Green (0)' })).toBeEnabled();
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Regions' }));
+    expect(screen.getByRole('button', { name: 'Green (0)' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Green + amber (3)' })).toBeEnabled();
+    cleanup();
+
+    (api.get as unknown as Mock).mockImplementation(
+      panelAppApi([PANEL_A], () => Promise.reject(new Error('Bad Gateway'))),
+    );
+    renderPage('admin');
+    await screen.findByRole('link', { name: 'PanelA' });
+    await searchAtaxia();
+    expect(await screen.findByText('Could not read the confidence levels from PanelApp')).toBeInTheDocument();
+    expect(screen.getByText('168 genes')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Green' })).toBeEnabled();
+  });
+
   // The confidence levels, assembly, regions and STRs chosen are what the import asks for; a
   // search that finds nothing, or fails, and a refused import say so.
   it('imports with the options chosen, and says when a PanelApp search or import does not succeed', async () => {
     let search: () => Promise<unknown> = () => Promise.resolve({ data: { count: 0, results: [] } });
-    (api.get as unknown as Mock).mockImplementation((url: string) =>
-      url === '/panels/panelapp/search' ? search() : Promise.resolve({ data: [PANEL_A] }),
-    );
+    (api.get as unknown as Mock).mockImplementation((url: string) => {
+      if (url === '/panels/panelapp/search') return search();
+      if (url === '/panels/panelapp/20/counts') return Promise.resolve({ data: ATAXIA_COUNTS });
+      return Promise.resolve({ data: [PANEL_A] });
+    });
     (api.post as unknown as Mock).mockRejectedValueOnce({
       response: { status: 422, data: { detail: [{ msg: 'version: not found' }, 'assembly: GRCh37 has no regions', null] } },
     });
@@ -346,11 +468,10 @@ describe('GenePanelsPage', () => {
     search = () => Promise.resolve({ data: { count: 1, results: [ATAXIA] } });
     await userEvent.click(screen.getByRole('button', { name: /search panelapp/i }));
     await screen.findByText('Hereditary ataxia');
-    await userEvent.selectOptions(screen.getByLabelText('Confidence'), '2,3');
     await userEvent.selectOptions(screen.getByLabelText('Assembly'), 'GRCh37');
     await userEvent.click(screen.getByRole('checkbox', { name: 'Regions' }));
     await userEvent.click(screen.getByRole('checkbox', { name: 'STRs' }));
-    await userEvent.click(screen.getByRole('button', { name: /^import$/i }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Green + amber (150)' }));
 
     expect(await screen.findByText('version: not found; assembly: GRCh37 has no regions')).toBeInTheDocument();
     expect(api.post).toHaveBeenCalledWith('/panels/import/panelapp', {

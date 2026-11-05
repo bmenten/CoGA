@@ -120,6 +120,17 @@ def test_revision_0019_gives_the_import_jobs_the_baselines_fingerprint_check() -
     )
 
 
+def test_revision_0020_adds_the_baselines_selection_column_and_unique_index() -> None:
+    # The column and the index that make each choice of confidence levels of a PanelApp panel
+    # a panel of its own, as 02_reference.sql holds them; the index they replace is dropped.
+    selection = migration_script().get_revision("0020").module
+    reference = [" ".join(statement.split()) for statement in _statements("02_reference.sql")]
+
+    assert selection._ADD_COLUMN in reference
+    assert " ".join(selection._UNIQUE_INDEX.split()) in reference
+    assert not [statement for statement in reference if "idx_gene_panels_source_external " in f"{statement} "]
+
+
 def test_revision_0004_runs_the_baselines_own_statements_for_the_structure_versions_and_the_ui_event_log() -> None:
     # SEC-7: the structure versions' chain and both tables' append-only guards, brought to a
     # database the baselines created before them by the baselines' own statements.

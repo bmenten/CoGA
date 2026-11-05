@@ -398,6 +398,10 @@ class GenePanelOut(ApiDocumentModel):
     description: Optional[str] = None
     source: str = "local"
     external_id: Optional[str] = None
+    # The part of the external panel this panel holds: for a PanelApp panel, the confidence
+    # levels it was imported with, lowest first ("3", "2,3", "1,2,3"). Each choice of levels
+    # of one PanelApp panel is a panel of its own.
+    external_selection: Optional[str] = None
     external_version: Optional[str] = None
     external_url: Optional[str] = None
     source_updated_at: Optional[datetime] = None
@@ -492,6 +496,26 @@ class PanelAppPanelSummaryOut(BaseModel):
 class PanelAppPanelSearchResponse(BaseModel):
     results: List[PanelAppPanelSummaryOut] = Field(default_factory=list)
     count: int = 0
+
+
+class PanelAppConfidenceCounts(BaseModel):
+    """How many of a PanelApp panel's entities of one kind (genes, STRs or regions) hold each
+    confidence level: green (3), amber (2), red (1), and none of these (``unrated``: level 0,
+    which PanelApp gives an entity without a rating or one an expert review removed)."""
+
+    total: int = 0
+    green: int = 0
+    amber: int = 0
+    red: int = 0
+    unrated: int = 0
+
+
+class PanelAppPanelCountsOut(BaseModel):
+    panelapp_id: int
+    version: Optional[str] = None
+    genes: PanelAppConfidenceCounts = Field(default_factory=PanelAppConfidenceCounts)
+    strs: PanelAppConfidenceCounts = Field(default_factory=PanelAppConfidenceCounts)
+    regions: PanelAppConfidenceCounts = Field(default_factory=PanelAppConfidenceCounts)
 
 
 def _green_only() -> List[Literal["1", "2", "3"]]:
