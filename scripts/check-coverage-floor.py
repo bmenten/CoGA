@@ -58,6 +58,8 @@ MODULE_FLOORS: dict[str, float] = {
     "backend/app/services/genotypes.py": 97.0,  # (100.0)
     "backend/app/services/haplotype_lineage_service.py": 91.0,  # (94.6, 2026-11-03)
     "backend/app/services/hash_chain.py": 97.0,  # (100.0, 2026-11-03)
+    # (99.0 measured locally when it was added: the ready marker a pipeline writes last)
+    "backend/app/services/import_ready_marker.py": 96.0,
     # (100.0 measured locally when it was added: the families imported from each listed folder)
     "backend/app/services/imported_package_folders.py": 97.0,
     "backend/app/services/integrity_anchor_service.py": 97.0,  # (100.0, 2026-11-03; also floored combined)
@@ -123,6 +125,8 @@ COMBINED_FLOORS: dict[str, float] = {
     # (95.4 measured locally when it was added: the reviews of repeat loci and Paraphase
     # regions, whose saves and record the e2e tests exercise)
     "backend/app/services/finding_review_pg.py": 93.0,  # (96.0, 2026-11-03)
+    # (94.4 measured locally when it was added: the import watcher, whose rounds the e2e tests run)
+    "backend/app/services/import_watcher.py": 91.0,
     "backend/app/services/integrity_anchor_service.py": 97.0,  # (100.0, 2026-11-03)
     "backend/app/services/report_signout_service.py": 97.0,  # (100.0, 2026-11-03)
     "backend/app/services/small_variant_review_tags.py": 94.0,  # (97.9, 2026-11-03)

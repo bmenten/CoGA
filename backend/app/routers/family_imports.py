@@ -1,7 +1,7 @@
 import asyncio
 from functools import partial
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.postgres import get_postgres_session
@@ -15,7 +15,9 @@ from ..schemas import (
     FamilyPackageManifestWriteOut,
     FamilyPackageManifestWriteRequest,
     FamilyPackageValidationOut,
+    ImportDeliveryOut,
 )
+from ..schemas.imports import ImportDeliveryState
 from ..services.family_package_import import db_pedigree_fallback
 from ..services.family_package_discovery import (
     discover_family_package_manifest,
@@ -29,6 +31,7 @@ from ..services.family_package_jobs import (
 )
 from ..services.family_package_source import scan_family_import_packages
 from ..services.family_package_validation import validate_family_package
+from ..services.import_watcher import list_import_deliveries
 from ..services.imported_package_folders import folders_changed_during_import, imported_package_folders
 from ..services.access_control import CurrentUser, is_admin_user
 
@@ -157,6 +160,19 @@ async def list_available_family_packages(
         )
         for package in packages
     ]
+
+
+@router.get("/deliveries", response_model=list[ImportDeliveryOut])
+async def list_family_package_deliveries(
+    state: list[ImportDeliveryState] | None = Query(default=None),
+    limit: int = 100,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_superuser),
+) -> list[ImportDeliveryOut]:
+    """The packages pipelines delivered into the watched import folders, the latest change first;
+    ``state`` (repeatable) keeps those in one of the states named."""
+    del user
+    return await list_import_deliveries(session, states=list(state) if state else None, limit=limit)
 
 
 @router.get("/{job_id}", response_model=FamilyPackageImportJobOut)

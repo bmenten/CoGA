@@ -480,6 +480,11 @@ sudo systemctl daemon-reload && sudo mount /srv/coga/data/share
   CoGA**: the import job keeps the manifest and reads it instead of a file in the folder
   ([data-import.md](data-import.md#a-manifest-kept-in-coga)). A package whose pipeline wrote
   its own manifest imports as before.
+- To have CoGA watch the share for packages the pipelines deliver with a ready marker
+  (`coga-ready.json`), add `FAMILY_IMPORT_WATCH_ROOTS=/data/share` to `.env` and run
+  `docker compose up -d`: the import-worker service checks each new delivery every five minutes
+  (`FAMILY_IMPORT_WATCH_INTERVAL_SECONDS`) and lists it under `GET /api/family-imports/deliveries`.
+  It imports nothing by itself ([data-import.md](data-import.md#watched-import-folders)).
 
 ## 9. Run it
 
