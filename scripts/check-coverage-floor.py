@@ -40,6 +40,11 @@ MODULE_FLOORS: dict[str, float] = {
     "backend/app/services/annotation_manifest_service.py": 94.0,  # (97.1, 2026-11-03)
     "backend/app/services/assembly_scope.py": 97.0,  # (100.0)
     "backend/app/services/classification_drift_service.py": 97.0,  # (100.0, 2026-11-03)
+    # (93.8 and 91.7 measured locally when they were added, One filter definition: the
+    # family search's SQL builders, the one definition of its small-variant filters, and the
+    # records it reads)
+    "backend/app/services/clickhouse_variant_queries.py": 90.0,
+    "backend/app/services/clickhouse_variant_records.py": 88.0,
     "backend/app/services/clickhouse_variant_storage.py": 95.0,  # (98.0, 2026-11-03; also floored combined)
     "backend/app/services/clinical_audit_service.py": 96.0,  # (99.7, 2026-11-03)
     "backend/app/services/clinical_cnv_kb_jobs.py": 96.0,  # (99.4, 2026-11-03)
