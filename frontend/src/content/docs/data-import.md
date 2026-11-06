@@ -277,10 +277,76 @@ or runs through a link that loops.
 
 ### Deliveries from the pipelines
 
-A pipeline can deliver a package by itself: it writes the family folder into a watched import folder
-and, last, a ready marker (`coga-ready.json`) that lists every file with its checksum and names the
-project, the family and the run. CoGA checks each delivery as it arrives and lists it under **Deliveries** at
-the top of the page, with how many wait. Nothing is imported until you approve it.
+A pipeline can deliver a package by itself: it copies the family folder into a **watched import
+folder** and, last, writes its ready marker `coga-ready.json`. CoGA looks into the watched folders
+every few minutes (5 by default), checks each new delivery once and lists it under **Deliveries** at the
+top of the page, with how many wait. Nothing is imported until a superuser approves it.
+
+**The watched folder.** The server's administrator names the watched folders
+(`FAMILY_IMPORT_WATCH_ROOTS`). They lie under the import folder, on the server's disk or a mounted
+share; a storage bucket is not watched. Each delivery is one family folder directly inside, laid out as
+any package above:
+
+```text
+<watched folder>/
+  FAM001/
+    coga-ready.json   the ready marker, written last
+    family.ped
+    manifest.yaml     optional: without it, CoGA drafts one as Discover manifest does
+    snv/ needlr/ …    the data
+  FAM002/
+    coga-ready.json
+    …
+```
+
+- Only folders directly in the watched folder count, and only once they hold `coga-ready.json`. A
+  folder whose name starts with `.` is skipped.
+- Write the marker last, under a temporary name first (`.coga-ready.json.tmp`), then rename it.
+- A folder that changes after it was checked is a new delivery; an open one before it becomes
+  *Superseded*. To correct a delivery, correct the folder and write its marker again.
+
+**The ready marker** `coga-ready.json` is a JSON object of the format `coga-ready/1`:
+
+```json
+{
+  "schema": "coga-ready/1",
+  "written_at": "2026-11-05T14:02:11Z",
+  "project": "Rare disease WGS",
+  "family_id": "FAM001",
+  "analysis_type": "wgs_trio",
+  "assembly": "GRCh38",
+  "pipeline": { "name": "example-pipeline", "version": "1.4.0" },
+  "run": { "id": "RUN-0042" },
+  "files": [
+    { "path": "family.ped", "size": 112, "sha256": "<64 hex characters>" },
+    { "path": "snv/family.annotated.vcf.gz", "size": 48213377, "sha256": "<64 hex characters>" }
+  ],
+  "samples": [
+    { "sample_id": "PROBAND", "role": "proband", "sex": "male" }
+  ],
+  "qc": { "status": "pass" }
+}
+```
+
+| Field | Required | Rule |
+| --- | --- | --- |
+| `schema` | yes | `coga-ready/1`; a marker of another format is not read |
+| `written_at` | yes | when the marker was written |
+| `project` | yes | the project's name in CoGA |
+| `family_id` | yes | the package's family ID |
+| `analysis_type` | yes | `wgs`, `wgs_trio`, `pgt_m`, `monogenic_nipt`, `long_read_wgs` or `long_read_couple` |
+| `assembly` | yes | the project's assembly |
+| `pipeline.name`, `pipeline.version`, `run.id` | yes | shown with the delivery and kept with the import |
+| `files` | yes | every file of the package: `path` relative to the family folder, `size` in bytes, and `sha256` (or `md5`) |
+| `samples` | no | each `sample_id` must be in the PED, with the same `sex` (`male`, `female`, `unknown`) |
+| `qc.status` | no | `pass`; `warn` is a warning, `fail` needs attention |
+| anything else | no | kept as written (`request_id`, `notes`, …) |
+
+**What CoGA checks.** Every listed file is there at its size, with its checksum. Every file the import
+reads (the PED and each dataset's files) is listed; a file in the folder the marker does not list is a
+warning. The project exists with the marker's assembly, the family ID matches the package, and the
+package passes validation as **Validate package** runs it. Each check that fails is listed with the
+delivery.
 
 - **Ready**: every check passed. **Dry run** checks it as an import would; **Approve…** imports it
   into the project the marker names. Tick several ready deliveries to approve them together.
