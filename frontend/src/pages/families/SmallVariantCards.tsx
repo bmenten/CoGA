@@ -22,10 +22,12 @@ import {
   formatFrequency,
   formatCompoundHetPhaseStatus,
   GENOMIC_CHANGE_NOTE,
+  formatClinvarStars,
   formatGenomicChange,
   formatLocus,
   formatPredictionScore,
   formatScore,
+  formatSpliceAi,
   formatTokenLabel,
   getClinvarHighlightTone,
   getClinvarTone,
@@ -575,6 +577,11 @@ const TranscriptPopup = ({
 const CARD_CONSUMED_EXTRA_KEYS = new Set([
   'alpha_missense_class',
   'alpha_missense_pathogenicity',
+  // Named in the frequency details: gnomAD's allele number and its own site filters.
+  'gnomad_an',
+  'gnomad_filter',
+  'gnomad_exomes_filter',
+  'gnomad_genomes_filter',
 ]);
 
 // annotation_extra keys the disclosure names in words rather than by the raw key. The VCF's own
@@ -618,11 +625,25 @@ const buildVariantDetailData = (variant: SmallVariant) => {
   const scoreItems = [
     variant.lof_filter ? { label: 'LoF filter', value: variant.lof_filter } : null,
     variant.lof_flags ? { label: 'LoF flags', value: variant.lof_flags } : null,
+    variant.nmd ? { label: 'NMD', value: formatTokenLabel(variant.nmd) } : null,
+    variant.clinvar_review_status ? { label: 'ClinVar review status', value: variant.clinvar_review_status } : null,
+    variant.clinvar_conditions?.length ? { label: 'ClinVar conditions', value: variant.clinvar_conditions.join('; ') } : null,
   ].filter((item): item is { label: string; value: string } => Boolean(item));
+  // gnomAD's own site filter, where a --custom gnomAD file was annotated with it: a site that
+  // fails it (AC0, RF …) has a frequency gnomAD itself does not trust.
+  const extra = variant.annotation_extra || {};
+  const gnomadFilters = (['gnomad_filter', 'gnomad_exomes_filter', 'gnomad_genomes_filter'] as const)
+    .map((key) => [key, extra[key]] as const)
+    .filter(([, value]) => typeof value === 'string' && value && value !== 'PASS');
   const frequencyItems = [
     typeof variant.gnomad_hom_count === 'number'
       ? { label: 'gnomAD hom', value: String(variant.gnomad_hom_count) }
       : null,
+    typeof extra.gnomad_an === 'number' ? { label: 'gnomAD allele number', value: String(extra.gnomad_an) } : null,
+    ...gnomadFilters.map(([key, value]) => ({
+      label: `${key.replace(/_/g, ' ').replace('gnomad', 'gnomAD')} (fails gnomAD's own QC)`,
+      value: String(value),
+    })),
     ...populationFrequencies
       .filter(([label]) => label !== 'gnomad_af')
       .map(([label, value]) => ({
@@ -710,7 +731,12 @@ export default function SmallVariantCards({
           contextItems = [],
           additionalAnnotations = [],
         } = detailData ?? {};
-        const clinvarSummary = formatTokenLabel(variant.clinvar);
+        // ClinVar's classification with its review stars; the status and conditions on hover.
+        const clinvarStars = formatClinvarStars(variant.clinvar_stars);
+        const clinvarSummary = `${formatTokenLabel(variant.clinvar)}${clinvarStars ? ` ${clinvarStars}` : ''}`;
+        const clinvarTitle =
+          [variant.clinvar_review_status, (variant.clinvar_conditions ?? []).join('; ')].filter(Boolean).join(' — ') ||
+          undefined;
         const sortedReviewTags = sortReviewTagKeys(variant.review?.tags || [], tagMap);
         const hasReviewTag = sortedReviewTags.includes(COLLABORATION_QUICK_TAGS.review);
         const isExcluded = sortedReviewTags.includes(COLLABORATION_QUICK_TAGS.excluded);
@@ -745,6 +771,8 @@ export default function SmallVariantCards({
           // VEP's MAX_AF: the highest frequency over the 1000 Genomes and gnomAD populations
           // VEP reads, not gnomAD's popmax (it was shown as that).
           { label: 'MAX_AF (VEP)', value: formatFrequency(popFreq.max_af), href: undefined },
+          // gnomAD's filtering allele frequency, which BA1 and BS1 read where it is annotated.
+          { label: 'gnomAD FAF95', value: formatFrequency(popFreq.gnomad_faf95_af), href: undefined },
           { label: 'exomes', value: formatFrequency(popFreq.gnomad_exomes_af), href: undefined },
           { label: 'genomes', value: formatFrequency(popFreq.gnomad_genomes_af), href: undefined },
           { label: 'TOPMed', value: formatFrequency(popFreq.topmed_af), href: undefined },
@@ -756,7 +784,7 @@ export default function SmallVariantCards({
           typeof variant.cadd_phred === 'number' ? { label: 'CADD', value: formatScore(variant.cadd_phred) } : null,
           typeof variant.revel === 'number' ? { label: 'REVEL', value: formatScore(variant.revel) } : null,
           alphaMissense ? { label: 'AlphaMissense', value: alphaMissense } : null,
-          typeof variant.spliceai_max === 'number' ? { label: 'SpliceAI', value: formatScore(variant.spliceai_max) } : null,
+          typeof variant.spliceai_max === 'number' ? { label: 'SpliceAI', value: formatSpliceAi(variant) ?? '—' } : null,
           variant.sift ? { label: 'SIFT', value: formatPredictionScore(variant.sift) } : null,
           variant.polyphen
             ? { label: 'PolyPhen', value: formatPredictionScore(variant.polyphen) }
@@ -809,6 +837,7 @@ export default function SmallVariantCards({
                       href={clinvarLink.href}
                       target="_blank"
                       rel="noreferrer"
+                      title={clinvarTitle}
                       className={`variant-card-chip variant-card-chip--link variant-card-chip--${getClinvarTone(
                         variant.clinvar,
                       )}`}
@@ -817,7 +846,10 @@ export default function SmallVariantCards({
                       {clinvarSummary}
                     </a>
                   ) : (
-                    <span className={`variant-card-chip variant-card-chip--${getClinvarTone(variant.clinvar)}`}>
+                    <span
+                      className={`variant-card-chip variant-card-chip--${getClinvarTone(variant.clinvar)}`}
+                      title={clinvarTitle}
+                    >
                       <span className="variant-card-chip-key">ClinVar</span>
                       {clinvarSummary}
                     </span>

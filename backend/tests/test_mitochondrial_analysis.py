@@ -736,3 +736,69 @@ async def test_a_family_without_an_assembly_reads_no_chrm_variants() -> None:
     context.assembly_name = None
     assert await mitochondrial_analysis._fetch_mt_records(context) == []
     assert await mitochondrial_analysis._fetch_mt_structural_variants(context) == []
+
+
+# --------------------------------------------------------------------------- #
+# Overlapping genes and the mtDNA population frequencies
+# --------------------------------------------------------------------------- #
+
+
+def _overlap_record(annotations: list[dict]) -> SmallVariantRecord:
+    """A synthetic chrM call at 8530, where MT-ATP8 (8366–8572) and MT-ATP6 (8527–9207) overlap."""
+    return SmallVariantRecord(
+        variant_key=2,
+        variant_id="MT-8530-A-G",
+        chr="MT",
+        start=8530,
+        end=8530,
+        ref="A",
+        alt="G",
+        source="clair3",
+        rsid=None,
+        filters=[],
+        gene_symbols=["MT-ATP6", "MT-ATP8"],
+        annotations=annotations,
+        calls=[SmallVariantCall(sample="PROBAND", gt="1", gq=None, dp=400, af=[0.99], ad=[4, 396], ps=None)],
+    )
+
+
+def test_an_overlap_variant_names_each_genes_consequence_and_the_primary_ones_locus() -> None:
+    # VEP's entries in CSQ order: a neighbour's upstream entry first, then MT-ATP6's synonymous
+    # and MT-ATP8's missense. The first entry was read, and the other gene's consequence was
+    # not shown; the locus was the first that holds the position.
+    record = _overlap_record(
+        [
+            {"gene": "MT-CO2", "effect": "upstream_gene_variant", "impact": "MODIFIER", "canonical": True},
+            {"gene": "MT-ATP6", "effect": "synonymous_variant", "impact": "LOW", "canonical": True},
+            {
+                "gene": "MT-ATP8",
+                "effect": "missense_variant",
+                "impact": "MODERATE",
+                "canonical": True,
+                "population_frequencies": {"gnomad_mt_af_hom": 0.0001, "gnomad_mt_af_het": 0.00002},
+                "gnomad_mt_max_hl": 0.92,
+            },
+        ]
+    )
+    annotation = mitochondrial_analysis._annotation_for_record(record)
+    # The primary entry, picked as every small-variant view picks it: the most severe.
+    assert (annotation.gene, annotation.consequence, annotation.region) == ("MT-ATP8", "missense_variant", "MT-ATP8")
+    assert [(entry.gene, entry.consequence) for entry in annotation.gene_consequences] == [
+        ("MT-ATP8", "missense_variant"),
+        ("MT-ATP6", "synonymous_variant"),
+    ]
+    assert (annotation.gnomad_mt_af_hom, annotation.gnomad_mt_af_het, annotation.gnomad_mt_max_hl) == (
+        0.0001,
+        0.00002,
+        0.92,
+    )
+    # A position in one gene names no per-gene list.
+    assert mitochondrial_analysis._annotation_for_record(_mt_record()).gene_consequences == []
+
+
+def test_helixmtdb_frequencies_from_a_mutserve_table_are_served_apart() -> None:
+    record = _overlap_record([{"gene": "MT-ATP6", "helix_af": "0.0003", "helix_af_het": "0.00001"}])
+    annotation = mitochondrial_analysis._annotation_for_record(record)
+    assert (annotation.helix_af_hom, annotation.helix_af_het) == (0.0003, 0.00001)
+    # The locus is the annotation's own gene's, where the position lies in two.
+    assert annotation.region == "MT-ATP6"

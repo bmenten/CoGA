@@ -366,6 +366,9 @@ const SmallVariantCard: React.FC<{ variant: SignedSmallVariant } & CardContext> 
               {variant.evidence.clinvar
                 ? variant.evidence.clinvar.replace(/_/g, ' ')
                 : 'no significance for it'}
+              {variant.evidence.clinvar && variant.evidence.clinvarReviewStatus
+                ? ` (${variant.evidence.clinvarReviewStatus})`
+                : ''}
               {variant.evidence.annotationVersion
                 ? `, with annotation version ${variant.evidence.annotationVersion}`
                 : ''}

@@ -28,10 +28,11 @@ from .review_pg_utils import _json_payload, _read_stored_classification
 # The consequence a small-variant classification rests on, read from its primary transcript:
 # the consequence term(s) the criteria for a null, missense, synonymous or length-changing
 # variant read (PVS1, PM4, PP2, BP7, and the criteria a consequence rules out), the impact
-# beside them, and LOFTEE's loss-of-function call the PVS1 strength reads (HC: very strong).
-# Frozen like the frequencies, also without a value, so one that changes or appears later
-# reads as a change.
-EVIDENCE_CONSEQUENCE_FIELDS: tuple[str, ...] = ("effect", "impact", "lof")
+# beside them, and LOFTEE's loss-of-function call the PVS1 strength reads (HC: very strong),
+# with LOFTEE's flags and VEP's NMD prediction, either of which makes PVS1 Consider (the
+# owner's choice of 2026-11-06). Frozen like the frequencies, also without a value, so one
+# that changes or appears later reads as a change.
+EVIDENCE_CONSEQUENCE_FIELDS: tuple[str, ...] = ("effect", "impact", "lof", "lof_flags", "nmd")
 # For a multi-allelic record (ALT ``G,T``) only: the ALT the consequence, frequencies and
 # scores are of, frozen in the consequence group. The transcript alone does not say which
 # allele's annotation the classification read. A snapshot frozen before has none, and is
@@ -50,10 +51,22 @@ EVIDENCE_FREQUENCY_FIELDS: tuple[str, ...] = (
     # VEP's MAX_AF, which the popmax frequency ceiling reads where gnomAD has no popmax
     # (``clickhouse_variant_rows._popmax_column``). Frozen as gnomAD's popmax before.
     "max_af",
+    # gnomAD's filtering allele frequency, which BA1 and BS1 read where it is annotated (the
+    # owner's choice of 2026-11-06).
+    "gnomad_faf95_af",
     "topmed_af",
     "gnomad_ac",
     "gnomad_hom_count",
     "gnomad_hemi_count",
+)
+# For a chrM variant only, in the frequencies group: the homoplasmic and heteroplasmic
+# population frequencies the mtDNA criteria read (gnomAD-MT's, and HelixMTdb's from a mutserve
+# table): BA1 and BS1 the highest homoplasmic one, PM2 both (the owner's choice of 2026-11-06).
+EVIDENCE_MITO_FREQUENCY_FIELDS: tuple[str, ...] = (
+    "gnomad_mt_af_hom",
+    "gnomad_mt_af_het",
+    "helix_af_hom",
+    "helix_af_het",
 )
 # The in-silico scores: REVEL, SpliceAI and the AlphaMissense class the computational
 # criteria read (PP3, BP4, BP7), and CADD, SIFT and PolyPhen beside them.
@@ -160,6 +173,14 @@ def _frozen_int(annotation: dict[str, Any], *keys: str) -> int | None:
         return _annotation_int(annotation, *keys)
     except OverflowError:
         return None
+
+
+def is_mitochondrial_chromosome(chrom: Any) -> bool:
+    """Whether ``chrom`` names the mitochondrial genome (``MT``, ``M``, ``chrM``)."""
+    name = str(chrom or "").strip()
+    if name.lower().startswith("chr"):
+        name = name[3:]
+    return name.upper() in {"M", "MT"}
 
 
 def _primary_annotation(record: Any) -> dict[str, Any]:
@@ -273,6 +294,8 @@ def small_variant_evidence(record: Any, *, gene_missense_z: float | None) -> dic
             "effect": _annotation_effect(annotation),
             "impact": _annotation_text(annotation, "impact"),
             "lof": _annotation_text(annotation, "lof"),
+            "lof_flags": _annotation_text(annotation, "lof_flags", "lofFlags"),
+            "nmd": _annotation_text(annotation, "nmd"),
             **(
                 {EVIDENCE_ALLELE_FIELD: _annotation_text(annotation, "alt_allele")}
                 if "," in str(getattr(record, "alt", "") or "")
@@ -285,10 +308,21 @@ def small_variant_evidence(record: Any, *, gene_missense_z: float | None) -> dic
             "gnomad_genomes_af": _population("gnomad_genomes_af"),
             "gnomad_popmax_af": _population("gnomad_popmax_af"),
             "max_af": _population("max_af"),
+            "gnomad_faf95_af": _population("gnomad_faf95_af"),
             "topmed_af": _population("topmed_af"),
             "gnomad_ac": _frozen_int(annotation, "gnomad_ac"),
             "gnomad_hom_count": _frozen_int(annotation, "gnomad_hom_count", "gnomadHomCount"),
             "gnomad_hemi_count": _frozen_int(annotation, "gnomad_hemi_count"),
+            **(
+                {
+                    "gnomad_mt_af_hom": _population("gnomad_mt_af_hom"),
+                    "gnomad_mt_af_het": _population("gnomad_mt_af_het"),
+                    "helix_af_hom": _frozen_float(annotation, "helix_af"),
+                    "helix_af_het": _frozen_float(annotation, "helix_af_het"),
+                }
+                if is_mitochondrial_chromosome(getattr(record, "chr", None))
+                else {}
+            ),
         },
         "in_silico": {
             "cadd_phred": _frozen_float(annotation, "cadd_phred", "caddPhred"),
@@ -322,16 +356,20 @@ def build_evidence_snapshot(
     the snapshot froze, so it names what moved.
     """
     clinvar = None
+    clinvar_review_status = None
     for annotation in getattr(record, "annotations", None) or []:
         value = annotation.get("clinvar") or annotation.get("clinvarClinicalSignificance")
         text_value = str(value).strip() if value not in (None, "", ".", "-") else ""
         if text_value:
             clinvar = text_value
+            clinvar_review_status = _annotation_text(annotation, "clinvar_review_status")
             break
     return {
         "annotation_version": getattr(record, "annotation_version", None),
         "annotation_set_hash": getattr(record, "annotation_set_hash", None),
         "clinvar": clinvar,
+        # The review status of that ClinVar record (its stars), which PP5 and BP6 name.
+        "clinvar_review_status": clinvar_review_status,
         **small_variant_evidence(record, gene_missense_z=gene_missense_z),
         "captured_at": captured_at.isoformat(),
     }

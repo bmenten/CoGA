@@ -769,6 +769,15 @@ export interface ApiMitoDNAVariantAnnotation {
   consequence?: string | null;
   consequence_terms?: string[];
   gnomad_af?: number | null;
+  // mtDNA population frequencies, homoplasmic and heteroplasmic apart (gnomAD-MT with the highest
+  // heteroplasmy it observed; HelixMTdb from a mutserve table). Not the person's heteroplasmy.
+  gnomad_mt_af_hom?: number | null;
+  gnomad_mt_af_het?: number | null;
+  gnomad_mt_max_hl?: number | null;
+  helix_af_hom?: number | null;
+  helix_af_het?: number | null;
+  // Each gene's consequence where two mtDNA genes overlap; empty elsewhere.
+  gene_consequences?: { gene: string; consequence?: string | null; category?: string | null }[];
   category?: string | null;
   clinical_significance:
     | 'pathogenic'

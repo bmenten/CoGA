@@ -149,12 +149,66 @@ describe('evaluateAcmg', () => {
     expect(codes(evaluateAcmg({ clinvar: 'pathogenic' }))).toContain('PP5');
     expect(codes(evaluateAcmg({ clinvar: 'likely_benign' }))).toContain('BP6');
 
+    // Offered for review, never applied: ClinGen's SVI advises against counting another lab's
+    // assertion (the owner's choice of 2026-11-06). Before, both were applied.
     const pathogenic = evaluateAcmg({ clinvar: 'Pathogenic/Likely_pathogenic' });
-    expect(find(pathogenic, 'PP5')?.disposition).toBe('applies');
+    expect(find(pathogenic, 'PP5')?.disposition).toBe('consider');
     expect(find(pathogenic, 'BP6')?.disposition).toBe('contraindicated');
     const benign = evaluateAcmg({ clinvar: 'Benign/Likely_benign' });
-    expect(find(benign, 'BP6')?.disposition).toBe('applies');
+    expect(find(benign, 'BP6')?.disposition).toBe('consider');
     expect(find(benign, 'PP5')?.disposition).toBe('contraindicated');
+  });
+
+  it("names ClinVar's review status, its stars and the conditions in the PP5 evidence", () => {
+    const pp5 = find(
+      evaluateAcmg({
+        clinvar: 'Pathogenic',
+        clinvar_review_status: 'criteria provided, multiple submitters, no conflicts',
+        clinvar_stars: 2,
+        clinvar_conditions: ['Condition A', 'not provided'],
+      }),
+      'PP5',
+    );
+    expect(pp5?.evidence).toBe(
+      'ClinVar reports Pathogenic (2 stars, criteria provided, multiple submitters, no conflicts) for Condition A; not provided — review before applying.',
+    );
+  });
+
+  it('offers PVS1 for review where LOFTEE flags the call or NMD is predicted to be escaped', () => {
+    // A null variant in a haploinsufficient gene, HC, would be very strong; a LOFTEE flag or a
+    // predicted escape from NMD makes it Consider (the owner's choice of 2026-11-06).
+    const gene = { clingenDosageHaploinsufficiency: 'Sufficient evidence for dosage pathogenicity' };
+    const plain = find(evaluateAcmg({ effect: 'stop_gained', lof: 'HC', gnomad_af: 1e-6 }, gene), 'PVS1');
+    expect([plain?.strength, plain?.disposition]).toEqual(['very_strong', 'applies']);
+    const flagged = find(
+      evaluateAcmg({ effect: 'stop_gained', lof: 'HC', lof_flags: 'SINGLE_EXON', gnomad_af: 1e-6 }, gene),
+      'PVS1',
+    );
+    expect([flagged?.strength, flagged?.disposition]).toEqual(['strong', 'consider']);
+    expect(flagged?.evidence).toContain('LOFTEE flags it (SINGLE_EXON)');
+    const escaping = find(
+      evaluateAcmg({ effect: 'stop_gained', lof: 'HC', nmd: 'NMD_escaping_variant', gnomad_af: 1e-6 }, gene),
+      'PVS1',
+    );
+    expect(escaping?.disposition).toBe('consider');
+    expect(escaping?.evidence).toContain('escape nonsense-mediated decay');
+  });
+
+  it("reads gnomAD's FAF95 for BA1 / BS1 where it is annotated, and the AF for PM2", () => {
+    // The owner's choice of 2026-11-06: ClinGen's SVI reads BA1 on the filtering allele
+    // frequency. A FAF95 below 5% rules out BA1 although the AF is above it.
+    const faf = (gnomad_af: number | null, gnomad_faf95_af: number) =>
+      evaluateAcmg({ effect: 'missense_variant', gnomad_af, population_frequencies: { gnomad_faf95_af } });
+    expect(find(faf(0.06, 0.03), 'BA1')?.disposition).toBe('not_applicable');
+    expect(find(faf(0.06, 0.03), 'BS1')?.disposition).toBe('applies');
+    expect(find(faf(0.06, 0.03), 'BS1')?.evidence).toContain('gnomAD filtering allele frequency (FAF95)');
+    expect(find(faf(0.08, 0.06), 'BA1')?.disposition).toBe('applies');
+    // PM2 reads the allele frequency.
+    expect(find(faf(1e-5, 0), 'PM2')?.disposition).toBe('applies');
+    // No AF but a FAF95: PM2 offered, BA1 and BS1 ruled out by the FAF95.
+    const noAf = faf(null, 1e-5);
+    expect(find(noAf, 'PM2')?.disposition).toBe('consider');
+    expect(find(noAf, 'BA1')?.disposition).toBe('not_applicable');
   });
 
   // "Conflicting classifications of pathogenicity" contains "pathogenic": read as a

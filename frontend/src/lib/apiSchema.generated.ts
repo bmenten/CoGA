@@ -1987,6 +1987,12 @@ export interface MitoDNAVariantAnnotationOut {
   consequence: string | null;
   consequence_terms: string[];
   gnomad_af: number | null;
+  gnomad_mt_af_hom: number | null;
+  gnomad_mt_af_het: number | null;
+  gnomad_mt_max_hl: number | null;
+  helix_af_hom: number | null;
+  helix_af_het: number | null;
+  gene_consequences: MitoGeneConsequenceOut[];
   category: string | null;
   clinical_significance: "pathogenic" | "likely_pathogenic" | "benign" | "likely_benign" | "reported" | "uncertain" | "polymorphism" | "unknown";
   disorders: string[];
@@ -2021,6 +2027,16 @@ export interface MitoDNAVariantSampleCallOut {
   alt_depth: number | null;
   zygosity: "homoplasmic" | "heteroplasmic" | "low_level" | "reference" | "no_call" | "unknown";
   display: string;
+}
+
+/**
+ * One gene's consequence of a variant where mtDNA genes overlap (MT-ATP8/MT-ATP6,
+ * MT-ND4L/MT-ND4): the annotation names one consequence per gene.
+ */
+export interface MitoGeneConsequenceOut {
+  gene: string;
+  consequence: string | null;
+  category: string | null;
 }
 
 export interface MonarchGeneOverviewItemOut {
@@ -2458,6 +2474,10 @@ export interface NiptVariantOut {
   impact: string | null;
   effect: string | null;
   clinvar: string | null;
+  clinvar_review_status: string | null;
+  clinvar_stars: number | null;
+  clinvar_conditions: string[];
+  clinvar_variation_id: string | null;
   rsid: string | null;
   hgvsc: string | null;
   hgvsp: string | null;
@@ -2469,6 +2489,7 @@ export interface NiptVariantOut {
   lof: string | null;
   lof_filter: string | null;
   lof_flags: string | null;
+  nmd: string | null;
   gnomad_af: number | null;
   gnomad_hom_count: number | null;
   gene_pli: number | null;
@@ -2484,6 +2505,10 @@ export interface NiptVariantOut {
   spliceai_ds_dg: number | null;
   spliceai_ds_dl: number | null;
   spliceai_max: number | null;
+  spliceai_dp_ag: number | null;
+  spliceai_dp_al: number | null;
+  spliceai_dp_dg: number | null;
+  spliceai_dp_dl: number | null;
   alpha_missense_pathogenicity: number | null;
   alpha_missense_class: string | null;
   cytoband: string | null;
@@ -4277,6 +4302,10 @@ export interface VariantOut {
   impact: string | null;
   effect: string | null;
   clinvar: string | null;
+  clinvar_review_status: string | null;
+  clinvar_stars: number | null;
+  clinvar_conditions: string[];
+  clinvar_variation_id: string | null;
   rsid: string | null;
   hgvsc: string | null;
   hgvsp: string | null;
@@ -4288,6 +4317,7 @@ export interface VariantOut {
   lof: string | null;
   lof_filter: string | null;
   lof_flags: string | null;
+  nmd: string | null;
   gnomad_af: number | null;
   gnomad_hom_count: number | null;
   gene_pli: number | null;
@@ -4303,6 +4333,10 @@ export interface VariantOut {
   spliceai_ds_dg: number | null;
   spliceai_ds_dl: number | null;
   spliceai_max: number | null;
+  spliceai_dp_ag: number | null;
+  spliceai_dp_al: number | null;
+  spliceai_dp_dg: number | null;
+  spliceai_dp_dl: number | null;
   alpha_missense_pathogenicity: number | null;
   alpha_missense_class: string | null;
   cytoband: string | null;

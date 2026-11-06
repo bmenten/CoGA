@@ -445,14 +445,14 @@ describe('FamilyMitoDNAAnalysisPage', () => {
 
     // gnomAD frequency: ≤5% removes both common variants, keeps the rare one
     // (no annotated frequency is treated as not-common, so it stays).
-    fireEvent.change(screen.getByLabelText('gnomAD frequency'), { target: { value: '0.05' } });
+    fireEvent.change(screen.getByLabelText('Population frequency'), { target: { value: '0.05' } });
     expect(screen.getByText(/1 of 3 variants/)).toBeInTheDocument();
     expect(screen.getByRole('article', { name: /m\.3243A>G/i })).toBeInTheDocument();
     expect(screen.queryByRole('article', { name: /m\.73A>G/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('article', { name: /m\.8860A>G/i })).not.toBeInTheDocument();
 
     // Back to any frequency, then hide synonymous variants.
-    fireEvent.change(screen.getByLabelText('gnomAD frequency'), { target: { value: '' } });
+    fireEvent.change(screen.getByLabelText('Population frequency'), { target: { value: '' } });
     expect(screen.getByText(/3 of 3 variants/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('checkbox', { name: /hide synonymous/i }));
     expect(screen.getByText(/2 of 3 variants/)).toBeInTheDocument();
@@ -465,6 +465,131 @@ describe('FamilyMitoDNAAnalysisPage', () => {
       const dialog = screen.getByRole('dialog');
       expect(within(dialog).getByText('ACMG classification')).toBeInTheDocument();
     });
+  });
+
+  it("shows each overlapping gene's consequence and the mtDNA population frequencies", async () => {
+    // At 8530 MT-ATP8 and MT-ATP6 overlap: the annotation names one consequence per gene, and
+    // only the first was shown. gnomAD-MT's homoplasmic frequency, which the frequency filter
+    // now reads beside the gnomAD AF, takes out a variant common as homoplasmic calls.
+    const annotation = (overrides: Record<string, unknown>) => ({
+      region: 'MT-ATP8',
+      gene: 'MT-ATP8',
+      consequence: 'missense_variant',
+      consequence_terms: ['missense_variant'],
+      gnomad_af: null,
+      category: 'protein coding',
+      clinical_significance: 'unknown',
+      disorders: [],
+      polymorphism_notes: [],
+      mitomap_query: 'm.8530A>G',
+      mitomap_url: 'https://www.mitomap.org/cgi-bin/search_allele?variant=8530A%3EG',
+      source_keys: [],
+      ...overrides,
+    });
+    const call = {
+      PROBAND: {
+        sample: 'PROBAND',
+        role: 'proband',
+        affected: true,
+        sex: 'female',
+        genotype: '1',
+        allele_fraction: 0.99,
+        depth: 400,
+        alt_depth: 396,
+        zygosity: 'homoplasmic',
+        display: '99.0%',
+      },
+    };
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === '/families/F1') {
+        return Promise.resolve({
+          data: {
+            family_id: 'F1',
+            pedigree: '',
+            members: [{ sample_id: 'PROBAND', role: 'proband', affected: true, sex: 'female' }],
+            projects: [],
+            metadata: {},
+          },
+        });
+      }
+      if (url === '/families/F1/hpo') return Promise.resolve({ data: [] });
+      if (url === '/families/F1/mitochondrial-dna') {
+        return Promise.resolve({
+          data: {
+            heteroplasmy_threshold: 0.02,
+            homoplasmy_threshold: 0.95,
+            qc_notes: [],
+            samples: [
+              {
+                sample_id: 'PROBAND',
+                role: 'proband',
+                affected: true,
+                sex: 'female',
+                haplogroup: 'H1',
+                coverage: { mean_depth: 400, min_depth: 350, max_depth: 450, breadth: 0.98, source: 'coverage', regions: 10 },
+                qc: { status: 'pass', notes: [], contamination: 0.001, mean_depth: 400, min_mean_depth: 350 },
+              },
+            ],
+            variants: [
+              {
+                variant_id: 'm.8530A>G',
+                position: 8530,
+                ref: 'A',
+                alt: 'G',
+                label: 'm.8530A>G',
+                type: 'SNV',
+                maternal_transmission: 'maternal_shared',
+                annotation: annotation({
+                  gnomad_mt_af_hom: 0.0001,
+                  gnomad_mt_af_het: 0.00002,
+                  gnomad_mt_max_hl: 0.92,
+                  gene_consequences: [
+                    { gene: 'MT-ATP8', consequence: 'missense_variant', category: 'protein coding' },
+                    { gene: 'MT-ATP6', consequence: 'synonymous_variant', category: 'protein coding' },
+                  ],
+                }),
+                calls: call,
+              },
+              {
+                variant_id: 'm.750A>G',
+                position: 750,
+                ref: 'A',
+                alt: 'G',
+                label: 'm.750A>G',
+                type: 'SNV',
+                maternal_transmission: 'maternal_shared',
+                annotation: annotation({
+                  region: 'MT-RNR1',
+                  gene: 'MT-RNR1',
+                  consequence: 'non_coding_transcript_exon_variant',
+                  consequence_terms: ['non_coding_transcript_exon_variant'],
+                  category: 'rRNA',
+                  mitomap_query: 'm.750A>G',
+                  gnomad_mt_af_hom: 0.98,
+                  gene_consequences: [],
+                }),
+                calls: call,
+              },
+            ],
+            structural_variants: [],
+          },
+        });
+      }
+      if (url.endsWith('/small-variant-tags')) return Promise.resolve({ data: [] });
+      return Promise.resolve({ data: {} });
+    });
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText(/2 of 2 variants/)).toBeInTheDocument());
+
+    const overlap = screen.getByRole('article', { name: /m\.8530A>G/ });
+    expect(within(overlap).getByText('MT-ATP8: missense_variant')).toBeInTheDocument();
+    expect(within(overlap).getByText('MT-ATP6: synonymous_variant')).toBeInTheDocument();
+    expect(within(overlap).getByText('hom 0.010% · het 0.002% · max HL 0.92')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Population frequency'), { target: { value: '0.05' } });
+    expect(screen.getByText(/1 of 2 variants/)).toBeInTheDocument();
+    expect(screen.queryByRole('article', { name: /m\.750A>G/ })).not.toBeInTheDocument();
   });
 
   it('labels a variant with no mother to compare as not assessed and keeps it out of maternal review', async () => {

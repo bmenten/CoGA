@@ -46,6 +46,7 @@ from .small_variant_review_acmg import (
     EVIDENCE_FREQUENCY_FIELDS,
     EVIDENCE_GENE_CONSTRAINT_FIELDS,
     EVIDENCE_IN_SILICO_FIELDS,
+    EVIDENCE_MITO_FREQUENCY_FIELDS,
     build_evidence_snapshot,
     evidence_gene_missense_z,
 )
@@ -68,6 +69,7 @@ _EVIDENCE_ORDER = {
             EVIDENCE_ALLELE_FIELD,
             *EVIDENCE_CONSEQUENCE_FIELDS,
             *EVIDENCE_FREQUENCY_FIELDS,
+            *EVIDENCE_MITO_FREQUENCY_FIELDS,
             *EVIDENCE_IN_SILICO_FIELDS,
             *EVIDENCE_GENE_CONSTRAINT_FIELDS,
         )

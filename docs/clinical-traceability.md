@@ -41,7 +41,8 @@ ontology file its terms came from where the import recorded it (TRACE-18; how ea
 shows the merged list; sign-out freezes it.
 
 **The evidence snapshot** is taken on every ACMG save, with the time. It holds the variant's
-annotation version, annotation-set hash and ClinVar significance. The hash changes with any
+annotation version, annotation-set hash and ClinVar significance, with the ClinVar record's review
+status (`clinvar_review_status`), which the PP5/BP6 evidence names. The hash changes with any
 annotation of the variant, so it is the drift key. It also holds the values the classification
 rests on, as the ACMG dialog reads them: from the primary transcript (MANE Select, then canonical,
 then most severe impact; its id in `transcript_id`), through the variant list's own helpers
@@ -49,13 +50,17 @@ then most severe impact; its id in `transcript_id`), through the variant list's 
 
 - under `consequence`: the term or terms (`effect`) the null, missense, synonymous and
   length-change criteria read (PVS1, PM4, PP2, BP7, and those a consequence rules out), the
-  `impact`, and LOFTEE's loss-of-function call (`lof`) for the PVS1 strength; for a multi-allelic
+  `impact`, LOFTEE's loss-of-function call (`lof`) for the PVS1 strength, and LOFTEE's flags
+  (`lof_flags`) and VEP's NMD prediction (`nmd`), either of which makes PVS1 Consider; for a multi-allelic
   record (ALT `G,T`) only, the ALT these values are of (`alt_allele`): the transcript alone does not
   say which allele's annotation was read;
 - under `frequencies`: the gnomAD allele frequency the frequency criteria read (`gnomad_af`), and
   the exome, genome, gnomAD popmax, VEP `MAX_AF` (`max_af`) and TOPMed frequencies and gnomAD
-  allele, homozygote and hemizygote counts the filters read. A snapshot frozen before `alt_allele`
-  or `max_af` is compared on what it froze; before, `max_af` was frozen as gnomAD's popmax;
+  allele, homozygote and hemizygote counts the filters read, and gnomAD's FAF95 (`gnomad_faf95_af`)
+  that BA1 and BS1 read; for a chrM variant only, the homoplasmic and heteroplasmic frequencies the
+  mtDNA criteria read (`gnomad_mt_af_hom`, `gnomad_mt_af_het`, `helix_af_hom`, `helix_af_het`). A
+  snapshot frozen before a field was is compared on what it froze; before, `max_af` was frozen as
+  gnomAD's popmax;
 - under `in_silico`: CADD (`cadd_phred`), REVEL, SpliceAI (`spliceai_max`), SIFT, PolyPhen and
   the AlphaMissense class and score;
 - under `gene_constraint`, for a missense variant only: the gene's gnomAD missense Z that PP2

@@ -53,6 +53,15 @@ class MitoDNAVariantSampleCallOut(BaseModel):
     display: str
 
 
+class MitoGeneConsequenceOut(BaseModel):
+    """One gene's consequence of a variant where mtDNA genes overlap (MT-ATP8/MT-ATP6,
+    MT-ND4L/MT-ND4): the annotation names one consequence per gene."""
+
+    gene: str
+    consequence: Optional[str] = None
+    category: Optional[str] = None
+
+
 class MitoDNAVariantAnnotationOut(BaseModel):
     region: str
     gene: Optional[str] = None
@@ -63,6 +72,18 @@ class MitoDNAVariantAnnotationOut(BaseModel):
     # Numeric gnomAD allele frequency (chrM) when annotated; used to filter out
     # common variants. ``None`` when the variant carries no gnomAD frequency.
     gnomad_af: Optional[float] = None
+    # The mtDNA population frequencies, homoplasmic and heteroplasmic apart: gnomAD-MT's (with
+    # the highest heteroplasmy level it observed) and HelixMTdb's (from a mutserve table).
+    # Population frequencies, not the heteroplasmy of the person tested. The mtDNA ACMG
+    # criteria read them: BA1 and BS1 the highest homoplasmic one, PM2 both.
+    gnomad_mt_af_hom: Optional[float] = None
+    gnomad_mt_af_het: Optional[float] = None
+    gnomad_mt_max_hl: Optional[float] = None
+    helix_af_hom: Optional[float] = None
+    helix_af_het: Optional[float] = None
+    # Where the variant lies in two overlapping genes: each gene's consequence. Empty
+    # elsewhere; ``gene`` and ``consequence`` are then the one gene's.
+    gene_consequences: List[MitoGeneConsequenceOut] = Field(default_factory=list)
     category: Optional[str] = None
     clinical_significance: Literal[
         "pathogenic",

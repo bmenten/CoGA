@@ -195,13 +195,25 @@ def test_spliceai_delta_rejects_out_of_range() -> None:
 
 
 def test_parse_spliceai_pred_drops_position_leak() -> None:
-    # Standard format ALLELE|SYMBOL|DS_AG|DS_AL|DS_DG|DS_DL|DP_AG|... — delta scores only.
+    # Standard format ALLELE|SYMBOL|DS_AG|DS_AL|DS_DG|DS_DL|DP_AG|…: the delta scores, and
+    # where SpliceAI places each change (bases from the variant).
     parsed = _parse_spliceai_pred("A|GENE|0.01|0.00|0.93|0.00|-5|12|-8|22")
-    assert parsed == {"spliceai_ds_ag": 0.01, "spliceai_ds_al": 0.0, "spliceai_ds_dg": 0.93, "spliceai_ds_dl": 0.0}
+    assert parsed == {
+        "spliceai_ds_ag": 0.01,
+        "spliceai_ds_al": 0.0,
+        "spliceai_ds_dg": 0.93,
+        "spliceai_ds_dl": 0.0,
+        "spliceai_dp_ag": -5,
+        "spliceai_dp_al": 12,
+        "spliceai_dp_dg": -8,
+        "spliceai_dp_dl": 22,
+    }
 
-    # An offset format where a DP position lands in a DS slot: the >1 value is dropped.
+    # An offset format where a DP position lands in a DS slot: the >1 value is dropped, and
+    # no position is read from the shifted slots.
     offset = _parse_spliceai_pred("A|0.00|0.00|0.00|22|35|-8|22|0|0")
     assert "spliceai_ds_dl" not in offset
+    assert not any(key.startswith("spliceai_dp_") for key in offset)
     assert all(0.0 <= v <= 1.0 for v in offset.values())
 
 
@@ -519,3 +531,92 @@ def test_vep_max_af_is_kept_apart_from_gnomads_popmax() -> None:
     assert both["population_frequencies"]["gnomad_popmax_af"] == 0.0006
     assert both["population_frequencies"]["max_af"] == 0.012
     assert _annotation_columns(both).gnomad_popmax_af == pytest.approx(0.0006)
+
+
+# --------------------------------------------------------------------------- #
+# The fields the new annotation workflow delivers (the field contract in data-import.md)
+# --------------------------------------------------------------------------- #
+
+
+def test_the_clinvar_files_review_status_conditions_and_ids_are_read() -> None:
+    # VEP --custom: the file's INFO fields as ClinVar_*, its commas written as "&", and the
+    # matched record's ID (its VariationID) under the short name itself.
+    annotation = normalize_small_variant_annotation_entry(
+        {
+            "SYMBOL": "GENE1",
+            "ClinVar_CLNSIG": "Pathogenic",
+            "ClinVar_CLNREVSTAT": "criteria_provided&_multiple_submitters&_no_conflicts",
+            "ClinVar_CLNDN": "Condition_A&not_provided",
+            "ClinVar_ALLELEID": "98765",
+            "ClinVar": "12345",
+        }
+    )
+    assert annotation["clinvar_review_status"] == "criteria provided, multiple submitters, no conflicts"
+    assert annotation["clinvar_conditions"] == "Condition_A&not_provided"
+    assert (annotation["clinvar_variation_id"], annotation["clinvar_allele_id"]) == ("12345", "98765")
+    # An ID that is no VariationID is not kept as one.
+    assert "clinvar_variation_id" not in normalize_small_variant_annotation_entry({"SYMBOL": "G", "ClinVar": "Pathogenic"})
+
+
+@pytest.mark.parametrize(
+    ("status", "stars"),
+    [
+        ("practice guideline", 4),
+        ("reviewed by expert panel", 3),
+        ("criteria provided, multiple submitters, no conflicts", 2),
+        ("criteria provided, conflicting classifications", 1),
+        ("criteria_provided,_single_submitter", 1),
+        ("no assertion criteria provided", 0),
+        ("no classification provided", 0),
+        ("something else", None),
+        (None, None),
+    ],
+)
+def test_clinvar_stars(status, stars) -> None:
+    from backend.app.services.clinvar_review_status import clinvar_stars
+
+    assert clinvar_stars(status) == stars
+
+
+def test_clinvar_conditions_are_listed_once_as_words() -> None:
+    from backend.app.services.clinvar_review_status import clinvar_conditions
+
+    assert clinvar_conditions("Condition_A|not_provided&Condition_A") == ["Condition A", "not provided"]
+    assert clinvar_conditions(None) == []
+
+
+def test_gnomads_allele_number_faf95_and_filters_and_vep_nmd_are_read() -> None:
+    annotation = normalize_small_variant_annotation_entry(
+        {
+            "SYMBOL": "GENE1",
+            "NMD": "NMD_escaping_variant",
+            "gnomADe_AN": "1200",
+            "gnomADg_AN": "800",
+            "gnomADe_fafmax_faf95_max": "0.004",
+            "gnomADg_fafmax_faf95_max": "0.007",
+            "gnomADg_FILTER": "AC0",
+            "SpliceAI_pred_DS_DG": "0.82",
+            "SpliceAI_pred_DP_DG": "-14",
+        }
+    )
+    assert annotation["nmd"] == "NMD_escaping_variant"
+    # The allele number as gnomAD's total, as its counts; the FAF95 the higher of the two.
+    assert annotation["extra"]["gnomad_an"] == 2000
+    assert annotation["population_frequencies"]["gnomad_faf95_af"] == 0.007
+    assert annotation["gnomad_genomes_filter"] == "AC0"
+    assert (annotation["spliceai_ds_dg"], annotation["spliceai_dp_dg"]) == (0.82, -14)
+
+
+def test_gnomad_mt_frequencies_are_read_homoplasmic_and_heteroplasmic_apart() -> None:
+    annotation = normalize_small_variant_annotation_entry(
+        {
+            "SYMBOL": "MT-ATP6",
+            "GNOMAD_MT31_AF_hom": "0.0012",
+            "GNOMAD_MT31_AF_het": "0.0001",
+            "GNOMAD_MT31_max_hl": "0.92",
+            "GNOMAD_MT31_AN": "56434",
+        }
+    )
+    assert annotation["population_frequencies"] == {"gnomad_mt_af_hom": 0.0012, "gnomad_mt_af_het": 0.0001}
+    assert annotation["gnomad_mt_max_hl"] == 0.92
+    assert annotation["extra"]["gnomad_mt_an"] == 56434

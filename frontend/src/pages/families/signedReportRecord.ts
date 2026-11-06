@@ -266,6 +266,8 @@ export interface SignedEvidenceValue {
 /** What `build_evidence_snapshot` froze when the variant was classified. */
 export interface SignedEvidence {
   clinvar: string | null;
+  /** The review status of that ClinVar record, where the annotation had it. */
+  clinvarReviewStatus: string | null;
   annotationVersion: string | null;
   capturedAt: string | null;
   /** The primary transcript the consequence, frequencies and scores were read from. */
@@ -992,6 +994,9 @@ const CONSEQUENCE_FIELDS: EvidenceField[] = [
   { key: 'effect', label: 'consequence', format: 'text' },
   { key: 'impact', label: 'impact', format: 'text' },
   { key: 'lof', label: 'LoF', format: 'text' },
+  // LOFTEE's flags and VEP's NMD prediction, which make PVS1 Consider.
+  { key: 'lof_flags', label: 'LoF flags', format: 'text' },
+  { key: 'nmd', label: 'NMD', format: 'text' },
   // Frozen for a multi-allelic record only: the ALT the values are of.
   { key: 'alt_allele', label: 'of ALT', format: 'text' },
 ];
@@ -1002,10 +1007,16 @@ const FREQUENCY_FIELDS: EvidenceField[] = [
   { key: 'gnomad_genomes_af', label: 'gnomAD genomes AF', format: 'frequency' },
   { key: 'gnomad_popmax_af', label: 'gnomAD popmax AF', format: 'frequency' },
   { key: 'max_af', label: 'VEP MAX_AF', format: 'frequency' },
+  { key: 'gnomad_faf95_af', label: 'gnomAD FAF95', format: 'frequency' },
   { key: 'topmed_af', label: 'TOPMed AF', format: 'frequency' },
   { key: 'gnomad_ac', label: 'gnomAD allele count', format: 'count' },
   { key: 'gnomad_hom_count', label: 'gnomAD homozygotes', format: 'count' },
   { key: 'gnomad_hemi_count', label: 'gnomAD hemizygotes', format: 'count' },
+  // Frozen for a chrM variant only: the mtDNA population frequencies the mtDNA criteria read.
+  { key: 'gnomad_mt_af_hom', label: 'gnomAD-MT homoplasmic AF', format: 'frequency' },
+  { key: 'gnomad_mt_af_het', label: 'gnomAD-MT heteroplasmic AF', format: 'frequency' },
+  { key: 'helix_af_hom', label: 'HelixMTdb homoplasmic AF', format: 'frequency' },
+  { key: 'helix_af_het', label: 'HelixMTdb heteroplasmic AF', format: 'frequency' },
 ];
 
 const IN_SILICO_FIELDS: EvidenceField[] = [
@@ -1087,6 +1098,7 @@ const parseSmallVariant = (entry: unknown): SignedSmallVariant => {
     evidence: evidence
       ? {
           clinvar: text(evidence.clinvar),
+          clinvarReviewStatus: text(evidence.clinvar_review_status),
           annotationVersion: text(evidence.annotation_version),
           capturedAt: text(evidence.captured_at),
           transcriptId: text(evidence.transcript_id),

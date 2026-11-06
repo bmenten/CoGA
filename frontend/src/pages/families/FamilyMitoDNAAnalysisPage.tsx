@@ -60,6 +60,29 @@ const GNOMAD_AF_OPTIONS: Array<{ value: string; label: string }> = [
 const isSynonymousVariant = (variant: ApiMitoDNAVariant): boolean =>
   (variant.annotation.consequence_terms ?? []).some((term) => term.includes('synonymous'));
 
+// The mtDNA population frequencies of homoplasmic and of heteroplasmic calls: the highest of
+// the sources annotated (gnomAD-MT, HelixMTdb from a mutserve table), with its source. The
+// mtDNA ACMG criteria read them (BA1 and BS1 the homoplasmic one, PM2 both), and the
+// frequency filter the homoplasmic one beside the gnomAD frequency.
+type MtFrequency = { af: number; source: string } | null;
+
+const highestFrequency = (...candidates: [number | null | undefined, string][]): MtFrequency =>
+  candidates.reduce<MtFrequency>((best, [af, source]) => {
+    if (typeof af !== 'number' || !Number.isFinite(af)) return best;
+    return best && best.af >= af ? best : { af, source };
+  }, null);
+
+export const mtPopulationFrequencies = (annotation: ApiMitoDNAVariant['annotation']) => ({
+  homoplasmic: highestFrequency(
+    [annotation.gnomad_mt_af_hom, 'gnomAD-MT'],
+    [annotation.helix_af_hom, 'HelixMTdb'],
+  ),
+  heteroplasmic: highestFrequency(
+    [annotation.gnomad_mt_af_het, 'gnomAD-MT'],
+    [annotation.helix_af_het, 'HelixMTdb'],
+  ),
+});
+
 // Adapt an MT variant to the SmallVariant fields the ACMG modal reads. MT
 // variants live in the small-variant store, so the modal, its auto-evaluation
 // and the shared review endpoint all operate on the same identity. The `mito`
@@ -72,6 +95,7 @@ const toSmallVariantForAcmg = (
   const proband =
     samples.find((s) => (s.role ?? '').toLowerCase() === 'proband') ??
     samples.find((s) => s.affected);
+  const frequencies = mtPopulationFrequencies(variant.annotation);
   return {
     _id: variant.variant_id,
     chr: 'MT',
@@ -97,6 +121,10 @@ const toSmallVariantForAcmg = (
     mito: {
       category: (variant.annotation.category ?? null) as AcmgMitoContext['category'],
       clinicalSignificance: variant.annotation.clinical_significance ?? null,
+      homoplasmicAf: frequencies.homoplasmic?.af ?? null,
+      homoplasmicSource: frequencies.homoplasmic?.source ?? null,
+      heteroplasmicAf: frequencies.heteroplasmic?.af ?? null,
+      heteroplasmicSource: frequencies.heteroplasmic?.source ?? null,
       disorders: variant.annotation.disorders ?? [],
       maternalTransmission: variant.maternal_transmission ?? null,
       probandHaplogroup: proband?.haplogroup ?? null,
@@ -110,6 +138,21 @@ const toSmallVariantForAcmg = (
     },
   };
 };
+
+// A population's homoplasmic and heteroplasmic frequencies, and the highest heteroplasmy it
+// observed: "hom 0.12% · het 0.010% · max HL 0.92".
+const formatMtFrequencies = (
+  hom: number | null | undefined,
+  het: number | null | undefined,
+  maxHl?: number | null,
+): string =>
+  [
+    `hom ${hom != null ? formatPercent(hom, 3) : '—'}`,
+    `het ${het != null ? formatPercent(het, 3) : '—'}`,
+    maxHl != null ? `max HL ${maxHl.toFixed(2)}` : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
 
 const samplesToMembers = (samples: ApiMitoDNASample[]): ApiFamilyMember[] =>
   samples.map((sample) => ({
@@ -484,13 +527,14 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
     const query = searchText.trim().toLowerCase();
     return (mtDNA?.variants || []).filter((variant) => {
       if (!variantMatchesSearch(variant, query)) return false;
-      // gnomAD frequency: drop variants whose annotated AF exceeds the cut-off.
-      // Variants without an annotated frequency are kept — commonness is unknown.
-      if (
-        gnomadAfThreshold != null &&
-        variant.annotation.gnomad_af != null &&
-        variant.annotation.gnomad_af > gnomadAfThreshold
-      ) {
+      // Population frequency: drop variants whose annotated gnomAD AF, or homoplasmic mtDNA
+      // frequency (gnomAD-MT, HelixMTdb), exceeds the cut-off. Variants without either are
+      // kept — commonness is unknown.
+      const populationAf = Math.max(
+        variant.annotation.gnomad_af ?? -1,
+        mtPopulationFrequencies(variant.annotation).homoplasmic?.af ?? -1,
+      );
+      if (gnomadAfThreshold != null && populationAf >= 0 && populationAf > gnomadAfThreshold) {
         return false;
       }
       if (excludeSynonymous && isSynonymousVariant(variant)) return false;
@@ -881,7 +925,7 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
             </button>
           </div>
           <label className="family-mtdna-filter-field" htmlFor="mtdna-gnomad-af">
-            <span>gnomAD frequency</span>
+            <span>Population frequency</span>
             <select
               id="mtdna-gnomad-af"
               value={maxGnomadAf}
@@ -974,7 +1018,15 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
                       omimUrl: omimSearchHref(disorder),
                     }))}
                   >
-                    {variant.annotation.consequence ? (
+                    {(variant.annotation.gene_consequences ?? []).length > 1 ? (
+                      // Two overlapping genes (MT-ATP8/MT-ATP6, MT-ND4L/MT-ND4): each one's
+                      // consequence, as the annotation names one per gene.
+                      (variant.annotation.gene_consequences ?? []).map((entry) => (
+                        <span key={entry.gene} className="variant-card-chip variant-card-chip--impact">
+                          {entry.gene}: {entry.consequence || 'no consequence annotated'}
+                        </span>
+                      ))
+                    ) : variant.annotation.consequence ? (
                       <span className="variant-card-chip variant-card-chip--impact">
                         {variant.annotation.consequence}
                       </span>
@@ -1031,6 +1083,26 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
                               : '—'}
                           </dd>
                         </div>
+                        {variant.annotation.gnomad_mt_af_hom != null || variant.annotation.gnomad_mt_af_het != null ? (
+                          <div>
+                            <dt>gnomAD-MT</dt>
+                            <dd>
+                              {formatMtFrequencies(
+                                variant.annotation.gnomad_mt_af_hom,
+                                variant.annotation.gnomad_mt_af_het,
+                                variant.annotation.gnomad_mt_max_hl,
+                              )}
+                            </dd>
+                          </div>
+                        ) : null}
+                        {variant.annotation.helix_af_hom != null || variant.annotation.helix_af_het != null ? (
+                          <div>
+                            <dt>HelixMTdb</dt>
+                            <dd>
+                              {formatMtFrequencies(variant.annotation.helix_af_hom, variant.annotation.helix_af_het)}
+                            </dd>
+                          </div>
+                        ) : null}
                         <div>
                           <dt>Transmission</dt>
                           <dd>

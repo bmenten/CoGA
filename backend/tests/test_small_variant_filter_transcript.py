@@ -560,3 +560,28 @@ def test_a_multi_allelic_record_serves_the_alt_each_transcript_is_of() -> None:
     assert "alt_allele" not in variant.annotation_extra
     # A record with one ALT names none.
     assert _small_variant_out(_record("1-100-C-T", [PRIMARY]), assembly_name="GRCh38", filter_annotation_hashes=None).alt_allele is None
+
+
+def test_the_new_annotation_fields_are_served_as_fields_of_their_own() -> None:
+    # ClinVar's review status (with ClinVar's stars), conditions and VariationID, VEP's NMD
+    # prediction and SpliceAI's positions: served, and not repeated in annotation_extra.
+    annotated = _transcript(
+        "ENST_SYN51_1",
+        canonical=True,
+        clinvar="Pathogenic",
+        clinvar_review_status="criteria provided, multiple submitters, no conflicts",
+        clinvar_conditions="Condition_A&not_provided",
+        clinvar_variation_id="12345",
+        nmd="NMD_escaping_variant",
+        spliceai_ds_dg=0.82,
+        spliceai_dp_dg=-14,
+    )
+    variant = _small_variant_out(_record("1-100-C-T", [annotated]), assembly_name="GRCh38", filter_annotation_hashes=None)
+    assert (variant.clinvar_review_status, variant.clinvar_stars) == (
+        "criteria provided, multiple submitters, no conflicts",
+        2,
+    )
+    assert variant.clinvar_conditions == ["Condition A", "not provided"]
+    assert (variant.clinvar_variation_id, variant.nmd, variant.spliceai_dp_dg) == ("12345", "NMD_escaping_variant", -14)
+    for key in ("clinvar_review_status", "clinvar_conditions", "clinvar_variation_id", "nmd", "spliceai_dp_dg"):
+        assert key not in variant.annotation_extra

@@ -313,6 +313,7 @@ describe('parseSignedReport', () => {
     // missense Z: the record holds none.
     expect(classified.evidence).toEqual({
       clinvar: 'Likely_pathogenic',
+      clinvarReviewStatus: null,
       annotationVersion: 'v1',
       capturedAt: '2026-06-20T08:30:00+00:00',
       transcriptId: null,

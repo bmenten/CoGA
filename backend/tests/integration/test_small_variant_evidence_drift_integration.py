@@ -598,15 +598,33 @@ def test_a_classification_freezes_its_consequence_lof_call_and_missense_z_and_dr
             for frozen, variant_id in ((frozen_missense, _MISSENSE), (frozen_stop, _STOP_GAINED)):
                 variant = served[variant_id]
                 assert frozen["transcript_id"] == variant.transcript_id == _GENE8_TRANSCRIPT
-                assert frozen["consequence"] == {"effect": variant.effect, "impact": variant.impact, "lof": variant.lof}
-            assert frozen_missense["consequence"] == {"effect": "missense_variant", "impact": "MODERATE", "lof": None}
+                assert frozen["consequence"] == {
+                    "effect": variant.effect,
+                    "impact": variant.impact,
+                    "lof": variant.lof,
+                    "lof_flags": variant.lof_flags,
+                    "nmd": variant.nmd,
+                }
+            assert frozen_missense["consequence"] == {
+                "effect": "missense_variant",
+                "impact": "MODERATE",
+                "lof": None,
+                "lof_flags": None,
+                "nmd": None,
+            }
             # Read from the gene's profile, which PP2 reads first (TRACE-15).
             assert frozen_missense["gene_constraint"] == {
                 "gene_missense_z": metrics[_MISSENSE]["gene_missense_z"],
                 "gene_missense_z_source": "gene_profile",
             }
             assert frozen_missense["gene_constraint"]["gene_missense_z"] == 2.95
-            assert frozen_stop["consequence"] == {"effect": "stop_gained", "impact": "HIGH", "lof": "LC"}
+            assert frozen_stop["consequence"] == {
+                "effect": "stop_gained",
+                "impact": "HIGH",
+                "lof": "LC",
+                "lof_flags": None,
+                "nmd": None,
+            }
             assert "gene_constraint" not in frozen_stop and metrics[_STOP_GAINED]["gene_missense_z"] == 2.95
 
             # A classification whose snapshot was stored before the consequence and the
@@ -694,7 +712,13 @@ def test_a_classification_freezes_its_consequence_lof_call_and_missense_z_and_dr
                 "gene_missense_z": 2.95,
                 "gene_missense_z_source": "gene_profile",
             }
-            assert reported[_STOP_GAINED]["consequence"] == {"effect": "stop_gained", "impact": "HIGH", "lof": "LC"}
+            assert reported[_STOP_GAINED]["consequence"] == {
+                "effect": "stop_gained",
+                "impact": "HIGH",
+                "lof": "LC",
+                "lof_flags": None,
+                "nmd": None,
+            }
             assert "gene_constraint" not in reported[_STOP_GAINED]
             signed_drift = {entry["variant_id"]: entry for entry in signed["drift"]["drifted"]}
             assert signed_drift[_MISSENSE]["changed"] == ["gene_missense_z"]

@@ -915,6 +915,57 @@ describe('SmallVariantCards', () => {
     expect(within(row).getByText('0.12&0.91')).toBeInTheDocument();
   });
 
+  it("shows ClinVar's stars and record, SpliceAI's position, gnomAD's FAF95 and AN, and NMD", async () => {
+    renderCards(
+      <SmallVariantCards
+        variants={[
+          smallVariant({
+            _id: 'fields-var',
+            chr: '3',
+            start: 300,
+            end: 300,
+            type: 'SNV',
+            ref: 'C',
+            alt: 'T',
+            gene: 'GENE3',
+            effect: 'stop_gained',
+            clinvar: 'Pathogenic',
+            clinvar_review_status: 'criteria provided, multiple submitters, no conflicts',
+            clinvar_stars: 2,
+            clinvar_conditions: ['Condition A'],
+            clinvar_variation_id: '12345',
+            nmd: 'NMD_escaping_variant',
+            spliceai_max: 0.82,
+            spliceai_ds_dg: 0.82,
+            spliceai_dp_dg: 14,
+            gnomad_af: 0.0001,
+            population_frequencies: { gnomad_af: 0.0001, gnomad_faf95_af: 0.00005 },
+            annotation_extra: { gnomad_an: 152000, gnomad_genomes_filter: 'AC0' },
+            genotypes: [],
+          }),
+        ]}
+        members={[]}
+        familyId="F1"
+        projectId="P1"
+        locationSearch=""
+        tags={[]}
+        onEditReview={vi.fn()}
+        onAcmgClassify={vi.fn()}
+        onToggleReviewTag={vi.fn(async () => undefined)}
+      />,
+    );
+
+    const clinvar = screen.getByRole('link', { name: /ClinVar\s*Pathogenic ★★☆☆/ });
+    expect(clinvar).toHaveAttribute('href', 'https://www.ncbi.nlm.nih.gov/clinvar/variation/12345/');
+    expect(clinvar).toHaveAttribute('title', 'criteria provided, multiple submitters, no conflicts — Condition A');
+    expect(screen.getByText('0.82 · donor gain +14')).toBeInTheDocument();
+    expect(screen.getByText('gnomAD FAF95')).toBeInTheDocument();
+    await userEvent.click(screen.getByText('More annotations & detail'));
+    expect(screen.getByText('NMD escaping variant')).toBeInTheDocument();
+    expect(screen.getByText('152000')).toBeInTheDocument();
+    expect(screen.getByText("gnomAD genomes filter (fails gnomAD's own QC)")).toBeInTheDocument();
+  });
+
   it('shows the priority breakdown on a prioritized variant card', () => {
     renderCards(
         <SmallVariantCards
