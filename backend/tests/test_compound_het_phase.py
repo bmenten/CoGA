@@ -43,6 +43,7 @@ from backend.app.services.compound_het_phase import (
 )
 from backend.app.services.family_metadata_context import FamilyMetadataContext
 from backend.app.services.sv_gene_index_service import summarize_second_hit
+from backend.tests._segregation_flags import flag, members_of
 
 # =========================================================================================
 # Read-backed phase
@@ -721,7 +722,9 @@ def test_a_pair_traced_to_one_parent_no_longer_counts_towards_the_compound_het_m
         _record("first", 100, {"P": "0/1", "M": "0/1", "F": "0/0"}, {}),
         _record("second", 200, {"P": "0/1", "M": "0/1", "F": "0/0"}, {}),
     ]
-    modes = _segregation_modes_by_variant(records, context=_trio_context(mother_status="unknown"))
+    context = _trio_context(mother_status="unknown")
+    # As the ranking fetches them: with the modes the SQL finds each to fit.
+    modes = _segregation_modes_by_variant(flag(records, **members_of(context)), context=context)
     assert MODE_COMPOUND_HET not in modes["first"]
     assert MODE_COMPOUND_HET not in modes["second"]
 
@@ -729,5 +732,6 @@ def test_a_pair_traced_to_one_parent_no_longer_counts_towards_the_compound_het_m
         _record("first", 100, {"P": "0/1", "M": "0/1", "F": "0/0"}, {}),
         _record("second", 200, {"P": "0/1", "M": "0/0", "F": "0/1"}, {}),
     ]
-    modes = _segregation_modes_by_variant(traced_apart, context=_trio_context())
+    context = _trio_context()
+    modes = _segregation_modes_by_variant(flag(traced_apart, **members_of(context)), context=context)
     assert MODE_COMPOUND_HET in modes["first"] and MODE_COMPOUND_HET in modes["second"]

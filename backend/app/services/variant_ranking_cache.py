@@ -75,7 +75,11 @@ from .hpo_service import get_loaded_hpo_release
 #    (the owner's decision of 2026-11-06). A ranking cached before under either filter may
 #    lack a variant a hidden member's failed call held back, or hold one only a hidden
 #    member's phase set or own FILTER kept.
-_ALGORITHM_VERSION = "8"
+# 9: the single-variant inheritance modes a variant fits (de novo / dominant, homozygous
+#    recessive, X-linked), which its segregation weight reads, come from the SQL that the
+#    inheritance filter applies, not a Python copy of it (One filter definition). Defensive:
+#    the two agreed on every case of the filter spec.
+_ALGORITHM_VERSION = "9"
 # Keep only the few most-recent distinct query signatures per family.
 _MAX_CACHE_ROWS_PER_FAMILY = 6
 

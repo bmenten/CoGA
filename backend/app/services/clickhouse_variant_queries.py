@@ -79,6 +79,7 @@ from .clickhouse_variant_records import (
     CLINVAR_FREQUENCY_RESCUE_TERMS,
     Region,
     PanelFilterConstraints,
+    SmallSegregationFlags,
     SmallVariantCall,
     SmallVariantRecord,
     SmallVariantCompoundHetPair,
@@ -176,7 +177,9 @@ COMPOUND_HET_PHASE_UNKNOWN = PHASE_UNKNOWN
 _DE_NOVO_MIN_PARENT_DP = CONFIDENT_REFERENCE_MIN_DP
 
 
-_X_CHROMOSOME_TOKENS = {"X", "23"}
+# Chromosome X as the entries table may name it, which the X-linked and homozygous recessive
+# modes read (``_small_inheritance_mode_clauses``).
+_X_CHROMOSOME_NAMES: Final[tuple[str, ...]] = ("X", "chrX", "23", "chr23")
 
 
 _COMPOUND_HET_INHERITANCE = "compound_het"
@@ -1296,10 +1299,6 @@ def _call_is_het(call: SmallVariantCall | None) -> bool:
     return call is not None and classify_genotype(call.gt) == HET
 
 
-def _call_is_hom_alt(call: SmallVariantCall | None) -> bool:
-    return call is not None and classify_genotype(call.gt) == HOM_ALT
-
-
 def _call_has_alt(call: SmallVariantCall | None) -> bool:
     return call is not None and genotype_has_alt(call.gt)
 
@@ -1437,58 +1436,6 @@ def _record_matches_de_novo(
     return False
 
 
-def _is_x_chromosome(chromosome: str | None) -> bool:
-    normalized = normalize_chromosome(str(chromosome or ""))
-    return normalized.upper() in _X_CHROMOSOME_TOKENS
-
-
-def _record_matches_de_novo_dominant(
-    record: SmallVariantRecord,
-    *,
-    affected_samples: Sequence[str],
-    unaffected_samples: Sequence[str],
-    sample_sex: dict[str, str] | None = None,
-    assembly_name: str | None = None,
-) -> bool:
-    """Carried in one copy by every affected sample, and by no unaffected one.
-
-    One copy is a heterozygous call. For a male where he is hemizygous (chrX and chrY
-    outside the PARs) it is also a haploid ``1`` or a ``1/1`` call, the only way a caller
-    can write it there (#545).
-    """
-    if not affected_samples:
-        return False
-    call_map = _small_call_map(record)
-    sex_of = sample_sex or {}
-    hemizygous = hemizygous_chromosome(assembly_name, record.chr, record.start) is not None
-
-    def carries_one_copy(sample: str) -> bool:
-        call = call_map.get(sample)
-        if _call_is_het(call):
-            return True
-        return hemizygous and _is_male_sex(sex_of.get(sample, "")) and _call_is_hom_alt(call)
-
-    if not all(carries_one_copy(sample) for sample in affected_samples):
-        return False
-    return not any(_call_has_alt(call_map.get(sample)) for sample in unaffected_samples)
-
-
-def _record_matches_homozygous_recessive(
-    record: SmallVariantRecord,
-    *,
-    affected_samples: Sequence[str],
-    unaffected_samples: Sequence[str],
-) -> bool:
-    if not affected_samples:
-        return False
-    if _is_x_chromosome(record.chr):
-        return False
-    call_map = _small_call_map(record)
-    if not all(_call_is_hom_alt(call_map.get(sample)) for sample in affected_samples):
-        return False
-    return not any(_call_is_hom_alt(call_map.get(sample)) for sample in unaffected_samples)
-
-
 def _sample_sex_map(sample_rows: Sequence[dict[str, Any]]) -> dict[str, str]:
     return {
         str(row.get("sample_id") or "").strip(): str(row.get("sex") or "").strip().lower()
@@ -1499,31 +1446,6 @@ def _sample_sex_map(sample_rows: Sequence[dict[str, Any]]) -> dict[str, str]:
 
 def _is_male_sex(value: str) -> bool:
     return value in {"m", "male", "1"}
-
-
-def _record_matches_x_linked_recessive(
-    record: SmallVariantRecord,
-    *,
-    affected_samples: Sequence[str],
-    unaffected_samples: Sequence[str],
-    sample_sex: dict[str, str],
-) -> bool:
-    if not affected_samples or not _is_x_chromosome(record.chr):
-        return False
-    call_map = _small_call_map(record)
-    if not all(_call_has_alt(call_map.get(sample)) for sample in affected_samples):
-        return False
-
-    for sample in unaffected_samples:
-        sex = sample_sex.get(sample, "")
-        call = call_map.get(sample)
-        if _is_male_sex(sex):
-            if _call_has_alt(call):
-                return False
-            continue
-        if _call_is_hom_alt(call):
-            return False
-    return True
 
 
 def _pair_phase_for_sample(
@@ -2203,6 +2125,158 @@ def _small_hemizygous_position_condition(
     return "(" + " OR ".join(branches) + ")"
 
 
+_SEGREGATION_FLAG_MODES: Final[tuple[str, ...]] = (
+    _DE_NOVO_DOMINANT_INHERITANCE,
+    _RECESSIVE_HOMOZYGOUS_INHERITANCE,
+    _X_LINKED_INHERITANCE,
+)
+
+
+def _small_inheritance_mode_clauses(
+    context: FamilyMetadataContext,
+    mode: str,
+    *,
+    affected_samples: Sequence[str],
+    unaffected_samples: Sequence[str],
+    prefix: str,
+    params: dict[str, Any],
+) -> list[str]:
+    """The SQL of a single-variant inheritance mode on the entries row ``e``: the one
+    definition of de novo / dominant, homozygous recessive and X-linked, which the search's
+    inheritance filter (``_small_native_inheritance_clauses``) and the segregation flags the
+    ranking and the paired searches read (``_small_segregation_flag_columns``) both apply.
+    ``affected_samples`` is not empty. Every parameter is named from ``prefix``, so two modes
+    can share one query.
+
+    - de novo / dominant: one copy in every affected member (a heterozygous call or, for a
+      male where he is hemizygous, a haploid ``1`` or ``1/1`` call, #545), no ALT call in
+      any unaffected member;
+    - homozygous recessive: off chromosome X, homozygous ALT in every affected member and in
+      no unaffected one;
+    - X-linked: on chromosome X, an ALT call in every affected member, none in an unaffected
+      male, and no unaffected female homozygous.
+    """
+    clauses: list[str] = []
+    x_chromosomes = f"{prefix}_x_chromosomes"
+    if mode == _DE_NOVO_DOMINANT_INHERITANCE:
+        # One copy in every affected sample: a heterozygous call, or, for a male where he is
+        # hemizygous, a haploid "1" or "1/1" call (#545).
+        sample_sex = _sample_sex_map(context.sample_rows)
+        hemizygous_position: str | None = None
+        if any(_is_male_sex(sample_sex.get(sample, "")) for sample in affected_samples):
+            hemizygous_position = _small_hemizygous_position_condition(
+                context.assembly_name, prefix=f"{prefix}_hemizygous", params=params
+            )
+        for index, sample_name in enumerate(affected_samples):
+            het_condition = _small_sample_gt_exists_condition(
+                context,
+                sample_name=sample_name,
+                classes=frozenset({HET}),
+                prefix=f"{prefix}_affected_het_{index}",
+                params=params,
+            )
+            if hemizygous_position is None or not _is_male_sex(sample_sex.get(sample_name, "")):
+                clauses.append(het_condition)
+                continue
+            hemizygous_condition = _small_sample_gt_exists_condition(
+                context,
+                sample_name=sample_name,
+                classes=frozenset({HOM_ALT}),
+                prefix=f"{prefix}_affected_hemizygous_{index}",
+                params=params,
+            )
+            clauses.append(f"({het_condition} OR ({hemizygous_condition} AND {hemizygous_position}))")
+        clauses.extend(
+            _small_no_samples_have_gts_condition(
+                context,
+                sample_names=unaffected_samples,
+                classes=ALT_CLASSES,
+                prefix=f"{prefix}_unaffected_alt",
+                params=params,
+            )
+        )
+    elif mode == _RECESSIVE_HOMOZYGOUS_INHERITANCE:
+        params[x_chromosomes] = _X_CHROMOSOME_NAMES
+        clauses.append(f"e.chrom NOT IN %({x_chromosomes})s")
+        clauses.extend(
+            _small_all_samples_have_gts_condition(
+                context,
+                sample_names=affected_samples,
+                classes=frozenset({HOM_ALT}),
+                prefix=f"{prefix}_affected_hom_alt",
+                params=params,
+            )
+        )
+        clauses.extend(
+            _small_no_samples_have_gts_condition(
+                context,
+                sample_names=unaffected_samples,
+                classes=frozenset({HOM_ALT}),
+                prefix=f"{prefix}_unaffected_hom_alt",
+                params=params,
+            )
+        )
+    elif mode == _X_LINKED_INHERITANCE:
+        params[x_chromosomes] = _X_CHROMOSOME_NAMES
+        clauses.append(f"e.chrom IN %({x_chromosomes})s")
+        clauses.extend(
+            _small_all_samples_have_gts_condition(
+                context,
+                sample_names=affected_samples,
+                classes=ALT_CLASSES,
+                prefix=f"{prefix}_affected_alt",
+                params=params,
+            )
+        )
+        sample_sex = _sample_sex_map(context.sample_rows)
+        male_unaffected = [sample for sample in unaffected_samples if _is_male_sex(sample_sex.get(sample, ""))]
+        other_unaffected = [sample for sample in unaffected_samples if sample not in set(male_unaffected)]
+        clauses.extend(
+            _small_no_samples_have_gts_condition(
+                context,
+                sample_names=male_unaffected,
+                classes=ALT_CLASSES,
+                prefix=f"{prefix}_unaffected_male_alt",
+                params=params,
+            )
+        )
+        clauses.extend(
+            _small_no_samples_have_gts_condition(
+                context,
+                sample_names=other_unaffected,
+                classes=frozenset({HOM_ALT}),
+                prefix=f"{prefix}_unaffected_hom_alt",
+                params=params,
+            )
+        )
+    return clauses
+
+
+def _small_segregation_flag_columns(context: FamilyMetadataContext) -> tuple[list[str], dict[str, Any]]:
+    """The SELECT columns that say, per key, which single-variant inheritance modes the
+    variant fits in this family (``segregation_<mode>``), and their parameters: the clauses
+    of ``_small_inheritance_mode_clauses``, each mode with parameters of its own. A key is
+    read as the WHERE admits it, by any of its rows (``max``). Without an affected member
+    no variant fits a mode, as the inheritance filter keeps none."""
+    params: dict[str, Any] = {}
+    affected_samples, unaffected_samples = _family_affected_unaffected_sample_names(context)
+    columns: list[str] = []
+    for mode in _SEGREGATION_FLAG_MODES:
+        condition = "0"
+        if affected_samples:
+            clauses = _small_inheritance_mode_clauses(
+                context,
+                mode,
+                affected_samples=affected_samples,
+                unaffected_samples=unaffected_samples,
+                prefix=f"segregation_{mode}",
+                params=params,
+            )
+            condition = " AND ".join(f"({clause})" for clause in clauses)
+        columns.append(f"max({condition}) AS segregation_{mode}")
+    return columns, params
+
+
 def _small_native_inheritance_clauses(
     context: FamilyMetadataContext,
     filters: SmallVariantQueryFilters,
@@ -2213,9 +2287,6 @@ def _small_native_inheritance_clauses(
 
     params: dict[str, Any] = {}
     clauses: list[str] = []
-    alt_gt_values = ALT_CLASSES
-    het_gt_values = frozenset({HET})
-    hom_alt_gt_values = frozenset({HOM_ALT})
 
     if filters.expanded_carrier_screening:
         partners = _carrier_partner_names(context.sample_rows, context.relationship_rows)
@@ -2224,7 +2295,7 @@ def _small_native_inheritance_clauses(
         partner_alt_clauses = _small_all_samples_have_gts_condition(
             context,
             sample_names=partners,
-            classes=alt_gt_values,
+            classes=ALT_CLASSES,
             prefix="carrier_screen_partner_alt",
             params=params,
         )
@@ -2242,95 +2313,14 @@ def _small_native_inheritance_clauses(
     if not affected_samples:
         return ["0"], params
 
-    if inheritance == _DE_NOVO_DOMINANT_INHERITANCE:
-        # One copy in every affected sample: a heterozygous call, or, for a male where he is
-        # hemizygous, a haploid "1" or "1/1" call (#545). Mirrors
-        # _record_matches_de_novo_dominant.
-        sample_sex = _sample_sex_map(context.sample_rows)
-        hemizygous_position: str | None = None
-        if any(_is_male_sex(sample_sex.get(sample, "")) for sample in affected_samples):
-            hemizygous_position = _small_hemizygous_position_condition(
-                context.assembly_name, prefix="inheritance_hemizygous", params=params
-            )
-        for index, sample_name in enumerate(affected_samples):
-            het_condition = _small_sample_gt_exists_condition(
-                context,
-                sample_name=sample_name,
-                classes=het_gt_values,
-                prefix=f"inheritance_affected_het_{index}",
-                params=params,
-            )
-            if hemizygous_position is None or not _is_male_sex(sample_sex.get(sample_name, "")):
-                clauses.append(het_condition)
-                continue
-            hemizygous_condition = _small_sample_gt_exists_condition(
-                context,
-                sample_name=sample_name,
-                classes=hom_alt_gt_values,
-                prefix=f"inheritance_affected_hemizygous_{index}",
-                params=params,
-            )
-            clauses.append(f"({het_condition} OR ({hemizygous_condition} AND {hemizygous_position}))")
+    if inheritance in _SEGREGATION_FLAG_MODES:
         clauses.extend(
-            _small_no_samples_have_gts_condition(
+            _small_inheritance_mode_clauses(
                 context,
-                sample_names=unaffected_samples,
-                classes=alt_gt_values,
-                prefix="inheritance_unaffected_alt",
-                params=params,
-            )
-        )
-    elif inheritance == _RECESSIVE_HOMOZYGOUS_INHERITANCE:
-        params["inheritance_x_chromosomes"] = ("X", "chrX", "23", "chr23")
-        clauses.append("e.chrom NOT IN %(inheritance_x_chromosomes)s")
-        clauses.extend(
-            _small_all_samples_have_gts_condition(
-                context,
-                sample_names=affected_samples,
-                classes=hom_alt_gt_values,
-                prefix="inheritance_affected_hom_alt",
-                params=params,
-            )
-        )
-        clauses.extend(
-            _small_no_samples_have_gts_condition(
-                context,
-                sample_names=unaffected_samples,
-                classes=hom_alt_gt_values,
-                prefix="inheritance_unaffected_hom_alt",
-                params=params,
-            )
-        )
-    elif inheritance == _X_LINKED_INHERITANCE:
-        params["inheritance_x_chromosomes"] = ("X", "chrX", "23", "chr23")
-        clauses.append("e.chrom IN %(inheritance_x_chromosomes)s")
-        clauses.extend(
-            _small_all_samples_have_gts_condition(
-                context,
-                sample_names=affected_samples,
-                classes=alt_gt_values,
-                prefix="inheritance_affected_alt",
-                params=params,
-            )
-        )
-        sample_sex = _sample_sex_map(context.sample_rows)
-        male_unaffected = [sample for sample in unaffected_samples if _is_male_sex(sample_sex.get(sample, ""))]
-        other_unaffected = [sample for sample in unaffected_samples if sample not in set(male_unaffected)]
-        clauses.extend(
-            _small_no_samples_have_gts_condition(
-                context,
-                sample_names=male_unaffected,
-                classes=alt_gt_values,
-                prefix="inheritance_unaffected_male_alt",
-                params=params,
-            )
-        )
-        clauses.extend(
-            _small_no_samples_have_gts_condition(
-                context,
-                sample_names=other_unaffected,
-                classes=hom_alt_gt_values,
-                prefix="inheritance_unaffected_hom_alt",
+                inheritance,
+                affected_samples=affected_samples,
+                unaffected_samples=unaffected_samples,
+                prefix="inheritance",
                 params=params,
             )
         )
@@ -2339,7 +2329,7 @@ def _small_native_inheritance_clauses(
             _small_all_samples_have_gts_condition(
                 context,
                 sample_names=affected_samples,
-                classes=het_gt_values,
+                classes=frozenset({HET}),
                 prefix="inheritance_affected_het",
                 params=params,
             )
@@ -2349,7 +2339,7 @@ def _small_native_inheritance_clauses(
             _small_all_samples_have_gts_condition(
                 context,
                 sample_names=affected_samples,
-                classes=alt_gt_values,
+                classes=ALT_CLASSES,
                 prefix="inheritance_affected_alt",
                 params=params,
             )
@@ -3721,16 +3711,29 @@ def _inheritance_item_sort_key(
     return (1, *_small_record_sort_key(cast(SmallVariantRecord, item_value)))
 
 
+def _segregation_flags(record: SmallVariantRecord) -> SmallSegregationFlags:
+    """The single-variant inheritance modes the SQL found ``record`` to fit. A record read
+    without them is a caller's mistake, never a variant that fits no mode."""
+    if record.segregation is None:
+        raise RuntimeError(
+            "a small-variant record was read without its segregation flags "
+            "(_fetch_small_variant_rows(segregation_flags=True))"
+        )
+    return record.segregation
+
+
 def _inheritance_result_items(
     *,
     inheritance: str,
     records: Sequence[SmallVariantRecord],
     affected_samples: Sequence[str],
     unaffected_samples: Sequence[str],
-    sample_rows: Sequence[dict[str, Any]],
-    assembly_name: str | None = None,
     pedigree: FamilyPedigree | None = None,
 ) -> list[tuple[str, SmallVariantCompoundHetPair | SmallVariantRecord]]:
+    """What an inheritance mode keeps of ``records``: the compound-het pairs it finds among
+    them, and the variants a single-variant mode keeps, by the modes the SQL found each to
+    fit (``SmallVariantRecord.segregation``). Recessive keeps both kinds: the pairs, and the
+    homozygous recessive and X-linked variants."""
     pair_items: list[tuple[str, SmallVariantCompoundHetPair | SmallVariantRecord]] = [
         ("group", pair)
         for pair in _compound_het_pairs(
@@ -3744,71 +3747,21 @@ def _inheritance_result_items(
         return pair_items
 
     if inheritance == _DE_NOVO_DOMINANT_INHERITANCE:
-        sample_sex = _sample_sex_map(sample_rows)
-        return [
-            ("variant", record)
-            for record in records
-            if _record_matches_de_novo_dominant(
-                record,
-                affected_samples=affected_samples,
-                unaffected_samples=unaffected_samples,
-                sample_sex=sample_sex,
-                assembly_name=assembly_name,
-            )
-        ]
+        return [("variant", record) for record in records if _segregation_flags(record).de_novo_dominant]
 
     if inheritance == _RECESSIVE_HOMOZYGOUS_INHERITANCE:
-        return [
-            ("variant", record)
-            for record in records
-            if _record_matches_homozygous_recessive(
-                record,
-                affected_samples=affected_samples,
-                unaffected_samples=unaffected_samples,
-            )
-        ]
-
-    sample_sex = _sample_sex_map(sample_rows)
+        return [("variant", record) for record in records if _segregation_flags(record).recessive_homozygous]
 
     if inheritance == _X_LINKED_INHERITANCE:
-        return [
-            ("variant", record)
-            for record in records
-            if _record_matches_x_linked_recessive(
-                record,
-                affected_samples=affected_samples,
-                unaffected_samples=unaffected_samples,
-                sample_sex=sample_sex,
-            )
-        ]
+        return [("variant", record) for record in records if _segregation_flags(record).x_linked]
 
     if inheritance == _RECESSIVE_INHERITANCE:
-        homozygous_items = [
+        single_items = [
             ("variant", record)
             for record in records
-            if _record_matches_homozygous_recessive(
-                record,
-                affected_samples=affected_samples,
-                unaffected_samples=unaffected_samples,
-            )
+            if _segregation_flags(record).recessive_homozygous or _segregation_flags(record).x_linked
         ]
-        x_linked_items = [
-            ("variant", record)
-            for record in records
-            if _record_matches_x_linked_recessive(
-                record,
-                affected_samples=affected_samples,
-                unaffected_samples=unaffected_samples,
-                sample_sex=sample_sex,
-            )
-        ]
-        deduped_variant_items: dict[str, tuple[str, SmallVariantRecord]] = {}
-        for item_type, record in [*homozygous_items, *x_linked_items]:
-            deduped_variant_items[record.variant_id] = (item_type, record)
-        return sorted(
-            [*pair_items, *deduped_variant_items.values()],
-            key=_inheritance_item_sort_key,
-        )
+        return sorted([*pair_items, *single_items], key=_inheritance_item_sort_key)
 
     return []
 
@@ -3836,19 +3789,14 @@ def _segregation_modes_by_variant(
                 modes[vid].append(MODE_COMPOUND_HET)
     for record in records:
         bucket = modes.setdefault(record.variant_id, [])
-        if _record_matches_homozygous_recessive(
-            record, affected_samples=affected, unaffected_samples=unaffected
-        ):
+        flags = _segregation_flags(record)
+        if flags.recessive_homozygous:
             bucket.append(MODE_HOM_RECESSIVE)
-        if _record_matches_x_linked_recessive(
-            record,
-            affected_samples=affected,
-            unaffected_samples=unaffected,
-            sample_sex=sample_sex,
-        ):
+        if flags.x_linked:
             bucket.append(MODE_X_LINKED)
         # Prefer the stronger, trio-confirmed de novo call; fall back to the dominant
-        # pattern (which also covers inherited-dominant or no-trio cases).
+        # pattern (which also covers inherited-dominant or no-trio cases). The trio de novo
+        # is ranking evidence, read here alone: no search keeps or drops a variant by it.
         if _record_matches_de_novo(
             record,
             affected_samples=affected,
@@ -3858,13 +3806,7 @@ def _segregation_modes_by_variant(
             assembly_name=context.assembly_name,
         ):
             bucket.append(MODE_DE_NOVO)
-        elif _record_matches_de_novo_dominant(
-            record,
-            affected_samples=affected,
-            unaffected_samples=unaffected,
-            sample_sex=sample_sex,
-            assembly_name=context.assembly_name,
-        ):
+        elif flags.de_novo_dominant:
             bucket.append(MODE_DOMINANT)
     return modes
 

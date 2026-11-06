@@ -50,6 +50,7 @@ from backend.app.services.family_variant_filters import (
 from backend.app.schemas import SmallVariantSummaryOut, VariantPage
 import backend.app.services.clickhouse_family_variants as _cfv
 from backend.app.services.genotypes import genotype_vocabulary
+from backend.tests._segregation_flags import flag, members_of
 
 
 @pytest.fixture(autouse=True)
@@ -91,13 +92,20 @@ def _inheritance_filter_records(
     variants the old filter kept."""
     if not inheritance:
         return list(records)
+    # The records as the search fetches them, with the modes the SQL finds each to fit.
+    flagged = flag(
+        records,
+        affected=affected_samples,
+        unaffected=unaffected_samples,
+        sexes={str(row.get("sample_id")): str(row.get("sex") or "") for row in sample_rows or []},
+        assembly_name=None,
+    )
     matched_ids: set[str] = set()
     for kind, payload in _inheritance_result_items(
         inheritance=inheritance,
-        records=records,
+        records=flagged,
         affected_samples=affected_samples,
         unaffected_samples=unaffected_samples,
-        sample_rows=sample_rows or [],
     ):
         if kind == "group":
             matched_ids.add(payload.left.variant_id)
@@ -1747,7 +1755,9 @@ async def test_get_family_small_variants_page_returns_pair_groups_and_singletons
 
     async def fake_fetch_small_variant_rows(*_args, **kwargs):
         excluded_ids = set(kwargs.get("exclude_variant_ids") or [])
-        return [record for record in records if record.variant_id not in excluded_ids]
+        rows = [record for record in records if record.variant_id not in excluded_ids]
+        # With the modes each fits, as the SQL gives them when asked.
+        return flag(rows, **members_of(_args[0])) if kwargs.get("segregation_flags") else rows
 
     async def fake_list_matching_review_ids(*_args, **_kwargs):
         return []
@@ -2705,7 +2715,9 @@ def _patch_small_candidate_path(monkeypatch: pytest.MonkeyPatch, *, candidates: 
             _small_variant(f"f{i}", f"FILL{i}", calls=filler_calls, start=1_000 + i)
             for i in range(max(wanted - len(pair), 0))
         ]
-        return [*pair, *fillers][:wanted]
+        rows = [*pair, *fillers][:wanted]
+        # With the modes each fits, as the SQL gives them when asked.
+        return flag(rows, **members_of(_context)) if kwargs.get("segregation_flags") else rows
 
     async def _empty_list(*_a, **_k):
         return []

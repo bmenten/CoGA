@@ -112,6 +112,17 @@ class SmallVariantCall:
     metrics: dict[str, float] = field(default_factory=dict)
 
 
+@dataclass(frozen=True, slots=True)
+class SmallSegregationFlags:
+    """Which single-variant inheritance modes a variant fits in its family, as the SQL decides
+    them (``_small_segregation_flag_columns``), with the clauses the search's inheritance
+    filter applies: one definition of each mode."""
+
+    de_novo_dominant: bool
+    recessive_homozygous: bool
+    x_linked: bool
+
+
 @dataclass(slots=True)
 class SmallVariantRecord:
     variant_key: int | None
@@ -130,6 +141,9 @@ class SmallVariantRecord:
     # Site-level VCF QUAL (column 6). Optional and defaulted so existing
     # construction sites are unaffected; the upload path populates it.
     qual: float | None = None
+    # The inheritance modes the variant fits, when the fetch was asked for them
+    # (``_fetch_small_variant_rows(segregation_flags=True)``); None otherwise.
+    segregation: SmallSegregationFlags | None = None
 
 
 @dataclass(slots=True)

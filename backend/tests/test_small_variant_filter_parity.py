@@ -509,3 +509,94 @@ def test_the_python_matcher_reads_a_numeric_flag_and_a_score_that_is_no_number()
     unreadable = _record("11-100-C-T", annotations=[{"gene": "GENE1", "cadd_phred": "high"}])
     assert not _keeps(unreadable, min_cadd=0.0)
     assert _keeps(unreadable, min_cadd=-1.0)
+
+
+# --- the inheritance modes as the SQL's flags (One filter definition) -----------------------
+
+
+def _trio_context() -> FamilyMetadataContext:
+    names = {"SON": ("male", "affected"), "MOTHER": ("female", "unaffected"), "FATHER": ("male", "unaffected")}
+    return FamilyMetadataContext(
+        family_uuid="family-uuid",
+        family_id="FAM_FLAGS",
+        project_ids=["project-uuid"],
+        sample_rows=[{"sample_id": name, "sex": sex, "clinical_status": status} for name, (sex, status) in names.items()],
+        sample_uuid_to_name={f"uuid-{name}": name for name in names},
+        sample_name_to_uuid={name: f"uuid-{name}" for name in names},
+        affected_sample_names=["SON"],
+        assembly_id="assembly-uuid",
+        assembly_name="GRCh38",
+    )
+
+
+def test_each_flag_is_the_inheritance_filters_own_sql() -> None:
+    # One definition: the column that says a variant fits a mode is the WHERE the mode's
+    # filter applies, its parameters named apart.
+    from backend.app.services.clickhouse_variant_queries import (
+        _small_native_inheritance_clauses,
+        _small_segregation_flag_columns,
+    )
+
+    context = _trio_context()
+    columns, params = _small_segregation_flag_columns(context)
+    for mode, column in zip(("de_novo_dominant", "recessive_homozygous", "x_linked"), columns, strict=True):
+        clauses, where_params = _small_native_inheritance_clauses(
+            context, SmallVariantQueryFilters(page=1, page_size=100, inheritance=mode)
+        )
+        renamed = " AND ".join(f"({clause})" for clause in clauses).replace(
+            "%(inheritance_", f"%(segregation_{mode}_"
+        )
+        assert column == f"max({renamed}) AS segregation_{mode}"
+        assert {name.replace("inheritance_", f"segregation_{mode}_", 1): value for name, value in where_params.items()} == {
+            name: value for name, value in params.items() if name.startswith(f"segregation_{mode}_")
+        }
+
+
+def test_without_an_affected_member_no_variant_fits_a_mode() -> None:
+    from dataclasses import replace
+
+    from backend.app.services.clickhouse_variant_queries import _small_segregation_flag_columns
+
+    columns, params = _small_segregation_flag_columns(replace(_trio_context(), affected_sample_names=[]))
+    assert columns == [f"max(0) AS segregation_{mode}" for mode in ("de_novo_dominant", "recessive_homozygous", "x_linked")]
+    assert params == {}
+
+
+def test_the_flags_bind_no_parameter_the_search_binds() -> None:
+    # A search with every part of the WHERE that binds parameters, an inheritance mode and
+    # carrier screening among them: the flags' parameters are named apart from each.
+    from backend.app.services.clickhouse_family_variants import _merge_params
+    from backend.app.services.clickhouse_variant_queries import (
+        _small_query_filter_parts,
+        _small_segregation_flag_columns,
+    )
+
+    context = _trio_context()
+    for mode in ("de_novo_dominant", "recessive_homozygous", "x_linked", "compound_het", "recessive"):
+        filters = SmallVariantQueryFilters(
+            page=1, page_size=100, inheritance=mode, expanded_carrier_screening=True, pass_only=True,
+            phase_set=7, chromosome="X", start=1, end=2, source="clair3", rsid="rs1", gene="SYNA",
+            impact=["HIGH"], max_gnomad_af=0.01, min_cadd=20.0, sift="deleterious",
+            exclude_clinvar=["Benign"], sample_filters=["SON:het:20:10:0.2:4", "MOTHER:ref"],
+            require_sv_second_hit=True, sv_hit_genes=["SYNA"],
+        )
+        where_clauses, params, _ = _small_query_filter_parts(context, filters)
+        _columns, flag_params = _small_segregation_flag_columns(context)
+        assert not set(params) & set(flag_params), sorted(set(params) & set(flag_params))
+        _merge_params(params, flag_params)
+
+
+def test_a_parameter_bound_twice_or_a_flag_that_is_no_flag_is_refused() -> None:
+    import pytest
+
+    from backend.app.services.clickhouse_family_variants import _merge_params, _segregation_flags_from_row
+
+    params = {"a": 1}
+    _merge_params(params, {"a": 1, "b": 2})
+    assert params == {"a": 1, "b": 2}
+    with pytest.raises(ValueError, match="bound twice"):
+        _merge_params(params, {"a": 3})
+    assert _segregation_flags_from_row((1, 0, 1)).x_linked
+    for row in ((1, 0), (1, 0, None), (1, 2, 0)):
+        with pytest.raises(ValueError):
+            _segregation_flags_from_row(row)
