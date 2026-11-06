@@ -35,10 +35,11 @@ from .clickhouse_family_variants import (
     _fetch_panel_constraints,
     _fetch_small_variant_rows,
     _hydrate_small_variant_outs,
+    _small_variant_outs,
     count_cfdna_carriers,
     resolve_review_selection,
 )
-from .clickhouse_variant_queries import _parse_interval_regions, _small_variant_out, _split_gene_terms
+from .clickhouse_variant_queries import _parse_interval_regions, _split_gene_terms
 from .clickhouse_variant_records import (
     PanelFilterConstraints,
     SmallVariantCall,
@@ -1282,10 +1283,7 @@ async def get_family_nipt_variants(
     # review / internal-cohort / gene-constraint data) so the NIPT variant list
     # carries the same shape as the small-variant view, classification aside, each naming
     # the transcript the annotation filters held on when its primary one does not (CLIN-51).
-    variant_outs = [
-        _small_variant_out(item.record, assembly_name=context.assembly_name, filters=filters)
-        for item in page_items
-    ]
+    variant_outs = await _small_variant_outs(context, filters, [item.record for item in page_items])
     await _hydrate_small_variant_outs(session, context=context, variants=variant_outs)
     for item, variant_out in zip(page_items, variant_outs):
         item.variant_out = variant_out

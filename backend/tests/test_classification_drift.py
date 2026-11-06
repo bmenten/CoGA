@@ -278,7 +278,7 @@ def test_the_frozen_values_are_the_ones_the_acmg_dialog_is_given() -> None:
             calls=[SmallVariantCall(sample="S1", gt="0/1", gq=99.0, dp=30, af=[0.5], ad=[15, 15], ps=None)],
         ),
         assembly_name=None,
-        filters=None,
+        filter_annotation_hashes=None,
     )
     snap = _freeze(
         types.SimpleNamespace(annotation_version="v1", annotation_set_hash="1", annotations=annotations)
@@ -505,7 +505,7 @@ def _served(annotations: list[dict], gene_symbols: list[str] | None = None):
             calls=[SmallVariantCall(sample="S1", gt="0/1", gq=99.0, dp=30, af=[0.5], ad=[15, 15], ps=None)],
         ),
         assembly_name=None,
-        filters=None,
+        filter_annotation_hashes=None,
     )
 
 
