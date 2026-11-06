@@ -71,7 +71,11 @@ from .hpo_service import get_loaded_hpo_release
 # 7: a variant's gene pLI and missense Z, which its score reads, come from the gene profiles
 #    of the family's assembly, its symbol matched in any case (TRACE-15). A ranking cached
 #    before may have scored a gene on another assembly's profile, or without its constraint.
-_ALGORITHM_VERSION = "7"
+# 8: the phase set and *Pass variants only* read the calls of the family's members alone
+#    (the owner's decision of 2026-11-06). A ranking cached before under either filter may
+#    lack a variant a hidden member's failed call held back, or hold one only a hidden
+#    member's phase set or own FILTER kept.
+_ALGORITHM_VERSION = "8"
 # Keep only the few most-recent distinct query signatures per family.
 _MAX_CACHE_ROWS_PER_FAMILY = 6
 

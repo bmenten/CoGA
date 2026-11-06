@@ -2383,16 +2383,21 @@ def small_record_passes_caller_filters(record: SmallVariantRecord) -> bool:
 
 
 def _small_pass_only_condition(params: dict[str, Any]) -> str:
-    """The SQL of ``small_record_passes_caller_filters``, on the entries row ``e``."""
+    """The SQL of ``small_record_passes_caller_filters``, on the entries row ``e``: over the
+    calls of the family's members alone (``%(visible_sample_ids)s``, which the caller binds),
+    as the record a search reads holds their calls alone. A member the family does not show
+    neither holds a variant back nor decides how its calls are read (the owner's decision of
+    2026-11-06)."""
     params["pass_only_filter_values"] = _PASSING_FILTER_VALUES
     carries_alt = clickhouse_genotype_condition(
         "gt", ALT_CLASSES, param="pass_only_alt_genotypes", params=params
     )
     passing = "arrayAll(value -> value IN %(pass_only_filter_values)s, {values})"
+    visible = "sample_id IN %(visible_sample_ids)s"
     return (
-        "if(arrayExists(own -> notEmpty(own), e.calls.filters), "
-        f"arrayAll((gt, own) -> NOT ({carries_alt}) OR {passing.format(values='own')}, "
-        "e.calls.gt, e.calls.filters), "
+        f"if(arrayExists((sample_id, own) -> {visible} AND notEmpty(own), e.calls.sampleId, e.calls.filters), "
+        f"arrayAll((sample_id, gt, own) -> NOT ({visible}) OR NOT ({carries_alt}) "
+        f"OR {passing.format(values='own')}, e.calls.sampleId, e.calls.gt, e.calls.filters), "
         f"{passing.format(values='e.filters')})"
     )
 
@@ -2441,10 +2446,17 @@ def _small_variant_where_clauses(
     if normalized_exclude_ids:
         where_clauses.append("e.variantId NOT IN %(exclude_variant_ids)s")
         params["exclude_variant_ids"] = normalized_exclude_ids
-    if filters.phase_set is not None:
-        where_clauses.append("has(e.calls.ps, %(phase_set)s)")
+    # The phase set and the callers' FILTER are read on the calls of the family's members
+    # alone, as the record a search reads holds their calls alone: a member the family does
+    # not show (a sample taken out of it, or not yet added) neither keeps nor holds back a
+    # variant (the owner's decision of 2026-11-06). Without a member the search keeps nothing.
+    if visible_sample_ids and filters.phase_set is not None:
+        where_clauses.append(
+            "arrayExists((sample_id, ps) -> sample_id IN %(visible_sample_ids)s AND ps = %(phase_set)s, "
+            "e.calls.sampleId, e.calls.ps)"
+        )
         params["phase_set"] = filters.phase_set
-    if filters.pass_only:
+    if visible_sample_ids and filters.pass_only:
         where_clauses.append(_small_pass_only_condition(params))
     if filters.variant_type:
         # The rule of small_variant_type_matches, which the Python record filter applies.
