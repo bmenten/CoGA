@@ -2,7 +2,7 @@
 
 The annotation tables (``variants/annotations``, ``annotation_index``, ``gene_index``) are
 shared by every family on the assembly. The family search tests its annotation filters as
-``(e.key, e.annotation_version, e.annotationSetHash) IN (SELECT … FROM <annotation table>
+``(e.key, e.annotationSetHash) IN (SELECT … FROM <annotation table>
 WHERE <filter>)``, and ClickHouse gathers what that subquery returns into a set before it reads
 the family's rows. Without a bound the set held every matching variant of the whole cohort: a
 frequency filter alone held almost every variant stored, 1.6 GiB for 8 M variants, and would
@@ -17,6 +17,9 @@ pass the 4 GB a query may hold at a few hundred genomes.
 * One search writes the clause once in text, whichever filters it has, so ClickHouse builds
   the family's key set once for all of them.
 * The Variant Explorer, which reads every family at once, keeps no such bound.
+* A row is matched to the annotation rows of its key and annotation set, under any version
+  (``_OWN_ANNOTATION``): matched on the version too, each set was two to three times slower
+  to build.
 
 That the filters keep the same variants in ClickHouse is shown by
 integration/test_small_variant_filter_parity_clickhouse.py, which runs every filter field
@@ -131,7 +134,7 @@ def test_every_annotation_subquery_reads_only_the_family_s_keys() -> None:
     assert params["annotation_project_ids"] == params["project_ids"] == ("keys-project-a", "keys-project-b")
     # The excluded ClinVar terms and genes are bounded too: for a row of the family the
     # narrowed set answers NOT IN as the whole one did.
-    assert ") NOT IN (SELECT a.key, a.annotation_version, a.annotationSetHash FROM " in where
+    assert ") NOT IN (SELECT a.key, a.annotationSetHash FROM " in where
     assert "NOT (" in where
 
 
@@ -210,3 +213,18 @@ def test_the_variant_explorer_reads_the_annotations_of_every_family() -> None:
     assert f"FROM {_ANNOTATION_TABLES['gi']} AS gi WHERE " in condition
     assert "fk." not in condition
     assert "annotation_family_guid" not in params
+
+
+def test_every_annotation_subquery_matches_the_row_by_its_key_and_annotation_set() -> None:
+    # A row is read with its own annotation: the annotation rows of its key and annotation set,
+    # whatever their version (where they came from: vcf_info, vep_tsv). The rows of one key and
+    # one set hold the same annotations under any version, and the version, a LowCardinality
+    # string, made the set each subquery builds two to three times slower (measured
+    # 2026-11-06). Gene, rsID, transcript, excluded ClinVar, panel and excluded-gene subqueries.
+    where, _params = _search(SmallVariantQueryFilters(page=1, page_size=100, **_EVERY_ANNOTATION_FILTER))
+    subqueries = _subqueries(where)
+    assert sorted(set(subqueries)) == ["a", "ai", "gi"]
+    matched = re.findall(r"(\(e\.[^()]*\)) (?:NOT )?IN \(SELECT (\w+)\.key, \2\.annotationSetHash FROM ", where)
+    assert len(matched) == len(subqueries)
+    assert {row for row, _alias in matched} == {"(e.key, e.annotationSetHash)"}
+    assert "annotation_version" not in where
