@@ -824,9 +824,12 @@ could not run or be stored, is checked again only when its folder changes.
 newer delivery of the same folder came before anyone decided), `gone` (its folder, or its marker,
 missing for two rounds while the watched folder could be read); and, once a person decided,
 `queued`, `imported`, `failed` or `refused` (below). `approved` and `changed_after_import` are for
-the watch over imported packages, which comes later. A watched folder that cannot be read, or that is
-empty while it had open deliveries (a share that is not mounted reads as an empty folder), is
-skipped for the round: nothing is decided on it.
+the watch over imported packages, which comes later. A watched folder that cannot be read, or that
+lists nothing but hidden entries while it had open deliveries (a share that is not mounted reads as
+an empty folder), is skipped for the round: nothing is decided on it. A watched folder that lists
+anything else, even only folders without a marker, is mounted: it is watched, so a delivery whose
+folder was moved away is `gone` after two rounds. A watched folder emptied of everything keeps its
+open deliveries until a delivery or another folder is back in it.
 
 **The record.** Each change of a delivery's state is an event on the clinical audit chain
 `system:import-inbox`, by `system:import-watcher`: the folder, its fingerprint, the marker's

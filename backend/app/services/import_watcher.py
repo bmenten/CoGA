@@ -22,8 +22,9 @@ the new check found, and the chain the change.
 
 A delivery still open whose folder, or marker, has been missing for ``GONE_AFTER_ROUNDS`` rounds
 while its watched folder could be read is ``gone``. A watched folder that cannot be read, or that
-is empty while it had open deliveries (a share not mounted reads as an empty folder), is skipped
-for the round: nothing is decided on it. Each change of a delivery's state is an event on the
+lists nothing but hidden entries while it had open deliveries (a share not mounted reads as an
+empty folder), is skipped for the round: nothing is decided on it. One that lists anything else,
+even folders without a marker, is mounted and watched. Each change of a delivery's state is an event on the
 clinical audit chain ``system:import-inbox``, by ``system:import-watcher``. Logs name counts,
 never a folder or a family.
 
@@ -123,21 +124,30 @@ def watch_roots() -> list[Path]:
     return roots
 
 
-def marked_folders(root: Path) -> list[Path] | None:
+@dataclass(slots=True)
+class WatchedFolderListing:
+    """A watched folder as a round lists it: ``folders``, the package folders in it that hold a
+    ready marker; ``empty``, whether it lists nothing but hidden entries (a share that is not
+    mounted reads as an empty folder; one that lists any other entry is mounted)."""
+
+    folders: list[Path]
+    empty: bool
+
+
+def marked_folders(root: Path) -> WatchedFolderListing | None:
     """The package folders directly in the watched folder ``root`` that hold a ready marker, as
     selection takes them (``_listed_package_folder``: links resolved, none out of the import
-    roots); None when ``root`` cannot be read."""
+    roots), and whether ``root`` lists nothing but hidden entries; None when ``root`` cannot be
+    read."""
     try:
         if not root.is_dir():
             return None
         with os.scandir(root) as listing:
-            names = sorted(entry.name for entry in listing)
+            names = sorted(entry.name for entry in listing if not entry.name.startswith("."))
     except OSError:
         return None
     folders: list[Path] = []
     for name in names:
-        if name.startswith("."):
-            continue
         folder = _listed_package_folder(root / name)
         if folder is None or not folder.is_dir():
             continue
@@ -147,7 +157,7 @@ def marked_folders(root: Path) -> list[Path] | None:
             continue
         if folder not in folders:
             folders.append(folder)
-    return folders
+    return WatchedFolderListing(folders=folders, empty=not names)
 
 
 @dataclass(slots=True)
@@ -806,10 +816,14 @@ async def run_watch_round(session_factory: async_sessionmaker[AsyncSession], roo
     result = WatchRound()
     result.jobs_ended = await sync_delivery_jobs(session_factory)
     for root in roots:
-        folders = await asyncio.to_thread(marked_folders, root)
-        if folders is None or (not folders and await _open_deliveries(session_factory, root)):
+        listing = await asyncio.to_thread(marked_folders, root)
+        # Nothing is decided on a folder that cannot be read, or that lists nothing while it had
+        # open deliveries: a share that is not mounted. A folder that lists anything else is
+        # mounted, so a delivery whose folder or marker is not in it is missing.
+        if listing is None or (listing.empty and await _open_deliveries(session_factory, root)):
             result.roots_skipped += 1
             continue
+        folders = listing.folders
         result.roots_watched += 1
         for folder in folders:
             looked = await look_at_folder(session_factory, root, folder)

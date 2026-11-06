@@ -17,6 +17,8 @@ In a watched folder of synthetic packages, as rounds go:
   ``superseded``;
 - the copying package's folder goes: after two rounds its delivery is ``gone``;
 - a watched folder that is empty while it had an open delivery is skipped, its delivery kept open;
+  once it lists a folder without a marker it is mounted: watched, and the delivery is ``gone``
+  after two rounds;
 - what CoGA holds changes: the project CoGA lacked is added, and the delivery that named it is
   checked again, now ``ready``; the family of a ready delivery is imported (it needs attention),
   then deleted (ready again); a round after that, with nothing changed, checks nothing again;
@@ -146,12 +148,24 @@ async def _exercise(base: Path, second: Path, run: str) -> dict[str, Any]:
     # Out of both watched folders, so no later round of either finds it.
     shutil.move(str(lone_folder), str(second.parent / f"moved-away-{run}"))
     out["empty_rounds"] = [await import_watcher.run_watch_round(sessionmaker, [second.resolve()]) for _ in range(3)]
-    async with sessionmaker() as session:
-        out["lone"] = (
-            await session.execute(
-                text("SELECT state, missing_rounds FROM import_deliveries WHERE folder_name = :n"), {"n": lone}
-            )
-        ).one()
+    async def lone_delivery() -> tuple[str, int]:
+        async with sessionmaker() as session:
+            row = (
+                await session.execute(
+                    text("SELECT state, missing_rounds FROM import_deliveries WHERE folder_name = :n"), {"n": lone}
+                )
+            ).one()
+        return str(row[0]), int(row[1])
+
+    out["lone"] = await lone_delivery()
+    # The folder now lists a folder without a marker: it is mounted, and the lone delivery's
+    # folder is missing from it.
+    (second / f"E2E_WATCH_UNMARKED_{run}").mkdir()
+    out["mounted_rounds"] = []
+    out["lone_mounted"] = []
+    for _ in range(2):
+        out["mounted_rounds"].append(await import_watcher.run_watch_round(sessionmaker, [second.resolve()]))
+        out["lone_mounted"].append(await lone_delivery())
 
     # What CoGA holds changes: the project the delivery named is added, of the e2e assembly.
     async with sessionmaker() as session:
@@ -303,6 +317,14 @@ def test_an_empty_watched_folder_with_open_deliveries_is_skipped(ran) -> None:
     assert [(done.roots_watched, done.roots_skipped) for done in ran["empty_rounds"]] == [(0, 1)] * 3
     state, missing = ran["lone"]
     assert state in ("ready", "needs_attention") and missing == 0
+
+
+def test_a_watched_folder_that_lists_only_unmarked_folders_is_watched_and_its_missing_delivery_goes(ran) -> None:
+    assert [(done.roots_watched, done.roots_skipped) for done in ran["mounted_rounds"]] == [(1, 0)] * 2
+    assert [done.gone for done in ran["mounted_rounds"]] == [0, 1]
+    (first_state, first_missing), (second_state, second_missing) = ran["lone_mounted"]
+    assert first_state in ("ready", "needs_attention") and first_missing == 1
+    assert (second_state, second_missing) == ("gone", 2)
 
 
 def test_a_delivery_is_checked_again_when_what_coga_holds_changes(ran) -> None:
