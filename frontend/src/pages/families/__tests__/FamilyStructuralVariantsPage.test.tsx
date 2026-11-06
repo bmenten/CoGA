@@ -7,6 +7,9 @@ import { findAssemblyScopeBanner, offScopeProject } from '../../../test/familyPa
 import { held, settle } from '../../../test/settle';
 import { factText } from '../../../test/factText';
 
+// The user's saved SV searches, as the API lists them for family F1.
+const savedPresets = vi.hoisted(() => ({ list: [] as unknown[] }));
+
 vi.mock('../../../lib/api', () => ({
   default: {
     get: vi.fn((url: string) => {
@@ -54,7 +57,7 @@ vi.mock('../../../lib/api', () => ({
         return Promise.resolve({ data: [] });
       }
       if (url === '/families/F1/structural-variant-filter-presets') {
-        return Promise.resolve({ data: [] });
+        return Promise.resolve({ data: savedPresets.list });
       }
       if (url === '/families/F1/small-variant-tags') {
         return Promise.resolve({
@@ -84,6 +87,10 @@ vi.mock('../../../lib/api', () => ({
       }
       return Promise.resolve({ data: [] });
     }),
+    post: vi.fn((_url: string, body: { name: string; scope: string }) =>
+      Promise.resolve({ data: { _id: 'new', ...body } }),
+    ),
+    delete: vi.fn(() => Promise.resolve({ data: null })),
     put: vi.fn(() =>
       Promise.resolve({
         data: {
@@ -547,6 +554,124 @@ describe('FamilyStructuralVariantsPage', () => {
       fireEvent.click(within(failure).getByRole('button', { name: 'Retry' }));
       expect(await screen.findByText('1p36.33')).toBeInTheDocument();
       expect(screen.getByRole('heading', { name: 'Family F1' })).toBeInTheDocument();
+    });
+  });
+
+  // PROD-3: a saved SV search is this family's or reusable, and can be deleted on the page.
+  describe('saved searches', () => {
+    const familyPreset = {
+      _id: 'p-family',
+      name: 'Large deletions',
+      description: null,
+      scope: 'family',
+      family_id: 'fam-uuid',
+      owner: 'analyst',
+      filters: {},
+      sample_filters: {},
+      sample_templates: {},
+    };
+    const reusablePreset = { ...familyPreset, _id: 'p-global', name: 'Rare CNVs', scope: 'global', family_id: null };
+
+    beforeEach(() => {
+      savedPresets.list = [familyPreset, reusablePreset];
+    });
+    afterEach(() => {
+      savedPresets.list = [];
+      vi.restoreAllMocks();
+    });
+
+    const openSavePanel = async () => {
+      renderPage();
+      await waitFor(() => expect(screen.getByText(factText(/Showing 1/))).toBeInTheDocument());
+      fireEvent.click(screen.getByRole('button', { name: /save current/i }));
+      fireEvent.change(screen.getByPlaceholderText('Filter name'), { target: { value: ' Rare CNVs ' } });
+    };
+
+    const choose = async (presetId: string) => {
+      const select = screen.getByRole('combobox', { name: 'Preset or saved search' });
+      await waitFor(() => expect(within(select).getByRole('option', { name: /Rare CNVs/ })).toBeInTheDocument());
+      fireEvent.change(select, { target: { value: `saved:${presetId}` } });
+    };
+
+    it('saves a search for this family unless asked to make it reusable', async () => {
+      await openSavePanel();
+      expect(screen.getByRole('radio', { name: 'This family' })).toBeChecked();
+      fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+
+      await waitFor(() =>
+        expect(api.post).toHaveBeenCalledWith(
+          '/families/F1/structural-variant-filter-presets',
+          expect.objectContaining({ name: 'Rare CNVs', scope: 'family' }),
+        ),
+      );
+    });
+
+    it('saves a reusable search, for every family the user opens', async () => {
+      await openSavePanel();
+      fireEvent.click(screen.getByRole('radio', { name: /every family i open/i }));
+      fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+
+      await waitFor(() =>
+        expect(api.post).toHaveBeenCalledWith(
+          '/families/F1/structural-variant-filter-presets',
+          expect.objectContaining({ name: 'Rare CNVs', scope: 'global' }),
+        ),
+      );
+      expect(await screen.findByText('Saved search updated.')).toBeInTheDocument();
+      expect(screen.queryByPlaceholderText('Filter name')).not.toBeInTheDocument();
+    });
+
+    it('keeps what was typed when a save is refused', async () => {
+      (api.post as Mock).mockRejectedValueOnce({ response: { status: 400, data: { detail: 'Preset name cannot be blank' } } });
+      await openSavePanel();
+      fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+
+      expect(await screen.findByText(/Preset name cannot be blank|Unable to save this search preset/)).toBeInTheDocument();
+      expect(screen.getByPlaceholderText('Filter name')).toHaveValue(' Rare CNVs ');
+    });
+
+    it('offers to delete only a saved search, and deletes it once confirmed', async () => {
+      const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+      renderPage();
+      await waitFor(() => expect(screen.getByText(factText(/Showing 1/))).toBeInTheDocument());
+      // A built-in preset is no saved search: nothing to delete.
+      fireEvent.change(screen.getByRole('combobox', { name: 'Preset or saved search' }), {
+        target: { value: 'built-in:dominant' },
+      });
+      expect(screen.queryByRole('button', { name: /delete saved search/i })).not.toBeInTheDocument();
+
+      await choose('p-global');
+      fireEvent.click(screen.getByRole('button', { name: /delete saved search/i }));
+
+      // A reusable search goes from every family: the question says so.
+      expect(confirm).toHaveBeenCalledWith(expect.stringMatching(/"Rare CNVs".*every family/));
+      await waitFor(() =>
+        expect(api.delete).toHaveBeenCalledWith('/families/F1/structural-variant-filter-presets/p-global'),
+      );
+      expect(await screen.findByText('Saved search deleted.')).toBeInTheDocument();
+      expect(screen.getByRole('combobox', { name: 'Preset or saved search' })).toHaveValue('');
+    });
+
+    it('deletes nothing when the deletion is not confirmed', async () => {
+      vi.spyOn(window, 'confirm').mockReturnValue(false);
+      renderPage();
+      await waitFor(() => expect(screen.getByText(factText(/Showing 1/))).toBeInTheDocument());
+      await choose('p-family');
+      fireEvent.click(screen.getByRole('button', { name: /delete saved search/i }));
+
+      expect(api.delete).not.toHaveBeenCalled();
+    });
+
+    it('says why a deletion failed and keeps the search selected', async () => {
+      vi.spyOn(window, 'confirm').mockReturnValue(true);
+      (api.delete as Mock).mockRejectedValueOnce({ response: { status: 404, data: { detail: 'Preset not found' } } });
+      renderPage();
+      await waitFor(() => expect(screen.getByText(factText(/Showing 1/))).toBeInTheDocument());
+      await choose('p-family');
+      fireEvent.click(screen.getByRole('button', { name: /delete saved search/i }));
+
+      expect(await screen.findByText(/Preset not found|Unable to delete this saved search/)).toBeInTheDocument();
+      expect(screen.getByRole('combobox', { name: 'Preset or saved search' })).toHaveValue('saved:p-family');
     });
   });
 });

@@ -49,7 +49,10 @@ type StructuralVariantFilterFormProps = Pick<
   | 'toggleDraftFilterListValue'
 > & {
   applySavedPreset: (preset: StructuralVariantFilterPreset) => void;
+  /** Delete one of the user's saved searches; without it, no delete is offered. */
+  deletingPreset?: boolean;
   feedback?: { type: 'success' | 'error'; message: string } | null;
+  onDeletePreset?: (preset: StructuralVariantFilterPreset) => void | Promise<void>;
   onSaveCurrentPreset: (payload: { name: string; description?: string; scope: 'family' | 'global' }) => void | Promise<void>;
   panels: StructuralGenePanel[];
   presets: StructuralVariantFilterPreset[];
@@ -100,7 +103,9 @@ const StructuralVariantFilterForm = ({
   handleSearch,
   orderedMembers,
   applySavedPreset,
+  deletingPreset = false,
   feedback,
+  onDeletePreset,
   onSaveCurrentPreset,
   panels,
   presets,
@@ -123,6 +128,43 @@ const StructuralVariantFilterForm = ({
   const [selectedPreset, setSelectedPreset] = useState('');
   const [presetName, setPresetName] = useState('');
   const [presetDescription, setPresetDescription] = useState('');
+  // A saved search is for this family, or reusable: for every family the user opens (PROD-3).
+  const [presetScope, setPresetScope] = useState<StructuralVariantFilterPreset['scope']>('family');
+  const selectedSavedPreset = selectedPreset.startsWith('saved:')
+    ? presets.find((entry) => `saved:${entry._id}` === selectedPreset)
+    : undefined;
+
+  const saveCurrentPreset = async () => {
+    try {
+      await onSaveCurrentPreset({
+        name: presetName.trim(),
+        description: presetDescription.trim() || undefined,
+        scope: presetScope,
+      });
+      setPresetName('');
+      setPresetDescription('');
+      setPresetScope('family');
+      setSaveOpen(false);
+    } catch {
+      // The page says why; the name and description stay, to try again.
+    }
+  };
+
+  const deleteSelectedPreset = async () => {
+    if (!selectedSavedPreset || !onDeletePreset) return;
+    const confirmed = window.confirm(
+      selectedSavedPreset.scope === 'global'
+        ? `Delete the saved search "${selectedSavedPreset.name}"? It is reusable: it goes from every family.`
+        : `Delete the saved search "${selectedSavedPreset.name}" of this family?`,
+    );
+    if (!confirmed) return;
+    try {
+      await onDeletePreset(selectedSavedPreset);
+      setSelectedPreset('');
+    } catch {
+      // The page says why; the saved search stays selected.
+    }
+  };
 
   const handleDraftFieldChange = (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     setDraftFilterValue(event.target.name as keyof StructuralFilterState, event.target.value);
@@ -266,6 +308,16 @@ const StructuralVariantFilterForm = ({
             <button type="button" className="button-secondary" onClick={() => setSaveOpen((value) => !value)}>
               Save current
             </button>
+            {selectedSavedPreset && onDeletePreset ? (
+              <button
+                type="button"
+                className="button-secondary"
+                onClick={() => void deleteSelectedPreset()}
+                disabled={deletingPreset}
+              >
+                {deletingPreset ? 'Deleting…' : 'Delete saved search'}
+              </button>
+            ) : null}
           </div>
         </div>
       </div>
@@ -283,16 +335,7 @@ const StructuralVariantFilterForm = ({
                 type="button"
                 className="form-button"
                 disabled={!presetName.trim() || savingPreset}
-                onClick={() => {
-                  onSaveCurrentPreset({
-                    name: presetName.trim(),
-                    description: presetDescription.trim() || undefined,
-                    scope: 'family',
-                  });
-                  setPresetName('');
-                  setPresetDescription('');
-                  setSaveOpen(false);
-                }}
+                onClick={() => void saveCurrentPreset()}
               >
                 {savingPreset ? 'Saving...' : 'Save'}
               </button>
@@ -302,6 +345,29 @@ const StructuralVariantFilterForm = ({
               value={presetDescription}
               onChange={(event) => setPresetDescription(event.target.value)}
             />
+            <fieldset className="variant-save-scope">
+              <legend>Use it for</legend>
+              <label>
+                <input
+                  type="radio"
+                  name="sv-preset-scope"
+                  value="family"
+                  checked={presetScope === 'family'}
+                  onChange={() => setPresetScope('family')}
+                />
+                This family
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name="sv-preset-scope"
+                  value="global"
+                  checked={presetScope === 'global'}
+                  onChange={() => setPresetScope('global')}
+                />
+                Every family I open (reusable)
+              </label>
+            </fieldset>
           </div>
         </section>
       ) : null}
