@@ -25,6 +25,11 @@ Design notes
   search's own SQL (``clickhouse_variant_queries``), read on each ``entries`` row as its
   family page reads it, so a row counts the carriers of the family pages that keep the
   variant (``_entries_where``).
+* **The samples their family shows.** A row holds a call of every sample of the VCF it was
+  imported from, also of a member taken out of the family since. The explorer reads, in each
+  family's rows, the calls of the family's active members alone, as the family search does
+  (``_visible_clickhouse_sample_ids``): the counts, the export, the carriers and the sample
+  genotype filter (the owner's decision of 2026-11-06, ``_shown_members``).
 * This module is intentionally generic ("aggregate variant keys, scoped to
   projects") so future gene-/transcript-/ClinVar-centric views can be added as
   sibling functions.
@@ -59,6 +64,7 @@ from .clickhouse_variant_ids import _small_table_name
 from .clickhouse_variant_queries import (
     _SMALL_REGION_WINDOW_MATCH,
     IMPUTED_SMALL_VARIANT_SOURCES,
+    _clickhouse_sample_ids,
     _small_annotation_filter_clauses,
     _small_callset_clauses,
     _small_locus_clauses,
@@ -394,9 +400,11 @@ async def list_explorer_assemblies(
 async def list_explorer_samples(
     session: AsyncSession, user: CurrentUser, assembly_id: str | None = None
 ) -> list[str]:
-    """Sample IDs the user can access (optionally restricted to an assembly).
+    """The IDs of the samples the user's families show (optionally of one assembly's
+    projects): the samples the genotype filter can keep a variant for (``_shown_members``).
 
-    Powers the per-sample genotype filter picker.
+    Powers the per-sample genotype filter picker. It listed every sample of the projects,
+    also a member taken out of its family, whom the filter now keeps nothing for.
     """
 
     rows = await _accessible_project_rows(session, user)
@@ -404,21 +412,8 @@ async def list_explorer_samples(
         project_ids = sorted({row["project_id"] for row in rows if row["assembly_id"] == assembly_id})
     else:
         project_ids = sorted({row["project_id"] for row in rows})
-    if not project_ids:
-        return []
-    result = await session.execute(
-        text(
-            """
-            SELECT DISTINCT s.sample_id
-            FROM samples s
-            JOIN sample_projects sp ON sp.sample_id = s.id
-            WHERE sp.project_id IN :project_ids
-            ORDER BY s.sample_id
-            """
-        ).bindparams(uuid_list_bindparam("project_ids")),
-        {"project_ids": uuid_values(project_ids)},
-    )
-    return [str(row[0]) for row in result.all()]
+    members = await _shown_members(session, project_ids)
+    return sorted({member.sample_id for member in members}, key=lambda sample_id: (sample_id.lower(), sample_id))
 
 
 async def resolve_scope(
@@ -448,6 +443,109 @@ async def resolve_scope(
         assembly_id=assembly_id,
         assembly_name=scoped[0]["assembly_name"],
         project_ids=sorted({row["project_id"] for row in scoped}),
+    )
+
+
+# --------------------------------------------------------------------------- #
+# The samples their family shows                                              #
+# --------------------------------------------------------------------------- #
+
+
+@dataclass(frozen=True, slots=True)
+class _ShownMember:
+    """A sample its family shows: an active member of a family of the scope's projects,
+    with its role and phenotype in that family."""
+
+    family_uuid: str
+    sample_id: str
+    sample_uuid: str
+    role: str | None = None
+    phenotype_summary: str | None = None
+
+
+def _phenotype_summary(clinical_status: Any, affected: Any) -> str | None:
+    """A member's phenotype as the carriers list shows it: its clinical status, else
+    "affected" when it is marked so; None when neither says."""
+    status = str(clinical_status or "").strip()
+    if status and status != "unknown":
+        return status
+    return "affected" if affected else None
+
+
+async def _shown_members(session: AsyncSession, project_ids: Sequence[str]) -> list[_ShownMember]:
+    """The active members of every family of ``project_ids``: the samples the family page
+    shows (``build_family_metadata_context`` reads a family's ``family_members`` that are
+    active). A member taken out of the family (a structure edit's ``remove_members``) keeps
+    its calls in the family's rows until its data is cleared; it is no longer one."""
+    if not project_ids:
+        return []
+    result = await session.execute(
+        text(
+            """
+            SELECT
+                fm.family_id::text AS family_uuid,
+                s.sample_id,
+                s.id::text AS sample_uuid,
+                fm.role,
+                fm.affected,
+                fm.clinical_status
+            FROM family_members fm
+            JOIN samples s ON s.id = fm.sample_id
+            WHERE fm.active
+              AND EXISTS (
+                  SELECT 1 FROM family_projects fp
+                  WHERE fp.family_id = fm.family_id AND fp.project_id IN :project_ids
+              )
+            ORDER BY fm.family_id, s.sample_id
+            """
+        ).bindparams(uuid_list_bindparam("project_ids")),
+        {"project_ids": uuid_values(list(project_ids))},
+    )
+    return [
+        _ShownMember(
+            family_uuid=str(row["family_uuid"]),
+            sample_id=str(row["sample_id"]),
+            sample_uuid=str(row["sample_uuid"]),
+            role=row.get("role"),
+            phenotype_summary=_phenotype_summary(row.get("clinical_status"), row.get("affected")),
+        )
+        for row in result.mappings().all()
+    ]
+
+
+def _shown_calls(members: Sequence[_ShownMember]) -> tuple[tuple[str, str], ...]:
+    """The (family UUID, stored sample ID) pair of every call the families show: each
+    member's calls in its own family's rows, under its name or its UUID, as the family
+    search reads a family's members (``_clickhouse_sample_ids``)."""
+    by_family: dict[str, dict[str, str]] = {}
+    for member in members:
+        by_family.setdefault(member.family_uuid, {})[member.sample_id] = member.sample_uuid
+    return tuple(
+        (family_uuid, sample_id)
+        for family_uuid, names in sorted(by_family.items())
+        for sample_id in _clickhouse_sample_ids(names)
+    )
+
+
+# Bound when no family of the scope has a member: a pair no row holds, so no call is read.
+# The search, the export and the carriers answer without asking ClickHouse first.
+_NO_SHOWN_CALL: tuple[tuple[str, str], ...] = (("", ""),)
+
+
+def _shown_call(sample_column: str, *, family_column: str = "e.family_guid") -> str:
+    """The call of ``sample_column`` in the row of ``family_column`` is one of a member its
+    family shows (``%(shown_calls)s``, which :func:`_entries_where` binds)."""
+    return f"({family_column}, {sample_column}) IN %(shown_calls)s"
+
+
+def _shown_carrier_condition(params: dict[str, Any]) -> str:
+    """The entries row (alias ``e``) carries the variant in a member its family shows: a
+    call with an ALT allele of a member of the row's own family. The genotype is tested
+    first, so the pair is looked up for the ALT calls alone."""
+    carrier = _gt_is_carrier("call_gt", params)
+    return (
+        f"arrayExists((call_sample, call_gt) -> {carrier} AND {_shown_call('call_sample')}, "
+        "e.calls.sampleId, e.calls.gt)"
     )
 
 
@@ -669,6 +767,7 @@ def _sample_genotype_condition(
     *,
     index: int,
     include_imputed: bool,
+    shown_members: Sequence[_ShownMember],
     params: dict[str, Any],
 ) -> str:
     """The variant (alias ``e``) is one that ``sample_id`` carries with ``mode``'s genotype
@@ -681,11 +780,19 @@ def _sample_genotype_condition(
     keeps a variant the sample carries and counts every carrier of the cohort, where the
     family page keeps the rows of its family alone (the owner's decision of 2026-11-06). The
     locus narrows the scan of the sample's rows; a variant's position is the same in every
-    row, so it changes no result."""
+    row, so it changes no result.
+
+    Only the sample's calls in the rows of a family that shows it are read, under its name
+    or its UUID (``shown_members``): a sample no family of the scope shows, such as a member
+    taken out of its family, keeps no variant (the owner's decision of 2026-11-06)."""
+    member_of = [member for member in shown_members if sample_id in (member.sample_id, member.sample_uuid)]
+    if not member_of:
+        return "0"
+    params[f"explorer_sample_{index}_families"] = tuple(sorted({member.family_uuid for member in member_of}))
     token = _GENOTYPE_MODE_FILTERS.get(str(mode or "").strip().lower(), _GENOTYPE_MODE_FILTERS["het_hom"])
     genotype_classes, _include_absent = parse_genotype_filter(token)
     call_condition = _small_sample_call_condition(
-        (sample_id,),
+        tuple(_clickhouse_sample_ids({member.sample_id: member.sample_uuid for member in member_of})),
         SmallVariantSampleFilter(sample_name=sample_id, genotype_classes=genotype_classes),
         prefix=f"explorer_sample_{index}",
         params=params,
@@ -694,6 +801,7 @@ def _sample_genotype_condition(
     sample_rows = [
         "gs.sign = 1",
         "gs.project_guid IN %(project_guids)s",
+        f"gs.family_guid IN %(explorer_sample_{index}_families)s",
         *_small_callset_clauses(
             query_filters, params=params, exclude_imputed=not include_imputed, alias="gs"
         ),
@@ -797,10 +905,18 @@ def _entries_where(
     params: dict[str, Any],
     *,
     tag_variant_ids: Sequence[str] | None,
+    shown_members: Sequence[_ShownMember],
     panel_constraints: PanelFilterConstraints | None = None,
 ) -> list[str]:
     """The WHERE clauses on the ``entries`` rows (alias ``e``) for these filters.
-    ``panel_constraints`` is the panel as :func:`_panel_constraints` read it.
+    ``panel_constraints`` is the panel as :func:`_panel_constraints` read it, and
+    ``shown_members`` the samples the scope's families show (:func:`_shown_members`).
+
+    A row is kept when it carries the variant in a member its family shows, and the readers
+    count those members' calls alone (``%(shown_calls)s``, bound here; :func:`_shown_call`):
+    a sample its family does not show, such as a member taken out of it, is neither counted
+    nor keeps a variant, as on the family page (the owner's decision of 2026-11-06). The
+    explorer counted every call a row holds.
 
     Each filter the explorer shares with the family search is read by the family search's
     own builder (``clickhouse_variant_queries``), on each row as the family page reads it:
@@ -820,6 +936,8 @@ def _entries_where(
     (:func:`_sample_genotype_condition`)."""
     clauses = ["e.sign = 1", "e.project_guid IN %(project_guids)s"]
     params["project_guids"] = tuple(scope.project_ids)
+    params["shown_calls"] = _shown_calls(shown_members) or _NO_SHOWN_CALL
+    clauses.append(_shown_carrier_condition(params))
 
     if tag_variant_ids is not None:
         # An empty set means "review filter matched nothing".
@@ -848,6 +966,7 @@ def _entries_where(
                 mode,
                 index=index,
                 include_imputed=filters.include_imputed,
+                shown_members=shown_members,
                 params=params,
             )
         )
@@ -907,6 +1026,10 @@ async def search_global_small_variants(
     )
     if tag_variant_ids == []:
         return empty_page
+    # No family of the scope shows a sample: nothing to count.
+    shown_members = await _shown_members(session, scope.project_ids)
+    if not shown_members:
+        return empty_page
 
     entries_table = _small_table_name(scope.assembly_name, "entries")
 
@@ -916,14 +1039,15 @@ async def search_global_small_variants(
         filters,
         params,
         tag_variant_ids=tag_variant_ids,
+        shown_members=shown_members,
         panel_constraints=panel_constraints,
     )
     where_sql = " AND ".join(where_clauses)
-    has_carrier = f"arrayExists(g -> {_gt_is_carrier('g', params)}, `calls.gt`)"
 
-    # Distinct variant keys with at least one carrier, counted only up to the cap (one
-    # extra row distinguishes "exactly cap" from "more than cap"). The inner GROUP BY key
-    # + LIMIT bounds the work to O(cap) instead of an unbounded uniqExact over the cohort.
+    # Distinct variant keys with at least one carrier its family shows (the WHERE), counted
+    # only up to the cap (one extra row distinguishes "exactly cap" from "more than cap").
+    # The inner GROUP BY key + LIMIT bounds the work to O(cap) instead of an unbounded
+    # uniqExact over the cohort.
     count_rows = await execute_clickhouse(
         f"""
         SELECT count()
@@ -931,7 +1055,6 @@ async def search_global_small_variants(
             SELECT key
             FROM {entries_table} AS e
             WHERE {where_sql}
-              AND {has_carrier}
             GROUP BY key
             LIMIT {_EXPLORER_COUNT_CAP + 1}
         )
@@ -1002,10 +1125,11 @@ async def _fetch_variant_rows(
     """Run the aggregated variant query and hydrate it into row models.
 
     Shared by the paginated search and the CSV export so both return identical
-    columns. ``seek_having`` (with ``seek_params``) keyset-pages forward from a cursor;
-    omit it for the first page / full export. Returns ``(rows, row_cursors)`` where
-    ``row_cursors[i]`` is the ``(sort_value, xpos, key)`` of ``rows[i]`` for building the
-    next cursor.
+    columns. Each row counts the carriers its family shows (:func:`_shown_call`, bound in
+    ``params`` by :func:`_entries_where`). ``seek_having`` (with ``seek_params``)
+    keyset-pages forward from a cursor; omit it for the first page / full export. Returns
+    ``(rows, row_cursors)`` where ``row_cursors[i]`` is the ``(sort_value, xpos, key)`` of
+    ``rows[i]`` for building the next cursor.
     """
 
     page_params = dict(params)
@@ -1050,6 +1174,7 @@ async def _fetch_variant_rows(
             ARRAY JOIN `calls.sampleId` AS sample_id, `calls.gt` AS gt
             WHERE {where_sql}
               AND {is_carrier}
+              AND {_shown_call('sample_id')}
         )
         GROUP BY key
         {having_sql}
@@ -1197,7 +1322,10 @@ async def export_global_small_variants(
         session, scope, filters
     )
     review_filter_cut = TRUNCATED_BY_REVIEW_FILTER_LIMIT if review_filter_capped else None
-    if tag_variant_ids == []:
+    # Nothing to export when the review filter matched nothing, or when no family of the
+    # scope shows a sample.
+    shown_members = [] if tag_variant_ids == [] else await _shown_members(session, scope.project_ids)
+    if not shown_members:
         return GlobalVariantExport(
             assembly_name=scope.assembly_name,
             rows=[],
@@ -1212,6 +1340,7 @@ async def export_global_small_variants(
         filters,
         params,
         tag_variant_ids=tag_variant_ids,
+        shown_members=shown_members,
         panel_constraints=panel_constraints,
     )
     where_sql = " AND ".join(where_clauses)
@@ -1315,14 +1444,27 @@ async def get_variant_carriers(
     genotype: str | None = None,
     include_imputed: bool = False,
 ) -> VariantCarriersOut:
+    """The carriers of the variant in the scope's families: the members each family shows,
+    with their role and phenotype in that family (:func:`_shown_members`). A sample its
+    family does not show, such as a member taken out of it, is not listed (the owner's
+    decision of 2026-11-06)."""
     scope = await resolve_scope(session, user, assembly_id)
     if scope is None:
         return VariantCarriersOut(key=str(variant_key))
+    shown_members = await _shown_members(session, scope.project_ids)
+    if not shown_members:
+        return VariantCarriersOut(key=str(variant_key))
+    member_of_call = {
+        (member.family_uuid, stored_id): member
+        for member in shown_members
+        for stored_id in (member.sample_id, member.sample_uuid)
+    }
 
     entries_table = _small_table_name(scope.assembly_name, "entries")
     params: dict[str, Any] = {
         "project_guids": tuple(scope.project_ids),
         "key": variant_key,
+        "shown_calls": _shown_calls(shown_members),
     }
     is_carrier = _gt_is_carrier("gt", params)
     genotype_clause = ""
@@ -1346,6 +1488,7 @@ async def get_variant_carriers(
           AND project_guid IN %(project_guids)s
           AND key = %(key)s
           AND {is_carrier}{genotype_clause}{source_clause}
+          AND {_shown_call('sample_id', family_column='family_guid')}
         ORDER BY family_guid, sample_id
         LIMIT %(carrier_limit)s
         """,
@@ -1377,10 +1520,7 @@ async def get_variant_carriers(
         return VariantCarriersOut(key=str(variant_key), variant_id=variant_id)
 
     family_uuids = sorted({record["family_guid"] for record in carriers.values()})
-    sample_keys = sorted({record["sample_id"] for record in carriers.values()})
-
     family_meta = await _fetch_family_meta(session, scope.project_ids, family_uuids)
-    sample_meta = await _fetch_sample_meta(session, sample_keys)
 
     groups: dict[str, VariantCarrierFamilyGroupOut] = {}
     het_total = 0
@@ -1401,7 +1541,7 @@ async def get_variant_carriers(
             )
             groups[family_guid] = group
 
-        sample_info = sample_meta.get(record["sample_id"]) or {}
+        member = member_of_call.get((family_guid, record["sample_id"]))
         is_hom = record["is_hom"]
         if is_hom:
             hom_total += 1
@@ -1410,15 +1550,15 @@ async def get_variant_carriers(
         group.samples.append(
             VariantCarrierSampleOut(
                 sample_id=record["sample_id"],
-                individual_name=sample_info.get("individual_name"),
-                role=sample_info.get("role"),
+                individual_name=member.sample_id if member else None,
+                role=member.role if member else None,
                 genotype=record["genotype"],
                 zygosity="homozygous" if is_hom else "heterozygous",
                 family_id=meta["family_name"],
                 family_uuid=family_guid,
                 project_id=meta.get("project_id"),
                 project_name=meta.get("project_name"),
-                phenotype_summary=sample_info.get("phenotype_summary"),
+                phenotype_summary=member.phenotype_summary if member else None,
             )
         )
 
@@ -1482,42 +1622,4 @@ async def _fetch_family_meta(
                 "project_name": row["project_name"],
             },
         )
-    return meta
-
-
-async def _fetch_sample_meta(
-    session: AsyncSession, sample_keys: Sequence[str]
-) -> dict[str, dict[str, Any]]:
-    """Resolve ClickHouse ``sampleId`` values (sample name OR UUID) to metadata."""
-
-    if not sample_keys:
-        return {}
-    query = text(
-        """
-        SELECT
-            s.sample_id AS sample_name,
-            s.id::text AS sample_uuid,
-            fm.role,
-            fm.affected,
-            fm.clinical_status
-        FROM samples s
-        LEFT JOIN family_members fm
-            ON fm.sample_id = s.id AND fm.family_id = s.family_id AND fm.active
-        WHERE s.sample_id IN :sample_keys
-           OR s.id::text IN :sample_keys
-        """
-    ).bindparams(bindparam("sample_keys", expanding=True))
-    result = await session.execute(query, {"sample_keys": list(sample_keys)})
-    meta: dict[str, dict[str, Any]] = {}
-    for row in result.mappings().all():
-        clinical_status = str(row.get("clinical_status") or "").strip()
-        phenotype = None
-        if clinical_status and clinical_status != "unknown":
-            phenotype = clinical_status
-        elif row.get("affected"):
-            phenotype = "affected"
-        info = {"individual_name": str(row["sample_name"]), "role": row.get("role"), "phenotype_summary": phenotype}
-        # Key by both the human name and the UUID so either stored form resolves.
-        meta[str(row["sample_name"])] = info
-        meta[str(row["sample_uuid"])] = info
     return meta

@@ -89,7 +89,8 @@ The sort keys, how storage keys are built and the recovery steps are in
 4. Variant endpoints read the family's records from ClickHouse and join the review state
    (classifications, tags, notes) from Postgres. The Global Small Variant Explorer counts
    carriers at query time, straight from the `entries` tables of every project the user can
-   access.
+   access, reading in each family's rows the calls of the members the family shows (its
+   active members, read from Postgres), as the family search does.
 5. Uploads and package imports write metadata to Postgres and the variant and interval rows
    to ClickHouse. They record each source file with its SHA-256 checksum; an alignment that
    stays in a bucket is recorded with the bucket's record of it instead.

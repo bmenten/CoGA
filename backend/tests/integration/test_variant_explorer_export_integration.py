@@ -23,7 +23,7 @@ from uuid import uuid4
 
 import pytest
 
-from backend.tests.integration._datastores import fresh_assembly, fresh_species, run_closing_stores
+from backend.tests.integration._datastores import explorer_shows, fresh_assembly, fresh_species, run_closing_stores
 
 pytestmark = pytest.mark.integration
 
@@ -54,9 +54,9 @@ def _record(variant_id: str, samples: tuple[str, ...]):
     )
 
 
-async def _seed(session_factory) -> tuple[str, str]:
+async def _seed(session_factory) -> tuple[str, str, str]:
     """A project with one family, its reviews (two variants tagged report, one other) and
-    its five variants in ClickHouse; returns (project id, assembly id)."""
+    its five variants in ClickHouse; returns (project id, assembly id, family UUID)."""
     from sqlalchemy import text
 
     from backend.app.services.clickhouse_variant_storage import insert_small_variant_records
@@ -103,10 +103,12 @@ async def _seed(session_factory) -> tuple[str, str]:
         [project],
         [_record(variant_id, samples) for variant_id, samples in _CARRIERS.items()],
     )
-    return project, assembly_id
+    return project, assembly_id, family
 
 
-def _scope_to(monkeypatch, svc, project: str, assembly_id: str) -> None:
+def _scope_to(monkeypatch, svc, project: str, assembly_id: str, family: str) -> None:
+    """The Explorer searches the project, whose family shows S1, S2 and S3."""
+    explorer_shows(monkeypatch, {family: ["S1", "S2", "S3"]})
     scope = svc.ExplorerScope(assembly_id=assembly_id, assembly_name=_ASSEMBLY, project_ids=[project])
 
     async def _resolve_scope(session, user, requested_assembly_id):
@@ -122,8 +124,8 @@ def test_explorer_export_says_when_it_was_cut(monkeypatch) -> None:
     async def _scenario() -> None:
         await init_postgres_schema()
         session_factory = get_postgres_sessionmaker()
-        project, assembly_id = await _seed(session_factory)
-        _scope_to(monkeypatch, svc, project, assembly_id)
+        project, assembly_id, family = await _seed(session_factory)
+        _scope_to(monkeypatch, svc, project, assembly_id, family)
 
         async def _export(limit: int, **filters):
             async with session_factory() as session:
@@ -186,8 +188,8 @@ def test_explorer_finds_and_shows_a_classification_whatever_the_case_of_its_labe
     async def _scenario() -> None:
         await init_postgres_schema()
         session_factory = get_postgres_sessionmaker()
-        project, assembly_id = await _seed(session_factory)
-        _scope_to(monkeypatch, svc, project, assembly_id)
+        project, assembly_id, family = await _seed(session_factory)
+        _scope_to(monkeypatch, svc, project, assembly_id, family)
         async with session_factory() as session:
             for variant_id, classification, pair in (
                 ("1-400-A-G", "Likely benign - class 2", None),

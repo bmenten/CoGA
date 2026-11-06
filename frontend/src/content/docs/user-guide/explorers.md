@@ -34,6 +34,9 @@ the tags of all of them.
   and families of the family pages that show the variant. When two families' files were annotated
   differently (two VEP runs), a filter on the gene, consequence, ClinVar or frequency counts only the
   family whose own annotation meets it.
+- A row counts only the samples their family shows. A member taken out of a family keeps its calls in
+  that family's imported data, but is not counted there or listed among its carriers; the genotype
+  filter neither offers nor reads a sample that no family shows.
 - A location reads the chromosome with or without *chr*, and the mitochondrion as chrM, M or MT.
 - **Genotype per sample** keeps the variants that sample carries as het, hom or either (a haploid call,
   on chrM or a male's X, counts as hom). The row still counts every carrier in your projects, not only

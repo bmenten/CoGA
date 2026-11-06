@@ -49,7 +49,13 @@ from uuid import uuid4
 
 import pytest
 
-from backend.tests.integration._datastores import proband_context, run_closing_stores, small_variant, vep_annotations
+from backend.tests.integration._datastores import (
+    explorer_shows,
+    proband_context,
+    run_closing_stores,
+    small_variant,
+    vep_annotations,
+)
 
 pytestmark = pytest.mark.integration
 
@@ -315,6 +321,8 @@ def _stub_family_page_and_scope(
         return PanelFilterConstraints(genes=panel_genes)
 
     monkeypatch.setattr(explorer, "resolve_scope", _fake_scope)
+    # Each family shows its proband.
+    explorer_shows(monkeypatch, {stored[label]: [sample] for label, (sample, _variants) in _STORED.items()})
     monkeypatch.setattr(explorer, "_fetch_panel_constraints", _panel)
     monkeypatch.setattr(family_variants, "_fetch_panel_constraints", _panel)
     monkeypatch.setattr(family_variants, "_hydrate_small_variant_outs", _no_hydration)

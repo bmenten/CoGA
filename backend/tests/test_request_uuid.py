@@ -359,7 +359,11 @@ def test_the_variant_explorer_filters_by_a_panel_named_in_braces(monkeypatch: py
         queries.append(query)
         return [[0]]
 
+    async def one_member(*_args: Any, **_kwargs: Any) -> list[Any]:
+        return [explorer._ShownMember(family_uuid=UNKNOWN, sample_id="PROBAND", sample_uuid=UNKNOWN)]
+
     monkeypatch.setattr(explorer, "resolve_scope", scope)
+    monkeypatch.setattr(explorer, "_shown_members", one_member)
     monkeypatch.setattr(explorer, "execute_clickhouse", no_variants)
 
     def search(panel_id: str, session: _RecordingSession) -> Any:

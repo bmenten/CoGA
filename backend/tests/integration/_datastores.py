@@ -108,6 +108,25 @@ def proband_context(
     )
 
 
+def explorer_shows(monkeypatch: Any, members: dict[str, list[str]]) -> None:
+    """Have the Variant Explorer read ``members`` (family UUID -> sample IDs) as the samples
+    their families show (``_shown_members``), for a test whose families have no members in
+    Postgres. Each sample's UUID is its name."""
+
+    import backend.app.services.variant_explorer_service as explorer
+
+    shown = [
+        explorer._ShownMember(family_uuid=family_uuid, sample_id=sample, sample_uuid=sample)
+        for family_uuid, samples in members.items()
+        for sample in samples
+    ]
+
+    async def _shown_members(session: Any, project_ids: Any) -> list[Any]:
+        return list(shown)
+
+    monkeypatch.setattr(explorer, "_shown_members", _shown_members)
+
+
 async def fresh_family(session: Any, label: str) -> str:
     """A family of its own (only ``family_id`` is required), not committed; its UUID."""
 
