@@ -63,7 +63,11 @@ OWN_DATA = {
     ("POST", "/api/families/{family_id}/structural-variant-filter-presets"),
     ("DELETE", "/api/families/{family_id}/structural-variant-filter-presets/{preset_id}"),
     ("POST", "/api/ui-events"),
+    ("POST", "/api/auth/logout"),
 }
+# The logout ends every session of the reader's account: probed last, after every other request
+# the reader makes.
+LOGOUT = ("POST", "/api/auth/logout")
 READS = ("GET", "HEAD", "OPTIONS")
 
 
@@ -331,6 +335,8 @@ async def _exercise(run: str) -> dict[str, Any]:
                     key = (method, route.path_format)
                     if method in READS or key[1] not in spec["paths"] or get_current_user not in calls:
                         continue
+                    if key == LOGOUT:
+                        continue
                     if get_current_admin_user in calls:
                         expected = "admin"
                     elif get_current_superuser in calls:
@@ -383,6 +389,8 @@ async def _exercise(run: str) -> dict[str, Any]:
             out["pure_reader_events"] = (
                 await pure_reader.post("/api/ui-events", json={"events": [{"event_type": "print"}]})
             ).status_code
+            # --- the logout, the reader's last request: it ends the account's sessions -------
+            swept[LOGOUT] = {"expected": "own", "answer": status_and_body(await reader.post(LOGOUT[1]))}
             for client in clients.values():
                 await client.aclose()
 
@@ -495,6 +503,7 @@ def test_every_route_that_changes_something_refuses_a_reader_with_the_reason(ran
         ("POST", "/api/families/{family_id}/structural-variant-filter-presets"): 200,
         ("DELETE", "/api/families/{family_id}/structural-variant-filter-presets/{preset_id}"): 404,
         ("POST", "/api/ui-events"): 202,
+        ("POST", "/api/auth/logout"): 204,
     }
 
 

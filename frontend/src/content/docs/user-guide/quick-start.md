@@ -9,8 +9,9 @@ Where CoGA runs without Microsoft sign-in, choose **Sign up** on the sign-in pag
 **Create account**. You can sign in once an administrator has activated the account and given you
 access to your projects.
 
-**Logout** signs you out of CoGA. On a shared computer, then also choose **Sign out of Microsoft** on
-the sign-in page.
+**Logout** signs you out of CoGA, on every computer and in every browser where you are signed in:
+each of them asks you to sign in again. On a shared computer, then also choose **Sign out of
+Microsoft** on the sign-in page.
 
 The arrow at the right of the top bar opens a menu of the main sections: the projects, the explorers,
 the gene panels, this guide and, for superusers and administrators, **Admin**. **Settings** in the same bar holds your

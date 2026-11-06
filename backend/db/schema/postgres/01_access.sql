@@ -61,6 +61,10 @@ CREATE TABLE IF NOT EXISTS users (
     -- signs in to nothing, and keeps its row, so every record that names it still does, and a
     -- later sign-in of the same person makes no new request. NULL when it is not archived.
     archived_at TIMESTAMPTZ,
+    -- When the account last signed out (POST /api/auth/logout): every token issued to it
+    -- before then, CoGA's own and Microsoft's, is refused (dependencies.get_current_user), so a
+    -- copied token stops working at the logout, not at its expiry. NULL until the first logout.
+    sessions_ended_at TIMESTAMPTZ,
     CONSTRAINT users_archived_inactive_check CHECK (archived_at IS NULL OR NOT is_active)
 );
 

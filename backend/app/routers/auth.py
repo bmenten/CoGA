@@ -2,7 +2,7 @@ import asyncio
 import logging
 from typing import List
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -46,6 +46,7 @@ from ..services.account_notifications import (
 from ..services.metadata_service import (
     create_user_account,
     delete_waiting_user_account,
+    end_account_sessions,
     get_auth_user_mapping_by_email,
     get_user_account_mapping,
     list_user_accounts,
@@ -416,6 +417,34 @@ async def read_me(user: CurrentUser = Depends(get_current_user)):
         activated_at=user.activated_at,
         archived_at=user.archived_at,
     )
+
+
+@router.post(
+    "/logout",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Sign out: end every session of the signed-in account",
+    description=(
+        "Every token issued to the account before now, CoGA's own and Microsoft's, is refused "
+        "from now on (401), on every device and in every browser, instead of staying valid until "
+        "it expires. A later sign-in starts a new session. Microsoft's own sign-in in the browser "
+        "stays: the sign-in page offers to end it too."
+    ),
+)
+@changes_only_own_data
+async def logout(
+    request: Request,
+    user: CurrentUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_postgres_session),
+) -> Response:
+    await end_account_sessions(
+        session,
+        user_id=user.id,
+        # The token this logout was made with is refused too (end_account_sessions).
+        token_issued_at=getattr(request.state, "token_issued_at", None),
+    )
+    # Who signed out, and when, is the request audit row of this request.
+    logger.info("account %s signed out: every token issued to it before now is refused", user.id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/small-variant-filter-presets", response_model=List[SmallVariantFilterPresetOut])

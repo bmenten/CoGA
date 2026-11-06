@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable
 
 from fastapi import HTTPException
@@ -281,6 +281,7 @@ async def _fetch_user_mapping_by_email(session: AsyncSession, email: str) -> dic
                 u.created_at,
                 u.activated_at,
                 u.archived_at,
+                u.sessions_ended_at,
                 u.azure_object_id::text AS azure_object_id,
                 COALESCE(
                     ARRAY_AGG(DISTINCT pu.project_id::text)
@@ -321,6 +322,7 @@ async def _fetch_user_mapping_by_id(session: AsyncSession, user_id: str) -> dict
                 u.created_at,
                 u.activated_at,
                 u.archived_at,
+                u.sessions_ended_at,
                 u.azure_object_id::text AS azure_object_id,
                 COALESCE(
                     ARRAY_AGG(DISTINCT pu.project_id::text)
@@ -411,6 +413,7 @@ def _current_user_from_mapping(mapping: dict[str, Any]) -> CurrentUser:
         created_at=mapping["created_at"],
         activated_at=mapping.get("activated_at"),
         archived_at=mapping.get("archived_at"),
+        sessions_ended_at=mapping.get("sessions_ended_at"),
     )
 
 
@@ -419,6 +422,35 @@ async def get_auth_user_mapping_by_email(
     email: str,
 ) -> dict[str, Any] | None:
     return await _fetch_user_mapping_by_email(session, email)
+
+
+async def end_account_sessions(
+    session: AsyncSession, *, user_id: str, token_issued_at: float | None = None
+) -> datetime:
+    """End every session of the account: from now on ``get_current_user`` refuses each token
+    issued to it before now, on every device, CoGA's own and Microsoft's alike. A sign-in after
+    it starts a new session. Returns when the sessions ended.
+
+    The time is this server's clock, as the issue time of CoGA's own tokens is, and at least
+    just after ``token_issued_at``, the issue time of the token the logout was made with, so
+    that token is refused too: a Microsoft token's is the latest its date allows, which can be
+    a little after now. It never moves back, should another instance's clock have run ahead
+    when it was last set.
+    """
+    ended = datetime.now(timezone.utc)
+    if token_issued_at is not None:
+        ended = max(ended, datetime.fromtimestamp(token_issued_at, timezone.utc) + timedelta(microseconds=1))
+    result = await session.execute(
+        text(
+            "UPDATE users SET sessions_ended_at = GREATEST(sessions_ended_at, :ended) "
+            "WHERE id = CAST(:user_id AS uuid) "
+            "RETURNING sessions_ended_at"
+        ),
+        {"ended": ended, "user_id": user_id},
+    )
+    stored = result.scalar_one()
+    await session.commit()
+    return stored
 
 
 async def create_user_account(

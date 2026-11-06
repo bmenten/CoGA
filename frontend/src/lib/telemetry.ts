@@ -386,7 +386,8 @@ const flush = async (): Promise<void> => {
 // One page-close keepalive. While it is on its way no flush sends its events again; the API
 // taking it (a 2xx) removes them from the browser's storage. Any other answer, or none (the page
 // was closed before it came), leaves them kept for the account's next flush the API takes.
-const sendKeepalive = (token: string, events: QueuedUiEvent[]): void => {
+// Settles once the API has answered, or the request failed.
+const sendKeepalive = (token: string, events: QueuedUiEvent[]): Promise<void> => {
   const eventIds = events.map(({ event_id }) => event_id);
   eventIds.forEach((eventId) => onTheirWay.add(eventId));
   const answered = (taken: boolean): void => {
@@ -394,7 +395,7 @@ const sendKeepalive = (token: string, events: QueuedUiEvent[]): void => {
     if (taken) forgetKept(eventIds);
   };
   try {
-    void fetch(`${apiBaseUrl}/ui-events`, {
+    return fetch(`${apiBaseUrl}/ui-events`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -409,6 +410,7 @@ const sendKeepalive = (token: string, events: QueuedUiEvent[]): void => {
   } catch {
     // Telemetry is best-effort and never disrupts the app: the events stay kept.
     answered(false);
+    return Promise.resolve();
   }
 };
 
@@ -422,17 +424,19 @@ const sendKeepalive = (token: string, events: QueuedUiEvent[]): void => {
 // API stores an event that did arrive once, by its event_id (SEC-36; before, nothing read the
 // answer). The token is the session's, which the flush timer keeps renewed (keepTokenFresh); one
 // that has expired anyway (the device slept, or MSAL needs the user) would be refused, so the
-// events are only kept.
-const flushKeepalive = (): void => {
+// events are only kept. Settles once the API has answered every request it sent.
+const flushKeepalive = (): Promise<void> => {
   const token = getAuthToken();
   const account = setAside(token);
-  if (!token || !queue.length) return;
+  if (!token || !queue.length) return Promise.resolve();
   const pending = queue.splice(0, queue.length);
   if (account) keepForAccount(account, pending);
-  if (account && hasExpired(token)) return;
+  if (account && hasExpired(token)) return Promise.resolve();
+  const sent: Promise<void>[] = [];
   for (let i = 0; i < pending.length; i += MAX_KEEPALIVE_BATCH) {
-    sendKeepalive(token, pending.slice(i, i + MAX_KEEPALIVE_BATCH).map(({ event }) => event));
+    sent.push(sendKeepalive(token, pending.slice(i, i + MAX_KEEPALIVE_BATCH).map(({ event }) => event)));
   }
+  return Promise.all(sent).then(() => undefined);
 };
 
 const describeTarget = (
@@ -486,11 +490,11 @@ const handleDocumentClick = (event: MouseEvent): void => {
  * navigation. Called on logout before the session is cleared, so the logout click
  * and the events before it are recorded under the user who made them (#521). They
  * stay kept for the account until the API takes them; when that token has expired,
- * they are only kept, for the account's next sign-in.
+ * they are only kept, for the account's next sign-in. Settles once the API has answered every
+ * request it sent: the logout ends the session on the server only then, as the API would refuse
+ * those that came after (`endServerSession`).
  */
-export const flushUiEventsNow = (): void => {
-  flushKeepalive();
-};
+export const flushUiEventsNow = (): Promise<void> => flushKeepalive();
 
 /** Flush the queue through the API client now (what the interval timer does). */
 export const flushUiEvents = (): Promise<void> => flush();
@@ -514,7 +518,7 @@ export const startUiTelemetry = (): (() => void) => {
 
   const handleVisibility = (): void => {
     if (document.visibilityState === 'hidden') {
-      flushKeepalive();
+      void flushKeepalive();
     }
     // Renewed now when it is due: a hidden page may be closed with no flush in between, and a
     // page shown again after the device slept holds an old token.

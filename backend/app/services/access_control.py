@@ -113,6 +113,9 @@ class CurrentUser(BaseModel):
     # archived (None when it is not).
     activated_at: datetime | None = None
     archived_at: datetime | None = None
+    # When the account last signed out (None before its first logout): ``get_current_user``
+    # refuses every token issued to it before then. Not part of what is shown of the user.
+    sessions_ended_at: datetime | None = Field(default=None, exclude=True)
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 

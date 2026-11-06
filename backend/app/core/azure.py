@@ -38,6 +38,10 @@ _SIGNING_KEYS_REFETCH_INTERVAL_SECONDS = 5 * 60
 _FETCH_TIMEOUT_SECONDS = 5.0
 # Clock drift allowed between Microsoft and this server, on exp, nbf and iat.
 _LEEWAY_SECONDS = 60
+# Entra ID dates an access token (iat, nbf) about five minutes before it issues it, against
+# clock skew. A token's issue time is taken as its iat plus that, the latest it can be: a token
+# issued after a logout is then never taken for one issued before (dependencies.py).
+TOKEN_DATED_EARLY_SECONDS = 300
 
 
 class AzureTokenError(Exception):
@@ -55,6 +59,10 @@ class AzureIdentity:
     given_name: str | None
     family_name: str | None
     name: str | None
+    # When Microsoft issued the token, at the latest, in seconds since the epoch: its iat plus
+    # TOKEN_DATED_EARLY_SECONDS. A token issued before the account's last logout is refused
+    # (dependencies.get_current_user). None for a CAS answer, which is no token.
+    issued_at: float | None = None
 
 
 def authority(tenant_id: str) -> str:
@@ -216,4 +224,5 @@ async def verify_azure_token(
         given_name=_claim_text(claims, "given_name"),
         family_name=_claim_text(claims, "family_name"),
         name=_claim_text(claims, "name"),
+        issued_at=float(claims["iat"]) + TOKEN_DATED_EARLY_SECONDS,
     )

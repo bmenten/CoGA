@@ -49,8 +49,12 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 def create_access_token(data: dict) -> str:
     to_encode = data.copy()
-    expire = datetime.now(timezone.utc) + timedelta(minutes=settings.access_token_expire_minutes)
-    to_encode.update({"exp": expire})
+    issued = datetime.now(timezone.utc)
+    expire = issued + timedelta(minutes=settings.access_token_expire_minutes)
+    # When it was issued, to the microsecond (a JSON number with a fraction, as RFC 7519 allows):
+    # a logout refuses every token issued to its account before it (``_refuse_if_signed_out``),
+    # and a token issued by a sign-in in the same second after it is not one of those.
+    to_encode.update({"exp": expire, "iat": issued.timestamp()})
     return jwt.encode(to_encode, settings.secret_key, algorithm=LOCAL_TOKEN_ALGORITHM)
 
 
@@ -71,15 +75,43 @@ def _refused(detail: str = _CREDENTIALS_DETAIL) -> HTTPException:
     )
 
 
-def _local_token_email(token: str) -> str | None:
-    """The account a token this server issued names (``sub``): HS256, signed with SECRET_KEY,
-    unexpired. Raises the 401 for any other token."""
+def _local_token_claims(token: str) -> tuple[str | None, float | None]:
+    """The account a token this server issued names (``sub``), and when it was issued (``iat``;
+    None for a token issued before tokens carried it): HS256, signed with SECRET_KEY, unexpired.
+    Raises the 401 for any other token."""
     try:
-        payload = jwt.decode(token, settings.secret_key, algorithms=[LOCAL_TOKEN_ALGORITHM])
+        payload = jwt.decode(
+            token,
+            settings.secret_key,
+            algorithms=[LOCAL_TOKEN_ALGORITHM],
+            # The issue time only dates the token against its account's last logout: PyJWT's own
+            # check would refuse a token another instance issued with its clock a second ahead.
+            options={"verify_iat": False},
+        )
     except jwt.PyJWTError as exc:
         raise _refused() from exc
     email = payload.get("sub")
-    return email if isinstance(email, str) and email else None
+    issued = payload.get("iat")
+    return (
+        email if isinstance(email, str) and email else None,
+        float(issued) if isinstance(issued, (int, float)) and not isinstance(issued, bool) else None,
+    )
+
+
+def _refuse_if_signed_out(user: CurrentUser, issued_at: float | None, request: Request | None) -> None:
+    """Refuse a token issued to the account before its last logout (``POST /auth/logout``):
+    the logout ends every session of the account, on every device, CoGA's tokens and
+    Microsoft's alike, instead of leaving each valid until it expires. A token that does not
+    say when it was issued (one from before tokens said it) counts as issued before.
+
+    A token admitted leaves its issue time on the request (``token_issued_at``), so that a
+    logout made with it refuses it too, however early Microsoft dated it.
+    """
+    ended = user.sessions_ended_at
+    if ended is not None and (issued_at is None or issued_at < ended.timestamp()):
+        raise _refused()
+    if request is not None:
+        request.state.token_issued_at = issued_at
 
 
 async def _microsoft_user(token: str, session: AsyncSession, request: Request | None) -> CurrentUser:
@@ -102,6 +134,7 @@ async def _microsoft_user(token: str, session: AsyncSession, request: Request | 
         request.state.account_change = created
     if not user.is_active:
         raise _refused(INACTIVE_MICROSOFT_ACCOUNT_DETAIL)
+    _refuse_if_signed_out(user, identity.issued_at, request)
     return user
 
 
@@ -111,13 +144,14 @@ async def _emergency_admin(token: str, session: AsyncSession, request: Request |
     request audit (SEC-4)."""
     if not settings.azure_admin_override:
         raise _refused()
-    email = _local_token_email(token)
+    email, issued_at = _local_token_claims(token)
     account = await get_auth_user_mapping_by_email(session, email) if email else None
     if account is None or not account["is_active"] or not is_emergency_admin(account):
         raise _refused()
     user = await get_current_user_by_email(session, account["email"])
     if user is None:
         raise _refused()
+    _refuse_if_signed_out(user, issued_at, request)
     logger.warning(
         "azure_admin_override: the emergency administrator %s (role=%s) used a password "
         "sign-in beside Microsoft sign-in; switch AZURE_ADMIN_OVERRIDE off when the emergency "
@@ -169,10 +203,11 @@ async def get_current_user(
         else:
             raise _refused()
     else:
-        email = _local_token_email(token)
+        email, issued_at = _local_token_claims(token)
         found = await get_current_user_by_email(session, email) if email else None
         if found is None or not found.is_active:
             raise _refused()
+        _refuse_if_signed_out(found, issued_at, request)
         user = _cas_session_user(found, request) if settings.cas_enabled else found
     request.state.current_user = user
     # Whether this request changes something a reader may not change (SEC-1). The family,

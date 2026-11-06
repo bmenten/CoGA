@@ -1,7 +1,14 @@
 import type { InternalAxiosRequestConfig } from 'axios';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import api, { endExpiredSession, hasAuthorizationHeader, normalizeApiTransportError, shouldAttachStoredToken } from '../api';
+import api, {
+  endExpiredSession,
+  endServerSession,
+  hasAuthorizationHeader,
+  LOGOUT_WAITS_FOR_EVENTS_MS,
+  normalizeApiTransportError,
+  shouldAttachStoredToken,
+} from '../api';
 import { getAuthToken, persistSession } from '../auth';
 
 describe('api auth header handling', () => {
@@ -104,5 +111,85 @@ describe('a request through the API client', () => {
     await expect(api.get('/families')).rejects.toThrow(/^Unable to reach the API at /);
     // Not an answer from the API: the session stays.
     expect(getAuthToken()).toBe('session-token');
+  });
+});
+
+// The logout ends the session on the server too (POST /auth/logout): every token of the account
+// is refused from then on, on every device. It goes after the logout's last UI events are
+// answered, which a token it ended would see refused.
+describe('the logout on the server', () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fetchMock = vi.fn(() => Promise.resolve(new Response(null, { status: 204 })));
+    vi.stubGlobal('fetch', fetchMock);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  const deferred = () => {
+    let resolve: () => void = () => undefined;
+    const promise = new Promise<void>((done) => {
+      resolve = done;
+    });
+    return { promise, resolve };
+  };
+
+  it("goes once the flushed events are answered, with the session's token, surviving the page", async () => {
+    const flushed = deferred();
+    const ended = endServerSession('session-token', flushed.promise);
+    await Promise.resolve();
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    flushed.resolve();
+    await ended;
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('/api/auth/logout');
+    expect(init.method).toBe('POST');
+    expect(init.keepalive).toBe(true);
+    expect((init.headers as Record<string, string>).Authorization).toBe('Bearer session-token');
+  });
+
+  it('goes after a short wait when the events are not answered, and once only', async () => {
+    vi.useFakeTimers();
+    const ended = endServerSession('session-token', new Promise<void>(() => undefined));
+
+    await vi.advanceTimersByTimeAsync(LOGOUT_WAITS_FOR_EVENTS_MS - 1);
+    expect(fetchMock).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    await ended;
+    window.dispatchEvent(new Event('pagehide'));
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('goes at once when the page is closed while it waits', async () => {
+    vi.useFakeTimers();
+    void endServerSession('session-token', new Promise<void>(() => undefined));
+
+    window.dispatchEvent(new Event('pagehide'));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(LOGOUT_WAITS_FOR_EVENTS_MS);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('goes also when the flush failed, and ends quietly when the request does', async () => {
+    fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+
+    await expect(endServerSession('session-token', Promise.reject(new Error('flush failed')))).resolves.toBeUndefined();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('sends nothing without a token', async () => {
+    await endServerSession(null);
+
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

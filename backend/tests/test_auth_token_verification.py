@@ -15,6 +15,11 @@ account ``ADMIN_USERNAME`` names, with an administrator's role); every such use 
 flagged in the request's audit row (``request_meta.emergency_sign_in``). The override leaves
 Microsoft tokens alone.
 
+A logout (``POST /auth/logout``) ends every session of its account: a token issued to the
+account before its last logout, CoGA's own (whose ``iat`` is to the microsecond) or Microsoft's,
+is refused with the same 401, in each of the three sign-ins; one issued after signs in. A token
+that does not say when it was issued counts as issued before.
+
 The requests go through the real login route, token code, Microsoft token check and
 ``get_current_user``. Only the account lookups, the login's database calls and the audit write
 are replaced; the directory is a stand-in made at run time (``_microsoft_sign_in_fakes``), so
@@ -33,7 +38,7 @@ import jwt
 import pytest
 
 from backend.app import dependencies
-from backend.app.core.azure import AzureIdentity
+from backend.app.core.azure import TOKEN_DATED_EARLY_SECONDS, AzureIdentity
 from backend.app.core.config import LOCAL_TOKEN_ALGORITHM, Settings, settings
 from backend.app.core.postgres import get_postgres_session
 from backend.app.main import app
@@ -54,6 +59,8 @@ INACTIVE_ADMIN = "inactive-admin@example.com"
 EMERGENCY = "emergency-admin@example.com"
 INACTIVE_EMERGENCY = "inactive-emergency@example.com"
 MICROSOFT_ADMIN = "microsoft-admin@example.com"
+SIGNED_OUT = "signed-out@example.com"
+SIGNED_OUT_EMERGENCY = "signed-out-emergency@example.com"
 # The right password and the stored hash it matches, put together at run time.
 _PHRASE = " ".join(("correct", "horse", "battery", "staple"))
 _STORED_HASH = "-".join(("stored", "hash"))
@@ -89,6 +96,13 @@ _USERS = {
     MICROSOFT_ADMIN: _user(MICROSOFT_ADMIN, "admin", username=_EMERGENCY_USERNAME, object_id=str(uuid.uuid4())),
 }
 _INACTIVE_EMERGENCY = _user(INACTIVE_EMERGENCY, "admin", active=False, username=_EMERGENCY_USERNAME)
+# When the signed-out accounts last logged out: ten minutes ago, so that a Microsoft token issued
+# before and one issued after are both within the directory's lifetime and leeway.
+_LOGGED_OUT_AT = datetime.now(timezone.utc) - timedelta(minutes=10)
+_SIGNED_OUT = _user(SIGNED_OUT, "analyst").model_copy(update={"sessions_ended_at": _LOGGED_OUT_AT})
+_SIGNED_OUT_EMERGENCY = _user(SIGNED_OUT_EMERGENCY, "admin", username=_EMERGENCY_USERNAME).model_copy(
+    update={"sessions_ended_at": _LOGGED_OUT_AT}
+)
 
 
 class _FakeSession:
@@ -123,7 +137,12 @@ def client(monkeypatch: pytest.MonkeyPatch, audit_rows: list[Any]):
     monkeypatch.setattr(settings, "azure_admin_override", False)
     monkeypatch.setattr(settings, "admin_username", _EMERGENCY_USERNAME)
 
-    users = {**_USERS, INACTIVE_EMERGENCY: _INACTIVE_EMERGENCY}
+    users = {
+        **_USERS,
+        INACTIVE_EMERGENCY: _INACTIVE_EMERGENCY,
+        SIGNED_OUT: _SIGNED_OUT,
+        SIGNED_OUT_EMERGENCY: _SIGNED_OUT_EMERGENCY,
+    }
 
     async def user_by_email(_session: Any, email: str) -> CurrentUser | None:
         return users.get(email)
@@ -190,10 +209,13 @@ def _local_token(
     key: str | None = _LOCAL_SIGNER,
     algorithm: str = "HS256",
     expires_in: timedelta = timedelta(minutes=5),
+    issued_at: float | None = None,
 ) -> str:
     payload: dict[str, Any] = {"exp": datetime.now(timezone.utc) + expires_in}
     if email is not None:
         payload["sub"] = email
+    if issued_at is not None:
+        payload["iat"] = issued_at
     return jwt.encode(payload, key, algorithm=algorithm)
 
 
@@ -264,6 +286,10 @@ def test_the_token_issued_at_sign_in_is_hs256_with_an_expiry_and_signs_its_user_
     lifetime = datetime.fromtimestamp(claims["exp"], timezone.utc) - signed_in_at
     expected = timedelta(minutes=settings.access_token_expire_minutes)
     assert expected - timedelta(seconds=30) <= lifetime <= expected + timedelta(seconds=30)
+    # When it was issued, to the microsecond, so that a logout can refuse it and not the
+    # token of a sign-in in the same second after it.
+    assert isinstance(claims["iat"], float)
+    assert abs(claims["iat"] - signed_in_at.timestamp()) < 30
 
     me = _me(client, token)
 
@@ -531,3 +557,199 @@ def test_the_override_leaves_microsoft_tokens_alone(
     assert response.json()["email"] == VIEWER
     assert _override_warnings(caplog) == []
     assert [row.request_meta.get("emergency_sign_in") for row in _me_rows(audit_rows)] == [None]
+
+
+# --------------------------------------------------------------------------- #
+# A logout ends every session of its account
+# --------------------------------------------------------------------------- #
+
+_BEFORE = (_LOGGED_OUT_AT - timedelta(minutes=5)).timestamp()
+_JUST_BEFORE = _LOGGED_OUT_AT.timestamp() - 0.000_5
+_JUST_AFTER = _LOGGED_OUT_AT.timestamp() + 0.000_5
+_AFTER = (_LOGGED_OUT_AT + timedelta(minutes=5)).timestamp()
+
+
+@pytest.mark.parametrize(
+    "make_token",
+    [
+        pytest.param(lambda: _local_token(SIGNED_OUT, issued_at=_BEFORE), id="issued-before"),
+        pytest.param(lambda: _local_token(SIGNED_OUT, issued_at=_JUST_BEFORE), id="issued-within-a-millisecond-before"),
+        pytest.param(lambda: _local_token(SIGNED_OUT), id="saying-no-issue-time"),
+    ],
+)
+def test_a_local_token_issued_before_the_accounts_logout_is_refused(client: TestClient, make_token) -> None:
+    _assert_refused(_me(client, make_token()))
+
+
+@pytest.mark.parametrize("issued_at", [_JUST_AFTER, _AFTER], ids=["within-a-millisecond-after", "after"])
+def test_a_local_token_issued_after_the_accounts_logout_signs_in(client: TestClient, issued_at: float) -> None:
+    response = _me(client, _local_token(SIGNED_OUT, issued_at=issued_at))
+
+    assert response.status_code == 200, response.text
+    assert response.json()["email"] == SIGNED_OUT
+
+
+def test_an_account_that_never_logged_out_signs_in_with_a_token_saying_no_issue_time(client: TestClient) -> None:
+    # A token issued before tokens said when (at most one lifetime ago when this ships).
+    assert _me(client, _local_token(VIEWER)).status_code == 200
+
+
+def test_a_microsoft_token_issued_before_the_accounts_logout_is_refused_and_one_after_signs_in(
+    client: TestClient, azure: tuple[FakeDirectory, _Accounts]
+) -> None:
+    # Entra ID dates a token (iat) about five minutes before it issues it: a token issued a
+    # second after the logout carries an iat almost five minutes before it, and signs in.
+    directory, accounts = azure
+    object_id = accounts.bind(_SIGNED_OUT)
+    early = TOKEN_DATED_EARLY_SECONDS
+    logged_out = _LOGGED_OUT_AT.timestamp()
+
+    before = _me(client, directory.access_token(object_id, iat=int(logged_out - early - 60)))
+    just_before = _me(client, directory.access_token(object_id, iat=int(logged_out - early) - 1))
+    just_after = _me(client, directory.access_token(object_id, iat=int(logged_out - early) + 1))
+    after = _me(client, directory.access_token(object_id, iat=int(_AFTER)))
+
+    _assert_refused(before)
+    _assert_refused(just_before)
+    for response in (just_after, after):
+        assert response.status_code == 200, response.text
+        assert response.json()["email"] == SIGNED_OUT
+
+
+def test_the_override_refuses_the_emergency_admins_local_token_issued_before_its_logout_unlogged(
+    client: TestClient,
+    azure: tuple[FakeDirectory, _Accounts],
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    audit_rows: list[Any],
+) -> None:
+    monkeypatch.setattr(settings, "azure_admin_override", True)
+
+    with caplog.at_level(logging.WARNING, logger=dependencies.__name__):
+        before = _me(client, _local_token(SIGNED_OUT_EMERGENCY, issued_at=_BEFORE))
+    _assert_refused(before)
+    # A refused token is no use of the override: neither logged nor flagged.
+    assert _override_warnings(caplog) == []
+    assert [row.request_meta.get("emergency_sign_in") for row in _me_rows(audit_rows)] == [None]
+
+    after = _me(client, _local_token(SIGNED_OUT_EMERGENCY, issued_at=_AFTER))
+    assert after.status_code == 200, after.text
+    assert after.json()["email"] == SIGNED_OUT_EMERGENCY
+
+
+def test_the_cas_sign_ins_local_token_issued_before_the_accounts_logout_is_refused(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # With CAS the token is CoGA's own, of an account bound to an object ID.
+    monkeypatch.setattr(settings, "cas_server_url", "https://cas.example.org/cas")
+    monkeypatch.setattr(settings, "cas_service_url", "https://coga.example.org/login")
+    bound = _SIGNED_OUT.model_copy(update={"azure_object_id": str(uuid.uuid4())})
+
+    async def user_by_email(_session: Any, email: str) -> CurrentUser | None:
+        return bound if email == SIGNED_OUT else None
+
+    monkeypatch.setattr(dependencies, "get_current_user_by_email", user_by_email)
+
+    _assert_refused(_me(client, _local_token(SIGNED_OUT, issued_at=_BEFORE)))
+    assert _me(client, _local_token(SIGNED_OUT, issued_at=_AFTER)).status_code == 200
+
+
+class _EndedSessions:
+    """``end_account_sessions`` as the logout calls it, kept instead of written."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, float | None]] = []
+
+    async def __call__(self, _session: Any, *, user_id: str, token_issued_at: float | None = None) -> datetime:
+        self.calls.append((user_id, token_issued_at))
+        return datetime.now(timezone.utc)
+
+
+def test_the_logout_ends_the_sessions_of_the_signed_in_account_whatever_its_role(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, audit_rows: list[Any]
+) -> None:
+    ended = _EndedSessions()
+    monkeypatch.setattr(auth_router, "end_account_sessions", ended)
+    token = dependencies.create_access_token({"sub": VIEWER})
+    issued = jwt.decode(token, _LOCAL_SIGNER, algorithms=["HS256"])["iat"]
+
+    response = client.post("/api/auth/logout", headers={"Authorization": f"Bearer {token}"})
+
+    # A viewer too: ending one's own sessions changes no record. The token it was made with
+    # is named, so that it is refused too.
+    assert response.status_code == 204, response.text
+    assert response.content == b""
+    assert ended.calls == [(_USERS[VIEWER].id, issued)]
+    (row,) = [row for row in audit_rows if row.path == "/api/auth/logout"]
+    assert (row.status_code, row.user_id) == (204, _USERS[VIEWER].id)
+
+
+def test_a_logout_with_a_microsoft_token_names_the_latest_time_microsoft_issued_it(
+    client: TestClient, azure: tuple[FakeDirectory, _Accounts], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    directory, accounts = azure
+    ended = _EndedSessions()
+    monkeypatch.setattr(auth_router, "end_account_sessions", ended)
+    iat = int(datetime.now(timezone.utc).timestamp()) - TOKEN_DATED_EARLY_SECONDS + 2
+
+    token = directory.access_token(accounts.bind(_USERS[VIEWER]), iat=iat)
+    response = client.post("/api/auth/logout", headers={"Authorization": f"Bearer {token}"})
+
+    assert response.status_code == 204, response.text
+    assert ended.calls == [(_USERS[VIEWER].id, iat + TOKEN_DATED_EARLY_SECONDS)]
+
+
+def test_a_logout_with_a_refused_token_ends_nothing(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    ended = _EndedSessions()
+
+    monkeypatch.setattr(auth_router, "end_account_sessions", ended)
+
+    for token in (
+        _local_token(SIGNED_OUT, issued_at=_BEFORE),
+        _local_token(VIEWER, expires_in=timedelta(seconds=-5)),
+        "not-a-token",
+    ):
+        _assert_refused(client.post("/api/auth/logout", headers={"Authorization": f"Bearer {token}"}))
+    _assert_refused(client.post("/api/auth/logout"), detail="Not authenticated")
+    assert ended.calls == []
+
+
+class _LogoutSession:
+    """A session that answers the logout's UPDATE … RETURNING with the time it was given."""
+
+    def __init__(self, stored: datetime | None = None) -> None:
+        self.stored = stored
+        self.params: dict[str, Any] = {}
+        self.commits = 0
+
+    async def execute(self, _statement: Any, params: dict[str, Any]) -> Any:
+        self.params = dict(params)
+        ended = params["ended"] if self.stored is None else max(self.stored, params["ended"])
+
+        class _Result:
+            def scalar_one(self) -> datetime:
+                return ended
+
+        return _Result()
+
+    async def commit(self) -> None:
+        self.commits += 1
+
+
+def test_the_sessions_end_now_and_after_the_token_the_logout_was_made_with() -> None:
+    import asyncio
+
+    from backend.app.services.metadata_service import end_account_sessions
+
+    now = datetime.now(timezone.utc)
+    # A CoGA token, issued before now: the sessions end now.
+    plain = _LogoutSession()
+    ended = asyncio.run(end_account_sessions(plain, user_id="u-1", token_issued_at=now.timestamp() - 60))
+    assert now <= ended <= datetime.now(timezone.utc)
+    assert plain.params["user_id"] == "u-1" and plain.commits == 1
+    # A Microsoft token whose latest issue time is a little after now (Entra dated it less
+    # than five minutes early): the sessions end just after it, so it is refused too.
+    later = now + timedelta(seconds=90)
+    ahead = _LogoutSession()
+    ended = asyncio.run(end_account_sessions(ahead, user_id="u-1", token_issued_at=later.timestamp()))
+    assert later < ended <= later + timedelta(milliseconds=1)
