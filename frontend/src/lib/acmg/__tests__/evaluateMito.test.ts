@@ -66,23 +66,48 @@ describe('evaluateMitoAcmg', () => {
     const mito: AcmgMitoContext = { category: 'protein coding', clinicalSignificance: 'polymorphism' };
     const suggestions = evaluateMitoAcmg(baseVariant, mito);
     expect(find(suggestions, 'BS1')?.disposition).toBe('applies');
-    expect(find(suggestions, 'BP6')?.disposition).toBe('applies');
+    // Offered for review, never applied (the owner's choice of 2026-11-06).
+    expect(find(suggestions, 'BP6')?.disposition).toBe('consider');
   });
 
-  it('maps MITOMAP/ClinVar status to PP5 / BP6', () => {
+  it('offers PP5 / BP6 from the MITOMAP/ClinVar status for review, never applied', () => {
+    // ClinGen's SVI advises against counting another source's assertion (the owner's choice of
+    // 2026-11-06): before, both were applied.
     expect(
       find(evaluateMitoAcmg(baseVariant, { clinicalSignificance: 'pathogenic' }), 'PP5')?.disposition,
-    ).toBe('applies');
+    ).toBe('consider');
     expect(
       find(evaluateMitoAcmg(baseVariant, { clinicalSignificance: 'benign' }), 'BP6')?.disposition,
-    ).toBe('applies');
+    ).toBe('consider');
     // The backend's likely classes (MitoDNAVariantAnnotationOut.clinical_significance).
     expect(
       find(evaluateMitoAcmg(baseVariant, { clinicalSignificance: 'likely_pathogenic' }), 'PP5')?.disposition,
-    ).toBe('applies');
+    ).toBe('consider');
     expect(
       find(evaluateMitoAcmg(baseVariant, { clinicalSignificance: 'likely_benign' }), 'BP6')?.disposition,
-    ).toBe('applies');
+    ).toBe('consider');
+  });
+
+  it('reads the homoplasmic mtDNA frequency for BA1 / BS1, and both for PM2', () => {
+    // gnomAD-MT or HelixMTdb annotated: BA1 and BS1 read the highest homoplasmic frequency, PM2
+    // applies only when the heteroplasmic one is as rare (the owner's choice of 2026-11-06).
+    const context = (homoplasmicAf: number, heteroplasmicAf: number | null): AcmgMitoContext => ({
+      category: 'protein coding',
+      homoplasmicAf,
+      homoplasmicSource: 'gnomAD-MT',
+      heteroplasmicAf,
+      heteroplasmicSource: 'gnomAD-MT',
+    });
+    // The generic gnomAD AF (rare) is not what decides when gnomAD-MT is there.
+    const common = evaluateMitoAcmg({ ...baseVariant, gnomad_af: 1e-6 }, context(0.012, 0.001));
+    expect(find(common, 'BA1')?.disposition).toBe('applies');
+    expect(find(common, 'BA1')?.evidence).toContain('gnomAD-MT homoplasmic frequency');
+    expect(find(evaluateMitoAcmg(baseVariant, context(5e-4, 0)), 'BS1')?.disposition).toBe('applies');
+    expect(find(evaluateMitoAcmg(baseVariant, context(0, 0)), 'PM2')?.disposition).toBe('applies');
+    const heteroplasmic = find(evaluateMitoAcmg(baseVariant, context(0, 0.001)), 'PM2');
+    expect(heteroplasmic?.disposition).toBe('consider');
+    expect(heteroplasmic?.evidence).toContain('heteroplasmic frequency');
+    expect(find(evaluateMitoAcmg(baseVariant, context(0, null)), 'PM2')?.disposition).toBe('consider');
   });
 
   // "Conflicting classifications of pathogenicity" contains "pathogenic": read as a substring,

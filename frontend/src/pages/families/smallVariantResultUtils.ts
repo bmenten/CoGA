@@ -570,6 +570,42 @@ export const buildSvSecondHitHref = (
   return routePath`/families/${familyId}/structural-variants${raw(`?${params.toString()}`)}`;
 };
 
+/** ClinVar's review stars, as ClinVar draws them: "★★☆☆" for 2 of 4. */
+export const formatClinvarStars = (stars?: number | null): string | null =>
+  typeof stars === 'number' && stars >= 0 && stars <= 4 ? `${'★'.repeat(stars)}${'☆'.repeat(4 - stars)}` : null;
+
+/**
+ * SpliceAI's highest delta score with the change it describes and where SpliceAI places it:
+ * "0.82 · donor gain +14" (bases from the variant). The score alone where the annotation has
+ * no position.
+ */
+export const formatSpliceAi = (
+  variant: Pick<
+    SmallVariant,
+    | 'spliceai_max'
+    | 'spliceai_ds_ag'
+    | 'spliceai_ds_al'
+    | 'spliceai_ds_dg'
+    | 'spliceai_ds_dl'
+    | 'spliceai_dp_ag'
+    | 'spliceai_dp_al'
+    | 'spliceai_dp_dg'
+    | 'spliceai_dp_dl'
+  >,
+): string | null => {
+  if (typeof variant.spliceai_max !== 'number') return null;
+  const changes: [number | null, number | null, string][] = [
+    [variant.spliceai_ds_ag, variant.spliceai_dp_ag, 'acceptor gain'],
+    [variant.spliceai_ds_al, variant.spliceai_dp_al, 'acceptor loss'],
+    [variant.spliceai_ds_dg, variant.spliceai_dp_dg, 'donor gain'],
+    [variant.spliceai_ds_dl, variant.spliceai_dp_dl, 'donor loss'],
+  ];
+  const top = changes.find(([score]) => score === variant.spliceai_max);
+  const score = variant.spliceai_max.toFixed(2);
+  if (!top || top[1] == null) return score;
+  return `${score} · ${top[2]} ${top[1] > 0 ? '+' : ''}${top[1]}`;
+};
+
 export const buildSmallVariantExternalLinks = ({
   variant,
   speciesName,
@@ -579,7 +615,7 @@ export const buildSmallVariantExternalLinks = ({
   variant: Pick<
     SmallVariant,
     'chr' | 'start' | 'end' | 'ref' | 'alt' | 'rsid' | 'gene' | 'gene_id' | 'hgvsc' | 'hgvsp'
-  >;
+  > & { clinvar_variation_id?: string | null };
   speciesName?: string;
   assemblyName?: string;
   assemblyVersion?: string;
@@ -612,7 +648,11 @@ export const buildSmallVariantExternalLinks = ({
     gnomadHref ? { label: 'gnomAD', href: gnomadHref } : null,
     {
       label: 'ClinVar',
-      href: `https://www.ncbi.nlm.nih.gov/clinvar/?term=${encodeURIComponent(clinvarTerm)}`,
+      // The record the annotation matched, by its VariationID where VEP --custom gave it;
+      // else a search.
+      href: variant.clinvar_variation_id
+        ? `https://www.ncbi.nlm.nih.gov/clinvar/variation/${encodeURIComponent(variant.clinvar_variation_id)}/`
+        : `https://www.ncbi.nlm.nih.gov/clinvar/?term=${encodeURIComponent(clinvarTerm)}`,
     },
     {
       label: 'PubMed',

@@ -29,6 +29,9 @@ const MT_PM2_AF = 2e-5; // rare enough to support pathogenicity
 // Alt-allele-bearing zygosity states (homoplasmic / heteroplasmic / low-level).
 const CARRIER_ZYGOSITY = new Set(['homoplasmic', 'heteroplasmic', 'low_level']);
 
+const finite = (value: number | null | undefined): number | null =>
+  typeof value === 'number' && Number.isFinite(value) ? value : null;
+
 function clinSigIncludes(value: string | null | undefined, needles: string[]): boolean {
   if (!value) return false;
   const lower = value.toLowerCase();
@@ -76,9 +79,53 @@ export function evaluateMitoAcmg(
     notApplicable('PVS1', `PVS1 does not apply to a ${category} locus.`);
   }
 
-  // ---- Frequency: BA1 / BS1 / PM2 on gnomAD-MT (mt-specific thresholds) ----
+  // ---- Frequency: BA1 / BS1 / PM2 on the mtDNA population frequencies (mt-specific
+  //      thresholds). With gnomAD-MT or HelixMTdb annotated, BA1 and BS1 read the highest
+  //      homoplasmic frequency, and PM2 applies only when the heteroplasmic one is as rare
+  //      (the owner's choice of 2026-11-06); else the annotation's gnomAD frequency. ----
   const isPolymorphism = clinSigIncludes(clinSig, ['polymorphism']);
-  if (af != null && af >= MT_BA1_AF) {
+  const hom = finite(mito.homoplasmicAf);
+  const het = finite(mito.heteroplasmicAf);
+  if (hom != null) {
+    const homLabel = `${mito.homoplasmicSource ?? 'mtDNA'} homoplasmic frequency ${fmtAf(hom)}`;
+    if (hom >= MT_BA1_AF) {
+      add('BA1', 'stand_alone', `${homLabel} ≥ 0.5% — common mt polymorphism (stand-alone benign).`);
+      notApplicable('PM2', `Not rare: ${homLabel}.`);
+    } else if (hom >= MT_BS1_AF || isPolymorphism) {
+      add(
+        'BS1',
+        'strong',
+        hom >= MT_BS1_AF
+          ? `${homLabel} is higher than expected for a primary mt disorder.`
+          : 'MITOMAP reports a common polymorphism / haplogroup marker.',
+      );
+      notApplicable('BA1', `${homLabel} is below 0.5%.`);
+      notApplicable('PM2', `Not rare: ${homLabel}${isPolymorphism ? ' (MITOMAP polymorphism)' : ''}.`);
+    } else if (hom < MT_PM2_AF) {
+      notApplicable('BA1', `Rare: ${homLabel}.`);
+      notApplicable('BS1', `Rare: ${homLabel}.`);
+      if (het != null && het < MT_PM2_AF) {
+        add(
+          'PM2',
+          'supporting',
+          `${homLabel} and ${mito.heteroplasmicSource ?? 'mtDNA'} heteroplasmic frequency ${fmtAf(het)} are very rare.`,
+        );
+      } else {
+        add(
+          'PM2',
+          'supporting',
+          het != null
+            ? `${homLabel} is very rare, but the ${mito.heteroplasmicSource ?? 'mtDNA'} heteroplasmic frequency ${fmtAf(het)} is not — review before applying.`
+            : `${homLabel} is very rare, but no heteroplasmic frequency is annotated — review before applying.`,
+          'consider',
+        );
+      }
+    } else {
+      notApplicable('PM2', `${homLabel} is not rare enough for PM2.`);
+      notApplicable('BA1', `${homLabel} is below 0.5%.`);
+      notApplicable('BS1', `${homLabel} is below the BS1 threshold.`);
+    }
+  } else if (af != null && af >= MT_BA1_AF) {
     add('BA1', 'stand_alone', `gnomAD-MT allele frequency ${fmtAf(af)} ≥ 0.5% — common mt polymorphism (stand-alone benign).`);
     notApplicable('PM2', `Not rare: gnomAD-MT allele frequency ${fmtAf(af)}.`);
   } else if ((af != null && af >= MT_BS1_AF) || isPolymorphism) {
@@ -116,11 +163,13 @@ export function evaluateMitoAcmg(
   const disorders = (mito.disorders ?? []).filter(Boolean);
   const disorderNote = disorders.length ? ` Associated: ${disorders.slice(0, 3).join(', ')}.` : '';
   const clinClass = clinvarClass(clinSig);
+  // Offered for review, never applied, as for a nuclear variant (the owner's choice of
+  // 2026-11-06: ClinGen's SVI advises against counting another source's assertion).
   if (clinClass === 'pathogenic') {
-    add('PP5', 'supporting', `MITOMAP/ClinVar reports ${clinSig}.${disorderNote}`);
+    add('PP5', 'supporting', `MITOMAP/ClinVar reports ${clinSig}.${disorderNote} Review before applying.`, 'consider');
     against('BP6', `MITOMAP/ClinVar reports ${clinSig}, not benign.`);
   } else if (clinClass === 'benign' || isPolymorphism) {
-    add('BP6', 'supporting', `MITOMAP/ClinVar reports ${clinSig}.`);
+    add('BP6', 'supporting', `MITOMAP/ClinVar reports ${clinSig}. Review before applying.`, 'consider');
     against('PP5', `MITOMAP/ClinVar reports ${clinSig}, not pathogenic.`);
   }
 

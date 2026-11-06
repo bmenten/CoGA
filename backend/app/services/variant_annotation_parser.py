@@ -68,6 +68,21 @@ _ANN_ALIASES = {
     "existing_inframe_oorfs": ["Existing_InFrame_oORFs"],
     "existing_outofframe_oorfs": ["Existing_OutOfFrame_oORFs"],
     "existing_uorfs": ["Existing_uORFs"],
+    # The ClinVar file's review status (``criteria_provided,_multiple_submitters,…``, read as
+    # words: ``_clinvar_text``), conditions (CLNDN), allele ID and, from VEP --custom, the
+    # matched record's ID: its VariationID (``ClinVar``, digits only).
+    "clinvar_review_status": ["ClinVar_CLNREVSTAT", "CLNREVSTAT"],
+    "clinvar_conditions": ["ClinVar_CLNDN", "CLNDN"],
+    "clinvar_allele_id": ["ClinVar_ALLELEID", "ALLELEID"],
+    "clinvar_variation_id": ["ClinVar", "ClinVar_ID", "CLINVAR_ID"],
+    # VEP's NMD plugin: ``NMD_escaping_variant`` for a variant predicted to escape
+    # nonsense-mediated decay.
+    "nmd": ["NMD"],
+    # gnomAD's own site filter (PASS, AC0, RF, InbreedingCoeff …), where a --custom gnomAD file
+    # was annotated with its FILTER.
+    "gnomad_filter": ["gnomAD_FILTER", "GNOMAD_FILTER"],
+    "gnomad_exomes_filter": ["gnomADe_FILTER", "GNOMADE_FILTER"],
+    "gnomad_genomes_filter": ["gnomADg_FILTER", "GNOMADG_FILTER"],
 }
 
 # A population frequency or count is read only from a field whose name states its source
@@ -100,6 +115,22 @@ _POPULATION_ALIASES = {
     "gnomad_genomes_popmax_af": ["gnomADg_AF_grpmax", "gnomADg_AF_popmax", "GNOMADG_AF_GRPMAX", "GNOMADG_AF_POPMAX"],
     "max_af": ["MAX_AF", "POPMAX_AF"],
     "topmed_af": ["TOPMed_AF", "TOPMED_AF"],
+    # gnomAD's filtering allele frequency (95 % confidence, the highest over its genetic
+    # ancestry groups), which BA1 and BS1 read where it is annotated; the higher of the exome
+    # and genome ones where there is no combined one.
+    "gnomad_faf95_af": [
+        "gnomAD_fafmax_faf95_max",
+        "gnomAD_fafmax_faf95_max_joint",
+        "gnomAD_faf95_popmax",
+        "GNOMAD_FAFMAX_FAF95_MAX",
+    ],
+    "gnomad_exomes_faf95_af": ["gnomADe_fafmax_faf95_max", "gnomADe_faf95_popmax", "GNOMADE_FAFMAX_FAF95_MAX"],
+    "gnomad_genomes_faf95_af": ["gnomADg_fafmax_faf95_max", "gnomADg_faf95_popmax", "GNOMADG_FAFMAX_FAF95_MAX"],
+    # gnomAD v3.1's mtDNA frequencies: of homoplasmic calls (heteroplasmy of 95 % or more) and
+    # of heteroplasmic ones (10 % up to 95 %), apart. A population frequency, not the
+    # heteroplasmy of the person tested.
+    "gnomad_mt_af_hom": ["GNOMAD_MT31_AF_hom", "gnomAD_MT_AF_hom", "gnomADmt_AF_hom"],
+    "gnomad_mt_af_het": ["GNOMAD_MT31_AF_het", "gnomAD_MT_AF_het", "gnomADmt_AF_het"],
 }
 
 # gnomAD's counts are read as gnomAD's total (CLIN-67): its combined count where the record
@@ -127,6 +158,13 @@ _EXTRA_COUNT_ALIASES = {
         ["gnomADe_Hemi", "GNOMADE_HEMI", "gnomADe_hemi"],
         ["gnomADg_Hemi", "GNOMADG_HEMI", "gnomADg_hemi"],
     ),
+    # The allele number beside the allele count: how many alleles gnomAD called at the site.
+    "gnomad_an": (
+        ["gnomAD_AN", "GNOMAD_AN"],
+        ["gnomADe_AN", "GNOMADE_AN"],
+        ["gnomADg_AN", "GNOMADG_AN"],
+    ),
+    "gnomad_mt_an": (["GNOMAD_MT31_AN", "gnomAD_MT_AN"], [], []),
 }
 
 _SPLICE_ALIASES = {
@@ -136,6 +174,15 @@ _SPLICE_ALIASES = {
     "spliceai_ds_dl": ["SpliceAI_pred_DS_DL", "DS_DL", "SPLICEAI_DS_DL"],
 }
 
+# Where SpliceAI places each delta score's change, relative to the variant (bases; negative
+# upstream): the position the score describes.
+_POSITION_ALIASES = {
+    "spliceai_dp_ag": ["SpliceAI_pred_DP_AG", "DP_AG", "SPLICEAI_DP_AG"],
+    "spliceai_dp_al": ["SpliceAI_pred_DP_AL", "DP_AL", "SPLICEAI_DP_AL"],
+    "spliceai_dp_dg": ["SpliceAI_pred_DP_DG", "DP_DG", "SPLICEAI_DP_DG"],
+    "spliceai_dp_dl": ["SpliceAI_pred_DP_DL", "DP_DL", "SPLICEAI_DP_DL"],
+}
+
 _SCORE_ALIASES = {
     "cadd_raw": ["CADD_RAW", "CADD_RAW_HG38"],
     "cadd_phred": ["CADD_PHRED", "CADD_PHRED_HG38"],
@@ -143,6 +190,8 @@ _SCORE_ALIASES = {
     "gene_pli": ["PLI", "pLI", "GENE_PLI", "LOF_PLI"],
     "gene_missense_z": ["MISSENSE_Z", "missense_Z", "MIS_Z", "GENE_MISSENSE_Z"],
     "alpha_missense_pathogenicity": ["am_pathogenicity", "AlphaMissense_pathogenicity"],
+    # gnomAD-MT's highest heteroplasmy level observed in any of its samples.
+    "gnomad_mt_max_hl": ["GNOMAD_MT31_max_hl", "gnomAD_MT_max_hl"],
 }
 
 # Each value of _ANN_ALIASES an entry sets only when it has one, except these flags, which
@@ -169,6 +218,7 @@ class _AliasTables:
     extra_count: tuple[tuple[str, _CountAliases], ...]
     splice: tuple[tuple[str, _Aliases], ...]
     population: tuple[tuple[str, _Aliases], ...]
+    position: tuple[tuple[str, _Aliases], ...]
 
 
 _ALL_ALIASES = _AliasTables(
@@ -178,6 +228,7 @@ _ALL_ALIASES = _AliasTables(
     extra_count=tuple(_EXTRA_COUNT_ALIASES.items()),
     splice=tuple(_SPLICE_ALIASES.items()),
     population=tuple(_POPULATION_ALIASES.items()),
+    position=tuple(_POSITION_ALIASES.items()),
 )
 # Every key an annotation is read from, by its aliases or by name (SpliceAI_pred).
 _ANNOTATION_KEYS = frozenset(
@@ -187,6 +238,7 @@ _ANNOTATION_KEYS = frozenset(
     + [alias for _key, lists in _ALL_ALIASES.extra_count for aliases in lists for alias in aliases]
     + [alias for _key, aliases in _ALL_ALIASES.splice for alias in aliases]
     + [alias for _key, aliases in _ALL_ALIASES.population for alias in aliases]
+    + [alias for _key, aliases in _ALL_ALIASES.position for alias in aliases]
     + ["SpliceAI_pred"]
 )
 
@@ -228,6 +280,7 @@ def _header_alias_tables(fields: tuple[str, ...]) -> _AliasTables:
         extra_count=_narrowed_counts(_ALL_ALIASES.extra_count, declared),
         splice=_narrowed(_ALL_ALIASES.splice, declared),
         population=_narrowed(_ALL_ALIASES.population, declared),
+        position=_narrowed(_ALL_ALIASES.position, declared),
     )
 
 
@@ -314,6 +367,8 @@ def _spliceai_delta(value: Optional[float]) -> Optional[float]:
 
 
 def _parse_spliceai_pred(value: Any) -> Dict[str, float]:
+    """SpliceAI's own ``ALLELE|SYMBOL|DS_AG|DS_AL|DS_DG|DS_DL|DP_AG|DP_AL|DP_DG|DP_DL``: the
+    four delta scores and, where written, the four positions."""
     value = _clean_value(value)
     if not isinstance(value, str):
         return {}
@@ -330,6 +385,19 @@ def _parse_spliceai_pred(value: Any) -> Dict[str, float]:
         parsed = _spliceai_delta(_parse_float(parts[index]))
         if parsed is not None:
             result[key] = parsed
+    # The positions only beside four delta scores in their slots: a value shifted out of
+    # place (a missing SYMBOL) puts a position in a score's slot, and its positions are not
+    # where they are read either.
+    if len(parts) >= 10 and len(result) == 4:
+        for key, index in (
+            ("spliceai_dp_ag", 6),
+            ("spliceai_dp_al", 7),
+            ("spliceai_dp_dg", 8),
+            ("spliceai_dp_dl", 9),
+        ):
+            position = _parse_int(parts[index])
+            if position is not None:
+                result[key] = position
     return result
 
 
@@ -514,6 +582,11 @@ def _apply_numeric_and_population_aliases(
         value = _spliceai_delta(_read(key, _transcript_value(source, _first_value(source, aliases))))
         if value is not None:
             annotation[key] = value
+    for key, aliases in tables.position:
+        raw = _first_value(source, aliases)
+        position = None if _several_numbers(raw) else _parse_int(raw)
+        if position is not None:
+            annotation[key] = position
     annotation.update(_parse_spliceai_pred(source.get("SpliceAI_pred")))
 
     population_frequencies = dict(population_seed)
@@ -524,6 +597,7 @@ def _apply_numeric_and_population_aliases(
     for combined, parts in (
         ("gnomad_af", ("gnomad_exomes_af", "gnomad_genomes_af")),
         ("gnomad_popmax_af", ("gnomad_exomes_popmax_af", "gnomad_genomes_popmax_af")),
+        ("gnomad_faf95_af", ("gnomad_exomes_faf95_af", "gnomad_genomes_faf95_af")),
     ):
         if combined in population_frequencies:
             continue
@@ -570,7 +644,24 @@ def _base_info_annotation(info: Dict[str, str]) -> Dict[str, Any]:
             annotation[key] = value
 
     _apply_numeric_and_population_aliases(info, annotation, extra_seed={}, population_seed={})
+    _tidy_clinvar(annotation)
     return annotation
+
+
+_CLINVAR_VARIATION_ID = re.compile(r"\d+")
+
+
+def _tidy_clinvar(annotation: Dict[str, Any]) -> None:
+    """The ClinVar file's review status read as words (ClinVar writes
+    ``criteria_provided,_multiple_submitters,_no_conflicts``, VEP its commas as ``&``), and a
+    VariationID kept only as one: VEP --custom's ID field holds the matched record's ID."""
+    status = annotation.get("clinvar_review_status")
+    if isinstance(status, str):
+        words = re.sub(r"\s+", " ", status.replace("&", ",").replace("_", " "))
+        annotation["clinvar_review_status"] = re.sub(r"\s*,\s*", ", ", words).strip(" ,")
+    variation_id = annotation.get("clinvar_variation_id")
+    if variation_id is not None and not _CLINVAR_VARIATION_ID.fullmatch(str(variation_id).strip()):
+        annotation.pop("clinvar_variation_id")
 
 
 def _settle_clinvar(annotation: Dict[str, Any], *, clinvar_file_annotated: bool) -> None:
@@ -621,6 +712,7 @@ def _normalize_annotation_entry(
         clinvar_file_annotated=clinvar_file_annotated
         or not raw_entry.keys().isdisjoint(CLINVAR_FILE_ALIASES),
     )
+    _tidy_clinvar(annotation)
 
     return {key: value for key, value in annotation.items() if value not in (None, {}, [])}
 

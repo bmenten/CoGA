@@ -1725,6 +1725,53 @@ same answer for every caller. So is any other path parameter with one, and a NUL
 value: a `%00` in a URL arrives as a NUL, which Postgres cannot compare
 ([security-posture.md](security-posture.md#1-authentication--rbac)).
 
+### The annotation fields CoGA reads
+
+This is CoGA's side of the field contract with the annotation workflow. CoGA reads a small
+variant's annotation from VEP's `CSQ` (or snpEff's `ANN`) and the record's INFO, under these
+names (`variant_annotation_parser.py`). A field under another name is not read, and nothing
+reports that it was left out. Field names as VEP writes them: a `--custom` file's fields as
+`<short name>_<field>`, a plugin's under its own names.
+
+| What CoGA shows and reads | Field names read | Used by |
+| --- | --- | --- |
+| ClinVar classification | `ClinVar_CLNSIG`, `CLNSIG`, `CLINVAR`; VEP cache `CLIN_SIG` only without those | card, filters, ranking, PP5/BP6 |
+| ClinVar review status (stars) | `ClinVar_CLNREVSTAT`, `CLNREVSTAT` | card, PP5/BP6 evidence, frozen evidence |
+| ClinVar conditions | `ClinVar_CLNDN`, `CLNDN` | card, PP5/BP6 evidence |
+| ClinVar VariationID | `ClinVar` (the matched record's ID, VEP `--custom`), digits only | the card's ClinVar link |
+| ClinVar AlleleID | `ClinVar_ALLELEID`, `ALLELEID` | card |
+| gnomAD AF (overall, exomes, genomes) | `gnomAD_AF`, `gnomADe_AF`, `gnomADg_AF` | filters, PM2 |
+| gnomAD popmax | `gnomAD_AF_POPMAX`, `gnomAD_AF_grpmax`, `gnomADe_AF_grpmax`, `gnomADg_AF_grpmax` (and `…_popmax`) | popmax filter, card |
+| VEP MAX_AF | `MAX_AF`, `POPMAX_AF` | popmax filter where gnomAD has none, card |
+| gnomAD FAF95 | `gnomAD_fafmax_faf95_max`, `gnomADe_fafmax_faf95_max`, `gnomADg_fafmax_faf95_max` (and `…_faf95_popmax`) | BA1/BS1, card |
+| gnomAD counts and allele number | `…_AC`, `…_nhomalt` (`…_Hom`), `…_Hemi`, `…_AN` with `gnomAD`, `gnomADe` or `gnomADg` | count filters, BS2, card |
+| gnomAD site filter | `gnomAD_FILTER`, `gnomADe_FILTER`, `gnomADg_FILTER` | card (a site failing gnomAD's QC) |
+| gnomAD-MT | `GNOMAD_MT31_AF_hom`, `GNOMAD_MT31_AF_het`, `GNOMAD_MT31_max_hl`, `GNOMAD_MT31_AN` | mtDNA page and criteria |
+| TOPMed | `TOPMed_AF` | filters |
+| LOFTEE | `LoF`, `LoF_filter`, `LoF_flags` | PVS1, card |
+| NMD | `NMD` (VEP's NMD plugin) | PVS1, card |
+| SpliceAI | `SpliceAI_pred_DS_AG/AL/DG/DL`, `SpliceAI_pred_DP_AG/AL/DG/DL`, or `SpliceAI_pred` | filters, PP3/BP4/BP7, card |
+| REVEL, CADD, AlphaMissense | `REVEL`, `CADD_PHRED`, `CADD_RAW`, `am_pathogenicity`, `am_class` | filters, PP3/BP4, card |
+| SIFT, PolyPhen | `SIFT`, `PolyPhen` | filters, card |
+| Gene constraint | `pLI`, `MISSENSE_Z` | card, PP2 (where the gene profile has none) |
+| Transcript | `SYMBOL`, `Gene`, `Feature`, `BIOTYPE`, `Consequence`, `IMPACT`, `HGVSc`, `HGVSp`, `EXON`, `INTRON`, `CANONICAL`, `MANE_SELECT`, `MANE_PLUS_CLINICAL` | everywhere |
+| Allele of an entry | `ALLELE_NUM` (`--allele_number`), else `Allele` | a multi-allelic record's ALT |
+| UTRAnnotator | `5UTR_annotation`, `5UTR_consequence`, `Existing_InFrame_oORFs`, `Existing_OutOfFrame_oORFs`, `Existing_uORFs` | card |
+
+What the workflow should hold to:
+
+- **dbNSFP scores per transcript.** Pass `transcript_match=1`, or the `Ensembl_transcriptid`
+  column: a field listing several different values is read as none.
+- **Multi-allelic records.** Split them before VEP (`bcftools norm -m -any`) to filter and
+  classify each allele on its own; CoGA reads an unsplit one as one variant.
+- **ClinVar release.** Keep the date in the ClinVar file's name (`clinvar_YYYYMMDD.vcf.gz`):
+  the annotation manifest reads the release from it.
+- **ClinVar as a `--custom` file.** Use the short name `ClinVar`, so the fields are
+  `ClinVar_CLNSIG`, `ClinVar_CLNREVSTAT` and so on, and the VariationID is `ClinVar`.
+
+The mtDNA page also reads a mutserve table's columns (HelixMTdb's `Helix_vaf_hom` and
+`Helix_vaf_het`, among others; [Where each dataset lands](#where-each-dataset-lands)).
+
 ## 5. Pedigrees and phenotypes
 
 - `POST /ped/manual`: an analyst of the project, or an admin, creates a family from typed-in

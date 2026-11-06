@@ -116,7 +116,17 @@ def test_a_headers_alias_tables_keep_only_the_aliases_it_declares_and_the_flags(
         # Read by name, not by an alias table.
         (
             {"CSQ": "G|x", "SpliceAI_pred": "G|GENE1|0.10|0.20|0.70|0.00|1|2|3|4"},
-            {"spliceai_ds_ag": 0.1, "spliceai_ds_al": 0.2, "spliceai_ds_dg": 0.7, "spliceai_ds_dl": 0.0, "spliceai_max": 0.7},
+            {
+                "spliceai_ds_ag": 0.1,
+                "spliceai_ds_al": 0.2,
+                "spliceai_ds_dg": 0.7,
+                "spliceai_ds_dl": 0.0,
+                "spliceai_dp_ag": 1,
+                "spliceai_dp_al": 2,
+                "spliceai_dp_dg": 3,
+                "spliceai_dp_dl": 4,
+                "spliceai_max": 0.7,
+            },
         ),
         ({"CANONICAL": "YES", "CADD_PHRED": "12"}, {"canonical": True, "cadd_phred": 12.0}),
     ],

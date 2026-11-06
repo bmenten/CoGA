@@ -11,6 +11,16 @@ from .variant_annotation_parser import _spliceai_delta
 _KNOWN_ANNOTATION_KEYS = {
     # The ALT a multi-allelic record's annotation is of, served as a field of its own.
     "alt_allele",
+    # Served as fields of their own: ClinVar's review status, conditions and VariationID, the
+    # NMD prediction and SpliceAI's positions.
+    "clinvar_review_status",
+    "clinvar_conditions",
+    "clinvar_variation_id",
+    "nmd",
+    "spliceai_dp_ag",
+    "spliceai_dp_al",
+    "spliceai_dp_dg",
+    "spliceai_dp_dl",
     "gene",
     "gene_id",
     "geneId",

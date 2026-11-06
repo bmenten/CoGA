@@ -191,6 +191,13 @@ export interface AcmgMitoContext {
   category?: AcmgMitoCategory | null;
   // Aggregated MITOMAP/ClinVar status, e.g. 'pathogenic' | 'polymorphism' | …
   clinicalSignificance?: string | null;
+  // The mtDNA population frequencies of homoplasmic and of heteroplasmic calls, the highest of
+  // the sources annotated (gnomAD-MT, HelixMTdb), each with the source it came from. Population
+  // frequencies, not the heteroplasmy of the person tested.
+  homoplasmicAf?: number | null;
+  homoplasmicSource?: string | null;
+  heteroplasmicAf?: number | null;
+  heteroplasmicSource?: string | null;
   disorders?: string[];
   // 'maternal_shared' | 'maternal_only' | 'father_only' | 'family_private' | …
   maternalTransmission?: string | null;

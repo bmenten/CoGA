@@ -52,9 +52,11 @@ When you save a classification, CoGA freezes the evidence it rests on:
 
 - **ACMG classify** (a small variant):
   - a fingerprint of the variant's annotation;
-  - its ClinVar significance, consequence, impact and LoF call (LOFTEE);
+  - its ClinVar significance with the record's review status, consequence, impact, LoF call
+    (LOFTEE) with its flags, and VEP's NMD prediction;
   - the population frequencies and in-silico scores the dialog read: the gnomAD frequencies (overall,
-    exomes, genomes, popmax), VEP's MAX_AF, the TOPMed frequency, the gnomAD allele, homozygote and hemizygote counts,
+    exomes, genomes, popmax, FAF95), VEP's MAX_AF, for a chrM variant the gnomAD-MT and HelixMTdb
+    homoplasmic and heteroplasmic frequencies, the TOPMed frequency, the gnomAD allele, homozygote and hemizygote counts,
     CADD, REVEL, SpliceAI, SIFT, PolyPhen and AlphaMissense. They are taken from the variant's primary
     transcript, as the dialog shows them, and for a variant with two ALT alleles the ALT they are of;
   - for a missense variant, the gnomAD missense Z of its gene that PP2 reads, and its source: the

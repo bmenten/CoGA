@@ -195,6 +195,13 @@ class VariantOut(ApiDocumentModel):
     impact: Optional[str] = None
     effect: Optional[str] = None
     clinvar: Optional[str] = None
+    # The ClinVar file's review status, as words, and the stars ClinVar gives it (0–4); the
+    # conditions the record names; its VariationID (from VEP --custom). None (empty) where the
+    # annotation has no ClinVar file, or the file no record.
+    clinvar_review_status: Optional[str] = None
+    clinvar_stars: Optional[int] = None
+    clinvar_conditions: List[str] = Field(default_factory=list)
+    clinvar_variation_id: Optional[str] = None
     rsid: Optional[str] = None
     hgvsc: Optional[str] = None
     hgvsp: Optional[str] = None
@@ -206,6 +213,9 @@ class VariantOut(ApiDocumentModel):
     lof: Optional[str] = None
     lof_filter: Optional[str] = None
     lof_flags: Optional[str] = None
+    # VEP's NMD plugin: ``NMD_escaping_variant`` for a variant predicted to escape
+    # nonsense-mediated decay.
+    nmd: Optional[str] = None
     gnomad_af: Optional[float] = None
     gnomad_hom_count: Optional[int] = None
     gene_pli: Optional[float] = None
@@ -221,6 +231,11 @@ class VariantOut(ApiDocumentModel):
     spliceai_ds_dg: Optional[float] = None
     spliceai_ds_dl: Optional[float] = None
     spliceai_max: Optional[float] = None
+    # Where SpliceAI places each delta score's change, in bases from the variant.
+    spliceai_dp_ag: Optional[int] = None
+    spliceai_dp_al: Optional[int] = None
+    spliceai_dp_dg: Optional[int] = None
+    spliceai_dp_dl: Optional[int] = None
     alpha_missense_pathogenicity: Optional[float] = None
     alpha_missense_class: Optional[str] = None
     # Resolved from the assembly's cytoband track at display time, not carried by the

@@ -19,6 +19,7 @@ from ..schemas import (
     MitoDNAVariantOut,
     MitoDNAVariantSampleCallOut,
 )
+from ..schemas.mito import MitoGeneConsequenceOut
 from .clickhouse_family_variants import _fetch_small_variant_rows, _fetch_structural_variant_rows
 from .clickhouse_variant_records import (
     PanelFilterConstraints,
@@ -27,7 +28,7 @@ from .clickhouse_variant_records import (
     StructuralVariantRecord,
 )
 from .clickhouse_interval_tracks import fetch_interval_track_rows
-from .clickhouse_variant_queries import _parent_child_links
+from .clickhouse_variant_queries import _parent_child_links, _select_primary_annotation
 from .coverage_read_depth import (
     COVERAGE_TRACK_TYPE,
     SampleCoverageTracks,
@@ -162,8 +163,13 @@ def _nested(metadata: dict[str, Any], *paths: tuple[str, ...]) -> Any:
     return None
 
 
-def _first_annotation(record: SmallVariantRecord) -> dict[str, Any]:
-    return next((annotation for annotation in record.annotations if isinstance(annotation, dict)), {})
+def _primary_annotation(record: SmallVariantRecord) -> dict[str, Any]:
+    """The annotation the variant is shown and classified by, picked as every small-variant
+    view picks it (``_select_primary_annotation``: MANE Select, canonical, then the most
+    severe impact), so the mtDNA card, its ACMG dialog and the frozen evidence agree. Before,
+    the first entry: where genes overlap, often the other gene's, or a neighbour's
+    upstream/downstream one."""
+    return _select_primary_annotation([a for a in record.annotations if isinstance(a, dict)])
 
 
 def _annotation_value(annotation: dict[str, Any], *keys: str) -> Any:
@@ -194,11 +200,21 @@ def _mitomap_url(record: SmallVariantRecord) -> str:
     return f"{MITOMAP_ALLELE_SEARCH_URL}?variant={quote(query, safe='')}"
 
 
-def _position_locus(position: int) -> dict[str, Any]:
-    for locus in MT_LOCI:
-        if int(locus["start"]) <= position <= int(locus["end"]):
-            return locus
-    return {"gene": None, "region": "intergenic", "category": "intergenic"}
+_INTERGENIC: dict[str, Any] = {"gene": None, "region": "intergenic", "category": "intergenic"}
+
+
+def _position_loci(position: int) -> list[dict[str, Any]]:
+    """Every locus the position lies in: two where genes overlap (MT-ATP8/MT-ATP6 at
+    8527–8572, MT-ND4L/MT-ND4 at 10760–10766)."""
+    return [locus for locus in MT_LOCI if int(locus["start"]) <= position <= int(locus["end"])]
+
+
+def _position_locus(position: int, gene: str | None = None) -> dict[str, Any]:
+    """The locus of the position: the one of ``gene`` (the annotation's) where the position
+    lies in two, else the first; intergenic in none."""
+    loci = _position_loci(position)
+    named = [locus for locus in loci if gene and str(locus.get("gene") or "").upper() == gene.upper()]
+    return (named or loci or [_INTERGENIC])[0]
 
 
 def _clinical_significance(annotation: dict[str, Any]) -> str:
@@ -286,20 +302,12 @@ def _annotation_source_keys(annotation: dict[str, Any]) -> list[str]:
     )
 
 
-def _annotation_for_record(record: SmallVariantRecord) -> MitoDNAVariantAnnotationOut:
-    annotation = _first_annotation(record)
-    locus = _position_locus(record.start)
-    gene = _text(
-        _annotation_value(
-            annotation,
-            "gene",
-            "gene_symbol",
-            "symbol",
-            "Gene",
-            "SYMBOL",
-        )
-    ) or _text(locus.get("gene"))
-    consequence = _text(
+def _annotation_gene(annotation: dict[str, Any]) -> str | None:
+    return _text(_annotation_value(annotation, "gene", "gene_symbol", "symbol", "Gene", "SYMBOL"))
+
+
+def _consequence_text(annotation: dict[str, Any]) -> str | None:
+    return _text(
         _annotation_value(
             annotation,
             "consequence",
@@ -314,6 +322,50 @@ def _annotation_for_record(record: SmallVariantRecord) -> MitoDNAVariantAnnotati
             "hgvsc",
         )
     )
+
+
+def _gene_key(gene: Any) -> str:
+    """A gene compared by name, with or without its ``MT-`` prefix (VEP writes ``MT-ATP6``,
+    mtDNA-Server ``ATP6``)."""
+    name = str(gene or "").strip().upper()
+    return name[3:] if name.startswith("MT-") else name
+
+
+def _gene_consequences(record: SmallVariantRecord) -> list[MitoGeneConsequenceOut]:
+    """Each gene's consequence where the variant lies in two overlapping genes: the most
+    severe annotation of each gene (as the primary one is picked). Before, only the first
+    annotation was read, and the other gene's consequence was not shown."""
+    loci = _position_loci(record.start)
+    if len(loci) < 2:
+        return []
+    annotations = [annotation for annotation in record.annotations if isinstance(annotation, dict)]
+    consequences: list[MitoGeneConsequenceOut] = []
+    for locus in loci:
+        gene = _text(locus.get("gene"))
+        if not gene:
+            continue
+        own = [annotation for annotation in annotations if _gene_key(_annotation_gene(annotation)) == _gene_key(gene)]
+        consequences.append(
+            MitoGeneConsequenceOut(
+                gene=gene,
+                consequence=_consequence_text(_select_primary_annotation(own)) if own else None,
+                category=_text(locus.get("category")),
+            )
+        )
+    return consequences
+
+
+def _population(annotation: dict[str, Any], key: str) -> float | None:
+    frequencies = annotation.get("population_frequencies")
+    return _float(frequencies.get(key)) if isinstance(frequencies, dict) else None
+
+
+def _annotation_for_record(record: SmallVariantRecord) -> MitoDNAVariantAnnotationOut:
+    annotation = _primary_annotation(record)
+    annotated_gene = _annotation_gene(annotation)
+    locus = _position_locus(record.start, annotated_gene)
+    gene = annotated_gene or _text(locus.get("gene"))
+    consequence = _consequence_text(annotation)
     consequence_terms = _consequence_terms(annotation)
     gnomad_af = _float(
         _annotation_value(
@@ -339,6 +391,12 @@ def _annotation_for_record(record: SmallVariantRecord) -> MitoDNAVariantAnnotati
         consequence=consequence,
         consequence_terms=consequence_terms,
         gnomad_af=gnomad_af,
+        gnomad_mt_af_hom=_population(annotation, "gnomad_mt_af_hom"),
+        gnomad_mt_af_het=_population(annotation, "gnomad_mt_af_het"),
+        gnomad_mt_max_hl=_float(_annotation_value(annotation, "gnomad_mt_max_hl")),
+        helix_af_hom=_float(_annotation_value(annotation, "helix_af")),
+        helix_af_het=_float(_annotation_value(annotation, "helix_af_het")),
+        gene_consequences=_gene_consequences(record),
         category=_text(locus.get("category")),
         clinical_significance=_clinical_significance(annotation),  # type: ignore[arg-type]
         disorders=disorders,

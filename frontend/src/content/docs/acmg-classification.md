@@ -116,17 +116,17 @@ otherwise the first affected member.
 
 | Criterion | State | Rule |
 | --- | --- | --- |
-| **PVS1** | Applied or Consider | Predicted null: stop gained, frameshift, canonical splice acceptor or donor, start lost, transcript ablation. Applied only when ClinGen scores the gene's haploinsufficiency as *Sufficient evidence*: Very strong with a LOFTEE high-confidence call, Strong without. Otherwise offered as Consider. |
+| **PVS1** | Applied or Consider | Predicted null: stop gained, frameshift, canonical splice acceptor or donor, start lost, transcript ablation. Applied only when ClinGen scores the gene's haploinsufficiency as *Sufficient evidence*: Very strong with a LOFTEE high-confidence call, Strong without. Offered as Consider (Strong) when LOFTEE flags the call (for example `SINGLE_EXON`, `NAGNAG_SITE`) or VEP's NMD plugin predicts it escapes nonsense-mediated decay; the evidence says which. Otherwise offered as Consider. |
 | **PM2** | Applied or Consider (Supporting) | Applied: gnomAD allele frequency below 0.01%. Consider: no gnomAD frequency in the annotation (see *Frequency* below). |
-| **BA1** | Applied (Stand-alone) | gnomAD allele frequency 5% or more. |
-| **BS1** | Applied (Strong) | gnomAD allele frequency from 1% up to 5%. |
+| **BA1** | Applied (Stand-alone) | gnomAD FAF95 (else allele frequency) 5% or more. |
+| **BS1** | Applied (Strong) | gnomAD FAF95 (else allele frequency) from 1% up to 5%. |
 | **BS2** | Applied (Strong) or Consider | Homozygotes in gnomAD. Applied when GenCC lists a recessive inheritance mode for the gene, otherwise Consider (Supporting). Not marked when the annotation holds no gnomAD homozygote count: check gnomAD. |
 | **PM4** | Consider (Moderate) | In-frame insertion or deletion, stop lost, or another protein-length change. Check that it lies outside a repeat region. |
 | **PP2** | Consider (Supporting) | Missense, in a gene with a gnomAD missense Z of 3.09 or more. See *Missense constraint (PP2)* below. |
 | **PP3 / BP4** | Applied, strength scaled | See *In-silico evidence* below. |
 | **BP7** | Applied or Consider (Supporting) | Synonymous. Applied with SpliceAI below 0.1; Consider with no SpliceAI score: check the splice effect. A higher SpliceAI score marks BP7 as argues against. |
-| **PP5** | Applied (Supporting) | ClinVar lists this variant as pathogenic or likely pathogenic. BP6 is then marked argues against. |
-| **BP6** | Applied (Supporting) | ClinVar lists this variant as benign or likely benign. PP5 is then marked argues against. |
+| **PP5** | Consider (Supporting) | ClinVar lists this variant as pathogenic or likely pathogenic. Never applied: ClinGen's SVI advises against counting another lab's assertion. The evidence gives ClinVar's review status, its stars and the conditions. BP6 is then marked argues against. |
+| **BP6** | Consider (Supporting) | ClinVar lists this variant as benign or likely benign, as for PP5. PP5 is then marked argues against. |
 | **PP4** | Applied (Supporting or Moderate) | See *Phenotype (PP4)* below. |
 | **PM6** | Applied or Consider (Moderate) | Present in the proband and absent in both parents (assumed de novo). See *De novo (PM6)* below. |
 | **PP1** | Consider (Supporting) | Carried by 2 or more affected family members. |
@@ -137,9 +137,11 @@ so it pre-applies neither PP5 nor BP6. The variant marks and the ranking read Cl
 
 ### Frequency (PM2, BS1, BA1)
 
-The frequency criteria read the overall gnomAD allele frequency from the annotated VCF. When the VCF
-carries only the exome and genome frequencies, CoGA uses the higher of the two. The highest
-sub-population frequency (popmax) is not used.
+PM2 reads the overall gnomAD allele frequency from the annotated VCF. When the VCF carries only the
+exome and genome frequencies, CoGA uses the higher of the two. BA1 and BS1 read gnomAD's filtering
+allele frequency (FAF95, the highest over its genetic ancestry groups), as ClinGen's SVI advises, where
+the annotation has it, else the same allele frequency. The table names the frequency each criterion reads.
+The highest sub-population frequency (popmax) is not used.
 
 A variant with two ALT alleles (ALT `G,T`) is one record: the dialog then names the ALT whose
 annotation the pre-evaluation reads (the one the card shows).
@@ -279,8 +281,8 @@ only the pre-evaluation differs.
 | Criterion | mtDNA rule |
 | --- | --- |
 | **PVS1** | Very strong for a predicted-null change in a protein-coding mt gene. Not applicable at tRNA, rRNA and control-region loci. Consider when the locus type is unknown. |
-| **PM2 / BS1 / BA1** | gnomAD mtDNA thresholds: BA1 0.5% or more (stand-alone), BS1 0.02% or more, PM2 below 0.002%. With no gnomAD frequency in the annotation, PM2 is Consider and BA1 / BS1 stay open: check gnomAD-MT. A MITOMAP polymorphism or haplogroup marker goes to BS1. |
-| **PP5 / BP6** | From the MITOMAP or ClinVar status: pathogenic → PP5; benign or polymorphism → BP6. A conflicting ClinVar record reads as uncertain: neither. |
+| **PM2 / BS1 / BA1** | mtDNA thresholds: BA1 0.5% or more (stand-alone), BS1 0.02% or more, PM2 below 0.002%. With gnomAD-MT or HelixMTdb annotated, BA1 and BS1 read the highest homoplasmic frequency, and PM2 is applied only when the heteroplasmic frequency is below 0.002% too (else Consider). Without them, the annotation's gnomAD frequency; with none at all, PM2 is Consider and BA1 / BS1 stay open. A MITOMAP polymorphism or haplogroup marker goes to BS1. |
+| **PP5 / BP6** | From the MITOMAP or ClinVar status: pathogenic → PP5; benign or polymorphism → BP6, both offered as Consider, never applied. A conflicting ClinVar record reads as uncertain: neither. |
 | **PP3 / BP4** | Not applicable: the mtDNA predictors (MitoTIP, APOGEE, HmtVar) are not loaded. Assess by hand. |
 | **PM1** | Consider (Moderate) at tRNA loci. |
 | **PS2 / PM6** | Not applicable: maternally inherited. |

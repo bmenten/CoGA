@@ -37,7 +37,13 @@ export type AcmgVariantInput = Partial<
     | 'gene'
     | 'impact'
     | 'clinvar'
+    | 'clinvar_review_status'
+    | 'clinvar_stars'
+    | 'clinvar_conditions'
     | 'lof'
+    | 'lof_flags'
+    | 'nmd'
+    | 'population_frequencies'
     | 'gnomad_af'
     | 'gnomad_hom_count'
     | 'gene_missense_z'
@@ -231,12 +237,22 @@ export function evaluateAcmg(
     const hc = variant.lof === 'HC';
     const haplo = (gene?.clingenDosageHaploinsufficiency ?? '').toLowerCase();
     const lofMechanism = haplo.includes('sufficient evidence');
+    const caution = pvs1Caution(variant);
     if (gene?.unavailable) {
       // Not "unconfirmed": whether the gene has a LOF mechanism was never looked up (#609).
       add(
         'PVS1',
         'strong',
         `${effect} predicted null${hc ? ' (LOFTEE high-confidence)' : ''}; the gene profile could not be loaded, so its LOF mechanism (ClinGen haploinsufficiency) is not assessed — review before applying.`,
+        'consider',
+      );
+    } else if (lofMechanism && caution) {
+      // A LOFTEE flag or a predicted escape from nonsense-mediated decay: the null effect is
+      // in doubt, so PVS1 is offered, not applied (the owner's choice of 2026-11-06).
+      add(
+        'PVS1',
+        'strong',
+        `${effect} predicted null${hc ? ' (LOFTEE high-confidence)' : ''}, but ${caution}; ClinGen haploinsufficiency: ${gene?.clingenDosageHaploinsufficiency} — review before applying.`,
         'consider',
       );
     } else if (lofMechanism) {
@@ -267,38 +283,49 @@ export function evaluateAcmg(
   }
 
   // ---- Frequency: BA1 / BS1 / PM2 — only the matching band applies, the rest
-  //      are ruled out by the observed allele frequency (marked not applicable). ----
-  if (af != null) {
-    if (af >= BA1_AF) {
-      add('BA1', 'stand_alone', `gnomAD allele frequency ${fmtAf(af)} ≥ 5% — stand-alone benign.`);
-      notApplicable('PM2', `Not rare: gnomAD allele frequency ${fmtAf(af)}.`);
-      notApplicable('BS1', `Subsumed by BA1 at gnomAD allele frequency ${fmtAf(af)}.`);
-    } else if (af >= BS1_AF) {
-      add('BS1', 'strong', `gnomAD allele frequency ${fmtAf(af)} is higher than expected for a Mendelian disorder.`);
-      notApplicable('BA1', `gnomAD allele frequency ${fmtAf(af)} is below 5%.`);
-      notApplicable('PM2', `Not rare: gnomAD allele frequency ${fmtAf(af)}.`);
-    } else if (af < PM2_AF) {
+  //      are ruled out by the observed frequency (marked not applicable). BA1 and BS1 read
+  //      gnomAD's filtering allele frequency (FAF95, the highest over its genetic ancestry
+  //      groups) where it is annotated, else the allele frequency; PM2 reads the allele
+  //      frequency (the owner's choice of 2026-11-06). ----
+  const faf = variant.population_frequencies?.gnomad_faf95_af;
+  const benignAf = typeof faf === 'number' && Number.isFinite(faf) ? faf : af;
+  const benignLabel =
+    typeof faf === 'number' && Number.isFinite(faf) ? 'gnomAD filtering allele frequency (FAF95)' : 'gnomAD allele frequency';
+  if (benignAf != null && benignAf >= BA1_AF) {
+    add('BA1', 'stand_alone', `${benignLabel} ${fmtAf(benignAf)} ≥ 5% — stand-alone benign.`);
+    notApplicable('PM2', `Not rare: ${benignLabel} ${fmtAf(benignAf)}.`);
+    notApplicable('BS1', `Subsumed by BA1 at ${benignLabel} ${fmtAf(benignAf)}.`);
+  } else if (benignAf != null && benignAf >= BS1_AF) {
+    add('BS1', 'strong', `${benignLabel} ${fmtAf(benignAf)} is higher than expected for a Mendelian disorder.`);
+    notApplicable('BA1', `${benignLabel} ${fmtAf(benignAf)} is below 5%.`);
+    notApplicable('PM2', `Not rare: ${benignLabel} ${fmtAf(benignAf)}.`);
+  } else if (af != null) {
+    if (af < PM2_AF) {
       add('PM2', 'supporting', `gnomAD allele frequency ${fmtAf(af)} is very rare.`);
-      notApplicable('BA1', `Rare: gnomAD allele frequency ${fmtAf(af)} (< 5%).`);
-      notApplicable('BS1', `Rare: gnomAD allele frequency ${fmtAf(af)}.`);
+      notApplicable('BA1', `Rare: ${benignLabel} ${fmtAf(benignAf ?? af)} (< 5%).`);
+      notApplicable('BS1', `Rare: ${benignLabel} ${fmtAf(benignAf ?? af)}.`);
     } else {
       // Borderline band — none of the frequency criteria apply.
       notApplicable('PM2', `gnomAD allele frequency ${fmtAf(af)} is not rare enough for PM2.`);
-      notApplicable('BA1', `gnomAD allele frequency ${fmtAf(af)} is below 5%.`);
-      notApplicable('BS1', `gnomAD allele frequency ${fmtAf(af)} is below the BS1 threshold.`);
+      notApplicable('BA1', `${benignLabel} ${fmtAf(benignAf ?? af)} is below 5%.`);
+      notApplicable('BS1', `${benignLabel} ${fmtAf(benignAf ?? af)} is below the BS1 threshold.`);
     }
   } else {
     // No gnomAD frequency in the annotation: the variant is absent from gnomAD, or gnomAD was
     // not annotated for it (a source the pipeline did not load, a VEP cache without the
     // variant). The annotation does not say which, so PM2 is offered for review, never
-    // applied, and BA1 / BS1 are left open: it applied PM2 as "Absent from gnomAD." and ruled
-    // out BA1 and BS1 for a frequency nothing had looked up.
+    // applied, and BA1 / BS1 are left open (unless a FAF95 rules them out): it applied PM2
+    // as "Absent from gnomAD." and ruled out BA1 and BS1 for a frequency nothing had looked up.
     add(
       'PM2',
       'supporting',
       'No gnomAD allele frequency in the annotation: absent from gnomAD, or gnomAD not annotated for this variant — check gnomAD before applying.',
       'consider',
     );
+    if (benignAf != null) {
+      notApplicable('BA1', `${benignLabel} ${fmtAf(benignAf)} is below 5%.`);
+      notApplicable('BS1', `${benignLabel} ${fmtAf(benignAf)} is below the BS1 threshold.`);
+    }
   }
 
   // ---- BS2: observed homozygous in population; ruled out when gnomAD counts none. An
@@ -362,13 +389,17 @@ export function evaluateAcmg(
 
   // ---- PP5 / BP6: ClinVar reputable-source assertion ----
   // A conflicting record ("Conflicting classifications of pathogenicity") is neither
-  // pathogenic nor benign, so it suggests neither criterion (lib/clinvar).
+  // pathogenic nor benign, so it suggests neither criterion (lib/clinvar). Offered for review,
+  // never applied: ClinGen's SVI advises against counting another lab's assertion as evidence
+  // (the owner's choice of 2026-11-06). The evidence names the review status (its stars) and
+  // the conditions ClinVar gives.
   const clinvar = clinvarClass(variant.clinvar);
+  const clinvarReport = describeClinvar(variant);
   if (clinvar === 'pathogenic') {
-    add('PP5', 'supporting', `ClinVar reports ${variant.clinvar}.`);
+    add('PP5', 'supporting', `${clinvarReport} — review before applying.`, 'consider');
     against('BP6', `ClinVar reports ${variant.clinvar}, not benign.`);
   } else if (clinvar === 'benign') {
-    add('BP6', 'supporting', `ClinVar reports ${variant.clinvar}.`);
+    add('BP6', 'supporting', `${clinvarReport} — review before applying.`, 'consider');
     against('PP5', `ClinVar reports ${variant.clinvar}, not pathogenic.`);
   }
 
@@ -621,6 +652,32 @@ function pp4Suggestion(
     ];
   }
   return [];
+}
+
+// What casts doubt on a predicted null effect, for PVS1: LOFTEE's flags (SINGLE_EXON,
+// NAGNAG_SITE, PHYLOCSF_WEAK …) and VEP's NMD plugin predicting an escape from
+// nonsense-mediated decay. Null when neither.
+export function pvs1Caution(variant: Pick<AcmgVariantInput, 'lof_flags' | 'nmd'>): string | null {
+  const reasons: string[] = [];
+  const flags = (variant.lof_flags ?? '').trim();
+  if (flags) reasons.push(`LOFTEE flags it (${flags.replace(/&/g, ', ')})`);
+  if ((variant.nmd ?? '').toLowerCase().includes('escap')) reasons.push('it is predicted to escape nonsense-mediated decay');
+  return reasons.length ? reasons.join(' and ') : null;
+}
+
+// ClinVar's assertion as the PP5 / BP6 evidence says it: the classification, the review
+// status with its stars, and the conditions.
+export function describeClinvar(
+  variant: Pick<AcmgVariantInput, 'clinvar' | 'clinvar_review_status' | 'clinvar_stars' | 'clinvar_conditions'>,
+): string {
+  const stars = variant.clinvar_stars;
+  const status = variant.clinvar_review_status
+    ? `${typeof stars === 'number' ? `${stars} star${stars === 1 ? '' : 's'}, ` : ''}${variant.clinvar_review_status}`
+    : null;
+  const conditions = (variant.clinvar_conditions ?? []).filter(Boolean);
+  return `ClinVar reports ${variant.clinvar}${status ? ` (${status})` : ''}${
+    conditions.length ? ` for ${conditions.slice(0, 3).join('; ')}${conditions.length > 3 ? ' …' : ''}` : ''
+  }`;
 }
 
 // In-silico evidence: a positive PP3/BP4 suggestion plus an explicit

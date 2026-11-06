@@ -244,6 +244,7 @@ def test_the_snapshot_freezes_the_primary_transcripts_frequencies_and_in_silico_
         "gnomad_genomes_af": 3.1e-05,
         "gnomad_popmax_af": 0.0002,
         "max_af": None,
+        "gnomad_faf95_af": None,
         "topmed_af": 2e-05,
         "gnomad_ac": 4,
         "gnomad_hom_count": 0,
@@ -550,12 +551,24 @@ def test_the_snapshot_freezes_the_primary_transcripts_consequence_and_the_genes_
 
     # The MANE Select transcript's consequence, not the more severe other transcript's.
     snap = _freeze(_annotated("123", _OTHER, _MANE), gene_missense_z=3.52)
-    assert snap["consequence"] == {"effect": "missense_variant", "impact": "MODERATE", "lof": None}
+    assert snap["consequence"] == {
+        "effect": "missense_variant",
+        "impact": "MODERATE",
+        "lof": None,
+        "lof_flags": None,
+        "nmd": None,
+    }
     assert snap["gene_constraint"] == {"gene_missense_z": 3.52, "gene_missense_z_source": "gene_profile"}
     # A stop gained is no missense variant: PP2 does not read its gene's missense Z, so none
     # is frozen, whatever the gene's profile holds.
     lof = _freeze(_annotated("123", _csq(transcript="ENST00000000002"), _LOF), gene_missense_z=3.52)
-    assert lof["consequence"] == {"effect": "stop_gained", "impact": "HIGH", "lof": "HC"}
+    assert lof["consequence"] == {
+        "effect": "stop_gained",
+        "impact": "HIGH",
+        "lof": "HC",
+        "lof_flags": None,
+        "nmd": None,
+    }
     assert "gene_constraint" not in lof
     # A missense variant's missense Z is frozen also without a value, and then without a source.
     assert _freeze(_annotated("123", _MANE))["gene_constraint"] == {
@@ -571,7 +584,13 @@ def test_the_frozen_consequence_is_the_one_the_acmg_dialog_is_given() -> None:
     for transcripts in (_annotations(_OTHER, _MANE), _annotations(_csq(transcript="ENST00000000002"), _LOF)):
         served = _served(transcripts)
         snap = _freeze(types.SimpleNamespace(annotation_version="v1", annotation_set_hash="1", annotations=transcripts))
-        assert snap["consequence"] == {"effect": served.effect, "impact": served.impact, "lof": served.lof}
+        assert snap["consequence"] == {
+            "effect": served.effect,
+            "impact": served.impact,
+            "lof": served.lof,
+            "lof_flags": served.lof_flags,
+            "nmd": served.nmd,
+        }
     assert served.lof == "HC"
 
 
@@ -1071,3 +1090,39 @@ def test_a_multi_allelic_records_snapshot_names_the_alt_its_values_are_of() -> N
     older = _stored(snap)
     del older["consequence"]["alt_allele"]
     assert "alt_allele" not in cds._diff(older, _now(moved))["changed"]
+
+
+def test_the_snapshot_freezes_what_the_new_criteria_read() -> None:
+    # PVS1 reads LOFTEE's flags and the NMD prediction, BA1 / BS1 gnomAD's FAF95, PP5 / BP6 name
+    # ClinVar's review status; a chrM variant's mtDNA criteria its homoplasmic and
+    # heteroplasmic frequencies, frozen for a chrM variant only.
+    annotation = {
+        "gene": "GENE1",
+        "transcript_id": "ENST1",
+        "effect": "stop_gained",
+        "lof": "HC",
+        "lof_flags": "SINGLE_EXON",
+        "nmd": "NMD_escaping_variant",
+        "clinvar": "Pathogenic",
+        "clinvar_review_status": "reviewed by expert panel",
+        "population_frequencies": {"gnomad_faf95_af": 0.0004, "gnomad_mt_af_hom": 0.001, "gnomad_mt_af_het": 0.0002},
+        "helix_af": "0.0005",
+    }
+    nuclear = types.SimpleNamespace(
+        annotation_version="v1", annotation_set_hash="1", annotations=[annotation], chr="1", alt="T"
+    )
+    snap = _freeze(nuclear)
+    assert (snap["consequence"]["lof_flags"], snap["consequence"]["nmd"]) == ("SINGLE_EXON", "NMD_escaping_variant")
+    assert snap["frequencies"]["gnomad_faf95_af"] == 0.0004
+    assert snap["clinvar_review_status"] == "reviewed by expert panel"
+    assert "gnomad_mt_af_hom" not in snap["frequencies"]
+    mito = types.SimpleNamespace(
+        annotation_version="v1", annotation_set_hash="1", annotations=[annotation], chr="MT", alt="G"
+    )
+    frozen = _freeze(mito)["frequencies"]
+    assert (frozen["gnomad_mt_af_hom"], frozen["gnomad_mt_af_het"], frozen["helix_af_hom"], frozen["helix_af_het"]) == (
+        0.001,
+        0.0002,
+        0.0005,
+        None,
+    )

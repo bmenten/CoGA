@@ -75,6 +75,7 @@ from .variant_prioritization import (
     MODE_HOM_RECESSIVE,
     MODE_X_LINKED,
 )
+from .clinvar_review_status import clinvar_conditions, clinvar_stars
 from .clickhouse_variant_records import (
     CLINVAR_FREQUENCY_RESCUE_TERMS,
     Region,
@@ -1669,6 +1670,10 @@ def _small_variant_out(
         impact=_annotation_text(annotation, "impact"),
         effect=_annotation_effect(annotation),
         clinvar=_annotation_clinvar(annotation),
+        clinvar_review_status=_annotation_text(annotation, "clinvar_review_status"),
+        clinvar_stars=clinvar_stars(_annotation_text(annotation, "clinvar_review_status")),
+        clinvar_conditions=clinvar_conditions(_annotation_text(annotation, "clinvar_conditions")),
+        clinvar_variation_id=_annotation_text(annotation, "clinvar_variation_id"),
         rsid=record.rsid or _annotation_text(annotation, "rsid"),
         transcript_id=_annotation_text(annotation, "transcript_id", "transcriptId"),
         alt_allele=_annotation_text(annotation, "alt_allele"),
@@ -1684,6 +1689,7 @@ def _small_variant_out(
         lof=_annotation_text(annotation, "lof"),
         lof_filter=_annotation_text(annotation, "lof_filter", "lofFilter"),
         lof_flags=_annotation_text(annotation, "lof_flags", "lofFlags"),
+        nmd=_annotation_text(annotation, "nmd"),
         gnomad_af=_annotation_float(annotation, "gnomad_af", "gnomadAf"),
         gnomad_hom_count=_annotation_int(annotation, "gnomad_hom_count", "gnomadHomCount"),
         population_frequencies=population_frequencies,
@@ -1697,6 +1703,10 @@ def _small_variant_out(
         spliceai_ds_dg=_spliceai_delta(_annotation_float(annotation, "spliceai_ds_dg", "spliceaiDsDg")),
         spliceai_ds_dl=_spliceai_delta(_annotation_float(annotation, "spliceai_ds_dl", "spliceaiDsDl")),
         spliceai_max=_annotation_spliceai_max(annotation),
+        spliceai_dp_ag=_annotation_int(annotation, "spliceai_dp_ag"),
+        spliceai_dp_al=_annotation_int(annotation, "spliceai_dp_al"),
+        spliceai_dp_dg=_annotation_int(annotation, "spliceai_dp_dg"),
+        spliceai_dp_dl=_annotation_int(annotation, "spliceai_dp_dl"),
         alpha_missense_pathogenicity=_annotation_float(
             annotation, "alpha_missense_pathogenicity", "alphaMissensePathogenicity"
         ),
