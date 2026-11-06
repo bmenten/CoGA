@@ -442,8 +442,8 @@ async def logout(
         # The token this logout was made with is refused too (end_account_sessions).
         token_issued_at=getattr(request.state, "token_issued_at", None),
     )
-    # Who signed out, and when, is the request audit row of this request.
-    logger.info("account %s signed out: every token issued to it before now is refused", user.id)
+    # The log names no account: who signed out, and when, is this request's audit row.
+    logger.info("an account signed out: every token issued to it before now is refused")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
