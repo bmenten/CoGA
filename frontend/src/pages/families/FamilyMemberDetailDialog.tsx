@@ -30,6 +30,18 @@ import {
 import { apiPath } from '../../lib/apiPath';
 import QueryFailure from '../../components/QueryFailure';
 
+/** A phenotype of the member being changed: its status and note as the analyst edits them. */
+interface HpoAnnotationEdit {
+  id: string;
+  hpoId: string;
+  label: string;
+  status: HpoAnnotationStatus;
+  note: string;
+  // What it held when the edit began, to tell whether anything changed.
+  savedStatus: HpoAnnotationStatus;
+  savedNote: string;
+}
+
 interface FamilyMemberDetailDialogProps {
   familyId?: string;
   family: ApiFamilyRecord;
@@ -77,6 +89,7 @@ const FamilyMemberDetailDialog: React.FC<FamilyMemberDetailDialogProps> = ({
   const [hpoAnnotationStatus, setHpoAnnotationStatus] = useState<HpoAnnotationStatus>('present');
   const [hpoNote, setHpoNote] = useState('');
   const [hpoBusy, setHpoBusy] = useState(false);
+  const [hpoEdit, setHpoEdit] = useState<HpoAnnotationEdit | null>(null);
   const [hpoStatus, setHpoStatus] = useState<{ tone: 'success' | 'error'; message: string } | null>(null);
   const hpoSearchQuery = hpoSearchInput.trim();
   const { data: hpoSearchResults = [] } = useQuery<ApiHpoTerm[]>({
@@ -139,8 +152,12 @@ const FamilyMemberDetailDialog: React.FC<FamilyMemberDetailDialogProps> = ({
   // Whether closing the member dialog would lose input: edits not yet applied to the
   // pending updates, or a phenotype being entered. Applied edits stay pending, so they
   // do not count.
+  const hpoEditChanged = (edit: HpoAnnotationEdit | null): boolean =>
+    Boolean(edit && (edit.status !== edit.savedStatus || edit.note.trim() !== edit.savedNote));
+
   const memberDetailHasUnsavedInput = () => {
     if (hpoSearchInput.trim() || hpoNote.trim()) return true;
+    if (hpoEditChanged(hpoEdit)) return true;
     if (!selectedMemberDetail || !memberDraft) return false;
     const applied =
       pendingDraft ?? memberDetailDraftFromDetail(selectedMemberDetail);
@@ -155,6 +172,7 @@ const FamilyMemberDetailDialog: React.FC<FamilyMemberDetailDialogProps> = ({
     setHpoSearchInput('');
     setSelectedHpoTerm(null);
     setHpoNote('');
+    setHpoEdit(null);
   };
 
   const applyMemberDetail = () => {
@@ -246,12 +264,56 @@ const FamilyMemberDetailDialog: React.FC<FamilyMemberDetailDialogProps> = ({
     }
   };
 
+  const startHpoEdit = (annotation: ApiFamilyMemberDetail['hpo_annotations'][number]) => {
+    const status = HPO_STATUS_OPTIONS.includes(annotation.status as HpoAnnotationStatus)
+      ? (annotation.status as HpoAnnotationStatus)
+      : 'present';
+    const note = annotation.note ?? '';
+    setHpoStatus(null);
+    setHpoEdit({
+      id: annotation.id,
+      hpoId: annotation.hpo_id,
+      label: annotation.label,
+      status,
+      note,
+      savedStatus: status,
+      savedNote: note,
+    });
+  };
+
+  // Change a phenotype's status or note (PROD-8): the term stays; the change is an event on
+  // the family's clinical audit trail, as an addition or a removal is.
+  const saveHpoEdit = async () => {
+    if (!familyId || !hpoEdit || !hpoEditChanged(hpoEdit)) return;
+    setHpoBusy(true);
+    setHpoStatus(null);
+    try {
+      await api.put(apiPath`/families/${familyId}/hpo/${hpoEdit.id}`, {
+        status: hpoEdit.status,
+        note: hpoEdit.note.trim() || null,
+      });
+      await queryClient.invalidateQueries({ queryKey: ['family', familyId, 'hpo'] });
+      await queryClient.invalidateQueries({ queryKey: ['family', familyId, 'member'] });
+      await queryClient.invalidateQueries({ queryKey: ['family', familyId, 'clinical-audit'] });
+      setHpoEdit(null);
+      setHpoStatus({ tone: 'success', message: 'Phenotype annotation updated.' });
+    } catch (error) {
+      setHpoStatus({
+        tone: 'error',
+        message: getErrorMessage(error, 'Failed to update phenotype annotation.'),
+      });
+    } finally {
+      setHpoBusy(false);
+    }
+  };
+
   const removeHpoAnnotation = async (annotationId: string) => {
     if (!familyId) return;
     setHpoBusy(true);
     setHpoStatus(null);
     try {
       await api.delete(apiPath`/families/${familyId}/hpo/${annotationId}`);
+      if (hpoEdit?.id === annotationId) setHpoEdit(null);
       await queryClient.invalidateQueries({ queryKey: ['family', familyId, 'hpo'] });
       await queryClient.invalidateQueries({ queryKey: ['family', familyId, 'member'] });
       await queryClient.invalidateQueries({ queryKey: ['family', familyId, 'clinical-audit'] });
@@ -493,14 +555,25 @@ const FamilyMemberDetailDialog: React.FC<FamilyMemberDetailDialogProps> = ({
                           <strong>{annotation.label}</strong>
                           <em>{annotation.status}</em>
                           {canEditPhenotypes && (
-                            <button
-                              type="button"
-                              className="button-ghost"
-                              onClick={() => removeHpoAnnotation(annotation.id)}
-                              disabled={hpoBusy}
-                            >
-                              Remove
-                            </button>
+                            <>
+                              <button
+                                type="button"
+                                className="button-ghost"
+                                onClick={() => startHpoEdit(annotation)}
+                                disabled={hpoBusy}
+                                aria-pressed={hpoEdit?.id === annotation.id}
+                              >
+                                Edit
+                              </button>
+                              <button
+                                type="button"
+                                className="button-ghost"
+                                onClick={() => removeHpoAnnotation(annotation.id)}
+                                disabled={hpoBusy}
+                              >
+                                Remove
+                              </button>
+                            </>
                           )}
                         </span>
                       ))}
@@ -509,6 +582,60 @@ const FamilyMemberDetailDialog: React.FC<FamilyMemberDetailDialogProps> = ({
                     <p className="dashboard-link-note">No HPO phenotypes linked.</p>
                   )}
 
+                  {canEditPhenotypes && hpoEdit && (
+                    <fieldset className="family-hpo-edit">
+                      <legend>
+                        Edit {hpoEdit.hpoId} {hpoEdit.label}
+                      </legend>
+                      <div className="family-hpo-controls">
+                        <label className="field-label">
+                          Status
+                          <select
+                            value={hpoEdit.status}
+                            onChange={(event) => {
+                              const status = event.target.value as HpoAnnotationStatus;
+                              setHpoEdit((edit) => (edit ? { ...edit, status } : edit));
+                            }}
+                            disabled={hpoBusy}
+                          >
+                            {HPO_STATUS_OPTIONS.map((status) => (
+                              <option key={status} value={status}>
+                                {status}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="field-label family-hpo-note-field">
+                          Note
+                          <input
+                            type="text"
+                            value={hpoEdit.note}
+                            onChange={(event) => {
+                              const note = event.target.value;
+                              setHpoEdit((edit) => (edit ? { ...edit, note } : edit));
+                            }}
+                            disabled={hpoBusy}
+                          />
+                        </label>
+                        <button
+                          type="button"
+                          className="form-button"
+                          onClick={saveHpoEdit}
+                          disabled={hpoBusy || !hpoEditChanged(hpoEdit)}
+                        >
+                          Save change
+                        </button>
+                        <button
+                          type="button"
+                          className="button-secondary"
+                          onClick={() => setHpoEdit(null)}
+                          disabled={hpoBusy}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </fieldset>
+                  )}
                   {canEditPhenotypes && (
                     <>
                       <div className="family-hpo-controls">

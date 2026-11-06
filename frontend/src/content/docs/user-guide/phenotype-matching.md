@@ -8,7 +8,8 @@ superuser or an administrator adds them:
 
 1. Click the person's sample name on the family page.
 2. Under **HPO Phenotypes**, search a term and choose *present*, *absent* or *unknown*.
-3. Press **Add phenotype**. **Remove** takes a term off.
+3. Press **Add phenotype**. **Edit** changes a term's status or note: choose the new ones and press
+   **Save change**. **Remove** takes a term off; to use another term, remove it and add that one.
 
 Only *present* terms are used for matching. Each term added, changed or removed is an entry on the
 family's **Clinical audit trail**. A package import can bring terms in too: what it adds or changes is
