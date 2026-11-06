@@ -1365,11 +1365,100 @@ describe('FamilyDetailPage', () => {
     updated_at: '2026-01-01T00:00:00Z',
   };
 
+  // PROD-8: a phenotype's status and note are changed in place; the term stays.
+  const editSeizure = async (dialog: HTMLElement) => {
+    fireEvent.click(await within(dialog).findByRole('button', { name: /^edit$/i }));
+    return within(dialog).getByRole('group', { name: 'Edit HP:0001250 Seizure' });
+  };
+
+  it("changes a phenotype's status and note", async () => {
+    mockApiState.hpoAnnotations = [{ ...seizure, note: 'from the referral' }];
+    vi.mocked(api.put).mockResolvedValueOnce({ data: {} });
+    const dialog = await openS1AsAdmin();
+    const editor = await editSeizure(dialog);
+
+    // It starts from what the phenotype holds.
+    expect(within(editor).getByLabelText('Status')).toHaveValue('present');
+    expect(within(editor).getByLabelText('Note')).toHaveValue('from the referral');
+    fireEvent.change(within(editor).getByLabelText('Status'), { target: { value: 'absent' } });
+    fireEvent.change(within(editor).getByLabelText('Note'), { target: { value: ' ruled out at 4 y ' } });
+    fireEvent.click(within(editor).getByRole('button', { name: /save change/i }));
+
+    await waitFor(() =>
+      expect(api.put).toHaveBeenCalledWith('/families/F1/hpo/hpo1', { status: 'absent', note: 'ruled out at 4 y' }),
+    );
+    expect(await within(dialog).findByText('Phenotype annotation updated.')).toBeInTheDocument();
+    expect(within(dialog).queryByRole('group', { name: /^edit /i })).not.toBeInTheDocument();
+  });
+
+  it('clears a phenotype note, and saves nothing until something changed', async () => {
+    mockApiState.hpoAnnotations = [{ ...seizure, note: 'from the referral' }];
+    vi.mocked(api.put).mockResolvedValueOnce({ data: {} });
+    const dialog = await openS1AsAdmin();
+    const editor = await editSeizure(dialog);
+    const save = within(editor).getByRole('button', { name: /save change/i });
+
+    expect(save).toBeDisabled();
+    // Spaces alone change nothing.
+    fireEvent.change(within(editor).getByLabelText('Note'), { target: { value: 'from the referral  ' } });
+    expect(save).toBeDisabled();
+    fireEvent.change(within(editor).getByLabelText('Note'), { target: { value: '' } });
+    fireEvent.click(save);
+
+    await waitFor(() =>
+      expect(api.put).toHaveBeenCalledWith('/families/F1/hpo/hpo1', { status: 'present', note: null }),
+    );
+  });
+
+  it('cancels a phenotype change without saving it', async () => {
+    mockApiState.hpoAnnotations = [seizure];
+    const dialog = await openS1AsAdmin();
+    const editor = await editSeizure(dialog);
+
+    fireEvent.change(within(editor).getByLabelText('Status'), { target: { value: 'unknown' } });
+    fireEvent.click(within(editor).getByRole('button', { name: /cancel/i }));
+
+    expect(within(dialog).queryByRole('group', { name: /^edit /i })).not.toBeInTheDocument();
+    expect(api.put).not.toHaveBeenCalled();
+  });
+
+  it('says why a phenotype change is refused, and keeps it to correct', async () => {
+    mockApiState.hpoAnnotations = [seizure];
+    vi.mocked(api.put).mockRejectedValueOnce({
+      response: { status: 409, data: { detail: 'An annotation with this HPO term and status already exists for this sample' } },
+    });
+    const dialog = await openS1AsAdmin();
+    const editor = await editSeizure(dialog);
+
+    fireEvent.change(within(editor).getByLabelText('Status'), { target: { value: 'absent' } });
+    fireEvent.click(within(editor).getByRole('button', { name: /save change/i }));
+
+    expect(
+      await within(dialog).findByText(/already exists for this sample|Failed to update phenotype annotation/),
+    ).toBeInTheDocument();
+    expect(within(editor).getByLabelText('Status')).toHaveValue('absent');
+  });
+
+  it('asks before closing on a phenotype change not saved', async () => {
+    mockApiState.hpoAnnotations = [seizure];
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    const dialog = await openS1AsAdmin();
+    const editor = await editSeizure(dialog);
+
+    fireEvent.change(within(editor).getByLabelText('Status'), { target: { value: 'absent' } });
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('dialog', { name: /family member details/i })).toBeInTheDocument();
+    confirm.mockRestore();
+  });
+
   it('lets an analyst who is no administrator add and remove phenotypes', async () => {
     mockApiState.hpoAnnotations = [seizure];
     const dialog = await openS1As('viewer');
 
     expect(await within(dialog).findByRole('button', { name: /^remove$/i })).toBeEnabled();
+    expect(within(dialog).getByRole('button', { name: /^edit$/i })).toBeEnabled();
     expect(within(dialog).getByRole('button', { name: /add phenotype/i })).toBeInTheDocument();
     expect(within(dialog).getByLabelText('HPO term')).toBeInTheDocument();
     // The member's own fields stay an administrator's.
@@ -1383,6 +1472,7 @@ describe('FamilyDetailPage', () => {
 
     expect(await within(dialog).findByText('Seizure')).toBeInTheDocument();
     expect(within(dialog).queryByRole('button', { name: /^remove$/i })).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole('button', { name: /^edit$/i })).not.toBeInTheDocument();
     expect(within(dialog).queryByRole('button', { name: /add phenotype/i })).not.toBeInTheDocument();
     expect(within(dialog).queryByLabelText('HPO term')).not.toBeInTheDocument();
     fireEvent.keyDown(document, { key: 'Escape' });

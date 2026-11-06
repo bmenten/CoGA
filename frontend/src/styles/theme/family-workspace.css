@@ -527,6 +527,20 @@
   gap: 0.25rem;
 }
 
+/* The phenotype being changed: its status and note, between the chips and the add row. */
+.family-hpo-edit {
+  margin: 0.5rem 0 0;
+  padding: 0;
+  border: 0;
+}
+
+.family-hpo-edit legend {
+  margin-bottom: 0.25rem;
+  padding: 0;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+}
+
 .family-hpo-chip-list--compact {
   gap: 0.1875rem;
   min-width: 12rem;

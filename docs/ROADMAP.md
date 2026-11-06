@@ -37,6 +37,5 @@ brackets.
 - **Per-sample GLIMPSE2 haplotypes** (PROD-5): per-sample GLIMPSE2 BCF haplotypes are registered but not imported.
 - **Single-parent recessive risk** (PROD-6): it reads "uninformative" by design; a later version could say "carries the known parent's risk allele, donor unknown".
 - **Haplogroup comparison** (PROD-7): REQ-MITO-003 has no automated haplogroup comparison; the analyst compares the haplogroups CoGA lists, and the owner decides whether that stays a manual review step (TF-09b §3).
-- **Editing a phenotype term** (PROD-8): the UI can add or delete a phenotype term but not edit one.
 - **More than one PGT region** (PROD-9): a PGT family has one ROI, and the signed record's PGT section holds one, so two loci need its format extended after the RC (#899).
 - **Sort by the raw variant score** (ENG-9): the UI could offer novel-gene candidates sorted by the raw variant score, as the ranking's comments once promised (the comments were corrected).
