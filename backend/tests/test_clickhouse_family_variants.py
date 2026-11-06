@@ -702,7 +702,7 @@ async def test_get_family_small_variants_page_filters_vep_annotations_in_clickho
     query, params = queries[0]
     assert "INNER JOIN" not in query
     assert "GRCh38/SNV_INDEL/variants/annotations" in query
-    assert "(e.key, e.annotation_version, e.annotationSetHash) IN (SELECT a.key, a.annotation_version, a.annotationSetHash" in query
+    assert "(e.key, e.annotationSetHash) IN (SELECT a.key, a.annotationSetHash" in query
     assert "GROUP BY e.key" in query  # list dedups by key (#333)
     assert "a.impact IN %(detail_impact_terms)s" in query
     assert "hasAny(a.effects, %(detail_effect_terms)s)" in query

@@ -97,8 +97,8 @@ def test_entries_where_binds_as_valid_clickhouse_query() -> None:
     assert "e.project_guid IN %(project_guids)s" in where_sql
     assert "e.variantId IN %(tag_variant_ids)s" in where_sql
     # The gene and the impact: on the row's own annotation.
-    assert "(e.key, e.annotation_version, e.annotationSetHash) IN (SELECT gi.key" in where_sql
-    assert "(e.key, e.annotation_version, e.annotationSetHash) IN (SELECT a.key" in where_sql
+    assert "(e.key, e.annotationSetHash) IN (SELECT gi.key" in where_sql
+    assert "(e.key, e.annotationSetHash) IN (SELECT a.key" in where_sql
     assert "length(e.ref) = 1 AND length(e.alt) = 1" in where_sql  # SNV type filter
 
     # The generated WHERE (with the genotype params) must bind cleanly via the
@@ -250,8 +250,8 @@ def _transcript_subquery(condition: str, *, locus: str = "") -> str:
     """The clause "one transcript of the row's own annotation meets ``condition``", the
     family search's (``_small_annotation_row_membership_condition``)."""
     return (
-        "(e.key, e.annotation_version, e.annotationSetHash) IN (SELECT a.key, a.annotation_version,"
-        f" a.annotationSetHash FROM {_ANNOTATIONS} AS a WHERE {locus}({condition}))"
+        "(e.key, e.annotationSetHash) IN (SELECT a.key, a.annotationSetHash"
+        f" FROM {_ANNOTATIONS} AS a WHERE {locus}({condition}))"
     )
 
 
@@ -395,8 +395,8 @@ def test_the_explorer_applies_the_family_search_annotation_condition(filters: di
 
 
 def test_the_gene_rsid_and_excluded_clinvar_read_the_rows_own_annotation() -> None:
-    # As on the family page, each row is read with its own annotation (its key, annotation
-    # version and annotation set): the gene in the row's symbols or its gene index, the rsID
+    # As on the family page, each row is read with its own annotation (its key and annotation
+    # set): the gene in the row's symbols or its gene index, the rsID
     # in the row's own or its annotation index row, the excluded ClinVar classes on no
     # transcript of it. The explorer read the annotation index by key, so any family's
     # annotation of a variant let every family's rows through (the owner's decision of
@@ -405,8 +405,8 @@ def test_the_gene_rsid_and_excluded_clinvar_read_the_rows_own_annotation() -> No
     where_sql = " AND ".join(clauses)
     assert "arrayExists(gene -> lower(gene) IN %(entry_gene_terms)s, e.gene_symbols)" in where_sql
     assert "positionCaseInsensitive(ifNull(e.rsid, ''), %(rsid)s) > 0" in where_sql
-    assert where_sql.count("(e.key, e.annotation_version, e.annotationSetHash) IN (") == 2
-    assert where_sql.count("(e.key, e.annotation_version, e.annotationSetHash) NOT IN (") == 1
+    assert where_sql.count("(e.key, e.annotationSetHash) IN (") == 2
+    assert where_sql.count("(e.key, e.annotationSetHash) NOT IN (") == 1
     assert "SELECT DISTINCT ai.key" not in where_sql
 
 
@@ -904,7 +904,7 @@ def test_the_panel_is_read_for_the_explorers_assembly(monkeypatch: pytest.Monkey
         assert "AS e" in query
         assert "variant_window" in query
         assert "e.gene_symbols" in query
-        assert "(e.key, e.annotation_version, e.annotationSetHash) IN" in query
+        assert "(e.key, e.annotationSetHash) IN" in query
 
 
 def test_a_panel_that_keeps_nothing_asks_clickhouse_nothing(monkeypatch: pytest.MonkeyPatch) -> None:

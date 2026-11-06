@@ -2865,6 +2865,22 @@ def _small_family_key_condition(
     return f"identity({alias}.key) IN (SELECT fk.key FROM {entries_table} AS fk WHERE {' AND '.join(rows_where)})"
 
 
+# An entries row (alias ``e``) is read with its own annotation: the rows of the annotation
+# tables with its key and its annotation set (``annotationSetHash``, the hash of the variant's
+# annotations as the import read them). The annotation version, which names where the
+# annotations came from (``vcf_info``, ``vep_tsv``), is not matched: the rows of one key and
+# one set hold the same annotations under any version, so their transcripts, genes and ClinVar
+# terms meet the same filters. Matched too, the version (a LowCardinality string) made the set
+# an annotation subquery builds two to three times slower: on 4 M entries rows of 2 M variants
+# a Variant Explorer search under a frequency, impact or CADD filter took 0.6-1.0 s with it
+# and 0.23-0.47 s without, the family list 5-30 % longer (ClickHouse 26.8, 2026-11-06).
+# One value of ``annotation_index`` is not the annotation's: the rsID of the record (its VCF
+# ID). A row's own is in ``e.rsid``, which the rsID filter reads first; through the index a
+# row also finds the rsID another import of the variant wrote with the same annotations, under
+# any version, as it did under the same version.
+_OWN_ANNOTATION: Final = "(e.key, e.annotationSetHash)"
+
+
 def _small_annotation_gene_membership_condition(
     context: _SearchAssembly,
     filters: SmallVariantQueryFilters,
@@ -2891,8 +2907,8 @@ def _small_annotation_gene_membership_condition(
     if family_keys:
         index_where.append(family_keys)
     return (
-        "(e.key, e.annotation_version, e.annotationSetHash) IN ("
-        f"SELECT gi.key, gi.annotation_version, gi.annotationSetHash FROM {gene_index_table} AS gi "
+        f"{_OWN_ANNOTATION} IN ("
+        f"SELECT gi.key, gi.annotationSetHash FROM {gene_index_table} AS gi "
         f"WHERE {' AND '.join(index_where)}"
         ")"
     )
@@ -2916,8 +2932,8 @@ def _small_annotation_key_membership_condition(
     if family_keys:
         index_where.append(family_keys)
     return (
-        f"(e.key, e.annotation_version, e.annotationSetHash) {operator} ("
-        f"SELECT ai.key, ai.annotation_version, ai.annotationSetHash FROM {annotation_index_table} AS ai "
+        f"{_OWN_ANNOTATION} {operator} ("
+        f"SELECT ai.key, ai.annotationSetHash FROM {annotation_index_table} AS ai "
         f"WHERE {' AND '.join(index_where)}"
         ")"
     )
@@ -2941,8 +2957,8 @@ def _small_annotation_row_membership_condition(
     if family_keys:
         annotation_where.append(family_keys)
     return (
-        f"(e.key, e.annotation_version, e.annotationSetHash) {operator} ("
-        f"SELECT a.key, a.annotation_version, a.annotationSetHash FROM {annotations_table} AS a "
+        f"{_OWN_ANNOTATION} {operator} ("
+        f"SELECT a.key, a.annotationSetHash FROM {annotations_table} AS a "
         f"WHERE {' AND '.join(annotation_where)}"
         ")"
     )
@@ -3443,7 +3459,7 @@ def _small_annotation_filter_clauses(
     params: dict[str, Any],
 ) -> list[str]:
     """The annotation filters on an entries row (alias ``e``), each read on the row's own
-    annotation (its key, annotation version and annotation set): the gene
+    annotation (its key and annotation set, ``_OWN_ANNOTATION``): the gene
     (``_small_gene_condition``); one transcript meeting every per-transcript filter together
     (``_small_annotation_filter_condition``: impact, consequence, ClinVar, HGVS, frequency
     with the ClinVar P/LP rescue, in-silico scores, Canonical, MANE and LoF only); and no
