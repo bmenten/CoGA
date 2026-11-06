@@ -4,7 +4,7 @@ import json
 import re
 from bisect import bisect_right
 from dataclasses import dataclass
-from typing import Any, Collection, Final, Iterable, Protocol, Sequence, cast
+from typing import Any, Collection, Final, Iterable, Mapping, Protocol, Sequence, cast
 
 from fastapi import HTTPException
 
@@ -261,12 +261,21 @@ def _append_unique(values: list[str], value: Any) -> None:
         values.append(text_value)
 
 
-def _visible_clickhouse_sample_ids(context: FamilyMetadataContext) -> list[str]:
+def _clickhouse_sample_ids(sample_name_to_uuid: Mapping[str, str]) -> list[str]:
+    """The IDs the calls of these samples (name -> UUID) are stored under in ClickHouse:
+    each sample's name and its UUID."""
     sample_ids: list[str] = []
-    for sample_name, sample_uuid in context.sample_name_to_uuid.items():
+    for sample_name, sample_uuid in sample_name_to_uuid.items():
         _append_unique(sample_ids, sample_name)
         _append_unique(sample_ids, sample_uuid)
     return sample_ids
+
+
+def _visible_clickhouse_sample_ids(context: FamilyMetadataContext) -> list[str]:
+    """The IDs of the calls the family shows: those of its active members
+    (``build_family_metadata_context``). The Variant Explorer reads each family's calls by
+    the same rule (``variant_explorer_service._shown_calls``)."""
+    return _clickhouse_sample_ids(context.sample_name_to_uuid)
 
 
 def _display_sample_name(context: FamilyMetadataContext, stored_sample_id: Any) -> str:

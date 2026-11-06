@@ -250,7 +250,7 @@ def test_the_variant_explorer_applies_the_same_condition() -> None:
         condition = _small_annotation_filter_condition(_family_search_filters(filters), params=params)
         assert condition is not None
         # It is the condition the explorer's search puts on a transcript row.
-        assert any(condition in clause for clause in _entries_where(scope, filters, {}, tag_variant_ids=None))
+        assert any(condition in clause for clause in _entries_where(scope, filters, {}, tag_variant_ids=None, shown_members=()))
         call = _FUNCTION_CALL.fullmatch(_strip_parentheses(condition))
         assert call is not None, condition
         function, called_column, param, _positive = call.groups()

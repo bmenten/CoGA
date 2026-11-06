@@ -91,7 +91,7 @@ def test_entries_where_binds_as_valid_clickhouse_query() -> None:
     )
     filters = GlobalVariantFilters(gene="BRCA1", variant_type="SNV", impacts=["high"])
     params: dict = {"gt_ref_missing": ("0/0",), "gt_hom": ("1/1",)}
-    clauses = _entries_where(scope, filters, params, tag_variant_ids=["1-100-A-T"])
+    clauses = _entries_where(scope, filters, params, tag_variant_ids=["1-100-A-T"], shown_members=_MEMBERS)
     where_sql = " AND ".join(clauses)
 
     assert "e.project_guid IN %(project_guids)s" in where_sql
@@ -115,7 +115,7 @@ def test_entries_where_binds_as_valid_clickhouse_query() -> None:
 def test_entries_where_without_filters_has_no_annotation_subquery() -> None:
     scope = ExplorerScope(assembly_id="a1", assembly_name="GRCh38", project_ids=["p1"])
     params: dict = {}
-    clauses = _entries_where(scope, GlobalVariantFilters(), params, tag_variant_ids=None)
+    clauses = _entries_where(scope, GlobalVariantFilters(), params, tag_variant_ids=None, shown_members=_MEMBERS)
     where_sql = " AND ".join(clauses)
     for table in ("annotation_index", "annotations", "gene_index"):
         assert f"variants/{table}`" not in where_sql
@@ -127,14 +127,18 @@ def test_imputed_excluded_by_default_and_included_on_opt_in() -> None:
 
     default_params: dict = {}
     default_clauses = _entries_where(
-        scope, GlobalVariantFilters(), default_params, tag_variant_ids=None
+        scope, GlobalVariantFilters(), default_params, tag_variant_ids=None, shown_members=_MEMBERS
     )
     assert "lowerUTF8(e.source) NOT IN %(imputed_sources)s" in " AND ".join(default_clauses)
     assert default_params["imputed_sources"] == ("glimpse2", "shapeit")
 
     opt_in_params: dict = {}
     opt_in_clauses = _entries_where(
-        scope, GlobalVariantFilters(include_imputed=True), opt_in_params, tag_variant_ids=None
+        scope,
+        GlobalVariantFilters(include_imputed=True),
+        opt_in_params,
+        tag_variant_ids=None,
+        shown_members=_MEMBERS,
     )
     assert "imputed_sources" not in opt_in_params
     assert all("source" not in clause for clause in opt_in_clauses)
@@ -148,14 +152,20 @@ def test_sample_genotype_filters_build_per_sample_subqueries() -> None:
         GlobalVariantFilters(sample_genotype_filters=[("S1", "hom"), ("S2", "het"), ("S3", "het_hom")]),
         params,
         tag_variant_ids=None,
+        shown_members=_MEMBERS,
     )
     where_sql = " AND ".join(clauses)
     # One membership subquery per sample (AND-ed): a variant the sample carries in one of its
     # rows, imputed callsets left out, read by variant (the owner's decision of 2026-11-06).
     assert where_sql.count("e.key IN (SELECT gs.key FROM") == 3
     assert where_sql.count("lowerUTF8(gs.source) NOT IN %(imputed_sources)s") == 3
-    assert params["explorer_sample_0_samples"] == ("S1",)
-    assert params["explorer_sample_1_samples"] == ("S2",)
+    # Each sample's calls under its name or its UUID, in the rows of the families that show
+    # it (the owner's decision of 2026-11-06).
+    assert where_sql.count("gs.family_guid IN %(explorer_sample_") == 3
+    assert params["explorer_sample_0_samples"] == ("S1", "u1")
+    assert params["explorer_sample_1_samples"] == ("S2", "u2")
+    assert params["explorer_sample_2_samples"] == ("S3", "u3")
+    assert [params[f"explorer_sample_{index}_families"] for index in range(3)] == [("f1",), ("f1",), ("f2",)]
     # The family page's sample filter reads each sample's call, with its genotype classes
     # (#511): hom includes a haploid "1", het a "1/2", het_hom both.
     family_params = _small_native_sample_filter_clauses(
@@ -171,6 +181,104 @@ def test_sample_genotype_filters_build_per_sample_subqueries() -> None:
 
     rendered_query, _ = bind_query(f"SELECT key FROM db.`t` AS e WHERE {where_sql}", params)
     assert "%(explorer_sample_0_samples)s" not in rendered_query
+
+
+def test_the_explorer_reads_the_calls_their_family_shows() -> None:
+    # The owner's decision of 2026-11-06: in each family's rows, the calls of its active
+    # members alone, each under its name or its UUID, as the family search reads them. A
+    # sample shown by two families is read in both; it is not read in a third family's rows.
+    members = (*_MEMBERS, ves._ShownMember(family_uuid="f3", sample_id="S1", sample_uuid="u1"))
+    assert ves._shown_calls(members) == (
+        ("f1", "S1"), ("f1", "u1"), ("f1", "S2"), ("f1", "u2"),
+        ("f2", "S3"), ("f2", "u3"),
+        ("f3", "S1"), ("f3", "u1"),
+    )
+    params: dict[str, Any] = {}
+    clauses = _entries_where(_SCOPE, GlobalVariantFilters(), params, tag_variant_ids=None, shown_members=members)
+    # A row is kept when a member its family shows carries the variant.
+    assert ves._shown_carrier_condition({}) in clauses
+    assert "(e.family_guid, call_sample) IN %(shown_calls)s" in ves._shown_carrier_condition({})
+    assert params["shown_calls"] == ves._shown_calls(members)
+    bind_query("SELECT 1 FROM t AS e WHERE " + " AND ".join(clauses), params)
+    # Without a member, a pair no row holds.
+    no_member: dict[str, Any] = {}
+    _entries_where(_SCOPE, GlobalVariantFilters(), no_member, tag_variant_ids=None, shown_members=())
+    assert no_member["shown_calls"] == (("", ""),)
+
+
+def test_a_sample_no_family_shows_keeps_no_variant() -> None:
+    # A member taken out of its family: its calls stay in the family's rows, but no family of
+    # the scope shows it, so the genotype filter on it keeps nothing.
+    params: dict[str, Any] = {}
+    clauses = _entries_where(
+        _SCOPE,
+        GlobalVariantFilters(sample_genotype_filters=[("S1", "het"), ("TAKEN-OUT", "het_hom")]),
+        params,
+        tag_variant_ids=None,
+        shown_members=_MEMBERS,
+    )
+    assert "0" in clauses
+    assert "explorer_sample_1_samples" not in params
+    # A sample named by its UUID is read as by its name.
+    by_uuid: dict[str, Any] = {}
+    _entries_where(
+        _SCOPE,
+        GlobalVariantFilters(sample_genotype_filters=[("u3", "het")]),
+        by_uuid,
+        tag_variant_ids=None,
+        shown_members=_MEMBERS,
+    )
+    assert (by_uuid["explorer_sample_0_samples"], by_uuid["explorer_sample_0_families"]) == (("S3", "u3"), ("f2",))
+
+
+def test_a_rows_counts_read_the_calls_their_family_shows(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: dict[str, Any] = {}
+
+    async def fake_execute(query, params):
+        seen["query"] = query
+        return []
+
+    async def no_annotation(assembly_name, keys):
+        return {}
+
+    monkeypatch.setattr(ves, "execute_clickhouse", fake_execute)
+    monkeypatch.setattr(ves, "_fetch_annotation_display", no_annotation)
+    asyncio.run(
+        ves._fetch_variant_rows(
+            _RecordingSession(),
+            scope=types.SimpleNamespace(project_ids=[_PROJECT], assembly_name="GRCh38"),
+            entries_table="db.entries",
+            where_sql="1",
+            params={},
+            sort_expr="total_samples",
+            direction="DESC",
+            limit=10,
+        )
+    )
+    # Each call of the row, after the ARRAY JOIN, is counted when its family shows it.
+    assert "ARRAY JOIN `calls.sampleId` AS sample_id" in seen["query"]
+    assert "AND (e.family_guid, sample_id) IN %(shown_calls)s" in seen["query"]
+
+
+def test_without_a_member_the_search_and_export_ask_clickhouse_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
+    queries: list[str] = []
+
+    async def fake_scope(session, user, assembly_id):
+        return _SCOPE
+
+    async def no_members(session, project_ids):
+        return []
+
+    async def fake_clickhouse(query, params=None):
+        queries.append(query)
+        return [[1]]
+
+    monkeypatch.setattr(ves, "resolve_scope", fake_scope)
+    monkeypatch.setattr(ves, "_shown_members", no_members)
+    monkeypatch.setattr(ves, "execute_clickhouse", fake_clickhouse)
+    page = asyncio.run(ves.search_global_small_variants(None, user=None, filters=GlobalVariantFilters()))
+    export = asyncio.run(ves.export_global_small_variants(None, user=None, filters=GlobalVariantFilters()))
+    assert (page.total, page.variants, export.rows, queries) == (0, [], [], [])
 
 
 def test_bounded_total_caps_count_and_flags_estimate() -> None:
@@ -230,6 +338,12 @@ def test_seek_having_is_direction_aware_and_degenerate_safe() -> None:
 
 _PROJECT = "11111111-1111-1111-1111-111111111111"
 _SCOPE = ExplorerScope(assembly_id="a1", assembly_name="GRCh38", project_ids=[_PROJECT])
+# The samples the scope's families show: S1 and S2 in family f1, S3 in family f2.
+_MEMBERS = (
+    ves._ShownMember(family_uuid="f1", sample_id="S1", sample_uuid="u1"),
+    ves._ShownMember(family_uuid="f1", sample_id="S2", sample_uuid="u2"),
+    ves._ShownMember(family_uuid="f2", sample_id="S3", sample_uuid="u3"),
+)
 _ANNOTATIONS = _small_table_name("GRCh38", "variants/annotations")
 _ANNOTATION_INDEX = _small_table_name("GRCh38", "variants/annotation_index")
 
@@ -237,7 +351,9 @@ _ANNOTATION_INDEX = _small_table_name("GRCh38", "variants/annotation_index")
 def _explorer_where(**filters: Any) -> tuple[list[str], dict[str, Any]]:
     """The explorer's WHERE clauses and parameters for these filters."""
     params: dict[str, Any] = {}
-    clauses = _entries_where(_SCOPE, GlobalVariantFilters(**filters), params, tag_variant_ids=None)
+    clauses = _entries_where(
+        _SCOPE, GlobalVariantFilters(**filters), params, tag_variant_ids=None, shown_members=_MEMBERS
+    )
     return clauses, params
 
 
@@ -421,7 +537,7 @@ def test_the_locus_narrows_the_transcript_scan() -> None:
             condition, locus="a.chrom IN %(chromosomes)s AND a.pos >= %(start)s AND a.pos <= %(end)s AND "
         )
     ]
-    assert clauses[3:7] == [
+    assert clauses[4:8] == [
         "e.chrom IN %(chromosomes)s",
         "e.pos >= %(start)s",
         "e.pos <= %(end)s",
@@ -501,13 +617,20 @@ def test_the_explorer_reads_each_shared_filter_with_the_family_search_clause(
     # search puts on its rows, with the same parameters, less the bound of the family's own
     # variants; and the family search puts no other clause for these filters.
     clauses, params = _explorer_where(**explorer_filters)
-    assert clauses[:2] == ["e.sign = 1", "e.project_guid IN %(project_guids)s"]
+    # The explorer's own: its projects, and a carrier the row's family shows.
+    assert clauses[:3] == [
+        "e.sign = 1",
+        "e.project_guid IN %(project_guids)s",
+        ves._shown_carrier_condition({}),
+    ]
     family_clauses, family_params, _ = _small_query_filter_parts(
         _FAMILY, SmallVariantQueryFilters(page=1, page_size=100, **family_filters), exclude_imputed=True
     )
     shared = [_without_family_keys(clause) for clause in family_clauses if clause not in _FAMILY_ONLY_CLAUSES]
-    assert shared and clauses[2:] == shared
-    explorer_params = {name: value for name, value in params.items() if name != "project_guids"}
+    assert shared and clauses[3:] == shared
+    explorer_params = {
+        name: value for name, value in params.items() if name not in {"project_guids", "shown_calls", "gt_alt"}
+    }
     assert explorer_params == {name: family_params[name] for name in explorer_params}
     bind_query("SELECT 1 FROM t AS e WHERE " + " AND ".join(clauses), params)
 
@@ -724,7 +847,12 @@ def _explorer_panel(panel: PanelFilterConstraints, **filters: Any) -> tuple[list
     reads it."""
     params: dict[str, Any] = {}
     clauses = _entries_where(
-        _SCOPE, GlobalVariantFilters(**filters), params, tag_variant_ids=None, panel_constraints=panel
+        _SCOPE,
+        GlobalVariantFilters(**filters),
+        params,
+        tag_variant_ids=None,
+        shown_members=_MEMBERS,
+        panel_constraints=panel,
     )
     return clauses, params
 
@@ -880,8 +1008,12 @@ def _explorer_search(monkeypatch: pytest.MonkeyPatch, panel: PanelFilterConstrai
         # The search's count finds nothing; the export's rows are none.
         return [[0]] if "SELECT count()" in query else []
 
+    async def fake_members(session, project_ids):
+        return list(_MEMBERS)
+
     monkeypatch.setattr(explorer, "resolve_scope", fake_scope)
     monkeypatch.setattr(explorer, "_fetch_panel_constraints", fake_panel)
+    monkeypatch.setattr(explorer, "_shown_members", fake_members)
     monkeypatch.setattr(explorer, "execute_clickhouse", fake_clickhouse)
     filters = GlobalVariantFilters(panel_id=_PANEL_ID)
     seen["page"] = asyncio.run(
@@ -958,13 +1090,17 @@ def _patch_common(monkeypatch, *, rows, cap=2):
             for fam in family_uuids
         }
 
-    async def fake_sample_meta(session, sample_keys):
-        return {}
+    async def fake_members(session, project_ids):
+        return [
+            ves._ShownMember(family_uuid="famA", sample_id="s1", sample_uuid="u1", role="proband"),
+            ves._ShownMember(family_uuid="famA", sample_id="s2", sample_uuid="u2", role="mother"),
+            ves._ShownMember(family_uuid="famB", sample_id="s3", sample_uuid="u3", role="proband"),
+        ]
 
     monkeypatch.setattr(ves, "resolve_scope", fake_scope)
     monkeypatch.setattr(ves, "execute_clickhouse", fake_execute)
     monkeypatch.setattr(ves, "_fetch_family_meta", fake_family_meta)
-    monkeypatch.setattr(ves, "_fetch_sample_meta", fake_sample_meta)
+    monkeypatch.setattr(ves, "_shown_members", fake_members)
     return captured
 
 
@@ -993,9 +1129,9 @@ async def test_get_variant_carriers_flags_truncation(monkeypatch) -> None:
 async def test_get_variant_carriers_exact_under_cap(monkeypatch) -> None:
     rows = [
         ("famA", "s1", "0/1", "vid"),
-        ("famB", "s2", "1/1", "vid"),
+        ("famB", "u3", "1/1", "vid"),
     ]
-    _patch_common(monkeypatch, rows=rows, cap=2)
+    captured = _patch_common(monkeypatch, rows=rows, cap=2)
 
     result = await ves.get_variant_carriers(None, user=types.SimpleNamespace(), variant_key=1)
 
@@ -1004,6 +1140,31 @@ async def test_get_variant_carriers_exact_under_cap(monkeypatch) -> None:
     assert result.het_samples == 1
     assert result.hom_samples == 1
     assert result.total_families == 2
+    # Only the calls the families show are read, each member under its name or its UUID in
+    # its own family; a carrier shows its name, role and phenotype in that family.
+    assert "(family_guid, sample_id) IN %(shown_calls)s" in captured["query"]
+    assert captured["params"]["shown_calls"] == (
+        ("famA", "s1"), ("famA", "u1"), ("famA", "s2"), ("famA", "u2"), ("famB", "s3"), ("famB", "u3"),
+    )
+    assert [
+        (sample.family_uuid, sample.sample_id, sample.individual_name, sample.role)
+        for group in result.families
+        for sample in group.samples
+    ] == [("famA", "s1", "s1", "proband"), ("famB", "u3", "s3", "proband")]
+
+
+@pytest.mark.asyncio
+async def test_without_a_member_the_carriers_ask_clickhouse_nothing(monkeypatch) -> None:
+    captured = _patch_common(monkeypatch, rows=[("famA", "s1", "0/1", "vid")])
+
+    async def no_members(session, project_ids):
+        return []
+
+    monkeypatch.setattr(ves, "_shown_members", no_members)
+    result = await ves.get_variant_carriers(None, user=types.SimpleNamespace(), variant_key=1)
+
+    assert "query" not in captured
+    assert (result.total_samples, result.families) == (0, [])
 
 
 @pytest.mark.asyncio

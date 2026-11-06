@@ -19,7 +19,7 @@ from uuid import uuid4
 
 import pytest
 
-from backend.tests.integration._datastores import run_closing_stores
+from backend.tests.integration._datastores import explorer_shows, run_closing_stores
 
 pytestmark = pytest.mark.integration
 
@@ -60,6 +60,7 @@ def test_explorer_keyset_pagination_against_clickhouse(monkeypatch) -> None:
         return scope
 
     monkeypatch.setattr(svc, "resolve_scope", _fake_scope)
+    explorer_shows(monkeypatch, {family_uuid: ["S1", "S2", "S3"]})
 
     async def _run() -> None:
         await init_postgres_schema()

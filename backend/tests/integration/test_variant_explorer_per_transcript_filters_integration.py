@@ -43,7 +43,13 @@ from uuid import uuid4
 
 import pytest
 
-from backend.tests.integration._datastores import proband_context, run_closing_stores, small_variant, vep_annotations
+from backend.tests.integration._datastores import (
+    explorer_shows,
+    proband_context,
+    run_closing_stores,
+    small_variant,
+    vep_annotations,
+)
 
 pytestmark = pytest.mark.integration
 
@@ -220,6 +226,7 @@ def test_explorer_keeps_what_the_family_search_keeps(
         return None
 
     monkeypatch.setattr(explorer, "resolve_scope", _fake_scope)
+    explorer_shows(monkeypatch, {family_uuid: [_SAMPLE]})
     monkeypatch.setattr(family_variants, "_hydrate_small_variant_outs", _no_hydration)
     # The family has no Postgres record, so its ranking is computed every time, never cached.
     monkeypatch.setattr(family_variants, "get_cached_ranking", _not_cached)
