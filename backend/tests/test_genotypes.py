@@ -14,12 +14,8 @@ import types
 import pytest
 
 from backend.app.services import genotypes as g
-from backend.app.services.clickhouse_variant_queries import (
-    _small_native_inheritance_clauses,
-    _small_record_matches_sample_filters,
-)
-from backend.app.services.clickhouse_variant_records import SmallVariantCall, SmallVariantRecord
-from backend.app.services.family_variant_filters import SmallVariantQueryFilters
+from backend.app.services.clickhouse_variant_queries import _small_native_inheritance_clauses
+from backend.app.services.family_variant_filters import SmallVariantQueryFilters, parse_small_variant_sample_filter
 
 
 @pytest.mark.parametrize(
@@ -74,41 +70,35 @@ def test_the_sql_condition_is_a_set_lookup_with_an_exact_long_string_fallback() 
         g.clickhouse_genotype_condition("gt", {"carrier"}, param="r", params=params)
 
 
-def _call(sample: str, gt: str) -> SmallVariantCall:
-    return SmallVariantCall(sample=sample, gt=gt, gq=None, dp=None, af=[], ad=[], ps=None)
-
-
-def _record(chr_: str, *calls: SmallVariantCall) -> SmallVariantRecord:
-    return SmallVariantRecord(
-        variant_key=1, variant_id=f"{chr_}-100-A-G", chr=chr_, start=100, end=100, ref="A", alt="G",
-        source=None, rsid=None, filters=[], gene_symbols=["GENE"], annotations=[], calls=list(calls),
-    )
-
-
-def _sample_filters(*entries: str) -> SmallVariantQueryFilters:
-    return SmallVariantQueryFilters(page=1, page_size=50, sample_filters=list(entries))
+def _keeps(entry: str, gt: str) -> bool:
+    """Whether a member's per-sample genotype filter ``entry`` keeps the call ``gt``: the
+    classes its genotypes name (``parse_small_variant_sample_filter``), which the SQL
+    condition looks the call up in (``clickhouse_genotype_condition``; on ClickHouse in
+    integration/test_genotype_classes_clickhouse.py)."""
+    sample_filter = parse_small_variant_sample_filter(entry)
+    assert sample_filter is not None
+    return g.classify_genotype(gt) in sample_filter.genotype_classes
 
 
 def test_the_hom_filter_keeps_a_haploid_alt_call() -> None:
     # The UI's Hom group: before #511 a chrM "1" (or a male chrX "1") matched nothing.
-    hom = _sample_filters("PROBAND:1/1|1|1")
-    assert _small_record_matches_sample_filters(_record("MT", _call("PROBAND", "1")), hom)
-    assert _small_record_matches_sample_filters(_record("X", _call("PROBAND", "1")), hom)
-    assert _small_record_matches_sample_filters(_record("1", _call("PROBAND", "2/2")), hom)
-    assert not _small_record_matches_sample_filters(_record("MT", _call("PROBAND", "0")), hom)
+    hom = "PROBAND:1/1|1|1"
+    assert _keeps(hom, "1")
+    assert _keeps(hom, "2/2")
+    assert not _keeps(hom, "0")
 
 
 def test_the_het_filter_keeps_a_multi_allelic_call() -> None:
-    het = _sample_filters("PROBAND:0/1|1/0|0|1|1|0")
-    assert _small_record_matches_sample_filters(_record("1", _call("PROBAND", "1/2")), het)
-    assert _small_record_matches_sample_filters(_record("1", _call("PROBAND", "0|2")), het)
-    assert not _small_record_matches_sample_filters(_record("1", _call("PROBAND", "2/2")), het)
+    het = "PROBAND:0/1|1/0|0|1|1|0"
+    assert _keeps(het, "1/2")
+    assert _keeps(het, "0|2")
+    assert not _keeps(het, "2/2")
 
 
 def test_the_ref_filter_keeps_a_haploid_reference_call() -> None:
-    wt = _sample_filters("FATHER:0/0|0|0|./.|absent")
-    assert _small_record_matches_sample_filters(_record("X", _call("FATHER", "0")), wt)
-    assert not _small_record_matches_sample_filters(_record("X", _call("FATHER", "1")), wt)
+    wt = "FATHER:0/0|0|0|./.|absent"
+    assert _keeps(wt, "0")
+    assert not _keeps(wt, "1")
 
 
 def test_the_x_linked_sql_admits_haploid_alt_calls() -> None:

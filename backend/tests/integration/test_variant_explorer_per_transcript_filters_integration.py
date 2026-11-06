@@ -19,14 +19,14 @@ filter set the test runs, on the same rows:
 
 * the family search as the family page runs it (``get_family_small_variants_page``, where
   ClickHouse filters and pages), with its count;
-* the family search's Python matcher (``_small_record_matches``), which its ranked,
-  inheritance and carrier-screening views apply to the rows they read;
+* the family search ranked (*Phenotype prioritization*), which reads the same SQL's rows
+  (the roadmap's *One filter definition*: no second, Python reading of the filters);
 * the explorer's search, with its count, the same search narrowed to the variants' locus,
   and its CSV export;
 
 and asserts that each keeps exactly the expected variants. The family page's hydration
 (reviews, cohort counts, constraint, SV badges) is stubbed: it decorates the rows it is
-given and keeps or drops none.
+given and keeps or drops none; the ranking cache is neither read nor written.
 
 ``resolve_scope`` is monkeypatched to a fresh project, so only these rows are counted, and the
 family is a fresh one. The variants sit on chromosome 9, where no other test writes, because
@@ -200,8 +200,6 @@ def test_explorer_keeps_what_the_family_search_keeps(
     import backend.app.services.clickhouse_family_variants as family_variants
     import backend.app.services.variant_explorer_service as explorer
     from backend.app.core.postgres import get_postgres_sessionmaker
-    from backend.app.services.clickhouse_variant_queries import _small_record_matches
-    from backend.app.services.family_variant_filters import SmallVariantQueryFilters
 
     family_uuid = stored_family["family_uuid"]
     context = proband_context(
@@ -218,8 +216,14 @@ def test_explorer_keeps_what_the_family_search_keeps(
     async def _no_hydration(session, *, context, variants):
         return None
 
+    async def _not_cached(*_args: Any, **_kwargs: Any) -> None:
+        return None
+
     monkeypatch.setattr(explorer, "resolve_scope", _fake_scope)
     monkeypatch.setattr(family_variants, "_hydrate_small_variant_outs", _no_hydration)
+    # The family has no Postgres record, so its ranking is computed every time, never cached.
+    monkeypatch.setattr(family_variants, "get_cached_ranking", _not_cached)
+    monkeypatch.setattr(family_variants, "store_ranking", _not_cached)
 
     # The explorer names the impact and consequence lists in the plural.
     explorer_filters = {
@@ -233,10 +237,9 @@ def test_explorer_keeps_what_the_family_search_keeps(
             family_page = await family_variants.get_family_small_variants_page(
                 session, context=context, page=1, page_size=100, **family_filters
             )
-            stored = await family_variants._fetch_small_variant_rows(
-                context, SmallVariantQueryFilters(page=1, page_size=100)
+            ranked_page = await family_variants.get_family_small_variants_page(
+                session, context=context, page=1, page_size=100, prioritize=True, **family_filters
             )
-            python_filters = SmallVariantQueryFilters(page=1, page_size=100, **family_filters)
             explorer_page = await explorer.search_global_small_variants(
                 session,
                 user=None,
@@ -257,11 +260,7 @@ def test_explorer_keeps_what_the_family_search_keeps(
             )
         return {
             "family page": (family_page.total, {variant.id for variant in family_page.variants}),
-            "family Python matcher": {
-                record.variant_id
-                for record in stored
-                if _small_record_matches(record, python_filters, [], [], [])
-            },
+            "family page ranked": {variant.id for variant in ranked_page.variants},
             "explorer": (explorer_page.total, {row.variant_id for row in explorer_page.variants}),
             "explorer at the locus": (
                 explorer_locus_page.total,
@@ -273,7 +272,7 @@ def test_explorer_keeps_what_the_family_search_keeps(
     results = run_closing_stores(_run)
     assert results == {
         "family page": (len(expected), expected),
-        "family Python matcher": expected,
+        "family page ranked": expected,
         "explorer": (len(expected), expected),
         "explorer at the locus": (len(expected), expected),
         "explorer export": expected,

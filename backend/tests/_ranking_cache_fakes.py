@@ -6,25 +6,26 @@ by the real ``inputs_hash``, each row through the JSON round trip its jsonb colu
 superset candidates read without their rankings as ``find_superset_candidates`` reads them
 (ENG-13), the other inputs of the cache key (the pedigree, the panel's version, the Monarch and
 reference releases), a steady small-variant data version, no gene constraint metrics and no
-hydration. ``panel_sql_match`` is the panel part of the family search's SQL filter.
+hydration. ``panel_sql_match`` is the panel part of the family search's SQL filter, and
+``sql_keeps`` the parts these tests set; each refuses to stand in for a filter it does not
+model, which a test then sets on real ClickHouse (the filter spec).
 
 Import as ``from backend.tests._ranking_cache_fakes import ...``.
 """
 
 from __future__ import annotations
 
+import dataclasses
 import json
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from typing import Any
 
 import pytest
 
 from backend.app.services import variant_ranking_cache as vrc
-from backend.app.services.clickhouse_variant_queries import (
-    _small_record_hits_gene_terms,
-    _variant_overlaps_regions,
-)
-from backend.app.services.clickhouse_variant_records import PanelFilterConstraints, SmallVariantRecord
+from backend.app.services.clickhouse_variant_queries import _split_gene_terms, _variant_overlaps_regions
+from backend.app.services.clickhouse_variant_records import PanelFilterConstraints, Region, SmallVariantRecord
+from backend.app.services.family_variant_filters import SmallVariantQueryFilters
 
 _SEARCH = "backend.app.services.clickhouse_family_variants."
 
@@ -37,9 +38,58 @@ def panel_sql_match(record: SmallVariantRecord, constraints: PanelFilterConstrai
     integration/test_small_variant_filter_parity_clickhouse.py."""
     if constraints is None or not (constraints.genes or constraints.regions):
         return True
-    if constraints.genes and _small_record_hits_gene_terms(record, constraints.genes):
+    if constraints.genes and _names_a_gene(record, constraints.genes):
         return True
     return _variant_overlaps_regions(record.chr, record.start, record.end, constraints.regions)
+
+
+def _names_a_gene(record: SmallVariantRecord, genes: Sequence[str]) -> bool:
+    """The variant names one of ``genes``, in any case: as an entry gene symbol, or as an
+    annotation's gene or gene id (what the gene index holds)."""
+    wanted = {str(gene).casefold() for gene in genes if str(gene).strip()}
+    names = {str(symbol).casefold() for symbol in record.gene_symbols}
+    for annotation in record.annotations:
+        names.update(str(annotation[key]).casefold() for key in ("gene", "gene_id") if annotation.get(key))
+    return not wanted.isdisjoint(names)
+
+
+# The filter fields ``sql_keeps`` stands in for; the scope's own fields (the panel, the
+# intervals, the excluded genes) arrive resolved, as its keyword arguments.
+_MODELLED_FIELDS = frozenset(
+    {"page", "page_size", "inheritance", "expanded_carrier_screening", "gene", "panel_id", "intervals",
+     "exclude_intervals", "exclude_gene"}
+)
+
+
+def sql_keeps(
+    record: SmallVariantRecord,
+    filters: SmallVariantQueryFilters,
+    *,
+    include_regions: Sequence[Region] = (),
+    exclude_regions: Sequence[Region] = (),
+    exclude_gene_regions: Sequence[Region] = (),
+    panel_constraints: PanelFilterConstraints | None = None,
+) -> bool:
+    """What the family search's SQL filter keeps, for the fields these tests set: the gene,
+    the panel, the intervals and the excluded loci. Any other field set is refused: the real
+    SQL is held to the rule on ClickHouse (the filter spec), and a fake must not stand in
+    for it."""
+    defaults = SmallVariantQueryFilters(page=1, page_size=1)
+    unmodelled = [
+        field.name
+        for field in dataclasses.fields(filters)
+        if field.name not in _MODELLED_FIELDS and getattr(filters, field.name) != getattr(defaults, field.name)
+    ]
+    if unmodelled:
+        raise NotImplementedError(f"the fake SQL filter does not model {unmodelled}")
+    if filters.gene and not _names_a_gene(record, _split_gene_terms(filters.gene)):
+        return False
+    span = (record.chr, record.start, record.end)
+    if include_regions and not _variant_overlaps_regions(*span, include_regions):
+        return False
+    if any(_variant_overlaps_regions(*span, regions) for regions in (exclude_regions, exclude_gene_regions) if regions):
+        return False
+    return panel_sql_match(record, panel_constraints)
 
 
 def install_ranking_storage(

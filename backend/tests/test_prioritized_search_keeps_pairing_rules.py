@@ -43,7 +43,6 @@ from backend.app.services.clickhouse_variant_queries import (
     _family_affected_unaffected_sample_names,
     _is_mitochondrial_chromosome,
     _small_call_map,
-    _small_record_matches,
 )
 from backend.app.services.clickhouse_variant_records import (
     PanelFilterConstraints,
@@ -59,7 +58,7 @@ from backend.app.services.variant_prioritization import (
     MODE_HOM_RECESSIVE,
     MODE_X_LINKED,
 )
-from backend.tests._ranking_cache_fakes import install_ranking_storage, panel_sql_match
+from backend.tests._ranking_cache_fakes import install_ranking_storage, sql_keeps
 
 PANEL_BC = "c1a44000-0000-4000-8000-000000000001"
 PANEL_B_PART = "c1a44000-0000-4000-8000-000000000002"
@@ -229,13 +228,12 @@ class _World:
             if (wanted is None or record.variant_id in wanted)
             and record.variant_id not in excluded
             and _sql_prefilter(record, filters, context)
-            and panel_sql_match(record, kwargs.get("panel_constraints"))
-            and _small_record_matches(
+            and sql_keeps(
                 record,
                 filters,
-                list(kwargs.get("include_regions") or ()),
-                list(kwargs.get("exclude_regions") or ()),
-                list(kwargs.get("exclude_gene_regions") or ()),
+                include_regions=list(kwargs.get("include_regions") or ()),
+                exclude_regions=list(kwargs.get("exclude_regions") or ()),
+                exclude_gene_regions=list(kwargs.get("exclude_gene_regions") or ()),
                 panel_constraints=kwargs.get("panel_constraints"),
             )
         ]

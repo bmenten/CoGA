@@ -43,7 +43,6 @@ from backend.app.services import clickhouse_family_variants as cfv
 from backend.app.services.clickhouse_variant_queries import (
     _parse_interval_regions,
     _segregation_modes_by_variant,
-    _small_record_matches,
 )
 from backend.app.services.clickhouse_variant_records import (
     PanelFilterConstraints,
@@ -54,7 +53,7 @@ from backend.app.services.clickhouse_variant_records import (
 from backend.app.services.family_metadata_context import FamilyMetadataContext
 from backend.app.services.family_variant_filters import SmallVariantQueryFilters
 from backend.app.services.variant_prioritization import MODE_COMPOUND_HET
-from backend.tests._ranking_cache_fakes import install_ranking_storage, panel_sql_match
+from backend.tests._ranking_cache_fakes import install_ranking_storage, sql_keeps
 from backend.tests._segregation_flags import flag, members_of
 
 BROAD = "0b5e1c1e-0000-4000-8000-000000000001"
@@ -233,13 +232,12 @@ def world(monkeypatch: pytest.MonkeyPatch) -> _World:
             record
             for record in state.records
             if (wanted is None or record.variant_id in wanted)
-            and panel_sql_match(record, panel_constraints)
-            and _small_record_matches(
+            and sql_keeps(
                 record,
                 filters,
-                list(include_regions),
-                list(exclude_regions),
-                list(exclude_gene_regions),
+                include_regions=list(include_regions),
+                exclude_regions=list(exclude_regions),
+                exclude_gene_regions=list(exclude_gene_regions),
                 panel_constraints=panel_constraints,
             )
         ]

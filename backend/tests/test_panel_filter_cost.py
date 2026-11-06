@@ -6,10 +6,10 @@ casefolded the panel's gene names again for every candidate and scanned every re
 after a gene had matched: 1.5 to 4.4 s of a fresh Mendeliome ranking, which a compound-het,
 recessive or carrier-screening search paid on an exact cache hit too.
 
-* The record filter casefolds the panel's genes once per search, reads no region of a record a
-  panel gene names, and keeps exactly what the per-row rule kept, over a grid of chromosome
-  spellings, positions, gene spellings and annotation keys, and random cases
-  (``_SmallPanelMatch``, ``_RegionLookup``).
+* The region lookup the structural-variant panel filter reads (``_RegionLookup``) answers
+  what testing every region answers. (The small-variant record filter, which applied the panel
+  again in Python, is gone: the SQL is the one definition, the roadmap's *One filter
+  definition*.)
 * The family page's panel-region condition is a join on 64-kb windows over the family's own
   rows (``_small_family_region_condition``), narrowed by nothing but the search's own scope
   and locus clauses, so it reads every row the search reads. That it keeps the same rows is
@@ -27,19 +27,14 @@ from typing import Any
 import pytest
 
 from backend.app.services import clickhouse_variant_queries as queries
-from backend.app.services.clickhouse_family_variants import _kept_small_candidates, _SmallVariantScope
 from backend.app.services.clickhouse_variant_queries import (
     _small_query_filter_parts,
-    _small_record_hits_gene_terms,
-    _small_record_matches,
     _small_variant_where_clauses,
     _variant_overlaps_regions,
 )
 from backend.app.services.clickhouse_variant_records import (
     PanelFilterConstraints,
     Region,
-    SmallVariantCall,
-    SmallVariantRecord,
 )
 from backend.app.services.family_metadata_context import FamilyMetadataContext
 from backend.app.services.family_variant_filters import SmallVariantQueryFilters
@@ -57,199 +52,6 @@ _CONTEXT = FamilyMetadataContext(
     assembly_name="GRCh38",
 )
 _ENTRIES = "coga.`GRCh38/SNV_INDEL/entries`"
-
-
-def _record(
-    chrom: str,
-    start: int,
-    end: int | None = None,
-    *,
-    symbols: tuple[str, ...] = (),
-    annotations: tuple[dict[str, Any], ...] = (),
-    variant_id: str | None = None,
-) -> SmallVariantRecord:
-    return SmallVariantRecord(
-        variant_key=None,
-        variant_id=variant_id or f"{chrom}-{start}-{end}-{'.'.join(symbols)}",
-        chr=chrom,
-        start=start,
-        end=start if end is None else end,
-        ref="C",
-        alt="T",
-        source="deepvariant",
-        rsid=None,
-        filters=["PASS"],
-        gene_symbols=list(symbols),
-        annotations=[dict(annotation) for annotation in annotations],
-        calls=[SmallVariantCall(sample="PROBAND", gt="0/1", gq=99.0, dp=30, af=[0.5], ad=[15, 15], ps=None)],
-    )
-
-
-def _scope(panel: PanelFilterConstraints) -> _SmallVariantScope:
-    return _SmallVariantScope(
-        panel_constraints=panel,
-        review_variant_ids=None,
-        excluded_review_variant_ids=set(),
-        include_review_filter_active=False,
-        include_regions=[],
-        exclude_regions=[],
-        exclude_gene_regions=[],
-        exclude_gene_terms=[],
-    )
-
-
-def _rule(record: SmallVariantRecord, panel: PanelFilterConstraints) -> bool:
-    """The panel check as the record filter made it before ENG-15: a gene of the panel among
-    the record's gene names, or the record in one of the panel's regions, whatever the
-    panel's size. (A panel of genes with more than 1,000 regions was matched on its genes
-    alone until the owner's decision of 2026-10-14.)"""
-    if not (panel.genes or panel.regions):
-        return True
-    gene_match = bool(panel.genes) and _small_record_hits_gene_terms(record, panel.genes)
-    region_match = bool(panel.regions) and _variant_overlaps_regions(
-        record.chr, record.start, record.end, panel.regions
-    )
-    return gene_match or region_match
-
-
-# --------------------------------------------------------------------------- #
-# The record filter: the panel prepared once per search                        #
-# --------------------------------------------------------------------------- #
-
-
-def _panel_and_records(genes: int, records: int) -> tuple[PanelFilterConstraints, list[SmallVariantRecord]]:
-    """A panel of ``genes`` genes, each with a locus, and ``records`` records annotated with
-    one of them, spelled in other case, each in its gene's locus."""
-    panel = PanelFilterConstraints(
-        genes=tuple(f"PANELGENE{index:04d}" for index in range(genes)),
-        regions=tuple(Region(chr="chr2", start=10_000 * index, end=10_000 * index + 500) for index in range(genes)),
-    )
-    kept = [
-        _record(
-            "2",
-            10_000 * (index % genes) + 100,
-            symbols=(f"Panelgene{index % genes:04d}",),
-            annotations=({"gene": f"panelGENE{index % genes:04d}", "impact": "MODERATE"},),
-            variant_id=f"v{index}",
-        )
-        for index in range(records)
-    ]
-    return panel, kept
-
-
-def test_the_record_filter_casefolds_the_panel_s_genes_once_per_search(monkeypatch: pytest.MonkeyPatch) -> None:
-    panel, records = _panel_and_records(genes=200, records=60)
-    panel_genes = set(panel.genes)
-    casefolded: Counter[str] = Counter()
-    casefold = queries._casefold
-
-    def counting_casefold(value: Any) -> str:
-        if value in panel_genes:
-            casefolded[value] += 1
-        return casefold(value)
-
-    monkeypatch.setattr(queries, "_casefold", counting_casefold)
-    kept = _kept_small_candidates(records, _FILTERS, _scope(panel), _CONTEXT)
-
-    assert [record.variant_id for record in kept] == [record.variant_id for record in records]
-    # Each of the panel's gene names once for the whole search; before ENG-15, once per record
-    # (60 times each here, 5,300 x the candidates for the Mendeliome).
-    assert casefolded == Counter(panel_genes)
-
-
-def test_the_record_filter_reads_no_region_of_a_record_a_panel_gene_names(monkeypatch: pytest.MonkeyPatch) -> None:
-    panel, records = _panel_and_records(genes=200, records=60)
-    normalized: list[Any] = []
-    normalize = queries.normalize_chromosome
-
-    def counting_normalize(value: Any) -> str:
-        normalized.append(value)
-        return normalize(value)
-
-    monkeypatch.setattr(queries, "normalize_chromosome", counting_normalize)
-    kept = _kept_small_candidates(records, _FILTERS, _scope(panel), _CONTEXT)
-
-    assert len(kept) == len(records)
-    # Every record is named by a panel gene: no region was read. Before ENG-15 each record
-    # read every region (200 regions x 60 records here).
-    assert normalized == []
-
-
-def test_a_record_no_panel_gene_names_is_found_in_the_regions_by_bisection(monkeypatch: pytest.MonkeyPatch) -> None:
-    from backend.app.services.clickhouse_variant_queries import _SmallPanelMatch
-
-    panel, _records = _panel_and_records(genes=200, records=1)
-    unnamed = [
-        _record("chr2", 10_000 * index + 250, symbols=("OTHERGENE",), variant_id=f"u{index}") for index in range(60)
-    ]
-    outside = _record("2", 10_000 * 7 + 501, symbols=("OTHERGENE",), variant_id="outside")
-    match = _SmallPanelMatch(panel)
-    normalized: list[Any] = []
-    normalize = queries.normalize_chromosome
-
-    def counting_normalize(value: Any) -> str:
-        normalized.append(value)
-        return normalize(value)
-
-    monkeypatch.setattr(queries, "normalize_chromosome", counting_normalize)
-    assert all(match.keeps(record) for record in unnamed)
-    assert not match.keeps(outside)
-    # Each region's chromosome is read once, when the lookup is built for the first record
-    # that needs it, and each record's own once.
-    assert len(normalized) == len(panel.regions) + len(unnamed) + 1
-
-
-_CHROMOSOMES = ["1", "chr1", "CHR1", "X", "x", "chrX", "M", "MT", "chrM", " 7 ", "7", "GL000192.1", "", "chr"]
-_GENES = ["BRCA1", "brca1", "BRCA2", "TP53", "  ", "", "Gene With Space", "ENSG00000012048"]
-_ANNOTATION_KEYS = ["gene", "gene_id", "geneSymbol", "geneId", "hgnc_symbol", "hgncSymbol", "symbol"]
-
-
-def _grid() -> tuple[list[SmallVariantRecord], list[PanelFilterConstraints]]:
-    """Records of every chromosome spelling, around and inside the regions below, with gene
-    names in their symbols or under each annotation key; panels of genes, of regions, of
-    both and of neither, with blank and differently cased genes, reversed, one-base,
-    nested and repeated regions, and regions without a chromosome."""
-    records: list[SmallVariantRecord] = []
-    for chrom in _CHROMOSOMES:
-        for start, end in [(99, 99), (100, 100), (150, 160), (200, 200), (201, 201), (90, 100), (199, 300),
-                           (250, 260), (500, 499), (1_000, 1_000), (5, 4_000)]:
-            records.append(_record(chrom, start, end))
-            records.append(_record(chrom, start, end, symbols=("brca1",)))
-            for key in _ANNOTATION_KEYS:
-                records.append(_record(chrom, start, end, annotations=({key: "Brca1"},)))
-    records.append(_record("1", 150, 150, symbols=("",)))
-    records.append(_record("1", 150, 150, annotations=({"gene": "  "},)))
-
-    region_sets = [
-        (),
-        (Region(chr="chr1", start=100, end=200),),
-        (Region(chr="1", start=200, end=100), Region(chr="X", start=150, end=150)),  # reversed; one base
-        (Region(chr="CHR1", start=1, end=1_000_000), Region(chr="1", start=150, end=155)),  # nested
-        (Region(chr="chrM", start=100, end=200), Region(chr="MT", start=100, end=200)),
-        (Region(chr="", start=1, end=300), Region(chr="x", start=100, end=200)),  # no chromosome; lower case
-        (Region(chr=" 7 ", start=150, end=150), Region(chr="7", start=150, end=150)),  # repeated
-        (Region(chr="GL000192.1", start=0, end=99), Region(chr="chr", start=1, end=10_000)),
-    ]
-    gene_sets: list[tuple[str, ...]] = [(), ("BRCA1",), ("brca1", "TP53"), ("  ",), ("", "BRCA2"), ("ENSG00000012048",)]
-    panels = [PanelFilterConstraints(genes=genes, regions=regions) for genes in gene_sets for regions in region_sets]
-    return records, panels
-
-
-def test_the_prepared_panel_keeps_exactly_what_the_per_row_rule_kept() -> None:
-    from backend.app.services.clickhouse_variant_queries import _SmallPanelMatch
-
-    records, panels = _grid()
-    outcomes: Counter[bool] = Counter()
-    for panel in panels:
-        match = _SmallPanelMatch(panel)
-        for record in records:
-            expected = _rule(record, panel)
-            assert match.keeps(record) is expected, (record, panel)
-            # The record filter itself, with the panel prepared once or given as constraints.
-            assert _small_record_matches(record, _FILTERS, [], [], [], panel_constraints=match) is expected
-            assert _small_record_matches(record, _FILTERS, [], [], [], panel_constraints=panel) is expected
-            outcomes[expected] += 1
-    assert outcomes[True] and outcomes[False]
 
 
 def test_the_region_lookup_answers_what_testing_every_region_answers() -> None:
@@ -272,34 +74,6 @@ def test_the_region_lookup_answers_what_testing_every_region_answers() -> None:
             assert lookup.overlaps(chrom, start, end) is expected, (chrom, start, end, regions)
             checked[expected] += 1
     assert checked[True] > 500 and checked[False] > 500
-
-
-def test_the_kept_candidates_are_the_per_row_rule_s_on_a_mendeliome_sized_panel() -> None:
-    panel, records = _panel_and_records(genes=5_300, records=400)
-    rng = random.Random(5300)
-    # Half of them annotated with another symbol: kept by position in their gene's locus,
-    # left out past it. A panel this size was matched on its genes alone, and left them all
-    # out (owner decision 2026-10-14).
-    renamed_in_locus: list[str] = []
-    renamed_past_locus: list[str] = []
-    for record in records[::2]:
-        record.gene_symbols = ["RENAMED"]
-        record.annotations = [{"gene": "RENAMED"}]
-        if rng.random() < 0.5:
-            record.start = record.end = record.start + 1_000  # past the gene's locus
-            renamed_past_locus.append(record.variant_id)
-        else:
-            renamed_in_locus.append(record.variant_id)
-    expected = [record.variant_id for record in records if _rule(record, panel)]
-    kept = [record.variant_id for record in _kept_small_candidates(records, _FILTERS, _scope(panel), _CONTEXT)]
-    assert kept == expected
-    assert renamed_in_locus and set(renamed_in_locus) <= set(kept)
-    assert renamed_past_locus and not set(renamed_past_locus) & set(kept)
-
-
-# --------------------------------------------------------------------------- #
-# The family page's panel-region condition: a join over the family's own rows  #
-# --------------------------------------------------------------------------- #
 
 
 def _panel_clause(filters: SmallVariantQueryFilters, panel: PanelFilterConstraints) -> tuple[str, dict[str, Any]]:

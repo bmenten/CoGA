@@ -4,20 +4,21 @@ kept past the frequency ceilings when the search asks for it (``clinvar_override
 The rescue lifts the whole frequency block (the population frequencies and the gnomAD
 homozygote, hemizygote and allele counts), for a ClinVar pathogenic or likely pathogenic record,
 ClinVar's aggregate form included; never for a benign record or a variant without ClinVar, and
-not at all when the search does not ask for it. The Python matcher (``_annotation_matches_normal``)
-and the ClickHouse condition (``_small_detail_filter_clauses``, #534) apply the same rule.
+not at all when the search does not ask for it. The ClickHouse condition applies it
+(``_small_detail_filter_clauses``, #534); the real-ClickHouse filter spec holds it to the rule
+(integration/test_small_variant_filter_parity_clickhouse.py).
 """
 
 from __future__ import annotations
 
-import pytest
 
 from backend.app.services.clickhouse_variant_queries import _small_detail_filter_clauses
 from backend.app.services.clickhouse_variant_records import (
-    _annotation_matches_normal,
-    _flexible_status_match,
+    CLINVAR_FREQUENCY_RESCUE_TERMS,
+    _status_filter_terms,
     _status_terms,
 )
+from backend.app.services.clickhouse_variant_rows import _annotation_columns
 from backend.app.services.family_variant_filters import SmallVariantQueryFilters
 
 
@@ -25,37 +26,6 @@ def _filters(**overrides) -> SmallVariantQueryFilters:
     base = dict(page=1, page_size=100, max_gnomad_af=0.01, max_gnomad_hom_count=10)
     base.update(overrides)
     return SmallVariantQueryFilters(**base)
-
-
-@pytest.mark.parametrize(
-    ("annotation", "rescue", "kept"),
-    [
-        ({"gnomad_af": 0.2, "gnomad_hom_count": 5000, "clinvar": "Pathogenic"}, True, True),
-        ({"gnomad_af": 0.2, "clinvar": "Likely_pathogenic"}, True, True),
-        ({"gnomad_af": 0.2, "clinvar": "Pathogenic"}, False, False),
-        ({"gnomad_af": 0.2, "clinvar": "Benign"}, True, False),
-        ({"gnomad_af": 0.2}, True, False),
-        ({"gnomad_af": 0.0001, "clinvar": "Pathogenic"}, False, True),
-        # Common by its homozygote count alone: the rescue covers the whole
-        # frequency/hom/hemi/AC block, not the frequencies alone.
-        ({"gnomad_af": 0.0001, "gnomad_hom_count": 9000, "clinvar": "Pathogenic"}, False, False),
-        ({"gnomad_af": 0.0001, "gnomad_hom_count": 9000, "clinvar": "Pathogenic"}, True, True),
-    ],
-    ids=[
-        "common pathogenic, rescued",
-        "common likely pathogenic, rescued",
-        "common pathogenic, without the rescue",
-        "common benign is not rescued",
-        "common without ClinVar is not rescued",
-        "rare pathogenic passes regardless",
-        "common by hom count, without the rescue",
-        "common by hom count, rescued",
-    ],
-)
-def test_the_python_matcher_lifts_the_frequency_block_for_a_pathogenic_clinvar_record(
-    annotation: dict, rescue: bool, kept: bool
-) -> None:
-    assert _annotation_matches_normal(annotation, _filters(clinvar_overrides_frequency=rescue)) is kept
 
 
 # --- #534: the ClickHouse filter must apply the same rescue ------------------------------
@@ -117,7 +87,8 @@ def test_clinvar_aggregate_significance_is_split_into_its_terms() -> None:
 
 
 def test_aggregate_pathogenic_matches_a_pathogenic_filter_and_the_rescue() -> None:
-    assert _flexible_status_match("Pathogenic/Likely_pathogenic", ["Pathogenic"])
-    annotation = {"gnomad_af": 0.2, "clinvar": "Pathogenic/Likely_pathogenic"}
-    assert _annotation_matches_normal(annotation, _filters(clinvar_overrides_frequency=True))
-    assert not _annotation_matches_normal(annotation, _filters(clinvar_overrides_frequency=False))
+    # The stored terms of ClinVar's aggregate form meet a Pathogenic filter and the rescue's
+    # terms, which the SQL compares them with (hasAny(a.clinvar_terms, …)).
+    stored = _annotation_columns({"gnomad_af": 0.2, "clinvar": "Pathogenic/Likely_pathogenic"}).clinvar_terms
+    assert not stored.isdisjoint(_status_filter_terms(["Pathogenic"]))
+    assert not stored.isdisjoint(_status_filter_terms(list(CLINVAR_FREQUENCY_RESCUE_TERMS)))

@@ -29,7 +29,6 @@ from backend.app.services.clickhouse_variant_queries import (
     _small_detail_filter_clauses,
     _small_variant_where_clauses,
     _small_variant_out,
-    _small_record_matches,
     _normalize_small_variant_inheritance,
 )
 from backend.app.services.clickhouse_variant_records import (
@@ -39,7 +38,7 @@ from backend.app.services.clickhouse_variant_records import (
     SmallVariantRecord,
     StructuralVariantCall,
     StructuralVariantRecord,
-    _flexible_status_match,
+    _status_filter_terms,
 )
 from backend.app.services.family_metadata_context import FamilyMetadataContext
 from backend.app.services.family_variant_filters import (
@@ -50,6 +49,7 @@ from backend.app.services.family_variant_filters import (
 from backend.app.schemas import SmallVariantSummaryOut, VariantPage
 import backend.app.services.clickhouse_family_variants as _cfv
 from backend.app.services.genotypes import genotype_vocabulary
+from backend.app.services.clickhouse_variant_rows import _annotation_columns
 from backend.tests._segregation_flags import flag, members_of
 
 
@@ -783,36 +783,16 @@ async def test_execute_clickhouse_returns_empty_for_missing_table(
 
 
 def test_clinvar_status_filter_is_exact_not_substring() -> None:
-    assert _flexible_status_match("Pathogenic", ["pathogenic"])
-    assert not _flexible_status_match("Likely pathogenic", ["pathogenic"])
-    assert _flexible_status_match("Pathogenic&risk_factor", ["pathogenic"])
-    assert not _flexible_status_match("Conflicting interpretations of pathogenicity", ["pathogenic"])
+    # The SQL keeps a transcript when one of its stored ClinVar terms is one the filter names
+    # (hasAny(a.clinvar_terms, …)): the terms as the import stores them and as the filter's
+    # values are read.
+    def matches(stored: str, wanted: list[str]) -> bool:
+        return not _annotation_columns({"clinvar": stored}).clinvar_terms.isdisjoint(_status_filter_terms(wanted))
 
-
-def test_clinvar_filter_does_not_override_other_annotation_filters() -> None:
-    record = _small_variant("v1", "GENE1", calls=[_small_call("PROBAND", "0/1")])
-    record.annotations = [
-        {
-            "gene": "GENE1",
-            "impact": "LOW",
-            "clinvar": "Pathogenic",
-            "gnomad_af": 0.03,
-        }
-    ]
-
-    assert not _small_record_matches(
-        record,
-        SmallVariantQueryFilters(
-            page=1,
-            page_size=100,
-            impact=["HIGH"],
-            clinvar=["Pathogenic"],
-            max_gnomad_af=0.01,
-        ),
-        [],
-        [],
-        [],
-    )
+    assert matches("Pathogenic", ["pathogenic"])
+    assert not matches("Likely pathogenic", ["pathogenic"])
+    assert matches("Pathogenic&risk_factor", ["pathogenic"])
+    assert not matches("Conflicting interpretations of pathogenicity", ["pathogenic"])
 
 
 def test_clickhouse_annotation_filters_are_scoped_to_one_annotation() -> None:
@@ -836,22 +816,10 @@ def test_clickhouse_annotation_filters_are_scoped_to_one_annotation() -> None:
 
 
 def test_small_annotation_effect_filter_splits_vep_compound_terms() -> None:
-    record = _small_variant("v1", "GENE1", calls=[_small_call("PROBAND", "0/1")])
-    record.annotations = [
-        {
-            "gene": "GENE1",
-            "impact": "MODERATE",
-            "effect": "missense_variant&splice_region_variant",
-        }
-    ]
-
-    assert _small_record_matches(
-        record,
-        SmallVariantQueryFilters(page=1, page_size=100, effect=["missense_variant"]),
-        [],
-        [],
-        [],
-    )
+    # The stored consequence terms the SQL reads (hasAny(a.effects, …)): each of the terms VEP
+    # joins with "&".
+    columns = _annotation_columns({"gene": "GENE1", "impact": "MODERATE", "effect": "missense_variant&splice_region_variant"})
+    assert {"missense_variant", "splice_region_variant"} <= set(columns.effect_terms)
 
 
 @pytest.mark.parametrize(
@@ -868,12 +836,10 @@ def test_small_annotation_effect_filter_splits_vep_compound_terms() -> None:
 def test_mane_only_keeps_a_mane_select_or_a_mane_plus_clinical_transcript(
     transcript: dict[str, bool], kept: bool
 ) -> None:
-    # The family search's *MANE only*, which the Variant Explorer follows (CLIN-5).
-    record = _small_variant("v1", "GENE1", calls=[_small_call("PROBAND", "0/1")])
-    record.annotations = [{"gene": "GENE1", **transcript}]
-    filters = SmallVariantQueryFilters(page=1, page_size=100, mane_only=True)
-
-    assert _small_record_matches(record, filters, [], [], []) is kept
+    # The family search's *MANE only*, which the Variant Explorer follows (CLIN-5): the two
+    # flags the import stores, which the SQL reads (below).
+    columns = _annotation_columns({"gene": "GENE1", **transcript})
+    assert (columns.mane_select or columns.mane_plus_clinical) is kept
 
 
 def test_mane_only_sql_reads_both_mane_flags_of_one_transcript() -> None:
@@ -2134,7 +2100,6 @@ async def test_prioritized_small_variants_tie_order_is_deterministic(
         monkeypatch.setattr(m + "canonical_filters", lambda *a, **k: {})
         monkeypatch.setattr(m + "store_ranking", _none)
         monkeypatch.setattr(m + "_hydrate_small_variant_outs", _none)
-        monkeypatch.setattr(m + "_small_record_matches", lambda *a, **k: True)
         page = await _prioritized_small_variants_page(
             None,  # type: ignore[arg-type]
             context=_family_context(),
@@ -2230,7 +2195,6 @@ async def test_prioritized_ranking_cache_misses_after_the_family_variant_data_ch
     monkeypatch.setattr(m + "_fetch_gene_constraint_metric_map", _empty)
     monkeypatch.setattr(m + "_segregation_modes_by_variant", lambda *a, **k: {})
     monkeypatch.setattr(m + "_hydrate_small_variant_outs", _none)
-    monkeypatch.setattr(m + "_small_record_matches", lambda *a, **k: True)
 
     async def _open():
         return await _prioritized_small_variants_page(
@@ -2910,14 +2874,16 @@ async def test_structural_export_over_the_candidate_cap_is_truncated(monkeypatch
 async def test_prioritized_small_ranking_that_filters_to_nothing_still_flags_the_window(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # The candidate window overflowed and none of it survived the Python-side filters: the
-    # empty ranking covers only the window, so a matching variant may lie beyond it. The
-    # early return used to drop ranking_truncated, and the prioritised export said "complete".
+    # The candidate window overflowed and none of it survived the rules applied after the
+    # SQL (here: a compound-het search whose candidates pair nothing, each in a gene of its
+    # own): the empty ranking covers only the window, so a matching variant may lie beyond
+    # it. The early return used to drop ranking_truncated, and the prioritised export said
+    # "complete".
     from backend.app.services.clickhouse_family_variants import _PRIORITIZE_CANDIDATE_LIMIT
 
     calls = [_small_call("PROBAND", "0/1")]
     records = [
-        _small_variant(f"1-{i}-A-G", "GENE1", calls=calls, start=i)
+        _small_variant(f"1-{i}-A-G", f"GENE{i}", calls=calls, start=i)
         for i in range(1, _PRIORITIZE_CANDIDATE_LIMIT + 2)
     ]
     m = "backend.app.services.clickhouse_family_variants."
@@ -2945,11 +2911,10 @@ async def test_prioritized_small_ranking_that_filters_to_nothing_still_flags_the
     monkeypatch.setattr(m + "_fetch_small_variant_rows", _fetch)
     monkeypatch.setattr(m + "canonical_filters", lambda *a, **k: {})
     monkeypatch.setattr(m + "store_ranking", _none)
-    monkeypatch.setattr(m + "_small_record_matches", lambda *a, **k: False)
     page = await _prioritized_small_variants_page(
         None,  # type: ignore[arg-type]
         context=_family_context(),
-        filters=SmallVariantQueryFilters(page=1, page_size=50),
+        filters=SmallVariantQueryFilters(page=1, page_size=50, inheritance="compound_het"),
         page=1,
         page_size=50,
         panel_constraints=PanelFilterConstraints(),

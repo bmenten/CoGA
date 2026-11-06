@@ -4,7 +4,6 @@ from dataclasses import dataclass, field
 import functools
 import math
 import re
-import struct
 from typing import List
 
 from .genotypes import HET, HOM_ALT, HOM_REF, GenotypeClass, classify_genotype
@@ -162,10 +161,9 @@ def structural_variant_length_filters_match(
 # ``deleterious(0.01)`` and ``deleterious``, never ``deleterious_low_confidence(0.03)``, which
 # the filter form offers as a choice of its own. The SQL condition used to find the filter's
 # text anywhere in the value, so ``deleterious`` also kept ``deleterious_low_confidence`` and
-# ``tolerated`` kept ``tolerated_low_confidence``; the Python matcher, which runs after the
-# SQL in the ranked view, the pair-based inheritance modes and carrier screening, needed the
-# whole value, so ``deleterious(0.01)`` was not ``deleterious`` and a SIFT- or PolyPhen-only
-# filter kept nothing there (CLIN-45). Both now apply in_silico_prediction_pattern.
+# ``tolerated`` kept ``tolerated_low_confidence``; a second, Python reading needed the whole
+# value, so ``deleterious(0.01)`` was not ``deleterious`` (CLIN-45). The SQL condition now
+# applies in_silico_prediction_pattern, the filter's one test.
 _IN_SILICO_PREDICTION_SCORE = re.compile(r"\([^()]*\)\s*$")
 # What separates two predictions in one value, as it separates two terms of a ClinVar value.
 _IN_SILICO_PREDICTION_SEPARATOR = "[,;&|/]"
@@ -185,13 +183,12 @@ def in_silico_prediction(value: object) -> str:
 def in_silico_prediction_pattern(prediction: str | None) -> str | None:
     """The regular expression a stored SIFT or PolyPhen value matches when it names the
     prediction the filter value ``prediction`` names (:func:`in_silico_prediction`), or None
-    when that value names none: the filter then asks nothing, in SQL and in Python alike.
+    when that value names none: the filter then asks nothing.
 
-    It is the filter's one test. The ClickHouse condition applies it with ``match`` to the
-    stored value, and the Python matcher (:func:`in_silico_prediction_matches`) to the same
-    text. It holds literal text, ``[...]`` classes, the ``*``, ``+`` and ``?`` quantifiers,
-    non-capturing groups and the ``^`` and ``$`` anchors only, which RE2 and Python read
-    alike. A value matches when it names the prediction, its words joined by spaces or
+    It is the filter's one test, which the ClickHouse condition applies with ``match`` to the
+    stored value (trimmed and case-folded by the import). It holds literal text, ``[...]``
+    classes, the ``*``, ``+`` and ``?`` quantifiers, non-capturing groups and the ``^`` and
+    ``$`` anchors only, which RE2 and Python read alike. A value matches when it names the prediction, its words joined by spaces or
     underscores, with or without a score in parentheses after it; a value that lists several
     predictions (separated by ``,`` ``;`` ``&`` ``|`` or ``/``) matches when one of them
     does.
@@ -202,62 +199,6 @@ def in_silico_prediction_pattern(prediction: str | None) -> str | None:
     words = "[ _]+".join(re.escape(word) for word in term.split("_"))
     separator = _IN_SILICO_PREDICTION_SEPARATOR
     return f"(?:^|{separator})[ _]*{words}[ _]*(?:[(][^()]*[)][ _]*)?(?:{separator}|$)"
-
-
-@functools.lru_cache(maxsize=64)
-def _in_silico_prediction_regex(prediction: str | None) -> re.Pattern[str] | None:
-    pattern = in_silico_prediction_pattern(prediction)
-    return re.compile(pattern) if pattern is not None else None
-
-
-def in_silico_prediction_matches(value: object, prediction: str | None) -> bool:
-    """Whether a SIFT or PolyPhen value names the prediction the filter value ``prediction``
-    names: :func:`in_silico_prediction_pattern`, applied as the ClickHouse condition applies
-    it, to the value as the import stores it (trimmed and case-folded). False when
-    ``prediction`` names none."""
-    regex = _in_silico_prediction_regex(prediction)
-    return regex is not None and regex.search(str(value or "").strip().casefold()) is not None
-
-
-def stored_precision(value: float) -> float:
-    """``value`` at the precision ClickHouse stores a population frequency, an in-silico
-    score and a call's allele fraction in (Float32): the nearest 32-bit value, an infinity
-    beyond their range.
-
-    A filter compares such a value with its threshold at this precision, in SQL
-    (``toFloat32`` of the threshold) and in Python alike. Compared with the threshold at
-    64 bits, a value stored exactly at it could round past it: a CADD score of 25.3, a
-    REVEL score of 0.7 or an allele fraction of 0.45 is stored a little below and failed
-    a minimum of the same value, and a gnomAD frequency of 0.001 a little above and failed
-    a maximum of 0.001; the Python matcher, which reads the annotation's own value, kept
-    the variant (ENG-1).
-    """
-    try:
-        return float(struct.unpack("f", struct.pack("f", value))[0])
-    except OverflowError:
-        return math.copysign(math.inf, value)
-
-
-def small_variant_type_matches(ref: str, alt: str, variant_type: str | None) -> bool:
-    """Whether a small variant is of the type a variant-type filter names, in any capitals:
-    ``SNV`` one base for one, ``MNV`` REF and ALT of one length longer than one base, and
-    ``INDEL`` every variant that is no SNV, an MNV included. A value that names none of them
-    asks nothing.
-
-    It is the rule of the search's SQL condition (``_small_variant_where_clauses``). The
-    Python record filter, which the ranked view, the pair-based inheritance modes and
-    carrier screening apply after the SQL, read the variant as SNV or INDEL alone, so an
-    MNV filter kept nothing there and an unrecognised value dropped every variant (ENG-1).
-    """
-    wanted = (variant_type or "").strip().upper()
-    single_base = len(ref) == 1 and len(alt) == 1
-    if wanted == "SNV":
-        return single_base
-    if wanted == "INDEL":
-        return not single_base
-    if wanted == "MNV":
-        return len(ref) == len(alt) and len(ref) > 1
-    return True
 
 
 @dataclass(slots=True)
@@ -308,7 +249,7 @@ class SmallVariantQueryFilters:
     # "Pass variants only": keep a variant only when every call that carries its ALT allele
     # passed its caller's FILTER (PASS, or none set). A callset of one file per sample gives
     # each call its own FILTER; a multi-sample VCF's record FILTER is every call's
-    # (``small_record_passes_caller_filters``; the owner's decision of 2026-11-03).
+    # (``_small_pass_only_condition``; the owner's decision of 2026-11-03).
     pass_only: bool = False
     overlap: bool = False
     # Restrict to variants whose gene is also hit by a structural variant (the cross-type

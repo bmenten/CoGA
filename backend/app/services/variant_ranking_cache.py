@@ -79,7 +79,11 @@ from .hpo_service import get_loaded_hpo_release
 #    recessive, X-linked), which its segregation weight reads, come from the SQL that the
 #    inheritance filter applies, not a Python copy of it (One filter definition). Defensive:
 #    the two agreed on every case of the filter spec.
-_ALGORITHM_VERSION = "9"
+# 10: the ranked search keeps exactly what the SQL keeps: the Python record filter, which
+#    read some values and gene names apart from the stored ones the SQL reads and dropped
+#    what the SQL kept, is gone (One filter definition). A ranking cached before may lack a
+#    variant with a value no 32-bit column holds or a gene named under another key.
+_ALGORITHM_VERSION = "10"
 # Keep only the few most-recent distinct query signatures per family.
 _MAX_CACHE_ROWS_PER_FAMILY = 6
 

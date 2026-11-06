@@ -64,8 +64,6 @@ from .family_variant_filters import (
     is_translocation_sv_type,
     parse_small_variant_sample_filter,
     parse_structural_sample_filter,
-    small_variant_type_matches,
-    stored_precision,
     structural_variant_length,
     structural_variant_length_filters_match,
 )
@@ -88,7 +86,6 @@ from .clickhouse_variant_records import (
     _casefold,
     _contains_casefold,
     _status_filter_terms,
-    _flexible_status_match,
     _coerce_int,
     _coerce_float,
     _annotation_terms,
@@ -106,7 +103,6 @@ from .clickhouse_variant_records import (
     _annotation_sift,
     _annotation_polyphen,
     _annotation_spliceai_max,
-    _annotation_matches_normal,
     mane_only_condition,
 )
 
@@ -553,27 +549,8 @@ def _variant_hits_gene_symbols(gene_symbols: Sequence[str], query: str | None) -
 
 
 def _gene_term_set(terms: Iterable[Any]) -> frozenset[str]:
-    """Gene names as the record filter compares them: casefolded, the blank ones left out."""
+    """Gene names as the SV record filter compares them: casefolded, the blank ones left out."""
     return frozenset(_casefold(term) for term in terms if str(term).strip())
-
-
-def _small_record_gene_terms(record: SmallVariantRecord) -> set[str]:
-    """A record's gene names as the record filter reads them, casefolded: its entry's gene
-    symbols, and the gene and gene id of each of its annotations."""
-    record_terms = {_casefold(symbol) for symbol in record.gene_symbols}
-    for annotation in record.annotations:
-        for key in ("gene", "gene_id", "geneSymbol", "geneId", "hgnc_symbol", "hgncSymbol"):
-            value = _annotation_text(annotation, key)
-            if value:
-                record_terms.add(_casefold(value))
-    return record_terms
-
-
-def _small_record_hits_gene_terms(record: SmallVariantRecord, terms: Sequence[str]) -> bool:
-    normalized_terms = _gene_term_set(terms)
-    if not normalized_terms:
-        return True
-    return not normalized_terms.isdisjoint(_small_record_gene_terms(record))
 
 
 @dataclass(frozen=True, slots=True)
@@ -628,43 +605,6 @@ class _RegionLookup:
             return False
         reached = bisect_right(starts, end)
         return reached > 0 and self.furthest_ends[chromosome][reached - 1] >= start
-
-
-class _SmallPanelMatch:
-    """A gene panel as the record filter applies it (``_small_record_matches``), prepared
-    once per search: a record annotated with one of the panel's genes, or in one of its
-    regions, is kept; a panel with neither keeps every record. Every panel is matched both
-    ways, whatever its size, in SQL and here (``_small_panel_filter_condition``): a panel of
-    more than 1,000 regions, the Mendeliome among them, was matched on its genes alone
-    (CLIN-34's limit, reversed by the owner on 2026-10-14).
-
-    The panel's gene names are casefolded once, not for every record, and its regions are
-    read only for a record none of its genes names, through a lookup built on first use
-    (``_RegionLookup``). Casefolding them again for every record, and testing every region
-    after a gene had matched, cost a fresh ranking on the Mendeliome (5,300 genes, and a locus
-    for each) 1.5 to 4.4 s, which a compound-het, recessive or carrier-screening search paid
-    on an exact cache hit too (ENG-15). The records kept are the same."""
-
-    __slots__ = ("constraints", "gene_terms", "_regions")
-
-    def __init__(self, constraints: PanelFilterConstraints) -> None:
-        self.constraints = constraints
-        self.gene_terms = _gene_term_set(constraints.genes)
-        self._regions: _RegionLookup | None = None
-
-    def keeps(self, record: SmallVariantRecord) -> bool:
-        constraints = self.constraints
-        # A panel whose genes are all blank names every record, as _small_record_hits_gene_terms
-        # reads such a list.
-        if constraints.genes and (
-            not self.gene_terms or not self.gene_terms.isdisjoint(_small_record_gene_terms(record))
-        ):
-            return True
-        if constraints.regions:
-            if self._regions is None:
-                self._regions = _RegionLookup.of(constraints.regions)
-            return self._regions.overlaps(record.chr, record.start, record.end)
-        return not constraints.genes
 
 
 class _StructuralPanelMatch:
@@ -904,82 +844,6 @@ def _structural_annotation_extra(
     }
 
 
-def _small_annotation_specific_requested(filters: SmallVariantQueryFilters) -> bool:
-    return any(
-        (
-            filters.transcript,
-            filters.impact,
-            filters.effect,
-            filters.clinvar,
-            filters.hgvsc,
-            filters.hgvsp,
-            filters.canonical_only,
-            filters.mane_only,
-            filters.lof_only,
-            filters.max_gnomad_af is not None,
-            filters.max_gnomad_exomes_af is not None,
-            filters.max_gnomad_genomes_af is not None,
-            filters.max_gnomad_popmax_af is not None,
-            filters.max_topmed_af is not None,
-            filters.max_gnomad_ac is not None,
-            filters.max_gnomad_hom_count is not None,
-            filters.max_gnomad_hemi_count is not None,
-            filters.min_cadd is not None,
-            filters.min_revel is not None,
-            filters.min_spliceai is not None,
-            filters.sift,
-            filters.polyphen,
-        )
-    )
-
-
-def _matches_small_annotations(record: SmallVariantRecord, filters: SmallVariantQueryFilters) -> bool:
-    annotations = record.annotations or [{}]
-    normal_match = any(_annotation_matches_normal(annotation, filters) for annotation in annotations)
-    if normal_match:
-        return True
-    annotation_specific_requested = _small_annotation_specific_requested(filters)
-    return not annotation_specific_requested
-
-
-def _small_record_matches_sample_filters(
-    record: SmallVariantRecord,
-    filters: SmallVariantQueryFilters,
-) -> bool:
-    call_map = {call.sample: call for call in record.calls}
-    for entry in filters.sample_filters:
-        sample_filter = parse_small_variant_sample_filter(entry)
-        if sample_filter is None:
-            continue
-        call = call_map.get(sample_filter.sample_name)
-        if call is None:
-            if sample_filter.include_absent:
-                continue
-            return False
-        if (
-            sample_filter.genotype_classes
-            and classify_genotype(call.gt) not in sample_filter.genotype_classes
-        ):
-            return False
-        if sample_filter.minimum_genotype_quality is not None:
-            if call.gq is None or call.gq < sample_filter.minimum_genotype_quality:
-                return False
-        if sample_filter.minimum_depth is not None:
-            if call.dp is None or call.dp < sample_filter.minimum_depth:
-                return False
-        if sample_filter.minimum_allele_frequency is not None:
-            # At the precision the fraction is stored at, as the SQL compares it.
-            if not call.af or stored_precision(max(call.af)) < stored_precision(
-                sample_filter.minimum_allele_frequency
-            ):
-                return False
-        if sample_filter.minimum_alt_depth is not None:
-            alt_depth = call.ad[1] if len(call.ad) > 1 else None
-            if alt_depth is None or alt_depth < sample_filter.minimum_alt_depth:
-                return False
-    return True
-
-
 def _structural_record_matches_sample_filters(
     record: StructuralVariantRecord,
     filters: StructuralVariantQueryFilters,
@@ -1086,74 +950,6 @@ def _structural_record_matches_annotations(
         if pli is None or pli < filters.min_pli:
             return False
     return True
-
-
-def _small_record_matches(
-    record: SmallVariantRecord,
-    filters: SmallVariantQueryFilters,
-    include_regions: Sequence[Region],
-    exclude_regions: Sequence[Region],
-    exclude_gene_regions: Sequence[Region],
-    panel_constraints: PanelFilterConstraints | _SmallPanelMatch | None = None,
-) -> bool:
-    """Whether the search's ``filters``, its regions and its gene panel keep ``record``.
-
-    A search that filters many records passes its panel prepared once (``_SmallPanelMatch``),
-    as ``_kept_small_candidates`` does; a panel's constraints alone are prepared here, for
-    this record."""
-    if filters.chromosome and not _chromosome_filter_matches(record.chr, filters.chromosome):
-        return False
-    # A location keeps a variant that starts in it, as the SQL (and the Variant Explorer)
-    # reads one, or, with ``overlap``, any variant that overlaps it: a deletion that starts
-    # before the end and ends after it is in either way (ENG-1).
-    if filters.start is not None and (record.end if filters.overlap else record.start) < filters.start:
-        return False
-    if filters.end is not None and record.start > filters.end:
-        return False
-    if not small_variant_type_matches(record.ref, record.alt, filters.variant_type):
-        return False
-    if filters.source and not _contains_casefold(record.source, filters.source):
-        return False
-    if filters.phase_set is not None and not any(call.ps == filters.phase_set for call in record.calls):
-        return False
-    if filters.pass_only and not small_record_passes_caller_filters(record):
-        return False
-    if include_regions and not _variant_overlaps_regions(record.chr, record.start, record.end, include_regions):
-        return False
-    if exclude_regions and _variant_overlaps_regions(record.chr, record.start, record.end, exclude_regions):
-        return False
-    if exclude_gene_regions and _variant_overlaps_regions(record.chr, record.start, record.end, exclude_gene_regions):
-        return False
-    if panel_constraints is not None:
-        panel = (
-            panel_constraints
-            if isinstance(panel_constraints, _SmallPanelMatch)
-            else _SmallPanelMatch(panel_constraints)
-        )
-        if not panel.keeps(record):
-            return False
-    if filters.gene and not _small_record_hits_gene_terms(record, _split_gene_terms(filters.gene)):
-        return False
-    # Also hit by an SV: one of the variant's genes (the entry's) is a gene the family's SVs
-    # hit, as the SQL reads it; with none resolved, nothing qualifies. Python used to keep
-    # every variant (ENG-1).
-    if filters.require_sv_second_hit:
-        sv_hit_terms = {_casefold(gene) for gene in filters.sv_hit_genes if str(gene).strip()}
-        if sv_hit_terms.isdisjoint(_casefold(symbol) for symbol in record.gene_symbols):
-            return False
-    # The variant's rsID as stored, which the SQL searches: the VCF's ID, else the existing
-    # variants VEP lists on its first transcript. Python also searched every transcript's
-    # list, so it kept a variant the SQL leaves out (another id VEP lists, ENG-1).
-    if filters.rsid and not _contains_casefold(record.rsid, filters.rsid):
-        return False
-    if filters.exclude_clinvar and any(
-        _flexible_status_match(_annotation_clinvar(annotation), filters.exclude_clinvar)
-        for annotation in record.annotations
-    ):
-        return False
-    if not _matches_small_annotations(record, filters):
-        return False
-    return _small_record_matches_sample_filters(record, filters)
 
 
 def _structural_record_matches(
@@ -2358,31 +2154,15 @@ def _small_native_inheritance_clauses(
 _PASSING_FILTER_VALUES: Final[tuple[str, ...]] = ("", ".", "PASS")
 
 
-def _passes_filter_values(values: Iterable[str]) -> bool:
-    return all(value in _PASSING_FILTER_VALUES for value in values)
-
-
-def small_record_passes_caller_filters(record: SmallVariantRecord) -> bool:
-    """Whether every call of ``record`` that carries its ALT allele passed its caller's FILTER
-    ("Pass variants only"; the owner's decision of 2026-11-03).
-
-    A callset of one file per sample keeps each call's own FILTER (``calls.filters``): there
-    a call that carries the variant is read by its own, and another member's reference or
-    no-call record (DeepVariant's ``RefCall``) holds nothing back. A multi-sample VCF keeps
-    no FILTER per call: its record's FILTER is the site's, every call's. A row is read the
-    first way as soon as one of its calls has a FILTER of its own. The SQL condition is
-    ``_small_pass_only_condition``."""
-    if any(call.filters for call in record.calls):
-        return all(_passes_filter_values(call.filters) for call in record.calls if genotype_has_alt(call.gt))
-    return _passes_filter_values(record.filters)
-
-
 def _small_pass_only_condition(params: dict[str, Any]) -> str:
-    """The SQL of ``small_record_passes_caller_filters``, on the entries row ``e``: over the
-    calls of the family's members alone (``%(visible_sample_ids)s``, which the caller binds),
-    as the record a search reads holds their calls alone. A member the family does not show
-    neither holds a variant back nor decides how its calls are read (the owner's decision of
-    2026-11-06)."""
+    """*Pass variants only*, on the entries row ``e``: every call that carries the ALT allele
+    passed its caller's FILTER (PASS, ``.`` or none). Once one call of the row has a FILTER of
+    its own (a callset of one file per sample), each call is read by its own; otherwise the
+    row's FILTER is every call's (a multi-sample VCF; the owner's decision of 2026-11-03).
+    Only the calls of the family's members are read (``%(visible_sample_ids)s``, which the
+    caller binds), as the record a search reads holds their calls alone. A member the family
+    does not show neither holds a variant back nor decides how its calls are read (the
+    owner's decision of 2026-11-06)."""
     params["pass_only_filter_values"] = _PASSING_FILTER_VALUES
     carries_alt = clickhouse_genotype_condition(
         "gt", ALT_CLASSES, param="pass_only_alt_genotypes", params=params
@@ -2454,7 +2234,8 @@ def _small_variant_where_clauses(
     if visible_sample_ids and filters.pass_only:
         where_clauses.append(_small_pass_only_condition(params))
     if filters.variant_type:
-        # The rule of small_variant_type_matches, which the Python record filter applies.
+        # SNV one base for one, MNV REF and ALT of one length longer than one base, INDEL
+        # every variant that is no SNV (an MNV included); another value asks nothing.
         variant_type = _casefold(filters.variant_type).upper()
         if variant_type == "SNV":
             where_clauses.append("length(e.ref) = 1 AND length(e.alt) = 1")
@@ -2463,7 +2244,7 @@ def _small_variant_where_clauses(
         elif variant_type == "INDEL":
             where_clauses.append("NOT (length(e.ref) = 1 AND length(e.alt) = 1)")
     # The callset and the rsID are found in the stored text, as typed but for the spaces
-    # around them; a blank value asks nothing, as in the Python record filter. Untrimmed, a
+    # around them; a blank value asks nothing. Untrimmed, a
     # value with a space around it found nothing, and a blank callset kept nothing and
     # skipped the imputed-callset default (ENG-1).
     source = (filters.source or "").strip()
@@ -2851,9 +2632,9 @@ def _small_annotation_filter_condition(
         params["detail_effect_terms"] = list(effect_terms)
         impact_effect_conditions.append("hasAny(a.effects, %(detail_effect_terms)s)")
     # A frequency or a score is stored as Float32, and compared with the threshold at that
-    # precision (toFloat32), as the Python matcher compares it (stored_precision): at 64 bits
-    # a value stored exactly at the threshold could round past it, and a CADD score of 25.3
-    # failed a minimum of 25.3, a gnomAD frequency of 0.001 a maximum of 0.001 (ENG-1).
+    # precision (toFloat32): at 64 bits a value stored exactly at the threshold could round
+    # past it, and a CADD score of 25.3 failed a minimum of 25.3, a gnomAD frequency of 0.001
+    # a maximum of 0.001 (ENG-1).
     if filters.min_spliceai is not None:
         params["detail_min_spliceai"] = filters.min_spliceai
         impact_effect_conditions.append("ifNull(a.spliceai_max, -1) >= toFloat32(%(detail_min_spliceai)s)")
@@ -2873,8 +2654,7 @@ def _small_annotation_filter_condition(
         conditions.append("a.lof NOT IN ('', '.', 'na', 'n/a')")
 
     # The population-frequency block. It is one unit because a ClinVar P/LP call can
-    # "rescue" a variant past all of it — the same block the Python matcher skips
-    # (clickhouse_variant_records._annotation_matches_normal). Before #534 this SQL
+    # "rescue" a variant past all of it, on the same transcript row. Before #534 this SQL
     # applied the ceilings unconditionally, so a recurrent pathogenic allele above the
     # cut-off was dropped here, before the rescue could keep it.
     frequency_conditions: list[str] = []
@@ -2905,7 +2685,7 @@ def _small_annotation_filter_condition(
     if frequency_conditions:
         frequency_block = " AND ".join(frequency_conditions)
         if filters.clinvar_overrides_frequency:
-            # clinvar_terms holds the same normalised terms the Python matcher compares.
+            # clinvar_terms holds the normalised terms (_status_terms) the filter terms read.
             # Rows stored before "/" was a separator keep ClinVar's aggregate form as
             # one term, so match that too until the family is re-imported.
             rescue_terms = list(_status_filter_terms(CLINVAR_FREQUENCY_RESCUE_TERMS))
@@ -2925,7 +2705,7 @@ def _small_annotation_filter_condition(
         params["detail_min_revel"] = filters.min_revel
         in_silico_conditions.append("ifNull(a.revel, -1) >= toFloat32(%(detail_min_revel)s)")
     # The stored SIFT or PolyPhen value names the prediction asked for, whatever its score:
-    # the Python matcher's own test (in_silico_prediction_pattern, CLIN-45). This condition
+    # the filter's one test (in_silico_prediction_pattern, CLIN-45). This condition
     # used to find the filter's text anywhere in the value, so "deleterious" also kept
     # "deleterious_low_confidence(0.03)".
     for column, prediction in (("sift", filters.sift), ("polyphen", filters.polyphen)):
