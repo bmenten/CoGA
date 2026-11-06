@@ -15,7 +15,6 @@ brackets.
 
 ## Engineering
 
-- **Sessions**: there is no server-side logout or token revocation; a token stays valid until it expires.
 - **Operations**: `/metrics`, its collector and the alert policies exist ([monitoring.md](monitoring.md)), but nothing is deployed until Terraform is first applied. The Postgres baselines are re-applied on every start until the release candidate freezes them ([database.md](database.md#freezing-the-baselines-at-the-release-candidate)).
 - **Imports and scaling**:
   - A stopped import is noticed only when a worker next looks for work, once its job's heartbeat is ten minutes old. Until then its family's report cannot be signed out: sign-out is refused while a family's import job is queued, validating or running (#727).

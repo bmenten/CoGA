@@ -180,6 +180,33 @@ describe('UI telemetry', () => {
     expect(JSON.parse(String(init.body)).events[0].label).toBe('Logout');
   });
 
+  it('settles the flush on logout once the API has answered it, and at once when nothing is queued', async () => {
+    const { logUiEvent, flushUiEventsNow } = await load();
+    let answer: (response: Response) => void = () => undefined;
+    fetchMock.mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve) => {
+          answer = resolve;
+        }),
+    );
+    logUiEvent({ event_type: 'click', label: 'Logout' });
+
+    let settled = false;
+    const flushed = flushUiEventsNow().then(() => {
+      settled = true;
+    });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    answer(new Response(null, { status: 202 }));
+    await flushed;
+    expect(settled).toBe(true);
+
+    // Nothing left to send: settled without a request.
+    await flushUiEventsNow();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   describe('a Microsoft session’s token at page close', () => {
     it('is renewed ahead by the flush timer, so the last events of a page closed after an idle hour go out', async () => {
       vi.useFakeTimers({ now: NOW });

@@ -395,14 +395,25 @@ behaviour as it is:
 
 **Session tokens.** Tokens are bearer JWTs kept in `localStorage`. Moving them to HttpOnly
 cookies would add CSRF surface and rework the Microsoft sign-in and telemetry paths. Instead,
-two things bound the damage an XSS could do:
+three things bound the damage an XSS, or a token copied from the browser, could do:
 
 - the app's CSP, which allows no inline or outside scripts (§4a);
 - the token lifetime: about an hour for Microsoft's access token, 2 hours for a local token
   (`ACCESS_TOKEN_EXPIRE_MINUTES`). MSAL renews Microsoft's token silently with its refresh
   token (kept in the tab's `sessionStorage`, gone when the tab closes) before each request,
   the API client's and the IGV viewer's alike (IGV asks for the session's token at each of its
-  requests, SEC-32).
+  requests, SEC-32);
+- the logout, which ends every session of the account on the server: `POST /api/auth/logout`
+  records when the account signed out (`users.sessions_ended_at`), and every request refuses a
+  token issued to the account before then, CoGA's own and Microsoft's, on every device
+  (`_refuse_if_signed_out` in `dependencies.py`). CoGA's own tokens say when they were issued to
+  the microsecond (`iat`), so a sign-in right after a logout is not taken for one before it; a
+  token that does not say (one issued before this change) counts as issued before. Entra ID
+  dates its tokens about five minutes early, so a Microsoft token counts as issued at its `iat`
+  plus five minutes, the latest it can have been (`TOKEN_DATED_EARLY_SECONDS` in
+  `core/azure.py`): a sign-in right after a logout works. The logout ends the sessions at least
+  just after the issue time of the token it was made with, so that token is refused whatever
+  its date. The time is never moved back, should another instance's clock have run ahead.
 
 Every request re-checks `is_active`, so deactivating a user ends their access at once, and the
 role, so a role change takes effect at the account's next request (`get_current_superuser`,
@@ -434,9 +445,16 @@ The refresh and the rebuild used to run for whoever had asked, as neither acts w
 account's rights. An import or a refresh already running when its account is deactivated or
 demoted runs to its end: the account is checked as it starts, and stopping an import part-way
 would leave its family to the import's fail-clean restore. A leaked token of a still-active
-user stays valid until it expires. There is no revocation list, and CoGA's sign-out does not
-end the Microsoft session in the browser (the sign-in page offers *Sign out of Microsoft*).
-For a single-lab internal deployment this is an **accepted residual**.
+user stays valid until it expires or the user logs out, which ends every session of the account
+(*Session tokens*). There is no list of single tokens to revoke: a logout ends them all, and an
+administrator stops an account at once by deactivating it. Were Entra ID to date a token less
+than five minutes early, another Microsoft token issued in the minutes before the logout would
+stay valid until it expires (the one the logout was made with never does). CoGA's sign-out does
+not end the Microsoft session in the browser (the sign-in page offers *Sign out of Microsoft*),
+and someone who copied MSAL's refresh token from a tab can still get new Microsoft tokens,
+issued after the logout, until that refresh token expires; ending the user's sessions in Entra
+ID (*Revoke sessions*) stops that. For a single-lab internal deployment this is an **accepted
+residual**.
 
 The UI telemetry sends its last events, as the page is hidden or closed, with a `keepalive`
 request that cannot wait for a renewal: it sends the token the session holds. So the flush
@@ -683,6 +701,13 @@ What the application relies on there:
   (their token had expired by the logout, or the logout's keepalive did not arrive) wait in the
   browser under their account for its next sign-in, rather than being lost (*Session tokens*,
   §1).
+  - It then ends the session on the server (`endServerSession` in `lib/api.ts`,
+    `POST /api/auth/logout`): every token issued to the account before it is refused, on every
+    device, so a copy of the token stops working at the logout, not at its expiry. The request
+    goes once the API has answered the flushed UI events, which it would otherwise refuse, or
+    after two seconds, and at once when the page is closed meanwhile; it is a keepalive, so it
+    survives the page. When it does not arrive (offline, or the token had already expired), the
+    account's tokens stay valid until they expire, as before.
   - A logout in one tab ends the session in every tab of the browser, since they share it.
     Told by the browser that the token is gone, each other tab clears its query cache and
     MSAL's account and tokens in the tab, and opens the sign-in page

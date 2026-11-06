@@ -7,7 +7,14 @@ import HeaderMenu from './HeaderMenu';
 import ModalDialog from './ModalDialog';
 import PageState from './PageState';
 import { formatBuild, useAppVersion } from '../lib/appVersion';
-import { clearSession, getSessionSignIn, getStoredUsername, onSessionEndedElsewhere } from '../lib/auth';
+import { endServerSession } from '../lib/api';
+import {
+  clearSession,
+  getAuthToken,
+  getSessionSignIn,
+  getStoredUsername,
+  onSessionEndedElsewhere,
+} from '../lib/auth';
 import { forgetMicrosoftAccount } from '../lib/microsoftSignIn';
 import { DEVICE_MANUFACTURER, DEVICE_NAME, DEVICE_STATUS } from '../lib/deviceLabel';
 import { githubRepositoryUrl } from '../lib/githubLinks';
@@ -37,9 +44,13 @@ const Layout: React.FC = () => {
     // then nothing of this user's may stay behind for the next person at this tab:
     // the query cache held their family data for up to ten minutes (#521).
     const microsoft = getSessionSignIn() === 'microsoft';
-    flushUiEventsNow();
+    const token = getAuthToken();
+    const flushed = flushUiEventsNow();
     queryClient.clear();
     clearSession();
+    // And the server ends the session, once those events are answered: every token of the
+    // account is refused from then on, on every device, a copy of this one included.
+    void endServerSession(token, flushed);
     if (microsoft) {
       // And no Microsoft token either: MSAL could otherwise renew one without asking. The
       // sign-in page then offers to sign out of Microsoft too (SEC-4).
@@ -61,7 +72,7 @@ const Layout: React.FC = () => {
         if (SIGNED_OUT_PAGE.test(location.pathname)) return;
         // The queued events are kept for the account they were made under, never sent under
         // another: the token is gone, or another account's.
-        flushUiEventsNow();
+        void flushUiEventsNow();
         queryClient.clear();
         clearSession();
         setShowSettings(false);

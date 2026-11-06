@@ -428,6 +428,8 @@ OWN_DATA_ROUTES = {
     ("POST", "/api/families/{family_id}/structural-variant-filter-presets"),
     ("DELETE", "/api/families/{family_id}/structural-variant-filter-presets/{preset_id}"),
     ("POST", "/api/ui-events"),
+    # The logout ends the caller's own sessions.
+    ("POST", "/api/auth/logout"),
 }
 # The routes that change a record any signed-in member may reach: refused a reader at the
 # checkpoint of the family or project they name.

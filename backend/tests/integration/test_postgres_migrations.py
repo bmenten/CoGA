@@ -84,6 +84,9 @@ the CI ``smoke`` job sets it.
   is gone, so the same PanelApp panel with other levels is stored, while the same selection
   twice, or a second Mendeliome, is refused; it ends at the same fingerprint, and a later start
   changes nothing.
+- A database at revision 0020 from before a logout ended an account's sessions on the server
+  gets ``users.sessions_ended_at`` (revision 0021): each account keeps its row and none, it ends
+  at the same fingerprint, and a later start changes nothing.
 - A ledger naming a revision this version does not have is refused, and nothing changes.
 - The restricted runtime role cannot run the migration; two instances that start together
   both come up, one after the other.
@@ -2655,5 +2658,69 @@ def test_a_database_from_before_panelapp_selections_gives_each_panelapp_panel_it
         table: rows for table, rows in contents.items() if table not in changed
     }
     assert kept["gene_panels"][0] == contents["gene_panels"][0]
+    # The schema is the baselines'.
+    assert actual == expected, _differences(expected, actual)
+
+
+_BEFORE_0021 = ("ALTER TABLE users DROP COLUMN sessions_ended_at",)
+
+
+@_MODES
+def test_a_database_from_before_server_side_logout_gives_each_account_no_logout_time(
+    monkeypatch, reapply_baselines: bool
+) -> None:
+    from backend.app.core import postgres_migrations
+    from backend.app.core.postgres_migrations import apply_postgres_schema, head_revision
+
+    monkeypatch.setattr(postgres_migrations, "REAPPLY_BASELINES_ON_EVERY_RUN", reapply_baselines)
+
+    async def _body(database: str):
+        engine = _engine(database)
+        try:
+            async with engine.begin() as conn:
+                await apply_postgres_schema(conn)
+            # A database at revision 0020, from before the column, with an account.
+            async with engine.begin() as conn:
+                await conn.execute(text("UPDATE alembic_version SET version_num = '0020'"))
+                for statement in _BEFORE_0021:
+                    await conn.exec_driver_sql(statement)
+                await conn.execute(
+                    text(
+                        "INSERT INTO users (username, hashed_password, role, email) "
+                        "VALUES ('logout@example.org', '', 'analyst', 'logout@example.org')"
+                    )
+                )
+            contents = await _table_contents(database)
+            async with engine.begin() as conn:
+                revision = await apply_postgres_schema(conn)
+            kept = await _table_contents(database)
+            async with engine.connect() as conn:
+                stored = (
+                    await conn.execute(text("SELECT email, sessions_ended_at FROM users ORDER BY email"))
+                ).all()
+            async with engine.begin() as conn:
+                again = await apply_postgres_schema(conn)
+        finally:
+            await engine.dispose()
+        reference = await _create_database()
+        try:
+            await _apply_baseline_files(reference)
+            fingerprints = await _fingerprint(reference), await _fingerprint(database)
+        finally:
+            await _drop_database(reference)
+        return (revision, again), stored, (contents, kept), fingerprints
+
+    (revision, again), stored, (contents, kept), (expected, actual) = _run(_body)
+
+    assert (revision.before, revision.after) == ("0020", head_revision())
+    assert (again.before, again.after) == (head_revision(), head_revision())
+    assert ("logout@example.org", None) in [tuple(row) for row in stored]
+    assert all(ended is None for _email, ended in stored)
+    # Every other table is as it was; each account keeps its row.
+    changed = {"alembic_version", "users"}
+    assert {table: rows for table, rows in kept.items() if table not in changed} == {
+        table: rows for table, rows in contents.items() if table not in changed
+    }
+    assert kept["users"][0] == contents["users"][0]
     # The schema is the baselines'.
     assert actual == expected, _differences(expected, actual)

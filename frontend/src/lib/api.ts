@@ -109,6 +109,58 @@ export const endExpiredSession = (
   }
 };
 
+// How long a logout waits for the API to answer the UI events it flushed before it ends the
+// session on the server, which refuses any of them that come after.
+export const LOGOUT_WAITS_FOR_EVENTS_MS = 2000;
+
+/**
+ * End the session on the server too (`POST /auth/logout`): every token issued to the account
+ * before then is refused, in every browser and on every device, a copy of this one included, so
+ * a token copied from the browser stops working at the logout instead of at its expiry. `token`
+ * is the session's, taken before the logout forgot it; `after` is the logout's flush of the UI
+ * events. The request goes once that flush is answered, or after `LOGOUT_WAITS_FOR_EVENTS_MS`,
+ * whichever comes first, and at once when the page is closed meanwhile; as a keepalive, it
+ * survives the page. Best-effort: a request that fails (offline, or the token had expired) ends
+ * nothing on the server, and the session's tokens stay valid until they expire, as before.
+ * Settles once it has been answered or failed.
+ */
+export const endServerSession = (
+  token: string | null,
+  after: Promise<unknown> = Promise.resolve(),
+): Promise<void> => {
+  if (!token) return Promise.resolve();
+  let answered: () => void = () => undefined;
+  const done = new Promise<void>((resolve) => {
+    answered = resolve;
+  });
+  let sent = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const send = (): void => {
+    if (sent) return;
+    sent = true;
+    clearTimeout(timer);
+    window.removeEventListener('pagehide', send);
+    try {
+      void fetch(`${apiBaseUrl}/auth/logout`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        keepalive: true,
+      }).then(
+        () => answered(),
+        () => answered(),
+      );
+    } catch {
+      answered();
+    }
+  };
+  window.addEventListener('pagehide', send);
+  const waited = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, LOGOUT_WAITS_FOR_EVENTS_MS);
+  });
+  void Promise.race([Promise.resolve(after).catch(() => undefined), waited]).then(send);
+  return done;
+};
+
 api.interceptors.response.use(
   (response) => response,
   (error) => {
