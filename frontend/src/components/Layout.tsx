@@ -22,6 +22,7 @@ import { currentProblemReportLink } from '../lib/problemReport';
 import { useUiTelemetry } from '../lib/useUiTelemetry';
 import { flushUiEventsNow } from '../lib/telemetry';
 
+// React's own lazy, not lazyPage: settings open in a dialog over a page, which a reload would lose.
 const SettingsPage = lazy(() => import('../pages/settings/SettingsPage'));
 
 // The pages for a user without a session: the sign-in pages and the sign-up.
@@ -215,19 +216,23 @@ const Layout: React.FC = () => {
             >
               Close
             </button>
-            <Suspense
-              fallback={
-                <PageState
-                  loading
-                  kicker="Preferences"
-                  title="Loading settings"
-                  message="Preparing your local viewer preferences."
-                  narrow
-                />
-              }
-            >
-              <SettingsPage />
-            </Suspense>
+            {/* Its own error screen: settings that cannot be loaded (CoGA updated since the tab
+                was opened) leave the page beneath as it is. */}
+            <ErrorBoundary>
+              <Suspense
+                fallback={
+                  <PageState
+                    loading
+                    kicker="Preferences"
+                    title="Loading settings"
+                    message="Preparing your local viewer preferences."
+                    narrow
+                  />
+                }
+              >
+                <SettingsPage />
+              </Suspense>
+            </ErrorBoundary>
         </ModalDialog>
       )}
     </div>

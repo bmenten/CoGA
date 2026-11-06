@@ -501,6 +501,9 @@ export GIT_SHA="$(git rev-parse --short=12 HEAD)"
 docker compose up --build -d
 ```
 
+A browser tab open during the update reloads itself the first time it opens another page,
+to load the new version.
+
 **Stop** with `docker compose stop`, never by killing the containers or the VM. ClickHouse
 needs up to five minutes to finish its merges, and a cut-off flush corrupts parts that the
 next start then refuses to attach. A shutdown of the VM also waits for it, once step 2 has
@@ -565,3 +568,5 @@ The start-up refusals and the datastore errors are the same as in development; s
 - **Sign-in works but rate limiting or the audit log show the proxy's address** — check
   `FRONTEND_TRUSTED_PROXY_HOPS=1` and that nginx sets, not appends, `X-Forwarded-For`.
 - **Uploads fail at about 1 MB** — `client_max_body_size` is missing from the nginx site.
+- **A page shows "This view could not be loaded" after an update** — the tab was opened before
+  it, and reloading itself once did not load the new version; press **Reload page**.

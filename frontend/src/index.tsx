@@ -1,4 +1,4 @@
-import React, { Suspense, lazy } from 'react';
+import React, { Suspense } from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter, Routes, Route } from 'react-router';
 import { QueryClientProvider } from '@tanstack/react-query';
@@ -7,129 +7,130 @@ import RequireAuth from './components/RequireAuth';
 import RequireAdmin from './components/RequireAdmin';
 import SessionRedirect from './components/SessionRedirect';
 import PageState from './components/PageState';
+import { lazyPage } from './lib/lazyPage';
 import { createAppQueryClient } from './lib/queryClient';
 import './styles/theme.css';
 import './index.css';
 
 const queryClient = createAppQueryClient();
 
-const LoginPage = lazy(() => import('./pages/auth/LoginPage'));
-const SignupPage = lazy(() => import('./pages/auth/SignupPage'));
-const Dashboard = lazy(() => import('./pages/dashboard/Dashboard'));
-const FamilyBuilderPage = lazy(
+const LoginPage = lazyPage(() => import('./pages/auth/LoginPage'));
+const SignupPage = lazyPage(() => import('./pages/auth/SignupPage'));
+const Dashboard = lazyPage(() => import('./pages/dashboard/Dashboard'));
+const FamilyBuilderPage = lazyPage(
   () => import('./pages/dashboard/FamilyBuilderPage')
 );
-const PackageImportPage = lazy(
+const PackageImportPage = lazyPage(
   () => import('./pages/dashboard/PackageImportPage')
 );
-const FamilyDetailPage = lazy(
+const FamilyDetailPage = lazyPage(
   () => import('./pages/families/FamilyDetailPage')
 );
-const GenomeOverviewPage = lazy(
+const GenomeOverviewPage = lazyPage(
   () => import('./pages/genome/GenomeOverviewPage')
 );
-const ChromosomeViewPage = lazy(
+const ChromosomeViewPage = lazyPage(
   () => import('./pages/genome/ChromosomeViewPage')
 );
-const CircosPlotPage = lazy(() => import('./pages/genome/CircosPlotPage'));
-const CnvDetailsPage = lazy(() => import('./pages/genome/CnvDetailsPage'));
-const ClinicalCnvExplorerPage = lazy(
+const CircosPlotPage = lazyPage(() => import('./pages/genome/CircosPlotPage'));
+const CnvDetailsPage = lazyPage(() => import('./pages/genome/CnvDetailsPage'));
+const ClinicalCnvExplorerPage = lazyPage(
   () => import('./pages/cnv-explorer/ClinicalCnvExplorerPage'),
 );
-const SampleUpload = lazy(() => import('./pages/uploads/SampleUpload'));
-const FamilyStructuralVariantsPage = lazy(
+const SampleUpload = lazyPage(() => import('./pages/uploads/SampleUpload'));
+const FamilyStructuralVariantsPage = lazyPage(
   () => import('./pages/families/FamilyStructuralVariantsPage')
 );
-const FamilyVariantSummaryPage = lazy(
+const FamilyVariantSummaryPage = lazyPage(
   () => import('./pages/families/FamilyVariantSummaryPage')
 );
-const FamilyRoiMarkersPage = lazy(
+const FamilyRoiMarkersPage = lazyPage(
   () => import('./pages/families/FamilyRoiMarkersPage')
 );
-const FamilyReportPage = lazy(
+const FamilyReportPage = lazyPage(
   () => import('./pages/families/FamilyReportPage')
 );
-const FamilySampleQcPage = lazy(
+const FamilySampleQcPage = lazyPage(
   () => import('./pages/families/FamilySampleQcPage')
 );
-const FamilySmallVariantsPage = lazy(
+const FamilySmallVariantsPage = lazyPage(
   () => import('./pages/families/FamilySmallVariantsPage')
 );
-const FamilyRepeatExpansionsPage = lazy(
+const FamilyRepeatExpansionsPage = lazyPage(
   () => import('./pages/families/FamilyRepeatExpansionsPage')
 );
-const FamilyParaphasePage = lazy(
+const FamilyParaphasePage = lazyPage(
   () => import('./pages/families/FamilyParaphasePage')
 );
-const FamilyMitoDNAAnalysisPage = lazy(
+const FamilyMitoDNAAnalysisPage = lazyPage(
   () => import('./pages/families/FamilyMitoDNAAnalysisPage')
 );
-const FamilyNiptPage = lazy(
+const FamilyNiptPage = lazyPage(
   () => import('./pages/families/FamilyNiptPage')
 );
-const FamilyNiptReportPage = lazy(
+const FamilyNiptReportPage = lazyPage(
   () => import('./pages/families/FamilyNiptReportPage')
 );
-const FamilyNiptCoveragePage = lazy(
+const FamilyNiptCoveragePage = lazyPage(
   () => import('./pages/families/FamilyNiptCoveragePage')
 );
-const GeneInfoPage = lazy(() => import('./pages/genes/GeneInfoPage'));
-const ReportCodeLookupPage = lazy(() => import('./pages/reports/ReportCodeLookupPage'));
-const GlobalSmallVariantExplorerPage = lazy(
+const GeneInfoPage = lazyPage(() => import('./pages/genes/GeneInfoPage'));
+const ReportCodeLookupPage = lazyPage(() => import('./pages/reports/ReportCodeLookupPage'));
+const GlobalSmallVariantExplorerPage = lazyPage(
   () => import('./pages/variant-explorer/GlobalSmallVariantExplorerPage'),
 );
-const HpoTermsPage = lazy(() => import('./pages/phenotypes/HpoTermsPage'));
-const GenePanelsPage = lazy(() => import('./pages/panels/GenePanelsPage'));
-const GenePanelDetailPage = lazy(
+const HpoTermsPage = lazyPage(() => import('./pages/phenotypes/HpoTermsPage'));
+const GenePanelsPage = lazyPage(() => import('./pages/panels/GenePanelsPage'));
+const GenePanelDetailPage = lazyPage(
   () => import('./pages/panels/GenePanelDetailPage')
 );
-const AdminDashboardPage = lazy(
+const AdminDashboardPage = lazyPage(
   () => import('./pages/admin/AdminDashboardPage')
 );
-const UserListPage = lazy(() => import('./pages/admin/UserListPage'));
-const DataManagementPage = lazy(
+const UserListPage = lazyPage(() => import('./pages/admin/UserListPage'));
+const DataManagementPage = lazyPage(
   () => import('./pages/admin/DataManagementPage')
 );
-const AdminClickhouseManagementPage = lazy(
+const AdminClickhouseManagementPage = lazyPage(
   () => import('./pages/admin/AdminClickhouseManagementPage')
 );
-const AdminPresetFiltersPage = lazy(
+const AdminPresetFiltersPage = lazyPage(
   () => import('./pages/admin/AdminPresetFiltersPage')
 );
-const AdminVariantTagsPage = lazy(
+const AdminVariantTagsPage = lazyPage(
   () => import('./pages/admin/AdminVariantTagsPage')
 );
-const AdminQcThresholdsPage = lazy(
+const AdminQcThresholdsPage = lazyPage(
   () => import('./pages/admin/AdminQcThresholdsPage')
 );
-const AdminFamilyStatusesPage = lazy(
+const AdminFamilyStatusesPage = lazyPage(
   () => import('./pages/admin/AdminFamilyStatusesPage')
 );
-const AdminAuditLogsPage = lazy(
+const AdminAuditLogsPage = lazyPage(
   () => import('./pages/admin/AdminAuditLogsPage')
 );
-const GeneReferenceAdminPage = lazy(
+const GeneReferenceAdminPage = lazyPage(
   () => import('./pages/admin/GeneReferenceAdminPage')
 );
-const HpoTerminologyAdminPage = lazy(
+const HpoTerminologyAdminPage = lazyPage(
   () => import('./pages/admin/HpoTerminologyAdminPage')
 );
-const MonarchDataAdminPage = lazy(
+const MonarchDataAdminPage = lazyPage(
   () => import('./pages/admin/MonarchDataAdminPage')
 );
-const AdminRepeatLociPage = lazy(
+const AdminRepeatLociPage = lazyPage(
   () => import('./pages/admin/AdminRepeatLociPage')
 );
-const ProjectsPage = lazy(() => import('./pages/projects/ProjectsPage'));
-const ReferenceCatalogPage = lazy(
+const ProjectsPage = lazyPage(() => import('./pages/projects/ProjectsPage'));
+const ReferenceCatalogPage = lazyPage(
   () => import('./pages/reference/ReferenceCatalogPage')
 );
-const SettingsPage = lazy(() => import('./pages/settings/SettingsPage'));
-const UserGuidePage = lazy(() => import('./pages/docs/UserGuidePage'));
-const ReferenceDocPage = lazy(() => import('./pages/docs/ReferenceDocPage'));
-const NewFeaturesPage = lazy(() => import('./pages/product/NewFeaturesPage'));
-const FamilyIgvPage = lazy(() => import('./pages/families/FamilyIgvPage'));
-const NotFound = lazy(() => import('./pages/NotFound'));
+const SettingsPage = lazyPage(() => import('./pages/settings/SettingsPage'));
+const UserGuidePage = lazyPage(() => import('./pages/docs/UserGuidePage'));
+const ReferenceDocPage = lazyPage(() => import('./pages/docs/ReferenceDocPage'));
+const NewFeaturesPage = lazyPage(() => import('./pages/product/NewFeaturesPage'));
+const FamilyIgvPage = lazyPage(() => import('./pages/families/FamilyIgvPage'));
+const NotFound = lazyPage(() => import('./pages/NotFound'));
 
 const RouteFallback: React.FC = () => (
   <PageState

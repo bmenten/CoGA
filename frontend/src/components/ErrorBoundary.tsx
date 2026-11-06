@@ -1,5 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router';
+import { isModuleLoadError, tab } from '../lib/lazyPage';
 import PageState from './PageState';
 
 type Props = {
@@ -11,7 +12,10 @@ type Props = {
    */
   resetKey?: string;
 };
-type State = { hasError: boolean; message?: string };
+// `notLoaded`: a part of the app that could not be loaded, most often because CoGA was updated
+// since the tab was opened. Retrying it fails the same way (React keeps the failed load), so the
+// screen offers to reload the tab instead.
+type State = { hasError: boolean; message?: string; notLoaded?: boolean };
 
 export default class ErrorBoundary extends React.Component<Props, State> {
   constructor(props: Props) {
@@ -21,12 +25,12 @@ export default class ErrorBoundary extends React.Component<Props, State> {
 
   static getDerivedStateFromError(error: unknown): State {
     const message = error instanceof Error ? error.message : String(error);
-    return { hasError: true, message };
+    return { hasError: true, message, notLoaded: isModuleLoadError(error) };
   }
 
   componentDidUpdate(prevProps: Props) {
     if (this.state.hasError && prevProps.resetKey !== this.props.resetKey) {
-      this.setState({ hasError: false, message: undefined });
+      this.setState({ hasError: false, message: undefined, notLoaded: undefined });
     }
   }
 
@@ -37,16 +41,25 @@ export default class ErrorBoundary extends React.Component<Props, State> {
 
   render() {
     if (this.state.hasError) {
+      const { notLoaded } = this.state;
       return (
         <PageState
           kicker="Error"
-          title="This view could not be displayed"
-          message="The page hit an unexpected error. You can retry the view or return to the dashboard."
+          title={notLoaded ? 'This view could not be loaded' : 'This view could not be displayed'}
+          message={
+            notLoaded
+              ? 'CoGA may have been updated since this page was opened. Reload the page to load the new version, or return to the dashboard.'
+              : 'The page hit an unexpected error. You can retry the view or return to the dashboard.'
+          }
           action={
             <>
-              <button onClick={() => this.setState({ hasError: false, message: undefined })}>
-                Try again
-              </button>
+              {notLoaded ? (
+                <button onClick={() => tab.reload()}>Reload page</button>
+              ) : (
+                <button onClick={() => this.setState({ hasError: false, message: undefined })}>
+                  Try again
+                </button>
+              )}
               <Link to="/dashboard" className="button-secondary">
                 Dashboard
               </Link>
