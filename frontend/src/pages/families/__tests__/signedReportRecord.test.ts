@@ -437,6 +437,31 @@ describe('parseSignedReport', () => {
     expect(variant.evidence?.geneConstraint).toBeNull();
   });
 
+  it("reads a multi-allelic record's ALT and VEP's MAX_AF frozen with a classification", () => {
+    const record = parseSignedReport({
+      ...SNAPSHOT,
+      reported_variants: [
+        {
+          variant_id: '1-101-A-G,T',
+          acmg_class: 'acmg_class_4',
+          acmg: null,
+          tags: ['report'],
+          note: null,
+          evidence_snapshot: {
+            ...FROZEN_EVIDENCE,
+            consequence: { effect: 'stop_gained', impact: 'HIGH', lof: 'HC', alt_allele: 'T' },
+            frequencies: { ...FROZEN_EVIDENCE.frequencies, max_af: 0.012 },
+          },
+        },
+      ],
+    })!;
+    const [variant] = record.reportedVariants!;
+
+    expect(variant.evidence?.consequence).toContainEqual({ label: 'of ALT', value: 'T' });
+    expect(variant.evidence?.frequencies).toContainEqual({ label: 'VEP MAX_AF', value: '0.012' });
+    expect(describeFrozenEvidenceValues(variant.evidence!)).toContain('LoF HC and of ALT T;');
+  });
+
   it('reads the consequence, the LoF call and the gene missense Z frozen with a classification', () => {
     const record = parseSignedReport({
       ...SNAPSHOT,

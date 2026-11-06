@@ -49,10 +49,13 @@ then most severe impact; its id in `transcript_id`), through the variant list's 
 
 - under `consequence`: the term or terms (`effect`) the null, missense, synonymous and
   length-change criteria read (PVS1, PM4, PP2, BP7, and those a consequence rules out), the
-  `impact`, and LOFTEE's loss-of-function call (`lof`) for the PVS1 strength;
+  `impact`, and LOFTEE's loss-of-function call (`lof`) for the PVS1 strength; for a multi-allelic
+  record (ALT `G,T`) only, the ALT these values are of (`alt_allele`): the transcript alone does not
+  say which allele's annotation was read;
 - under `frequencies`: the gnomAD allele frequency the frequency criteria read (`gnomad_af`), and
-  the exome, genome, popmax and TOPMed frequencies and gnomAD allele, homozygote and hemizygote
-  counts the filters read;
+  the exome, genome, gnomAD popmax, VEP `MAX_AF` (`max_af`) and TOPMed frequencies and gnomAD
+  allele, homozygote and hemizygote counts the filters read. A snapshot frozen before `alt_allele`
+  or `max_af` is compared on what it froze; before, `max_af` was frozen as gnomAD's popmax;
 - under `in_silico`: CADD (`cadd_phred`), REVEL, SpliceAI (`spliceai_max`), SIFT, PolyPhen and
   the AlphaMissense class and score;
 - under `gene_constraint`, for a missense variant only: the gene's gnomAD missense Z that PP2

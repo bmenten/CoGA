@@ -20,9 +20,11 @@ class AnnotationHeaderState:
 # classification "-" (and an rsid "-").
 _NULL_VALUES = {"", ".", "-", "NA", "N/A", "null", "None"}
 _TRUE_VALUES = {"YES", "TRUE", "1"}
-# The numbers a value holds (``_parse_float``, ``_parse_int``), compiled once.
-_FLOAT_PATTERN = re.compile(r"-?\d+(?:\.\d+)?(?:e-?\d+)?", re.IGNORECASE)
-_INTEGER_PATTERN = re.compile(r"-?\d+")
+# The numbers a value holds (``_numbers``), compiled once.
+_FLOAT_PATTERN = re.compile(r"-?\d+(?:\.\d+)?(?:e[+-]?\d+)?", re.IGNORECASE)
+# How a field lists several values: VEP joins them with "&" in a VCF's CSQ, a table or a
+# plugin with "," or ";".
+_LIST_SEPARATORS = re.compile(r"[&,;]")
 
 # A record's ClinVar classification is read from the ClinVar file the pipeline annotated it
 # with (VEP --custom's ClinVar_CLNSIG, the CLNSIG of bcftools annotate or vcfanno), and from
@@ -70,7 +72,10 @@ _ANN_ALIASES = {
 
 # A population frequency or count is read only from a field whose name states its source
 # (gnomAD, gnomADe, gnomADg, TOPMed), or from VEP's MAX_AF and POPMAX_AF, which only a
-# population annotation writes. The aliases are read from the record's INFO as well as from
+# population annotation writes. gnomAD's popmax (named grpmax since gnomAD v4) is gnomAD's
+# own; MAX_AF is VEP's highest frequency over every population it reads (1000 Genomes and
+# gnomAD's), a different value: it was read as gnomAD's popmax. It is kept as ``max_af``, and
+# stands in for the popmax only in the stored filter column (``clickhouse_variant_rows``). The aliases are read from the record's INFO as well as from
 # each CSQ/ANN entry, and an entry without a value keeps the INFO's. An unprefixed key names
 # no source: INFO/AC is the callset's own allele count (a reserved VCF key that joint callers
 # write), and read as gnomAD's AC it made a maximum gnomAD AC filter filter on the family's
@@ -81,7 +86,19 @@ _POPULATION_ALIASES = {
     "gnomad_af": ["gnomAD_AF", "GNOMAD_AF"],
     "gnomad_exomes_af": ["gnomADe_AF", "GNOMADE_AF"],
     "gnomad_genomes_af": ["gnomADg_AF", "GNOMADG_AF"],
-    "gnomad_popmax_af": ["gnomAD_AF_POPMAX", "gnomAD_popmax_AF", "MAX_AF", "POPMAX_AF"],
+    "gnomad_popmax_af": [
+        "gnomAD_AF_POPMAX",
+        "gnomAD_popmax_AF",
+        "gnomAD_AF_popmax",
+        "gnomAD_AF_grpmax",
+        "gnomAD_grpmax_AF",
+        "GNOMAD_AF_GRPMAX",
+    ],
+    # As VEP names a --custom gnomAD exome or genome file's fields: their highest is gnomAD's
+    # popmax where the record has no combined one, as for the allele frequency.
+    "gnomad_exomes_popmax_af": ["gnomADe_AF_grpmax", "gnomADe_AF_popmax", "GNOMADE_AF_GRPMAX", "GNOMADE_AF_POPMAX"],
+    "gnomad_genomes_popmax_af": ["gnomADg_AF_grpmax", "gnomADg_AF_popmax", "GNOMADG_AF_GRPMAX", "GNOMADG_AF_POPMAX"],
+    "max_af": ["MAX_AF", "POPMAX_AF"],
     "topmed_af": ["TOPMed_AF", "TOPMED_AF"],
 }
 
@@ -248,38 +265,44 @@ def _parse_presence_bool(value: Any) -> Optional[bool]:
     return True
 
 
-def _parse_float(value: Any) -> Optional[float]:
+def _numbers(value: Any) -> list[float]:
+    """The different numbers a value holds, in the order it gives them."""
     value = _clean_value(value)
-    if value is None:
-        return None
+    if value is None or isinstance(value, bool):
+        return []
     if isinstance(value, (int, float)):
-        return float(value)
-    numbers = _FLOAT_PATTERN.findall(str(value))
-    if not numbers:
-        return None
-    try:
-        return max(float(number) for number in numbers)
-    except ValueError:
-        return None
+        return [float(value)]
+    found: list[float] = []
+    for text in _FLOAT_PATTERN.findall(str(value)):
+        try:
+            number = float(text)
+        except ValueError:
+            continue
+        if number not in found:
+            found.append(number)
+    return found
+
+
+def _several_numbers(value: Any) -> bool:
+    """Whether a value lists several different numbers: one per transcript (dbNSFP's
+    ``0.12&0.91``), per co-located record or per allele, of which none is the field's."""
+    return len(_numbers(value)) > 1
+
+
+def _parse_float(value: Any) -> Optional[float]:
+    """The number a value holds; None without one, and with several different ones
+    (``_several_numbers``). Their highest was read before: the score of another transcript or
+    allele, shown and filtered as this one's. The annotation keeps such a value's text
+    (``…_values``) to be shown."""
+    numbers = _numbers(value)
+    return numbers[0] if len(numbers) == 1 else None
 
 
 def _parse_int(value: Any) -> Optional[int]:
-    value = _clean_value(value)
-    if value is None:
-        return None
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, int):
-        return value
-    if isinstance(value, float):
-        return int(value)
-    numbers = _INTEGER_PATTERN.findall(str(value))
-    if not numbers:
-        return None
-    try:
-        return int(numbers[0])
-    except ValueError:
-        return None
+    """A count: the whole number a value holds, as ``_parse_float`` reads it (a list of
+    different numbers is none; its first was read before)."""
+    number = _parse_float(value)
+    return int(number) if number is not None else None
 
 
 def _spliceai_delta(value: Optional[float]) -> Optional[float]:
@@ -422,6 +445,32 @@ def _annotation_entries(
     return [], []
 
 
+# dbNSFP lists a score per transcript, in the order of its Ensembl_transcriptid column. An
+# entry that carries that column reads the score of its own transcript (``Feature``); any
+# other list is ``_several_numbers``.
+_DBNSFP_TRANSCRIPTS = "Ensembl_transcriptid"
+
+
+def _unversioned(transcript_id: str) -> str:
+    return transcript_id.strip().split(".", 1)[0]
+
+
+def _transcript_value(source: Dict[str, Any], value: Any) -> Any:
+    """``value`` as the entry's own transcript's, where it lists one per transcript in the
+    order of the entry's dbNSFP transcript list; else ``value`` as it is."""
+    transcripts = source.get(_DBNSFP_TRANSCRIPTS)
+    feature = source.get("Feature")
+    if not isinstance(value, str) or not isinstance(transcripts, str) or not isinstance(feature, str):
+        return value
+    values = _LIST_SEPARATORS.split(value)
+    transcript_ids = _LIST_SEPARATORS.split(transcripts)
+    if len(values) < 2 or len(values) != len(transcript_ids):
+        return value
+    own = _unversioned(feature)
+    matches = [item for item, transcript_id in zip(values, transcript_ids) if _unversioned(transcript_id) == own]
+    return matches[0] if len(matches) == 1 else value
+
+
 def _apply_numeric_and_population_aliases(
     source: Dict[str, str],
     annotation: Dict[str, Any],
@@ -436,8 +485,18 @@ def _apply_numeric_and_population_aliases(
     _normalize_annotation_entry (seeds carry the base annotation's extra and
     population_frequencies). The per-caller _ANN_ALIASES handling and final
     pruning stay with each caller."""
+    extra = dict(extra_seed)
+
+    def _read(key: str, raw: Any) -> Optional[float]:
+        # A value listing several different numbers is none of them; its text is kept for
+        # the card (``revel_values``), never summarised.
+        if _several_numbers(raw):
+            extra[f"{key}_values"] = str(raw).strip()
+            return None
+        return _parse_float(raw)
+
     for key, aliases in tables.score:
-        value = _parse_float(_first_value(source, aliases))
+        value = _read(key, _transcript_value(source, _first_value(source, aliases)))
         if value is not None:
             annotation[key] = value
 
@@ -446,36 +505,36 @@ def _apply_numeric_and_population_aliases(
         if value is not None:
             annotation[key] = value
 
-    extra = dict(extra_seed)
     for key, count_aliases in tables.extra_count:
         value = _gnomad_count(source, count_aliases)
         if value is not None:
             extra[key] = value
-    if extra:
-        annotation["extra"] = extra
 
     for key, aliases in tables.splice:
-        value = _spliceai_delta(_parse_float(_first_value(source, aliases)))
+        value = _spliceai_delta(_read(key, _transcript_value(source, _first_value(source, aliases))))
         if value is not None:
             annotation[key] = value
     annotation.update(_parse_spliceai_pred(source.get("SpliceAI_pred")))
 
     population_frequencies = dict(population_seed)
     for key, aliases in tables.population:
-        value = _parse_float(_first_value(source, aliases))
+        value = _read(key, _first_value(source, aliases))
         if value is not None:
             population_frequencies[key] = value
-    if "gnomad_af" not in population_frequencies:
-        derived_gnomad = max(
-            [
-                population_frequencies[field]
-                for field in ("gnomad_exomes_af", "gnomad_genomes_af")
-                if field in population_frequencies
-            ],
+    for combined, parts in (
+        ("gnomad_af", ("gnomad_exomes_af", "gnomad_genomes_af")),
+        ("gnomad_popmax_af", ("gnomad_exomes_popmax_af", "gnomad_genomes_popmax_af")),
+    ):
+        if combined in population_frequencies:
+            continue
+        derived = max(
+            [population_frequencies[field] for field in parts if field in population_frequencies],
             default=None,
         )
-        if derived_gnomad is not None:
-            population_frequencies["gnomad_af"] = derived_gnomad
+        if derived is not None:
+            population_frequencies[combined] = derived
+    if extra:
+        annotation["extra"] = extra
     if population_frequencies:
         annotation["population_frequencies"] = population_frequencies
         annotation["gnomad_af"] = population_frequencies.get("gnomad_af")
@@ -566,10 +625,72 @@ def _normalize_annotation_entry(
     return {key: value for key, value in annotation.items() if value not in (None, {}, [])}
 
 
+# --- A multi-allelic record's entries ------------------------------------------------- #
+# A record with several ALT alleles (``G,T``) is stored as one variant, not split, and its CSQ
+# holds the entries of every allele. Each entry names its allele, and each annotation of such
+# a record says which ALT it is of (``alt_allele``): the card, the transcript list, the ACMG
+# dialog and the frozen evidence name it. Before, the entries were read as the record's own,
+# so its primary transcript, consequence and scores could be another allele's, unnamed.
+ALT_ALLELE_KEY = "alt_allele"
+
+
+def vep_allele_forms(ref: str, alts: Sequence[str]) -> list[str]:
+    """Each ALT as VEP writes it in an entry's ``Allele`` for a VCF record (VEP's VCF parser):
+    for an indel, the first base every allele (a ``*`` aside) shares is trimmed, and an allele
+    left empty is ``-``; otherwise each as written."""
+    is_indel = any(alt != "*" and len(alt) != len(ref) for alt in alts)
+    first_bases = {allele[0] for allele in (ref, *alts) if allele and allele != "*"}
+    if not is_indel or len(first_bases) != 1:
+        return list(alts)
+    return [alt if alt == "*" else (alt[1:] or "-") for alt in alts]
+
+
+def _minimal_allele(ref: str, alt: str) -> str:
+    """An ALT as VEP's --minimal writes it: the bases it shares with REF at either end
+    trimmed, ``-`` when none is left."""
+    if alt == "*":
+        return alt
+    while ref and alt and ref[-1] == alt[-1]:
+        ref, alt = ref[:-1], alt[:-1]
+    while ref and alt and ref[0] == alt[0]:
+        ref, alt = ref[1:], alt[1:]
+    return alt or "-"
+
+
+def entry_alt_allele(
+    entry: Dict[str, Any], ref: str, alts: Sequence[str], *, vep: bool = True
+) -> str | None:
+    """The ALT allele a CSQ (``vep``) or ANN entry of a multi-allelic record is of: by VEP's
+    ``ALLELE_NUM`` (``--allele_number``) where it has one, else by its ``Allele``, as VEP writes
+    the record's alleles, as ``--minimal`` writes them, or as written (snpEff writes the ALT).
+    None when it names none of them, or several."""
+    number = _parse_int(entry.get("ALLELE_NUM"))
+    if number is not None and 1 <= number <= len(alts):
+        return alts[number - 1]
+    allele = str(entry.get("Allele") or "").strip()
+    if not allele:
+        return None
+    written = list(alts)
+    minimal = [_minimal_allele(ref, alt) for alt in alts]
+    for forms in ((vep_allele_forms(ref, alts), minimal, written) if vep else (written, minimal)):
+        matches = [alt for alt, form in zip(alts, forms) if form == allele]
+        if len(matches) == 1:
+            return matches[0]
+        if matches:
+            return None
+    return None
+
+
 def extract_small_variant_annotations(
     info: Dict[str, str],
     state: AnnotationHeaderState,
+    *,
+    ref: str | None = None,
+    alt: str | None = None,
 ) -> List[Dict[str, Any]]:
+    """The record's annotations, one per CSQ or ANN entry (else one from its INFO). With the
+    record's ``ref`` and ``alt``, each entry of a multi-allelic record names its ALT
+    (``alt_allele``)."""
     base_annotation = _base_info_annotation(info)
     # A ClinVar file declared in the header (VEP --custom describes its fields as INFO keys),
     # or a ClinVar file's key in the record's INFO; an entry may name one of its own.
@@ -580,13 +701,20 @@ def extract_small_variant_annotations(
 
     if raw_entries:
         tables = _header_alias_tables(tuple(fields))
-        annotations = [
-            _normalize_annotation_entry(
+        alts = alt.split(",") if ref and alt and "," in alt else None
+        vep = state.csq_fields is not None and fields == state.csq_fields
+        annotations = []
+        for raw_entry in raw_entries:
+            annotation = _normalize_annotation_entry(
                 raw_entry, base_annotation, tables, clinvar_file_annotated=clinvar_file_in_info
             )
-            for raw_entry in raw_entries
-        ]
-        return [annotation for annotation in annotations if annotation]
+            if annotation and alts is not None and ref:
+                allele = entry_alt_allele(raw_entry, ref, alts, vep=vep)
+                if allele is not None:
+                    annotation[ALT_ALLELE_KEY] = allele
+            if annotation:
+                annotations.append(annotation)
+        return annotations
 
     _settle_clinvar(base_annotation, clinvar_file_annotated=clinvar_file_in_info)
     return [base_annotation] if base_annotation else []

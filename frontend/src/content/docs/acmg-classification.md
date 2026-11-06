@@ -141,6 +141,9 @@ The frequency criteria read the overall gnomAD allele frequency from the annotat
 carries only the exome and genome frequencies, CoGA uses the higher of the two. The highest
 sub-population frequency (popmax) is not used.
 
+A variant with two ALT alleles (ALT `G,T`) is one record: the dialog then names the ALT whose
+annotation the pre-evaluation reads (the one the card shows).
+
 Only the criterion that fits the frequency stays active; the other two are greyed:
 
 | gnomAD allele frequency | Active | Greyed |

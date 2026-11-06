@@ -678,7 +678,7 @@ const SMALL_FILTER_LABELS: Record<keyof SmallFilterState, string> = {
   max_gnomad_af: 'Max gnomAD AF',
   max_gnomad_exomes_af: 'Max gnomAD exomes AF',
   max_gnomad_genomes_af: 'Max gnomAD genomes AF',
-  max_gnomad_popmax_af: 'Max gnomAD popmax AF',
+  max_gnomad_popmax_af: 'Max popmax AF',
   max_topmed_af: 'Max TOPMed AF',
   max_gnomad_ac: 'Max gnomAD AC',
   max_gnomad_hom_count: 'Max gnomAD H/H',
@@ -963,6 +963,7 @@ const buildPresetState = (
   // A frequency ceiling has to bound popmax as well as the global AF. An annotation run
   // can carry VEP's MAX_AF while carrying no gnomAD AF at all, and the query reads a
   // missing AF as 0 — so an AF-only ceiling let a variant at popmax 1.0 straight through.
+  // The popmax column is gnomAD's own popmax, else MAX_AF (clickhouse_variant_rows).
   // popmax is >= the global AF by construction, so bounding both is the stricter reading:
   // a variant that is rare globally but common in one population no longer survives.
   const setFrequencyCeiling = (value: string) => {

@@ -28,7 +28,7 @@ De pagina `FamilySmallVariantsPage.tsx` laadt de familie en de genpanels. De zoe
 | Locus en gen | genen, een lijst intervallen, transcript, uit te sluiten genen en intervallen. Een locus (chromosoom, begin, einde) komt alleen via een link mee, bv. uit de genoombrowser |
 | Overerving | overervingsmodel (de novo/dominant, recessief, X-gebonden, compound heterozygoot), genotype per familielid, *expanded carrier screening* |
 | Kwaliteit per sample | genotypekwaliteit, leesdiepte, allelfractie, alt-diepte, en *Pass variants only* (de FILTER van de caller) |
-| Frequentie | maximale frequentie in gnomAD (exomen, genomen, popmax) en TOPMed, aantallen homo- en hemizygoten (gnomADs totaal: het gecombineerde aantal, anders exomen plus genomen). Een variant zonder aantal blijft staan, als afwezig in gnomAD; de lijst zegt hoeveel getoonde varianten zo bleven staan |
+| Frequentie | maximale frequentie in gnomAD (exomen, genomen), popmax (gnomADs eigen popmax, anders VEP's `MAX_AF`, de hoogste frequentie over de populaties van 1000 Genomes en gnomAD) en TOPMed, aantallen homo- en hemizygoten (gnomADs totaal: het gecombineerde aantal, anders exomen plus genomen). Een variant zonder aantal blijft staan, als afwezig in gnomAD; de lijst zegt hoeveel getoonde varianten zo bleven staan |
 | Effect | impact (HIGH, MODERATE, …), effecttermen, alleen canonieke of MANE-transcripten, alleen loss-of-function |
 | ClinVar | in en uit te sluiten status, en "een (waarschijnlijk) pathogene ClinVar-variant passeert het frequentiefilter" |
 | Voorspellers | CADD, REVEL, SpliceAI, SIFT, PolyPhen |

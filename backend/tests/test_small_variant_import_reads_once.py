@@ -101,7 +101,7 @@ def test_a_headers_alias_tables_keep_only_the_aliases_it_declares_and_the_flags(
     assert ann["gene_id"] == ("Gene",)
     assert ann["canonical"] == ann["mane_select"] == ann["mane_plus_clinical"] == ()
     assert "exon" not in ann and "sift" not in ann
-    assert dict(tables.population) == {"gnomad_exomes_af": ("gnomADe_AF",), "gnomad_genomes_af": ("gnomADg_AF",), "gnomad_popmax_af": ("MAX_AF",)}
+    assert dict(tables.population) == {"gnomad_exomes_af": ("gnomADe_AF",), "gnomad_genomes_af": ("gnomADg_AF",), "max_af": ("MAX_AF",)}
     assert dict(tables.count) == {"gnomad_hom_count": ((), ("gnomADe_nhomalt",), ("gnomADg_nhomalt",))}
     assert dict(tables.extra_count) == {}
     assert _header_alias_tables(tuple(_FIELDS)) is tables  # made once per header

@@ -1605,8 +1605,8 @@ const FREQUENCY_POPULATIONS: readonly {
   },
   {
     key: 'max_gnomad_popmax_af',
-    label: 'gnomAD popmax',
-    hint: 'Maximum allele frequency in the gnomAD population where the variant is most common. A variant without it passes.',
+    label: 'Popmax',
+    hint: "Maximum allele frequency in the population where the variant is most common: gnomAD's popmax (grpmax), else VEP's MAX_AF (every 1000 Genomes and gnomAD population). A variant without either passes.",
   },
   {
     key: 'max_gnomad_af',

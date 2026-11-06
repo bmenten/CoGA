@@ -161,8 +161,8 @@ De volledige beoordeling per criterium wordt als JSON bewaard. Het herberekende 
 
 **Het bewijssnapshot.** Bij het classificeren van een small variant bevriest CoGA het bewijs in `acmg_evidence_snapshot`: de annotatieversie, de **hash van de annotatieset** (die verandert zodra enige annotatie verandert), de ClinVar-waarde en het tijdstip. Daarnaast de consequentie, populatiefrequenties en in-silicoscores waarop de classificatie steunt, zoals de ACMG-dialoog ze leest: van het primaire transcript van de variant (MANE Select, dan canoniek, dan de zwaarste impact; zijn id staat in `transcript_id`), via dezelfde hulpfuncties als de variantenlijst (`small_variant_evidence`). Per groep:
 
-- `consequence`: de consequentieterm(en) (`effect`) die de criteria voor een null-, missense-, synonieme of lengteveranderende variant lezen (PVS1, PM4, PP2, BP7 en de criteria die een consequentie uitsluit); de `impact`; de loss-of-functionoproep van LOFTEE (`lof`), waarvan de sterkte van PVS1 afhangt.
-- `frequencies`: de gnomAD-allelfrequentie die de frequentiecriteria lezen; de exoom-, genoom-, popmax- en TOPMed-frequenties en de gnomAD-tellingen (allelen, homozygoten, hemizygoten) die de filters lezen.
+- `consequence`: de consequentieterm(en) (`effect`) die de criteria voor een null-, missense-, synonieme of lengteveranderende variant lezen (PVS1, PM4, PP2, BP7 en de criteria die een consequentie uitsluit); de `impact`; de loss-of-functionoproep van LOFTEE (`lof`), waarvan de sterkte van PVS1 afhangt. Alleen bij een multiallelisch record (ALT `G,T`) ook het ALT-allel waarvan deze waarden zijn (`alt_allele`).
+- `frequencies`: de gnomAD-allelfrequentie die de frequentiecriteria lezen; de exoom-, genoom-, gnomAD-popmax-, VEP-`MAX_AF`- (`max_af`) en TOPMed-frequenties en de gnomAD-tellingen (allelen, homozygoten, hemizygoten) die de filters lezen.
 - `in_silico`: CADD, REVEL, SpliceAI, SIFT, PolyPhen en de AlphaMissense-klasse en -score.
 - `gene_constraint`, alleen voor een missense-variant: de gnomAD-missense-Z van het gen (`gene_missense_z`) die PP2 leest, en waar die vandaan kwam (`gene_missense_z_source`).
 

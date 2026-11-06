@@ -2452,6 +2452,7 @@ export interface NiptVariantOut {
   gene_symbols: string[];
   gene_count: number | null;
   transcript_id: string | null;
+  alt_allele: string | null;
   feature_type: string | null;
   transcript_biotype: string | null;
   impact: string | null;
@@ -3781,6 +3782,7 @@ export interface SmallVariantFilterPresetOut {
 export interface SmallVariantFilterTranscriptOut {
   gene: string | null;
   transcript_id: string | null;
+  alt_allele: string | null;
   impact: string | null;
   effect: string | null;
   hgvsc: string | null;
@@ -3908,6 +3910,7 @@ export interface SmallVariantTagDefinitionUpdate {
 }
 
 export interface SmallVariantTranscriptOut {
+  alt_allele: string | null;
   gene: string | null;
   gene_id: string | null;
   transcript_id: string | null;
@@ -4268,6 +4271,7 @@ export interface VariantOut {
   gene_symbols: string[];
   gene_count: number | null;
   transcript_id: string | null;
+  alt_allele: string | null;
   feature_type: string | null;
   transcript_biotype: string | null;
   impact: string | null;

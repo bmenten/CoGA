@@ -32,6 +32,11 @@ from .review_pg_utils import _json_payload, _read_stored_classification
 # Frozen like the frequencies, also without a value, so one that changes or appears later
 # reads as a change.
 EVIDENCE_CONSEQUENCE_FIELDS: tuple[str, ...] = ("effect", "impact", "lof")
+# For a multi-allelic record (ALT ``G,T``) only: the ALT the consequence, frequencies and
+# scores are of, frozen in the consequence group. The transcript alone does not say which
+# allele's annotation the classification read. A snapshot frozen before has none, and is
+# compared on what it froze.
+EVIDENCE_ALLELE_FIELD = "alt_allele"
 # The population frequencies a small-variant classification rests on (CLIN-7), in the order
 # a reviewer reads them: the gnomAD allele frequency the frequency criteria read (PM2, BS1,
 # BA1), and the other frequencies and the gnomAD allele, homozygote and hemizygote counts
@@ -42,6 +47,9 @@ EVIDENCE_FREQUENCY_FIELDS: tuple[str, ...] = (
     "gnomad_exomes_af",
     "gnomad_genomes_af",
     "gnomad_popmax_af",
+    # VEP's MAX_AF, which the popmax frequency ceiling reads where gnomAD has no popmax
+    # (``clickhouse_variant_rows._popmax_column``). Frozen as gnomAD's popmax before.
+    "max_af",
     "topmed_af",
     "gnomad_ac",
     "gnomad_hom_count",
@@ -265,12 +273,18 @@ def small_variant_evidence(record: Any, *, gene_missense_z: float | None) -> dic
             "effect": _annotation_effect(annotation),
             "impact": _annotation_text(annotation, "impact"),
             "lof": _annotation_text(annotation, "lof"),
+            **(
+                {EVIDENCE_ALLELE_FIELD: _annotation_text(annotation, "alt_allele")}
+                if "," in str(getattr(record, "alt", "") or "")
+                else {}
+            ),
         },
         "frequencies": {
             "gnomad_af": _frozen_float(annotation, "gnomad_af", "gnomadAf"),
             "gnomad_exomes_af": _population("gnomad_exomes_af"),
             "gnomad_genomes_af": _population("gnomad_genomes_af"),
             "gnomad_popmax_af": _population("gnomad_popmax_af"),
+            "max_af": _population("max_af"),
             "topmed_af": _population("topmed_af"),
             "gnomad_ac": _frozen_int(annotation, "gnomad_ac"),
             "gnomad_hom_count": _frozen_int(annotation, "gnomad_hom_count", "gnomadHomCount"),

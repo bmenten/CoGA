@@ -246,11 +246,11 @@ def _a_records_annotation_fails(monkeypatch) -> None:
     real = variant_upload_service.extract_small_variant_annotations
     seen = {"records": 0}
 
-    def annotation(info, state):
+    def annotation(info, state, **kwargs):
         seen["records"] += 1
         if seen["records"] == 3:
             raise ValueError("unreadable annotation")
-        return real(info, state)
+        return real(info, state, **kwargs)
 
     monkeypatch.setattr(variant_upload_service, "extract_small_variant_annotations", annotation)
 

@@ -101,6 +101,7 @@ describe('SmallVariantTable', () => {
       genotypes: [],
     });
     const matched = {
+      alt_allele: null,
       gene: 'SYN51C',
       transcript_id: 'ENST_SYN51C_2',
       impact: 'MODERATE',

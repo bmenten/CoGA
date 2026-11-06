@@ -367,7 +367,9 @@ def merged_site_record(
         rsid=info.get("RS") or info.get("dbSNP") or None,
         filters=list(dict.fromkeys(record.filt for record in group if record.filt not in {"", "."})),
         gene_symbols=[],
-        annotations=extract_small_variant_annotations(info, readers[lead.reader].annotation_state),
+        annotations=extract_small_variant_annotations(
+            info, readers[lead.reader].annotation_state, ref=lead.ref, alt=lead.alt
+        ),
         calls=calls,
         qual=max(quals) if quals else None,
     )

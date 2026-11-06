@@ -446,3 +446,25 @@ async def test_the_clinvar_file_the_pipeline_annotated_gives_the_classification_
     assert annotations[200]["clinvar_vep_cache"] == "pathogenic"
     assert captured[-1]["clinvar"] == {"version": "20261101", "detail": "ClinVar file clinvar_20261101.vcf.gz"}
     assert captured[-1]["clinvar_vep_cache"]["version"] == "202504"
+
+
+@pytest.mark.asyncio
+async def test_a_multi_allelic_records_entries_name_their_alt(storage, tmp_path: Path) -> None:
+    # The record is stored unsplit; each CSQ entry says which ALT it is of. VEP's MAX_AF is
+    # kept as itself, not as gnomAD's popmax.
+    line = (
+        "chr1\t100\t.\tA\tG,T\t30\tPASS\t"
+        "CSQ=G|missense_variant|MODERATE|GENE1|ENSG1|0.0001,T|stop_gained|HIGH|GENE1|ENSG1|0.0001"
+        "\tGT:GQ:DP:AD:VAF:PS\t1/2:30:20:0,10,10:0.5,0.5:100"
+    )
+    mother = _write(tmp_path / "MOTHER1.vcf.gz", _vcf("MOTHER1", [line]))
+    father = _write(tmp_path / "FATHER1.vcf.gz", _vcf("FATHER1", [_record("chr1", 200, "A", "G", "PASS", "0/1")]))
+
+    await _upload([PerSampleVcf("MOTHER1", mother), PerSampleVcf("FATHER1", father)])
+
+    [record] = [record for record in storage["inserted"] if record.start == 100]
+    assert [(a["alt_allele"], a["effect"]) for a in record.annotations] == [
+        ("G", "missense_variant"),
+        ("T", "stop_gained"),
+    ]
+    assert record.annotations[0]["population_frequencies"] == {"max_af": 0.0001}

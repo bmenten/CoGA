@@ -162,7 +162,7 @@ _CSQ_HEADER = (
     '##INFO=<ID=CSQ,Number=.,Type=String,Description="Consequence annotations from Ensembl VEP.'
     " Format: Allele|Consequence|IMPACT|SYMBOL|Gene|Feature_type|Feature|CANONICAL|MANE_SELECT"
     "|SIFT|PolyPhen|REVEL|CADD_PHRED|am_class|am_pathogenicity|SpliceAI_pred_DS_AG"
-    "|SpliceAI_pred_DS_AL|SpliceAI_pred_DS_DG|SpliceAI_pred_DS_DL|gnomADe_AF|gnomADg_AF|MAX_AF"
+    "|SpliceAI_pred_DS_AL|SpliceAI_pred_DS_DG|SpliceAI_pred_DS_DL|gnomADe_AF|gnomADg_AF|gnomADg_AF_grpmax"
     '|gnomAD_AC|gnomAD_nhomalt|gnomAD_Hemi|TOPMed_AF|LoF">'
 )
 
@@ -243,6 +243,7 @@ def test_the_snapshot_freezes_the_primary_transcripts_frequencies_and_in_silico_
         "gnomad_exomes_af": 1.2e-05,
         "gnomad_genomes_af": 3.1e-05,
         "gnomad_popmax_af": 0.0002,
+        "max_af": None,
         "topmed_af": 2e-05,
         "gnomad_ac": 4,
         "gnomad_hom_count": 0,
@@ -1047,3 +1048,26 @@ def test_a_snapshot_frozen_before_the_source_was_is_compared_on_its_missense_z()
     # Its gene's profile holds none now and the VCF does: PP2 reads another value.
     moved = cds._diff(earlier, _now(_vcf_z("h1", (_MANE, "4.2"))))
     assert (moved["status"], moved["changed"]) == ("drifted", ["gene_missense_z"])
+
+
+def test_a_multi_allelic_records_snapshot_names_the_alt_its_values_are_of() -> None:
+    # The transcript alone does not say which allele's annotation a classification of a
+    # record with two ALTs read: the ALT is frozen with the consequence, for such a record only.
+    from backend.app.services.small_variant_review_acmg import EVIDENCE_CONSEQUENCE_FIELDS
+
+    multi = _annotated("h1", _OTHER, _MANE)
+    multi.annotations = [{**annotation, "alt_allele": "G"} for annotation in multi.annotations]
+    multi.alt = "G,T"
+    snap = _freeze(multi)
+    assert snap["consequence"]["alt_allele"] == "G"
+    assert tuple(_freeze(_annotated("h1", _OTHER, _MANE))["consequence"]) == EVIDENCE_CONSEQUENCE_FIELDS
+    # Another allele's annotation now reads as drift naming it, before the consequence.
+    moved = _annotated("h2", _OTHER, _MANE)
+    moved.annotations = [{**annotation, "alt_allele": "T"} for annotation in moved.annotations]
+    moved.alt = "G,T"
+    diff = cds._diff(_stored(snap), _now(moved))
+    assert diff["changed"][0] == "alt_allele"
+    # A snapshot frozen before the ALT was is compared on what it froze.
+    older = _stored(snap)
+    del older["consequence"]["alt_allele"]
+    assert "alt_allele" not in cds._diff(older, _now(moved))["changed"]

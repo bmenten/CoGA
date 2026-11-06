@@ -243,9 +243,9 @@ async def test_a_record_the_filter_leaves_out_has_no_annotation_parsed(storage, 
     parsed: list[str] = []
     real = variant_upload_service.extract_small_variant_annotations
 
-    def counting(info, state):
+    def counting(info, state, **kwargs):
         parsed.append(str(info.get("TLOD")))
-        return real(info, state)
+        return real(info, state, **kwargs)
 
     monkeypatch.setattr(variant_upload_service, "extract_small_variant_annotations", counting)
     keep = paternal_record_filter({("7", 1000), ("7", 2000)})

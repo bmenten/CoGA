@@ -145,6 +145,18 @@ def _annotation_gnomad_over_5_percent(annotations: Sequence[dict[str, Any]]) -> 
     return any(value > 0.05 for annotation in annotations for value in _candidate_values(annotation))
 
 
+def _popmax_column(annotation: dict[str, Any], population_frequencies: dict[str, float]) -> float | None:
+    """The popmax a frequency ceiling reads (the ``gnomad_popmax_af`` column): gnomAD's own
+    popmax, else VEP's MAX_AF, the highest frequency over every population VEP reads (1000
+    Genomes and gnomAD). An annotation with MAX_AF but no gnomAD frequency would otherwise let
+    a common variant through a frequency ceiling. The card and the frozen evidence name the two
+    apart (``max_af``); before, the parser stored MAX_AF as gnomAD's popmax."""
+    gnomad = _population_float(annotation, population_frequencies, "gnomad_popmax_af", "gnomadPopmaxAf")
+    if gnomad is not None:
+        return gnomad
+    return _population_float(annotation, population_frequencies, "max_af", "maxAf")
+
+
 def _population_float(
     annotation: dict[str, Any], population_frequencies: dict[str, float], *keys: str
 ) -> float | None:
@@ -228,7 +240,7 @@ def _annotation_columns(annotation: dict[str, Any]) -> _AnnotationColumns:
         gnomad_genomes_af=_population_float(
             annotation, population_frequencies, "gnomad_genomes_af", "gnomadGenomesAf"
         ),
-        gnomad_popmax_af=_population_float(annotation, population_frequencies, "gnomad_popmax_af", "gnomadPopmaxAf"),
+        gnomad_popmax_af=_popmax_column(annotation, population_frequencies),
         topmed_af=_population_float(annotation, population_frequencies, "topmed_af", "topmedAf"),
         gnomad_ac=_annotation_count(annotation, "gnomad_ac"),
         gnomad_hom_count=_annotation_count(annotation, "gnomad_hom_count", "gnomadHomCount"),

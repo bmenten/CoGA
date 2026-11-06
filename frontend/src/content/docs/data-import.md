@@ -131,7 +131,12 @@ the [user guide](/docs), section *Structural variants, repeats, Paraphase and mt
 
 A small variant's population frequencies and gnomAD counts come only from annotation fields that name
 their source (gnomAD's, TOPMed's, and VEP's `MAX_AF`), never from the callset's own allele count, the
-VCF's `AC`. A gnomAD count is gnomAD's total: its combined count, or else its exome and genome counts
+VCF's `AC`. gnomAD's popmax (grpmax in gnomAD v4) and VEP's `MAX_AF` (the highest frequency over the
+1000 Genomes and gnomAD populations) are kept apart; the popmax filter reads gnomAD's, else `MAX_AF`.
+A field that lists several different numbers (one per transcript, record or allele) is read as no value,
+and its text is shown under *More annotations*. A record with two ALT alleles is stored as one variant,
+and each transcript of it names the ALT its annotation is of; split such records upstream
+(`bcftools norm -m -any`) to filter and classify each allele on its own. A gnomAD count is gnomAD's total: its combined count, or else its exome and genome counts
 (`gnomADe_…`, `gnomADg_…`) added. A variant whose annotation gives no gnomAD count has none. A maximum
 gnomAD count filter keeps it, as absent from gnomAD; the variant list then says how many of the
 variants it shows were kept that way. A family loaded before keeps the counts it was loaded with until
