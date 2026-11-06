@@ -382,9 +382,26 @@ async def test_get_family_nipt_variants_names_the_transcript_the_filters_held_on
          "effect": "missense_variant", "sift": "deleterious(0.02)"},
     ]
     filtered = [
-        dataclasses.replace(record, annotations=annotations) for record in _de_novo_and_cat3_records()
+        dataclasses.replace(
+            record, annotations=annotations, variant_key=index, annotation_version="current", annotation_set_hash=7
+        )
+        for index, record in enumerate(_de_novo_and_cat3_records(), start=1)
     ]
     _wire_variants_mocks(monkeypatch, cohort=_cohort_cat7_records(), filtered=filtered)
+
+    async def sift_matches(_context, filters, records):
+        # The SQL's answer for SIFT deleterious: each variant's second transcript.
+        from backend.app.services.clickhouse_family_variants import _annotation_set_identity
+        from backend.app.services.clickhouse_variant_rows import _annotation_payload_hash
+
+        if filters is None or not filters.sift:
+            return None
+        return {
+            _annotation_set_identity(record): frozenset({_annotation_payload_hash(annotations[1])})
+            for record in records
+        }
+
+    monkeypatch.setattr("backend.app.services.clickhouse_family_variants._filter_transcript_matches", sift_matches)
 
     async def variant_outs(query_filters):
         result = await get_family_nipt_variants(

@@ -144,6 +144,11 @@ class SmallVariantRecord:
     # The inheritance modes the variant fits, when the fetch was asked for them
     # (``_fetch_small_variant_rows(segregation_flags=True)``); None otherwise.
     segregation: SmallSegregationFlags | None = None
+    # Its annotation set as stored (the annotation version and the set's hash), by which its
+    # transcripts' stored rows are found (``_filter_transcript_matches``); None for a record
+    # not read from the store.
+    annotation_version: str | None = None
+    annotation_set_hash: int | None = None
 
 
 @dataclass(slots=True)

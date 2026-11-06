@@ -1061,6 +1061,26 @@ IMPUTED_TWIN = "11-95101100-A-T"
 MULTI_ALLELIC_HOM = "11-95101110-C-T"
 X_HAPLOID_FATHER = "X-72001000-C-T"
 MITO_HAPLOID_MOTHER = "M-12400-A-G"
+# Two transcripts each: the primary one (MANE Select, canonical) misses the filter its case
+# sets, the other meets it, and is the transcript the variant names (CLIN-51).
+FT_IMPACT = "11-95101200-C-T"
+FT_TRANSCRIPT = "11-95101210-G-A"
+FT_LOF = "11-95101220-A-G"
+FT_REVEL = "11-95101230-T-C"
+FT_CLINVAR = "11-95101240-C-A"
+FT_CANONICAL = "11-95101250-G-T"
+FT_PICKED = "11-95101260-A-C"
+
+
+def _filter_transcript_variant(gene: str, primary: dict[str, Any], *others: dict[str, Any]) -> _Variant:
+    return _Variant(
+        csq=[],
+        annotations=(
+            _annotation(gene, f"ENST_{gene}_1", **{"canonical": True, "mane_select": True, **primary}),
+            *(_annotation(gene, f"ENST_{gene}_{index}", **other) for index, other in enumerate(others, start=2)),
+        ),
+        calls=_trio("0/1"),
+    )
 
 
 def _annotation(gene: str | None, transcript: str, **fields: Any) -> dict[str, Any]:
@@ -1178,6 +1198,21 @@ _DIVERGENCES: dict[str, _Variant] = {
         annotations=(_annotation("MT-SYN1", "ENST_MTSYN1_1", canonical=True),),
         calls={_PROBAND: _Call("0/1"), _MOTHER: _Call("1"), _FATHER: _Call("0")},
     ),
+    FT_IMPACT: _filter_transcript_variant("SYNT1", {}, {"impact": "HIGH", "effect": "stop_gained"}),
+    FT_TRANSCRIPT: _filter_transcript_variant("SYNT2", {}, {}),
+    FT_LOF: _filter_transcript_variant("SYNT3", {}, {"lof": "HC"}),
+    FT_REVEL: _filter_transcript_variant("SYNT4", {"revel": 0.1}, {"revel": 0.71}),
+    FT_CLINVAR: _filter_transcript_variant("SYNT5", {"clinvar": "Benign"}, {"clinvar": "Pathogenic"}),
+    # A MANE Select transcript that is not the canonical one.
+    FT_CANONICAL: _filter_transcript_variant("SYNT6", {"canonical": False}, {"canonical": True}),
+    # Two transcripts meet the filter: the one named is picked as the primary is (canonical
+    # before the more severe).
+    FT_PICKED: _filter_transcript_variant(
+        "SYNT7",
+        {"impact": "LOW", "effect": "synonymous_variant"},
+        {"impact": "HIGH", "effect": "stop_gained"},
+        {"canonical": True},
+    ),
     # chrX outside the pseudo-autosomal regions, the unaffected father carrying it too.
     X_HAPLOID_FATHER: _Variant(
         csq=[],
@@ -1244,6 +1279,34 @@ DIVERGENCE_CASES: dict[str, _Case] = {
         intervals="11:95101090",
         filter_transcripts={NAN_ON_PRIMARY: None},
     ),
+    # Each annotation filter held on another transcript names it, in every view (CLIN-51).
+    "filter transcript, impact": _divergence(
+        {FT_IMPACT}, impact=["HIGH"], intervals="11:95101200", filter_transcripts={FT_IMPACT: "ENST_SYNT1_2"}
+    ),
+    "filter transcript, transcript": _divergence(
+        {FT_TRANSCRIPT}, transcript="SYNT2_2", filter_transcripts={FT_TRANSCRIPT: "ENST_SYNT2_2"}
+    ),
+    "filter transcript, LoF only": _divergence(
+        {FT_LOF}, lof_only=True, intervals="11:95101220", filter_transcripts={FT_LOF: "ENST_SYNT3_2"}
+    ),
+    "filter transcript, REVEL": _divergence(
+        {FT_REVEL}, min_revel=0.5, intervals="11:95101230", filter_transcripts={FT_REVEL: "ENST_SYNT4_2"}
+    ),
+    "filter transcript, ClinVar": _divergence(
+        {FT_CLINVAR}, clinvar=["Pathogenic"], intervals="11:95101240", filter_transcripts={FT_CLINVAR: "ENST_SYNT5_2"}
+    ),
+    "filter transcript, canonical only": _divergence(
+        {FT_CANONICAL}, canonical_only=True, intervals="11:95101250", filter_transcripts={FT_CANONICAL: "ENST_SYNT6_2"}
+    ),
+    "filter transcript, two meet it": _divergence(
+        {FT_PICKED},
+        impact=["HIGH", "MODERATE"],
+        intervals="11:95101260",
+        filter_transcripts={FT_PICKED: "ENST_SYNT7_3"},
+    ),
+    "filter transcript, none without an annotation filter": _divergence(
+        {FT_REVEL}, intervals="11:95101230", filter_transcripts={FT_REVEL: None}
+    ),
     # The imputed callset's own call, whichever view shows it.
     "source, an imputed twin": _divergence(
         {IMPUTED_TWIN}, source="glimpse2", genotypes={IMPUTED_TWIN: {_PROBAND: "1|1"}}
@@ -1283,10 +1346,6 @@ ALL_CASES: dict[tuple[str, str], _Case] = {
 _PYTHON_VIEWS = ("one page", "track sample", "ranked", "ranked from cache")
 _EVERY_VIEW = ("plain", "one page", "track", "track sample", "ranked", "ranked from cache")
 
-_FILTER_TRANSCRIPT = (
-    "PR 5: Python names the filter transcript by its own reading of the annotation filters, "
-    "not the stored values the SQL reads"
-)
 _RECORD_FILTER = (
     "PR 6: Python's record filter reads a value or a gene name apart from the stored one the "
     "SQL reads, and drops what the SQL keeps"
@@ -1300,11 +1359,6 @@ def _gaps(family: str, name: str, views: tuple[str, ...], reason: str) -> dict[t
 # What a view keeps today that the rule does not, by the PR that closes it. Each is a
 # strict xfail, so the PR that closes one must delete its entry.
 KNOWN_GAPS: dict[tuple[str, str, str], str] = {
-    **_gaps(
-        "divergences", "filter transcript, a frequency among the population frequencies", _EVERY_VIEW,
-        _FILTER_TRANSCRIPT,
-    ),
-    **_gaps("divergences", "filter transcript, no number on the primary", _EVERY_VIEW, _FILTER_TRANSCRIPT),
     **_gaps("divergences", "gnomAD exomes AF no 32-bit float holds", _PYTHON_VIEWS, _RECORD_FILTER),
     **_gaps("divergences", "gnomAD AC no 32-bit integer holds", _PYTHON_VIEWS, _RECORD_FILTER),
     **_gaps("divergences", "gene id under the key geneID", _PYTHON_VIEWS, _RECORD_FILTER),
@@ -1640,3 +1694,48 @@ def test_each_mode_flag_keeps_what_the_mode_keeps(
     assert all(not flags for name, (flags, _kept) in answers.items() if name.startswith("no affected member"))
     # Each mode keeps something in some family, so the comparison is not of empty lists.
     assert all(any(answers[f"{family}: {mode}"][1] for family in ("trio", "divergences")) for mode in modes)
+
+
+def test_each_transcript_read_back_hashes_to_its_stored_row(
+    stored_family: dict[str, str], stored_divergences: dict[str, str]
+) -> None:
+    """The transcript a variant shows as the one its filters held on is found by the hash of
+    its stored row (``annotationHash``): every transcript a record reads back hashes to the
+    stored rows of its annotation set, no more and no fewer, an unannotated variant's empty
+    one included."""
+    import backend.app.services.clickhouse_family_variants as family_variants
+    from backend.app.core.clickhouse import execute_clickhouse
+    from backend.app.services.clickhouse_variant_ids import _small_table_name
+    from backend.app.services.clickhouse_variant_queries import _select_primary_annotation
+    from backend.app.services.clickhouse_variant_rows import _annotation_payload_hash
+    from backend.app.services.family_variant_filters import SmallVariantQueryFilters
+
+    async def _run() -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        try:
+            for stored in (stored_family, stored_divergences):
+                context = _context(stored["family_uuid"], stored["project"], stored["assembly_id"])
+                for source in (None, "glimpse2"):
+                    records = await family_variants._fetch_small_variant_rows(
+                        context, SmallVariantQueryFilters(page=1, page_size=100, source=source)
+                    )
+                    rows = await execute_clickhouse(
+                        f"SELECT key, annotation_version, annotationSetHash, groupUniqArray(annotationHash) "
+                        f"FROM {_small_table_name(_ASSEMBLY, 'variants/annotations')} "
+                        "WHERE key IN %(keys)s GROUP BY key, annotation_version, annotationSetHash",
+                        {"keys": tuple(record.variant_key for record in records)},
+                    )
+                    stored_hashes = {(int(k), str(v), int(h)): set(map(int, hashes)) for k, v, h, hashes in rows}
+                    for record in records:
+                        identity = (record.variant_key, record.annotation_version, record.annotation_set_hash)
+                        read_back = {_annotation_payload_hash(annotation) for annotation in record.annotations}
+                        if not record.annotations:
+                            read_back = {_annotation_payload_hash(_select_primary_annotation([]))}
+                        out[f"{record.variant_id} ({record.source})"] = (read_back, stored_hashes.get(identity))
+        finally:
+            await _close_stores()
+        return out
+
+    answers = asyncio.run(_run())
+    assert {variant: pair for variant, pair in answers.items() if pair[0] != pair[1]} == {}
+    assert len(answers) >= len(_VARIANTS) + len(_DIVERGENCES)

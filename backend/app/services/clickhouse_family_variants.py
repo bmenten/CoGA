@@ -118,6 +118,7 @@ from .clickhouse_variant_queries import (
     _selected_structural_samples,
     _small_hemizygous_position_condition,
     _small_pair_inheritance_candidate_limit,
+    _small_annotation_filter_condition,
     _small_query_filter_parts,
     _small_segregation_flag_columns,
     _small_record_hits_gene_terms,
@@ -1456,6 +1457,8 @@ async def _fetch_small_variant_rows(
                 calls=calls,
                 qual=_coerce_float(qual),
                 segregation=segregation,
+                annotation_version=str(annotation_version or "current"),
+                annotation_set_hash=parsed_annotation_set_hash,
             )
         )
     return records
@@ -1486,6 +1489,96 @@ def _segregation_flags_from_row(values: Sequence[Any]) -> SmallSegregationFlags:
         recessive_homozygous=recessive_homozygous,
         x_linked=x_linked,
     )
+
+
+# A stored annotation set: the variant's key, the annotation version and the set's hash.
+_AnnotationSetIdentity = tuple[int, str, int]
+# How many annotation sets one transcript query asks after.
+_FILTER_TRANSCRIPT_CHUNK = 2_000
+
+
+def _annotation_set_identity(record: SmallVariantRecord) -> _AnnotationSetIdentity | None:
+    if record.variant_key is None or record.annotation_set_hash is None:
+        return None
+    return (int(record.variant_key), str(record.annotation_version or "current"), int(record.annotation_set_hash))
+
+
+async def _filter_transcript_matches(
+    context: FamilyMetadataContext,
+    filters: SmallVariantQueryFilters | None,
+    records: Sequence[SmallVariantRecord],
+) -> dict[_AnnotationSetIdentity, frozenset[int]] | None:
+    """Which stored transcripts of ``records`` the search's annotation filters hold on, as
+    the SQL decides it: the stored rows the search's own per-transcript condition keeps
+    (``_small_annotation_filter_condition``), each by its hash (``annotationHash``), per
+    annotation set. None when the search asks nothing of a transcript. The one definition
+    of the filters names the transcript a variant shows (CLIN-51)."""
+    if filters is None or not context.assembly_name:
+        return None
+    condition_params: dict[str, Any] = {}
+    condition = _small_annotation_filter_condition(filters, params=condition_params)
+    if condition is None:
+        return None
+    identities = list(dict.fromkeys(i for record in records if (i := _annotation_set_identity(record)) is not None))
+    table = _small_table_name(context.assembly_name, "variants/annotations")
+    matches: dict[_AnnotationSetIdentity, frozenset[int]] = {}
+    for start in range(0, len(identities), _FILTER_TRANSCRIPT_CHUNK):
+        chunk = identities[start : start + _FILTER_TRANSCRIPT_CHUNK]
+        params = {
+            **condition_params,
+            "filter_transcript_keys": tuple(dict.fromkeys(key for key, _version, _set in chunk)),
+            "filter_transcript_versions": tuple(dict.fromkeys(version for _key, version, _set in chunk)),
+            "filter_transcript_sets": tuple(dict.fromkeys(set_hash for _key, _version, set_hash in chunk)),
+        }
+        rows = await _execute_clickhouse(
+            f"""
+            SELECT a.key, a.annotation_version, a.annotationSetHash, groupUniqArray(a.annotationHash)
+            FROM {table} AS a
+            WHERE a.key IN %(filter_transcript_keys)s
+              AND a.annotation_version IN %(filter_transcript_versions)s
+              AND a.annotationSetHash IN %(filter_transcript_sets)s
+              AND ({condition})
+            GROUP BY a.key, a.annotation_version, a.annotationSetHash
+            """,
+            params,
+        )
+        wanted = set(chunk)
+        for key, version, set_hash, hashes in rows:
+            identity = (int(key), str(version or "current"), int(set_hash))
+            if identity in wanted:
+                matches[identity] = frozenset(int(value) for value in hashes)
+    return matches
+
+
+def _matched_annotation_hashes(
+    matches: dict[_AnnotationSetIdentity, frozenset[int]] | None,
+    record: SmallVariantRecord,
+) -> frozenset[int] | None:
+    """The hashes of ``record``'s transcripts the filters held on; None when they ask nothing
+    of a transcript."""
+    if matches is None:
+        return None
+    identity = _annotation_set_identity(record)
+    return matches.get(identity, frozenset()) if identity is not None else frozenset()
+
+
+async def _small_variant_outs(
+    context: FamilyMetadataContext,
+    filters: SmallVariantQueryFilters | None,
+    records: Sequence[SmallVariantRecord],
+) -> list[VariantOut]:
+    """``records`` as the API serves them, each naming the transcript the search's
+    annotation filters held on when its primary one does not (CLIN-51), as the SQL decides
+    it: one query for the page."""
+    matches = await _filter_transcript_matches(context, filters, records)
+    return [
+        _small_variant_out(
+            record,
+            assembly_name=context.assembly_name,
+            filter_annotation_hashes=_matched_annotation_hashes(matches, record),
+        )
+        for record in records
+    ]
 
 
 async def fetch_imputed_phased_genotypes(
@@ -2029,8 +2122,7 @@ async def _serve_ranking_from_cache(
             limit=len(page_ids) + 5,
         )
         by_id: dict[str, VariantOut] = {}
-        for record in records:
-            out = _small_variant_out(record, assembly_name=context.assembly_name, filters=filters)
+        for out in await _small_variant_outs(context, filters, records):
             by_id[str(out.id)] = out
         for entry in page_entries:
             variant_out = by_id.get(str(entry.get("variant_id")))
@@ -2280,7 +2372,7 @@ async def _rank_small_variants(
     # Scored on each variant's primary transcript, whatever the search's filters: the
     # ranking and its cache hold no filter transcript (CLIN-51).
     variants = [
-        _small_variant_out(record, assembly_name=context.assembly_name, filters=None)
+        _small_variant_out(record, assembly_name=context.assembly_name, filter_annotation_hashes=None)
         for record in records
     ]
     gene_symbols = {variant.gene for variant in variants if variant.gene}
@@ -2917,8 +3009,15 @@ async def _small_item_outs(
     search's ``filters`` held on, when its primary one does not meet them (CLIN-51).
     Hydrated like every page."""
 
+    # Which transcripts the filters held on, as the SQL decides it: one query for the page.
+    matches = await _filter_transcript_matches(context, filters, _item_records(items))
+
     def variant_out(record: SmallVariantRecord) -> VariantOut:
-        variant = _small_variant_out(record, assembly_name=context.assembly_name, filters=filters)
+        variant = _small_variant_out(
+            record,
+            assembly_name=context.assembly_name,
+            filter_annotation_hashes=_matched_annotation_hashes(matches, record),
+        )
         priority = priorities.get(record.variant_id) if priorities is not None else None
         if priority is not None:
             variant.priority = priority.model_copy(deep=True)
@@ -3115,10 +3214,7 @@ async def _small_variants_track_page(
         offset=_page_offset(page, page_size),
         **scope.row_filters(),
     )
-    variants = [
-        _small_variant_out(record, assembly_name=context.assembly_name, filters=filters)
-        for record in fetched_records
-    ]
+    variants = await _small_variant_outs(context, filters, fetched_records)
     await _hydrate_small_variant_outs(
         session,
         context=context,
@@ -3158,10 +3254,7 @@ async def _small_variants_native_page(
     )
     unfiltered_total = small_variant_summary.total_variants if small_variant_summary else None
     page_records = fetched_records[:page_size]
-    variants = [
-        _small_variant_out(record, assembly_name=context.assembly_name, filters=filters)
-        for record in page_records
-    ]
+    variants = await _small_variant_outs(context, filters, page_records)
     if variants:
         await _hydrate_small_variant_outs(
             session,
@@ -3244,10 +3337,7 @@ async def _small_variants_candidate_page(
     else:
         skip = max(page - 1, 0) * page_size if page_size else 0
         page_records = filtered[skip: skip + page_size] if page_size else filtered[skip:]
-    variants = [
-        _small_variant_out(record, assembly_name=context.assembly_name, filters=filters)
-        for record in page_records
-    ]
+    variants = await _small_variant_outs(context, filters, page_records)
     await _hydrate_small_variant_outs(
         session,
         context=context,

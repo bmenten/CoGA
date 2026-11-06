@@ -9,7 +9,11 @@ whenever its primary one does not meet them, with that transcript's values. Its 
 stay the primary transcript's, so the ranking, the ACMG suggestions, the report and the
 signed record read what they read before.
 
-Covers the rule (``_small_variant_out``): when a transcript is named, which one, with what;
+Which transcripts the filters hold on the SQL decides, on the stored rows the search reads
+(``_filter_transcript_matches``, by each row's ``annotationHash``); the real-ClickHouse filter
+spec holds it to the rule for each annotation filter. These tests give its answer
+explicitly. Covers the rule (``_small_variant_out``): when a transcript is named, which one,
+with what;
 that every page of the family search names it, whichever path builds the page (ClickHouse's
 own page, the candidate read and an inheritance mode's pairs, the track, the ranked search
 computed, served from its cache and served from a broader panel's ranking) and the export;
@@ -23,11 +27,13 @@ from typing import Any
 import pytest
 
 from backend.app.services.clickhouse_family_variants import (
+    _annotation_set_identity,
     _serve_subpanel_from_superset,
     export_family_small_variants,
     get_family_small_variants_page,
 )
 from backend.app.services.clickhouse_variant_queries import _small_variant_out
+from backend.app.services.clickhouse_variant_rows import _annotation_payload_hash
 from backend.app.services.clickhouse_variant_records import (
     PanelFilterConstraints,
     SmallVariantCall,
@@ -78,7 +84,7 @@ def _record(
     calls: list[SmallVariantCall] | None = None,
 ) -> SmallVariantRecord:
     return SmallVariantRecord(
-        variant_key=None,
+        variant_key=start,
         variant_id=variant_id,
         chr="1",
         start=start,
@@ -91,12 +97,22 @@ def _record(
         gene_symbols=sorted({str(a["gene"]) for a in annotations if a.get("gene")}),
         annotations=annotations,
         calls=calls or [_call("PROBAND", "1/1")],
+        annotation_version="current",
+        annotation_set_hash=7,
     )
 
 
-def _named(record: SmallVariantRecord, filters: SmallVariantQueryFilters | None) -> str | None:
-    """The transcript the variant names as the one its filters held on, if any."""
-    variant = _small_variant_out(record, assembly_name="GRCh38", filters=filters)
+def _hashes(*annotations: dict[str, Any]) -> frozenset[int]:
+    """The stored hashes of ``annotations`` (``annotationHash``), as the SQL names them."""
+    return frozenset(_annotation_payload_hash(annotation) for annotation in annotations)
+
+
+def _named(record: SmallVariantRecord, matched: list[dict[str, Any]] | None) -> str | None:
+    """The transcript the variant names as the one its filters held on, the SQL having found
+    them to hold on the ``matched`` transcripts (None: the search asks nothing of one)."""
+    variant = _small_variant_out(
+        record, assembly_name="GRCh38", filter_annotation_hashes=None if matched is None else _hashes(*matched)
+    )
     return variant.filter_transcript.transcript_id if variant.filter_transcript else None
 
 
@@ -105,15 +121,10 @@ def _named(record: SmallVariantRecord, filters: SmallVariantQueryFilters | None)
 # --------------------------------------------------------------------------- #
 
 
-@pytest.mark.parametrize(
-    "filters",
-    [_filters(sift="deleterious"), _filters(polyphen="probably_damaging")],
-    ids=["SIFT deleterious", "PolyPhen probably damaging"],
-)
-def test_a_variant_kept_on_its_second_transcript_names_it_beside_the_primary(
-    filters: SmallVariantQueryFilters,
-) -> None:
-    variant = _small_variant_out(_record("v", [PRIMARY, SECOND]), assembly_name="GRCh38", filters=filters)
+def test_a_variant_kept_on_its_second_transcript_names_it_beside_the_primary() -> None:
+    variant = _small_variant_out(
+        _record("v", [PRIMARY, SECOND]), assembly_name="GRCh38", filter_annotation_hashes=_hashes(SECOND)
+    )
 
     # The card's own values stay the primary transcript's...
     assert (variant.transcript_id, variant.sift, variant.polyphen) == (
@@ -139,54 +150,30 @@ def test_a_variant_kept_on_its_second_transcript_names_it_beside_the_primary(
     }
 
 
-@pytest.mark.parametrize(
-    "filters",
-    [
-        None,
-        _filters(),
-        # Filters that ask nothing of a transcript: the variant's genes, its genotypes, the
-        # inheritance mode and the excluded ClinVar statuses apply to the variant as a whole.
-        _filters(
-            gene="SYN51",
-            inheritance="recessive",
-            exclude_clinvar=["Benign"],
-            clinvar_overrides_frequency=True,
-            sample_filters=["PROBAND:hom"],
-        ),
-        # A SIFT or PolyPhen value that names no prediction asks nothing (CLIN-45).
-        _filters(sift="0.5", polyphen=" "),
-    ],
-    ids=["no search", "no filter", "variant-level filters", "a value naming no prediction"],
-)
-def test_no_transcript_is_named_without_annotation_filters(
-    filters: SmallVariantQueryFilters | None,
-) -> None:
-    assert _named(_record("v", [PRIMARY, SECOND]), filters) is None
+def test_no_transcript_is_named_when_the_search_asks_nothing_of_one() -> None:
+    assert _named(_record("v", [PRIMARY, SECOND]), None) is None
 
 
-@pytest.mark.parametrize(
-    ("annotations", "filters"),
-    [
-        ([PRIMARY, SECOND], _filters(sift="tolerated")),
-        ([PRIMARY, SECOND], _filters(polyphen="benign")),
-        ([SECOND], _filters(sift="deleterious")),
-        # Both transcripts meet the filter: the card's own is the one it held on.
-        ([PRIMARY, SECOND], _filters(impact=["MODERATE"])),
-    ],
-    ids=["SIFT tolerated", "PolyPhen benign", "one transcript", "both transcripts"],
-)
-def test_no_transcript_is_named_when_the_primary_meets_the_filters(
-    annotations: list[dict[str, Any]], filters: SmallVariantQueryFilters
-) -> None:
-    assert _named(_record("v", annotations), filters) is None
+@pytest.mark.parametrize("matched", [[PRIMARY], [PRIMARY, SECOND]], ids=["the primary", "both"])
+def test_no_transcript_is_named_when_the_primary_meets_the_filters(matched: list[dict[str, Any]]) -> None:
+    assert _named(_record("v", [PRIMARY, SECOND]), matched) is None
 
 
 def test_a_variant_without_annotations_names_no_transcript() -> None:
-    assert _named(_record("v", []), _filters(impact=["HIGH"])) is None
+    # Stored with one empty annotation row, which a frequency ceiling keeps.
+    assert _named(_record("v", []), [{}]) is None
+    assert _named(_record("v", []), []) is None
+
+
+def test_no_transcript_the_sql_did_not_name_is_named() -> None:
+    # None of the variant's transcripts is among those the SQL found the filters to hold on
+    # (their stored values read apart from those read back): no transcript, never a wrong one.
+    assert _named(_record("v", [PRIMARY, SECOND]), []) is None
+    assert _named(_record("v", [PRIMARY, SECOND]), [_transcript("ENST_SYN51_9")]) is None
 
 
 @pytest.mark.parametrize(
-    ("annotations", "filters", "expected"),
+    ("annotations", "matched", "expected"),
     [
         # MANE Select first: the RefSeq MANE transcript of a merged VEP run before a more
         # severe RefSeq one, when only RefSeq transcripts are asked for.
@@ -196,7 +183,7 @@ def test_a_variant_without_annotations_names_no_transcript() -> None:
                 _transcript("NM_000002.1", impact="HIGH", effect="stop_gained"),
                 _transcript("NM_000001.1", mane_select=True),
             ],
-            _filters(transcript="NM_"),
+            [1, 2],
             "NM_000001.1",
         ),
         # Then canonical, before a more severe transcript.
@@ -206,7 +193,7 @@ def test_a_variant_without_annotations_names_no_transcript() -> None:
                 _transcript("ENST_SYN51_3", impact="HIGH", effect="stop_gained"),
                 _transcript("ENST_SYN51_2", canonical=True),
             ],
-            _filters(impact=["HIGH", "MODERATE"]),
+            [1, 2],
             "ENST_SYN51_2",
         ),
         # Then the most severe.
@@ -216,7 +203,7 @@ def test_a_variant_without_annotations_names_no_transcript() -> None:
                 _transcript("ENST_SYN51_2"),
                 _transcript("ENST_SYN51_3", impact="HIGH", effect="stop_gained"),
             ],
-            _filters(impact=["HIGH", "MODERATE"]),
+            [1, 2],
             "ENST_SYN51_3",
         ),
         # Of equals, the first stored, as the primary transcript is picked.
@@ -226,79 +213,16 @@ def test_a_variant_without_annotations_names_no_transcript() -> None:
                 _transcript("ENST_SYN51_2"),
                 _transcript("ENST_SYN51_3"),
             ],
-            _filters(impact=["MODERATE"]),
+            [1, 2],
             "ENST_SYN51_2",
         ),
     ],
     ids=["MANE Select first", "then canonical", "then the most severe", "then the first stored"],
 )
 def test_the_named_transcript_is_picked_as_the_primary_is(
-    annotations: list[dict[str, Any]], filters: SmallVariantQueryFilters, expected: str
+    annotations: list[dict[str, Any]], matched: list[int], expected: str
 ) -> None:
-    assert _named(_record("v", annotations), filters) == expected
-
-
-@pytest.mark.parametrize(
-    ("filters", "second"),
-    [
-        (_filters(impact=["HIGH"]), {"impact": "HIGH", "effect": "stop_gained"}),
-        (_filters(effect=["stop_gained"]), {"impact": "HIGH", "effect": "stop_gained"}),
-        (_filters(transcript="SYN51_2"), {}),
-        (_filters(hgvsc="c.100C>T"), {}),
-        (_filters(lof_only=True), {"lof": "HC"}),
-        (_filters(min_revel=0.5), {"revel": 0.71}),
-        (_filters(min_spliceai=0.5), {"spliceai_max": 0.8}),
-        (_filters(min_cadd=20), {"cadd_phred": 25.0}),
-        (_filters(clinvar=["Pathogenic"]), {"clinvar": "Pathogenic"}),
-        (_filters(max_gnomad_af=0.01), {"gnomad_af": 0.001}),
-    ],
-    ids=[
-        "impact", "consequence", "transcript", "HGVS", "LoF only", "REVEL", "SpliceAI",
-        "CADD", "ClinVar", "frequency",
-    ],
-)
-def test_any_annotation_filter_held_on_another_transcript_names_it(
-    filters: SmallVariantQueryFilters, second: dict[str, Any]
-) -> None:
-    # The primary transcript (MANE Select and canonical) meets none of them; the second
-    # meets each.
-    primary = _transcript(
-        "ENST_SYN51_1",
-        mane_select=True,
-        canonical=True,
-        impact="LOW",
-        effect="synonymous_variant",
-        hgvsc="ENST_SYN51_1:c.99G>A",
-        revel=0.1,
-        spliceai_max=0.01,
-        cadd_phred=5.0,
-        clinvar="Benign",
-        gnomad_af=0.2,
-    )
-    other = {
-        **_transcript(
-            "ENST_SYN51_2", revel=0.1, spliceai_max=0.01, cadd_phred=5.0, clinvar="Benign", gnomad_af=0.2
-        ),
-        **second,
-    }
-    assert _named(_record("v", [primary, other]), filters) == "ENST_SYN51_2"
-
-
-@pytest.mark.parametrize(
-    ("filters", "primary", "second"),
-    [
-        # A MANE Select transcript that is not the canonical one.
-        (_filters(canonical_only=True), {"mane_select": True}, {"canonical": True}),
-        # A canonical transcript that is not MANE, and a MANE Plus Clinical one.
-        (_filters(mane_only=True), {"canonical": True}, {"mane_plus_clinical": True}),
-    ],
-    ids=["canonical only", "MANE only"],
-)
-def test_a_transcript_flag_filter_held_on_another_transcript_names_it(
-    filters: SmallVariantQueryFilters, primary: dict[str, Any], second: dict[str, Any]
-) -> None:
-    annotations = [_transcript("ENST_SYN51_1", **primary), _transcript("ENST_SYN51_2", **second)]
-    assert _named(_record("v", annotations), filters) == "ENST_SYN51_2"
+    assert _named(_record("v", annotations), [annotations[index] for index in matched]) == expected
 
 
 def test_the_named_transcript_carries_its_values_as_the_variant_reads_its_own() -> None:
@@ -319,9 +243,9 @@ def test_the_named_transcript_carries_its_values_as_the_variant_reads_its_own() 
         "polyphenPrediction": "possibly_damaging(0.7)",
     }
     variant = _small_variant_out(
-        _record("v", [PRIMARY, other]), assembly_name="GRCh38", filters=_filters(lof_only=True)
+        _record("v", [PRIMARY, other]), assembly_name="GRCh38", filter_annotation_hashes=_hashes(other)
     )
-    alone = _small_variant_out(_record("v", [other]), assembly_name="GRCh38", filters=None)
+    alone = _small_variant_out(_record("v", [other]), assembly_name="GRCh38", filter_annotation_hashes=None)
 
     assert variant.filter_transcript is not None
     named = variant.filter_transcript.model_dump()
@@ -395,6 +319,22 @@ RECORDS = [
 ]
 
 
+async def _sift_matches(_context, filters, records):
+    """The SQL's answer (``_filter_transcript_matches``) for the one annotation filter these
+    tests set: SIFT *deleterious* holds on each variant's second transcript. The SQL itself is
+    held to the rule on real ClickHouse (the filter spec)."""
+    if filters is None or not filters.sift:
+        return None
+    return {
+        _annotation_set_identity(record): frozenset(
+            _annotation_payload_hash(annotation)
+            for annotation in record.annotations
+            if "deleterious" in str(annotation.get("sift", ""))
+        )
+        for record in records
+    }
+
+
 @pytest.fixture
 def family_search(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     """The family search over RECORDS, its storage and the ranking cache in memory."""
@@ -440,6 +380,7 @@ def family_search(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         }
 
     monkeypatch.setattr(M + "_fetch_small_variant_summary", nothing)
+    monkeypatch.setattr(M + "_filter_transcript_matches", _sift_matches)
     monkeypatch.setattr(M + "_fetch_small_variant_rows", fetch)
     monkeypatch.setattr(M + "_count_small_variant_rows_bounded", count)
     monkeypatch.setattr(M + "_hydrate_small_variant_outs", nothing)
@@ -555,6 +496,7 @@ async def test_a_panel_served_from_a_broader_ranking_names_the_transcript(monkey
     monkeypatch.setattr(M + "find_superset_candidates", supersets)
     monkeypatch.setattr(M + "get_cached_ranking", cached)
     monkeypatch.setattr(M + "_hydrate_small_variant_outs", nothing)
+    monkeypatch.setattr(M + "_filter_transcript_matches", _sift_matches)
 
     page = await _serve_subpanel_from_superset(
         None,  # type: ignore[arg-type]
