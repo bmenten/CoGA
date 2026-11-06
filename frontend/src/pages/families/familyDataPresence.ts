@@ -32,9 +32,8 @@ export interface FamilyDataPresence {
   hasParaphase: boolean;
   hasMitoDna: boolean;
   /**
-   * The variant summary summarises the structural variants, from every SV caller (HiFiCNV
-   * copy-number calls included), and nothing else: offered when the family has them, or when
-   * that check failed, never for small variants alone.
+   * The variant summary summarises every kind of variant data (PROD-1): offered when the
+   * family has any, or when a check failed.
    */
   hasVariantSummary: boolean;
   hasAnyVariantData: boolean;
@@ -101,6 +100,8 @@ export const useFamilyDataPresence = ({
   // (coverage-only families still have something to show).
   const hasMitoDna =
     (mito.data?.variant_count ?? 0) > 0 || (mito.data?.has_coverage ?? false) || mito.isError;
+  const hasAnyVariantData =
+    hasStructuralVariants || hasSmallVariants || hasRepeatExpansions || hasParaphase || hasMitoDna;
   const checks = [
     { query: small, name: 'small variants' },
     { query: structural, name: 'structural variants' },
@@ -115,9 +116,8 @@ export const useFamilyDataPresence = ({
     hasRepeatExpansions,
     hasParaphase,
     hasMitoDna,
-    hasVariantSummary: hasStructuralVariants,
-    hasAnyVariantData:
-      hasStructuralVariants || hasSmallVariants || hasRepeatExpansions || hasParaphase || hasMitoDna,
+    hasVariantSummary: hasAnyVariantData,
+    hasAnyVariantData,
     failedChecks: checks.filter(({ query }) => query.isError).map(({ name }) => name),
     retryFailedChecks: () => {
       checks.forEach(({ query }) => {

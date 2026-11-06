@@ -1,49 +1,87 @@
 import React from 'react';
-import { useParams } from 'react-router';
+import { Link, useLocation, useParams } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import api from '../../lib/api';
-import Histogram from '../../components/visualizations/Histogram';
-import { compareChromosomes } from '../../lib/chromosomes';
 import PageState from '../../components/PageState';
 import FamilyLoadFailure from '../../components/FamilyLoadFailure';
 import FamilyCaseHeader from './FamilyCaseHeader';
 import { apiPath } from '../../lib/apiPath';
-import type {
-  FamilyOut,
-  SharedStructuralVariantCountsOut,
-  VariantLengthOut,
-} from '../../lib/apiSchema.generated';
-import { getErrorMessage } from '../../lib/errorMessage';
-import { formatResolvedReferenceLabel, useFamilyReference } from '../../lib/reference';
+import { raw, routePath } from '../../lib/routePath';
+import type { FamilyOut } from '../../lib/apiSchema.generated';
+import {
+  formatResolvedReferenceLabel,
+  useFamilyReference,
+} from '../../lib/reference';
+import { useFamilyDataPresence } from './familyDataPresence';
+import VariantSummarySmallVariants from './VariantSummarySmallVariants';
+import VariantSummaryStructuralVariants from './VariantSummaryStructuralVariants';
+import {
+  MitoDnaSummary,
+  ParaphaseSummary,
+  RepeatExpansionSummary,
+} from './VariantSummaryOtherCalls';
 
-const VARIANT_LIMIT = 100000;
+/**
+ * The family's variant summary: every kind of variant data the family holds, one section each
+ * (PROD-1). An overview first says which kinds the family has, with their analysis pages;
+ * then small variants, structural variants, repeat expansions, Paraphase and mtDNA, each
+ * loading on its own. A kind the family lacks has no section; one whose check failed is shown,
+ * so its section can say for itself (#607).
+ */
 
-// Static histogram bins — hoisted out of the component so they are not
-// re-allocated on every render.
-const variantBinEdges = [
-  -0.5,
-  0.5,
-  10.5,
-  100,
-  1000,
-  10000,
-  100000,
-  1000000,
-  Number.POSITIVE_INFINITY,
-];
-const variantBinLabels = [
-  '0',
-  '1-10',
-  '10-100',
-  '100-1k',
-  '1k-10k',
-  '10k-100k',
-  '100k-1M',
-  '>1M',
+type SectionKey =
+  | 'small-variants'
+  | 'structural-variants'
+  | 'repeat-expansions'
+  | 'paraphase'
+  | 'mitochondrial-dna';
+
+const SECTIONS: {
+  key: SectionKey;
+  label: string;
+  page: string;
+  withProject: boolean;
+}[] = [
+  {
+    key: 'small-variants',
+    label: 'Small variants (SNV/indel)',
+    page: 'Small variants',
+    withProject: true,
+  },
+  {
+    key: 'structural-variants',
+    label: 'Structural variants',
+    page: 'Structural variants',
+    withProject: true,
+  },
+  {
+    key: 'repeat-expansions',
+    label: 'Repeat expansions',
+    page: 'Repeat expansions',
+    withProject: false,
+  },
+  {
+    key: 'paraphase',
+    label: 'Paraphase',
+    page: 'Paraphase',
+    withProject: false,
+  },
+  {
+    key: 'mitochondrial-dna',
+    label: 'Mitochondrial DNA',
+    page: 'mtDNA analysis',
+    withProject: false,
+  },
 ];
 
 const FamilyVariantSummaryPage: React.FC = () => {
-  const { familyId } = useParams<{ familyId: string }>();
+  const { familyId = '' } = useParams<{ familyId: string }>();
+  const location = useLocation();
+  // The project the link came with (the analysis pages pass theirs on), else the family's first.
+  const projectIdParam = React.useMemo(
+    () => new URLSearchParams(location.search).get('project_id') || undefined,
+    [location.search]
+  );
   // For the shared header: the pedigree, and what every family page warns of — an import
   // that left the family incomplete, and an assembly outside the validated scope.
   const {
@@ -51,7 +89,9 @@ const FamilyVariantSummaryPage: React.FC = () => {
     isError: familyFailed,
     error: familyError,
     refetch: refetchFamily,
-  } = useQuery<Pick<FamilyOut, 'pedigree' | 'members' | 'projects' | 'metadata'>>({
+  } = useQuery<
+    Pick<FamilyOut, 'pedigree' | 'members' | 'projects' | 'metadata'>
+  >({
     queryKey: ['family', familyId],
     queryFn: async () => {
       const res = await api.get(apiPath`/families/${familyId}`);
@@ -66,70 +106,17 @@ const FamilyVariantSummaryPage: React.FC = () => {
     isLoading: referenceLoading,
     isError: referenceFailed,
     retry: retryReference,
-  } = useFamilyReference(family?.projects);
-  const { data, isLoading, error: lengthsError, refetch: refetchLengths } = useQuery<VariantLengthOut[]>({
-    queryKey: ['family', familyId, 'structural-variant-lengths'],
-    queryFn: async () => {
-      const res = await api.get(apiPath`/families/${familyId}/structural-variant-lengths`, {
-        params: { limit: VARIANT_LIMIT },
-      });
-      return res.data as VariantLengthOut[];
-    },
+  } = useFamilyReference(family?.projects, projectIdParam);
+  const referenceReady =
+    Boolean(family) && (!family?.projects?.length || !referenceLoading);
+  // The same checks the header's links make (one read for both, once the project is known).
+  // They wait for the reference, as the header's do, but not for a project it could not
+  // resolve: without one they ask for the family as a whole, so the page never hangs.
+  const presence = useFamilyDataPresence({
+    familyId,
+    projectId,
+    ready: referenceReady,
   });
-
-  const {
-    data: sharedCounts,
-    isLoading: isLoadingShared,
-    error: sharedError,
-    refetch: refetchShared,
-  } = useQuery<SharedStructuralVariantCountsOut>({
-      queryKey: ['family', familyId, 'shared-structural-variant-counts'],
-      queryFn: async () => {
-        const res = await api.get(
-          apiPath`/families/${familyId}/shared-structural-variant-counts`
-        );
-        return res.data as SharedStructuralVariantCountsOut;
-      },
-    });
-  const [logScale, setLogScale] = React.useState(true);
-
-  // The O(n) aggregation over up to VARIANT_LIMIT (100k) rows runs once per data
-  // load — not on every render. logScale only affects histogram rendering, so it
-  // is intentionally not a dependency here.
-  const summary = React.useMemo(() => {
-    const rows = data ?? [];
-    const allLengths = rows.map((v) => Math.abs(v.length));
-    const byType: Record<string, number[]> = {};
-    const bySource: Record<string, number[]> = {};
-    const byChromType: Record<string, Record<string, number>> = {};
-    const chromosomes = Array.from(
-      new Set(rows.map((v) => v.chr || 'unknown'))
-    ).sort(compareChromosomes);
-    rows.forEach((v) => {
-      const t = v.type || 'unknown';
-      const c = v.chr || 'unknown';
-      byType[t] = byType[t] || [];
-      byType[t].push(Math.abs(v.length));
-      bySource[v.source || 'unknown'] = bySource[v.source || 'unknown'] || [];
-      bySource[v.source || 'unknown'].push(Math.abs(v.length));
-      byChromType[c] = byChromType[c] || {};
-      byChromType[c][t] = (byChromType[c][t] || 0) + 1;
-    });
-    const variantTypes = Object.keys(byType).sort();
-    const totalsByChrom: Record<string, number> = {};
-    chromosomes.forEach((chr) => {
-      totalsByChrom[chr] = Object.values(byChromType[chr] || {}).reduce(
-        (sum, v) => sum + v,
-        0
-      );
-    });
-    return { allLengths, byType, bySource, byChromType, chromosomes, variantTypes, totalsByChrom };
-  }, [data]);
-
-  // The matrix has no totals. Each cell counts SVs per pair of carriers, so an SV
-  // shared by three samples is in three cells: a row sum is not what that sample
-  // carries, and the grand sum is not the number of SVs (#526).
-  const sampleNames = React.useMemo(() => Object.keys(sharedCounts ?? {}).sort(), [sharedCounts]);
 
   // Without the family it is not known whether its import is complete, nor whether its
   // assembly is validated: the summary is not shown without those warnings (SAFE-14).
@@ -146,50 +133,36 @@ const FamilyVariantSummaryPage: React.FC = () => {
   }
 
   // Nor is it shown before the family and its reference are in, the header with them.
-  if (isLoading || isLoadingShared || !family || (family.projects?.length && referenceLoading)) {
+  if (!family || !referenceReady) {
     return (
       <PageState
         loading
         kicker="Summary"
         title="Loading variant summary"
-        message="Calculating counts, sharing, and length distributions for this family."
-      />
-    );
-  }
-  const loadError = lengthsError ?? sharedError;
-  if (loadError) {
-    return (
-      <PageState
-        kicker="Summary"
-        title="Could not load the variant summary"
-        message={`${getErrorMessage(loadError, 'The request failed').replace(/\.+$/, '')}. This is not an empty result.`}
-        action={
-          <button
-            type="button"
-            className="button-secondary"
-            onClick={() => {
-              if (lengthsError) void refetchLengths();
-              if (sharedError) void refetchShared();
-            }}
-          >
-            Retry
-          </button>
-        }
-      />
-    );
-  }
-  if (!data || !sharedCounts) {
-    return (
-      <PageState
-        kicker="Summary"
-        title="No variant summary available"
-        message="There is not enough structural variant data to build the summary views."
+        message="Loading the family and its reference."
       />
     );
   }
 
-  const { allLengths, byType, bySource, byChromType, chromosomes, variantTypes, totalsByChrom } =
-    summary;
+  const has: Record<SectionKey, boolean> = {
+    'small-variants': presence.hasSmallVariants,
+    'structural-variants': presence.hasStructuralVariants,
+    'repeat-expansions': presence.hasRepeatExpansions,
+    paraphase: presence.hasParaphase,
+    'mitochondrial-dna': presence.hasMitoDna,
+  };
+  const failed = new Set(presence.failedChecks);
+  const checkFailed: Record<SectionKey, boolean> = {
+    'small-variants': failed.has('small variants'),
+    'structural-variants': failed.has('structural variants'),
+    'repeat-expansions': failed.has('repeat expansions'),
+    paraphase: failed.has('Paraphase results'),
+    'mitochondrial-dna': failed.has('mtDNA data'),
+  };
+  const shown = SECTIONS.filter((section) => has[section.key]);
+  const projectSuffix = projectId
+    ? `?project_id=${encodeURIComponent(projectId)}`
+    : '';
 
   return (
     <div className="page-shell analysis-shell">
@@ -202,159 +175,106 @@ const FamilyVariantSummaryPage: React.FC = () => {
         }}
         assemblyLabel={formatResolvedReferenceLabel(
           { assemblyName, assemblyVersion, isError: referenceFailed },
-          'Not linked',
+          'Not linked'
         )}
         kicker="Variant summary"
-        familyId={familyId ?? ''}
+        familyId={familyId}
         family={family}
         projectId={projectId}
         current="variant-summary"
       />
 
-      <nav className="analysis-nav">
-        <a href="#counts">
-          Counts
-        </a>
-        <a href="#all">
-          All variants
-        </a>
-        <a href="#sharing">
-          Shared/Unique
-        </a>
-        <a href="#by-type">
-          By type
-        </a>
-        <a href="#by-source">
-          By source
-        </a>
-      </nav>
-
-      <section id="counts" className="analysis-panel space-y-4">
-        <h2 className="section-title">
-          Variant counts by chromosome and type
-        </h2>
-        <p className="analysis-count">
-          Total variants: {data.length}
-          {data.length === VARIANT_LIMIT && ` (showing first ${VARIANT_LIMIT})`}
+      {/* The header's links read the same checks: both start in this render, so a check that
+          failed is not asked again when one of them mounts, and the sections stay put. */}
+      {!presence.loaded ? (
+        <p className="analysis-count" role="status">
+          Checking which variant data this family has…
         </p>
-        <div className="analysis-results-card overflow-x-auto">
-          <table className="analysis-table table-sticky">
-            <thead>
-              <tr>
-                <th>Chromosome</th>
-                {variantTypes.map((type) => (
-                  <th key={type} className="text-center">
-                    {type}
-                  </th>
-                ))}
-                <th className="text-center">Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              {chromosomes.map((chr) => (
-                <tr key={chr}>
-                  <td>{chr}</td>
-                  {variantTypes.map((type) => (
-                    <td key={type} className="text-center">
-                      {(byChromType[chr] && byChromType[chr][type]) || 0}
-                    </td>
-                  ))}
-                  <td className="text-center">
-                    {totalsByChrom[chr]}
-                  </td>
+      ) : null}
+
+      {presence.loaded && shown.length ? (
+        <nav className="analysis-nav" aria-label="Variant summary sections">
+          <a href="#overview">Overview</a>
+          {shown.map((section) => (
+            <a key={section.key} href={`#${section.key}`}>
+              {section.label}
+            </a>
+          ))}
+        </nav>
+      ) : null}
+
+      {presence.loaded ? (
+        <section id="overview" className="analysis-panel space-y-4">
+          <h2 className="section-title">What this family has</h2>
+          <div className="analysis-results-card overflow-x-auto">
+            <table
+              className="analysis-table"
+              aria-label="Variant data of this family"
+            >
+              <thead>
+                <tr>
+                  <th>Data</th>
+                  <th>In this family</th>
+                  <th>Analysis page</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <section id="sharing" className="analysis-panel space-y-4">
-        <h2 className="section-title">Shared and unique variants</h2>
-        <div className="analysis-results-card overflow-x-auto">
-          <table className="analysis-table table-sticky">
-            <thead>
-              <tr>
-                <th>Sample</th>
-                {sampleNames.map((name) => (
-                  <th key={name} className="text-center">
-                    {name}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {sampleNames.map((row) => (
-                <tr key={row}>
-                  <td>{row}</td>
-                  {sampleNames.map((col) => (
-                    <td key={col} className="text-center">
-                      {sharedCounts[row][col] ?? 0}
+              </thead>
+              <tbody>
+                {SECTIONS.map((section) => (
+                  <tr key={section.key}>
+                    <td>{section.label}</td>
+                    <td>
+                      {checkFailed[section.key] ? (
+                        <a href={`#${section.key}`}>
+                          Could not be checked: see below
+                        </a>
+                      ) : has[section.key] ? (
+                        <a href={`#${section.key}`}>Summarised below</a>
+                      ) : (
+                        'None'
+                      )}
                     </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <p className="analysis-count">
-          Diagonal counts denote variants unique to the individual; off-diagonal
-          counts show variants the two samples share. A variant shared by three or more
-          samples is counted in every pair, so the cells do not add up to a total.
-        </p>
-      </section>
+                    <td>
+                      {has[section.key] ? (
+                        <Link
+                          to={routePath`/families/${familyId}/${section.key}${raw(section.withProject ? projectSuffix : '')}`}
+                        >
+                          {section.page}
+                        </Link>
+                      ) : (
+                        '–'
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="analysis-count">
+            The WisecondorX and QDNAseq segments, coverage and haplotypes are
+            tracks of the genome view, not variants, and are not summarised
+            here.
+          </p>
+        </section>
+      ) : null}
 
-      {/* The scale of the length histograms below (all variants, by type, by caller), above them
-          rather than in the page's header. */}
-      <div className="analysis-graph-toolbar">
-        <span className="stat-label">Length histograms</span>
-        <button type="button" onClick={() => setLogScale((s) => !s)} className="button-ghost">
-          {logScale ? 'Linear scale' : 'Log scale'}
-        </button>
-      </div>
-
-      <section id="all" className="analysis-panel space-y-4">
-        <h2 className="section-title">All variants</h2>
-        <Histogram
-          subject="SV lengths"
-          data={allLengths}
-          binEdges={variantBinEdges}
-          binLabels={variantBinLabels}
-          logScale={logScale}
+      {has['small-variants'] ? (
+        <VariantSummarySmallVariants
+          familyId={familyId}
+          projectId={projectId}
         />
-      </section>
-
-      <section id="by-type" className="analysis-panel space-y-4">
-        <h2 className="section-title">By type</h2>
-        {Object.entries(byType).map(([type, lengths]) => (
-          <div key={type} className="viz-panel space-y-2">
-            <h3 className="font-semibold">{type}</h3>
-            <Histogram
-              subject={`${type} lengths`}
-              data={lengths}
-              binEdges={variantBinEdges}
-              binLabels={variantBinLabels}
-              logScale={logScale}
-            />
-          </div>
-        ))}
-      </section>
-
-      <section id="by-source" className="analysis-panel space-y-4">
-        <h2 className="section-title">By source</h2>
-        {Object.entries(bySource).map(([source, lengths]) => (
-          <div key={source} className="viz-panel space-y-2">
-            <h3 className="font-semibold">{source}</h3>
-            <Histogram
-              subject={`SV lengths from ${source}`}
-              data={lengths}
-              binEdges={variantBinEdges}
-              binLabels={variantBinLabels}
-              logScale={logScale}
-            />
-          </div>
-        ))}
-      </section>
+      ) : null}
+      {has['structural-variants'] ? (
+        <VariantSummaryStructuralVariants familyId={familyId} />
+      ) : null}
+      {has['repeat-expansions'] ? (
+        <RepeatExpansionSummary familyId={familyId} projectId={projectId} />
+      ) : null}
+      {has.paraphase ? (
+        <ParaphaseSummary familyId={familyId} projectId={projectId} />
+      ) : null}
+      {has['mitochondrial-dna'] ? (
+        <MitoDnaSummary familyId={familyId} projectId={projectId} />
+      ) : null}
     </div>
   );
 };

@@ -15,6 +15,7 @@ from ..schemas import (
     FamilyTrackAvailabilityOut,
     HaplotypeResponse,
     PhasedMarkerResponse,
+    StructuralVariantSampleCountsOut,
     TrackAvailabilityOut,
     VariantLengthOut,
 )
@@ -664,6 +665,41 @@ async def get_family_structural_variant_lengths_for_user(
             chr=record.chr,
         )
         for record in records[:limit]
+    ]
+
+
+async def get_family_structural_variant_sample_counts_for_user(
+    session: AsyncSession,
+    *,
+    family_id: str,
+    user: CurrentUser,
+) -> list[StructuralVariantSampleCountsOut]:
+    """Each member's structural variants by type: an SV counts once for every member whose
+    call of it carries the ALT allele, from every SV caller (HiFiCNV's copy-number calls
+    included), in the family's member order."""
+    context = await build_family_metadata_context(
+        session,
+        family_identifier=family_id,
+        user=user,
+    )
+    names = [str(row["sample_id"]) for row in context.sample_rows]
+    by_type: dict[str, dict[str, int]] = {name: {} for name in names}
+    records = await _fetch_structural_variant_rows(
+        context,
+        StructuralVariantQueryFilters(page=1, page_size=1),
+    )
+    for record in records:
+        carriers = {call.sample for call in record.calls if call.sample in by_type and genotype_has_alt(call.gt)}
+        sv_type = str(record.sv_type or "") or "unknown"
+        for name in carriers:
+            by_type[name][sv_type] = by_type[name].get(sv_type, 0) + 1
+    return [
+        StructuralVariantSampleCountsOut(
+            sample_id=name,
+            total=sum(by_type[name].values()),
+            by_type=dict(sorted(by_type[name].items())),
+        )
+        for name in names
     ]
 
 

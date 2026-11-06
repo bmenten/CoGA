@@ -90,6 +90,8 @@ async def _collect_api_responses(root: Path) -> dict:
         r["sv_track"] = capture(await ac.get(f"/api/families/{FAMILY}/structural-variants", params={"track_mode": "true"}))
         r["sv_lengths"] = capture(await ac.get(f"/api/families/{FAMILY}/structural-variant-lengths"))
         r["shared"] = capture(await ac.get(f"/api/families/{FAMILY}/shared-structural-variant-counts"))
+        r["sv_sample_counts"] = capture(await ac.get(f"/api/families/{FAMILY}/structural-variant-sample-counts"))
+        r["small_stats"] = capture(await ac.get(f"/api/families/{FAMILY}/small-variant-statistics"))
 
         r["bed_json"] = capture(await ac.get("/api/bed/PROBAND/coverage", params={"chrom": "1", "format": "json"}))
         r["bed_default"] = capture(await ac.get("/api/bed/PROBAND/coverage", params={"chrom": "1"}))
@@ -264,6 +266,43 @@ def test_shared_structural_variant_counts_symmetric(api):
     for a in matrix:
         for b, n in matrix[a].items():
             assert matrix.get(b, {}).get(a) == n, (a, b, matrix)
+
+
+def test_structural_variant_sample_counts_by_type(api):
+    # The father's call of the deletion carries it (the proband's second hit is in trans).
+    resp = _resp(api, "sv_sample_counts")
+    assert resp["status"] == 200, resp["text"]
+    counts = {row["sample_id"]: (row["total"], row["by_type"]) for row in resp["json"]}
+    assert counts["PROBAND"] == (2, {"BND": 1, "DEL": 1}), counts
+    assert counts["FATHER"] == (1, {"DEL": 1}), counts
+    assert counts["MOTHER"] == (0, {}), counts
+
+
+def test_small_variant_statistics_of_the_trio(api, expected):
+    # The variant summary's small-variant statistics (PROD-1) of the golden trio's eight
+    # variants on chr1: the proband carries all eight, heterozygous.
+    resp = _resp(api, "small_stats")
+    assert resp["status"] == 200, resp["text"]
+    body = resp["json"]
+    assert body["total_variants"] == expected["snv"]["count"]
+    assert (body["snv_count"], body["insertion_count"], body["deletion_count"], body["other_count"]) == (6, 0, 1, 1)
+    samples = {row["sample_id"]: row for row in body["samples"]}
+    assert list(samples) == ["FATHER", "MOTHER", "PROBAND"]
+    proband = samples["PROBAND"]
+    assert (proband["non_ref_count"], proband["het_count"], proband["hom_alt_count"]) == (8, 8, 0)
+    assert (proband["transition_count"], proband["transversion_count"], proband["passing_count"]) == (4, 2, 8)
+    consequences = {row["consequence"]: row["count"] for row in proband["consequences"]}
+    assert consequences == {"stop_gained": 1, "frameshift_variant": 1, "missense_variant": 5, "intron_variant": 1}
+    assert proband["chromosomes"] == [{"chrom": "1", "het_count": 8, "hom_alt_count": 0}]
+    assert {row["low"]: row["count"] for row in proband["genotype_quality_histogram"]}[90.0] == 8
+    assert {row["low"]: row["count"] for row in proband["allele_balance_histogram"]}[0.5] == 8
+    assert (samples["MOTHER"]["non_ref_count"], samples["FATHER"]["non_ref_count"]) == (4, 1)
+    # The de novo, the pathogenic stop and the MNV: in neither parent.
+    (trio,) = body["trios"]
+    assert (trio["child"], trio["father"], trio["mother"]) == ("PROBAND", "FATHER", "MOTHER")
+    assert trio["chromosomes"] == [
+        {"chrom": "1", "sites": 8, "not_from_father": 0, "not_from_mother": 0, "from_neither": 3}
+    ]
 
 
 # ------------------------------------------------------------------- Pedigree

@@ -2092,7 +2092,7 @@ python docs/handleiding/build_site.py
 <tr>
 <td><code>families_small_variants.py</code></td>
 <td><code>/families</code> (deel)</td>
-<td>Small variants: pagina's, export, compound-het, presets, tags, review en ACMG (hoofdstuk 8)</td>
+<td>Small variants: pagina's, export, compound-het, presets, tags, review en ACMG, en de statistieken van de variantsamenvatting (hoofdstuk 8)</td>
 </tr>
 <tr>
 <td><code>families_structural_variants.py</code></td>
@@ -2112,7 +2112,7 @@ python docs/handleiding/build_site.py
 <tr>
 <td><code>families_tracks.py</code></td>
 <td><code>/families</code> (deel)</td>
-<td>Tracks: haplotypes, gefaseerde markers, repeats, mtDNA, Paraphase (hoofdstuk 9)</td>
+<td>Tracks: haplotypes, gefaseerde markers, repeats, mtDNA, Paraphase (hoofdstuk 9); voor de variantsamenvatting de SV-lengtes en de SV-tellingen per lid en per paar leden (hoofdstuk 8)</td>
 </tr>
 <tr>
 <td><code>family_qc_reports.py</code></td>
@@ -2264,8 +2264,8 @@ python docs/handleiding/build_site.py
 </tr>
 <tr>
 <td>Gespecialiseerde analyses</td>
-<td><code>nipt_*.py</code>, <code>haplotype_lineage_service.py</code>, <code>phased_marker_service.py</code>, <code>mitochondrial_analysis.py</code>, <code>paraphase_pg.py</code>, <code>sample_integrity_*.py</code></td>
-<td>NIPT, PGT, mtDNA, Paraphase, sample-QC (hoofdstuk 8)</td>
+<td><code>nipt_*.py</code>, <code>haplotype_lineage_service.py</code>, <code>phased_marker_service.py</code>, <code>mitochondrial_analysis.py</code>, <code>paraphase_pg.py</code>, <code>sample_integrity_*.py</code>, <code>family_variant_statistics.py</code></td>
+<td>NIPT, PGT, mtDNA, Paraphase, sample-QC, de variantsamenvatting (hoofdstuk 8)</td>
 </tr>
 <tr>
 <td>Fenotype</td>
@@ -2676,6 +2676,15 @@ python docs/handleiding/build_site.py
 <p><strong>Beide homologen van een ouder.</strong> De blokken van een embryo tonen overal één homoloog per ouder. Draagt een embryo bij de ROI beide homologen van één ouder, zoals bij een trisomie van dat chromosoom door een fout in de eerste meiotische deling, dan krijgt het even nette blokken van één van de twee, en een indeling alsof het de andere niet draagt. De eigen markers van het embryo tonen het wel. Bij één homoloog volgen ze die op bijna elke site (of twee, aan weerszijden van een crossover). Bij beide kent de imputatie, die elk embryo als twee kopieën leest, de sites aan beide homologen toe, en mengen ze. Per ouderzijde meet <code>pgt_embryo_qc.marker_discordance</code> het aandeel markers in de ROI ± 1 Mb dat afwijkt van de beste lezing als één homoloog of twee met één crossover. Boven 10 %, over minstens 20 markers, aan een zijde die de indeling leest, wordt het embryo niet ingedeeld: <em>Uninformative</em> met <em>⚠ both homologs</em> op de familiepagina, en de haplotypesporen tonen voor dat embryo geen risicostatus (<code>useMixedHomologEmbryos.ts</code>). Het is de enige QC-maat die een indeling wijzigt in plaats van ernaast te waarschuwen (beslissing van de eigenaar van 2026-10-30). Ze is een vangnet onder de aneuploïdiebeoordeling van de analist, geen aneuploïdiedetector: een isodisome trisomie (twee kopieën van dezelfde homoloog) laat de markers in overeenstemming. De drempel is voorlopig, zoals de andere (CLIN-61).</p>
 <p>Deze keuzes staan in <code>docs/haplotype-segregation-analysis.md</code>; de uitleg voor het labo in de app (<em>Docs → Haplotype segregation analysis</em>, <code>frontend/src/content/docs/haplotype-segregation.md</code>).</p>
 <p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/haplotype_lineage_service.py</code> (kleuring, ook met één ouder) en <code>phased_marker_service.py</code> (ruwe markers en QC); <code>backend/app/services/pgt_embryo_calls.py</code> en <code>pgt_analysis.py</code> (embryo-indeling), <code>pgt_embryo_qc.py</code> (de QC-drempels en het oordeel per embryo), <code>frontend/src/lib/haplotypeRisk.ts</code> (risico in de sporen) en <code>embryoSegregation.ts</code> (de indeling op de familiepagina); de pagina <code>FamilyRoiMarkersPage.tsx</code>.</p>
+<h3>De variantsamenvatting</h3>
+<p>De pagina <em>Variant summary</em> (<code>FamilyVariantSummaryPage.tsx</code>) beschrijft alle variantdata van een familie, met een sectie per soort (PROD-1). Ze opent met <em>What this family has</em>: elke soort data, of de familie ze heeft, en een link naar haar analysepagina. Welke soorten er zijn, lezen dezelfde aanwezigheidscontroles als de links in de kop van elke familiepagina (<code>familyDataPresence.ts</code>). Een soort zonder data krijgt geen sectie. Een soort waarvan de controle mislukte, krijgt er wel een, zodat die zelf zegt wat er misliep. Elke sectie laadt apart: een sectie die niet laadt, toont de fout met <em>Retry</em>, de andere blijven staan. De cijfers beschrijven de calls; geen filter, classificatie of ondertekening leest ze.</p>
+<ul>
+<li><strong>Small variants:</strong> <code>GET /families/{id}/small-variant-statistics</code> (<code>family_variant_statistics.py</code>) telt in ClickHouse, met gebonden parameters, alleen de rijen van de familie in haar projecten. Geïmputeerde callsets (glimpse2, shapeit) en chrM tellen niet mee, zoals in de bestaande samenvattingstabellen; het antwoord noemt de geïmputeerde callsets die de familie heeft. Per lid telt het elke variant één keer (op zijn sleutel), welke callsets haar ook dragen: de genotypeklasse (de ene indeling van <code>genotypes.py</code>), het type (SNV, insertie, deletie, ander), transities en transversies, of een call de FILTER van zijn caller haalde (zoals de filter <em>Pass variants only</em> het leest), en de chromosomen. Het ernstigste gevolg komt uit <code>annotation_index</code>, over alle transcripten, in de volgorde van VEP, met de eigen annotatie van elke rij, zoals de zoekopdracht die leest: haar variantsleutel en annotatieset, onder welke versie ook. Draagt een andere callset dezelfde variant met een annotatie, dan telt die. De histogrammen van genotypekwaliteit, diepte en allelbalans (heterozygote calls) tellen calls: een variant in twee callsets telt twee keer. De backend bint ze; de grenzen staan als constanten in de module.</li>
+<li><strong>Mendel-inconsistenties:</strong> voor elk lid met beide ouders in de familie, per callset en autosoom, telt de backend de sites waar alle drie een biallele diploïde call hebben en één van hen het ALT-allel draagt. Daarvan telt het de genotypes die geen overerving verklaart: het allel van de vader ontbreekt, dat van de moeder, of geen van beide ouders verklaart het kind. <code>mendelian_class</code> is die regel in Python; de SQL volgt ze, en een integratietest legt de twee naast elkaar voor elke combinatie van drie genotypes. Een chromosoom waar de inconsistenties telkens het allel van één ouder missen, kan wijzen op uniparentale disomie of een deletie. CoGA stelt geen UPD vast; de pagina zegt dat.</li>
+<li><strong>Structurele varianten:</strong> de SV-lengtes, de deelmatrix en, per lid en type, <code>GET /families/{id}/structural-variant-sample-counts</code>: een SV telt bij elk lid wiens call het ALT-allel draagt, van elke SV-caller.</li>
+<li><strong>Repeats, Paraphase en mtDNA:</strong> de sectie leest het antwoord van de analysepagina zelf, onder dezelfde query-sleutel, en telt de calls per lid naar de status die die pagina geeft.</li>
+</ul>
+<p>Elke vraag loopt via het toegangscheckpoint van de familie, zoals de andere endpoints; de statistieken lezen de leden die de familie toont. De tellingen worden bij elk bezoek opnieuw berekend. Ze groeperen de rijen eerst per variant, met per lid één byte aan vlaggen, zodat het geheugen meegroeit met het aantal varianten en niet met het aantal leden; de histogrammen en de Mendel-tabellen zijn aparte, lichte vragen die tegelijk lopen. Een synthetisch trio van vijf miljoen varianten kostte op een laptop ongeveer 6 s, met tot 2 GiB voor één vraag; op het echte platform is het nog niet getimed (OPS-9).</p>
 <h2>Veiligheid en traceerbaarheid over alle analyses</h2>
 <ul>
 <li><strong>Toegang:</strong> alle endpoints vragen <code>get_current_user</code> (de TRGT-upload <code>get_current_admin_user</code>) en bouwen hun data via het toegangscheckpoint van de familie.</li>
@@ -2744,6 +2753,10 @@ python docs/handleiding/build_site.py
 <tr>
 <td><code>frontend/src/lib/haplotypeRisk.ts</code> · <code>embryoSegregation.ts</code></td>
 <td>Risico in de haplotypesporen; de indeling op de familiepagina</td>
+</tr>
+<tr>
+<td><code>backend/app/services/family_variant_statistics.py</code> · <code>frontend/src/pages/families/FamilyVariantSummaryPage.tsx</code> · <code>VariantSummary*.tsx</code></td>
+<td>De variantsamenvatting: de statistieken van de small variants en een sectie per soort data</td>
 </tr>
 </tbody>
 </table></div>

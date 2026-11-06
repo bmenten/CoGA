@@ -46,10 +46,6 @@ reported SVs is not cut by this limit: it reads the reported SVs themselves, not
 **ACMG (CNV)** on a row opens the ClinGen copy-number classifier (Riggs et al. 2020): choose
 *Copy-number loss* or *Copy-number gain*, check the pre-selected criteria and add the rest.
 
-**Variant summary** on the family page summarises the structural variants of every caller, HiFiCNV's
-copy-number calls included: counts per chromosome and type, sharing between members, and size distributions. The button appears when the family has structural variants. Small variants are not in
-it, nor are the WisecondorX and QDNAseq segments, which are coverage tracks rather than variants.
-
 ### Repeat expansions
 
 The **Repeat expansions** page lists each repeat locus with every member's call: the repeat count of
@@ -176,6 +172,39 @@ single-base change that alters the protein of one of the 13 protein-coding genes
 MitImpact, which holds only such changes.
 
 [ACMG classification reference (including the CNV classifier)](/docs/reference/acmg-classification "further-reading")
+
+### Variant summary
+
+**Variant summary**, the last link of the family's analyses, describes all the variant data the
+family holds. It is shown when the family has any. It opens with *What this family has*: each kind of
+data, whether the family has it, and a link to its analysis page. Then one section per kind it has.
+The figures describe the calls. No filter, classification or sign-out reads them.
+
+- **Small variants (SNV/indel)**, counted from the family's own callsets. Imputed genotypes (GLIMPSE2)
+  and chrM are left out; chrM is under mtDNA. Each variant counts once, even when two callsets hold it.
+  - *Per sample*: variants, heterozygous and homozygous, the het/hom ratio, SNVs, insertions,
+    deletions and other changes, the transition/transversion ratio, and the share that passed the
+    caller's FILTER.
+  - *Consequences*: each variant under its most severe consequence over all its transcripts, in the
+    groups of the small-variant filter, with the total in the coding sequence. The small-variant
+    search may name another transcript of the same variant.
+  - *Per chromosome*: each member's heterozygous and homozygous variants, and the homozygous share.
+  - *Call quality*: histograms of each member's genotype quality, depth and, for heterozygous calls,
+    allele balance. These count calls, so a variant two callsets hold counts twice.
+  - *Mendelian inconsistencies*: for each child with both parents in the family, per callset and
+    autosome. It counts the sites where all three have a biallelic diploid call, and those no
+    transmission explains: the father's allele missing, the mother's, or from neither parent. Many
+    inconsistencies on one chromosome that all miss one parent's allele can point to uniparental
+    disomy or a deletion. CoGA does not call UPD: confirm it by another method.
+- **Structural variants**, from every caller, HiFiCNV's copy-number calls included: per member and
+  type, per chromosome and type, sharing between members, and length histograms. The WisecondorX
+  and QDNAseq segments are coverage tracks, not variants, and are not counted.
+- **Repeat expansions**, **Paraphase** and **Mitochondrial DNA**: each member's calls by the status
+  its analysis page gives them, and for mtDNA the haplogroup, the mean depth and the heteroplasmy
+  classes.
+
+Each section loads on its own. One that could not be loaded says so and offers *Retry*; the others
+are still shown.
 
 ### Ancestry PCA (exploratory)
 
