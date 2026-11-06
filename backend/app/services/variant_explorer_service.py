@@ -21,6 +21,10 @@ Design notes
   per-family). We bridge to ClickHouse on ``variant_id`` (TEXT, e.g.
   ``1-1000-A-T``) — the same bridge the family page uses — because
   ``variant_key`` is only stored when it fits a signed BIGINT.
+* **Filters.** Each filter the explorer shares with the family search is the family
+  search's own SQL (``clickhouse_variant_queries``), read on each ``entries`` row as its
+  family page reads it, so a row counts the carriers of the family pages that keep the
+  variant (``_entries_where``).
 * This module is intentionally generic ("aggregate variant keys, scoped to
   projects") so future gene-/transcript-/ClinVar-centric views can be added as
   sibling functions.
@@ -55,13 +59,21 @@ from .clickhouse_variant_ids import _small_table_name
 from .clickhouse_variant_queries import (
     _SMALL_REGION_WINDOW_MATCH,
     IMPUTED_SMALL_VARIANT_SOURCES,
-    _small_annotation_filter_condition,
+    _small_annotation_filter_clauses,
+    _small_callset_clauses,
+    _small_locus_clauses,
     _small_panel_filter_condition,
     _small_region_window_rows,
+    _small_row_filter_clauses,
+    _small_sample_call_condition,
     _small_variant_windows,
 )
-from .clickhouse_variant_records import PanelFilterConstraints, Region, _status_filter_terms
-from .family_variant_filters import SmallVariantQueryFilters
+from .clickhouse_variant_records import PanelFilterConstraints, Region
+from .family_variant_filters import (
+    SmallVariantQueryFilters,
+    SmallVariantSampleFilter,
+    parse_genotype_filter,
+)
 from .genotypes import ALT_CLASSES, HET, HOM_ALT, classify_genotype, clickhouse_genotype_condition
 from .access_control import CurrentUser, has_superuser_rights, user_metadata_project_ids
 from .variant_ranking_cache import panel_members_digest
@@ -212,12 +224,6 @@ _CLINVAR_RANK = {
 _MAX_TAG_FILTER_VARIANT_IDS = 200_000
 
 
-def _split_terms(value: str | None) -> list[str]:
-    if not value:
-        return []
-    return [token for token in re.split(r"[\s,;]+", value.strip()) if token]
-
-
 def _classify_type(ref: str | None, alt: str | None) -> str:
     ref = ref or ""
     alt = alt or ""
@@ -269,7 +275,9 @@ def _first_non_empty(values: Sequence[str]) -> str | None:
 
 @dataclass(slots=True)
 class GlobalVariantFilters:
-    """Annotation-only filter surface (no family/sample/inheritance filters)."""
+    """The explorer's filters: those it shares with the family search, read by the family
+    search's builders (``_entries_where``), the review filter and the per-sample genotype
+    filter; no family, inheritance, callset or callers' FILTER filter."""
 
     chromosome: str | None = None
     start: int | None = None
@@ -604,54 +612,30 @@ async def _review_display_map(
 
 
 # --------------------------------------------------------------------------- #
-# ClickHouse annotation filtering                                             #
+# The family search's filters                                                 #
 # --------------------------------------------------------------------------- #
 
 
-def _annotation_index_clauses(
-    filters: GlobalVariantFilters, params: dict[str, Any]
-) -> list[str]:
-    """The filters that hold for a variant as a whole, as WHERE conditions on the
-    ``annotation_index`` (alias ``ai``), which pools a variant's transcripts: the gene, the
-    rsID and the excluded ClinVar significances, as on the family page.
-
-    The annotation filters that the family page applies per transcript are
-    :func:`_transcript_annotation_condition`'s, and the panel is :func:`_panel_condition`.
-    """
-
-    clauses: list[str] = []
-
-    gene_terms = [term.lower() for term in _split_terms(filters.gene)]
-    if gene_terms:
-        params["ann_genes"] = gene_terms
-        clauses.append(
-            "(arrayExists(g -> lowerUTF8(g) IN %(ann_genes)s, ai.gene_symbols)"
-            " OR arrayExists(g -> lowerUTF8(g) IN %(ann_genes)s, ai.gene_ids))"
-        )
-
-    # Normalised as the stored terms are and as the family search reads them
-    # (``Likely_benign`` is ``likely benign``): lowercased alone, an API value with an
-    # underscore excluded nothing (CLIN-50).
-    exclude_clinvar = list(_status_filter_terms(filters.exclude_clinvar))
-    if exclude_clinvar:
-        params["ann_exclude_clinvar"] = exclude_clinvar
-        clauses.append("NOT hasAny(ai.clinvar_terms, %(ann_exclude_clinvar)s)")
-
-    rsid = (filters.rsid or "").strip()
-    if rsid:
-        params["ann_rsid"] = rsid
-        clauses.append("positionCaseInsensitive(ifNull(ai.rsid, ''), %(ann_rsid)s) > 0")
-
-    return clauses
+# The Explorer's genotype modes, as the family page's genotype filter names them.
+_GENOTYPE_MODE_FILTERS = {"het": "het", "hom": "hom", "het_hom": "het|hom"}
 
 
-def _family_search_annotation_filters(filters: GlobalVariantFilters) -> SmallVariantQueryFilters:
-    """The explorer's per-transcript annotation filters as the family search's filter set,
-    so both pages build their condition with one function. The explorer offers no
-    transcript filter."""
+def _family_search_filters(filters: GlobalVariantFilters) -> SmallVariantQueryFilters:
+    """The explorer's filters as the family search's filter set, so both pages build each
+    filter they share with one function (``clickhouse_variant_queries``): the location, the
+    variant type, the rsID, the gene, the excluded ClinVar classes and the per-transcript
+    annotation filters. The explorer offers no transcript, interval list, callset, excluded
+    genes or intervals, and none of a family's inheritance, phase set or callers' FILTER."""
     return SmallVariantQueryFilters(
         page=1,
         page_size=1,
+        chromosome=filters.chromosome,
+        start=filters.start,
+        end=filters.end,
+        variant_type=filters.variant_type,
+        gene=filters.gene,
+        rsid=filters.rsid,
+        exclude_clinvar=list(filters.exclude_clinvar),
         impact=list(filters.impacts),
         effect=list(filters.effects),
         clinvar=list(filters.clinvar),
@@ -677,42 +661,47 @@ def _family_search_annotation_filters(filters: GlobalVariantFilters) -> SmallVar
     )
 
 
-def _transcript_annotation_condition(
-    filters: GlobalVariantFilters, params: dict[str, Any]
-) -> str | None:
-    """The condition one transcript of a variant must meet, on a row of the
-    ``annotations`` table (alias ``a``), or None without such a filter.
+def _sample_genotype_condition(
+    scope: ExplorerScope,
+    query_filters: SmallVariantQueryFilters,
+    sample_id: str,
+    mode: str,
+    *,
+    index: int,
+    include_imputed: bool,
+    params: dict[str, Any],
+) -> str:
+    """The variant (alias ``e``) is one that ``sample_id`` carries with ``mode``'s genotype
+    (het, hom, or either: ``het_hom``, also for an unknown mode) in one of its rows in the
+    scope's projects, imputed callsets left out unless included.
 
-    It is the family search's own condition (``_small_annotation_filter_condition``), so
-    both pages keep and drop the same variants: the impact, consequence, ClinVar, HGVS,
-    frequency ceilings (with the ClinVar P/LP rescue), in-silico minimums and Canonical,
-    MANE and LoF only must hold on one transcript together. The explorer tested each
-    against the annotation index, which pools a variant's transcripts, so with *MANE only*
-    and impact HIGH it kept a variant whose HIGH transcript is not its MANE transcript,
-    which the family page drops (CLIN-29).
-    """
-    return _small_annotation_filter_condition(
-        _family_search_annotation_filters(filters), params=params
+    The sample's call is read by the family page's sample filter
+    (``_small_sample_call_condition``): the same genotype classes, so a haploid ``1`` is
+    homozygous and a ``1/2`` heterozygous. It is read by variant, not by row: the explorer
+    keeps a variant the sample carries and counts every carrier of the cohort, where the
+    family page keeps the rows of its family alone (the owner's decision of 2026-11-06). The
+    locus narrows the scan of the sample's rows; a variant's position is the same in every
+    row, so it changes no result."""
+    token = _GENOTYPE_MODE_FILTERS.get(str(mode or "").strip().lower(), _GENOTYPE_MODE_FILTERS["het_hom"])
+    genotype_classes, _include_absent = parse_genotype_filter(token)
+    call_condition = _small_sample_call_condition(
+        (sample_id,),
+        SmallVariantSampleFilter(sample_name=sample_id, genotype_classes=genotype_classes),
+        prefix=f"explorer_sample_{index}",
+        params=params,
+        alias="gs",
     )
-
-
-def _locus_clauses(
-    filters: GlobalVariantFilters, params: dict[str, Any], *, alias: str = ""
-) -> list[str]:
-    """The chromosome, start and end filters on the ``chrom`` and ``pos`` columns of
-    ``alias`` (none: the ``entries`` table)."""
-    prefix = f"{alias}." if alias else ""
-    clauses: list[str] = []
-    if filters.chromosome:
-        params["chromosome"] = filters.chromosome
-        clauses.append(f"{prefix}chrom = %(chromosome)s")
-    if filters.start is not None:
-        params["start"] = filters.start
-        clauses.append(f"{prefix}pos >= %(start)s")
-    if filters.end is not None:
-        params["end"] = filters.end
-        clauses.append(f"{prefix}pos <= %(end)s")
-    return clauses
+    sample_rows = [
+        "gs.sign = 1",
+        "gs.project_guid IN %(project_guids)s",
+        *_small_callset_clauses(
+            query_filters, params=params, exclude_imputed=not include_imputed, alias="gs"
+        ),
+        *_small_locus_clauses(query_filters, params=params, alias="gs"),
+        call_condition,
+    ]
+    entries_table = _small_table_name(scope.assembly_name, "entries")
+    return f"e.key IN (SELECT gs.key FROM {entries_table} AS gs WHERE {' AND '.join(sample_rows)})"
 
 
 # --------------------------------------------------------------------------- #
@@ -774,7 +763,10 @@ def _region_key_condition(
 
 
 def _panel_condition(
-    scope: ExplorerScope, panel_constraints: PanelFilterConstraints, params: dict[str, Any]
+    scope: ExplorerScope,
+    query_filters: SmallVariantQueryFilters,
+    panel_constraints: PanelFilterConstraints,
+    params: dict[str, Any],
 ) -> str | None:
     """The family page's panel condition (``_small_panel_filter_condition``) on the
     explorer's entry rows (alias ``e``): a variant in one of the panel's regions, or
@@ -791,9 +783,8 @@ def _panel_condition(
 
     return _small_panel_filter_condition(
         scope,
-        # No locus: the gene index is read for the whole assembly; the entry rows carry
-        # the locus filter.
-        SmallVariantQueryFilters(page=1, page_size=1),
+        # The locus narrows the scan of the gene index, as on the family page.
+        query_filters,
         panel_constraints,
         params=params,
         region_condition=region_condition,
@@ -809,80 +800,64 @@ def _entries_where(
     panel_constraints: PanelFilterConstraints | None = None,
 ) -> list[str]:
     """The WHERE clauses on the ``entries`` rows (alias ``e``) for these filters.
-    ``panel_constraints`` is the panel as :func:`_panel_constraints` read it."""
-    clauses = ["sign = 1", "project_guid IN %(project_guids)s"]
+    ``panel_constraints`` is the panel as :func:`_panel_constraints` read it.
+
+    Each filter the explorer shares with the family search is read by the family search's
+    own builder (``clickhouse_variant_queries``), on each row as the family page reads it:
+    the variant type, the imputed callsets, the location (the chromosome with or without
+    ``chr``, chrM by any of its names), the rsID (``_small_row_filter_clauses``); the gene,
+    the per-transcript annotation filters and the excluded ClinVar classes, each on the
+    row's own annotation (``_small_annotation_filter_clauses``); and the gene panel
+    (:func:`_panel_condition`). A variant's row is so kept exactly when its family's page
+    keeps it under these filters, and the explorer counts the carriers of the rows it keeps:
+    a variant two families carry under two annotations (two VEP runs) is counted, under an
+    annotation filter, in the family whose own annotation meets it (the owner's decision of
+    2026-11-06). The explorer used to read the chromosome as written, and the gene, rsID,
+    excluded ClinVar and per-transcript filters against any annotation of the variant.
+
+    The explorer's own filters are the review (tag and classification) filter, across the
+    accessible families, and the sample genotype filter, read by variant
+    (:func:`_sample_genotype_condition`)."""
+    clauses = ["e.sign = 1", "e.project_guid IN %(project_guids)s"]
     params["project_guids"] = tuple(scope.project_ids)
 
     if tag_variant_ids is not None:
         # An empty set means "review filter matched nothing".
         params["tag_variant_ids"] = tuple(tag_variant_ids) or ("",)
-        clauses.append("variantId IN %(tag_variant_ids)s")
+        clauses.append("e.variantId IN %(tag_variant_ids)s")
 
-    if not filters.include_imputed:
-        params["imputed_sources"] = IMPUTED_SMALL_VARIANT_SOURCES
-        clauses.append("lowerUTF8(source) NOT IN %(imputed_sources)s")
-
-    sample_source = (
-        "" if filters.include_imputed else " AND lowerUTF8(source) NOT IN %(imputed_sources)s"
+    query_filters = _family_search_filters(filters)
+    # First: the annotation and panel subqueries repeat the locus these clauses bind.
+    clauses.extend(
+        _small_row_filter_clauses(
+            scope, query_filters, params=params, exclude_imputed=not filters.include_imputed
+        )
     )
-    entries_table = _small_table_name(scope.assembly_name, "entries")
+
+    # Each sample is its own membership subquery; AND-ing them means the variant must
+    # satisfy every per-sample genotype constraint.
     for index, (sample_id, mode) in enumerate(filters.sample_genotype_filters):
         sample_id = str(sample_id).strip()
         if not sample_id:
             continue
-        sample_param = f"sample_gt_{index}"
-        params[sample_param] = sample_id
-        normalized_mode = str(mode or "het_hom").strip().lower()
-        if normalized_mode == "hom":
-            genotype_condition = _gt_is_hom("s_gt", params)
-        elif normalized_mode == "het":
-            genotype_condition = _gt_is_het("s_gt", params)
-        else:  # het_hom: any carrier
-            genotype_condition = _gt_is_carrier("s_gt", params)
-        # Each sample is its own membership subquery; AND-ing them means the
-        # variant must satisfy every per-sample genotype constraint.
         clauses.append(
-            "key IN (SELECT key FROM "
-            f"{entries_table}"
-            " ARRAY JOIN `calls.sampleId` AS s_id, `calls.gt` AS s_gt"
-            " WHERE sign = 1 AND project_guid IN %(project_guids)s"
-            f" AND s_id = %({sample_param})s"
-            f" AND ({genotype_condition}){sample_source})"
+            _sample_genotype_condition(
+                scope,
+                query_filters,
+                sample_id,
+                mode,
+                index=index,
+                include_imputed=filters.include_imputed,
+                params=params,
+            )
         )
 
-    annotation_clauses = _annotation_index_clauses(filters, params)
-    if annotation_clauses:
-        annotation_index = _small_table_name(scope.assembly_name, "variants/annotation_index")
-        clauses.append(
-            "key IN (SELECT DISTINCT ai.key FROM "
-            f"{annotation_index} AS ai WHERE {' AND '.join(annotation_clauses)})"
-        )
+    clauses.extend(_small_annotation_filter_clauses(scope, query_filters, params=params))
 
     if panel_constraints is not None:
         # A panel with neither genes nor regions keeps nothing ("0"); the search returns
         # before it asks ClickHouse.
-        clauses.append(_panel_condition(scope, panel_constraints, params) or "0")
-
-    transcript_condition = _transcript_annotation_condition(filters, params)
-    if transcript_condition:
-        # One transcript row must meet every per-transcript filter. The locus narrows the
-        # scan of the per-transcript table, as in the family search; a variant's position
-        # is the same in every table, so it changes no result.
-        annotations = _small_table_name(scope.assembly_name, "variants/annotations")
-        transcript_where = [*_locus_clauses(filters, params, alias="a"), transcript_condition]
-        clauses.append(
-            f"key IN (SELECT a.key FROM {annotations} AS a WHERE {' AND '.join(transcript_where)})"
-        )
-
-    variant_type = (filters.variant_type or "").strip().upper()
-    if variant_type == "SNV":
-        clauses.append("length(ref) = 1 AND length(alt) = 1")
-    elif variant_type == "MNV":
-        clauses.append("length(ref) = length(alt) AND length(ref) > 1")
-    elif variant_type == "INDEL":
-        clauses.append("NOT (length(ref) = 1 AND length(alt) = 1)")
-
-    clauses.extend(_locus_clauses(filters, params))
+        clauses.append(_panel_condition(scope, query_filters, panel_constraints, params) or "0")
 
     return clauses
 

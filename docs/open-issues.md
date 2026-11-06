@@ -48,7 +48,7 @@ Status 2026-11-04, `origin/main` at `fe2c30b2`. Ideas that are not defects are i
 | CLIN-14 | P3 | Settle the repeat catalogue's open points; move to STRchive v2.28.0 | QA, owner, developer | |
 | CLIN-17 | P3 | Confirm against Riggs et al. 2020 whether CNV scoring caps section totals | QA | |
 | CLIN-39 | P3 | Decide whether one SV in two siblings' per-sample records gets one second-hit verdict | owner | |
-| CLIN-50 | P3 | Decide whether carrier screening reads Ensembl-only genes, and which annotation set the Explorer matches | owner | |
+| CLIN-50 | P3 | Decide whether carrier screening reads Ensembl-only genes | owner | |
 | CLIN-72 | P3 | Decide whether every reader keeps a VCF's INFO flags: uploads drop them, package imports keep them | owner, developer | |
 | TRACE-10 | P3 | Decide how a segments-only BED is drawn and what a segments or APCAD read without `source` returns | owner, developer | |
 | TRACE-21 | P3 | Decide whether a family that loses a project link gets a clinical audit event | owner | |
