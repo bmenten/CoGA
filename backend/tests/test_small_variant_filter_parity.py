@@ -357,13 +357,30 @@ def test_pass_only_reads_each_call_that_carries_the_variant_by_its_own_filter() 
 def test_the_sql_condition_of_pass_only() -> None:
     clauses, params = _where(pass_only=True)
     (condition,) = [clause for clause in clauses if "pass_only_filter_values" in clause]
-    assert condition.startswith("if(arrayExists(own -> notEmpty(own), e.calls.filters), ")
-    assert "e.calls.gt, e.calls.filters" in condition
+    # Over the calls of the family's members alone (the owner's decision of 2026-11-06).
+    assert condition.startswith(
+        "if(arrayExists((sample_id, own) -> sample_id IN %(visible_sample_ids)s AND notEmpty(own), "
+        "e.calls.sampleId, e.calls.filters), "
+    )
+    assert "arrayAll((sample_id, gt, own) -> NOT (sample_id IN %(visible_sample_ids)s) OR NOT (" in condition
+    assert "e.calls.sampleId, e.calls.gt, e.calls.filters" in condition
     assert "arrayAll(value -> value IN %(pass_only_filter_values)s, e.filters)" in condition
     assert params["pass_only_filter_values"] == ("", ".", "PASS")
     # The genotypes that carry the ALT allele, as the genotype filters read them.
     assert "0/1" in params["pass_only_alt_genotypes"] and "0/0" not in params["pass_only_alt_genotypes"]
     assert _where()[0] == [clause for clause in clauses if clause != condition]
+
+
+def test_the_sql_condition_of_the_phase_set_reads_the_family_members_calls() -> None:
+    # A phase set only a member the family does not show holds keeps nothing (the owner's
+    # decision of 2026-11-06).
+    clauses, params = _where(phase_set=4321)
+    (condition,) = [clause for clause in clauses if "phase_set" in clause]
+    assert condition == (
+        "arrayExists((sample_id, ps) -> sample_id IN %(visible_sample_ids)s AND ps = %(phase_set)s, "
+        "e.calls.sampleId, e.calls.ps)"
+    )
+    assert params["phase_set"] == 4321 and params["visible_sample_ids"]
 
 
 # --- the consequence --------------------------------------------------------------------

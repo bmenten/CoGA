@@ -42,7 +42,8 @@ quality**, **Locations**, **Exclude** and **Review and curation**.
     reference call is not held to an allele balance it cannot have. Switched off, every member gets
     the minimums the affected members share.
   - *Pass variants only*, under *Filter value*, keeps a variant when every member's call that carries
-    it passed its caller's FILTER (PASS, or no filter set), whatever *Affected only* says. A callset
+    it passed its caller's FILTER (PASS, or no filter set), whatever *Affected only* says. Only the
+    family's members count: a sample taken out of the family, or not yet added, holds nothing back. A callset
     of one file per sample gives each call its own FILTER, so a parent's reference call (DeepVariant's
     *RefCall*) holds nothing back. A multi-sample VCF gives the FILTER of the site.
   - The quick choices *High quality* and *Passing* turn it on, as in seqr; *All variants* turns it

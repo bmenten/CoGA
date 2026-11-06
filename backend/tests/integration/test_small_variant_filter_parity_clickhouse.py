@@ -1270,7 +1270,6 @@ ALL_CASES: dict[tuple[str, str], _Case] = {
 _PYTHON_VIEWS = ("one page", "track sample", "ranked", "ranked from cache")
 _EVERY_VIEW = ("plain", "one page", "track", "track sample", "ranked", "ranked from cache")
 
-_HIDDEN_CALLS = "PR 3: SQL reads the calls of a member the family does not show"
 _FILTER_TRANSCRIPT = (
     "PR 5: Python names the filter transcript by its own reading of the annotation filters, "
     "not the stored values the SQL reads"
@@ -1288,11 +1287,6 @@ def _gaps(family: str, name: str, views: tuple[str, ...], reason: str) -> dict[t
 # What a view keeps today that the rule does not, by the PR that closes it. Each is a
 # strict xfail, so the PR that closes one must delete its entry.
 KNOWN_GAPS: dict[tuple[str, str, str], str] = {
-    **_gaps("divergences", "phase set a hidden member holds", ("plain", "track"), _HIDDEN_CALLS),
-    **_gaps("divergences", "pass only, a hidden member's call failed", _EVERY_VIEW, _HIDDEN_CALLS),
-    **_gaps(
-        "divergences", "pass only, a hidden member's call has its own filter", ("plain", "track"), _HIDDEN_CALLS
-    ),
     **_gaps(
         "divergences", "filter transcript, a frequency among the population frequencies", _EVERY_VIEW,
         _FILTER_TRANSCRIPT,
