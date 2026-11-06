@@ -25,7 +25,7 @@ brackets.
   - An import whose job cannot record the family it imports writes nothing of it (#736).
   - Each backend container runs one uvicorn process, whose event loop the API shares with the refresh worker. With Docker Compose the imports run in import-worker processes of their own, one core each; on Google Cloud they still run in the API's instances.
 - **Regression truth set**: no GIAB or GeT-RM truth set with a concordance harness for minor-release validation.
-- **One filter definition**: the small-variant filters exist twice, as ClickHouse SQL and as Python; parity tests cover genotype classes and hemizygous positions only.
+- **Variant Explorer filters**: the family search's SQL is the one definition of its small-variant filters, held to their documented rule in every view on real ClickHouse. The Variant Explorer shares its annotation and panel conditions but builds its location, genotype and callset conditions itself (`variant_explorer_service._entries_where`).
 - **Request tracing** (SEC-16): nothing carries a request ID from a log line to its audit row; `/api/health/ready`, which also checks that Postgres and ClickHouse answer, is polled by nothing (the probes and the uptime check use `/api/health`; the deployment guide calls it by hand).
 
 ## Product
