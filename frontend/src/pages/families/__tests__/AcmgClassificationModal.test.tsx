@@ -96,6 +96,14 @@ describe('AcmgClassificationModal', () => {
     expect(screen.queryByText(/could not be read/)).not.toBeInTheDocument();
   });
 
+  it("says which ALT of a multi-allelic record the pre-evaluation reads", async () => {
+    renderModal(undefined, { ...variant, alt: 'T,C', alt_allele: 'T' });
+    await screen.findByText('PVS1');
+    expect(
+      screen.getByText('Multi-allelic record: the pre-evaluation reads the annotation of ALT T.'),
+    ).toBeInTheDocument();
+  });
+
   it('auto-applies supported criteria and flags contraindicated ones', async () => {
     renderModal();
 

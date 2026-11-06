@@ -68,7 +68,7 @@ _OLD_FORMAT_KEYS = ("annotation_version", "annotation_set_hash", "clinvar", "cap
 _CSQ_FIELDS = (
     "Allele|Consequence|IMPACT|SYMBOL|Gene|Feature_type|Feature|CANONICAL|MANE_SELECT"
     "|SIFT|PolyPhen|REVEL|CADD_PHRED|am_class|am_pathogenicity|SpliceAI_pred_DS_AG"
-    "|SpliceAI_pred_DS_AL|SpliceAI_pred_DS_DG|SpliceAI_pred_DS_DL|gnomADe_AF|gnomADg_AF|MAX_AF"
+    "|SpliceAI_pred_DS_AL|SpliceAI_pred_DS_DG|SpliceAI_pred_DS_DL|gnomADe_AF|gnomADg_AF|gnomADg_AF_grpmax"
     "|gnomAD_AC|gnomAD_nhomalt|gnomAD_Hemi|TOPMed_AF|CLIN_SIG"
 )
 
@@ -270,7 +270,7 @@ def test_a_classification_freezes_its_frequencies_and_scores_and_drifts_when_the
                 served.gnomad_af,
                 served.gnomad_hom_count,
             )
-            for field in ("gnomad_exomes_af", "gnomad_genomes_af", "gnomad_popmax_af", "topmed_af"):
+            for field in ("gnomad_exomes_af", "gnomad_genomes_af", "gnomad_popmax_af", "max_af", "topmed_af"):
                 assert frequencies[field] == served.population_frequencies.get(field), field
             assert frequencies["gnomad_ac"] == served.annotation_extra.get("gnomad_ac") == 4
             assert frequencies["gnomad_hemi_count"] is None

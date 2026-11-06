@@ -13,6 +13,9 @@ import pytest
 from backend.app.services.variant_annotation_parser import (
     AnnotationHeaderState,
     _parse_float,
+    _parse_int,
+    entry_alt_allele,
+    vep_allele_forms,
     _parse_spliceai_pred,
     _spliceai_delta,
     clinvar_file_annotated,
@@ -155,7 +158,8 @@ def test_normalize_small_variant_annotation_entry_from_vep_tsv() -> None:
     assert annotation["population_frequencies"] == {
         "gnomad_exomes_af": 0.0002,
         "gnomad_genomes_af": 0.0003,
-        "gnomad_popmax_af": 0.0005,
+        # VEP's MAX_AF is not gnomAD's popmax: it is kept as itself.
+        "max_af": 0.0005,
         "gnomad_af": 0.0003,
     }
     assert annotation["alpha_missense_class"] == "likely_pathogenic"
@@ -407,3 +411,111 @@ def test_a_vep_table_row_reads_clinvar_by_what_the_table_declares() -> None:
         {"SYMBOL": "GENE1", "CLIN_SIG": "pathogenic", "ClinVar_CLNSIG": "Benign"}
     )
     assert (both["clinvar"], both["clinvar_vep_cache"]) == ("Benign", "pathogenic")
+
+
+# --------------------------------------------------------------------------- #
+# A multi-allelic record: each entry names the ALT it is of
+# --------------------------------------------------------------------------- #
+
+_ALLELE_CSQ_HEADER = (
+    '##INFO=<ID=CSQ,Number=.,Type=String,Description="Consequence annotations from Ensembl VEP. '
+    'Format: Allele|Consequence|SYMBOL|Feature|REVEL">'
+)
+
+
+def test_each_entry_of_a_multi_allelic_record_names_its_alt() -> None:
+    # Before, the entries of both alleles were read as the record's, unnamed.
+    state = _clinvar_state(_ALLELE_CSQ_HEADER)
+    annotations = extract_small_variant_annotations(
+        {"CSQ": "G|missense_variant|GENE1|ENST1|0.2,T|stop_gained|GENE1|ENST1|"}, state, ref="A", alt="G,T"
+    )
+    assert [(a["alt_allele"], a["effect"]) for a in annotations] == [("G", "missense_variant"), ("T", "stop_gained")]
+    # A record with one ALT names none.
+    [single] = extract_small_variant_annotations({"CSQ": "G|missense_variant|GENE1|ENST1|0.2"}, state, ref="A", alt="G")
+    assert "alt_allele" not in single
+
+
+def test_a_multi_allelic_indels_entries_are_read_as_vep_writes_its_alleles() -> None:
+    # VEP trims the first base all alleles share from an indel record: AT>A,ATT is "-" and "TT".
+    assert vep_allele_forms("AT", ["A", "ATT"]) == ["-", "TT"]
+    # Alleles that do not share it, and same-length alleles, are written as they are.
+    assert vep_allele_forms("A", ["G", "AT"]) == ["G", "AT"]
+    assert vep_allele_forms("A", ["G", "T"]) == ["G", "T"]
+    assert entry_alt_allele({"Allele": "-"}, "AT", ["A", "ATT"]) == "A"
+    assert entry_alt_allele({"Allele": "TT"}, "AT", ["A", "ATT"]) == "ATT"
+    # VEP's allele number decides where the entry has one; --minimal's form is read too.
+    assert entry_alt_allele({"Allele": "TT", "ALLELE_NUM": "1"}, "AT", ["A", "ATT"]) == "A"
+    assert entry_alt_allele({"Allele": "T"}, "AT", ["A", "ATT"]) == "ATT"
+    # VEP's form first: AC>AA,A writes "A" for AA and "-" for A, though "A" is also an ALT.
+    assert entry_alt_allele({"Allele": "A"}, "AC", ["AA", "A"]) == "AA"
+    # snpEff writes the ALT itself.
+    assert entry_alt_allele({"Allele": "A"}, "AC", ["AA", "A"], vep=False) == "A"
+    # An allele none of them is names none.
+    assert entry_alt_allele({"Allele": "C"}, "A", ["G", "T"]) is None
+
+
+# --------------------------------------------------------------------------- #
+# A field listing several values is none of them
+# --------------------------------------------------------------------------- #
+
+
+def test_a_score_listing_several_values_is_read_as_none_and_kept_as_text() -> None:
+    # dbNSFP's REVEL per transcript, aliased without matching the transcript: the highest was
+    # read, another transcript's score shown and filtered as this one's.
+    [annotation] = extract_small_variant_annotations(
+        {"CSQ": "G|missense_variant|GENE1|ENST1|0.12&0.91"}, _clinvar_state(_ALLELE_CSQ_HEADER)
+    )
+    assert "revel" not in annotation
+    assert annotation["extra"]["revel_values"] == "0.12&0.91"
+    # The same value repeated, or one beside missing ones, is that value.
+    assert _parse_float("0.5&0.5") == 0.5
+    assert _parse_float(".&0.5") == 0.5
+    assert _parse_float("0.12&0.91") is None
+    assert _parse_int("3&5") is None and _parse_int("1.0") == 1
+    assert _parse_float("1.2E+05") == 120000.0
+
+
+def test_a_dbnsfp_score_list_reads_the_entrys_own_transcript() -> None:
+    # dbNSFP lists its scores in the order of its Ensembl_transcriptid column.
+    state = _clinvar_state(
+        '##INFO=<ID=CSQ,Number=.,Type=String,Description="Format: Allele|Consequence|SYMBOL|Feature|'
+        'Ensembl_transcriptid|REVEL">'
+    )
+    annotations = extract_small_variant_annotations(
+        {
+            "CSQ": "G|missense_variant|GENE1|ENST2.3|ENST1&ENST2&ENST3|0.12&0.91&0.4,"
+            "G|missense_variant|GENE1|ENST9|ENST1&ENST2&ENST3|0.12&0.91&0.4"
+        },
+        state,
+    )
+    assert annotations[0]["revel"] == 0.91
+    # A transcript the list lacks: none of them.
+    assert "revel" not in annotations[1] and annotations[1]["extra"]["revel_values"] == "0.12&0.91&0.4"
+
+
+def test_a_population_frequency_listing_several_values_is_read_as_none() -> None:
+    # A --custom file with several records at the position: their highest made a rare variant
+    # common.
+    annotation = normalize_small_variant_annotation_entry({"SYMBOL": "GENE1", "gnomADg_AF": "0.2&0.00001"})
+    assert "gnomad_genomes_af" not in annotation.get("population_frequencies", {})
+    assert annotation["extra"]["gnomad_genomes_af_values"] == "0.2&0.00001"
+
+
+# --------------------------------------------------------------------------- #
+# gnomAD's popmax and VEP's MAX_AF
+# --------------------------------------------------------------------------- #
+
+
+def test_vep_max_af_is_kept_apart_from_gnomads_popmax() -> None:
+    # MAX_AF is VEP's highest over the 1000 Genomes and gnomAD populations, not gnomAD's popmax.
+    annotation = normalize_small_variant_annotation_entry({"SYMBOL": "GENE1", "MAX_AF": "0.012"})
+    assert annotation["population_frequencies"] == {"max_af": 0.012}
+    # The filter column reads it where gnomAD has no popmax of its own.
+    assert _annotation_columns(annotation).gnomad_popmax_af == pytest.approx(0.012)
+    both = normalize_small_variant_annotation_entry(
+        {"SYMBOL": "GENE1", "MAX_AF": "0.012", "gnomADe_AF_grpmax": "0.0004", "gnomADg_AF_grpmax": "0.0006"}
+    )
+    # gnomAD v4's grpmax, exome and genome: their highest is gnomAD's popmax, and the column's.
+    assert both["population_frequencies"]["gnomad_popmax_af"] == 0.0006
+    assert both["population_frequencies"]["max_af"] == 0.012
+    assert _annotation_columns(both).gnomad_popmax_af == pytest.approx(0.0006)

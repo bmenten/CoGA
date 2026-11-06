@@ -434,13 +434,14 @@ def _small_transcript_annotations(
     primary_annotation: dict[str, Any],
 ) -> list[SmallVariantTranscriptOut]:
     transcripts: list[SmallVariantTranscriptOut] = []
-    seen: set[tuple[str, str, str, str, str]] = set()
+    seen: set[tuple[str, str, str, str, str, str]] = set()
     for annotation in sorted(annotations, key=_annotation_rank, reverse=True):
         transcript_id = _annotation_text(annotation, "transcript_id", "transcriptId")
         hgvsc = _annotation_text(annotation, "hgvsc")
         hgvsp = _annotation_text(annotation, "hgvsp")
         effect = _annotation_effect(annotation)
         impact = _annotation_text(annotation, "impact")
+        alt_allele = _annotation_text(annotation, "alt_allele")
         if not any((transcript_id, hgvsc, hgvsp, effect, impact)):
             continue
         key = (
@@ -449,6 +450,7 @@ def _small_transcript_annotations(
             hgvsp or "",
             effect or "",
             impact or "",
+            alt_allele or "",
         )
         if key in seen:
             continue
@@ -461,6 +463,7 @@ def _small_transcript_annotations(
             continue
         transcripts.append(
             SmallVariantTranscriptOut(
+                alt_allele=alt_allele,
                 gene=_annotation_gene(annotation),
                 gene_id=_annotation_gene_id(annotation),
                 transcript_id=transcript_id,
@@ -1614,6 +1617,7 @@ def _small_filter_transcript_out(annotation: dict[str, Any]) -> SmallVariantFilt
     return SmallVariantFilterTranscriptOut(
         gene=_annotation_gene(annotation),
         transcript_id=_annotation_text(annotation, "transcript_id", "transcriptId"),
+        alt_allele=_annotation_text(annotation, "alt_allele"),
         impact=_annotation_text(annotation, "impact"),
         effect=_annotation_effect(annotation),
         hgvsc=_annotation_text(annotation, "hgvsc"),
@@ -1667,6 +1671,7 @@ def _small_variant_out(
         clinvar=_annotation_clinvar(annotation),
         rsid=record.rsid or _annotation_text(annotation, "rsid"),
         transcript_id=_annotation_text(annotation, "transcript_id", "transcriptId"),
+        alt_allele=_annotation_text(annotation, "alt_allele"),
         feature_type=_annotation_text(annotation, "feature_type", "featureType"),
         transcript_biotype=_annotation_text(annotation, "transcript_biotype", "transcriptBiotype"),
         hgvsc=_annotation_text(annotation, "hgvsc"),

@@ -34,6 +34,7 @@ const ABSENT_VARIANT_FIELDS: Omit<
   gene_symbols: [],
   gene_count: null,
   transcript_id: null,
+  alt_allele: null,
   feature_type: null,
   transcript_biotype: null,
   impact: null,
@@ -116,6 +117,7 @@ export const genotype = (
 
 /** One of a variant's transcripts, the fields a test leaves out absent. */
 export const transcript = (fields: Partial<SmallVariantTranscript>): SmallVariantTranscript => ({
+  alt_allele: null,
   gene: null,
   gene_id: null,
   transcript_id: null,

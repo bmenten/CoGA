@@ -36,6 +36,9 @@ class GenotypeOut(BaseModel):
 
 
 class SmallVariantTranscriptOut(BaseModel):
+    # For a multi-allelic record (ALT ``G,T``), the ALT allele this transcript's annotation is
+    # of; None for a record with one ALT, and where the annotation names none.
+    alt_allele: Optional[str] = None
     gene: Optional[str] = None
     gene_id: Optional[str] = None
     transcript_id: Optional[str] = None
@@ -68,6 +71,8 @@ class SmallVariantFilterTranscriptOut(BaseModel):
 
     gene: Optional[str] = None
     transcript_id: Optional[str] = None
+    # For a multi-allelic record, the ALT allele this transcript's annotation is of.
+    alt_allele: Optional[str] = None
     impact: Optional[str] = None
     effect: Optional[str] = None
     hgvsc: Optional[str] = None
@@ -182,6 +187,9 @@ class VariantOut(ApiDocumentModel):
     gene_symbols: List[str] = Field(default_factory=list)
     gene_count: Optional[int] = None
     transcript_id: Optional[str] = None
+    # Small variants: for a multi-allelic record (ALT ``G,T``), the ALT allele the transcript
+    # fields (consequence, HGVS, scores) are of; None for a record with one ALT.
+    alt_allele: Optional[str] = None
     feature_type: Optional[str] = None
     transcript_biotype: Optional[str] = None
     impact: Optional[str] = None

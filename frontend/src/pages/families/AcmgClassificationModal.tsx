@@ -72,6 +72,8 @@ export type AcmgModalVariant = AcmgVariantInput &
     | 'mito'
   > & {
     genotypes: Pick<SmallVariantGenotype, 'sample' | 'gt' | 'dp'>[];
+    // A multi-allelic record's: the ALT the annotation the criteria read is of.
+    alt_allele?: SmallVariant['alt_allele'];
   };
 
 type AcmgClassificationModalProps = {
@@ -430,6 +432,13 @@ export default function AcmgClassificationModal({
             <p className="variant-review-modal-subtitle">
               {formatLocus(variant)} · {variant.hgvsp || variant.hgvsc || variant.effect || variant.type}
             </p>
+            {variant.alt_allele ? (
+              // A multi-allelic record (ALT G,T): the consequence, frequencies and scores the
+              // criteria read are those of one of its alleles.
+              <p className="variant-review-modal-subtitle" role="note">
+                Multi-allelic record: the pre-evaluation reads the annotation of ALT {variant.alt_allele}.
+              </p>
+            ) : null}
             {resourceLinks.length ? (
               <div className="acmg-resource-links">
                 {resourceLinks.map((link) => (

@@ -41,6 +41,7 @@ from .family_metadata_context import FamilyMetadataContext, build_family_metadat
 from .access_control import CurrentUser
 from .hash_chain import canonical_json
 from .small_variant_review_acmg import (
+    EVIDENCE_ALLELE_FIELD,
     EVIDENCE_CONSEQUENCE_FIELDS,
     EVIDENCE_FREQUENCY_FIELDS,
     EVIDENCE_GENE_CONSTRAINT_FIELDS,
@@ -64,6 +65,7 @@ _EVIDENCE_ORDER = {
     for index, field in enumerate(
         (
             "transcript_id",
+            EVIDENCE_ALLELE_FIELD,
             *EVIDENCE_CONSEQUENCE_FIELDS,
             *EVIDENCE_FREQUENCY_FIELDS,
             *EVIDENCE_IN_SILICO_FIELDS,

@@ -992,6 +992,8 @@ const CONSEQUENCE_FIELDS: EvidenceField[] = [
   { key: 'effect', label: 'consequence', format: 'text' },
   { key: 'impact', label: 'impact', format: 'text' },
   { key: 'lof', label: 'LoF', format: 'text' },
+  // Frozen for a multi-allelic record only: the ALT the values are of.
+  { key: 'alt_allele', label: 'of ALT', format: 'text' },
 ];
 
 const FREQUENCY_FIELDS: EvidenceField[] = [
@@ -999,6 +1001,7 @@ const FREQUENCY_FIELDS: EvidenceField[] = [
   { key: 'gnomad_exomes_af', label: 'gnomAD exomes AF', format: 'frequency' },
   { key: 'gnomad_genomes_af', label: 'gnomAD genomes AF', format: 'frequency' },
   { key: 'gnomad_popmax_af', label: 'gnomAD popmax AF', format: 'frequency' },
+  { key: 'max_af', label: 'VEP MAX_AF', format: 'frequency' },
   { key: 'topmed_af', label: 'TOPMed AF', format: 'frequency' },
   { key: 'gnomad_ac', label: 'gnomAD allele count', format: 'count' },
   { key: 'gnomad_hom_count', label: 'gnomAD homozygotes', format: 'count' },

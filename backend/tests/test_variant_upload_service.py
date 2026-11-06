@@ -1059,6 +1059,32 @@ def test_a_vep_table_with_a_clinvar_file_reads_its_classification_and_release() 
         lookup.close()
 
 
+def test_a_vep_table_annotates_a_multi_allelic_record_naming_each_rows_alt() -> None:
+    # VEP names a multi-allelic record by its alleles (A/G/T; an indel's after trimming the base
+    # all alleles share, at the next position). Neither its variant id (G,T) nor a single
+    # allele's position matched that name, so the record found no row.
+    lookup = _parse_vep_tsv_annotation_upload(
+        _vep_upload(
+            "#Uploaded_variation\tLocation\tAllele\tGene\tFeature\tConsequence\tSYMBOL\n"
+            "1_101_A/G/T\t1:101\tG\tENSG1\tENST1\tmissense_variant\tGENE1\n"
+            "1_101_A/G/T\t1:101\tT\tENSG1\tENST1\tstop_gained\tGENE1\n"
+            "1_301_T/-/TT\t1:301\t-\tENSG1\tENST1\tframeshift_variant\tGENE1\n"
+            "1_301_T/-/TT\t1:301-302\tTT\tENSG1\tENST1\tinframe_insertion\tGENE1\n"
+        )
+    )
+    try:
+        snv = lookup.get(build_small_variant_id("1", 101, "A", "G,T"), "1", 101, "A", "G,T") or []
+        assert [(a["alt_allele"], a["effect"]) for a in snv] == [("G", "missense_variant"), ("T", "stop_gained")]
+        indel = lookup.get(build_small_variant_id("1", 300, "AT", "A,ATT"), "1", 300, "AT", "A,ATT") or []
+        assert [(a["alt_allele"], a["effect"]) for a in indel] == [
+            ("A", "frameshift_variant"),
+            ("ATT", "inframe_insertion"),
+        ]
+        assert all(not key.startswith("_vep_") for a in snv + indel for key in a)
+    finally:
+        lookup.close()
+
+
 def test_a_vep_tsv_parse_that_fails_leaves_no_temporary_database(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -22,11 +22,31 @@ from .clickhouse_variant_ids import build_small_variant_id
 from .data_scope import normalize_chromosome
 from .family_package_common import _normalize_header_key
 from .variant_annotation_parser import (
+    ALT_ALLELE_KEY,
     CLINVAR_FILE_ALIASES,
     clinvar_file_in_description,
+    entry_alt_allele,
     normalize_small_variant_annotation_entry,
+    vep_allele_forms,
 )
 from .vcf_header_provenance import extract_vep_tab_provenance
+
+# A multi-allelic record's table rows are stored by the name VEP gives the record (its
+# alleles after VEP's trimming, ``_vep_record_name``) with each row's own allele, which the
+# lookup ties to the VCF's ALT. Before, such a record found no row: neither its variant id
+# (``G,T``, VEP writes ``G/T``) nor a single allele's position matched.
+_ROW_ALLELE = "_vep_allele"
+_ROW_ALLELE_NUM = "_vep_allele_num"
+
+
+def _vep_record_name(chrom: str, pos: int, ref: str, alts: list[str]) -> str:
+    """A multi-allelic VCF record as VEP names it in a table's Uploaded_variation, chromosome
+    normalised: ``{chrom}:{start}:{REF}/{ALT}/{ALT}``, after VEP trims an indel's shared first
+    base (``vep_allele_forms``), which moves the start one base on."""
+    forms = vep_allele_forms(ref, alts)
+    if forms != list(alts):
+        pos, ref = pos + 1, ref[1:] or "-"
+    return f"{chrom}:{pos}:{ref}/{'/'.join(forms)}"
 
 
 def _coerce_int(value: Any) -> int | None:
@@ -57,6 +77,8 @@ class VepAnnotationLookup:
     ) -> list[dict[str, Any]] | None:
         if self.conn is None:
             return None
+        if "," in alt:
+            return self._multi_allelic(chrom, start, ref, alt.split(","))
         rows = self.conn.execute(
             "SELECT annotation_json FROM annotations WHERE key_type = ? AND key_value = ?",
             ("variant_id", variant_id),
@@ -75,6 +97,25 @@ class VepAnnotationLookup:
             ("locus_allele", locus_key),
         ).fetchall()
         return [json.loads(row[0]) for row in rows] or None
+
+    def _multi_allelic(
+        self, chrom: str, start: int, ref: str, alts: list[str]
+    ) -> list[dict[str, Any]] | None:
+        """A multi-allelic record's rows, each naming the ALT it is of (``alt_allele``)."""
+        assert self.conn is not None
+        rows = self.conn.execute(
+            "SELECT annotation_json FROM annotations WHERE key_type = ? AND key_value = ?",
+            ("record_name", _vep_record_name(chrom, start, ref, alts)),
+        ).fetchall()
+        annotations: list[dict[str, Any]] = []
+        for row in rows:
+            annotation = json.loads(row[0])
+            entry = {"Allele": annotation.pop(_ROW_ALLELE, None), "ALLELE_NUM": annotation.pop(_ROW_ALLELE_NUM, None)}
+            allele = entry_alt_allele(entry, ref, alts)
+            if allele is not None:
+                annotation[ALT_ALLELE_KEY] = allele
+            annotations.append(annotation)
+        return annotations or None
 
     def close(self) -> None:
         if self.conn is not None:
@@ -267,7 +308,20 @@ def _index_vep_tsv_lines(lookup: VepAnnotationLookup, lines: Any) -> None:
 
         if uploaded is not None:
             chrom, start, ref, alt = uploaded
-            if ref and alt:
+            if ref and alt and "/" in alt:
+                # A multi-allelic record (``A/G/T``): stored by VEP's name for it, with the
+                # row's allele (``VepAnnotationLookup._multi_allelic``).
+                _store_vep_annotation(
+                    lookup,
+                    key_type="record_name",
+                    key_value=f"{chrom}:{start}:{ref}/{alt}",
+                    annotation={
+                        **annotation,
+                        _ROW_ALLELE: row.get("Allele"),
+                        _ROW_ALLELE_NUM: row.get("ALLELE_NUM"),
+                    },
+                )
+            elif ref and alt:
                 _store_vep_annotation(
                     lookup,
                     key_type="variant_id",

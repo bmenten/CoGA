@@ -93,6 +93,7 @@ describe('describeFilterTranscript', () => {
   // held on another. The second transcript of the e2e ready case: SIFT tolerated on the
   // card's transcript, deleterious on the one the filter kept.
   const matched = {
+    alt_allele: null,
     gene: 'SYN51',
     transcript_id: 'ENST_SYN51_2',
     impact: 'MODERATE',
@@ -163,6 +164,13 @@ describe('describeFilterTranscript', () => {
         filter_transcript: { ...matched, revel: 0.312, sift: 'tolerated(0.2)', polyphen: 'benign(0.1)' },
       })?.details,
     ).toEqual([]);
+  });
+
+  it("names another allele's transcript of a multi-allelic record", () => {
+    expect(
+      describeFilterTranscript({ ...card, alt_allele: 'T', filter_transcript: { ...matched, alt_allele: 'G' } })
+        ?.details[0],
+    ).toBe('ALT G');
   });
 
   it('copes with an annotation without a transcript ID', () => {

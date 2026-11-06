@@ -1911,6 +1911,27 @@ A family small-variant upload is one family VCF from one callset:
   and the exome and genome counts `gnomADe_…` and `gnomADg_…` of `AC`, `nhomalt`, `Hom` and
   `Hemi`, in the spellings the parser lists), TOPMed's (`TOPMed_AF`), and VEP's `MAX_AF` and
   `POPMAX_AF`.
+  - gnomAD's popmax is gnomAD's own (`gnomAD_AF_POPMAX`, and gnomAD v4's grpmax: `gnomAD_AF_grpmax`,
+    or the higher of the exome and genome `gnomADe_AF_grpmax` and `gnomADg_AF_grpmax`). VEP's
+    `MAX_AF` (and `POPMAX_AF`), the highest frequency over every 1000 Genomes and gnomAD
+    population VEP reads, is kept as `max_af` and shown as *MAX_AF (VEP)*. The popmax filter
+    column reads gnomAD's popmax, else `max_af`, so an annotation with `MAX_AF` alone is still
+    bounded by a frequency ceiling. Before, `MAX_AF` was stored and shown as gnomAD's popmax.
+  - A numeric field listing several different numbers (dbNSFP's one per transcript, a `--custom`
+    file's per record at the position, a `Number=A` INFO field's per allele) is read as no value,
+    and its text is kept as `<field>_values` and shown under *More annotations*. Before, the
+    highest was read (a count took the first): another transcript's or allele's value, shown and
+    filtered as the variant's. A list repeating one number is that number. An entry carrying
+    dbNSFP's `Ensembl_transcriptid` reads the value of its own transcript (`Feature`).
+  - A multi-allelic record (ALT `G,T`) is stored as one variant, not split, with the entries of
+    every allele. Each entry is tied to its ALT, by VEP's `ALLELE_NUM` where the CSQ has one, else
+    by its `Allele` as VEP writes the record's alleles (an indel's shared first base trimmed), as
+    `--minimal` writes them, or as written (snpEff), and its annotation names it (`alt_allele`). The
+    card, the transcript list, the ACMG dialog and the frozen evidence show it. A VEP table's rows
+    of such a record are found by the name VEP gives it (`1_101_A/G/T`); before, they were not
+    found at all. Filters still read the record's annotations together (an allele's value keeps the
+    record); split multi-allelic records upstream (`bcftools norm -m -any`) to filter, rank and
+    classify each allele on its own.
   - A gnomAD count is gnomAD's total, as its browser shows it: the combined count, else the exome
     and genome counts added, either alone when the other is missing (CLIN-67; the owner's choice
     of 2026-10-27). Before, `gnomADe_nhomalt` and `gnomADg_nhomalt` were not read, and the allele

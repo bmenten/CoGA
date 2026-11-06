@@ -167,6 +167,7 @@ const getVariantTranscripts = (variant: SmallVariant): SmallVariantTranscript[] 
   // list with it, dropping any listed entry that duplicates it (older payloads
   // still included the primary inline).
   const primary: SmallVariantTranscript = {
+    alt_allele: variant.alt_allele,
     gene: variant.gene,
     gene_id: variant.gene_id,
     transcript_id: variant.transcript_id,
@@ -184,8 +185,15 @@ const getVariantTranscripts = (variant: SmallVariant): SmallVariantTranscript[] 
     mane_plus_clinical: variant.mane_plus_clinical,
     primary: true,
   };
+  // A multi-allelic record lists a transcript once per ALT: only the primary's own allele is
+  // the primary.
   const others = listed.filter(
-    (transcript) => !transcript.primary && transcript.transcript_id !== variant.transcript_id,
+    (transcript) =>
+      !transcript.primary &&
+      !(
+        transcript.transcript_id === variant.transcript_id &&
+        (transcript.alt_allele ?? null) === (variant.alt_allele ?? null)
+      ),
   );
   return normalizeTranscriptFlags([primary, ...others]);
 };
@@ -201,6 +209,7 @@ const isFilterTranscript = (transcript: SmallVariantTranscript, variant: SmallVa
     matched &&
       !transcript.primary &&
       (transcript.transcript_id ?? null) === matched.transcript_id &&
+      (transcript.alt_allele ?? null) === (matched.alt_allele ?? null) &&
       (transcript.hgvsc ?? null) === matched.hgvsc &&
       (transcript.hgvsp ?? null) === matched.hgvsp &&
       (transcript.effect ?? null) === matched.effect &&
@@ -214,6 +223,8 @@ const transcriptBadges = (
   filtersMet = false,
 ) =>
   [
+    // A multi-allelic record's transcript: the ALT its annotation is of.
+    transcript.alt_allele ? { label: `ALT ${transcript.alt_allele}`, tone: 'neutral' } : null,
     transcript.mane_select ? { label: 'MANE Select', tone: 'success' } : null,
     transcript.mane_plus_clinical ? { label: 'MANE Plus Clinical', tone: 'accent' } : null,
     transcript.canonical ? { label: 'Canonical', tone: 'warning' } : null,
@@ -576,8 +587,19 @@ const EXTRA_KEY_LABELS: Record<string, string> = {
   clinvar_vep_cache: 'ClinVar in the VEP cache (older release, not read as ClinVar)',
 };
 
-const annotationExtraLabel = (key: string): string =>
-  EXTRA_KEY_LABELS[key.toLowerCase()] ?? key.replace(/_/g, ' ');
+// A field that listed several different numbers (one per transcript, record or allele) is
+// read as none of them; its text is kept under `<field>_values` and shown as such.
+const SEVERAL_VALUES_SUFFIX = '_values';
+
+const annotationExtraLabel = (key: string): string => {
+  const label = EXTRA_KEY_LABELS[key.toLowerCase()];
+  if (label) return label;
+  if (key.endsWith(SEVERAL_VALUES_SUFFIX)) {
+    const field = key.slice(0, -SEVERAL_VALUES_SUFFIX.length).replace(/_/g, ' ');
+    return `${field} (several values, none read)`;
+  }
+  return key.replace(/_/g, ' ');
+};
 
 // Detail-disclosure annotations, built only when a card's "More annotations"
 // section is open (see openCardIds) so collapsed cards skip this per-render work.
@@ -719,7 +741,10 @@ export default function SmallVariantCards({
         const decipherLink = externalLinks.find((link) => link.label === 'DECIPHER');
         const freqRows = [
           { label: 'gnomAD', value: formatFrequency(variant.gnomad_af), href: gnomadLink?.href },
-          { label: 'popmax', value: formatFrequency(popFreq.gnomad_popmax_af), href: undefined },
+          { label: 'gnomAD popmax', value: formatFrequency(popFreq.gnomad_popmax_af), href: undefined },
+          // VEP's MAX_AF: the highest frequency over the 1000 Genomes and gnomAD populations
+          // VEP reads, not gnomAD's popmax (it was shown as that).
+          { label: 'MAX_AF (VEP)', value: formatFrequency(popFreq.max_af), href: undefined },
           { label: 'exomes', value: formatFrequency(popFreq.gnomad_exomes_af), href: undefined },
           { label: 'genomes', value: formatFrequency(popFreq.gnomad_genomes_af), href: undefined },
           { label: 'TOPMed', value: formatFrequency(popFreq.topmed_af), href: undefined },
@@ -851,7 +876,7 @@ export default function SmallVariantCards({
                 <div className="variant-card-cols">
                   <section className="variant-card-col">
                     <p className="variant-card-col-title">Variant</p>
-                    {transcripts.length || variant.mane_select || variant.canonical ? (
+                    {transcripts.length || variant.mane_select || variant.canonical || variant.alt_allele ? (
                       // MANE and Canonical describe this transcript, so they ride with the
                       // accession rather than sitting up with the consequence.
                       <div className="variant-card-transcript-row">
@@ -866,6 +891,16 @@ export default function SmallVariantCards({
                               {transcripts.length} transcript{transcripts.length === 1 ? '' : 's'}
                             </span>
                           </button>
+                        ) : null}
+                        {variant.alt_allele ? (
+                          // A multi-allelic record (ALT G,T): the card's annotation is one
+                          // allele's; the transcript list names each allele's.
+                          <span
+                            className="variant-card-chip variant-card-chip--soft"
+                            title="Multi-allelic record: the consequence, HGVS, frequencies and scores shown are those of this ALT allele"
+                          >
+                            ALT {variant.alt_allele}
+                          </span>
                         ) : null}
                         {variant.mane_select ? (
                           <span className="variant-card-chip variant-card-chip--success">MANE</span>

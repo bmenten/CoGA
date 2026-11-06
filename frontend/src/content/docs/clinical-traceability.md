@@ -54,9 +54,9 @@ When you save a classification, CoGA freezes the evidence it rests on:
   - a fingerprint of the variant's annotation;
   - its ClinVar significance, consequence, impact and LoF call (LOFTEE);
   - the population frequencies and in-silico scores the dialog read: the gnomAD frequencies (overall,
-    exomes, genomes, popmax), the TOPMed frequency, the gnomAD allele, homozygote and hemizygote counts,
+    exomes, genomes, popmax), VEP's MAX_AF, the TOPMed frequency, the gnomAD allele, homozygote and hemizygote counts,
     CADD, REVEL, SpliceAI, SIFT, PolyPhen and AlphaMissense. They are taken from the variant's primary
-    transcript, as the dialog shows them;
+    transcript, as the dialog shows them, and for a variant with two ALT alleles the ALT they are of;
   - for a missense variant, the gnomAD missense Z of its gene that PP2 reads, and its source: the
     gene's profile, or the VCF's own `MISSENSE_Z` when the profile holds none. PP2 reads it for no
     other variant, so none is frozen for one.

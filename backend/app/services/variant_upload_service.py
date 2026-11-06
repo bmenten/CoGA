@@ -1117,7 +1117,7 @@ async def upload_family_small_variant_file(
                     vep_annotations.get(variant_id, chrom, start, ref, alt)
                     if vep_annotations
                     else None
-                ) or extract_small_variant_annotations(info, read.annotation_state)
+                ) or extract_small_variant_annotations(info, read.annotation_state, ref=ref, alt=alt)
                 if haplotype_blocks is not None:
                     haplotype_blocks.observe(
                         chrom=chrom,

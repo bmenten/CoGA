@@ -99,7 +99,7 @@ export const describeFilterTranscript = (
     | 'sift'
     | 'polyphen'
     | 'filter_transcript'
-  >,
+  > & { alt_allele?: SmallVariant['alt_allele'] },
 ): FilterTranscriptSummary | null => {
   const matched = variant.filter_transcript;
   if (!matched) return null;
@@ -110,6 +110,9 @@ export const describeFilterTranscript = (
     if (theirs !== '—' && theirs !== mine) details.push(label ? `${label} ${theirs}` : theirs);
   };
   const lof = (value?: string | null) => (value ? `LoF ${value}` : '—');
+  // A multi-allelic record: the other allele's transcript.
+  const allele = (value?: string | null) => (value ? `ALT ${value}` : '—');
+  add('', allele(variant.alt_allele), allele(matched.alt_allele));
   add('', formatTokenLabel(variant.effect), formatTokenLabel(matched.effect ?? undefined));
   add('', lof(variant.lof), lof(matched.lof));
   add('CADD', formatScore(variant.cadd_phred), formatScore(matched.cadd_phred ?? undefined));

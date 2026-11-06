@@ -463,6 +463,7 @@ describe('SmallVariantCards', () => {
       }),
     ],
     filter_transcript: {
+      alt_allele: null,
       gene: 'SYN45F',
       transcript_id: 'ENST_SYN45F_2',
       impact: 'MODERATE',
@@ -820,6 +821,98 @@ describe('SmallVariantCards', () => {
     // The gene profile's value stays in the In silico column, under its own name.
     expect(screen.getByText('Missense Z')).toBeInTheDocument();
     expect(screen.getByText('5.12')).toBeInTheDocument();
+  });
+
+  it("names the ALT a multi-allelic record's annotation is of, and lists each allele's transcript", async () => {
+    // A record with two ALTs holds the CSQ entries of both: the card's annotation is one
+    // allele's, and the other allele's entry of the same transcript is listed, not dropped.
+    renderCards(
+      <SmallVariantCards
+        variants={[
+          smallVariant({
+            _id: 'multi-var',
+            chr: '1',
+            start: 101,
+            end: 101,
+            type: 'SNV',
+            gene: 'GENE1',
+            ref: 'A',
+            alt: 'G,T',
+            transcript_id: 'ENST00000000001',
+            alt_allele: 'T',
+            effect: 'stop_gained',
+            impact: 'HIGH',
+            hgvsc: 'ENST00000000001:c.1A>T',
+            transcripts: [
+              transcript({
+                alt_allele: 'G',
+                gene: 'GENE1',
+                transcript_id: 'ENST00000000001',
+                effect: 'missense_variant',
+                impact: 'MODERATE',
+                hgvsc: 'ENST00000000001:c.1A>G',
+              }),
+            ],
+            genotypes: [],
+          }),
+        ]}
+        members={[]}
+        familyId="F1"
+        projectId="P1"
+        locationSearch=""
+        tags={[]}
+        onEditReview={vi.fn()}
+        onAcmgClassify={vi.fn()}
+        onToggleReviewTag={vi.fn(async () => undefined)}
+      />,
+    );
+
+    expect(screen.getByText('ALT T')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /2 transcripts/i }));
+    const table = within(screen.getByRole('dialog', { name: /GENE1/i })).getByRole('table');
+    expect(within(table).getByText('ENST00000000001:c.1A>T')).toBeInTheDocument();
+    expect(within(table).getByText('ENST00000000001:c.1A>G')).toBeInTheDocument();
+    expect(within(table).getByText('ALT G')).toBeInTheDocument();
+    expect(within(table).getByText('ALT T')).toBeInTheDocument();
+  });
+
+  it("names VEP's MAX_AF apart from gnomAD's popmax, and a field read as several values", async () => {
+    renderCards(
+      <SmallVariantCards
+        variants={[
+          smallVariant({
+            _id: 'freq-var',
+            chr: '2',
+            start: 200,
+            end: 200,
+            type: 'SNV',
+            gene: 'GENE2',
+            effect: 'missense_variant',
+            gnomad_af: 0.0001,
+            population_frequencies: { gnomad_af: 0.0001, gnomad_popmax_af: 0.0004, max_af: 0.012 },
+            annotation_extra: { revel_values: '0.12&0.91' },
+            genotypes: [],
+          }),
+        ]}
+        members={[]}
+        familyId="F1"
+        projectId="P1"
+        locationSearch=""
+        tags={[]}
+        onEditReview={vi.fn()}
+        onAcmgClassify={vi.fn()}
+        onToggleReviewTag={vi.fn(async () => undefined)}
+      />,
+    );
+
+    expect(screen.getByText('gnomAD popmax')).toBeInTheDocument();
+    expect(screen.getByText('MAX_AF (VEP)')).toBeInTheDocument();
+    await userEvent.click(screen.getByText('More annotations & detail'));
+    const annotations = screen
+      .getByText('Other scores & annotations')
+      .closest('.variant-card-section') as HTMLElement;
+    const row = within(annotations).getByText('revel (several values, none read)').closest('div') as HTMLElement;
+    expect(within(row).getByText('0.12&0.91')).toBeInTheDocument();
   });
 
   it('shows the priority breakdown on a prioritized variant card', () => {

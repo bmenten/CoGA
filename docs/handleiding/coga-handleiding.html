@@ -2434,7 +2434,7 @@ python docs/handleiding/build_site.py
 </tr>
 <tr>
 <td>Frequentie</td>
-<td>maximale frequentie in gnomAD (exomen, genomen, popmax) en TOPMed, aantallen homo- en hemizygoten (gnomADs totaal: het gecombineerde aantal, anders exomen plus genomen). Een variant zonder aantal blijft staan, als afwezig in gnomAD; de lijst zegt hoeveel getoonde varianten zo bleven staan</td>
+<td>maximale frequentie in gnomAD (exomen, genomen), popmax (gnomADs eigen popmax, anders VEP's <code>MAX_AF</code>, de hoogste frequentie over de populaties van 1000 Genomes en gnomAD) en TOPMed, aantallen homo- en hemizygoten (gnomADs totaal: het gecombineerde aantal, anders exomen plus genomen). Een variant zonder aantal blijft staan, als afwezig in gnomAD; de lijst zegt hoeveel getoonde varianten zo bleven staan</td>
 </tr>
 <tr>
 <td>Effect</td>
@@ -3130,8 +3130,8 @@ python docs/handleiding/build_site.py
 <p>De volledige beoordeling per criterium wordt als JSON bewaard. Het herberekende totaal en de klasse staan ernaast, voor filters en samenvattingen: <code>acmg</code>, <code>acmg_point_total</code> en <code>acmg_class</code> op <code>small_variant_reviews</code>, en <code>cnv_acmg</code>, <code>cnv_point_total</code> en <code>cnv_class</code> op <code>structural_variant_reviews</code>. Zo is achteraf te zien welke criteria met welke sterkte en welk bewijs werden toegepast.</p>
 <p><strong>Het bewijssnapshot.</strong> Bij het classificeren van een small variant bevriest CoGA het bewijs in <code>acmg_evidence_snapshot</code>: de annotatieversie, de <strong>hash van de annotatieset</strong> (die verandert zodra enige annotatie verandert), de ClinVar-waarde en het tijdstip. Daarnaast de consequentie, populatiefrequenties en in-silicoscores waarop de classificatie steunt, zoals de ACMG-dialoog ze leest: van het primaire transcript van de variant (MANE Select, dan canoniek, dan de zwaarste impact; zijn id staat in <code>transcript_id</code>), via dezelfde hulpfuncties als de variantenlijst (<code>small_variant_evidence</code>). Per groep:</p>
 <ul>
-<li><code>consequence</code>: de consequentieterm(en) (<code>effect</code>) die de criteria voor een null-, missense-, synonieme of lengteveranderende variant lezen (PVS1, PM4, PP2, BP7 en de criteria die een consequentie uitsluit); de <code>impact</code>; de loss-of-functionoproep van LOFTEE (<code>lof</code>), waarvan de sterkte van PVS1 afhangt.</li>
-<li><code>frequencies</code>: de gnomAD-allelfrequentie die de frequentiecriteria lezen; de exoom-, genoom-, popmax- en TOPMed-frequenties en de gnomAD-tellingen (allelen, homozygoten, hemizygoten) die de filters lezen.</li>
+<li><code>consequence</code>: de consequentieterm(en) (<code>effect</code>) die de criteria voor een null-, missense-, synonieme of lengteveranderende variant lezen (PVS1, PM4, PP2, BP7 en de criteria die een consequentie uitsluit); de <code>impact</code>; de loss-of-functionoproep van LOFTEE (<code>lof</code>), waarvan de sterkte van PVS1 afhangt. Alleen bij een multiallelisch record (ALT <code>G,T</code>) ook het ALT-allel waarvan deze waarden zijn (<code>alt_allele</code>).</li>
+<li><code>frequencies</code>: de gnomAD-allelfrequentie die de frequentiecriteria lezen; de exoom-, genoom-, gnomAD-popmax-, VEP-<code>MAX_AF</code>- (<code>max_af</code>) en TOPMed-frequenties en de gnomAD-tellingen (allelen, homozygoten, hemizygoten) die de filters lezen.</li>
 <li><code>in_silico</code>: CADD, REVEL, SpliceAI, SIFT, PolyPhen en de AlphaMissense-klasse en -score.</li>
 <li><code>gene_constraint</code>, alleen voor een missense-variant: de gnomAD-missense-Z van het gen (<code>gene_missense_z</code>) die PP2 leest, en waar die vandaan kwam (<code>gene_missense_z_source</code>).</li>
 </ul>

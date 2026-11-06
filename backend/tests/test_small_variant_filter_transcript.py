@@ -137,6 +137,7 @@ def test_a_variant_kept_on_its_second_transcript_names_it_beside_the_primary() -
     assert variant.filter_transcript.model_dump() == {
         "gene": "SYN51",
         "transcript_id": "ENST_SYN51_2",
+        "alt_allele": None,
         "impact": "MODERATE",
         "effect": "missense_variant",
         "hgvsc": "ENST_SYN51_2:c.100C>T",
@@ -536,3 +537,26 @@ async def test_the_export_names_the_transcript(family_search, prioritize: bool) 
     } == {("tolerated(0.2)", "ENST_SYN51_2", "deleterious(0.02)")}
     assert all(row.filter_transcript is not None for row in export.rows)
 
+
+
+# --------------------------------------------------------------------------- #
+# A multi-allelic record: each transcript names the ALT its annotation is of
+# --------------------------------------------------------------------------- #
+
+
+def test_a_multi_allelic_record_serves_the_alt_each_transcript_is_of() -> None:
+    # One transcript annotated once per ALT: the primary is one allele's, and the other
+    # allele's entry of the same transcript is listed, not folded into it.
+    stop = _transcript("ENST_SYN51_1", canonical=True, alt_allele="G", effect="stop_gained", impact="HIGH")
+    missense = _transcript("ENST_SYN51_1", canonical=True, alt_allele="T", hgvsc="ENST_SYN51_1:c.100C>G")
+    record = _record("1-100-C-G,T", [missense, stop])
+    record.alt = "G,T"
+    variant = _small_variant_out(record, assembly_name="GRCh38", filter_annotation_hashes=None)
+    assert (variant.alt_allele, variant.effect) == ("G", "stop_gained")
+    assert [(t.transcript_id, t.alt_allele, t.effect) for t in variant.transcripts] == [
+        ("ENST_SYN51_1", "T", "missense_variant")
+    ]
+    # Not an extra annotation: a field of its own.
+    assert "alt_allele" not in variant.annotation_extra
+    # A record with one ALT names none.
+    assert _small_variant_out(_record("1-100-C-T", [PRIMARY]), assembly_name="GRCh38", filter_annotation_hashes=None).alt_allele is None
