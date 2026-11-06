@@ -568,9 +568,12 @@ const CARD_CONSUMED_EXTRA_KEYS = new Set([
 
 // annotation_extra keys the disclosure names in words rather than by the raw key. The VCF's own
 // MISSENSE_Z is stored under the annotation's gene_missense_z: as a raw key it read like the gene
-// profile's Missense Z in the In silico column, which PP2 reads first (TRACE-15).
+// profile's Missense Z in the In silico column, which PP2 reads first (TRACE-15). Where the
+// pipeline annotated a ClinVar file, VEP's cache classification (an older ClinVar release) is
+// kept apart under clinvar_vep_cache: shown, never read as the ClinVar classification.
 const EXTRA_KEY_LABELS: Record<string, string> = {
   gene_missense_z: 'Missense Z (gnomAD, from the VCF)',
+  clinvar_vep_cache: 'ClinVar in the VEP cache (older release, not read as ClinVar)',
 };
 
 const annotationExtraLabel = (key: string): string =>

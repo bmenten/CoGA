@@ -89,8 +89,19 @@ export function evaluateMitoAcmg(
     add('BS1', 'strong', reason);
     notApplicable('BA1', 'Below the mt stand-alone benign threshold (0.5%).');
     notApplicable('PM2', 'Too common for PM2.');
-  } else if (af == null || af < MT_PM2_AF) {
-    add('PM2', 'supporting', af == null ? 'Absent from gnomAD-MT.' : `gnomAD-MT allele frequency ${fmtAf(af)} is very rare.`);
+  } else if (af == null) {
+    // No frequency in the annotation: absent from gnomAD, or not annotated for the variant
+    // (the frequency read is the annotation's gnomAD one, not a gnomAD-MT field). PM2 is
+    // offered for review, never applied, and BA1 / BS1 are left open, as for a nuclear
+    // variant: it applied PM2 as "Absent from gnomAD-MT.".
+    add(
+      'PM2',
+      'supporting',
+      'No gnomAD allele frequency in the annotation: absent from gnomAD, or gnomAD not annotated for this variant — check gnomAD-MT before applying.',
+      'consider',
+    );
+  } else if (af < MT_PM2_AF) {
+    add('PM2', 'supporting', `gnomAD-MT allele frequency ${fmtAf(af)} is very rare.`);
     notApplicable('BA1', 'Rare in gnomAD-MT.');
     notApplicable('BS1', 'Rare in gnomAD-MT.');
   } else {

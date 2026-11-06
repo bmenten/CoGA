@@ -1026,6 +1026,39 @@ def test_parse_vep_tsv_annotation_upload_only_marks_true_mane_flags() -> None:
         lookup.close()
 
 
+def test_a_vep_table_with_a_clinvar_file_reads_its_classification_and_release() -> None:
+    # VEP --tab with a ClinVar file annotated by --custom beside the cache's CLIN_SIG. The
+    # file's classification is the variant's; a row without one ("-") has none, its cache
+    # value kept apart; the manifest's ClinVar release is the file's, the cache's apart.
+    lookup = _parse_vep_tsv_annotation_upload(
+        _vep_upload(
+            "## ENSEMBL VARIANT EFFECT PREDICTOR v115.1\n"
+            "## ClinVar version 202504\n"
+            "## Column descriptions:\n"
+            "## Uploaded_variation : Identifier of uploaded variant\n"
+            "## CLIN_SIG : ClinVar clinical significance of the dbSNP variant\n"
+            "## ClinVar_CLNSIG : Aggregate germline classification. CLNSIG field from [PATH]/clinvar_20261101.vcf.gz\n"
+            "#Uploaded_variation\tLocation\tAllele\tGene\tFeature\tConsequence\tSYMBOL\tCLIN_SIG\tClinVar_CLNSIG\n"
+            "chr1_101_A/G\tchr1:101\tG\tENSG1\tENST1\tmissense_variant\tGENE1\tpathogenic\tBenign\n"
+            "chr1_201_C/T\tchr1:201\tT\tENSG1\tENST1\tmissense_variant\tGENE1\tpathogenic\t-\n"
+        )
+    )
+    try:
+        [classified] = lookup.get(build_small_variant_id("1", 101, "A", "G"), "1", 101, "A", "G") or []
+        assert (classified["clinvar"], classified["clinvar_vep_cache"]) == ("Benign", "pathogenic")
+        [unclassified] = lookup.get(build_small_variant_id("1", 201, "C", "T"), "1", 201, "C", "T") or []
+        assert "clinvar" not in unclassified
+        assert unclassified["clinvar_vep_cache"] == "pathogenic"
+        assert lookup.provenance_modules is not None
+        assert lookup.provenance_modules["clinvar"] == {
+            "version": "20261101",
+            "detail": "ClinVar file clinvar_20261101.vcf.gz",
+        }
+        assert lookup.provenance_modules["clinvar_vep_cache"]["version"] == "202504"
+    finally:
+        lookup.close()
+
+
 def test_a_vep_tsv_parse_that_fails_leaves_no_temporary_database(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

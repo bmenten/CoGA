@@ -83,6 +83,20 @@ def test_refresh_modules_new_version_wins_and_preserves_untouched() -> None:
     assert out["sniffles"]["version"] == "2.2"  # new module added
 
 
+def test_a_clinvar_module_replaces_the_stored_release_and_source_together() -> None:
+    # An earlier import's VEP-cache release must not stay beside a ClinVar file named without
+    # a date, where it read as that file's release; nor a file's name beside a later cache
+    # release. Other modules still merge field by field.
+    current = {"clinvar": {"version": "202504", "by_modality": {"snv": "202504", "sv": "20250101"}}}
+    undated = ams._refresh_modules(current, {"clinvar": {"detail": "ClinVar file clinvar.vcf.gz"}}, modality="snv")
+    assert undated["clinvar"] == {"detail": "ClinVar file clinvar.vcf.gz", "by_modality": {"sv": "20250101"}}
+
+    dated = {"clinvar": {"version": "20261101", "detail": "ClinVar file clinvar_20261101.vcf.gz"}}
+    stored = ams._refresh_modules(current, dated, modality="snv")
+    cache_again = ams._refresh_modules(stored, {"clinvar": {"version": "202510"}}, modality="snv")
+    assert cache_again["clinvar"] == {"version": "202510", "by_modality": {"snv": "202510", "sv": "20250101"}}
+
+
 def test_a_reimported_header_with_only_a_command_line_keeps_the_recorded_version() -> None:
     # A re-import whose TRGT header has a command line but no version line states no
     # version, so the recorded one stays: the command's first word ("trgt") taken for a

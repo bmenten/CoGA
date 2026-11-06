@@ -394,3 +394,55 @@ async def test_a_failure_after_the_first_rows_removes_the_callset_again(storage,
     with pytest.raises(RuntimeError, match="went away"):
         await _upload(_couple_files(tmp_path))
     assert storage["deleted"] == ["clair3"]
+
+
+@pytest.mark.asyncio
+async def test_the_clinvar_file_the_pipeline_annotated_gives_the_classification_and_the_release(
+    storage, tmp_path: Path, monkeypatch
+) -> None:
+    # VEP's cache (CLIN_SIG, ClinVar="202504" on the ##VEP line) beside a ClinVar file VEP
+    # annotated with --custom (ClinVar_CLNSIG, named in its INFO line). The cache's
+    # classification was read first, and the manifest named the cache's release.
+    captured: list[dict[str, Any]] = []
+
+    async def provenance(*_args, **kwargs):
+        captured.append(kwargs["modules"])
+
+    import backend.app.services.annotation_manifest_service as manifest_service
+
+    monkeypatch.setattr(manifest_service, "merge_vcf_header_provenance", provenance)
+    header = (
+        "##fileformat=VCFv4.2\n"
+        '##VEP="v115" time="2026-11-02 10:00:00" ClinVar="202504" assembly="GRCh38.p14"\n'
+        + _FILTERS
+        + _CONTIGS
+        + '##INFO=<ID=CSQ,Number=.,Type=String,Description="Consequence annotations from Ensembl VEP. '
+        'Format: Allele|Consequence|IMPACT|SYMBOL|Gene|CLIN_SIG|ClinVar_CLNSIG">\n'
+        '##INFO=<ID=ClinVar_CLNSIG,Number=.,Type=String,Description="Aggregate germline classification. '
+        'CLNSIG field from [PATH]/clinvar_20261101.vcf.gz">\n'
+        '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
+    )
+
+    def vcf(column: str, pos: int, csq: str) -> str:
+        return (
+            header
+            + f"#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t{column}\n"
+            + f"chr1\t{pos}\t.\tA\tG\t30\tPASS\tCSQ={csq}\tGT\t0/1\n"
+        )
+
+    mother = _write(
+        tmp_path / "MOTHER1.vcf.gz",
+        vcf("MOTHER1", 100, "G|missense_variant|MODERATE|GENE1|ENSG1|uncertain_significance&pathogenic|Benign"),
+    )
+    # A variant the ClinVar file has no record of: no ClinVar classification, the cache's apart.
+    father = _write(tmp_path / "FATHER1.vcf.gz", vcf("FATHER1", 200, "G|missense_variant|MODERATE|GENE1|ENSG1|pathogenic|"))
+
+    await _upload([PerSampleVcf("MOTHER1", mother), PerSampleVcf("FATHER1", father)])
+
+    annotations = {record.start: record.annotations[0] for record in storage["inserted"]}
+    assert annotations[100]["clinvar"] == "Benign"
+    assert annotations[100]["clinvar_vep_cache"] == "uncertain_significance&pathogenic"
+    assert "clinvar" not in annotations[200]
+    assert annotations[200]["clinvar_vep_cache"] == "pathogenic"
+    assert captured[-1]["clinvar"] == {"version": "20261101", "detail": "ClinVar file clinvar_20261101.vcf.gz"}
+    assert captured[-1]["clinvar_vep_cache"]["version"] == "202504"

@@ -87,6 +87,7 @@ from .structural_variant_ingest import (
 )
 from .variant_annotation_parser import (
     AnnotationHeaderState,
+    clinvar_file_annotated,
     extract_small_variant_annotations,
     update_annotation_header_state,
 )
@@ -1270,7 +1271,10 @@ async def upload_family_small_variant_file(
         from .annotation_manifest_service import merge_vcf_header_provenance
 
         annotation_provenance = extract_header_provenance(
-            read.provenance_header_lines, modality="snv"
+            read.provenance_header_lines,
+            modality="snv",
+            clinvar_file_annotated=clinvar_file_annotated(read.annotation_state),
+            clinvar_file_name=read.annotation_state.clinvar_file_name,
         ).as_modules()
         if vep_annotations is not None and vep_annotations.provenance_modules:
             # The VCF header carries the caller; a separate VEP TSV carries the

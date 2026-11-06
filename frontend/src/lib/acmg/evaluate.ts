@@ -288,9 +288,17 @@ export function evaluateAcmg(
       notApplicable('BS1', `gnomAD allele frequency ${fmtAf(af)} is below the BS1 threshold.`);
     }
   } else {
-    add('PM2', 'supporting', 'Absent from gnomAD.');
-    notApplicable('BA1', 'Absent from gnomAD — not a common variant.');
-    notApplicable('BS1', 'Absent from gnomAD — not a common variant.');
+    // No gnomAD frequency in the annotation: the variant is absent from gnomAD, or gnomAD was
+    // not annotated for it (a source the pipeline did not load, a VEP cache without the
+    // variant). The annotation does not say which, so PM2 is offered for review, never
+    // applied, and BA1 / BS1 are left open: it applied PM2 as "Absent from gnomAD." and ruled
+    // out BA1 and BS1 for a frequency nothing had looked up.
+    add(
+      'PM2',
+      'supporting',
+      'No gnomAD allele frequency in the annotation: absent from gnomAD, or gnomAD not annotated for this variant — check gnomAD before applying.',
+      'consider',
+    );
   }
 
   // ---- BS2: observed homozygous in population; ruled out when gnomAD counts none. An
@@ -333,9 +341,19 @@ export function evaluateAcmg(
   // ---- PP3 / BP4: in-silico evidence (REVEL preferred, then AlphaMissense) ----
   inSilicoSuggestions(variant).forEach((suggestion) => out.push(suggestion));
 
-  // ---- BP7: synonymous with no predicted splice impact ----
+  // ---- BP7: synonymous with no predicted splice impact. Without a SpliceAI score (not
+  //      computed for the variant, as for most indels and for SNVs outside the transcripts a
+  //      pipeline scores) no splice impact is predicted either way, so BP7 is offered for
+  //      review, never applied: it read a missing score as no impact. ----
   if (isSynonymous(effect)) {
-    if (variant.spliceai_max == null || variant.spliceai_max < SPLICEAI_NO_IMPACT) {
+    if (variant.spliceai_max == null) {
+      add(
+        'BP7',
+        'supporting',
+        'Synonymous variant, but no SpliceAI score in the annotation — check the splice effect before applying.',
+        'consider',
+      );
+    } else if (variant.spliceai_max < SPLICEAI_NO_IMPACT) {
       add('BP7', 'supporting', 'Synonymous variant with no predicted SpliceAI splice impact.');
     } else {
       against('BP7', `Synonymous, but SpliceAI ${variant.spliceai_max.toFixed(2)} predicts a possible splice effect.`);
@@ -609,7 +627,12 @@ function pp4Suggestion(
 // contraindication of the opposite criterion when the signal is clear.
 function inSilicoSuggestions(variant: AcmgVariantInput): AcmgSuggestion[] {
   const { revel } = variant;
+  // BP4 needs SpliceAI to predict no splice impact. Without a score it predicts nothing:
+  // BP4 is then offered for review, never applied. A missing score read as 0 applied BP4
+  // with "SpliceAI 0.00" as its evidence.
+  const spliceScored = variant.spliceai_max != null;
   const splice = variant.spliceai_max ?? 0;
+  const noSpliceScore = 'no SpliceAI score in the annotation — check the splice effect before applying';
 
   let spliceStrength: AcmgStrength | null = null;
   if (splice >= SPLICEAI_PP3_MODERATE) spliceStrength = 'moderate';
@@ -640,12 +663,19 @@ function inSilicoSuggestions(variant: AcmgVariantInput): AcmgSuggestion[] {
       const strength: AcmgStrength =
         revel <= REVEL_BP4_STRONG ? 'strong' : revel <= REVEL_BP4_MODERATE ? 'moderate' : 'supporting';
       return [
-        {
-          code: 'BP4',
-          strength,
-          evidence: `REVEL ${revel.toFixed(3)} and SpliceAI ${splice.toFixed(2)} support no functional impact.`,
-          disposition: 'applies',
-        },
+        spliceScored
+          ? {
+              code: 'BP4',
+              strength,
+              evidence: `REVEL ${revel.toFixed(3)} and SpliceAI ${splice.toFixed(2)} support no functional impact.`,
+              disposition: 'applies',
+            }
+          : {
+              code: 'BP4',
+              strength,
+              evidence: `REVEL ${revel.toFixed(3)} supports no functional impact, but ${noSpliceScore}.`,
+              disposition: 'consider',
+            },
         contra('PP3', `REVEL ${revel.toFixed(3)} is benign-leaning, not deleterious.`),
       ];
     }
@@ -669,7 +699,16 @@ function inSilicoSuggestions(variant: AcmgVariantInput): AcmgSuggestion[] {
     return [{ code: 'PP3', strength: 'supporting', evidence: 'AlphaMissense class: likely pathogenic.', disposition: 'applies' }];
   }
   if (amClass.includes('benign')) {
-    return [{ code: 'BP4', strength: 'supporting', evidence: 'AlphaMissense class: likely benign.', disposition: 'applies' }];
+    return [
+      spliceScored
+        ? { code: 'BP4', strength: 'supporting', evidence: 'AlphaMissense class: likely benign.', disposition: 'applies' }
+        : {
+            code: 'BP4',
+            strength: 'supporting',
+            evidence: `AlphaMissense class: likely benign, but ${noSpliceScore}.`,
+            disposition: 'consider',
+          },
+    ];
   }
 
   // No in-silico prediction at all → the computational criteria are ruled out. Any

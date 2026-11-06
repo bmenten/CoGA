@@ -20,7 +20,8 @@ vi.mock('../../../lib/api', () => ({
 
 const mockedGet = api.get as unknown as ReturnType<typeof vi.fn>;
 
-// LOF variant, absent from gnomAD, in a haploinsufficient gene → PVS1 + PM2.
+// LOF variant, very rare in gnomAD, in a haploinsufficient gene → PVS1 + PM2. (Without a gnomAD
+// frequency PM2 is only offered: the annotation does not say whether gnomAD was annotated.)
 const variant: SmallVariant = smallVariant({
   _id: 'chr1-100-A-T',
   chr: 'chr1',
@@ -31,6 +32,7 @@ const variant: SmallVariant = smallVariant({
   gene_id: 'ENSG0001',
   effect: 'stop_gained',
   lof: 'HC',
+  gnomad_af: 1e-6,
   hgvsp: 'p.Arg100Ter',
   genotypes: [],
 });
@@ -98,14 +100,14 @@ describe('AcmgClassificationModal', () => {
     renderModal();
 
     await screen.findByText('PVS1');
-    // PVS1 (LOF + sufficient haploinsufficiency) and PM2 (absent) auto-apply:
+    // PVS1 (LOF + sufficient haploinsufficiency) and PM2 (very rare) auto-apply:
     // 8 + 1 = 9 → likely pathogenic.
     await waitFor(() =>
       expect(screen.getByRole('checkbox', { name: /PVS1/ })).toBeChecked(),
     );
     expect(screen.getByText('Likely pathogenic - class 4')).toBeInTheDocument();
 
-    // BA1 is ruled out by the rare/absent frequency — flagged n/a, not checked.
+    // BA1 is ruled out by the rare frequency — flagged n/a, not checked.
     const ba1 = screen.getByText('BA1').closest('.acmg-criterion') as HTMLElement;
     expect(ba1).toHaveClass('acmg-criterion--na');
     expect(within(ba1).getByLabelText('Not applicable')).toBeInTheDocument();
@@ -254,7 +256,7 @@ describe('AcmgClassificationModal', () => {
   });
 
   it('emits the VUS sub-tier tag for a variant that lands in the VUS band', async () => {
-    // Missense, absent from gnomAD → only PM2 (1 pt) auto-applies → VUS cold.
+    // Missense, very rare in gnomAD → only PM2 (1 pt) auto-applies → VUS cold.
     const vusVariant: SmallVariant = smallVariant({
       _id: 'chr2-200-C-G',
       chr: 'chr2',
@@ -264,6 +266,7 @@ describe('AcmgClassificationModal', () => {
       gene: 'GENEY',
       gene_id: 'ENSG0002',
       effect: 'missense_variant',
+      gnomad_af: 1e-6,
       hgvsp: 'p.Ala67Gly',
       genotypes: [],
     });
