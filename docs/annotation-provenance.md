@@ -70,6 +70,28 @@ kept (of several `##SnpEffVersion` lines, the last).
 The parser is best-effort and never raises: an unrecognised header yields less information,
 never an error, so capture cannot fail an import.
 
+### The ClinVar release
+
+A record's ClinVar classification comes from the ClinVar file the pipeline annotated it with
+(VEP `--custom`'s `ClinVar_CLNSIG`, the `CLNSIG` that bcftools annotate or vcfanno write), and
+from VEP's cache (`CLIN_SIG`) only when no such file was annotated
+([variant_annotation_parser.py](../backend/app/services/variant_annotation_parser.py)). The
+`clinvar` module follows the classification:
+
+- **Without a ClinVar file** it is the cache's release, from the `##VEP=` line (`ClinVar="…"`) or a
+  VEP table's `## ClinVar version …`.
+- **With a ClinVar file** it is that file's release, and the cache's release becomes a module of its
+  own, `clinvar_vep_cache` (*ClinVar (VEP cache)*). A ClinVar file is annotated when the header
+  declares one of its fields, as an `##INFO` key or a CSQ field (in a VEP table: a column, or a
+  described Extra key). VEP names a `--custom` file only in the description of its fields' INFO
+  lines (`… CLNSIG field from [PATH]/clinvar_20261101.vcf.gz`) and states no release, so the release
+  is the date in ClinVar's file name (`20261101`). A ClinVar version line of its own
+  (`##ClinVarVersion=…`) wins over the name. A file named without a date is recorded by its name,
+  with no version: the cache's release never stands in for the file's.
+
+Before, the module was always the cache's release, and the classification the cache's whenever a
+record had both: the sign-out froze the cache's ClinVar release beside it.
+
 ## How it is stored
 
 One row per family in `family_annotation_manifest`
@@ -99,6 +121,10 @@ All in `merge_vcf_header_provenance`
 - **A re-import refreshes.** Newly read versions replace the old ones key by key. Modules the
   new input does not mention are kept, so re-importing only the SV file keeps the SNV-derived
   versions. The manifest always reflects the latest import.
+- **The ClinVar modules are replaced whole.** A new `clinvar` or `clinvar_vep_cache` module
+  replaces the stored version and detail together, and one without a version drops its
+  modality's entry in `by_modality`. Merged field by field, an earlier import's cache release
+  stayed beside a ClinVar file named without a date, and read as that file's release.
 - **A manual manifest is never overwritten.** Once an admin has replaced it through
   `PUT /families/{family_id}/annotation-manifest` (`source='manual'`), imports leave it alone.
 - **An import and a replacement take turns.** Both take the family's manifest lock before

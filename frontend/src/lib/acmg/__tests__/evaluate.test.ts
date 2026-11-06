@@ -14,14 +14,30 @@ function find(suggestions: AcmgSuggestion[], code: AcmgCriterionCode) {
 
 describe('evaluateAcmg', () => {
   it('suggests PVS1 very strong for a HC LOF variant in a haploinsufficient gene', () => {
-    const variant: AcmgVariantInput = { effect: 'stop_gained', lof: 'HC', gnomad_af: undefined };
+    const variant: AcmgVariantInput = { effect: 'stop_gained', lof: 'HC', gnomad_af: 1e-6 };
     const suggestions = evaluateAcmg(variant, {
       clingenDosageHaploinsufficiency: 'Sufficient evidence for dosage pathogenicity',
     });
     const pvs1 = find(suggestions, 'PVS1');
     expect(pvs1?.strength).toBe('very_strong');
-    // Absent from gnomAD also yields PM2.
-    expect(codes(suggestions)).toContain('PM2');
+    // Very rare in gnomAD also yields PM2.
+    expect(find(suggestions, 'PM2')?.disposition).toBe('applies');
+  });
+
+  it('offers PM2 for review, and leaves BA1 / BS1 open, without a gnomAD frequency in the annotation', () => {
+    // Absent from gnomAD, or gnomAD not annotated for the variant: the annotation does not say
+    // which. Before, PM2 applied as "Absent from gnomAD." and BA1 / BS1 were ruled out.
+    for (const gnomad_af of [undefined, null]) {
+      const suggestions = evaluateAcmg({ effect: 'missense_variant', gnomad_af: gnomad_af as number | undefined });
+      expect(find(suggestions, 'PM2')?.disposition).toBe('consider');
+      expect(find(suggestions, 'PM2')?.strength).toBe('supporting');
+      expect(find(suggestions, 'PM2')?.evidence).toContain('or gnomAD not annotated');
+      expect(find(suggestions, 'BA1')).toBeUndefined();
+      expect(find(suggestions, 'BS1')).toBeUndefined();
+      expect(buildInitialSelections(suggestions).find((selection) => selection.code === 'PM2')?.accepted).toBe(
+        false,
+      );
+    }
   });
 
   it('downgrades PVS1 to strong when the LOF mechanism is unconfirmed', () => {
@@ -89,7 +105,44 @@ describe('evaluateAcmg', () => {
 
   it('suggests BP7 for a synonymous variant without splice impact', () => {
     const suggestions = evaluateAcmg({ effect: 'synonymous_variant', spliceai_max: 0.01 });
-    expect(codes(suggestions)).toContain('BP7');
+    expect(find(suggestions, 'BP7')?.disposition).toBe('applies');
+  });
+
+  it('offers BP7 for review for a synonymous variant without a SpliceAI score', () => {
+    // No score predicts nothing: before, a missing score read as no splice impact.
+    for (const spliceai_max of [undefined, null]) {
+      const suggestions = evaluateAcmg({
+        effect: 'synonymous_variant',
+        spliceai_max: spliceai_max as number | undefined,
+      });
+      expect(find(suggestions, 'BP7')?.disposition).toBe('consider');
+      expect(find(suggestions, 'BP7')?.evidence).toContain('no SpliceAI score');
+    }
+  });
+
+  it('offers BP4 for review when REVEL is benign-leaning but SpliceAI has no score', () => {
+    // A missing SpliceAI score was read as 0 and BP4 applied with "SpliceAI 0.00" as evidence.
+    const suggestions = evaluateAcmg({ effect: 'missense_variant', revel: 0.05 });
+    const bp4 = find(suggestions, 'BP4');
+    expect(bp4?.disposition).toBe('consider');
+    expect(bp4?.strength).toBe('moderate');
+    expect(bp4?.evidence).toBe(
+      'REVEL 0.050 supports no functional impact, but no SpliceAI score in the annotation — check the splice effect before applying.',
+    );
+    expect(bp4?.evidence).not.toContain('SpliceAI 0.00');
+    expect(find(suggestions, 'PP3')?.disposition).toBe('contraindicated');
+  });
+
+  it('offers BP4 for review for a likely benign AlphaMissense class without a SpliceAI score', () => {
+    expect(
+      find(evaluateAcmg({ effect: 'missense_variant', alpha_missense_class: 'likely_benign' }), 'BP4')?.disposition,
+    ).toBe('consider');
+    expect(
+      find(
+        evaluateAcmg({ effect: 'missense_variant', alpha_missense_class: 'likely_benign', spliceai_max: 0.02 }),
+        'BP4',
+      )?.disposition,
+    ).toBe('applies');
   });
 
   it('maps ClinVar assertions to PP5 / BP6', () => {
@@ -528,10 +581,19 @@ describe('evaluateAcmg — in-silico availability', () => {
       evidence: 'AlphaMissense class: likely pathogenic.',
       disposition: 'applies',
     });
-    const benign = evaluateAcmg({ effect: 'missense_variant', alpha_missense_class: 'likely_benign' });
+    const benign = evaluateAcmg({
+      effect: 'missense_variant',
+      alpha_missense_class: 'likely_benign',
+      spliceai_max: 0.01,
+    });
     expect(find(benign, 'BP4')).toMatchObject({ strength: 'supporting', disposition: 'applies' });
     // REVEL still decides first.
-    const revel = evaluateAcmg({ effect: 'missense_variant', revel: 0.1, alpha_missense_class: 'likely_pathogenic' });
+    const revel = evaluateAcmg({
+      effect: 'missense_variant',
+      revel: 0.1,
+      spliceai_max: 0.01,
+      alpha_missense_class: 'likely_pathogenic',
+    });
     expect(find(revel, 'BP4')?.disposition).toBe('applies');
     expect(find(revel, 'PP3')?.disposition).toBe('contraindicated');
   });

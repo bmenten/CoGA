@@ -3033,7 +3033,7 @@ python docs/handleiding/build_site.py
 <tr>
 <td><strong>PM2</strong>, <strong>BA1</strong>, <strong>BS1</strong>, <strong>BS2</strong></td>
 <td>gnomAD</td>
-<td>Afwezig of zeer zeldzaam → PM2 (<em>supporting</em>). Zeer frequent → BA1, dat de variant op zichzelf benigne maakt. Frequent → BS1. Homozygoten aanwezig → BS2: <em>strong</em> bij een gen met recessieve overervingswijze, anders <em>consider</em> op <em>supporting</em>. Zonder homozygotenaantal in de annotatie blijft BS2 ongemarkeerd: kijk gnomAD zelf na</td>
+<td>Zeer zeldzaam → PM2 (<em>supporting</em>). Zonder gnomAD-frequentie in de annotatie is de variant afwezig uit gnomAD, of werd gnomAD niet geannoteerd: de annotatie zegt niet welke. PM2 wordt dan <em>consider</em>, niet toegepast, en BA1 en BS1 blijven open: kijk gnomAD zelf na. Zeer frequent → BA1, dat de variant op zichzelf benigne maakt. Frequent → BS1. Homozygoten aanwezig → BS2: <em>strong</em> bij een gen met recessieve overervingswijze, anders <em>consider</em> op <em>supporting</em>. Zonder homozygotenaantal in de annotatie blijft BS2 ongemarkeerd: kijk gnomAD zelf na</td>
 </tr>
 <tr>
 <td><strong>PP2</strong></td>
@@ -3043,17 +3043,17 @@ python docs/handleiding/build_site.py
 <tr>
 <td><strong>PP3</strong> / <strong>BP4</strong></td>
 <td>REVEL, SpliceAI, AlphaMissense</td>
-<td>REVEL beslist eerst, dan SpliceAI, dan AlphaMissense; wie beslist, bepaalt ook de sterkte. Alleen een oordeel op REVEL markeert het andere criterium als tegenargument. Zonder enige voorspelling zijn beide niet van toepassing. Een REVEL tussen de drempels of een <em>ambiguous</em> AlphaMissense-klasse laat beide open (TRACE-15: zo'n klasse telde als geen voorspelling)</td>
+<td>REVEL beslist eerst, dan SpliceAI, dan AlphaMissense; wie beslist, bepaalt ook de sterkte. Alleen een oordeel op REVEL markeert het andere criterium als tegenargument. BP4 vraagt dat SpliceAI geen splice-impact voorspelt: zonder SpliceAI-score wordt BP4 <em>consider</em>. Zonder enige voorspelling zijn beide niet van toepassing. Een REVEL tussen de drempels of een <em>ambiguous</em> AlphaMissense-klasse laat beide open (TRACE-15: zo'n klasse telde als geen voorspelling)</td>
 </tr>
 <tr>
 <td><strong>BP7</strong></td>
 <td>gevolg en SpliceAI</td>
-<td>Synoniem zonder voorspelde splice-impact</td>
+<td>Synoniem zonder voorspelde splice-impact (SpliceAI onder 0,1). Zonder SpliceAI-score <em>consider</em>: kijk de splice-impact zelf na</td>
 </tr>
 <tr>
 <td><strong>PP5</strong> / <strong>BP6</strong></td>
 <td>ClinVar</td>
-<td>ClinVar zegt pathogeen → PP5; benigne → BP6. <em>Conflicting classifications of pathogenicity</em> geeft geen van beide</td>
+<td>ClinVar zegt pathogeen → PP5; benigne → BP6. <em>Conflicting classifications of pathogenicity</em> geeft geen van beide. ClinVar is het ClinVar-bestand dat de pipeline annoteerde; de oudere classificatie uit de VEP-cache telt alleen als er geen ClinVar-bestand geannoteerd werd</td>
 </tr>
 <tr>
 <td><strong>PP4</strong></td>

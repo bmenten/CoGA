@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence
 
 
@@ -10,13 +10,31 @@ from typing import Any, Dict, List, Optional, Sequence
 class AnnotationHeaderState:
     ann_fields: List[str] | None = None
     csq_fields: List[str] | None = None
+    # The INFO keys the header declares (``##INFO=<ID=…``), and the ClinVar file the INFO
+    # line of a ClinVar field names (``clinvar_file_annotated``, ``clinvar_file_in_description``).
+    info_ids: set[str] = field(default_factory=set)
+    clinvar_file_name: str | None = None
 
 
-_NULL_VALUES = {"", ".", "NA", "N/A", "null", "None"}
+# "-" is how VEP's table output writes an empty value: read as one, it became a ClinVar
+# classification "-" (and an rsid "-").
+_NULL_VALUES = {"", ".", "-", "NA", "N/A", "null", "None"}
 _TRUE_VALUES = {"YES", "TRUE", "1"}
 # The numbers a value holds (``_parse_float``, ``_parse_int``), compiled once.
 _FLOAT_PATTERN = re.compile(r"-?\d+(?:\.\d+)?(?:e-?\d+)?", re.IGNORECASE)
 _INTEGER_PATTERN = re.compile(r"-?\d+")
+
+# A record's ClinVar classification is read from the ClinVar file the pipeline annotated it
+# with (VEP --custom's ClinVar_CLNSIG, the CLNSIG of bcftools annotate or vcfanno), and from
+# VEP's cache (CLIN_SIG) only where no ClinVar file was annotated. The cache holds an older
+# ClinVar release, read for the known variants at the record's position, and joins their
+# classifications with "&" (``uncertain_significance&likely_pathogenic``). It was read first,
+# so it stood in for the ClinVar file's classification. Where a ClinVar file was annotated,
+# the cache's classification is kept apart (``clinvar_vep_cache``) and never read as
+# ClinVar's, also for a variant the file has no record of: ClinVar's file holds every
+# variant ClinVar classifies at a precise location.
+CLINVAR_FILE_ALIASES = ("ClinVar_CLNSIG", "CLNSIG", "CLINVAR")
+_CLINVAR_CACHE_KEY = "clinvar_vep_cache"
 
 _ANN_ALIASES = {
     "gene": ["SYMBOL", "Gene_Name", "GENE", "gene"],
@@ -30,7 +48,8 @@ _ANN_ALIASES = {
     "hgvsp": ["HGVSp", "HGVS.p", "HGVS_P", "HGVS_p"],
     "exon": ["EXON", "Exon_Rank"],
     "intron": ["INTRON"],
-    "clinvar": ["CLIN_SIG", "CLNSIG", "ClinVar_CLNSIG", "CLINVAR"],
+    "clinvar": list(CLINVAR_FILE_ALIASES),
+    _CLINVAR_CACHE_KEY: ["CLIN_SIG"],
     "rsid": ["Existing_variation", "DBSNP", "RSID", "ID"],
     "lof": ["LoF", "LOF"],
     "lof_filter": ["LoF_filter", "LOF_FILTER"],
@@ -343,6 +362,23 @@ def _extract_format_fields(line: str, *, info_id: str) -> List[str] | None:
     return None
 
 
+# An INFO line's key and description.
+_INFO_ID = re.compile(r"^##INFO=<ID=([^,>]+)")
+_INFO_DESCRIPTION = re.compile(r'Description="((?:[^"\\]|\\.)*)"')
+# The file a VEP --custom field comes from, as VEP describes it: ``… CLNSIG field from
+# [PATH]/clinvar_20261101.vcf.gz``, the folder replaced by ``[PATH]``.
+_FIELD_FROM_FILE = re.compile(r"field from\s+(\S+)\s*$")
+
+
+def clinvar_file_in_description(description: str) -> str | None:
+    """The name of the file a field's description says it comes from (VEP --custom), without
+    its folder; None when the description names none."""
+    match = _FIELD_FROM_FILE.search(description.strip())
+    if not match:
+        return None
+    return match.group(1).rsplit("/", 1)[-1].strip() or None
+
+
 def update_annotation_header_state(state: AnnotationHeaderState, line: str) -> None:
     ann_fields = _extract_format_fields(line, info_id="ANN")
     if ann_fields:
@@ -350,6 +386,23 @@ def update_annotation_header_state(state: AnnotationHeaderState, line: str) -> N
     csq_fields = _extract_format_fields(line, info_id="CSQ")
     if csq_fields:
         state.csq_fields = csq_fields
+    info_id = _INFO_ID.match(line)
+    if info_id is None:
+        return
+    key = info_id.group(1)
+    state.info_ids.add(key)
+    if key in CLINVAR_FILE_ALIASES and state.clinvar_file_name is None:
+        description = _INFO_DESCRIPTION.search(line)
+        if description:
+            state.clinvar_file_name = clinvar_file_in_description(description.group(1))
+
+
+def clinvar_file_annotated(state: AnnotationHeaderState) -> bool:
+    """Whether the header declares a ClinVar file's classification, as an INFO key or a CSQ or
+    ANN field: then the records' ClinVar classification is that file's, and the VEP cache's
+    is kept apart."""
+    declared = state.info_ids.union(state.csq_fields or (), state.ann_fields or ())
+    return not declared.isdisjoint(CLINVAR_FILE_ALIASES)
 
 
 def _annotation_entries(
@@ -461,10 +514,22 @@ def _base_info_annotation(info: Dict[str, str]) -> Dict[str, Any]:
     return annotation
 
 
+def _settle_clinvar(annotation: Dict[str, Any], *, clinvar_file_annotated: bool) -> None:
+    """Without a ClinVar file annotated, the VEP cache's classification is the record's ClinVar
+    classification, the only one there is; with one, it stays apart (``clinvar_vep_cache``)."""
+    if clinvar_file_annotated or "clinvar" in annotation:
+        return
+    cached = annotation.pop(_CLINVAR_CACHE_KEY, None)
+    if cached is not None:
+        annotation["clinvar"] = cached
+
+
 def _normalize_annotation_entry(
     raw_entry: Dict[str, str],
     base_annotation: Dict[str, Any],
     tables: _AliasTables = _ALL_ALIASES,
+    *,
+    clinvar_file_annotated: bool = False,
 ) -> Dict[str, Any]:
     annotation = dict(base_annotation)
 
@@ -492,6 +557,11 @@ def _normalize_annotation_entry(
         population_seed=base_annotation.get("population_frequencies", {}),
         tables=tables,
     )
+    _settle_clinvar(
+        annotation,
+        clinvar_file_annotated=clinvar_file_annotated
+        or not raw_entry.keys().isdisjoint(CLINVAR_FILE_ALIASES),
+    )
 
     return {key: value for key, value in annotation.items() if value not in (None, {}, [])}
 
@@ -501,18 +571,30 @@ def extract_small_variant_annotations(
     state: AnnotationHeaderState,
 ) -> List[Dict[str, Any]]:
     base_annotation = _base_info_annotation(info)
+    # A ClinVar file declared in the header (VEP --custom describes its fields as INFO keys),
+    # or a ClinVar file's key in the record's INFO; an entry may name one of its own.
+    clinvar_file_in_info = not state.info_ids.isdisjoint(
+        CLINVAR_FILE_ALIASES
+    ) or not info.keys().isdisjoint(CLINVAR_FILE_ALIASES)
     fields, raw_entries = _annotation_entries(info, state)
 
     if raw_entries:
         tables = _header_alias_tables(tuple(fields))
         annotations = [
-            _normalize_annotation_entry(raw_entry, base_annotation, tables)
+            _normalize_annotation_entry(
+                raw_entry, base_annotation, tables, clinvar_file_annotated=clinvar_file_in_info
+            )
             for raw_entry in raw_entries
         ]
         return [annotation for annotation in annotations if annotation]
 
+    _settle_clinvar(base_annotation, clinvar_file_annotated=clinvar_file_in_info)
     return [base_annotation] if base_annotation else []
 
 
-def normalize_small_variant_annotation_entry(raw_entry: Dict[str, str]) -> Dict[str, Any]:
-    return _normalize_annotation_entry(raw_entry, {})
+def normalize_small_variant_annotation_entry(
+    raw_entry: Dict[str, str], *, clinvar_file_annotated: bool = False
+) -> Dict[str, Any]:
+    """A VEP table row's annotation. ``clinvar_file_annotated``: the table declares a ClinVar
+    file's field, as a column or an Extra key, which a row without a value leaves out."""
+    return _normalize_annotation_entry(raw_entry, {}, clinvar_file_annotated=clinvar_file_annotated)

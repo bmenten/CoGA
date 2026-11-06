@@ -15,6 +15,8 @@ from backend.app.services.variant_annotation_parser import (
     _parse_float,
     _parse_spliceai_pred,
     _spliceai_delta,
+    clinvar_file_annotated,
+    clinvar_file_in_description,
     extract_small_variant_annotations,
     normalize_small_variant_annotation_entry,
     update_annotation_header_state,
@@ -308,3 +310,100 @@ def test_a_maximum_gnomad_count_keeps_a_variant_whose_only_count_is_unprefixed(k
     # No count stored in the column the SQL reads: ifNull(count, 0) <= the maximum keeps it.
     assert all(getattr(_annotation_columns(annotation), field) is None for annotation in annotations)
     assert [_annotation_count(annotation, field) for annotation in annotations] == [None]
+
+
+# --------------------------------------------------------------------------- #
+# ClinVar: the ClinVar file the pipeline annotated, before VEP's cache
+# --------------------------------------------------------------------------- #
+
+_CLINVAR_CSQ_HEADER = (
+    '##INFO=<ID=CSQ,Number=.,Type=String,Description="Consequence annotations from Ensembl VEP. '
+    'Format: Allele|Consequence|SYMBOL|Feature|CLIN_SIG|ClinVar_CLNSIG">'
+)
+_CLINVAR_FIELD_HEADER = (
+    '##INFO=<ID=ClinVar_CLNSIG,Number=.,Type=String,Description="Aggregate germline classification for '
+    'this single variant. CLNSIG field from [PATH]/clinvar_20261101.vcf.gz">'
+)
+
+
+def _clinvar_state(*lines: str) -> AnnotationHeaderState:
+    state = AnnotationHeaderState()
+    for line in lines:
+        update_annotation_header_state(state, line)
+    return state
+
+
+def test_the_clinvar_files_classification_wins_over_the_vep_caches() -> None:
+    # VEP --custom's ClinVar_CLNSIG beside the cache's CLIN_SIG (an older release, of the known
+    # variants at the position, joined with "&"). The cache's was read first.
+    state = _clinvar_state(_CLINVAR_CSQ_HEADER, _CLINVAR_FIELD_HEADER)
+    [annotation] = extract_small_variant_annotations(
+        {"CSQ": "G|missense_variant|GENE1|ENST1|uncertain_significance&pathogenic|Benign"}, state
+    )
+    assert annotation["clinvar"] == "Benign"
+    assert annotation["clinvar_vep_cache"] == "uncertain_significance&pathogenic"
+
+
+def test_a_variant_the_clinvar_file_has_no_record_of_has_no_clinvar_classification() -> None:
+    # The file holds every variant ClinVar classifies at a precise location: the cache's
+    # classification of a variant it lacks is kept apart, never read as ClinVar's.
+    state = _clinvar_state(_CLINVAR_CSQ_HEADER, _CLINVAR_FIELD_HEADER)
+    [annotation] = extract_small_variant_annotations({"CSQ": "G|missense_variant|GENE1|ENST1|pathogenic|"}, state)
+    assert "clinvar" not in annotation
+    assert annotation["clinvar_vep_cache"] == "pathogenic"
+
+
+def test_without_a_clinvar_file_the_vep_caches_classification_is_the_clinvar_one() -> None:
+    state = _clinvar_state(
+        '##INFO=<ID=CSQ,Number=.,Type=String,Description="Format: Allele|Consequence|SYMBOL|Feature|CLIN_SIG">'
+    )
+    [annotation] = extract_small_variant_annotations({"CSQ": "G|missense_variant|GENE1|ENST1|pathogenic"}, state)
+    assert annotation["clinvar"] == "pathogenic"
+    assert "clinvar_vep_cache" not in annotation
+    assert not clinvar_file_annotated(state)
+
+
+def test_an_info_clnsig_from_a_clinvar_file_is_not_overwritten_by_the_caches() -> None:
+    # bcftools annotate (or vcfanno) writes ClinVar's CLNSIG to INFO; each CSQ entry's CLIN_SIG
+    # overwrote it.
+    state = _clinvar_state(
+        '##INFO=<ID=CSQ,Number=.,Type=String,Description="Format: Allele|Consequence|SYMBOL|Feature|CLIN_SIG">',
+        '##INFO=<ID=CLNSIG,Number=.,Type=String,Description="Aggregate germline classification for this single variant">',
+    )
+    annotations = extract_small_variant_annotations(
+        {"CLNSIG": "Likely_benign", "CSQ": "G|missense_variant|GENE1|ENST1|pathogenic,G|missense_variant|GENE1|ENST2|"},
+        state,
+    )
+    assert [annotation["clinvar"] for annotation in annotations] == ["Likely_benign", "Likely_benign"]
+    assert annotations[0]["clinvar_vep_cache"] == "pathogenic"
+    assert "clinvar_vep_cache" not in annotations[1]
+    # A record without the INFO key, in a file whose header declares it: not in ClinVar.
+    [bare] = extract_small_variant_annotations({"CSQ": "G|missense_variant|GENE1|ENST1|pathogenic"}, state)
+    assert "clinvar" not in bare and bare["clinvar_vep_cache"] == "pathogenic"
+
+
+def test_the_header_names_the_clinvar_file_vep_annotated() -> None:
+    state = _clinvar_state(_CLINVAR_CSQ_HEADER, _CLINVAR_FIELD_HEADER)
+    assert clinvar_file_annotated(state)
+    assert state.clinvar_file_name == "clinvar_20261101.vcf.gz"
+    assert "ClinVar_CLNSIG" in state.info_ids
+    # A ClinVar field in the CSQ alone (no INFO line describing it) still counts.
+    assert clinvar_file_annotated(_clinvar_state(_CLINVAR_CSQ_HEADER))
+    # ClinVar's own CLNSIG description names no file.
+    assert clinvar_file_in_description("Aggregate germline classification for this single variant") is None
+    assert clinvar_file_in_description("CLNSIG. CLNSIG field from /data/ref/clinvar.vcf.gz") == "clinvar.vcf.gz"
+
+
+def test_a_vep_table_row_reads_clinvar_by_what_the_table_declares() -> None:
+    # A ClinVar file declared in the table: a row without its value has no ClinVar
+    # classification, whatever the cache's CLIN_SIG.
+    declared = normalize_small_variant_annotation_entry(
+        {"SYMBOL": "GENE1", "CLIN_SIG": "pathogenic"}, clinvar_file_annotated=True
+    )
+    assert "clinvar" not in declared and declared["clinvar_vep_cache"] == "pathogenic"
+    cache_only = normalize_small_variant_annotation_entry({"SYMBOL": "GENE1", "CLIN_SIG": "pathogenic"})
+    assert cache_only["clinvar"] == "pathogenic" and "clinvar_vep_cache" not in cache_only
+    both = normalize_small_variant_annotation_entry(
+        {"SYMBOL": "GENE1", "CLIN_SIG": "pathogenic", "ClinVar_CLNSIG": "Benign"}
+    )
+    assert (both["clinvar"], both["clinvar_vep_cache"]) == ("Benign", "pathogenic")

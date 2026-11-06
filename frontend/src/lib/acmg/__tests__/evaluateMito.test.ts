@@ -40,10 +40,26 @@ describe('evaluateMitoAcmg', () => {
       find(evaluateMitoAcmg({ ...baseVariant, gnomad_af: 5e-4 }, { category: 'protein coding' }), 'BS1')
         ?.disposition,
     ).toBe('applies');
-    // Absent → PM2 supporting.
+    // Very rare → PM2 supporting.
     expect(
-      find(evaluateMitoAcmg(baseVariant, { category: 'protein coding' }), 'PM2')?.disposition,
+      find(evaluateMitoAcmg({ ...baseVariant, gnomad_af: 1e-5 }, { category: 'protein coding' }), 'PM2')
+        ?.disposition,
     ).toBe('applies');
+  });
+
+  it('offers PM2 for review, and leaves BA1 / BS1 open, without a frequency in the annotation', () => {
+    // Absent from gnomAD, or gnomAD not annotated: the annotation does not say which. Before,
+    // PM2 applied as "Absent from gnomAD-MT.".
+    for (const gnomad_af of [undefined, null]) {
+      const suggestions = evaluateMitoAcmg(
+        { ...baseVariant, gnomad_af: gnomad_af as number | undefined },
+        { category: 'protein coding' },
+      );
+      expect(find(suggestions, 'PM2')?.disposition).toBe('consider');
+      expect(find(suggestions, 'PM2')?.evidence).toContain('or gnomAD not annotated');
+      expect(find(suggestions, 'BA1')).toBeUndefined();
+      expect(find(suggestions, 'BS1')).toBeUndefined();
+    }
   });
 
   it('treats a MITOMAP polymorphism as BS1 (haplogroup marker / common)', () => {

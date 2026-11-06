@@ -62,6 +62,7 @@ from .genotypes import genotype_notation_refusal, is_vcf_genotype
 from .import_progress import bytes_read_on_disk, file_size, read_stats
 from .variant_annotation_parser import (
     AnnotationHeaderState,
+    clinvar_file_annotated,
     extract_small_variant_annotations,
     update_annotation_header_state,
 )
@@ -533,7 +534,12 @@ async def upload_family_per_sample_small_variant_files(
         for reader in readers:
             annotation_provenance = merge_module_maps(
                 annotation_provenance,
-                extract_header_provenance(reader.provenance_lines, modality="snv").as_modules(),
+                extract_header_provenance(
+                    reader.provenance_lines,
+                    modality="snv",
+                    clinvar_file_annotated=clinvar_file_annotated(reader.annotation_state),
+                    clinvar_file_name=reader.annotation_state.clinvar_file_name,
+                ).as_modules(),
             )
         await merge_vcf_header_provenance(
             session,

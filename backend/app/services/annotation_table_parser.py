@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sqlite3
 import tempfile
 from dataclasses import dataclass
@@ -20,7 +21,11 @@ from fastapi import HTTPException
 from .clickhouse_variant_ids import build_small_variant_id
 from .data_scope import normalize_chromosome
 from .family_package_common import _normalize_header_key
-from .variant_annotation_parser import normalize_small_variant_annotation_entry
+from .variant_annotation_parser import (
+    CLINVAR_FILE_ALIASES,
+    clinvar_file_in_description,
+    normalize_small_variant_annotation_entry,
+)
 from .vcf_header_provenance import extract_vep_tab_provenance
 
 
@@ -205,12 +210,22 @@ def _parse_vep_tsv_annotation_lines(lines: Any) -> VepAnnotationLookup:
     return _indexed_lookup(_index_vep_tsv_lines, lines)
 
 
+# A VEP table's description of a column or an Extra key, in its ``## Column descriptions`` or
+# ``## Extra column keys`` block: ``## ClinVar_CLNSIG : … CLNSIG field from [PATH]/clinvar_….vcf.gz``.
+_VEP_TAB_FIELD_DESCRIPTION = re.compile(r"^##\s*(\S+)\s*:\s*(.*)$")
+
+
 def _index_vep_tsv_lines(lookup: VepAnnotationLookup, lines: Any) -> None:
     header: list[str] | None = None
     row_count = 0
     # VEP states its tool/database versions in the leading ``## … version …`` block
     # (before "## Column descriptions:"); buffer it for provenance capture.
     provenance_header: list[str] = []
+    # Whether the table holds a ClinVar file's classification (a column, or a described Extra
+    # key, which a row without a value leaves out), and the file VEP describes it from: then a
+    # row's ClinVar classification is that file's, never the cache's CLIN_SIG.
+    clinvar_file_annotated = False
+    clinvar_file_name: str | None = None
 
     for raw_line in lines:
         line = raw_line.rstrip("\n\r")
@@ -219,9 +234,16 @@ def _index_vep_tsv_lines(lookup: VepAnnotationLookup, lines: Any) -> None:
         if line.startswith("##"):
             if len(provenance_header) < 80:
                 provenance_header.append(line)
+            described = _VEP_TAB_FIELD_DESCRIPTION.match(line)
+            if described and described.group(1) in CLINVAR_FILE_ALIASES:
+                clinvar_file_annotated = True
+                clinvar_file_name = clinvar_file_name or clinvar_file_in_description(described.group(2))
             continue
         if line.startswith("#"):
             header = line.lstrip("#").split("\t")
+            clinvar_file_annotated = clinvar_file_annotated or not set(header).isdisjoint(
+                CLINVAR_FILE_ALIASES
+            )
             continue
         if header is None:
             continue
@@ -232,7 +254,9 @@ def _index_vep_tsv_lines(lookup: VepAnnotationLookup, lines: Any) -> None:
         # columns ``--tab`` writes, a column of the row's own winning (CLIN-52).
         for key, value in _vep_extra_fields(row.pop("Extra", "")).items():
             row.setdefault(key, value)
-        annotation = normalize_small_variant_annotation_entry(row)
+        annotation = normalize_small_variant_annotation_entry(
+            row, clinvar_file_annotated=clinvar_file_annotated
+        )
         if not annotation:
             continue
         row_count += 1
@@ -279,7 +303,14 @@ def _index_vep_tsv_lines(lookup: VepAnnotationLookup, lines: Any) -> None:
     if header is None:
         raise HTTPException(status_code=400, detail="VEP TSV annotation file is missing a header row")
     lookup.row_count = row_count
-    lookup.provenance_modules = extract_vep_tab_provenance(provenance_header) or None
+    lookup.provenance_modules = (
+        extract_vep_tab_provenance(
+            provenance_header,
+            clinvar_file_annotated=clinvar_file_annotated,
+            clinvar_file_name=clinvar_file_name,
+        )
+        or None
+    )
     if lookup.conn is not None:
         lookup.conn.commit()
 

@@ -1923,6 +1923,17 @@ A family small-variant upload is one family VCF from one callset:
   - A package's `snv` dataset, its VEP table and the per-sample callsets are read the same way. A
     callset stored before keeps the counts it was stored with until it is uploaded or imported
     again.
+  - The ClinVar classification is the ClinVar file's that the pipeline annotated (`ClinVar_CLNSIG`
+    from VEP `--custom`, or `CLNSIG`), and VEP's cache `CLIN_SIG` only when the header declares no
+    such field. The cache holds an older ClinVar release, read for the known variants at the
+    position, joined with `&`. With a ClinVar file declared, the cache's classification is kept
+    apart as `clinvar_vep_cache` (shown in the card's *More annotations*, never read as ClinVar's),
+    also for a variant the file has no record of; a `CLNSIG` in INFO is no longer replaced by an
+    entry's `CLIN_SIG`. The annotation manifest records that file's release
+    ([annotation-provenance.md](annotation-provenance.md#the-clinvar-release)). Before, `CLIN_SIG`
+    was read first.
+  - `-`, how a VEP table writes an empty value, is read as no value (it became a ClinVar
+    classification or an rsid `-`).
 - A write that still fails after that delete (ClickHouse, which has no transactions, failing
   part-way) answers 500 with the callset gone, and the rows the write had stored are removed again. The family is then flagged import-incomplete for what the upload was to bring
   ([What an upload records](#what-an-upload-records)): every family page shows *Import

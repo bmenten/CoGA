@@ -10,6 +10,7 @@ from __future__ import annotations
 import pytest
 
 from app.services.vcf_header_provenance import (
+    clinvar_file_release,
     extract_header_provenance,
     extract_info_description_provenance,
     extract_vep_tab_provenance,
@@ -556,3 +557,65 @@ def test_dragens_small_variant_caller_is_dragen() -> None:
     assert _modules(header, modality="snv") == {
         "dragen": {"detail": "snv caller", "version": "SW: 07.021.624.3.10.4, HW: 07.021.624"}
     }
+
+
+# --- The ClinVar file a pipeline annotated ----------------------------------- #
+
+
+def test_the_clinvar_file_gives_the_clinvar_release_and_the_cache_goes_apart():
+    # The records' ClinVar classification comes from the file, so its release is the
+    # manifest's ClinVar release; it was the cache's (ClinVar="202301" on the ##VEP line).
+    mods = extract_header_provenance(
+        SNV_VEP_HEADER.splitlines(),
+        modality="snv",
+        clinvar_file_annotated=True,
+        clinvar_file_name="clinvar_20261101.vcf.gz",
+    ).as_modules()
+    assert mods["clinvar"] == {"version": "20261101", "detail": "ClinVar file clinvar_20261101.vcf.gz"}
+    assert mods["clinvar_vep_cache"]["version"] == "202301"
+    assert "not read as the ClinVar classification" in mods["clinvar_vep_cache"]["detail"]
+    # Without a ClinVar file, the cache's is the ClinVar release, as before.
+    assert _modules(SNV_VEP_HEADER)["clinvar"] == {"version": "202301"}
+    assert "clinvar_vep_cache" not in _modules(SNV_VEP_HEADER)
+
+
+def test_a_clinvar_file_named_without_a_date_is_recorded_without_a_version():
+    # The cache's release must never stand in for the file's.
+    mods = extract_header_provenance(
+        SNV_VEP_HEADER.splitlines(), clinvar_file_annotated=True, clinvar_file_name="clinvar.vcf.gz"
+    ).as_modules()
+    assert mods["clinvar"] == {"detail": "ClinVar file clinvar.vcf.gz"}
+    unnamed = extract_header_provenance(SNV_VEP_HEADER.splitlines(), clinvar_file_annotated=True).as_modules()
+    assert unnamed["clinvar"] == {"detail": "ClinVar file; the header names none"}
+
+
+def test_a_clinvar_version_line_of_its_own_wins_over_the_file_name():
+    header = "##ClinVarVersion=20261108\n" + SNV_VEP_HEADER
+    mods = extract_header_provenance(
+        header.splitlines(), clinvar_file_annotated=True, clinvar_file_name="clinvar_20261101.vcf.gz"
+    ).as_modules()
+    assert mods["clinvar"]["version"] == "20261108"
+    assert mods["clinvar_vep_cache"]["version"] == "202301"
+
+
+@pytest.mark.parametrize(
+    ("file_name", "release"),
+    [
+        ("clinvar_20261101.vcf.gz", "20261101"),
+        ("ClinVar20261101.vcf.gz", "20261101"),
+        ("clinvar.vcf.gz", None),
+        ("clinvar_20261399.vcf.gz", None),
+        ("clinvar_202611011.vcf.gz", None),
+        (None, None),
+    ],
+)
+def test_clinvar_file_release(file_name, release):
+    assert clinvar_file_release(file_name) == release
+
+
+def test_vep_tab_header_clinvar_file_gives_the_clinvar_release():
+    mods = extract_vep_tab_provenance(
+        VEP_TAB_HEADER.splitlines(), clinvar_file_annotated=True, clinvar_file_name="clinvar_20261101.vcf.gz"
+    )
+    assert mods["clinvar"]["version"] == "20261101"
+    assert mods["clinvar_vep_cache"]["version"] == "202502"

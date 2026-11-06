@@ -77,6 +77,7 @@ _MODULE_LABELS: dict[str, str] = {
     "nextflow": "Nextflow",
     # reference databases
     "clinvar": "ClinVar",
+    "clinvar_vep_cache": "ClinVar (VEP cache)",
     "gnomad": "gnomAD",
     "dbnsfp": "dbNSFP",
     "spliceai": "SpliceAI",
@@ -345,6 +346,14 @@ async def get_family_annotation_manifest(
     }
 
 
+# The ClinVar modules name where a classification comes from: the ClinVar file the pipeline
+# annotated, or VEP's cache (``vcf_header_provenance.clinvar_file_module``). A new import's
+# module replaces the stored version and detail together, and a version it does not state
+# drops the modality's: merged field by field, an earlier import's cache release stayed beside
+# a ClinVar file named without a date, which read as that file's release.
+_SOURCE_BOUND_MODULES = frozenset({"clinvar", "clinvar_vep_cache"})
+
+
 def _refresh_modules(
     current: Mapping[str, Any], incoming: Mapping[str, Any], modality: str | None = None
 ) -> dict[str, dict[str, Any]]:
@@ -363,6 +372,14 @@ def _refresh_modules(
     for key, value in (incoming or {}).items():
         entry = out.setdefault(key, {})
         incoming_entry = _as_module(value)
+        if key in _SOURCE_BOUND_MODULES:
+            entry.pop("version", None)
+            entry.pop("detail", None)
+            stored_by = entry.get("by_modality")
+            if modality and isinstance(stored_by, dict) and incoming_entry.get("version") in (None, ""):
+                entry["by_modality"] = {
+                    name: version for name, version in stored_by.items() if name != str(modality)
+                }
         for field_name, field_value in incoming_entry.items():
             if field_name == "by_modality" or field_value in (None, ""):
                 continue

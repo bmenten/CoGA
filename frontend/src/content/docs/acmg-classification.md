@@ -117,14 +117,14 @@ otherwise the first affected member.
 | Criterion | State | Rule |
 | --- | --- | --- |
 | **PVS1** | Applied or Consider | Predicted null: stop gained, frameshift, canonical splice acceptor or donor, start lost, transcript ablation. Applied only when ClinGen scores the gene's haploinsufficiency as *Sufficient evidence*: Very strong with a LOFTEE high-confidence call, Strong without. Otherwise offered as Consider. |
-| **PM2** | Applied (Supporting) | gnomAD allele frequency below 0.01%, or no gnomAD frequency at all (see *Frequency* below). |
+| **PM2** | Applied or Consider (Supporting) | Applied: gnomAD allele frequency below 0.01%. Consider: no gnomAD frequency in the annotation (see *Frequency* below). |
 | **BA1** | Applied (Stand-alone) | gnomAD allele frequency 5% or more. |
 | **BS1** | Applied (Strong) | gnomAD allele frequency from 1% up to 5%. |
 | **BS2** | Applied (Strong) or Consider | Homozygotes in gnomAD. Applied when GenCC lists a recessive inheritance mode for the gene, otherwise Consider (Supporting). Not marked when the annotation holds no gnomAD homozygote count: check gnomAD. |
 | **PM4** | Consider (Moderate) | In-frame insertion or deletion, stop lost, or another protein-length change. Check that it lies outside a repeat region. |
 | **PP2** | Consider (Supporting) | Missense, in a gene with a gnomAD missense Z of 3.09 or more. See *Missense constraint (PP2)* below. |
 | **PP3 / BP4** | Applied, strength scaled | See *In-silico evidence* below. |
-| **BP7** | Applied (Supporting) | Synonymous, with SpliceAI below 0.1 or no SpliceAI score. A higher SpliceAI score marks BP7 as argues against. |
+| **BP7** | Applied or Consider (Supporting) | Synonymous. Applied with SpliceAI below 0.1; Consider with no SpliceAI score: check the splice effect. A higher SpliceAI score marks BP7 as argues against. |
 | **PP5** | Applied (Supporting) | ClinVar lists this variant as pathogenic or likely pathogenic. BP6 is then marked argues against. |
 | **BP6** | Applied (Supporting) | ClinVar lists this variant as benign or likely benign. PP5 is then marked argues against. |
 | **PP4** | Applied (Supporting or Moderate) | See *Phenotype (PP4)* below. |
@@ -147,11 +147,13 @@ Only the criterion that fits the frequency stays active; the other two are greye
 | --- | --- | --- |
 | 5% or more | BA1 | PM2, BS1 |
 | 1% up to 5% | BS1 | BA1, PM2 |
-| below 0.01%, or none | PM2 | BA1, BS1 |
+| below 0.01% | PM2 | BA1, BS1 |
 | 0.01% up to 1% | none | BA1, BS1, PM2 |
+| none | PM2 as Consider | none |
 
-A variant with no gnomAD frequency counts as absent from gnomAD, so PM2 is pre-applied. Before you
-rely on it, check that the VCF was annotated against gnomAD.
+With no gnomAD frequency in the annotation, the variant may be absent from gnomAD, or gnomAD was not
+annotated for it: the annotation does not say which. PM2 is then offered as Consider, not applied,
+and BA1 and BS1 stay open. Check gnomAD before you apply PM2.
 
 ### In-silico evidence (PP3, BP4)
 
@@ -160,13 +162,14 @@ REVEL decides first, with the ClinGen 2022 calibrated thresholds:
 - **REVEL 0.644 or more** → PP3: Supporting from 0.644, Moderate from 0.773, Strong from 0.932 (or the
   SpliceAI strength below, if that is higher). BP4 is marked argues against.
 - **REVEL 0.290 or less, with SpliceAI below 0.1** → BP4: Supporting up to 0.290, Moderate up to 0.183,
-  Strong up to 0.016. PP3 is marked argues against.
+  Strong up to 0.016. PP3 is marked argues against. With no SpliceAI score, BP4 is offered as Consider
+  at the same strength: check the splice effect.
 
 When REVEL does not decide:
 
 - **SpliceAI** 0.2 or more → PP3 Supporting; 0.5 or more → PP3 Moderate.
 - Otherwise the **AlphaMissense** class: likely pathogenic → PP3 Supporting; likely benign → BP4
-  Supporting.
+  Supporting, as Consider with no SpliceAI score.
 
 Only a REVEL-based call marks the opposite criterion as argues against. With no REVEL, SpliceAI or
 AlphaMissense value, PP3 and BP4 are not applicable. A REVEL value between the thresholds, or an
@@ -273,7 +276,7 @@ only the pre-evaluation differs.
 | Criterion | mtDNA rule |
 | --- | --- |
 | **PVS1** | Very strong for a predicted-null change in a protein-coding mt gene. Not applicable at tRNA, rRNA and control-region loci. Consider when the locus type is unknown. |
-| **PM2 / BS1 / BA1** | gnomAD mtDNA thresholds: BA1 0.5% or more (stand-alone), BS1 0.02% or more, PM2 below 0.002% or absent. A MITOMAP polymorphism or haplogroup marker goes to BS1. |
+| **PM2 / BS1 / BA1** | gnomAD mtDNA thresholds: BA1 0.5% or more (stand-alone), BS1 0.02% or more, PM2 below 0.002%. With no gnomAD frequency in the annotation, PM2 is Consider and BA1 / BS1 stay open: check gnomAD-MT. A MITOMAP polymorphism or haplogroup marker goes to BS1. |
 | **PP5 / BP6** | From the MITOMAP or ClinVar status: pathogenic → PP5; benign or polymorphism → BP6. A conflicting ClinVar record reads as uncertain: neither. |
 | **PP3 / BP4** | Not applicable: the mtDNA predictors (MitoTIP, APOGEE, HmtVar) are not loaded. Assess by hand. |
 | **PM1** | Consider (Moderate) at tRNA loci. |
