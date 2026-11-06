@@ -13,13 +13,15 @@ const __dirname = path.dirname(__filename);
 
 const PORT = process.env.PORT || 3000;
 const BACKEND_URL = (process.env.BACKEND_URL || 'http://backend:8000').replace(/\/+$/, '');
-const app = express();
 
 const distPath = path.join(__dirname, 'dist');
-// The app shell, read once: no request reaches the file system for it (#702). Absent
-// until the app is built (a test importing this module); the fallback then answers 503.
-const indexHtmlPath = path.join(distPath, 'index.html');
-const indexHtml = existsSync(indexHtmlPath) ? readFileSync(indexHtmlPath) : null;
+
+// Vite names each file under /assets by a hash of its content (FamilyDetailPage-CiJLPgKG.js),
+// so a release replaces them all with new names. A file there never changes: a browser keeps it
+// for a year without asking again. The app shell, `/` included, is revalidated on every load,
+// so a new release's shell, and with it the names of its files, is picked up at once.
+export const ASSET_CACHE_CONTROL = 'public, max-age=31536000, immutable';
+export const SHELL_CACHE_CONTROL = 'no-cache';
 
 // A request's method and URL in a log line: line breaks removed so a URL cannot forge
 // log lines, and passed as %s arguments, never as the format string itself (#702). The
@@ -37,7 +39,7 @@ const hopByHopHeaders = new Set([
   'upgrade',
 ]);
 
-app.use('/api', async (req, res) => {
+const apiProxy = async (req, res) => {
   const targetUrl = `${BACKEND_URL}${req.originalUrl}`;
   const headers = new Headers();
 
@@ -132,30 +134,69 @@ app.use('/api', async (req, res) => {
         : 'Unable to reach the backend API.',
     });
   }
-});
+};
 
-// SPA security headers — applied to the app shell + static assets below. The /api
-// proxy above already returned/ended its responses, so it keeps forwarding the
-// backend's own headers rather than these page-level ones; its own 502 and 504 set
-// these itself (applySecurityHeaders).
-app.use(securityHeaders);
+/** The server for the build in `distPath`, a folder holding index.html and assets/. */
+export function createApp(buildPath = distPath) {
+  const app = express();
+  // The app shell, read once: no request reaches the file system for it (#702). Absent
+  // until the app is built (a test importing this module); the fallback then answers 503.
+  const indexHtmlPath = path.join(buildPath, 'index.html');
+  const indexHtml = existsSync(indexHtmlPath) ? readFileSync(indexHtmlPath) : null;
 
-// Serve static assets from the Vite build output
-app.use(express.static(distPath));
+  app.use('/api', apiProxy);
 
-// All other routes should return the main index.html, allowing
-// React Router to handle client side navigation. Express 5 uses
-// `path-to-regexp@6`, which does not accept "*" string paths. Use
-// a regular expression to match any remaining route instead.
-app.get(/.*/, (_req, res) => {
-  if (!indexHtml) {
-    res.status(503).type('text/plain').send('The app is not built.');
-    return;
-  }
-  // Revalidated on every load, so a new release's shell is picked up at once.
-  res.set('Cache-Control', 'no-cache');
-  res.type('html').send(indexHtml);
-});
+  // SPA security headers — applied to the app shell + static assets below. The /api
+  // proxy above already returned/ended its responses, so it keeps forwarding the
+  // backend's own headers rather than these page-level ones; its own 502 and 504 set
+  // these itself (applySecurityHeaders).
+  app.use(securityHeaders);
+
+  // A file under /assets that is not there answers 404. It used to fall through to the app
+  // shell, an HTML page answered with 200, which a browser cannot run as a script ("Failed to
+  // fetch dynamically imported module"): what a tab opened before a release asks for when it
+  // opens a page. The app reloads itself then (src/lib/lazyPage.ts).
+  app.use(
+    '/assets',
+    express.static(path.join(buildPath, 'assets'), {
+      index: false,
+      redirect: false,
+      immutable: true,
+      maxAge: '1y',
+    }),
+    (_req, res) => {
+      res.set('Cache-Control', 'no-store');
+      res.status(404).type('text/plain').send('Not found.');
+    },
+  );
+
+  // The files at the top of the build (favicon.ico, ...). Not its index.html: `/` is the app
+  // shell below.
+  app.use(
+    express.static(buildPath, {
+      index: false,
+      setHeaders: (res, filePath) => {
+        if (filePath.endsWith('.html')) res.set('Cache-Control', SHELL_CACHE_CONTROL);
+      },
+    }),
+  );
+
+  // All other routes should return the main index.html, allowing
+  // React Router to handle client side navigation. Express 5 uses
+  // `path-to-regexp@6`, which does not accept "*" string paths. Use
+  // a regular expression to match any remaining route instead.
+  app.get(/.*/, (_req, res) => {
+    if (!indexHtml) {
+      res.status(503).type('text/plain').send('The app is not built.');
+      return;
+    }
+    res.set('Cache-Control', SHELL_CACHE_CONTROL);
+    res.type('html').send(indexHtml);
+  });
+  return app;
+}
+
+const app = createApp();
 
 // Only start listening when run directly (`node server.mjs`); importing this module
 // (e.g. from a test) must not bind a port.

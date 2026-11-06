@@ -50,9 +50,9 @@ vi.mock('../components/IgvViewer', () => ({ default: () => <div data-testid="igv
 // Vitest runs from frontend/.
 const APP_SOURCE = readFileSync(path.resolve(process.cwd(), 'src/index.tsx'), 'utf8');
 
-/** `const Page = lazy(() => import('./pages/…/Page'))`: the module each page name loads. */
+/** `const Page = lazyPage(() => import('./pages/…/Page'))`: the module each page name loads. */
 const LAZY_MODULES = new Map(
-  [...APP_SOURCE.matchAll(/const (\w+) = lazy\(\s*\(\) => import\('([^']+)'\)/g)].map(
+  [...APP_SOURCE.matchAll(/const (\w+) = lazyPage\(\s*\(\) => import\('([^']+)'\)/g)].map(
     ([, name, module]) => [name, module] as const,
   ),
 );
@@ -69,7 +69,7 @@ const FAMILY_ROUTES = [
   props: Object.fromEntries(flags.trim().split(/\s+/).filter(Boolean).map((flag) => [flag, true])),
 }));
 
-/** The pages' modules, by their path from src/: what `lazy(() => import(…))` names. */
+/** The pages' modules, by their path from src/: what `lazyPage(() => import(…))` names. */
 const PAGE_MODULES = import.meta.glob<{ default: ComponentType<Record<string, unknown>> }>([
   '../pages/**/*.tsx',
   '!../pages/**/__tests__/**',
