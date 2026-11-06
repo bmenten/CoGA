@@ -48,6 +48,9 @@ MODULE_FLOORS: dict[str, float] = {
     "backend/app/services/clickhouse_variant_storage.py": 95.0,  # (98.0, 2026-11-03; also floored combined)
     "backend/app/services/clinical_audit_service.py": 96.0,  # (99.7, 2026-11-03)
     "backend/app/services/clinical_cnv_kb_jobs.py": 96.0,  # (99.4, 2026-11-03)
+    # (100.0 measured locally when it was added: ClinVar's review status as stars, and its
+    # conditions as a list)
+    "backend/app/services/clinvar_review_status.py": 97.0,
     "backend/app/services/cnv_acmg_points.py": 97.0,  # (100.0, 2026-11-03)
     "backend/app/services/compound_het_phase.py": 97.0,  # (100.0, 2026-11-03)
     "backend/app/services/coverage_content.py": 97.0,  # (100.0, measured when added for TRACE-9)
