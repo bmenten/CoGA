@@ -31,9 +31,24 @@ the gene reference, and the default view. The ranking's Postgres inputs (the cac
 phenotypes, the hydration) are stubbed there: they order and decorate the rows, and keep
 or drop none.
 
+A third test opens every request in every view of the family page
+(``get_family_small_variants_page``) and holds each to the rule: the plain list, the list on
+one page, the variant track and the track's sample of the candidates, *Phenotype
+prioritization* computed, served again from its cached ranking, and, for a gene panel, served
+from the broader cached ranking of the same search without it; with the plain list's count,
+and, where a case names them, the transcript each variant names as the one its annotation
+filters held on and the genotypes shown. The ranking cache is held in memory. A second family
+holds the variants at which the SQL and the Python record filter still read a filter apart:
+a member with calls stored there whom the family's record does not show, and annotation keys
+and values no CSQ the parser reads writes. What a view keeps today that the rule does not is
+listed in ``KNOWN_GAPS``, by the change that closes it (the roadmap's *One filter
+definition*: SQL is the one definition of every filter; the owner's decisions of
+2026-11-06), each a strict xfail. A fourth test checks that the views reach every path a page
+can take.
+
 The variants sit on chromosome 11 at 95.1 Mb, chromosome X at 72 Mb and chrM 12,345, where
 no other test writes: the annotation tables are keyed by variant, not by project or family.
-The family and project are fresh ones.
+The families and project are fresh ones.
 
 Synthetic data only. Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI
 ``smoke`` job sets it.
@@ -107,6 +122,11 @@ class _Variant:
     # The record's FILTER: a multi-sample VCF's site FILTER, or every FILTER value of a
     # callset of one file per sample.
     filters: tuple[str, ...] = ("PASS",)
+    # Annotations as the import stores them, for values no CSQ the parser reads can give
+    # (a key another annotation source writes, a value it lets through); ``csq`` otherwise.
+    annotations: tuple[dict[str, Any], ...] | None = None
+    # The entry's gene symbols, when the record names them apart from its annotations.
+    gene_symbols: tuple[str, ...] = ()
 
 
 # The trio's genotypes: a de novo call, and calls the mother or the father passed on.
@@ -355,12 +375,16 @@ def _gene_loci() -> dict[str, list[Any]]:
 @dataclass(frozen=True)
 class _Case:
     """A request: the page's filters, the review selections the stubs answer, and the
-    variants the documented rule keeps."""
+    variants the documented rule keeps; for some, also the transcript each kept variant
+    names as the one its annotation filters held on (None: its primary transcript met them)
+    and the genotypes the page shows."""
 
     filters: dict[str, Any]
     expected: frozenset[str]
     review_variant_ids: frozenset[str] | None = None
     excluded_review_variant_ids: frozenset[str] = frozenset()
+    filter_transcripts: dict[str, str | None] | None = None
+    genotypes: dict[str, dict[str, str]] | None = None
 
 
 def _case(expected: frozenset[str] | set[str], **filters: Any) -> _Case:
@@ -648,6 +672,8 @@ def _annotations(variant: _Variant) -> list[dict[str, Any]]:
         update_annotation_header_state,
     )
 
+    if variant.annotations is not None:
+        return [dict(annotation) for annotation in variant.annotations]
     if not variant.csq:
         return []
     state = AnnotationHeaderState()
@@ -683,11 +709,11 @@ def _small_call(sample: str, call: _Call) -> Any:
     )
 
 
-def _records() -> list[Any]:
+def _records(variants: dict[str, _Variant] | None = None) -> list[Any]:
     from backend.app.services.clickhouse_variant_records import SmallVariantRecord
 
     records = []
-    for variant_id, variant in _VARIANTS.items():
+    for variant_id, variant in (_VARIANTS if variants is None else variants).items():
         chrom, pos, ref, alt = variant_id.split("-")
         records.append(
             SmallVariantRecord(
@@ -701,7 +727,7 @@ def _records() -> list[Any]:
                 source=variant.source,
                 rsid=variant.rsid,
                 filters=list(variant.filters),
-                gene_symbols=[],
+                gene_symbols=list(variant.gene_symbols),
                 annotations=_annotations(variant),
                 calls=[_small_call(sample, call) for sample, call in variant.calls.items()],
                 qual=50.0,
@@ -997,3 +1023,575 @@ def test_the_page_keeps_the_same_variants_plain_and_ranked(
             await _close_stores()
 
     assert _differences(asyncio.run(_run()), {"plain": case.expected, "ranked": case.expected}) == {}
+
+
+# --------------------------------------------------------------------------- #
+# Every view of the family page keeps what the rule keeps
+# --------------------------------------------------------------------------- #
+
+# A second family, at variants where the two readings of a filter parted: a member with
+# calls stored at them whom the family's record does not show (a sample taken out of the
+# family, or not yet added to it), whose calls no filter reads (the owner's decision of
+# 2026-11-06), and annotations with keys and values the CSQ parser never writes but the
+# import stores as given. Its variants sit at chromosome 11 at 95.101 Mb and chromosome X at
+# 72.001 Mb, where no other test writes.
+#
+# Differences of the two readings that no stored variant can show, and so have no case:
+# a call FILTER of a blank value (the import keeps none); a gene, transcript or source told
+# apart by Unicode case alone (SQL's case-insensitive search folds ASCII only, but every
+# gene name it matches is stored folded); chromosome X spelled otherwise than X or chrX (the
+# import normalises chromosomes); an rsID that the entry and its details hold differently
+# (the import writes the same value to both).
+_HIDDEN = "ENG1_HIDDEN"
+
+PS_HIDDEN = "11-95101000-C-T"
+PS_VISIBLE = "11-95101010-G-A"
+HIDDEN_CALL_FAILED = "11-95101020-A-G"
+HIDDEN_CALL_OWN_FILTER = "11-95101030-T-C"
+OUT_OF_RANGE = "11-95101040-C-A"
+GENE_ID_KEY = "11-95101050-G-T"
+GENE_SYMBOL_KEY = "11-95101060-A-C"
+SECOND_SYMBOL = "11-95101070-T-G"
+POPULATION_FREQUENCY = "11-95101080-C-G"
+NAN_ON_PRIMARY = "11-95101090-G-C"
+IMPUTED_TWIN = "11-95101100-A-T"
+MULTI_ALLELIC_HOM = "11-95101110-C-T"
+X_HAPLOID_FATHER = "X-72001000-C-T"
+
+
+def _annotation(gene: str | None, transcript: str, **fields: Any) -> dict[str, Any]:
+    """One annotation as the import stores it: a MODERATE missense transcript of ``gene``."""
+    annotation: dict[str, Any] = {
+        "transcript_id": transcript,
+        "feature_type": "Transcript",
+        "impact": "MODERATE",
+        "effect": "missense_variant",
+    }
+    if gene is not None:
+        annotation.update({"gene": gene, "gene_id": f"ENSG_{gene}"})
+    annotation.update(fields)
+    return annotation
+
+
+_DIVERGENCES: dict[str, _Variant] = {
+    # The phase set only a member the family does not show holds; and one the son holds.
+    PS_HIDDEN: _Variant(
+        csq=[],
+        annotations=(_annotation("SYNH", "ENST_SYNH_1", canonical=True),),
+        calls={**_trio("0/1"), _HIDDEN: _Call("0/1", ps=7777)},
+    ),
+    PS_VISIBLE: _Variant(
+        csq=[],
+        annotations=(_annotation("SYNH", "ENST_SYNH_1", canonical=True),),
+        calls=_trio("0/1", ps=7777),
+    ),
+    # One file per sample: the son's call passed, the hidden member's failed hers.
+    HIDDEN_CALL_FAILED: _Variant(
+        csq=[],
+        annotations=(_annotation("SYNH", "ENST_SYNH_1", canonical=True),),
+        calls={
+            **_own_filters(_trio("0/1"), proband=("PASS",), mother=("RefCall",), father=("RefCall",)),
+            _HIDDEN: _Call("0/1", filters=("LowQual",)),
+        },
+        filters=("PASS", "RefCall", "LowQual"),
+    ),
+    # A multi-sample VCF's site FILTER failed; only the hidden member's call carries a FILTER
+    # of its own, so the family's calls are read by the site's.
+    HIDDEN_CALL_OWN_FILTER: _Variant(
+        csq=[],
+        annotations=(_annotation("SYNH", "ENST_SYNH_1", canonical=True),),
+        calls={**_trio("0/1"), _HIDDEN: _Call("0/1", filters=("PASS",))},
+        filters=("LowQual",),
+    ),
+    # Values no 32-bit column holds: stored as unknown, which passes a ceiling.
+    OUT_OF_RANGE: _Variant(
+        csq=[],
+        annotations=(
+            _annotation(
+                "SYNH", "ENST_SYNH_1", canonical=True,
+                gnomad_exomes_af=float("inf"), gnomad_ac=5_000_000_000,
+            ),
+        ),
+        calls=_trio("0/1"),
+    ),
+    # A gene id under another annotation source's key.
+    GENE_ID_KEY: _Variant(
+        csq=[],
+        annotations=({**_annotation(None, "ENST_SYNH_9", canonical=True), "gene": "SYNH", "geneID": "ENSG_SYNH9"},),
+        calls=_trio("0/1"),
+    ),
+    # A gene symbol under another key, and other symbols on the entry.
+    GENE_SYMBOL_KEY: _Variant(
+        csq=[],
+        annotations=({**_annotation(None, "ENST_SYNK_1", canonical=True), "gene_symbol": "SYNK"},),
+        gene_symbols=("SYNL",),
+        calls=_trio("0/1"),
+    ),
+    # A second symbol beside the annotation's gene.
+    SECOND_SYMBOL: _Variant(
+        csq=[],
+        annotations=(_annotation("SYNI", "ENST_SYNI_1", canonical=True, hgnc_symbol="SYNJ"),),
+        calls=_trio("0/1"),
+    ),
+    # The primary transcript's gnomAD AF given twice: directly (rare) and among its population
+    # frequencies (common), which the stored value takes the larger of; a second transcript
+    # rare both ways.
+    POPULATION_FREQUENCY: _Variant(
+        csq=[],
+        annotations=(
+            _annotation(
+                "SYNH", "ENST_SYNH_1", canonical=True, mane_select=True,
+                gnomad_af=0.001, population_frequencies={"gnomad_af": 0.2},
+            ),
+            _annotation("SYNH", "ENST_SYNH_2", gnomad_af=0.001, population_frequencies={"gnomad_af": 0.001}),
+        ),
+        calls=_trio("0/1"),
+    ),
+    # The primary transcript's gnomAD AF is no number: stored as unknown, which passes.
+    NAN_ON_PRIMARY: _Variant(
+        csq=[],
+        annotations=(
+            _annotation("SYNH", "ENST_SYNH_1", canonical=True, mane_select=True, gnomad_af=float("nan")),
+            _annotation("SYNH", "ENST_SYNH_2", gnomad_af=0.001),
+        ),
+        calls=_trio("0/1"),
+    ),
+    # Called by clair3 as a heterozygote here; its imputed twin (below) shares its key.
+    IMPUTED_TWIN: _Variant(
+        csq=[],
+        annotations=(_annotation("SYNH", "ENST_SYNH_1", canonical=True),),
+        calls=_trio("0/1"),
+    ),
+    # Homozygous for the second allele, both parents carrying it.
+    MULTI_ALLELIC_HOM: _Variant(
+        csq=[],
+        annotations=(_annotation("SYNH", "ENST_SYNH_1", canonical=True),),
+        calls=_trio("2/2", mother="0/2", father="0/2"),
+    ),
+    # chrX outside the pseudo-autosomal regions, the unaffected father carrying it too.
+    X_HAPLOID_FATHER: _Variant(
+        csq=[],
+        annotations=(_annotation("SYNX", "ENST_SYNX_1", canonical=True),),
+        calls={_PROBAND: _Call("1"), _MOTHER: _Call("0/1"), _FATHER: _Call("1")},
+    ),
+}
+
+# The imputed callset's call of IMPUTED_TWIN: homozygous in the son.
+_IMPUTED_TWINS: dict[str, _Variant] = {
+    IMPUTED_TWIN: _Variant(
+        csq=[],
+        annotations=(_annotation("SYNH", "ENST_SYNH_1", canonical=True),),
+        source="glimpse2",
+        calls=_trio("1|1", mother="0|1", father="0|1"),
+    ),
+}
+
+def _divergence(
+    expected: frozenset[str] | set[str],
+    *,
+    filter_transcripts: dict[str, str | None] | None = None,
+    genotypes: dict[str, dict[str, str]] | None = None,
+    **filters: Any,
+) -> _Case:
+    return _Case(
+        filters=filters,
+        expected=frozenset(expected),
+        filter_transcripts=filter_transcripts,
+        genotypes=genotypes,
+    )
+
+
+DIVERGENCE_CASES: dict[str, _Case] = {
+    "no filter": _divergence(_DIVERGENCES),
+    # Only the family's own calls are read (the owner's decision of 2026-11-06).
+    "phase set a hidden member holds": _divergence({PS_VISIBLE}, phase_set=7777),
+    "pass only, a hidden member's call failed": _divergence(
+        {HIDDEN_CALL_FAILED}, pass_only=True, intervals="11:95101020"
+    ),
+    "pass only, a hidden member's call has its own filter": _divergence(
+        set(), pass_only=True, intervals="11:95101030"
+    ),
+    # A value no column holds is stored as unknown, and an unknown frequency passes.
+    "gnomAD exomes AF no 32-bit float holds": _divergence(
+        {OUT_OF_RANGE}, max_gnomad_exomes_af=0.01, intervals="11:95101040"
+    ),
+    "gnomAD AC no 32-bit integer holds": _divergence({OUT_OF_RANGE}, max_gnomad_ac=10, intervals="11:95101040"),
+    # Gene names as the gene index holds them.
+    "gene id under the key geneID": _divergence({GENE_ID_KEY}, gene="ENSG_SYNH9"),
+    "gene symbol under the key gene_symbol": _divergence({GENE_SYMBOL_KEY}, gene="SYNK"),
+    "excluded gene named second": _divergence({SECOND_SYMBOL}, exclude_gene="SYNJ", intervals="11:95101070"),
+    "gene named second": _divergence(set(), gene="SYNJ"),
+    # The transcript the filters held on, as the stored values read.
+    "filter transcript, a frequency among the population frequencies": _divergence(
+        {POPULATION_FREQUENCY},
+        max_gnomad_af=0.01,
+        intervals="11:95101080",
+        filter_transcripts={POPULATION_FREQUENCY: "ENST_SYNH_2"},
+    ),
+    "filter transcript, no number on the primary": _divergence(
+        {NAN_ON_PRIMARY},
+        max_gnomad_af=0.01,
+        intervals="11:95101090",
+        filter_transcripts={NAN_ON_PRIMARY: None},
+    ),
+    # The imputed callset's own call, whichever view shows it.
+    "source, an imputed twin": _divergence(
+        {IMPUTED_TWIN}, source="glimpse2", genotypes={IMPUTED_TWIN: {_PROBAND: "1|1"}}
+    ),
+    "source left blank, its called twin": _divergence(
+        {IMPUTED_TWIN}, intervals="11:95101100", genotypes={IMPUTED_TWIN: {_PROBAND: "0/1"}}
+    ),
+    # The modes, for a second allele and a hemizygous father.
+    "recessive homozygous, the second allele": _divergence(
+        {MULTI_ALLELIC_HOM}, inheritance="recessive_homozygous", chromosome="11"
+    ),
+    "X-linked, the father carries it": _divergence(set(), inheritance="x_linked", intervals="X:72001000"),
+    "de novo / dominant, the father carries it": _divergence(
+        set(), inheritance="de_novo_dominant", intervals="X:72001000"
+    ),
+    "recessive, the father carries it": _divergence(set(), inheritance="recessive", intervals="X:72001000"),
+}
+
+# The views of the family page: the plain list (SQL alone, or the candidates' read for a
+# search that pairs), the list on one page (page size 0: every candidate, read without a
+# LIMIT), the variant track (SQL alone, under its result limit), the track's sample of the
+# candidates, *Phenotype prioritization* computed and served again from its cached ranking,
+# and a gene panel served from the broader cached ranking of the same search without it.
+_VIEWS = ("plain", "one page", "track", "track sample", "ranked", "ranked from cache", "sub-panel")
+_PANELS_WITH_GENES = frozenset({SMALL_PANEL, LARGE_PANEL})
+_PAGE_ARGUMENTS = {"chromosome": "chr", "phase_set": "ps", "variant_type": "type"}
+
+ALL_CASES: dict[tuple[str, str], _Case] = {
+    **{("trio", name): case for name, case in CASES.items()},
+    **{("divergences", name): case for name, case in DIVERGENCE_CASES.items()},
+}
+
+# The views that re-read the SQL's rows in Python (the record filter, then the modes).
+_PYTHON_VIEWS = ("one page", "track sample", "ranked", "ranked from cache")
+_EVERY_VIEW = ("plain", "one page", "track", "track sample", "ranked", "ranked from cache")
+
+_CACHED_CALLSET = (
+    "PR 2: the ranked page served from the cache fetches its variants without the search's "
+    "callset, which hides the imputed ones and shows another callset's genotypes"
+)
+_HIDDEN_CALLS = "PR 3: SQL reads the calls of a member the family does not show"
+_FILTER_TRANSCRIPT = (
+    "PR 5: Python names the filter transcript by its own reading of the annotation filters, "
+    "not the stored values the SQL reads"
+)
+_RECORD_FILTER = (
+    "PR 6: Python's record filter reads a value or a gene name apart from the stored one the "
+    "SQL reads, and drops what the SQL keeps"
+)
+
+
+def _gaps(family: str, name: str, views: tuple[str, ...], reason: str) -> dict[tuple[str, str, str], str]:
+    return {(family, name, view): reason for view in views}
+
+
+# What a view keeps today that the rule does not, by the PR that closes it. Each is a
+# strict xfail, so the PR that closes one must delete its entry.
+KNOWN_GAPS: dict[tuple[str, str, str], str] = {
+    **_gaps("trio", "source, an imputed callset", ("ranked from cache",), _CACHED_CALLSET),
+    **_gaps("divergences", "source, an imputed twin", ("ranked from cache",), _CACHED_CALLSET),
+    **_gaps("divergences", "phase set a hidden member holds", ("plain", "track"), _HIDDEN_CALLS),
+    **_gaps("divergences", "pass only, a hidden member's call failed", _EVERY_VIEW, _HIDDEN_CALLS),
+    **_gaps(
+        "divergences", "pass only, a hidden member's call has its own filter", ("plain", "track"), _HIDDEN_CALLS
+    ),
+    **_gaps(
+        "divergences", "filter transcript, a frequency among the population frequencies", _EVERY_VIEW,
+        _FILTER_TRANSCRIPT,
+    ),
+    **_gaps("divergences", "filter transcript, no number on the primary", _EVERY_VIEW, _FILTER_TRANSCRIPT),
+    **_gaps("divergences", "gnomAD exomes AF no 32-bit float holds", _PYTHON_VIEWS, _RECORD_FILTER),
+    **_gaps("divergences", "gnomAD AC no 32-bit integer holds", _PYTHON_VIEWS, _RECORD_FILTER),
+    **_gaps("divergences", "gene id under the key geneID", _PYTHON_VIEWS, _RECORD_FILTER),
+    **_gaps("divergences", "gene symbol under the key gene_symbol", _PYTHON_VIEWS, _RECORD_FILTER),
+    **_gaps("divergences", "excluded gene named second", _PYTHON_VIEWS, _RECORD_FILTER),
+}
+
+
+def _pairs(case: _Case) -> bool:
+    return case.filters.get("inheritance") in _PAIRING or bool(case.filters.get("expanded_carrier_screening"))
+
+
+def _views(case: _Case) -> tuple[str, ...]:
+    """The views a request opens: the track only lists what SQL alone keeps (it says a search
+    that pairs has too many to draw), and only a panel of genes is served from a broader
+    ranking."""
+    return tuple(
+        view
+        for view in _VIEWS
+        if not (view == "track" and _pairs(case))
+        and not (view == "sub-panel" and case.filters.get("panel_id") not in _PANELS_WITH_GENES)
+    )
+
+
+def _view_params() -> list[Any]:
+    params = []
+    for (family, name), case in ALL_CASES.items():
+        for view in _views(case):
+            gap = KNOWN_GAPS.get((family, name, view))
+            marks = [pytest.mark.xfail(strict=True, raises=AssertionError, reason=gap)] if gap else []
+            params.append(pytest.param(family, name, view, id=f"{family}: {name}: {view}", marks=marks))
+    return params
+
+
+class _RankingStore:
+    """The ranking cache, in memory: what ``store_ranking`` stores, ``get_cached_ranking`` and
+    ``find_superset_candidates`` find. A ranking is stored under its panel, so a search
+    without one is the broader ranking of the same search with one."""
+
+    def __init__(self) -> None:
+        self.rows: dict[str, dict[str, Any]] = {}
+
+    async def hashes(self, _session: Any, **kwargs: Any) -> tuple[str, str]:
+        return f"inputs-{kwargs['filters'].panel_id}", "base"
+
+    async def get(self, _session: Any, *, family_uuid: str, inputs_hash: str) -> dict[str, Any] | None:
+        return self.rows.get(inputs_hash)
+
+    async def store(self, _session: Any, **kwargs: Any) -> None:
+        from datetime import datetime, timezone
+
+        self.rows[kwargs["inputs_hash"]] = {
+            "inputs_hash": kwargs["inputs_hash"],
+            "panel_id": kwargs["panel_id"],
+            "total": kwargs["total"],
+            "total_is_estimated": kwargs["total_is_estimated"],
+            "ranking_truncated": kwargs["ranking_truncated"],
+            "ranking": kwargs["ranking"],
+            "provenance": kwargs.get("provenance"),
+            "computed_at": datetime.now(timezone.utc),
+        }
+
+    async def supersets(self, _session: Any, *, family_uuid: str, base_hash: str) -> list[dict[str, Any]]:
+        rows = sorted(self.rows.values(), key=lambda row: -int(row["total"]))
+        return [
+            {key: value for key, value in row.items() if key != "ranking"}
+            for row in rows
+            if not row["ranking_truncated"]
+        ]
+
+
+def _stub_page(monkeypatch: pytest.MonkeyPatch, case: _Case, store: _RankingStore) -> None:
+    """Answer what the page reads apart from ClickHouse: the scope's lookups, the family's
+    SV-hit genes, and the ranking's Postgres inputs (the cache, the phenotypes, the
+    hydration), which order and decorate the rows and keep or drop none."""
+    import backend.app.services.clickhouse_family_variants as family_variants
+
+    _stub_lookups(monkeypatch, case)
+
+    async def _none(*_args: Any, **_kwargs: Any) -> None:
+        return None
+
+    async def _empty(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+        return {}
+
+    async def _no_phenotypes(_session: Any, _context: Any) -> tuple[list[str], dict[str, str]]:
+        return [], {}
+
+    async def _sv_hit_genes(_session: Any, *, family_uuid: str) -> list[str]:
+        return list(case.filters.get("sv_hit_genes", []))
+
+    monkeypatch.setattr(family_variants, "_hydrate_small_variant_outs", _none)
+    monkeypatch.setattr(family_variants, "_attach_sv_second_hits", _none)
+    monkeypatch.setattr(family_variants, "_affected_present_hpo", _no_phenotypes)
+    monkeypatch.setattr(family_variants, "_fetch_gene_constraint_metric_map", _empty)
+    # The family's SV-hit genes come from its SVs' gene index (built in Postgres): the case
+    # names them.
+    monkeypatch.setattr(family_variants, "_ensure_family_sv_gene_index", _none)
+    monkeypatch.setattr(family_variants, "get_sv_hit_genes", _sv_hit_genes)
+    monkeypatch.setattr(family_variants, "compute_ranking_hashes", store.hashes)
+    monkeypatch.setattr(family_variants, "get_cached_ranking", store.get)
+    monkeypatch.setattr(family_variants, "store_ranking", store.store)
+    monkeypatch.setattr(family_variants, "find_superset_candidates", store.supersets)
+
+
+def _page_answer(page: Any) -> dict[str, Any]:
+    variants = [*page.variants, *(variant for group in page.variant_groups or [] for variant in group.variants)]
+    return {
+        "ids": frozenset(str(variant.id) for variant in variants),
+        "total": page.total,
+        "cached": page.ranking_cached,
+        "filter transcripts": {
+            str(variant.id): variant.filter_transcript.transcript_id if variant.filter_transcript else None
+            for variant in variants
+        },
+        "genotypes": {
+            str(variant.id): {genotype.sample: genotype.gt for genotype in variant.genotypes}
+            for variant in variants
+        },
+    }
+
+
+async def _open_view(context: Any, case: _Case, view: str) -> dict[str, Any]:
+    """The page a request opens in ``view``, read as the rule reads a page."""
+    import backend.app.services.clickhouse_family_variants as family_variants
+
+    store = _RankingStore()
+    monkeypatch = pytest.MonkeyPatch()
+    try:
+        _stub_page(monkeypatch, case, store)
+        arguments = {
+            **{
+                _PAGE_ARGUMENTS.get(key, key): value
+                for key, value in case.filters.items()
+                if key != "sv_hit_genes"
+            },
+            **_review_kwargs(case),
+        }
+
+        async def _open(**options: Any) -> Any:
+            return await family_variants.get_family_small_variants_page(
+                None,  # type: ignore[arg-type]
+                context=context,
+                page=1,
+                **{"page_size": 100, **options, **{k: v for k, v in arguments.items() if k not in options}},
+            )
+
+        if view == "plain":
+            page = await _open()
+        elif view == "one page":
+            page = await _open(page_size=0)
+        elif view == "track":
+            page = await _open(track_mode=True, track_result_limit=10_000)
+        elif view == "track sample":
+            page = await _open(track_mode=True, page_size=1_000)
+        elif view == "ranked":
+            page = await _open(prioritize=True)
+        elif view == "ranked from cache":
+            await _open(prioritize=True)
+            page = await _open(prioritize=True)
+        elif view == "sub-panel":
+            await _open(prioritize=True, panel_id=None)
+            page = await _open(prioritize=True)
+        else:  # pragma: no cover - a view the list above lacks
+            raise AssertionError(view)
+        return _page_answer(page)
+    finally:
+        monkeypatch.undo()
+
+
+def _view_differences(case: _Case, view: str, answer: dict[str, Any]) -> dict[str, Any]:
+    """Where a view's page departs from the rule: the variants it keeps, its count (the plain
+    list of a search that does not pair counts what it keeps), whether a cached view was
+    served from the cache, the transcripts named and the genotypes shown."""
+    if "error" in answer:
+        return {"error": answer["error"]}
+    differences: dict[str, Any] = {}
+    if answer["ids"] != case.expected:
+        differences["variants"] = {
+            "kept too": sorted(answer["ids"] - case.expected),
+            "left out": sorted(case.expected - answer["ids"]),
+        }
+    if view == "plain" and not _pairs(case) and answer["total"] != len(case.expected):
+        differences["count"] = answer["total"]
+    if view in ("ranked from cache", "sub-panel") and not answer["cached"]:
+        differences["served from the cache"] = False
+    for variant_id, transcript in (case.filter_transcripts or {}).items():
+        named = answer["filter transcripts"].get(variant_id)
+        if named != transcript:
+            differences[f"filter transcript of {variant_id}"] = named
+    for variant_id, genotypes in (case.genotypes or {}).items():
+        for sample, genotype in genotypes.items():
+            shown = answer["genotypes"].get(variant_id, {}).get(sample)
+            if shown != genotype:
+                differences[f"genotype of {sample} at {variant_id}"] = shown
+    return differences
+
+
+# The paths a page takes, each of which some view must reach.
+_PATHS = {
+    "_small_variants_native_page": True,
+    "_small_variants_candidate_page": True,
+    "_small_variants_inheritance_page": True,
+    "_small_variants_track_page": True,
+    "_serve_ranking_from_cache": True,
+    "_priorities_from_ranking": False,
+    "_serve_subpanel_from_superset": True,
+    "_filter_expanded_carrier_screening": False,
+}
+
+
+@pytest.fixture(scope="module")
+def stored_divergences(stored_family: dict[str, str]) -> dict[str, str]:
+    """Write the second family's variants once (its imputed twins apart, as an import of
+    another callset writes them), in the first family's project."""
+    from backend.app.services.clickhouse_variant_storage import insert_small_variant_records
+
+    family_uuid = str(uuid4())
+
+    async def _write() -> None:
+        try:
+            for variants in (_DIVERGENCES, _IMPUTED_TWINS):
+                await insert_small_variant_records(
+                    _ASSEMBLY, family_uuid, [stored_family["project"]], _records(variants)
+                )
+        finally:
+            await _close_stores()
+
+    asyncio.run(_write())
+    return {**stored_family, "family_uuid": family_uuid}
+
+
+@pytest.fixture(scope="module")
+def pages(stored_family: dict[str, str], stored_divergences: dict[str, str]) -> dict[Any, Any]:
+    """Every request opened in every view, in one event loop, with the paths reached."""
+    import backend.app.services.clickhouse_family_variants as family_variants
+
+    contexts = {
+        "trio": _context(stored_family["family_uuid"], stored_family["project"], stored_family["assembly_id"]),
+        "divergences": _context(
+            stored_divergences["family_uuid"], stored_divergences["project"], stored_divergences["assembly_id"]
+        ),
+    }
+    reached: set[str] = set()
+    spies = pytest.MonkeyPatch()
+    for name, asynchronous in _PATHS.items():
+        original = getattr(family_variants, name)
+        if asynchronous:
+
+            async def _spy(*args: Any, __name: str = name, __original: Any = original, **kwargs: Any) -> Any:
+                reached.add(__name)
+                return await __original(*args, **kwargs)
+
+        else:
+
+            def _spy(*args: Any, __name: str = name, __original: Any = original, **kwargs: Any) -> Any:  # type: ignore[misc]
+                reached.add(__name)
+                return __original(*args, **kwargs)
+
+        spies.setattr(family_variants, name, _spy)
+
+    async def _run() -> dict[Any, Any]:
+        out: dict[Any, Any] = {}
+        try:
+            for (family, name), case in ALL_CASES.items():
+                for view in _views(case):
+                    # A view that fails is that view's answer, not the end of the others'.
+                    try:
+                        out[(family, name, view)] = await _open_view(contexts[family], case, view)
+                    except Exception as error:  # noqa: BLE001 - reported by the view's test
+                        out[(family, name, view)] = {"error": f"{type(error).__name__}: {error}"}
+        finally:
+            await _close_stores()
+        return out
+
+    try:
+        answers = asyncio.run(_run())
+    finally:
+        spies.undo()
+    answers["reached"] = reached
+    return answers
+
+
+@pytest.mark.parametrize(("family", "name", "view"), _view_params())
+def test_every_view_keeps_what_the_filter_keeps(pages: dict[Any, Any], family: str, name: str, view: str) -> None:
+    assert _view_differences(ALL_CASES[(family, name)], view, pages[(family, name, view)]) == {}
+
+
+def test_every_path_of_the_page_is_reached(pages: dict[Any, Any]) -> None:
+    """Each path a page can take is opened by some view, so none goes untested."""
+    assert set(_PATHS) - pages["reached"] == set()
