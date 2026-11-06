@@ -59,6 +59,7 @@ from .sex_chromosomes import (
 from .sv_copy_change import copy_change
 from .family_variant_filters import (
     SmallVariantQueryFilters,
+    SmallVariantSampleFilter,
     StructuralVariantQueryFilters,
     in_silico_prediction_pattern,
     is_translocation_sv_type,
@@ -2233,53 +2234,103 @@ def _small_variant_where_clauses(
         params["phase_set"] = filters.phase_set
     if visible_sample_ids and filters.pass_only:
         where_clauses.append(_small_pass_only_condition(params))
-    if filters.variant_type:
-        # SNV one base for one, MNV REF and ALT of one length longer than one base, INDEL
-        # every variant that is no SNV (an MNV included); another value asks nothing.
-        variant_type = _casefold(filters.variant_type).upper()
-        if variant_type == "SNV":
-            where_clauses.append("length(e.ref) = 1 AND length(e.alt) = 1")
-        elif variant_type == "MNV":
-            where_clauses.append("length(e.ref) = length(e.alt) AND length(e.ref) > 1")
-        elif variant_type == "INDEL":
-            where_clauses.append("NOT (length(e.ref) = 1 AND length(e.alt) = 1)")
-    # The callset and the rsID are found in the stored text, as typed but for the spaces
-    # around them; a blank value asks nothing. Untrimmed, a
-    # value with a space around it found nothing, and a blank callset kept nothing and
-    # skipped the imputed-callset default (ENG-1).
+    where_clauses.extend(
+        _small_row_filter_clauses(context, filters, params=params, exclude_imputed=exclude_imputed)
+    )
+    return where_clauses, params
+
+
+def _small_variant_type_condition(variant_type: str | None, *, alias: str = "e") -> str | None:
+    """The variant type filter on the rows ``alias``: SNV one base for one, MNV REF and ALT
+    of one length longer than one base, INDEL every variant that is no SNV (an MNV
+    included). Another value, or none, asks nothing (None)."""
+    normalized = _casefold(variant_type or "").upper()
+    if normalized == "SNV":
+        return f"length({alias}.ref) = 1 AND length({alias}.alt) = 1"
+    if normalized == "MNV":
+        return f"length({alias}.ref) = length({alias}.alt) AND length({alias}.ref) > 1"
+    if normalized == "INDEL":
+        return f"NOT (length({alias}.ref) = 1 AND length({alias}.alt) = 1)"
+    return None
+
+
+def _small_callset_clauses(
+    filters: SmallVariantQueryFilters,
+    *,
+    params: dict[str, Any],
+    exclude_imputed: bool,
+    alias: str = "e",
+) -> list[str]:
+    """The callset filter on the rows ``alias``: the callset (``source``) found in the stored
+    text, as typed but for the spaces around it. Without one, ``exclude_imputed`` hides the
+    imputed callsets (GLIMPSE2, SHAPEIT), as the family page's list and count and the Variant
+    Explorer do by default; the phased-marker and sample-QC readers see every callset. A
+    blank callset asks nothing: untrimmed, a value with a space around it found nothing, and
+    a blank callset kept nothing and skipped the imputed-callset default (ENG-1)."""
     source = (filters.source or "").strip()
-    rsid = (filters.rsid or "").strip()
     if source:
         params["source"] = source
-        where_clauses.append("positionCaseInsensitive(e.source, %(source)s) > 0")
-    elif exclude_imputed:
-        # Diagnostic list/count: hide imputed callsets (glimpse2/shapeit) by default,
-        # consistent with the global Variant Explorer. An explicit filters.source still
-        # surfaces them (handled above); the phased-marker / sample-QC readers pass
-        # exclude_imputed=False so they continue to see every callset.
+        return [f"positionCaseInsensitive({alias}.source, %(source)s) > 0"]
+    if exclude_imputed:
         params["imputed_sources"] = tuple(IMPUTED_SMALL_VARIANT_SOURCES)
-        where_clauses.append("lowerUTF8(e.source) NOT IN %(imputed_sources)s")
+        return [f"lowerUTF8({alias}.source) NOT IN %(imputed_sources)s"]
+    return []
+
+
+def _small_locus_clauses(
+    filters: SmallVariantQueryFilters, *, params: dict[str, Any], alias: str = "e"
+) -> list[str]:
+    """The location filters on the rows ``alias``: the chromosome with or without ``chr``,
+    and chrM by any of its names (``_chromosome_options``); a variant that starts at or after
+    the start or, with ``overlap``, whose REF reaches it (from a start alone too, which used
+    to read the variant's start, ENG-1); one that starts at or before the end; and, with a
+    chromosome, the ``xpos`` range of the locus, which the sort key reads. The annotation
+    subqueries repeat the locus as these clauses bind it (``_small_annotation_scope_clauses``,
+    ``_small_family_key_condition``)."""
+    clauses: list[str] = []
     if filters.chromosome:
-        where_clauses.append("e.chrom IN %(chromosomes)s")
+        clauses.append(f"{alias}.chrom IN %(chromosomes)s")
         params["chromosomes"] = _chromosome_options(filters.chromosome)
-    # A location keeps a variant that starts in it or, with ``overlap``, one that overlaps
-    # it: from a start alone too, which used to read the variant's start (ENG-1).
     if filters.start is not None:
-        where_clauses.append(
-            "(e.pos + length(e.ref) - 1) >= %(start)s" if filters.overlap else "e.pos >= %(start)s"
+        clauses.append(
+            f"({alias}.pos + length({alias}.ref) - 1) >= %(start)s"
+            if filters.overlap
+            else f"{alias}.pos >= %(start)s"
         )
         params["start"] = filters.start
     if filters.end is not None:
-        where_clauses.append("e.pos <= %(end)s")
+        clauses.append(f"{alias}.pos <= %(end)s")
         params["end"] = filters.end
     if filters.chromosome:
         xpos_start = 0 if filters.overlap else (filters.start or 0)
         xpos_end = filters.end if filters.end is not None else 999_999_999
-        where_clauses.append("e.xpos BETWEEN %(xpos_start)s AND %(xpos_end)s")
+        clauses.append(f"{alias}.xpos BETWEEN %(xpos_start)s AND %(xpos_end)s")
         params["xpos_start"] = _xpos(filters.chromosome, xpos_start)
         params["xpos_end"] = _xpos(filters.chromosome, xpos_end)
-    # After the locus, which the annotation subquery's scope and its family keys repeat
-    # (``_small_annotation_scope_clauses``, ``_small_family_key_condition``).
+    return clauses
+
+
+def _small_row_filter_clauses(
+    context: _SearchAssembly,
+    filters: SmallVariantQueryFilters,
+    *,
+    params: dict[str, Any],
+    exclude_imputed: bool,
+) -> list[str]:
+    """The filters on an entries row (alias ``e``) that need no family: the variant type, the
+    callset, the location and the rsID. The family search (``_small_variant_where_clauses``)
+    and the Variant Explorer (``variant_explorer_service._entries_where``) read them here.
+
+    The rsID is found, as typed but for the spaces around it, in the row's own rsID or in
+    its own annotation's (the row's annotation set, ``_small_annotation_key_membership_condition``).
+    It comes after the locus, which the annotation subquery's scope repeats."""
+    clauses: list[str] = []
+    variant_type = _small_variant_type_condition(filters.variant_type)
+    if variant_type:
+        clauses.append(variant_type)
+    clauses.extend(_small_callset_clauses(filters, params=params, exclude_imputed=exclude_imputed))
+    clauses.extend(_small_locus_clauses(filters, params=params))
+    rsid = (filters.rsid or "").strip()
     if rsid:
         params["rsid"] = rsid
         annotation_rsid_condition = _small_annotation_key_membership_condition(
@@ -2288,10 +2339,10 @@ def _small_variant_where_clauses(
             params=params,
             condition="positionCaseInsensitive(ifNull(ai.rsid, ''), %(rsid)s) > 0",
         )
-        where_clauses.append(
+        clauses.append(
             f"(positionCaseInsensitive(ifNull(e.rsid, ''), %(rsid)s) > 0 OR {annotation_rsid_condition})"
         )
-    return where_clauses, params
+    return clauses
 
 
 def _text_contains_any(expr: str, *, prefix: str, values: Sequence[str], params: dict[str, Any]) -> str | None:
@@ -2848,7 +2899,7 @@ def _small_annotation_gene_membership_condition(
 
 
 def _small_annotation_key_membership_condition(
-    context: FamilyMetadataContext,
+    context: _SearchAssembly,
     filters: SmallVariantQueryFilters,
     *,
     params: dict[str, Any],
@@ -2873,7 +2924,7 @@ def _small_annotation_key_membership_condition(
 
 
 def _small_annotation_row_membership_condition(
-    context: FamilyMetadataContext,
+    context: _SearchAssembly,
     filters: SmallVariantQueryFilters,
     *,
     params: dict[str, Any],
@@ -2907,56 +2958,77 @@ def _small_native_sample_filter_clauses(
         parsed = parse_small_variant_sample_filter(entry)
         if parsed is None:
             continue
-        sample_param = f"sample_filter_{index}_samples"
         sample_ids = _clickhouse_ids_for_sample(context, parsed.sample_name)
         if not sample_ids:
             continue
-        conditions = [f"sample_id IN %({sample_param})s"]
-        params[sample_param] = sample_ids
-        if parsed.genotype_classes:
-            conditions.append(
-                clickhouse_genotype_condition(
-                    "gt", parsed.genotype_classes, param=f"sample_filter_{index}_gts", params=params
-                )
+        clauses.append(
+            _small_sample_call_condition(
+                sample_ids, parsed, prefix=f"sample_filter_{index}", params=params
             )
-        if parsed.minimum_genotype_quality is not None:
-            gq_param = f"sample_filter_{index}_min_gq"
-            conditions.append(f"gq >= %({gq_param})s")
-            params[gq_param] = parsed.minimum_genotype_quality
-        if parsed.minimum_depth is not None:
-            dp_param = f"sample_filter_{index}_min_dp"
-            conditions.append(f"dp >= %({dp_param})s")
-            params[dp_param] = parsed.minimum_depth
-        if parsed.minimum_allele_frequency is not None:
-            # At the precision the fraction is stored at (Float32), as in Python: 0.45 is
-            # stored a little below 0.45 and failed a minimum of 0.45 (ENG-1).
-            af_param = f"sample_filter_{index}_min_af"
-            conditions.append(
-                "("
-                f"(length(af) > 0 AND arrayMax(af) >= toFloat32(%({af_param})s)) "
-                f"OR (length(af) = 0 AND ab >= toFloat32(%({af_param})s))"
-                ")"
-            )
-            params[af_param] = parsed.minimum_allele_frequency
-        if parsed.minimum_alt_depth is not None:
-            ad_param = f"sample_filter_{index}_min_ad_alt"
-            conditions.append(f"(length(ad) > 1 AND ad[2] >= %({ad_param})s)")
-            params[ad_param] = parsed.minimum_alt_depth
-        present_clause = (
-            "arrayExists((sample_id, gt, gq, dp, ab, af, ad) -> "
-            f"{' AND '.join(conditions)}, "
-            "e.calls.sampleId, e.calls.gt, e.calls.gq, e.calls.dp, e.calls.ab, e.calls.af, e.calls.ad)"
         )
-        if parsed.include_absent:
-            clauses.append(
-                "("
-                f"NOT arrayExists(sample_id -> sample_id IN %({sample_param})s, e.calls.sampleId) "
-                f"OR {present_clause}"
-                ")"
-            )
-        else:
-            clauses.append(present_clause)
     return clauses, params
+
+
+def _small_sample_call_condition(
+    sample_ids: Sequence[str],
+    sample_filter: SmallVariantSampleFilter,
+    *,
+    prefix: str,
+    params: dict[str, Any],
+    alias: str = "e",
+) -> str:
+    """One sample filter on the calls of the rows ``alias``: the sample, by any of its
+    stored ``sample_ids``, has a call of one of the filter's genotype classes (any, without
+    one) that meets its GQ, DP, allele-fraction and ALT-depth minimums; with
+    ``include_absent``, a row without a call of the sample passes too. The family search
+    reads each sample filter here (``_small_native_sample_filter_clauses``), and the Variant
+    Explorer its genotype filter (``variant_explorer_service._entries_where``)."""
+    sample_param = f"{prefix}_samples"
+    params[sample_param] = tuple(sample_ids)
+    conditions = [f"sample_id IN %({sample_param})s"]
+    if sample_filter.genotype_classes:
+        conditions.append(
+            clickhouse_genotype_condition(
+                "gt", sample_filter.genotype_classes, param=f"{prefix}_gts", params=params
+            )
+        )
+    if sample_filter.minimum_genotype_quality is not None:
+        gq_param = f"{prefix}_min_gq"
+        conditions.append(f"gq >= %({gq_param})s")
+        params[gq_param] = sample_filter.minimum_genotype_quality
+    if sample_filter.minimum_depth is not None:
+        dp_param = f"{prefix}_min_dp"
+        conditions.append(f"dp >= %({dp_param})s")
+        params[dp_param] = sample_filter.minimum_depth
+    if sample_filter.minimum_allele_frequency is not None:
+        # At the precision the fraction is stored at (Float32), as in Python: 0.45 is
+        # stored a little below 0.45 and failed a minimum of 0.45 (ENG-1).
+        af_param = f"{prefix}_min_af"
+        conditions.append(
+            "("
+            f"(length(af) > 0 AND arrayMax(af) >= toFloat32(%({af_param})s)) "
+            f"OR (length(af) = 0 AND ab >= toFloat32(%({af_param})s))"
+            ")"
+        )
+        params[af_param] = sample_filter.minimum_allele_frequency
+    if sample_filter.minimum_alt_depth is not None:
+        ad_param = f"{prefix}_min_ad_alt"
+        conditions.append(f"(length(ad) > 1 AND ad[2] >= %({ad_param})s)")
+        params[ad_param] = sample_filter.minimum_alt_depth
+    calls = ", ".join(
+        f"{alias}.calls.{column}" for column in ("sampleId", "gt", "gq", "dp", "ab", "af", "ad")
+    )
+    present_clause = (
+        f"arrayExists((sample_id, gt, gq, dp, ab, af, ad) -> {' AND '.join(conditions)}, {calls})"
+    )
+    if not sample_filter.include_absent:
+        return present_clause
+    return (
+        "("
+        f"NOT arrayExists(sample_id -> sample_id IN %({sample_param})s, {alias}.calls.sampleId) "
+        f"OR {present_clause}"
+        ")"
+    )
 
 
 def _structural_region_bounds(regions: Sequence[Region]) -> tuple[list[str], list[int], list[int]]:
@@ -3282,50 +3354,7 @@ def _small_query_filter_parts(
         exclude_variant_ids=exclude_variant_ids,
         exclude_imputed=exclude_imputed,
     )
-
-    gene_condition = _small_gene_filter_condition(
-        _split_gene_terms(filters.gene),
-        prefix="entry_gene",
-        params=params,
-    )
-    gene_terms = _split_gene_terms(filters.gene)
-    annotation_gene_membership = _small_annotation_gene_membership_condition(
-        context,
-        filters,
-        gene_terms,
-        prefix="annotation_gene",
-        params=params,
-    )
-    if gene_condition and annotation_gene_membership:
-        where_clauses.append(f"({gene_condition} OR {annotation_gene_membership})")
-    elif gene_condition:
-        where_clauses.append(gene_condition)
-    elif annotation_gene_membership:
-        where_clauses.append(annotation_gene_membership)
-
-    detail_where_clauses, detail_params = _small_detail_filter_clauses(filters)
-    params.update(detail_params)
-    for detail_where_clause in detail_where_clauses:
-        where_clauses.append(
-            _small_annotation_row_membership_condition(
-                context,
-                filters,
-                params=params,
-                condition=detail_where_clause,
-            )
-        )
-
-    exclude_annotation_condition = _small_annotation_exclude_filter_condition(filters, params=params)
-    if exclude_annotation_condition:
-        where_clauses.append(
-            _small_annotation_row_membership_condition(
-                context,
-                filters,
-                params=params,
-                condition=exclude_annotation_condition,
-                negate=True,
-            )
-        )
+    where_clauses.extend(_small_annotation_filter_clauses(context, filters, params=params))
 
     panel_constraints = panel_constraints or PanelFilterConstraints()
     panel_condition = _small_panel_filter_condition(
@@ -3366,26 +3395,102 @@ def _small_query_filter_parts(
     if exclude_region_condition:
         where_clauses.append(f"NOT {exclude_region_condition}")
 
-    exclude_gene_condition = _small_gene_filter_condition(
-        exclude_gene_terms,
-        prefix="entry_exclude_gene",
-        params=params,
-    )
-    exclude_annotation_membership = _small_annotation_gene_membership_condition(
+    exclude_gene_condition = _small_gene_condition(
         context,
         filters,
         exclude_gene_terms,
-        prefix="annotation_exclude_gene",
+        entry_prefix="entry_exclude_gene",
+        annotation_prefix="annotation_exclude_gene",
         params=params,
     )
-    if exclude_gene_condition and exclude_annotation_membership:
-        where_clauses.append(f"NOT ({exclude_gene_condition} OR {exclude_annotation_membership})")
-    elif exclude_gene_condition:
+    if exclude_gene_condition:
         where_clauses.append(f"NOT {exclude_gene_condition}")
-    elif exclude_annotation_membership:
-        where_clauses.append(f"NOT {exclude_annotation_membership}")
 
     return where_clauses, params, False
+
+
+def _small_gene_condition(
+    context: _SearchAssembly,
+    filters: SmallVariantQueryFilters,
+    gene_terms: Sequence[str],
+    *,
+    entry_prefix: str,
+    annotation_prefix: str,
+    params: dict[str, Any],
+) -> str | None:
+    """The entry row (alias ``e``) is of one of ``gene_terms``, in any capitals: in the row's
+    own gene symbols, or in the gene index of its own annotation (its symbols and Ensembl
+    gene IDs, ``_small_annotation_gene_membership_condition``). None without a term."""
+    conditions = [
+        condition
+        for condition in (
+            _small_gene_filter_condition(gene_terms, prefix=entry_prefix, params=params),
+            _small_annotation_gene_membership_condition(
+                context, filters, gene_terms, prefix=annotation_prefix, params=params
+            ),
+        )
+        if condition
+    ]
+    if not conditions:
+        return None
+    return conditions[0] if len(conditions) == 1 else f"({' OR '.join(conditions)})"
+
+
+def _small_annotation_filter_clauses(
+    context: _SearchAssembly,
+    filters: SmallVariantQueryFilters,
+    *,
+    params: dict[str, Any],
+) -> list[str]:
+    """The annotation filters on an entries row (alias ``e``), each read on the row's own
+    annotation (its key, annotation version and annotation set): the gene
+    (``_small_gene_condition``); one transcript meeting every per-transcript filter together
+    (``_small_annotation_filter_condition``: impact, consequence, ClinVar, HGVS, frequency
+    with the ClinVar P/LP rescue, in-silico scores, Canonical, MANE and LoF only); and no
+    transcript of an excluded ClinVar class. The family search
+    (``_small_query_filter_parts``) and the Variant Explorer
+    (``variant_explorer_service._entries_where``) read them here, after the row filters
+    (``_small_row_filter_clauses``), whose locus the annotation subqueries repeat.
+
+    A variant that two families carry under two annotations (two VEP runs) is so kept for
+    the family whose own annotation meets the filters: the Explorer counts that family's
+    carriers alone (the owner's decision of 2026-11-06)."""
+    clauses: list[str] = []
+    gene_condition = _small_gene_condition(
+        context,
+        filters,
+        _split_gene_terms(filters.gene),
+        entry_prefix="entry_gene",
+        annotation_prefix="annotation_gene",
+        params=params,
+    )
+    if gene_condition:
+        clauses.append(gene_condition)
+
+    detail_where_clauses, detail_params = _small_detail_filter_clauses(filters)
+    params.update(detail_params)
+    for detail_where_clause in detail_where_clauses:
+        clauses.append(
+            _small_annotation_row_membership_condition(
+                context,
+                filters,
+                params=params,
+                condition=detail_where_clause,
+            )
+        )
+
+    exclude_annotation_condition = _small_annotation_exclude_filter_condition(filters, params=params)
+    if exclude_annotation_condition:
+        clauses.append(
+            _small_annotation_row_membership_condition(
+                context,
+                filters,
+                params=params,
+                condition=exclude_annotation_condition,
+                negate=True,
+            )
+        )
+    return clauses
 
 
 def _selected_structural_samples(

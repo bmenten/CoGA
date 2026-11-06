@@ -30,6 +30,14 @@ the tags of all of them.
 - The annotation filters work as on the family page: they must all hold on one transcript of the
   variant, one of the in-silico predictors you set is enough, and *MANE only* keeps nothing on GRCh37 or
   T2T (see [Small-variant prioritisation](#small-variant-filtering)).
+- Every filter is read for each family as its own family page reads it, so a row counts the carriers
+  and families of the family pages that show the variant. When two families' files were annotated
+  differently (two VEP runs), a filter on the gene, consequence, ClinVar or frequency counts only the
+  family whose own annotation meets it.
+- A location reads the chromosome with or without *chr*, and the mitochondrion as chrM, M or MT.
+- **Genotype per sample** keeps the variants that sample carries as het, hom or either (a haploid call,
+  on chrM or a male's X, counts as hom). The row still counts every carrier in your projects, not only
+  that sample's family.
 - A gene panel works as on the family page too: it keeps the variants of its genes and the variants in
   its regions (PanelApp's regions for the assembly, and each gene's position in the gene reference), so a
   variant whose annotation names its gene differently is kept. This holds for a panel of any size, the

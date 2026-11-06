@@ -232,19 +232,25 @@ def test_one_predictor_is_enough() -> None:
 def test_the_variant_explorer_applies_the_same_condition() -> None:
     # The explorer builds its per-transcript condition with the family search's function
     # (CLIN-29), so it reads SIFT and PolyPhen by the same rule.
+    from backend.app.services.clickhouse_variant_queries import _small_annotation_filter_condition
     from backend.app.services.variant_explorer_service import (
+        ExplorerScope,
         GlobalVariantFilters,
-        _transcript_annotation_condition,
+        _entries_where,
+        _family_search_filters,
     )
 
+    scope = ExplorerScope(assembly_id="a1", assembly_name="GRCh38", project_ids=["p1"])
     for filters, column, kept, dropped in (
         (GlobalVariantFilters(sift="deleterious"), "sift", "deleterious(0.01)", "deleterious_low_confidence(0.03)"),
         (GlobalVariantFilters(sift="tolerated"), "sift", "tolerated(0.4)", "tolerated_low_confidence(0.6)"),
         (GlobalVariantFilters(polyphen="benign"), "polyphen", "benign(0.004)", "probably_damaging(0.9)"),
     ):
         params: dict[str, Any] = {}
-        condition = _transcript_annotation_condition(filters, params)
+        condition = _small_annotation_filter_condition(_family_search_filters(filters), params=params)
         assert condition is not None
+        # It is the condition the explorer's search puts on a transcript row.
+        assert any(condition in clause for clause in _entries_where(scope, filters, {}, tag_variant_ids=None))
         call = _FUNCTION_CALL.fullmatch(_strip_parentheses(condition))
         assert call is not None, condition
         function, called_column, param, _positive = call.groups()

@@ -13,7 +13,7 @@ Enkele begrippen:
 
 De filterpagina van een familie (hoofdstuk 8) beantwoordt "welke varianten zitten in *deze* familie?". De Variant Explorer draait de vraag om: "in hoeveel samples en families van mijn toegankelijke cohort komt *deze* variant voor?". Elke rij is één unieke variant, met de tellers *Total samples*, *Het*, *Hom* en *Families*.
 
-Het scherm (`/variant-explorer`) heeft een keuzelijst voor de assembly, een filter op genotype per sample, het gewone annotatiefilterformulier en de resultaattabel. Een klik op een teller opent een venster met de dragers, gegroepeerd per familie, met een link naar elke familie. Het formulier is dat van de familiepagina, zonder de velden voor familie en samples. Filters die de Explorer niet toepast, biedt het hier niet aan, en hun parameters worden niet verstuurd: een intervallijst, transcript, uit te sluiten genen en intervallen, uit te sluiten tags, "heeft notities".
+Het scherm (`/variant-explorer`) heeft een keuzelijst voor de assembly, een filter op genotype per sample, het gewone annotatiefilterformulier en de resultaattabel. Een klik op een teller opent een venster met de dragers, gegroepeerd per familie, met een link naar elke familie. Het formulier is dat van de familiepagina, zonder de velden voor familie en samples. Filters die de Explorer niet toepast, biedt het hier niet aan, en hun parameters worden niet verstuurd: een intervallijst, transcript, callset, uit te sluiten genen en intervallen, uit te sluiten tags, "heeft notities" en *Pass variants only*. Die laatste blijft een filter van de familiepagina, die alleen de getoonde familieleden leest (beslissing van de eigenaar van 6 november 2026).
 
 **Waar in de code:** `frontend/src/pages/variant-explorer/` (`GlobalSmallVariantExplorerPage.tsx`, `globalSmallVariantSearch.ts`, `GlobalSmallVariantTable.tsx`, `VariantCarrierModal.tsx`).
 
@@ -47,21 +47,28 @@ De Explorer telt rechtstreeks uit de ClickHouse-tabel `entries`, niet uit een vo
 
 ## Filters
 
-Bovenop de gewone annotatiefilters (gen, panel, impact, ClinVar, gnomAD, CADD, REVEL, SpliceAI, …) kent de Explorer twee soorten filters:
+Bovenop de filters van de familiepagina (locatie, type, gen, rsID, panel, impact, ClinVar, gnomAD, CADD, REVEL, SpliceAI, …) kent de Explorer twee soorten filters:
 
 1. **Tags en classificaties.** Die staan per familie in Postgres. Filtert de gebruiker erop, dan zoekt de Explorer eerst in Postgres de bijbehorende variant-id's binnen de toegankelijke projecten, en geeft die lijst mee aan de ClickHouse-vraag. Een lege lijst geeft meteen een leeg resultaat. De lijst staat letterlijk in de query en telt daarom hoogstens 200.000 id's: de eerste in de volgorde van de variant-id, zodat dezelfde filter altijd dezelfde lijst geeft. Postgres leest er één meer, om te weten of er meer matchten; dan kan de zoekopdracht treffers missen. De CSV-export meldt dat, de lijst op het scherm niet.
-2. **Genotype per sample.** De gebruiker voegt regels toe van de vorm sample met *Het*, *Hom* of *Het + Hom*. Elke regel is een aparte voorwaarde; een variant moet aan alle regels voldoen.
+2. **Genotype per sample.** De gebruiker voegt regels toe van de vorm sample met *Het*, *Hom* of *Het + Hom*. Elke regel is een aparte voorwaarde; een variant moet aan alle regels voldoen. De Explorer leest de call van het sample met de samplefilter van de familiepagina (`_small_sample_call_condition` in `clickhouse_variant_queries.py`), dus met dezelfde genotypeklassen: een haploïde `1` is homozygoot, een `1/2` heterozygoot. Hij leest wel per variant, niet per rij: hij houdt een variant die het sample in een van zijn rijen met dat genotype draagt, en telt dan alle dragers van het cohort. De familiepagina houdt alleen de rijen van haar eigen familie. Per rij lezen zou in de Explorer alleen de dragers van de familie van dat sample tellen. Dit is het enige gedocumenteerde verschil tussen beide (beslissing van de eigenaar van 6 november 2026).
 
-**De annotatiefilters per transcript, zoals de familiepagina.** De Explorer houdt dezelfde varianten over als de familiepagina, want hij bouwt zijn annotatievoorwaarde met dezelfde functie: `_small_annotation_filter_condition` in `clickhouse_variant_queries.py`, die `_transcript_annotation_condition` aanroept met de filters van de Explorer.
+**Eén definitie: de bouwstenen van de familiezoekopdracht.** Elke filter die de Explorer met de familiepagina deelt, bouwt hij met de functie van de familiezoekopdracht in `clickhouse_variant_queries.py` (`_entries_where` in `variant_explorer_service.py` roept ze aan):
 
-- Deze filters moeten samen gelden voor één transcript (één rij van de tabel `annotations`): impact en gevolg, HGVS, de ClinVar-status, de frequentiegrenzen, de voorspellers, en *Canonical only*, *MANE only* en *LoF only*. De frequentiegrenzen kennen de uitzondering "een (waarschijnlijk) pathogene ClinVar-variant passeert het frequentiefilter", op dezelfde ClinVar-termen. Met *MANE only* en impact HIGH valt zo een variant weg waarvan het HIGH-transcript niet het MANE-transcript is.
-- Van de voorspellers (CADD, REVEL, SpliceAI, SIFT, PolyPhen) volstaat er één. Een SpliceAI-score vanaf de grens telt ook als treffer voor impact en gevolg.
-- Het gen, de rsID en de uit te sluiten ClinVar-statussen gelden, ook op de familiepagina, voor de variant als geheel. Die blijven op de annotatie-index.
-- Het panel past de Explorer toe zoals de familiepagina (hieronder).
+- `_small_row_filter_clauses`: het varianttype, de geïmputeerde callsets, de locatie en de rsID;
+- `_small_annotation_filter_clauses`: het gen, de annotatiefilters per transcript en de uit te sluiten ClinVar-statussen;
+- `_small_panel_filter_condition`: het panel (hieronder).
 
-Vroeger toetste de Explorer elke filter apart aan de annotatie-index, die de transcripten van een variant samenvoegt. Hij hield zo'n variant dan wel over, en eiste alle gekozen voorspellers tegelijk (CLIN-29).
+Hij leest elke rij van `entries` zoals de familiepagina haar leest, met haar eigen annotatie: de variantsleutel, de annotatieversie en de annotatieset van die rij. Een rij blijft dus over precies wanneer de familiepagina van haar familie de variant toont, en een rij van de Explorer telt de families en dragers van die familiepagina's samen. Dat verschilt alleen als dezelfde variant in twee families met een andere annotatie geïmporteerd is (twee VEP-runs). Een voorbeeld: familie A zegt *stop gained* (HIGH), familie B *missense* (MODERATE). Met impact HIGH toont de familiepagina van A de variant, die van B niet; de Explorer toont hem met alleen de dragers van A (beslissing van de eigenaar van 6 november 2026).
 
-De Explorer toetst een variant aan elke annotatieset die voor zijn variantsleutel opgeslagen is; de familiepagina aan de set van haar eigen rij. Dat verschilt alleen als dezelfde variant in twee families met een andere annotatie geïmporteerd is. De genen van een panel toetst de Explorer wel per rij, zoals de familiepagina: aan de gensymbolen en de annotatieset van die rij.
+- **De locatie.** Het chromosoom geldt met of zonder `chr`, en het mitochondrion als `chrM`, `M` of `MT` (`_chromosome_options`). Een variant valt binnen de locatie als hij er begint (zijn positie op of na het begin, op of vóór het einde).
+- **Het gen.** In de gensymbolen van de rij, of in de genindex van haar annotatie (gensymbolen en Ensembl-gen-id's), in welke schrijfwijze ook.
+- **De rsID.** In de rsID van de rij of in die van haar annotatie, zoals getypt maar zonder spaties rond.
+- **De uit te sluiten ClinVar-statussen.** Geen transcript van de annotatie van de rij heeft die status.
+- **De annotatiefilters per transcript** moeten samen gelden voor één transcript (één rij van de tabel `annotations`), met de voorwaarde `_small_annotation_filter_condition`: impact en gevolg, HGVS, de ClinVar-status, de frequentiegrenzen, de voorspellers, en *Canonical only*, *MANE only* en *LoF only*. De frequentiegrenzen kennen de uitzondering "een (waarschijnlijk) pathogene ClinVar-variant passeert het frequentiefilter", op dezelfde ClinVar-termen. Met *MANE only* en impact HIGH valt zo een variant weg waarvan het HIGH-transcript niet het MANE-transcript is. Van de voorspellers (CADD, REVEL, SpliceAI, SIFT, PolyPhen) volstaat er één. Een SpliceAI-score vanaf de grens telt ook als treffer voor impact en gevolg.
+
+Vroeger bouwde de Explorer de locatie, het gen, de rsID en de uit te sluiten ClinVar-statussen zelf. Hij las het chromosoom zoals verstuurd: `chrM:1-16569` (verstuurd als `M`) vond niets van een familie waarvan de VCF het mitochondrion `MT` noemt. En hij toetste het gen, de rsID, de ClinVar-statussen en de filters per transcript aan elke annotatie van de variantsleutel: de annotatie van één familie liet de dragers van alle families door. Nog vroeger toetste hij elke annotatiefilter apart aan de annotatie-index, die de transcripten van een variant samenvoegt, en eiste hij alle gekozen voorspellers tegelijk (CLIN-29).
+
+**Waar getest:** `backend/tests/integration/test_variant_explorer_filter_rule_clickhouse.py` (op echte ClickHouse: twee families, één variant onder twee annotaties, het mitochondrion als `M` en als `MT`; voor elke filter houdt elke familiepagina over wat de regel overhoudt, en telt elke rij van de Explorer de families en dragers van die pagina's); `backend/tests/test_variant_explorer_service.py` (elke clausule van de Explorer is die van de familiezoekopdracht, met dezelfde parameters).
 
 **Het genpanel, zoals de familiepagina.** De Explorer leest een panel zoals de familiepagina het leest (`_fetch_panel_constraints` in `clickhouse_family_variants.py`), voor de assembly van de zoekopdracht:
 
@@ -102,7 +109,7 @@ De reviews van de rijen (tags, classificatie, laatste review) zoekt de export in
 Dit is voor een auditor het belangrijkste deel. Elke vraag is hard beperkt tot de projecten van de gebruiker:
 
 - De scope wordt op één plaats bepaald. **Een superuser en een beheerder** (`superuser`, `admin`; `has_superuser_rights`) zien alle projecten, **andere gebruikers** alleen hun eigen projecten. Zonder projecten is het resultaat gegarandeerd leeg.
-- Elke vraag naar `entries` krijgt die projecten verplicht mee (`project_guid IN …`): de lijstvraag, de begrensde telling, de voorwaarden per sample en de dragervraag. `project_guid` is gelijk aan de project-UUID in Postgres. Rijen van andere projecten vallen dus weg voordat er iets geteld wordt. De annotatiefilters en het panel lezen per variant de tabellen `annotations`, `annotation_index` en `gene_index`; de annotatie van de zichtbare pagina komt daarna uit de annotatie-index. Geen van die tabellen bevat project-, familie- of samplegegevens.
+- Elke vraag naar `entries` krijgt die projecten verplicht mee (`project_guid IN …`): de lijstvraag, de begrensde telling, de voorwaarden per sample en de dragervraag. `project_guid` is gelijk aan de project-UUID in Postgres. Rijen van andere projecten vallen dus weg voordat er iets geteld wordt. De annotatiefilters en het panel lezen per rij (variantsleutel, annotatieversie en annotatieset) de tabellen `annotations`, `annotation_index` en `gene_index`; de annotatie van de zichtbare pagina komt daarna uit de annotatie-index. Geen van die tabellen bevat project-, familie- of samplegegevens.
 - De frontend toont alleen een melding als er niets is ("… in your accessible projects"); de afscherming zit volledig op de server.
 
 Het bestand `backend/app/services/data_scope.py` gaat, ondanks de naam, niet over deze afscherming maar over chromosoomnamen. De toegangsscope staat in `variant_explorer_service.py` (`resolve_scope`).
@@ -118,7 +125,7 @@ De Explorer bevraagt mogelijk vele projecten en miljoenen genotypes. Enkele keuz
 - **Verdeling per project.** De tabel `entries` is verdeeld per project (hoofdstuk 3). Elke vraag begint met de projectfilter, dus slaat ClickHouse alle andere projecten meteen over. Dat is snelheid én de fysieke basis van de afscherming.
 - **Begrensde telling.** Boven een vaste grens meldt de Explorer het aantal als "N+" (`total_is_estimated`), in plaats van alles exact te tellen.
 - **Keyset-paginering.** De cursor onthoudt de laatste rij, de sortering en een vingerafdruk van de filters. Een cursor van een andere sortering of andere filters wordt genegeerd, zodat niemand ongemerkt verkeerd bladert.
-- **Annotatiefilters per transcript** (zie *Filters*). De tabel `annotations` heeft één rij per transcript, de kleinere annotatie-index één per variant. Een locus (chromosoom, begin, einde) begrenst ook de gelezen transcriptrijen. De weergavevelden komen alleen voor de zichtbare pagina.
+- **Annotatiefilters per transcript** (zie *Filters*). De tabel `annotations` heeft één rij per transcript, de kleinere annotatie-index één per variant. Een locus (chromosoom, begin, einde) begrenst ook de gelezen transcriptrijen, de genindex en de rijen van de voorwaarden per sample, zoals op de familiepagina. De weergavevelden komen alleen voor de zichtbare pagina.
 - **De regio's van een panel als join** (zie *Filters*). Op een synthetisch cohort van 2 miljoen varianten en 7,6 miljoen rijen in 40 families vond die join de varianten van een panel van 1000 regio's in een twintigste van een seconde. De toets per rij, die de familiepagina toen gebruikte, deed er over hetzelfde cohort bijna drie minuten over. Met het Mendeliome op positie (zowat 42.000 loci, samengevoegd tot ongeveer één regio per gen) duurde de begrensde telling op een synthetisch cohort van 1,19 miljoen varianten 0,16 s, tegen 0,10 s alleen op gensymbool (`docs/variant-ranking-cache.md`).
 
 ## Belangrijkste bestanden
@@ -127,6 +134,7 @@ De Explorer bevraagt mogelijk vele projecten en miljoenen genotypes. Enkele keuz
 | --- | --- |
 | `backend/app/routers/variant_explorer.py` | De endpoints en het inlezen van de filters |
 | `backend/app/services/variant_explorer_service.py` | Scope, tellingen, paginering, dragers en de brug naar de reviews |
+| `backend/app/services/clickhouse_variant_queries.py` | De filters, gedeeld met de familiezoekopdracht |
 | `backend/app/services/genotypes.py` | De genotypeklassen |
 | `backend/app/services/access_control.py` | De rolregels die de scope voeden |
 | `backend/app/services/clickhouse_variant_storage.py` | De tabel `entries`, verdeeld per project |

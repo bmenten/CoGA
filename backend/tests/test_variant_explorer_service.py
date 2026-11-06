@@ -2,10 +2,11 @@
 (``variant_explorer_service``).
 
 Its helpers (the variant type, the most severe class, the term lists, the table names), the
-WHERE it builds over the entries (the per-variant filters on the annotation index, the
-per-transcript ones in one subquery that is the family search's own condition, CLIN-29; the
-ClinVar rescue of the frequency ceilings, #526; imputed calls left out by default; per-sample
-genotype classes, #511), the count cap, the cursor and its fingerprint, the review-tag filter's
+WHERE it builds over the entries (each filter it shares with the family search the family
+search's own clause, read on each row's own annotation: the location, type, callset, gene,
+rsID, excluded ClinVar and the per-transcript filters in one subquery, CLIN-29; the ClinVar
+rescue of the frequency ceilings, #526; imputed calls left out by default; per-sample genotype
+classes, #511, read by variant), the count cap, the cursor and its fingerprint, the review-tag filter's
 cap (DATA-2), and the gene panel read as the family page reads it (CLIN-48). A variant's
 carriers (the row limit and its truncation flag) and the annotation a row shows (one
 transcript's consequence and HGVS, CLIN-50).
@@ -23,7 +24,9 @@ from fastapi import HTTPException
 
 from backend.app.services.clickhouse_variant_queries import (
     _small_detail_filter_clauses,
+    _small_native_sample_filter_clauses,
     _small_panel_filter_condition,
+    _small_query_filter_parts,
     _small_region_filter_condition,
 )
 from backend.app.services.clickhouse_variant_records import PanelFilterConstraints, Region
@@ -36,13 +39,11 @@ from backend.app.services.variant_explorer_service import (
     _IMPACT_RANK,
     ExplorerScope,
     GlobalVariantFilters,
-    _annotation_index_clauses,
     _classify_type,
     _entries_where,
     _first_non_empty,
     _most_severe,
     _small_table_name,
-    _split_terms,
 )
 
 
@@ -65,11 +66,6 @@ def test_first_non_empty() -> None:
     assert _first_non_empty([]) is None
 
 
-def test_split_terms() -> None:
-    assert _split_terms("BRCA1, SCN1A  KMT2D;TP53") == ["BRCA1", "SCN1A", "KMT2D", "TP53"]
-    assert _split_terms(None) == []
-
-
 def test_small_table_name_normalizes_assembly() -> None:
     name = _small_table_name("GRCh38", "entries")
     assert name.endswith("`GRCh38/SNV_INDEL/entries`")
@@ -79,50 +75,12 @@ def test_small_table_name_normalizes_assembly() -> None:
     assert normalized.endswith("`bad_assembly_/SNV_INDEL/entries`")
 
 
-def test_annotation_index_clauses_hold_the_per_variant_filters_only() -> None:
-    # The gene, rsID and excluded ClinVar filters hold for a variant as a whole, as on the
-    # family page, so they read the annotation index, which pools its transcripts. The
-    # annotation filters the family page applies per transcript are not read there
-    # (CLIN-29), nor is the panel, which is the family page's own condition (CLIN-48).
-    filters = GlobalVariantFilters(
-        gene="BRCA1, SCN1A",
-        panel_id="00000000-0000-4000-8000-000000000048",
-        rsid="rs123",
-        exclude_clinvar=["Benign"],
-        impacts=["high", "moderate"],
-        effects=["missense_variant"],
-        clinvar=["Pathogenic"],
-        hgvsc="c.100",
-        max_gnomad_af=0.01,
-        min_cadd=20.0,
-        canonical_only=True,
-        mane_only=True,
-        lof_only=True,
-        sift="deleterious",
-        polyphen="probably_damaging",
-    )
-    params: dict = {}
-    joined = " AND ".join(_annotation_index_clauses(filters, params))
-    assert "ai.gene_symbols" in joined
-    assert "ai.rsid" in joined
-    assert "NOT hasAny(ai.clinvar_terms, %(ann_exclude_clinvar)s)" in joined
-    for pooled in ("ai.impacts", "ai.effects", "ai.hgvs", "ai.max_", "ai.has_", "ai.sift", "ai.polyphen"):
-        assert pooled not in joined
-    # Gene terms are normalised for matching.
-    assert params == {
-        "ann_genes": ["brca1", "scn1a"],
-        "ann_exclude_clinvar": ["benign"],
-        "ann_rsid": "rs123",
-    }
-
-
 def test_the_explorer_reads_excluded_clinvar_statuses_and_the_rsid_as_the_family_search_does() -> None:
     # An API value with an underscore excluded nothing: the stored terms read
     # "likely benign" (CLIN-50). The rsID is trimmed, as the family search trims it.
-    params: dict = {}
-    filters = GlobalVariantFilters(exclude_clinvar=["Likely_benign", " Benign ", ""], rsid="  rs123 ")
-    _annotation_index_clauses(filters, params)
-    assert params == {"ann_exclude_clinvar": ["likely benign", "benign"], "ann_rsid": "rs123"}
+    _clauses, params = _explorer_where(exclude_clinvar=["Likely_benign", " Benign ", ""], rsid="  rs123 ")
+    assert params["detail_exclude_clinvar_terms"] == ["likely benign", "benign"]
+    assert params["rsid"] == "rs123"
 
 
 def test_entries_where_binds_as_valid_clickhouse_query() -> None:
@@ -136,11 +94,12 @@ def test_entries_where_binds_as_valid_clickhouse_query() -> None:
     clauses = _entries_where(scope, filters, params, tag_variant_ids=["1-100-A-T"])
     where_sql = " AND ".join(clauses)
 
-    assert "project_guid IN %(project_guids)s" in where_sql
-    assert "variantId IN %(tag_variant_ids)s" in where_sql
-    assert "SELECT DISTINCT ai.key FROM" in where_sql  # the gene: per variant
-    assert "SELECT a.key FROM" in where_sql  # the impact: per transcript
-    assert "length(ref) = 1 AND length(alt) = 1" in where_sql  # SNV type filter
+    assert "e.project_guid IN %(project_guids)s" in where_sql
+    assert "e.variantId IN %(tag_variant_ids)s" in where_sql
+    # The gene and the impact: on the row's own annotation.
+    assert "(e.key, e.annotation_version, e.annotationSetHash) IN (SELECT gi.key" in where_sql
+    assert "(e.key, e.annotation_version, e.annotationSetHash) IN (SELECT a.key" in where_sql
+    assert "length(e.ref) = 1 AND length(e.alt) = 1" in where_sql  # SNV type filter
 
     # The generated WHERE (with the genotype params) must bind cleanly via the
     # same clickhouse-connect path the service uses (%(name)s substitution).
@@ -158,8 +117,8 @@ def test_entries_where_without_filters_has_no_annotation_subquery() -> None:
     params: dict = {}
     clauses = _entries_where(scope, GlobalVariantFilters(), params, tag_variant_ids=None)
     where_sql = " AND ".join(clauses)
-    assert "SELECT DISTINCT ai.key" not in where_sql
-    assert "SELECT a.key" not in where_sql
+    for table in ("annotation_index", "annotations", "gene_index"):
+        assert f"variants/{table}`" not in where_sql
     assert "tag_variant_ids" not in params
 
 
@@ -170,7 +129,7 @@ def test_imputed_excluded_by_default_and_included_on_opt_in() -> None:
     default_clauses = _entries_where(
         scope, GlobalVariantFilters(), default_params, tag_variant_ids=None
     )
-    assert "lowerUTF8(source) NOT IN %(imputed_sources)s" in " AND ".join(default_clauses)
+    assert "lowerUTF8(e.source) NOT IN %(imputed_sources)s" in " AND ".join(default_clauses)
     assert default_params["imputed_sources"] == ("glimpse2", "shapeit")
 
     opt_in_params: dict = {}
@@ -183,27 +142,35 @@ def test_imputed_excluded_by_default_and_included_on_opt_in() -> None:
 
 def test_sample_genotype_filters_build_per_sample_subqueries() -> None:
     scope = ExplorerScope(assembly_id="a1", assembly_name="GRCh38", project_ids=["p1"])
-    params: dict = {"gt_ref_missing": ("0/0",), "gt_hom": ("1/1",)}
+    params: dict = {}
     clauses = _entries_where(
         scope,
-        GlobalVariantFilters(sample_genotype_filters=[("S1", "hom"), ("S2", "het")]),
+        GlobalVariantFilters(sample_genotype_filters=[("S1", "hom"), ("S2", "het"), ("S3", "het_hom")]),
         params,
         tag_variant_ids=None,
     )
     where_sql = " AND ".join(clauses)
-    # One membership subquery per sample (AND-ed).
-    assert where_sql.count("key IN (SELECT key FROM") == 2
-    assert "s_id = %(sample_gt_0)s" in where_sql
-    assert "s_id = %(sample_gt_1)s" in where_sql
-    assert "(s_gt IN %(gt_hom)s" in where_sql  # S1 hom
-    assert "(s_gt IN %(gt_het)s" in where_sql  # S2 het
-    # Classes, not literals (#511): hom includes a haploid "1", het a "1/2".
-    assert "1" in params["gt_hom"] and "1/2" in params["gt_het"]
-    assert params["sample_gt_0"] == "S1"
-    assert params["sample_gt_1"] == "S2"
+    # One membership subquery per sample (AND-ed): a variant the sample carries in one of its
+    # rows, imputed callsets left out, read by variant (the owner's decision of 2026-11-06).
+    assert where_sql.count("e.key IN (SELECT gs.key FROM") == 3
+    assert where_sql.count("lowerUTF8(gs.source) NOT IN %(imputed_sources)s") == 3
+    assert params["explorer_sample_0_samples"] == ("S1",)
+    assert params["explorer_sample_1_samples"] == ("S2",)
+    # The family page's sample filter reads each sample's call, with its genotype classes
+    # (#511): hom includes a haploid "1", het a "1/2", het_hom both.
+    family_params = _small_native_sample_filter_clauses(
+        _FAMILY,
+        SmallVariantQueryFilters(page=1, page_size=1, sample_filters=["S1:hom", "S2:het", "S3:het|hom"]),
+    )[1]
+    for index in range(3):
+        assert params[f"explorer_sample_{index}_gts"] == family_params[f"sample_filter_{index}_gts"]
+    assert "1" in params["explorer_sample_0_gts"] and "1/2" in params["explorer_sample_1_gts"]
+    assert set(params["explorer_sample_0_gts"]) | set(params["explorer_sample_1_gts"]) <= set(
+        params["explorer_sample_2_gts"]
+    )
 
-    rendered_query, _ = bind_query(f"SELECT key FROM db.`t` WHERE {where_sql}", params)
-    assert "%(sample_gt_0)s" not in rendered_query
+    rendered_query, _ = bind_query(f"SELECT key FROM db.`t` AS e WHERE {where_sql}", params)
+    assert "%(explorer_sample_0_samples)s" not in rendered_query
 
 
 def test_bounded_total_caps_count_and_flags_estimate() -> None:
@@ -279,6 +246,15 @@ def _transcript_subqueries(clauses: list[str]) -> list[str]:
     return [clause for clause in clauses if f"FROM {_ANNOTATIONS} AS a " in clause]
 
 
+def _transcript_subquery(condition: str, *, locus: str = "") -> str:
+    """The clause "one transcript of the row's own annotation meets ``condition``", the
+    family search's (``_small_annotation_row_membership_condition``)."""
+    return (
+        "(e.key, e.annotation_version, e.annotationSetHash) IN (SELECT a.key, a.annotation_version,"
+        f" a.annotationSetHash FROM {_ANNOTATIONS} AS a WHERE {locus}({condition}))"
+    )
+
+
 def _index_subqueries(clauses: list[str]) -> list[str]:
     """The clauses that read the per-variant ``annotation_index``."""
     return [clause for clause in clauses if f"FROM {_ANNOTATION_INDEX} AS ai " in clause]
@@ -326,8 +302,7 @@ def test_clinvar_rescue_keeps_pathogenic_variants_past_the_frequency_ceilings() 
 def test_frequency_ceilings_apply_to_every_variant_without_the_rescue() -> None:
     clauses, params = _explorer_where(max_gnomad_af=0.01)
     assert _transcript_subqueries(clauses) == [
-        f"key IN (SELECT a.key FROM {_ANNOTATIONS} AS a"
-        " WHERE (ifNull(a.gnomad_af, 0) <= toFloat32(%(detail_max_gnomad_af)s)))"
+        _transcript_subquery("(ifNull(a.gnomad_af, 0) <= toFloat32(%(detail_max_gnomad_af)s))")
     ]
     assert "detail_clinvar_rescue_terms" not in params
     # The rescue alone, with no ceiling to lift, adds nothing.
@@ -353,9 +328,7 @@ def test_per_transcript_filters_hold_on_one_transcript_together(filters: dict[st
     # filters sit in one subquery over the transcript rows, and none on the pooled index.
     clauses, _params = _explorer_where(**filters)
     condition, _family_params = _family_search_condition(**filters)
-    assert _transcript_subqueries(clauses) == [
-        f"key IN (SELECT a.key FROM {_ANNOTATIONS} AS a WHERE {condition})"
-    ]
+    assert _transcript_subqueries(clauses) == [_transcript_subquery(condition)]
     assert not _index_subqueries(clauses)
 
 
@@ -416,34 +389,127 @@ def test_the_explorer_applies_the_family_search_annotation_condition(filters: di
     # are read as the family search reads them ("Likely_pathogenic" = "Likely pathogenic").
     clauses, params = _explorer_where(**filters)
     condition, family_params = _family_search_condition(**filters)
-    assert _transcript_subqueries(clauses) == [
-        f"key IN (SELECT a.key FROM {_ANNOTATIONS} AS a WHERE {condition})"
-    ]
+    assert _transcript_subqueries(clauses) == [_transcript_subquery(condition)]
     assert {name: params.get(name) for name in family_params} == family_params
     bind_query("SELECT 1 FROM t WHERE " + " AND ".join(clauses), params)
 
 
-def test_per_variant_filters_stay_on_the_annotation_index() -> None:
-    # The gene, the rsID and the excluded ClinVar significances hold for the variant as a
-    # whole, on the family page too: they need no transcript of their own.
+def test_the_gene_rsid_and_excluded_clinvar_read_the_rows_own_annotation() -> None:
+    # As on the family page, each row is read with its own annotation (its key, annotation
+    # version and annotation set): the gene in the row's symbols or its gene index, the rsID
+    # in the row's own or its annotation index row, the excluded ClinVar classes on no
+    # transcript of it. The explorer read the annotation index by key, so any family's
+    # annotation of a variant let every family's rows through (the owner's decision of
+    # 2026-11-06).
     clauses, _params = _explorer_where(gene="BRCA1", rsid="rs80357", exclude_clinvar=["Benign"])
-    assert len(_index_subqueries(clauses)) == 1
-    assert not _transcript_subqueries(clauses)
+    where_sql = " AND ".join(clauses)
+    assert "arrayExists(gene -> lower(gene) IN %(entry_gene_terms)s, e.gene_symbols)" in where_sql
+    assert "positionCaseInsensitive(ifNull(e.rsid, ''), %(rsid)s) > 0" in where_sql
+    assert where_sql.count("(e.key, e.annotation_version, e.annotationSetHash) IN (") == 2
+    assert where_sql.count("(e.key, e.annotation_version, e.annotationSetHash) NOT IN (") == 1
+    assert "SELECT DISTINCT ai.key" not in where_sql
 
 
 def test_the_locus_narrows_the_transcript_scan() -> None:
     # As in the family search, the locus also bounds the per-transcript subquery, so a
     # regional search does not read every transcript row of the assembly. A variant's
-    # position is the same in every table, so the result does not change; the locus
-    # clauses on the entries are as before.
+    # position is the same in every table, so the result does not change.
     clauses, params = _explorer_where(chromosome="17", start=43_000_000, end=43_200_000, impacts=["HIGH"])
     condition, _family_params = _family_search_condition(impacts=["HIGH"])
     assert _transcript_subqueries(clauses) == [
-        f"key IN (SELECT a.key FROM {_ANNOTATIONS} AS a WHERE a.chrom = %(chromosome)s"
-        f" AND a.pos >= %(start)s AND a.pos <= %(end)s AND {condition})"
+        _transcript_subquery(
+            condition, locus="a.chrom IN %(chromosomes)s AND a.pos >= %(start)s AND a.pos <= %(end)s AND "
+        )
     ]
-    assert clauses[-3:] == ["chrom = %(chromosome)s", "pos >= %(start)s", "pos <= %(end)s"]
-    assert (params["chromosome"], params["start"], params["end"]) == ("17", 43_000_000, 43_200_000)
+    assert clauses[3:7] == [
+        "e.chrom IN %(chromosomes)s",
+        "e.pos >= %(start)s",
+        "e.pos <= %(end)s",
+        "e.xpos BETWEEN %(xpos_start)s AND %(xpos_end)s",
+    ]
+    assert (params["chromosomes"], params["start"], params["end"]) == (("17", "chr17"), 43_000_000, 43_200_000)
+
+
+@pytest.mark.parametrize(
+    ("chromosome", "names"),
+    [
+        ("17", ("17", "chr17")),
+        ("chr17", ("17", "chr17")),
+        ("M", ("M", "chrM", "MT", "chrMT")),
+        ("chrM", ("M", "chrM", "MT", "chrMT")),
+        ("MT", ("MT", "chrMT", "M", "chrM")),
+    ],
+)
+def test_the_chromosome_is_read_with_or_without_chr_and_chrm_by_any_name(
+    chromosome: str, names: tuple[str, ...]
+) -> None:
+    # The explorer compared the chromosome as written: "chrM:1-16569" (sent as M) found
+    # nothing of a family whose VCF names the mitochondrion MT, which its family page finds.
+    clauses, params = _explorer_where(chromosome=chromosome)
+    assert "e.chrom IN %(chromosomes)s" in clauses
+    assert params["chromosomes"] == names
+
+
+def _without_family_keys(clause: str) -> str:
+    """A family search clause less what bounds its annotation subqueries to the family's own
+    variants (``_small_family_key_condition``): the explorer reads every family's at once."""
+    head = " AND identity("
+    while (start := clause.find(head)) != -1:
+        index = clause.index(" IN (SELECT fk.key FROM ", start) + len(" IN ")
+        depth = 0
+        while True:
+            depth += {"(": 1, ")": -1}.get(clause[index], 0)
+            index += 1
+            if depth == 0:
+                break
+        clause = clause[:start] + clause[index:]
+    return clause
+
+
+# The family search's clauses that are a family's alone.
+_FAMILY_ONLY_CLAUSES = {"e.family_guid = %(family_guid)s", "e.sign = 1", "e.project_guid IN %(project_ids)s", "0"}
+
+
+@pytest.mark.parametrize(
+    ("explorer_filters", "family_filters"),
+    [
+        pytest.param({}, {}, id="imputed-callsets"),
+        pytest.param({"chromosome": "chrM"}, {"chromosome": "chrM"}, id="chromosome"),
+        pytest.param({"chromosome": "X", "start": 100, "end": 200}, {"chromosome": "X", "start": 100, "end": 200}, id="location"),
+        pytest.param({"start": 43_000_000}, {"start": 43_000_000}, id="start-alone"),
+        pytest.param({"variant_type": "mnv"}, {"variant_type": "mnv"}, id="type"),
+        pytest.param({"gene": "BRCA1, ENSG0001"}, {"gene": "BRCA1, ENSG0001"}, id="gene"),
+        pytest.param({"rsid": " rs123 "}, {"rsid": " rs123 "}, id="rsid"),
+        pytest.param({"exclude_clinvar": ["Likely_benign"]}, {"exclude_clinvar": ["Likely_benign"]}, id="excluded-clinvar"),
+        pytest.param(
+            {"chromosome": "17", "start": 1, "end": 2, "impacts": ["HIGH"], "mane_only": True, "max_gnomad_af": 0.01},
+            {"chromosome": "17", "start": 1, "end": 2, "impact": ["HIGH"], "mane_only": True, "max_gnomad_af": 0.01},
+            id="per-transcript-at-a-locus",
+        ),
+        pytest.param(
+            {"gene": "BRCA1", "rsid": "rs1", "exclude_clinvar": ["Benign"], "variant_type": "SNV", "chromosome": "1"},
+            {"gene": "BRCA1", "rsid": "rs1", "exclude_clinvar": ["Benign"], "variant_type": "SNV", "chromosome": "1"},
+            id="together",
+        ),
+    ],
+)
+def test_the_explorer_reads_each_shared_filter_with_the_family_search_clause(
+    explorer_filters: dict[str, Any], family_filters: dict[str, Any]
+) -> None:
+    # One definition (the roadmap's *Variant Explorer filters*): every clause the explorer
+    # puts on a row for a filter it shares with the family search is the clause the family
+    # search puts on its rows, with the same parameters, less the bound of the family's own
+    # variants; and the family search puts no other clause for these filters.
+    clauses, params = _explorer_where(**explorer_filters)
+    assert clauses[:2] == ["e.sign = 1", "e.project_guid IN %(project_guids)s"]
+    family_clauses, family_params, _ = _small_query_filter_parts(
+        _FAMILY, SmallVariantQueryFilters(page=1, page_size=100, **family_filters), exclude_imputed=True
+    )
+    shared = [_without_family_keys(clause) for clause in family_clauses if clause not in _FAMILY_ONLY_CLAUSES]
+    assert shared and clauses[2:] == shared
+    explorer_params = {name: value for name, value in params.items() if name != "project_guids"}
+    assert explorer_params == {name: family_params[name] for name in explorer_params}
+    bind_query("SELECT 1 FROM t AS e WHERE " + " AND ".join(clauses), params)
 
 
 class _RecordingSession:
@@ -624,9 +690,7 @@ def test_mane_only_keeps_a_mane_select_or_a_mane_plus_clinical_transcript() -> N
     # transcript is MANE Plus Clinical was dropped, while the family search keeps it. It
     # reads both flags of a transcript, the family search's condition (CLIN-29).
     clauses, params = _explorer_where(mane_only=True)
-    assert _transcript_subqueries(clauses) == [
-        f"key IN (SELECT a.key FROM {_ANNOTATIONS} AS a WHERE ((a.mane_select OR a.mane_plus_clinical)))"
-    ]
+    assert _transcript_subqueries(clauses) == [_transcript_subquery("((a.mane_select OR a.mane_plus_clinical))")]
     assert not [name for name in params if name.startswith(("detail_", "ann_"))]
     # Off, it adds nothing.
     clauses, _params = _explorer_where()
