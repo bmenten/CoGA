@@ -826,7 +826,9 @@ async def _both_paths(context: Any, case: _Case, read: dict[str, list[Any]]) -> 
     filters.inheritance = _normalize_small_variant_inheritance(filters.inheritance)
     scope = await family_variants._resolve_small_variant_scope(None, context, filters, **_review_kwargs(case))
     assert scope is not None
-    sql_rows = await family_variants._fetch_small_variant_rows(context, filters, **scope.row_filters())
+    sql_rows = await family_variants._fetch_small_variant_rows(
+        context, filters, segregation_flags=True, **scope.row_filters()
+    )
     count, _estimated = await family_variants._count_small_variant_rows_bounded(
         context, filters, **scope.row_filters()
     )
@@ -900,14 +902,15 @@ def answers(stored_family: dict[str, str]) -> dict[str, Any]:
     context = _context(stored_family["family_uuid"], stored_family["project"], stored_family["assembly_id"])
 
     async def _run() -> dict[str, Any]:
+        # With the modes each variant fits, which the modes' rules read (segregation flags).
         default = await family_variants._fetch_small_variant_rows(
-            context, SmallVariantQueryFilters(page=1, page_size=100)
+            context, SmallVariantQueryFilters(page=1, page_size=100), segregation_flags=True
         )
         imputed = [
             record
             for source in IMPUTED_SMALL_VARIANT_SOURCES
             for record in await family_variants._fetch_small_variant_rows(
-                context, SmallVariantQueryFilters(page=1, page_size=100, source=source)
+                context, SmallVariantQueryFilters(page=1, page_size=100, source=source), segregation_flags=True
             )
         ]
         read = {"default": default, "every callset": [*default, *imputed]}
@@ -1057,6 +1060,7 @@ NAN_ON_PRIMARY = "11-95101090-G-C"
 IMPUTED_TWIN = "11-95101100-A-T"
 MULTI_ALLELIC_HOM = "11-95101110-C-T"
 X_HAPLOID_FATHER = "X-72001000-C-T"
+MITO_HAPLOID_MOTHER = "M-12400-A-G"
 
 
 def _annotation(gene: str | None, transcript: str, **fields: Any) -> dict[str, Any]:
@@ -1168,6 +1172,12 @@ _DIVERGENCES: dict[str, _Variant] = {
         annotations=(_annotation("SYNH", "ENST_SYNH_1", canonical=True),),
         calls=_trio("2/2", mother="0/2", father="0/2"),
     ),
+    # chrM: the son's call heteroplasmic, the unaffected mother's haploid.
+    MITO_HAPLOID_MOTHER: _Variant(
+        csq=[],
+        annotations=(_annotation("MT-SYN1", "ENST_MTSYN1_1", canonical=True),),
+        calls={_PROBAND: _Call("0/1"), _MOTHER: _Call("1"), _FATHER: _Call("0")},
+    ),
     # chrX outside the pseudo-autosomal regions, the unaffected father carrying it too.
     X_HAPLOID_FATHER: _Variant(
         csq=[],
@@ -1250,6 +1260,9 @@ DIVERGENCE_CASES: dict[str, _Case] = {
         set(), inheritance="de_novo_dominant", intervals="X:72001000"
     ),
     "recessive, the father carries it": _divergence(set(), inheritance="recessive", intervals="X:72001000"),
+    "de novo / dominant, the mother's haploid chrM call": _divergence(
+        set(), inheritance="de_novo_dominant", chromosome="MT"
+    ),
 }
 
 # The views of the family page: the plain list (SQL alone, or the candidates' read for a
@@ -1583,3 +1596,47 @@ def test_every_view_keeps_what_the_filter_keeps(pages: dict[Any, Any], family: s
 def test_every_path_of_the_page_is_reached(pages: dict[Any, Any]) -> None:
     """Each path a page can take is opened by some view, so none goes untested."""
     assert set(_PATHS) - pages["reached"] == set()
+
+
+def test_each_mode_flag_keeps_what_the_mode_keeps(
+    stored_family: dict[str, str], stored_divergences: dict[str, str]
+) -> None:
+    """One definition of the single-variant modes: the flags a fetch gives each variant are
+    the variants the mode's own filter keeps, in each family; without an affected member a
+    variant fits none."""
+    from dataclasses import replace
+
+    import backend.app.services.clickhouse_family_variants as family_variants
+    from backend.app.services.family_variant_filters import SmallVariantQueryFilters
+
+    contexts = {
+        family: _context(stored["family_uuid"], stored["project"], stored["assembly_id"])
+        for family, stored in (("trio", stored_family), ("divergences", stored_divergences))
+    }
+    contexts["no affected member"] = replace(contexts["trio"], affected_sample_names=[])
+    modes = ("de_novo_dominant", "recessive_homozygous", "x_linked")
+
+    async def _run() -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        try:
+            for family, context in contexts.items():
+                flagged = await family_variants._fetch_small_variant_rows(
+                    context, SmallVariantQueryFilters(page=1, page_size=100), segregation_flags=True
+                )
+                for mode in modes:
+                    kept = await family_variants._fetch_small_variant_rows(
+                        context, SmallVariantQueryFilters(page=1, page_size=100, inheritance=mode)
+                    )
+                    out[f"{family}: {mode}"] = (
+                        sorted(record.variant_id for record in flagged if getattr(record.segregation, mode)),
+                        sorted(record.variant_id for record in kept),
+                    )
+        finally:
+            await _close_stores()
+        return out
+
+    answers = asyncio.run(_run())
+    assert {name: flags for name, (flags, kept) in answers.items() if flags != kept} == {}
+    assert all(not flags for name, (flags, _kept) in answers.items() if name.startswith("no affected member"))
+    # Each mode keeps something in some family, so the comparison is not of empty lists.
+    assert all(any(answers[f"{family}: {mode}"][1] for family in ("trio", "divergences")) for mode in modes)

@@ -42,10 +42,6 @@ from backend.app.services.clickhouse_variant_queries import (
     _carrier_partner_names,
     _family_affected_unaffected_sample_names,
     _is_mitochondrial_chromosome,
-    _record_matches_de_novo_dominant,
-    _record_matches_homozygous_recessive,
-    _record_matches_x_linked_recessive,
-    _sample_sex_map,
     _small_call_map,
     _small_record_matches,
 )
@@ -56,6 +52,7 @@ from backend.app.services.clickhouse_variant_records import (
     SmallVariantRecord,
 )
 from backend.app.services.family_metadata_context import FamilyMetadataContext
+from backend.tests._segregation_flags import flag, members_of, segregation_flags
 from backend.app.services.monarch_phenotype_score import GenePhenotypeScore
 from backend.app.services.variant_prioritization import (
     MODE_COMPOUND_HET,
@@ -202,25 +199,8 @@ def _sql_prefilter(record: SmallVariantRecord, filters, context: FamilyMetadataC
         return all(_call_is_het(calls.get(sample)) for sample in affected)
     if mode == "recessive":
         return all(_call_has_alt(calls.get(sample)) for sample in affected)
-    if mode == "de_novo_dominant":
-        return _record_matches_de_novo_dominant(
-            record,
-            affected_samples=affected,
-            unaffected_samples=unaffected,
-            sample_sex=_sample_sex_map(context.sample_rows),
-            assembly_name=context.assembly_name,
-        )
-    if mode == "recessive_homozygous":
-        return _record_matches_homozygous_recessive(
-            record, affected_samples=affected, unaffected_samples=unaffected
-        )
-    if mode == "x_linked":
-        return _record_matches_x_linked_recessive(
-            record,
-            affected_samples=affected,
-            unaffected_samples=unaffected,
-            sample_sex=_sample_sex_map(context.sample_rows),
-        )
+    if mode in ("de_novo_dominant", "recessive_homozygous", "x_linked"):
+        return getattr(segregation_flags(record, **members_of(context)), mode)
     raise AssertionError(mode)
 
 
@@ -294,10 +274,12 @@ def world(monkeypatch: pytest.MonkeyPatch) -> _World:
     async def _fetch_gene_regions(_session, *, gene_query, assembly_id):
         return list(GENE_LOCI.get(gene_query, []))
 
-    async def _fetch_rows(context, filters, *, limit=None, offset=0, **kwargs):
+    async def _fetch_rows(context, filters, *, limit=None, offset=0, segregation_flags=False, **kwargs):
         state.fetch_limits.append(limit)
         rows = state.matching(context, filters, kwargs)
-        return rows[offset:] if limit is None else rows[offset : offset + limit]
+        rows = rows[offset:] if limit is None else rows[offset : offset + limit]
+        # With the modes each fits, as the SQL gives them when asked.
+        return flag(rows, **members_of(context)) if segregation_flags else rows
 
     async def _count(context, filters, *, count_limit=10_001, **kwargs):
         state.counts += 1

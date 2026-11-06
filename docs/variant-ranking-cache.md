@@ -453,7 +453,15 @@ computed then.
 The cache holds the order of the variants, not the pairs. On an exact hit such a search first
 fetches its candidates and works out its pairs. It then numbers its variants in the cached order,
 provided the row holds every one of them with the segregation modes they have now; otherwise it is
-computed again. A narrower panel is served from a broader row under the conditions above, applied
+computed again.
+
+The single-variant modes a variant fits (de novo / dominant, homozygous recessive, X-linked), which
+its segregation weight reads and the recessive search keeps alongside its pairs, come from the SQL
+the inheritance filter itself applies: the candidate read returns them as flags
+(`_fetch_small_variant_rows(segregation_flags=True)`, built by `_small_segregation_flag_columns` from
+`_small_inheritance_mode_clauses`), so the ranking and the filter cannot read a mode apart. Only the
+trio de novo, which no search filters by, and the compound-het pairing are worked out in Python.
+`_ALGORITHM_VERSION` 9 retires the rankings computed when Python read the modes again. A narrower panel is served from a broader row under the conditions above, applied
 to the variants the narrower search keeps; its pairs are worked out within its own reach. The page
 lists each pair where its better-ranked variant ranks.
 

@@ -55,6 +55,7 @@ from backend.app.services.family_metadata_context import FamilyMetadataContext
 from backend.app.services.family_variant_filters import SmallVariantQueryFilters
 from backend.app.services.variant_prioritization import MODE_COMPOUND_HET
 from backend.tests._ranking_cache_fakes import install_ranking_storage, panel_sql_match
+from backend.tests._segregation_flags import flag, members_of
 
 BROAD = "0b5e1c1e-0000-4000-8000-000000000001"
 NARROW = "0b5e1c1e-0000-4000-8000-000000000002"
@@ -224,10 +225,11 @@ def world(monkeypatch: pytest.MonkeyPatch) -> _World:
         include_regions=(),
         exclude_regions=(),
         exclude_gene_regions=(),
+        segregation_flags=False,
         **_k,
     ):
         wanted = None if include_variant_ids is None else {str(v) for v in include_variant_ids}
-        return [
+        rows = [
             record
             for record in state.records
             if (wanted is None or record.variant_id in wanted)
@@ -241,6 +243,8 @@ def world(monkeypatch: pytest.MonkeyPatch) -> _World:
                 panel_constraints=panel_constraints,
             )
         ]
+        # With the modes each fits, as the SQL gives them when asked.
+        return flag(rows, **members_of(_context)) if segregation_flags else rows
 
     install_ranking_storage(monkeypatch, state.cache, panel_version=_panel_version, reads=state.reads)
     monkeypatch.setattr(m + "_affected_present_hpo", _no_hpo)

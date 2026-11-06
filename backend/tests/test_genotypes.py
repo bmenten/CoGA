@@ -15,9 +15,6 @@ import pytest
 
 from backend.app.services import genotypes as g
 from backend.app.services.clickhouse_variant_queries import (
-    _record_matches_de_novo_dominant,
-    _record_matches_homozygous_recessive,
-    _record_matches_x_linked_recessive,
     _small_native_inheritance_clauses,
     _small_record_matches_sample_filters,
 )
@@ -112,38 +109,6 @@ def test_the_ref_filter_keeps_a_haploid_reference_call() -> None:
     wt = _sample_filters("FATHER:0/0|0|0|./.|absent")
     assert _small_record_matches_sample_filters(_record("X", _call("FATHER", "0")), wt)
     assert not _small_record_matches_sample_filters(_record("X", _call("FATHER", "1")), wt)
-
-
-def test_x_linked_recessive_keeps_a_hemizygous_haploid_son() -> None:
-    record = _record("X", _call("SON", "1"), _call("MOTHER", "0/1"), _call("FATHER", "0"))
-    assert _record_matches_x_linked_recessive(
-        record,
-        affected_samples=["SON"],
-        unaffected_samples=["MOTHER", "FATHER"],
-        sample_sex={"SON": "male", "MOTHER": "female", "FATHER": "male"},
-    )
-    # An unaffected male carrying the ALT allele (haploid "1") rules the variant out.
-    carrier_father = _record("X", _call("SON", "1"), _call("FATHER", "1"))
-    assert not _record_matches_x_linked_recessive(
-        carrier_father,
-        affected_samples=["SON"],
-        unaffected_samples=["FATHER"],
-        sample_sex={"SON": "male", "FATHER": "male"},
-    )
-
-
-def test_homozygous_recessive_reads_a_multi_allelic_homozygote() -> None:
-    record = _record("2", _call("PROBAND", "2/2"), _call("MOTHER", "0/2"), _call("FATHER", "1/2"))
-    assert _record_matches_homozygous_recessive(
-        record, affected_samples=["PROBAND"], unaffected_samples=["MOTHER", "FATHER"]
-    )
-
-
-def test_an_unaffected_haploid_carrier_rules_out_dominant() -> None:
-    record = _record("MT", _call("PROBAND", "0/1"), _call("MOTHER", "1"))
-    assert not _record_matches_de_novo_dominant(
-        record, affected_samples=["PROBAND"], unaffected_samples=["MOTHER"]
-    )
 
 
 def test_the_x_linked_sql_admits_haploid_alt_calls() -> None:

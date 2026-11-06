@@ -35,6 +35,7 @@ from backend.app.services.clickhouse_variant_records import (
 )
 from backend.app.services.family_metadata_context import FamilyMetadataContext
 from backend.app.services.family_variant_filters import SmallVariantQueryFilters
+from backend.tests._segregation_flags import flag, members_of
 
 M = "backend.app.services.clickhouse_family_variants."
 
@@ -399,11 +400,11 @@ def family_search(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     """The family search over RECORDS, its storage and the ranking cache in memory."""
     cache: dict[str, dict[str, Any]] = {}
 
-    async def fetch(_context, _filters, *, include_variant_ids=None, **_kwargs):
-        if include_variant_ids is None:
-            return list(RECORDS)
-        wanted = {str(variant_id) for variant_id in include_variant_ids}
-        return [record for record in RECORDS if record.variant_id in wanted]
+    async def fetch(_context, _filters, *, include_variant_ids=None, segregation_flags=False, **_kwargs):
+        wanted = None if include_variant_ids is None else {str(variant_id) for variant_id in include_variant_ids}
+        rows = [record for record in RECORDS if wanted is None or record.variant_id in wanted]
+        # With the modes each fits, as the SQL gives them when asked.
+        return flag(rows, **members_of(_context)) if segregation_flags else rows
 
     async def count(*_args, **_kwargs):
         return len(RECORDS), False

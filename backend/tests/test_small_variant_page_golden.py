@@ -35,6 +35,7 @@ from backend.app.services.clickhouse_variant_records import (
     SmallVariantRecord,
 )
 from backend.app.services.family_metadata_context import FamilyMetadataContext
+from backend.tests._segregation_flags import flag, members_of
 
 
 @pytest.fixture(autouse=True)
@@ -291,6 +292,9 @@ async def _run(scenario: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> dic
         offset = kwargs.get("offset", 0) or 0
         limit = kwargs.get("limit")
         selected = rows[offset:] if limit is None else rows[offset : offset + limit]
+        if kwargs.get("segregation_flags"):
+            # With the modes each fits, as the SQL gives them when asked.
+            return flag(selected, **members_of(args[0]))
         return [dataclasses.replace(row) for row in selected]
 
     async def hydrate(*args, **kwargs):

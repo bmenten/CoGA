@@ -72,6 +72,7 @@ from .structural_variant_review_pg import (
 from .clickhouse_variant_records import (
     PanelFilterConstraints,
     Region,
+    SmallSegregationFlags,
     SmallVariantCall,
     SmallVariantCompoundHetPair,
     SmallVariantRecord,
@@ -118,6 +119,7 @@ from .clickhouse_variant_queries import (
     _small_hemizygous_position_condition,
     _small_pair_inheritance_candidate_limit,
     _small_query_filter_parts,
+    _small_segregation_flag_columns,
     _small_record_hits_gene_terms,
     _small_record_matches,
     _small_search_keeps_by_pairing,
@@ -1293,7 +1295,14 @@ async def _fetch_small_variant_rows(
     exclude_regions: Sequence[Region] = (),
     exclude_gene_regions: Sequence[Region] = (),
     exclude_gene_terms: Sequence[str] = (),
+    segregation_flags: bool = False,
 ) -> list[SmallVariantRecord]:
+    """The family's small-variant rows the search's ``filters`` and scope keep, one per key.
+
+    With ``segregation_flags``, each record also says which single-variant inheritance modes
+    it fits (``SmallVariantRecord.segregation``), as the SQL decides them for the inheritance
+    filter (``_small_segregation_flag_columns``): what the ranking's segregation and the
+    paired searches read."""
     if not context.assembly_name:
         return []
     entries_table = _small_table_name(context.assembly_name, "entries")
@@ -1309,6 +1318,11 @@ async def _fetch_small_variant_rows(
         exclude_gene_terms=exclude_gene_terms,
         exclude_imputed=True,
     )
+    flag_columns = ""
+    if segregation_flags:
+        columns, flag_params = _small_segregation_flag_columns(context)
+        _merge_params(params, flag_params)
+        flag_columns = "".join(f",\n            {column}" for column in columns)
     # Collapse to one row per key with any() + GROUP BY e.key — exactly the grouping the
     # count path (_count_small_variant_rows_bounded) uses, so the list and the deduped
     # total always agree. The entries table is a CollapsingMergeTree and a lagged/partial
@@ -1340,7 +1354,7 @@ async def _fetch_small_variant_rows(
             any(e.calls.ps) AS sample_phase_sets,
             any(e.qual) AS qual,
             any(e.calls.filters) AS sample_filters,
-            any(e.calls.metrics) AS sample_metrics
+            any(e.calls.metrics) AS sample_metrics{flag_columns}
         FROM {entries_table} AS e
         WHERE {' AND '.join(where_clauses)}
         GROUP BY e.key
@@ -1385,6 +1399,7 @@ async def _fetch_small_variant_rows(
         # The per-call FILTER values and caller metrics, the two last columns.
         sample_filters = row[21] if len(row) > 21 else None
         sample_metrics = row[22] if len(row) > 22 else None
+        segregation = _segregation_flags_from_row(row[23:26]) if segregation_flags else None
         parsed_variant_key = _coerce_int(variant_key)
         parsed_annotation_set_hash = _coerce_int(annotation_set_hash)
         detail = detail_map.get(
@@ -1440,9 +1455,37 @@ async def _fetch_small_variant_rows(
                 annotations=_collect_annotations(_decode_json_payload(annotations_json)),
                 calls=calls,
                 qual=_coerce_float(qual),
+                segregation=segregation,
             )
         )
     return records
+
+
+def _merge_params(target: dict[str, Any], source: dict[str, Any]) -> None:
+    """Bind ``source``'s query parameters in ``target``: a name bound already to another value
+    is a builder's mistake, which would silently change the other's condition."""
+    for name, value in source.items():
+        if name in target and target[name] != value:
+            raise ValueError(f"query parameter {name!r} is bound twice")
+        target[name] = value
+
+
+def _segregation_flags_from_row(values: Sequence[Any]) -> SmallSegregationFlags:
+    """The segregation flag columns of a fetched row, in ``_SEGREGATION_FLAG_MODES`` order:
+    each a 0 or a 1, never read as a missing answer."""
+    flags = []
+    for value in values:
+        if value not in (0, 1):
+            raise ValueError(f"a segregation flag column read {value!r}")
+        flags.append(bool(value))
+    if len(flags) != 3:
+        raise ValueError("a row lacks its segregation flag columns")
+    de_novo_dominant, recessive_homozygous, x_linked = flags
+    return SmallSegregationFlags(
+        de_novo_dominant=de_novo_dominant,
+        recessive_homozygous=recessive_homozygous,
+        x_linked=x_linked,
+    )
 
 
 async def fetch_imputed_phased_genotypes(
@@ -2486,6 +2529,9 @@ async def _prioritized_small_variants_page(
         # Fetch one extra to detect overflow without dropping a genuine candidate when
         # the set is exactly at the limit.
         limit=_PRIORITIZE_CANDIDATE_LIMIT + 1,
+        # The modes each variant fits, which its segregation scores and a search that pairs
+        # keeps (_segregation_modes_by_variant, _small_inheritance_items).
+        segregation_flags=True,
         **scope.row_filters(),
     )
     capped = len(records) > _PRIORITIZE_CANDIDATE_LIMIT
@@ -2821,6 +2867,13 @@ def _kept_small_candidates(
     return kept
 
 
+# The searches that keep a variant by a single-variant mode, the recessive one among them:
+# their candidates are read with the modes each fits (``segregation_flags``).
+_SEGREGATION_FLAGGED_SEARCHES = frozenset(
+    {"de_novo_dominant", "recessive_homozygous", "x_linked", "recessive"}
+)
+
+
 def _small_inheritance_items(
     context: FamilyMetadataContext,
     inheritance: str,
@@ -2834,8 +2887,6 @@ def _small_inheritance_items(
         records=records,
         affected_samples=affected_sample_names,
         unaffected_samples=unaffected_sample_names,
-        sample_rows=context.sample_rows,
-        assembly_name=context.assembly_name,
         pedigree=_family_pedigree(context),
     )
 
@@ -3149,6 +3200,8 @@ async def _small_variants_candidate_page(
         context,
         filters,
         limit=inheritance_candidate_limit,
+        # A mode the search keeps by, read from the SQL (_small_inheritance_items).
+        segregation_flags=filters.inheritance in _SEGREGATION_FLAGGED_SEARCHES,
         **scope.row_filters(),
     )
     inheritance_candidates_capped = (

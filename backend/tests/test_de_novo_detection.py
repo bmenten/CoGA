@@ -24,7 +24,6 @@ from backend.app.services.clickhouse_variant_queries import (
     _child_parent_map,
     _inheritance_result_items,
     _record_matches_de_novo,
-    _record_matches_de_novo_dominant,
     _segregation_modes_by_variant,
     _small_native_inheritance_clauses,
 )
@@ -32,6 +31,7 @@ from backend.app.services.clickhouse_variant_records import SmallVariantCall, Sm
 from backend.app.services.family_metadata_context import FamilyMetadataContext
 from backend.app.services.family_variant_filters import SmallVariantQueryFilters
 from backend.app.services.variant_prioritization import MODE_DE_NOVO, MODE_DOMINANT
+from backend.tests._segregation_flags import flag, members_of
 
 X_NON_PAR = 31_500_000
 X_PAR1 = 1_000_000
@@ -217,44 +217,28 @@ def test_without_parent_roles_both_parents_must_be_reference() -> None:
     assert not _is_de_novo(father_no_call, roles={})
 
 
-def test_the_de_novo_dominant_pattern_reads_a_male_hemizygous_call_as_one_copy() -> None:
-    def matches(record: SmallVariantRecord, assembly: str = "GRCh38") -> bool:
-        return _record_matches_de_novo_dominant(
-            record,
-            affected_samples=["SON"],
-            unaffected_samples=["MOTHER", "FATHER"],
-            sample_sex=SEXES,
-            assembly_name=assembly,
-        )
-
-    assert matches(_record("chrX", X_NON_PAR, _call("SON", "1"), _call("MOTHER", "0/0"), _call("FATHER", "0")))
-    assert matches(_record("chrY", Y_NON_PAR, _call("SON", "1/1"), _call("FATHER", "0")))
-    # An unaffected carrier still rules it out, as for any dominant pattern.
-    assert not matches(_record("chrX", X_NON_PAR, _call("SON", "1"), _call("MOTHER", "0/0"), _call("FATHER", "1")))
-    # A 1/1 in a PAR, or where the PARs are unknown, is not one copy.
-    assert not matches(_record("chrX", X_PAR1, _call("SON", "1/1"), _call("MOTHER", "0/0"), _call("FATHER", "0/0")))
-    assert not matches(
-        _record("chrX", X_NON_PAR, _call("SON", "1"), _call("MOTHER", "0/0"), _call("FATHER", "0")),
-        assembly="T2T-CHM13v1.0",
-    )
-    # T2T-CHM13v2.0 by its own PARs (CLIN-12).
-    assert matches(
-        _record("chrX", X_NON_PAR, _call("SON", "1"), _call("MOTHER", "0/0"), _call("FATHER", "0")),
-        assembly="T2T-CHM13v2.0",
-    )
-
-
-def test_the_python_filter_path_passes_the_assembly_and_sexes() -> None:
+def test_the_single_modes_keep_what_the_sqls_flags_say() -> None:
+    # The modes a variant fits come from the SQL the inheritance filter applies (its
+    # segregation flags): the hemizygous son's call reads as one copy there, on chrX outside
+    # the PARs.
     record = _record("chrX", X_NON_PAR, _call("SON", "1"), _call("MOTHER", "0/0"), _call("FATHER", "0"))
+    (flagged,) = flag([record], affected=["SON"], unaffected=["MOTHER", "FATHER"], sexes=SEXES)
+    assert flagged.segregation is not None and flagged.segregation.de_novo_dominant
     items = _inheritance_result_items(
         inheritance="de_novo_dominant",
-        records=[record],
+        records=[flagged],
         affected_samples=["SON"],
         unaffected_samples=["MOTHER", "FATHER"],
-        sample_rows=[{"sample_id": name, "sex": sex} for name, sex in SEXES.items()],
-        assembly_name="GRCh38",
     )
     assert [(kind, payload.variant_id) for kind, payload in items] == [("variant", record.variant_id)]
+    # A record read without its flags is refused, never taken for one that fits no mode.
+    with pytest.raises(RuntimeError, match="segregation flags"):
+        _inheritance_result_items(
+            inheritance="de_novo_dominant",
+            records=[record],
+            affected_samples=["SON"],
+            unaffected_samples=["MOTHER", "FATHER"],
+        )
 
 
 def _sql_context(sex: str, assembly: str | None = "GRCh38") -> types.SimpleNamespace:
@@ -340,7 +324,8 @@ def test_the_segregation_modes_call_a_sons_hemizygous_x_variant_de_novo() -> Non
     )
     de_novo = _record("chrX", X_NON_PAR, _call("SON", "1"), _call("MOTHER", "0/0"), _call("FATHER", "."))
     inherited = _record("chrX", X_NON_PAR + 1, _call("SON", "1"), _call("MOTHER", "0/1"), _call("FATHER", "0"))
-    modes = _segregation_modes_by_variant([de_novo, inherited], context=context)
+    # As the ranking fetches them: with the modes the SQL finds each to fit.
+    modes = _segregation_modes_by_variant(flag([de_novo, inherited], **members_of(context)), context=context)
 
     assert MODE_DE_NOVO in modes[de_novo.variant_id]
     assert MODE_DE_NOVO not in modes[inherited.variant_id]

@@ -29,7 +29,8 @@
      "limit": 1001,
      "panel_constraints": {
       "__type": "PanelFilterConstraints"
-     }
+     },
+     "segregation_flags": false
     }
    ],
    [
@@ -86,7 +87,8 @@
      "limit": 1001,
      "panel_constraints": {
       "__type": "PanelFilterConstraints"
-     }
+     },
+     "segregation_flags": false
     }
    ],
    [
@@ -229,7 +231,8 @@
      "limit": 1001,
      "panel_constraints": {
       "__type": "PanelFilterConstraints"
-     }
+     },
+     "segregation_flags": false
     }
    ],
    [
@@ -389,7 +392,8 @@
         "start": 50
        }
       ]
-     }
+     },
+     "segregation_flags": true
     }
    ],
    [
@@ -532,7 +536,8 @@
      "limit": 1001,
      "panel_constraints": {
       "__type": "PanelFilterConstraints"
-     }
+     },
+     "segregation_flags": false
     }
    ],
    [
@@ -2045,7 +2050,8 @@
      "limit": null,
      "panel_constraints": {
       "__type": "PanelFilterConstraints"
-     }
+     },
+     "segregation_flags": false
     }
    ],
    [
@@ -2216,7 +2222,8 @@
      "limit": 1001,
      "panel_constraints": {
       "__type": "PanelFilterConstraints"
-     }
+     },
+     "segregation_flags": true
     }
    ],
    [
@@ -2402,7 +2409,8 @@
      "limit": 1001,
      "panel_constraints": {
       "__type": "PanelFilterConstraints"
-     }
+     },
+     "segregation_flags": true
     }
    ],
    [
@@ -3359,7 +3367,8 @@
      "limit": null,
      "panel_constraints": {
       "__type": "PanelFilterConstraints"
-     }
+     },
+     "segregation_flags": false
     }
    ],
    [
