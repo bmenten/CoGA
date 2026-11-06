@@ -19,6 +19,7 @@ from ..schemas import (
     RepeatExpansionReviewUpdate,
     RepeatExpansionTrackResponse,
     SharedStructuralVariantCountsOut,
+    StructuralVariantSampleCountsOut,
     VariantLengthOut,
 )
 from ..services.family_metadata_context import build_family_metadata_context
@@ -27,6 +28,7 @@ from ..services.family_service import (
     get_family_haplotypes_for_user,
     get_family_phased_markers_for_user,
     get_family_structural_variant_lengths_for_user,
+    get_family_structural_variant_sample_counts_for_user,
     get_family_track_availability_for_user,
     get_shared_family_structural_variant_counts_for_user,
 )
@@ -327,6 +329,21 @@ async def get_structural_variant_lengths(
         family_id=family_id,
         user=user,
         limit=limit,
+    )
+
+
+@router.get(
+    "/{family_id}/structural-variant-sample-counts", response_model=List[StructuralVariantSampleCountsOut]
+)
+async def get_structural_variant_sample_counts(
+    family_id: str,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_user),
+) -> List[StructuralVariantSampleCountsOut]:
+    return await get_family_structural_variant_sample_counts_for_user(
+        session,
+        family_id=family_id,
+        user=user,
     )
 
 

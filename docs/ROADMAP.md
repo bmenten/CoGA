@@ -30,7 +30,10 @@ brackets.
 ## Product
 
 - **Variant Explorer** (PROD-2): gene-, transcript- and cohort-frequency views beside the variant view.
-- **Variant summary statistics** (PROD-1): small-variant summary statistics per individual and per family ([#1](https://github.com/bmenten/CoGA/issues/1)).
+- **Variant summary statistics** (PROD-1): the family's *Variant summary* has a section per kind of variant data. For small variants it counts each member's genotypes, types, Ti/Tv, consequences and call quality, and each trio's Mendelian inconsistencies per autosome ([#1](https://github.com/bmenten/CoGA/issues/1)). Still open:
+  - A call of uniparental disomy or of runs of homozygosity. The page counts the inconsistencies and the homozygous share per chromosome but calls nothing; a call needs its own requirement and validation (REG-15).
+  - Speed at genome scale: the statistics are counted on each visit. A synthetic trio of five million variants took about 6 s on a laptop's Docker, with up to 2 GiB for one query; a real genome on the real stack is not yet timed (OPS-9). If it proves slow, keep the statistics at import beside the family's summary tables.
+  - A Mendelian table for a callset of one file per sample: a trio's calls then lie in different rows, so it has no sites.
 - **Long-read packages** (PROD-4): no dataset type reads a plain multi-sample Sniffles2 VCF, and QDNAseq-style raw-bin CNV files are not importable.
 - **Per-sample GLIMPSE2 haplotypes** (PROD-5): per-sample GLIMPSE2 BCF haplotypes are registered but not imported.
 - **Single-parent recessive risk** (PROD-6): it reads "uninformative" by design; a later version could say "carries the known parent's risk allele, donor unknown".

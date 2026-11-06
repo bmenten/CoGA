@@ -306,10 +306,15 @@ const REGULATORY_CONSEQUENCE_GROUPS: readonly AnnotationGroup[] = [
   },
 ];
 
+/** Every consequence group the Annotations section offers, in its order; the variant summary
+ *  groups its consequence counts by them. */
+export const CONSEQUENCE_GROUPS: readonly AnnotationGroup[] = [
+  ...CONSEQUENCE_GROUP_ROWS.flat(),
+  ...REGULATORY_CONSEQUENCE_GROUPS,
+];
+
 const OFFERED_CONSEQUENCES = new Set(
-  [...CONSEQUENCE_GROUP_ROWS.flat(), ...REGULATORY_CONSEQUENCE_GROUPS].flatMap((group) =>
-    group.options.map((option) => option.value.toLowerCase()),
-  ),
+  CONSEQUENCE_GROUPS.flatMap((group) => group.options.map((option) => option.value.toLowerCase())),
 );
 
 // VEP's own impact rating of a transcript's consequence. The built-in presets filter on it.

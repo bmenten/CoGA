@@ -1089,6 +1089,22 @@ export interface FamilyRepeatExpansionTableOut {
   loci_count: number;
 }
 
+/**
+ * The variant summary's small-variant statistics: the family's nuclear small variants
+ * (chrM is the mtDNA analysis's), from its directly called callsets.
+ */
+export interface FamilySmallVariantStatisticsOut {
+  sources: string[];
+  imputed_sources: string[];
+  total_variants: number;
+  snv_count: number;
+  insertion_count: number;
+  deletion_count: number;
+  other_count: number;
+  samples: SmallVariantSampleStatisticsOut[];
+  trios: MendelianTrioOut[];
+}
+
 export interface FamilyStatusCreate {
   label: string;
   description?: string | null;
@@ -1630,6 +1646,15 @@ export interface HealthOut {
   status: "ok";
 }
 
+/**
+ * One bin of a histogram the backend counted: the bin holds the values from ``low`` up
+ * to the next bin's ``low``; the last bin is open-ended.
+ */
+export interface HistogramBinOut {
+  low: number;
+  count: number;
+}
+
 export interface HpoAdminSummaryOut {
   total_terms: number;
   active_terms: number;
@@ -1873,6 +1898,23 @@ export interface ManualPedMemberCreate {
   carrier_type?: "obligate" | "proven" | "reported" | "inferred" | null;
   carrier_evidence?: Record<string, unknown>;
   metadata?: Record<string, unknown>;
+}
+
+/** One autosome of a child and both its parents, in one callset. */
+export interface MendelianChromosomeOut {
+  chrom: string;
+  sites: number;
+  not_from_father: number;
+  not_from_mother: number;
+  from_neither: number;
+}
+
+export interface MendelianTrioOut {
+  child: string;
+  father: string;
+  mother: string;
+  source: string;
+  chromosomes: MendelianChromosomeOut[];
 }
 
 export interface MendeliomeRegenerateResponse {
@@ -3666,6 +3708,13 @@ export interface SignupAck {
   detail: string;
 }
 
+/** A sample's small variants on one chromosome, by genotype. */
+export interface SmallVariantChromosomeCountsOut {
+  chrom: string;
+  het_count: number;
+  hom_alt_count: number;
+}
+
 export interface SmallVariantCompoundHetReviewOut {
   group_id: string;
   partner_variant_ids: string[];
@@ -3686,6 +3735,16 @@ export interface SmallVariantCompoundHetReviewUpdate {
   classification?: string | null;
   tags?: string[];
   note?: string | null;
+}
+
+/**
+ * How many of a sample's small variants have ``consequence`` as their most severe
+ * consequence: a Sequence Ontology term in lower case, ``other`` for a term outside VEP's
+ * order, ``none`` for a variant whose annotation names no term (or that has none).
+ */
+export interface SmallVariantConsequenceCountOut {
+  consequence: string;
+  count: number;
 }
 
 export interface SmallVariantFilterPresetCreate {
@@ -3772,6 +3831,32 @@ export interface SmallVariantReviewUpdate {
   note?: string | null;
   compound_het?: SmallVariantCompoundHetReviewUpdate | null;
   acmg?: AcmgClassificationPayload | null;
+}
+
+/**
+ * One sample's small variants: each variant once (by its key), whatever callsets hold
+ * it; the histograms count calls, one per callset that holds the variant.
+ */
+export interface SmallVariantSampleStatisticsOut {
+  sample_id: string;
+  non_ref_count: number;
+  het_count: number;
+  hom_alt_count: number;
+  snv_count: number;
+  insertion_count: number;
+  deletion_count: number;
+  other_count: number;
+  transition_count: number;
+  transversion_count: number;
+  passing_count: number;
+  consequences: SmallVariantConsequenceCountOut[];
+  chromosomes: SmallVariantChromosomeCountsOut[];
+  genotype_quality_histogram: HistogramBinOut[];
+  depth_histogram: HistogramBinOut[];
+  allele_balance_histogram: HistogramBinOut[];
+  genotype_quality_missing: number;
+  depth_missing: number;
+  allele_balance_missing: number;
 }
 
 export interface SmallVariantSampleSummaryOut {
@@ -3922,6 +4007,12 @@ export interface StructuralVariantReviewUpdate {
   note?: string | null;
   cnv_acmg?: CnvAcmgClassificationPayload | null;
   source?: string | null;
+}
+
+export interface StructuralVariantSampleCountsOut {
+  sample_id: string;
+  total: number;
+  by_type: Record<string, number>;
 }
 
 /** What a sample's structural-variant upload stored. */

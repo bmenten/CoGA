@@ -20,7 +20,7 @@ of them you can work on the case and move between analyses.
 
 A row of links at the foot of the header leads to the family's analyses: **Small variants**,
 **Structural variants**, **Repeat expansions**, **Paraphase**, **mtDNA analysis**, **Monogenic NIPT**
-and, last, **Variant summary** (of the structural variants). At the far right of the same row, under
+and, last, **Variant summary** (of all the family's variant data). At the far right of the same row, under
 the pedigree, are the family-level functions: **Sample QC** (when the family has small variants) and
 **Report** (when it has any variant data: small or structural variants, repeat expansions, Paraphase
 results or mtDNA data). A link appears only when the family has that kind of data. The page you are on

@@ -14,11 +14,12 @@ Package import | A superuser or an administrator points at a family folder on th
   see [Monogenic NIPT](#monogenic-nipt).
 - Each kind of data switches on part of CoGA:
   - small variants: the small-variant page and Sample QC;
-  - structural variants: the SV page and the variant summary;
+  - structural variants: the SV page;
   - TRGT calls: the repeat page;
   - Paraphase: the paralogue page;
   - mitochondrial calls: the mtDNA analysis;
   - coverage, segments, APCAD and haplotypes: the viewer tracks.
+  - Any variant data also switches on the variant summary.
 
 > **Reference data first.** Genes, cytobands, ClinVar and the other annotation layers are loaded per
 > assembly. If a viewer cannot place coordinates or a gene search is empty, check that the reference

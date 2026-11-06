@@ -17,9 +17,29 @@
 /* Above the variant summary's histograms: what the toggle scales, and the toggle, at the right. */
 .analysis-graph-toolbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
   gap: 0.5rem;
+}
+
+/* The variant summary's small multiples: one histogram per member, type or caller, side by side
+   as the page's width allows. */
+.variant-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 25rem), 1fr));
+  gap: 0.625rem;
+}
+
+/* A total row of the variant summary's tables (a consequence group, the autosomes), above or
+   below the rows it adds up; the terms under a group are indented. */
+.analysis-table .variant-summary-group-row td {
+  font-weight: 600;
+  background: var(--color-surface-muted);
+}
+
+.analysis-table td.variant-summary-term {
+  padding-left: 1.25rem;
 }
 
 .analysis-nav a:hover {

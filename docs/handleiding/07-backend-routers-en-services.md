@@ -98,11 +98,11 @@ Alle routers staan in `backend/app/routers/__init__.py` en hangen onder `/api`. 
 | `auth.py` | `/auth` | Login, token, registratie, profiel, gebruikersbeheer (hoofdstuk 5) |
 | `ped.py` | `/ped` | Stamboom uploaden of met de hand invoeren |
 | `families.py` | `/families` | Familie, leden, structuur, HPO, fenotype-matching, regio van interesse, wie een familie toegewezen kan krijgen of nakijken (`/families/{id}/assignable-users`) |
-| `families_small_variants.py` | `/families` (deel) | Small variants: pagina's, export, compound-het, presets, tags, review en ACMG (hoofdstuk 8) |
+| `families_small_variants.py` | `/families` (deel) | Small variants: pagina's, export, compound-het, presets, tags, review en ACMG, en de statistieken van de variantsamenvatting (hoofdstuk 8) |
 | `families_structural_variants.py` | `/families` (deel) | Structurele varianten van een familie |
 | `families_nipt.py` | `/families` (deel) | Monogene NIPT: samenvatting met de kwaliteitscontroles, varianten met de overervingsweergaven, dekking (ook per capture-target) (hoofdstuk 8) |
 | `families_reports.py` | `/families` (deel) | Annotatiemanifest, drift, klinische audit, sample-QC, rapport en ondertekening (hoofdstuk 11) |
-| `families_tracks.py` | `/families` (deel) | Tracks: haplotypes, gefaseerde markers, repeats, mtDNA, Paraphase (hoofdstuk 9) |
+| `families_tracks.py` | `/families` (deel) | Tracks: haplotypes, gefaseerde markers, repeats, mtDNA, Paraphase (hoofdstuk 9); voor de variantsamenvatting de SV-lengtes en de SV-tellingen per lid en per paar leden (hoofdstuk 8) |
 | `family_qc_reports.py` | `/families` | Het QC-rapport van de pipeline, via een kortlevende link en afgeschermd (hoofdstuk 2) |
 | `ancestry.py` | `/families/{family_id}/ancestry` | De exploratieve afstammings-PCA van een familie, uit haar opgeslagen callsets; niet klinisch, buiten de ondertekening |
 | `report_codes.py` | `/report-codes` | Een ondertekend analyserecord opzoeken met de rapportcode die het EPD-rapport citeert (hoofdstuk 11) |
@@ -137,7 +137,7 @@ Alle routers staan in `backend/app/routers/__init__.py` en hangen onder `/api`. 
 | Import | `family_package_*.py`, `variant_upload_service.py`, `raw_import_files_pg.py`, `vcf_header_provenance.py` | Pakketimport en herkomst (hoofdstuk 6) |
 | Filters en prioritering | `family_variant_filters.py`, `variant_prioritization.py`, `variant_ranking_cache.py`, `variant_explorer_service.py` | Filters, scoring, ranking en de ranking-cache (hoofdstukken 8 en 12) |
 | ACMG en review | `acmg_points.py`, `cnv_acmg_points.py`, `small_variant_review_*.py`, `structural_variant_review_pg.py`, `classification_drift_service.py` | Classificatie, tags, reviewtoestand, drift (hoofdstuk 10) |
-| Gespecialiseerde analyses | `nipt_*.py`, `haplotype_lineage_service.py`, `phased_marker_service.py`, `mitochondrial_analysis.py`, `paraphase_pg.py`, `sample_integrity_*.py` | NIPT, PGT, mtDNA, Paraphase, sample-QC (hoofdstuk 8) |
+| Gespecialiseerde analyses | `nipt_*.py`, `haplotype_lineage_service.py`, `phased_marker_service.py`, `mitochondrial_analysis.py`, `paraphase_pg.py`, `sample_integrity_*.py`, `family_variant_statistics.py` | NIPT, PGT, mtDNA, Paraphase, sample-QC, de variantsamenvatting (hoofdstuk 8) |
 | Fenotype | `hpo_service.py`, `monarch_*.py` | HPO en Monarch (hoofdstuk 12) |
 | Referentiedata | `gene_info_*.py`, `reference_*_service.py`, `panel_metadata_service.py`, `panelapp_service.py` | Genreferentie, referentietracks, panels (hoofdstuk 13) |
 | Traceerbaarheid | `audit_log_pg.py`, `clinical_audit_service.py`, `report_signout_service.py`, `hash_chain.py`, `integrity_anchor_service.py`, `event_pipeline.py` | Auditlog, klinische audit, ondertekening, hash-ketens, ankers (hoofdstuk 11) |

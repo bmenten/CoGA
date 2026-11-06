@@ -4,6 +4,9 @@ import { countOf } from '../../lib/countOf';
 
 interface Props {
   data: number[];
+  /** Counts the server binned, one per bin of `binLabels`: drawn as they are, and `data` is
+   *  not read. */
+  counts?: number[];
   width?: number;
   height?: number;
   bins?: number;
@@ -71,6 +74,7 @@ const binValues = (
 
 const Histogram: React.FC<Props> = ({
   data,
+  counts: givenCounts,
   width = 400,
   height = 200,
   bins = 20,
@@ -82,10 +86,16 @@ const Histogram: React.FC<Props> = ({
   const svgRef = React.useRef<SVGSVGElement | null>(null);
 
   // Shared by the drawing and the accessible name, so the name counts what is drawn.
-  const binned = React.useMemo(
-    () => (data.length ? binValues(data, bins, binEdges, binLabels) : null),
-    [data, bins, binEdges, binLabels],
-  );
+  const binned = React.useMemo(() => {
+    if (givenCounts) {
+      return givenCounts.some((count) => count > 0)
+        ? { counts: givenCounts, labels: givenCounts.map((_, i) => binLabels?.[i] ?? String(i)) }
+        : null;
+    }
+    return data.length ? binValues(data, bins, binEdges, binLabels) : null;
+  }, [givenCounts, data, bins, binEdges, binLabels]);
+  // How many values the bars count: the values given, or the server's counts summed.
+  const valueCount = givenCounts ? givenCounts.reduce((sum, count) => sum + count, 0) : data.length;
 
   React.useEffect(() => {
     if (!binned) return;
@@ -159,7 +169,7 @@ const Histogram: React.FC<Props> = ({
   // The tallest bar is the chart's headline; the first one wins a tie.
   const peak = binned.counts.reduce((best, count, i) => (count > binned.counts[best] ? i : best), 0);
   const chartLabel =
-    `Histogram${subject ? ` of ${subject}` : ''}: ${countOf(data.length, 'value')} in ` +
+    `Histogram${subject ? ` of ${subject}` : ''}: ${countOf(valueCount, 'value')} in ` +
     `${countOf(binned.counts.length, 'bin')}; tallest bin ${binned.labels[peak]} ` +
     `with ${binned.counts[peak].toLocaleString()}`;
 

@@ -70,3 +70,21 @@ test('bins given the same label are still drawn side by side', () => {
   expect(bars).toHaveLength(3);
   expect(new Set(bars).size).toBe(3);
 });
+
+// The variant summary's call-quality histograms come binned by the server (PROD-1).
+test('draws counts the server binned as they are, one bar per label, named by their sum', () => {
+  const { container } = render(
+    <Histogram data={[]} counts={[3, 0, 7]} binLabels={['0', '10', '20+']} subject="GQ" logScale={false} />,
+  );
+
+  expect(container.querySelectorAll('rect')).toHaveLength(3);
+  expect(xTicks(container)).toEqual(['0', '10', '20+']);
+  expect(screen.getByRole('img')).toHaveAccessibleName(
+    'Histogram of GQ: 10 values in 3 bins; tallest bin 20+ with 7',
+  );
+});
+
+test('server-binned counts that are all zero read as no data', () => {
+  render(<Histogram data={[]} counts={[0, 0]} binLabels={['0', '10']} />);
+  expect(screen.getByText('No data available for this view.')).toBeInTheDocument();
+});

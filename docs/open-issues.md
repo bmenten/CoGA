@@ -25,6 +25,7 @@ Status 2026-11-04, `origin/main` at `fe2c30b2`. Ideas that are not defects are i
 | SEC-6 | P2 | Set retention and masking of the request audit and UI-event log (TF-14, INPUTS E5) | owner, DPO | go-live |
 | REG-12 | P2 | Confirm or reverse the choices the fix PRs left for the owner or QA | QA, owner | RC |
 | REG-14 | P2 | Decide which browser journeys back a TF-09d claim | owner, QA | RC |
+| REG-15 | P2 | Decide whether the variant summary's figures belong in the validation scope: no rule reads them, but its Mendelian table can point to UPD | QA | RC |
 | CLIN-9 | P2 | Confirm the carrier-screening preset and the chrM exclusion (#763) | QA | RC |
 | CLIN-10 | P2 | Check parent–embryo IBS0 on one real imputed PGT family's Sample QC page | owner | validation |
 | CLIN-18 | P2 | Fill in what APCAD stands for (`user-guide/glossary.md`) | lab director | RC |
@@ -66,7 +67,7 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
   OPS-12 (builder, Terraform lock), OPS-22, OPS-28, SEC-6 (with the DPO), REG-14, CLIN-10,
   CLIN-39, CLIN-50, CLIN-68, CLIN-72, TRACE-10, TRACE-21, SEC-23 (`/api` fallback), OPS-15
   (role mailbox), OPS-24 (pre-migration backup retention).
-- **QA:** REG-1, REG-5, REG-8, REG-12, REG-13, REG-14, CLIN-9, CLIN-14, CLIN-17, CLIN-57, CLIN-61,
+- **QA:** REG-1, REG-5, REG-8, REG-12, REG-13, REG-14, REG-15, CLIN-9, CLIN-14, CLIN-17, CLIN-57, CLIN-61,
   CLIN-70, OPS-7, SEC-19; with RA, REG-11.
 - **Lab director:** REG-5, CLIN-18, CLIN-57, CLIN-61, CLIN-68, CLIN-70.
 
@@ -166,6 +167,13 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 
 - `frontend/e2e/` holds `findingReview.spec.ts` and `ancestry.spec.ts` beside TF-09d §3's four. Listing them widens the claim; the ancestry journey checks a phone viewport, which TF-09d puts out of scope.
 
+### REG-15 · The variant summary's figures (PROD-1)
+
+- The *Variant summary* counts each kind of variant data a family holds, per member: for small variants the genotypes, types, Ti/Tv, consequences and call quality, and for each child with both parents the Mendelian inconsistencies per autosome and callset. No filter, classification or sign-out reads them, so TF-10 §8 has no line for them.
+- The Mendelian table names which parent's allele is missing. Many such inconsistencies on one chromosome can point to uniparental disomy or a deletion; the page says CoGA does not call UPD.
+- QA decides whether TF-10 §8 lists the summary, and whether TF-09a needs a requirement or TF-06 a hazard for a count read as a UPD finding.
+- Done when: QA records the decision.
+
 ### OPS-6 · Deployment settings
 
 - Set `COGA_PROBLEM_REPORT_URL` (no problem-report link without it, TF-15) and `SMTP_HOST` (with `SMTP_FROM`, and `SMTP_STARTTLS`/`SMTP_USERNAME`/`SMTP_PASSWORD` when the relay needs an account), then send the test mail from *Users*.
@@ -188,6 +196,7 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 - Benchmark import and queries on the real stack; every timing so far is synthetic data on a laptop (`clickhouse-scale-benchmark.md`).
 - Terraform: a Cloud Run import-worker service, as Compose has; a ClickHouse disk and VM above the 200 GB and `e2-standard-4` defaults.
 - The benchmark's "What would scale better": the cohort-wide annotation scans, the Explorer's unfiltered page (fails from about 20 M rows), a finer `entries` partition.
+- The variant summary's small-variant statistics are counted on each visit: about 6 s, and up to 2 GiB for one query, for a synthetic trio of five million variants on a laptop. Time them on a real whole-genome family.
 
 ### DOC-10 · IDs and numbers an auditor cannot follow
 

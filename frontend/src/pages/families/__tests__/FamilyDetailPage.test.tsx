@@ -429,8 +429,8 @@ describe('FamilyDetailPage', () => {
   });
 
   // A variant workspace is offered only where the family has its data: never a link, nor a
-  // button, to an empty one. The variant summary summarises the structural variants, so it has
-  // nothing to show for small variants only; a NIPT family's data is its NIPT analysis.
+  // button, to an empty one. The variant summary summarises every kind of variant data, so any
+  // offers it; a NIPT family's data is its NIPT analysis.
   const WORKSPACES = {
     small: /small variants/i,
     structural: /structural variants/i,
@@ -462,7 +462,11 @@ describe('FamilyDetailPage', () => {
       small: 2,
       structural: 0,
       analysisType: null,
-      offered: { small: '/families/F1/small-variants?project_id=p1' },
+      // The variant summary summarises every kind of variant data (PROD-1).
+      offered: {
+        small: '/families/F1/small-variants?project_id=p1',
+        summary: '/families/F1/variant-summary?project_id=p1',
+      },
       noDataNote: false,
     },
     {
@@ -470,7 +474,10 @@ describe('FamilyDetailPage', () => {
       small: 0,
       structural: 2,
       analysisType: null,
-      offered: { structural: '/families/F1/structural-variants?project_id=p1', summary: '/families/F1/variant-summary' },
+      offered: {
+        structural: '/families/F1/structural-variants?project_id=p1',
+        summary: '/families/F1/variant-summary?project_id=p1',
+      },
       noDataNote: false,
     },
   ] as const)('offers a family $family only the workspaces backed by its data', async ({ small, structural, analysisType, offered, noDataNote }) => {

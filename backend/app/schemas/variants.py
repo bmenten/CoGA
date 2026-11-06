@@ -275,6 +275,105 @@ class SmallVariantSummaryOut(BaseModel):
     sample_counts: List[SmallVariantSampleSummaryOut] = Field(default_factory=list)
 
 
+class HistogramBinOut(BaseModel):
+    """One bin of a histogram the backend counted: the bin holds the values from ``low`` up
+    to the next bin's ``low``; the last bin is open-ended."""
+
+    low: float
+    count: int = 0
+
+
+class SmallVariantChromosomeCountsOut(BaseModel):
+    """A sample's small variants on one chromosome, by genotype."""
+
+    chrom: str
+    het_count: int = 0
+    hom_alt_count: int = 0
+
+
+class SmallVariantConsequenceCountOut(BaseModel):
+    """How many of a sample's small variants have ``consequence`` as their most severe
+    consequence: a Sequence Ontology term in lower case, ``other`` for a term outside VEP's
+    order, ``none`` for a variant whose annotation names no term (or that has none)."""
+
+    consequence: str
+    count: int = 0
+
+
+class SmallVariantSampleStatisticsOut(BaseModel):
+    """One sample's small variants: each variant once (by its key), whatever callsets hold
+    it; the histograms count calls, one per callset that holds the variant."""
+
+    sample_id: str
+    non_ref_count: int = 0
+    het_count: int = 0
+    hom_alt_count: int = 0
+    snv_count: int = 0
+    insertion_count: int = 0
+    deletion_count: int = 0
+    # Neither an SNV nor a simple insertion or deletion: an MNV or a complex change.
+    other_count: int = 0
+    transition_count: int = 0
+    transversion_count: int = 0
+    # Variants with at least one call that passed its caller's FILTER (PASS, "." or none).
+    passing_count: int = 0
+    consequences: List[SmallVariantConsequenceCountOut] = Field(default_factory=list)
+    chromosomes: List[SmallVariantChromosomeCountsOut] = Field(default_factory=list)
+    genotype_quality_histogram: List[HistogramBinOut] = Field(default_factory=list)
+    depth_histogram: List[HistogramBinOut] = Field(default_factory=list)
+    # Heterozygous calls only: the fraction of reads that carry the ALT allele.
+    allele_balance_histogram: List[HistogramBinOut] = Field(default_factory=list)
+    # Calls of the histograms above that carry no value for it.
+    genotype_quality_missing: int = 0
+    depth_missing: int = 0
+    allele_balance_missing: int = 0
+
+
+class MendelianChromosomeOut(BaseModel):
+    """One autosome of a child and both its parents, in one callset."""
+
+    chrom: str
+    # Sites where all three have a biallelic diploid call and one of them carries the ALT allele.
+    sites: int = 0
+    # The child is homozygous for the allele the father does not carry (and not so against
+    # the mother): the father's allele is missing.
+    not_from_father: int = 0
+    not_from_mother: int = 0
+    # Neither parent can have given the child's genotype: opposite homozygotes of both, or
+    # a heterozygous child of parents homozygous for the same allele.
+    from_neither: int = 0
+
+
+class MendelianTrioOut(BaseModel):
+    child: str
+    father: str
+    mother: str
+    source: str
+    chromosomes: List[MendelianChromosomeOut] = Field(default_factory=list)
+
+
+class FamilySmallVariantStatisticsOut(BaseModel):
+    """The variant summary's small-variant statistics: the family's nuclear small variants
+    (chrM is the mtDNA analysis's), from its directly called callsets."""
+
+    # The callsets counted, and the imputed ones the family holds that are left out.
+    sources: List[str] = Field(default_factory=list)
+    imputed_sources: List[str] = Field(default_factory=list)
+    total_variants: int = 0
+    snv_count: int = 0
+    insertion_count: int = 0
+    deletion_count: int = 0
+    other_count: int = 0
+    samples: List[SmallVariantSampleStatisticsOut] = Field(default_factory=list)
+    trios: List[MendelianTrioOut] = Field(default_factory=list)
+
+
+class StructuralVariantSampleCountsOut(BaseModel):
+    sample_id: str
+    total: int = 0
+    by_type: Dict[str, int] = Field(default_factory=dict)
+
+
 class VariantPage(BaseModel):
     total: int
     total_is_estimated: bool = False

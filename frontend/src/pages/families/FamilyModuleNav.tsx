@@ -20,8 +20,8 @@ export type FamilyModuleKey =
  *
  * A link appears once its data is known to exist (a failed check shows it, #607); the page it
  * is on is always shown, marked as current. The variant summary comes last, at the row's right
- * end: it summarises the structural variants (every SV caller), so it belongs with the analyses,
- * not with the family-level Sample QC and report.
+ * end: it summarises the analyses' variant data, one section per kind (PROD-1), so it belongs
+ * with the analyses, not with the family-level Sample QC and report.
  */
 const FamilyModuleNav: React.FC<{
   familyId: string;
@@ -83,7 +83,7 @@ const FamilyModuleNav: React.FC<{
       key: 'variant-summary',
       label: 'Variant summary',
       available: presence.hasVariantSummary,
-      withProject: false,
+      withProject: true,
     },
   ];
   const shown = modules.filter(

@@ -8,6 +8,7 @@ from ..core.csv_export import csv_document, export_response_headers
 from ..core.postgres import get_postgres_session
 from ..dependencies import get_current_admin_user, get_current_superuser, get_current_user
 from ..schemas import (
+    FamilySmallVariantStatisticsOut,
     SmallVariantFilterPresetCreate,
     SmallVariantFilterPresetOut,
     SmallVariantReviewOut,
@@ -26,6 +27,7 @@ from ..services.clickhouse_family_variants import (
     get_family_small_variants_page as get_family_small_variants_clickhouse,
 )
 from ..services.family_metadata_context import FamilyMetadataContext, SampleMetadataContext, build_family_metadata_context
+from ..services.family_variant_statistics import get_family_small_variant_statistics
 from ..services.access_control import CurrentUser, changes_only_own_data
 from ..services.panel_use_audit import record_family_panel_use
 from ..services.raw_import_files_pg import record_upload_file_obj
@@ -265,6 +267,23 @@ async def get_family_small_variants(
         count_only=count_only,
         **filters,
     )
+
+
+@router.get("/{family_id}/small-variant-statistics", response_model=FamilySmallVariantStatisticsOut)
+async def get_family_small_variant_statistics_route(
+    family_id: str,
+    project_id: str | None = None,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_user),
+) -> FamilySmallVariantStatisticsOut:
+    """The variant summary's statistics of the family's small variants (PROD-1)."""
+    context = await build_family_metadata_context(
+        session,
+        family_identifier=family_id,
+        user=user,
+        project_id=project_id,
+    )
+    return await get_family_small_variant_statistics(context)
 
 
 # CSV column order for the family small-variant export. Mirrors the on-screen

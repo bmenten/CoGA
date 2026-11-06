@@ -97,11 +97,17 @@ describe('FamilyCaseHeader', () => {
   it("lists the family's analyses with the page it is on marked, and only those with data", async () => {
     renderHeader('repeat-expansions');
     const nav = await screen.findByRole('navigation', { name: 'Variant analyses' });
+    // The variant summary summarises any variant data, small variants and repeats too (PROD-1).
     await waitFor(() =>
       expect(within(nav).getAllByRole('link').map((link) => link.textContent)).toEqual([
         'Small variants',
         'Repeat expansions',
+        'Variant summary',
       ]),
+    );
+    expect(within(nav).getByRole('link', { name: 'Variant summary' })).toHaveAttribute(
+      'href',
+      '/families/F1/variant-summary?project_id=p1',
     );
     expect(within(nav).getByRole('link', { name: 'Repeat expansions' })).toHaveAttribute('aria-current', 'page');
     expect(within(nav).getByRole('link', { name: 'Small variants' })).not.toHaveAttribute('aria-current');

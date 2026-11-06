@@ -107,11 +107,14 @@ Each layer is optional and switches on part of CoGA.
 | Data | Unlocks |
 | --- | --- |
 | **Small variants (SNV/indel)** | the small-variant page, its review, and the Sample QC page |
-| **Structural variants** | the structural-variant page, its review, CNV classification and the variant summary |
+| **Structural variants** | the structural-variant page, its review and CNV classification |
 | **Repeat expansions (TRGT)** | the repeat-expansion page. A call is scored against STRchive's thresholds for the locus its TRID names: STRchive's locus ID (`HD_HTT`) or, for a gene with one STRchive locus, the gene (`HTT`). For a gene with several STRchive loci, one per repeat tract (ARX, HOXA13), the gene's name picks the locus the call's region overlaps. A call reads *Not assessed*, never normal, when its TRID names no catalogued locus, its locus has no thresholds, or its region overlaps none of its gene's loci, or several. Exception: a count inside the benign range STRchive states for a locus without thresholds (POLG: 10) reads normal |
 | **Paraphase** | resolution of paralogous genes and segmental duplications |
 | **Mitochondrial calls** | the mtDNA analysis (homoplasmy and heteroplasmy, and chrM deletions and duplications) |
 | **Coverage, segments, APCAD, haplotypes** | the tracks in the genome overview and chromosome view |
+
+Any variant data (small or structural variants, repeat expansions, Paraphase or mitochondrial calls)
+also switches on the family's **Variant summary**, with a section for each kind the family holds.
 
 TRGT's repeat count need not be the clinical repeat number the catalogue's ranges count. TRGT counts
 the motif across the region its own catalogue gives a locus:
