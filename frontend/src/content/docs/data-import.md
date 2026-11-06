@@ -294,6 +294,9 @@ the top of the page, with how many wait. Nothing is imported until you approve i
   copy has finished.
 - A delivery with warnings is approved only once you tick *I checked the warnings*.
 - **Refuse…** sets a delivery aside, with a reason: CoGA leaves the folder alone until it changes.
+- A delivery whose folder is moved out of the watched folder leaves the list after two looks at the
+  folders (it is *gone*). A watched folder that holds nothing at all is taken for a share that is not
+  mounted: its deliveries stay listed until something is back in it.
 
 An approved delivery shows its import job, and becomes *Imported* or *Import failed* when the job
 ends. The decided and superseded deliveries are listed on request.

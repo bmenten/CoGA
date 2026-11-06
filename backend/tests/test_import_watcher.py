@@ -4,7 +4,9 @@ The watcher looks into the folders of FAMILY_IMPORT_WATCH_ROOTS that lie under F
 (never a bucket), at each package folder there that holds a ready marker. It compares the
 marker's samples with the package's members and the files the import reads with the ones the
 marker lists; a check that fails is recorded with a fixed sentence, never the error; a folder that
-changed while it was checked is left to the next round. An open delivery seen again is checked
+changed while it was checked is left to the next round. A round skips a watched folder only when it
+cannot be read, or lists nothing while it has open deliveries (a share not mounted); one that lists
+folders without a marker is mounted, and its missing deliveries count. An open delivery seen again is checked
 again only when what CoGA holds has changed in what its check read (the project its marker names,
 the family and samples of its package), never after a check that could not read them. Its loop
 runs only while it holds the
@@ -76,7 +78,22 @@ def test_the_marked_package_folders_of_a_watched_folder_are_found(tmp_path: Path
     (tmp_path / "LINK").symlink_to(marked, target_is_directory=True)
 
     # The link leads to a folder already found: it is found once.
-    assert watcher.marked_folders(tmp_path) == [marked.resolve()]
+    assert watcher.marked_folders(tmp_path) == watcher.WatchedFolderListing(folders=[marked.resolve()], empty=False)
+
+
+def test_a_watched_folder_with_only_hidden_entries_is_empty_and_one_with_unmarked_folders_is_not(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(settings, "family_import_roots", [str(tmp_path)])
+    hidden_only, unmarked = tmp_path / "hidden_only", tmp_path / "unmarked"
+    hidden_only.mkdir()
+    (hidden_only / ".DS_Store").write_text("x", encoding="utf-8")
+    _package(hidden_only, ".hidden")
+    _package(unmarked, "FAM1", marker=False)
+
+    # A share that is not mounted reads as an empty folder; one that lists a folder is mounted.
+    assert watcher.marked_folders(hidden_only) == watcher.WatchedFolderListing(folders=[], empty=True)
+    assert watcher.marked_folders(unmarked) == watcher.WatchedFolderListing(folders=[], empty=False)
 
 
 def test_a_watched_folder_that_cannot_be_read_gives_none(tmp_path: Path) -> None:
@@ -529,6 +546,41 @@ async def test_a_folder_that_changed_while_it_was_checked_again_is_left_to_the_n
 
 
 # --- the loop --------------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_round_skips_only_a_watched_folder_that_lists_nothing_while_deliveries_are_open(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from backend.app.services import import_delivery_review
+
+    monkeypatch.setattr(settings, "family_import_roots", [str(tmp_path)])
+    # Its delivery's folder was moved away; the folder still lists a folder without a marker.
+    mounted = tmp_path / "mounted"
+    _package(mounted, "FAM1", marker=False)
+    unmounted = tmp_path / "unmounted"
+    unmounted.mkdir()
+    counted: list[tuple[Path, set[str]]] = []
+
+    async def no_jobs(_factory: Any) -> int:
+        return 0
+
+    async def open_deliveries(_factory: Any, _root: Path) -> int:
+        return 1
+
+    async def mark_missing(_factory: Any, root: Path, seen: set[str]) -> int:
+        counted.append((root, seen))
+        return 0
+
+    monkeypatch.setattr(import_delivery_review, "sync_delivery_jobs", no_jobs)
+    monkeypatch.setattr(watcher, "_open_deliveries", open_deliveries)
+    monkeypatch.setattr(watcher, "mark_missing", mark_missing)
+
+    done = await watcher.run_watch_round(None, [mounted, unmounted])  # type: ignore[arg-type]
+
+    # The mounted folder is watched, so its missing delivery counts a round; the empty one is not.
+    assert (done.roots_watched, done.roots_skipped) == (1, 1)
+    assert counted == [(mounted, set())]
 
 
 @pytest.mark.asyncio
