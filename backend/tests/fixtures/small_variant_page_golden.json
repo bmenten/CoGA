@@ -404,7 +404,8 @@
     {
      "variants": [
       "v1",
-      "v2"
+      "v2",
+      "v3"
      ]
     }
    ]
@@ -416,7 +417,7 @@
     "snv_count": 40,
     "total_variants": 42
    },
-   "total": 1,
+   "total": 2,
    "unfiltered_total": 42,
    "variant_groups": [
     {
@@ -502,6 +503,47 @@
        "type": "SNV"
       }
      ]
+    }
+   ],
+   "variants": [
+    {
+     "alt": "G",
+     "chr": "1",
+     "effect": "missense_variant",
+     "end": 300,
+     "gene": "GENE2",
+     "gene_symbols": [
+      "GENE2"
+     ],
+     "genotypes": [
+      {
+       "dp": 30,
+       "gt": "1/1",
+       "sample": "PROBAND"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "MOM"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "DAD"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "SIB"
+      }
+     ],
+     "id": "v3",
+     "impact": "MODERATE",
+     "length": 0,
+     "ref": "A",
+     "source": "clair3",
+     "start": 300,
+     "type": "SNV"
     }
    ]
   }
@@ -2421,7 +2463,8 @@
     {
      "variants": [
       "v1",
-      "v2"
+      "v2",
+      "v3"
      ]
     }
    ]
@@ -2433,7 +2476,7 @@
     "snv_count": 40,
     "total_variants": 42
    },
-   "total": 1,
+   "total": 2,
    "unfiltered_total": 42,
    "variant_groups": [
     {
@@ -2519,6 +2562,47 @@
        "type": "SNV"
       }
      ]
+    }
+   ],
+   "variants": [
+    {
+     "alt": "G",
+     "chr": "1",
+     "effect": "missense_variant",
+     "end": 300,
+     "gene": "GENE2",
+     "gene_symbols": [
+      "GENE2"
+     ],
+     "genotypes": [
+      {
+       "dp": 30,
+       "gt": "1/1",
+       "sample": "PROBAND"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "MOM"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "DAD"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "SIB"
+      }
+     ],
+     "id": "v3",
+     "impact": "MODERATE",
+     "length": 0,
+     "ref": "A",
+     "source": "clair3",
+     "start": 300,
+     "type": "SNV"
     }
    ]
   }

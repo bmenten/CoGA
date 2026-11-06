@@ -1,26 +1,24 @@
-"""Every small-variant filter keeps the same variants in ClickHouse and in Python (ENG-1).
+"""Every small-variant filter keeps what its documented rule keeps, in every view of the family
+page, on real ClickHouse (ENG-1; the roadmap's *One filter definition*).
 
-The family search applies its filters (``SmallVariantQueryFilters``) twice. The plain page
-asks ClickHouse (``_small_query_filter_parts``, through ``_fetch_small_variant_rows``); the
-ranked page, the compound-het, recessive and carrier-screening searches read those rows and
-apply the filters again in Python (``_kept_small_candidates`` → ``_small_record_matches`` and
-``_annotation_matches_normal``, then the inheritance rules). The two used to be compared on
-genotype classes and hemizygous positions only.
+The family search's SQL (``_small_query_filter_parts``, through ``_fetch_small_variant_rows``)
+is the one definition of its filters (``SmallVariantQueryFilters``) and of its single-variant
+inheritance modes (as segregation flags). The ranked page and the compound-het, recessive and
+carrier-screening searches read the SQL's rows and apply in Python only what compares rows:
+the compound-het pairing, the couple's carrier rule, the ranking. They used to apply every
+filter again in Python (``_small_record_matches``), which read some filters more narrowly and
+dropped variants the plain page listed; that reading is gone.
 
 Seventeen synthetic variants of one trio (an affected son and his unaffected parents) go in
 once, through the import's write path (``insert_small_variant_records``), annotated as the
-import parses VEP's CSQ. For each filter field, every case runs:
-
-* the SQL: ``_fetch_small_variant_rows`` with the request's scope (panel, review selections,
-  intervals, excluded genes), as the plain page fetches, and its bounded count;
-* the Python: ``_kept_small_candidates`` over every variant the search reads (the
-  family's variants, the imputed callsets among them only when a source is asked for, as
-  the fetch reads them), then the inheritance mode's rules (``_small_inheritance_items``);
-
-and asserts that both keep exactly the variants the documented rule keeps (the user guide,
-*Small-variant filtering*). For a search that pairs (compound het, recessive, expanded
-carrier screening) the SQL is a prefilter: it must keep every variant the pairing keeps, and
-the pairing over its rows must find what the pairing over every variant finds.
+import parses VEP's CSQ. For each filter field, every case runs the SQL
+(``_fetch_small_variant_rows`` with the request's scope: panel, review selections, intervals,
+excluded genes, as the plain page fetches) and its bounded count, and asserts that it keeps
+exactly the variants the documented rule keeps (the user guide, *Small-variant filtering*).
+For a search that pairs (compound het, recessive, expanded carrier screening) the SQL is a
+prefilter: it must keep every variant the pairing keeps, and the pairing over its rows
+(``_kept_small_candidates``, then ``_small_inheritance_items``) must find what the rule
+keeps.
 
 The scope is built by the search's own ``_resolve_small_variant_scope``, with its Postgres
 lookups (the panel, the excluded genes' loci, the review selections) answered by stubs. A
@@ -38,13 +36,12 @@ prioritization* computed, served again from its cached ranking, and, for a gene 
 from the broader cached ranking of the same search without it; with the plain list's count,
 and, where a case names them, the transcript each variant names as the one its annotation
 filters held on and the genotypes shown. The ranking cache is held in memory. A second family
-holds the variants at which the SQL and the Python record filter still read a filter apart:
+holds the variants at which the SQL and the Python record filter used to read a filter apart:
 a member with calls stored there whom the family's record does not show, and annotation keys
-and values no CSQ the parser reads writes. What a view keeps today that the rule does not is
-listed in ``KNOWN_GAPS``, by the change that closes it (the roadmap's *One filter
-definition*: SQL is the one definition of every filter; the owner's decisions of
-2026-11-06), each a strict xfail. A fourth test checks that the views reach every path a page
-can take.
+and values no CSQ the parser reads writes. What a view keeps that the rule does not would be
+listed in ``KNOWN_GAPS``, by the change that closes it, each a strict xfail; the list is empty
+since the Python record filter went (the owner's decisions of 2026-11-06). A fourth test
+checks that the views reach every path a page can take.
 
 The variants sit on chromosome 11 at 95.1 Mb, chromosome X at 72 Mb and chrM 12,345, where
 no other test writes: the annotation tables are keyed by variant, not by project or family.
@@ -816,8 +813,9 @@ def _item_ids(items: Any) -> frozenset[str]:
     return frozenset(record.variant_id for record in _item_records(items))
 
 
-async def _both_paths(context: Any, case: _Case, read: dict[str, list[Any]]) -> dict[str, Any]:
-    """What the SQL keeps and what the Python keeps of one request."""
+async def _sql_answer(context: Any, case: _Case) -> dict[str, Any]:
+    """What the family search's SQL keeps of one request, with its count; for a search that
+    pairs, what the pairing keeps of the SQL's rows."""
     import backend.app.services.clickhouse_family_variants as family_variants
     from backend.app.services.clickhouse_variant_queries import _normalize_small_variant_inheritance
     from backend.app.services.family_variant_filters import SmallVariantQueryFilters
@@ -832,35 +830,31 @@ async def _both_paths(context: Any, case: _Case, read: dict[str, list[Any]]) -> 
     count, _estimated = await family_variants._count_small_variant_rows_bounded(
         context, filters, **scope.row_filters()
     )
-    # The search reads the imputed callsets only when a source is asked for.
-    records = read["every callset"] if (filters.source or "").strip() else read["default"]
-
-    def _kept(rows: list[Any]) -> frozenset[str]:
-        kept = family_variants._kept_small_candidates(rows, filters, scope, context)
-        if filters.inheritance:
-            return _item_ids(family_variants._small_inheritance_items(context, filters.inheritance, kept))
-        return frozenset(record.variant_id for record in kept)
-
     sql_ids = frozenset(record.variant_id for record in sql_rows)
-    answer = {"count": count == len(sql_ids), "Python": _kept(records)}
+    answer: dict[str, Any] = {"count": count == len(sql_ids)}
     if filters.inheritance in _PAIRING or filters.expanded_carrier_screening:
-        answer["SQL prefilter keeps the pairing's variants"] = answer["Python"] <= sql_ids
-        answer["pairing over the SQL rows"] = _kept(sql_rows)
+        kept = family_variants._kept_small_candidates(sql_rows, filters, context)
+        answer["SQL prefilter"] = sql_ids
+        answer["pairing over the SQL rows"] = (
+            _item_ids(family_variants._small_inheritance_items(context, filters.inheritance, kept))
+            if filters.inheritance
+            else frozenset(record.variant_id for record in kept)
+        )
     else:
         answer["SQL"] = sql_ids
     return answer
 
 
-def _expected_answer(case: _Case) -> dict[str, Any]:
+def _expected_answer(case: _Case, answer: dict[str, Any]) -> dict[str, Any]:
     pairing = case.filters.get("inheritance") in _PAIRING or case.filters.get("expanded_carrier_screening")
     if pairing:
+        # The SQL is a prefilter there: it keeps at least what the pairing keeps.
         return {
             "count": True,
-            "Python": case.expected,
-            "SQL prefilter keeps the pairing's variants": True,
+            "SQL prefilter": answer["SQL prefilter"] | case.expected,
             "pairing over the SQL rows": case.expected,
         }
-    return {"count": True, "Python": case.expected, "SQL": case.expected}
+    return {"count": True, "SQL": case.expected}
 
 
 async def _close_stores() -> None:
@@ -894,7 +888,7 @@ def stored_family() -> dict[str, str]:
 
 @pytest.fixture(scope="module")
 def answers(stored_family: dict[str, str]) -> dict[str, Any]:
-    """Every case through both paths, in one event loop."""
+    """Every case through the SQL, in one event loop."""
     import backend.app.services.clickhouse_family_variants as family_variants
     from backend.app.services.clickhouse_variant_queries import IMPUTED_SMALL_VARIANT_SOURCES
     from backend.app.services.family_variant_filters import SmallVariantQueryFilters
@@ -902,24 +896,18 @@ def answers(stored_family: dict[str, str]) -> dict[str, Any]:
     context = _context(stored_family["family_uuid"], stored_family["project"], stored_family["assembly_id"])
 
     async def _run() -> dict[str, Any]:
-        # With the modes each variant fits, which the modes' rules read (segregation flags).
-        default = await family_variants._fetch_small_variant_rows(
-            context, SmallVariantQueryFilters(page=1, page_size=100), segregation_flags=True
-        )
-        imputed = [
-            record
-            for source in IMPUTED_SMALL_VARIANT_SOURCES
-            for record in await family_variants._fetch_small_variant_rows(
-                context, SmallVariantQueryFilters(page=1, page_size=100, source=source), segregation_flags=True
+        stored: set[str] = set()
+        for source in (None, *IMPUTED_SMALL_VARIANT_SOURCES):
+            filters = SmallVariantQueryFilters(page=1, page_size=100, source=source)
+            stored.update(
+                record.variant_id for record in await family_variants._fetch_small_variant_rows(context, filters)
             )
-        ]
-        read = {"default": default, "every callset": [*default, *imputed]}
-        out: dict[str, Any] = {"stored": {record.variant_id for record in read["every callset"]}}
+        out: dict[str, Any] = {"stored": stored}
         for name, case in CASES.items():
             monkeypatch = pytest.MonkeyPatch()
             try:
                 _stub_lookups(monkeypatch, case)
-                out[name] = await _both_paths(context, case, read)
+                out[name] = await _sql_answer(context, case)
             finally:
                 monkeypatch.undo()
         return out
@@ -953,8 +941,8 @@ def _differences(answer: dict[str, Any], expected: dict[str, Any]) -> dict[str, 
 
 
 @pytest.mark.parametrize("name", list(CASES))
-def test_sql_and_python_keep_what_the_filter_keeps(answers: dict[str, Any], name: str) -> None:
-    assert _differences(answers[name], _expected_answer(CASES[name])) == {}
+def test_the_sql_keeps_what_the_filter_keeps(answers: dict[str, Any], name: str) -> None:
+    assert _differences(answers[name], _expected_answer(CASES[name], answers[name])) == {}
 
 
 def test_every_filter_field_is_exercised() -> None:
@@ -1342,29 +1330,10 @@ ALL_CASES: dict[tuple[str, str], _Case] = {
     **{("divergences", name): case for name, case in DIVERGENCE_CASES.items()},
 }
 
-# The views that re-read the SQL's rows in Python (the record filter, then the modes).
-_PYTHON_VIEWS = ("one page", "track sample", "ranked", "ranked from cache")
-_EVERY_VIEW = ("plain", "one page", "track", "track sample", "ranked", "ranked from cache")
-
-_RECORD_FILTER = (
-    "PR 6: Python's record filter reads a value or a gene name apart from the stored one the "
-    "SQL reads, and drops what the SQL keeps"
-)
-
-
-def _gaps(family: str, name: str, views: tuple[str, ...], reason: str) -> dict[tuple[str, str, str], str]:
-    return {(family, name, view): reason for view in views}
-
-
-# What a view keeps today that the rule does not, by the PR that closes it. Each is a
-# strict xfail, so the PR that closes one must delete its entry.
-KNOWN_GAPS: dict[tuple[str, str, str], str] = {
-    **_gaps("divergences", "gnomAD exomes AF no 32-bit float holds", _PYTHON_VIEWS, _RECORD_FILTER),
-    **_gaps("divergences", "gnomAD AC no 32-bit integer holds", _PYTHON_VIEWS, _RECORD_FILTER),
-    **_gaps("divergences", "gene id under the key geneID", _PYTHON_VIEWS, _RECORD_FILTER),
-    **_gaps("divergences", "gene symbol under the key gene_symbol", _PYTHON_VIEWS, _RECORD_FILTER),
-    **_gaps("divergences", "excluded gene named second", _PYTHON_VIEWS, _RECORD_FILTER),
-}
+# What a view keeps today that the rule does not, by the change that closes it: each a strict
+# xfail, so the change that closes one must delete its entry. One filter definition closed
+# every gap the SQL and the Python record filter had read apart; none is left.
+KNOWN_GAPS: dict[tuple[str, str, str], str] = {}
 
 
 def _pairs(case: _Case) -> bool:

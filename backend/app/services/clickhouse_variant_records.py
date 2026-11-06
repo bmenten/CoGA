@@ -6,12 +6,6 @@ from typing import Any, Sequence
 
 
 from .variant_annotation_parser import _spliceai_delta
-from .family_variant_filters import (
-    SmallVariantQueryFilters,
-    in_silico_prediction_matches,
-    in_silico_prediction_pattern,
-    stored_precision,
-)
 
 
 _KNOWN_ANNOTATION_KEYS = {
@@ -241,8 +235,8 @@ def _normalized_status_term(value: Any) -> str:
 
 
 # ClinVar significances that "rescue" a variant past the gnomAD frequency ceilings when
-# the caller opts in (``clinvar_overrides_frequency``). Shared by the Python matcher and
-# the ClickHouse filter so the two paths cannot disagree (#534).
+# the caller opts in (``clinvar_overrides_frequency``), as the ClickHouse filter reads them
+# (#534).
 CLINVAR_FREQUENCY_RESCUE_TERMS: tuple[str, ...] = ("Pathogenic", "Likely_pathogenic")
 
 # The transcripts *MANE only* keeps: MANE Select and MANE Plus Clinical. Each flag is an
@@ -268,8 +262,8 @@ def mane_only_condition(column_prefix: str) -> str:
 
 
 def _status_terms(value: Any) -> set[str]:
-    """Normalised status terms of a ClinVar value. (SIFT and PolyPhen are read by
-    ``in_silico_prediction_matches``.)
+    """Normalised status terms of a ClinVar value, as the import stores them for the SQL to
+    read (``clinvar_terms``).
 
     Multiple values are separated by ``,`` ``;`` ``&`` ``|`` or ``/``. The ``/`` is
     ClinVar's own aggregate form (``Pathogenic/Likely_pathogenic``,
@@ -297,11 +291,6 @@ def _status_filter_terms(values: Sequence[str]) -> tuple[str, ...]:
             if (normalized := _normalized_status_term(value))
         )
     )
-
-
-def _flexible_status_match(value: Any, candidates: Sequence[str]) -> bool:
-    candidate_terms = set(_status_filter_terms(candidates))
-    return bool(candidate_terms and _status_terms(value).intersection(candidate_terms))
 
 
 def _coerce_int(value: Any) -> int | None:
@@ -485,113 +474,3 @@ def _annotation_spliceai_max(annotation: dict[str, Any]) -> float | None:
     return max(present) if present else None
 
 
-def _nullable_lte(value: float | int | None, maximum: float | int | None) -> bool:
-    if maximum is None:
-        return True
-    if value is None:
-        return True
-    return value <= maximum
-
-
-def _score_meets(value: float | None, minimum: float | None) -> bool:
-    """Whether an in-silico score meets the minimum a filter sets, as the SQL reads it
-    (``ifNull(score, -1) >= toFloat32(minimum)``): a missing score reads as -1, a score of 0
-    is a score, and both are compared at the precision the score is stored at
-    (``stored_precision``). ``value or -1.0`` read a score of 0 as missing, so a SpliceAI
-    score of 0.00, most variants' own, missed a minimum of 0 that the SQL kept it for
-    (ENG-1)."""
-    if minimum is None:
-        return False
-    return stored_precision(-1.0 if value is None else value) >= stored_precision(minimum)
-
-
-def _frequency_within(value: float | None, maximum: float | None) -> bool:
-    """Whether a population frequency is within the maximum a filter sets, as the SQL reads
-    it (``ifNull(frequency, 0) <= toFloat32(maximum)``): a missing frequency passes, and both
-    are compared at the precision the frequency is stored at (``stored_precision``)."""
-    if maximum is None or value is None:
-        return True
-    return stored_precision(value) <= stored_precision(maximum)
-
-
-def _annotation_matches_normal(annotation: dict[str, Any], filters: SmallVariantQueryFilters) -> bool:
-    if filters.transcript and not _contains_casefold(
-        _annotation_text(annotation, "transcript_id", "transcriptId"),
-        filters.transcript,
-    ):
-        return False
-    if filters.hgvsc and not _contains_casefold(_annotation_text(annotation, "hgvsc"), filters.hgvsc):
-        return False
-    if filters.hgvsp and not _contains_casefold(_annotation_text(annotation, "hgvsp"), filters.hgvsp):
-        return False
-    if filters.canonical_only and not _annotation_bool(annotation, "canonical"):
-        return False
-    if filters.mane_only and not any(
-        _annotation_bool(annotation, *keys) for keys in MANE_ONLY_TRANSCRIPT_FLAGS
-    ):
-        return False
-    if filters.lof_only and _casefold(_annotation_text(annotation, "lof") or "") in {"", ".", "na", "n/a"}:
-        return False
-    # ClinVar Pathogenic/Likely_pathogenic can "rescue" a variant past the gnomAD
-    # frequency thresholds when the caller opts in — a recurrent pathogenic allele
-    # may sit above the rarity cut-off yet must not be filtered out.
-    clinvar_rescue = filters.clinvar_overrides_frequency and _flexible_status_match(
-        _annotation_clinvar(annotation), CLINVAR_FREQUENCY_RESCUE_TERMS
-    )
-    if not clinvar_rescue:
-        if not _frequency_within(_annotation_float(annotation, "gnomad_af", "gnomadAf"), filters.max_gnomad_af):
-            return False
-        population_frequencies = _annotation_population_frequencies(annotation)
-        if not _frequency_within(population_frequencies.get("gnomad_exomes_af"), filters.max_gnomad_exomes_af):
-            return False
-        if not _frequency_within(population_frequencies.get("gnomad_genomes_af"), filters.max_gnomad_genomes_af):
-            return False
-        if not _frequency_within(population_frequencies.get("gnomad_popmax_af"), filters.max_gnomad_popmax_af):
-            return False
-        if not _frequency_within(population_frequencies.get("topmed_af"), filters.max_topmed_af):
-            return False
-        if not _nullable_lte(_annotation_int(annotation, "gnomad_ac"), filters.max_gnomad_ac):
-            return False
-        if not _nullable_lte(
-            _annotation_int(annotation, "gnomad_hom_count", "gnomadHomCount"), filters.max_gnomad_hom_count
-        ):
-            return False
-        if not _nullable_lte(_annotation_int(annotation, "gnomad_hemi_count"), filters.max_gnomad_hemi_count):
-            return False
-
-    impact_terms = {_casefold(value) for value in filters.impact if str(value).strip()}
-    # A consequence value is read as the SQL reads it: terms VEP joins with & (or , ; | /)
-    # are each a term of their own (ENG-1).
-    effect_terms = {term for value in filters.effect for term in _annotation_terms(value)}
-    any_impact_effect = bool(impact_terms or effect_terms or filters.min_spliceai is not None)
-    if any_impact_effect:
-        impact_match = bool(impact_terms) and _casefold(_annotation_text(annotation, "impact")) in impact_terms
-        effect_match = bool(effect_terms) and bool(effect_terms.intersection(_annotation_terms(_annotation_effect(annotation))))
-        splice_match = _score_meets(_annotation_spliceai_max(annotation), filters.min_spliceai)
-        if not (impact_match or effect_match or splice_match):
-            return False
-
-    clinvar_terms = [value for value in filters.clinvar if str(value).strip()]
-    if clinvar_terms and not _flexible_status_match(_annotation_clinvar(annotation), clinvar_terms):
-        return False
-
-    # A SIFT or PolyPhen value that names no prediction (blank, or a score alone) asks
-    # nothing, as the SQL condition adds none for it.
-    in_silico_requested = (
-        filters.min_cadd is not None
-        or filters.min_revel is not None
-        or filters.min_spliceai is not None
-        or in_silico_prediction_pattern(filters.sift) is not None
-        or in_silico_prediction_pattern(filters.polyphen) is not None
-    )
-    if in_silico_requested:
-        cadd_match = _score_meets(_annotation_float(annotation, "cadd_phred", "caddPhred"), filters.min_cadd)
-        revel_match = _score_meets(_annotation_float(annotation, "revel"), filters.min_revel)
-        splice_match = _score_meets(_annotation_spliceai_max(annotation), filters.min_spliceai)
-        # The value names the prediction asked for, whatever its score: the SQL condition's
-        # own test (CLIN-45). A whole-term match missed "deleterious(0.01)".
-        sift_match = in_silico_prediction_matches(_annotation_sift(annotation), filters.sift)
-        polyphen_match = in_silico_prediction_matches(_annotation_polyphen(annotation), filters.polyphen)
-        if not (cadd_match or revel_match or splice_match or sift_match or polyphen_match):
-            return False
-    return True

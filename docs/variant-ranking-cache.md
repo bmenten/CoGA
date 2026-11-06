@@ -136,11 +136,11 @@ Mendeliome panel's token (about 0.003 s).
 ## Applying a panel
 
 A panel keeps a variant in one of its regions or annotated with one of its genes. The family
-search applies it twice: in SQL, where it reads the family's rows, and in the record filter
-(`_kept_small_candidates` → `_small_record_matches`) over the candidates it fetched. The record
-filter runs for a ranking computed afresh, and for a compound-het, recessive or carrier-screening
-search (ranked or not) on an exact hit too. Until ENG-15 both cost the number of rows times the
-panel's size:
+search applies it in SQL, where it reads the family's rows. Until ENG-15 it also applied it in a
+record filter over the candidates it fetched (`_kept_small_candidates` → `_small_record_matches`,
+gone since the roadmap's *One filter definition*), for a ranking computed afresh, and for a
+compound-het, recessive or carrier-screening search (ranked or not) on an exact hit too, and both
+cost the number of rows times the panel's size:
 
 - **In SQL** each of the family's rows was tested against every region (`arrayExists` over the
   regions): 1.3 s at 500 regions and 2.1 s at 1,000, for a family of about 190,000 rows. The region
@@ -153,9 +153,10 @@ panel's size:
   itself reads, so it keeps exactly the rows the per-row test kept. The intervals and the excluded
   genes and intervals, short lists, keep the per-row test.
 - **In the record filter** the panel's gene names (5,300 for the Mendeliome) were casefolded again
-  for every candidate, and every region was tested even after a gene had matched. The panel is now
-  prepared once per search (`_SmallPanelMatch`): its genes casefolded once, its regions read only
-  for a record that names none of its genes, by bisection over a lookup built on first use.
+  for every candidate, and every region was tested even after a gene had matched. ENG-15 prepared
+  the panel once per search, its regions read by bisection over a lookup built on first use
+  (`_RegionLookup`, which the structural-variant panel filter still reads); the record filter has
+  since gone.
 
 Neither change alters what a search keeps or how it ranks, so the scoring version stays.
 
@@ -461,7 +462,16 @@ the inheritance filter itself applies: the candidate read returns them as flags
 (`_fetch_small_variant_rows(segregation_flags=True)`, built by `_small_segregation_flag_columns` from
 `_small_inheritance_mode_clauses`), so the ranking and the filter cannot read a mode apart. Only the
 trio de novo, which no search filters by, and the compound-het pairing are worked out in Python.
-`_ALGORITHM_VERSION` 9 retires the rankings computed when Python read the modes again. A narrower panel is served from a broader row under the conditions above, applied
+`_ALGORITHM_VERSION` 9 retires the rankings computed when Python read the modes again.
+
+The candidates a ranking reads are the rows the SQL keeps: no filter is applied a second time in
+Python. The ranked search used to re-read each filter in Python (`_small_record_matches`), which
+read some values and gene names apart from the stored ones the SQL reads and dropped variants the
+plain page lists (a gnomAD value no 32-bit column holds, a gene named under an annotation key the
+import does not write). `_ALGORITHM_VERSION` 10 retires the rankings computed then (the roadmap's
+*One filter definition*).
+
+A narrower panel is served from a broader row under the conditions above, applied
 to the variants the narrower search keeps; its pairs are worked out within its own reach. The page
 lists each pair where its better-ranked variant ranks.
 
@@ -528,8 +538,7 @@ above). "Computed N min ago" is when that broader ranking was computed.
   `_panel_members`, `_fetch_gene_regions_for_terms`)
 - The panel filter: `backend/app/services/clickhouse_variant_queries.py`
   (`_small_panel_filter_condition`); its regions, merged where they share a base
-  (`_small_region_bounds`), joined to the family's rows (`_small_family_region_condition`), and
-  the panel as the record filter applies it (`_SmallPanelMatch`), see
+  (`_small_region_bounds`), joined to the family's rows (`_small_family_region_condition`), see
   [Applying a panel](#applying-a-panel); for structural variants
   `_structural_panel_filter_condition`, its regions with those inside another left out
   (`_structural_region_bounds`), joined to the family's SV rows

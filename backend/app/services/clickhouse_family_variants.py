@@ -88,7 +88,6 @@ from .clickhouse_variant_queries import (
     PER_SAMPLE_SMALL_VARIANT_SOURCES,
     vaf_genotype,
     _SMALL_COUNT_LIMIT,
-    _SmallPanelMatch,
     _StructuralPanelMatch,
     _append_limit_offset,
     _append_unique,
@@ -121,8 +120,6 @@ from .clickhouse_variant_queries import (
     _small_annotation_filter_condition,
     _small_query_filter_parts,
     _small_segregation_flag_columns,
-    _small_record_hits_gene_terms,
-    _small_record_matches,
     _small_search_keeps_by_pairing,
     _small_summary_table_name,
     _small_track_limit_response,
@@ -2532,8 +2529,9 @@ async def _prioritized_small_variants_page(
     same search keeps unranked, ordered by the ranking.
 
     *Phenotype prioritization* changes the order of a search, never what it keeps (CLIN-44).
-    The variants are fetched with the search's filters, as the unranked search fetches them,
-    and kept by the same record filter. A search that keeps a variant for what else it
+    The variants are fetched with the search's filters, as the unranked search fetches them:
+    the SQL is the one definition of the filters, applied nowhere again (the roadmap's *One
+    filter definition*). A search that keeps a variant for what else it
     finds (``_small_search_keeps_by_pairing``) then applies the rules the unranked search
     applies (``_small_variants_candidate_page``): the couple's gene rule of expanded carrier
     screening (``_filter_expanded_carrier_screening``), and the inheritance mode's pairs and
@@ -2630,9 +2628,9 @@ async def _prioritized_small_variants_page(
     if capped:
         records = records[:_PRIORITIZE_CANDIDATE_LIMIT]
 
-    # What the unranked search keeps of these candidates: the record filter, the couple's
-    # gene rule, and an inheritance mode's pairs and single variants.
-    kept = _kept_small_candidates(records, filters, scope, context)
+    # What the unranked search keeps of these candidates: the couple's gene rule, and an
+    # inheritance mode's pairs and single variants.
+    kept = _kept_small_candidates(records, filters, context)
     items: list[_SmallResultItem] = (
         _small_inheritance_items(context, filters.inheritance, kept)
         if pairing and filters.inheritance
@@ -2918,45 +2916,22 @@ def _item_records(items: Sequence[_SmallResultItem]) -> list[SmallVariantRecord]
 def _kept_small_candidates(
     records: Sequence[SmallVariantRecord],
     filters: SmallVariantQueryFilters,
-    scope: _SmallVariantScope,
     context: FamilyMetadataContext,
 ) -> list[SmallVariantRecord]:
-    """The fetched candidates a search keeps before an inheritance mode applies: those its
-    review selections and record filter keep and, with expanded carrier screening, the
-    couple's at-risk findings among them (REQ-CARR-002). The unranked and the ranked search
-    both keep these (CLIN-44). The panel is prepared once for all of them (ENG-15)."""
-    panel = _SmallPanelMatch(scope.panel_constraints)
-    kept = [
-        record
-        for record in records
-        if record.variant_id not in scope.excluded_review_variant_ids
-        and (
-            (not scope.include_review_filter_active)
-            or record.variant_id in (scope.review_variant_ids or set())
-        )
-        # An excluded gene leaves out every variant annotated with it, as the SQL leaves
-        # them out (by name, besides the gene's loci, ENG-1).
-        and not (
-            scope.exclude_gene_terms
-            and _small_record_hits_gene_terms(record, scope.exclude_gene_terms)
-        )
-        and _small_record_matches(
-            record,
-            filters,
-            scope.include_regions,
-            scope.exclude_regions,
-            scope.exclude_gene_regions,
-            panel_constraints=panel,
-        )
-    ]
+    """The fetched candidates a search keeps before an inheritance mode applies. Every
+    filter, the review selections and the excluded genes among them, is the SQL's
+    (``_small_query_filter_parts``, with the scope's ``row_filters``), which fetched these
+    rows: one definition (the roadmap's *One filter definition*). What no SQL decides is
+    applied here: with expanded carrier screening, the couple's at-risk findings among them
+    (REQ-CARR-002). The unranked and the ranked search both keep these (CLIN-44)."""
     if filters.expanded_carrier_screening:
-        kept = _filter_expanded_carrier_screening(
-            kept,
+        return _filter_expanded_carrier_screening(
+            records,
             context.sample_rows,
             context.relationship_rows,
             assembly_name=context.assembly_name,
         )
-    return kept
+    return list(records)
 
 
 # The searches that keep a variant by a single-variant mode, the recessive one among them:
@@ -3309,7 +3284,7 @@ async def _small_variants_candidate_page(
     )
     if inheritance_candidate_rows is not None:
         records = records[:inheritance_candidate_rows]
-    filtered = _kept_small_candidates(records, filters, scope, context)
+    filtered = _kept_small_candidates(records, filters, context)
     if track_mode:
         unfiltered_total = None
     else:

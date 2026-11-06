@@ -1,4 +1,5 @@
-"""SIFT and PolyPhen filters: the ClickHouse condition and the Python matcher agree (CLIN-45).
+"""SIFT and PolyPhen filters: the ClickHouse condition keeps the transcript whose value names
+the prediction (CLIN-45).
 
 VEP writes a SIFT or PolyPhen call with its score, ``deleterious(0.01)`` or
 ``probably_damaging(0.998)``, and the import stores the value so, case-folded. A filter keeps
@@ -6,10 +7,9 @@ a transcript whose value names the prediction the filter names, whatever its sco
 ``deleterious`` keeps ``deleterious(0.01)`` and ``deleterious``, not
 ``deleterious_low_confidence(0.03)``, which the filter form offers as a choice of its own.
 The SQL condition matched the filter's text anywhere in the value, so ``deleterious`` also
-kept ``deleterious_low_confidence`` and ``tolerated`` kept ``tolerated_low_confidence``. The
-Python matcher, which runs after the SQL in the ranked view, the pair-based inheritance modes
-and carrier screening, needed the whole value, so ``deleterious(0.01)`` was not
-``deleterious`` and a SIFT- or PolyPhen-only filter kept nothing there.
+kept ``deleterious_low_confidence`` and ``tolerated`` kept ``tolerated_low_confidence``; a
+second, Python reading needed the whole value, so ``deleterious(0.01)`` was not
+``deleterious``. The SQL is now the one definition (the roadmap's *One filter definition*).
 
 The SQL condition is evaluated here as ClickHouse evaluates it on the stored value, with a
 stand-in for each function it has used: ``positionCaseInsensitive`` (the text anywhere, in any
@@ -28,7 +28,6 @@ import pytest
 from backend.app.services.clickhouse_variant_queries import _small_detail_filter_clauses
 from backend.app.services.clickhouse_variant_records import (
     SmallVariantRecord,
-    _annotation_matches_normal,
 )
 from backend.app.services.clickhouse_variant_rows import _small_annotation_row
 from backend.app.services.family_variant_filters import SmallVariantQueryFilters
@@ -165,28 +164,22 @@ def _sql_keeps(filters: SmallVariantQueryFilters, annotation: dict[str, Any]) ->
 
 
 @pytest.mark.parametrize(("column", "option", "value", "names_it"), _CASES)
-def test_sql_and_python_keep_a_transcript_whose_value_names_the_prediction(
+def test_the_sql_keeps_a_transcript_whose_value_names_the_prediction(
     column: str, option: str, value: str, names_it: bool
 ) -> None:
-    # One rule in both paths: the transcript is kept when its value names the prediction,
+    # The rule: the transcript is kept when its value names the prediction,
     # with or without a score, in any capitals, spaces and underscores alike; never for
     # another prediction that begins with it, such as the low-confidence ones.
     filters = SmallVariantQueryFilters(page=1, page_size=100, **{column: option})
     annotation = {column: value}
-    assert (_sql_keeps(filters, annotation), _annotation_matches_normal(annotation, filters)) == (
-        names_it,
-        names_it,
-    )
+    assert _sql_keeps(filters, annotation) is names_it
 
 
 @pytest.mark.parametrize("column", ["sift", "polyphen"])
-def test_a_transcript_without_the_prediction_is_kept_by_neither(column: str) -> None:
+def test_a_transcript_without_the_prediction_is_not_kept(column: str) -> None:
     filters = SmallVariantQueryFilters(page=1, page_size=100, **{column: "benign"})
     for annotation in ({}, {column: ""}, {"cadd_phred": 30.0}):
-        assert (_sql_keeps(filters, annotation), _annotation_matches_normal(annotation, filters)) == (
-            False,
-            False,
-        )
+        assert _sql_keeps(filters, annotation) is False
 
 
 @pytest.mark.parametrize(
@@ -202,10 +195,7 @@ def test_the_filter_value_is_read_as_a_stored_value_is(filter_value: str) -> Non
         ("deleterious_low_confidence(0.03)", False),
     ):
         annotation = {"sift": value}
-        assert (_sql_keeps(filters, annotation), _annotation_matches_normal(annotation, filters)) == (
-            kept,
-            kept,
-        ), value
+        assert _sql_keeps(filters, annotation) is kept, value
 
 
 @pytest.mark.parametrize("filter_value", ["deleterious low confidence", "Deleterious_Low_Confidence(0.1)"])
@@ -216,24 +206,19 @@ def test_spaces_and_underscores_name_the_same_prediction(filter_value: str) -> N
         ("deleterious(0.01)", False),
     ):
         annotation = {"sift": value}
-        assert (_sql_keeps(filters, annotation), _annotation_matches_normal(annotation, filters)) == (
-            kept,
-            kept,
-        ), value
+        assert _sql_keeps(filters, annotation) is kept, value
 
 
 @pytest.mark.parametrize("filter_value", [" ", "_", "(0.01)"])
-def test_a_filter_value_that_names_no_prediction_asks_nothing_in_either_path(filter_value: str) -> None:
-    # Blank, or a score alone: no SQL condition, and the Python matcher keeps the transcript
-    # too. It used to keep nothing in Python while the SQL ignored it.
+def test_a_filter_value_that_names_no_prediction_asks_nothing(filter_value: str) -> None:
+    # Blank, or a score alone: no SQL condition. A second, Python reading used to keep
+    # nothing while the SQL ignored it.
     filters = SmallVariantQueryFilters(page=1, page_size=100, sift=filter_value)
     assert _small_detail_filter_clauses(filters) == ([], {})
-    for annotation in ({"sift": "tolerated(0.4)"}, {}):
-        assert _annotation_matches_normal(annotation, filters)
 
 
-def test_one_predictor_is_enough_in_both_paths() -> None:
-    # SIFT or PolyPhen (or a score minimum): one is enough, in SQL as in Python.
+def test_one_predictor_is_enough() -> None:
+    # SIFT or PolyPhen (or a score minimum): one is enough.
     filters = SmallVariantQueryFilters(page=1, page_size=100, sift="deleterious", polyphen="probably_damaging")
     for annotation, kept in (
         ({"sift": "deleterious(0.01)", "polyphen": "benign(0.1)"}, True),
@@ -241,10 +226,7 @@ def test_one_predictor_is_enough_in_both_paths() -> None:
         ({"sift": "deleterious_low_confidence(0.03)", "polyphen": "possibly_damaging(0.6)"}, False),
         ({"sift": "tolerated(0.3)", "polyphen": "benign(0.1)"}, False),
     ):
-        assert (_sql_keeps(filters, annotation), _annotation_matches_normal(annotation, filters)) == (
-            kept,
-            kept,
-        ), annotation
+        assert _sql_keeps(filters, annotation) is kept, annotation
 
 
 def test_the_variant_explorer_applies_the_same_condition() -> None:
@@ -322,20 +304,25 @@ def test_the_pattern_holds_only_what_re2_and_python_read_alike() -> None:
         assert in_silico_prediction_pattern(no_prediction) is None
 
 
+def _names(value: str | None, prediction: str | None) -> bool:
+    """Whether a stored value (trimmed and case-folded, as the import stores it) names the
+    prediction: the filter's pattern, as ClickHouse's ``match`` applies it."""
+    from backend.app.services.family_variant_filters import in_silico_prediction_pattern
+
+    pattern = in_silico_prediction_pattern(prediction)
+    return pattern is not None and re.search(pattern, str(value or "").strip().casefold()) is not None
+
+
 def test_a_filter_value_is_matched_as_text_never_as_a_pattern() -> None:
     # The API takes any text: its characters are escaped, so none acts as a pattern.
-    from backend.app.services.family_variant_filters import in_silico_prediction_matches
-
-    assert in_silico_prediction_matches("delete.ious(0.1)", "delete.ious")
-    assert not in_silico_prediction_matches("deleterious(0.1)", "delete.ious")
-    assert not in_silico_prediction_matches("deleterious", "dele*")
-    assert not in_silico_prediction_matches("deleterious", "[d]eleterious")
+    assert _names("delete.ious(0.1)", "delete.ious")
+    assert not _names("deleterious(0.1)", "delete.ious")
+    assert not _names("deleterious", "dele*")
+    assert not _names("deleterious", "[d]eleterious")
 
 
 def test_no_prediction_matches_nothing() -> None:
-    from backend.app.services.family_variant_filters import in_silico_prediction_matches
-
-    assert not in_silico_prediction_matches("deleterious(0.01)", None)
-    assert not in_silico_prediction_matches("deleterious(0.01)", "(0.5)")
-    assert not in_silico_prediction_matches(None, "deleterious")
-    assert not in_silico_prediction_matches("", "deleterious")
+    assert not _names("deleterious(0.01)", None)
+    assert not _names("deleterious(0.01)", "(0.5)")
+    assert not _names(None, "deleterious")
+    assert not _names("", "deleterious")

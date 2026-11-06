@@ -19,10 +19,8 @@ from backend.app.services.variant_annotation_parser import (
     normalize_small_variant_annotation_entry,
     update_annotation_header_state,
 )
-from backend.app.services.clickhouse_variant_queries import _matches_small_annotations
-from backend.app.services.clickhouse_variant_records import SmallVariantRecord
+from backend.app.services.clickhouse_variant_rows import _annotation_columns
 from backend.app.services.clickhouse_variant_rows import _annotation_count
-from backend.app.services.family_variant_filters import SmallVariantQueryFilters
 
 
 def test_extract_small_variant_annotations_from_csq() -> None:
@@ -301,29 +299,12 @@ def test_a_vep_table_row_reads_no_unprefixed_count() -> None:
 
 @pytest.mark.parametrize("key", list(_UNPREFIXED_KEYS))
 def test_a_maximum_gnomad_count_keeps_a_variant_whose_only_count_is_unprefixed(key: str) -> None:
-    # The Python matcher keeps the variant, and the import stores no count in the column the
-    # SQL filter reads (annotations, and the index's maximum over the transcripts), where
+    # The import stores no count in the column the SQL filter reads (annotations, and the index's maximum over the transcripts), where
     # ifNull(count, 0) <= maximum keeps it too: as absent from gnomAD.
     field = _UNPREFIXED_KEYS[key]
     annotations = extract_small_variant_annotations(
         {key: "4", "AN": "8", "CSQ": _CSQ_WITHOUT_COUNTS}, _csq_state()
     )
-    record = SmallVariantRecord(
-        variant_key=None,
-        variant_id="1-1000-C-T",
-        chr="1",
-        start=1000,
-        end=1000,
-        ref="C",
-        alt="T",
-        source="clair3",
-        rsid=None,
-        filters=[],
-        gene_symbols=[],
-        annotations=annotations,
-        calls=[],
-    )
-    filters = SmallVariantQueryFilters(page=1, page_size=100, **{_MAXIMUM_OF[field]: 2})
-
-    assert _matches_small_annotations(record, filters)
+    # No count stored in the column the SQL reads: ifNull(count, 0) <= the maximum keeps it.
+    assert all(getattr(_annotation_columns(annotation), field) is None for annotation in annotations)
     assert [_annotation_count(annotation, field) for annotation in annotations] == [None]

@@ -21,10 +21,8 @@ from backend.app.services.variant_annotation_parser import (
     normalize_small_variant_annotation_entry,
     update_annotation_header_state,
 )
-from backend.app.services.clickhouse_variant_queries import _matches_small_annotations
-from backend.app.services.clickhouse_variant_records import SmallVariantRecord
 from backend.app.services.clickhouse_variant_rows import _annotation_count
-from backend.app.services.family_variant_filters import SmallVariantQueryFilters
+from backend.app.services.clickhouse_variant_rows import _annotation_columns
 
 _COUNT_FIELDS = (
     "gnomAD_AC",
@@ -170,23 +168,8 @@ def test_a_maximum_homozygote_filter_reads_the_total(maximum: int, kept: bool) -
     annotations = extract_small_variant_annotations(
         {"CSQ": _csq(gnomADe_nhomalt="3", gnomADg_nhomalt="2")}, _state()
     )
-    record = SmallVariantRecord(
-        variant_key=None,
-        variant_id="1-1000-C-T",
-        chr="1",
-        start=1000,
-        end=1000,
-        ref="C",
-        alt="T",
-        source="clair3",
-        filters=[],
-        gene_symbols=["GENE1"],
-        rsid=None,
-        calls=[],
-        annotations=annotations,
-    )
-
-    # Before, the maximum kept the variant at any value: it had no homozygote count.
-    filters = SmallVariantQueryFilters(page=1, page_size=100, max_gnomad_hom_count=maximum)
-
-    assert _matches_small_annotations(record, filters) is kept
+    # Before, the maximum kept the variant at any value: it had no homozygote count. The SQL
+    # keeps a transcript whose stored count is within the maximum (ifNull(count, 0) <= it).
+    (annotation,) = annotations
+    stored = _annotation_columns(annotation).gnomad_hom_count
+    assert ((stored or 0) <= maximum) is kept
