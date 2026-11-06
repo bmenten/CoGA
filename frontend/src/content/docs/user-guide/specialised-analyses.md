@@ -13,6 +13,10 @@ the affected members as carriers. Its filters are **Phenotype**, **Inheritance a
 *Mendeliome*, *Dominant*, *Recessive-like* and *Any affected*. **Phenotype prioritization** ranks SVs by
 the same phenotype score as small variants. **Clear all filters** removes the default.
 
+**Save current** keeps your filters as a saved search: for this family, or, with *Every family I open
+(reusable)*, for each family you open. Your saved searches are listed under the presets. Choose one and
+**Delete saved search** removes it; a reusable one goes from every family.
+
 As on the small-variant page, a gene panel of any size keeps an SV whose annotation names one of its
 genes or that overlaps one of its regions. So the Mendeliome also keeps an SV in one of its genes whose
 annotation names that gene otherwise, and a small panel an SV annotated with one of its genes that does

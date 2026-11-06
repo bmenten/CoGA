@@ -262,6 +262,27 @@ const FamilyStructuralVariantsPage: React.FC = () => {
     },
   });
 
+  // Delete one of the user's saved searches: this family's, or a reusable one, which goes from
+  // every family (PROD-3).
+  const deletePresetMutation = useMutation({
+    mutationFn: async (preset: StructuralVariantFilterPreset) => {
+      if (!familyId) throw new Error('Family id is required');
+      await api.delete(apiPath`/families/${familyId}/structural-variant-filter-presets/${preset._id}`);
+    },
+    onSuccess: async () => {
+      setWorkspaceFeedback({ type: 'success', message: 'Saved search deleted.' });
+      await queryClient.invalidateQueries({
+        queryKey: ['family', familyId, 'structural-variant-filter-presets'],
+      });
+    },
+    onError: (error) => {
+      setWorkspaceFeedback({
+        type: 'error',
+        message: getErrorMessage(error, 'Unable to delete this saved search'),
+      });
+    },
+  });
+
   const reviewMutation = useMutation({
     mutationFn: async ({
       variant,
@@ -406,6 +427,7 @@ const FamilyStructuralVariantsPage: React.FC = () => {
           activeFilterChips={activeFilterChips}
           applyPreset={applyPreset}
           applySavedPreset={applySavedPreset}
+          deletingPreset={deletePresetMutation.isPending}
           draftFilters={draftFilters}
           draftLocationProblem={draftLocationProblem}
           feedback={workspaceFeedback}
@@ -414,6 +436,9 @@ const FamilyStructuralVariantsPage: React.FC = () => {
           handleSampleFieldChange={handleSampleFieldChange}
           handleSearch={handleSearch}
           orderedMembers={orderedMembers}
+          onDeletePreset={async (preset) => {
+            await deletePresetMutation.mutateAsync(preset);
+          }}
           onSaveCurrentPreset={async (payload) => {
             await savePresetMutation.mutateAsync(payload);
           }}

@@ -32,7 +32,6 @@ brackets.
 
 - **Variant Explorer** (PROD-2): gene-, transcript- and cohort-frequency views beside the variant view.
 - **Variant summary statistics** (PROD-1): small-variant summary statistics per individual and per family ([#1](https://github.com/bmenten/CoGA/issues/1)).
-- **SV filter presets on screen** (PROD-3): no screen saves a reusable SV preset or deletes one; the API supports both.
 - **Long-read packages** (PROD-4): no dataset type reads a plain multi-sample Sniffles2 VCF, and QDNAseq-style raw-bin CNV files are not importable.
 - **Per-sample GLIMPSE2 haplotypes** (PROD-5): per-sample GLIMPSE2 BCF haplotypes are registered but not imported.
 - **Single-parent recessive risk** (PROD-6): it reads "uninformative" by design; a later version could say "carries the known parent's risk allele, donor unknown".
