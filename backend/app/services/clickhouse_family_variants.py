@@ -1972,7 +1972,13 @@ async def _serve_ranking_from_cache(
 
     page_variants: list[VariantOut] = []
     if page_ids:
-        fetch_filters = SmallVariantQueryFilters(page=1, page_size=len(page_ids) + 5)
+        # By id, in the search's own callset: an imputed callset's call of a variant shares
+        # its key with another callset's call of it, and a fetch with no callset reads the
+        # others only. Without it, a search of an imputed callset served from the cache lost
+        # its variants and showed another callset's genotypes (One filter definition).
+        fetch_filters = SmallVariantQueryFilters(
+            page=1, page_size=len(page_ids) + 5, source=filters.source
+        )
         records = await _fetch_small_variant_rows(
             context,
             fetch_filters,

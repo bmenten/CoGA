@@ -2337,6 +2337,39 @@ async def _serve_from_cache(monkeypatch: pytest.MonkeyPatch, cached: dict, recor
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("source", ["glimpse2", None])
+async def test_a_cached_ranking_fetches_its_variants_in_the_searchs_own_callset(
+    monkeypatch: pytest.MonkeyPatch, source: str | None
+) -> None:
+    # An imputed callset's call of a variant shares its key with another callset's: fetched
+    # with no callset, the page of an imputed search lost its variants and showed another
+    # callset's genotypes. A search of no callset fetches as the plain page does.
+    fetched_sources: list[str | None] = []
+
+    async def _fetch(_context, filters, *, include_variant_ids=None, **_k):
+        fetched_sources.append(filters.source)
+        return []
+
+    async def _no_review_state(*_a, **_k):
+        return None
+
+    monkeypatch.setattr(_cfv, "_fetch_small_variant_rows", _fetch)
+    monkeypatch.setattr(_cfv, "_hydrate_small_variant_outs", _no_review_state)
+    ranking = [{"variant_id": "1-100-A-G", "priority": _cached_priority(0.9, rank=1)}]
+    await _cfv._serve_ranking_from_cache(
+        None,  # type: ignore[arg-type]
+        context=_family_context(),
+        filters=SmallVariantQueryFilters(page=1, page_size=50, source=source),
+        cached={"ranking": ranking, "total": 1},
+        page=1,
+        page_size=50,
+        small_variant_summary=None,
+    )
+
+    assert fetched_sources == [source]
+
+
+@pytest.mark.asyncio
 async def test_a_cached_ranking_serves_its_order_over_the_records_still_stored(monkeypatch: pytest.MonkeyPatch) -> None:
     calls = [_small_call("PROBAND", "0/1")]
     stored = [
