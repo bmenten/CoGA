@@ -13,6 +13,13 @@ Before, the Explorer read the chromosome as written and tested the gene, rsID, e
 ClinVar and per-transcript filters against any annotation of the variant: one family's
 annotation let every family's carriers through.
 
+A row's own annotation is the annotation set it was imported with (its key and
+``annotationSetHash``), whatever its version: family B is written as a VEP TSV import
+(``vep_tsv``), so a variant both families carry under the same annotations has it under two
+versions, and is read alike in both. The rsID a family's VCF gives a variant is written beside
+its annotations: family B's page also finds, by that rsID, a variant its own VCF gives none,
+which family A's names with the same annotations.
+
 One reading is the Explorer's own, by design: the sample genotype filter keeps a variant
 the sample carries with that genotype in any of its rows, and then counts every carrier of
 the cohort (the owner's decision of 2026-11-06). The genotype classes are the family page's.
@@ -91,6 +98,8 @@ _DELETION = "14-74100299-CAT-C"
 _IMPUTED = "14-74100401-A-G"
 # A two-base substitution (family A).
 _MNV = "14-74100501-AC-GT"
+# Carried by both families under one annotation; family A's VCF gives it rs990002, B's none.
+_RSID_ELSEWHERE = "14-74100601-T-C"
 # The mitochondrion, stored as M by family A's VCF (chrM) and as MT by family B's.
 _MITO_M = "M-14701-A-G"
 _MITO_MT = "MT-14702-T-C"
@@ -113,20 +122,24 @@ _FAMILY_A: dict[str, _Stored] = {
     _DELETION: _Stored([_csq("frameshift_variant", "HIGH", "EXPF2")]),
     _IMPUTED: _Stored([_csq("intron_variant", "MODIFIER", "EXPF2")], source="glimpse2"),
     _MNV: _Stored([_csq("missense_variant", "MODERATE", "EXPF2")]),
+    _RSID_ELSEWHERE: _Stored([_csq("missense_variant", "MODERATE", "EXPF3")], rsid="rs990002"),
     _MITO_M: _Stored([_csq("missense_variant", "MODERATE", "MT-ND5", af="")], gt="1"),
 }
 _FAMILY_B: dict[str, _Stored] = {
     _TWO_RUNS: _Stored(_RUN_TWO),
     _SHARED: _Stored([_csq("missense_variant", "MODERATE", "EXPF2")], gt="1/1"),
+    _RSID_ELSEWHERE: _Stored([_csq("missense_variant", "MODERATE", "EXPF3")]),
     _MITO_MT: _Stored([_csq("synonymous_variant", "LOW", "MT-ND5", af="")], gt="1"),
 }
 _STORED = {"A": (_SAMPLE_A, _FAMILY_A), "B": (_SAMPLE_B, _FAMILY_B)}
+# The annotation version each family is imported with: B's as a VEP TSV.
+_ANNOTATION_VERSION = {"A": "current", "B": "vep_tsv"}
 
 # What each family page lists without a filter: its imputed callsets are hidden.
 _ALL_A = set(_FAMILY_A) - {_IMPUTED}
 _ALL_B = set(_FAMILY_B)
-_CHR14_A = {_TWO_RUNS, _SHARED, _DELETION, _MNV}
-_CHR14_B = {_TWO_RUNS, _SHARED}
+_CHR14_A = {_TWO_RUNS, _SHARED, _DELETION, _MNV, _RSID_ELSEWHERE}
+_CHR14_B = {_TWO_RUNS, _SHARED, _RSID_ELSEWHERE}
 
 
 @dataclass(frozen=True)
@@ -158,7 +171,7 @@ _CASES = {
     "impact MODERATE": _Case(
         {"impacts": ["MODERATE"]},
         {"impact": ["MODERATE"]},
-        {"A": {_SHARED, _MNV, _MITO_M}, "B": {_TWO_RUNS, _SHARED}},
+        {"A": {_SHARED, _MNV, _RSID_ELSEWHERE, _MITO_M}, "B": {_TWO_RUNS, _SHARED, _RSID_ELSEWHERE}},
     ),
     "gene": _Case({"gene": "EXPF1"}, {"gene": "EXPF1"}, {"A": {_TWO_RUNS}, "B": set()}),
     "gene renamed": _Case({"gene": "expf1b"}, {"gene": "expf1b"}, {"A": set(), "B": {_TWO_RUNS}}),
@@ -166,6 +179,11 @@ _CASES = {
         {"gene": "ENSG_EXPF1"}, {"gene": "ENSG_EXPF1"}, {"A": {_TWO_RUNS}, "B": set()}
     ),
     "rsID": _Case({"rsid": "RS990001"}, {"rsid": "RS990001"}, {"A": {_TWO_RUNS}, "B": set()}),
+    # The rsID family A's VCF gives a variant both carry under one annotation set, which family
+    # B imported under another version: B's row finds it through its annotation set.
+    "rsID of another import": _Case(
+        {"rsid": "rs990002"}, {"rsid": "rs990002"}, {"A": {_RSID_ELSEWHERE}, "B": {_RSID_ELSEWHERE}}
+    ),
     "ClinVar": _Case({"clinvar": ["benign"]}, {"clinvar": ["benign"]}, {"A": set(), "B": {_TWO_RUNS}}),
     "excluded ClinVar": _Case(
         {"exclude_clinvar": ["Benign"]},
@@ -199,7 +217,9 @@ _CASES = {
         {"A": {_SHARED, _DELETION}, "B": {_SHARED}},
     ),
     "SNV": _Case(
-        {"variant_type": "SNV"}, {"type": "SNV"}, {"A": {_TWO_RUNS, _SHARED, _MITO_M}, "B": _ALL_B}
+        {"variant_type": "SNV"},
+        {"type": "SNV"},
+        {"A": {_TWO_RUNS, _SHARED, _RSID_ELSEWHERE, _MITO_M}, "B": _ALL_B},
     ),
     "INDEL (an MNV too)": _Case(
         {"variant_type": "INDEL"}, {"type": "INDEL"}, {"A": {_DELETION, _MNV}, "B": set()}
@@ -210,8 +230,10 @@ _CASES = {
     "genotype het": _Case(
         {"sample_genotype_filters": [(_SAMPLE_A, "het")]},
         {"sample_filters": [f"{_SAMPLE_A}:het"]},
-        {"A": {_TWO_RUNS, _SHARED, _DELETION, _MNV}},
-        explorer_rows={_TWO_RUNS: (2, 2), _SHARED: (2, 2), _DELETION: (1, 1), _MNV: (1, 1)},
+        {"A": {_TWO_RUNS, _SHARED, _DELETION, _MNV, _RSID_ELSEWHERE}},
+        explorer_rows={
+            _TWO_RUNS: (2, 2), _SHARED: (2, 2), _DELETION: (1, 1), _MNV: (1, 1), _RSID_ELSEWHERE: (2, 2)
+        },
     ),
     "genotype hom (haploid)": _Case(
         {"sample_genotype_filters": [(_SAMPLE_A, "hom")]},
@@ -229,7 +251,7 @@ _CASES = {
         {"sample_genotype_filters": [(_SAMPLE_B, "het_hom")]},
         {"sample_filters": [f"{_SAMPLE_B}:het|hom"]},
         {"B": _ALL_B},
-        explorer_rows={_TWO_RUNS: (2, 2), _SHARED: (2, 2), _MITO_MT: (1, 1)},
+        explorer_rows={_TWO_RUNS: (2, 2), _SHARED: (2, 2), _RSID_ELSEWHERE: (2, 2), _MITO_MT: (1, 1)},
     ),
     # A variant the sample carries is kept, and its rows are then read by the annotation
     # filters: only family A's annotation of the variant B carries says HIGH.
@@ -266,7 +288,13 @@ def stored_families() -> dict[str, str]:
     async def _write() -> None:
         await ensure_clickhouse_variant_tables(_ASSEMBLY)
         for label, (sample, variants) in _STORED.items():
-            await insert_small_variant_records(_ASSEMBLY, families[label], [project], _records(sample, variants))
+            await insert_small_variant_records(
+                _ASSEMBLY,
+                families[label],
+                [project],
+                _records(sample, variants),
+                annotation_version=_ANNOTATION_VERSION[label],
+            )
 
     run_closing_stores(_write, init_schema=True)
     return {"project": project, **families}
@@ -389,5 +417,5 @@ def test_imputed_callsets_are_hidden_as_on_the_family_page(
         "family page": _ALL_A,
         "family page, GLIMPSE2": {_IMPUTED},
         "explorer": _ALL_A | _ALL_B,
-        "explorer with imputed, sample het": {_TWO_RUNS, _SHARED, _DELETION, _MNV, _IMPUTED},
+        "explorer with imputed, sample het": {_TWO_RUNS, _SHARED, _DELETION, _MNV, _RSID_ELSEWHERE, _IMPUTED},
     }

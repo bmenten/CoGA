@@ -83,7 +83,11 @@ from .hpo_service import get_loaded_hpo_release
 #    read some values and gene names apart from the stored ones the SQL reads and dropped
 #    what the SQL kept, is gone (One filter definition). A ranking cached before may lack a
 #    variant with a value no 32-bit column holds or a gene named under another key.
-_ALGORITHM_VERSION = "10"
+# 11: the annotation filters read a row's annotation by its key and annotation set, whatever
+#    the version it came under (vcf_info, vep_tsv). A ranking cached before under the rsID
+#    filter may lack a variant whose rsID another import wrote with the same annotations
+#    under another version.
+_ALGORITHM_VERSION = "11"
 # Keep only the few most-recent distinct query signatures per family.
 _MAX_CACHE_ROWS_PER_FAMILY = 6
 
