@@ -1,7 +1,8 @@
-// Pins the family variant summary's shell and its structural-variant section: the overview of
-// which data the family has, a section per kind it has, the SV requests (encoded id, 100k cap),
-// per-chromosome/type and per-sample counts, the unique/shared sample matrix, absolute-length
-// histograms, states, and that nothing shows before the family and its reference (SAFE-14).
+// Pins the family variant summary's shell and its structural-variant section: a tab per kind of
+// data the family has, the open one's section shown and the others hidden; the SV requests
+// (encoded id, 100k cap), per-chromosome/type and per-sample counts, the unique/shared sample
+// matrix, absolute-length histograms, states, and that nothing shows before the family and its
+// reference (SAFE-14).
 // The small-variant, repeat, Paraphase and mtDNA sections: VariantSummarySections.test.tsx.
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -135,7 +136,7 @@ describe('FamilyVariantSummaryPage', () => {
     );
   });
 
-  it('opens with what the family has, a section and an analysis link for each kind it has', async () => {
+  it('opens with a tab per kind the family has, the first one open and the others hidden', async () => {
     serve('F1', {
       has: {
         small: true,
@@ -148,66 +149,143 @@ describe('FamilyVariantSummaryPage', () => {
     });
     renderPage();
 
-    const overview = await screen.findByRole('table', {
+    const tabs = await screen.findByRole('tablist', {
       name: 'Variant data of this family',
     });
-    expect(readTable(overview)).toEqual([
-      ['Data', 'In this family', 'Analysis page'],
-      ['Small variants (SNV/indel)', 'Summarised below', 'Small variants'],
-      ['Structural variants', 'Summarised below', 'Structural variants'],
-      ['Repeat expansions', 'None', '–'],
-      ['Paraphase', 'None', '–'],
-      ['Mitochondrial DNA', 'Summarised below', 'mtDNA analysis'],
-    ]);
     expect(
-      within(overview).getByRole('link', { name: 'mtDNA analysis' })
-    ).toHaveAttribute('href', '/families/F1/mitochondrial-dna');
-    // The sections follow the overview, one per kind the family has, each in the page's nav.
-    const nav = screen.getByRole('navigation', {
-      name: 'Variant summary sections',
-    });
-    expect(
-      within(nav)
-        .getAllByRole('link')
-        .map((link) => link.textContent)
+      within(tabs)
+        .getAllByRole('tab')
+        .map((tab) => [tab.textContent, tab.getAttribute('aria-selected')])
     ).toEqual([
-      'Overview',
-      'Small variants (SNV/indel)',
-      'Structural variants',
-      'Mitochondrial DNA',
+      ['Small variants (SNV/indel)', 'true'],
+      ['Structural variants', 'false'],
+      ['Mitochondrial DNA', 'false'],
     ]);
+    // Only the open tab's section is shown, labelled by its tab.
     expect(
       screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent)
-    ).toEqual([
-      'What this family has',
-      'Small variants (SNV/indel)',
-      'Structural variants',
-      'Mitochondrial DNA',
-    ]);
-    // A kind the family lacks is not asked for.
+    ).toEqual(['Small variants (SNV/indel)']);
+    expect(screen.getByRole('tabpanel')).toHaveAccessibleName(
+      'Small variants (SNV/indel)'
+    );
+    // A tab not opened is not loaded, and a kind the family lacks is not asked for.
     await settle(mockedGet);
-    const asked = mockedGet.mock.calls.map(([url]) => url as string);
-    expect(asked).not.toContain('/families/F1/repeat-expansions');
-    expect(asked).not.toContain('/families/F1/paraphase');
+    const asked = () => mockedGet.mock.calls.map(([url]) => url as string);
+    expect(asked()).not.toContain('/families/F1/structural-variant-lengths');
+    expect(asked()).not.toContain('/families/F1/mitochondrial-dna');
+    expect(asked()).not.toContain('/families/F1/repeat-expansions');
+    expect(asked()).not.toContain('/families/F1/paraphase');
   });
 
-  it('shows the section of a kind whose check failed, so it can say for itself (#607)', async () => {
+  it('opens a tab on a click, hiding the one before, which keeps what it loaded', async () => {
+    serve('F1', {
+      has: { small: true, structural: true },
+      lengths: [sv('1', 'DEL')],
+    });
+    renderPage();
+
+    const smallTab = await screen.findByRole('tab', {
+      name: 'Small variants (SNV/indel)',
+    });
+    fireEvent.click(screen.getByRole('tab', { name: 'Structural variants' }));
+
+    expect(await screen.findByText(/Total variants: 1\b/)).toBeInTheDocument();
+    expect(
+      screen.getByRole('tab', { name: 'Structural variants' })
+    ).toHaveAttribute('aria-selected', 'true');
+    expect(smallTab).toHaveAttribute('aria-selected', 'false');
+    expect(
+      screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent)
+    ).toEqual(['Structural variants']);
+    // The small-variant section is hidden, not dropped: back on its tab it is not asked again.
+    await settle(mockedGet);
+    const statistics = () =>
+      mockedGet.mock.calls.filter(
+        ([url]) => url === '/families/F1/small-variant-statistics'
+      ).length;
+    expect(statistics()).toBe(1);
+    fireEvent.click(smallTab);
+    expect(
+      screen.getByRole('heading', {
+        name: 'Small variants (SNV/indel)',
+        level: 2,
+      })
+    ).toBeInTheDocument();
+    // The SV section is hidden in its turn.
+    expect(screen.getByText(/Total variants: 1\b/)).not.toBeVisible();
+    await settle(mockedGet);
+    expect(statistics()).toBe(1);
+  });
+
+  it('opens the tab the link names, and moves between tabs with the arrow keys', async () => {
+    serve('F1', {
+      has: { small: true, structural: true, mito: true },
+      lengths: [sv('1', 'DEL')],
+    });
+    renderPage('/families/F1/variant-summary#mitochondrial-dna');
+
+    const mito = await screen.findByRole('tab', { name: 'Mitochondrial DNA' });
+    expect(mito).toHaveAttribute('aria-selected', 'true');
+    expect(mito).toHaveAttribute('tabindex', '0');
+    expect(
+      screen.getByRole('tab', { name: 'Small variants (SNV/indel)' })
+    ).toHaveAttribute('tabindex', '-1');
+    expect(
+      screen.getByRole('heading', { name: 'Mitochondrial DNA', level: 2 })
+    ).toBeInTheDocument();
+
+    // The arrows move the focus, round the row; Enter or Space (a click) opens the tab.
+    fireEvent.keyDown(mito, { key: 'ArrowRight' });
+    expect(
+      screen.getByRole('tab', { name: 'Small variants (SNV/indel)' })
+    ).toHaveFocus();
+    fireEvent.keyDown(document.activeElement as HTMLElement, {
+      key: 'ArrowLeft',
+    });
+    expect(mito).toHaveFocus();
+    fireEvent.keyDown(mito, { key: 'Home' });
+    expect(
+      screen.getByRole('tab', { name: 'Small variants (SNV/indel)' })
+    ).toHaveFocus();
+    expect(mito).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('opens the first tab when the link names a kind the family lacks', async () => {
+    serve('F1', { has: { small: true, structural: false } });
+    renderPage('/families/F1/variant-summary#structural-variants');
+
+    expect(
+      await screen.findByRole('tab', { name: 'Small variants (SNV/indel)' })
+    ).toHaveAttribute('aria-selected', 'true');
+    expect(
+      screen.queryByRole('tab', { name: 'Structural variants' })
+    ).not.toBeInTheDocument();
+  });
+
+  it('says so when the family has no variant data', async () => {
+    serve('F1', { has: { structural: false } });
+    renderPage();
+
+    expect(
+      await screen.findByText('This family has no variant data to summarise.')
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('tablist')).not.toBeInTheDocument();
+  });
+
+  it('gives a kind whose check failed a tab, so its section can say for itself (#607)', async () => {
     serve('F1', {
       has: { structural: false, paraphase: failWith(new Error('down')) },
     });
     renderPage();
 
-    const overview = await screen.findByRole('table', {
-      name: 'Variant data of this family',
-    });
     expect(
-      within(overview).getByText('Could not be checked: see below')
-    ).toBeInTheDocument();
+      await screen.findByRole('tab', { name: 'Paraphase' })
+    ).toHaveAttribute('aria-selected', 'true');
     expect(
       await screen.findByRole('heading', { name: 'Paraphase', level: 2 })
     ).toBeInTheDocument();
     expect(
-      screen.queryByRole('heading', { name: 'Structural variants', level: 2 })
+      screen.queryByRole('tab', { name: 'Structural variants' })
     ).not.toBeInTheDocument();
   });
 
@@ -489,7 +567,7 @@ describe('FamilyVariantSummaryPage', () => {
       }),
       shared: { S1: { S1: 1 } },
     });
-    renderPage();
+    renderPage('/families/F1/variant-summary#structural-variants');
 
     const section = await waitFor(() => {
       const found = sectionTitled('Structural variants');
@@ -505,6 +583,9 @@ describe('FamilyVariantSummaryPage', () => {
       within(section).getByRole('button', { name: 'Retry' })
     ).toBeInTheDocument();
     // The small-variant section is not held back by it.
+    fireEvent.click(
+      screen.getByRole('tab', { name: 'Small variants (SNV/indel)' })
+    );
     expect(
       screen.getByRole('heading', {
         name: 'Small variants (SNV/indel)',

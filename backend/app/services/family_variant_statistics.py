@@ -112,9 +112,17 @@ OTHER_CONSEQUENCE = "other"
 NO_CONSEQUENCE = "none"
 
 # The histograms' bins, by their lower edges; a value above the last edge falls in the last
-# bin. Genotype quality tops out at 99 for most callers.
-GENOTYPE_QUALITY_EDGES: tuple[float, ...] = (0, 10, 20, 30, 40, 50, 60, 70, 80, 90)
-DEPTH_EDGES: tuple[float, ...] = (0, 5, 10, 15, 20, 25, 30, 40, 50, 75, 100, 150, 200)
+# bin. Genotype quality tops out at 99 for most callers: bins of 5. Depth is binned by 2 up to
+# 60, where a whole genome's calls mostly fall, by 5 up to 100, then coarser.
+GENOTYPE_QUALITY_EDGES: tuple[float, ...] = tuple(float(step * 5) for step in range(20))
+DEPTH_EDGES: tuple[float, ...] = (
+    *(float(edge) for edge in range(0, 60, 2)),
+    *(float(edge) for edge in range(60, 100, 5)),
+    100.0,
+    125.0,
+    150.0,
+    200.0,
+)
 # Allele balance in hundredths of the reads (the query rounds the fraction to them), binned
 # by five hundredths; the bins' edges are given back as fractions.
 ALLELE_BALANCE_EDGES: tuple[float, ...] = tuple(float(step * 5) for step in range(20))

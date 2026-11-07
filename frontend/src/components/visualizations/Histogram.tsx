@@ -17,6 +17,44 @@ interface Props {
   subject?: string;
 }
 
+// The x axis's labels are drawn in 10px sans-serif. Their widths, in pixels, from Helvetica's
+// (and Arial's) advance widths at that size: digits 5.56, the point 2.78, the minus 3.33.
+const LABEL_FONT_SIZE = 10;
+const CHAR_WIDTHS: Record<string, number> = { '.': 2.78, ',': 2.78, ' ': 2.78, '-': 3.33, '+': 5.84, '>': 5.84, k: 5, M: 8.33 };
+const DEFAULT_CHAR_WIDTH = 5.56;
+// The least room between two labels.
+const LABEL_GAP = 3;
+
+const labelWidth = (label: string): number =>
+  Array.from(label).reduce((sum, char) => sum + (CHAR_WIDTHS[char] ?? DEFAULT_CHAR_WIDTH), 0);
+
+/**
+ * The bins whose label is drawn: every bin's, when no two neighbouring labels run into each
+ * other; else every n-th bin's, n the least that leaves room between each label and the next
+ * (the allele balance's 20 bins of "0.05" overlapped). The last bin keeps its label, in place
+ * of the one before it: an open-ended bin ("200+") says where the axis stops.
+ */
+export const labelledBins = (labels: string[], binStep: number): number[] => {
+  if (!labels.length) return [];
+  const widths = labels.map(labelWidth);
+  const last = labels.length - 1;
+  const fits = (shown: number[]) =>
+    shown.every(
+      (bin, k) =>
+        k === 0 ||
+        (widths[shown[k - 1]] + widths[bin]) / 2 + LABEL_GAP <= (bin - shown[k - 1]) * binStep,
+    );
+  for (let every = 1; every <= last; every += 1) {
+    const shown = labels.map((_, i) => i).filter((i) => i % every === 0);
+    if (shown[shown.length - 1] !== last) {
+      if (shown.length > 1) shown.pop();
+      shown.push(last);
+    }
+    if (fits(shown)) return shown;
+  }
+  return [0];
+};
+
 interface Binned {
   counts: number[];
   labels: string[];
@@ -143,13 +181,16 @@ const Histogram: React.FC<Props> = ({
       .attr('height', (d) => innerHeight - (logScale ? y(d + 1) : y(d)))
       .attr('class', 'fill-secondary');
 
-    const xAxis = d3.axisBottom(x).tickFormat((i) => labels[i]);
+    const xAxis = d3
+      .axisBottom(x)
+      .tickValues(labelledBins(labels, x.step()))
+      .tickFormat((i) => labels[i]);
     g
       .append('g')
       .attr('transform', `translate(0,${innerHeight})`)
       .call(xAxis)
       .selectAll('text')
-      .attr('font-size', 10);
+      .attr('font-size', LABEL_FONT_SIZE);
 
     const logTicks = [10, 100, 1000, 10000].filter((v) => v <= maxCount);
     const yAxis = logScale

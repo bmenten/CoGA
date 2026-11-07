@@ -1,17 +1,16 @@
 /* Analysis navigation and the genome and chromosome views: tracks, haplotypes, segregation, ROI markers, tooltips, CNV detail, pedigree and IGV. */
 
+/* The variant summary's tabs, one per kind of variant data: the open one is underlined on the
+   rule below the row. */
 .analysis-nav {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.75rem;
+  column-gap: 1rem;
   border-bottom: 1px solid var(--color-border);
-  padding-bottom: 0.375rem;
 }
 
-.analysis-nav a {
-  font-size: var(--fs-xs);
-  font-weight: 500;
-  color: var(--color-text-muted);
+.analysis-nav .pill-toggle {
+  margin-bottom: -1px;
 }
 
 /* Above the variant summary's histograms: what the toggle scales, and the toggle, at the right. */
@@ -40,10 +39,6 @@
 
 .analysis-table td.variant-summary-term {
   padding-left: 1.25rem;
-}
-
-.analysis-nav a:hover {
-  color: var(--color-link);
 }
 
 .analysis-pill {
