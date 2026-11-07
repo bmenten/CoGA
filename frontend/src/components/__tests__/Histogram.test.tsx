@@ -1,5 +1,5 @@
 import { render, screen } from '@testing-library/react';
-import Histogram from '../visualizations/Histogram';
+import Histogram, { labelledBins } from '../visualizations/Histogram';
 
 test('handles large datasets without stack overflow', () => {
   const data = Array.from({ length: 70000 }, (_, i) => i);
@@ -87,4 +87,39 @@ test('draws counts the server binned as they are, one bar per label, named by th
 test('server-binned counts that are all zero read as no data', () => {
   render(<Histogram data={[]} counts={[0, 0]} binLabels={['0', '10']} />);
   expect(screen.getByText('No data available for this view.')).toBeInTheDocument();
+});
+
+// The allele balance's 20 bins of "0.05" ran their labels into each other.
+test('labels every other bin when a label is wider than a bin, keeping the last', () => {
+  const labels = Array.from({ length: 20 }, (_, i) => (i * 0.05).toFixed(2)).map((label, i) =>
+    i === 19 ? `${label}+` : label,
+  );
+  const { container } = render(
+    <Histogram data={[]} counts={labels.map(() => 1)} binLabels={labels} logScale={false} />,
+  );
+
+  // Every bin keeps its bar; only the labels are thinned.
+  expect(container.querySelectorAll('rect')).toHaveLength(20);
+  expect(xTicks(container)).toEqual([
+    '0.00', '0.10', '0.20', '0.30', '0.40', '0.50', '0.60', '0.70', '0.80', '0.95+',
+  ]);
+});
+
+test('labels every bin whose label fits', () => {
+  // The SV length bins: "10k-100k" is wide, but its neighbours leave it room.
+  expect(
+    labelledBins(['0', '1-10', '10-100', '100-1k', '1k-10k', '10k-100k', '100k-1M', '>1M'], 350 / 8.1),
+  ).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+  // The 42 depth bins in 350 pixels: every third, and the open-ended last one.
+  const depth = [
+    ...Array.from({ length: 30 }, (_, i) => String(i * 2)),
+    ...Array.from({ length: 8 }, (_, i) => String(60 + i * 5)),
+    '100',
+    '125',
+    '150',
+    '200+',
+  ];
+  expect(labelledBins(depth, 350 / 42.1)).toEqual([0, 3, 6, 9, 12, 15, 18, 21, 24, 27, 30, 33, 36, 41]);
+  expect(labelledBins([], 10)).toEqual([]);
+  expect(labelledBins(['only'], 10)).toEqual([0]);
 });

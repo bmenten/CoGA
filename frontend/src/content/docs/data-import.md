@@ -114,7 +114,7 @@ Each layer is optional and switches on part of CoGA.
 | **Coverage, segments, APCAD, haplotypes** | the tracks in the genome overview and chromosome view |
 
 Any variant data (small or structural variants, repeat expansions, Paraphase or mitochondrial calls)
-also switches on the family's **Variant summary**, with a section for each kind the family holds.
+also switches on the family's **Variant summary**, with a tab for each kind the family holds.
 
 TRGT's repeat count need not be the clinical repeat number the catalogue's ranges count. TRGT counts
 the motif across the region its own catalogue gives a locus:

@@ -176,9 +176,10 @@ MitImpact, which holds only such changes.
 ### Variant summary
 
 **Variant summary**, the last link of the family's analyses, describes all the variant data the
-family holds. It is shown when the family has any. It opens with *What this family has*: each kind of
-data, whether the family has it, and a link to its analysis page. Then one section per kind it has.
-The figures describe the calls. No filter, classification or sign-out reads them.
+family holds. It is shown when the family has any. A row of tabs at the top has one tab per kind of
+data the family has, and the page shows one kind at a time: the first tab opens, and a click on
+another shows that kind instead. The figures describe the calls. No filter, classification or
+sign-out reads them.
 
 - **Small variants (SNV/indel)**, counted from the family's own callsets. Imputed genotypes (GLIMPSE2)
   and chrM are left out; chrM is under mtDNA. Each variant counts once, even when two callsets hold it.
@@ -203,8 +204,8 @@ The figures describe the calls. No filter, classification or sign-out reads them
   its analysis page gives them, and for mtDNA the haplogroup, the mean depth and the heteroplasmy
   classes.
 
-Each section loads on its own. One that could not be loaded says so and offers *Retry*; the others
-are still shown.
+A tab loads when you first open it, and keeps its figures when you switch away and back. One that
+could not be loaded says so and offers *Retry*; the other tabs still work.
 
 ### Ancestry PCA (exploratory)
 

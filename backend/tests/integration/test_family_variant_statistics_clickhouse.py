@@ -199,8 +199,9 @@ def test_small_variant_statistics_against_clickhouse() -> None:
 
     gq = {row.low: row.count for row in proband.genotype_quality_histogram}
     calls = proband.non_ref_count + 1  # chr1:2,000 is called by two callsets
-    assert gq[0.0] == 1 and gq[50.0] == 1 and proband.genotype_quality_missing == 1
-    assert gq[90.0] == calls - 3
+    # Bins of 5: GQ 7 in the 5 bin, 55 in the 55 bin, and the default 99 in the last, 95+.
+    assert gq[5.0] == 1 and gq[55.0] == 1 and proband.genotype_quality_missing == 1
+    assert gq[95.0] == calls - 3
     depth = {row.low: row.count for row in proband.depth_histogram}
     assert depth[200.0] == 1 and proband.depth_missing == 1 and depth[30.0] == calls - 2
     balance = {row.low: row.count for row in proband.allele_balance_histogram}
