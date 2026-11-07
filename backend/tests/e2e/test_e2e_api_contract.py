@@ -294,7 +294,8 @@ def test_small_variant_statistics_of_the_trio(api, expected):
     consequences = {row["consequence"]: row["count"] for row in proband["consequences"]}
     assert consequences == {"stop_gained": 1, "frameshift_variant": 1, "missense_variant": 5, "intron_variant": 1}
     assert proband["chromosomes"] == [{"chrom": "1", "het_count": 8, "hom_alt_count": 0}]
-    assert {row["low"]: row["count"] for row in proband["genotype_quality_histogram"]}[90.0] == 8
+    # Every call has GQ 99: the last bin of 5, 95+.
+    assert {row["low"]: row["count"] for row in proband["genotype_quality_histogram"]}[95.0] == 8
     assert {row["low"]: row["count"] for row in proband["allele_balance_histogram"]}[0.5] == 8
     assert (samples["MOTHER"]["non_ref_count"], samples["FATHER"]["non_ref_count"]) == (4, 1)
     # The de novo, the pathogenic stop and the MNV: in neither parent.
