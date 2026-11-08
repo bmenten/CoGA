@@ -140,6 +140,8 @@ services:
         condition: service_healthy
 
   frontend:
+    # As the backend: without a policy the UI stayed down after every reboot of the host.
+    restart: unless-stopped
     build:
       context: .
       dockerfile: frontend/Dockerfile
