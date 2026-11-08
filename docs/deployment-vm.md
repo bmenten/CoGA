@@ -40,7 +40,7 @@ ICT may switch off a VM that breaks the terms. What each term asks of a CoGA VM:
 | --- | --- |
 | **Self-care**: the administrator is responsible for the OS, the licences and access control (authentication and authorization) inside the VM; ICT gives only the management console (vSphere Web Client, through Athena) | SSH keys, ufw, nginx, CoGA's own accounts and project access, and the dbNSFP licence are yours (steps 2, 4 and 6) |
 | **VMware tools** are mandatory; without them ICT may switch the VM off | install `open-vm-tools` right after the OS (step 2) |
-| **Keep it up to date**; a VM with an outdated OS or missing security patches may be switched off | `unattended-upgrades` (step 2), a reboot when a kernel update needs one (stop the stack first, [step 9](#9-run-it)), and regular rebuilds so the images pick up their base images' fixes |
+| **Keep it up to date**; a VM with an outdated OS or missing security patches may be switched off | `unattended-upgrades` (step 2), a reboot when a kernel update needs one ([step 9](#9-run-it)), and regular rebuilds so the images pick up their base images' fixes |
 | **Back-ups** are the administrator's; ICT's disaster-recovery back-ups restore the whole platform, not files inside a VM | back up to a network share from ICT's storage offering, not to the VM's own disk ([step 9](#9-run-it)) |
 | **Fair use**; a VM that uses resources unreasonably may be switched off | request the size you need (step 1), and raise `IMPORT_WORKER_REPLICAS` and the ClickHouse limits only as far as the VM's size allows ([step 10](#10-tuning-at-scale)) |
 | **Yearly confirmation**: an unused VM, or one outside the university's normal work, gets an e-mail; without an answer through ICT self-service within 30 days it is switched off for good | name a mailbox someone reads in the request; answer the e-mail |
@@ -508,6 +508,27 @@ to load the new version.
 needs up to five minutes to finish its merges, and a cut-off flush corrupts parts that the
 next start then refuses to attach. A shutdown of the VM also waits for it, once step 2 has
 given the Docker service the time.
+
+**Reboot** when the login banner says `*** System restart required ***`: `unattended-upgrades`
+has installed an update, usually a kernel, that takes effect only after a reboot, and
+`cat /var/run/reboot-required.pkgs` names it. Wait until no import is running, since a reboot
+stops one where it is and it ends interrupted
+([data-import.md](data-import.md#the-import-job)). Then stop the stack, reboot, and start it
+again once you are signed in:
+
+```bash
+cd /srv/coga && docker compose stop
+sudo reboot
+```
+
+```bash
+cd /srv/coga && docker compose up -d && docker compose ps
+```
+
+After `docker compose stop` the backend, the import worker and the frontend stay down through
+the reboot until `docker compose up -d` starts them; it rebuilds nothing. Then check the site as
+in [step 7](#7-check-it). A reboot the stack was not stopped for, such as maintenance of the
+host, starts every service again by itself.
 
 **Back up** Postgres every night, to a share off the VM, mounted here on `/mnt/backup`:
 

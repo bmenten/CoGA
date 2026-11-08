@@ -65,6 +65,14 @@ def test_the_vm_override_publishes_nothing_beyond_loopback() -> None:
             assert str(mapping).startswith("127.0.0.1:"), f"{name} publishes {mapping} beyond the VM"
 
 
+def test_every_service_starts_again_after_a_reboot() -> None:
+    # Docker starts a container again after a reboot of the host only when it has a restart
+    # policy. The frontend had none, so the UI stayed down until someone ran
+    # `docker compose up -d` (docs/deployment-vm.md, step 9).
+    for name, service in _compose()["services"].items():
+        assert service.get("restart") in {"always", "unless-stopped"}, f"{name} stays down after a reboot"
+
+
 def test_the_imports_run_in_a_service_of_their_own_from_the_backend_image() -> None:
     # Every package import ran in the API's process, all of them on its one core and on the
     # event loop that answers the requests. Compose runs them in import-worker processes
