@@ -466,7 +466,13 @@ describe('FamilyNiptPage', () => {
     };
     const ARTIFACT = { variant_id: '1-9501-A-G', reason: 'artifact_list' };
 
-    const serve = ({ reported = 2, presets = [] }: { reported?: number; presets?: unknown[] } = {}) => {
+    // ``everyView``: the list holds the reported variant whatever the search; otherwise only a
+    // search by the report tag finds it.
+    const serve = ({
+      reported = 2,
+      presets = [],
+      everyView = false,
+    }: { reported?: number; presets?: unknown[]; everyView?: boolean } = {}) => {
       apiMock.get.mockImplementation((url: string, config?: { params?: Record<string, unknown> }) => {
         if (url === '/families/NIPT001/small-variant-filter-presets') return Promise.resolve({ data: presets });
         if (url === '/families/NIPT001') {
@@ -509,7 +515,7 @@ describe('FamilyNiptPage', () => {
             );
           }
           const tags = (config?.params?.review_tag as string[] | undefined) ?? [];
-          const reportedView = tags.includes('report');
+          const reportedView = everyView || tags.includes('report');
           return Promise.resolve({
             data: {
               family_id: 'NIPT001',
@@ -531,6 +537,9 @@ describe('FamilyNiptPage', () => {
       apiMock.get.mock.calls
         .filter(([url]) => url === '/families/NIPT001/nipt/variants')
         .map(([, config]) => (config?.params ?? {}) as Record<string, unknown>);
+
+    const summaryReads = () =>
+      apiMock.get.mock.calls.filter(([url]) => url === '/families/NIPT001/small-variant-review-summary').length;
 
     const reviewSection = async () =>
       (await screen.findByText('Review and curation')).closest('details') as HTMLElement;
@@ -753,8 +762,6 @@ describe('FamilyNiptPage', () => {
       renderAt('/families/NIPT001/nipt?review_tag=report');
 
       await screen.findByRole('button', { name: 'Show reported (2)' });
-      const summaryReads = () =>
-        apiMock.get.mock.calls.filter(([url]) => url === '/families/NIPT001/small-variant-review-summary').length;
       const before = summaryReads();
       serve({ reported: 1 });
       const [untag] = (await screen.findAllByRole('button', { name: 'Report' })).filter(
@@ -768,6 +775,41 @@ describe('FamilyNiptPage', () => {
         '/families/NIPT001/small-variants/1-1001-A-G/review',
         expect.objectContaining({ tags: [] }),
       );
+    });
+
+    // A review saved from a card is shown on it from the server's answer: the analysis is run
+    // again only when the list's filters read reviews.
+    it('saves an exclusion without running the analysis again when the filters read no reviews', async () => {
+      serve({ everyView: true });
+      apiMock.put.mockResolvedValue({ data: { ...REPORTED.review, tags: ['report', 'excluded'] } });
+      renderAt('/families/NIPT001/nipt');
+
+      const [exclude] = await screen.findAllByRole('button', { name: 'Exclude' });
+      await screen.findByRole('button', { name: 'Show reported (2)' });
+      expect(variantSearches()[0].inheritance).toBe('de_novo');
+      const searchesBefore = variantSearches().length;
+      const summaryBefore = summaryReads();
+      fireEvent.click(exclude);
+
+      // The card folds, and the save's follow-up (the count Show reported gives) has run.
+      expect(await screen.findByRole('button', { name: /^Undo the exclusion of/ })).toBeInTheDocument();
+      await waitFor(() => expect(summaryReads()).toBeGreaterThan(summaryBefore));
+      expect(variantSearches()).toHaveLength(searchesBefore);
+      expect(screen.queryByText('Updating…')).not.toBeInTheDocument();
+    });
+
+    it('runs the analysis again after an exclusion when the filters read the excluded tag', async () => {
+      serve({ everyView: true });
+      apiMock.put.mockResolvedValue({ data: { ...REPORTED.review, tags: ['report', 'excluded'] } });
+      renderAt('/families/NIPT001/nipt?exclude_review_tag=excluded');
+
+      const [exclude] = await screen.findAllByRole('button', { name: 'Exclude' });
+      await waitFor(() => expect(variantSearches().at(-1)?.exclude_review_tag).toEqual(['excluded']));
+      const searchesBefore = variantSearches().length;
+      fireEvent.click(exclude);
+
+      await waitFor(() => expect(variantSearches()).toHaveLength(searchesBefore + 1));
+      expect(variantSearches().at(-1)?.exclude_review_tag).toEqual(['excluded']);
     });
 
     it('says the count is unknown, not zero, while the review summary is not in', async () => {

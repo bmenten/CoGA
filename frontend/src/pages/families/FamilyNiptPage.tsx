@@ -46,6 +46,7 @@ import {
   fetchFamilyReviewTags,
   hasReviewContent,
   quickTagTogglePayload,
+  searchReadsReviews,
   updateSmallVariantPageReview,
 } from './smallVariantReview';
 import PageState from '../../components/PageState';
@@ -432,7 +433,15 @@ const FamilyNiptPage: React.FC = () => {
           updateSmallVariantPageReview(current, variant._id, hasReviewContent(review) ? review : null),
         );
       });
-      void queryClient.invalidateQueries({ queryKey: niptVariantsKey });
+      // The card shows the saved review already. The analysis is run again only when the
+      // list's filters read reviews (a review tag or an excluded tag can add a variant to it or
+      // drop one); other cached searches are marked stale and run again when next shown.
+      void queryClient.invalidateQueries({
+        queryKey: niptVariantsKey,
+        refetchType: searchReadsReviews(niptParamsSerializer(buildVariantParams(filters, page)))
+          ? 'active'
+          : 'none',
+      });
       // A tag added or removed changes the count "Show reported" gives.
       void queryClient.invalidateQueries({ queryKey: reviewSummaryKey });
     },
