@@ -30,7 +30,7 @@ brackets.
 ## Product
 
 - **Variant Explorer** (PROD-2): gene-, transcript- and cohort-frequency views beside the variant view.
-- **Variant summary statistics** (PROD-1): the family's *Variant summary* has a section per kind of variant data. For small variants it counts each member's genotypes, types, Ti/Tv, consequences and call quality, and each trio's Mendelian inconsistencies per autosome ([#1](https://github.com/bmenten/CoGA/issues/1)). Still open:
+- **Variant summary statistics** (PROD-1): the family's *Variant summary* has a section per kind of variant data. For small variants it counts each member's genotypes, types, Ti/Tv, consequences and call quality, and each trio's Mendelian inconsistencies per autosome ([#1](https://github.com/bmenten/CoGA/issues/1)). A monogenic NIPT family has a NIPT-M tab: its plasma sites by the mother's and the fetus's genotype, and transmission per autosome. Still open:
   - A call of uniparental disomy or of runs of homozygosity. The page counts the inconsistencies and the homozygous share per chromosome but calls nothing; a call needs its own requirement and validation (REG-15).
   - Speed at genome scale: the statistics are counted on each visit. A synthetic trio of five million variants took about 6 s on a laptop's Docker, with up to 2 GiB for one query; a real genome on the real stack is not yet timed (OPS-9). If it proves slow, keep the statistics at import beside the family's summary tables.
   - A Mendelian table for a callset of one file per sample: a trio's calls then lie in different rows, so it has no sites.

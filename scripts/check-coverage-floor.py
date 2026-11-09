@@ -83,6 +83,9 @@ MODULE_FLOORS: dict[str, float] = {
     "backend/app/services/nipt_service.py": 96.0,  # (99.0, 2026-11-03)
     "backend/app/services/nipt_target_coverage.py": 95.0,  # (98.6, 2026-11-03)
     "backend/app/services/nipt_triage.py": 96.0,  # (99.7, 2026-11-03)
+    # (100.0 measured locally when it was added: the variant summary's NIPT-M statistics, read
+    # from the NIPT analysis run; descriptive, the signed record does not hold them)
+    "backend/app/services/nipt_variant_statistics.py": 97.0,
     # (100.0 measured locally when it was added: the signed analysis record, the gene-panel
     # versions a family's searches applied)
     "backend/app/services/panel_use_audit.py": 97.0,

@@ -41,6 +41,64 @@
   padding-left: 1.25rem;
 }
 
+/* The NIPT-M tab: the mother x fetus matrix, its groups' colour swatches (the histogram's bar
+   colours) and the autosomes marked for a parent's missing alleles. */
+.nipt-matrix td,
+.nipt-matrix th {
+  vertical-align: top;
+}
+
+.nipt-matrix td.nipt-matrix-empty {
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
+}
+
+.nipt-matrix-group + .nipt-matrix-group {
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--color-row-rule);
+}
+
+.nipt-matrix-group-title {
+  font-size: var(--fs-xs);
+  font-weight: 500;
+}
+
+.nipt-matrix-count {
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.nipt-swatch {
+  display: inline-block;
+  width: 0.625rem;
+  height: 0.625rem;
+  margin-right: 0.375rem;
+  border-radius: 2px;
+}
+
+.nipt-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  font-size: var(--fs-xs);
+  color: var(--color-text-muted);
+}
+
+.nipt-legend-item {
+  display: inline-flex;
+  align-items: center;
+}
+
+.nipt-failure-reason {
+  padding-left: 1rem;
+}
+
+.analysis-table tr.nipt-transmission-marked td {
+  background: var(--color-warning-surface);
+}
+
 .analysis-pill {
   display: inline-flex;
   align-items: center;

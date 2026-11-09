@@ -21,6 +21,7 @@ from ..schemas import (
     NiptRecessiveGeneOut,
     NiptSummaryOut,
     NiptClassificationOut,
+    NiptVariantStatisticsOut,
     NiptTargetCoverageGeneOut,
     NiptTargetCoverageOut,
     NiptTargetDetailOut,
@@ -50,6 +51,11 @@ from ..services.nipt_service import (
 )
 from ..services.nipt_target_coverage import TargetCoverageRow, TargetCoverageSummary
 from ..services.nipt_triage import RecessiveGeneRisk
+from ..services.nipt_variant_statistics import (
+    CHROMOSOME_MARK_MIN_SITES,
+    VAF_BIN_WIDTH,
+    nipt_variant_statistics,
+)
 from .query_params import FiniteThreshold
 
 
@@ -267,6 +273,40 @@ async def get_family_nipt_summary(
         category_counts=result.category_counts,
         filter_counts=result.filter_counts,
         qc=_qc_out(summary),
+    )
+
+
+@router.get("/{family_id}/nipt/statistics", response_model=NiptVariantStatisticsOut)
+async def get_family_nipt_statistics(
+    family_id: str,
+    project_id: str | None = None,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_user),
+) -> NiptVariantStatisticsOut:
+    """The variant summary's NIPT-M tab: the plasma's sites by the mother's and the fetus's
+    genotype, transmission per autosome, the father's genotypes and the plasma calls' funnel,
+    from the NIPT page's analysis. Descriptive; the signed record does not hold it."""
+    summary = await load_family_nipt_summary(
+        session,
+        family_id=family_id,
+        user=user,
+        project_id=project_id,
+    )
+    result = summary.analysis
+    statistics = nipt_variant_statistics(result, NiptQualityThresholds())
+    return NiptVariantStatisticsOut(
+        family_id=family_id,
+        fetal_fraction=_nipt_fetal_fraction_out(result.fetal_fraction),
+        qc=_qc_out(summary),
+        filter_counts=result.filter_counts,
+        caller_filters=result.caller_filters,
+        classified_sites=statistics.classified_sites,
+        groups=statistics.groups,
+        not_classified=statistics.not_classified,
+        vaf_bin_width=VAF_BIN_WIDTH,
+        chromosomes=statistics.chromosomes,
+        chromosome_mark_min_sites=CHROMOSOME_MARK_MIN_SITES,
+        father_genotypes=statistics.father_genotypes,
     )
 
 

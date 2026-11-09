@@ -182,6 +182,17 @@ def has_own_plasma_call(site: NiptSiteObservation) -> bool:
     )
 
 
+# The FILTER values a VCF writes for a call that passed: PASS, or "." when no filter ran.
+_CALLER_PASS_VALUES = frozenset({"PASS", "."})
+
+
+def caller_filter_values(filters: Sequence[str]) -> list[str]:
+    """The call's own FILTER as counted: ``["PASS"]`` when it passed (PASS, ``.`` or none),
+    else each other value once."""
+    failed = sorted({value for value in filters if value and value not in _CALLER_PASS_VALUES})
+    return failed or ["PASS"]
+
+
 def variant_class(ref: str, alt: str) -> str:
     """SNV, MNV (same length, more than one base) or indel; SNV when unknown."""
     if not ref or not alt:
@@ -325,6 +336,13 @@ class NiptAnalysisResult:
     )
     # Why the cfDNA calls that failed the quality filter failed, one count per reason.
     quality_failure_counts: dict[str, int] = field(default_factory=dict)
+    # The sites the classifications are of, in their order (the variant summary's NIPT-M
+    # statistics read their chromosome, father and variant class).
+    sites: list[NiptSiteObservation] = field(default_factory=list)
+    # The caller's own FILTER of the cfDNA calls that went in (``filter_counts["total_in"]``):
+    # ``PASS`` counts the calls that passed it, every other key the calls carrying that value.
+    # Descriptive: no rule reads it (Mutect2's tumour-only filters flag germline calls).
+    caller_filters: dict[str, int] = field(default_factory=dict)
 
 
 # --------------------------------------------------------------------------- #
@@ -354,6 +372,12 @@ def _expected_vaf(category: int, ff: float) -> float:
         6: 1.0,
         7: half,
     }[category]
+
+
+def expected_plasma_vaf(category: int, ff: float) -> float | None:
+    """The cfDNA allele fraction category 1 to 7 predicts at ``ff`` (``_expected_vaf``); None
+    for category 8, an allele the fetus did not inherit."""
+    return _expected_vaf(category, ff) if 1 <= category <= 7 else None
 
 
 # The fetus carries one maternal and one paternal allele, so the father's genotype
@@ -1015,6 +1039,7 @@ class NiptFilteredSites:
     filter_counts: dict[str, int]
     fetal_fraction: FetalFractionEstimate
     quality_failure_counts: dict[str, int] = field(default_factory=dict)
+    caller_filters: dict[str, int] = field(default_factory=dict)
 
 
 def filter_sites_and_estimate_ff(
@@ -1041,6 +1066,7 @@ def filter_sites_and_estimate_ff(
     failed_artifact = 0
     paternal_only = 0
     failure_counts: dict[str, int] = {}
+    caller_filters: dict[str, int] = {}
     candidates: list[NiptSiteObservation] = []
     for site in sites:
         if not has_own_plasma_call(site):
@@ -1048,6 +1074,8 @@ def filter_sites_and_estimate_ff(
             candidates.append(site)
             continue
         total_in += 1
+        for value in caller_filter_values(site.cf_filters):
+            caller_filters[value] = caller_filters.get(value, 0) + 1
         failures = quality_failures(site, qc)
         if failures:
             failed_quality += 1
@@ -1081,6 +1109,7 @@ def filter_sites_and_estimate_ff(
         },
         fetal_fraction=fetal_fraction,
         quality_failure_counts=failure_counts,
+        caller_filters=caller_filters,
     )
 
 
@@ -1114,6 +1143,8 @@ def run_nipt_analysis(
             filtered.passed, ff_estimate, qc, overdispersion=overdispersion
         ),
         quality_failure_counts=filtered.quality_failure_counts,
+        sites=filtered.passed,
+        caller_filters=filtered.caller_filters,
     )
 
 

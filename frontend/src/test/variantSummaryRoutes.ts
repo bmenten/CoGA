@@ -4,6 +4,7 @@ import type {
   FamilyParaphaseTableOut,
   FamilyRepeatExpansionTableOut,
   FamilySmallVariantStatisticsOut,
+  NiptVariantStatisticsOut,
   SmallVariantSampleStatisticsOut,
   StructuralVariantSampleCountsOut,
 } from '../lib/apiSchema.generated';
@@ -82,6 +83,7 @@ export const smallStats = (
   other_count: 0,
   samples: [],
   trios: [],
+  nipt_samples: [],
   ...overrides,
 });
 
@@ -108,6 +110,7 @@ export interface SummaryAnswers {
   shared?: Answer<Record<string, Record<string, number>>>;
   svSamples?: Answer<StructuralVariantSampleCountsOut[]>;
   small?: Answer<FamilySmallVariantStatisticsOut>;
+  nipt?: Answer<NiptVariantStatisticsOut>;
   repeats?: Answer<Partial<FamilyRepeatExpansionTableOut>>;
   paraphase?: Answer<Partial<FamilyParaphaseTableOut>>;
   mito?: Answer<Partial<FamilyMitoDNAAnalysisOut>>;
@@ -153,6 +156,9 @@ export const serveVariantSummary = (
       answers.svSamples ?? [],
     [`/families/${familyId}/small-variant-statistics`]:
       answers.small ?? smallStats(),
+    ...(answers.nipt
+      ? { [`/families/${familyId}/nipt/statistics`]: answers.nipt }
+      : {}),
     [`/families/${familyId}/repeat-expansions`]: answers.repeats ?? {
       samples: [],
       loci: [],

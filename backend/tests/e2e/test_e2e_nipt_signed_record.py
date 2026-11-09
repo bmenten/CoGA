@@ -7,7 +7,8 @@ candidate and the eight categories), imported through the real package import, t
 API, this:
 
 * reads the NIPT page's summary and variant list, which serve the verdicts and the
-  classifications the record freezes;
+  classifications the record freezes, and the variant summary's NIPT-M statistics, read from
+  the same analysis and left out of the record;
 * tags a de novo candidate, a paternal allele and the listed artifact for the report, and
   reads the NIPT page's reported view before signing out (UI-4: the review-tag filter
   ``review_tag=report`` with no other filter, and ``exclude_review_tag``);
@@ -207,6 +208,9 @@ async def _sign_out_and_read(ac, r: dict, family: str, family_id: str, rss) -> N
     r["coverage"] = capture(await ac.get(f"{family}/nipt/coverage"))
     r["variants"] = capture(await ac.get(f"{family}/nipt/variants", params={"page_size": 500}))
     r["de_novo_view"] = capture(await ac.get(f"{family}/nipt/variants", params={"inheritance": "de_novo"}))
+    # The variant summary's NIPT-M tab and its small-variant tab.
+    r["statistics"] = capture(await ac.get(f"{family}/nipt/statistics"))
+    r["small_variant_statistics"] = capture(await ac.get(f"{family}/small-variant-statistics"))
 
     # Two variants for the report, from the NIPT page's list, and the artifact the analysis
     # leaves out (tagged from the family's small-variant list: the NIPT list never shows it).
@@ -333,6 +337,22 @@ def test_the_nipt_page_serves_the_verdicts_the_record_freezes(signed) -> None:
     assert candidate["_id"] == DE_NOVO and candidate["nipt"]["de_novo"]["label"] == "high"
 
 
+def test_the_variant_summary_reads_the_analysis_the_nipt_page_shows(signed) -> None:
+    summary = ok_json(signed, "summary")
+    statistics = ok_json(signed, "statistics")
+    assert statistics["fetal_fraction"] == summary["fetal_fraction"]
+    assert statistics["filter_counts"] == summary["filter_counts"]
+    assert statistics["qc"]["paternity"] == summary["qc"]["paternity"]
+    groups = {group["key"]: group for group in statistics["groups"]}
+    for category, count in summary["category_counts"].items():
+        assert groups[str(category)]["sites"] == count, category
+    # The demo's joint VCF writes PASS on every record: every plasma call that went in passed.
+    assert statistics["caller_filters"] == {"PASS": summary["filter_counts"]["total_in"]}
+    # Its small-variant tab names the plasma and the father, whose GT is not their genotype.
+    small = ok_json(signed, "small_variant_statistics")
+    assert set(small["nipt_samples"]) == {signed["ids"]["CFDNA_NIPT"], signed["ids"]["FATHER_NIPT"]}
+
+
 # ------------------------------------------------------------------------ the gates
 
 
@@ -397,6 +417,8 @@ def test_the_record_holds_the_nipt_results_the_page_showed(signed) -> None:
     # No per-target coverage table in the demo.
     assert nipt["target_coverage"] is None and nipt["inputs"]["target_tables"] == []
     assert nipt["model"]["reference"].startswith("R NIPT-M v0.5.1")
+    # The variant summary's NIPT-M statistics are descriptive: the record does not hold them.
+    assert not {"groups", "chromosomes", "caller_filters", "father_genotypes"} & set(nipt)
 
 
 def test_the_record_holds_the_artifact_list_the_analysis_applied(signed) -> None:

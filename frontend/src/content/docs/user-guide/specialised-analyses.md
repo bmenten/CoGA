@@ -181,8 +181,28 @@ data the family has, and the page shows one kind at a time: the first tab opens,
 another shows that kind instead. The figures describe the calls. No filter, classification or
 sign-out reads them.
 
+- **NIPT-M**, first, for a monogenic NIPT family: the plasma's sites as the NIPT analysis classes them,
+  with the NIPT page's fetal fraction, filters and categories. The plasma's GT is no genotype (Mutect2
+  writes 0/1 on every call, and the plasma holds the mother's and the fetus's DNA), so the genotypes
+  come from the allele fractions.
+  - The fetal fraction, the sites grouped, the fetal sex and paternity.
+  - *Mother and fetus*: the groups as a matrix of the mother's genotype against the fetus's, each
+    with its share, the plasma allele fraction its category predicts beside the median observed, and
+    the share classified with a confidence of 0.99 or more. Each group can be split by the father's
+    genotype or the variant class.
+  - *Plasma allele fraction*: a histogram stacked by group, with a dashed line where each category is
+    expected. Peaks off their lines mean the fetal fraction or the classes do not fit.
+  - *Transmission by chromosome*: per autosome, the father's het and hom-alt alleles the fetus
+    inherited, the mother's het alleles, and the fetus's hom-alt sites. An autosome where none of a
+    parent's alleles reached the fetus over at least 20 sites is marked: it can point to uniparental
+    disomy or a deletion. CoGA does not call UPD.
+  - *Calls and the father's genotypes*: the plasma calls through the quality filter and the artefact
+    list, the caller's own FILTER (Mutect2's somatic filters flag many germline calls; the analysis
+    does not use them) and the father's genotype from his allele fraction.
 - **Small variants (SNV/indel)**, counted from the family's own callsets. Imputed genotypes (GLIMPSE2)
   and chrM are left out; chrM is under mtDNA. Each variant counts once, even when two callsets hold it.
+  In a monogenic NIPT family the plasma's and the father's heterozygous and homozygous counts are left
+  out (their GT is no genotype): the NIPT-M tab classes them.
   - *Per sample*: variants, heterozygous and homozygous, the het/hom ratio, SNVs, insertions,
     deletions and other changes, the transition/transversion ratio, and the share that passed the
     caller's FILTER.

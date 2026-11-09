@@ -110,6 +110,21 @@
      parents' colours for colour-blind vision too (ΔE 16 and 35). */
   --color-segregation-reference: #e0a030;
 
+  /* The monogenic NIPT groups of the variant summary's NIPT-M tab (mother x fetus): the
+     father's allele in his blue, the mother's het band in orange, teal and amber (which sit
+     next to each other in the plasma's allele fractions), her hom band in pink and green, de
+     novo in violet, a hom-alt father's missing allele in red, his het allele not inherited
+     in grey. */
+  --color-nipt-cat-1: #7c3aed;
+  --color-nipt-cat-2: #d9822e;
+  --color-nipt-cat-3: #1f8a70;
+  --color-nipt-cat-4: #e0a106;
+  --color-nipt-cat-5: #c2557a;
+  --color-nipt-cat-6: #3c8d40;
+  --color-nipt-cat-7: #2b55a0;
+  --color-nipt-cat-8: #c62828;
+  --color-nipt-not-transmitted: #9ca3af;
+
   /* PanelApp's confidence levels, as PanelApp shows them: green, amber and red. */
   --color-panelapp-green: #3c8d40;
   --color-panelapp-amber: #e0a106;

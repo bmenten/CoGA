@@ -168,6 +168,81 @@ class NiptSummaryOut(BaseModel):
     qc: Optional[NiptQcOut] = None
 
 
+NiptGenotype = Literal["hom_ref", "het", "hom_alt"]
+
+
+class NiptStatisticsGroupOut(BaseModel):
+    """One group of the plasma's sites by the mother's and the fetus's genotype: a category
+    of the NIPT analysis (``category``), or the father's het alleles the fetus did not
+    inherit (``key`` ``paternal_not_transmitted``, no category). The NIPT-M tab of the
+    variant summary draws them as a mother x fetus matrix."""
+
+    key: str
+    category: Optional[int] = None
+    maternal_genotype: NiptGenotype
+    fetal_genotype: NiptGenotype
+    sites: int
+    # The plasma allele fraction the category predicts at the family's fetal fraction (none
+    # for an allele the fetus did not inherit), and the median of the plasma's own calls'
+    # (none without one).
+    expected_vaf: Optional[float] = None
+    observed_median_vaf: Optional[float] = None
+    # Sites classified with a confidence of 0.99 or more, and below the analysis's 0.90
+    # separation (flagged ambiguous).
+    high_confidence: int
+    ambiguous: int
+    # By the father's genotype as the analysis reads it (hom_ref, het, hom_alt, missing) and
+    # by variant class (SNV, MNV, indel).
+    by_father: Dict[str, int] = Field(default_factory=dict)
+    by_variant_class: Dict[str, int] = Field(default_factory=dict)
+    # The plasma's own calls' allele fractions in bins of ``vaf_bin_width`` from 0 to 1.
+    vaf_histogram: List[int] = Field(default_factory=list)
+
+
+class NiptChromosomeTransmissionOut(BaseModel):
+    """Per autosome: which parent's alleles the fetus inherited. The paternal counts are the
+    paternity check's (sites where the mother does not carry the allele, the father's call
+    is confident and the plasma deep enough to see it); the maternal ones count her het
+    alleles beside a confident hom-ref or hom-alt father, classified without ambiguity.
+    ``marks`` names a parent none of whose alleles reached the fetus over at least
+    ``chromosome_mark_min_sites`` informative sites: a hint of uniparental disomy or a
+    deletion, not a call."""
+
+    chrom: str
+    paternal_het_transmitted: int = 0
+    paternal_het_not_transmitted: int = 0
+    paternal_hom_alt_transmitted: int = 0
+    paternal_hom_alt_not_transmitted: int = 0
+    maternal_het_inherited: int = 0
+    maternal_het_not_inherited: int = 0
+    fetal_hom_alt: int = 0
+    marks: List[Literal["no_paternal_alleles", "no_maternal_alleles"]] = Field(default_factory=list)
+
+
+class NiptVariantStatisticsOut(BaseModel):
+    """The variant summary's NIPT-M tab: the plasma's sites grouped by the mother's and the
+    fetus's genotype, their allele fractions, transmission per autosome, the father's
+    genotypes and the plasma calls' funnel. Read from the same analysis run as the NIPT
+    page (its fetal fraction, filters and categories). Descriptive: no rule reads it and the
+    signed record does not hold it."""
+
+    family_id: str
+    fetal_fraction: NiptFetalFractionOut
+    qc: NiptQcOut
+    filter_counts: Dict[str, int]
+    # The caller's own FILTER of the cfDNA calls that went in: PASS, or each other value.
+    caller_filters: Dict[str, int] = Field(default_factory=dict)
+    classified_sites: int
+    groups: List[NiptStatisticsGroupOut] = Field(default_factory=list)
+    # Sites the analysis read but gave no group, by reason.
+    not_classified: Dict[str, int] = Field(default_factory=dict)
+    vaf_bin_width: float
+    chromosomes: List[NiptChromosomeTransmissionOut] = Field(default_factory=list)
+    chromosome_mark_min_sites: int
+    # The father's genotype class at the analysed sites, from his allele fraction.
+    father_genotypes: Dict[str, int] = Field(default_factory=dict)
+
+
 class NiptClassificationOut(BaseModel):
     """The NIPT classification block attached to each cfDNA variant.
 

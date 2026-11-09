@@ -17,6 +17,10 @@ What is counted:
   most severe consequence across all its transcripts (VEP's order), and its chromosome.
 * Per sample, histograms of the calls' genotype quality, depth and (heterozygous calls)
   allele balance: one value per call, so a variant two callsets hold counts twice.
+* A monogenic NIPT family's plasma and father are named (``nipt_samples``): their GT is not
+  their genotype (the plasma is a mixture; Mutect2 in tumour-only mode writes 0/1 whatever
+  the allele fraction), so their het and hom-alt counts say nothing. The NIPT-M statistics
+  class their sites by allele fraction (``nipt_variant_statistics``).
 * Per child with both parents in the family, per callset and autosome, the sites where all
   three have a biallelic diploid call, and those whose genotypes no transmission explains:
   the child lacks the father's allele, the mother's, or neither parent explains it. A
@@ -590,7 +594,11 @@ def family_trios(context: FamilyMetadataContext) -> list[tuple[str, str, str]]:
     return trios
 
 
-async def get_family_small_variant_statistics(context: FamilyMetadataContext) -> FamilySmallVariantStatisticsOut:
+async def get_family_small_variant_statistics(
+    context: FamilyMetadataContext, *, nipt_samples: Sequence[str] = ()
+) -> FamilySmallVariantStatisticsOut:
+    """The family's small-variant statistics; ``nipt_samples`` are a monogenic NIPT family's
+    plasma and father, named in the response when they have variants."""
     if not context.assembly_name:
         return FamilySmallVariantStatisticsOut()
     entries = _small_table_name(context.assembly_name, "entries")
@@ -628,5 +636,6 @@ async def get_family_small_variant_statistics(context: FamilyMetadataContext) ->
         other_count=family_types[_OTHER_TYPE],
         samples=list(samples.values()),
         trios=trios,
+        nipt_samples=[name for name in nipt_samples if name in samples],
     )
 
