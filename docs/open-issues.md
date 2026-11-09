@@ -1,7 +1,7 @@
 # Open issues
 
 What still has to be done: P1 blocks the release candidate (RC), P2 is due before the RC, P3 after it.
-Status 2026-11-04, `origin/main` at `fe2c30b2`. Ideas that are not defects are in [ROADMAP.md](ROADMAP.md).
+Status 2026-11-09, `origin/main` at `9d11b912`. Ideas that are not defects are in [ROADMAP.md](ROADMAP.md).
 A closed ID the technical file cites is in [closed-issues.md](closed-issues.md): what it was and what closed it.
 
 | ID | Pri | What has to happen | Who | Blocks |
@@ -25,6 +25,7 @@ A closed ID the technical file cites is in [closed-issues.md](closed-issues.md):
 | SEC-6 | P2 | Set retention and masking of the request audit and UI-event log (TF-14, INPUTS E5) | owner, DPO | go-live |
 | REG-12 | P2 | Confirm or reverse the choices the fix PRs left for the owner or QA | QA, owner | RC |
 | REG-14 | P2 | Decide which browser journeys back a TF-09d claim | owner, QA | RC |
+| REG-16 | P2 | Add to TF-10 §8 the clinical behaviour built since 2026-11-03 that no area covers; validate the two Major filter changes with it | developer, QA | RC |
 | REG-15 | P2 | Decide whether the variant summary's figures belong in the validation scope: no rule reads them, but its Mendelian table can point to UPD | QA | RC |
 | CLIN-9 | P2 | Confirm the carrier-screening preset and the chrM exclusion (#763) | QA | RC |
 | CLIN-10 | P2 | Check parent–embryo IBS0 on one real imputed PGT family's Sample QC page | owner | validation |
@@ -49,24 +50,26 @@ A closed ID the technical file cites is in [closed-issues.md](closed-issues.md):
 | CLIN-17 | P3 | Confirm against Riggs et al. 2020 whether CNV scoring caps section totals | QA | |
 | CLIN-39 | P3 | Decide whether one SV in two siblings' per-sample records gets one second-hit verdict | owner | |
 | CLIN-50 | P3 | Decide whether carrier screening reads Ensembl-only genes | owner | |
+| CLIN-73 | P3 | Decide whether CoGA splits a multi-allelic record: filters read its alleles together, and a `Number=A` value reads as none | owner, developer | |
+| CLIN-74 | P3 | Decide whether the family search lists a variant that only taken-out members carry | owner, developer | |
 | CLIN-72 | P3 | Decide whether every reader keeps a VCF's INFO flags: uploads drop them, package imports keep them | owner, developer | |
 | TRACE-10 | P3 | Decide how a segments-only BED is drawn and what a segments or APCAD read without `source` returns | owner, developer | |
 | TRACE-21 | P3 | Decide whether a family that loses a project link gets a clinical audit event | owner | |
 | OPS-12 | P3 | Finish what Dependabot cannot update: the workflow pins, a Terraform lock file, the Cloud Build builder | owner | |
-| OPS-17 | P3 | Rebuild the clinical CNV knowledgebase for both assemblies on each database | ops | |
+| OPS-17 | P3 | Rebuild the clinical CNV knowledgebase for both assemblies on each database built before its sources failed closed; a start builds it only where an assembly has none | ops | |
 | OPS-26 | P3 | At the first apply, check the ClickHouse VM's certificate refresh runs (`/etc` may be no-exec) | ops | |
-| OPS-28 | P3 | Dismiss Dependabot alert 137 (minimatch): only ESLint tooling uses it, and no release they accept fixes it | owner | |
 | ENG-23 | P3 | Remove the leftovers found on 2026-11-04 | developer | |
+| ENG-24 | P3 | Make the end-to-end modules independent of their order: the review-audit module leaves a variant tagged for the report | developer | |
 
 ## Waiting for a decision
 
 Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 
 - **Owner:** REG-1 (wording, REQ-TRACE-007), OPS-2, OPS-3 (separate validation environment?),
-  OPS-12 (builder, Terraform lock), OPS-22, OPS-28, SEC-6 (with the DPO), REG-14, CLIN-10,
-  CLIN-39, CLIN-50, CLIN-68, CLIN-72, TRACE-10, TRACE-21, SEC-23 (`/api` fallback), OPS-15
+  OPS-12 (builder, Terraform lock), OPS-22, SEC-6 (with the DPO), REG-14, CLIN-10,
+  CLIN-39, CLIN-50, CLIN-68, CLIN-72, CLIN-73, CLIN-74, TRACE-10, TRACE-21, SEC-23 (`/api` fallback), OPS-15
   (role mailbox), OPS-24 (pre-migration backup retention).
-- **QA:** REG-1, REG-5, REG-8, REG-12, REG-13, REG-14, REG-15, CLIN-9, CLIN-14, CLIN-17, CLIN-57, CLIN-61,
+- **QA:** REG-1, REG-5, REG-8, REG-12, REG-13, REG-14, REG-15, REG-16, CLIN-9, CLIN-14, CLIN-17, CLIN-57, CLIN-61,
   CLIN-70, OPS-7, SEC-19; with RA, REG-11.
 - **Lab director:** REG-5, CLIN-18, CLIN-57, CLIN-61, CLIN-68, CLIN-70.
 
@@ -154,6 +157,10 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
     - A Monarch download over the size cap answers 502, not 500 (#1133).
     - The count correction: always applied once recorded; the boundary warning lifted only by validation (#1135).
     - T2T-CHM13's PARs: a man is now hemizygous outside them on T2T (#1136; T2T is outside the validated scope).
+- 2026-11-05 to 2026-11-09:
+    - The watched folders' `coga-ready.json` defaults, to confirm with the pipeline owners: MD5 accepted beside SHA-256, `samples` optional and checked when given, `request_id` kept, a pipeline QC `fail` needs attention (#1158).
+    - A review's classification text is audited as stored, trimmed but case-sensitive (#1199).
+    - The register of closed IDs the technical file cites, `closed-issues.md`: its wording (#1200).
 - A point that asks only for a TF-10 §8 phrase lapses where a TF-10 §8 area covers it.
 - Approve the drafts merged for it: TF-09a REQ-SEC-001 and TF-13 §2 (#1037); the APCAD definition and contamination wording (#1038).
 - Done when: one QA record marks each choice confirmed or to change.
@@ -161,6 +168,17 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 ### REG-14 · Journeys TF-09d does not list
 
 - `frontend/e2e/` holds `findingReview.spec.ts` and `ancestry.spec.ts` beside TF-09d §3's four. Listing them widens the claim; the ancestry journey checks a phone viewport, which TF-09d puts out of scope.
+
+### REG-16 · Validation scope of the work since 2026-11-03
+
+- TF-10 §8 lists the clinical behaviour the first validation must exercise; a pre-release change adds a line only where no area covers it. None was added for:
+    - one definition of the small-variant filters, the family search's SQL: the ranked, paired and carrier-screening views keep what the plain list keeps, and the phase-set and PASS-only filters read only the family's members' calls (both Major, by the owner's decision of 2026-11-06; each asked for a clinical follow-up validation before the RC);
+    - the PASS-only filter: every member's call that carries the ALT allele passed (PASS, `.` or none), read from its own FILTER in a callset of one file per sample and from the record's in a multi-sample VCF;
+    - the Variant Explorer: each family's rows read through the family search's filters, counting only the members the family shows;
+    - the annotation read since 2026-11-06: ClinVar from the annotated ClinVar file before VEP's cache, a multi-allelic record's annotation tied to its ALT, a field listing several values read as none, VEP's `MAX_AF` kept apart from gnomAD's popmax, and the owner's ACMG rules of 2026-11-06 (no criterion applied on a missing value; BA1/BS1 on gnomAD's FAF95; PP5/BP6 always to consider; PVS1 to consider on a LOFTEE flag or an NMD-escaping variant; the mtDNA frequencies);
+    - imports from a watched folder: the ready marker and its checksums, the approval queue, the manifest kept in CoGA, and an import refused or undone when its package changed;
+    - a new instance's references: HPO's newest release, recorded with its SHA-256, and Monarch's newest release, recorded in the annotation manifest.
+- The developer drafts the lines, after checking each against the code; QA confirms them with the list at the RC (REG-3).
 
 ### REG-15 · The variant summary's figures (PROD-1)
 
@@ -172,7 +190,7 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 ### OPS-6 · Deployment settings
 
 - Set `COGA_PROBLEM_REPORT_URL` (no problem-report link without it, TF-15) and `SMTP_HOST` (with `SMTP_FROM`, and `SMTP_STARTTLS`/`SMTP_USERNAME`/`SMTP_PASSWORD` when the relay needs an account), then send the test mail from *Users*.
-- Fill the reference-data bucket: the shipped STRchive file (else the backend does not start), the ACMG SF list then a full gene-reference sync, the vendored `hp.obo`; check `hp.obo` and the ClinGen BED with `shasum -a 256`.
+- Fill the reference-data bucket: the shipped STRchive file (else the backend does not start), the ACMG SF list then a full gene-reference sync, the vendored `hp.obo` (the backup when HPO's newest release cannot be downloaded); check `hp.obo` and the ClinGen BED with `shasum -a 256`.
 - On a fresh database, look for the HPO and segmental-duplication refusal lines in the backend log.
 
 ### OPS-24 · Release mechanics
@@ -229,3 +247,18 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 - The request audit's `updateFields` lists body keys a model ignores (`audit_log_pg.py`).
 - Copies still to fold: the gene look-up SQL (`family_service.py`, `family_package_registration.py`), `_family_sample_contexts`, `_coerce_int`, the worker `stop_*` functions, `_execute` of the two ClickHouse writers, `_finite`, `_shares_allele`, the audit-actor helper.
 - `PaternityCheck.status` allows `skip`, which `evaluate_paternity` never returns; the GCS integration test's fixed container name collides in parallel runs.
+
+### CLIN-73 · Multi-allelic records
+
+- A multi-allelic record (ALT `G,T`) is stored as one variant. Each annotation entry names its ALT, but the filters read the record's entries together: one allele's value keeps the record. A `Number=A` INFO value differs per allele, so it reads as no value.
+- `data-import.md` asks the pipeline to split such records (`bcftools norm -m -any`). The owner decides whether that stays a pipeline requirement, checked at import, or CoGA splits them; either is a change of its own.
+
+### CLIN-74 · Variants of taken-out members
+
+- A structure edit that takes a member out keeps their calls in the family's rows unless it clears them. The Variant Explorer counts only the members a family shows (the owner's decision of 2026-11-06), but the family page still lists a variant only taken-out members carry, with 0/0 for each member it shows.
+- The family search's sample filter, given a taken-out member's name through the API, reads that member's calls; the interface offers only members.
+- The owner decides whether the family search leaves such variants out, as the Explorer does: that changes what the search keeps (Major).
+
+### ENG-24 · End-to-end modules depend on their order
+
+- Run on their own, `test_e2e_review_audit.py` then `test_e2e_signout_acknowledges_what_was_shown.py` fail the latter's `test_the_module_leaves_nothing_tagged_for_the_report`: the review-audit module leaves a variant of the shared family tagged for the report, and the sign-out module checks that the family's report list ends empty. The full suite, with other modules run in between, passes. Each module should leave the family as it found it, or check only its own tags.
