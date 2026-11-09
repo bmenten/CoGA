@@ -11,15 +11,19 @@ releases to CoGA.
 CoGA accepts the sign-in only when the answer carries the user's object ID in the
 organisation's Entra ID (``CAS_OBJECT_ID_ATTRIBUTE``, a UUID): the account is bound to it
 (``users.azure_object_id``), never to an e-mail address, so a later Microsoft sign-in finds the
-same account. The e-mail address and the name come from the other attributes.
+same account. The e-mail address and the name come from the other attributes. An answer
+without one of them is logged with the names of the attributes it does carry, never their
+values, so the administrator can ask the CAS server to release it or set ``CAS_*_ATTRIBUTE`` to
+the name the server uses.
 
 The answer is XML. It is read only when it is a CAS answer of reasonable size without a
 document type declaration, so no entity in it is expanded. Anything else raises ``CasError``,
-whose message says why and never quotes the ticket or the answer.
+whose message says why and never quotes the ticket or a value from the answer.
 """
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any
 from xml.etree import ElementTree
@@ -37,11 +41,16 @@ _MAX_ANSWER_BYTES = 64 * 1024
 # A service ticket as CAS servers write it: "ST-" and URL-safe characters. Anything else is
 # refused before the CAS server is asked.
 _SERVICE_TICKET = re.compile(r"ST-[A-Za-z0-9._-]{1,250}")
+# An attribute name a log line may quote. A name of any other form is counted, not quoted.
+_ATTRIBUTE_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9._-]{0,63}")
+_MAX_QUOTED_ATTRIBUTES = 30
+
+logger = logging.getLogger(__name__)
 
 
 class CasError(Exception):
     """A ticket CoGA does not accept; the message says why and quotes neither the ticket nor
-    the CAS server's answer."""
+    a value from the CAS server's answer (at most the names of its attributes)."""
 
 
 def login_url() -> str:
@@ -59,6 +68,15 @@ def _first_value(attributes: dict[str, list[str]], name: str) -> str | None:
         if value.strip():
             return value.strip()
     return None
+
+
+def _carried(attributes: dict[str, list[str]]) -> str:
+    """The names of the attributes a CAS answer carries, for a log line; never their values."""
+    names = sorted(name for name in attributes if _ATTRIBUTE_NAME.fullmatch(name))
+    quoted = names[:_MAX_QUOTED_ATTRIBUTES]
+    others = len(attributes) - len(quoted)
+    text = ", ".join(quoted) or "none"
+    return f"{text} and {others} other(s)" if others else text
 
 
 def _read_answer(body: bytes) -> tuple[str, dict[str, list[str]]]:
@@ -100,7 +118,25 @@ def identity_from_answer(body: bytes) -> AzureIdentity:
     if object_id is None:
         raise CasError(
             f"the CAS answer carries no object ID ({settings.cas_object_id_attribute}); the CAS "
-            "server must release that attribute to CoGA"
+            f"server must release that attribute to CoGA (the answer carries: {_carried(attributes)})"
+        )
+    missing = [
+        name
+        for name in (
+            settings.cas_email_attribute,
+            settings.cas_given_name_attribute,
+            settings.cas_family_name_attribute,
+        )
+        if _first_value(attributes, name) is None
+    ]
+    if missing:
+        # Without them the account has no e-mail address (a first sign-in is refused) or shows
+        # only part of the user's name.
+        logger.warning(
+            "cas sign-in: the CAS answer carries no %s (the answer carries: %s); the CAS server "
+            "must release them to CoGA, or CAS_*_ATTRIBUTE must name the attribute it uses",
+            ", ".join(missing),
+            _carried(attributes),
         )
     given = _first_value(attributes, settings.cas_given_name_attribute)
     family = _first_value(attributes, settings.cas_family_name_attribute)
