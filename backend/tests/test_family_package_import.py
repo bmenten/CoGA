@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+import gzip
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -479,7 +480,14 @@ def test_pgt_manifest_validates_glimpse2_apcad_and_qdnaseq_files(tmp_path: Path)
         encoding="utf-8",
     )
     (package_root / "GLIMPSE2").mkdir()
-    (package_root / "GLIMPSE2" / "FAM001.vcf.gz").write_text("##fileformat=VCFv4.2\n", encoding="utf-8")
+    # A gzip VCF whose #CHROM line names the members: one that cannot be read, or names
+    # none, is refused (DATA-12).
+    (package_root / "GLIMPSE2" / "FAM001.vcf.gz").write_bytes(
+        gzip.compress(
+            b"##fileformat=VCFv4.2\n"
+            b"#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tFATHER\tMOTHER\tEMBRYO1\n"
+        )
+    )
     (package_root / "APCAD").mkdir()
     (package_root / "APCAD" / "EMBRYO1.apcad.vcf").write_text("##fileformat=VCFv4.2\n", encoding="utf-8")
     qdna_root = package_root / "QDNAseq" / "EMBRYO1"

@@ -1733,6 +1733,15 @@ Discover, dry run and import check:
   NIPT pair's VCF whose one column is named neither as its member nor as its entry's
   `vcf_sample` is a warning (`nipt_vcf_column_named_otherwise`,
   [Monogenic NIPT pairs](#monogenic-nipt-pairs)).
+- **APCAD and phased VCFs**: an APCAD VCF (an embryo's, or the family's) and the phased family
+  VCF of `haplotypes` are read up to their `#CHROM` line, and a `.vcf.gz` at its end too. One
+  that cannot be read is refused by name (`dataset_vcf_unreadable`; an embryo's names the
+  embryo): a `.vcf.gz` cut short or damaged, a BGZF file without BGZF's end-of-file block (cut
+  short wherever the cut lies) or a plain-text file named `.gz`. A phased family VCF with no
+  `#CHROM` line naming its samples is refused too (`dataset_vcf_no_sample_columns`): the import
+  reads each member's genotypes from the member's own column. Both used to pass the validation
+  and fail their dataset at import (DATA-12). An APCAD VCF without sample columns is read from
+  its records' INFO, and an APCAD file without a VCF record as a BED, as before.
 - **Coverage**: a per-target coverage table's header names `chromosome`, `start`, `end`,
   `attribute` and `mean` (`coverage_target_table_columns`). A coverage BED's `content` is
   `read_depth` or `log2_ratio` (`coverage_content_invalid`); a BED without one is a warning
@@ -2376,7 +2385,8 @@ capture panel takes the panel's key, the `assay_panel` of its cfDNA samples).
 | `ped_proposed_from_folders` (warning) | Discover found no PED and took the members from the long-read per-sample folders (a couple when of opposite sex). Check them before writing the manifest. |
 | "The family's callset also holds the calls of …" | A per-sample SNV import that does not bring every sample's file would drop the others' calls: import every sample's SNV file together. |
 | `dataset_vcf_not_single_sample` | A VCF under `snv.per_sample` (a NIPT pair's, or a long-read sample's) holds no sample column or more than one. |
-| `dataset_vcf_unreadable` | A sample's VCF under `snv.per_sample` (or a NIPT pair's parent VCF, in Discover) could not be read: a `.vcf.gz` cut short or damaged in a copy, or a plain-text VCF named `.gz`. The message names the sample and the file. Copy the file again from where the pipeline wrote it. An import that meets such a file fails its dataset with "… could not be read: it is cut short or damaged, or is not gzip". |
+| `dataset_vcf_unreadable` | A sample's VCF under `snv.per_sample` (or a NIPT pair's parent VCF, in Discover), an APCAD VCF or the phased family VCF could not be read: a `.vcf.gz` cut short or damaged in a copy, or a plain-text VCF named `.gz`; for an APCAD or phased VCF also a BGZF file without its end-of-file block. The message names the file, and the sample where the file is a sample's. Copy the file again from where the pipeline wrote it. An import that meets such a file fails its dataset with "… could not be read: it is cut short or damaged, or is not gzip". |
+| `dataset_vcf_no_sample_columns` | The phased family VCF of `haplotypes` has no `#CHROM` line naming its samples (none at all, or one with only the fixed columns): the import could give no member a genotype from it. Copy the file again from where the pipeline wrote it. |
 | `nipt_vcf_column_named_otherwise` (warning) | A NIPT pair's VCF names its one sample column neither as the member nor as the entry's `vcf_sample`; the import reads it as the member's calls ([Monogenic NIPT pairs](#monogenic-nipt-pairs)). Check that the file holds the member's verified tube: if so, set the entry's `vcf_sample` to the column's name; if not, correct the manifest. |
 | `coverage_target_table_columns` | A per-target coverage table's header lacks `chromosome`, `start`, `end`, `attribute` or `mean`. |
 | `coverage_content_undeclared` (warning) | A coverage BED's manifest entry has no `content`: it imports as `unknown`, drawn without an axis and never read as depth. Add `content: read_depth` or `content: log2_ratio` and import again. |

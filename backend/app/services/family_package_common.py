@@ -653,6 +653,18 @@ def read_vcf_sample_columns(path: Path, *, label: str = "The VCF") -> list[str]:
     return []
 
 
+def read_whole_vcf_sample_columns(path: Path, *, label: str = "The VCF") -> list[str]:
+    """``read_vcf_sample_columns`` for a VCF the import reads whole: a BGZF file that does not
+    end with BGZF's end-of-file block, cut short wherever the cut lies, raises
+    ``UnreadableVcf`` too, as the import's reader refuses it (``whole_package_text_handle``,
+    DATA-4). Only the file's first bytes, its header and its last 28 bytes are read (DATA-12)."""
+    try:
+        require_bgzf_path_end(path, label=path.name)
+    except UNREADABLE_FILE_ERRORS as exc:
+        raise UnreadableVcf(path, label=label) from exc
+    return read_vcf_sample_columns(path, label=label)
+
+
 def vcf_holds_a_data_line(path: Path, *, label: str = "The VCF") -> bool:
     """Whether a VCF holds a line after its header, reading only as far as the first one.
 
