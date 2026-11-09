@@ -146,13 +146,13 @@ def test_a_group_counts_its_sites_by_father_variant_class_confidence_and_allele_
     assert six.by_father == {"hom_alt": made["6"]}
     assert six.by_variant_class == {"SNV": made["6"] - 2, "indel": 1, "MNV": 1}
     assert six.high_confidence == made["6"] and six.ambiguous == 0
-    assert len(six.vaf_histogram) == 50 and sum(six.vaf_histogram) == made["6"]
+    assert len(six.vaf_histogram) == 100 and sum(six.vaf_histogram) == made["6"]
     # A VAF of 1.0 is the last bin's.
-    assert six.vaf_histogram[49] == made["6"]
-    assert vaf_bin(1.0) == 49 and vaf_bin(0.0) == 0 and vaf_bin(0.05) == 2
+    assert six.vaf_histogram[99] == made["6"]
+    assert vaf_bin(1.0) == 99 and vaf_bin(0.0) == 0 and vaf_bin(0.055) == 5
     # A fraction on a bin's lower edge is that bin's, whatever the floating point.
-    assert [vaf_bin(edge) for edge in (0.06, 0.3, 0.58, 0.98)] == [3, 15, 29, 49]
-    assert vaf_bin(0.0599) == 2
+    assert [vaf_bin(edge) for edge in (0.06, 0.07, 0.29, 0.57, 0.58, 0.99)] == [6, 7, 29, 57, 58, 99]
+    assert vaf_bin(0.0699) == 6
     assert sum(by_key["7"].vaf_histogram) == made["7"]
 
 

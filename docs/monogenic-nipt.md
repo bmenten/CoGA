@@ -147,7 +147,7 @@ it.
   fetus group, and so are the father's het alleles the fetus did not inherit (no category, and not
   merely undetectable at the FF). Per group: the expected plasma VAF (`expected_plasma_vaf`) beside
   the observed median, the confidence, the father's trusted genotype, the variant class and a VAF
-  histogram in bins of 0.02. Per autosome: the paternity check's counts
+  histogram in bins of 0.01. Per autosome: the paternity check's counts
   (`paternal_transmission_evidence` per chromosome), the mother's het alleles inherited beside a
   confident hom-ref or hom-alt father (`maternal_allele_probability` ≥ 0.5, not ambiguous), and the
   fetus's hom-alt sites. An autosome where none of a parent's alleles reached the fetus over at least
