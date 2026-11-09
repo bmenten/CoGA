@@ -79,9 +79,11 @@ another assembly (T2T-CHM13, GRCh37) the start loads nothing and logs one warnin
 assembly and the fix: upload that assembly's own file on **Admin → Species & assemblies**
 (OPS-17). Without UCSC, startup still creates the empty GRCh38 assembly and carries on.
 
-A start loads no clinical CNVs, so a fresh install has none, without a warning. Build them with the clinical CNV knowledgebase rebuild (↻ next to the clinical-CNV count on
-**Admin → Species & assemblies**; `POST /admin/clinical-cnv-kb/rebuild`), or upload a file
-(below). A rebuild that cannot load the ClinGen dosage curation or the recurrent CNV regions
+A start builds the clinical CNVs of a GRCh37 or GRCh38 assembly that has none, in the
+background ([below](#loading-or-replacing-reference-data)), so a fresh install has none until
+that build ends. Build them again with the clinical CNV knowledgebase rebuild (↻ next to the
+clinical-CNV count on **Admin → Species & assemblies**; `POST /admin/clinical-cnv-kb/rebuild`),
+or upload a file (below). A rebuild that cannot load the ClinGen dosage curation or the recurrent CNV regions
 fails, says why on that page, and leaves the clinical CNVs as they were. So does a rebuild whose
 administrator is no longer an active administrator (deactivated, given another role or deleted;
 SEC-35): it keeps that account by its id and checks it as it starts and again before the load,
