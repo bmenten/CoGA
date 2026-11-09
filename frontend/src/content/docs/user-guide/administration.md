@@ -63,6 +63,12 @@ page is an administrator's alone.
     it), every record still names it, and the same person signing in again makes no new request.
     **Restore** brings it back, inactive. You cannot deactivate, archive or delete your own: another
     administrator does that.
+  - **Edit**, under *Project access*, sets the account's projects and its level in each: the same
+    memberships as a project's members on **Projects & access**, set from the account's side.
+    **Remove** takes a project off; **Give access to a project** lists a few projects without access
+    at a time (type part of a name to find the others), and a project added starts as an analyst.
+    The dialog lists what the save changes; **Save project access** saves it all at once. An
+    administrator's or a superuser's row says it has every project, member or not.
   - Every change asks you to confirm it first, and is kept in the audit log.
   - When you deactivate an account, an import, a gene reference sync or a clinical CNV knowledgebase
     rebuild it asked for that has not started yet is not run, and a rebuild not yet loaded loads
@@ -75,6 +81,7 @@ page is an administrator's alone.
   - The members are listed with their level; **Remove** takes one off. Under them, **Add a member**
     lists a few users without access at a time: type part of a name or email to find the others, then
     **Add** one (or press Enter when the search finds one user). A member added starts as an analyst.
+    One user's projects are also set on the **Users** page.
   - An **analyst** reads the project's records and changes them as far as their role allows: a
     viewer changes nothing, whatever their level.
   - A **reader** (a student, say) reads, searches, exports and prints them and saves their own filter

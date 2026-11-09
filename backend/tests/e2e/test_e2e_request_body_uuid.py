@@ -57,6 +57,7 @@ UUID_BODY_FIELDS = {
     "panel_id",
     "project_id",
     "project_ids",
+    "reader_project_ids",
     "reader_user_ids",
     "shared_project_ids",
     "species_id",
@@ -201,13 +202,15 @@ async def _sweep(ac: Any, run: str, records: dict[str, str]) -> list[dict[str, A
     """Each operation whose body names a record by its UUID; each such field in turn
     holding a value that is no UUID, a UUID in braces and a ``urn:uuid:`` UUID, and, to
     compare, a UUID that names no record. The path names the test's own family, project and
-    tag; no value names a record, so nothing is found and nothing changes."""
+    tag, and the viewer's account; no value names a record, so nothing is found and nothing
+    changes."""
     bodies = _sweep_bodies(run, records)
     path_values = {
         "family_id": records["family"],
         "sample_id": records["sample"],
         "project_id": records["project"],
         "tag_key": records["tag_key"],
+        "user_id": records["user"],
     }
     probes: list[dict[str, Any]] = []
     for method, path, media, fields in _body_operations():
@@ -321,7 +324,13 @@ async def _collect(run: str) -> dict[str, Any]:
     }
     r: dict[str, Any] = {"add": {}, "seed": {}, "import": {}, "job": {}, "viewer": {}}
     out["responses"] = r
-    records: dict[str, str] = {"family": family, "sample": sample, "assembly": assembly_id, "species": species_id}
+    records: dict[str, str] = {
+        "family": family,
+        "sample": sample,
+        "assembly": assembly_id,
+        "species": species_id,
+        "user": viewer_id,
+    }
     out["records"] = records
     # A request the app fails on is answered 500, as a server answers it, so that every step
     # below is taken and asserted on its own.
@@ -509,6 +518,17 @@ async def _collect(run: str) -> dict[str, Any]:
                 )
                 # What the sweep made: nothing, but for the family the test made itself.
                 out["sweep_made"] = sorted(str(row[0]) for row in leftovers.all())
+                # And the viewer's project access it named no project of: as the test made it.
+                memberships = await session.execute(
+                    text(
+                        "SELECT project_id::text, access_level FROM project_users "
+                        "WHERE user_id = CAST(:user_id AS uuid)"
+                    ),
+                    {"user_id": viewer_id},
+                )
+                out["viewer_memberships"] = sorted(
+                    (str(row[0]), str(row[1])) for row in memberships.all()
+                )
     finally:
         async with AsyncClient(transport=transport, base_url="http://e2e") as ac:
             ac.headers["Authorization"] = f"Bearer {await _harness.login_admin_token(ac)}"
@@ -693,6 +713,8 @@ def test_no_operation_answers_a_body_id_that_is_no_uuid_with_a_500(snap: dict[st
     assert others == []
     # Nothing was found, so nothing was made: only the test's own family is there.
     assert snap["sweep_made"] == [f"family {snap['records']['family']}"]
+    # Nor changed: the viewer is an analyst of the test's project, as the test made it.
+    assert snap["viewer_memberships"] == [(snap["records"]["project"], "analyst")]
 
 
 @pytest.mark.parametrize(
@@ -702,6 +724,9 @@ def test_no_operation_answers_a_body_id_that_is_no_uuid_with_a_500(snap: dict[st
         (("POST", "/api/admin/nipt/artifacts/auto-seed"), "assembly_id", ASSEMBLY_NOT_FOUND),
         (("POST", "/api/admin/nipt/artifacts/import"), "assembly_id", ASSEMBLY_NOT_FOUND),
         (("POST", "/api/family-imports"), "project_id", PROJECT_NOT_FOUND),
+        # An account's projects, set from the Users page (SEC-1).
+        (("PATCH", "/api/auth/users/{user_id}"), "project_ids", PROJECT_NOT_FOUND),
+        (("PATCH", "/api/auth/users/{user_id}"), "reader_project_ids", PROJECT_NOT_FOUND),
     ],
 )
 def test_the_sweep_finds_each_field_this_reads_refused_as_unknown(

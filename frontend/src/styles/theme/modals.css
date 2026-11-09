@@ -375,6 +375,13 @@
   width: min(560px, 100%);
 }
 
+/* An account's project access (UserProjectAccessDialog): a long project list scrolls inside the
+   dialog, never past the window. */
+.user-project-access-modal {
+  max-height: calc(100vh - 2rem);
+  overflow-y: auto;
+}
+
 .confirm-delete-warning {
   border: 1px solid rgba(198, 31, 45, 0.24);
   background: var(--color-signature-red-soft);

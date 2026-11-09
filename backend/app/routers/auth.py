@@ -125,7 +125,7 @@ NO_ADMIN_ADDRESS_DETAIL = "There is no active administrator to send the mail to.
 # names the account and its changed fields only: who changed them is the request audit row's
 # user, and what each changed from and to is in its ``request_meta.account_change``, so no value
 # of the request, its token included, reaches the application log.
-ACCOUNT_CHANGE_FIELDS = ("role", "is_active", "archived")
+ACCOUNT_CHANGE_FIELDS = ("role", "is_active", "archived", "project_ids", "reader_project_ids")
 
 
 def _request_remote_ip(request: Request) -> str | None:
@@ -488,20 +488,29 @@ async def update_user(
     current: CurrentUser = Depends(get_current_admin_user),
     session: AsyncSession = Depends(get_postgres_session),
 ):
-    """Activate or deactivate an account, set its global role, or archive or restore it (SEC-4).
+    """Activate or deactivate an account, set its global role, archive or restore it (SEC-4),
+    or set its projects and its level in each (SEC-1).
 
     Nobody changes their own role, deactivates or archives their own account, and the emergency
     administrator keeps its role and stays active, so the break-glass sign-in works when it is
     switched on. Archiving deactivates the account; an archived account is restored before it is
-    activated. What changed, each field from and to, is recorded with the request in the audit
+    activated. ``project_ids`` and ``reader_project_ids`` set the account's memberships as a
+    project's ``user_ids`` and ``reader_user_ids`` set its members: the same rows, from the
+    account's side. A project that does not exist, or names no UUID, answers 404 and nothing is
+    changed. What changed, each field from and to, is recorded with the request in the audit
     log (``request_meta.account_change``).
     """
     user_uuid = require_uuid(user_id, "Invalid user id")
-    if update.projects is not None:
-        raise HTTPException(
-            status_code=400,
-            detail="Project access is managed from project settings",
-        )
+    project_ids = (
+        None
+        if update.project_ids is None
+        else [require_uuid(value, "Project not found", status_code=404) for value in update.project_ids]
+    )
+    reader_project_ids = (
+        None
+        if update.reader_project_ids is None
+        else [require_uuid(value, "Project not found", status_code=404) for value in update.reader_project_ids]
+    )
     if update.archived is True and update.is_active is True:
         raise HTTPException(status_code=400, detail=ARCHIVE_ACTIVE_DETAIL)
     if update.role is not None or update.is_active is False or update.archived is True:
@@ -530,6 +539,8 @@ async def update_user(
         is_active=update.is_active,
         role=update.role,
         archived=update.archived,
+        project_ids=project_ids,
+        reader_project_ids=reader_project_ids,
     )
     if changes:
         request.state.account_change = {"user_id": updated.id, "email": updated.email, **changes}

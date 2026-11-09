@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import List, Literal, Optional
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from .common import (
     ApiId,
@@ -62,11 +62,22 @@ UserRole = Literal["viewer", "analyst", "supervisor", "superuser", "admin"]
 
 
 class UserUpdate(BaseModel):
+    # A field the change does not take is refused (422, naming it), not left out without a
+    # word: a change of access an administrator thinks made and that was never read is the
+    # worst kind. ``projects``, as the account list names them, is one (``project_ids`` here).
+    model_config = ConfigDict(extra="forbid")
+
     is_active: Optional[bool] = None
     role: Optional[UserRole] = None
     # True archives the account, which deactivates it; False restores it, still inactive.
     archived: Optional[bool] = None
-    projects: Optional[List[str]] = None
+    # The account's projects, as a project's ``user_ids`` and ``reader_user_ids`` name its
+    # members (SEC-1): given, the account is a member of exactly these projects; the readers
+    # among them are ``reader_project_ids``, and it is an analyst in the others. Without
+    # ``reader_project_ids`` each project it stays in keeps its level and one added is an
+    # analyst's; a reader project that is not one of its projects is refused (400).
+    project_ids: Optional[List[str]] = None
+    reader_project_ids: Optional[List[str]] = None
 
 
 class AccountRequestMailOut(BaseModel):

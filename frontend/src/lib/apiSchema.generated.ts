@@ -4206,7 +4206,8 @@ export interface UserUpdate {
   is_active?: boolean | null;
   role?: "viewer" | "analyst" | "supervisor" | "superuser" | "admin" | null;
   archived?: boolean | null;
-  projects?: string[] | null;
+  project_ids?: string[] | null;
+  reader_project_ids?: string[] | null;
 }
 
 export interface ValidationError {

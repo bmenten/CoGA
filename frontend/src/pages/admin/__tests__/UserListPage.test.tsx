@@ -2,7 +2,8 @@
 // signs in, when it was added, where it stands and its project names. Each write is asked for
 // confirmation first and then PATCHes one field (the activation checkbox is_active, the role
 // select the role, Archive and Restore archived) or DELETEs an account that was never active
-// (SEC-4).
+// (SEC-4). The project access dialog PATCHes the account's projects and its reader projects
+// (SEC-1).
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClientProvider } from '@tanstack/react-query';
@@ -250,8 +251,8 @@ describe('UserListPage', () => {
     expect(mockedPatch).toHaveBeenCalledTimes(1);
     const [url, body] = mockedPatch.mock.calls[0];
     expect(url).toBe('/auth/users/u1');
-    // Project access is managed from project settings (the API refuses it here), so the body
-    // carries the activation flag and nothing else.
+    // The body carries the activation flag and nothing else: not the project access, which
+    // the project access dialog alone sends.
     expect(body).toStrictEqual({ is_active: false });
     expect(mockedGet.mock.calls.filter(([requested]) => requested === '/auth/users')).toHaveLength(2);
     expect(screen.getByRole('status')).toHaveTextContent('ann@example.com is now inactive.');
@@ -347,7 +348,7 @@ describe('UserListPage', () => {
     expect(screen.getByRole('checkbox', { name: 'Active: ann@example.com' })).toBeInTheDocument();
   });
 
-  it('has no project-access editor: an account has its activation, its role, Archive and, never active, Delete', async () => {
+  it('gives an account its activation, its role, Edit for its project access, Archive and, never active, Delete', async () => {
     renderPage();
     await screen.findByRole('table');
 
@@ -356,9 +357,12 @@ describe('UserListPage', () => {
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
     const table = screen.getByRole('table');
     expect(within(table).getAllByRole('button').map((button) => button.getAttribute('aria-label'))).toEqual([
+      'Edit project access: new.registrant@example.com',
       'Archive: new.registrant@example.com',
       'Delete: new.registrant@example.com',
+      'Edit project access: ann@example.com',
       'Archive: ann@example.com',
+      'Edit project access: peeters@example.com',
       'Archive: peeters@example.com',
     ]);
     expect(screen.getByRole('link', { name: 'Projects & access' })).toHaveAttribute(
@@ -704,9 +708,149 @@ describe('UserListPage', () => {
       expect(dialog).toHaveTextContent('Signs in with a password');
       expect(dialog).toHaveTextContent('as a viewer');
       expect(dialog).toHaveTextContent('it can no longer be deleted, only archived');
+      // With no project yet, it says where to give it one.
+      expect(dialog).toHaveTextContent('none yet: give it access with Edit, under Project access');
       await user.keyboard('{Escape}');
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
       expect(mockedPatch).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('the project access of an account (SEC-1)', () => {
+    const openAccess = async (email: string) => {
+      await userEvent.click(screen.getByRole('button', { name: `Edit project access: ${email}` }));
+      return screen.findByRole('dialog', { name: `Project access of ${email}` });
+    };
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('says an administrator or a superuser has every project, member or not', async () => {
+      serve([ANN, PENDING, { ...SURNAME_ONLY, role: 'superuser', projects: [], reader_projects: [] }]);
+      renderPage();
+      await screen.findByRole('table');
+
+      expect(within(rowOf('ann@example.com')).getByText('Every project, as admin')).toBeInTheDocument();
+      // Its memberships are still listed: they count once the role is lowered.
+      expect(within(rowOf('ann@example.com')).getByText('Rare disease')).toBeInTheDocument();
+      const superuser = rowOf('peeters@example.com');
+      expect(within(superuser).getByText('Every project, as superuser')).toBeInTheDocument();
+      expect(within(superuser).queryByText('No project access')).not.toBeInTheDocument();
+      expect(within(rowOf('new.registrant@example.com')).queryByText(/Every project/)).not.toBeInTheDocument();
+    });
+
+    it('opens on the account’s projects with their levels, and saves nothing until something changes', async () => {
+      renderPage();
+      await screen.findByRole('table');
+
+      const dialog = await openAccess('peeters@example.com');
+      expect(dialog).toHaveTextContent('Peeters (peeters@example.com)');
+      expect(within(dialog).getByRole('combobox', { name: 'Access level of Oncology' })).toHaveValue('reader');
+      // The projects without access are offered, by name.
+      expect(within(dialog).getByRole('button', { name: 'Add Rare disease' })).toBeInTheDocument();
+      expect(within(dialog).getByRole('button', { name: 'Add NIPT' })).toBeInTheDocument();
+      // A viewer changes nothing whatever its level: the dialog says so.
+      expect(dialog).toHaveTextContent('The account is a viewer');
+      expect(dialog).toHaveTextContent('Nothing yet: the access is as saved.');
+      expect(within(dialog).getByRole('button', { name: 'Save project access' })).toBeDisabled();
+    });
+
+    it('lists what the edits change, then PATCHes the projects and reader projects only, and reloads the lists', async () => {
+      const user = userEvent.setup();
+      mockedPatch.mockResolvedValue({ data: { ...SURNAME_ONLY } });
+      renderPage();
+      await screen.findByRole('table');
+
+      const dialog = await openAccess('ann@example.com');
+      await user.click(within(dialog).getByRole('button', { name: 'Add Oncology' }));
+      await user.selectOptions(
+        within(dialog).getByRole('combobox', { name: 'Access level of NIPT' }),
+        'reader',
+      );
+      await user.click(within(dialog).getByRole('button', { name: 'Remove Rare disease' }));
+
+      const changes = within(dialog).getAllByRole('listitem').map((item) => item.textContent);
+      expect(changes).toEqual(
+        expect.arrayContaining([
+          'Gives access to Oncology, as analyst.',
+          'NIPT: from analyst to reader.',
+          'Takes away the access to Rare disease.',
+        ]),
+      );
+      expect(mockedPatch).not.toHaveBeenCalled();
+
+      serve([{ ...ANN, projects: ['p2', 'p3'], reader_projects: ['p2'] }, PENDING, SURNAME_ONLY]);
+      await user.click(within(dialog).getByRole('button', { name: 'Save project access' }));
+
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+      expect(mockedPatch).toHaveBeenCalledTimes(1);
+      const [url, body] = mockedPatch.mock.calls[0];
+      expect(url).toBe('/auth/users/u1');
+      expect(body).toStrictEqual({ project_ids: ['p2', 'p3'], reader_project_ids: ['p2'] });
+      expect(screen.getByRole('status')).toHaveTextContent('Saved the project access of ann@example.com.');
+      await waitFor(() =>
+        expect(within(rowOf('ann@example.com')).getByText('NIPT').closest('.table-chip')?.textContent).toBe(
+          'NIPT · reader',
+        ),
+      );
+      expect(mockedGet.mock.calls.filter(([requested]) => requested === '/auth/users')).toHaveLength(2);
+      expect(mockedGet.mock.calls.filter(([requested]) => requested === '/projects')).toHaveLength(2);
+    });
+
+    it('asks before Cancel discards the edits, and sends nothing', async () => {
+      const user = userEvent.setup();
+      const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+      renderPage();
+      await screen.findByRole('table');
+
+      const dialog = await openAccess('peeters@example.com');
+      await user.click(within(dialog).getByRole('button', { name: 'Add NIPT' }));
+      await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+      expect(confirm).toHaveBeenCalledTimes(1);
+      expect(screen.getByRole('dialog', { name: 'Project access of peeters@example.com' })).toBeInTheDocument();
+
+      confirm.mockReturnValue(true);
+      await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      expect(mockedPatch).not.toHaveBeenCalled();
+    });
+
+    it('keeps the dialog and its edits open on a refused save, with the reason', async () => {
+      const user = userEvent.setup();
+      mockedPatch.mockRejectedValue({ response: { status: 404, data: { detail: 'Project not found' } } });
+      renderPage();
+      await screen.findByRole('table');
+
+      const dialog = await openAccess('new.registrant@example.com');
+      expect(dialog).toHaveTextContent('No project access: the account opens no project.');
+      await user.click(within(dialog).getByRole('button', { name: 'Add NIPT' }));
+      await user.click(within(dialog).getByRole('button', { name: 'Save project access' }));
+
+      expect(await within(dialog).findByRole('alert')).toHaveTextContent(
+        'The project access was not saved: Project not found',
+      );
+      expect(within(dialog).getByRole('combobox', { name: 'Access level of NIPT' })).toHaveValue('analyst');
+      expect(within(dialog).getByRole('button', { name: 'Save project access' })).toBeEnabled();
+    });
+
+    it('sends the account id as one encoded path segment', async () => {
+      const user = userEvent.setup();
+      serve([{ ...PENDING, id: '../projects/p1' }]);
+      mockedPatch.mockResolvedValue({ data: {} });
+      renderPage();
+      await screen.findByRole('table');
+
+      const dialog = await openAccess('new.registrant@example.com');
+      await user.click(within(dialog).getByRole('button', { name: 'Add NIPT' }));
+      await user.click(within(dialog).getByRole('button', { name: 'Save project access' }));
+
+      await waitFor(() =>
+        expect(mockedPatch).toHaveBeenCalledWith('/auth/users/..%2Fprojects%2Fp1', {
+          project_ids: ['p2'],
+          reader_project_ids: [],
+        }),
+      );
     });
   });
 

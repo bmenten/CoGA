@@ -547,6 +547,114 @@ KEPT_RECORDS_DELETE_DETAIL = (
 )
 
 
+# A reader project the account is not a member of: the project side's rule, seen from the account.
+READER_PROJECT_NOT_MEMBER_DETAIL = (
+    "A reader project must be one of the account's projects: add it to its projects too"
+)
+
+
+async def _lock_project_memberships(session: AsyncSession) -> None:
+    """Hold the lock every writer of ``project_users`` takes before it reads the memberships it
+    replaces, until its transaction ends.
+
+    The memberships are written from two sides: a project's (its members, on *Projects &
+    access*) and an account's (its projects, on *Users*). Each side replaces a whole list, so
+    without the lock a save from one side could land between the other's read and its write,
+    and an account's audit row would record as replaced memberships that were not the ones
+    there. Both are rare administrator changes: one lock for all of them costs nothing.
+    """
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(hashtext(:k))"),
+        {"k": "project-memberships"},
+    )
+
+
+async def _account_project_access(
+    session: AsyncSession,
+    *,
+    user_id: str,
+    project_ids: list[str] | None,
+    reader_project_ids: list[str] | None,
+) -> tuple[dict[str, str], dict[str, str]]:
+    """The account's project memberships now and as the change asks them, each as
+    ``{project id: access level}``, refused before any write when the change names a project
+    that does not exist (404) or a reader project that is not one of the account's (400).
+
+    The memberships are read under ``_lock_project_memberships``, so they are the ones the
+    change replaces."""
+    rows = await session.execute(
+        text(
+            "SELECT project_id::text AS project_id, access_level FROM project_users "
+            "WHERE user_id = CAST(:user_id AS uuid)"
+        ),
+        {"user_id": user_id},
+    )
+    was = {str(row.project_id): str(row.access_level) for row in rows}
+    projects = list(dict.fromkeys(project_ids)) if project_ids is not None else list(was)
+    # A project that does not exist is not found, whichever list names it.
+    named = list(dict.fromkeys([*(project_ids or []), *(reader_project_ids or [])]))
+    if named:
+        found = await session.execute(
+            text("SELECT id::text AS id FROM projects WHERE id IN :project_ids").bindparams(
+                uuid_list_bindparam("project_ids")
+            ),
+            {"project_ids": uuid_values(named)},
+        )
+        if len({str(row.id) for row in found}) != len(named):
+            raise HTTPException(status_code=404, detail="Project not found")
+    if reader_project_ids is not None:
+        readers = set(reader_project_ids)
+        if not readers <= set(projects):
+            raise HTTPException(status_code=400, detail=READER_PROJECT_NOT_MEMBER_DETAIL)
+    else:
+        # Without a reader list, each project the account stays in keeps its level.
+        readers = {project_id for project_id in projects if was.get(project_id) == READER}
+    return was, {project_id: READER if project_id in readers else ANALYST for project_id in projects}
+
+
+async def _write_account_project_access(
+    session: AsyncSession,
+    *,
+    user_id: str,
+    was: dict[str, str],
+    now: dict[str, str],
+) -> dict[str, dict[str, Any]]:
+    """Make ``now`` the account's memberships, and say what changed as the account change
+    records it: its ``project_ids`` and its ``reader_project_ids``, each from and to."""
+    if now == was:
+        return {}
+    gone = [project_id for project_id in was if project_id not in now]
+    if gone:
+        await session.execute(
+            text(
+                "DELETE FROM project_users WHERE user_id = CAST(:user_id AS uuid) "
+                "AND project_id IN :project_ids"
+            ).bindparams(uuid_list_bindparam("project_ids")),
+            {"user_id": user_id, "project_ids": uuid_values(gone)},
+        )
+    for project_id, level in now.items():
+        if was.get(project_id) == level:
+            continue
+        await session.execute(
+            text(
+                """
+                INSERT INTO project_users (project_id, user_id, access_level)
+                VALUES (CAST(:project_id AS uuid), CAST(:user_id AS uuid), :access_level)
+                ON CONFLICT (project_id, user_id) DO UPDATE SET access_level = EXCLUDED.access_level
+                """
+            ),
+            {"project_id": project_id, "user_id": user_id, "access_level": level},
+        )
+    changes: dict[str, dict[str, Any]] = {}
+    if set(was) != set(now):
+        changes["project_ids"] = {"from": sorted(was), "to": sorted(now)}
+    was_readers = sorted(project_id for project_id, level in was.items() if level == READER)
+    now_readers = sorted(project_id for project_id, level in now.items() if level == READER)
+    if was_readers != now_readers:
+        changes["reader_project_ids"] = {"from": was_readers, "to": now_readers}
+    return changes
+
+
 async def update_user_account(
     session: AsyncSession,
     *,
@@ -554,17 +662,28 @@ async def update_user_account(
     is_active: bool | None,
     role: str | None = None,
     archived: bool | None = None,
+    project_ids: list[str] | None = None,
+    reader_project_ids: list[str] | None = None,
 ) -> tuple[UserRead, dict[str, dict[str, Any]]]:
-    """Set an account's activation, its global role and whether it is archived (SEC-4).
+    """Set an account's activation, its global role, whether it is archived (SEC-4), and its
+    projects with its level in each (SEC-1).
 
     Archiving deactivates the account; an archived account is restored before it is
     activated again (409 otherwise). The first activation records when (``activated_at``),
-    which ends the account's wait for approval.
+    which ends the account's wait for approval. ``project_ids``, given, are the account's
+    projects from now on; ``reader_project_ids`` those among them where it is a reader (see
+    ``UserUpdate``). All of it is written in one transaction, or nothing is.
 
     Returns the account and what changed, each field as ``{"from": ..., "to": ...}``: the
     request audit records it (``request_meta.account_change``). The row is locked while it is
-    read and changed, so the "from" is the value the change replaced.
+    read and changed, and the memberships with ``_lock_project_memberships``, so the "from" is
+    the value the change replaced.
     """
+    sets_projects = project_ids is not None or reader_project_ids is not None
+    if sets_projects:
+        # Before the account's row: a project's save holds this lock while its insert waits
+        # for the rows of its members' accounts.
+        await _lock_project_memberships(session)
     current = (
         await session.execute(
             text(
@@ -586,6 +705,19 @@ async def update_user_account(
         await session.rollback()
         raise HTTPException(status_code=409, detail=ARCHIVED_ACTIVATION_DETAIL)
 
+    access: tuple[dict[str, str], dict[str, str]] | None = None
+    if sets_projects:
+        try:
+            access = await _account_project_access(
+                session,
+                user_id=user_id,
+                project_ids=project_ids,
+                reader_project_ids=reader_project_ids,
+            )
+        except HTTPException:
+            await session.rollback()
+            raise
+
     changes: dict[str, dict[str, Any]] = {}
     if to_active != bool(current["is_active"]):
         changes["is_active"] = {"from": bool(current["is_active"]), "to": to_active}
@@ -593,7 +725,10 @@ async def update_user_account(
         changes["role"] = {"from": current["role"], "to": role}
     if to_archived != was_archived:
         changes["archived"] = {"from": was_archived, "to": to_archived}
-    if changes:
+    if access is not None:
+        was, now = access
+        changes |= await _write_account_project_access(session, user_id=user_id, was=was, now=now)
+    if {"is_active", "role", "archived"} & changes.keys():
         await session.execute(
             text(
                 """
@@ -1098,6 +1233,7 @@ async def create_project_record(
     user_ids: list[str],
     reader_user_ids: list[str],
 ) -> ProjectOut:
+    await _lock_project_memberships(session)
     await _validate_species_and_assembly(session, species_id, assembly_id)
     validated_user_ids = await _validate_project_user_ids(session, user_ids)
     reader_ids = _project_reader_ids(validated_user_ids, reader_user_ids)
@@ -1141,6 +1277,8 @@ async def update_project_record(
     user_ids: list[str] | None,
     reader_user_ids: list[str] | None,
 ) -> ProjectOut:
+    # Before the members are read: an account's save on Users may change them meanwhile.
+    await _lock_project_memberships(session)
     existing = await _fetch_project_mapping(session, project_id)
 
     updates: dict[str, Any] = {}
@@ -1714,6 +1852,8 @@ async def get_accessible_sample_mapping(
 
 
 async def delete_project_record(session: AsyncSession, *, project_id: str) -> None:
+    # Its memberships go with it: not while an account's save gives access to it.
+    await _lock_project_memberships(session)
     await _fetch_project_mapping(session, project_id)
     await session.execute(
         text("DELETE FROM projects WHERE id = CAST(:project_id AS uuid)"),

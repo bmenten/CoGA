@@ -13,7 +13,8 @@ import { getErrorMessage } from '../../lib/errorMessage';
 import { formatShortDate } from '../../lib/format';
 import { apiPath } from '../../lib/apiPath';
 import { userAccountsQuery } from '../../lib/users';
-import { memberAccessLevel, type ProjectAccessLevel } from '../../lib/familyAccess';
+import type { ProjectAccessLevel } from '../../lib/familyAccess';
+import AccessLevelPicker, { type AccessLevelPickerText } from '../../components/AccessLevelPicker';
 import ConfirmDeleteDialog from '../../components/ConfirmDeleteDialog';
 import PageHeader from '../../components/PageHeader';
 import QueryFailure from '../../components/QueryFailure';
@@ -96,133 +97,36 @@ const memberLevels = (form: ProjectFormState) => ({
   reader_user_ids: form.readerIds.filter((userId) => form.userIds.includes(userId)),
 });
 
-/** How many users without access the member picker lists at once; a search finds the others. */
-const MEMBER_CANDIDATE_LIMIT = 8;
-
-const byUserLabel = (left: User, right: User) => getUserLabel(left).localeCompare(getUserLabel(right));
+const MEMBER_PICKER_TEXT: AccessLevelPickerText = {
+  column: 'Member',
+  none: 'No members yet: only superusers and administrators can open the project.',
+  add: 'Add a member',
+  placeholder: 'Search by name or email',
+  noMatch: (search) => <>No user without access matches &ldquo;{search}&rdquo;.</>,
+  all: 'Every user is a member.',
+};
 
 /**
  * Who may open the project, and what each member may do in it (SEC-1): an analyst reads and
  * changes its records, a reader only reads them. A superuser or an administrator has every right
- * in every project and needs no membership. The members are a table; a user is added from a
- * search that lists a few users without access at a time, so the section stays short however
- * many accounts there are.
+ * in every project and needs no membership. The same memberships are set from the account's side
+ * on the Users page.
  */
 const ProjectMemberPicker: React.FC<{
   users: User[];
   form: ProjectFormState;
   onToggle: (userId: string) => void;
   onLevel: (userId: string, level: ProjectAccessLevel) => void;
-}> = ({ users, form, onToggle, onLevel }) => {
-  const [search, setSearch] = useState('');
-  const query = search.trim().toLowerCase();
-  const members = users.filter((user) => form.userIds.includes(user.id)).sort(byUserLabel);
-  const others = users.filter((user) => !form.userIds.includes(user.id));
-  const matches = (
-    query ? others.filter((user) => getUserLabel(user).toLowerCase().includes(query)) : others
-  ).sort(byUserLabel);
-  const shown = matches.slice(0, MEMBER_CANDIDATE_LIMIT);
-
-  return (
-    <div className="project-member-picker">
-      {members.length > 0 ? (
-        <div className="data-table-shell data-table-shell--fit">
-          <table className="analysis-table project-member-table">
-            <thead>
-              <tr>
-                <th scope="col">Member</th>
-                <th scope="col">Access</th>
-                <th scope="col">
-                  <span className="sr-only">Remove</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {members.map((user) => (
-                <tr key={user.id}>
-                  <td>{getUserLabel(user)}</td>
-                  <td>
-                    <select
-                      aria-label={`Access level of ${user.email}`}
-                      value={memberAccessLevel(form.readerIds, user.id)}
-                      onChange={(event) => onLevel(user.id, event.target.value as ProjectAccessLevel)}
-                    >
-                      <option value="analyst">Analyst (read and change)</option>
-                      <option value="reader">Reader (read only)</option>
-                    </select>
-                  </td>
-                  <td>
-                    <button
-                      type="button"
-                      className="button-ghost project-member-action"
-                      aria-label={`Remove ${getUserLabel(user)}`}
-                      onClick={() => onToggle(user.id)}
-                    >
-                      Remove
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : form.userIds.length === 0 ? (
-        <p className="table-empty">
-          No members yet: only superusers and administrators can open the project.
-        </p>
-      ) : null}
-
-      {others.length > 0 ? (
-        <div className="project-member-add">
-          <label className="field-label project-member-search">
-            Add a member
-            <input
-              type="search"
-              value={search}
-              placeholder="Search by name or email"
-              onChange={(event) => setSearch(event.target.value)}
-              onKeyDown={(event) => {
-                // Enter adds the one user the search found; it never submits the form around it.
-                if (event.key !== 'Enter') return;
-                event.preventDefault();
-                if (query && matches.length === 1) {
-                  onToggle(matches[0].id);
-                  setSearch('');
-                }
-              }}
-            />
-          </label>
-          {shown.length > 0 ? (
-            <ul className="project-member-candidates">
-              {shown.map((user) => (
-                <li key={user.id}>
-                  <span>{getUserLabel(user)}</span>
-                  <button
-                    type="button"
-                    className="button-secondary project-member-action"
-                    aria-label={`Add ${getUserLabel(user)}`}
-                    onClick={() => onToggle(user.id)}
-                  >
-                    Add
-                  </button>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="table-empty">No user without access matches &ldquo;{search.trim()}&rdquo;.</p>
-          )}
-          {matches.length > shown.length ? (
-            <p className="table-subtle">
-              {shown.length} of {matches.length} shown: search by name or email for the others.
-            </p>
-          ) : null}
-        </div>
-      ) : (
-        <p className="table-subtle">Every user is a member.</p>
-      )}
-    </div>
-  );
-};
+}> = ({ users, form, onToggle, onLevel }) => (
+  <AccessLevelPicker
+    entries={users.map((user) => ({ id: user.id, label: getUserLabel(user), name: user.email }))}
+    memberIds={form.userIds}
+    readerIds={form.readerIds}
+    onToggle={onToggle}
+    onLevel={onLevel}
+    text={MEMBER_PICKER_TEXT}
+  />
+);
 
 /**
  * What deleting `project` takes with it, for the confirmation (UI-7). The delete cascades to the
