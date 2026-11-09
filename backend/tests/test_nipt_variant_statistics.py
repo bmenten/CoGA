@@ -271,6 +271,15 @@ def test_transmission_per_autosome_counts_each_parents_alleles_the_fetus_inherit
     assert (rows["2"].maternal_het_inherited, rows["2"].maternal_het_not_inherited) == (0, 0)
 
 
+def test_a_maternal_het_site_without_an_inheritance_probability_is_not_counted() -> None:
+    # The analysis gives none at a fetal fraction too low to tell (ff_too_low flags it too).
+    pairs = _maternal_sites("3", inherited=2, not_inherited=2)
+    for _site_, item in pairs[:3]:
+        item.maternal_allele_probability = None
+    [row] = nipt_variant_statistics(_result(pairs), QC).chromosomes
+    assert (row.maternal_het_inherited, row.maternal_het_not_inherited) == (0, 1)
+
+
 @pytest.mark.parametrize(
     ("transmitted", "not_transmitted", "marked"),
     [
