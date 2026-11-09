@@ -32,7 +32,7 @@ from backend.app.services import (
     ped_service,
     small_variant_review_tags,
 )
-from backend.app.services.access_control import CurrentUser, RecordNotVisible
+from backend.app.services.access_control import CurrentUser
 
 APP_DIR = pathlib.Path(__file__).resolve().parents[1] / "app"
 # The roles with every project, gene panels, variant tags and import jobs.
@@ -239,10 +239,7 @@ async def test_a_viewer_needs_a_project_of_their_own_and_may_not_overwrite() -> 
 # --- family package import jobs ------------------------------------------------------------
 
 
-OTHER_ACCOUNT = "33333333-3333-3333-3333-333333333333"
-
-
-def _job(requested_by: str, requested_by_id: str | None = OTHER_ACCOUNT) -> dict[str, Any]:
+def _job(requested_by: str) -> dict[str, Any]:
     return {
         "id": JOB_ID,
         "submitted_path": "/imports/FAM1",
@@ -251,7 +248,6 @@ def _job(requested_by: str, requested_by_id: str | None = OTHER_ACCOUNT) -> dict
         "status": "queued",
         "dry_run": False,
         "requested_by": requested_by,
-        "requested_by_id": requested_by_id,
         "requested_at": datetime(2026, 9, 29, tzinfo=timezone.utc),
     }
 
@@ -266,46 +262,31 @@ async def test_a_superuser_and_an_admin_see_every_import_job(role: str) -> None:
     assert job.requested_by == "other@example.org"
     listing = _Session(_Result([]))
     await family_package_jobs.list_family_import_jobs(listing, user=user)
-    assert "requested_by_id =" not in listing.statements[0]
-
-
-@pytest.mark.asyncio
-async def test_a_viewer_sees_only_their_own_import_jobs() -> None:
-    viewer = _user("viewer")
-    with pytest.raises(RecordNotVisible) as refused:
-        await family_package_jobs.get_family_import_job(
-            _Session(_Result([_job("other@example.org")])), job_id=JOB_ID, user=viewer
-        )
-    # Another user's job answers as an unknown one does: 404, its kind only in the audit row
-    # (SEC-9); a 403 told the viewer the job exists.
-    assert (refused.value.status_code, refused.value.detail, refused.value.kind) == (
-        404,
-        "Family import job not found",
-        "import_job",
-    )
+    assert "WHERE" not in listing.statements[0]
+    assert listing.params[0] == {"limit": 25}
     with pytest.raises(HTTPException) as unknown:
-        await family_package_jobs.get_family_import_job(_Session(_Result([])), job_id=JOB_ID, user=viewer)
+        await family_package_jobs.get_family_import_job(_Session(_Result([])), job_id=JOB_ID, user=user)
     assert (unknown.value.status_code, unknown.value.detail) == (404, "Family import job not found")
-    listing = _Session(_Result([]))
-    await family_package_jobs.list_family_import_jobs(listing, user=viewer)
-    assert "requested_by_id = CAST(:requested_by_id AS uuid)" in listing.statements[0]
-    assert listing.params[0]["requested_by_id"] == viewer.id
 
 
 @pytest.mark.asyncio
-async def test_a_viewers_own_import_job_is_theirs_by_their_account_not_their_address() -> None:
-    # SEC-32: a Microsoft sign-in may change an account's address. The job was the viewer's by
-    # the address it was asked under, so it went once the address changed, and a job of another
-    # account asked under the address the viewer has now became theirs.
-    viewer = _user("viewer")
-    asked_under_an_old_address = _job("someone.before@example.org", requested_by_id=viewer.id)
-    session: Any = _Session(_Result([asked_under_an_old_address]))
-    job = await family_package_jobs.get_family_import_job(session, job_id=JOB_ID, user=viewer)
-    assert (job.id, job.requested_by) == (JOB_ID, "someone.before@example.org")
-    for not_theirs in (_job(viewer.email), _job(viewer.email, requested_by_id=None)):
-        session = _Session(_Result([not_theirs]))
-        with pytest.raises(RecordNotVisible):
-            await family_package_jobs.get_family_import_job(session, job_id=JOB_ID, user=viewer)
+@pytest.mark.parametrize("role", BELOW_SUPERUSER)
+async def test_a_role_below_superuser_reads_no_import_job(role: str) -> None:
+    # Every import route needs a superuser (dependencies.get_current_superuser). The service
+    # still gave a user below one the jobs their own account requested, which no route reached
+    # (ENG-23). It now refuses them as the routes do, before it reads anything, their own job
+    # included.
+    user = _user(role)
+    own_job = _Session(_Result([_job(user.email)]))
+    with pytest.raises(HTTPException) as refused:
+        await family_package_jobs.get_family_import_job(own_job, job_id=JOB_ID, user=user)
+    assert (refused.value.status_code, refused.value.detail) == (403, "Superuser access required")
+    assert own_job.statements == []
+    listing = _Session(_Result([]))
+    with pytest.raises(HTTPException) as refused_listing:
+        await family_package_jobs.list_family_import_jobs(listing, user=user)
+    assert (refused_listing.value.status_code, refused_listing.value.detail) == (403, "Superuser access required")
+    assert listing.statements == []
 
 
 # --- variant tags --------------------------------------------------------------------------

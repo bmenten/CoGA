@@ -30,6 +30,8 @@ from .nipt_analysis import MIN_FETAL_SEX_SITES
 
 Genotype = tuple[int, int]
 Status = Literal["pass", "warn", "fail", "skip"]
+# The status of a check that always reaches a verdict: never "skip".
+Verdict = Literal["pass", "warn", "fail"]
 
 # --- Relatedness (KING-robust) thresholds -----------------------------------
 # Standard KING kinship cut-points (Manichaikul et al. 2010): duplicate ~0.5,
@@ -157,7 +159,8 @@ class PaternityCheck:
     hom_alt_not_transmitted: int
     het_transmitted: int
     het_not_transmitted: int
-    status: Status
+    # Too few informative sites is a warning, not a skip (evaluate_paternity).
+    status: Verdict
     message: str
 
     @property
@@ -720,7 +723,7 @@ def evaluate_paternity(
     (35-65% passes, outside 25-75% fails). Too few sites of both kinds warns."""
     hom_informative = hom_alt_transmitted + hom_alt_not_transmitted
     het_informative = het_transmitted + het_not_transmitted
-    statuses: list[Status] = []
+    statuses: list[Verdict] = []
     findings: list[str] = []
     if hom_informative >= MIN_PATERNITY_HOM_ALT_SITES:
         rate = hom_alt_transmitted / hom_informative
@@ -759,7 +762,7 @@ def evaluate_paternity(
             "to assess paternity."
         )
         return check
-    check.status = _worst(statuses)
+    check.status = max(statuses, key=_STATUS_RANK.__getitem__)
     metrics = "; ".join(findings)
     if check.status == "fail":
         check.message = (

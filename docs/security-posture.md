@@ -126,9 +126,8 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   `request_meta.record_hidden` (`family`, `sample` or `project`), which the response never
   carries (`main._answer_record_not_visible`); the admin *Audit logs* page flags it (§2). The
   same holds for deleting another user's filter preset (`404 Preset not found`, row naming
-  `filter_preset`), and for another user's job in the import-job service
-  (`404 Family import job not found`, `import_job`), though only a superuser or an admin may
-  read a job through the API (SEC-9).
+  `filter_preset`, SEC-9). Import jobs are a superuser's or an admin's, who see every job: the
+  routes and the import-job service refuse anyone else (403).
   `backend/tests/e2e/test_e2e_inaccessible_records_look_unknown.py` calls every route with a
   family or sample ID in its path, on real Postgres, for a family of another project and for an
   unknown one, and requires the same status and body. Refusals for the caller's role

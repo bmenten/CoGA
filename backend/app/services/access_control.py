@@ -273,9 +273,9 @@ class RecordNotVisible(HTTPException):
 
     The client gets the answer an unknown record gets, byte for byte: ``main`` hands this to
     FastAPI's own HTTPException handler. Only the request's audit row tells the two apart: it
-    names ``kind`` ("family", "sample", "project", or another user's "filter_preset" or
-    "import_job") in ``request_meta.record_hidden``, so the
-    audit still shows who asked for records outside their projects (REQ-SEC-001).
+    names ``kind`` ("family", "sample", "project", or another user's "filter_preset") in
+    ``request_meta.record_hidden``, so the audit still shows who asked for records outside
+    their projects (REQ-SEC-001).
     """
 
     def __init__(self, kind: str, detail: str) -> None:

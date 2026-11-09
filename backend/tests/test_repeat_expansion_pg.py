@@ -141,20 +141,16 @@ async def test_ingest_trgt_text_stores_triplet_interruption_details() -> None:
     ],
     ids=["list", "object"],
 )
-def test_a_strchive_file_yields_the_loci_it_names_with_a_gene(tmp_path, payload) -> None:
-    path = tmp_path / "STRchive-loci.json"
-    path.write_text(json.dumps(payload), encoding="utf-8")
+def test_a_strchive_file_yields_the_loci_it_names_with_a_gene(payload) -> None:
+    # As a start reads the file it checked (_load_configured_strchive_repeat_loci).
+    loci = repeat_expansion_pg._strchive_repeat_loci_from_payload(json.loads(json.dumps(payload)))
 
-    assert [(entry["locus_id"], entry["gene"]) for entry in repeat_expansion_pg.load_strchive_repeat_loci(path)] == [
-        ("HD_HTT", "HTT")
-    ]
+    assert [(entry["locus_id"], entry["gene"]) for entry in loci] == [("HD_HTT", "HTT")]
 
 
-def test_a_strchive_file_that_is_missing_or_no_catalogue_yields_no_locus(tmp_path) -> None:
-    assert repeat_expansion_pg.load_strchive_repeat_loci(tmp_path / "missing.json") == []
-    path = tmp_path / "STRchive-loci.json"
-    path.write_text(json.dumps("a string"), encoding="utf-8")
-    assert repeat_expansion_pg.load_strchive_repeat_loci(path) == []
+def test_a_strchive_file_that_is_no_catalogue_yields_no_locus() -> None:
+    # A start refuses a file it reads no locus from (test_strchive_release_pin.py).
+    assert repeat_expansion_pg._strchive_repeat_loci_from_payload("a string") == []
 
 
 @pytest.mark.asyncio
@@ -182,29 +178,24 @@ async def test_the_trid_lookup_reads_aliases_and_tracts_from_jsonb_text(monkeypa
     assert [row["locus_id"] for row in from_text.tracts["arx"]] == ["EIEE1_ARX", "PRTS_ARX"]
 
 
-def test_load_strchive_repeat_loci_normalizes_catalog_entries(tmp_path) -> None:
-    path = tmp_path / "STRchive-loci.json"
-    path.write_text(
-        json.dumps(
-            [
-                {
-                    "id": "HD_HTT",
-                    "disease_id": "HD",
-                    "gene": "HTT",
-                    "disease": "Huntington disease",
-                    "inheritance": ["AD"],
-                    "reference_motif_reference_orientation": ["CAG"],
-                    "pathogenic_motif_reference_orientation": ["CAG"],
-                    "interruption_reference_orientation": ["CAA"],
-                    "intermediate_min": 27,
-                    "pathogenic_min": 36,
-                    "hpo_terms": ["HP:0001250 Chorea"],
-                }
-            ]
-        )
+def test_a_strchive_entry_is_normalized_into_a_catalogue_row() -> None:
+    entries = repeat_expansion_pg._strchive_repeat_loci_from_payload(
+        [
+            {
+                "id": "HD_HTT",
+                "disease_id": "HD",
+                "gene": "HTT",
+                "disease": "Huntington disease",
+                "inheritance": ["AD"],
+                "reference_motif_reference_orientation": ["CAG"],
+                "pathogenic_motif_reference_orientation": ["CAG"],
+                "interruption_reference_orientation": ["CAA"],
+                "intermediate_min": 27,
+                "pathogenic_min": 36,
+                "hpo_terms": ["HP:0001250 Chorea"],
+            }
+        ]
     )
-
-    entries = repeat_expansion_pg.load_strchive_repeat_loci(path)
 
     assert entries == [
         {

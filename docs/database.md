@@ -329,8 +329,8 @@ naive `9999-12-31T23:59:59.999999` was stored as `infinity`.
 **Records outside the user's projects.** A request for a family, sample or project that exists
 outside the user's projects is answered exactly like a request for an unknown ID (404). Its
 `audit_log_events` row keeps the difference: `request_meta.record_hidden` names the kind
-(`family`, `sample` or `project`), as it does for another user's filter preset or import job
-(`filter_preset`, `import_job`). The middleware sets it; a request cannot.
+(`family`, `sample` or `project`), as it does for another user's filter preset
+(`filter_preset`). The middleware sets it; a request cannot.
 
 What these records hold and how they are checked is in
 [clinical-traceability.md](clinical-traceability.md).

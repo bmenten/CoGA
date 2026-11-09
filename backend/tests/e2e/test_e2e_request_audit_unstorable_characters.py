@@ -205,7 +205,9 @@ def test_a_nul_in_an_ignored_json_field_is_audited(audited) -> None:
     assert row["request_meta"]["_escaped"] == ["request_body"]
     # The content type is still recorded beside the flag.
     assert row["request_meta"]["headers"]["content-type"] == "application/json"
-    assert row["db_update"]["updateFields"] == ["description", "note"]
+    # The fields the request changed: ProjectUpdate reads "description" and ignores "note",
+    # which the body keeps (ENG-23: both were listed).
+    assert row["db_update"]["updateFields"] == ["description"]
 
 
 def test_half_a_surrogate_pair_and_nan_in_ignored_fields_are_audited(audited) -> None:

@@ -18,7 +18,7 @@ from ..schemas import (
     FamilyPackageImportJobOut,
     FamilyPackageValidationOut,
 )
-from .access_control import CurrentUser, RecordNotVisible, has_superuser_rights
+from .access_control import CurrentUser, has_superuser_rights
 
 from .family_identifiers import IDENTIFIER_RULE, identifier_problem, visible
 from .family_package_fingerprint import PackageFingerprint
@@ -260,12 +260,22 @@ async def queue_family_import_job(
 _JOB_NOT_FOUND = "Family import job not found"
 
 
+def _require_import_job_reader(user: CurrentUser) -> None:
+    """Refuse a user below a superuser, as every import route does
+    (``dependencies.get_current_superuser``): a superuser and an admin read every job, and no
+    one else reads any. The routes refuse such a user before this is reached; a caller other
+    than them is refused the same way, never shown the jobs."""
+    if not has_superuser_rights(user):
+        raise HTTPException(status_code=403, detail="Superuser access required")
+
+
 async def get_family_import_job(
     session: AsyncSession,
     *,
     job_id: str,
     user: CurrentUser,
 ) -> FamilyPackageImportJobOut:
+    _require_import_job_reader(user)
     job_uuid = require_uuid(job_id, _JOB_NOT_FOUND, status_code=404)
     result = await session.execute(
         text(
@@ -279,7 +289,6 @@ async def get_family_import_job(
                 dry_run,
                 worker_id,
                 requested_by,
-                requested_by_id::text AS requested_by_id,
                 requested_at,
                 started_at,
                 heartbeat_at,
@@ -301,11 +310,6 @@ async def get_family_import_job(
     row = result.mappings().first()
     if row is None:
         raise HTTPException(status_code=404, detail=_JOB_NOT_FOUND)
-    requester = row.get("requested_by_id")
-    if not has_superuser_rights(user) and (requester is None or str(requester) != user.id):
-        # Another user's job answers as an unknown one does (SEC-9, REQ-SEC-001). The
-        # requester is the account, whatever its address is now (SEC-32).
-        raise RecordNotVisible("import_job", _JOB_NOT_FOUND)
     return _serialize_job(dict(row))
 
 
@@ -315,17 +319,10 @@ async def list_family_import_jobs(
     user: CurrentUser,
     limit: int = 25,
 ) -> list[FamilyPackageImportJobOut]:
-    clauses: list[str] = []
-    params: dict[str, Any] = {"limit": limit}
-    if not has_superuser_rights(user):
-        # The user's own jobs: those their account requested, whatever its address is now
-        # (SEC-32).
-        clauses.append("requested_by_id = CAST(:requested_by_id AS uuid)")
-        params["requested_by_id"] = user.id
-    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    _require_import_job_reader(user)
     result = await session.execute(
         text(
-            f"""
+            """
             SELECT
                 id::text AS id,
                 submitted_path,
@@ -348,12 +345,11 @@ async def list_family_import_jobs(
                 manifest_sha256,
                 package_fingerprint
             FROM family_import_jobs
-            {where}
             ORDER BY requested_at DESC
             LIMIT :limit
             """
         ),
-        params,
+        {"limit": limit},
     )
     return [_serialize_job(dict(row)) for row in result.mappings().all()]
 
