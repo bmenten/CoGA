@@ -702,7 +702,13 @@ async def upsert_small_variant_review(
     ):
         # Clearing a review removes its classification, tags and note: audited like any
         # other change, whether the row is deleted or kept for its compound-het pairing.
-        cleared_state: dict[str, Any] = {"acmg_class": None, "acmg": None, "tags": [], "note": None}
+        cleared_state: dict[str, Any] = {
+            "acmg_class": None,
+            "acmg": None,
+            "classification": None,
+            "tags": [],
+            "note": None,
+        }
         if existing is not None and _document_has_compound_het_review(existing):
             data = {
                 "variant_key": variant.variant_key,
@@ -757,10 +763,12 @@ async def upsert_small_variant_review(
     elif not compound_het_requested and existing is not None and _document_has_compound_het_review(existing):
         data.update(_preserve_existing_compound_het(existing))
 
-    # The before -> after state for the immutable clinical audit trail (Phase 2).
+    # The before -> after state for the immutable clinical audit trail (Phase 2): the
+    # classification text as stored, so a change sent through the API alone is audited too.
     new_state = {
         "acmg_class": acmg_class,
         "acmg": normalized_acmg,
+        "classification": normalized_classification,
         "tags": normalized_tags,
         "note": normalized_note,
     }

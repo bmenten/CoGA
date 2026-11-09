@@ -271,7 +271,7 @@ def test_report_tag_registered_as_default_collaboration_tag() -> None:
 
 # --- clearing a review is a clinical change too -------------------------------------------------
 
-_CLEARED = {"acmg_class": None, "acmg": None, "tags": [], "note": None}
+_CLEARED = {"acmg_class": None, "acmg": None, "classification": None, "tags": [], "note": None}
 
 
 class _SaveSession:
@@ -362,7 +362,7 @@ def test_deleting_a_cleared_review_is_audited(monkeypatch) -> None:
     assert audit["commits_before"] == 0  # in the same transaction as the delete
     events = clinical_audit_service.diff_review_changes(audit["existing"], audit["new_state"])
     assert [event["summary"] for event in events] == [
-        "Classification Pathogenic (class 5) → unclassified",
+        "Classification Pathogenic (class 5) → unclassified; classification text Pathogenic → none",
         "Tags removed acmg_class_5, report",
         "Note removed",
     ]
@@ -414,6 +414,59 @@ def test_a_strength_only_reclassification_is_audited(monkeypatch) -> None:
     [event] = clinical_audit_service.diff_review_changes(audit["existing"], audit["new_state"])
     assert event["action"] == "classification"
     assert "PM2 moderate → supporting" in event["summary"]
+
+
+# --- the classification text is audited, however the save changed it (TRACE-20) -----------------
+
+
+def test_a_classification_text_changed_through_the_api_alone_is_audited(monkeypatch) -> None:
+    existing = _stored_review()
+    payload = SmallVariantReviewUpdate(
+        classification="  Likely pathogenic - class 4 ",
+        tags=["acmg_class_5", "report"],
+        note="reported",
+    )
+
+    audits, writes, session = _clear(monkeypatch, existing, payload)
+
+    assert writes == ["update"]
+    assert session.written["classification"] == "Likely pathogenic - class 4"
+    [audit] = audits
+    assert audit["new_state"]["classification"] == "Likely pathogenic - class 4"
+    [event] = clinical_audit_service.diff_review_changes(audit["existing"], audit["new_state"])
+    assert event["action"] == "classification"
+    assert event["summary"] == "Classification text Pathogenic → Likely pathogenic - class 4"
+    assert (event["before"]["classification"], event["after"]["classification"]) == (
+        "Pathogenic",
+        "Likely pathogenic - class 4",
+    )
+    # The ACMG record the save kept is recorded unchanged on both sides.
+    assert event["before"]["criteria"] == event["after"]["criteria"] == ["PVS1"]
+
+
+def test_a_save_that_leaves_the_classification_text_out_records_its_removal(monkeypatch) -> None:
+    existing = _stored_review()
+    payload = SmallVariantReviewUpdate(tags=["acmg_class_5", "report"], note="reported")
+
+    audits, _writes, session = _clear(monkeypatch, existing, payload)
+
+    assert session.written["classification"] is None
+    [audit] = audits
+    [event] = clinical_audit_service.diff_review_changes(audit["existing"], audit["new_state"])
+    assert event["summary"] == "Classification text Pathogenic → none"
+
+
+def test_a_re_save_with_the_same_classification_text_audits_nothing(monkeypatch) -> None:
+    existing = _stored_review()
+    payload = SmallVariantReviewUpdate(
+        classification="Pathogenic", tags=["acmg_class_5", "report"], note="reported"
+    )
+
+    audits, writes, _session = _clear(monkeypatch, existing, payload)
+
+    assert writes == ["update"]
+    [audit] = audits
+    assert clinical_audit_service.diff_review_changes(audit["existing"], audit["new_state"]) == []
 
 
 # --- a tag the review holds is kept, whatever became of its definition ----------------------------

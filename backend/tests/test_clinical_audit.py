@@ -98,6 +98,63 @@ def test_diff_new_review_records_every_aspect() -> None:
     assert {e["action"] for e in events} == {"classification", "tags", "note"}
 
 
+def test_diff_classification_text_only_change() -> None:
+    """TRACE-20: the classification text alone, changed through the API without a class tag
+    or an ACMG record, is one ``classification`` event."""
+    events = cas.diff_review_changes(
+        {"classification": None, "tags": []},
+        {"classification": "Likely pathogenic - class 4", "tags": []},
+    )
+    assert len(events) == 1
+    [event] = events
+    assert event["action"] == "classification"
+    assert event["summary"] == "Classification text none → Likely pathogenic - class 4"
+    assert event["before"]["classification"] is None
+    assert event["after"]["classification"] == "Likely pathogenic - class 4"
+    assert event["before"]["acmg_class"] is None and event["after"]["acmg_class"] is None
+
+
+def test_diff_classification_text_removed() -> None:
+    [event] = cas.diff_review_changes({"classification": "VUS - class 3"}, {"classification": None})
+    assert event["summary"] == "Classification text VUS - class 3 → none"
+
+
+def test_diff_class_and_classification_text_change_in_one_event() -> None:
+    events = cas.diff_review_changes(
+        {"acmg_class": "acmg_class_3", "classification": "VUS - class 3"},
+        {"acmg_class": "acmg_class_4", "classification": "Likely pathogenic - class 4"},
+    )
+    assert [event["action"] for event in events] == ["classification"]
+    assert events[0]["summary"] == (
+        "Classification VUS (class 3) → Likely pathogenic (class 4); "
+        "classification text VUS - class 3 → Likely pathogenic - class 4"
+    )
+
+
+def test_diff_criteria_and_classification_text_change_in_one_event() -> None:
+    existing = {
+        "acmg_class": "acmg_class_4",
+        "acmg": {"criteria": [{"code": "PM2", "accepted": True}]},
+        "classification": "Likely pathogenic",
+    }
+    new = {
+        "acmg_class": "acmg_class_4",
+        "acmg": {"criteria": [{"code": "PM2", "accepted": True}, {"code": "PP3", "accepted": True}]},
+        "classification": "Likely pathogenic - class 4",
+    }
+    [event] = cas.diff_review_changes(existing, new)
+    assert event["summary"] == (
+        "ACMG criteria updated (Likely pathogenic (class 4)): PP3 accepted; "
+        "classification text Likely pathogenic → Likely pathogenic - class 4"
+    )
+
+
+def test_diff_classification_text_compared_as_stored() -> None:
+    """Whitespace around the text is not a change; an empty text is no text."""
+    assert cas.diff_review_changes({"classification": "Pathogenic"}, {"classification": " Pathogenic "}) == []
+    assert cas.diff_review_changes({"classification": ""}, {"classification": None}) == []
+
+
 class _NoChainHead:
     def mappings(self):
         return self

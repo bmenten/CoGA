@@ -133,7 +133,9 @@ def _criteria_detail(record: dict[str, Any] | None, value_key: str) -> list[dict
 
 def _acmg_state(review: dict[str, Any]) -> dict[str, Any]:
     """What a small-variant ``classification`` event records: the class, the accepted
-    codes, the point total, the VUS tier and every stored criterion."""
+    codes, the point total, the VUS tier and every stored criterion, and the review's
+    classification text (the label the review dialog writes with the class tag, or a text
+    the API was sent), as the review stores it."""
     record = _json_record(review.get("acmg"))
     return {
         "acmg_class": review.get("acmg_class"),
@@ -141,7 +143,36 @@ def _acmg_state(review: dict[str, Any]) -> dict[str, Any]:
         "point_total": _audit_total((record or {}).get("point_total")),
         "vus_tier": (record or {}).get("vus_tier") or None,
         "criteria_detail": _criteria_detail(record, "strength"),
+        "classification": str(review.get("classification") or "").strip() or None,
     }
+
+
+def _small_variant_classification_summary(before: dict[str, Any], after: dict[str, Any]) -> str:
+    """The summary of a small variant's ``classification`` event: the ACMG class's change,
+    else the ACMG record's, and the classification text's change after it."""
+    phrases: list[str] = []
+    old_class, new_class = before["acmg_class"], after["acmg_class"]
+    if old_class != new_class:
+        phrases.append(f"Classification {_acmg_label(old_class)} → {_acmg_label(new_class)}")
+    elif {**before, "classification": None} != {**after, "classification": None}:
+        phrases.append(
+            _criteria_update_summary(
+                f"ACMG criteria updated ({_acmg_label(new_class)})",
+                before,
+                after,
+                detail_key="criteria_detail",
+                value_key="strength",
+                total_key="point_total",
+                tier_key="vus_tier",
+            )
+        )
+    if before["classification"] != after["classification"]:
+        text_change = (
+            f"classification text {before['classification'] or 'none'} → "
+            f"{after['classification'] or 'none'}"
+        )
+        phrases.append(text_change if phrases else text_change[0].upper() + text_change[1:])
+    return "; ".join(phrases)
 
 
 _MAX_SUMMARY_CHANGES = 5
@@ -228,7 +259,8 @@ def diff_review_changes(
 
     The ``classification`` event covers the whole stored ACMG record, not only the class
     and the accepted codes: a criterion added or removed, a strength or evidence text
-    changed, a suggestion accepted or rejected. An unchanged re-save writes nothing.
+    changed, a suggestion accepted or rejected. It covers the review's classification text
+    too, whichever way the save changed it (TRACE-20). An unchanged re-save writes nothing.
     """
     prior = existing or {}
     events: list[dict[str, Any]] = []
@@ -236,19 +268,7 @@ def diff_review_changes(
     before = _acmg_state(prior)
     after = _acmg_state(new_state)
     if before != after:
-        old_class, new_class = before["acmg_class"], after["acmg_class"]
-        if old_class != new_class:
-            summary = f"Classification {_acmg_label(old_class)} → {_acmg_label(new_class)}"
-        else:
-            summary = _criteria_update_summary(
-                f"ACMG criteria updated ({_acmg_label(new_class)})",
-                before,
-                after,
-                detail_key="criteria_detail",
-                value_key="strength",
-                total_key="point_total",
-                tier_key="vus_tier",
-            )
+        summary = _small_variant_classification_summary(before, after)
         events.append({"action": "classification", "summary": summary, "before": before, "after": after})
 
     events.extend(_tags_and_note_events(prior, new_state))

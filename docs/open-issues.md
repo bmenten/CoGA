@@ -18,7 +18,6 @@ Status 2026-11-04, `origin/main` at `fe2c30b2`. Ideas that are not defects are i
 | REG-6 | P1 | Fill TF-10's comparators, acceptance criteria and sample sizes (INPUTS C1–C7) | owner, QA | validation |
 | REG-7 | P1 | Run the usability evaluation, file the DPIA, settle the national provisions | owner, DPO, RA, QA | go-live |
 | REG-8 | P1 | Confirm QA's per-release review; record the first before the RC tag | QA | RC |
-| TRACE-20 | P2 | Audit a change of a small-variant review's classification text: only its ACMG record, tags and note are audited | developer | RC |
 | CLIN-70 | P2 | Enter each QC profile's sequencing-QC cut-offs: all ship empty, so nothing is judged (TF-06 H14) | lab director, QA | go-live |
 | CLIN-68 | P2 | Add gnomAD's hom, hemi and AC counts to the lab's VEP run; meanwhile decide whether presets rely on them | lab director, owner | validation |
 | CLIN-61 | P2 | Confirm or change the provisional PGT phasing-QC thresholds and window | lab director, QA | validation |
@@ -134,10 +133,6 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 - Align TF-09 §1 ("an administrator can bypass" the checks) with TF-18 §6: no bypass actors, but an administrator can edit or disable the ruleset.
 
 ## P2
-
-### TRACE-20 · A small-variant review's classification text is not audited
-
-- `clinical_audit_service.diff_review_changes` writes an event for the ACMG record, the tags and the note, not for the `classification` text. The review dialog's class change is still audited through its class tag; a text change through the API alone is not. The SV review save audits it.
 
 ### CLIN-61 · Provisional PGT phasing-QC thresholds
 
