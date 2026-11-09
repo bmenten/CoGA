@@ -43,6 +43,7 @@ from .family_structure_audit import (
     pedigree_change_by,
     pedigree_state,
 )
+from .family_identifiers import visible
 from .family_variant_write_lock import VARIANT_TYPES, lock_family_variant_writes
 from .metadata_service import get_accessible_family_mapping, get_family_record
 from .access_control import CurrentUser
@@ -519,9 +520,9 @@ def _ensure_relationship_member(
     cleaned = _clean_sample_id(sample_id)
     row = target_members.get(_sample_key(cleaned))
     if row is None:
-        raise HTTPException(status_code=400, detail=f"Relationship member '{cleaned}' is not in this family")
+        raise HTTPException(status_code=400, detail=f"Relationship member '{visible(cleaned)}' is not in this family")
     if not row.get("active"):
-        raise HTTPException(status_code=400, detail=f"Relationship member '{cleaned}' is inactive")
+        raise HTTPException(status_code=400, detail=f"Relationship member '{visible(cleaned)}' is inactive")
     return str(row["sample_id"])
 
 
@@ -1118,7 +1119,7 @@ async def _update_family_structure(
         key = _sample_key(sample_id)
         target = target_members.get(key)
         if target is None:
-            raise HTTPException(status_code=404, detail=f"Family member '{sample_id}' not found")
+            raise HTTPException(status_code=404, detail=f"Family member '{visible(sample_id)}' not found")
         was_active = bool(target.get("active"))
         changed_status, changed_structure = _apply_member_update(target, update_fields)
         status_changed = status_changed or changed_status
@@ -1132,7 +1133,7 @@ async def _update_family_structure(
         key = _sample_key(sample_id)
         target = target_members.get(key)
         if target is None:
-            raise HTTPException(status_code=404, detail=f"Family member '{sample_id}' not found")
+            raise HTTPException(status_code=404, detail=f"Family member '{visible(sample_id)}' not found")
         if target.get("active"):
             dirty_member_keys.add(key)
             if str(target["sample_id"]) not in removed_sample_ids:

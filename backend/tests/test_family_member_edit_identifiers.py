@@ -29,6 +29,9 @@ from backend.app.schemas import (
     FamilyOut,
     FamilyRelationshipOut,
     FamilyStructureMemberCreate,
+    FamilyStructureMemberUpdate,
+    FamilyStructureParentChildUpdate,
+    FamilyStructureRelationshipsUpdate,
     FamilyStructureUpdate,
     FamilyStructureUpdateOut,
 )
@@ -440,3 +443,63 @@ async def test_a_structure_edit_adds_a_member_without_the_whitespace_around_its_
     # The stored pedigree names the new member by the same ID.
     pedigree = next(params["pedigree"] for params in session.params if "pedigree" in params)
     assert f"{FAMILY} SIB1 0 0 0 0" in pedigree.splitlines()
+
+
+# --------------------------------------------------------------------------- #
+# A structure edit naming a member the family lacks (SEC-37)
+# --------------------------------------------------------------------------- #
+
+# An ID no member has, holding characters a reader cannot see: an escape sequence that clears a
+# terminal, and a text-direction override.
+UNSEEN = f"GHOST{ESC}[2J{RLO}1"
+UNSEEN_SHOWN = "GHOST\\x1b[2J\\u202e1"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("update", "answer"),
+    [
+        pytest.param(
+            FamilyStructureUpdate(members=[FamilyStructureMemberUpdate(sample_id=UNSEEN, clinical_status="affected")]),
+            (404, f"Family member '{UNSEEN_SHOWN}' not found"),
+            id="an-update",
+        ),
+        pytest.param(
+            FamilyStructureUpdate(remove_members=[UNSEEN]),
+            (404, f"Family member '{UNSEEN_SHOWN}' not found"),
+            id="a-removal",
+        ),
+        pytest.param(
+            FamilyStructureUpdate(
+                relationships=FamilyStructureRelationshipsUpdate(
+                    parent_child=[FamilyStructureParentChildUpdate(parent=UNSEEN, child=CHILD, parent_role="father")]
+                )
+            ),
+            (400, f"Relationship member '{UNSEEN_SHOWN}' is not in this family"),
+            id="a-link",
+        ),
+    ],
+)
+async def test_a_structure_edit_naming_a_member_the_family_lacks_shows_the_id_as_written(
+    monkeypatch: pytest.MonkeyPatch, update: FamilyStructureUpdate, answer: tuple[int, str]
+) -> None:
+    # The refusal quoted the request's ID raw: its escape sequence and override reached the
+    # page, the request audit and whatever showed the answer as they were (SEC-37). It is
+    # quoted as the ID rule's refusals quote one, each unseen character as its escape.
+    _structure_family(monkeypatch)
+
+    async def no_conflicts(*_args: Any, **_kwargs: Any) -> list[dict[str, Any]]:
+        return []
+
+    monkeypatch.setattr(structure, "_sample_id_conflicts", no_conflicts)
+
+    with pytest.raises(HTTPException) as refused:
+        await structure.update_family_structure_for_admin(
+            _ExplodingSession(),  # type: ignore[arg-type]
+            family_id=FAMILY,
+            update=update,
+            user=admin_user(),
+        )
+
+    assert (refused.value.status_code, refused.value.detail) == answer
+    assert ESC not in refused.value.detail and RLO not in refused.value.detail

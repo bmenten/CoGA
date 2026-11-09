@@ -619,6 +619,9 @@ directory who could sign in without being assigned to the lab's group (deploymen
     audit row (`audit_log_events.error`), which only an admin reads.
   - The other lines that log a failed query on a request path (Sample QC, the ClickHouse
     variant query and its retry) name it the same way.
+  - A failed gene-reference refresh ends its job with a fixed sentence that names the error's
+    kind, which the admin page shows, and logs the job and the kind: the error's text can quote
+    a source's address or a statement's values (`gene_info_jobs_pg.py`).
   - Every other line that carries an exception (`logger.exception()`, `exc_info=True`), from
     any logger (CoGA's or a library's) and at any level, is written the same way by the JSON
     formatter (`JsonLogFormatter`): the exception's kind in `error`, the frames of its chain in
@@ -760,7 +763,9 @@ What the application relies on there:
     both, along with a `\` and every character a reader cannot see (a C1 control, a
     text-direction or zero-width character, any other non-printable character), wherever an ID
     is written (`services/family_identifiers.py`). An ID stored before is not changed (the data
-    are synthetic).
+    are synthetic). A refusal that quotes an ID it could not match (a member the family lacks,
+    a VCF column that names none) shows each such character as its escape, as the rule's own
+    refusals do (`visible`).
   - On a case-insensitive file system (a macOS bind mount in development), two family IDs that
     differ only in case share every folder named after an ID. Production storage is
     case-sensitive, and the rule leaves case alone.

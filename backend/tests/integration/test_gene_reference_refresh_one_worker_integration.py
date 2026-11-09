@@ -278,12 +278,14 @@ def test_a_failed_run_ends_its_own_job_and_frees_the_slot(monkeypatch: pytest.Mo
         with pytest.raises(RuntimeError):
             await _run_job(job_id)
 
+        # The job's error names the error by its kind, never by its text (SEC-37).
         job = await _job(sm, job_id)
         assert (job["status"], job["worker_id"], job["active_slot"], job["error"]) == (
             "failed",
             None,
             None,
-            "a source could not be read",
+            "The gene reference refresh failed (RuntimeError). The genes it had saved keep their new "
+            "records, the others the ones from before; the server log shows where it failed.",
         )
 
     _with_job(test)

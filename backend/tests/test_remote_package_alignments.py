@@ -20,6 +20,7 @@ keeps its reads (``imports/<family>/bams/<sample>.cram``). These tests pin the c
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -539,6 +540,28 @@ async def test_an_untrusted_recorded_location_is_never_signed(
         assert exc.value.status_code == 404
     assert await cram.get_alignment_manifest("F1", sample_ids=["S1"], session=session, user=object()) == []
     assert signed == []
+
+
+@pytest.mark.asyncio
+async def test_the_log_line_about_an_ignored_location_names_no_sample(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    # The warning named the sample whose recorded location it ignored: logs carry no values
+    # (SEC-37). It still says that a location was ignored, and why.
+    use_store(monkeypatch, "gs", {"imports/F1/bams/PROBAND7.cram": "cram"})
+    _family_members(monkeypatch, "PROBAND7")
+    _sign_urls(monkeypatch)
+    caplog.set_level(logging.DEBUG)
+    recorded = _recorded(uri="gs://phi/elsewhere/PROBAND7.cram", index=False)
+    session: Any = _RecordedAlignmentsSession({"PROBAND7": recorded})
+
+    assert await cram.get_alignment_manifest("F1", sample_ids=["PROBAND7"], session=session, user=object()) == []
+
+    assert "PROBAND7" not in caplog.text
+    assert caplog.messages == [
+        "Ignoring a sample's recorded alignment location: it is not an object in the configured "
+        "bucket in its family's package folder"
+    ]
 
 
 @pytest.mark.asyncio
