@@ -36,6 +36,7 @@ from .gene_info_bulk_sources import (
 from .gene_info_external import fetch_external_gene_bundle
 from .metadata_service import get_current_user_by_id
 from .sex_chromosomes import assembly_display_rank
+from .worker_tasks import stop_worker
 
 logger = logging.getLogger(__name__)
 
@@ -1170,11 +1171,4 @@ async def gene_reference_refresh_worker(stop_event: asyncio.Event | None = None)
             await asyncio.sleep(GENE_REFERENCE_WORKER_POLL_SECONDS)
 
 
-async def stop_gene_reference_worker(task: asyncio.Task[Any] | None, stop_event: asyncio.Event | None) -> None:
-    if stop_event is not None:
-        stop_event.set()
-    if task is None:
-        return
-    task.cancel()
-    with suppress(asyncio.CancelledError):
-        await task
+stop_gene_reference_worker = stop_worker

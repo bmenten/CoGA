@@ -30,7 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.sql import canonical_uuid
 from .access_control import CurrentUser
-from .clinical_audit_service import record_clinical_event
+from .clinical_audit_service import audit_actor, record_clinical_event
 from .family_metadata_context import FamilyMetadataContext
 
 PANEL_APPLIED_ACTION = "panel_applied"
@@ -183,7 +183,7 @@ async def record_family_panel_use(
         family_uuid=context.family_uuid,
         family_identifier=context.family_id,
         variant_id=None,
-        actor=getattr(user, "username", None) or getattr(user, "email", "") or "unknown",
+        actor=audit_actor(user),
         actor_id=getattr(user, "id", None),
         action=PANEL_APPLIED_ACTION,
         summary=f"{_describe(panel)} first applied to {label}",

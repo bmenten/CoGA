@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import json
 import math
+import pathlib
 import types
 from datetime import datetime, timedelta, timezone
 
@@ -909,3 +910,21 @@ def test_the_route_serves_a_page_and_bounds_its_size(monkeypatch) -> None:
     # A page size out of bounds is refused before the trail is read.
     assert (too_small.status_code, too_large.status_code) == (422, 422)
     assert len(calls) == 2
+
+
+def test_every_clinical_event_names_its_user_one_way() -> None:
+    # ENG-23: the pedigree, phenotype and repeat-count audits kept a helper each, and five
+    # writers the expression itself: a change of the rule could miss a copy.
+    assert cas.audit_actor(types.SimpleNamespace(username="analyst1", email="a1@example.org")) == "analyst1"
+    assert cas.audit_actor(types.SimpleNamespace(username=None, email="a1@example.org")) == "a1@example.org"
+    assert cas.audit_actor(types.SimpleNamespace(username="", email="")) == "unknown"
+    assert cas.audit_actor(None) == "unknown"
+
+    services = pathlib.Path(cas.__file__).parent
+    copies = [
+        path.name
+        for path in sorted(services.glob("*.py"))
+        if path.name != "clinical_audit_service.py"
+        and '"username", None) or getattr(' in path.read_text(encoding="utf-8")
+    ]
+    assert copies == []

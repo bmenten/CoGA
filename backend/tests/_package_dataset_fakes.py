@@ -16,8 +16,7 @@ from typing import Any
 
 from backend.app.schemas import FamilyImportDatasetSummary
 from backend.app.services import family_package_datasets
-from backend.app.services import family_package_registration as registration
-from backend.app.services.family_metadata_context import FamilyMetadataContext
+from backend.app.services.family_metadata_context import FamilyMetadataContext, family_sample_contexts
 from backend.app.services.family_package_common import (
     FamilyPackageBundle,
     ManifestDataset,
@@ -86,7 +85,7 @@ def dataset_job(
         dataset=dataset,
         summary=FamilyImportDatasetSummary(dataset_type=dataset_type, status="valid"),
         family_context=family,
-        sample_contexts=registration._family_sample_contexts(family),
+        sample_contexts=family_sample_contexts(family),
         conflict_mode=conflict_mode,
     )
 

@@ -38,7 +38,7 @@ from backend.app.schemas import FamilyImportDatasetSummary
 from backend.app.services import bed_service, family_package_datasets
 from backend.app.services import family_package_registration as registration
 from backend.app.services import family_package_validation
-from backend.app.services.family_metadata_context import FamilyMetadataContext
+from backend.app.services.family_metadata_context import FamilyMetadataContext, family_sample_contexts
 from backend.app.services.family_package_common import (
     FamilyPackageBundle,
     ManifestDataset,
@@ -220,7 +220,7 @@ def test_the_upload_takes_the_declaration_as_one_of_two_values_in_its_query() ->
 async def test_what_a_coverage_bed_declares_is_stored_with_its_track_and_recorded_for_the_family(
     stores: _Stores, content: str
 ) -> None:
-    sample = registration._family_sample_contexts(_family_context())["S1"]
+    sample = family_sample_contexts(_family_context())["S1"]
 
     await bed_service.upload_bed_data(
         _Session(stores),  # type: ignore[arg-type]
@@ -246,7 +246,7 @@ async def test_what_a_coverage_bed_declares_is_stored_with_its_track_and_recorde
 @pytest.mark.asyncio
 @pytest.mark.parametrize("bed_type", ["segments", "apcad"])
 async def test_another_track_types_record_declares_nothing(stores: _Stores, bed_type: str) -> None:
-    sample = registration._family_sample_contexts(_family_context())["S1"]
+    sample = family_sample_contexts(_family_context())["S1"]
     text = "1\t99\t100\trs1\t0.48\tpaternal\n" if bed_type == "apcad" else "1\t0\t1000\t-0.2\n"
 
     await bed_service.upload_bed_data(
@@ -279,7 +279,7 @@ def _job(stores: _Stores, root: Path, dataset: ManifestDataset) -> family_packag
         dataset=dataset,
         summary=FamilyImportDatasetSummary(dataset_type="coverage", status="valid"),
         family_context=family,
-        sample_contexts=registration._family_sample_contexts(family),
+        sample_contexts=family_sample_contexts(family),
         conflict_mode="overwrite",
     )
 

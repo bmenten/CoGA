@@ -62,7 +62,7 @@ async def _exercise(family_id: str) -> dict[str, Any]:
     from backend.app.core.clickhouse import init_clickhouse_schema
     from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.main import app
-    from backend.app.routers.families_small_variants import _family_sample_contexts
+    from backend.app.services.family_metadata_context import family_sample_contexts
     from backend.app.services import (
         clickhouse_variant_storage,
         family_structure_service,
@@ -212,7 +212,7 @@ async def _exercise(family_id: str) -> dict[str, Any]:
                     await variant_upload_service.upload_family_small_variant_file(
                         session,
                         context=context,
-                        sample_contexts=_family_sample_contexts(context),
+                        sample_contexts=family_sample_contexts(context),
                         file=UploadFile(file=BytesIO((header + trio_calls(3)).encode()), filename="family.vcf"),
                         overwrite=True,
                         format_hint="clair3",

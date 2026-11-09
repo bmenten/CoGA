@@ -32,7 +32,7 @@ from ..core.config import (
 from ..core.sql import canonical_uuid, is_missing_postgres_schema_error, require_uuid, rows_matched
 from .access_control import CurrentUser
 from . import hpo_release_download
-from .clinical_audit_service import record_clinical_event
+from .clinical_audit_service import audit_actor, record_clinical_event
 from .family_identifiers import visible as visible_text
 
 HPO_ID_PATTERN = re.compile(r"^HP:[0-9]{7}$", re.IGNORECASE)
@@ -2137,7 +2137,7 @@ async def _record_phenotype_change(
         family_uuid=family_uuid,
         family_identifier=family_identifier,
         variant_id=None,
-        actor=_audit_actor(user),
+        actor=audit_actor(user),
         actor_id=getattr(user, "id", None),
         action="phenotype",
         summary=phenotype_change_summary(before_state, after_state),
@@ -2145,11 +2145,6 @@ async def _record_phenotype_change(
         after=after_state,
         metadata={"sample_id": changed["sample_id"], "annotation_id": annotation_id},
     )
-
-
-def _audit_actor(user: Any) -> str:
-    """The name the clinical audit trail records for a user, as for every clinical event."""
-    return getattr(user, "username", None) or getattr(user, "email", "") or "unknown"
 
 
 # --- Phenotypes an import changes ------------------------------------------------------------
@@ -2341,7 +2336,7 @@ async def record_imported_phenotype_changes(
             family_uuid=family_uuid,
             family_identifier=family_identifier,
             variant_id=None,
-            actor=_audit_actor(origin.user),
+            actor=audit_actor(origin.user),
             actor_id=getattr(origin.user, "id", None),
             action="phenotype",
             summary=imported_phenotypes_summary(sample_id, member["phrases"], origin, change),

@@ -7,7 +7,7 @@ from typing import Any, Dict, Iterable, Iterator, Literal, Optional
 
 from .clickhouse_column_bounds import UINT32, column_int
 from .data_scope import normalize_chromosome
-from .vcf_fields import parse_format, parse_info
+from .vcf_fields import field_int, parse_format, parse_info
 
 StructuralVariantRecordFormat = Literal["manual", "sniffles", "spectre"]
 
@@ -271,24 +271,10 @@ def record_sv_type(info: Dict[str, str], ref: str, alt: str) -> str:
     return info_value(info, "SVTYPE") or sv_type_from_alt(ref, alt) or "SV"
 
 
-def _coerce_int(value: Any) -> int | None:
-    """Parse a required integer coordinate; None when unparseable/missing so a
-    malformed record can be skipped rather than aborting the whole ingest."""
-    if value is None or str(value).strip() in {"", "."}:
-        return None
-    try:
-        return int(str(value).strip())
-    except (TypeError, ValueError):
-        try:
-            return int(float(str(value).strip()))
-        except (TypeError, ValueError, OverflowError):
-            return None
-
-
 def _position(value: Any) -> int | None:
     """A record's POS or END: a whole number the SV tables' UInt32 position columns hold,
     else None, and the record is skipped as unpositionable (SAFE-30)."""
-    return column_int(_coerce_int(value), UINT32)
+    return column_int(field_int(value), UINT32)
 
 
 def _coerce_qual(value: Any) -> float | None:
@@ -381,7 +367,7 @@ def _iter_sniffles_records(
             remote_start=remote_start,
             remote_end=remote_start,
             phase_set=parse_phase_set(fmt_vals.get("PS")),
-            copy_number=_coerce_int(fmt_vals.get("CN")),
+            copy_number=field_int(fmt_vals.get("CN")),
         )
 
 
@@ -435,7 +421,7 @@ def _iter_spectre_records(
             filter=filt or None,
             svlen=record_sv_len(sv_len=svlen, ref=ref, alt=alt),
             phase_set=parse_phase_set(fmt_vals.get("PS")),
-            copy_number=_coerce_int(fmt_vals.get("CN")),
+            copy_number=field_int(fmt_vals.get("CN")),
         )
 
 

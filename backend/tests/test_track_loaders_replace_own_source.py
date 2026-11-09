@@ -37,11 +37,10 @@ from backend.app.services import (
     bed_service,
     clickhouse_interval_tracks,
     family_package_datasets,
-    family_package_registration as registration,
     variant_upload_service,
 )
 from backend.app.services import family_package_common
-from backend.app.services.family_metadata_context import FamilyMetadataContext, SampleMetadataContext
+from backend.app.services.family_metadata_context import FamilyMetadataContext, SampleMetadataContext, family_sample_contexts
 from backend.app.services.family_package_common import (
     APCAD_PCF_SOURCE,
     CNV_SOURCE,
@@ -188,7 +187,7 @@ def _family_context() -> FamilyMetadataContext:
 
 
 def _sample(sample_id: str = "S1") -> SampleMetadataContext:
-    return registration._family_sample_contexts(_family_context())[sample_id]
+    return family_sample_contexts(_family_context())[sample_id]
 
 
 def _upload(text: str | bytes, name: str = "track.bed") -> UploadFile:

@@ -65,7 +65,7 @@ from backend.app.services import (
     family_package_registration as registration,
     per_sample_small_variants,
 )
-from backend.app.services.family_metadata_context import FamilyMetadataContext
+from backend.app.services.family_metadata_context import FamilyMetadataContext, family_sample_contexts
 from backend.app.services.family_package_common import (
     APCAD_PCF_SOURCE,
     APCAD_PCF_TRACK_TYPE,
@@ -289,7 +289,7 @@ def _family_context() -> FamilyMetadataContext:
 
 
 def _samples() -> dict[str, Any]:
-    return registration._family_sample_contexts(_family_context())
+    return family_sample_contexts(_family_context())
 
 
 def _job(

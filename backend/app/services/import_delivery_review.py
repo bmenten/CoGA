@@ -37,10 +37,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from ..core.sql import require_uuid
 from ..schemas import FamilyPackageImportJobOut, ImportDeliveryOut
 from .access_control import CurrentUser
-from .clinical_audit_service import record_clinical_event
+from .clinical_audit_service import audit_actor, record_clinical_event
 from .family_package_fingerprint import PackageFolderTooLarge, package_fingerprint
 from .family_package_jobs import queue_family_import_job
-from .family_structure_audit import audit_actor
 from .import_watcher import IMPORT_INBOX_CHAIN, WATCHER_ACTOR, get_import_delivery
 
 DELIVERY_NOT_FOUND = "Delivery not found"

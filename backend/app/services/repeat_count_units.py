@@ -50,7 +50,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .access_control import CurrentUser
-from .clinical_audit_service import record_clinical_event
+from .clinical_audit_service import audit_actor, record_clinical_event
 from .stored_values import json_object as _json_field
 
 # How close to a boundary a count is marked, in repeat units, at every locus not validated.
@@ -160,10 +160,6 @@ def count_unit_warning(
     if not boundaries:
         return None
     return {"repeat_count": count, "margin": margin, "boundaries": boundaries}
-
-
-def _actor(user: CurrentUser) -> str:
-    return getattr(user, "username", None) or getattr(user, "email", "") or "unknown"
 
 
 def _state(locus: dict[str, Any], record: dict[str, Any] | None) -> dict[str, Any]:
@@ -290,7 +286,7 @@ async def set_repeat_locus_count_units(
                 "count_offset": int(count_offset),
                 "reason": reason,
                 "user_id": getattr(user, "id", None) or "",
-                "user_name": _actor(user),
+                "user_name": audit_actor(user),
             },
         )
     ).mappings().one()
@@ -302,7 +298,7 @@ async def set_repeat_locus_count_units(
         family_uuid=None,
         family_identifier=REPEAT_COUNT_UNITS_AUDIT_CHAIN,
         variant_id=None,
-        actor=_actor(user),
+        actor=audit_actor(user),
         actor_id=getattr(user, "id", None),
         action="repeat_count_units_validated" if after["validated"] else "repeat_count_units_not_validated",
         summary=_summary(locus, before, after),

@@ -38,12 +38,12 @@ from .clickhouse_variant_storage import (
     delete_family_small_variants,
     delete_family_structural_variants,
 )
+from .clinical_audit_service import audit_actor
 from .data_scope import normalize_chromosome
 from .family_identifiers import identifier_problem, visible
 from .family_structure_audit import (
     IMPORT_FAILED,
     PACKAGE_IMPORT,
-    audit_actor,
     lock_family_pedigree,
     read_structure_snapshot,
     record_family_deleted,
@@ -60,6 +60,7 @@ from .hpo_service import PHENOTYPES_ROLLED_BACK, PhenotypeImport, record_phenoty
 from .access_control import CurrentUser
 from . import ped_service
 from .raw_import_files_pg import family_managed_files, record_raw_import_file, store_managed_file
+from .roi_gene_lookup import roi_gene_region
 
 from .family_package_common import HAPLOTYPE_ORIGIN_ROLES, LONG_READ_DATASET_ROLES, MANIFEST_IN_FOLDER, MANIFEST_KEPT_IN_COGA, PCF_ROLE_KEYS, QC_FAMILY_ROLES, FamilyPackageBundle, ManifestDataset, _display_path, _issue, _metadata_dict, _resolve_package_path, manifest_text_sha256
 from .family_package_manifest import _manifest_carrier_types, _manifest_member_status_overrides, _manifest_pgt_metadata, _manifest_relationships, _manifest_roi_value, _normalize_manifest_samples, _ped_carrier_type, _ped_is_carrier, _ped_members_for_import
@@ -84,22 +85,6 @@ async def existing_family_sample_ids(
     if existing is None:
         return []
     return [str(sample_id) for sample_id in existing.get("sample_ids", []) if sample_id]
-
-
-def _family_sample_contexts(context: FamilyMetadataContext) -> dict[str, SampleMetadataContext]:
-    return {
-        row["sample_id"]: SampleMetadataContext(
-            sample_uuid=row["sample_uuid"],
-            sample_id=row["sample_id"],
-            family_uuid=context.family_uuid,
-            family_id=context.family_id,
-            sex=row["sex"],
-            project_ids=context.project_ids,
-            assembly_id=context.assembly_id,
-            assembly_name=context.assembly_name,
-        )
-        for row in context.sample_rows
-    }
 
 
 async def _fetch_existing_family(
@@ -665,51 +650,8 @@ async def _resolve_manifest_roi(
             "start": start,
             "end": end,
         }
-    gene_result = await session.execute(
-        text(
-            """
-            SELECT hgnc_symbol, gene_id, chr, start, "end"
-            FROM genes
-            WHERE assembly_id = CAST(:assembly_id AS uuid)
-              AND (
-                lower(hgnc_symbol) = lower(:query)
-                OR lower(gene_id) = lower(:query)
-                -- Same identifier set as the family gene search: Ensembl transcript and
-                -- gene ids, plus the RefSeq accessions the old refGene table was keyed on.
-                OR lower(COALESCE(extra->>'ensembl_transcript_id', '')) = lower(:query)
-                OR lower(COALESCE(extra->>'ensembl_gene_id', '')) = lower(:query)
-                OR EXISTS (
-                    SELECT 1
-                    FROM jsonb_array_elements_text(
-                        COALESCE(extra->'refseq_accessions', '[]'::jsonb)
-                    ) AS accession
-                    WHERE lower(accession) = lower(:query)
-                       OR lower(split_part(accession, '.', 1)) = lower(:query)
-                )
-              )
-            -- As the family page resolves an ROI: the gene on its chromosome (1-22, X, Y,
-            -- M/MT) before a copy on an ALT or scaffold contig ("1_KI270766v1_alt").
-            ORDER BY
-              (CASE WHEN chr ~* '^(chr)?([0-9]{1,2}|X|Y|M|MT)$' THEN 0 ELSE 1 END),
-              ("end" - start) DESC,
-              hgnc_symbol
-            LIMIT 1
-            """
-        ),
-        {"assembly_id": assembly_id, "query": query},
-    )
-    gene_row = gene_result.mappings().first()
-    if gene_row is None:
-        return None
-    return {
-        "query": query,
-        "label": gene_row.get("hgnc_symbol") or gene_row.get("gene_id") or query,
-        "source": "gene",
-        "assembly_id": assembly_id,
-        "chr": normalize_chromosome(str(gene_row["chr"])),
-        "start": int(gene_row["start"]),
-        "end": int(gene_row["end"]),
-    }
+    # As the family page resolves an ROI (roi_gene_lookup).
+    return await roi_gene_region(session, assembly_id=assembly_id, query=query)
 
 
 # A manifest's region of interest that does not resolve (DATA-10). The PGT calls and the NIPT

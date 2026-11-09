@@ -103,6 +103,9 @@ MODULE_FLOORS: dict[str, float] = {
     "backend/app/services/report_code.py": 97.0,
     "backend/app/services/report_signout_service.py": 96.0,  # (99.9, 2026-11-03)
     "backend/app/services/review_pg_utils.py": 97.0,  # (100.0, 2026-11-03)
+    # (100.0 measured locally when it was added, ENG-23: the gene look-up of a region of
+    # interest, which the family page and the package import kept a copy each of)
+    "backend/app/services/roi_gene_lookup.py": 97.0,
     "backend/app/services/sample_integrity_qc.py": 96.0,  # (99.1, 2026-11-03)
     "backend/app/services/sample_integrity_service.py": 95.0,  # (98.6, 2026-11-03) feeds the sign-out gate
     # (100.0 measured locally when it was added: the NIPT section of the signed analysis
@@ -122,6 +125,9 @@ MODULE_FLOORS: dict[str, float] = {
     "backend/app/services/sv_copy_change.py": 97.0,
     "backend/app/services/sv_gene_index_service.py": 96.0,  # (99.6, 2026-11-03)
     "backend/app/services/variant_ranking_cache.py": 86.0,  # (89.5, 2026-11-03)
+    # (100.0 measured locally when it was added, ENG-23: the stop of the package-import,
+    # import-watcher, gene-reference and ancestry workers, a copy in each before)
+    "backend/app/services/worker_tasks.py": 97.0,
 }
 
 # The combined unit + smoke + e2e report (the ``coverage`` CI job), for the modules the unit

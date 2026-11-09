@@ -21,7 +21,7 @@ from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .clinical_audit_service import record_clinical_event
+from .clinical_audit_service import audit_actor, record_clinical_event
 from .family_metadata_context import build_family_metadata_context
 from .hpo_service import get_loaded_hpo_release
 from .metadata_service import get_family_record
@@ -579,7 +579,7 @@ async def set_family_annotation_manifest(
         family_uuid=context.family_uuid,
         family_identifier=context.family_id,
         variant_id=None,
-        actor=getattr(user, "username", None) or getattr(user, "email", "") or "unknown",
+        actor=audit_actor(user),
         actor_id=getattr(user, "id", None),
         action="annotation_manifest",
         summary=_manifest_replacement_summary(
