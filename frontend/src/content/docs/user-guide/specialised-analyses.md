@@ -185,14 +185,19 @@ sign-out reads them.
   with the NIPT page's fetal fraction, filters and categories. The plasma's GT is no genotype (Mutect2
   writes 0/1 on every call, and the plasma holds the mother's and the fetus's DNA), so the genotypes
   come from the allele fractions.
-  - The fetal fraction, the sites grouped, the fetal sex and paternity.
+  - The fetal fraction, the sites grouped, the fetal sex, paternity, and what the assay's artefact
+    list did: the alleles removed, how many of the alleles it lists are in this family, and those
+    kept in because ClinVar may call them pathogenic or they are common. An empty list says so.
   - *Mother and fetus*: the groups one under another, by the mother's genotype and then the fetus's,
     each with its sites and share, the plasma allele fraction its category predicts beside the median
     observed, and the share classified with a confidence of 0.99 or more. Each group can be split by
     the father's genotype or the variant class.
-  - *Plasma allele fraction*: a histogram in bins of 0.01, stacked by group, with a dashed line,
-    numbered by category, where each category is expected. Peaks off their lines mean the fetal
-    fraction or the classes do not fit. Hover a bin for its sites by group.
+  - *Plasma allele fraction*, in bins of 0.01. *Per group* gives each group a row on its own scale,
+    so a small group reads as well as a large one, with a dashed line where its category is expected
+    and a triangle at its observed median. *All sites* stacks the groups, with numbered lines where
+    the categories are expected; a hom/hom peak far above the rest is cut, its full count beside it,
+    so that the other bins can be read (the log scale shows it whole). Peaks off their lines mean the
+    fetal fraction or the classes do not fit. Hover a bin for its sites.
   - *Transmission by chromosome*: per autosome, the father's het and hom-alt alleles the fetus
     inherited, the mother's het alleles, and the fetus's hom-alt sites. An autosome where none of a
     parent's alleles reached the fetus over at least 20 sites is marked: it can point to uniparental

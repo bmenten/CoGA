@@ -166,6 +166,7 @@ const STATS: NiptVariantStatisticsOut = {
   ],
   chromosome_mark_min_sites: 20,
   father_genotypes: { het: 60, hom_alt: 40, absent: 70, low_vaf: 3 },
+  artifacts: { listed: 120, in_family: 9, removed: 7, protected: { clinvar: 1, common: 1 } },
 };
 
 const serve = (answers: SummaryAnswers = {}) =>
@@ -232,7 +233,21 @@ describe('the variant summary of a monogenic NIPT family', () => {
       ['Sites grouped', '169', 'of 200 plasma calls and 9 paternal-only sites'],
       ['Fetal sex', 'Female', 'paternal X seen at 9 of 10 sites'],
       ['Paternity', 'Pass', 'hom-alt alleles inherited 12 of 12'],
+      [
+        'Artefact list',
+        '7 removed',
+        '9 of the 120 alleles the assay lists are in this family; 2 kept in (ClinVar P/LP 1, common 1)',
+      ],
     ]);
+  });
+
+  it('says so when the assay’s artefact list is empty', async () => {
+    serve({ nipt: { ...STATS, artifacts: { listed: 0, in_family: 0, removed: 0, protected: {} } } });
+    renderPage();
+    const section = await niptSection();
+    const card = within(section).getByText('Artefact list').closest('.stat-card') as HTMLElement;
+    expect(card).toHaveTextContent('Empty');
+    expect(card).toHaveTextContent('The assay’s list holds no allele: nothing was removed.');
   });
 
   it('lists the groups one under another, by the mother’s genotype and then the fetus’s', async () => {
@@ -276,10 +291,47 @@ describe('the variant summary of a monogenic NIPT family', () => {
     expect(within(section).getByRole('button', { name: 'Variant class' })).toHaveAttribute('aria-pressed', 'true');
   });
 
-  it('stacks the plasma allele fractions by group in bins of 0.01, with a numbered line where each category is expected', async () => {
+  it('draws each group with a plasma call in a row of its own scale, in the order its category expects', async () => {
     serve();
     renderPage();
     const section = await niptSection();
+    const chart = within(section).getByRole('img', { name: /one row per group, each scaled to its own tallest bin/ });
+    // The father's missing alleles have no plasma call and no row.
+    const rows = Array.from(chart.querySelectorAll('[data-row]'));
+    expect(rows.map((row) => row.getAttribute('data-row'))).toEqual(['7', '1', '2', '3', '4', '5', '6']);
+    expect(rows[0]).toHaveTextContent('7 · Paternal, transmitted');
+    expect(rows[0]).toHaveTextContent('40 sites · peak 40');
+    // Each row's tallest bar fills the row, whatever the group's size.
+    const height = (row: Element) => Number(row.querySelector('rect[data-bin]')?.getAttribute('height'));
+    expect(height(rows[1])).toBe(height(rows[0]));
+    // Its expected fraction (dashed) and its observed median (triangle).
+    expect(rows[0].querySelectorAll('.nipt-vaf-expected line')).toHaveLength(1);
+    expect(rows[0].querySelectorAll('.nipt-row-median')).toHaveLength(1);
+    // The scale toggle belongs to the stacked view only.
+    expect(within(section).queryByRole('button', { name: 'Log scale' })).not.toBeInTheDocument();
+  });
+
+  it('lists a hovered row bin’s sites with its group’s expected and observed fraction', async () => {
+    serve();
+    renderPage();
+    const section = await niptSection();
+    const chart = within(section).getByRole('img', { name: /one row per group/ });
+    const row = chart.querySelector('[data-row="7"]') as Element;
+    fireEvent.mouseMove(row.querySelectorAll('.nipt-vaf-hit')[6], { clientX: 100, clientY: 100 });
+    const tip = document.body.querySelector('.viz-tooltip') as HTMLElement;
+    expect(tip).toHaveTextContent('0.06–0.07 · 40 sites');
+    expect(tip).toHaveTextContent('7 · Paternal, transmitted40');
+    expect(tip).not.toHaveTextContent('De novo');
+    expect(tip).toHaveTextContent('Expected 0.060 · observed median 0.061');
+    fireEvent.mouseLeave(chart);
+    expect(document.body.querySelector('.viz-tooltip')).toBeNull();
+  });
+
+  it('stacks all sites by group in bins of 0.01, with a numbered line where each category is expected', async () => {
+    serve();
+    renderPage();
+    const section = await niptSection();
+    fireEvent.click(within(section).getByRole('button', { name: 'All sites' }));
     const chart = within(section).getByRole('img', { name: /Plasma allele fractions of 160 sites in bins of 0.01/ });
     // One bar per group and bin with sites; the paternal and de novo sites share a bin.
     const bars = Array.from(chart.querySelectorAll('rect[data-group]')).map((bar) => [
@@ -298,31 +350,45 @@ describe('the variant summary of a monogenic NIPT family', () => {
     // De novo and paternal are expected at the same fraction (FF/2): one line names both.
     const labels = Array.from(chart.querySelectorAll('.nipt-vaf-expected-label')).map((label) => label.textContent);
     expect(labels).toEqual(['7/1', '2', '3', '4', '5', '6']);
-    fireEvent.click(within(section).getByRole('button', { name: 'Log scale' }));
-    expect(within(section).getByRole('button', { name: 'Linear scale' })).toBeInTheDocument();
-    expect(within(chart).getByText('Sites (log scale)')).toBeInTheDocument();
-  });
-
-  it('lists a hovered bin’s sites by group', async () => {
-    serve();
-    renderPage();
-    const section = await niptSection();
-    const chart = within(section).getByRole('img', { name: /Plasma allele fractions/ });
-    const hits = chart.querySelectorAll('.nipt-vaf-hit');
-    expect(hits).toHaveLength(100);
-    fireEvent.mouseMove(hits[6], { clientX: 100, clientY: 100 });
+    // No bin stands far above the others here: nothing is cut.
+    expect(chart.querySelectorAll('.nipt-vaf-cut')).toHaveLength(0);
+    fireEvent.mouseMove(chart.querySelectorAll('.nipt-vaf-hit')[6], { clientX: 100, clientY: 100 });
     const tip = document.body.querySelector('.viz-tooltip') as HTMLElement;
     expect(tip).toHaveTextContent('0.06–0.07 · 42 sites');
     expect(Array.from(tip.querySelectorAll('.nipt-tip-row')).map((row) => row.textContent)).toEqual([
       '7 · Paternal, transmitted40',
       '1 · De novo in fetus2',
     ]);
-    // An empty bin shows nothing, and leaving the chart clears the tooltip.
-    fireEvent.mouseMove(hits[20], { clientX: 120, clientY: 100 });
-    expect(document.body.querySelector('.viz-tooltip')).toBeNull();
-    fireEvent.mouseMove(hits[6], { clientX: 100, clientY: 100 });
-    fireEvent.mouseLeave(chart);
-    expect(document.body.querySelector('.viz-tooltip')).toBeNull();
+    fireEvent.click(within(section).getByRole('button', { name: 'Log scale' }));
+    expect(within(chart).getByText('Sites (log scale)')).toBeInTheDocument();
+  });
+
+  it('cuts a hom/hom peak far above the other bins, and gives its full count', async () => {
+    const tall = STATS.groups.map((group) =>
+      group.key === '6' ? { ...group, sites: 900, vaf_histogram: histogram(99, 900) } : group
+    );
+    serve({ nipt: { ...STATS, groups: tall } });
+    renderPage();
+    const section = await niptSection();
+    fireEvent.click(within(section).getByRole('button', { name: 'All sites' }));
+    const chart = within(section).getByRole('img', { name: /stacked by group/ });
+    // The axis reaches a little above the tallest other bin (42), not to 900.
+    const ticks = Array.from(chart.querySelectorAll('text[text-anchor="end"]'))
+      .map((text) => text.textContent ?? '')
+      .filter((text) => /^\d+$/.test(text));
+    expect(ticks).toEqual(['0', '10', '20', '30', '40', '50', '60']);
+    expect(chart.querySelectorAll('.nipt-vaf-cut')).toHaveLength(1);
+    expect(chart.querySelector('.nipt-vaf-cut-label')).toHaveTextContent('900 ↑');
+    expect(within(section).getByRole('note')).toHaveTextContent(
+      'The hom/hom peak is cut at 60 sites so that the other bins can be read: its tallest bin, 0.99–1.00, holds 900. The log scale shows it whole.'
+    );
+    // The cut bar reaches the top of the axis and no further.
+    const bar = chart.querySelector('rect[data-group="6"]') as Element;
+    expect(Number(bar.getAttribute('y'))).toBe(30);
+    // On the log scale nothing is cut.
+    fireEvent.click(within(section).getByRole('button', { name: 'Log scale' }));
+    expect(chart.querySelectorAll('.nipt-vaf-cut')).toHaveLength(0);
+    expect(within(section).queryByRole('note')).not.toBeInTheDocument();
   });
 
   it('counts transmission per autosome and marks one without the father’s alleles', async () => {
@@ -356,7 +422,7 @@ describe('the variant summary of a monogenic NIPT family', () => {
       ['Failed the quality filter', '34'],
       ['too few alt reads', '30'],
       ['strand bias', '4'],
-      ['On the artefact list', '6'],
+      ['Removed by the artefact list, after the quality filter', '6'],
       ['Passed', '160'],
       ["Father's alleles without a plasma call", '9'],
       ['Sites in the groups above', '169'],

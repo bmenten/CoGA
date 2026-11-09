@@ -242,7 +242,27 @@ export const GroupTable: React.FC<{ stats: NiptVariantStatisticsOut }> = ({ stat
   );
 };
 
+type PlotView = 'groups' | 'all';
+const PLOT_VIEWS: [PlotView, string][] = [
+  ['groups', 'Per group'],
+  ['all', 'All sites'],
+];
+const HOM_HOM = '6';
+// The hom/hom peak is cut when it is more than this many times the tallest other bin.
+const CUT_RATIO = 1.5;
 const CHART = { width: 760, height: 280, left: 56, right: 16, top: 30, bottom: 46 };
+const ROWS = { width: 760, labels: 200, right: 16, top: 8, row: 40, gap: 8, bottom: 46 };
+
+const binRange = (bin: number, width: number): string =>
+  `${(bin * width).toFixed(2)}–${((bin + 1) * width).toFixed(2)}`;
+
+/** The groups the plot draws: those with a plasma call of their own (the father's missing
+ *  alleles have none), in the order of the fraction their category expects (the paternal
+ *  allele before a de novo one at the same FF/2, as the table lists them). */
+const drawnGroups = (stats: NiptVariantStatisticsOut): NiptStatisticsGroupOut[] =>
+  stats.groups
+    .filter((group) => group.vaf_histogram.some((count) => count > 0))
+    .sort((a, b) => (a.expected_vaf ?? 2) - (b.expected_vaf ?? 2));
 
 /** The expected allele fractions drawn as dashed lines, the categories that share one (de novo
  *  and paternal, at FF/2) named together. */
@@ -258,35 +278,297 @@ const expectedMarks = (groups: NiptStatisticsGroupOut[]) => {
   return [...marks.values()].sort((a, b) => a.at - b.at);
 };
 
-/** The plasma allele fractions, stacked by group, with a dashed line where each category is
- *  expected at the family's fetal fraction; hovering a bin lists its sites by group. */
-export const AlleleFractionHistogram: React.FC<{ stats: NiptVariantStatisticsOut }> = ({
-  stats,
-}) => {
-  const [logScale, setLogScale] = React.useState(false);
-  const [hover, setHover] = React.useState<{ bin: number; x: number; y: number } | null>(null);
-  const groups = stats.groups.filter((group) => group.vaf_histogram.some((count) => count > 0));
-  const bins = Math.max(0, ...stats.groups.map((group) => group.vaf_histogram.length));
+/** The allele-fraction axis under a plot: ticks every 0.1 and its title. */
+const FractionAxis: React.FC<{ x: d3.ScaleLinear<number, number>; at: number; height: number }> = ({
+  x,
+  at,
+  height,
+}) => (
+  <g>
+    <line className="nipt-vaf-axis" x1={x(0)} x2={x(1)} y1={at} y2={at} />
+    {d3.range(0, 11).map((step) => {
+      const tick = step / 10;
+      return (
+        <g key={`x-${step}`}>
+          <line className="nipt-vaf-axis" x1={x(tick)} x2={x(tick)} y1={at} y2={at + 4} />
+          <text x={x(tick)} y={at + 17} textAnchor="middle">
+            {tick.toFixed(1)}
+          </text>
+        </g>
+      );
+    })}
+    <text className="nipt-vaf-axis-title" x={(x(0) + x(1)) / 2} y={height - 8} textAnchor="middle">
+      Plasma allele fraction
+    </text>
+  </g>
+);
+
+type Hover = { group?: string; bin: number; x: number; y: number };
+
+/** One row per group, each scaled to its own tallest bin, on one allele-fraction axis: every
+ *  group's spread around the line its category expects, whatever its size. */
+const GroupRows: React.FC<{
+  stats: NiptVariantStatisticsOut;
+  groups: NiptStatisticsGroupOut[];
+  onHover: (hover: Hover | null) => void;
+  hover: Hover | null;
+}> = ({ stats, groups, onHover, hover }) => {
+  const { width, labels, right, top, row, gap, bottom } = ROWS;
+  const height = top + groups.length * (row + gap) + bottom;
+  const x = d3.scaleLinear().domain([0, 1]).range([labels + 12, width - right]);
   const binWidth = stats.vaf_bin_width;
+  const step = x(binWidth) - x(0);
+  const axisAt = top + groups.length * (row + gap) - gap / 2;
+  return (
+    <svg
+      className="nipt-vaf-chart"
+      viewBox={`0 0 ${width} ${height}`}
+      role="img"
+      aria-label={`Plasma allele fractions in bins of ${binWidth}, one row per group, each scaled to its own tallest bin, with the fraction its category expects at the fetal fraction`}
+      onMouseLeave={() => onHover(null)}
+    >
+      {d3.range(0, 11).map((tenth) => (
+        <line
+          key={`grid-${tenth}`}
+          className="nipt-vaf-grid"
+          x1={x(tenth / 10)}
+          x2={x(tenth / 10)}
+          y1={top}
+          y2={axisAt}
+        />
+      ))}
+      {groups.map((group, index) => {
+        const rowTop = top + index * (row + gap);
+        const base = rowTop + row;
+        const peak = Math.max(1, ...group.vaf_histogram);
+        return (
+          <g key={group.key} data-row={group.key}>
+            <rect x={0} y={rowTop + row / 2 - 13} width={10} height={10} rx={2} fill={groupColor(group.key)} />
+            <text className="nipt-row-label" x={16} y={rowTop + row / 2 - 4}>
+              {groupLabel(group)}
+            </text>
+            <text x={16} y={rowTop + row / 2 + 10}>
+              {formatCount(group.vaf_histogram.reduce((sum, count) => sum + count, 0))} sites · peak{' '}
+              {formatCount(peak)}
+            </text>
+            <line className="nipt-row-base" x1={x(0)} x2={x(1)} y1={base} y2={base} />
+            {hover && hover.group === group.key ? (
+              <rect className="nipt-vaf-hover" x={x(hover.bin * binWidth)} width={step} y={rowTop} height={row} />
+            ) : null}
+            {group.vaf_histogram.map((count, bin) =>
+              count ? (
+                <rect
+                  key={bin}
+                  data-bin={bin}
+                  data-group={group.key}
+                  x={x(bin * binWidth) + 0.5}
+                  width={Math.max(step - 1, 0.5)}
+                  y={base - (count / peak) * (row - 4)}
+                  height={(count / peak) * (row - 4)}
+                  fill={groupColor(group.key)}
+                />
+              ) : null
+            )}
+            {group.expected_vaf != null ? (
+              <g className="nipt-vaf-expected">
+                <line x1={x(group.expected_vaf)} x2={x(group.expected_vaf)} y1={rowTop - 2} y2={base} />
+              </g>
+            ) : null}
+            {group.observed_median_vaf != null ? (
+              <path
+                className="nipt-row-median"
+                d={`M ${x(group.observed_median_vaf) - 4} ${rowTop - 3} h 8 l -4 6 z`}
+              />
+            ) : null}
+            {group.vaf_histogram.map((_count, bin) => (
+              <rect
+                key={`hit-${bin}`}
+                className="nipt-vaf-hit"
+                x={x(bin * binWidth)}
+                width={step}
+                y={rowTop}
+                height={row}
+                onMouseMove={(event) => onHover({ group: group.key, bin, x: event.clientX, y: event.clientY })}
+              />
+            ))}
+          </g>
+        );
+      })}
+      <FractionAxis x={x} at={axisAt} height={height} />
+    </svg>
+  );
+};
+
+/** Every site, stacked by group: the plasma's allele fractions as they are, coloured by how the
+ *  analysis classes them. A hom/hom peak far above the other bins is cut, so they can be read. */
+const AllSites: React.FC<{
+  stats: NiptVariantStatisticsOut;
+  groups: NiptStatisticsGroupOut[];
+  logScale: boolean;
+  onHover: (hover: Hover | null) => void;
+  hover: Hover | null;
+}> = ({ stats, groups, logScale, onHover, hover }) => {
+  const { width, height, left, right, top, bottom } = CHART;
+  const binWidth = stats.vaf_bin_width;
+  const bins = Math.max(0, ...groups.map((group) => group.vaf_histogram.length));
   const totals = Array.from({ length: bins }, (_, bin) =>
     groups.reduce((sum, group) => sum + (group.vaf_histogram[bin] ?? 0), 0)
   );
-  const sites = totals.reduce((sum, count) => sum + count, 0);
-  const { width, height, left, right, top, bottom } = CHART;
-  const peak = Math.max(1, ...totals);
+  const homHom = groups.find((group) => group.key === HOM_HOM);
+  const isHomHomBin = (bin: number) => totals[bin] > 0 && (homHom?.vaf_histogram[bin] ?? 0) * 2 > totals[bin];
+  const others = Math.max(0, ...totals.filter((_total, bin) => !isHomHomBin(bin)));
+  const homPeak = Math.max(0, ...totals.filter((_total, bin) => isHomHomBin(bin)));
+  const cut = !logScale && others > 0 && homPeak > CUT_RATIO * others;
   const x = d3.scaleLinear().domain([0, 1]).range([left, width - right]);
   const y = logScale
-    ? d3.scaleSymlog().constant(1).domain([0, peak]).range([height - bottom, top])
-    : d3.scaleLinear().domain([0, peak]).nice().range([height - bottom, top]);
+    ? d3.scaleSymlog().constant(1).domain([0, Math.max(1, ...totals)]).range([height - bottom, top])
+    : d3
+        .scaleLinear()
+        .domain([0, cut ? others * 1.2 : Math.max(1, ...totals)])
+        // Rounded to the five ticks drawn, so the top of the axis is a tick.
+        .nice(5)
+        .range([height - bottom, top]);
+  const ceiling = y.domain()[1];
   const yTicks = logScale
-    ? [0, 1, 10, 100, 1000, 10000, 100000].filter((tick) => tick <= peak)
+    ? [0, 1, 10, 100, 1000, 10000, 100000].filter((tick) => tick <= ceiling)
     : y.ticks(5).filter((tick) => Number.isInteger(tick));
-  const barWidth = Math.max(x(binWidth) - x(0) - 1, 0.5);
+  const step = x(binWidth) - x(0);
+  const barWidth = Math.max(step - 1, 0.5);
   const marks = expectedMarks(stats.groups);
-  const hovered = hover ? hover.bin : null;
+  const cutBins = totals.map((total, bin) => (total > ceiling ? bin : -1)).filter((bin) => bin >= 0);
+  const tallest = cutBins.reduce((best, bin) => (totals[bin] > totals[best] ? bin : best), cutBins[0] ?? -1);
+  const sites = totals.reduce((sum, count) => sum + count, 0);
+  return (
+    <>
+      <svg
+        className="nipt-vaf-chart"
+        viewBox={`0 0 ${width} ${height}`}
+        role="img"
+        aria-label={`Plasma allele fractions of ${formatCount(sites)} sites in bins of ${binWidth}, stacked by group, with the expected fraction of each category at the fetal fraction`}
+        onMouseLeave={() => onHover(null)}
+      >
+        {yTicks.map((tick) => (
+          <g key={`y-${tick}`}>
+            <line className="nipt-vaf-grid" x1={left} x2={width - right} y1={y(tick)} y2={y(tick)} />
+            <text x={left - 8} y={y(tick) + 4} textAnchor="end">
+              {formatCount(tick)}
+            </text>
+          </g>
+        ))}
+        {hover && hover.group == null ? (
+          <rect className="nipt-vaf-hover" x={x(hover.bin * binWidth)} width={step} y={top} height={height - bottom - top} />
+        ) : null}
+        {totals.map((_total, bin) => {
+          let base = 0;
+          return groups.map((group) => {
+            const count = group.vaf_histogram[bin] ?? 0;
+            if (!count) return null;
+            const lower = base;
+            base += count;
+            if (lower >= ceiling) return null;
+            const upper = Math.min(base, ceiling);
+            return (
+              <rect
+                key={`${group.key}-${bin}`}
+                data-bin={bin}
+                data-group={group.key}
+                x={x(bin * binWidth) + 0.5}
+                width={barWidth}
+                y={y(upper)}
+                height={Math.max(y(lower) - y(upper), 0)}
+                fill={groupColor(group.key)}
+              />
+            );
+          });
+        })}
+        {cutBins.map((bin) => (
+          <path
+            key={`cut-${bin}`}
+            className="nipt-vaf-cut"
+            d={`M ${x(bin * binWidth)} ${y(ceiling) + 9} l ${step} -4 M ${x(bin * binWidth)} ${y(ceiling) + 14} l ${step} -4`}
+          />
+        ))}
+        {tallest >= 0 ? (
+          <text className="nipt-vaf-cut-label" x={x(tallest * binWidth) - 4} y={y(ceiling) + 12} textAnchor="end">
+            {formatCount(totals[tallest])} ↑
+          </text>
+        ) : null}
+        {marks.map((mark) => (
+          <g key={`expected-${mark.at}`} className="nipt-vaf-expected">
+            <line x1={x(mark.at)} x2={x(mark.at)} y1={top - 4} y2={height - bottom} />
+            <text className="nipt-vaf-expected-label" x={x(mark.at)} y={top - 10} textAnchor="middle">
+              {mark.categories.join('/')}
+            </text>
+          </g>
+        ))}
+        <FractionAxis x={x} at={height - bottom} height={height} />
+        <text
+          className="nipt-vaf-axis-title"
+          transform={`translate(14 ${top + (height - bottom - top) / 2}) rotate(-90)`}
+          textAnchor="middle"
+        >
+          {logScale ? 'Sites (log scale)' : 'Sites'}
+        </text>
+        {totals.map((_total, bin) => (
+          <rect
+            key={`hit-${bin}`}
+            className="nipt-vaf-hit"
+            x={x(bin * binWidth)}
+            width={step}
+            y={top}
+            height={height - bottom - top}
+            onMouseMove={(event) => onHover({ bin, x: event.clientX, y: event.clientY })}
+          />
+        ))}
+      </svg>
+      {tallest >= 0 ? (
+        <p className="analysis-count" role="note">
+          The hom/hom peak is cut at {formatCount(ceiling)} sites so that the other bins can be read: its
+          tallest bin, {binRange(tallest, binWidth)}, holds {formatCount(totals[tallest])}. The log scale
+          shows it whole.
+        </p>
+      ) : null}
+    </>
+  );
+};
+
+/** The plasma's allele fractions, per group (each row on its own scale) or all sites stacked by
+ *  group, with the fraction each category expects at the family's fetal fraction; hovering a bin
+ *  lists its sites. */
+export const AlleleFractionPlot: React.FC<{ stats: NiptVariantStatisticsOut }> = ({ stats }) => {
+  const [view, setView] = React.useState<PlotView>('groups');
+  const [logScale, setLogScale] = React.useState(false);
+  const [hover, setHover] = React.useState<Hover | null>(null);
+  const groups = drawnGroups(stats);
+  const binWidth = stats.vaf_bin_width;
+  const hovered = hover ? groups.filter((group) => (hover.group ?? group.key) === group.key) : [];
+  const inBin = hover ? hovered.filter((group) => group.vaf_histogram[hover.bin]) : [];
+  const binTotal = hover ? inBin.reduce((sum, group) => sum + group.vaf_histogram[hover.bin], 0) : 0;
   return (
     <div className="space-y-2">
       <div className="analysis-graph-toolbar">
+        <span className="stat-label">Show</span>
+        {PLOT_VIEWS.map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            className={`variant-quick-toggle${view === key ? ' variant-quick-toggle--active' : ''}`}
+            aria-pressed={view === key}
+            onClick={() => {
+              setView(key);
+              setHover(null);
+            }}
+          >
+            {label}
+          </button>
+        ))}
+        {view === 'all' ? (
+          <button type="button" onClick={() => setLogScale((value) => !value)} className="button-ghost">
+            {logScale ? 'Linear scale' : 'Log scale'}
+          </button>
+        ) : null}
+      </div>
+      {view === 'all' ? (
         <div className="nipt-legend">
           {groups.map((group) => (
             <span key={group.key} className="nipt-legend-item">
@@ -295,116 +577,37 @@ export const AlleleFractionHistogram: React.FC<{ stats: NiptVariantStatisticsOut
             </span>
           ))}
         </div>
-        <button type="button" onClick={() => setLogScale((value) => !value)} className="button-ghost">
-          {logScale ? 'Linear scale' : 'Log scale'}
-        </button>
-      </div>
-      <div className="viz-panel nipt-vaf-scroll">
-        <svg
-          className="nipt-vaf-chart"
-          viewBox={`0 0 ${width} ${height}`}
-          role="img"
-          aria-label={`Plasma allele fractions of ${formatCount(sites)} sites in bins of ${binWidth}, stacked by group, with the expected fraction of each category at the fetal fraction`}
-          onMouseLeave={() => setHover(null)}
-        >
-          {yTicks.map((tick) => (
-            <g key={`y-${tick}`}>
-              <line className="nipt-vaf-grid" x1={left} x2={width - right} y1={y(tick)} y2={y(tick)} />
-              <text x={left - 8} y={y(tick) + 4} textAnchor="end">
-                {formatCount(tick)}
-              </text>
-            </g>
-          ))}
-          {hovered != null ? (
-            <rect
-              className="nipt-vaf-hover"
-              x={x(hovered * binWidth)}
-              width={x(binWidth) - x(0)}
-              y={top}
-              height={height - bottom - top}
-            />
-          ) : null}
-          {totals.map((_total, bin) => {
-            let base = 0;
-            return groups.map((group) => {
-              const count = group.vaf_histogram[bin] ?? 0;
-              if (!count) return null;
-              const lower = base;
-              base += count;
-              return (
-                <rect
-                  key={`${group.key}-${bin}`}
-                  data-bin={bin}
-                  data-group={group.key}
-                  x={x(bin * binWidth) + 0.5}
-                  width={barWidth}
-                  y={y(base)}
-                  height={Math.max(y(lower) - y(base), 0)}
-                  fill={groupColor(group.key)}
-                />
-              );
-            });
-          })}
-          {marks.map((mark) => (
-            <g key={`expected-${mark.at}`} className="nipt-vaf-expected">
-              <line x1={x(mark.at)} x2={x(mark.at)} y1={top - 4} y2={height - bottom} />
-              <text className="nipt-vaf-expected-label" x={x(mark.at)} y={top - 10} textAnchor="middle">
-                {mark.categories.join('/')}
-              </text>
-            </g>
-          ))}
-          <line className="nipt-vaf-axis" x1={left} x2={width - right} y1={height - bottom} y2={height - bottom} />
-          {d3.range(0, 11).map((step) => {
-            const tick = step / 10;
-            return (
-              <g key={`x-${step}`}>
-                <line className="nipt-vaf-axis" x1={x(tick)} x2={x(tick)} y1={height - bottom} y2={height - bottom + 4} />
-                <text x={x(tick)} y={height - bottom + 17} textAnchor="middle">
-                  {tick.toFixed(1)}
-                </text>
-              </g>
-            );
-          })}
-          <text className="nipt-vaf-axis-title" x={left + (width - left - right) / 2} y={height - 8} textAnchor="middle">
-            Plasma allele fraction
-          </text>
-          <text
-            className="nipt-vaf-axis-title"
-            transform={`translate(14 ${top + (height - bottom - top) / 2}) rotate(-90)`}
-            textAnchor="middle"
-          >
-            {logScale ? 'Sites (log scale)' : 'Sites'}
-          </text>
-          {totals.map((_total, bin) => (
-            <rect
-              key={`hit-${bin}`}
-              className="nipt-vaf-hit"
-              x={x(bin * binWidth)}
-              width={x(binWidth) - x(0)}
-              y={top}
-              height={height - bottom - top}
-              onMouseMove={(event) => setHover({ bin, x: event.clientX, y: event.clientY })}
-            />
-          ))}
-        </svg>
-      </div>
-      {hover && totals[hover.bin] ? (
+      ) : null}
+      {groups.length ? (
+        <div className="viz-panel nipt-vaf-scroll">
+          {view === 'groups' ? (
+            <GroupRows stats={stats} groups={groups} hover={hover} onHover={setHover} />
+          ) : (
+            <AllSites stats={stats} groups={groups} logScale={logScale} hover={hover} onHover={setHover} />
+          )}
+        </div>
+      ) : (
+        <p className="analysis-count">No group has a plasma call to draw.</p>
+      )}
+      {hover && binTotal ? (
         <VizTooltip x={hover.x} y={hover.y}>
           <p className="font-semibold">
-            {(hover.bin * binWidth).toFixed(2)}–{((hover.bin + 1) * binWidth).toFixed(2)} ·{' '}
-            {formatCount(totals[hover.bin])} sites
+            {binRange(hover.bin, binWidth)} · {formatCount(binTotal)} sites
           </p>
-          {groups
-            .filter((group) => group.vaf_histogram[hover.bin])
-            .map((group) => (
-              <p key={group.key} className="nipt-tip-row">
-                <span className="nipt-group-name">
-                  <Swatch groupKey={group.key} />
-                  {groupLabel(group)}
-                </span>
-                <span>{formatCount(group.vaf_histogram[hover.bin])}</span>
-              </p>
-            ))}
+          {inBin.map((group) => (
+            <p key={group.key} className="nipt-tip-row">
+              <span className="nipt-group-name">
+                <Swatch groupKey={group.key} />
+                {groupLabel(group)}
+              </span>
+              <span>{formatCount(group.vaf_histogram[hover.bin])}</span>
+            </p>
+          ))}
+          {hover.group != null && inBin[0] ? (
+            <p className="table-subtle">
+              Expected {vaf(inBin[0].expected_vaf)} · observed median {vaf(inBin[0].observed_median_vaf)}
+            </p>
+          ) : null}
         </VizTooltip>
       ) : null}
     </div>
@@ -530,7 +733,7 @@ export const CallsAndFather: React.FC<{ stats: NiptVariantStatisticsOut }> = ({ 
               formatCount(count),
             ]
           ),
-          ['On the artefact list', formatCount(filters.failed_artifact ?? 0)],
+          ['Removed by the artefact list, after the quality filter', formatCount(filters.failed_artifact ?? 0)],
           ['Passed', formatCount(filters.passed ?? 0)],
           ["Father's alleles without a plasma call", formatCount(filters.paternal_only ?? 0)],
           ['Sites in the groups above', formatCount(stats.classified_sites)],
@@ -565,11 +768,40 @@ export const CallsAndFather: React.FC<{ stats: NiptVariantStatisticsOut }> = ({ 
   );
 };
 
+const ARTIFACT_PROTECTION_LABEL: Record<string, string> = {
+  clinvar: 'ClinVar P/LP',
+  common: 'common',
+};
+
+/** What the assay's recurrent-artifact list did to the analysis: an empty list says so. */
+const ArtifactCard: React.FC<{ artifacts: NiptVariantStatisticsOut['artifacts'] }> = ({ artifacts }) => {
+  const kept = Object.entries(artifacts.protected ?? {}).filter(([, count]) => count > 0);
+  const keptCount = kept.reduce((sum, [, count]) => sum + count, 0);
+  return (
+    <div className="stat-card">
+      <span className="stat-label">Artefact list</span>
+      <span className="stat-value">
+        {artifacts.listed ? `${formatCount(artifacts.removed)} removed` : 'Empty'}
+      </span>
+      <span className="table-subtle">
+        {artifacts.listed
+          ? `${formatCount(artifacts.in_family)} of the ${formatCount(artifacts.listed)} alleles the assay lists are in this family` +
+            (keptCount
+              ? `; ${formatCount(keptCount)} kept in (${kept
+                  .map(([reason, count]) => `${ARTIFACT_PROTECTION_LABEL[reason] ?? reason} ${formatCount(count)}`)
+                  .join(', ')})`
+              : '')
+          : 'The assay’s list holds no allele: nothing was removed.'}
+      </span>
+    </div>
+  );
+};
+
 const Facts: React.FC<{ stats: NiptVariantStatisticsOut }> = ({ stats }) => {
   const ff = stats.fetal_fraction;
   const { paternity, fetal_sex: sex } = stats.qc;
   return (
-    <div className="grid gap-3 md:grid-cols-4">
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
       <div className="stat-card">
         <span className="stat-label">Fetal fraction</span>
         <span className="stat-value">{pct(ff.ff_computed)}</span>
@@ -605,6 +837,7 @@ const Facts: React.FC<{ stats: NiptVariantStatisticsOut }> = ({ stats }) => {
           {formatCount(paternity.hom_alt_transmitted + paternity.hom_alt_not_transmitted)}
         </span>
       </div>
+      <ArtifactCard artifacts={stats.artifacts} />
     </div>
   );
 };
@@ -657,12 +890,15 @@ const VariantSummaryNipt: React.FC<{ familyId: string; projectId?: string | null
 
           <h3 className="font-semibold">Plasma allele fraction</h3>
           <p className="analysis-count">
-            Each group’s sites by their plasma allele fraction, in bins of{' '}
-            {stats.vaf_bin_width}. The dashed lines, numbered by category, are where the categories
-            are expected at this fetal fraction: peaks off their lines mean the fetal fraction or
-            the classes do not fit the data. Hover a bin for its sites by group.
+            The sites by their plasma allele fraction, in bins of {stats.vaf_bin_width}.{' '}
+            <em>Per group</em> gives each group a row on its own scale, so a small group reads as
+            well as a large one; the dashed line is where its category is expected at this fetal
+            fraction and the triangle its observed median. <em>All sites</em> stacks the groups, as
+            the plasma’s calls are, with numbered lines where the categories are expected; a hom/hom
+            peak far above the rest is cut so that the other bins can be read. Peaks off their lines
+            mean the fetal fraction or the classes do not fit the data. Hover a bin for its sites.
           </p>
-          <AlleleFractionHistogram stats={stats} />
+          <AlleleFractionPlot stats={stats} />
 
           <h3 className="font-semibold">Transmission by chromosome</h3>
           <p className="analysis-count">

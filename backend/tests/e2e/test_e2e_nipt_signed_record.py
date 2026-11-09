@@ -348,6 +348,9 @@ def test_the_variant_summary_reads_the_analysis_the_nipt_page_shows(signed) -> N
         assert groups[str(category)]["sites"] == count, category
     # The demo's joint VCF writes PASS on every record: every plasma call that went in passed.
     assert statistics["caller_filters"] == {"PASS": summary["filter_counts"]["total_in"]}
+    # What the run's artifact list did: it lists one allele, the plasma carries it, and the
+    # analysis removed it, as the record freezes it.
+    assert statistics["artifacts"] == {"listed": 1, "in_family": 1, "removed": 1, "protected": {}}
     # Its small-variant tab names the plasma and the father, whose GT is not their genotype.
     small = ok_json(signed, "small_variant_statistics")
     assert set(small["nipt_samples"]) == {signed["ids"]["CFDNA_NIPT"], signed["ids"]["FATHER_NIPT"]}

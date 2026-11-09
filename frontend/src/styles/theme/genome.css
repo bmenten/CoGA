@@ -131,6 +131,32 @@
   font-weight: 600;
 }
 
+.nipt-vaf-chart .nipt-row-label {
+  fill: var(--color-text);
+  font-weight: 500;
+}
+
+.nipt-row-base {
+  stroke: var(--color-axis);
+  stroke-opacity: 0.6;
+}
+
+.nipt-row-median {
+  fill: var(--color-text);
+}
+
+/* The break across a bar the axis cuts, and its full count beside it. */
+.nipt-vaf-cut {
+  stroke: var(--color-surface);
+  stroke-width: 2;
+  fill: none;
+}
+
+.nipt-vaf-chart .nipt-vaf-cut-label {
+  fill: var(--color-text);
+  font-weight: 600;
+}
+
 .nipt-vaf-hover {
   fill: var(--color-surface-hover);
 }

@@ -152,8 +152,12 @@ it.
   confident hom-ref or hom-alt father (`maternal_allele_probability` ≥ 0.5, not ambiguous), and the
   fetus's hom-alt sites. An autosome where none of a parent's alleles reached the fetus over at least
   20 informative sites is marked (`CHROMOSOME_MARK_MIN_SITES`, the owner's choice of 2026-11-09; the
-  minimum is QA's to set): a hint of UPD or a deletion, not a call. Descriptive: the signed record
-  does not hold it. The small-variant statistics name the family's plasma and father
+  minimum is QA's to set): a hint of UPD or a deletion, not a call. It also gives what the artifact
+  list did (`get_family_nipt_summary_with_artifacts`): the alleles the assay's list holds, the
+  family's alleles among them, those removed and those kept in by protection. The funnel's
+  `failed_artifact` counts only the removed plasma calls that passed the quality filter. The page
+  draws the allele fractions per group (each row on its own scale) or stacked, with a hom/hom peak
+  above 1.5 times the tallest other bin cut. Descriptive: the signed record does not hold it. The small-variant statistics name the family's plasma and father
   (`nipt_samples`), whose GT is not a genotype, and the page leaves their het/hom counts out.
 - **De novo triage** — `nipt_triage.py`: `is_de_novo_candidate`, `de_novo_window`, `triage_de_novo`
   (the R pipeline's score and priorities). Other cfDNA carriers of the assay come from

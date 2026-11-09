@@ -22,6 +22,7 @@ from ..schemas import (
     NiptSummaryOut,
     NiptClassificationOut,
     NiptVariantStatisticsOut,
+    NiptArtifactCountsOut,
     NiptTargetCoverageGeneOut,
     NiptTargetCoverageOut,
     NiptTargetDetailOut,
@@ -47,6 +48,7 @@ from ..services.nipt_service import (
     get_family_nipt_coverage,
     get_family_nipt_gene_targets,
     get_family_nipt_summary as load_family_nipt_summary,
+    get_family_nipt_summary_with_artifacts,
     get_family_nipt_variants,
 )
 from ..services.nipt_target_coverage import TargetCoverageRow, TargetCoverageSummary
@@ -285,8 +287,9 @@ async def get_family_nipt_statistics(
 ) -> NiptVariantStatisticsOut:
     """The variant summary's NIPT-M tab: the plasma's sites by the mother's and the fetus's
     genotype, transmission per autosome, the father's genotypes and the plasma calls' funnel,
-    from the NIPT page's analysis. Descriptive; the signed record does not hold it."""
-    summary = await load_family_nipt_summary(
+    from the NIPT page's analysis, and what the assay's artifact list did to it. Descriptive;
+    the signed record does not hold it."""
+    summary, artifacts = await get_family_nipt_summary_with_artifacts(
         session,
         family_id=family_id,
         user=user,
@@ -307,6 +310,12 @@ async def get_family_nipt_statistics(
         chromosomes=statistics.chromosomes,
         chromosome_mark_min_sites=CHROMOSOME_MARK_MIN_SITES,
         father_genotypes=statistics.father_genotypes,
+        artifacts=NiptArtifactCountsOut(
+            listed=artifacts.listed,
+            in_family=artifacts.in_family,
+            removed=artifacts.removed,
+            protected=artifacts.protected,
+        ),
     )
 
 
