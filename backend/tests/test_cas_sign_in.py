@@ -4,7 +4,9 @@ The browser comes back from the CAS server to the app's /login page with a servi
 ``POST /api/auth/cas/session`` checks it with the CAS server (``/serviceValidate``, for CoGA's
 own service). The answer must be a CAS answer, of reasonable size and without a document type
 declaration, that names the user and carries the user's object ID in the organisation's Entra
-ID; the account is bound to that ID. A first sign-in makes an account that waits for an
+ID; the account is bound to that ID. An answer without the object ID, the e-mail address or a
+name says which attributes it does carry, by name only, in the refusal or a warning in the log.
+A first sign-in makes an account that waits for an
 administrator's approval (403, the administrator is told); an active account gets a session
 token. A refused ticket answers 401 and counts against the source address, which is
 throttled. With the CAS sign-in configured there is no password sign-in or sign-up, and a
@@ -21,6 +23,8 @@ The CAS server is replaced by an httpx mock transport, and the account store as 
 from __future__ import annotations
 
 import asyncio
+import logging
+import re
 from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
@@ -132,6 +136,58 @@ def test_an_answer_without_an_object_id_is_refused(cas_on: None, object_id: str 
         body = _answer(azureObjectId=object_id)
     with pytest.raises(cas.CasError, match="no object ID"):
         cas.identity_from_answer(body)
+
+
+def test_an_answer_without_an_object_id_says_which_attributes_it_carries(cas_on: None) -> None:
+    # The CAS server releases the object ID under another name.
+    body = _answer().replace(b"cas:azureObjectId>", b"cas:objectGUID>")
+    with pytest.raises(cas.CasError) as refused:
+        cas.identity_from_answer(body)
+    assert str(refused.value).endswith("(the answer carries: givenName, mail, objectGUID, surname)")
+
+
+@pytest.mark.parametrize("missing", ["givenName", "surname", "mail"])
+@pytest.mark.parametrize("released", ["under another name", "empty", "not at all"])
+def test_an_answer_without_an_e_mail_address_or_a_name_logs_the_attributes_it_carries(
+    cas_on: None, caplog: pytest.LogCaptureFixture, missing: str, released: str
+) -> None:
+    object_id = str(uuid4())
+    body = _answer(azureObjectId=object_id)
+    if released == "under another name":
+        body = body.replace(f"cas:{missing}>".encode(), b"cas:otherName>")
+    elif released == "empty":
+        body = _answer(azureObjectId=object_id, **{missing: "  "})
+    else:
+        body = re.sub(rf"<cas:{missing}>[^<]*</cas:{missing}>".encode(), b"", body)
+
+    with caplog.at_level(logging.WARNING, logger=cas.logger.name):
+        identity = cas.identity_from_answer(body)
+
+    assert identity.object_id == object_id
+    [record] = [record for record in caplog.records if record.name == cas.logger.name]
+    message = record.getMessage()
+    assert message.startswith(f"cas sign-in: the CAS answer carries no {missing} (the answer carries: ")
+    assert ("otherName" in message) is (released == "under another name")
+    # Names only, never a value: not the user, the e-mail address, the name or the object ID.
+    for value in ("acolleague", "a.colleague@example.org", "Colleague", object_id):
+        assert value not in message
+
+
+def test_a_complete_answer_logs_nothing(cas_on: None, caplog: pytest.LogCaptureFixture) -> None:
+    with caplog.at_level(logging.DEBUG, logger=cas.logger.name):
+        cas.identity_from_answer(_answer())
+    assert [record for record in caplog.records if record.name == cas.logger.name] == []
+
+
+def test_an_attribute_name_of_another_form_is_counted_not_quoted(
+    cas_on: None, caplog: pytest.LogCaptureFixture
+) -> None:
+    body = _answer().replace(b"cas:givenName>", "cas:voornaam\u00e9>".encode())
+    with caplog.at_level(logging.WARNING, logger=cas.logger.name):
+        cas.identity_from_answer(body)
+    [record] = [record for record in caplog.records if record.name == cas.logger.name]
+    assert "(the answer carries: azureObjectId, mail, surname and 1 other(s))" in record.getMessage()
+    assert "voornaam" not in record.getMessage()
 
 
 @pytest.mark.parametrize(

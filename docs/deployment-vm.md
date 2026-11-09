@@ -252,7 +252,9 @@ CAS_DISPLAY_NAME=UGent
 - In ICT's form, register a **URL** (a CAS service), not an OAuth application: CoGA speaks
   CAS only. The endpoint URL is `CAS_SERVICE_URL`, and the attributes are `mail`, `surname`
   and `azureObjectId` (public) and `givenName` (protected: the motivation is the user's name in
-  the app and in the audit log). Ask for nothing else, and no guest accounts.
+  the app and in the audit log). Ask for nothing else, and no guest accounts. Without
+  `givenName` CoGA shows only the surname; once ICT releases it, each user's next sign-in fills
+  in the first name.
 - An OAuth registration does not register the service: after the UGent sign-in,
   `login.ugent.be` answers "Ongeldige service-URL" (your service is not registered). Register
   the URL as well; the OAuth credentials are not needed. The same page appears when the
@@ -263,6 +265,11 @@ CAS_DISPLAY_NAME=UGent
   the CAS server named (such as `INVALID_SERVICE`), that the server could not be reached, or
   that another account has the user's e-mail address or user name. Neither the ticket nor the
   answer is logged.
+- A sign-in whose answer lacks `mail`, `givenName` or `surname` logs a warning under the same
+  `cas sign-in` prefix that names the attributes the answer does carry, never their values.
+  Ask ICT to release the missing one, or, when it arrives under another name, set
+  `CAS_EMAIL_ATTRIBUTE`, `CAS_GIVEN_NAME_ATTRIBUTE` or `CAS_FAMILY_NAME_ATTRIBUTE` to that
+  name.
 - The service needs HTTPS: set these once the certificate of step 6 is in place, then
   `docker compose up -d`.
 - CAS admits every UGent account, students included. A first sign-in makes an account that
