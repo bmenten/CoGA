@@ -7,7 +7,10 @@ Against the real engines this checks that the export reads one row past its cap 
 when it was cut, that the tag / classification filter takes its first ids in variant_id
 order and says when more matched, and that the review lookup takes any number of ids. It also
 checks that the classification filter finds a review's class label whatever its case (ENG-6), and
-that a variant reviewed in two families shows the more severe classification (CLIN-69).
+that a variant reviewed in two families shows the more severe classification (CLIN-69): each
+review's class as the family page reads it, a review classified by its class tag alone too, of one
+class twice the review saved last, and the classification filter keeping what the family search's
+keeps (CLIN-71).
 
 ``resolve_scope`` is monkeypatched to one fresh project, so no user is needed; the project,
 its family and the reviews are real Postgres rows, the variants real ClickHouse rows. The
@@ -19,6 +22,7 @@ Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``smoke`` job set
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from uuid import uuid4
 
 import pytest
@@ -231,5 +235,119 @@ def test_explorer_finds_and_shows_a_classification_whatever_the_case_of_its_labe
         assert shown["1-400-A-G"] == "Likely Pathogenic - class 4"
         assert shown["1-500-A-G"] == "likely pathogenic - CLASS 4"
         assert (await _export(classifications=["likely benign - class 2"])).rows[0].variant_id == "1-400-A-G"
+
+    run_closing_stores(_scenario)
+
+
+def test_explorer_shows_the_class_a_review_holds_by_its_tag_and_filters_as_the_family_search(monkeypatch) -> None:
+    # CLIN-71: the Explorer read a review's classification text alone, so a review classified by
+    # its class tag (no text) showed no class, though the family page shows one; and with no
+    # ORDER BY, of two reviews of one class the first Postgres returned was shown. Each review now
+    # shows its class as the family page reads it, the reviews read saved last first, then by
+    # family id. The classification filter keeps, family by family, what the family search's keeps.
+    import backend.app.services.variant_explorer_service as svc
+    from sqlalchemy import text
+
+    from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
+    from backend.app.services.small_variant_review_pg import list_matching_small_variant_review_ids
+
+    async def _scenario() -> None:
+        await init_postgres_schema()
+        session_factory = get_postgres_sessionmaker()
+        project, assembly_id, base_family = await _seed(session_factory)
+        _scope_to(monkeypatch, svc, project, assembly_id, base_family)
+        families = [base_family]
+        same_time: dict[str, str] = {}
+        async with session_factory() as session:
+            for variant_id, review, saved in (
+                # Classified by the class tag alone, beside a milder class in another family.
+                ("1-400-A-G", {"tags": ["acmg_class_4"]}, "2026-11-01"),
+                ("1-400-A-G", {"classification": "Likely benign - class 2"}, "2026-11-02"),
+                # The pair classified by its class tag alone.
+                ("1-500-A-G", {"compound_het_tags": ["acmg_class_5"]}, "2026-11-01"),
+                # A class word, shown as its class label.
+                ("1-300-A-G", {"classification": "VUS"}, "2026-11-01"),
+                # One class twice, the later review classified by its tag: the later one shown.
+                ("1-100-A-G", {"classification": "acmg_class_4"}, "2026-11-01"),
+                ("1-100-A-G", {"tags": ["acmg_class_4"]}, "2026-11-02"),
+                # One class twice, saved at the same time: the lower family id's shown.
+                ("1-200-A-G", {"classification": "acmg_class_3"}, "2026-11-03"),
+                ("1-200-A-G", {"tags": ["acmg_class_3"]}, "2026-11-03"),
+            ):
+                family = (
+                    await session.execute(
+                        text("INSERT INTO families (family_id) VALUES (:f) RETURNING id::text"),
+                        {"f": f"explorer-class-tag-{uuid4().hex[:12]}"},
+                    )
+                ).scalar_one()
+                families.append(family)
+                await session.execute(
+                    text(
+                        "INSERT INTO family_projects (family_id, project_id) "
+                        "VALUES (CAST(:f AS uuid), CAST(:p AS uuid))"
+                    ),
+                    {"f": family, "p": project},
+                )
+                await session.execute(
+                    text(
+                        "INSERT INTO small_variant_reviews (family_id, variant_id, classification, tags, "
+                        "compound_het_tags, updated_by, updated_at) VALUES (CAST(:f AS uuid), :v, :c, "
+                        "CAST(:t AS jsonb), CAST(:pt AS jsonb), 'reviewer', :u)"
+                    ),
+                    {
+                        "f": family,
+                        "v": variant_id,
+                        "c": review.get("classification"),
+                        "t": json.dumps(review.get("tags", [])),
+                        "pt": json.dumps(review.get("compound_het_tags", [])),
+                        "u": datetime.fromisoformat(f"{saved}T09:00:00+00:00"),
+                    },
+                )
+                if variant_id == "1-200-A-G":
+                    same_time[family] = (
+                        "VUS - class 3" if review.get("tags") else str(review.get("classification"))
+                    )
+            await session.commit()
+
+        async with session_factory() as session:
+            exported = await svc.export_global_small_variants(
+                session, user=None, filters=svc.GlobalVariantFilters(), assembly_id=assembly_id, limit=50
+            )
+        shown = {row.variant_id: row.classification for row in exported.rows}
+        assert shown["1-400-A-G"] == "Likely pathogenic - class 4"
+        assert shown["1-500-A-G"] == "Pathogenic - class 5"
+        assert shown["1-300-A-G"] == "VUS - class 3"
+        assert shown["1-100-A-G"] == "Likely pathogenic - class 4"
+        assert shown["1-200-A-G"] == same_time[min(same_time)]
+
+        # The classification filter keeps the variants a family search's classification filter
+        # keeps in some family: by the classification text, its pair's too, and no tag. A review
+        # classified by its class tag alone is kept by the tag filter.
+        async with session_factory() as session:
+            for wanted in (
+                "Pathogenic - class 5",
+                "Likely pathogenic - class 4",
+                "VUS - class 3",
+                "VUS",
+                "Likely benign - class 2",
+                "acmg_class_4",
+            ):
+                explorer, _capped = await svc._variant_ids_matching_reviews(
+                    session, project_ids=[project], classifications=[wanted], tags=[], limit=100
+                )
+                family_search: set[str] = set()
+                for family in families:
+                    family_search |= await list_matching_small_variant_review_ids(
+                        session, family_uuid=family, classifications=[wanted]
+                    )
+                assert set(explorer) == family_search, wanted
+            kept, _capped = await svc._variant_ids_matching_reviews(
+                session, project_ids=[project], classifications=["Likely pathogenic - class 4"], tags=[], limit=100
+            )
+            assert "1-400-A-G" not in kept
+            tagged, _capped = await svc._variant_ids_matching_reviews(
+                session, project_ids=[project], classifications=[], tags=["acmg_class_4"], limit=100
+            )
+            assert sorted(tagged) == ["1-100-A-G", "1-400-A-G"]
 
     run_closing_stores(_scenario)
