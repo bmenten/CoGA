@@ -295,6 +295,26 @@ def test_discovery_reads_the_copgtm_layout(tmp_path: Path) -> None:
     assert "dashboard/results" not in result.manifest_yaml
 
 
+def test_a_pgt_package_names_its_newest_run_records_as_its_region_comes_from_them(tmp_path: Path) -> None:
+    # The region and the traced parent are read from the newest params: the run records the
+    # draft names are the newest too, even when only an earlier run's report says it completed.
+    root = _write_copgtm_package(tmp_path / FAMILY)
+    for stamp, verdict in (("2026-01-01_10-00-00", "successfully"), ("2026-01-02_10-00-00", "unsuccessfully")):
+        _write(
+            root / f"pipeline_info/execution_report_{stamp}.html",
+            f"<html><h4>Workflow execution completed {verdict}!</h4></html>",
+        )
+
+    manifest = yaml.safe_load(_discover(root).manifest_yaml)
+
+    assert manifest["roi"] == "chr7:1000-2000"
+    assert manifest["datasets"]["pipeline_info"]["params"] == "pipeline_info/params_2026-01-02_10-00-00.json"
+    assert (
+        manifest["datasets"]["pipeline_info"]["execution_report"]
+        == "pipeline_info/execution_report_2026-01-02_10-00-00.html"
+    )
+
+
 def test_pcf_segments_are_read_from_the_pcf_table_and_not_from_the_plot(tmp_path: Path) -> None:
     root = _write_copgtm_package(tmp_path / FAMILY)
 

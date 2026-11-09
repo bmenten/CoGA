@@ -926,6 +926,27 @@ COUPLE1/
 How Discover reads such a folder and imports its per-sample files:
 [Per-sample callsets of a long-read couple](#per-sample-callsets-of-a-long-read-couple).
 
+A trio on the long-read pipeline (nf-LRSvar, ONT) has a PED, a family callset (DeepVariant per
+sample, merged and phased with whatshap `--ped`, with a VEP table) and a folder per sample for its
+alignment:
+
+```text
+FAM001/
+  family.ped
+  snv/FAM001_phased.vcf.gz (+ .tbi), snv/FAM001_annot.tsv.gz
+  needlr/family.sv.annotated.vcf.gz (+ .tbi)
+  repeats/FAM001_tr.vcf, repeats/PROBAND/PROBAND_tr.vcf.gz (+ .csi)
+  bams/PROBAND/PROBAND.cram (+ .crai)                   and MOTHER's, FATHER1's
+  paraphase/PROBAND/PROBAND.paraphase.json
+  wisecondorx/PROBAND/PROBAND_{bins,segments}.bed
+  qc/nanoplot/PROBAND/…, qc/depth/PROBAND/PROBAND.mosdepth.summary.txt
+  pipeline_info/software_versions.yaml, params_*.json, execution_{report,trace}_*
+```
+
+Discover takes `bams/<sample>/<sample>.cram` (or `.bam`) as the sample's alignment, never another
+file in that folder (a `<sample>_phased.bam` beside it). For the family callset it sets
+`source_format: clair3` and `exclude_filters`, as for the long-read per-sample callsets (below).
+
 A PGT package from nf-cmgg/copgtm is laid out per tool, and holds the files Discover reads for
 each dataset:
 
@@ -1048,7 +1069,19 @@ always holds the real path. A long-read package's per-sample SNV or NeedlR file 
 family's callset only when the family has one sample. With two or more samples and no joint VCF,
 Discover proposes one VCF per sample (`per_sample`) and names a sample that has none. For the
 long-read pipeline's annotated SNV files it also sets `source_format: clair3` and, when the header
-declares them, `exclude_filters: [RefCall, NoCall]`.
+declares them, `exclude_filters: [RefCall, NoCall]`. It does the same for a family VCF of
+DeepVariant's own calls (its header has `##DeepVariant_version`), merged and phased or not: a
+phased callset would otherwise be read as imputed and kept out of the diagnostic views. A file
+whose header declares genotype posteriors (FORMAT `GP`) or names an imputation or statistical
+phasing tool (GLIMPSE, Beagle, IMPUTE, Minimac, SHAPEIT) is left to the loader, which reads it as
+imputed.
+
+A resumed Nextflow run writes an execution report, a trace and a params file at every start, failed
+ones included. For `pipeline_info` Discover names the records of the last run whose execution report
+says it completed (`Workflow execution completed successfully`, read from the report's first MiB):
+its report, the trace of the same time stamp, and the params written at its start. Its message
+names that run. With no report saying so, it names the newest of each. A PGT package keeps the
+newest of each, because its region and traced parent come from the newest params.
 
 Discover names the files it looks for after the family and sample IDs, and looks for them in the
 package folder only (`package_path_within` in

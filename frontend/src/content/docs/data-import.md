@@ -205,6 +205,25 @@ carry is one variant with both calls. A partner whose file has no record at the 
 as reference, as a joint VCF would call a covered site. DeepVariant's reference and no-call records are
 kept only where the other partner has a variant.
 
+A trio on the long-read pipeline (nf-LRSvar) has a PED, one family call set and a folder per sample for
+its alignment:
+
+```text
+FAM001/
+  family.ped
+  snv/        FAM001_phased.vcf.gz (+ .tbi), FAM001_annot.tsv.gz   DeepVariant, phased with whatshap
+  needlr/     family.sv.annotated.vcf.gz (+ .tbi)
+  repeats/    FAM001_tr.vcf
+  bams/       PROBAND/PROBAND.cram (+ .crai)                       alignments, one folder per sample
+  qc/         nanoplot/PROBAND/…, depth/PROBAND/…
+  pipeline_info/  software_versions.yaml, params_*.json, execution_report_*.html
+```
+
+**Discover manifest** reads the family call set as DeepVariant's own calls: not as imputed genotypes, and
+without DeepVariant's reference and no-call records. It takes only `bams/<sample>/<sample>.cram` as a
+sample's alignment, not a `<sample>_phased.bam` beside it. When the run was started several times, it names
+the pipeline records of the last run that completed.
+
 PGT packages from the PGT pipeline (nf-cmgg/copgtm) are laid out per tool:
 
 ```text
