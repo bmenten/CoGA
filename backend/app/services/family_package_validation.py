@@ -23,7 +23,7 @@ from .hpo_service import (
     parse_manifest_inline_hpo,
 )
 
-from .family_package_common import CORE_DATASETS, HAPLOTYPE_ORIGIN_ROLES, IDENTIFIER_ISSUE_CODES, LONG_READ_DATASET_ROLES, MANIFEST_IN_FOLDER, MANIFEST_KEPT_IN_COGA, PCF_ROLE_KEYS, QC_FAMILY_ROLES, FamilyPackageBundle, ManifestDataset, PackageManifest, ParsedPed, SUPPORTED_DATASETS, _display_path, _is_uncompressed_vcf, _issue, _package_path_or_none, _resolve_package_path, _vcf_index_candidates, family_id_issue, manifest_text_problem, manifest_text_sha256, package_text_handle, read_vcf_sample_columns, sample_id_issues, unreadable_vcf_issue, UnreadableVcf, vcf_holds_a_data_line
+from .family_package_common import CORE_DATASETS, HAPLOTYPE_ORIGIN_ROLES, IDENTIFIER_ISSUE_CODES, LONG_READ_DATASET_ROLES, MANIFEST_IN_FOLDER, MANIFEST_KEPT_IN_COGA, PCF_ROLE_KEYS, QC_FAMILY_ROLES, FamilyPackageBundle, ManifestDataset, PackageManifest, ParsedPed, SUPPORTED_DATASETS, _display_path, _is_uncompressed_vcf, _issue, _package_path_or_none, _resolve_package_path, _vcf_index_candidates, family_id_issue, manifest_text_problem, manifest_text_sha256, package_text_handle, read_vcf_sample_columns, read_whole_vcf_sample_columns, sample_id_issues, unreadable_vcf_issue, UnreadableVcf, vcf_holds_a_data_line
 from .family_package_manifest import _manifest_added_member_entries, _manifest_added_ped_rows, _manifest_derived_statuses, _manifest_pgt_metadata, _manifest_relationship_issues, _manifest_roi_value, _normalize_manifest_samples, _parse_ped_text_strict
 from .family_package_fingerprint import PackageFingerprint, PackageFolderTooLarge, package_fingerprint
 from .family_package_mito_table import mito_sample_calls, read_mito_table
@@ -260,14 +260,27 @@ def _validate_family_vcf_dataset(
     )
 
 
-def _vcf_columns_if_readable(path: Path | None) -> list[str] | None:
-    """A VCF's sample columns, read from its header only, or None when the file cannot be
-    read as a VCF here; the importer then reports what is wrong with it."""
+def _vcf_columns_or_refusal(
+    root: Path,
+    path: Path | None,
+    *,
+    dataset: str,
+    label: str,
+    errors: list[FamilyImportValidationIssue],
+    sample_id: str | None = None,
+) -> list[str] | None:
+    """The sample columns of a VCF the import reads whole (an APCAD VCF, the phased family
+    VCF), read from its header; None when there is no file here to read, or when it cannot be
+    read: a gzip file cut short (a BGZF file wherever the cut lies), damaged or not gzip at
+    all. Such a file is refused by name in ``errors`` (``dataset_vcf_unreadable``, naming
+    ``sample_id`` where given), never by the error's text: it passed validation and failed
+    its dataset only at import (DATA-12)."""
     if path is None or not path.is_file():
         return None
     try:
-        return read_vcf_sample_columns(path)
-    except (OSError, EOFError, UnicodeError, ValueError):
+        return read_whole_vcf_sample_columns(path, label=label)
+    except UnreadableVcf:
+        errors.append(unreadable_vcf_issue(root, path, dataset=dataset, label=label, sample_id=sample_id))
         return None
 
 
@@ -678,6 +691,10 @@ def _validate_apcad_dataset(
             errors=errors,
             files=files,
         )
+        # One the validation cannot read is refused by name; the import failed on it (DATA-12).
+        _vcf_columns_or_refusal(
+            root, family_vcf_path, dataset="apcad", label="The family APCAD VCF", errors=errors
+        )
         _warn_file_without_a_record(root=root, dataset_type="apcad", path=family_vcf_path, warnings=warnings)
         _note_family_vcf_index(
             root=root,
@@ -776,12 +793,16 @@ def _check_apcad_sample_vcf_columns(
     """A per-sample APCAD VCF must hold the sample's column. A trio VCF (the PGT
     pipeline's) also holds the parents' columns, which give each site its parental
     origin: without one, the import still runs but cannot say which parent an allele
-    came from, so that is a warning."""
+    came from, so that is a warning. One that cannot be read (cut short, damaged, not gzip)
+    is refused, naming the sample and the file (DATA-12). One without sample columns is
+    read from its records' INFO, and one without a VCF record as a BED, by the import."""
     value = entry.get("vcf") or entry.get("bed") or entry.get("file")
     if not isinstance(value, str) or not value.lower().endswith((".vcf", ".vcf.gz")):
         return
     path = _package_path_or_none(root, value)
-    columns = _vcf_columns_if_readable(path)
+    columns = _vcf_columns_or_refusal(
+        root, path, dataset="apcad", label=f"The APCAD VCF of {sample_id}", errors=errors, sample_id=sample_id
+    )
     if not columns:
         return
     column = entry.get("vcf_sample") or entry.get("sample_name") or sample_id
@@ -964,9 +985,24 @@ def _validate_haplotypes_dataset(
             errors=errors,
             files=files,
         )
-        unknown_columns = [
-            column for column in (_vcf_columns_if_readable(family_vcf_path) or []) if column not in ped_sample_ids
-        ]
+        # One that cannot be read is refused by name; the import failed on it (DATA-12).
+        columns = _vcf_columns_or_refusal(
+            root, family_vcf_path, dataset="haplotypes", label="The phased family VCF", errors=errors
+        )
+        if columns == [] and family_vcf_path is not None:
+            # The import reads each member's genotypes from the member's own column: from a
+            # file naming none it could give no member one (DATA-12).
+            errors.append(
+                _issue(
+                    "dataset_vcf_no_sample_columns",
+                    f"The phased family VCF ({_display_path(root, family_vcf_path)}) has no #CHROM line "
+                    "naming its samples, so the import could give no member a genotype from it. Copy it "
+                    "again from where the pipeline wrote it.",
+                    dataset="haplotypes",
+                    path=family_vcf_path,
+                )
+            )
+        unknown_columns = [column for column in (columns or []) if column not in ped_sample_ids]
         if unknown_columns:
             # The loader binds every column to a member and stops at the first it cannot:
             # a PGT index the PED lacks would otherwise fail the import after the other

@@ -532,6 +532,10 @@ Paraphase results are replaced.
 - A sample's SNV file that cannot be read (a `.vcf.gz` cut short or damaged in a copy, or a plain-text VCF
   named `.gz`) is an error that names the sample and the file (`dataset_vcf_unreadable`), in Discover too
   for a NIPT pair's parent file. Copy the file again from where the pipeline wrote it.
+- So is an embryo's or the family's APCAD VCF, or the phased family VCF, that cannot be read, a BGZF file
+  that lacks its end-of-file block (cut short anywhere) included: the error names the file, and the embryo
+  for an embryo's (`dataset_vcf_unreadable`). A phased family VCF without a `#CHROM` line naming its
+  samples is an error too (`dataset_vcf_no_sample_columns`): no member's genotypes can be read from it.
 - A manifest's `roi` (a gene, or a region such as `chr7:117480025-117668665`) is looked up in the
   assembly of the import's project, or of the existing family. One the import does not find clears the
   family's region of interest, so no embryo is called at a region the package does not name. The import
