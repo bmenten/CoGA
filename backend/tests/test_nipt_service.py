@@ -257,6 +257,42 @@ async def test_run_family_nipt_analysis_counts_artifacts(
 
 
 @pytest.mark.asyncio
+async def test_the_variant_summary_reads_what_the_artifact_list_did_to_the_analysis(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A listed allele ClinVar may call pathogenic stays in the analysis; a listed allele the
+    # family does not carry counts only toward the list's size.
+    protected = dataclasses.replace(
+        _record(
+            "1-777-A-G",
+            start=777,
+            calls=[
+                _call("father-1", "0/0", dp=50, ad=[50, 0]),
+                _call("cfdna-1", "0/1", dp=600, af=[0.5], ad=[300, 300]),
+            ],
+        ),
+        annotations=[{"clinvar": "Likely_pathogenic"}],
+    )
+    _wire_variants_mocks(
+        monkeypatch,
+        cohort=[*_cohort_cat7_records(), protected],
+        filtered=[],
+        artifacts={"1-5-A-G", "1-777-A-G", "9-999-A-G"},
+    )
+
+    summary, artifacts = await nipt_service.get_family_nipt_summary_with_artifacts(
+        session=None,  # type: ignore[arg-type]
+        family_id="NIPT001",
+        user=None,  # type: ignore[arg-type]
+    )
+
+    assert dataclasses.astuple(artifacts) == (3, 2, 1, {"clinvar": 1})
+    # The summary is the NIPT page's: the removed allele is the funnel's artifact.
+    assert summary.analysis.filter_counts["failed_artifact"] == 1
+    assert summary.analysis.category_counts[3] == 1
+
+
+@pytest.mark.asyncio
 async def test_run_family_nipt_analysis_rejects_non_nipt_family(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

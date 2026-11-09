@@ -2124,6 +2124,20 @@ export interface NiptArtifactAutoSeedOut {
   min_carrier_samples: number;
 }
 
+/**
+ * What the assay's recurrent-artifact list did to the family's analysis: the alleles the
+ * list holds for the assay, the family's alleles among them, those removed from the analysis
+ * (the funnel's ``failed_artifact`` counts only the plasma calls among them that passed the
+ * quality filter) and those the family's annotation kept in, by reason (``clinvar``:
+ * ClinVar pathogenic or likely pathogenic; ``common``: a population frequency above 5%).
+ */
+export interface NiptArtifactCountsOut {
+  listed: number;
+  in_family: number;
+  removed: number;
+  protected: Record<string, number>;
+}
+
 /** Create/update a NIPT artifact within an assembly + assay/panel scope. */
 export interface NiptArtifactCreate {
   assembly_id: string;
@@ -2600,6 +2614,7 @@ export interface NiptVariantStatisticsOut {
   chromosomes: NiptChromosomeTransmissionOut[];
   chromosome_mark_min_sites: number;
   father_genotypes: Record<string, number>;
+  artifacts: NiptArtifactCountsOut;
 }
 
 /**

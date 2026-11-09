@@ -219,6 +219,19 @@ class NiptChromosomeTransmissionOut(BaseModel):
     marks: List[Literal["no_paternal_alleles", "no_maternal_alleles"]] = Field(default_factory=list)
 
 
+class NiptArtifactCountsOut(BaseModel):
+    """What the assay's recurrent-artifact list did to the family's analysis: the alleles the
+    list holds for the assay, the family's alleles among them, those removed from the analysis
+    (the funnel's ``failed_artifact`` counts only the plasma calls among them that passed the
+    quality filter) and those the family's annotation kept in, by reason (``clinvar``:
+    ClinVar pathogenic or likely pathogenic; ``common``: a population frequency above 5%)."""
+
+    listed: int
+    in_family: int
+    removed: int
+    protected: Dict[str, int] = Field(default_factory=dict)
+
+
 class NiptVariantStatisticsOut(BaseModel):
     """The variant summary's NIPT-M tab: the plasma's sites grouped by the mother's and the
     fetus's genotype, their allele fractions, transmission per autosome, the father's
@@ -241,6 +254,7 @@ class NiptVariantStatisticsOut(BaseModel):
     chromosome_mark_min_sites: int
     # The father's genotype class at the analysed sites, from his allele fraction.
     father_genotypes: Dict[str, int] = Field(default_factory=dict)
+    artifacts: NiptArtifactCountsOut
 
 
 class NiptClassificationOut(BaseModel):

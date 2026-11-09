@@ -795,6 +795,46 @@ async def get_family_nipt_summary(
     return analysis.summary
 
 
+@dataclass(slots=True)
+class NiptArtifactCounts:
+    """What the assay's recurrent-artifact list did to one family's analysis: the alleles it
+    lists, the family's alleles among them, those removed from the analysis and those the
+    family's annotation kept in, by reason (``clinvar``, ``common``)."""
+
+    listed: int
+    in_family: int
+    removed: int
+    protected: dict[str, int]
+
+
+async def get_family_nipt_summary_with_artifacts(
+    session: AsyncSession,
+    *,
+    family_id: str,
+    user: CurrentUser,
+    project_id: str | None = None,
+    qc: NiptQualityThresholds | None = None,
+) -> tuple[NiptFamilySummary, NiptArtifactCounts]:
+    """The family's NIPT summary (``get_family_nipt_summary``) and what the artifact list did
+    to it, for the variant summary's NIPT-M tab."""
+    trio, context, assay_key = await _resolve_trio_and_context(
+        session, family_id=family_id, user=user, project_id=project_id
+    )
+    analysis = await _family_analysis(
+        session, context, trio, assay_key, qc or NiptQualityThresholds(), None
+    )
+    protected: dict[str, int] = {}
+    for reason in analysis.protected.values():
+        protected[reason] = protected.get(reason, 0) + 1
+    counts = NiptArtifactCounts(
+        listed=len(analysis.listed),
+        in_family=len(analysis.removed) + len(analysis.protected),
+        removed=len(analysis.removed),
+        protected=protected,
+    )
+    return analysis.summary, counts
+
+
 async def _summarize_family(
     data: _FamilyData, trio: NiptTrio, qc: NiptQualityThresholds, removed: set[str]
 ) -> NiptFamilySummary:
