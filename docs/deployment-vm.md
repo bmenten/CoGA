@@ -212,7 +212,7 @@ EOF
 | Setting | Value |
 | --- | --- |
 | `APP_ENV` | `staging` (any value other than `development`, `dev`, `local` or `test` turns on the production checks) |
-| `ADMIN_EMAIL`, `ADMIN_USERNAME` | the address the emergency administrator signs in with, and its account name |
+| `ADMIN_EMAIL`, `ADMIN_USERNAME` | the address the emergency administrator signs in with, and its account name. With Microsoft or CAS sign-in, not the address of anyone who signs in that way, yours included: CoGA refuses the first sign-in of an organisation account whose address another account holds |
 | `CORS_ORIGINS` | the app's own origin only: `["https://coga-test.example.org"]` |
 | `CORS_ORIGIN_REGEX` | empty (`CORS_ORIGIN_REGEX=`): the default admits local origins, which the backend refuses outside development |
 | `ENABLE_HSTS` | `true`: TLS terminates on this machine |
@@ -260,17 +260,20 @@ CAS_DISPLAY_NAME=UGent
   page shows.
 - A sign-in CoGA refuses after the CAS server let it through says why in
   `docker compose logs backend | grep "cas sign-in"`: an attribute the answer lacks, the code
-  the CAS server named (such as `INVALID_SERVICE`), or that the server could not be reached.
-  Neither the ticket nor the answer is logged.
+  the CAS server named (such as `INVALID_SERVICE`), that the server could not be reached, or
+  that another account has the user's e-mail address or user name. Neither the ticket nor the
+  answer is logged.
 - The service needs HTTPS: set these once the certificate of step 6 is in place, then
   `docker compose up -d`.
 - CAS admits every UGent account, students included. A first sign-in makes an account that
   waits for approval on *Users*, where an administrator activates it, or deletes or archives
   it when it is not relevant. Every active administrator is told by e-mail when `SMTP_HOST` is
   set.
-- The first administrator: sign in once through CAS, then sign in at `/login/emergency` as the
-  emergency administrator with `AZURE_ADMIN_OVERRIDE=true`, activate your account and make it
-  an administrator, and switch the override off again.
+- The first administrator: sign in once through CAS, then sign in at `/login/emergency` with
+  `ADMIN_EMAIL` and `ADMIN_PASSWORD` as the emergency administrator, with
+  `AZURE_ADMIN_OVERRIDE=true`. Activate your account and make it an administrator, and switch
+  the override off again. `ADMIN_EMAIL` must not be your own UGent address: CoGA would refuse
+  your CAS sign-in, since the emergency administrator already has that address.
 
 **The dbNSFP gene file** is not in the repository (its download needs a registration,
 [data-import.md](data-import.md)). Copy `dbNSFP5.4_gene.gz` to `/srv/coga/data/ref-data/`
@@ -404,12 +407,16 @@ docker compose ps                                      # every service up, the d
 
 Before TLS, run the first two on the VM against `http://127.0.0.1:3000`.
 
-Then sign in with `ADMIN_EMAIL` and `ADMIN_PASSWORD`, and as administrator:
+Then sign in with `ADMIN_EMAIL` and `ADMIN_PASSWORD` (with Microsoft or CAS sign-in, as the
+first administrator of [step 4](#4-configure)), and as administrator:
 
 - **Administration → ClickHouse Tables & Operations**: the tables exist and the integrity check
   passes.
-- **Admin → Species & Assemblies**: rebuild the clinical CNV knowledgebase, which the startup
-  does not load.
+- **Admin → Species & Assemblies**: the clinical CNVs and the DGV variants of GRCh38 fill in by
+  themselves. The first start builds the clinical CNV knowledgebase and loads DGV in the
+  background, which can take up to two hours
+  ([data-import.md](data-import.md#loading-or-replacing-reference-data)). A count that stays
+  empty, or an error on that page, needs its ↻.
 
 ## 8. Load test data
 
