@@ -19,12 +19,15 @@ import { userAccountsQuery } from '../../lib/users';
 import { memberAccessLevel } from '../../lib/familyAccess';
 import type { ProjectOption } from './dataManagementTypes';
 import AccountChangeDialog from './AccountChangeDialog';
+import UserProjectAccessDialog, { type ProjectAccessChange } from './UserProjectAccessDialog';
 
 type User = UserRead;
 type Role = NonNullable<UserUpdate['role']>;
 
 // The global roles, lowest first, each with every right of the ones before it (lib/auth.ts).
 const ROLES: readonly Role[] = USER_ROLES;
+// The roles with every right in every project, member or not (SEC-1).
+const EVERY_PROJECT_ROLES: ReadonlySet<string> = new Set(['superuser', 'admin']);
 // What each role may do, as the role picker's tooltip says it.
 const ROLE_HINTS: Record<Role, string> = {
   viewer: 'Reads the records of their projects; changes none.',
@@ -128,7 +131,7 @@ const changeDialogText = (change: AccountChange): { title: string; confirm: stri
         body:
           accountState(user) === 'waiting'
             ? `The account can then sign in, as a ${user.role}, and sees the projects it is a member of${
-                user.projects.length ? '' : ' (none yet: add it to a project from the project settings)'
+                user.projects.length ? '' : ' (none yet: give it access with Edit, under Project access)'
               }. Once activated, it can no longer be deleted, only archived.`
             : `The account can sign in again, as a ${user.role}, with its project access as it is.`,
       };
@@ -230,6 +233,10 @@ const UserListPage: React.FC = () => {
   // The change waiting for the administrator's confirmation: nothing is sent before it.
   const [pendingChange, setPendingChange] = React.useState<AccountChange | null>(null);
   const [pendingDelete, setPendingDelete] = React.useState<User | null>(null);
+  // The account whose project access is being edited, and why its last save was refused: the
+  // dialog stays open on a refusal, with the edits.
+  const [accessUser, setAccessUser] = React.useState<User | null>(null);
+  const [accessError, setAccessError] = React.useState<string | null>(null);
   const [showArchived, setShowArchived] = React.useState(false);
 
   const {
@@ -302,9 +309,36 @@ const UserListPage: React.FC = () => {
     },
   });
 
+  const accessMutation = useMutation({
+    mutationFn: async ({ user, change }: { user: User; change: ProjectAccessChange }) => {
+      const response = await api.patch(apiPath`/auth/users/${user.id}`, change);
+      return response.data as User;
+    },
+    onMutate: () => {
+      setActivationStatus(null);
+      setAccessError(null);
+    },
+    onSuccess: async (_updated, { user }) => {
+      setAccessUser(null);
+      setActivationStatus({ tone: 'success', text: `Saved the project access of ${user.email}.` });
+      // The Projects page lists each project's members from caches of its own (ENG-10).
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: userAccountsQuery.queryKey }),
+        queryClient.invalidateQueries({ queryKey: ['projects'] }),
+        queryClient.invalidateQueries({ queryKey: ['admin', 'projects'] }),
+      ]);
+    },
+    onError: (error) => {
+      setAccessError(
+        `The project access was not saved: ${getErrorMessage(error, 'the request failed')}`,
+      );
+    },
+  });
+
   const busyWith = (user: User): boolean =>
     (changeMutation.isPending && changeMutation.variables?.user.id === user.id) ||
-    (deleteMutation.isPending && deleteMutation.variables?.id === user.id);
+    (deleteMutation.isPending && deleteMutation.variables?.id === user.id) ||
+    (accessMutation.isPending && accessMutation.variables?.user.id === user.id);
 
   const askRole = (user: User, role: Role) => {
     // A select changes with an arrow key too: a role is changed only once confirmed.
@@ -360,8 +394,9 @@ const UserListPage: React.FC = () => {
             <h1 className="catalog-card-title">Users</h1>
             {/* The rules (roles, approval, archive) are in the user guide, not repeated here. */}
             <p className="catalog-card-copy">
-              Approve new accounts and set each account&apos;s role and activation. Project access is
-              set in <Link to="/admin/access/projects">Projects &amp; access</Link>.{' '}
+              Approve new accounts and set each account&apos;s role, activation and project access.
+              A project&apos;s members are also set in{' '}
+              <Link to="/admin/access/projects">Projects &amp; access</Link>.{' '}
               <Link to="/docs#administration">How accounts and roles work</Link>
             </p>
             <AccountRequestMail />
@@ -467,19 +502,38 @@ const UserListPage: React.FC = () => {
                     />
                   </td>
                   <td>
-                    <div className="table-checkbox-grid sm:grid-cols-2">
+                    <div className="admin-user-access">
+                      {EVERY_PROJECT_ROLES.has(u.role) ? (
+                        <span className="table-subtle">Every project, as {u.role}</span>
+                      ) : null}
                       {u.projects.length > 0 ? (
-                        projects
-                          .filter((project) => u.projects.includes(project.id))
-                          .map((project) => (
-                            <span key={project.id} className="table-chip">
-                              {project.name}
-                              <span> · {memberAccessLevel(u.reader_projects, project.id)}</span>
-                            </span>
-                          ))
-                      ) : (
+                        // One project a line: in two columns of no minimum width a project's
+                        // chip, which never wraps, ran over the Actions column.
+                        <div className="table-checkbox-grid">
+                          {projects
+                            .filter((project) => u.projects.includes(project.id))
+                            .map((project) => (
+                              <span key={project.id} className="table-chip">
+                                {project.name}
+                                <span> · {memberAccessLevel(u.reader_projects, project.id)}</span>
+                              </span>
+                            ))}
+                        </div>
+                      ) : EVERY_PROJECT_ROLES.has(u.role) ? null : (
                         <span className="table-empty">No project access</span>
                       )}
+                      <button
+                        type="button"
+                        className="button-ghost project-member-action"
+                        aria-label={`Edit project access: ${u.email}`}
+                        disabled={busy}
+                        onClick={() => {
+                          setAccessError(null);
+                          setAccessUser(u);
+                        }}
+                      >
+                        Edit
+                      </button>
                     </div>
                   </td>
                   <td>
@@ -537,6 +591,18 @@ const UserListPage: React.FC = () => {
           <AccountSummary user={pendingChange.user} />
           <p className="catalog-card-copy">{dialog.body}</p>
         </AccountChangeDialog>
+      ) : null}
+      {accessUser ? (
+        <UserProjectAccessDialog
+          user={accessUser}
+          projects={projects}
+          busy={accessMutation.isPending}
+          error={accessError}
+          onCancel={() => setAccessUser(null)}
+          onSave={(change) => accessMutation.mutate({ user: accessUser, change })}
+        >
+          <AccountSummary user={accessUser} />
+        </UserProjectAccessDialog>
       ) : null}
       {pendingDelete ? (
         <ConfirmDeleteDialog

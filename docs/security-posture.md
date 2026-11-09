@@ -103,8 +103,8 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   (`PATCH /api/auth/users/{id}` with `role`; any other value is refused, `422`),
   confirming each change. Nobody changes their own role. The emergency administrator keeps its
   role and cannot be deactivated. Each change is audited, field by field
-  (`request_meta.account_change`, §2). Project access stays on the project pages. A role
-  change takes effect at the account's next request, also for the jobs it queued that have not
+  (`request_meta.account_change`, §2). The same page sets an account's project access, below.
+  A role change takes effect at the account's next request, also for the jobs it queued that have not
   started: an import of an account that is no longer a superuser or an admin, and a
   gene-reference refresh or knowledgebase rebuild of one that is no longer an admin, is not run
   (*Session tokens*, below).
@@ -142,7 +142,15 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
 
   One person may be an analyst in one project and a reader in another. An analyst of any one
   of a record's projects may change it. An admin sets each member's level on the *Projects &
-  access* page (`reader_user_ids` in the project API). A membership made without a level, and
+  access* page (`reader_user_ids` in the project API), or each of an account's projects and its
+  level there on the *Users* page (`project_ids` and `reader_project_ids` in
+  `PATCH /api/auth/users/{id}`): the same `project_users` rows, from either side. A change from
+  the account's side is audited field by field (`request_meta.account_change`); one naming a
+  project that does not exist (404) or a reader project that is not one of the account's (400)
+  changes nothing, and a field the change does not take is refused (422), so no change of
+  access is left out without a word. Every writer of the memberships, from either side, takes
+  one transaction lock first (`_lock_project_memberships`), so two saves at once never deadlock
+  and the audit's "from" is what the change replaced. A membership made without a level, and
   every membership made before the levels existed, is an analyst's.
 
   `get_current_user` records whether a request changes something: any method but GET, HEAD and
@@ -530,10 +538,11 @@ directory who could sign in without being assigned to the lab's group (deploymen
   (`AdminAuditLogsPage.tsx`).
 - ✅ **Accounts made and changed, and the emergency sign-in, stay visible in the audit
   (SEC-4).** The row of a request that made an account at a first Microsoft sign-in, or changed
-  an account's role or activation, carries `request_meta.account_change`: the account, and each
-  field from and to. The emergency administrator's password sign-in, and every request made
-  with it, carries `request_meta.emergency_sign_in`. The *Audit logs* page flags both in its
-  *Flags* column (*Account …: role viewer → admin*, *Emergency sign-in*).
+  an account's role, activation or project access, carries `request_meta.account_change`: the
+  account, and each field from and to. The emergency administrator's password sign-in, and
+  every request made with it, carries `request_meta.emergency_sign_in`. The *Audit logs* page
+  flags both in its *Flags* column (*Account …: role viewer → admin*, *… project access
+  changed*, *Emergency sign-in*).
 - ✅ **Minimal personal data.** Query strings are reduced to their keys by default
   (`AUDIT_LOG_QUERY_STRING_MODE=keys`), and secret-like body fields are masked.
 - ✅ **Append-only.** Triggers in `04_traceability.sql` block DELETE and UPDATE on

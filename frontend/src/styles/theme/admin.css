@@ -265,6 +265,21 @@
   gap: 0.375rem;
 }
 
+/* An account's projects, each with its level, and Edit under them. */
+.admin-user-access {
+  display: grid;
+  gap: 0.25rem;
+  justify-items: start;
+}
+
+/* What a save of an account's project access changes, one project a line. */
+.user-project-access-changes {
+  margin: 0;
+  padding-left: 1rem;
+  list-style: disc;
+  font-size: var(--fs-xs);
+}
+
 .admin-project-matrix {
   display: flex;
   flex-wrap: wrap;

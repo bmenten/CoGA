@@ -91,16 +91,25 @@ const isFieldChange = (value: unknown): value is FieldChange =>
   typeof value === 'object' && value !== null && 'to' in value;
 
 // request_meta.account_change: the account this request made (a first Microsoft sign-in) or
-// whose role or activation it changed, each field from and to (SEC-4).
+// whose role, activation (SEC-4) or project access (SEC-1) it changed, each field from and to.
 const accountChangeFlag = (meta: FlagSource): AuditFlag | null => {
   const change = meta?.account_change;
   if (typeof change !== 'object' || change === null) return null;
-  const { email, created, role, is_active: isActive } = change as Record<string, unknown>;
+  const {
+    email,
+    created,
+    role,
+    is_active: isActive,
+    project_ids: projectIds,
+    reader_project_ids: readerProjectIds,
+  } = change as Record<string, unknown>;
   const account = typeof email === 'string' && email ? email : 'an account';
   const parts: string[] = [];
   if (created === 'microsoft_sign_in') parts.push('made at its first Microsoft sign-in');
   if (isFieldChange(role) && !created) parts.push(`role ${String(role.from)} → ${String(role.to)}`);
   if (isFieldChange(isActive)) parts.push(isActive.to ? 'activated' : 'deactivated');
+  // The projects are named by id in the row; the flag says only that they changed.
+  if (isFieldChange(projectIds) || isFieldChange(readerProjectIds)) parts.push('project access changed');
   if (!parts.length) return null;
   return {
     key: 'account-change',

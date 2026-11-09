@@ -344,6 +344,27 @@ describe('AdminAuditLogsPage flags', () => {
     expect(flagsOf('/api/projects')).toHaveTextContent(/^—$/);
   });
 
+  // SEC-1: an account's projects or its levels in them, set on the Users page.
+  it.each([
+    ['its projects', { project_ids: { from: [], to: ['p1'] } }],
+    ['its levels', { reader_project_ids: { from: ['p1'], to: [] } }],
+  ])('flags a change of an account’s project access: %s', async (_case, fields) => {
+    serve([
+      requestRow('evt-access', '/api/auth/users/{user_id}', {
+        method: 'PATCH',
+        request_meta: {
+          account_change: { user_id: 'u-new', email: 'new.colleague@example.org', ...fields },
+        },
+      }),
+    ]);
+    renderPage();
+    await screen.findByText('/api/auth/users/{user_id}');
+
+    expect(flagsOf('/api/auth/users/{user_id}')).toHaveTextContent(
+      'Account new.colleague@example.org: project access changed',
+    );
+  });
+
   it('flags a UI interaction stored with escaped values, and nothing a client could write itself', async () => {
     serve(
       [],

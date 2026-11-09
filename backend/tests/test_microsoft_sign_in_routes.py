@@ -11,8 +11,9 @@ and flagged in the request audit (``request_meta.emergency_sign_in``). Any other
 right password is refused with 403 and counts as a failed attempt. There is no sign-up:
 accounts come from the first Microsoft sign-in.
 
-``PATCH /api/auth/users/{id}`` sets an account's global role as well as its activation, and
-archives or restores it. An administrator cannot change their own role, nor the emergency
+``PATCH /api/auth/users/{id}`` sets an account's global role as well as its activation,
+archives or restores it, and sets its projects with its level in each (SEC-1); a field it does
+not take, such as the account list's ``projects``, is refused (422). An administrator cannot change their own role, nor the emergency
 administrator's, and cannot deactivate or archive their own account or the emergency
 administrator's; an account is not archived and activated at once; a viewer cannot call it.
 ``DELETE /api/auth/users/{id}`` deletes an account that was never active, and refuses the
@@ -147,10 +148,21 @@ def store(monkeypatch: pytest.MonkeyPatch) -> _Store:
         is_active: bool | None,
         role: str | None = None,
         archived: bool | None = None,
+        project_ids: list[str] | None = None,
+        reader_project_ids: list[str] | None = None,
     ):
         account = store.by_id(user_id)
         assert account is not None
         changes: dict[str, dict[str, Any]] = {}
+        if project_ids is not None and sorted(project_ids) != sorted(account["metadata_project_ids"]):
+            changes["project_ids"] = {"from": sorted(account["metadata_project_ids"]), "to": sorted(project_ids)}
+            account["metadata_project_ids"] = list(project_ids)
+        if reader_project_ids is not None and sorted(reader_project_ids) != sorted(account.get("reader_project_ids", [])):
+            changes["reader_project_ids"] = {
+                "from": sorted(account.get("reader_project_ids", [])),
+                "to": sorted(reader_project_ids),
+            }
+            account["reader_project_ids"] = list(reader_project_ids)
         if archived is not None and archived != bool(account.get("archived_at")):
             changes["archived"] = {"from": not archived, "to": archived}
             account["archived_at"] = datetime.now(timezone.utc) if archived else None
@@ -166,6 +178,8 @@ def store(monkeypatch: pytest.MonkeyPatch) -> _Store:
         store.updates.append(
             {"user_id": user_id, "is_active": is_active, "role": role}
             | ({"archived": archived} if archived is not None else {})
+            | ({"project_ids": project_ids} if project_ids is not None else {})
+            | ({"reader_project_ids": reader_project_ids} if reader_project_ids is not None else {})
         )
         return (
             UserRead(
@@ -176,6 +190,8 @@ def store(monkeypatch: pytest.MonkeyPatch) -> _Store:
                 role=account["role"],
                 sign_in="microsoft" if account["azure_object_id"] else "password",
                 created_at=account["created_at"],
+                projects=account["metadata_project_ids"],
+                reader_projects=account.get("reader_project_ids", []),
             ),
             changes,
         )
@@ -510,16 +526,79 @@ def test_a_viewer_sets_no_role_and_an_unknown_role_is_refused(client: TestClient
     assert store.updates == []
 
 
-def test_project_access_is_not_set_with_the_account(client: TestClient, store: _Store, audit_rows: list[Any]) -> None:
-    # Project access is set on the project pages, member by member with their level (SEC-1):
-    # an account change that names projects is refused whole, its role change with it.
+def test_a_field_the_change_does_not_take_is_refused_whole(
+    client: TestClient, store: _Store, audit_rows: list[Any]
+) -> None:
+    # ``projects`` is how the account list names an account's projects; the change takes
+    # ``project_ids``. Left out without a word, it would read as a change of access made: the
+    # request is refused whole (422, naming the field), its role change with it.
     response = client.patch(
         f"/api/auth/users/{LOCAL_VIEWER['id']}",
         json={"projects": [str(uuid4())], "role": "admin"},
         headers=_bearer(LOCAL_ADMIN["email"]),
     )
 
-    assert (response.status_code, response.json()) == (400, {"detail": "Project access is managed from project settings"})
+    assert response.status_code == 422, response.text
+    assert [error["loc"] for error in response.json()["detail"]] == [["body", "projects"]]
+    assert store.updates == []
+    assert store.by_id(LOCAL_VIEWER["id"])["role"] == "viewer"
+    (row,) = _rows(audit_rows, f"/api/auth/users/{LOCAL_VIEWER['id']}")
+    assert "account_change" not in row.request_meta
+
+
+def test_an_admin_sets_an_accounts_projects_and_the_audit_row_says_from_what_to_what(
+    client: TestClient, store: _Store, audit_rows: list[Any], caplog: pytest.LogCaptureFixture
+) -> None:
+    # The same memberships a project's members set, from the account's side (SEC-1). Each id is
+    # read as the canonical text of the UUID it spells, whatever its spelling.
+    analysed, read = str(uuid4()), str(uuid4())
+    with caplog.at_level(logging.INFO, logger=auth_router.__name__):
+        response = client.patch(
+            f"/api/auth/users/{LOCAL_VIEWER['id']}",
+            json={"project_ids": [analysed.upper(), "{" + read + "}"], "reader_project_ids": [f"urn:uuid:{read}"]},
+            headers=_bearer(LOCAL_ADMIN["email"]),
+        )
+
+    assert response.status_code == 200, response.text
+    assert (response.json()["projects"], response.json()["reader_projects"]) == ([analysed, read], [read])
+    assert store.updates == [
+        {
+            "user_id": LOCAL_VIEWER["id"],
+            "is_active": None,
+            "role": None,
+            "project_ids": [analysed, read],
+            "reader_project_ids": [read],
+        }
+    ]
+    (row,) = _rows(audit_rows, f"/api/auth/users/{LOCAL_VIEWER['id']}")
+    assert row.request_meta["account_change"] == {
+        "user_id": LOCAL_VIEWER["id"],
+        "email": LOCAL_VIEWER["email"],
+        "project_ids": {"from": [], "to": sorted([analysed, read])},
+        "reader_project_ids": {"from": [], "to": [read]},
+    }
+    # The log line names the fields, never the projects: they are in the request audit.
+    (line,) = [record.getMessage() for record in caplog.records if " changed: " in record.getMessage()]
+    assert line == (
+        f"account {LOCAL_VIEWER['id']} changed: project_ids, reader_project_ids "
+        "(who changed it, and from and to, in the request audit)"
+    )
+    assert analysed not in line and read not in line
+
+
+@pytest.mark.parametrize("field", ["project_ids", "reader_project_ids"])
+def test_a_project_that_is_no_uuid_is_not_found_and_nothing_changes(
+    client: TestClient, store: _Store, audit_rows: list[Any], field: str
+) -> None:
+    # As an unknown project is (the service's lookup), before any lookup; the role change sent
+    # with it is not made either.
+    response = client.patch(
+        f"/api/auth/users/{LOCAL_VIEWER['id']}",
+        json={field: ["not-a-project"], "role": "analyst"},
+        headers=_bearer(LOCAL_ADMIN["email"]),
+    )
+
+    assert (response.status_code, response.json()) == (404, {"detail": "Project not found"})
     assert store.updates == []
     assert store.by_id(LOCAL_VIEWER["id"])["role"] == "viewer"
     (row,) = _rows(audit_rows, f"/api/auth/users/{LOCAL_VIEWER['id']}")
