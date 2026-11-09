@@ -2,6 +2,7 @@
 
 What still has to be done: P1 blocks the release candidate (RC), P2 is due before the RC, P3 after it.
 Status 2026-11-04, `origin/main` at `fe2c30b2`. Ideas that are not defects are in [ROADMAP.md](ROADMAP.md).
+A closed ID the technical file cites is in [closed-issues.md](closed-issues.md): what it was and what closed it.
 
 | ID | Pri | What has to happen | Who | Blocks |
 |---|---|---|---|---|
@@ -35,7 +36,6 @@ Status 2026-11-04, `origin/main` at `fe2c30b2`. Ideas that are not defects are i
 | REG-10 | P2 | Build a GIAB / GeT-RM truth set with a concordance harness (INPUTS C6) | developer, QA | RC |
 | REG-11 | P2 | Supply the post-market, vigilance and security-process inputs | QA, RA, owner | go-live |
 | OPS-9 | P2 | Prove CoGA at genome scale on the real stack | developer, owner | |
-| DOC-10 | P2 | Write out the closed open-issue IDs the technical file cites, and the PR numbers left outside it | developer, QA | RC |
 | OPS-27 | P2 | Delete branch `feat/family-pgs`; tag the alpha baseline with a GitHub release; name it in every validation record | owner | validation |
 | OPS-7 | P3 | Approve the integrity-anchor residual (TF-13 §3) and set how often anchors are made | QA, owner | |
 | OPS-22 | P3 | Keep PRs that pass alone from failing together: a merge queue needs an organisation-owned repository | owner | |
@@ -197,11 +197,6 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 - Terraform: a Cloud Run import-worker service, as Compose has; a ClickHouse disk and VM above the 200 GB and `e2-standard-4` defaults.
 - The benchmark's "What would scale better": the cohort-wide annotation scans, the Explorer's unfiltered page (fails from about 20 M rows), a finer `entries` partition.
 - The variant summary's small-variant statistics are counted on each visit: about 6 s, and up to 2 GiB for one query, for a synthetic trio of five million variants on a laptop. Time them on a real whole-genome family.
-
-### DOC-10 · IDs and numbers an auditor cannot follow
-
-- `docs/regulatory/` cites about 85 open-issue IDs that are closed and gone from this list (CLIN-27, SAFE-29, TRACE-15 …): write out what each stood for, or keep a register of closed IDs, and extend `test_regulatory_docs_cite_no_pr_numbers.py` to match.
-- PR numbers left outside the technical file: `ROADMAP.md` (8), `SECURITY-AUDIT-ALLOWLIST.md` (4), `docs/README.md` (1).
 
 ## P3
 

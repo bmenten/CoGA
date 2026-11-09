@@ -11,18 +11,18 @@ brackets.
 - **First release**: no version has been tagged or released; [RELEASING.md](../RELEASING.md) is the procedure.
 - **Independent review**: pull requests need no approval; QA reviews the changes per release and signs off before the tag (owner decision, 2026-10-14). That review has not run yet, and an administrator can bypass the required checks ([TF-18 §6](regulatory/TF-18-change-configuration-management.md)).
 - **Technical file**: every document is a draft awaiting approval; the usability summative evaluation (TF-12) and the signed Declaration (TF-04) are still to come.
-- **Google Cloud go-live**: the switches that restrict access to institutional networks, run the API as the restricted database role and lock down ClickHouse egress ([#364](https://github.com/bmenten/CoGA/issues/364), [deployment-gcp.md](deployment-gcp.md)); and a restore drill, as the backups configured in Terraform have never been restored.
+- **Google Cloud go-live**: the switches that restrict access to institutional networks, run the API as the restricted database role and lock down ClickHouse egress ([deployment-gcp.md](deployment-gcp.md)); and a restore drill, as the backups configured in Terraform have never been restored.
 
 ## Engineering
 
 - **Operations**: `/metrics`, its collector and the alert policies exist ([monitoring.md](monitoring.md)), but nothing is deployed until Terraform is first applied. The Postgres baselines are re-applied on every start until the release candidate freezes them ([database.md](database.md#freezing-the-baselines-at-the-release-candidate)).
 - **Imports and scaling**:
-  - A stopped import is noticed only when a worker next looks for work, once its job's heartbeat is ten minutes old. Until then its family's report cannot be signed out: sign-out is refused while a family's import job is queued, validating or running (#727).
-  - The worker then runs a job that was still validating again. One that was running (it had begun writing the family) it ends as interrupted, without running it again; the family stays marked import-incomplete until what that import had not finished is imported again with overwrite (#743).
-  - A live import whose heartbeat goes stale is taken for stopped the same way. It is stopped where it is once its heartbeat reaches the database again and finds its job ended; until then it may go on, but a restore it reaches deletes nothing without its backup ([#746](https://github.com/bmenten/CoGA/issues/746)).
+  - A stopped import is noticed only when a worker next looks for work, once its job's heartbeat is ten minutes old. Until then its family's report cannot be signed out: sign-out is refused while a family's import job is queued, validating or running.
+  - The worker then runs a job that was still validating again. One that was running (it had begun writing the family) it ends as interrupted, without running it again; the family stays marked import-incomplete until what that import had not finished is imported again with overwrite.
+  - A live import whose heartbeat goes stale is taken for stopped the same way. It is stopped where it is once its heartbeat reaches the database again and finds its job ended; until then it may go on, but a restore it reaches deletes nothing without its backup.
   - A restore that fails part-way may have removed rows of any dataset, whichever import wrote them. Its flag names every dataset of its import as failed, those it imported too. Its import's entry stays, naming every dataset the family's imports and single-file uploads recorded (another small-variant source, another package's SV calls, a caller's SV calls an upload loaded). So the family stays marked until the whole family has been imported again with overwrite, and what an upload brought uploaded again with overwrite.
   - An import whose heartbeat has not reached the database for five minutes stops itself where it is, before a worker can take it for stopped. One whose variant-write locks' connection is lost is stopped where it is: nothing restored, its job ended failed (SAFE-15).
-  - An import whose job cannot record the family it imports writes nothing of it (#736).
+  - An import whose job cannot record the family it imports writes nothing of it.
   - Each backend container runs one uvicorn process, whose event loop the API shares with the refresh worker. With Docker Compose the imports run in import-worker processes of their own, one core each; on Google Cloud they still run in the API's instances.
 - **Regression truth set**: no GIAB or GeT-RM truth set with a concordance harness for minor-release validation.
 - **Request tracing** (SEC-16): nothing carries a request ID from a log line to its audit row; `/api/health/ready`, which also checks that Postgres and ClickHouse answer, is polled by nothing (the probes and the uptime check use `/api/health`; the deployment guide calls it by hand).
@@ -38,5 +38,5 @@ brackets.
 - **Per-sample GLIMPSE2 haplotypes** (PROD-5): per-sample GLIMPSE2 BCF haplotypes are registered but not imported.
 - **Single-parent recessive risk** (PROD-6): it reads "uninformative" by design; a later version could say "carries the known parent's risk allele, donor unknown".
 - **Haplogroup comparison** (PROD-7): REQ-MITO-003 has no automated haplogroup comparison; the analyst compares the haplogroups CoGA lists, and the owner decides whether that stays a manual review step (TF-09b §3).
-- **More than one PGT region** (PROD-9): a PGT family has one ROI, and the signed record's PGT section holds one, so two loci need its format extended after the RC (#899).
+- **More than one PGT region** (PROD-9): a PGT family has one ROI, and the signed record's PGT section holds one, so two loci need its format extended after the RC.
 - **Sort by the raw variant score** (ENG-9): the UI could offer novel-gene candidates sorted by the raw variant score, as the ranking's comments once promised (the comments were corrected).
