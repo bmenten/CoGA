@@ -192,9 +192,16 @@ export const binLabels = (
     return index === bins.length - 1 ? `${edge}+` : edge;
   });
 
+// A monogenic NIPT family's plasma and father: their GT is not their genotype, so their genotype
+// counts are not shown (the NIPT-M tab classes their sites by allele fraction).
+const NOT_A_GENOTYPE = '—';
+
 const PerSampleTable: React.FC<{
   samples: SmallVariantSampleStatisticsOut[];
-}> = ({ samples }) => {
+  niptSamples: ReadonlySet<string>;
+}> = ({ samples, niptSamples }) => {
+  const genotype = (s: SmallVariantSampleStatisticsOut, value: string) =>
+    niptSamples.has(s.sample_id) ? NOT_A_GENOTYPE : value;
   const rows: { label: string; values: string[] }[] = [
     {
       label: 'Variants',
@@ -202,15 +209,17 @@ const PerSampleTable: React.FC<{
     },
     {
       label: 'Heterozygous',
-      values: samples.map((s) => formatCount(s.het_count)),
+      values: samples.map((s) => genotype(s, formatCount(s.het_count))),
     },
     {
       label: 'Homozygous alt',
-      values: samples.map((s) => formatCount(s.hom_alt_count)),
+      values: samples.map((s) => genotype(s, formatCount(s.hom_alt_count))),
     },
     {
       label: 'Het / hom ratio',
-      values: samples.map((s) => formatRatio(s.het_count, s.hom_alt_count)),
+      values: samples.map((s) =>
+        genotype(s, formatRatio(s.het_count, s.hom_alt_count))
+      ),
     },
     { label: 'SNVs', values: samples.map((s) => formatCount(s.snv_count)) },
     {
@@ -559,6 +568,11 @@ const VariantSummarySmallVariants: React.FC<{
     },
   });
   const stats = query.data;
+  const niptSamples = new Set(stats?.nipt_samples ?? []);
+  // The per-chromosome table counts genotypes: a NIPT family's plasma and father are left out.
+  const genotypedSamples = (stats?.samples ?? []).filter(
+    (sample) => !niptSamples.has(sample.sample_id)
+  );
   return (
     <section id="small-variants" className="analysis-panel space-y-4">
       <h2 className="section-title">Small variants (SNV/indel)</h2>
@@ -586,8 +600,10 @@ const VariantSummarySmallVariants: React.FC<{
             once.
           </p>
 
+          {niptSamples.size ? <NiptSamplesNote names={[...niptSamples]} /> : null}
+
           <h3 className="font-semibold">Per sample</h3>
-          <PerSampleTable samples={stats.samples} />
+          <PerSampleTable samples={stats.samples} niptSamples={niptSamples} />
 
           <h3 className="font-semibold">Consequences</h3>
           <p className="analysis-count">
@@ -599,7 +615,14 @@ const VariantSummarySmallVariants: React.FC<{
 
           <h3 className="font-semibold">Per chromosome</h3>
           <PerChromosomeNote />
-          <ChromosomeTable samples={stats.samples} />
+          {genotypedSamples.length ? (
+            <ChromosomeTable samples={genotypedSamples} />
+          ) : (
+            <p className="analysis-count">
+              No sample here has genotypes of its own to count: the NIPT-M tab
+              classes the plasma’s and the father’s sites.
+            </p>
+          )}
 
           <h3 className="font-semibold">Call quality</h3>
           <p className="analysis-count">
@@ -635,6 +658,19 @@ const VariantSummarySmallVariants: React.FC<{
     </section>
   );
 };
+
+const NiptSamplesNote: React.FC<{ names: string[] }> = ({ names }) => (
+  <p className="analysis-count" role="note">
+    {names.join(' and ')} {names.length > 1 ? 'are' : 'is'} this monogenic NIPT
+    family’s plasma and father, whose GT is not a genotype: the plasma holds the
+    mother’s and the fetus’s DNA, and Mutect2 in tumour-only mode, the pair’s
+    caller, writes 0/1 on every call. Their heterozygous and homozygous counts
+    are left out here and in the per-chromosome table, and their allele balance
+    covers every call; the NIPT-M tab classes their sites by allele fraction.
+    Their FILTER is the caller’s own: Mutect2’s somatic filters flag many
+    germline calls, and the NIPT analysis does not use them as a gate.
+  </p>
+);
 
 const PerChromosomeNote: React.FC = () => (
   <p className="analysis-count">

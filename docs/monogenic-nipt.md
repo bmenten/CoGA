@@ -140,6 +140,21 @@ it.
   once: its Sample QC and the section read the same run (`SharedNiptAnalysis`). The Sample QC runs
   its NIPT checks in a savepoint, so a database error there is noted and gated as a check that could
   not run, and the rest of the sign-out keeps running (ENG-19).
+- **Variant summary** — `nipt_variant_statistics.py` groups one analysis run for the NIPT-M tab of
+  the family's *Variant summary* (`GET /families/{id}/nipt/statistics`). The run keeps its sites in
+  the order of their classifications (`NiptAnalysisResult.sites`) and the plasma calls' own FILTER
+  (`caller_filters`: PASS, or each other value), which no rule reads. Each category is a mother ×
+  fetus group, and so are the father's het alleles the fetus did not inherit (no category, and not
+  merely undetectable at the FF). Per group: the expected plasma VAF (`expected_plasma_vaf`) beside
+  the observed median, the confidence, the father's trusted genotype, the variant class and a VAF
+  histogram in bins of 0.02. Per autosome: the paternity check's counts
+  (`paternal_transmission_evidence` per chromosome), the mother's het alleles inherited beside a
+  confident hom-ref or hom-alt father (`maternal_allele_probability` ≥ 0.5, not ambiguous), and the
+  fetus's hom-alt sites. An autosome where none of a parent's alleles reached the fetus over at least
+  20 informative sites is marked (`CHROMOSOME_MARK_MIN_SITES`, the owner's choice of 2026-11-09; the
+  minimum is QA's to set): a hint of UPD or a deletion, not a call. Descriptive: the signed record
+  does not hold it. The small-variant statistics name the family's plasma and father
+  (`nipt_samples`), whose GT is not a genotype, and the page leaves their het/hom counts out.
 - **De novo triage** — `nipt_triage.py`: `is_de_novo_candidate`, `de_novo_window`, `triage_de_novo`
   (the R pipeline's score and priorities). Other cfDNA carriers of the assay come from
   `count_cfdna_carriers` (`clickhouse_family_variants.py`) over `assay_cfdna_carrier_samples`: a call
@@ -258,11 +273,13 @@ The in-app reference describes these for lab users.
   checks' verdicts, pure), `signed_record_nipt.py` (the signed record's NIPT section),
   `family_package_nipt.py` (the pair import), `vcf_call_metrics.py`, `nipt_artifact_pg.py`,
   `nipt_coverage.py` (the ROI fallback), `coverage_read_depth.py` (the coverage track the fallback
-  reads as depth), `routers/families_nipt.py`, `schemas/nipt.py`.
+  reads as depth), `nipt_variant_statistics.py` (the variant summary's NIPT-M tab, pure),
+  `routers/families_nipt.py`, `schemas/nipt.py`.
 - Frontend: `frontend/src/pages/families/FamilyNiptPage.tsx`, `FamilyNiptReportPage.tsx`,
   `FamilyNiptCoveragePage.tsx` (the coverage page, `/families/{id}/nipt/coverage`),
   `NiptQcPanel.tsx`, `NiptRecessiveGenes.tsx`, `NiptTargetCoverage.tsx`,
-  `NiptClassificationBlock.tsx`, `niptClassification.ts`; views and presets in
+  `NiptClassificationBlock.tsx`, `niptClassification.ts`, `VariantSummaryNipt.tsx` (the variant
+  summary's NIPT-M tab); views and presets in
   `smallVariantSearch.ts` and `smallVariantFilterSections.tsx`.
 - The synthetic demo family: `demo/nipt_family/` (`scripts/generate_nipt_demo.py`).
 - Tests: listed in [testing.md](testing.md).

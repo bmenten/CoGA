@@ -12,7 +12,9 @@ import {
   useFamilyReference,
 } from '../../lib/reference';
 import { useFamilyDataPresence } from './familyDataPresence';
+import VariantSummaryNipt from './VariantSummaryNipt';
 import VariantSummarySmallVariants from './VariantSummarySmallVariants';
+import { MONOGENIC_NIPT_ANALYSIS_TYPE } from './niptClassification';
 import VariantSummaryStructuralVariants from './VariantSummaryStructuralVariants';
 import {
   MitoDnaSummary,
@@ -23,7 +25,8 @@ import {
 /**
  * The family's variant summary: every kind of variant data the family holds, one tab each
  * (PROD-1). A row of tabs names the kinds it has: small variants, structural variants, repeat
- * expansions, Paraphase and mtDNA; the open one's section is shown and the others hidden. A
+ * expansions, Paraphase and mtDNA, and, first, NIPT-M for a monogenic NIPT family (its plasma's
+ * sites as the NIPT analysis classes them); the open one's section is shown and the others hidden. A
  * section loads when its tab is first opened and stays loaded, so switching back keeps its
  * view. A kind the family lacks has no tab; one whose check failed has one, so its section can
  * say for itself (#607). The open tab is in the URL's hash (#structural-variants), so a reload
@@ -31,6 +34,7 @@ import {
  */
 
 type SectionKey =
+  | 'nipt-m'
   | 'small-variants'
   | 'structural-variants'
   | 'repeat-expansions'
@@ -38,6 +42,7 @@ type SectionKey =
   | 'mitochondrial-dna';
 
 const SECTIONS: { key: SectionKey; label: string }[] = [
+  { key: 'nipt-m', label: 'NIPT-M' },
   { key: 'small-variants', label: 'Small variants (SNV/indel)' },
   { key: 'structural-variants', label: 'Structural variants' },
   { key: 'repeat-expansions', label: 'Repeat expansions' },
@@ -93,7 +98,11 @@ const FamilyVariantSummaryPage: React.FC = () => {
     ready: referenceReady,
   });
 
+  const isMonogenicNipt =
+    (family?.metadata as { analysis_type?: string } | null | undefined)?.analysis_type ===
+    MONOGENIC_NIPT_ANALYSIS_TYPE;
   const has: Record<SectionKey, boolean> = {
+    'nipt-m': isMonogenicNipt,
     'small-variants': presence.hasSmallVariants,
     'structural-variants': presence.hasStructuralVariants,
     'repeat-expansions': presence.hasRepeatExpansions,
@@ -183,6 +192,8 @@ const FamilyVariantSummaryPage: React.FC = () => {
 
   const sectionOf = (key: SectionKey) => {
     switch (key) {
+      case 'nipt-m':
+        return <VariantSummaryNipt familyId={familyId} projectId={projectId} />;
       case 'small-variants':
         return (
           <VariantSummarySmallVariants

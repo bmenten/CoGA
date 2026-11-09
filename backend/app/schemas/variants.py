@@ -389,6 +389,12 @@ class FamilySmallVariantStatisticsOut(BaseModel):
     other_count: int = 0
     samples: List[SmallVariantSampleStatisticsOut] = Field(default_factory=list)
     trios: List[MendelianTrioOut] = Field(default_factory=list)
+    # A monogenic NIPT family's plasma and father, the samples its NIPT analysis reads. Their
+    # GT is not their genotype: a plasma call is the mother's and the fetus's reads together,
+    # and Mutect2 in tumour-only mode (the pair's caller) writes 0/1 whatever the allele
+    # fraction, its FILTER a somatic caller's. The NIPT-M tab classes their sites by allele
+    # fraction; their het and hom-alt counts here say nothing.
+    nipt_samples: List[str] = Field(default_factory=list)
 
 
 class StructuralVariantSampleCountsOut(BaseModel):

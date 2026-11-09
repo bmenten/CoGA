@@ -1103,6 +1103,7 @@ export interface FamilySmallVariantStatisticsOut {
   other_count: number;
   samples: SmallVariantSampleStatisticsOut[];
   trios: MendelianTrioOut[];
+  nipt_samples: string[];
 }
 
 export interface FamilyStatusCreate {
@@ -2166,6 +2167,27 @@ export interface NiptArtifactOut {
 }
 
 /**
+ * Per autosome: which parent's alleles the fetus inherited. The paternal counts are the
+ * paternity check's (sites where the mother does not carry the allele, the father's call
+ * is confident and the plasma deep enough to see it); the maternal ones count her het
+ * alleles beside a confident hom-ref or hom-alt father, classified without ambiguity.
+ * ``marks`` names a parent none of whose alleles reached the fetus over at least
+ * ``chromosome_mark_min_sites`` informative sites: a hint of uniparental disomy or a
+ * deletion, not a call.
+ */
+export interface NiptChromosomeTransmissionOut {
+  chrom: string;
+  paternal_het_transmitted: number;
+  paternal_het_not_transmitted: number;
+  paternal_hom_alt_transmitted: number;
+  paternal_hom_alt_not_transmitted: number;
+  maternal_het_inherited: number;
+  maternal_het_not_inherited: number;
+  fetal_hom_alt: number;
+  marks: ("no_paternal_alleles" | "no_maternal_alleles")[];
+}
+
+/**
  * The NIPT classification block attached to each cfDNA variant.
  *
  * The variant payload itself is the full small-variant shape (``VariantOut``);
@@ -2377,6 +2399,27 @@ export interface NiptRecessiveGeneOut {
   risk_uses_prior: boolean;
 }
 
+/**
+ * One group of the plasma's sites by the mother's and the fetus's genotype: a category
+ * of the NIPT analysis (``category``), or the father's het alleles the fetus did not
+ * inherit (``key`` ``paternal_not_transmitted``, no category). The NIPT-M tab of the
+ * variant summary draws them as a mother x fetus matrix.
+ */
+export interface NiptStatisticsGroupOut {
+  key: string;
+  category: number | null;
+  maternal_genotype: "hom_ref" | "het" | "hom_alt";
+  fetal_genotype: "hom_ref" | "het" | "hom_alt";
+  sites: number;
+  expected_vaf: number | null;
+  observed_median_vaf: number | null;
+  high_confidence: number;
+  ambiguous: number;
+  by_father: Record<string, number>;
+  by_variant_class: Record<string, number>;
+  vaf_histogram: number[];
+}
+
 /** Monogenic NIPT analysis summary: fetal fraction and category/filter counts. */
 export interface NiptSummaryOut {
   family_id: string;
@@ -2535,6 +2578,28 @@ export interface NiptVariantPage {
   variants: NiptVariantOut[];
   recessive_genes: NiptRecessiveGeneOut[];
   not_classified: NiptNotClassifiedOut[];
+}
+
+/**
+ * The variant summary's NIPT-M tab: the plasma's sites grouped by the mother's and the
+ * fetus's genotype, their allele fractions, transmission per autosome, the father's
+ * genotypes and the plasma calls' funnel. Read from the same analysis run as the NIPT
+ * page (its fetal fraction, filters and categories). Descriptive: no rule reads it and the
+ * signed record does not hold it.
+ */
+export interface NiptVariantStatisticsOut {
+  family_id: string;
+  fetal_fraction: NiptFetalFractionOut;
+  qc: NiptQcOut;
+  filter_counts: Record<string, number>;
+  caller_filters: Record<string, number>;
+  classified_sites: number;
+  groups: NiptStatisticsGroupOut[];
+  not_classified: Record<string, number>;
+  vaf_bin_width: number;
+  chromosomes: NiptChromosomeTransmissionOut[];
+  chromosome_mark_min_sites: number;
+  father_genotypes: Record<string, number>;
 }
 
 /**
