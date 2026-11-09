@@ -140,6 +140,11 @@ test refuses such a number
 ([test_regulatory_docs_cite_no_pr_numbers.py](../../backend/tests/test_regulatory_docs_cite_no_pr_numbers.py));
 an issue that tracks an open action may be cited as a full link the test lists.
 
+An ID such as `CLIN-57` or `SAFE-15` names an item of CoGA's issue list. An open one is in
+[open-issues.md](../open-issues.md) or [ROADMAP.md](../ROADMAP.md). A closed one that these
+documents cite is in [closed-issues.md](../closed-issues.md), with what it was and the commit
+that closed it. The same unit test refuses an ID that is in none of them.
+
 > **🔲 OWNER:** fill the Owner and Approver fields with names (from
 > [INPUTS A3](INPUTS-QUESTIONNAIRE.md) and [TF-07 §3](TF-07-software-lifecycle-plan.md)), or keep
 > them as roles.

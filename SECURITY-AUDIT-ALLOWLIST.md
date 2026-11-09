@@ -35,7 +35,7 @@ first:
 - `body-parser` **GHSA-27r3-jxmh-p828** (high, through express): fixed on 2026-10-26 by the
   update to 2.4.0.
 - The gate's one past exemption, the react-router RSC-mode CSRF bypass
-  **GHSA-qwww-vcr4-c8h2**: retired by the upgrade to react-router 8 (#389).
+  **GHSA-qwww-vcr4-c8h2**: retired by the upgrade to react-router 8 (2026-07-28).
 
 ### 1c. Frontend dev/build tree — report-only
 
@@ -43,7 +43,7 @@ first:
 | --- | --- |
 | Exposure | **Build and test tools only** — nothing in this tree ships in the deployed frontend. |
 | Mechanism | A non-blocking `npm audit --audit-level=high` step in `security.yml` shows any advisory as a CI `::warning::`. |
-| Status (2026-11-05) | `npm audit` over the full tree reports **no advisories**. The last one was `minimatch` GHSA-g3hv-75wg-m249 (moderate, denial of service through glob-pattern amplification, published 2026-10-30). On 2026-11-04 its affected range was narrowed to 7.0.0 up to 11.0.1. That leaves the ESLint toolchain's `minimatch` 3.1.5 (`eslint` 9, `@eslint/config-array`, `@eslint/eslintrc`, `eslint-plugin-react@7.37.5`, `eslint-plugin-jsx-a11y@6.10.2`) unaffected, and only the 10.2.6 copy under `@typescript-eslint/typescript-estree` affected. Its fixed release, 11.0.1, is a major version that typescript-estree's `^10.2.2` does not accept. So an npm `overrides` entry in `frontend/package.json` gives typescript-estree `minimatch` ^11.0.1 (now 11.0.4). It calls only the `minimatch()` function, which 11 keeps. **Remove the override** once typescript-eslint accepts `minimatch` 11. Earlier findings were fixed by non-breaking updates: most recently `zod` GHSA-mrhx-c7xc-m3w5 (pulled in by eslint-plugin-react-hooks) by 4.6.7, `source-map-js` GHSA-68fv-2mgg-jv7q by 1.2.2 (#755) and `brace-expansion` GHSA-q2hr-2g5m-vwhr by 1.1.21 (#722). |
+| Status (2026-11-05) | `npm audit` over the full tree reports **no advisories**. The last one was `minimatch` GHSA-g3hv-75wg-m249 (moderate, denial of service through glob-pattern amplification, published 2026-10-30). On 2026-11-04 its affected range was narrowed to 7.0.0 up to 11.0.1. That leaves the ESLint toolchain's `minimatch` 3.1.5 (`eslint` 9, `@eslint/config-array`, `@eslint/eslintrc`, `eslint-plugin-react@7.37.5`, `eslint-plugin-jsx-a11y@6.10.2`) unaffected, and only the 10.2.6 copy under `@typescript-eslint/typescript-estree` affected. Its fixed release, 11.0.1, is a major version that typescript-estree's `^10.2.2` does not accept. So an npm `overrides` entry in `frontend/package.json` gives typescript-estree `minimatch` ^11.0.1 (now 11.0.4). It calls only the `minimatch()` function, which 11 keeps. **Remove the override** once typescript-eslint accepts `minimatch` 11. Earlier findings were fixed by non-breaking updates: most recently `zod` GHSA-mrhx-c7xc-m3w5 (pulled in by eslint-plugin-react-hooks) by 4.6.7, `source-map-js` GHSA-68fv-2mgg-jv7q by 1.2.2 (2026-10-06) and `brace-expansion` GHSA-q2hr-2g5m-vwhr by 1.1.21 (2026-09-30). |
 | Flip action | Make the step blocking. Nothing in the tree prevents it today; **🔲 owner decision**. |
 
 ---
@@ -61,7 +61,7 @@ Allowlisted in [`.gitleaks.toml`](.gitleaks.toml) — all **non-secrets**:
 | --- | --- |
 | `ci-smoke-not-a-real-secret`, `ci-admin-not-a-real-secret` | Deliberate placeholder values used only by the CI smoke job (`.github/workflows/ci.yml`); not valid for any real environment. |
 | `grch3[78]_coordinates` | False positive: the `grch37_coordinates` / `grch38_coordinates` dict-field selector in `panelapp_service.py` (PanelApp is a public, key-less API). The default `generic-api-key` rule flags the assignment shape around it, not a credential. |
-| `(?:upload\|deletion)-[0-9a-f]{32}` | False positive: the key of an upload's or a deletion's mark on a family (`import_unfinished` entries, SAFE-28, #876), a random identifier, not a credential. Tests hold fixed ones (`DELETION_KEY = 'deletion-…'`), which the default `generic-api-key` rule flags on the `KEY =` assignment shape. |
+| `(?:upload\|deletion)-[0-9a-f]{32}` | False positive: the key of an upload's or a deletion's mark on a family (`import_unfinished` entries, SAFE-28), a random identifier, not a credential. Tests hold fixed ones (`DELETION_KEY = 'deletion-…'`), which the default `generic-api-key` rule flags on the `KEY =` assignment shape. |
 | `.env.example` (path) | The template operators copy and fill in; ships `change-me`-style placeholders by design. |
 | `sbom/*.cdx.json` (path) | Generated dependency inventories (names + hashes), not credentials. |
 
