@@ -36,7 +36,7 @@ const NIPT_FAMILY = {
 };
 
 const histogram = (bin: number, count: number): number[] =>
-  Array.from({ length: 50 }, (_, index) => (index === bin ? count : 0));
+  Array.from({ length: 100 }, (_, index) => (index === bin ? count : 0));
 
 const group = (
   key: string,
@@ -56,7 +56,7 @@ const group = (
   ambiguous: 0,
   by_father: {},
   by_variant_class: {},
-  vaf_histogram: Array(50).fill(0),
+  vaf_histogram: Array(100).fill(0),
   ...overrides,
 });
 
@@ -129,17 +129,17 @@ const STATS: NiptVariantStatisticsOut = {
       high_confidence: 30,
       by_father: { het: 28, hom_alt: 12 },
       by_variant_class: { SNV: 38, MNV: 2 },
-      vaf_histogram: histogram(3, 40),
+      vaf_histogram: histogram(6, 40),
     }),
-    group('1', 'hom_ref', 'het', 2, { expected_vaf: 0.06, vaf_histogram: histogram(3, 2) }),
-    group('2', 'het', 'hom_ref', 30, { expected_vaf: 0.429, vaf_histogram: histogram(21, 30) }),
-    group('3', 'het', 'het', 40, { expected_vaf: 0.489, vaf_histogram: histogram(24, 40) }),
-    group('4', 'het', 'hom_alt', 10, { expected_vaf: 0.549, vaf_histogram: histogram(27, 10) }),
-    group('5', 'hom_alt', 'het', 8, { expected_vaf: 0.94, vaf_histogram: histogram(47, 8) }),
-    group('6', 'hom_alt', 'hom_alt', 30, { expected_vaf: 1, vaf_histogram: histogram(49, 30) }),
+    group('1', 'hom_ref', 'het', 2, { expected_vaf: 0.06, vaf_histogram: histogram(6, 2) }),
+    group('2', 'het', 'hom_ref', 30, { expected_vaf: 0.429, vaf_histogram: histogram(42, 30) }),
+    group('3', 'het', 'het', 40, { expected_vaf: 0.489, vaf_histogram: histogram(48, 40) }),
+    group('4', 'het', 'hom_alt', 10, { expected_vaf: 0.549, vaf_histogram: histogram(54, 10) }),
+    group('5', 'hom_alt', 'het', 8, { expected_vaf: 0.94, vaf_histogram: histogram(94, 8) }),
+    group('6', 'hom_alt', 'hom_alt', 30, { expected_vaf: 1, vaf_histogram: histogram(99, 30) }),
   ],
   not_classified: { sex_chromosome: 5 },
-  vaf_bin_width: 0.02,
+  vaf_bin_width: 0.01,
   chromosomes: [
     {
       chrom: '1',
@@ -235,37 +235,32 @@ describe('the variant summary of a monogenic NIPT family', () => {
     ]);
   });
 
-  it('draws the groups as a mother × fetus matrix, the combinations Mendel rules out not modelled', async () => {
+  it('lists the groups one under another, by the mother’s genotype and then the fetus’s', async () => {
     serve();
     renderPage();
     const section = await niptSection();
-    const matrix = within(section).getByRole('table', {
+    const table = within(section).getByRole('table', {
       name: "Plasma sites by the mother's and the fetus's genotype",
     });
-    const rows = within(matrix).getAllByRole('row');
-    expect(Array.from(rows[0].querySelectorAll('th')).map((cell) => cell.textContent)).toEqual([
-      'Mother ↓ · fetus →',
-      'Fetus hom ref',
-      'Fetus het',
-      'Fetus hom alt',
+    expect(rowTexts(table)).toEqual([
+      ['Fetus', 'Group', 'Sites', 'Share', 'Expected VAF', 'Observed VAF', 'Confidence ≥ 0.99'],
+      ['Mother hom ref', '51', '30.2%', ''],
+      ['Hom ref', '8 · Paternal hom-alt, absent (FN)', '1', '0.6%', '—', '—', '100.0%'],
+      ['Hom ref', "Father's het allele, not inherited", '8', '4.7%', '—', '—', '100.0%'],
+      ['Het', '7 · Paternal, transmitted', '40', '23.7%', '0.060', '0.061', '75.0%'],
+      ['Het', '1 · De novo in fetus', '2', '1.2%', '0.060', '—', '100.0%'],
+      ['Mother het', '80', '47.3%', ''],
+      ['Hom ref', '2 · Maternal het, not inherited', '30', '17.8%', '0.429', '—', '100.0%'],
+      ['Het', '3 · Maternal het, inherited', '40', '23.7%', '0.489', '—', '100.0%'],
+      ['Hom alt', '4 · Maternal het → hom fetus', '10', '5.9%', '0.549', '—', '100.0%'],
+      ['Mother hom alt', '38', '22.5%', ''],
+      ['Het', '5 · Maternal hom, het fetus', '8', '4.7%', '0.940', '—', '100.0%'],
+      ['Hom alt', '6 · Maternal & fetal hom', '30', '17.8%', '1.000', '—', '100.0%'],
+      ['All groups', '169', ''],
     ]);
-    const cells = (row: number) => Array.from(rows[row].querySelectorAll('td'));
-    // The mother hom ref: the father's allele missing or not inherited; his allele or a de novo.
-    expect(cells(1)[0]).toHaveTextContent(/8 · Paternal hom-alt, absent \(FN\)\s*1/);
-    expect(cells(1)[0]).toHaveTextContent("Father's het allele, not inherited");
-    expect(cells(1)[1]).toHaveTextContent('7 · Paternal, transmitted40 23.7%');
-    expect(cells(1)[1]).toHaveTextContent('Expected 0.060 · observed 0.061 · 75.0% at confidence ≥ 0.99');
-    expect(cells(1)[1]).toHaveTextContent('1 · De novo in fetus');
-    expect(cells(1)[2]).toHaveTextContent('Not modelled');
-    // The mother het: the fetus hom ref, het or hom alt.
-    expect(cells(2).map((cell) => cell.querySelector('.nipt-matrix-count')?.textContent)).toEqual([
-      '30 17.8%',
-      '40 23.7%',
-      '10 5.9%',
-    ]);
-    // The mother hom alt: no hom-ref fetus.
-    expect(cells(3)[0]).toHaveTextContent('Not modelled');
-    expect(cells(3)[2]).toHaveTextContent('6 · Maternal & fetal hom30');
+    // Each share is drawn as a bar of its group's colour.
+    const bars = Array.from(table.querySelectorAll<HTMLElement>('.nipt-share-fill')).map((bar) => bar.style.width);
+    expect(bars.slice(0, 2)).toEqual([`${(51 / 169) * 100}%`, `${(1 / 169) * 100}%`]);
   });
 
   it("splits each group by the father's genotype or the variant class on demand", async () => {
@@ -274,24 +269,60 @@ describe('the variant summary of a monogenic NIPT family', () => {
     const section = await niptSection();
     expect(within(section).queryByText(/father het 28/)).not.toBeInTheDocument();
     fireEvent.click(within(section).getByRole('button', { name: "Father's genotype" }));
+    expect(within(section).getByRole('columnheader', { name: 'By the father’s genotype' })).toBeInTheDocument();
     expect(within(section).getByText('father het 28 · father hom alt 12')).toBeInTheDocument();
     fireEvent.click(within(section).getByRole('button', { name: 'Variant class' }));
     expect(within(section).getByText('SNV 38 · MNV 2')).toBeInTheDocument();
     expect(within(section).getByRole('button', { name: 'Variant class' })).toHaveAttribute('aria-pressed', 'true');
   });
 
-  it('stacks the plasma allele fractions by group, with a dashed line where each category is expected', async () => {
+  it('stacks the plasma allele fractions by group in bins of 0.01, with a numbered line where each category is expected', async () => {
     serve();
     renderPage();
     const section = await niptSection();
-    const chart = within(section).getByRole('img', { name: /Plasma allele fractions of 160 sites/ });
+    const chart = within(section).getByRole('img', { name: /Plasma allele fractions of 160 sites in bins of 0.01/ });
     // One bar per group and bin with sites; the paternal and de novo sites share a bin.
-    expect(chart.querySelectorAll('rect')).toHaveLength(7);
-    expect(chart.querySelectorAll('line[stroke-dasharray]')).toHaveLength(7);
-    const titles = Array.from(chart.querySelectorAll('rect title')).map((title) => title.textContent);
-    expect(titles).toContain('7 · Paternal, transmitted: 40 sites at 0.06–0.08');
+    const bars = Array.from(chart.querySelectorAll('rect[data-group]')).map((bar) => [
+      bar.getAttribute('data-bin'),
+      bar.getAttribute('data-group'),
+    ]);
+    expect(bars).toEqual([
+      ['6', '7'],
+      ['6', '1'],
+      ['42', '2'],
+      ['48', '3'],
+      ['54', '4'],
+      ['94', '5'],
+      ['99', '6'],
+    ]);
+    // De novo and paternal are expected at the same fraction (FF/2): one line names both.
+    const labels = Array.from(chart.querySelectorAll('.nipt-vaf-expected-label')).map((label) => label.textContent);
+    expect(labels).toEqual(['7/1', '2', '3', '4', '5', '6']);
     fireEvent.click(within(section).getByRole('button', { name: 'Log scale' }));
     expect(within(section).getByRole('button', { name: 'Linear scale' })).toBeInTheDocument();
+    expect(within(chart).getByText('Sites (log scale)')).toBeInTheDocument();
+  });
+
+  it('lists a hovered bin’s sites by group', async () => {
+    serve();
+    renderPage();
+    const section = await niptSection();
+    const chart = within(section).getByRole('img', { name: /Plasma allele fractions/ });
+    const hits = chart.querySelectorAll('.nipt-vaf-hit');
+    expect(hits).toHaveLength(100);
+    fireEvent.mouseMove(hits[6], { clientX: 100, clientY: 100 });
+    const tip = document.body.querySelector('.viz-tooltip') as HTMLElement;
+    expect(tip).toHaveTextContent('0.06–0.07 · 42 sites');
+    expect(Array.from(tip.querySelectorAll('.nipt-tip-row')).map((row) => row.textContent)).toEqual([
+      '7 · Paternal, transmitted40',
+      '1 · De novo in fetus2',
+    ]);
+    // An empty bin shows nothing, and leaving the chart clears the tooltip.
+    fireEvent.mouseMove(hits[20], { clientX: 120, clientY: 100 });
+    expect(document.body.querySelector('.viz-tooltip')).toBeNull();
+    fireEvent.mouseMove(hits[6], { clientX: 100, clientY: 100 });
+    fireEvent.mouseLeave(chart);
+    expect(document.body.querySelector('.viz-tooltip')).toBeNull();
   });
 
   it('counts transmission per autosome and marks one without the father’s alleles', async () => {

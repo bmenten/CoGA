@@ -18,6 +18,7 @@ import {
 } from './niptClassification';
 import { NIPT_QUALITY_FAILURE_LABELS } from './NiptQcPanel';
 import { VariantSummarySectionState } from './VariantSummarySectionState';
+import VizTooltip from '../../components/visualizations/VizTooltip';
 
 /**
  * The variant summary's NIPT-M tab: a monogenic NIPT family's plasma sites as its NIPT analysis
@@ -98,59 +99,56 @@ const splitText = (group: NiptStatisticsGroupOut, split: Split): string | null =
     .join(' · ');
 };
 
-const GroupEntry: React.FC<{
-  group: NiptStatisticsGroupOut;
-  total: number;
-  split: Split;
-}> = ({ group, total, split }) => {
-  const detail = splitText(group, split);
-  return (
-    <div className="nipt-matrix-group">
-      <p className="nipt-matrix-group-title">
-        <span
-          className="nipt-swatch"
-          style={{ background: groupColor(group.key) }}
-          aria-hidden="true"
-        />
-        {groupLabel(group)}
-      </p>
-      <p className="nipt-matrix-count">
-        {formatCount(group.sites)}{' '}
-        <span className="table-subtle">{share(group.sites, total)}</span>
-      </p>
-      <p className="table-subtle">
-        {group.expected_vaf != null
-          ? `Expected ${vaf(group.expected_vaf)} · observed ${vaf(group.observed_median_vaf)}`
-          : group.observed_median_vaf != null
-            ? `Allele absent · observed ${vaf(group.observed_median_vaf)}`
-            : 'Allele absent'}
-        {group.sites
-          ? ` · ${share(group.high_confidence, group.sites)} at confidence ≥ 0.99`
-          : ''}
-      </p>
-      {detail ? <p className="table-subtle">{detail}</p> : null}
-    </div>
-  );
+const MOTHER_LABEL: Record<Genotype, string> = {
+  hom_ref: 'Mother hom ref',
+  het: 'Mother het',
+  hom_alt: 'Mother hom alt',
 };
+const SPLIT_HEADING: Record<Exclude<Split, 'none'>, string> = {
+  father: 'By the father’s genotype',
+  variant_class: 'By variant class',
+};
+const SPLITS: [Split, string][] = [
+  ['none', 'Nothing'],
+  ['father', "Father's genotype"],
+  ['variant_class', 'Variant class'],
+];
 
-export const GenotypeMatrix: React.FC<{ stats: NiptVariantStatisticsOut }> = ({ stats }) => {
+const Swatch: React.FC<{ groupKey: string }> = ({ groupKey }) => (
+  <span className="nipt-swatch" style={{ background: groupColor(groupKey) }} aria-hidden="true" />
+);
+
+/** A share as a number beside a thin bar of the group's colour. */
+const ShareBar: React.FC<{ part: number; whole: number; groupKey?: string }> = ({
+  part,
+  whole,
+  groupKey,
+}) => (
+  <span className="nipt-share">
+    <span className="nipt-share-track" aria-hidden="true">
+      <span
+        className="nipt-share-fill"
+        style={{
+          width: `${whole ? Math.min(100, (part / whole) * 100) : 0}%`,
+          background: groupKey ? groupColor(groupKey) : 'var(--color-secondary)',
+        }}
+      />
+    </span>
+    <span className="nipt-share-value">{share(part, whole)}</span>
+  </span>
+);
+
+/** The groups one under another: per mother's genotype, each fetal genotype's groups, with
+ *  their count, share, expected and observed plasma allele fraction and confidence. */
+export const GroupTable: React.FC<{ stats: NiptVariantStatisticsOut }> = ({ stats }) => {
   const [split, setSplit] = React.useState<Split>('none');
   const total = stats.classified_sites;
-  const cell = (mother: Genotype, fetus: Genotype) =>
-    stats.groups.filter(
-      (group) => group.maternal_genotype === mother && group.fetal_genotype === fetus
-    );
+  const columns = split === 'none' ? 7 : 8;
   return (
     <div className="space-y-2">
       <div className="analysis-graph-toolbar">
         <span className="stat-label">Split each group by</span>
-        {(
-          [
-            ['none', 'Nothing'],
-            ['father', "Father's genotype"],
-            ['variant_class', 'Variant class'],
-          ] as const
-        ).map(([key, label]) => (
+        {SPLITS.map(([key, label]) => (
           <button
             key={key}
             type="button"
@@ -163,37 +161,80 @@ export const GenotypeMatrix: React.FC<{ stats: NiptVariantStatisticsOut }> = ({ 
         ))}
       </div>
       <div className="analysis-results-card overflow-x-auto">
-        <table className="analysis-table nipt-matrix" aria-label="Plasma sites by the mother's and the fetus's genotype">
+        <table
+          className="analysis-table table-sticky nipt-group-table"
+          aria-label="Plasma sites by the mother's and the fetus's genotype"
+        >
           <thead>
             <tr>
-              <th scope="col">Mother ↓ · fetus →</th>
-              {GENOTYPES.map((fetus) => (
-                <th key={fetus} scope="col">
-                  Fetus {GENOTYPE_LABEL[fetus].toLowerCase()}
-                </th>
-              ))}
+              <th scope="col">Fetus</th>
+              <th scope="col">Group</th>
+              <th scope="col" className="nipt-num">
+                Sites
+              </th>
+              <th scope="col">Share</th>
+              <th scope="col" className="nipt-num">
+                Expected VAF
+              </th>
+              <th scope="col" className="nipt-num">
+                Observed VAF
+              </th>
+              <th scope="col" className="nipt-num">
+                Confidence ≥ 0.99
+              </th>
+              {split !== 'none' ? <th scope="col">{SPLIT_HEADING[split]}</th> : null}
             </tr>
           </thead>
           <tbody>
-            {GENOTYPES.map((mother) => (
-              <tr key={mother}>
-                <th scope="row">Mother {GENOTYPE_LABEL[mother].toLowerCase()}</th>
-                {GENOTYPES.map((fetus) => {
-                  const groups = cell(mother, fetus);
-                  return groups.length ? (
-                    <td key={fetus}>
-                      {groups.map((group) => (
-                        <GroupEntry key={group.key} group={group} total={total} split={split} />
-                      ))}
+            {GENOTYPES.map((mother) => {
+              const rows = stats.groups
+                .filter((group) => group.maternal_genotype === mother)
+                .sort(
+                  (a, b) => GENOTYPES.indexOf(a.fetal_genotype) - GENOTYPES.indexOf(b.fetal_genotype)
+                );
+              if (!rows.length) return null;
+              const sites = rows.reduce((sum, group) => sum + group.sites, 0);
+              return (
+                <React.Fragment key={mother}>
+                  <tr className="variant-summary-group-row">
+                    <td colSpan={2}>{MOTHER_LABEL[mother]}</td>
+                    <td className="nipt-num">{formatCount(sites)}</td>
+                    <td>
+                      <ShareBar part={sites} whole={total} />
                     </td>
-                  ) : (
-                    <td key={fetus} className="nipt-matrix-empty">
-                      Not modelled
-                    </td>
-                  );
-                })}
-              </tr>
-            ))}
+                    <td colSpan={columns - 4} />
+                  </tr>
+                  {rows.map((group) => (
+                    <tr key={group.key}>
+                      <td className="nipt-group-fetus">{GENOTYPE_LABEL[group.fetal_genotype]}</td>
+                      <td>
+                        <span className="nipt-group-name">
+                          <Swatch groupKey={group.key} />
+                          {groupLabel(group)}
+                        </span>
+                      </td>
+                      <td className="nipt-num">{formatCount(group.sites)}</td>
+                      <td>
+                        <ShareBar part={group.sites} whole={total} groupKey={group.key} />
+                      </td>
+                      <td className="nipt-num">{vaf(group.expected_vaf)}</td>
+                      <td className="nipt-num">{vaf(group.observed_median_vaf)}</td>
+                      <td className="nipt-num">
+                        {group.sites ? share(group.high_confidence, group.sites) : '—'}
+                      </td>
+                      {split !== 'none' ? (
+                        <td className="table-subtle">{splitText(group, split) ?? '—'}</td>
+                      ) : null}
+                    </tr>
+                  ))}
+                </React.Fragment>
+              );
+            })}
+            <tr className="variant-summary-group-row">
+              <td colSpan={2}>All groups</td>
+              <td className="nipt-num">{formatCount(total)}</td>
+              <td colSpan={columns - 3} />
+            </tr>
           </tbody>
         </table>
       </div>
@@ -201,39 +242,55 @@ export const GenotypeMatrix: React.FC<{ stats: NiptVariantStatisticsOut }> = ({ 
   );
 };
 
-const HISTOGRAM = { width: 720, height: 240, left: 48, right: 12, top: 12, bottom: 36 };
+const CHART = { width: 760, height: 280, left: 56, right: 16, top: 30, bottom: 46 };
 
-/** The plasma allele fractions, stacked by group, with the fraction each category predicts at
- *  the family's fetal fraction drawn as a dashed line. */
+/** The expected allele fractions drawn as dashed lines, the categories that share one (de novo
+ *  and paternal, at FF/2) named together. */
+const expectedMarks = (groups: NiptStatisticsGroupOut[]) => {
+  const marks = new Map<string, { at: number; categories: number[] }>();
+  groups.forEach((group) => {
+    if (group.expected_vaf == null || group.category == null || !group.sites) return;
+    const key = group.expected_vaf.toFixed(3);
+    const mark = marks.get(key) ?? { at: group.expected_vaf, categories: [] };
+    mark.categories.push(group.category);
+    marks.set(key, mark);
+  });
+  return [...marks.values()].sort((a, b) => a.at - b.at);
+};
+
+/** The plasma allele fractions, stacked by group, with a dashed line where each category is
+ *  expected at the family's fetal fraction; hovering a bin lists its sites by group. */
 export const AlleleFractionHistogram: React.FC<{ stats: NiptVariantStatisticsOut }> = ({
   stats,
 }) => {
   const [logScale, setLogScale] = React.useState(false);
+  const [hover, setHover] = React.useState<{ bin: number; x: number; y: number } | null>(null);
   const groups = stats.groups.filter((group) => group.vaf_histogram.some((count) => count > 0));
   const bins = Math.max(0, ...stats.groups.map((group) => group.vaf_histogram.length));
+  const binWidth = stats.vaf_bin_width;
   const totals = Array.from({ length: bins }, (_, bin) =>
     groups.reduce((sum, group) => sum + (group.vaf_histogram[bin] ?? 0), 0)
   );
-  const scale = (count: number) => (logScale ? Math.log10(1 + count) : count);
-  const top = Math.max(1, ...totals.map(scale));
-  const { width, height, left, right, top: padTop, bottom } = HISTOGRAM;
-  const plotWidth = width - left - right;
-  const plotHeight = height - padTop - bottom;
-  const x = (fraction: number) => left + fraction * plotWidth;
-  const y = (value: number) => padTop + plotHeight - (value / top) * plotHeight;
-  const binWidth = bins ? plotWidth / bins : 0;
-  const expected = stats.groups.filter((group) => group.expected_vaf != null && group.sites > 0);
-  const ticks = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1];
+  const sites = totals.reduce((sum, count) => sum + count, 0);
+  const { width, height, left, right, top, bottom } = CHART;
+  const peak = Math.max(1, ...totals);
+  const x = d3.scaleLinear().domain([0, 1]).range([left, width - right]);
+  const y = logScale
+    ? d3.scaleSymlog().constant(1).domain([0, peak]).range([height - bottom, top])
+    : d3.scaleLinear().domain([0, peak]).nice().range([height - bottom, top]);
   const yTicks = logScale
-    ? [1, 10, 100, 1000, 10000].filter((tick) => Math.log10(1 + tick) <= top)
-    : d3.scaleLinear().domain([0, top]).ticks(4).filter((tick) => Number.isInteger(tick));
+    ? [0, 1, 10, 100, 1000, 10000, 100000].filter((tick) => tick <= peak)
+    : y.ticks(5).filter((tick) => Number.isInteger(tick));
+  const barWidth = Math.max(x(binWidth) - x(0) - 1, 0.5);
+  const marks = expectedMarks(stats.groups);
+  const hovered = hover ? hover.bin : null;
   return (
     <div className="space-y-2">
       <div className="analysis-graph-toolbar">
         <div className="nipt-legend">
           {groups.map((group) => (
             <span key={group.key} className="nipt-legend-item">
-              <span className="nipt-swatch" style={{ background: groupColor(group.key) }} aria-hidden="true" />
+              <Swatch groupKey={group.key} />
               {groupLabel(group)}
             </span>
           ))}
@@ -242,21 +299,31 @@ export const AlleleFractionHistogram: React.FC<{ stats: NiptVariantStatisticsOut
           {logScale ? 'Linear scale' : 'Log scale'}
         </button>
       </div>
-      <div className="viz-panel">
+      <div className="viz-panel nipt-vaf-scroll">
         <svg
+          className="nipt-vaf-chart"
           viewBox={`0 0 ${width} ${height}`}
-          width="100%"
           role="img"
-          aria-label={`Plasma allele fractions of ${formatCount(totals.reduce((a, b) => a + b, 0))} sites, stacked by group, with the expected fraction of each category at the fetal fraction`}
+          aria-label={`Plasma allele fractions of ${formatCount(sites)} sites in bins of ${binWidth}, stacked by group, with the expected fraction of each category at the fetal fraction`}
+          onMouseLeave={() => setHover(null)}
         >
           {yTicks.map((tick) => (
             <g key={`y-${tick}`}>
-              <line x1={left} x2={width - right} y1={y(scale(tick))} y2={y(scale(tick))} stroke="var(--color-grid)" />
-              <text x={left - 6} y={y(scale(tick)) + 3} textAnchor="end" fontSize="10" fill="var(--color-text-muted)">
+              <line className="nipt-vaf-grid" x1={left} x2={width - right} y1={y(tick)} y2={y(tick)} />
+              <text x={left - 8} y={y(tick) + 4} textAnchor="end">
                 {formatCount(tick)}
               </text>
             </g>
           ))}
+          {hovered != null ? (
+            <rect
+              className="nipt-vaf-hover"
+              x={x(hovered * binWidth)}
+              width={x(binWidth) - x(0)}
+              y={top}
+              height={height - bottom - top}
+            />
+          ) : null}
           {totals.map((_total, bin) => {
             let base = 0;
             return groups.map((group) => {
@@ -267,41 +334,79 @@ export const AlleleFractionHistogram: React.FC<{ stats: NiptVariantStatisticsOut
               return (
                 <rect
                   key={`${group.key}-${bin}`}
-                  x={left + bin * binWidth + 0.5}
-                  width={Math.max(binWidth - 1, 0.5)}
-                  y={y(scale(base))}
-                  height={Math.max(y(scale(lower)) - y(scale(base)), 0)}
+                  data-bin={bin}
+                  data-group={group.key}
+                  x={x(bin * binWidth) + 0.5}
+                  width={barWidth}
+                  y={y(base)}
+                  height={Math.max(y(lower) - y(base), 0)}
                   fill={groupColor(group.key)}
-                >
-                  <title>{`${groupLabel(group)}: ${formatCount(count)} sites at ${(bin * stats.vaf_bin_width).toFixed(2)}–${((bin + 1) * stats.vaf_bin_width).toFixed(2)}`}</title>
-                </rect>
+                />
               );
             });
           })}
-          {expected.map((group) => (
-            <line
-              key={`expected-${group.key}`}
-              x1={x(group.expected_vaf ?? 0)}
-              x2={x(group.expected_vaf ?? 0)}
-              y1={padTop}
-              y2={padTop + plotHeight}
-              stroke="var(--color-text-muted)"
-              strokeDasharray="4 3"
-            >
-              <title>{`${groupLabel(group)}: expected ${vaf(group.expected_vaf)}`}</title>
-            </line>
+          {marks.map((mark) => (
+            <g key={`expected-${mark.at}`} className="nipt-vaf-expected">
+              <line x1={x(mark.at)} x2={x(mark.at)} y1={top - 4} y2={height - bottom} />
+              <text className="nipt-vaf-expected-label" x={x(mark.at)} y={top - 10} textAnchor="middle">
+                {mark.categories.join('/')}
+              </text>
+            </g>
           ))}
-          <line x1={left} x2={width - right} y1={padTop + plotHeight} y2={padTop + plotHeight} stroke="var(--color-axis)" />
-          {ticks.map((tick) => (
-            <text key={`x-${tick}`} x={x(tick)} y={padTop + plotHeight + 14} textAnchor="middle" fontSize="10" fill="var(--color-text-muted)">
-              {tick.toFixed(1)}
-            </text>
-          ))}
-          <text x={left + plotWidth / 2} y={height - 4} textAnchor="middle" fontSize="11" fill="var(--color-text-muted)">
+          <line className="nipt-vaf-axis" x1={left} x2={width - right} y1={height - bottom} y2={height - bottom} />
+          {d3.range(0, 11).map((step) => {
+            const tick = step / 10;
+            return (
+              <g key={`x-${step}`}>
+                <line className="nipt-vaf-axis" x1={x(tick)} x2={x(tick)} y1={height - bottom} y2={height - bottom + 4} />
+                <text x={x(tick)} y={height - bottom + 17} textAnchor="middle">
+                  {tick.toFixed(1)}
+                </text>
+              </g>
+            );
+          })}
+          <text className="nipt-vaf-axis-title" x={left + (width - left - right) / 2} y={height - 8} textAnchor="middle">
             Plasma allele fraction
           </text>
+          <text
+            className="nipt-vaf-axis-title"
+            transform={`translate(14 ${top + (height - bottom - top) / 2}) rotate(-90)`}
+            textAnchor="middle"
+          >
+            {logScale ? 'Sites (log scale)' : 'Sites'}
+          </text>
+          {totals.map((_total, bin) => (
+            <rect
+              key={`hit-${bin}`}
+              className="nipt-vaf-hit"
+              x={x(bin * binWidth)}
+              width={x(binWidth) - x(0)}
+              y={top}
+              height={height - bottom - top}
+              onMouseMove={(event) => setHover({ bin, x: event.clientX, y: event.clientY })}
+            />
+          ))}
         </svg>
       </div>
+      {hover && totals[hover.bin] ? (
+        <VizTooltip x={hover.x} y={hover.y}>
+          <p className="font-semibold">
+            {(hover.bin * binWidth).toFixed(2)}–{((hover.bin + 1) * binWidth).toFixed(2)} ·{' '}
+            {formatCount(totals[hover.bin])} sites
+          </p>
+          {groups
+            .filter((group) => group.vaf_histogram[hover.bin])
+            .map((group) => (
+              <p key={group.key} className="nipt-tip-row">
+                <span className="nipt-group-name">
+                  <Swatch groupKey={group.key} />
+                  {groupLabel(group)}
+                </span>
+                <span>{formatCount(group.vaf_histogram[hover.bin])}</span>
+              </p>
+            ))}
+        </VizTooltip>
+      ) : null}
     </div>
   );
 };
@@ -333,10 +438,10 @@ export const TransmissionTable: React.FC<{ stats: NiptVariantStatisticsOut }> = 
         <thead>
           <tr>
             <th>Chromosome</th>
-            <th className="text-center">Father’s het alleles inherited</th>
-            <th className="text-center">Father’s hom-alt alleles inherited</th>
-            <th className="text-center">Mother’s het alleles inherited</th>
-            <th className="text-center">Fetus hom alt</th>
+            <th className="nipt-num">Father’s het alleles inherited</th>
+            <th className="nipt-num">Father’s hom-alt alleles inherited</th>
+            <th className="nipt-num">Mother’s het alleles inherited</th>
+            <th className="nipt-num">Fetus hom alt</th>
             <th>Marked</th>
           </tr>
         </thead>
@@ -344,16 +449,16 @@ export const TransmissionTable: React.FC<{ stats: NiptVariantStatisticsOut }> = 
           {stats.chromosomes.map((row) => (
             <tr key={row.chrom} className={row.marks.length ? 'nipt-transmission-marked' : undefined}>
               <td>{row.chrom}</td>
-              <td className="text-center">
+              <td className="nipt-num">
                 {ratio(row.paternal_het_transmitted, row.paternal_het_transmitted + row.paternal_het_not_transmitted)}
               </td>
-              <td className="text-center">
+              <td className="nipt-num">
                 {ratio(row.paternal_hom_alt_transmitted, row.paternal_hom_alt_transmitted + row.paternal_hom_alt_not_transmitted)}
               </td>
-              <td className="text-center">
+              <td className="nipt-num">
                 {ratio(row.maternal_het_inherited, row.maternal_het_inherited + row.maternal_het_not_inherited)}
               </td>
-              <td className="text-center">{formatCount(row.fetal_hom_alt)}</td>
+              <td className="nipt-num">{formatCount(row.fetal_hom_alt)}</td>
               <td>
                 {row.marks.map((mark) => (
                   <span key={mark} className="table-chip table-chip--warning">
@@ -365,10 +470,10 @@ export const TransmissionTable: React.FC<{ stats: NiptVariantStatisticsOut }> = 
           ))}
           <tr className="variant-summary-group-row">
             <td>Autosomes</td>
-            <td className="text-center">{ratio(totals.paternalHet, totals.paternalHetAll)}</td>
-            <td className="text-center">{ratio(totals.paternalHom, totals.paternalHomAll)}</td>
-            <td className="text-center">{ratio(totals.maternal, totals.maternalAll)}</td>
-            <td className="text-center">{formatCount(totals.fetalHomAlt)}</td>
+            <td className="nipt-num">{ratio(totals.paternalHet, totals.paternalHetAll)}</td>
+            <td className="nipt-num">{ratio(totals.paternalHom, totals.paternalHomAll)}</td>
+            <td className="nipt-num">{ratio(totals.maternal, totals.maternalAll)}</td>
+            <td className="nipt-num">{formatCount(totals.fetalHomAlt)}</td>
             <td />
           </tr>
         </tbody>
@@ -388,7 +493,7 @@ const CountTable: React.FC<{ title: string; rows: [React.ReactNode, React.ReactN
         {rows.map(([label, value], index) => (
           <tr key={index}>
             <td>{label}</td>
-            <td className="text-right">{value}</td>
+            <td className="nipt-num">{value}</td>
           </tr>
         ))}
       </tbody>
@@ -541,18 +646,21 @@ const VariantSummaryNipt: React.FC<{ familyId: string; projectId?: string | null
 
           <h3 className="font-semibold">Mother and fetus</h3>
           <p className="analysis-count">
-            Each group with its share of the grouped sites, the plasma allele fraction its
-            category predicts at this fetal fraction beside the median observed, and the share
-            classified with a confidence of 0.99 or more. A low share in the mother’s het row means
-            the fetal fraction separates those groups poorly.
+            The groups one under another, by the mother’s genotype and then the fetus’s: each with
+            its sites and share, the plasma allele fraction (VAF) its category predicts at this
+            fetal fraction beside the median observed, and the share classified with a confidence
+            of 0.99 or more. A low share for the mother’s het groups means the fetal fraction
+            separates them poorly. A hom-ref mother with a hom-alt fetus, or a hom-alt mother with
+            a hom-ref fetus, is not modelled.
           </p>
-          <GenotypeMatrix stats={stats} />
+          <GroupTable stats={stats} />
 
           <h3 className="font-semibold">Plasma allele fraction</h3>
           <p className="analysis-count">
-            Each group’s sites by their plasma allele fraction; the dashed lines are where the
-            categories are expected at this fetal fraction. Peaks off their lines mean the fetal
-            fraction or the classes do not fit the data.
+            Each group’s sites by their plasma allele fraction, in bins of{' '}
+            {stats.vaf_bin_width}. The dashed lines, numbered by category, are where the categories
+            are expected at this fetal fraction: peaks off their lines mean the fetal fraction or
+            the classes do not fit the data. Hover a bin for its sites by group.
           </p>
           <AlleleFractionHistogram stats={stats} />
 

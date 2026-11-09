@@ -44,9 +44,10 @@ from .nipt_analysis import (
     trusted_father_state,
 )
 
-# The histogram's bins of plasma allele fraction (50 from 0 to 1).
-VAF_BIN_WIDTH = 0.02
-_VAF_BINS = 50
+# The histogram's bins of plasma allele fraction (100 from 0 to 1): narrow enough to show the
+# category-7 peak at FF/2 and the maternal het band's three peaks, FF/2 apart, as peaks.
+VAF_BIN_WIDTH = 0.01
+_VAF_BINS = 100
 # A classification at or above this confidence counts as high confidence.
 HIGH_CONFIDENCE = 0.99
 # An autosome is marked when none of a parent's alleles reached the fetus over at least this
@@ -66,7 +67,7 @@ class _Group:
     fetal: Genotype
 
 
-# The mother x fetus matrix, row by row (the mother hom-ref, het, hom-alt).
+# The groups by the mother's genotype (hom-ref, het, hom-alt) and then the fetus's.
 GROUPS: tuple[_Group, ...] = (
     _Group("8", 8, "hom_ref", "hom_ref"),
     _Group(PATERNAL_NOT_TRANSMITTED, None, "hom_ref", "hom_ref"),
@@ -110,7 +111,7 @@ class NiptVariantStatistics:
 
 
 def group_of(classification: NiptClassification) -> _Group | None:
-    """The matrix group of a site's classification, or None when it has none: a category,
+    """The group of a site's classification, or None when it has none: a category,
     or the father's allele the fetus did not inherit (no category, and not merely too thin
     to see at the fetal fraction)."""
     if classification.category is not None:
@@ -131,8 +132,8 @@ def not_classified_reason(classification: NiptClassification) -> str:
 
 
 def vaf_bin(vaf: float) -> int:
-    """The histogram bin of an allele fraction; one on a bin's lower edge is that bin's (0.06
-    divided by 0.02 is 2.9999… in floating point, so the division is rounded first)."""
+    """The histogram bin of an allele fraction; one on a bin's lower edge is that bin's (0.29
+    divided by 0.01 is 28.9999… in floating point, so the division is rounded first)."""
     return min(max(int(round(vaf / VAF_BIN_WIDTH, 9)), 0), _VAF_BINS - 1)
 
 

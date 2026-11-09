@@ -175,7 +175,7 @@ class NiptStatisticsGroupOut(BaseModel):
     """One group of the plasma's sites by the mother's and the fetus's genotype: a category
     of the NIPT analysis (``category``), or the father's het alleles the fetus did not
     inherit (``key`` ``paternal_not_transmitted``, no category). The NIPT-M tab of the
-    variant summary draws them as a mother x fetus matrix."""
+    variant summary lists them by the mother's genotype and then the fetus's."""
 
     key: str
     category: Optional[int] = None

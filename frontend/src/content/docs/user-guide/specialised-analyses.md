@@ -186,12 +186,13 @@ sign-out reads them.
   writes 0/1 on every call, and the plasma holds the mother's and the fetus's DNA), so the genotypes
   come from the allele fractions.
   - The fetal fraction, the sites grouped, the fetal sex and paternity.
-  - *Mother and fetus*: the groups as a matrix of the mother's genotype against the fetus's, each
-    with its share, the plasma allele fraction its category predicts beside the median observed, and
-    the share classified with a confidence of 0.99 or more. Each group can be split by the father's
-    genotype or the variant class.
-  - *Plasma allele fraction*: a histogram stacked by group, with a dashed line where each category is
-    expected. Peaks off their lines mean the fetal fraction or the classes do not fit.
+  - *Mother and fetus*: the groups one under another, by the mother's genotype and then the fetus's,
+    each with its sites and share, the plasma allele fraction its category predicts beside the median
+    observed, and the share classified with a confidence of 0.99 or more. Each group can be split by
+    the father's genotype or the variant class.
+  - *Plasma allele fraction*: a histogram in bins of 0.01, stacked by group, with a dashed line,
+    numbered by category, where each category is expected. Peaks off their lines mean the fetal
+    fraction or the classes do not fit. Hover a bin for its sites by group.
   - *Transmission by chromosome*: per autosome, the father's het and hom-alt alleles the fetus
     inherited, the mother's het alleles, and the fetus's hom-alt sites. An autosome where none of a
     parent's alleles reached the fetus over at least 20 sites is marked: it can point to uniparental
