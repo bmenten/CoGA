@@ -974,3 +974,175 @@ def test_needlr_query_resolves_to_the_family_sample_by_the_shared_rule(query_id:
 
     samples = {"S1", "S1_A", "S10"}
     assert _needlr_query_sample_id({"Query_ID": query_id}, samples) == expected
+
+
+# ---------------------------------------------------------------------------
+# nf-LRSvar trios: per-sample alignment folders, the family's DeepVariant callset, and
+# the records of the Nextflow run that completed
+# ---------------------------------------------------------------------------
+
+TRIO_FAMILY = "FAM001"
+TRIO = ("PROBAND", "MOTHER", "FATHER1")
+
+
+def _gz_text(path: Path, text: str) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(gzip.compress(text.encode("utf-8")))
+    return path
+
+
+def _trio_snv_vcf(*, extra_header: str = "") -> str:
+    return (
+        "##fileformat=VCFv4.2\n"
+        '##FILTER=<ID=PASS,Description="All filters passed">\n'
+        '##FILTER=<ID=RefCall,Description="Genotyping model thinks this site is reference.">\n'
+        '##FILTER=<ID=NoCall,Description="Site has depth=0 resulting in no call.">\n'
+        '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
+        '##FORMAT=<ID=PS,Number=1,Type=Integer,Description="Phase set">\n'
+        "##DeepVariant_version=1.10.0\n"
+        "##bcftools_mergeVersion=1.22+htslib-1.22.1\n"
+        '##commandline="(whatshap 2.8) phase --ped pedigree.ped -o FAM001_phased.vcf.gz"\n'
+        + extra_header
+        + "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t"
+        + "\t".join(TRIO)
+        + "\n"
+        # Phased genotypes from the first record on: the loader alone would read them as
+        # imputed (a phased file says it was phased).
+        "chr1\t100\t.\tA\tG\t30\tPASS\t.\tGT:PS\t0|1:100\t0|1:100\t0|0:.\n"
+    )
+
+
+def _trio_payload(root: Path) -> tuple[dict, list]:
+    _touch(
+        root / "family.ped",
+        f"{TRIO_FAMILY}\tPROBAND\tFATHER1\tMOTHER\t1\t2\n"
+        f"{TRIO_FAMILY}\tMOTHER\t0\t0\t2\t1\n"
+        f"{TRIO_FAMILY}\tFATHER1\t0\t0\t1\t1\n",
+    )
+    return _build_manifest_payload(
+        root=root,
+        family_id=TRIO_FAMILY,
+        ped_relative_path="family.ped",
+        sample_ids=list(TRIO),
+        naming_scheme="standard_v1",
+        hpo_terms=[],
+        notes=None,
+    )
+
+
+def test_alignments_are_found_in_a_folder_per_sample(tmp_path: Path) -> None:
+    for sample in ("PROBAND", "MOTHER"):
+        _touch(tmp_path / f"bams/{sample}/{sample}.cram")
+        _touch(tmp_path / f"bams/{sample}/{sample}.cram.crai")
+    # The proband's phased BAM beside its CRAM, and a father with only a phased BAM: a
+    # sibling named after the sample is never taken for the sample's alignment.
+    _touch(tmp_path / "bams/PROBAND/PROBAND_phased.bam")
+    _touch(tmp_path / "bams/PROBAND/PROBAND_phased.bam.bai")
+    _touch(tmp_path / "bams/FATHER1/FATHER1_phased.bam")
+
+    payload, availability = _trio_payload(tmp_path)
+
+    alignments = payload["datasets"]["alignments"]
+    assert alignments["per_sample"] == {
+        sample: {"file": f"bams/{sample}/{sample}.cram", "index": f"bams/{sample}/{sample}.cram.crai"}
+        for sample in ("PROBAND", "MOTHER")
+    }
+    item = next(entry for entry in availability if entry.dataset_type == "alignments")
+    assert "FATHER1" not in item.samples
+
+
+def test_a_family_vcf_of_deepvariant_calls_is_the_primary_callset_without_its_non_variant_records(
+    tmp_path: Path,
+) -> None:
+    _gz_text(tmp_path / f"snv/{TRIO_FAMILY}_phased.vcf.gz", _trio_snv_vcf())
+    _touch(tmp_path / f"snv/{TRIO_FAMILY}_phased.vcf.gz.tbi")
+
+    payload, _availability = _trio_payload(tmp_path)
+
+    snv = payload["datasets"]["snv"]
+    assert snv["family_vcf"] == f"snv/{TRIO_FAMILY}_phased.vcf.gz"
+    assert snv["source_format"] == "clair3"
+    assert snv["exclude_filters"] == ["RefCall", "NoCall"]
+
+
+@pytest.mark.parametrize(
+    "extra_header",
+    [
+        # Genotype posteriors: the loader reads the file as imputed.
+        '##FORMAT=<ID=GP,Number=G,Type=Float,Description="Genotype posteriors">\n',
+        # Imputed or statistically phased after calling.
+        "##source=GLIMPSE2 phase\n",
+        '##commandline="beagle gt=FAM001.vcf.gz out=FAM001_phased"\n',
+    ],
+)
+def test_an_imputed_family_vcf_is_left_to_the_loaders_own_reading(tmp_path: Path, extra_header: str) -> None:
+    _gz_text(tmp_path / f"snv/{TRIO_FAMILY}_phased.vcf.gz", _trio_snv_vcf(extra_header=extra_header))
+
+    payload, _availability = _trio_payload(tmp_path)
+
+    snv = payload["datasets"]["snv"]
+    assert "source_format" not in snv and "exclude_filters" not in snv
+
+
+def test_a_family_vcf_another_caller_made_is_left_to_the_loaders_own_reading(tmp_path: Path) -> None:
+    _gz_text(
+        tmp_path / f"snv/{TRIO_FAMILY}_phased.vcf.gz",
+        _trio_snv_vcf().replace("##DeepVariant_version=1.10.0\n", "##source=GATK HaplotypeCaller\n"),
+    )
+
+    payload, _availability = _trio_payload(tmp_path)
+
+    assert "source_format" not in payload["datasets"]["snv"]
+
+
+def _nextflow_report(*, completed: bool) -> str:
+    # The verdict comes after some hundred kB of inlined scripts, as in Nextflow's reports.
+    verdict = "completed successfully!" if completed else "completed unsuccessfully!"
+    return "<html><script>" + "x" * 200_000 + f"</script><h4>Workflow execution {verdict}</h4></html>"
+
+
+def _write_nextflow_runs(root: Path, runs: dict[str, bool | None]) -> None:
+    """One start of a resumed Nextflow session per stamp: its trace, its params some seconds
+    later, and a report saying whether it completed (none for ``None``: a start that ended
+    before writing one)."""
+    for stamp, completed in runs.items():
+        _touch(root / f"pipeline_info/execution_trace_{stamp}.txt", "task_id\thash\n")
+        _touch(root / f"pipeline_info/params_{stamp[:-2]}{int(stamp[-2:]) + 11:02d}.json", '{"genome": "GRCh38"}')
+        if completed is not None:
+            _touch(root / f"pipeline_info/execution_report_{stamp}.html", _nextflow_report(completed=completed))
+    _touch(root / "pipeline_info/software_versions.yaml", "Workflow:\n  nf-cmgg/LRSvar: v1.0.0\n")
+
+
+def test_pipeline_info_names_the_records_of_the_run_that_completed(tmp_path: Path) -> None:
+    _write_nextflow_runs(
+        tmp_path,
+        {
+            "2026-01-01_10-00-00": False,
+            "2026-01-02_10-00-00": True,
+            "2026-01-03_09-00-00": None,
+            "2026-01-04_10-00-00": False,
+        },
+    )
+
+    payload, availability = _trio_payload(tmp_path)
+
+    assert payload["datasets"]["pipeline_info"] == {
+        "enabled": True,
+        "params": "pipeline_info/params_2026-01-02_10-00-11.json",
+        "versions": "pipeline_info/software_versions.yaml",
+        "execution_trace": "pipeline_info/execution_trace_2026-01-02_10-00-00.txt",
+        "execution_report": "pipeline_info/execution_report_2026-01-02_10-00-00.html",
+    }
+    item = next(entry for entry in availability if entry.dataset_type == "pipeline_info")
+    assert item.message is not None and "2026-01-02_10-00-00, the last that completed" in item.message
+
+
+def test_pipeline_info_without_a_completed_run_names_the_newest_records(tmp_path: Path) -> None:
+    _write_nextflow_runs(tmp_path, {"2026-01-01_10-00-00": False, "2026-01-02_10-00-00": False})
+
+    payload, _availability = _trio_payload(tmp_path)
+
+    block = payload["datasets"]["pipeline_info"]
+    assert block["execution_report"] == "pipeline_info/execution_report_2026-01-02_10-00-00.html"
+    assert block["execution_trace"] == "pipeline_info/execution_trace_2026-01-02_10-00-00.txt"
+    assert block["params"] == "pipeline_info/params_2026-01-02_10-00-11.json"

@@ -462,6 +462,10 @@ NAMING_SCHEMES: dict[str, dict[str, Any]] = {
                 "file": [
                     "bams/{sample_id}.cram",
                     "bams/{sample_id}.bam",
+                    # nf-LRSvar trios: one folder per sample. Literal names, so a sibling
+                    # (<sample>_phased.bam) is never taken for the sample's alignment.
+                    "bams/{sample_id}/{sample_id}.cram",
+                    "bams/{sample_id}/{sample_id}.bam",
                     "alignments/{sample_id}.cram",
                     "alignments/{sample_id}.bam",
                     # The PGT pipeline's per-sample CRAMs; a suffix after the sample id
@@ -475,6 +479,8 @@ NAMING_SCHEMES: dict[str, dict[str, Any]] = {
                 "index": [
                     "bams/{sample_id}.cram.crai",
                     "bams/{sample_id}.bam.bai",
+                    "bams/{sample_id}/{sample_id}.cram.crai",
+                    "bams/{sample_id}/{sample_id}.bam.bai",
                     "alignments/{sample_id}.cram.crai",
                     "alignments/{sample_id}.bam.bai",
                     "cram/{sample_id}.cram.crai",
@@ -1144,23 +1150,46 @@ def _per_sample_callset_availability(
 _NON_VARIANT_FILTERS = ("RefCall", "NoCall")
 
 
-def _declared_filters(path: Path) -> set[str]:
-    """The FILTER ids a VCF's header declares, read from its header only."""
-    declared: set[str] = set()
+def _vcf_meta_lines(path: Path) -> list[str]:
+    """A VCF's ``##`` header lines, read from its header only; none when it cannot be read."""
+    lines: list[str] = []
     try:
         with package_text_handle(path) as handle:
             for line in handle:
                 if not line.startswith("##"):
                     break
-                match = _FILTER_ID.match(line)
-                if match:
-                    declared.add(match.group(1))
+                lines.append(line.rstrip("\n\r"))
     except (OSError, EOFError, UnicodeError):
-        return set()
-    return declared
+        return []
+    return lines
+
+
+def _declared_filters(path: Path) -> set[str]:
+    """The FILTER ids a VCF's header declares, read from its header only."""
+    return {match.group(1) for line in _vcf_meta_lines(path) if (match := _FILTER_ID.match(line))}
 
 
 _FILTER_ID = re.compile(r"##FILTER=<ID=([^,>]+)")
+# The header lines that describe a field, a filter or a contig: their free text says
+# nothing about the tool that wrote the file.
+_FIELD_DECLARATION = re.compile(r"##(INFO|FORMAT|FILTER|ALT|contig)=", re.IGNORECASE)
+_IMPUTATION_TOOL = re.compile(r"glimpse|beagle|impute|minimac|shapeit", re.IGNORECASE)
+
+
+def _is_deepvariant_direct_callset(path: Path) -> bool:
+    """Whether a family VCF is DeepVariant's own calls (``##DeepVariant_version``, also once
+    merged and phased by read-based phasing, as nf-LRSvar's trio callset is), not imputed
+    genotypes: its header declares no genotype posteriors (FORMAT ``GP``, which the loader
+    reads as imputed) and names no imputation or statistical phasing tool. Only such a file
+    is declared the primary callset without the loader's own reading of it."""
+    lines = _vcf_meta_lines(path)
+    if not any(line.startswith("##DeepVariant_version=") for line in lines):
+        return False
+    if any(line.startswith("##FORMAT=<ID=GP,") for line in lines):
+        return False
+    return not any(
+        _IMPUTATION_TOOL.search(line) for line in lines if not _FIELD_DECLARATION.match(line)
+    )
 
 
 def _with_long_read_snv_settings(
@@ -1170,11 +1199,14 @@ def _with_long_read_snv_settings(
     sample_ids: list[str],
     patterns: dict[str, list[str]],
 ) -> dict[str, Any]:
-    """The ``snv`` block with what the long-read pipeline's per-sample annotated callsets
-    need: ``source_format: clair3`` (a phased primary callset would otherwise be guessed
-    imputed and hidden from the diagnostic views, and a per-sample callset is read only so
-    declared) and ``exclude_filters`` for the DeepVariant records without a variant. Any
-    other callset's block is returned as it is."""
+    """The ``snv`` block with what a long-read callset needs: ``source_format: clair3`` (a
+    phased primary callset would otherwise be guessed imputed and hidden from the diagnostic
+    views, and a per-sample callset is read only so declared) and ``exclude_filters`` for
+    the DeepVariant records without a variant. It applies to the long-read pipeline's
+    per-sample annotated callsets, and to a family VCF of DeepVariant's own calls
+    (``_is_deepvariant_direct_callset``: nf-LRSvar's merged, phased trio callset). Any other
+    callset's block, imputed genotypes among them, is returned as it is; what the block
+    already says wins."""
     per_sample = block.get("per_sample")
     if isinstance(per_sample, dict) and per_sample and not block.get("family_vcf"):
         paths = [entry.get("vcf") for entry in per_sample.values() if isinstance(entry, dict)]
@@ -1184,7 +1216,14 @@ def _with_long_read_snv_settings(
             for pattern in patterns["sample_vcf"]
             for sample_id in sample_ids
         }
-        paths = [block["family_vcf"]] if block.get("family_vcf") in long_read_paths else []
+        family_vcf = block.get("family_vcf")
+        family_path = package_path_within(root, family_vcf) if isinstance(family_vcf, str) else None
+        if family_vcf in long_read_paths or (
+            family_path is not None and family_path.is_file() and _is_deepvariant_direct_callset(family_path)
+        ):
+            paths = [family_vcf]
+        else:
+            paths = []
     resolved = [package_path_within(root, value) for value in paths if isinstance(value, str)]
     files = [path for path in resolved if path is not None and path.is_file()]
     if not files:
@@ -1203,27 +1242,96 @@ def _family_role_dataset_availability(
     family_id: str,
     dataset_type: str,
     patterns: dict[str, list[str]],
+    chosen: dict[str, str] | None = None,
+    chosen_note: str | None = None,
 ) -> tuple[FamilyManifestDatasetAvailability, dict[str, Any]]:
-    """Family-level dataset whose roles are independent optional files (pipeline_info)."""
+    """Family-level dataset whose roles are independent optional files (pipeline_info).
+    ``chosen`` names a role's file outright (the completed run's, for pipeline_info), in
+    place of the first file its patterns find; ``chosen_note`` is added to the message."""
     files: list[FamilyManifestFileAvailability] = []
     block: dict[str, Any] = {}
     for role, candidates in patterns.items():
-        path_value, exists = _choose_candidate_path(root, candidates, family_id=family_id)
+        if chosen and role in chosen:
+            path_value, exists = chosen[role], True
+        else:
+            path_value, exists = _choose_candidate_path(root, candidates, family_id=family_id)
         if not exists:
             continue
         files.append(_availability_file(root=root, role=role, path_value=path_value))
         block[role] = path_value
     complete = bool(block)
+    message = "Available" if complete else f"No {dataset_type} files were found"
+    if complete and chosen_note:
+        message += f"; {chosen_note}"
     return (
         FamilyManifestDatasetAvailability(
             dataset_type=dataset_type,
             enabled=complete,
             complete=complete,
             files=files,
-            message="Available" if complete else f"No {dataset_type} files were found",
+            message=message,
         ),
         {"enabled": complete, **block},
     )
+
+
+# Nextflow names its run records after the run's start: ``execution_report_<stamp>.html``,
+# ``execution_trace_<stamp>.txt``, and ``params_<stamp>.json`` a few seconds later.
+_NEXTFLOW_STAMP = re.compile(r"_(\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})\.[a-z]+$")
+_NEXTFLOW_COMPLETED = b"Workflow execution completed successfully"
+# The report says how the run ended after its inlined scripts and styles, about 140 kB into
+# a report of some MB: a prefix this long holds it, and no report is read whole.
+_NEXTFLOW_REPORT_PREFIX_BYTES = 1024 * 1024
+
+
+def _nextflow_stamped(root: Path, pattern: str) -> dict[str, str]:
+    """The package's run records ``pattern`` matches, by the stamp in their names."""
+    stamped: dict[str, str] = {}
+    for value in _glob_candidate_paths(root, pattern):
+        match = _NEXTFLOW_STAMP.search(value)
+        if match:
+            stamped[match.group(1)] = value
+    return stamped
+
+
+def _nextflow_report_completed(root: Path, value: str) -> bool:
+    """Whether a Nextflow execution report says its run completed, from a bounded prefix."""
+    path = package_path_within(root, value)
+    if path is None or not path.is_file():
+        return False
+    try:
+        with path.open("rb") as handle:
+            return _NEXTFLOW_COMPLETED in handle.read(_NEXTFLOW_REPORT_PREFIX_BYTES)
+    except OSError:
+        return False
+
+
+def _completed_nextflow_run(root: Path) -> tuple[dict[str, str], str | None]:
+    """The run records of the last Nextflow run that completed, by ``pipeline_info`` role,
+    and a note saying which run it is; nothing when no report says a run completed.
+
+    A resumed Nextflow session writes a report, a trace and a params file for every start,
+    failed ones included, so the newest of each can come from three different runs. The
+    run is the newest one whose report says it completed: its report, the trace of the same
+    stamp, and the params written at its start (the first params at or after its stamp and
+    before the next start; else the last before it)."""
+    reports = _nextflow_stamped(root, "pipeline_info/execution_report_*.html")
+    completed = [stamp for stamp in sorted(reports) if _nextflow_report_completed(root, reports[stamp])]
+    if not completed:
+        return {}, None
+    stamp = completed[-1]
+    traces = _nextflow_stamped(root, "pipeline_info/execution_trace_*.txt")
+    params = _nextflow_stamped(root, "pipeline_info/params_*.json")
+    later_starts = sorted(value for value in {*reports, *traces} if value > stamp)
+    next_start = later_starts[0] if later_starts else None
+    chosen = {"execution_report": reports[stamp]}
+    if stamp in traces:
+        chosen["execution_trace"] = traces[stamp]
+    in_run = [value for value in sorted(params) if value >= stamp and (next_start is None or value < next_start)]
+    before = [value for value in sorted(params) if value < stamp]
+    if in_run or before:
+        chosen["params"] = params[in_run[0] if in_run else before[-1]]
+    return chosen, f"the records of the run started {stamp}, the last that completed"
 
 
 def _qdnaseq_dataset_availability(
@@ -1483,7 +1591,11 @@ def _build_manifest_payload(
     naming_scheme: str,
     hpo_terms: list[str],
     notes: str | None,
+    newest_run_records: bool = False,
 ) -> tuple[dict[str, Any], list[FamilyManifestDatasetAvailability]]:
+    """The manifest's datasets as Discover drafts them, and what it found for each.
+    ``pipeline_info`` names the records of the last Nextflow run that completed
+    (``_completed_nextflow_run``), or with ``newest_run_records`` the newest of each."""
     scheme = NAMING_SCHEMES[naming_scheme]["datasets"]
     datasets: dict[str, Any] = {}
     availability: list[FamilyManifestDatasetAvailability] = []
@@ -1563,11 +1675,14 @@ def _build_manifest_payload(
         availability.append(item)
         datasets[dataset_type] = block
 
+    run_files, run_note = ({}, None) if newest_run_records else _completed_nextflow_run(root)
     item, block = _family_role_dataset_availability(
         root=root,
         family_id=family_id,
         dataset_type="pipeline_info",
         patterns=scheme["pipeline_info"],
+        chosen=run_files,
+        chosen_note=run_note,
     )
     availability.append(item)
     datasets["pipeline_info"] = block
@@ -1995,6 +2110,9 @@ def discover_family_package_manifest(
         naming_scheme=request.naming_scheme,
         hpo_terms=request.hpo_terms,
         notes=request.notes,
+        # The PGT pipeline's region and traced parent are read from its newest params
+        # (pgt_run_context): its run records stay the newest too, so both name one run.
+        newest_run_records=bool(pipeline_roles),
     )
     if parsed_ped is not None and not manifest_payload["datasets"].get("snv", {}).get("enabled"):
         # No joint VCF: a monogenic NIPT pair has one VCF per parent instead. A parent's VCF
