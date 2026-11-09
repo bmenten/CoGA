@@ -395,10 +395,21 @@ def test_provenance_of_a_package_imported_from_fake_gcs(gcs_backend, monkeypatch
         # The staged file carries the store's record too, for Verify.
         assert by_path[f"{source}/qc/S1.NanoStats.txt"]["metadata"]["store_object"]["generation"]
 
-        # Verify reads the row back as the admin page does, and checks the object.
+        # Verify reads the row back as the admin page does, with the package folder the
+        # family's import read (as the import's registration records it), and checks the
+        # object: only an object in that folder is asked about (SEC-38).
         from app.services import raw_import_files_pg as rif
 
         async with sm() as session:
+            await session.execute(
+                text(
+                    "UPDATE families SET metadata = jsonb_build_object("
+                    "'package_import', jsonb_build_object('folder_path', CAST(:folder AS text))) "
+                    "WHERE id = CAST(:f AS uuid)"
+                ),
+                {"folder": source, "f": family.uuid},
+            )
+            await session.commit()
             ids: Sequence[str] = (
                 await session.execute(
                     text("SELECT id::text FROM raw_import_files WHERE family_id = CAST(:f AS uuid)"),
@@ -408,6 +419,7 @@ def test_provenance_of_a_package_imported_from_fake_gcs(gcs_backend, monkeypatch
             records = [await rif.get_raw_import_file(session, file_id) for file_id in ids]
         for record in records:
             assert record is not None and record["in_object_store"] and record["exists"] is None
+            assert record["package_folder"] == source and not record["outside_read_folders"]
             assert (await rif.verify_raw_import_file(record))["status"] == "verified", record["storage_path"]
 
     _on_postgres_with_a_fresh_family(body)
@@ -416,8 +428,9 @@ def test_provenance_of_a_package_imported_from_fake_gcs(gcs_backend, monkeypatch
 def test_verify_checks_a_bucket_file_against_the_stores_record(gcs_backend, gcs_endpoint, monkeypatch):
     """Verify on a file kept in the bucket compares the object with the store's record of
     it taken at import (real generations): the same object verifies; a replaced one --
-    same size, new generation -- is a mismatch; a deleted one is missing. The object lies
-    below FAMILY_IMPORT_ROOTS, where Verify asks the store about a recorded object (SEC-29)."""
+    same size, new generation -- is a mismatch; a deleted one is missing. The object lies in
+    the family's package folder below FAMILY_IMPORT_ROOTS, where Verify asks the store about a
+    recorded object (SEC-29, SEC-38)."""
     from app.services import raw_import_files_pg as rif
 
     monkeypatch.setattr(s.settings, "family_import_roots", [f"gs://{_BUCKET}/imports"])
@@ -426,13 +439,15 @@ def test_verify_checks_a_bucket_file_against_the_stores_record(gcs_backend, gcs_
         credentials=AnonymousCredentials(),
         client_options={"api_endpoint": gcs_endpoint},
     )
-    key = f"imports/verify-{uuid4().hex[:8]}/S1.cram"
+    package = f"imports/verify-{uuid4().hex[:8]}"
+    key = f"{package}/S1.cram"
     blob = admin.bucket(_BUCKET).blob(key)
     blob.upload_from_string(b"CRAMDATA")
     uri = f"gs://{_BUCKET}/{key}"
     identity = s.remote_object_identity(uri)
     record = {
         "id": "rec",
+        "package_folder": f"gs://{_BUCKET}/{package}",
         "storage_path": uri,
         "sha256": None,
         "file_size": identity["size"],

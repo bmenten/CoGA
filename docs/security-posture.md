@@ -265,16 +265,19 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
     `FAMILY_IMPORT_ROOTS`.
 
   The admin page's raw-file download and **Verify** read the path recorded in
-  `raw_import_files` only when its real path, symlinks resolved, lies inside a local
-  `FAMILY_IMPORT_ROOTS` folder, the staging folder of a bucket package or the upload folder
-  `data/raw_imports` (`services/raw_import_files_pg.py`). Any other path answers 403 and is
-  logged, and the file list shows it unavailable without looking it up. Verify asks the object
-  store only about an object below a remote `FAMILY_IMPORT_ROOTS` entry. The list marks a row of
-  either kind as recorded outside what CoGA reads (`outside_read_folders`), and the page gives
-  the reason a Verify was refused (SEC-27). A family or sample delete unlinks a managed copy
-  only inside the upload folder, and skips any other path a managed row names, with a log line.
-  Otherwise an edited row could download any file the backend can read, and make a delete
-  remove any file it may write (SEC-29).
+  `raw_import_files` only when its real path, symlinks resolved, lies inside the package folder
+  the family's own import read (`families.metadata.package_import.folder_path`, below a local
+  `FAMILY_IMPORT_ROOTS` entry, as for the endpoints above) or the upload folder
+  `data/raw_imports`, which holds every managed copy (`services/raw_import_files_pg.py`). Any
+  other path answers 403 and is logged, and the file list shows it unavailable without looking
+  it up. Verify asks the object store only about an object in the family's bucket package
+  folder. The list marks a row of either kind as recorded outside what CoGA reads
+  (`outside_read_folders`), and the page gives the reason a Verify was refused (SEC-27). A family
+  or sample delete unlinks a managed copy only inside the upload folder, and skips any other
+  path a managed row names, with a log line. Otherwise an edited row could download any file the
+  backend can read, and make a delete remove any file it may write (SEC-29). Until SEC-38 a
+  recorded path was read anywhere below the import roots and in the staging folder of a bucket
+  package, so an edited row of one family could name another family's package.
 - ✅ **A package import reads only its own folder.** Package Import takes a folder only below
   `FAMILY_IMPORT_ROOTS` (`package_folder_not_allowed`). The package list leaves out, and reads
   nothing in, a folder that is a symlink leading out of the roots. Every path a manifest names
