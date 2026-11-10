@@ -217,6 +217,13 @@ def test_what_discover_proposes_is_written_into_the_package() -> None:
     assert document["datasets"] == {"snv": {"family_vcf": "a.vcf.gz"}}
 
 
+def test_an_analysis_discover_names_is_taken_where_the_package_names_none() -> None:
+    package = _package(analysis_type=None, family={"family_id": "FAM001"})
+    assert proposed_package(package, {"analysis_type": "monogenic_nipt"}, []).analysis_type == "monogenic_nipt"
+    named = _package(analysis_type="wgs", family={"family_id": "FAM001"})
+    assert proposed_package(named, {"analysis_type": "monogenic_nipt"}, []).analysis_type == "wgs"
+
+
 def test_a_file_that_gives_its_members_and_datasets_keeps_them() -> None:
     package = _package(
         members=[{"sample_id": "PROBAND", "sex": "male"}], datasets={"snv": {"family_vcf": "b.vcf.gz"}}, couples=[]

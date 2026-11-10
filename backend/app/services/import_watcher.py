@@ -389,7 +389,14 @@ async def assess_content(
     and its validation, the files the import reads, the family and samples CoGA holds, and the
     region of interest. Sets the assessment's state, issues, warnings, manifest and validation."""
     check = assessment.package_check or {}
-    issues: list[DeliveryIssue] = [_package_issue(issue) for issue in package_issues(effective)]
+    # A folder added by hand lists no files with checksums: the folder's fingerprint guards it until
+    # the import, which records each file's SHA-256 (import_manual_delivery).
+    by_hand = check.get("origin") == "manual"
+    issues: list[DeliveryIssue] = [
+        _package_issue(issue)
+        for issue in package_issues(effective)
+        if not (by_hand and issue.code == "package_field_missing" and issue.location == "files")
+    ]
     issues.extend(DeliveryIssue.model_validate(item) for item in check.get("issues") or [])
     warnings: list[DeliveryIssue] = [DeliveryIssue.model_validate(item) for item in check.get("warnings") or []]
     if effective.qc is not None and effective.qc.status == "fail":
@@ -432,7 +439,7 @@ async def assess_content(
     }
     issues.extend(_as_issue(issue) for issue in validation.errors)
     warnings.extend(_as_issue(issue) for issue in validation.warnings)
-    if bundle is not None:
+    if bundle is not None and not by_hand:
         verified = check.get("verified") or {}
         not_listed = [path for path in _files_the_import_reads(folder, validation) if path not in verified]
         issues.extend(
@@ -713,7 +720,7 @@ async def look_at_folder(
                     """
                     UPDATE import_deliveries
                     SET last_seen_at = now(), missing_rounds = 0
-                    WHERE folder_path = :folder AND package_fingerprint = :fingerprint
+                    WHERE folder_path = :folder AND package_fingerprint = :fingerprint AND origin = 'watched'
                     RETURNING id::text AS id, state, issues, project_id::text AS project_id, marker, validation,
                               marker_sha256, run_id, family_id, package, package_check
                     """
@@ -840,7 +847,7 @@ async def _store_delivery(
                         CAST(:warnings AS jsonb), CAST(:validation AS jsonb), :manifest_text, :manifest_sha256,
                         CAST(:package AS jsonb), CAST(:package_check AS jsonb)
                     )
-                    ON CONFLICT (folder_path, package_fingerprint) DO NOTHING
+                    ON CONFLICT (folder_path, package_fingerprint) WHERE origin = 'watched' DO NOTHING
                     RETURNING id::text
                     """
                 ),
@@ -1037,7 +1044,7 @@ async def mark_missing(session_factory: async_sessionmaker[AsyncSession], root: 
                     """
                     UPDATE import_deliveries
                     SET missing_rounds = missing_rounds + 1
-                    WHERE watch_root = :root AND state = ANY(CAST(:open AS text[]))
+                    WHERE watch_root = :root AND origin = 'watched' AND state = ANY(CAST(:open AS text[]))
                       AND NOT (folder_path = ANY(CAST(:seen AS text[])))
                     RETURNING id::text, folder_name, package_fingerprint, missing_rounds
                     """
@@ -1084,7 +1091,8 @@ async def _open_deliveries(session_factory: async_sessionmaker[AsyncSession], ro
             (
                 await session.execute(
                     text(
-                        "SELECT count(*) FROM import_deliveries WHERE watch_root = :root AND state = ANY(CAST(:open AS text[]))"
+                        "SELECT count(*) FROM import_deliveries WHERE watch_root = :root AND origin = 'watched' "
+                        "AND state = ANY(CAST(:open AS text[]))"
                     ),
                     {"root": str(root), "open": list(OPEN_STATES)},
                 )
@@ -1230,7 +1238,7 @@ _DELIVERY_COLUMNS = """
     d.id::text AS id, d.watch_root, d.folder_path, d.folder_name, d.state, d.package_fingerprint,
     d.marker_sha256, d.marker, d.run_id, d.family_id, d.project_id::text AS project_id, d.issues,
     d.warnings, d.manifest_sha256, d.job_id::text AS job_id, d.first_seen_at, d.last_seen_at,
-    d.state_changed_at, j.status AS job_status, j.dry_run AS job_dry_run,
+    d.state_changed_at, d.origin, d.package, j.status AS job_status, j.dry_run AS job_dry_run,
     (SELECT COALESCE(max(r.revision), 0) FROM import_delivery_revisions r WHERE r.delivery_id = d.id) AS revision
 """
 
@@ -1240,7 +1248,12 @@ def _text(value: Any) -> str | None:
 
 
 def _delivery_out(row: Any) -> ImportDeliveryOut:
-    marker: dict[str, Any] = row["marker"] if isinstance(row["marker"], dict) else {}
+    # What the package file says; for a folder added by hand, which has none, the package CoGA made.
+    marker: dict[str, Any] = (
+        row["marker"]
+        if isinstance(row["marker"], dict)
+        else (row["package"] if "package" in row and isinstance(row["package"], dict) else {})
+    )
     pipeline: dict[str, Any] = marker["pipeline"] if isinstance(marker.get("pipeline"), dict) else {}
     return ImportDeliveryOut(
         _id=ApiId(row["id"]),
@@ -1262,6 +1275,7 @@ def _delivery_out(row: Any) -> ImportDeliveryOut:
         warnings=[ImportDeliveryIssue.model_validate(item) for item in _json_list(row["warnings"])],
         manifest_sha256=row["manifest_sha256"],
         revision=int(row["revision"] or 0) if "revision" in row else 0,
+        origin=row["origin"] if "origin" in row and row["origin"] else "watched",
         job_id=ApiId(row["job_id"]) if row["job_id"] else None,
         job_status=row["job_status"],
         job_dry_run=row["job_dry_run"],

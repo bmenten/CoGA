@@ -24,8 +24,12 @@ owner approved the plan on 2026-11-10, in phases:
    ([data-import.md](data-import.md#correcting-a-delivery)) and **Correct…** in **Deliveries**;
    the family page (*Corrected at intake*) and every signed record (*Package intake*) list the
    corrections.
-3. Adding a family by hand makes the same file: CoGA drafts it from the folder, a PED if there
-   is one, and what the person adds. Such a delivery goes through Deliveries like a pipeline's.
+3. Done: adding a family by hand makes the same package: CoGA drafts it from the folder, a PED
+   if there is one, and what the person adds, and keeps it with a delivery of origin `manual`,
+   which goes through Deliveries like a pipeline's
+   ([data-import.md](data-import.md#adding-a-folder-by-hand)). The owner decided on 2026-11-10 that
+   CoGA computes no checksums for it (the import records each file's SHA-256), and that the earlier
+   form of the Package Import page goes in phase 4.
 4. The PED and the manifest are no longer read by the import of a typed folder either.
 
 ## Writing the file

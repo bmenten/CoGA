@@ -1777,6 +1777,18 @@ export interface IdeogramBandOut {
 }
 
 /**
+ * A package folder added to Deliveries by hand (import_manual_delivery.py): the folder under
+ * the import roots, the project it belongs to, and, where they differ from what CoGA reads in
+ * the folder, the family ID (the folder's name by default) and the analysis.
+ */
+export interface ImportDeliveryAdd {
+  folder_path: string;
+  project_id: string;
+  family_id?: string | null;
+  analysis_type?: "wgs" | "wgs_trio" | "pgt_m" | "monogenic_nipt" | "long_read_wgs" | "long_read_couple" | null;
+}
+
+/**
  * A delivery approved for import: as a dry run or for real; ``cancel`` for a new family,
  * ``update`` or ``overwrite`` (an administrator's) for one whose family exists; its warnings
  * acknowledged when it has any. ``revision`` is the revision of its package the approver saw (0
@@ -1840,6 +1852,7 @@ export interface ImportDeliveryOut {
   warnings: ImportDeliveryIssue[];
   manifest_sha256: string | null;
   revision: number;
+  origin: "watched" | "manual";
   job_id: string | null;
   job_status: "queued" | "validating" | "running" | "completed" | "failed" | null;
   job_dry_run: boolean | null;

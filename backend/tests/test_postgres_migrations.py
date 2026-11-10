@@ -164,6 +164,25 @@ def test_revision_0023_adds_the_baselines_two_delivery_columns(monkeypatch) -> N
     ]
 
 
+def test_revision_0024_gives_the_deliveries_the_baselines_origin_and_partial_index(monkeypatch) -> None:
+    by_hand = migration_script().get_revision("0024").module
+    assay = (_SCHEMA_DIR / "03_assay.sql").read_text()
+    statements: list[str] = []
+    monkeypatch.setattr(
+        by_hand.op, "get_bind", lambda: type("Bind", (), {"exec_driver_sql": lambda _self, sql: statements.append(sql)})()
+    )
+
+    by_hand.upgrade()
+
+    assert by_hand._ORIGIN_CHECK == _baseline_check("import_deliveries_origin_check")
+    assert "    origin text DEFAULT 'watched'::text NOT NULL,\n" in assay
+    # The baseline's index, as the revision creates it; the table holds no such constraint.
+    assert f"{by_hand._FOLDER_FINGERPRINT_INDEX};" in assay
+    assert "CONSTRAINT import_deliveries_folder_fingerprint_key" not in assay
+    assert statements[1] == by_hand._FOLDER_FINGERPRINT_INDEX
+    assert "DROP CONSTRAINT IF EXISTS import_deliveries_folder_fingerprint_key" in statements[0]
+
+
 def test_revision_0004_runs_the_baselines_own_statements_for_the_structure_versions_and_the_ui_event_log() -> None:
     # SEC-7: the structure versions' chain and both tables' append-only guards, brought to a
     # database the baselines created before them by the baselines' own statements.

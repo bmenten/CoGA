@@ -398,6 +398,13 @@ with the delivery.
     corrected the same way.
   - Someone else may have corrected the delivery since you opened it: the save is refused, and you
     open it again.
+- **Add a folder by hand** (above the list) adds a folder no pipeline delivered: choose it (or type
+  its path), its project and its analysis, and, when it is not the folder's name, its family ID. CoGA
+  makes its package from the folder, with the members and datasets **Discover manifest** would
+  propose, and checks it as a pipeline's delivery; it is listed as *Added by hand*. Check and correct
+  it with **Correct…**, then approve it. CoGA writes nothing in the folder and computes no checksums:
+  the import records each file it reads. A folder that holds its own `coga-package.json` is delivered
+  through a watched folder instead, and a folder whose delivery waits already is not added twice.
 - **Refuse…** sets a delivery aside, with a reason: CoGA leaves the folder alone until it changes.
 - A delivery whose folder is moved out of the watched folder leaves the list after two looks at the
   folders (it is *gone*). A watched folder that holds nothing at all is taken for a share that is not
