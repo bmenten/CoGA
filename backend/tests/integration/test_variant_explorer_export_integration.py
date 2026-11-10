@@ -9,8 +9,10 @@ order and says when more matched, and that the review lookup takes any number of
 checks that the classification filter finds a review's class label whatever its case (ENG-6), and
 that a variant reviewed in two families shows the more severe classification (CLIN-69): each
 review's class as the family page reads it, a review classified by its class tag alone too, of one
-class twice the review saved last, and the classification filter keeping what the family search's
-keeps (CLIN-71).
+class twice the review saved last (CLIN-71). The classification filters, the family search's and
+the Explorer's, keep a variant by the class its review, or its pair review, shows, and keep the
+same variants; the Explorer's SQL rule gives every shared case the class the Python rule gives it
+(CLIN-75).
 
 ``resolve_scope`` is monkeypatched to one fresh project, so no user is needed; the project,
 its family and the reviews are real Postgres rows, the variants real ClickHouse rows. The
@@ -321,8 +323,7 @@ def test_explorer_shows_the_class_a_review_holds_by_its_tag_and_filters_as_the_f
         assert shown["1-200-A-G"] == same_time[min(same_time)]
 
         # The classification filter keeps the variants a family search's classification filter
-        # keeps in some family: by the classification text, its pair's too, and no tag. A review
-        # classified by its class tag alone is kept by the tag filter.
+        # keeps in some family: by the class each review, or its pair review, shows (CLIN-75).
         async with session_factory() as session:
             for wanted in (
                 "Pathogenic - class 5",
@@ -344,10 +345,163 @@ def test_explorer_shows_the_class_a_review_holds_by_its_tag_and_filters_as_the_f
             kept, _capped = await svc._variant_ids_matching_reviews(
                 session, project_ids=[project], classifications=["Likely pathogenic - class 4"], tags=[], limit=100
             )
-            assert "1-400-A-G" not in kept
+            # A review classified by its class tag alone is kept by its class too.
+            assert sorted(kept) == ["1-100-A-G", "1-400-A-G"]
             tagged, _capped = await svc._variant_ids_matching_reviews(
                 session, project_ids=[project], classifications=[], tags=["acmg_class_4"], limit=100
             )
             assert sorted(tagged) == ["1-100-A-G", "1-400-A-G"]
+
+    run_closing_stores(_scenario)
+
+
+# The reviews of the owner's before/after table (CLIN-75), each in a family of its own: variant,
+# classification text, tags, pair classification text, pair tags.
+_SHOWN_CLASS_REVIEWS = (
+    ("1-100-A-G", None, ["acmg_class_4"], None, []),  # a class tag alone
+    ("1-200-A-G", "VUS", [], None, []),  # a bare class word
+    ("1-300-A-G", "VUS - class 3", ["acmg_class_4"], None, []),  # text and tag apart
+    ("1-400-A-G", None, [], None, ["acmg_class_5"]),  # the pair review's class tag alone
+    ("1-500-A-G", None, ["acmg_class_3", "acmg_vus_hot"], None, []),  # a class-3 tag alone
+    ("1-600-A-G", "Some free text", [], None, []),  # free text
+    ("1-700-A-G", "Some free text", ["acmg_class_1"], None, []),  # free text beside a class tag
+)
+
+# What each filter keeps, on the family search and in the Explorer alike.
+_KEPT_BY_SHOWN_CLASS = {
+    "Pathogenic - class 5": ["1-400-A-G"],
+    "Likely pathogenic - class 4": ["1-100-A-G", "1-300-A-G"],
+    "VUS - class 3": ["1-200-A-G", "1-500-A-G"],
+    # A bare class word asks for its class, as a review's text does.
+    "VUS": ["1-200-A-G", "1-500-A-G"],
+    "Benign - class 1": ["1-700-A-G"],
+    "some free TEXT": ["1-600-A-G"],
+}
+
+
+def test_the_classification_filters_keep_a_variant_by_the_class_its_review_shows(monkeypatch) -> None:
+    # CLIN-75 (the owner's decision of 2026-11-10): the family search's and the Explorer's
+    # classification filters read the classification text alone, so a class filter dropped a
+    # variant shown with that class by its class tag (its own or its pair review's), and kept one
+    # shown with another class (text "VUS - class 3" beside the tag acmg_class_4). Both now keep a
+    # review by the class it shows: in Python on the family search, in SQL in the Explorer, here
+    # on real Postgres and, for the Explorer's export, real ClickHouse.
+    import backend.app.services.variant_explorer_service as svc
+    from sqlalchemy import text
+
+    from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
+    from backend.app.services.clickhouse_family_variants import resolve_review_selection
+    from backend.app.services.clickhouse_variant_storage import insert_small_variant_records
+
+    async def _scenario() -> None:
+        await init_postgres_schema()
+        session_factory = get_postgres_sessionmaker()
+        project, assembly_id, base_family = await _seed(session_factory)
+        await insert_small_variant_records(
+            _ASSEMBLY,
+            base_family,
+            [project],
+            [_record(variant_id, ("S1",)) for variant_id in ("1-600-A-G", "1-700-A-G")],
+        )
+        _scope_to(monkeypatch, svc, project, assembly_id, base_family)
+        families = [base_family]
+        async with session_factory() as session:
+            for variant_id, classification, tags, pair_classification, pair_tags in _SHOWN_CLASS_REVIEWS:
+                family = (
+                    await session.execute(
+                        text("INSERT INTO families (family_id) VALUES (:f) RETURNING id::text"),
+                        {"f": f"explorer-shown-class-{uuid4().hex[:12]}"},
+                    )
+                ).scalar_one()
+                families.append(family)
+                await session.execute(
+                    text(
+                        "INSERT INTO family_projects (family_id, project_id) "
+                        "VALUES (CAST(:f AS uuid), CAST(:p AS uuid))"
+                    ),
+                    {"f": family, "p": project},
+                )
+                await session.execute(
+                    text(
+                        "INSERT INTO small_variant_reviews (family_id, variant_id, classification, tags, "
+                        "compound_het_classification, compound_het_tags, updated_by) VALUES (CAST(:f AS uuid), "
+                        ":v, :c, CAST(:t AS jsonb), :pc, CAST(:pt AS jsonb), 'reviewer')"
+                    ),
+                    {
+                        "f": family,
+                        "v": variant_id,
+                        "c": classification,
+                        "t": json.dumps(tags),
+                        "pc": pair_classification,
+                        "pt": json.dumps(pair_tags),
+                    },
+                )
+            await session.commit()
+
+        async def _export(**filters):
+            async with session_factory() as session:
+                return await svc.export_global_small_variants(
+                    session, user=None, filters=svc.GlobalVariantFilters(**filters), assembly_id=assembly_id, limit=50
+                )
+
+        shown = {row.variant_id: row.classification for row in (await _export()).rows}
+        for wanted, expected in _KEPT_BY_SHOWN_CLASS.items():
+            async with session_factory() as session:
+                family_search: set[str] = set()
+                for family in families:
+                    selection = await resolve_review_selection(session, family, classifications=[wanted])
+                    family_search |= selection.include or set()
+            exported = sorted(row.variant_id for row in (await _export(classifications=[wanted])).rows)
+            assert sorted(family_search) == expected, wanted
+            assert exported == expected, wanted
+            # Each variant a class filter keeps is shown with that class.
+            if wanted.endswith(tuple(f"class {number}" for number in range(1, 6))):
+                assert {shown[variant_id] for variant_id in exported} == {wanted}, wanted
+
+    run_closing_stores(_scenario)
+
+
+def test_the_explorer_s_sql_class_rule_shows_the_class_the_python_rule_shows() -> None:
+    # The Explorer's classification filter reads a review's class in SQL (review_class_label_sql),
+    # the family search's in Python (review_class_label). On Postgres, the SQL gives every case
+    # of the shared table (review-class-cases.json, which the frontend's rule reads too) the class
+    # the Python rule gives it, and so it does for text trimmed of whitespace other than spaces
+    # and for tags that are no list.
+    from sqlalchemy import text
+
+    from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
+    from backend.app.services.review_pg_utils import review_class_label, review_class_label_sql
+    from backend.tests.test_acmg_frontend_parity import REVIEW_CLASS_CASES
+
+    cases = [
+        (case["classification"], case["tags"])
+        for case in json.loads(REVIEW_CLASS_CASES.read_text(encoding="utf-8"))["cases"]
+    ]
+    cases += [
+        ("\tVUS\n", []),
+        (" Likely benign　", ["report"]),
+        (" My own words ", []),
+        (None, [" acmg_class_2 ", "acmg_vus_warm"]),
+        ("", ["acmg_class_3", None, 5, ["acmg_class_5"]]),
+        (None, {"acmg_class_4": True}),
+        ("Free text", "acmg_class_4"),
+        ("VUS - CLASS 3", []),
+    ]
+
+    async def _scenario() -> None:
+        await init_postgres_schema()
+        expression, params = review_class_label_sql("c.classification", "c.tags")
+        async with get_postgres_sessionmaker()() as session:
+            for classification, tags in cases:
+                sql_shown = (
+                    await session.execute(
+                        text(
+                            f"SELECT {expression} FROM (SELECT CAST(:classification AS text) AS classification, "
+                            "CAST(:tags AS jsonb) AS tags) AS c"
+                        ),
+                        {**params, "classification": classification, "tags": json.dumps(tags)},
+                    )
+                ).scalar_one()
+                assert sql_shown == review_class_label(classification, tags), (classification, tags)
 
     run_closing_stores(_scenario)
