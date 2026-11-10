@@ -269,11 +269,32 @@ async def test_a_recorded_path_outside_the_folders_is_not_downloaded(
     # Before: 200 with the file's bytes (the secret, the old package, ...), or 410 for the
     # relative path, which was looked up from the backend's working directory.
     assert answer == (403, OUTSIDE)
-    assert [record.getMessage() for record in caplog.records if record.name == rif.__name__] == [
-        f"Raw file rec-1 was not read: its recorded storage path {storage_path} is outside its "
+    # The line names the record and the kind of place, never the path: it can name another
+    # family's folder (SEC-39, the owner's decision of 2026-11-10).
+    kind = "a relative local path" if case == "a relative path" else "an absolute local path"
+    messages = [record.getMessage() for record in caplog.records if record.name == rif.__name__]
+    assert messages == [
+        f"Raw file rec-1 was not read: its recorded storage path ({kind}) is outside its "
         "family's package folder and the upload folder"
     ]
+    assert storage_path not in messages[0]
 
+
+
+@pytest.mark.parametrize(
+    ("storage_path", "kind"),
+    [
+        ("/data/families/OTHER_FAMILY/snv/OTHER_FAMILY.vcf.gz", "an absolute local path"),
+        ("OTHER_FAMILY/snv.vcf.gz", "a relative local path"),
+        ("gs://bucket/packages/OTHER_FAMILY/snv.vcf.gz", "an object-store URI"),
+        ("", "no path"),
+        (None, "no path"),
+    ],
+)
+def test_a_refused_path_is_logged_by_its_kind_never_as_written(storage_path: object, kind: str) -> None:
+    # A refused path can name another family's folder, and so its ID: the log line gives its
+    # kind; the record, by its ID, keeps the path (SEC-39, the owner's decision of 2026-11-10).
+    assert rif._storage_path_kind(storage_path) == kind
 
 @pytest.mark.asyncio
 async def test_a_missing_file_and_a_file_in_an_object_store_keep_their_answers(
@@ -544,11 +565,14 @@ async def test_a_family_delete_unlinks_only_managed_copies_in_the_upload_folder(
     assert (uploads / "F1" / "linked-out.vcf").is_symlink()
     skipped = ("rec-package", "rec-elsewhere", "rec-climbed", "rec-link-out", "rec-folder-link")
     paths = dict((record_id, path) for path, record_id in rows)
-    assert [record.getMessage() for record in caplog.records if record.name == rif.__name__] == [
+    messages = [record.getMessage() for record in caplog.records if record.name == rif.__name__]
+    assert messages == [
         f"The file of raw-file record {record_id} was not deleted: its recorded storage path "
-        f"{paths[record_id]} is outside the upload folder"
+        "(an absolute local path) is outside the upload folder"
         for record_id in skipped
     ]
+    # Never the path: it can name another family's folder (SEC-39).
+    assert not any(paths[record_id] in message for record_id in skipped for message in messages)
 
 
 @pytest.mark.asyncio

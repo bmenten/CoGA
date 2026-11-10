@@ -196,14 +196,27 @@ def readable_remote_uri(uri: str, package_folder: object = None) -> bool:
     return family_package_source.within_family_package(uri, package_folder)
 
 
+def _storage_path_kind(storage_path: Any) -> str:
+    """What kind of place a refused storage path names, for its log line: never the path
+    itself, which can name a family's folder, and so its ID (SEC-39; the owner's decision of
+    2026-11-10). The record, by its ID, still holds the path."""
+    value = str(storage_path or "").strip()
+    if not value:
+        return "no path"
+    if is_remote_uri(value):
+        return "an object-store URI"
+    return "an absolute local path" if os.path.isabs(value) else "a relative local path"
+
+
 def _refuse_outside_folders(record: dict[str, Any], detail: str) -> HTTPException:
     """The 403 for a read of a file whose recorded location CoGA does not read, logged with
-    the record and the path it names, so an edited row leaves a trace."""
+    the record's ID and the kind of place its path names, so an edited row leaves a trace
+    without the log naming another family's folder."""
     logger.warning(
-        "Raw file %s was not read: its recorded storage path %s is outside its family's "
+        "Raw file %s was not read: its recorded storage path (%s) is outside its family's "
         "package folder and the upload folder",
         scrub_log(record.get("id")),
-        scrub_log(record.get("storage_path")),
+        _storage_path_kind(record.get("storage_path")),
     )
     return HTTPException(status_code=403, detail=detail)
 
@@ -767,10 +780,10 @@ def _unlink_managed_files(rows: Iterable[tuple[str, str]]) -> int:
         target = _managed_file_to_unlink(storage_path or "", managed_root)
         if target is None:
             logger.warning(
-                "The file of raw-file record %s was not deleted: its recorded storage path %s "
+                "The file of raw-file record %s was not deleted: its recorded storage path (%s) "
                 "is outside the upload folder",
                 scrub_log(record_id),
-                scrub_log(storage_path),
+                _storage_path_kind(storage_path),
             )
             continue
         try:
