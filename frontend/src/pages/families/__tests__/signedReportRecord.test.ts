@@ -1506,6 +1506,89 @@ describe('what each coverage track held', () => {
   });
 });
 
+// The delivered package and its corrections at intake, frozen since 2026-11-10
+// (signed_record_sections.package_intake; owner decision of 2026-11-10).
+describe('the delivered package and its corrections at intake', () => {
+  it('reads the delivery, the revision imported and each correction, marking what the pipeline used', () => {
+    const section = parseSignedReport({
+      ...SNAPSHOT,
+      package_intake: {
+        delivery: {
+          id: 'd1',
+          run_id: 'RUN1',
+          package_file_sha256: 'a'.repeat(64),
+          package_fingerprint: 'b'.repeat(64),
+          revision: 2,
+          package_sha256: 'c'.repeat(64),
+          corrections: [
+            {
+              revision: 1,
+              reason: 'From the request form.',
+              by: 'superuser',
+              at: '2026-11-10T11:00:00+00:00',
+              changes: [{ path: 'members.PROBAND.clinical_status', kind: 'laboratory', before: null, after: 'affected' }],
+            },
+            {
+              revision: 2,
+              reason: null,
+              by: null,
+              at: null,
+              changes: [{ path: 'members.PROBAND.sex', kind: 'pipeline_used', before: 'male', after: 'female' }, 'x'],
+            },
+          ],
+        },
+      },
+    })!.packageIntake;
+
+    expect(section).toEqual({
+      state: 'recorded',
+      value: {
+        delivery: {
+          id: 'd1',
+          runId: 'RUN1',
+          packageFileSha256: 'a'.repeat(64),
+          revision: 2,
+          packageSha256: 'c'.repeat(64),
+          corrections: [
+            {
+              revision: 1,
+              reason: 'From the request form.',
+              by: 'superuser',
+              at: '2026-11-10T11:00:00+00:00',
+              changes: [
+                { path: 'members.PROBAND.clinical_status', kind: 'laboratory', before: null, after: 'affected' },
+              ],
+            },
+            {
+              revision: 2,
+              reason: null,
+              by: null,
+              at: null,
+              changes: [{ path: 'members.PROBAND.sex', kind: 'pipeline_used', before: 'male', after: 'female' }],
+            },
+          ],
+        },
+      },
+      malformed: 1,
+    });
+  });
+
+  it('reads a family not imported from a delivery, a record signed before, and one that could not capture it', () => {
+    expect(parseSignedReport({ ...SNAPSHOT, package_intake: { delivery: null } })!.packageIntake).toEqual({
+      state: 'recorded',
+      value: { delivery: null },
+    });
+    expect(parseSignedReport(SNAPSHOT)!.packageIntake).toEqual({ state: 'absent' });
+    expect(
+      parseSignedReport({
+        ...SNAPSHOT,
+        package_intake: { unavailable: 'The delivered package and its corrections could not be read.' },
+      })!.packageIntake,
+    ).toEqual({ state: 'unavailable', reason: 'The delivered package and its corrections could not be read.' });
+    expect(describeReportSections(['package_intake'])).toBe('delivered package and its corrections');
+  });
+});
+
 // The sign-out check lists what the signed version does not hold, and so could not compare
 // (not_compared): a section, a reference module, or a part CoGA records since. The pages name
 // it beside "still matches" and beside what changed (TRACE-19).

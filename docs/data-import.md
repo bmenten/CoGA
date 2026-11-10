@@ -919,6 +919,10 @@ with its SHA-256. The import reads the latest.
   issues before and after.
 - A correction belongs to its delivery: a folder that changes is a new delivery, checked from its
   package file, without the corrections of the one before.
+- Once the delivery is imported, the family's record keeps its corrections
+  (`families.metadata.package_import.delivery.corrections`): the family page lists them (*Corrected
+  at intake*), and every signed version of the family's analysis freezes them in its section
+  `package_intake` ([clinical-traceability.md](clinical-traceability.md)).
 
 **Approving a delivery** ([import_delivery_review.py](../backend/app/services/import_delivery_review.py)).
 Nothing is imported until a superuser decides, on the Package Import page or through the API:

@@ -22,7 +22,8 @@ owner approved the plan on 2026-11-10, in phases:
 2. A delivery can be completed and corrected before it is approved, within the limits below,
    each change with its reason on the record. Done, through the API
    ([data-import.md](data-import.md#correcting-a-delivery)) and **Correct…** in **Deliveries**;
-   the corrections on the family page and in the signed record are next.
+   the family page (*Corrected at intake*) and every signed record (*Package intake*) list the
+   corrections.
 3. Adding a family by hand makes the same file: CoGA drafts it from the folder, a PED if there
    is one, and what the person adds. Such a delivery goes through Deliveries like a pipeline's.
 4. The PED and the manifest are no longer read by the import of a typed folder either.
@@ -170,8 +171,8 @@ made it and when, and on the import inbox's audit chain, and the import reads th
 the changes ([data-import.md](data-import.md#correcting-a-delivery)). What CoGA proposed for a
 minimal file is written into the package first, and is corrected the same way. The family's
 record keeps the file's checksum, the revision, the SHA-256 of the package imported and every
-change; the signed record is to list the changes made to the members, the pedigree or a sex at
-intake.
+change. The signed record lists every change made at intake (*Package intake*, a change the
+pipeline used marked), and the family page the same (*Corrected at intake*).
 
 | Kind of field | Fields | In Deliveries |
 | --- | --- | --- |

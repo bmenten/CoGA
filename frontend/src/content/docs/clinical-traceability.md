@@ -416,6 +416,10 @@ It shows what the record holds (section 4):
   *TRGT’s counting units: not validated (no QA record)*, or validated or not, *corrected to TRGT’s count
   −1*, with the reason, by whom and when;
 - what each coverage track held (*Coverage tracks*);
+- the delivered package the family's data came from and each correction made to it in CoGA before
+  its import (*Package intake*): what changed, why, by whom and when, a change to a member's sex or
+  parents, which the pipeline used, marked. The family page lists the same corrections (*Corrected at
+  intake*);
 - for a monogenic NIPT family, its **NIPT results**, with the coverage tracks the coverage check did not
   read as depth in its words (*Coverage tracks not read as depth: …*). A NIPT family's version signed
   before CoGA froze them says *Not in the signed record*. One signed before CoGA froze the coverage

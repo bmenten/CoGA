@@ -682,6 +682,44 @@ export interface SignedCoverageTrack {
   files: SignedCoverageFile[];
 }
 
+/** A field of a delivered package corrected in CoGA before its import, as the record froze it. */
+export interface SignedIntakeChange {
+  /** The field: `members.PROBAND.sex`, `family.roi`, `datasets.snv`. */
+  path: string;
+  /** `pipeline_used`: a member's sex or parents, or the couples, which the pipeline computed with. */
+  kind: 'laboratory' | 'pipeline_used' | null;
+  before: unknown;
+  after: unknown;
+}
+
+/** One correction (a revision) of the delivered package: what it changed, why, by whom and when. */
+export interface SignedIntakeCorrection {
+  revision: number | null;
+  reason: string | null;
+  by: string | null;
+  at: string | null;
+  changes: SignedIntakeChange[];
+}
+
+/**
+ * The delivered package the family's last package import came from, and each correction made to
+ * it in CoGA before the import (`signed_record_sections.package_intake`; owner decision of
+ * 2026-11-10). `delivery` null: the family's last import was no delivery's.
+ */
+export interface SignedPackageIntake {
+  delivery: {
+    id: string | null;
+    runId: string | null;
+    /** The SHA-256 of the pipeline's package file, as delivered. */
+    packageFileSha256: string | null;
+    /** The revision of the package imported: 0 when it was not corrected. */
+    revision: number | null;
+    /** The SHA-256 of the package imported, as corrected. */
+    packageSha256: string | null;
+    corrections: SignedIntakeCorrection[];
+  } | null;
+}
+
 /** A parental homolog as the PGT analysis names it: its side and its label ('0', '1'). */
 export interface SignedPgtHaplotype {
   origin: 'paternal' | 'maternal' | null;
@@ -938,6 +976,8 @@ export interface SignedReport {
   paraphase: SignedRecordSection<SignedParaphase>;
   /** What each coverage track of the family's samples held: every family's record holds it since 2026-10-20. */
   coverageTracks: SignedRecordSection<SignedCoverageTrack[]>;
+  /** The delivered package and its corrections at intake: every family's record holds it since 2026-11-10. */
+  packageIntake: SignedRecordSection<SignedPackageIntake>;
   /** A PGT family's embryo calls at the ROI; `absent` from a record of any other family too. */
   pgtAnalysis: SignedRecordSection<SignedPgtAnalysis>;
   /** A monogenic NIPT family's NIPT results; `absent` from a record of any other family too. */
@@ -1598,6 +1638,35 @@ const parseCoverageTracks = (value: Json): SignedCoverageTrack[] =>
     })),
   }));
 
+const intakeKind = (value: unknown): SignedIntakeChange['kind'] =>
+  value === 'laboratory' || value === 'pipeline_used' ? value : null;
+
+const parsePackageIntake = (value: Json): SignedPackageIntake => {
+  if (!isObject(value.delivery)) return { delivery: null };
+  const delivery = value.delivery;
+  return {
+    delivery: {
+      id: text(delivery.id),
+      runId: text(delivery.run_id),
+      packageFileSha256: text(delivery.package_file_sha256),
+      revision: number(delivery.revision),
+      packageSha256: text(delivery.package_sha256),
+      corrections: objects(delivery.corrections).map((correction) => ({
+        revision: number(correction.revision),
+        reason: text(correction.reason),
+        by: text(correction.by),
+        at: text(correction.at),
+        changes: objects(correction.changes).map((change) => ({
+          path: text(change.path) ?? 'a field',
+          kind: intakeKind(change.kind),
+          before: change.before ?? null,
+          after: change.after ?? null,
+        })),
+      })),
+    },
+  };
+};
+
 const RISK_STATES: HaplotypeRiskState[] = ['affected_or_at_risk', 'carrier', 'unaffected_non_carrier', 'uninformative'];
 const riskState = (value: unknown): HaplotypeRiskState | null =>
   RISK_STATES.includes(value as HaplotypeRiskState) ? (value as HaplotypeRiskState) : null;
@@ -1970,6 +2039,7 @@ export const parseSignedReport = (snapshot: unknown): SignedReport | null => {
     repeatExpansions: parseRecordSection(snapshot, 'repeat_expansions', parseRepeatExpansions),
     paraphase: parseRecordSection(snapshot, 'paraphase', parseParaphase),
     coverageTracks: parseRecordSection(snapshot, 'coverage_tracks', parseCoverageTracks),
+    packageIntake: parseRecordSection(snapshot, 'package_intake', parsePackageIntake),
     pgtAnalysis: parseRecordSection(snapshot, 'pgt_analysis', parsePgtAnalysis),
     nipt: parseRecordSection(snapshot, 'nipt', parseNipt),
     findingReviews: parseFindingReviews(snapshot),
@@ -2044,6 +2114,7 @@ const REPORT_SECTION_LABELS: Record<string, string> = {
   repeat_expansions: 'repeat expansions',
   paraphase: 'Paraphase results',
   coverage_tracks: 'coverage tracks',
+  package_intake: 'delivered package and its corrections',
   pgt_analysis: 'PGT embryo results',
   nipt: 'NIPT results',
   repeat_expansion_reviews: 'repeat locus reviews',
