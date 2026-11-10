@@ -449,3 +449,119 @@ def test_only_an_admin_deletes_tags() -> None:
     with pytest.raises(HTTPException) as refused:
         _delete(_Session(), _user("viewer"), "needs_segregation")
     assert refused.value.status_code == 403
+
+
+# --- a project's deletion (SAFE-37) ------------------------------------------------------------------
+
+
+def test_a_projects_deletion_deactivates_its_tags_under_the_lock_then_deletes_it_in_one_transaction(
+    monkeypatch,
+) -> None:
+    # The cascade deleted a project's tags while the reviews, signed records and audit events
+    # kept their keys. They are now deactivated first, and the deletion detaches them.
+    from backend.app.services import metadata_service
+
+    async def _found(session, project_id):
+        return {"id": project_id}
+
+    monkeypatch.setattr(metadata_service, "_fetch_project_mapping", _found)
+    session = _Session()
+    asyncio.run(metadata_service.delete_project_record(session, project_id=P1))
+
+    statements = [(sql, params) for sql, params in session.calls]
+    assert [params for sql, params in statements if "pg_advisory_xact_lock" in sql] == [
+        {"k": "project-memberships"},
+        {"k": "small_variant_tag_definitions"},
+    ]
+    sqls = [sql for sql, _ in statements]
+    deactivate = next(i for i, sql in enumerate(sqls) if sql.startswith("UPDATE small_variant_tag_definitions"))
+    delete = next(i for i, sql in enumerate(sqls) if sql.startswith("DELETE FROM projects"))
+    tag_lock = next(i for i, (sql, params) in enumerate(statements) if params == {"k": "small_variant_tag_definitions"})
+    assert tag_lock < deactivate < delete
+    assert "SET is_active = FALSE" in sqls[deactivate]
+    assert "WHERE project_id = CAST(:project_id AS uuid) AND is_active = TRUE" in sqls[deactivate]
+    assert statements[deactivate][1]["project_id"] == P1
+    # No tag row is deleted; one commit, after the deletion, holds both.
+    assert not any(sql.startswith("DELETE FROM small_variant_tag_definitions") for sql in sqls)
+    assert session.committed is True
+
+
+def _held_row(key: str, *, scope: str = "project") -> dict:
+    return {
+        "key": key,
+        "label": key.title(),
+        "description": "Held by a review.",
+        "scope": scope,
+        "group": "custom",
+        "color": "#abcdef",
+        "sort_order": 500,
+    }
+
+
+_HELD = "WITH held(tags) AS"
+_SCOPED = "FROM small_variant_tag_definitions d LEFT JOIN"
+FAMILY_UUID = "00000000-0000-0000-0000-0000000000f1"
+
+
+def _family_list(session: _Session, **options):
+    return asyncio.run(
+        tags.list_small_variant_tag_definitions(
+            session, family_uuid=FAMILY_UUID, project_ids=[P1], **options
+        )
+    )
+
+
+def test_a_familys_list_adds_the_tags_its_reviews_hold_inactive_and_without_their_projects() -> None:
+    # A tag of a project the family left, or of a deleted project, read by its label and colour
+    # rather than its bare key; never as one the family may add.
+    session = _Session(
+        {
+            _HELD: _Result(rows=[_held_row("mine"), _held_row("left_behind"), _held_row("detached")]),
+            _SCOPED: _Result(rows=[_custom_row("mine", "project", P1)]),
+        }
+    )
+    listed = _family_list(session, include_inactive=True, include_held_by_family=True)
+
+    custom = [t for t in listed if t.is_custom]
+    # The scope's own tags first, as listed; then the held tags it does not list, each once.
+    assert [t.key for t in custom] == ["mine", "left_behind", "detached"]
+    assert custom[0].is_active is True and custom[0].project_id == P1
+    for tag in custom[1:]:
+        assert (tag.is_active, tag.scope, tag.project_id, tag.shared_project_ids) == (False, "project", None, [])
+        assert (tag.label, tag.color) == (tag.key.title(), "#abcdef")
+    sql, params = next((sql, params) for sql, params in session.calls if _HELD in sql)
+    assert params == {"family_uuid": FAMILY_UUID}
+
+
+def test_the_held_tags_are_read_from_each_review_table_of_the_family_alone() -> None:
+    session = _Session({_HELD: _Result(rows=[])})
+    _family_list(session, include_inactive=True, include_held_by_family=True)
+
+    sql = next(sql for sql, _ in session.calls if _HELD in sql)
+    for source in (
+        "SELECT r.tags FROM small_variant_reviews r",
+        "SELECT r.compound_het_tags FROM small_variant_reviews r",
+        "SELECT r.tags FROM structural_variant_reviews r",
+        "SELECT r.tags FROM repeat_expansion_reviews r",
+        "SELECT r.tags FROM paraphase_reviews r",
+    ):
+        assert f"{source} WHERE r.family_id = CAST(:family_uuid AS uuid)" in sql, source
+    # Only the definitions those reviews hold: no other project's tag is read.
+    assert "WHERE d.key IN ( SELECT jsonb_array_elements_text(" in sql
+    assert "project_id" not in sql
+
+
+def test_no_held_tag_is_read_without_the_inactive_tags_or_outside_the_familys_list() -> None:
+    # A review save checks the tags it adds against the active list: a held tag is never added.
+    for options in (
+        {"include_inactive": False, "include_held_by_family": True},
+        {"include_inactive": True},
+        {"include_inactive": True, "include_held_by_family": True, "family_uuid": ""},
+    ):
+        session = _Session({_HELD: _Result(rows=[_held_row("left_behind")])})
+        family_uuid = options.pop("family_uuid", FAMILY_UUID)
+        listed = asyncio.run(
+            tags.list_small_variant_tag_definitions(session, family_uuid=family_uuid, project_ids=[P1], **options)
+        )
+        assert "left_behind" not in {t.key for t in listed}, options
+        assert not any(_HELD in sql for sql, _ in session.calls), options

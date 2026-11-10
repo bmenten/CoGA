@@ -131,6 +131,21 @@ def test_revision_0020_adds_the_baselines_selection_column_and_unique_index() ->
     assert not [statement for statement in reference if "idx_gene_panels_source_external " in f"{statement} "]
 
 
+def test_revision_0022_gives_the_tag_definitions_the_baselines_one_check_and_foreign_key() -> None:
+    # SAFE-37: a project's deletion keeps its tags, inactive and without a project. One check
+    # where there were two identical ones, and a foreign key that sets the project to NULL.
+    module = migration_script().get_revision("0022").module
+    assay = (_SCHEMA_DIR / "03_assay.sql").read_text()
+
+    assert module._SCOPE_PROJECT_CHECK == _baseline_check("small_variant_tag_definitions_scope_project_check")
+    assert "(NOT is_active)" in module._SCOPE_PROJECT_CHECK
+    assert f"CONSTRAINT small_variant_tag_definitions_project_id_fkey {module._PROJECT_FOREIGN_KEY}\n" in assay
+    assert module._PROJECT_FOREIGN_KEY.endswith("ON DELETE SET NULL")
+    assert "CONSTRAINT small_variant_tag_definitions_check " not in assay
+    source = Path(module.__file__).read_text()
+    assert "DROP CONSTRAINT IF EXISTS small_variant_tag_definitions_check, " in source
+
+
 def test_revision_0004_runs_the_baselines_own_statements_for_the_structure_versions_and_the_ui_event_log() -> None:
     # SEC-7: the structure versions' chain and both tables' append-only guards, brought to a
     # database the baselines created before them by the baselines' own statements.

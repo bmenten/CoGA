@@ -87,6 +87,13 @@ the CI ``smoke`` job sets it.
 - A database at revision 0020 from before a logout ended an account's sessions on the server
   gets ``users.sessions_ended_at`` (revision 0021): each account keeps its row and none, it ends
   at the same fingerprint, and a later start changes nothing.
+- A database at revision 0021 from before a project's deletion kept its review tags (SAFE-37)
+  gets the tag definitions' one check, which lets an inactive project tag be without a project,
+  and their foreign key to the project that sets it to NULL instead of deleting the tag
+  (revision 0022): every tag and link keeps its row; a project deleted after its tag was
+  deactivated leaves the tag, inactive, without a project, its link to another project kept; a
+  global tag with a project and an active project tag without one are refused; it ends at the
+  same fingerprint, and a later start changes nothing.
 - A ledger naming a revision this version does not have is refused, and nothing changes.
 - The restricted runtime role cannot run the migration; two instances that start together
   both come up, one after the other.
@@ -2722,5 +2729,181 @@ def test_a_database_from_before_server_side_logout_gives_each_account_no_logout_
         table: rows for table, rows in contents.items() if table not in changed
     }
     assert kept["users"][0] == contents["users"][0]
+    # The schema is the baselines'.
+    assert actual == expected, _differences(expected, actual)
+
+
+# The tag definitions as a database had them before SAFE-37: two identical checks, and a foreign
+# key that deleted a project's tags with it.
+_OLD_TAG_SCOPE_CHECK = (
+    "CHECK ((((scope = 'global'::text) AND (project_id IS NULL)) OR ((scope = 'project'::text) "
+    "AND (project_id IS NOT NULL))))"
+)
+_BEFORE_0022 = (
+    "ALTER TABLE small_variant_tag_definitions "
+    "DROP CONSTRAINT small_variant_tag_definitions_scope_project_check, "
+    f"ADD CONSTRAINT small_variant_tag_definitions_check {_OLD_TAG_SCOPE_CHECK}, "
+    f"ADD CONSTRAINT small_variant_tag_definitions_scope_project_check {_OLD_TAG_SCOPE_CHECK}, "
+    "DROP CONSTRAINT small_variant_tag_definitions_project_id_fkey, "
+    "ADD CONSTRAINT small_variant_tag_definitions_project_id_fkey FOREIGN KEY (project_id) "
+    "REFERENCES projects(id) ON DELETE CASCADE",
+)
+
+
+@_MODES
+def test_a_database_from_before_safe37_keeps_each_review_tag_when_its_project_is_deleted(
+    monkeypatch, reapply_baselines: bool
+) -> None:
+    from sqlalchemy.exc import IntegrityError
+
+    from backend.app.core import postgres_migrations
+    from backend.app.core.postgres_migrations import apply_postgres_schema, head_revision
+
+    monkeypatch.setattr(postgres_migrations, "REAPPLY_BASELINES_ON_EVERY_RUN", reapply_baselines)
+    insert_tag = text(
+        "INSERT INTO small_variant_tag_definitions (key, label, scope, project_id, is_active, created_by) "
+        "SELECT :key, :key, :scope, (SELECT id FROM projects WHERE name = :project), :active, 'test'"
+    )
+    constraints = text(
+        "SELECT con.conname, pg_get_constraintdef(con.oid) FROM pg_constraint con "
+        "WHERE con.conrelid = 'small_variant_tag_definitions'::regclass AND con.contype IN ('c', 'f') "
+        "ORDER BY con.conname"
+    )
+
+    async def _body(database: str):
+        engine = _engine(database)
+        try:
+            async with engine.begin() as conn:
+                await apply_postgres_schema(conn)
+            # A database at revision 0021, from before the change, with two projects, a global
+            # tag, a tag of each project (the first shared with the second) and a deleted one.
+            async with engine.begin() as conn:
+                await conn.execute(text("UPDATE alembic_version SET version_num = '0021'"))
+                for statement in _BEFORE_0022:
+                    await conn.exec_driver_sql(statement)
+                await conn.execute(
+                    text("INSERT INTO species (name, common_name, tax_id) VALUES ('safe37', 'Test', 900000037)")
+                )
+                await conn.execute(
+                    text(
+                        "INSERT INTO assemblies (species_id, assembly_name, version, release_date) "
+                        "SELECT id, 'SAFE37', 'test', DATE '2026-01-01' FROM species"
+                    )
+                )
+                await conn.execute(
+                    text(
+                        "INSERT INTO projects (name, species_id, assembly_id) "
+                        "SELECT names.name, s.id, a.id FROM species s, assemblies a, "
+                        "(VALUES ('first'), ('second')) AS names(name)"
+                    )
+                )
+                for key, scope, project, active in (
+                    ("everywhere", "global", None, True),
+                    ("first_tag", "project", "first", True),
+                    ("first_deleted", "project", "first", False),
+                    ("second_tag", "project", "second", True),
+                ):
+                    await conn.execute(
+                        insert_tag, {"key": key, "scope": scope, "project": project, "active": active}
+                    )
+                await conn.execute(
+                    text(
+                        "INSERT INTO small_variant_tag_definition_project_links (tag_id, project_id) "
+                        "SELECT d.id, p.id FROM small_variant_tag_definitions d, projects p "
+                        "WHERE (d.key, p.name) IN (('first_tag', 'second'), ('second_tag', 'first'))"
+                    )
+                )
+            contents = await _table_contents(database)
+            async with engine.begin() as conn:
+                revision = await apply_postgres_schema(conn)
+            kept = await _table_contents(database)
+            async with engine.connect() as conn:
+                migrated = [tuple(row) for row in (await conn.execute(constraints)).all()]
+            # The project's deletion, as delete_project_record runs it: its tags deactivated,
+            # then the project deleted. The tags stay, without it; links to it go.
+            async with engine.begin() as conn:
+                await conn.execute(
+                    text(
+                        "UPDATE small_variant_tag_definitions SET is_active = FALSE "
+                        "WHERE project_id = (SELECT id FROM projects WHERE name = 'first')"
+                    )
+                )
+                await conn.execute(text("DELETE FROM projects WHERE name = 'first'"))
+            async with engine.connect() as conn:
+                after_delete = (
+                    await conn.execute(
+                        text(
+                            "SELECT d.key, d.scope, p.name, d.is_active, "
+                            "(SELECT array_agg(lp.name ORDER BY lp.name) "
+                            " FROM small_variant_tag_definition_project_links l "
+                            " JOIN projects lp ON lp.id = l.project_id WHERE l.tag_id = d.id) "
+                            "FROM small_variant_tag_definitions d LEFT JOIN projects p ON p.id = d.project_id "
+                            "ORDER BY d.key"
+                        )
+                    )
+                ).all()
+            refused = []
+            for statement in (
+                "INSERT INTO small_variant_tag_definitions (key, label, scope, project_id, created_by) "
+                "SELECT 'global_with_project', 'x', 'global', id, 'test' FROM projects",
+                "INSERT INTO small_variant_tag_definitions (key, label, scope, project_id, created_by) "
+                "VALUES ('active_without_project', 'x', 'project', NULL, 'test')",
+            ):
+                try:
+                    async with engine.begin() as conn:
+                        await conn.execute(text(statement))
+                    refused.append(False)
+                except IntegrityError:
+                    refused.append(True)
+            async with engine.begin() as conn:
+                again = await apply_postgres_schema(conn)
+        finally:
+            await engine.dispose()
+        reference = await _create_database()
+        try:
+            await _apply_baseline_files(reference)
+            fingerprints = await _fingerprint(reference), await _fingerprint(database)
+        finally:
+            await _drop_database(reference)
+        return (revision, again), migrated, after_delete, refused, (contents, kept), fingerprints
+
+    (revision, again), migrated, after_delete, refused, (contents, kept), (expected, actual) = _run(_body)
+
+    assert (revision.before, revision.after) == ("0021", head_revision())
+    assert (again.before, again.after) == (head_revision(), head_revision())
+    # One check where there were two, and a foreign key that deletes no tag.
+    assert migrated == [
+        (
+            "small_variant_tag_definitions_family_id_fkey",
+            "FOREIGN KEY (family_id) REFERENCES families(id) ON DELETE CASCADE",
+        ),
+        (
+            "small_variant_tag_definitions_group_check",
+            "CHECK ((\"group\" = ANY (ARRAY['collaboration'::text, 'classification'::text, 'custom'::text])))",
+        ),
+        (
+            "small_variant_tag_definitions_project_id_fkey",
+            "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL",
+        ),
+        ("small_variant_tag_definitions_scope_check", "CHECK ((scope = ANY (ARRAY['global'::text, 'project'::text])))"),
+        (
+            "small_variant_tag_definitions_scope_project_check",
+            "CHECK ((((scope = 'global'::text) AND (project_id IS NULL)) OR ((scope = 'project'::text) "
+            "AND ((project_id IS NOT NULL) OR (NOT is_active)))))",
+        ),
+    ]
+    # Every table is as it was: the migration changes no row.
+    assert {table: rows for table, rows in kept.items() if table != "alembic_version"} == {
+        table: rows for table, rows in contents.items() if table != "alembic_version"
+    }
+    # The deleted project's tags stay, inactive project tags without it; the first keeps its link
+    # to the second project, and the second project's tag loses only its link to the first.
+    assert [tuple(row) for row in after_delete] == [
+        ("everywhere", "global", None, True, None),
+        ("first_deleted", "project", None, False, None),
+        ("first_tag", "project", None, False, ["second"]),
+        ("second_tag", "project", "second", True, None),
+    ]
+    assert refused == [True, True]
     # The schema is the baselines'.
     assert actual == expected, _differences(expected, actual)

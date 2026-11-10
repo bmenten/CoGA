@@ -459,12 +459,16 @@ async def list_small_variant_tags(
         user=user,
         project_id=project_id,
     )
+    # With the inactive tags, also each tag the family's own reviews hold that its projects do
+    # not list (a project it left, or a deleted one), inactive, so its reviews show the tag's
+    # label rather than its key (SAFE-37).
     return await list_small_variant_tag_definitions(
         session,
         family_uuid=context.family_uuid,
         project_ids=context.project_ids,
         project_id=project_id,
         include_inactive=include_inactive,
+        include_held_by_family=True,
     )
 
 
