@@ -35,13 +35,8 @@ import type { HaplotypeRiskState } from '../../lib/haplotypeRisk';
 import { describePhaseCorrection, type HaplotypePhaseCorrection } from '../../lib/haplotypePhaseCorrections';
 import { COUNT_UNIT_MARK, describeCountOffset, formatCorrectedCounts } from '../../lib/repeatStatus';
 import { FATHER_STATE_LABELS, depth, niptEvidenceSummary, pct, readsText } from './niptClassification';
-import { formatAlleleFrequency } from './reportNarrative';
+import { formatAlleleFrequency, scoreBesideClass } from './reportNarrative';
 import { formatCompoundHetPhaseStatus, formatLocus } from './smallVariantResultUtils';
-import {
-  getClassificationLabelFromTagKey,
-  getClassificationTagKeyFromTags,
-  normalizeReviewClassification,
-} from './smallVariantSearch';
 
 type Json = Record<string, unknown>;
 
@@ -306,7 +301,16 @@ export interface SignedCompoundHetPair {
 export interface SignedSmallVariant {
   /** Null when the entry cannot be read here (the downloaded record holds it). */
   variantId: string | null;
+  /**
+   * The class its review showed, frozen at sign-out (`class_shown`, CLIN-80) by the family page's
+   * rule; null: *Not classified*.
+   */
   classification: string | null;
+  /**
+   * Its ACMG classification when that is another class than the class shown: shown beside it as
+   * the ACMG score. Null otherwise.
+   */
+  score: string | null;
   pointTotal: number | null;
   /** The accepted criteria, the ones the classification rests on. */
   criteria: SignedAcmgCriterion[];
@@ -330,7 +334,16 @@ export interface SignedCnvCriterion {
 export interface SignedStructuralVariant {
   variantId: string | null;
   variantKey: string | null;
+  /**
+   * The class its review showed, frozen at sign-out (`class_shown`, CLIN-80) as the SV page shows
+   * it; null: *Not classified*.
+   */
   classification: string | null;
+  /**
+   * The CNV scoring's class when that is another class than the class shown: shown beside it as
+   * the CNV score, never as the class. Null otherwise.
+   */
+  score: string | null;
   pointTotal: number | null;
   criteria: SignedCnvCriterion[];
   unreadableCriteria: number;
@@ -1102,11 +1115,16 @@ const parseEvidenceValues = (value: unknown, fields: EvidenceField[]): SignedEvi
         .map((field) => ({ label: field.label, value: formatEvidenceValue(field, value[field.key]) }))
     : null;
 
+// The key, in a reported variant's entry, of the class its review showed when it was signed
+// (report_signout_service.CLASS_SHOWN_KEY, CLIN-80).
+const CLASS_SHOWN_KEY = 'class_shown';
+
 const parseSmallVariant = (entry: unknown): SignedSmallVariant => {
   if (!isObject(entry)) {
     return {
       variantId: null,
       classification: null,
+      score: null,
       pointTotal: null,
       criteria: [],
       unreadableCriteria: 0,
@@ -1121,15 +1139,13 @@ const parseSmallVariant = (entry: unknown): SignedSmallVariant => {
   const pair = isObject(entry.compound_het) ? entry.compound_het : null;
   const { criteria, unreadable } = parseAcmgCriteria(acmg);
   const evidence = isObject(entry.evidence_snapshot) ? entry.evidence_snapshot : null;
+  // The class its review showed, frozen at sign-out by the family page's rule (CLIN-80), with
+  // the ACMG classification beside it as the score when that is another class.
+  const shown = text(entry[CLASS_SHOWN_KEY]);
   return {
     variantId: text(entry.variant_id),
-    // As the live report reads a review: the ACMG classification, else the class the
-    // review's classification tag names.
-    classification:
-      text(acmg?.classification) ??
-      (getClassificationLabelFromTagKey(text(entry.acmg_class)) ||
-        getClassificationLabelFromTagKey(getClassificationTagKeyFromTags(tags)) ||
-        null),
+    classification: shown,
+    score: scoreBesideClass(shown, text(acmg?.classification)),
     pointTotal: number(acmg?.point_total),
     criteria,
     unreadableCriteria: unreadable,
@@ -1168,6 +1184,7 @@ const parseStructuralVariant = (entry: unknown): SignedStructuralVariant => {
       variantId: null,
       variantKey: null,
       classification: null,
+      score: null,
       pointTotal: null,
       criteria: [],
       unreadableCriteria: 0,
@@ -1195,16 +1212,17 @@ const parseStructuralVariant = (entry: unknown): SignedStructuralVariant => {
     });
   });
   const cnvClass = text(entry.cnv_class);
+  const cnvScore = text(cnvAcmg?.classification) || (cnvClass ? (CNV_CLASS_LABELS[cnvClass] ?? cnvClass) : null);
   const variantKey = entry.variant_key;
+  // The class its review showed, frozen at sign-out as the SV page shows it (CLIN-80), with the
+  // CNV scoring beside it as the score, never as the class.
+  const shown = text(entry[CLASS_SHOWN_KEY]);
   return {
     variantId: text(entry.variant_id),
     variantKey:
       typeof variantKey === 'number' || typeof variantKey === 'string' ? String(variantKey) : null,
-    // As the live report reads an SV review, then the ClinGen CNV scoring it holds.
-    classification:
-      normalizeReviewClassification(text(entry.classification), tags) ||
-      text(cnvAcmg?.classification) ||
-      (cnvClass ? (CNV_CLASS_LABELS[cnvClass] ?? cnvClass) : null),
+    classification: shown,
+    score: scoreBesideClass(shown, cnvScore),
     pointTotal: number(entry.cnv_point_total) ?? number(cnvAcmg?.point_total),
     criteria,
     unreadableCriteria: unreadable,

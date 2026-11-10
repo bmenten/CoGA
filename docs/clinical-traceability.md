@@ -359,7 +359,13 @@ in the EPD refers to the signed version by its report code (*The report code* be
   and frozen nowhere. Such a variant is frozen with the pair review that reports it
   (`compound_het`: partner, gene, the pair's classification, tags and note, and its phase),
   shown in the signed version under *Compound-het pair*. A variant only its own tag reports is
-  frozen as before;
+  frozen as before. Each reported small variant and SV also holds its review's classification text
+  as stored (`classification`) and the class its review shows (`class_shown`): the family page's
+  one rule (`review_pg_utils.review_class_label`: a bare class word in the text, else the most
+  severe ACMG class tag, else the text), worked out by the backend at sign-out from the review as
+  stored, never taken from the request. `class_shown` is null when the review shows no class. The
+  ACMG record and the CNV scoring are frozen beside it as before, so a class the analyst chose over
+  the ACMG score keeps that score in the record;
 - the reviews of repeat loci and Paraphase regions in the family's assembly that carry a
   classification or the Report tag (`repeat_expansion_reviews`, `paraphase_reviews`;
   REQ-TRACE-017): each with its key, classification and label, tags, whether reported, note, who
@@ -599,8 +605,8 @@ The check reads a class label whatever its case. The class labels were put in se
 (ENG-6), and revision `0013` rewrote the reviews to match; a version signed before keeps
 *Likely Pathogenic - class 4*, and the signed view shows it as signed. Compared as written, every
 such version would read as changed after the upgrade, although only the case differs. Only a
-`classification` that names a class label is read so (`_with_current_class_labels` in
-`report_signout_service.py`); a different class is still a change.
+`classification` or `class_shown` that names a class label is read so
+(`_with_current_class_labels` in `report_signout_service.py`); a different class is still a change.
 
 Six gates run first, in this order:
 
@@ -854,7 +860,16 @@ version; one never signed out opens on the live report.
   the sentence that says what the record is (the record's own or, for a record signed before
   CoGA froze it, the same sentence);
 - each reported variant's description as reviewed, classification, accepted criteria, evidence
-  snapshot, tags and note; the reported SVs with their description and ClinGen CNV scoring;
+  snapshot, tags and note; the reported SVs with their description and ClinGen CNV scoring. The
+  classification is the class the record froze as shown (`class_shown`), *Not classified* when it
+  is null; where the ACMG classification, or an SV's CNV scoring, holds another class, it is shown
+  beside it as the score, with its points (*VUS - class 3 (ACMG score: Likely pathogenic - class
+  4 · 8 pts)*, *Not classified (CNV score: Pathogenic - class 5 · +1.00 pts)*), and the
+  classification motivation names the class the criteria score apart from the class shown (*The
+  ACMG/AMP criteria PVS1 score this variant Likely pathogenic - class 4; it is classified as VUS -
+  class 3.*). The sign-out check compares the class shown: a class changed since signing reads as
+  a change, a small variant's text changed alone too (*VUS* beside the tag of class 4 rewritten
+  as *Likely benign*);
 - in a PGT family, the embryo calls (*PGT embryo results*): the ROI, the inheritance model, the
   disease haplotype, and per embryo its call, the homologs it carries at the ROI as the track
   names them (P1, P2, M1, M2), its warnings, its QC at the ROI and, in a record that holds them,
@@ -911,7 +926,12 @@ whether the family's data has changed since. Straight after a sign-out it says, 
 *Signed out as version N. Report code …: the EPD report refers to this record by it.*
 
 **The live report** (`?view=live`) draws live data. It is where a case is signed out, and it is
-never presented as the signed record. It says what a sign-out is (*Signing out is the analytical
+never presented as the signed record. Each reported variant shows the class its review shows, as
+the family page shows it (`reportNarrative.ts`, `reportedSmallVariantClass`,
+`reportedStructuralVariantClass`), with the ACMG or CNV score beside it as on the signed version
+(`ReportClassification.tsx`, which both views use). It used to show a small variant's ACMG
+classification, else its text as stored, so a class tag alone read *Not classified*. It says what a
+sign-out is (*Signing out is the analytical
 sign-off in CoGA, which closes and freezes the analysis; the medical sign-off of the patient
 report happens in the EPD, which refers to the signed record by its report code.*), names the
 latest signed version with its report code, and checks itself against the latest sign-out

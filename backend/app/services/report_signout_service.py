@@ -47,7 +47,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.config import settings
-from .review_pg_utils import current_class_label
+from .review_pg_utils import current_class_label, review_class_label
 from .annotation_manifest_service import (
     REFERENCE_MODULE_KEYS,
     UNAVAILABLE_MODULE_VERSION,
@@ -119,6 +119,18 @@ _IMPORT_FLAG_DATASET_LISTS = ("failed_datasets", "imported_datasets")
 
 # The snapshot section holding the SV/CNV evidence drift.
 STRUCTURAL_DRIFT_SECTION = "structural_drift"
+
+# The sections of the reported variants, and the key, in each entry, of the class its review
+# showed when it was signed (CLIN-80, the owner's decision of 2026-11-10): the class the family
+# page shows by the one rule (``review_pg_utils.review_class_label``: a bare class word in the
+# text, else the most severe ACMG class tag, else the text), worked out here from the review as
+# stored, never taken from the request. A small variant's entry freezes its classification text
+# beside it (an SV's froze it already), so the record holds what the class was read from. The
+# live report and the signed view show this class, "Not classified" when there is none, and the
+# ACMG record's (or the CNV scoring's) class beside it as the score when that is another class.
+REPORTED_VARIANTS_SECTION = "reported_variants"
+REPORTED_STRUCTURAL_SECTION = "reported_structural_variants"
+CLASS_SHOWN_KEY = "class_shown"
 
 # What a signed record is, frozen into it and said on the report page (owner decision of
 # 2026-10-14). The report code is not in the record: it is made from the record's content
@@ -952,14 +964,15 @@ async def _reported_reviews(session: AsyncSession, family_uuid: str) -> list[dic
     The pair review that holds the tag is frozen with the variant (``compound_het``: the
     partner, the gene, the pair's classification, tags and note, and its phase), so the record
     says why a variant is reported whose own tags do not; a variant reported by its own tag
-    alone is frozen as before.
+    alone is frozen as before. Each holds its classification text as stored; the class its review
+    shows is added by :func:`build_report_snapshot` (``class_shown``, CLIN-80).
     """
     rows = (
         await session.execute(
             text(
                 """
-                SELECT variant_id, acmg_class, acmg, tags, note, acmg_evidence_snapshot,
-                       compound_het_group_id, compound_het_partner_variant_ids,
+                SELECT variant_id, classification, acmg_class, acmg, tags, note,
+                       acmg_evidence_snapshot, compound_het_group_id, compound_het_partner_variant_ids,
                        compound_het_gene, compound_het_classification, compound_het_tags,
                        compound_het_note, compound_het_phase_status
                 FROM small_variant_reviews
@@ -975,6 +988,8 @@ async def _reported_reviews(session: AsyncSession, family_uuid: str) -> list[dic
     for row in rows:
         entry: dict[str, Any] = {
             "variant_id": row["variant_id"],
+            # The classification text as stored, which the class shown is read from (CLIN-80).
+            "classification": row["classification"],
             "acmg_class": row["acmg_class"],
             "acmg": row["acmg"],
             "tags": sorted(row["tags"] or []),
@@ -999,7 +1014,8 @@ async def _reported_structural_reviews(
 
     Each keeps ``variant_key``, null: the review's column of that name was never written
     (#853) and went with ENG-6, so every record signed before holds null there, and the
-    sign-out's change check compares this section with theirs whole.
+    sign-out's change check compares this section with theirs whole. The class the review
+    shows is added by :func:`build_report_snapshot` (``class_shown``, CLIN-80).
     """
     rows = (
         await session.execute(
@@ -1150,6 +1166,15 @@ def snapshot_gaps(snapshot: Mapping[str, Any] | None) -> list[dict[str, str]]:
     return gaps
 
 
+def _with_class_shown(entry: Mapping[str, Any]) -> dict[str, Any]:
+    """A reported variant's entry with the class its review shows (``class_shown``, CLIN-80):
+    :func:`review_pg_utils.review_class_label` over the review's classification text and tags
+    as stored, as the family page, the Variant Explorer and the classification filters read it.
+    None when the review shows no class: the report says *Not classified*. The ACMG record and
+    the CNV scoring stay in the entry as they were, and are shown beside it as the score."""
+    return {**entry, CLASS_SHOWN_KEY: review_class_label(entry.get("classification"), entry.get("tags"))}
+
+
 async def build_report_snapshot(
     session: AsyncSession,
     *,
@@ -1174,8 +1199,11 @@ async def build_report_snapshot(
     qc_report = await get_family_sample_integrity_qc(
         session, family_id=family_id, user=user, project_id=project_id, shared_nipt=shared_nipt
     )
-    reported = await _reported_reviews(session, context.family_uuid)
-    reported_structural = await _reported_structural_reviews(session, context.family_uuid)
+    # Each with the class its review shows, by the family page's rule (CLIN-80).
+    reported = [_with_class_shown(entry) for entry in await _reported_reviews(session, context.family_uuid)]
+    reported_structural = [
+        _with_class_shown(entry) for entry in await _reported_structural_reviews(session, context.family_uuid)
+    ]
     sequencing_qc = await _canonical_sequencing_qc(session, context)
     import_incomplete = await _import_incomplete_state(session, context.family_uuid)
     import_unfinished = await _import_unfinished_state(session, context.family_uuid)
@@ -1282,8 +1310,8 @@ async def build_report_snapshot(
         # The imports that began writing the family and stopped part-way ({}: none), with
         # the datasets each had not finished, which may be partly written or missing.
         "import_unfinished": import_unfinished,
-        "reported_variants": reported,
-        "reported_structural_variants": reported_structural,
+        REPORTED_VARIANTS_SECTION: reported,
+        REPORTED_STRUCTURAL_SECTION: reported_structural,
         **sections,
         **finding_reviews,
     }
@@ -2006,8 +2034,8 @@ async def find_report_signout_by_code(
 REPORT_CONTENT_SECTIONS = (
     "assembly",
     "modules",
-    "reported_variants",
-    "reported_structural_variants",
+    REPORTED_VARIANTS_SECTION,
+    REPORTED_STRUCTURAL_SECTION,
     "drift",
     STRUCTURAL_DRIFT_SECTION,
     "sample_qc",
@@ -2040,6 +2068,11 @@ def _section_fingerprint(value: Any) -> str:
     return _canonical_hash(json.loads(json.dumps(value, default=str)))
 
 
+# The keys whose text names a class label: a review's classification, and the class a reported
+# variant's review showed (CLIN-80).
+_CLASS_LABEL_KEYS = frozenset({"classification", CLASS_SHOWN_KEY})
+
+
 def _with_current_class_labels(value: Any) -> Any:
     """``value`` with each classification that names a class label in another case written
     as the label is now (:func:`current_class_label`).
@@ -2047,13 +2080,14 @@ def _with_current_class_labels(value: Any) -> Any:
     The labels were put in sentence case (ENG-6), and revision 0013 rewrote the stored reviews
     to match; a record signed before keeps "Likely Pathogenic - class 4". The comparison with
     the latest sign-out reads the two as one, so the case alone is no change since sign-out.
-    Only a string under a ``classification`` key is read; any other text compares as it is.
+    Only a string under a ``classification`` or ``class_shown`` key is read; any other text
+    compares as it is.
     """
     if isinstance(value, Mapping):
         return {
             key: (
                 current_class_label(item)
-                if key == "classification" and isinstance(item, str)
+                if key in _CLASS_LABEL_KEYS and isinstance(item, str)
                 else _with_current_class_labels(item)
             )
             for key, item in value.items()

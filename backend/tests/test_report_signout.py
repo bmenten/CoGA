@@ -21,12 +21,13 @@ import copy
 import json
 import types
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 import pytest
 from fastapi import HTTPException
 
-from backend.app.schemas import ReportSignoutDetail
+from backend.app.schemas import ReportSignoutDetail, ReportSignoutRequest
 from backend.app.services import annotation_manifest_service as ams
 from backend.app.services import report_signout_service as rss
 from backend.app.services.access_control import SIGN_OUT_ROLE_DETAIL
@@ -1892,7 +1893,9 @@ def test_reported_structural_variants_are_frozen_and_hashed(monkeypatch) -> None
     }
     with_cnv = _body([cnv])
     without = _body([])
-    assert with_cnv["reported_structural_variants"] == [cnv]
+    # With the class its review shows, by the family page's rule: the class word as its label
+    # (CLIN-80).
+    assert with_cnv["reported_structural_variants"] == [{**cnv, "class_shown": "Pathogenic - class 5"}]
     assert without["reported_structural_variants"] == []
     assert rss._canonical_hash(with_cnv) != rss._canonical_hash(without)
 
@@ -2066,14 +2069,17 @@ def test_signout_check_reads_a_class_label_signed_in_another_case_as_unchanged(m
 
 
 def test_only_a_classification_s_class_label_is_read_whatever_its_case() -> None:
+    # The class a reported variant's review showed (CLIN-80) is read so too.
     value = {
         "classification": "LIKELY pathogenic - CLASS 4",
+        "class_shown": "likely Pathogenic - class 4",
         "note": "Likely Pathogenic - class 4",
         "acmg": {"classification": "likely benign - class 2"},
         "pair": [{"classification": "Not a class label"}],
     }
     assert rss._with_current_class_labels(value) == {
         "classification": "Likely pathogenic - class 4",
+        "class_shown": "Likely pathogenic - class 4",
         "note": "Likely Pathogenic - class 4",
         "acmg": {"classification": "Likely benign - class 2"},
         "pair": [{"classification": "Not a class label"}],
@@ -4597,6 +4603,7 @@ def _review_row(variant_id: str, *, tags=(), pair_tags=None, partner: str | None
     compound-het pair review its row holds (each variant's row holds the pair's fields)."""
     row = {
         "variant_id": variant_id,
+        "classification": None,
         "acmg_class": None,
         "acmg": None,
         "tags": list(tags),
@@ -4653,9 +4660,11 @@ def test_a_variant_reported_through_its_pair_is_frozen_with_the_pair_review() ->
     by_id = {entry["variant_id"]: entry for entry in reported}
     assert list(by_id) == ["1-100-A-G", "1-3001-A-G", "1-10000-A-G", "1-200-A-G"]
     # A variant reported by its own tag keeps exactly the keys it was frozen with: the record of
-    # a family without a reported pair hashes as before.
+    # a family without a reported pair holds no pair key. Its classification text is frozen as
+    # stored (CLIN-80).
     assert by_id["1-100-A-G"] == {
         "variant_id": "1-100-A-G",
+        "classification": None,
         "acmg_class": None,
         "acmg": None,
         "tags": ["report"],
@@ -4700,3 +4709,200 @@ def test_a_variant_its_pair_reports_without_frozen_evidence_gates_like_any_other
     assert snapshot["drift"]["drifted"] == [
         {"variant_id": "1-3001-A-G", "acmg_class": None, "status": "no_snapshot"}
     ]
+
+
+# --- The class each reported variant's review showed (CLIN-80) -------------------------------
+#
+# The owner's decision of 2026-11-10: the signed record freezes the class a reported variant's
+# review shows, by the family page's one rule (review_class_label), beside its classification
+# text; the live report and the signed version show that class, with the ACMG (or CNV) score
+# beside it when the two differ. Before, the record froze no small variant's text, so the signed
+# version showed the ACMG score, an overridden one too, and the check missed a class changed by
+# its text alone.
+
+# The shared cases of the one rule (smallVariantSearch.ts and review_pg_utils.py read them alike).
+_REVIEW_CLASS_CASES = json.loads(
+    (
+        Path(__file__).resolve().parents[2]
+        / "frontend/src/pages/families/__tests__/fixtures/review-class-cases.json"
+    ).read_text(encoding="utf-8")
+)["cases"]
+
+# The real reader of the reported reviews, kept before a test stands a stub in for it.
+_READ_REPORTED_REVIEWS = rss._reported_reviews
+
+# An ACMG classification of class 4 (PVS1 alone scores 8 points).
+_ACMG_CLASS_4 = {
+    "criteria": [{"code": "PVS1", "strength": "very_strong", "accepted": True}],
+    "point_total": 8,
+    "classification": "Likely pathogenic - class 4",
+    "vus_tier": None,
+}
+
+
+def _classified_row(variant_id: str, classification: str | None, tags: list[str], acmg=None) -> dict:
+    row = _review_row(variant_id, tags=tags)
+    row.update(classification=classification, acmg=acmg, acmg_class="acmg_class_4" if acmg else None)
+    return row
+
+
+# The owner's four small-variant cases, as the review stores each, and the class it shows.
+_OWNER_SMALL_CASES = [
+    # ACMG class 4, then the review dialog picks class 3: the text and the class tag it writes.
+    (_classified_row("1-100-A-G", "VUS - class 3", ["acmg_class_3", "report"], _ACMG_CLASS_4), "VUS - class 3"),
+    # A class tag alone.
+    (_classified_row("1-200-A-G", None, ["acmg_class_4", "report"]), "Likely pathogenic - class 4"),
+    # A class word in the text before a class tag.
+    (_classified_row("1-300-A-G", "VUS", ["acmg_class_4", "report"]), "VUS - class 3"),
+    # A class word alone.
+    (_classified_row("1-400-A-G", "Pathogenic", ["report"]), "Pathogenic - class 5"),
+    # Neither: no class.
+    (_classified_row("1-500-A-G", None, ["report"]), None),
+]
+
+# The SV cases: a class tag alone; a ClinGen CNV scoring with the text the CNV dialog writes; the
+# same scoring with its text cleared since, which shows no class.
+_CNV_CLASS_5 = {"kind": "loss", "criteria": [], "point_total": 1.0, "classification": "Pathogenic - class 5"}
+_OWNER_SV_CASES = [
+    (
+        {
+            "variant_id": "1-1000-5000-DEL---",
+            "classification": None,
+            "cnv_class": None,
+            "cnv_acmg": None,
+            "tags": ["acmg_class_4", "report"],
+        },
+        "Likely pathogenic - class 4",
+    ),
+    (
+        {
+            "variant_id": "1-7000-12000-DEL---",
+            "classification": "Pathogenic - class 5",
+            "cnv_class": "cnv_class_5",
+            "cnv_acmg": _CNV_CLASS_5,
+            "tags": ["report"],
+            # Frozen with the scoring, so the SV/CNV drift lists it not.
+            "evidence_snapshot": {"source": "needlr"},
+        },
+        "Pathogenic - class 5",
+    ),
+    (
+        {
+            "variant_id": "1-9000-15000-DEL---",
+            "classification": None,
+            "cnv_class": "cnv_class_5",
+            "cnv_acmg": _CNV_CLASS_5,
+            "tags": ["report"],
+        },
+        None,
+    ),
+]
+
+
+def _patch_reported(monkeypatch, *, rows: list[dict], structural: list[dict] | None = None) -> None:
+    """The reported reviews read from ``rows`` by the real reader, as Postgres returns them, and
+    the reported SVs as given; every other section held constant (``_patch_check``)."""
+    _patch_check(monkeypatch, reviews=[])
+
+    async def _reviews(session, family_uuid):
+        return await _READ_REPORTED_REVIEWS(_ReviewRowsSession(copy.deepcopy(rows)), family_uuid)
+
+    async def _structural(session, family_uuid):
+        return copy.deepcopy(structural or [])
+
+    monkeypatch.setattr(rss, "_reported_reviews", _reviews)
+    monkeypatch.setattr(rss, "_reported_structural_reviews", _structural)
+
+
+def _snapshot_now() -> dict:
+    return asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
+
+
+def _checked_with_latest(signed: dict) -> dict:
+    return asyncio.run(
+        rss.compare_report_with_latest_signout(_CheckSession(_signed_row(signed)), family_id="FAM1", user=_user())
+    )
+
+
+def test_the_record_freezes_the_class_each_reported_review_shows_with_its_text(monkeypatch) -> None:
+    _patch_reported(
+        monkeypatch,
+        rows=[row for row, _shown in _OWNER_SMALL_CASES],
+        structural=[entry for entry, _shown in _OWNER_SV_CASES],
+    )
+    snapshot = _snapshot_now()
+
+    small = {entry["variant_id"]: entry for entry in snapshot["reported_variants"]}
+    for row, shown in _OWNER_SMALL_CASES:
+        entry = small[row["variant_id"]]
+        assert entry.get("class_shown") == shown, row
+        # The text the class was read from, as stored; the ACMG record as frozen before.
+        assert entry.get("classification") == row["classification"]
+        assert entry["acmg"] == row["acmg"]
+    # The ACMG score the dialog's class overrode stays in the record, beside the class shown.
+    assert small["1-100-A-G"]["acmg"]["classification"] == "Likely pathogenic - class 4"
+    assert small["1-100-A-G"]["class_shown"] == "VUS - class 3"
+
+    structural = {entry["variant_id"]: entry for entry in snapshot["reported_structural_variants"]}
+    for entry, shown in _OWNER_SV_CASES:
+        assert structural[entry["variant_id"]].get("class_shown") == shown, entry
+        assert structural[entry["variant_id"]]["cnv_acmg"] == entry["cnv_acmg"]
+    # The CNV scoring is never the class shown: with its text cleared, the SV shows no class.
+    assert "class_shown" in structural["1-9000-15000-DEL---"]
+    assert structural["1-9000-15000-DEL---"]["class_shown"] is None
+
+
+@pytest.mark.parametrize("case", _REVIEW_CLASS_CASES, ids=lambda case: case["why"])
+def test_the_class_frozen_is_the_one_rule_of_the_family_page_worked_out_at_sign_out(monkeypatch, case) -> None:
+    # The server reads the class from the review as stored, over the shared cases of the rule:
+    # no request field carries a class shown, so none from the client can be frozen.
+    assert "class_shown" not in ReportSignoutRequest.model_fields
+    _patch_reported(
+        monkeypatch,
+        rows=[_classified_row("1-100-A-G", case["classification"], case["tags"])],
+        structural=[
+            {"variant_id": "1-1000-5000-DEL---", "classification": case["classification"], "tags": case["tags"]}
+        ],
+    )
+    snapshot = _snapshot_now()
+    [small] = snapshot["reported_variants"]
+    [structural] = snapshot["reported_structural_variants"]
+    assert "class_shown" in small and "class_shown" in structural
+    assert (small["class_shown"] or "") == case["shown"]
+    assert (structural["class_shown"] or "") == case["shown"]
+
+
+def test_the_class_shown_is_bound_into_the_content_hash(monkeypatch) -> None:
+    _patch_reported(monkeypatch, rows=[_classified_row("1-300-A-G", "VUS", ["acmg_class_4", "report"])])
+    as_vus = _snapshot_now()
+    # Only the text differs: another class shown, another hash.
+    _patch_reported(monkeypatch, rows=[_classified_row("1-300-A-G", "Likely benign", ["acmg_class_4", "report"])])
+    as_likely_benign = _snapshot_now()
+    assert as_likely_benign["reported_variants"][0].get("class_shown") == "Likely benign - class 2"
+    assert rss._canonical_hash(as_vus) != rss._canonical_hash(as_likely_benign)
+
+
+def test_signout_check_reads_a_class_changed_by_its_text_alone_as_a_change(monkeypatch) -> None:
+    # Signed as "VUS" beside the tag of class 4 (class 3 shown); the analyst then writes
+    # "Likely benign", the tags left as they were. The record froze no text before, so the check
+    # read the report as unchanged while the page showed another class.
+    _patch_reported(monkeypatch, rows=[_classified_row("1-300-A-G", "VUS", ["acmg_class_4", "report"])])
+    signed = _snapshot_now()
+    assert _checked_with_latest(signed)["matches"] is True
+
+    _patch_reported(monkeypatch, rows=[_classified_row("1-300-A-G", "Likely benign", ["acmg_class_4", "report"])])
+    out = _checked_with_latest(signed)
+    assert out["matches"] is False
+    assert out["changed_sections"] == ["reported_variants"]
+    assert out["not_compared"] == []
+
+
+def test_signout_check_reads_an_svs_class_changed_since_as_a_change(monkeypatch) -> None:
+    # The CNV-scored SV's text cleared after sign-out: it shows no class now.
+    scored = _OWNER_SV_CASES[1][0]
+    _patch_reported(monkeypatch, rows=[], structural=[scored])
+    signed = _snapshot_now()
+    _patch_reported(monkeypatch, rows=[], structural=[{**scored, "classification": None}])
+    out = _checked_with_latest(signed)
+    assert out["matches"] is False
+    assert out["changed_sections"] == ["reported_structural_variants"]

@@ -3,8 +3,9 @@
 // the wording can be unit-tested in isolation.
 
 import { ACMG_CRITERIA_BY_CODE, STRENGTH_LABELS, type AcmgStrength } from '../../lib/acmg';
+import { formatCnvPoints } from '../../lib/cnvAcmg/format';
 import { formatLocus, formatPredictionScore } from './smallVariantResultUtils';
-import type { FamilyMember, SmallVariant } from './smallVariantSearch';
+import { normalizeReviewClassification, type FamilyMember, type SmallVariant } from './smallVariantSearch';
 import type {
   StructuralVariant,
   StructuralVariantFamilyMember,
@@ -209,8 +210,57 @@ export const collectReportCriteria = (variant: SmallVariant): ReportCriterion[] 
     });
 };
 
-export const acmgClassificationLabel = (variant: SmallVariant): string | null =>
-  variant.review?.acmg?.classification ?? variant.review?.classification ?? null;
+/**
+ * A reported variant's class as the report shows it, live and signed (CLIN-80, the owner's
+ * decision of 2026-11-10): the class its review shows by the one rule of the family page
+ * (normalizeReviewClassification), and beside it the scoring's class when that is another.
+ */
+export interface ReportedClass {
+  /** The class the review shows; null: *Not classified*. */
+  shown: string | null;
+  /**
+   * The scoring's class (the ACMG record's of a small variant, the ClinGen CNV scoring's of an
+   * SV) when it is not the class shown; null when there is no scoring or it is that class.
+   */
+  score: string | null;
+  /** The scoring's points as the report writes them ("8", "+1.00"); null when none. */
+  points: string | null;
+}
+
+/**
+ * The scoring's class beside the class shown: null when there is none, or when it is the class
+ * shown whatever its case (a label signed before the labels were put in sentence case, ENG-6).
+ */
+export const scoreBesideClass = (shown: string | null, scored: string | null | undefined): string | null => {
+  const score = scored?.trim() || null;
+  if (!score) return null;
+  return shown?.trim().toLowerCase() === score.toLowerCase() ? null : score;
+};
+
+/** A reported small variant's class on the live report: its review's, the ACMG score beside it. */
+export const reportedSmallVariantClass = (variant: SmallVariant): ReportedClass => {
+  const shown = normalizeReviewClassification(variant.review?.classification, variant.review?.tags) || null;
+  const points = variant.review?.acmg?.point_total;
+  return {
+    shown,
+    score: scoreBesideClass(shown, variant.review?.acmg?.classification),
+    points: typeof points === 'number' ? String(points) : null,
+  };
+};
+
+/**
+ * A reported SV's class on the live report: its review's, as the SV page shows it, and the
+ * ClinGen CNV scoring beside it as the score, never as the class.
+ */
+export const reportedStructuralVariantClass = (variant: StructuralVariant): ReportedClass => {
+  const shown = normalizeReviewClassification(variant.review?.classification, variant.review?.tags) || null;
+  const points = variant.review?.cnv_acmg?.point_total;
+  return {
+    shown,
+    score: scoreBesideClass(shown, variant.review?.cnv_acmg?.classification),
+    points: typeof points === 'number' ? formatCnvPoints(points) : null,
+  };
+};
 
 // --- Structural-variant narrative -----------------------------------------
 

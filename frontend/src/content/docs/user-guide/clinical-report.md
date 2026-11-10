@@ -12,6 +12,11 @@ It refers to exactly one signed version: the one it rests on.
 
 - Every **reported variant**, small and structural. If a list cannot hold them all, an *Incomplete*
   warning says so, on screen and in print, so a printout cannot pass for the whole list.
+- Each variant's **class** as the family page shows it: a class word in the classification (*VUS*),
+  else its class tag, else the text. When the ACMG classification, or a structural variant's CNV
+  scoring, gives another class, that score stands beside it: *VUS - class 3 (ACMG score: Likely
+  pathogenic - class 4 · 8 pts)*. A structural variant whose review shows no class reads *Not
+  classified*, even with a CNV score.
 - The **repeat expansions and Paraphase findings** marked **Report**: gene and disease, every member's
   call with CoGA's status, your classification and note, and the marks *differs from CoGA's status* and
   *Changed since review* where they apply. Without any, the section says so.
@@ -115,7 +120,8 @@ Only the signed version is. A signed case opens on its **latest signed version**
 record: *Signed version N — signed out by … on …*, with its report code and fingerprint. It shows what
 was signed:
 
-- each reported variant's description, classification, criteria, evidence and note;
+- each reported variant's description, classification, criteria, evidence and note. The class is the
+  one its review showed when you signed, with the ACMG or CNV score beside it as on the live report;
 - in a PGT family, the embryo calls (*PGT embryo results*, with each call's QC verdict and the
   thresholds);
 - in a monogenic NIPT family, its NIPT results (*NIPT results*);
