@@ -74,6 +74,14 @@ def test_no_number_is_none(value: object) -> None:
     assert int_or_none(value) is None
 
 
+@pytest.mark.parametrize(
+    "value", ["inf", "Infinity", "-inf", "1e400", float("inf"), float("-inf"), float("nan")]
+)
+def test_an_infinity_or_nan_is_none_not_an_error(value: object) -> None:
+    # int() raises OverflowError, not ValueError, on an infinity: it used to escape the reader.
+    assert int_or_none(value) is None
+
+
 # --- The services --------------------------------------------------------------------------
 
 
