@@ -15,6 +15,7 @@ import { createTestQueryClient } from '../../../test/createTestQueryClient';
 import ImportDeliveriesPanel, {
   isApprovable,
   needsAChoice,
+  needsAnOverwrite,
 } from '../ImportDeliveriesPanel';
 
 vi.mock('../../../lib/api', () => ({
@@ -61,6 +62,23 @@ const existingFamily = delivery('FAMX', {
     {
       code: 'existing_samples',
       message: 'Sample ID(s) already exist in the system: PROBAND.',
+      path: null,
+    },
+  ],
+});
+
+const membersDiffer = delivery('FAMY', {
+  state: 'needs_attention',
+  issues: [
+    {
+      code: 'existing_family',
+      message: "Family 'FAMY' already exists.",
+      path: null,
+    },
+    {
+      code: 'package_members_differ_from_family',
+      message:
+        "The package's members differ from family 'FAMY' in CoGA: MOTHER is a member of the family, not of the package.",
       path: null,
     },
   ],
@@ -180,6 +198,9 @@ describe('ImportDeliveriesPanel', () => {
   it('tells which deliveries can be approved', () => {
     expect(isApprovable(deliveries[0] as never)).toBe(true);
     expect(needsAChoice(existingFamily as never)).toBe(true);
+    expect(needsAnOverwrite(existingFamily as never)).toBe(false);
+    expect(isApprovable(membersDiffer as never)).toBe(true);
+    expect(needsAnOverwrite(membersDiffer as never)).toBe(true);
     expect(isApprovable(deliveries[3] as never)).toBe(false);
     expect(isApprovable(deliveries[4] as never)).toBe(false);
   });
@@ -304,6 +325,43 @@ describe('ImportDeliveriesPanel', () => {
           revision: 0,
           dry_run: false,
           conflict_mode: 'update',
+          acknowledge_warnings: false,
+        }
+      )
+    );
+  });
+
+  it('approves a delivery whose members differ from its family only with overwrite', async () => {
+    vi.mocked(api.get).mockResolvedValue({ data: [membersDiffer] });
+    storage.setItem(AUTH_STORAGE_KEYS.role, 'admin');
+    renderPanel();
+    fireEvent.click(
+      (await loadedRow('FAMY')).getByRole('button', { name: 'Approve…' })
+    );
+
+    const dialog = screen.getByRole('dialog', { name: 'Import FAMY?' });
+    const policy = within(dialog).getByRole('combobox', {
+      name: 'Existing data policy',
+    });
+    expect(policy).toHaveValue('overwrite');
+    expect(
+      within(dialog).getByRole('option', {
+        name: 'Update: add the missing datasets and members',
+      })
+    ).toBeDisabled();
+    expect(
+      within(dialog).getByText(/an update changes none of the family/)
+    ).toBeInTheDocument();
+    fireEvent.click(
+      within(dialog).getByRole('button', { name: 'Approve and import' })
+    );
+    await waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith(
+        '/family-imports/deliveries/id-FAMY/approve',
+        {
+          revision: 0,
+          dry_run: false,
+          conflict_mode: 'overwrite',
           acknowledge_warnings: false,
         }
       )

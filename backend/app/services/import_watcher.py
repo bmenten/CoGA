@@ -95,6 +95,7 @@ from .family_package_nipt import NIPT_VCF_COLUMN_WARNING
 from .family_package_registration import (
     _existing_package_entity_warnings,
     family_member_differences,
+    members_added_message,
     manifest_roi_issue,
     members_differ_message,
 )
@@ -521,13 +522,18 @@ async def assess_content(
                 session, family_id=validation.family_id, sample_ids=validation.sample_ids
             )
         )
-        # The package's members are the pedigree the import reads: one that says otherwise than
-        # the family in CoGA is corrected first, whatever the approver chooses.
+        # The package's members are the pedigree the import reads: an update adds the members the
+        # family in CoGA lacks (a warning), and one that changes or lacks a member the family holds
+        # is corrected first, or overwrites the family's pedigree (an administrator's choice).
         if bundle is not None and validation.family_id:
             differences = await family_member_differences(session, family_id=validation.family_id, ped=bundle.ped)
-            if differences:
+            if not differences.kept_by_an_update:
                 issues.append(
                     _issue("package_members_differ_from_family", members_differ_message(validation.family_id, differences))
+                )
+            elif differences.added:
+                warnings.append(
+                    _issue("package_adds_members", members_added_message(validation.family_id, differences))
                 )
         if project_id is not None:
             roi = await manifest_roi_issue(

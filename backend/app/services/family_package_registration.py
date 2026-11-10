@@ -1778,6 +1778,73 @@ async def _end_family_import_unfinished(
             pass
 
 
+def _package_members(bundle: FamilyPackageBundle) -> list[dict[str, Any]]:
+    """The package's members as the family's members: its pedigree with the carriers and
+    statuses its manifest names."""
+    return _ped_members_for_import(
+        bundle.ped,
+        carrier_types=_manifest_carrier_types(bundle.manifest),
+        member_overrides=_manifest_member_status_overrides(bundle.manifest, bundle.ped),
+    )
+
+
+def _package_relationships(bundle: FamilyPackageBundle, members: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The package's links between its ``members``: those its pedigree makes, and the couples and
+    parents its manifest names besides, each once."""
+    relationships = ped_service._relationships_from_members(members)
+    seen_relationships = {
+        ped_service._relationship_key(
+            relationship["relationship_type"],
+            relationship["sample_id_a"],
+            relationship["sample_id_b"],
+            relationship.get("role_a"),
+            relationship.get("role_b"),
+        )
+        for relationship in relationships
+    }
+    for relationship in _manifest_relationships(bundle.manifest):
+        key = ped_service._relationship_key(
+            relationship["relationship_type"],
+            relationship["sample_id_a"],
+            relationship["sample_id_b"],
+            relationship.get("role_a"),
+            relationship.get("role_b"),
+        )
+        if key not in seen_relationships:
+            seen_relationships.add(key)
+            relationships.append(relationship)
+    return relationships
+
+
+async def _take_package_pedigree(
+    session: AsyncSession,
+    *,
+    family_id: str,
+    bundle: FamilyPackageBundle,
+    user: CurrentUser,
+    overwrite: bool,
+) -> None:
+    """Give the existing family the package's pedigree (``family_structure_service.
+    take_package_pedigree``): an update adds the members the family lacks, an overwrite makes the
+    package's members and links the family's. Committed; a structure change it cannot make (one
+    made since it read the family, a sample ID another family holds) refuses the import."""
+    # Imported here: family_structure_service imports this module.
+    from .family_structure_service import take_package_pedigree
+
+    members = _package_members(bundle)
+    try:
+        await take_package_pedigree(
+            session,
+            family_id=family_id,
+            members=members,
+            relationships=_package_relationships(bundle, members),
+            user=user,
+            replace=overwrite,
+        )
+    except HTTPException as refused:
+        raise ImportRefused(f"The family's pedigree could not take the package's members: {refused.detail}") from None
+
+
 async def _ensure_family_from_ped(
     session: AsyncSession,
     *,
@@ -1803,33 +1870,8 @@ async def _ensure_family_from_ped(
     created = existing is None
     if existing is None:
         await ped_service._ensure_sample_ids_are_available(session, bundle.ped.sample_ids)
-        members = _ped_members_for_import(
-            bundle.ped,
-            carrier_types=_manifest_carrier_types(bundle.manifest),
-            member_overrides=_manifest_member_status_overrides(bundle.manifest, bundle.ped),
-        )
-        relationships = ped_service._relationships_from_members(members)
-        seen_relationships = {
-            ped_service._relationship_key(
-                relationship["relationship_type"],
-                relationship["sample_id_a"],
-                relationship["sample_id_b"],
-                relationship.get("role_a"),
-                relationship.get("role_b"),
-            )
-            for relationship in relationships
-        }
-        for relationship in _manifest_relationships(bundle.manifest):
-            key = ped_service._relationship_key(
-                relationship["relationship_type"],
-                relationship["sample_id_a"],
-                relationship["sample_id_b"],
-                relationship.get("role_a"),
-                relationship.get("role_b"),
-            )
-            if key not in seen_relationships:
-                seen_relationships.add(key)
-                relationships.append(relationship)
+        members = _package_members(bundle)
+        relationships = _package_relationships(bundle, members)
         await ped_service._create_family(
             session,
             family_id=family_id,
@@ -1852,10 +1894,12 @@ async def _ensure_family_from_ped(
             raise ImportRefused(
                 f"Family '{family_id}' already exists; choose update or overwrite to import data."
             )
-        # The package's members are the pedigree the import reads: one that says otherwise than
-        # the family, a member more or less, another sex or other parents, is refused.
+        # The package's members are the pedigree the import reads (the owner's decision of
+        # 2026-11-10): an update adds the members the family lacks and is refused when the
+        # package changes one it holds (another sex or other parents) or lacks one; an
+        # overwrite makes the package's members the family's pedigree.
         differences = await family_member_differences(session, family_id=family_id, ped=bundle.ped)
-        if differences:
+        if conflict_mode != "overwrite" and not differences.kept_by_an_update:
             raise ImportRefused(members_differ_message(family_id, differences))
         if resolved_project_id is not None:
             # The family is linked to the import's project below: one on another assembly
@@ -1871,6 +1915,10 @@ async def _ensure_family_from_ped(
             # Before the first write of the family.
             await _mark_family_import_unfinished(
                 session, family_uuid=str(existing["family_uuid"]), mark=import_mark
+            )
+        if differences:
+            await _take_package_pedigree(
+                session, family_id=family_id, bundle=bundle, user=user, overwrite=conflict_mode == "overwrite"
             )
         if resolved_project_id is not None:
             await session.execute(
@@ -3132,42 +3180,83 @@ def _shown(described: tuple[str, str | None, str | None]) -> str:
     return f"{sex}, father {father or 'none'}, mother {mother or 'none'}"
 
 
-async def family_member_differences(session: AsyncSession, *, family_id: str, ped: ParsedPed) -> list[str]:
+@dataclass(frozen=True)
+class MemberDifferences:
+    """How the members of a package differ from its family in CoGA (``family_member_differences``):
+    the sample IDs of the package's members the family lacks (``added``) and of the family's
+    members the package lacks (``missing``), and a sentence for each member whose sex or parents
+    differ (``changed``). False when they agree, or the family does not exist."""
+
+    added: tuple[str, ...] = ()
+    missing: tuple[str, ...] = ()
+    changed: tuple[tuple[str, str], ...] = ()
+
+    def __bool__(self) -> bool:
+        return bool(self.added or self.missing or self.changed)
+
+    @property
+    def kept_by_an_update(self) -> bool:
+        """An update takes the package: it adds members, and changes none the family holds."""
+        return not self.missing and not self.changed
+
+    def sentences(self) -> list[str]:
+        """One sentence per member that differs, in sample-ID order."""
+        described = [
+            *((sample_id, f"{sample_id} is a member of the package, not of the family") for sample_id in self.added),
+            *((sample_id, f"{sample_id} is a member of the family, not of the package") for sample_id in self.missing),
+            *self.changed,
+        ]
+        return [sentence for _sample_id, sentence in sorted(described)]
+
+
+async def family_member_differences(session: AsyncSession, *, family_id: str, ped: ParsedPed) -> MemberDifferences:
     """How the members of a package (``ped``, made of its ``family.add_members``) differ from the
     family ``family_id`` as CoGA holds it (``ped_service.build_pedigree_text``): a member of the one
     the other lacks, or one whose sex or parents differ. Empty when the family does not exist, or
     agrees. The package's members are the pedigree an import reads (the owner's decision of
-    2026-11-10): one that says otherwise than the family is corrected before its import."""
+    2026-11-10): an update adds the members the family lacks and changes none it holds; an
+    overwrite makes the package's members the family's pedigree (``take_package_pedigree``)."""
     if identifier_problem(family_id) is not None:
-        return []
+        return MemberDifferences()
     if await _fetch_existing_family(session, family_id=family_id) is None:
-        return []
+        return MemberDifferences()
     try:
         stored_text = await ped_service.build_pedigree_text(session, family_id=family_id)
     except HTTPException:
-        return []
+        return MemberDifferences()
     stored, _errors = _parse_ped_text_strict(stored_text) if stored_text.strip() else (None, [])
     held = {member.iid: _member_described(member) for member in (stored.members if stored is not None else [])}
     given = {member.iid: _member_described(member) for member in ped.members}
-    differences: list[str] = []
-    for sample_id in sorted(held.keys() | given.keys()):
-        if sample_id not in given:
-            differences.append(f"{sample_id} is a member of the family, not of the package")
-        elif sample_id not in held:
-            differences.append(f"{sample_id} is a member of the package, not of the family")
-        elif held[sample_id] != given[sample_id]:
-            differences.append(
-                f"{sample_id} is {_shown(given[sample_id])} in the package, {_shown(held[sample_id])} in CoGA"
-            )
-    return differences
+    return MemberDifferences(
+        added=tuple(sorted(given.keys() - held.keys())),
+        missing=tuple(sorted(held.keys() - given.keys())),
+        changed=tuple(
+            (sample_id, f"{sample_id} is {_shown(given[sample_id])} in the package, {_shown(held[sample_id])} in CoGA")
+            for sample_id in sorted(held.keys() & given.keys())
+            if held[sample_id] != given[sample_id]
+        ),
+    )
 
 
-def members_differ_message(family_id: str, differences: list[str]) -> str:
-    """The sentence that says how a package's members differ from its family in CoGA."""
-    shown = "; ".join(differences[:5]) + (f"; and {len(differences) - 5} more" if len(differences) > 5 else "")
+def _listed(sentences: list[str]) -> str:
+    return "; ".join(sentences[:5]) + (f"; and {len(sentences) - 5} more" if len(sentences) > 5 else "")
+
+
+def members_differ_message(family_id: str, differences: MemberDifferences) -> str:
+    """The sentence that says how a package's members differ from its family in CoGA, beyond the
+    members it adds, and what the import can do with it."""
     return (
-        f"The package's members differ from family '{family_id}' in CoGA: {shown}. Correct the package "
-        "to the family's members before its import."
+        f"The package's members differ from family '{family_id}' in CoGA: {_listed(differences.sentences())}. "
+        "An update adds members and changes none the family holds: correct the package to the family's "
+        "members, or overwrite, which makes the package's members the family's pedigree."
+    )
+
+
+def members_added_message(family_id: str, differences: MemberDifferences) -> str:
+    """The sentence that says which members a package adds to its family in CoGA."""
+    return (
+        f"The package adds members to family '{family_id}': {_listed(list(differences.added))}. "
+        "The import adds them to the family's pedigree."
     )
 
 

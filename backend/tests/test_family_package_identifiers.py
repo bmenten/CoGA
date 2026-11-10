@@ -435,7 +435,7 @@ async def test_the_comparison_with_a_stored_family_skips_an_id_no_family_can_hav
     ped, errors = _parse_ped_text_strict(_trio_ped())
     assert errors == [] and ped is not None
     for family_id in (f"FAM{NUL}001", f"FAM{ESC}001", "FAM 001", "../FAM001"):
-        assert await family_member_differences(_ExplodingSession(), family_id=family_id, ped=ped) == []  # type: ignore[arg-type]
+        assert not await family_member_differences(_ExplodingSession(), family_id=family_id, ped=ped)  # type: ignore[arg-type]
 
 
 @pytest.mark.asyncio

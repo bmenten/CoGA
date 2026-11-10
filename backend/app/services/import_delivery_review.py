@@ -8,9 +8,11 @@ route's check, as for every overwrite).
 
 - **Approve.** A delivery that is ``ready``, or that needs attention only because its family
   exists (``existing_family``, with ``existing_samples``) and the approver chooses update or
-  overwrite. Its warnings must be acknowledged. Its folder must be as it was checked (the same
-  package fingerprint); one that changed is left to the watcher's next round, which makes it a
-  new delivery. The approval names the revision of the package the approver saw
+  overwrite. One whose package's members differ from the family beyond the members it adds
+  (``package_members_differ_from_family``) is approved only with overwrite, which makes the
+  package's members the family's pedigree. Its warnings must be acknowledged. Its folder must be
+  as it was checked (the same package fingerprint); one that changed is left to the watcher's next
+  round, which makes it a new delivery. The approval names the revision of the package the approver saw
   (``import_delivery_revisions``: 0 when it was not corrected); one corrected since is refused.
   The import job is queued as the approver, into the project the package names, with the
   manifest the delivery keeps (made from the package as last corrected), and names the delivery
@@ -50,6 +52,9 @@ from .import_watcher import IMPORT_INBOX_CHAIN, WATCHER_ACTOR, get_import_delive
 DELIVERY_NOT_FOUND = "Delivery not found"
 # The issues an approver resolves by choosing update or overwrite: the family exists.
 _RESOLVED_BY_A_CHOICE = frozenset({"existing_family", "existing_samples"})
+# The issue an approver resolves only by choosing overwrite: the package's members differ from
+# the family's beyond the members it adds, and an overwrite makes them the family's pedigree.
+_RESOLVED_BY_AN_OVERWRITE = frozenset({"package_members_differ_from_family"})
 OPEN_STATES = ("incomplete", "ready", "needs_attention")
 
 DELIVERY_CHANGED = (
@@ -63,6 +68,11 @@ DELIVERY_REVISED_SINCE = (
 WARNINGS_NOT_ACKNOWLEDGED = (
     "The delivery has warnings: check them, and confirm that you did (acknowledge_warnings), to "
     "approve it."
+)
+MEMBERS_DIFFER_NEED_AN_OVERWRITE = (
+    "The package's members differ from the family in CoGA beyond the members it adds: an update "
+    "changes none the family holds. Correct the package, or overwrite, which makes its members the "
+    "family's pedigree."
 )
 
 
@@ -168,7 +178,7 @@ async def approve_delivery(
             detail=f"The delivery is {state.replace('_', ' ')}: only one that is ready, or whose family exists, can be approved.",
         )
     existing = "existing_family" in codes
-    if state == "needs_attention" and not (existing and codes <= _RESOLVED_BY_A_CHOICE):
+    if state == "needs_attention" and not (existing and codes <= _RESOLVED_BY_A_CHOICE | _RESOLVED_BY_AN_OVERWRITE):
         raise HTTPException(
             status_code=409,
             detail=(
@@ -183,6 +193,8 @@ async def approve_delivery(
         )
     if not existing and conflict_mode != "cancel":
         raise HTTPException(status_code=400, detail="The delivery is a new family: it is imported with cancel.")
+    if codes & _RESOLVED_BY_AN_OVERWRITE and conflict_mode != "overwrite":
+        raise HTTPException(status_code=400, detail=MEMBERS_DIFFER_NEED_AN_OVERWRITE)
     if _issue_codes(delivery["warnings"]) and not acknowledge_warnings:
         raise HTTPException(status_code=400, detail=WARNINGS_NOT_ACKNOWLEDGED)
     if delivery["project_id"] is None:

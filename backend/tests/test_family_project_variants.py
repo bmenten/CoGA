@@ -40,8 +40,8 @@ from backend.app.core.config import settings
 from backend.app.services import clickhouse_variant_storage as storage
 from backend.app.services import family_package_import as package_import
 from backend.app.services import family_package_registration as registration
-from backend.app.services import family_project_variants, metadata_service
-from backend.app.services.family_package_common import ImportRefused, PackageExecutionResult
+from backend.app.services import family_project_variants, family_structure_service, metadata_service
+from backend.app.services.family_package_common import ImportRefused, PackageExecutionResult, PackageManifest
 from backend.app.services.family_package_manifest import _parse_ped_text_strict
 from backend.tests._family_import_fakes import admin_user, two_sample_context
 from backend.tests._kept_manifest import kept_manifest
@@ -867,7 +867,7 @@ def _bundle(pedigree: str = _STORED_PEDIGREE) -> Any:
     """A package whose members (``family.add_members``) make ``pedigree``."""
     ped, errors = _parse_ped_text_strict(pedigree)
     assert ped is not None, errors
-    return type("Bundle", (), {"ped": ped})()
+    return type("Bundle", (), {"ped": ped, "manifest": PackageManifest()})()
 
 
 def _registration(monkeypatch, *, refuse: bool) -> list[str]:
@@ -938,7 +938,7 @@ async def test_an_import_whose_members_differ_from_the_familys_is_refused_before
     monkeypatch,
 ) -> None:
     # The package's members are the pedigree the import reads: S2 is a man in it, a woman in CoGA,
-    # and S3 is no member of the family.
+    # and S3 is no member of the family. An update adds S3, but changes no member the family holds.
     steps = _registration(monkeypatch, refuse=False)
     bundle = _bundle("FAM001 S1 0 0 1 2\nFAM001 S2 0 0 1 1\nFAM001 S3 0 0 2 1\n")
 
@@ -955,13 +955,114 @@ async def test_an_import_whose_members_differ_from_the_familys_is_refused_before
 
     assert str(refused.value) == registration.members_differ_message(
         "FAM001",
-        [
-            "S2 is male, father none, mother none in the package, female, father none, mother none in CoGA",
-            "S3 is a member of the package, not of the family",
-        ],
+        registration.MemberDifferences(
+            added=("S3",),
+            changed=(
+                ("S2", "S2 is male, father none, mother none in the package, female, father none, mother none in CoGA"),
+            ),
+        ),
     )
+    assert "S2 is male, father none, mother none in the package" in str(refused.value)
+    assert "S3 is a member of the package, not of the family" in str(refused.value)
     # Nothing of the family was written, and its project was not checked.
     assert steps == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("conflict_mode", "pedigree", "replace"),
+    [
+        # An update adds S3, a child of S1 and S2, and changes no member the family holds.
+        ("update", "FAM001 S1 0 0 1 2\nFAM001 S2 0 0 2 1\nFAM001 S3 S1 S2 1 2\n", False),
+        # An overwrite makes the package's members the family's: S2 is gone, S1 a woman, S3 added.
+        ("overwrite", "FAM001 S1 0 0 2 2\nFAM001 S3 0 S1 1 2\n", True),
+    ],
+)
+async def test_an_import_gives_the_family_the_packages_members_once_it_is_marked(
+    monkeypatch, conflict_mode: str, pedigree: str, replace: bool
+) -> None:
+    steps = _registration(monkeypatch, refuse=False)
+    taken: list[dict[str, Any]] = []
+
+    async def take(_session, **kwargs):
+        steps.append("take the pedigree")
+        taken.append(kwargs)
+
+    async def context(*_args, **_kwargs):
+        raise _Registered
+
+    monkeypatch.setattr(family_structure_service, "take_package_pedigree", take)
+    monkeypatch.setattr(registration, "build_family_metadata_context", context)
+
+    with pytest.raises(_Registered):
+        await registration._ensure_family_from_ped(
+            _LinkSession(steps),  # type: ignore[arg-type]
+            bundle=_bundle(pedigree),  # type: ignore[arg-type]
+            project_id=B,
+            user=admin_user(),
+            validation=None,  # type: ignore[arg-type]
+            conflict_mode=conflict_mode,
+            import_mark=object(),  # type: ignore[arg-type]
+        )
+
+    # After the family is marked, before its project is linked.
+    assert steps[:3] == [f"check {B}", "mark", "take the pedigree"]
+    (call,) = taken
+    assert (call["family_id"], call["replace"]) == ("FAM001", replace)
+    members = {member["sample_id"]: (member["sex"], member["father_id"], member["mother_id"]) for member in call["members"]}
+    if replace:
+        assert members == {"S1": ("female", None, None), "S3": ("male", None, "S1")}
+    else:
+        assert members["S3"] == ("male", "S1", "S2")
+    links = {(link["relationship_type"], link["sample_id_a"], link["sample_id_b"]) for link in call["relationships"]}
+    assert ("parent_child", "S1", "S3") in links
+
+
+@pytest.mark.asyncio
+async def test_an_import_whose_members_agree_with_the_familys_leaves_its_pedigree(monkeypatch) -> None:
+    steps = _registration(monkeypatch, refuse=False)
+
+    async def take(_session, **_kwargs):
+        raise AssertionError("the family's pedigree is not changed")
+
+    async def context(*_args, **_kwargs):
+        raise _Registered
+
+    monkeypatch.setattr(family_structure_service, "take_package_pedigree", take)
+    monkeypatch.setattr(registration, "build_family_metadata_context", context)
+
+    for conflict_mode in ("update", "overwrite"):
+        with pytest.raises(_Registered):
+            await registration._ensure_family_from_ped(
+                _LinkSession(steps),  # type: ignore[arg-type]
+                bundle=_bundle(),  # type: ignore[arg-type]
+                project_id=B,
+                user=admin_user(),
+                validation=None,  # type: ignore[arg-type]
+                conflict_mode=conflict_mode,
+                import_mark=object(),  # type: ignore[arg-type]
+            )
+
+
+@pytest.mark.asyncio
+async def test_a_pedigree_the_family_cannot_take_refuses_the_import(monkeypatch) -> None:
+    _registration(monkeypatch, refuse=False)
+
+    async def take(_session, **_kwargs):
+        raise HTTPException(status_code=409, detail="Sample id already exists: S3")
+
+    monkeypatch.setattr(family_structure_service, "take_package_pedigree", take)
+
+    with pytest.raises(ImportRefused, match="could not take the package's members: Sample id already exists: S3"):
+        await registration._ensure_family_from_ped(
+            _LinkSession([]),  # type: ignore[arg-type]
+            bundle=_bundle("FAM001 S1 0 0 1 2\nFAM001 S2 0 0 2 1\nFAM001 S3 S1 S2 1 2\n"),  # type: ignore[arg-type]
+            project_id=B,
+            user=admin_user(),
+            validation=None,  # type: ignore[arg-type]
+            conflict_mode="update",
+            import_mark=object(),  # type: ignore[arg-type]
+        )
 
 
 class _Registered(Exception):

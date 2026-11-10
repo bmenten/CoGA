@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from collections import defaultdict
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from fastapi import HTTPException
@@ -12,7 +12,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..schemas import (
     FamilyStructureCoupleUpdate,
     FamilyStructureMemberCreate,
+    FamilyStructureMemberUpdate,
     FamilyStructureParentChildUpdate,
+    FamilyStructureRelationshipsUpdate,
     FamilyStructureRelativeUpdate,
     FamilyStructureUpdate,
     FamilyStructureUpdateOut,
@@ -37,6 +39,7 @@ from .family_package_registration import (
     end_failed_deletions,
 )
 from .family_structure_audit import (
+    PACKAGE_IMPORT,
     STRUCTURE_EDIT,
     lock_family_pedigree,
     pedigree_before_renames,
@@ -1004,10 +1007,12 @@ async def update_family_structure_for_admin(
     update: FamilyStructureUpdate,
     user: CurrentUser,
     renamed_members: Mapping[str, str] | None = None,
+    source: str = STRUCTURE_EDIT,
 ) -> FamilyStructureUpdateOut:
     """Change a family's members and relationships, store the result as its next structure
     version and record the change, with what each changed member and link was and is, on
-    the family's clinical audit trail (SEC-7).
+    the family's clinical audit trail (SEC-7), as made through ``source`` (an edit of the
+    family's structure, or a package import, ``take_package_pedigree``).
 
     ``renamed_members`` maps the new sample ID of each member the caller renamed in this
     transaction (a member edit) to its old one, so the audit event names the rename.
@@ -1027,6 +1032,7 @@ async def update_family_structure_for_admin(
             user=user,
             renamed_members=renamed_members,
             deletions=deletions,
+            source=source,
         )
     except Exception:
         await end_failed_deletions(session, deletions)
@@ -1041,6 +1047,7 @@ async def _update_family_structure(
     user: CurrentUser,
     renamed_members: Mapping[str, str] | None,
     deletions: list[FamilyDeletion],
+    source: str = STRUCTURE_EDIT,
 ) -> FamilyStructureUpdateOut:
     family_row = await get_accessible_family_mapping(session, family_id, user)
     family_uuid = str(family_row["id"])
@@ -1270,7 +1277,7 @@ async def _update_family_structure(
         created_by=str(user.id),
         change=pedigree_change_by(
             user,
-            source=STRUCTURE_EDIT,
+            source=source,
             before=pedigree_before,
             renamed=renamed_members,
             reason=update.change_reason,
@@ -1298,4 +1305,156 @@ async def _update_family_structure(
         stale_analysis_scopes=stale_scopes,
         data_counts=data_counts,
         cleared_data_counts=cleared_data_counts,
+    )
+
+
+def _link_payload(
+    links: Sequence[Mapping[str, Any]],
+) -> tuple[list[FamilyStructureParentChildUpdate], list[FamilyStructureCoupleUpdate], list[FamilyStructureRelativeUpdate]]:
+    """Relationship rows (``relationship_type``, ``sample_id_a``/``_b``, ``role_a``, ``metadata``)
+    as a structure update names them, each link once."""
+    parent_child: list[FamilyStructureParentChildUpdate] = []
+    couples: list[FamilyStructureCoupleUpdate] = []
+    relatives: list[FamilyStructureRelativeUpdate] = []
+    seen: set[tuple[Any, ...]] = set()
+    for link in links:
+        key = _relationship_key(dict(link))
+        if key in seen:
+            continue
+        seen.add(key)
+        kind = link.get("relationship_type")
+        metadata = dict(_json_metadata(link.get("metadata")))
+        if kind == "parent_child":
+            role = link.get("role_a")
+            parent_child.append(
+                FamilyStructureParentChildUpdate(
+                    parent=str(link["sample_id_a"]),
+                    child=str(link["sample_id_b"]),
+                    parent_role=role if role in ("father", "mother") else "parent",
+                    metadata=metadata,
+                )
+            )
+        elif kind == "couple":
+            context = metadata.pop("context", None)
+            couples.append(
+                FamilyStructureCoupleUpdate(
+                    partners=[str(link["sample_id_a"]), str(link["sample_id_b"])],
+                    context=str(context) if context else None,
+                    metadata=metadata,
+                )
+            )
+        elif kind == "relative":
+            relatives.append(
+                FamilyStructureRelativeUpdate(
+                    related_to=str(link["sample_id_a"]), member=str(link["sample_id_b"]), metadata=metadata
+                )
+            )
+    return parent_child, couples, relatives
+
+
+def _json_metadata(value: Any) -> Mapping[str, Any]:
+    if isinstance(value, Mapping):
+        return value
+    if isinstance(value, str) and value.strip():
+        try:
+            loaded = json.loads(value)
+        except ValueError:
+            return {}
+        return loaded if isinstance(loaded, Mapping) else {}
+    return {}
+
+
+def _package_member_fields(member: Mapping[str, Any]) -> dict[str, Any]:
+    """A package member (``family_package_manifest._ped_members_for_import``) as a structure
+    update names its fields."""
+    return {
+        "sample_id": str(member["sample_id"]),
+        "sex": member.get("sex") if member.get("sex") in SEX_VALUES else "und",
+        "role": member.get("role") if member.get("role") in MEMBER_ROLES else "relative",
+        "clinical_status": member.get("clinical_status")
+        if member.get("clinical_status") in CLINICAL_STATUS_VALUES
+        else "unknown",
+        "carrier_status": member.get("carrier_status")
+        if member.get("carrier_status") in CARRIER_STATUS_VALUES
+        else "unknown",
+        "carrier_type": member.get("carrier_type") or None,
+        "carrier_evidence": dict(member.get("carrier_evidence") or {}),
+    }
+
+
+async def take_package_pedigree(
+    session: AsyncSession,
+    *,
+    family_id: str,
+    members: Sequence[Mapping[str, Any]],
+    relationships: Sequence[Mapping[str, Any]],
+    user: CurrentUser,
+    replace: bool,
+) -> FamilyStructureUpdateOut | None:
+    """Give the existing family ``family_id`` the pedigree of a package an import reads: its
+    ``members`` and ``relationships`` (as ``family_package_registration`` makes them for a new
+    family), as a structure change made by a package import (``PACKAGE_IMPORT``), through
+    ``update_family_structure_for_admin``: the next structure version, the change on the family's
+    clinical audit trail, and its analyses marked stale. Returns None when nothing changes.
+
+    - ``replace=False`` (an update): the members the family lacks are added, with the package's
+      links that name one of them; the family's members and links stay as they are. The members
+      the family holds agree with the package's (``family_member_differences``).
+    - ``replace=True`` (an overwrite): the package's members and links become the family's: a
+      member the family lacks is added (one it holds inactive is made active again), one it holds
+      takes the package's sex, role and statuses, one the package lacks is made inactive (its data
+      stays, as a structure edit leaves it), and the links are the package's.
+
+    The change is made against the structure version read here: a change made since refuses it
+    (409), as for an edit. A member's sample ID held by another family refuses it (409)."""
+    family_row = await get_accessible_family_mapping(session, family_id, user)
+    family_uuid = str(family_row["id"])
+    version = await _fetch_current_structure_version(session, family_uuid=family_uuid)
+    held = await _fetch_family_member_rows(session, family_uuid=family_uuid)
+    active = {key for key, row in held.items() if row.get("active")}
+    package = {_sample_key(str(member["sample_id"])): _package_member_fields(member) for member in members}
+    added = [fields for key, fields in package.items() if key not in active]
+    added_keys = {_sample_key(fields["sample_id"]) for fields in added}
+    updates: list[FamilyStructureMemberUpdate] = []
+    removed: list[str] = []
+    if replace:
+        updates = [FamilyStructureMemberUpdate(**fields) for key, fields in package.items() if key in active]
+        removed = [str(row["sample_id"]) for key, row in held.items() if key in active and key not in package]
+        links = list(relationships)
+    else:
+        current = await _fetch_current_relationship_rows(session, family_uuid=family_uuid)
+        links = [
+            *(link for link in current if link.get("relationship_type") != "relative"),
+            *(
+                link
+                for link in relationships
+                if link.get("relationship_type") != "relative"
+                and (
+                    _sample_key(str(link["sample_id_a"])) in added_keys
+                    or _sample_key(str(link["sample_id_b"])) in added_keys
+                )
+            ),
+        ]
+    if not added and not removed and not replace:
+        return None
+    parent_child, couples, relatives = _link_payload(links)
+    update = FamilyStructureUpdate(
+        expected_structure_version=version,
+        change_reason=(
+            "A package import made the package's members the family's pedigree (overwrite)."
+            if replace
+            else "A package import added the package's members the family lacked (update)."
+        ),
+        add_members=[FamilyStructureMemberCreate(**fields) for fields in added],
+        members=updates,
+        remove_members=removed,
+        relationships=FamilyStructureRelationshipsUpdate(
+            parent_child=parent_child,
+            couples=couples,
+            # An update keeps the family's links of unknown degree; an overwrite takes the package's.
+            relatives=relatives if replace else None,
+        ),
+    )
+    return await update_family_structure_for_admin(
+        session, family_id=family_id, update=update, user=user, source=PACKAGE_IMPORT
     )
