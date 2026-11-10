@@ -1,0 +1,43 @@
+{
+  "schema": "coga-package/1",
+  "status": "complete",
+  "written_at": "2026-11-10T16:30:00+01:00",
+  "pipeline": {
+    "name": "nf-core/sarek",
+    "version": "3.5.0",
+    "run_id": "RUN-2026-0004"
+  },
+  "project": "WGS",
+  "assembly": "GRCh38",
+  "analysis_type": "wgs_trio",
+  "family": {
+    "family_id": "FAM002"
+  },
+  "files": [
+    {
+      "path": "FAM002.ped",
+      "size": 1000,
+      "sha256": "e1e01474d8d75f3a511a527f7767c5fb45b506b9b5164658707272b545a36727"
+    },
+    {
+      "path": "needlr/FAM002.sv.annotated.vcf.gz",
+      "size": 1001,
+      "sha256": "aa1f25209777af2b623ae9b25bef673d625cbea9c10a5f657db827467f745a58"
+    },
+    {
+      "path": "needlr/FAM002.sv.annotated.vcf.gz.tbi",
+      "size": 1002,
+      "sha256": "525cc77176ae05609d7e2475be8b2396bdc64cef7056580a14fdc3fa49186a79"
+    },
+    {
+      "path": "snv/FAM002.annotated.vcf.gz",
+      "size": 1003,
+      "sha256": "35da948ac9774ef8895d462352b99367e9d7430d65add66f903791e982eff071"
+    },
+    {
+      "path": "snv/FAM002.annotated.vcf.gz.tbi",
+      "size": 1004,
+      "sha256": "a1944800d77e2df82273e730d1f215dc06607ede9ab6f5327decc74db439efed"
+    }
+  ]
+}

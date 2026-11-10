@@ -766,6 +766,11 @@ runs import workers itself (`FAMILY_IMPORT_WORKER_COUNT` above 0). One watcher l
 holds a Postgres advisory lock on a connection of its own, and the others skip their rounds until
 that connection is gone.
 
+One file is to take the place of the ready marker, the PED and the manifest: the package file
+`coga-package.json`, whose `status` says when the package is complete ([coga-package.md](coga-package.md),
+approved by the owner on 2026-11-10). Its format is defined; until CoGA reads it, the watcher reads
+the ready marker below.
+
 **The ready marker** (format `coga-ready/1`, [import_ready_marker.py](../backend/app/services/import_ready_marker.py)).
 A JSON object, at most 20 MB, written last, under a temporary name first and then renamed:
 

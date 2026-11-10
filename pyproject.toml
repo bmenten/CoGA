@@ -46,6 +46,7 @@ files = [
     "backend/app/services/clinical_cnv_kb_jobs.py",
     "backend/app/services/clinvar_review_status.py",
     "backend/app/services/cnv_acmg_points.py",
+    "backend/app/services/coga_package.py",
     "backend/app/services/compound_het_phase.py",
     "backend/app/services/coverage_content.py",
     "backend/app/services/coverage_read_depth.py",

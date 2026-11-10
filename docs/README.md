@@ -15,6 +15,7 @@ style-diff harness.
 
 - [development.md](development.md) — run CoGA locally, reset it, troubleshoot.
 - [data-import.md](data-import.md) — load reference data and family data.
+- [coga-package.md](coga-package.md) — the package file `coga-package.json` a pipeline writes for CoGA: its format, its JSON Schema and examples.
 - [deployment-gcp.md](deployment-gcp.md) — deploy to Google Cloud with Terraform, and run it day to day.
 - [terraform/README.md](../terraform/README.md) — the Terraform design, its files and its known residuals, for reviewers.
 - [deployment-vm.md](deployment-vm.md) — the production stack on one virtual machine, as a test environment.

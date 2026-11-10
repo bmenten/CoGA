@@ -1,0 +1,475 @@
+{
+  "schema": "coga-package/1",
+  "status": "complete",
+  "written_at": "2026-11-10T15:42:10+01:00",
+  "pipeline": {
+    "name": "nf-cmgg/copgtm",
+    "version": "1.1.0",
+    "run_id": "RUN-2026-0001"
+  },
+  "project": "PGT",
+  "assembly": "GRCh38",
+  "analysis_type": "pgt_m",
+  "request_id": "REQ-0001",
+  "reference": "GRCh38_full_analysis_set_plus_decoy_hla.fa",
+  "family": {
+    "family_id": "FAM001",
+    "roi": "CFTR",
+    "pgt": {
+      "inheritance_model": "AR",
+      "affected_parents": [
+        "MOTHER"
+      ],
+      "indexes": [
+        "INDEX1"
+      ]
+    }
+  },
+  "members": [
+    {
+      "sample_id": "FATHER1",
+      "sex": "male",
+      "role": "father"
+    },
+    {
+      "sample_id": "MOTHER",
+      "sex": "female",
+      "role": "mother"
+    },
+    {
+      "sample_id": "EMB1",
+      "sex": "male",
+      "father": "FATHER1",
+      "mother": "MOTHER",
+      "role": "embryo"
+    },
+    {
+      "sample_id": "EMB2",
+      "sex": "female",
+      "father": "FATHER1",
+      "mother": "MOTHER",
+      "role": "embryo"
+    },
+    {
+      "sample_id": "INDEX1",
+      "sex": "female",
+      "role": "relative",
+      "related_to": [
+        "MOTHER"
+      ]
+    }
+  ],
+  "couples": [
+    {
+      "partners": [
+        "FATHER1",
+        "MOTHER"
+      ],
+      "context": "reproductive"
+    }
+  ],
+  "datasets": {
+    "qdnaseq": {
+      "per_sample": {
+        "FATHER1": {
+          "bins": "qdnaseq/FATHER1_cnv.csv",
+          "segments": "qdnaseq/FATHER1_cnv.csv"
+        },
+        "MOTHER": {
+          "bins": "qdnaseq/MOTHER_cnv.csv",
+          "segments": "qdnaseq/MOTHER_cnv.csv"
+        },
+        "EMB1": {
+          "bins": "qdnaseq/EMB1_cnv.csv",
+          "segments": "qdnaseq/EMB1_cnv.csv"
+        },
+        "EMB2": {
+          "bins": "qdnaseq/EMB2_cnv.csv",
+          "segments": "qdnaseq/EMB2_cnv.csv"
+        },
+        "INDEX1": {
+          "bins": "qdnaseq/INDEX1_cnv.csv",
+          "segments": "qdnaseq/INDEX1_cnv.csv"
+        }
+      }
+    },
+    "apcad": {
+      "per_sample": {
+        "EMB1": {
+          "file": "apcad/EMB1_APCAD_parental_data.csv",
+          "segregation": "apcad/EMB1_APCAD_segregation_data.csv"
+        },
+        "EMB2": {
+          "file": "apcad/EMB2_APCAD_parental_data.csv",
+          "segregation": "apcad/EMB2_APCAD_segregation_data.csv"
+        }
+      }
+    },
+    "pcf": {
+      "per_sample": {
+        "EMB1": {
+          "maternal": "apcad/EMB1_pcf_mat_data.csv",
+          "paternal": "apcad/EMB1_pcf_pat_data.csv"
+        },
+        "EMB2": {
+          "maternal": "apcad/EMB2_pcf_mat_data.csv",
+          "paternal": "apcad/EMB2_pcf_pat_data.csv"
+        }
+      }
+    },
+    "haplotypes": {
+      "family_vcf": "phasing/shapeit_filter/FAM001_shapeit_rephased_final.vcf.gz",
+      "index": "phasing/shapeit_filter/FAM001_shapeit_rephased_final.vcf.gz.tbi",
+      "source_format": "glimpse2",
+      "haplotype_origin": "phasing/haplotype_origin/MOTHER_affected_normal_haplotype.csv",
+      "haplotype_conclusion": "phasing/haplotype_origin/MOTHER_haplotype_conclusion.txt"
+    },
+    "alignments": {
+      "per_sample": {
+        "FATHER1": {
+          "file": "cram/FATHER1.cram",
+          "index": "cram/FATHER1.cram.crai"
+        },
+        "MOTHER": {
+          "file": "cram/MOTHER.cram",
+          "index": "cram/MOTHER.cram.crai"
+        },
+        "EMB1": {
+          "file": "cram/EMB1.cram",
+          "index": "cram/EMB1.cram.crai"
+        },
+        "EMB2": {
+          "file": "cram/EMB2.cram",
+          "index": "cram/EMB2.cram.crai"
+        },
+        "INDEX1": {
+          "file": "cram/INDEX1.cram",
+          "index": "cram/INDEX1.cram.crai"
+        }
+      }
+    },
+    "qc": {
+      "per_sample": {
+        "FATHER1": {
+          "report": "qualimap/FATHER1/qualimapReport.html",
+          "qualimap_summary": "qualimap/FATHER1/genome_results.txt",
+          "mean_coverage": "mean/FATHER1_coverage.csv",
+          "sex_check": "ngsbits/FATHER1.tsv"
+        },
+        "MOTHER": {
+          "report": "qualimap/MOTHER/qualimapReport.html",
+          "qualimap_summary": "qualimap/MOTHER/genome_results.txt",
+          "mean_coverage": "mean/MOTHER_coverage.csv",
+          "sex_check": "ngsbits/MOTHER.tsv"
+        },
+        "EMB1": {
+          "report": "qualimap/EMB1/qualimapReport.html",
+          "qualimap_summary": "qualimap/EMB1/genome_results.txt",
+          "mean_coverage": "mean/EMB1_coverage.csv",
+          "sex_check": "ngsbits/EMB1.tsv"
+        },
+        "EMB2": {
+          "report": "qualimap/EMB2/qualimapReport.html",
+          "qualimap_summary": "qualimap/EMB2/genome_results.txt",
+          "mean_coverage": "mean/EMB2_coverage.csv",
+          "sex_check": "ngsbits/EMB2.tsv"
+        },
+        "INDEX1": {
+          "report": "qualimap/INDEX1/qualimapReport.html",
+          "qualimap_summary": "qualimap/INDEX1/genome_results.txt",
+          "mean_coverage": "mean/INDEX1_coverage.csv",
+          "sex_check": "ngsbits/INDEX1.tsv"
+        }
+      },
+      "ado_adi": "picard/FAM001_ADO_ADI.csv",
+      "concordance": "rtgtools/FAM001_cohort_concordance.csv",
+      "imputed_concordance": "rtgtools/FAM001_imputed_concordance.csv",
+      "kinship": "king/FAM001.kin0"
+    },
+    "pipeline_info": {
+      "params": "pipeline_info/params_2026-11-10_09-00-00.json",
+      "versions": "pipeline_info/copgtm_software_mqc_versions.yml"
+    }
+  },
+  "pipeline_used_pedigree": [
+    "apcad",
+    "pcf",
+    "haplotypes"
+  ],
+  "files": [
+    {
+      "path": "apcad/EMB1_APCAD_parental_data.csv",
+      "size": 1000,
+      "sha256": "1c4a10080bb92984c6953cd4c4e79d712cf3979816a3cde7fdb9dad00c2d6632"
+    },
+    {
+      "path": "apcad/EMB1_APCAD_segregation_data.csv",
+      "size": 1001,
+      "sha256": "173dcc734a095151e71182217a53d5c2fa03ecfe04fbb1b3352024e1009efb10"
+    },
+    {
+      "path": "apcad/EMB1_pcf_mat_data.csv",
+      "size": 1002,
+      "sha256": "b8c847571309fc6dbb0a00854de5c028ee481db3c493441ae79f019eb030996e"
+    },
+    {
+      "path": "apcad/EMB1_pcf_pat_data.csv",
+      "size": 1003,
+      "sha256": "3fef33d82dbd17c1858d99fa5b81544cff9bb0d6ff41f79ddd6fbf56ae40435f"
+    },
+    {
+      "path": "apcad/EMB2_APCAD_parental_data.csv",
+      "size": 1004,
+      "sha256": "b170f16385290c629254d3f862afb9afa291eb7ca4937b4ebc2ebddefd5a9ad6"
+    },
+    {
+      "path": "apcad/EMB2_APCAD_segregation_data.csv",
+      "size": 1005,
+      "sha256": "87d9bc47e4d793f954bb26af38ced7b3405e9baf189cc0d56a974a151a42c268"
+    },
+    {
+      "path": "apcad/EMB2_pcf_mat_data.csv",
+      "size": 1006,
+      "sha256": "8f99bb2e33979cb7d57062c726a0e08f406ecdaf122c04fb3d590149d6e7fa8a"
+    },
+    {
+      "path": "apcad/EMB2_pcf_pat_data.csv",
+      "size": 1007,
+      "sha256": "0edefbd634775b1d40076300dfd24035d1ddbcb6f534bec5811e57e9fb10ac17"
+    },
+    {
+      "path": "cram/EMB1.cram",
+      "size": 1008,
+      "sha256": "56bed4074df9a2afc6ff65e05baef60c7e8f906770e107b756843991d31f153b"
+    },
+    {
+      "path": "cram/EMB1.cram.crai",
+      "size": 1009,
+      "sha256": "7df9dc7761a6d1e6d156be1e50b72289e72d413ac9fab7246c3c6e2ba7ba15d5"
+    },
+    {
+      "path": "cram/EMB2.cram",
+      "size": 1010,
+      "sha256": "d95c7397acf206d605ebfc0fb8d4b3dac9e51bdcb1c0b18e321d7b8b708a279e"
+    },
+    {
+      "path": "cram/EMB2.cram.crai",
+      "size": 1011,
+      "sha256": "acc3afd5b8659e34c252a8d0c6e5fe883838d4e6248a63484f9104ff31824fd5"
+    },
+    {
+      "path": "cram/FATHER1.cram",
+      "size": 1012,
+      "sha256": "613bb49326eb685ec05f9ea41d0e7fe4675e6dd6c108f6d02c597e01a84d512d"
+    },
+    {
+      "path": "cram/FATHER1.cram.crai",
+      "size": 1013,
+      "sha256": "db71fcffdef73796589013a533b50324b58897c1b7c96b9fd319ac1a3c90a736"
+    },
+    {
+      "path": "cram/INDEX1.cram",
+      "size": 1014,
+      "sha256": "cb9677661890c4b2596011de928c9f288e664e36f89d77ff30543bd53c26de3e"
+    },
+    {
+      "path": "cram/INDEX1.cram.crai",
+      "size": 1015,
+      "sha256": "fc7dedb9189c309ad439171cc9645a1113017d6ce156c6222382312ef3d73884"
+    },
+    {
+      "path": "cram/MOTHER.cram",
+      "size": 1016,
+      "sha256": "034599f87270c20e99b360d77b4ff371156f00c4bfe76c80f5c4db754a8441e2"
+    },
+    {
+      "path": "cram/MOTHER.cram.crai",
+      "size": 1017,
+      "sha256": "128c8e9f4c576bacde43c0d616a869cbe23320cfdb668ce845cc1492f2002ed5"
+    },
+    {
+      "path": "king/FAM001.kin0",
+      "size": 1018,
+      "sha256": "47f49423d211d36debb1c6a4bc5429c91c3c12f70ea7599b0b0ac0ed91885cbf"
+    },
+    {
+      "path": "mean/EMB1_coverage.csv",
+      "size": 1019,
+      "sha256": "182cb9e644baf5d170e0eb77bef4cefceaf7b3d8105744c75ecb020727320a0e"
+    },
+    {
+      "path": "mean/EMB2_coverage.csv",
+      "size": 1020,
+      "sha256": "c9f339e460c2c8a346aa444b55d023f59207bc63fc2885f8f2a716ca5f69328a"
+    },
+    {
+      "path": "mean/FATHER1_coverage.csv",
+      "size": 1021,
+      "sha256": "5cf974d28fe78f893b3dd348c67c6046f508c0671a6a71bbff53f608535271fd"
+    },
+    {
+      "path": "mean/INDEX1_coverage.csv",
+      "size": 1022,
+      "sha256": "8f7a44605f96e9d6858d20f32edfe1d93e48465f966565128bbd372fdabeb7f3"
+    },
+    {
+      "path": "mean/MOTHER_coverage.csv",
+      "size": 1023,
+      "sha256": "1abc6dd825ba8a21c8ee83df63549ac2653236ec7ff00114f22410e0870d6f05"
+    },
+    {
+      "path": "multiqc/multiqc_report.html",
+      "size": 1024,
+      "sha256": "61da46ac6175043bfafed8ce8546fd8c28b7ea746c1376600aba998069779e42"
+    },
+    {
+      "path": "ngsbits/EMB1.tsv",
+      "size": 1025,
+      "sha256": "18c44f13809069382a8a1fdb895a2d95521d776e3b689d226b148a85de6da287"
+    },
+    {
+      "path": "ngsbits/EMB2.tsv",
+      "size": 1026,
+      "sha256": "0e2b23efe320c5f2d6b79863347341b682a2bd230347c6aea1550e0a8d500fd0"
+    },
+    {
+      "path": "ngsbits/FATHER1.tsv",
+      "size": 1027,
+      "sha256": "1c76588f8525f8b1d18751b5120f106e1c8909330fec9fb96fe5317725da49df"
+    },
+    {
+      "path": "ngsbits/INDEX1.tsv",
+      "size": 1028,
+      "sha256": "c917844b32f0363b742703c1ada1c8e646dca501745d4cf25e37c523d03f00b0"
+    },
+    {
+      "path": "ngsbits/MOTHER.tsv",
+      "size": 1029,
+      "sha256": "8024e91843f4207bfd3dbdff87a1f2fd621f8f6fea8ace3cb12551c06ae92b70"
+    },
+    {
+      "path": "phasing/haplotype_origin/MOTHER_affected_normal_haplotype.csv",
+      "size": 1030,
+      "sha256": "1ce56af2ee94eb7eadd145c80f5a2040aae1d9bec5e8c52581ef945fa2b34dd2"
+    },
+    {
+      "path": "phasing/haplotype_origin/MOTHER_haplotype_conclusion.txt",
+      "size": 1031,
+      "sha256": "4dd78badb1d1d9040a44f01d085cf92e2eb9a1561a1f5a88b15035416336a8c8"
+    },
+    {
+      "path": "phasing/shapeit_filter/FAM001_shapeit_rephased_final.vcf.gz",
+      "size": 1032,
+      "sha256": "f449fd5e8ad17f375c0aa43e96038184a28f987056752d2a8d025ddfe8b5c48d"
+    },
+    {
+      "path": "phasing/shapeit_filter/FAM001_shapeit_rephased_final.vcf.gz.tbi",
+      "size": 1033,
+      "sha256": "c966fd17e10dcddccb3f0b6eeef9a43987823d2000e8a61ae2b64a4829984002"
+    },
+    {
+      "path": "picard/FAM001_ADO_ADI.csv",
+      "size": 1034,
+      "sha256": "b7b21536e998cc6ade16b5573b4b96c35bd090d6ed646370972399eac55de8d2"
+    },
+    {
+      "path": "pipeline_info/copgtm_software_mqc_versions.yml",
+      "size": 1035,
+      "sha256": "c4d7e4e9aab95bcc4f75702266d7305a143a7c16068f9f4c6bd7e3abf721aa81"
+    },
+    {
+      "path": "pipeline_info/params_2026-11-10_09-00-00.json",
+      "size": 1036,
+      "sha256": "12a85fb1800dc34ca74328287a5b31277d4b5a15d126d59c7e5d7b34071079a9"
+    },
+    {
+      "path": "qdnaseq/EMB1_cnv.csv",
+      "size": 1037,
+      "sha256": "252ac2445de5c490ffac549dd5dd683f3ff9f4f624f20f3698b834cf6f3e4409"
+    },
+    {
+      "path": "qdnaseq/EMB2_cnv.csv",
+      "size": 1038,
+      "sha256": "0b5a93c5028cf38ab55ebb15fb961838f62ca2cc5aee9842f023aff06b6ecc6a"
+    },
+    {
+      "path": "qdnaseq/FATHER1_cnv.csv",
+      "size": 1039,
+      "sha256": "dd99ba5b31d7ac0c6c45489b1ed88bd5904a7b542516a81ff77a8c5cca1afb69"
+    },
+    {
+      "path": "qdnaseq/INDEX1_cnv.csv",
+      "size": 1040,
+      "sha256": "5e0d9f7f879b400374d5afcc2cdc5b365d97e353d1602c35b8fbfa81fce58cad"
+    },
+    {
+      "path": "qdnaseq/MOTHER_cnv.csv",
+      "size": 1041,
+      "sha256": "f18a4e4611476a71d37b952cfb28f25d158b13520b7674972705285c963ea911"
+    },
+    {
+      "path": "qualimap/EMB1/genome_results.txt",
+      "size": 1042,
+      "sha256": "b69943b5e514c57a2ca6e06b018c6267662833685d5c21bd6026b6d4383d30d9"
+    },
+    {
+      "path": "qualimap/EMB1/qualimapReport.html",
+      "size": 1043,
+      "sha256": "3f59186561765ae0a17e4723f6c614746dc00859cd51097477c47987fa085400"
+    },
+    {
+      "path": "qualimap/EMB2/genome_results.txt",
+      "size": 1044,
+      "sha256": "1b4762df2c39844e6077199a17da6c886f781de689a6730f2a19a597851f91a7"
+    },
+    {
+      "path": "qualimap/EMB2/qualimapReport.html",
+      "size": 1045,
+      "sha256": "5892fda998fdbd753420772f9f3b1aaf4ac2603993484abb8335bd6daa20662e"
+    },
+    {
+      "path": "qualimap/FATHER1/genome_results.txt",
+      "size": 1046,
+      "sha256": "5003cf45c8af013b2a57a8071adb6a662bd9e74c207bfb6c7085b78a2d10834f"
+    },
+    {
+      "path": "qualimap/FATHER1/qualimapReport.html",
+      "size": 1047,
+      "sha256": "15fff383702e853901bdcfada978564048d6d90186de9064724b4a3228c1ae6a"
+    },
+    {
+      "path": "qualimap/INDEX1/genome_results.txt",
+      "size": 1048,
+      "sha256": "c186325e62512c62a5d06b4ff7f44e8ae7498903eb712fcf214d15eaa75d2f1a"
+    },
+    {
+      "path": "qualimap/INDEX1/qualimapReport.html",
+      "size": 1049,
+      "sha256": "2d9e00250a0ce1958e75cea3cf760a67e3dd6f63a8e813fd82a190782929c33a"
+    },
+    {
+      "path": "qualimap/MOTHER/genome_results.txt",
+      "size": 1050,
+      "sha256": "89b17996912c91df43d31134e7c80abb5b72401eca8eb6a9eee18d7514395c00"
+    },
+    {
+      "path": "qualimap/MOTHER/qualimapReport.html",
+      "size": 1051,
+      "sha256": "77154d8d73b4ce8a4f919edefe00a96c1025c69ef1bba82d22c9d28367dea391"
+    },
+    {
+      "path": "rtgtools/FAM001_cohort_concordance.csv",
+      "size": 1052,
+      "sha256": "ae51918698c555e1c02e97b07e3a9621a71ade73f320f15bd5b60bec2ddb9fc4"
+    },
+    {
+      "path": "rtgtools/FAM001_imputed_concordance.csv",
+      "size": 1053,
+      "sha256": "69ba7d8ac464284dd83bc8b19872e604b0f964949576aa10fc5de3968775f05b"
+    }
+  ],
+  "qc": {
+    "status": "pass",
+    "report": "multiqc/multiqc_report.html"
+  }
+}

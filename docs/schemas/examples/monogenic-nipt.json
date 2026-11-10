@@ -1,0 +1,104 @@
+{
+  "schema": "coga-package/1",
+  "status": "complete",
+  "written_at": "2026-11-10T11:05:00+01:00",
+  "pipeline": {
+    "name": "NIPT-M",
+    "version": "0.5.1",
+    "run_id": "RUN-2026-0002"
+  },
+  "project": "NIPT",
+  "assembly": "GRCh38",
+  "analysis_type": "monogenic_nipt",
+  "family": {
+    "family_id": "NIPTFAM1",
+    "roi": "CFTR"
+  },
+  "members": [
+    {
+      "sample_id": "FATHER1",
+      "sex": "male",
+      "role": "father"
+    },
+    {
+      "sample_id": "CFDNA1",
+      "sex": "female",
+      "role": "mother",
+      "assay": "nipt_cfdna",
+      "assay_panel": "PANEL1"
+    },
+    {
+      "sample_id": "FETUS1",
+      "sex": "unknown",
+      "father": "FATHER1",
+      "mother": "CFDNA1",
+      "role": "proband"
+    }
+  ],
+  "couples": [
+    {
+      "partners": [
+        "FATHER1",
+        "CFDNA1"
+      ],
+      "context": "reproductive"
+    }
+  ],
+  "datasets": {
+    "snv": {
+      "per_sample": {
+        "CFDNA1": {
+          "vcf": "CFDNA1.mutect2.vcf.gz"
+        },
+        "FATHER1": {
+          "vcf": "FATHER1.mutect2.vcf.gz"
+        }
+      }
+    },
+    "coverage": {
+      "per_sample": {
+        "CFDNA1": {
+          "target_table": "coverage_CFDNA1.txt"
+        },
+        "FATHER1": {
+          "target_table": "coverage_FATHER1.txt"
+        }
+      }
+    }
+  },
+  "files": [
+    {
+      "path": "CFDNA1.mutect2.vcf.gz",
+      "size": 1000,
+      "sha256": "84cf5e2da7884328786351be85b4f961db9f45a5cd71b1a94062cbc3b8d5f600"
+    },
+    {
+      "path": "CFDNA1.mutect2.vcf.gz.tbi",
+      "size": 1001,
+      "sha256": "6ee943e763d8db57dffa6f41263e2764d3bc46d0f24f846122e51e4560d460c6"
+    },
+    {
+      "path": "FATHER1.mutect2.vcf.gz",
+      "size": 1002,
+      "sha256": "e4315468dfd04330963413f702d4ef8120b203b69702ca898e2fb5ea84b8f263"
+    },
+    {
+      "path": "FATHER1.mutect2.vcf.gz.tbi",
+      "size": 1003,
+      "sha256": "3d5858e651209f8f361a482bac97ae3a5b9e197c1bb228d89e7b78cad60c139e"
+    },
+    {
+      "path": "coverage_CFDNA1.txt",
+      "size": 1004,
+      "sha256": "a2b95a1a0fcf0b66b0354f8954064c9b4957cf1a5e2d123d4adb622a97547a95"
+    },
+    {
+      "path": "coverage_FATHER1.txt",
+      "size": 1005,
+      "sha256": "5269cb6ccf48af31920fc6242d138f901d8e39c2f934d7b4e7f93d59764eb469"
+    }
+  ],
+  "qc": {
+    "status": "pass"
+  }
+}
