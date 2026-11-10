@@ -353,6 +353,21 @@ async def test_a_stored_sample_the_upload_leaves_out_is_refused_before_anything_
 
 
 @pytest.mark.asyncio
+async def test_a_file_of_a_sample_the_family_lacks_is_refused_showing_its_id_as_written(
+    storage, tmp_path: Path
+) -> None:
+    # The refusal quoted the ID raw: its escape sequence reached the page and the job's record
+    # as it was (SEC-37). Each character a reader cannot see is shown as its escape.
+    files = _couple_files(tmp_path)
+    files[1] = PerSampleVcf("SIB\x1b[2J1", files[1].path)
+    with pytest.raises(HTTPException) as raised:
+        await _upload(files)
+    assert (raised.value.status_code, raised.value.detail) == (400, "Sample 'SIB\\x1b[2J1' not found in family")
+    assert "\x1b" not in raised.value.detail
+    assert storage["events"] == []
+
+
+@pytest.mark.asyncio
 async def test_a_file_that_cannot_be_read_with_the_others_fails_before_any_write(storage, tmp_path: Path) -> None:
     files = _couple_files(tmp_path)
     _write(files[1].path, _vcf("FATHER1", [_record("chr1", 100, "A", "G", "PASS", "0/1")], contigs="##contig=<ID=chrX>\n##contig=<ID=chr1>\n"))

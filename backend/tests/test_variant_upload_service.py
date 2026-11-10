@@ -1147,8 +1147,9 @@ _TRIO_VCF = (
 )
 
 
-async def _upload_trio_vcf(monkeypatch: pytest.MonkeyPatch, text: str) -> tuple[dict, list]:
-    """Upload ``text`` as the trio's family VCF; returns the result and the records stored."""
+async def _upload_trio_vcf(monkeypatch: pytest.MonkeyPatch, text: str, **upload: object) -> tuple[dict, list]:
+    """Upload ``text`` as the trio's family VCF, with the options ``upload`` gives; returns the
+    result and the records stored."""
     stored: list = []
 
     async def no_rows(*_args, **_kwargs):
@@ -1202,6 +1203,7 @@ async def _upload_trio_vcf(monkeypatch: pytest.MonkeyPatch, text: str) -> tuple[
         file=UploadFile(file=BytesIO(text.encode()), filename="family.vcf"),
         overwrite=False,
         format_hint="clair3",
+        **upload,  # type: ignore[arg-type]
     )
     return result, stored
 
@@ -1267,6 +1269,39 @@ async def test_a_multi_sample_vcf_gives_each_sample_its_own_call_and_the_site_it
         "MOTHER": ("./.", None, 30, [30, 0], [], None),
         "FATHER": ("./.", None, 27, [27, 0], [], None),
     }
+
+
+# A sample column that names no member, or a column asked for that the file lacks, holding
+# characters a reader cannot see: an escape sequence that clears a terminal, a text-direction
+# override. The refusal quoted it raw, so they reached the page and the job's record as they
+# were (SEC-37); each is shown as its escape.
+_UNSEEN = "SIB\x1b[2J‮1"
+_UNSEEN_SHOWN = "SIB\\x1b[2J\\u202e1"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("column", "upload", "detail"),
+    [
+        pytest.param(_UNSEEN, {}, f"Sample '{_UNSEEN_SHOWN}' not found in family", id="a-column-of-no-member"),
+        pytest.param(
+            "FATHER",
+            {"sample_column": _UNSEEN},
+            f"The VCF has no sample column '{_UNSEEN_SHOWN}'",
+            id="a-column-the-file-lacks",
+        ),
+    ],
+)
+async def test_a_sample_column_the_upload_cannot_read_is_refused_showing_it_as_written(
+    monkeypatch: pytest.MonkeyPatch, column: str, upload: dict[str, object], detail: str
+) -> None:
+    text = _TRIO_VCF.replace("\tMOTHER\tFATHER\n", f"\tMOTHER\t{column}\n", 1)
+
+    with pytest.raises(HTTPException) as refused:
+        await _upload_trio_vcf(monkeypatch, text, **upload)
+
+    assert (refused.value.status_code, refused.value.detail) == (400, detail)
+    assert "\x1b" not in refused.value.detail and "‮" not in refused.value.detail
 
 
 @pytest.mark.asyncio

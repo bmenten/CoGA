@@ -56,6 +56,7 @@ from .clickhouse_variant_storage import (
     refresh_family_small_variant_summaries,
 )
 from .data_scope import normalize_chromosome
+from .family_identifiers import visible
 from .family_metadata_context import FamilyMetadataContext, SampleMetadataContext
 from .family_variant_write_lock import SMALL_VARIANTS, lock_family_variant_writes
 from .genotypes import genotype_notation_refusal, is_vcf_genotype
@@ -420,7 +421,7 @@ async def upload_family_per_sample_small_variant_files(
         raise HTTPException(status_code=400, detail="Two per-sample SNV files name one sample")
     for sample_id in file_samples:
         if sample_id not in sample_contexts:
-            raise HTTPException(status_code=400, detail=f"Sample '{sample_id}' not found in family")
+            raise HTTPException(status_code=400, detail=f"Sample '{visible(sample_id)}' not found in family")
     readers: list[_PerSampleVcfReader] = []
     mutation_started = False
     try:

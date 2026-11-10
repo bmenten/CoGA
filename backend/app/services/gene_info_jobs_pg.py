@@ -73,6 +73,17 @@ REQUESTER_INACTIVE_ERROR = _requester_lost("has been deactivated")
 REQUESTER_NOT_ADMIN_ERROR = _requester_lost("is no longer an administrator")
 
 
+def _failed_refresh(exc: BaseException) -> str:
+    """The error a failed refresh ends its job with: a fixed sentence naming the error by its
+    kind (``describe_error``), never its text, which can quote a statement's values or the
+    address a source was read from (SEC-37)."""
+    return (
+        f"The gene reference refresh failed ({describe_error(exc)}). The genes it had saved "
+        "keep their new records, the others the ones from before; the server log shows where it "
+        "failed."
+    )
+
+
 _T = TypeVar("_T")
 
 
@@ -1130,10 +1141,13 @@ async def run_gene_reference_refresh_job(
             # A failed statement leaves the transaction taking nothing more until it is rolled
             # back, and what the run wrote since its last commit is dropped with it. The job ends
             # failed only while it is still this worker's: a job another worker has taken up
-            # meanwhile is that worker's to end.
+            # meanwhile is that worker's to end. The job's error, which the admin page shows, and
+            # the log name the error by its kind, never by its text: a failed statement's text
+            # quotes the values it was given, a source's error the address it read (SEC-37).
+            logger.error("Gene reference refresh job %s failed (%s)", job_id, describe_error(exc))
             try:
                 await session.rollback()
-                await _end_failed_job(session, job_id=job_id, worker_id=worker_id, error=str(exc))
+                await _end_failed_job(session, job_id=job_id, worker_id=worker_id, error=_failed_refresh(exc))
             except Exception as end_error:  # noqa: BLE001 - logged by type; the run's own error is raised
                 logger.error(
                     "Gene reference refresh job %s could not be marked failed (%s); another worker "

@@ -53,6 +53,7 @@ from .clickhouse_interval_tracks import (
     upsert_interval_track_source,
 )
 from .data_scope import normalize_chromosome
+from .family_identifiers import visible
 from .family_metadata_context import FamilyMetadataContext, SampleMetadataContext
 from .family_package_common import (
     DatasetLeftMissing,
@@ -990,7 +991,7 @@ async def upload_family_small_variant_file(
                         if sample_column not in header_columns:
                             raise HTTPException(
                                 status_code=400,
-                                detail=f"The VCF has no sample column '{sample_column}'",
+                                detail=f"The VCF has no sample column '{visible(sample_column)}'",
                             )
                         selected_column = header_columns.index(sample_column)
                         header_columns = [sample_column]
@@ -1001,7 +1002,7 @@ async def upload_family_small_variant_file(
                     unique_names = list(dict.fromkeys(read.sample_names))
                     for name in unique_names:
                         if name not in sample_contexts:
-                            raise HTTPException(status_code=400, detail=f"Sample '{name}' not found in family")
+                            raise HTTPException(status_code=400, detail=f"Sample '{visible(name)}' not found in family")
                         if haplotype_blocks is not None:
                             haplotype_blocks.add_sample(name)
                     if samples_scope:
