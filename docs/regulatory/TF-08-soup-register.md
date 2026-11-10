@@ -50,7 +50,7 @@ release, not maintained by hand. **Reconciled with the lockfile on 2026-11-05**,
 | clickhouse-connect[async] | 1.11.0 | ClickHouse client (variant store) | H | CVE/changelog |
 | pydantic / pydantic-settings | 2.14.2 / 2.16.2 | Data validation, settings | H | Changelog |
 | **PyJWT[crypto]** (+ cryptography) | **2.15.1** (+ 50.0.0) | JWT signing/verification (HS256 local, RS256 Microsoft Entra ID access tokens) | **H (security)** | CVE watch (auth) |
-| bcrypt | 5.0.0 | Password hashing, called directly (no passlib wrapper); the stored `$2b$` hashes verify unchanged | **H (security)** | CVE watch |
+| bcrypt | 5.0.0 | Password hashing, called directly: `$2b$` at cost 12, a password read on its first 72 bytes | **H (security)** | CVE watch |
 | pysam | 0.24.1 | VCF/BAM/CRAM access | H | Changelog |
 | pyBigWig | 0.3.29 | bigWig signal-track reading (HiFiCNV read depth and minor allele fraction) | M | Changelog |
 | prometheus-client | 0.26.0 | Prometheus exposition for `GET /metrics` (operations monitoring; outside the clinical path, no dependencies of its own) | L | Changelog |

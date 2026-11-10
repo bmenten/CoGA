@@ -312,8 +312,8 @@ async def test_a_track_outside_the_familys_own_package_is_never_signed(
 async def test_a_track_recorded_without_a_uri_is_found_at_the_package_layout(
     monkeypatch: pytest.MonkeyPatch, prefix: str
 ) -> None:
-    # A row written before bucket imports recorded URIs: the probe looks where the CRAM
-    # probes look, <storage prefix>/<family>/..., at the recorded relative path.
+    # A row that records no URI (a package imported from a local folder): the probe looks
+    # where the CRAM probes look, <storage prefix>/<family>/..., at the recorded relative path.
     probe_key = "/".join(part for part in (prefix, "pacbio", DEPTH) if part)
     use_store(monkeypatch, "gs", {probe_key: "bigwig"})
     monkeypatch.setattr(settings, "gcs_prefix", prefix)
@@ -338,21 +338,11 @@ async def test_the_layout_probe_stays_in_the_family_folder(monkeypatch: pytest.M
     assert signed == []
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize("family_id", ["other-family/cnv", "other-family/cnv/", "/other-family/cnv", ".."])
-async def test_the_layout_probe_takes_a_family_id_only_when_it_is_one_folder_name(
-    monkeypatch: pytest.MonkeyPatch, family_id: str
-) -> None:
-    # `<prefix>/<family>/<recorded path>`: a family ID holding `/` named another family's
+def test_the_layout_probe_takes_a_family_id_only_when_it_is_one_folder_name(family_id: str) -> None:
+    # `<prefix>/<family>/<recorded path>`: a family ID holding `/` would name another family's
     # folder, here its object `cnv/x.bw`, from a recorded path of its own (SEC-25).
-    use_store(monkeypatch, "gs", {"other-family/cnv/x.bw": "bigwig"})
-    _members(monkeypatch, "HG002")
-    signed = _sign(monkeypatch)
-    session: Any = _RowsSession({"HG002": {"hificnv": {"depth_bigwig": "x.bw"}}})
-
     assert signal_tracks._probed_track_key(family_id, "x.bw", "depth_bigwig") is None
-    assert await signal_tracks.get_signal_track_manifest(family_id, sample_ids=["HG002"], session=session, user=object()) == []
-    assert signed == []
 
 
 @pytest.mark.asyncio

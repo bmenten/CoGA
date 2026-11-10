@@ -282,12 +282,12 @@ async def _collect(root: Path) -> dict:
             )
             out["quick_rows_toggled"] = await _review_rows(facts["family_uuid"], [QUICK_TOGGLE_VARIANT_ID])
             r["quick_audit_toggled"] = capture(await ac.get(audit_url, params={"limit": 50}))
-            r["quick_toggled_as_before"] = capture(
+            r["quick_saved_as_shown"] = capture(
                 await ac.put(
                     quick, json={"classification": "Likely pathogenic - class 4", "tags": ["acmg_class_4"]}
                 )
             )
-            r["quick_audit_as_before"] = capture(await ac.get(audit_url, params={"limit": 50}))
+            r["quick_audit_as_shown"] = capture(await ac.get(audit_url, params={"limit": 50}))
         finally:
             r["quick_cleared"] = capture(await ac.put(quick, json={"tags": [], "note": None}))
             out["quick_rows_at_end"] = await _review_rows(facts["family_uuid"], [QUICK_TOGGLE_VARIANT_ID])
@@ -582,8 +582,8 @@ def test_a_quick_tag_toggle_records_the_tag_and_no_classification_change(snap):
         "quick_audit_saved",
         "quick_toggled",
         "quick_audit_toggled",
-        "quick_toggled_as_before",
-        "quick_audit_as_before",
+        "quick_saved_as_shown",
+        "quick_audit_as_shown",
         "quick_cleared",
     ):
         assert _resp(snap, key)["status"] == 200, (key, _resp(snap, key)["text"])
@@ -593,7 +593,7 @@ def test_a_quick_tag_toggle_records_the_tag_and_no_classification_change(snap):
     assert (stored["classification"], sorted(stored["tags"])) == ("VUS - class 3", ["acmg_class_4", "review"])
     assert _resp(snap, "quick_toggled")["json"]["classification"] == "VUS - class 3"
     # Sent with the class shown as the text: a classification change.
-    assert _new_events(snap, "quick_audit_toggled", "quick_audit_as_before") == [
+    assert _new_events(snap, "quick_audit_toggled", "quick_audit_as_shown") == [
         ("classification", "Classification text VUS - class 3 → Likely pathogenic - class 4"),
         ("tags", "Tags removed review"),
     ]

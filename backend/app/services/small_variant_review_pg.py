@@ -210,7 +210,7 @@ async def list_matching_small_variant_review_ids(
 
     A classification keeps a review by the class it shows (``review_shows_class``, the family
     page's rule, CLIN-75): a bare class word in its text, else its most severe class tag, else
-    its text, whatever the case (ENG-6). So *Likely pathogenic - class 4* keeps a review
+    its text, whatever the case. So *Likely pathogenic - class 4* keeps a review
     classified by its class tag alone, and not one whose text says another class beside that
     tag. The pair review is read alike, from its own text and tags. The Variant Explorer's filter
     is the same rule in SQL (``_variant_ids_matching_reviews``).
@@ -444,7 +444,6 @@ async def upsert_small_variant_review(
 
     normalized_tags = _normalize_tags(payload.tags)
     normalized_note = (payload.note or "").strip() or None
-    # A class label in another case is stored as the label is now (ENG-6).
     normalized_classification = _stored_classification(payload.classification)
     compound_het_requested = "compound_het" in payload.model_fields_set
     compound_het_payload: SmallVariantCompoundHetReviewUpdate | None = (

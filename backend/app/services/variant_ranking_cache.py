@@ -26,9 +26,7 @@ broader cached ranking (see ``compute_ranking_hashes``); the row records what it
 held (``provenance.panel_members``), and is used for another panel only while its own
 panel holds exactly that (CLIN-27), and only when it holds every variant the other panel
 reaches and ranks them as that panel's own computation would (CLIN-34, CLIN-35; the
-caller checks both). Before the data version was part of the hash, only the package
-import invalidated the cache, and a direct upload or an admin delete left an outdated
-ranking in place (#509).
+caller checks both).
 
 This module owns only the hash + Postgres cache rows; the (de)serialisation of variant
 records is done by the caller (clickhouse_family_variants) which holds those helpers.
@@ -72,8 +70,8 @@ async def _pedigree_signature(session: AsyncSession, context: Any) -> Any:
     screen keeps), affected and clinical status, and the relationships.
 
     Not the family's latest ``structure_hash``: read after the context, a pedigree edit
-    committed between the two reads stored a ranking computed on the old pedigree under the
-    new pedigree's key, which every later request on the new pedigree was served (ENG-13).
+    committed between the two reads would store a ranking computed on the old pedigree under
+    the new pedigree's key, served to every later request on the new pedigree (ENG-13).
     """
     del session  # what the ranking reads is the context's, not the database's latest
     samples = sorted(
@@ -129,9 +127,9 @@ async def _reference_versions(session: AsyncSession, context: Any) -> dict[str, 
 
     The ontology is the one loaded, read as the signed record reads it
     (``get_loaded_hpo_release``): its release, and when it was imported, which tells two
-    imports apart when neither recorded a release. ``max(release_version)`` kept naming a
-    later release after an older one was re-imported, or after an import without one,
-    so rankings computed on another ontology stayed hits.
+    imports apart when neither recorded a release. ``max(release_version)`` would name a
+    later release after an older one is re-imported, or after an import without one, so
+    rankings computed on another ontology would stay hits.
     """
     loaded = await get_loaded_hpo_release(session) or {}
     gene_info_updated_at = (

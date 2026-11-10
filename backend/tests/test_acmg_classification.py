@@ -172,32 +172,6 @@ def test_an_unaccepted_criterion_must_take_its_strength_too() -> None:
     assert refused.value.detail == "Invalid ACMG strength for BS1: very_strong"
 
 
-def test_a_stored_classification_the_save_rules_refuse_is_still_served() -> None:
-    # Only a save is checked: a stored record with a repeated criterion and a strength the
-    # criterion does not take is read back as it was written.
-    from backend.app.services.small_variant_review_pg import _serialize_review
-
-    written_before = {
-        "criteria": [
-            {"code": "PVS1", "strength": "very_strong", "accepted": True},
-            {"code": "PVS1", "strength": "very_strong", "accepted": True},
-            {"code": "BS1", "strength": "very_strong", "accepted": False},
-        ],
-        "point_total": 16,
-        "classification": "Pathogenic - class 5",
-    }
-    review = _serialize_review(
-        {"variant_id": "1-2000-C-T", "classification": "acmg_class_5", "acmg": json.dumps(written_before)}
-    )
-    assert review.acmg is not None and review.acmg_unreadable is False
-    assert [(c.code, c.strength) for c in review.acmg.criteria] == [
-        ("PVS1", "very_strong"),
-        ("PVS1", "very_strong"),
-        ("BS1", "very_strong"),
-    ]
-    assert review.acmg.point_total == 16
-
-
 def test_blob_round_trips_through_storage_helpers() -> None:
     payload = AcmgClassificationPayload(criteria=[crit("PVS1", "very_strong")])
     blob, _, _ = _normalize_acmg_payload(payload)

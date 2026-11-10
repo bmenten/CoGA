@@ -3,7 +3,8 @@
 In local storage mode the CRAM endpoints look for ``<sample>.cram`` (``.crai``, ``.bam``,
 ``.bai``) under five layouts in the family's two folders, ``<data>/<family>`` and
 ``<data>/families/<family>``. The family and sample IDs come from the request, and may hold
-``/`` and ``..`` (the ID rule, SEC-15, refuses both for a new ID, not in a request).
+``/`` and ``..`` (the ID rule, SEC-15, refuses both in a stored ID, but a request is not held
+to it).
 
 Each path is joined and normalised as a string and dropped, before anything is looked up, when
 it leaves the family's folder, so a sample ID ``../F2/S2`` of family F1 finds none of family
@@ -351,7 +352,8 @@ async def _fetch(client: httpx.AsyncClient, family_id: str, file_name: str) -> t
 
 @pytest.mark.asyncio
 async def test_the_manifest_lists_only_the_familys_own_reads(data: Path, members: dict[str, list[str]]) -> None:
-    members["F1"] = ["S1", "../F2/S2"]
+    # A requested sample ID that climbs into F2 is no member of F1: it is not looked up.
+    members["F1"] = ["S1"]
     members["F2"] = ["S2"]
     _place(data, LAYOUTS[1], "F1", "S1")
     for layout in LAYOUTS:

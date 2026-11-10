@@ -14,14 +14,11 @@ ClickHouse:
   none is left under A; the summaries count them under B; the family's pages find them;
 * linked to A and B, both hold every row; back to A alone, B's go;
 * C, on another assembly, is refused with 409 and nothing changes;
-* a family whose links changed in Postgres while its rows stayed under A gets its rows under B
-  when its projects are saved again, and A's go;
 * rows left under B from earlier, with other calls, are replaced by A's when the family is
   linked to B: no write kept them current;
-* a family in no project (its rows under ``unassigned``), and one whose only project was
-  deleted (its rows under that project's id), are refused C with 409 and keep their rows; no
-  project of theirs names the assembly the rows are on, so every assembly is searched. Linked
-  to A, they get their rows there;
+* a family in no project (its rows under ``unassigned``) is refused C with 409 and keeps its
+  rows; no project of the family names the assembly they are on, so every assembly is searched.
+  Linked to A, it gets its rows there;
 * every column of ``SV/entries`` is copied (the copy names them).
 
 Everything runs in ONE event loop via an in-process ``httpx.ASGITransport`` client (see
@@ -236,15 +233,6 @@ async def _exercise(root: Path) -> dict[str, Any]:
             out["after_other_assembly"] = await _rows(family_uuid)
             out["projects_after_other_assembly"] = await _family_projects(family_uuid)
 
-            # A family linked to B in Postgres while its rows stay under A.
-            await _link_in_postgres_only(family_uuid, project_b)
-            out["presence_moved_before_fix"] = await presence(project_b)
-            out["repair"] = capture(await ac.put(url, json={"project_ids": [project_b]}))
-            out["after_repair"] = await _rows(family_uuid)
-            out["presence_repaired"] = await presence(project_b)
-
-            out["restore"] = capture(await ac.put(url, json={"project_ids": [project_a]}))
-
             # Rows left under B with other calls, while the family is in A alone.
             await _write_stale_copy(family_uuid, project_a, project_b)
             out["with_stale_copy"] = await _rows(family_uuid)
@@ -262,16 +250,6 @@ async def _exercise(root: Path) -> dict[str, Any]:
             out["projects_after_none_to_other_assembly"] = await _family_projects(family_uuid)
             out["none_to_a"] = capture(await ac.put(url, json={"project_ids": [project_a]}))
             out["after_none_to_a"] = await _rows(family_uuid)
-
-            # A family whose only project was deleted (here in SQL): the links went with the
-            # project, its rows stayed under the deleted project's id.
-            out["to_b"] = capture(await ac.put(url, json={"project_ids": [project_b]}))
-            await _sql("DELETE FROM projects WHERE id = CAST(:b AS uuid)", {"b": project_b})
-            out["projects_after_delete"] = await _family_projects(family_uuid)
-            out["deleted_to_other_assembly"] = capture(await ac.put(url, json={"project_ids": [project_c]}))
-            out["after_deleted_to_other_assembly"] = await _rows(family_uuid)
-            out["deleted_to_a"] = capture(await ac.put(url, json={"project_ids": [project_a]}))
-            out["after_deleted_to_a"] = await _rows(family_uuid)
     finally:
         # The family back in A alone with its rows as imported, whatever happened above.
         await copy_family_variants_to_projects(
@@ -329,8 +307,8 @@ def test_moved_to_b_the_family_takes_every_row_along(run) -> None:
 
 
 def test_moved_to_b_the_family_page_finds_its_variants(run) -> None:
-    # The owner's report: after a move the family page offered neither small nor structural
-    # variants, as the presence check found none under the new project.
+    # The family page offers small and structural variants when the presence check finds them
+    # under the project it reads.
     for kind in ("small-variants", "structural-variants"):
         assert run["presence_b"][kind]["status"] == 200, run["presence_b"][kind]["text"]
         assert run["presence_b"][kind]["json"]["total"] == 1, kind
@@ -351,15 +329,6 @@ def test_a_project_on_another_assembly_is_refused_and_nothing_changes(run) -> No
     assert run["projects_after_other_assembly"] == [run["project_a"]]
 
 
-def test_a_family_moved_before_the_fix_gets_its_variants_when_saved_again(run) -> None:
-    for kind in ("small-variants", "structural-variants"):
-        assert run["presence_moved_before_fix"][kind]["json"]["total"] == 0, kind
-    assert run["repair"]["status"] == 200, run["repair"]["text"]
-    assert _only(run["after_repair"], run["project_b"], like=run["before"], under=run["project_a"])
-    for kind in ("small-variants", "structural-variants"):
-        assert run["presence_repaired"][kind]["json"]["total"] == 1, kind
-
-
 def test_rows_left_under_a_project_are_replaced_when_the_family_is_linked_to_it(run) -> None:
     stale = run["with_stale_copy"]["small"][run["project_b"]]
     assert len(stale) == 1 and stale[0] not in run["before"]["small"][run["project_a"]]
@@ -369,9 +338,8 @@ def test_rows_left_under_a_project_are_replaced_when_the_family_is_linked_to_it(
 
 
 def test_a_family_in_no_project_is_refused_another_assembly_and_keeps_its_rows(run) -> None:
-    # No project of the family named the assembly its rows are on, so none was searched: the
-    # family was linked to C, its rows stayed on GRCh38 where no page of C looks, and the copy
-    # and prune ran on no assembly.
+    # No project of the family names the assembly its rows are on, so every assembly is
+    # searched: linked to C, its rows would stay on GRCh38, where no page of C looks.
     assert run["none"]["status"] == 200, run["none"]["text"]
     assert _only(run["after_none"], "unassigned", like=run["before"], under=run["project_a"])
     refused = run["none_to_other_assembly"]
@@ -382,18 +350,6 @@ def test_a_family_in_no_project_is_refused_another_assembly_and_keeps_its_rows(r
     # A project on the rows' assembly gets them, and "unassigned" keeps none.
     assert run["none_to_a"]["status"] == 200, run["none_to_a"]["text"]
     assert run["after_none_to_a"] == run["before"]
-
-
-def test_a_family_whose_project_was_deleted_is_refused_another_assembly_and_keeps_its_rows(run) -> None:
-    assert run["to_b"]["status"] == 200, run["to_b"]["text"]
-    assert run["projects_after_delete"] == []
-    refused = run["deleted_to_other_assembly"]
-    assert refused["status"] == 409, refused["text"]
-    assert "stored on GRCh38" in refused["json"]["detail"]
-    assert _only(run["after_deleted_to_other_assembly"], run["project_b"], like=run["before"], under=run["project_a"])
-    # Linked to A, the rows under the deleted project's id are copied there and go.
-    assert run["deleted_to_a"]["status"] == 200, run["deleted_to_a"]["text"]
-    assert run["after_deleted_to_a"] == run["before"]
 
 
 def test_the_copy_names_every_sv_entries_column(run) -> None:

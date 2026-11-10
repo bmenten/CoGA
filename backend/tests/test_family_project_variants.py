@@ -13,8 +13,8 @@ Over a fake ClickHouse (the storage module's ``_execute``) and a fake Postgres s
 * a project the family is not linked to yet has whatever it holds replaced, even with as many
   rows as the origin: no write has kept them current;
 * a linked project's rows are never deleted by the copy; a linked project without a callset
-  gets it (a family whose project links changed while its rows stayed under the earlier
-  project, or a project an import added);
+  gets it (a project an import linked the family to), from ``unassigned`` when no linked
+  project holds it;
 * the copy refreshes the small-variant summaries or moves the SV data version only for what
   it wrote; the prune deletes only rows outside the kept projects;
 * a family without a project keeps its rows under ``unassigned``, as the writers store them;
@@ -174,14 +174,24 @@ async def test_a_linked_projects_rows_are_never_deleted(clickhouse) -> None:
 
 @pytest.mark.asyncio
 async def test_a_linked_project_without_a_callset_gets_it(clickhouse) -> None:
-    # B is linked while the family's rows stayed under A.
+    # An import linked the family, in A, to B: B is linked and holds none of its rows.
     fake = clickhouse({"clair3": {A: 10}}, {"needlr": {A: 3}})
 
-    await _copy([B], [B])
+    await _copy([A, B], [A, B])
 
     assert [(kind, verb, params["project"], params["origin"]) for kind, verb, params in fake.writes()] == [
         ("SNV_INDEL", "INSERT", B, A),
         ("SV", "INSERT", B, A),
+    ]
+
+    # An import linked a family in no project to B: its rows wait under "unassigned", which is
+    # not a linked project, and are copied from there.
+    fake = clickhouse({"clair3": {"unassigned": 10}})
+
+    await _copy([B], [B])
+
+    assert [(verb, params["project"], params["origin"]) for _kind, verb, params in fake.writes()] == [
+        ("INSERT", B, "unassigned")
     ]
 
 
@@ -321,8 +331,8 @@ class _AssemblySession:
 
 @pytest.mark.asyncio
 async def test_a_family_in_no_project_is_looked_for_on_every_assembly(monkeypatch) -> None:
-    # Its projects saved as none (its rows under "unassigned"), or its rows under the id of a
-    # deleted project: no project names the assembly its rows are on.
+    # Its projects saved as none: its rows wait under "unassigned", on an assembly no project
+    # of the family names.
     searched: list[str] = []
 
     async def assemblies(_session, project_ids):

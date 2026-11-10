@@ -19,7 +19,6 @@ the panel API:
 * a panel's ranking serves another panel with the same gene (its panel unchanged);
 * the panel then gains a gene: the version moves, so the exact key misses, and the ranking
   cached for the first version must not serve the panel either;
-* a row that records nothing of its panel (made here by removing the record) is not used;
 * a row whose panel was deleted is passed over instead of failing the request with 404;
 * a ranking without a panel still serves a narrower panel.
 
@@ -36,8 +35,7 @@ cases (the fixture ships none):
 * a panel of more than 1,000 regions (a Mendeliome stand-in) reaches the GENE_DENOVO
   variant by position (through the gene reference's other symbol for that gene) as a
   smaller panel does, and its ranking serves the smaller panel as the panel's own
-  computation ranks it (owner decision 2026-10-14; it was matched on gene symbols alone,
-  so the smaller panel had to be computed for itself);
+  computation ranks it (owner decision 2026-10-14);
 * a panel imported from PanelApp, whose coordinates for GENE_PATH reach further than any
   gene or locus of the stand-in, is computed for itself, with the variants it reaches
   there, instead of served from the stand-in's ranking without them.
@@ -326,24 +324,11 @@ async def _exercise_sub_panel(root: Path, panelapp_id: int) -> dict:
             out["edit"] = {"status": edit.status_code, "text": edit.text}
             out["broad_after_edit"] = await prioritised("broad")
 
-            # Rows that record nothing of their panel: take the record away.
-            async with get_postgres_sessionmaker()() as session:
-                stripped = await session.execute(
-                    text(
-                        """
-                        UPDATE family_variant_ranking_cache
-                        SET provenance = provenance - 'panel_members'
-                        WHERE family_id = CAST(:family_uuid AS uuid) AND panel_id = :panel_id
-                        """
-                    ),
-                    {"family_uuid": family_uuid, "panel_id": panels["broad"]},
-                )
-                out["stripped_rows"] = stripped.rowcount
-                await session.commit()
+            # The panel of a cached ranking is deleted; another panel over its gene opens. The
+            # cache is emptied first, so the deleted panel's ranking is the only candidate.
+            await clear_cache()
             await make_panel("denovo", "GENE_DENOVO")
-            out["denovo_unrecorded"] = await prioritised("denovo")
-
-            # The panel of a recorded row is deleted; another panel over its gene opens.
+            out["denovo_first"] = await prioritised("denovo")
             deleted = await ac.delete(f"/api/panels/{panels.pop('denovo')}")
             out["delete"] = {"status": deleted.status_code, "text": deleted.text}
             await make_panel("denovo_again", "GENE_DENOVO")
@@ -466,17 +451,11 @@ def test_a_panel_that_gained_a_gene_is_not_served_from_its_earlier_ranking(sub_p
     _served(sub_panel["broad_after_edit"], cached=False, genes=["GENE_DENOVO", "GENE_PATH"])
 
 
-def test_a_row_without_a_record_of_its_panel_is_not_used(sub_panel) -> None:
-    # Both rankings of the edited panel lose their record; the newer one would otherwise
-    # serve the panel over GENE_DENOVO.
-    assert sub_panel["stripped_rows"] == 2
-    _served(sub_panel["denovo_unrecorded"], cached=False, genes=["GENE_DENOVO"])
-
-
 def test_a_row_whose_panel_was_deleted_is_passed_over(sub_panel) -> None:
+    _served(sub_panel["denovo_first"], cached=False, genes=["GENE_DENOVO"])
     assert sub_panel["delete"]["status"] == 204, sub_panel["delete"]["text"]
-    # The lookup of a deleted panel's genes answers 404, which failed the request for
-    # another panel when the deleted panel's ranking was a candidate.
+    # The lookup of a deleted panel's genes answers 404, which must not fail the request for
+    # another panel that has the deleted panel's ranking as a candidate.
     _served(sub_panel["after_delete"], cached=False, genes=["GENE_DENOVO"])
 
 

@@ -13,8 +13,8 @@ same assembly and a project C on another one, through the real import, Postgres 
 * an update import into B of the needlr SVs alone (the family's SVs removed first, so it writes
   that one dataset) leaves A and B each holding every row, column for column as imported; a
   reader of B alone finds both small and structural variants;
-* a family linked to B whose rows stayed under A alone gets them under B at its next
-  import, one that writes nothing;
+* a family linked to B that holds none of its rows there (what an import into B leaves when
+  it stops before its copy) gets them under B at its next import, one that writes nothing;
 * an overwrite into B that fails after its dataset is put back from its snapshot, which holds
   B's copy: the family stays linked to B with every row under A and B;
 * an import into C, on another assembly, is refused before the family is marked or linked.
@@ -191,15 +191,16 @@ async def _exercise(root: Path, sv_only: Path) -> dict[str, Any]:
             out["projects_after_into_b"] = await _family_projects(family_uuid)
             out["presence_b"] = await presence()
 
-            # A family linked to B whose rows stayed under A: B linked in Postgres, its rows
-            # under A.
+            # A family linked to B that holds none of its rows there, as an import into B
+            # leaves it when it stops after the link, before its copy: B linked in Postgres,
+            # its rows under A alone.
             await _in_project_a_alone(family_uuid, project_a)
             await _sql(
                 "INSERT INTO family_projects (family_id, project_id) VALUES (CAST(:f AS uuid), CAST(:p AS uuid))",
                 {"f": family_uuid, "p": project_b},
             )
-            out["linked_before_fix"] = await _rows(family_uuid)
-            out["presence_linked_before_fix"] = await presence()
+            out["linked_without_copy"] = await _rows(family_uuid)
+            out["presence_linked_without_copy"] = await presence()
             out["next_import"] = await run_import(project_a, "update")
             out["after_next_import"] = await _rows(family_uuid)
             out["presence_after_next_import"] = await presence()
@@ -291,10 +292,10 @@ def test_a_reader_of_b_alone_finds_the_familys_small_and_structural_variants(run
         assert run["presence_b"][kind]["json"]["total"] == 1, kind
 
 
-def test_a_family_linked_to_b_before_the_fix_gets_its_variants_at_its_next_import(run) -> None:
+def test_a_family_linked_to_b_without_a_copy_gets_its_variants_at_its_next_import(run) -> None:
     for kind in ("small-variants", "structural-variants"):
-        assert run["presence_linked_before_fix"][kind]["json"]["total"] == 0, kind
-    linked = run["linked_before_fix"]
+        assert run["presence_linked_without_copy"][kind]["json"]["total"] == 0, kind
+    linked = run["linked_without_copy"]
     assert set(linked["small"]) == {run["project_a"]} and set(linked["structural"]) == {run["project_a"]}
     next_import = run["next_import"]
     # It writes nothing: the SVs are stored, so the update leaves them.

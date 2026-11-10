@@ -814,10 +814,6 @@ _PACKAGE_DELIVERY_SQL = text(
 )
 
 
-def _list(value: Any) -> list[Any]:
-    return value if isinstance(value, list) else []
-
-
 def _intake_change(change: Any) -> dict[str, Any] | None:
     if not isinstance(change, Mapping):
         return None
@@ -858,7 +854,7 @@ async def package_intake(session: AsyncSession, context: FamilyMetadataContext) 
         return {"delivery": None}
     corrections = [
         entry
-        for entry in (_intake_correction(correction) for correction in _list(delivery.get("corrections")))
+        for entry in (_intake_correction(correction) for correction in delivery["corrections"])
         if entry is not None
     ]
     return {

@@ -22,9 +22,9 @@ motif.
 - The import: the status stored with a call under an unknown TRID, a TRID spelled differently,
   and a catalogue row without thresholds, through the catalogue a start seeds; at POLG, normal
   inside its benign range only.
-- The family table: a call stored as ``normal`` at a locus without thresholds reads not assessed
-  at once, and a POLG call stored as ``not_assessed`` inside its benign range reads normal.
-- The genome tracks serve the stored status, ``not_assessed`` included.
+- The family table: a call at a locus without thresholds reads not assessed, a POLG call inside
+  its benign range normal; a man's chrX note stays with a call not assessed.
+- The genome tracks serve ``not_assessed``.
 - The API models, the stored status's check constraint and the ranking list the same statuses.
 (integration/test_repeat_status_storage.py stores the status on Postgres.)
 All samples and values are synthetic.
@@ -575,9 +575,9 @@ def _table_row(sample_uuid: str, *, locus_id: str, chrom: str, start: int, allel
 
 
 @pytest.mark.asyncio
-async def test_the_family_table_reads_a_call_stored_as_normal_at_an_uncatalogued_locus_as_not_assessed() -> None:
-    """Stored as normal, with no thresholds. The table classifies it again at once; a member
-    without a call there stays unknown, and a catalogued locus reads as stored."""
+async def test_the_family_table_reads_a_call_at_an_uncatalogued_locus_as_not_assessed() -> None:
+    """No thresholds: every called allele, the 300-repeat expansion included, reads not assessed;
+    a member without a call there stays unknown, and a catalogued locus reads by its thresholds."""
     uncatalogued = "chr2_1000000_1000030_CAG"
     rows = [
         _table_row(
@@ -585,8 +585,8 @@ async def test_the_family_table_reads_a_call_stored_as_normal_at_an_uncatalogued
             locus_id=uncatalogued,
             chrom="2",
             start=1_000_000,
-            alleles=[{"repeat_count": 12, "status": "normal"}, {"repeat_count": 300, "status": "normal"}],
-            status="normal",
+            alleles=[{"repeat_count": 12, "status": NOT_ASSESSED}, {"repeat_count": 300, "status": NOT_ASSESSED}],
+            status=NOT_ASSESSED,
         ),
         _table_row(
             MOTHER_UUID,
@@ -632,16 +632,16 @@ async def test_the_family_table_reads_a_catalogue_row_without_thresholds_as_not_
             locus_id="ADTKD_MUC1",
             chrom="1",
             start=155_188_505,
-            alleles=[{"repeat_count": 10, "status": "normal"}, {"repeat_count": 60, "status": "normal"}],
-            status="normal",
+            alleles=[{"repeat_count": 10, "status": NOT_ASSESSED}, {"repeat_count": 60, "status": NOT_ASSESSED}],
+            status=NOT_ASSESSED,
         ),
         _table_row(
             MOTHER_UUID,
             locus_id="CPEO_POLG",
             chrom="15",
             start=89_333_579,
-            alleles=[{"repeat_count": 10, "status": "normal"}, {"repeat_count": 30, "status": "normal"}],
-            status="normal",
+            alleles=[{"repeat_count": 10, "status": "normal"}, {"repeat_count": 30, "status": NOT_ASSESSED}],
+            status=NOT_ASSESSED,
             benign_min=10,
             benign_max=10,
         ),
@@ -658,15 +658,14 @@ async def test_the_family_table_reads_a_catalogue_row_without_thresholds_as_not_
 
 
 @pytest.mark.asyncio
-async def test_the_family_table_reads_a_polg_call_stored_not_assessed_inside_its_benign_range_as_normal() -> None:
-    """POLG 10/10 stored as not assessed. The table classifies
-    it again at once, so the call is normal, and so is the locus when every call there is.
-    (The genome track shows the stored status until the call is imported again: CLIN-14.)"""
-    stored = [{"repeat_count": 10, "status": NOT_ASSESSED}, {"repeat_count": 10, "status": NOT_ASSESSED}]
+async def test_the_family_table_reads_a_polg_call_inside_its_benign_range_as_normal() -> None:
+    """POLG 10/10: the call is normal, and so is the locus when every call there is; the locus
+    shows the benign range it was read against."""
+    stored = [{"repeat_count": 10, "status": "normal"}, {"repeat_count": 10, "status": "normal"}]
     polg = {"locus_id": "CPEO_POLG", "chrom": "15", "start": 89_333_579, "benign_min": 10, "benign_max": 10}
     rows = [
-        _table_row(SON_UUID, alleles=stored, status=NOT_ASSESSED, **polg),
-        _table_row(MOTHER_UUID, alleles=stored, status=NOT_ASSESSED, **polg),
+        _table_row(SON_UUID, alleles=stored, status="normal", **polg),
+        _table_row(MOTHER_UUID, alleles=stored, status="normal", **polg),
     ]
 
     table = await repeat_expansion_pg.get_family_repeat_expansion_table_response(RowsSession(rows), context=_context())
@@ -688,8 +687,8 @@ async def test_the_family_table_keeps_a_males_chrx_note_on_a_call_not_assessed()
             locus_id="chrX_70000000_70000030_GCC",
             chrom="X",
             start=70_000_000,
-            alleles=[{"repeat_count": 12, "status": "normal"}, {"repeat_count": 40, "status": "normal"}],
-            status="normal",
+            alleles=[{"repeat_count": 12, "status": NOT_ASSESSED}, {"repeat_count": 40, "status": NOT_ASSESSED}],
+            status=NOT_ASSESSED,
         )
     ]
 
@@ -705,7 +704,8 @@ async def test_the_family_table_keeps_a_males_chrx_note_on_a_call_not_assessed()
 
 @pytest.mark.asyncio
 async def test_the_genome_track_serves_a_stored_not_assessed_status() -> None:
-    """The tracks show the status stored at import (CLIN-14): the API model must accept it."""
+    """The track reads the call as the family table does (CLIN-14): the API model must accept
+    ``not_assessed``."""
     stored = {
         "locus_id": "chr2_1000000_1000030_CAG",
         "gene": "chr2_1000000_1000030_CAG",

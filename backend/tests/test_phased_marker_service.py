@@ -560,7 +560,7 @@ def test_x_a_call_of_two_alleles_from_a_father_is_not_read():
     assert out["F"] == [] and out["M"] == []
 
 
-def test_x_a_child_whose_sex_is_not_recorded_has_two_copies_as_before():
+def test_x_a_child_whose_sex_is_not_recorded_has_two_copies():
     # Read as receiving one X from each parent; her father is read by his own sex.
     rows = _rows(
         (X_SITE, {"F": "0|0", "M": "0|1", "UND": "1|1"}),

@@ -463,8 +463,8 @@ async def test_the_track_availability_serves_what_each_coverage_track_holds(monk
 
     async def declarations(*_args: Any, **_kwargs: Any) -> dict[str, dict[str, list[str]]]:
         # S1's BED was declared as read depth; S2's declared nothing (a package entry without
-        # `content` records unknown; here S2's track records none).
-        return {"S1": {"web": ["read_depth"]}}
+        # `content`), which its record keeps as unknown.
+        return {"S1": {"web": ["read_depth"]}, "S2": {"web": ["unknown"]}}
 
     monkeypatch.setattr(service + "build_family_metadata_context", family)
     monkeypatch.setattr(service + "get_track_sources_by_sample", sources)

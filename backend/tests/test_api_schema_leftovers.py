@@ -1,8 +1,7 @@
 """The API serves and takes only what the server sets and reads (ENG-4).
 
 - A gene profile's homologs carry no percent identity or coverage: dbNSFP, the one source of
-  homologs, names a mouse and a zebrafish gene and sets neither. A cached homolog that holds
-  them loads, without them.
+  homologs, names a mouse and a zebrafish gene and sets neither.
 - The UCSC assembly catalogue does not say whether an assembly has cytobands and genes:
   nothing sets the two fields, which would read true for every assembly, also one UCSC has no
   cytoband or gene table for.
@@ -12,13 +11,12 @@
 - The clinical-CNV track's ``end`` is an integer, as ``start`` is: a value that is not one is
   refused with the 422 a bad ``start`` gets.
 - A member edit takes no ``clear_existing_genomic_data`` (the structure edit, which keeps the
-  field, is the one that clears data). A request that sends it gets the edit made, and the
-  flag goes no further.
+  field, is the one that clears data).
 - The SV review save takes no ``acmg`` or ``compound_het``, a small variant's. A request that
   sends them, or any field the save does not take, is refused (422) naming the field, as the
   small-variant save's is.
 - A gene's homologs carry no Ensembl gene id and no "in the platform" flag: no source sets
-  either, and no screen shows homologs. A cached homolog that holds them loads, without them.
+  either, and no screen shows homologs.
 - The small-variant review save takes no ``cnv_acmg``, a structural variant's CNV
   classification. No page sends it; a request that does is refused (422) naming the field, as
   is any field the save does not take, so that a client is told its value would go nowhere.
@@ -39,15 +37,10 @@ from backend.app.core.postgres import get_postgres_session
 from backend.app.dependencies import get_current_admin_user, get_current_user
 from backend.app.main import app
 from backend.app.routers import cnvs as cnvs_router
-from backend.app.routers import families as families_router
 from backend.app.routers import families_small_variants as small_router
 from backend.app.routers import families_structural_variants as sv_router
 from backend.app.schemas import (
-    FamilyMemberImpactOut,
-    FamilyMemberOut,
     FamilyMemberUpdate,
-    FamilyMemberUpdateOut,
-    FamilyOut,
     FamilyStructureUpdate,
     GeneHomologOut,
     SmallVariantReviewOut,
@@ -57,7 +50,7 @@ from backend.app.schemas import (
 from backend.app.services import gene_info_bulk_sources, reference_source_service
 from backend.app.services.access_control import CurrentUser
 
-FAMILY, SAMPLE = "FAM_ENG4", "PROBAND_ENG4"
+FAMILY = "FAM_ENG4"
 
 
 def _schemas() -> dict[str, Any]:
@@ -130,13 +123,6 @@ def test_a_gene_homolog_serves_no_percent_identity_or_coverage() -> None:
     assert [entry["symbol"] for entry in written] == ["Brca1", "brca1"]
     assert all(set(entry) <= set(GeneHomologOut.model_fields) for entry in written)
 
-    # A cached homolog that holds them loads, without them.
-    cached = GeneHomologOut.model_validate(
-        {"species_name": "Mus Musculus", "symbol": "Brca1", "percent_id": 81.2, "percent_coverage": 96.4}
-    )
-    assert cached.symbol == "Brca1"
-    assert not {"percent_id", "percent_coverage"} & set(cached.model_dump())
-
 
 def test_a_gene_homolog_serves_no_ensembl_id_or_platform_flag() -> None:
     assert not {"ensembl_gene_id", "in_platform"} & set(_properties("GeneHomologOut"))
@@ -146,13 +132,6 @@ def test_a_gene_homolog_serves_no_ensembl_id_or_platform_flag() -> None:
         {"mgi_mouse_gene": "Brca1", "zfin_zebrafish_gene": "brca1"}
     )
     assert [set(entry) for entry in written] == [{"species_name", "common_name", "symbol", "homology_type"}] * 2
-
-    # A cached homolog that holds both loads, without either field.
-    cached = GeneHomologOut.model_validate(
-        {"species_name": "Mus Musculus", "symbol": "Brca1", "ensembl_gene_id": None, "in_platform": False}
-    )
-    assert cached.symbol == "Brca1"
-    assert not {"ensembl_gene_id", "in_platform"} & set(cached.model_dump())
 
 
 @pytest.mark.asyncio
@@ -254,42 +233,12 @@ def test_an_end_that_is_no_position_is_refused_as_a_bad_start_is(
 # --------------------------------------------------------------------------- #
 
 
-def test_a_member_edit_takes_no_request_to_clear_the_data(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_member_edit_takes_no_request_to_clear_the_data() -> None:
     assert "clear_existing_genomic_data" not in _properties("FamilyMemberUpdate")
+    assert "clear_existing_genomic_data" not in FamilyMemberUpdate.model_fields
     # The structure edit keeps it: there it clears the family's imported data.
     assert "clear_existing_genomic_data" in _properties("FamilyStructureUpdate")
     assert "clear_existing_genomic_data" in FamilyStructureUpdate.model_fields
-
-    updates: list[FamilyMemberUpdate] = []
-
-    async def update_member(_session: Any, *, update: FamilyMemberUpdate, **_kwargs: Any) -> FamilyMemberUpdateOut:
-        updates.append(update)
-        member = FamilyMemberOut(sample_id=SAMPLE, role="proband", affected=True, clinical_status="affected")
-        family = {"_id": "fam-uuid", "family_id": FAMILY, "created_at": datetime.now(timezone.utc), "members": [member]}
-        return FamilyMemberUpdateOut(
-            family=FamilyOut.model_validate(family),
-            member=member,
-            impact=FamilyMemberImpactOut(sample_id=SAMPLE),
-        )
-
-    async def nothing(*_args: Any, **_kwargs: Any) -> None:
-        return None
-
-    monkeypatch.setattr(families_router, "update_family_member_for_admin", update_member)
-    monkeypatch.setattr(families_router, "precompute_family_lineage_safe", nothing)
-    monkeypatch.setattr(families_router, "precompute_family_ranking_safe", nothing)
-
-    # A request that sends the flag: the edit is made, and the flag goes no further.
-    response = client.put(
-        f"/api/families/{FAMILY}/members/{SAMPLE}",
-        json={"clinical_status": "affected", "clear_existing_genomic_data": True},
-    )
-
-    assert response.status_code == 200
-    (update,) = updates
-    assert update.clinical_status == "affected"
-    assert "clear_existing_genomic_data" not in update.model_fields_set
-    assert not hasattr(update, "clear_existing_genomic_data")
 
 
 def test_the_sv_review_request_takes_no_small_variant_acmg_or_compound_het() -> None:

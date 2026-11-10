@@ -516,8 +516,8 @@ describe('ProjectsPage', () => {
   });
 
   // A family's small and structural variants are stored per project, and a project's deletion
-  // unlinked its families and left their variants under the deleted project, where none of their
-  // pages looked. A project families are linked to is not deleted (the server refuses it, 409):
+  // would unlink its families and leave their variants under the deleted project, where none of
+  // their pages looks. A project families are linked to is not deleted (the server refuses it, 409):
   // Delete project is off and says why, naming how many, until each family is moved or deleted.
   it.each<[string, ProjectRow[], string]>([
     [

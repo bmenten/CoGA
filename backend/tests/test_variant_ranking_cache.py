@@ -127,43 +127,14 @@ def test_hash_changes_when_an_ontology_without_a_release_is_imported_again(monke
     assert _hash(monkeypatch) != first
 
 
-def test_a_ranking_cached_before_the_sift_and_polyphen_rule_is_not_a_hit(monkeypatch) -> None:
-    # CLIN-45: a SIFT or PolyPhen filter keeps "deleterious(0.01)". A ranking cached under an
-    # earlier scoring version, the same filters and data (an empty one is cached too), must
-    # miss.
-    filters = _default_filters(sift="deleterious")
-    current = _hash(monkeypatch, filters=filters)
-    monkeypatch.setattr(vrc, "_ALGORITHM_VERSION", "2")
-    assert _hash(monkeypatch, filters=filters) != current
-
-
-def test_a_ranking_cached_before_the_record_filter_read_filters_as_sql_is_not_a_hit(monkeypatch) -> None:
-    # ENG-1: the ranked search keeps the variants the plain page keeps (chrM named MT, an
-    # interval in lower case, ...). A ranking cached under an earlier scoring version, the same
-    # filters and data, must miss.
-    filters = _default_filters(chromosome="MT")
-    current = _hash(monkeypatch, filters=filters)
-    monkeypatch.setattr(vrc, "_ALGORITHM_VERSION", "4")
-    assert _hash(monkeypatch, filters=filters) != current
-
-
-def test_a_ranking_cached_before_large_panels_matched_by_position_is_not_a_hit(monkeypatch) -> None:
-    # A gene panel of more than 1,000 regions, the Mendeliome among them, keeps the variants
-    # in its regions as well as its genes' (owner decision 2026-10-14). A ranking cached under
-    # an earlier scoring version on the default view, the panel's digest the same, must miss.
-    current = _hash(monkeypatch)
-    monkeypatch.setattr(vrc, "_ALGORITHM_VERSION", "5")
-    assert _hash(monkeypatch) != current
-
-
-def test_a_ranking_cached_under_the_earlier_key_is_not_a_hit(monkeypatch) -> None:
-    # The key covers the ontology's import time. A ranking cached under a key without it,
-    # even with the same HPO release string, may have been computed on another ontology, so
-    # it must miss. _ALGORITHM_VERSION is for scoring changes, and a bump of it combines with
-    # this (either change alone moves the key).
-    current = _hash(monkeypatch)
-    monkeypatch.delitem(REFERENCE_VERSIONS, "hpo_imported_at")
-    assert _hash(monkeypatch) != current
+def test_both_keys_cover_the_scoring_algorithm_version(monkeypatch) -> None:
+    # A change of the scoring or ranking logic, or of which variants a filter keeps, comes with
+    # another _ALGORITHM_VERSION: a ranking cached under one version is no hit under another,
+    # exact or superset, over the same filters and data.
+    current = _hashes(monkeypatch, filters=_default_filters())
+    monkeypatch.setattr(vrc, "_ALGORITHM_VERSION", f"{vrc._ALGORITHM_VERSION}-next")
+    moved = _hashes(monkeypatch, filters=_default_filters())
+    assert current[0] != moved[0] and current[1] != moved[1]
 
 
 class _GeneInfoSession:

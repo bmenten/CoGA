@@ -3,9 +3,9 @@
 ClickHouse stores a family's small and structural variant rows once per project the family is
 linked to (``_normalized_project_ids``: every writer writes each row under each of them, or under
 ``unassigned`` when it has none), and every reader of the family reads the rows of its
-projects only. Linking a family to other projects changed only Postgres: its variants stayed
-under the projects it left, where no reader of it looked, so its pages showed none, while the
-import had said they were stored.
+projects only. A change of its links in Postgres alone would leave its variants under the
+projects it left, where no reader of it looks: its pages would show none, while its import
+says they are stored.
 
 A change of the family's projects (``metadata_service.update_family_project_assignments``)
 therefore runs in two steps, each under the family's variant-write locks:
@@ -18,8 +18,8 @@ therefore runs in two steps, each under the family's variant-write locks:
 
 A project on another assembly than the family's stored variants is refused: its reads look in
 that assembly's tables, so the family's variants would show in none of its projects. A family
-in no project (its projects saved as none, or its only one deleted before that was refused)
-has no project that names its assembly, so every assembly is searched for its rows.
+in no project (its projects saved as none) has no project that names its assembly, so every
+assembly is searched for its rows.
 
 A package import into an existing family links it to the import's project as well, before it
 takes the family's variant-write locks, and writes only the callsets it imports, under each of
@@ -108,11 +108,10 @@ async def family_variant_assemblies(
     its projects before (``linked``) and after the change (``project_ids``). Refused (409) when
     the family is to be linked to a project on another assembly.
 
-    A family in no project keeps its rows under ``unassigned``, or under the id of its only
-    project when that was deleted before a project with families was refused, on the assembly
-    they were imported on, which no project of the family names any more. So its rows are
-    looked for on every assembly: a project on another one is refused, and the copy and the
-    prune run where the rows are."""
+    A family in no project keeps its rows under ``unassigned``, on the assembly they were
+    imported on, which no project of the family names. So its rows are looked for on every
+    assembly: a project on another one is refused, and the copy and the prune run where the
+    rows are."""
     target_assemblies = await _project_assembly_names(session, project_ids)
     searched = await _project_assembly_names(session, linked) if linked else await _all_assembly_names(session)
     candidates = sorted(searched | target_assemblies)
@@ -167,7 +166,9 @@ async def copy_variants_to_linked_projects(
 
     Run by a package import under the family's variant-write locks, both types, before its
     snapshot: a project the import linked the family to holds then the callsets the import
-    does not write, and so does one linked before this was done. A linked project's rows are
+    does not write, and so does one an earlier import linked it to and stopped before its
+    copy. A family in no project, whose rows wait under ``unassigned``, gets them copied from
+    there to the project the import linked it to. A linked project's rows are
     never deleted (:func:`clickhouse_variant_storage.copy_family_variants_to_projects`).
     The projects are read here, under the locks: a change of them that committed while the
     import waited for the locks decides."""

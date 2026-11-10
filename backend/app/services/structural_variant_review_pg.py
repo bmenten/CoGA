@@ -241,7 +241,7 @@ async def list_matching_structural_variant_review_ids(
     A classification keeps a review by the class the SV table and cards show for it
     (``review_shows_class``, the small-variant filters' rule; CLIN-77, the owner's decision of
     2026-11-10): a bare class word in its text, else its most severe class tag, else its text,
-    whatever the case (ENG-6). So *Likely pathogenic - class 4* keeps a review classified by its
+    whatever the case. So *Likely pathogenic - class 4* keeps a review classified by its
     class tag alone, and not one whose text says another class beside that tag. A CNV (ClinGen)
     scoring counts as the page shows it, through the class label the CNV dialog writes as the
     text: its stored class (``cnv_class``) alone is not shown, and not read here.
@@ -361,7 +361,6 @@ async def upsert_structural_variant_review(
         raise HTTPException(status_code=400, detail="Variant id is required")
     normalized_tags = _normalize_tags(payload.tags)
     normalized_note = (payload.note or "").strip() or None
-    # A class label in another case is stored as the label is now (ENG-6).
     normalized_classification = _stored_classification(payload.classification)
     # The CNV (ClinGen) scoring, as a small-variant save treats ``acmg``: a save that
     # leaves ``cnv_acmg`` out (the tag toggle, the review dialog) keeps the stored scoring;

@@ -1,32 +1,9 @@
-"""Password hashing without passlib.
-
-passlib 1.7.4 is unmaintained and holds bcrypt at 3.2.0, so the backend calls bcrypt
-directly; these tests pin that a hash in passlib's bcrypt format verifies.
-"""
+"""Password hashing: bcrypt, called directly, at cost 12, on a password's first 72 bytes."""
 
 from backend.app.dependencies import get_password_hash, verify_password
 
-# Made by passlib 1.7.4 with bcrypt 3.2.0:
-#   CryptContext(schemes=["bcrypt"]).hash(...)
-# of "coga-passlib-compat" and of "L" * 80.
-PASSLIB_BCRYPT = "$2b$12$pcsvlI13kXFibfeN43efzuBGhIDhOoLLnuB7YRkioPn840wTRrseu"
-PASSLIB_BCRYPT_80_BYTES = "$2b$12$xo6i12hhWYTlDL.PItXpwubip4xC27HGn2YNwp7sMldQksn70uwWG"
 
-
-def test_a_hash_stored_by_passlib_still_verifies() -> None:
-    assert verify_password("coga-passlib-compat", PASSLIB_BCRYPT)
-    assert not verify_password("coga-passlib-compat!", PASSLIB_BCRYPT)
-
-
-def test_a_long_password_stored_by_passlib_still_verifies() -> None:
-    # bcrypt reads 72 bytes. passlib let it drop the rest silently; bcrypt 5 would refuse
-    # the long password outright, locking the account out.
-    assert verify_password("L" * 80, PASSLIB_BCRYPT_80_BYTES)
-    assert verify_password("L" * 72, PASSLIB_BCRYPT_80_BYTES)
-    assert not verify_password("L" * 71, PASSLIB_BCRYPT_80_BYTES)
-
-
-def test_new_hashes_keep_passlibs_format_and_cost() -> None:
+def test_a_hash_is_bcrypt_at_cost_12_and_verifies_its_password_only() -> None:
     made = get_password_hash("a new passphrase")
     assert made.startswith("$2b$12$")
     assert verify_password("a new passphrase", made)

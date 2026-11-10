@@ -292,8 +292,8 @@ def _track_url(
 ) -> str | None:
     """Where the browser fetches a track, or ``None`` when there is nothing to serve: a
     signed URL of its object in remote mode, else the backend route to the file in the
-    package folder, each value percent-encoded as one segment (an ID may hold `/`, `?`,
-    `#`, `%` or `..`). Blocking (store requests, file checks)."""
+    package folder, each value percent-encoded as one segment (an ID may hold `?`, `#`,
+    `%` or `..`). Blocking (store requests, file checks)."""
     if storage_is_remote():
         key = _remote_track_key(family_id, kind, relative_path, uri)
         return presigned_get_url(key, filename=PurePosixPath(key).name) if key else None

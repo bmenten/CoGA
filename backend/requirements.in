@@ -33,8 +33,7 @@ pydantic-settings>=2.16.2
 # fix for the Minerva P-256 timing attack (GHSA-wj6h-64fc-37mp). We only use
 # HS256 + RS256, never ECDSA, and PyJWT verifies both without depending on ecdsa.
 PyJWT[crypto]
-# Password hashing, called directly: passlib 1.7.4 is unmaintained and held bcrypt at 3.2.0
-# (#525). The stored $2b$ hashes keep verifying.
+# Password hashing, called directly: passlib is unmaintained and would hold bcrypt at 3.2.0.
 bcrypt>=5.0.0,<6
 python-multipart
 # The Prometheus exposition behind GET /metrics (operations monitoring, outside the

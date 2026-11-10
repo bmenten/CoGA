@@ -4,20 +4,15 @@ The sequencing-QC report is served from the path the import recorded under
 ``samples.metadata['sequencing_qc']['report']``, relative to the family's package folder
 ``<data>/families/<family>`` (or its flat folder ``<data>/<family>``), when that folder lies
 under the configured import roots. The path comes back from the database as data, and an
-edited row can hold ``..`` or an absolute path. The lookup resolved the family's folder,
-symlinks and all, and kept the report inside the folder it resolved to, so a package folder
-linked to another family's package served that family's report; a family named ``families``
-took the packages folder for its flat folder and reached every package; and a family ID that
-is no single folder name (``..``, ``../F2``) reached other families' folders when the data
-directory lies under the import roots. A recorded path that left the folder was refused with
-a 400 meant for manifest paths.
+edited row can hold ``..`` or an absolute path; a package folder can be a link to another
+family's package, and a family can be named ``families``.
 
-Now the folders are the family's own, as for the alignments and the signal tracks
+The folders are the family's own, as for the alignments and the signal tracks
 (``core/family_folders.py``): the recorded path is joined to the folder and normalised as a
 string, and dropped before anything is looked up when it leaves it; one that stays must also
 have its real path inside that folder; a family ID that is no single folder name has no
 folder; the folder must still lie under the import roots. A report found nowhere is answered
-404, as before. Through the app (``httpx`` on the ASGI app, local storage, a data directory
+404. Through the app (``httpx`` on the ASGI app, local storage, a data directory
 in ``tmp_path``, its packages folder the import root as deployed) the link and the report
 answer the same way. All IDs and files are synthetic.
 """

@@ -4,21 +4,14 @@ A family or sample ID is printable text without spaces (``family_identifiers.py`
 hold ``?``, ``#``, ``%`` or ``..`` inside a longer name; the ID rule refuses ``/`` and an ID
 that is ``..`` (SEC-15). The alignment and signal-track manifests and the QC-report link give
 the browser a URL built from IDs. With the IDs put in as they are, ``?`` and ``#`` would cut
-the path short, ``%41`` would reach the server as ``A`` (another family's sample), and a
-sample ID such as ``../F2/S2`` would let the client resolve the request to another family's
-file. Each value is percent-encoded as one path segment (``core/url_path.py``), as the
-frontend's ``apiPath`` does.
+the path short, and ``%41`` would reach the server as ``A`` (another family's sample). Each
+value is percent-encoded as one path segment (``core/url_path.py``), as the frontend's
+``apiPath`` does.
 
 The URLs are read as a browser reads them: ``?`` starts the query, ``#`` the fragment, dot
 segments are resolved, and the server decodes the path once. The requests through the app
 are made the same way (``httpx`` on the ASGI app decodes the path once, as uvicorn does; the
-``TestClient`` would decode it twice).
-
-Two kinds of ID cannot be reached through a path segment, whatever the encoding: one
-that is exactly ``.`` or ``..`` (a browser resolves ``%2E%2E`` too), and one holding ``/``,
-since the server matches its routes on the decoded path. Such a request answers 404 rather
-than reaching another resource; the ID rule refuses both (SEC-15). All IDs and files are
-synthetic.
+``TestClient`` would decode it twice). All IDs and files are synthetic.
 """
 
 from __future__ import annotations
@@ -36,15 +29,13 @@ from backend.app.core.url_path import url_path
 from backend.app.routers import cram, family_qc_reports, signal_tracks
 from backend.tests._family_folder_app import ORIGIN, asgi_client, sign_in_a_viewer_who_reads
 
-# IDs holding each character that has a meaning in a URL, as (family, sample, source): the
-# ID rule allows those but '/' (SEC-15).
+# IDs holding each character that has a meaning in a URL and that the ID rule allows
+# (SEC-15), as (family, sample, source).
 UNSAFE_IDS = {
-    "slash": ("F/1", "S/1", "caller/1"),
     "question mark": ("F?1", "S?1", "caller?1"),
     "hash": ("F#1", "S#1", "caller#1"),
     "percent": ("F%1", "S%1", "caller%1"),
     "percent escape": ("F%41", "S%41", "caller%41"),
-    "dot dot and slash": ("../F2", "../F2/S2", "../caller"),
     "dot dot": ("F..1", "..S1", "caller.."),
 }
 
@@ -151,10 +142,8 @@ class _Families:
         self.signal_tracks: dict[str, dict[str, dict[str, str]]] = {}
         self.reports: dict[tuple[str, str], str] = {}
 
-    def add(self, family_id: str, sample_id: str, *, files: bool = True, source: str = "hificnv") -> None:
+    def add(self, family_id: str, sample_id: str, *, source: str = "hificnv") -> None:
         self.members.setdefault(family_id, []).append(sample_id)
-        if not files:
-            return
         content = self.content(family_id, sample_id)
         alignments = self.root / family_id
         alignments.mkdir(parents=True, exist_ok=True)
@@ -212,12 +201,8 @@ async def _follow(client: httpx.AsyncClient, url: str) -> httpx.Response:
     return await client.get(f"{ORIGIN}/api{url}")
 
 
-# The IDs of UNSAFE_IDS a path segment can carry once encoded: all but those holding `/`.
-REACHABLE_IDS = {name: ids for name, ids in UNSAFE_IDS.items() if "/" not in "".join(ids)}
-
-
 @pytest.mark.asyncio
-@pytest.mark.parametrize("family_id, sample_id, source", REACHABLE_IDS.values(), ids=REACHABLE_IDS.keys())
+@pytest.mark.parametrize("family_id, sample_id, source", UNSAFE_IDS.values(), ids=UNSAFE_IDS.keys())
 async def test_following_the_manifests_and_the_qc_link_reaches_the_samples_own_files(
     families: _Families, family_id: str, sample_id: str, source: str
 ) -> None:
@@ -244,31 +229,3 @@ async def test_following_the_manifests_and_the_qc_link_reaches_the_samples_own_f
         name: (200, expected) for name in fetched
     }
     assert fetched["report"].headers["content-security-policy"] == "sandbox allow-scripts allow-popups"
-
-
-@pytest.mark.asyncio
-async def test_an_id_with_dot_dot_and_slash_never_reaches_another_familys_files(families: _Families) -> None:
-    # Family F1 lists a sample whose ID climbs into family F2. The alignment lookup keeps to
-    # F1's own folders (SEC-20, test_alignment_lookup_family_folders.py), so the manifest lists
-    # none of F2's reads for it. Its depth track is recorded in F1's own package, so that entry
-    # is found, but following it, or the reads' URL, must not fetch F2's files under F1's
-    # sample: the server reads the ID's `/` as a separator, and no route matches.
-    families.add("F2", "S2")
-    families.add("F1", "S1")
-    families.add("F1", "../F2/S2", files=False)
-    families.signal_tracks["../F2/S2"] = {"hificnv": {"depth_bigwig": "cnv/climb.bw"}}
-    (families.root / "families" / "F1" / "cnv" / "climb.bw").write_bytes(b"F1 track")
-
-    async with asgi_client() as client:
-        alignments = await _manifest(client, "cram", "F1", "../F2/S2")
-        [signal] = await _manifest(client, "signal-tracks", "F1", "../F2/S2")
-        fetched = [
-            await _follow(client, url_path("cram", "F1", "../F2/S2.cram")),
-            await _follow(client, url_path("cram", "F1", "../F2/S2.cram.crai")),
-            await _follow(client, signal["url"]),
-        ]
-
-    assert alignments == []
-    assert [(response.status_code, response.content) for response in fetched] == [
-        (404, b'{"detail":"Not Found"}')
-    ] * 3

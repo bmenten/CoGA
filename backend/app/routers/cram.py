@@ -384,7 +384,7 @@ def _resolve_alignment_manifest_entry(
 ) -> AlignmentManifestEntryOut | None:
     """In remote mode the URLs are short-lived presigned/signed URLs (absolute);
     otherwise they are backend-relative paths the frontend prefixes with the API base,
-    with each ID percent-encoded as one segment (it may hold `/`, `?`, `#`, `%` or `..`)."""
+    with each ID percent-encoded as one segment (it may hold `?`, `#`, `%` or `..`)."""
     formats: tuple[tuple[Literal["cram", "bam"], str, str], ...] = (
         ("cram", "cram", ".crai"),
         ("bam", "bam", ".bai"),

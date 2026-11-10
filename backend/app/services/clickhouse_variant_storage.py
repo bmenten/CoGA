@@ -1409,9 +1409,10 @@ async def copy_family_variants_to_projects(
     * to a project the family is not linked to yet, in place of any rows it holds there:
       those can only be left over from a change that did not finish, and no write has kept
       them current since;
-    * to a linked project that holds none of the callset: a family whose projects were
-      changed before this step existed kept its rows under the project it left, and an
-      import that adds a project to a family writes only the callsets it imports.
+    * to a linked project that holds none of the callset: an import that links the family to
+      a project writes there only the callsets it imports, and one that stops before its copy
+      (``family_project_variants.copy_variants_to_linked_projects``) leaves the project
+      holding none.
 
     A linked project's rows are never deleted here, so a step that fails part-way leaves every
     project the family is linked to as it was: a copy whose insert fails removes what it may

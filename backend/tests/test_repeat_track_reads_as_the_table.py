@@ -1,9 +1,8 @@
 """The repeat genome track reads a call as the family table does, and a review says why (CLIN-14).
 
-The track and the table read a call the same way, not by the status and the thresholds stored
-with it at import: the catalogue row that classifies it now (one SQL fragment), the alleles
-reclassified against it, the count-unit warnings and the male chrX note. An FMR1 call of
-exactly 200, stored as pathogenic under a threshold of 200, reads a premutation on both.
+The track and the table read a call the same way: the catalogue row that classifies it (one SQL
+fragment), the alleles classified against it, the count-unit warnings and the male chrX note. An
+FMR1 call of exactly 200 reads a premutation on both, with the row's thresholds.
 
 A call reads ``review`` for one of two reasons: a count the catalogue cannot classify, or a
 man's two different chrX alleles. The call, its locus and the track carry the reason
@@ -36,8 +35,8 @@ def _context(*, proband_sex: str = "female") -> FamilyMetadataContext:
 
 
 def _fmr1(counts: list[int], *, stored: str, sample: str = PROBAND) -> dict[str, Any]:
-    """An FMR1 call stored as ``stored`` under the thresholds stored with it, read against the
-    current row: grey zone from 45, premutation from 55, pathogenic from 201."""
+    """An FMR1 call stored as ``stored``, read against its catalogue row: grey zone from 45,
+    premutation from 55, pathogenic from 201."""
     return {
         "sample_uuid": sample,
         "locus_id": "FMR1",
@@ -98,14 +97,12 @@ async def _track(rows: list[dict[str, Any]], **context: Any):
 
 
 @pytest.mark.asyncio
-async def test_the_track_reads_a_stored_call_against_the_row_that_classifies_it_now() -> None:
-    # Stored pathogenic under a threshold of 200; the row says 201.
-    stored = _fmr1([30, 200], stored="pathogenic")
+async def test_the_track_reads_a_stored_call_against_the_row_that_classifies_it() -> None:
+    stored = _fmr1([30, 200], stored="premutation")
 
     [item] = (await _track([stored])).items
     [locus] = (await _table([stored])).loci
 
-    # The track reads the row's status, not the one stored at import.
     assert item.status == locus.status == locus.calls["PROBAND1"].status == "premutation"
     assert (item.warning_min, item.pathogenic_min) == (locus.warning_min, locus.pathogenic_min) == (45, 201)
 
@@ -135,7 +132,8 @@ async def test_the_track_reads_a_count_between_the_benign_range_and_the_threshol
 
 @pytest.mark.asyncio
 async def test_a_mans_two_chrx_alleles_read_review_for_that_reason() -> None:
-    call = _fmr1([20, 30], stored="normal")
+    # Stored as the import stores it: both alleles normal, the call review.
+    call = {**_fmr1([20, 30], stored="normal"), "status": "review"}
 
     [locus] = (await _table([call], proband_sex="male")).loci
     [item] = (await _track([call], proband_sex="male")).items
@@ -144,7 +142,7 @@ async def test_a_mans_two_chrx_alleles_read_review_for_that_reason() -> None:
     assert (proband.status, proband.review_reason) == ("review", "male_x_alleles")
     assert proband.note == repeat_expansion_pg.MALE_X_DISTINCT_ALLELES_NOTE
     assert (locus.status, locus.review_reason) == ("review", "male_x_alleles")
-    # The track reads the review and its reason, not the stored "normal".
+    # The track reads the review and its reason as the table does.
     assert (item.status, item.review_reason) == ("review", "male_x_alleles")
 
 

@@ -604,11 +604,9 @@ def _reclassify_repeat_alleles(
     through here, so the correction QA records reaches each at once, whatever the call was
     stored with.
 
-    Without any threshold an allele reads ``not_assessed``, so a call stored as ``normal`` at
-    a locus without thresholds (before CLIN-26) reads not assessed here at once; a count
-    inside the benign range the catalogue row states there reads ``normal``, so one stored as
-    ``not_assessed`` (from CLIN-26 to CLIN-36) reads normal here at once. A no-call keeps its
-    stored status.
+    Without any threshold an allele reads ``not_assessed``, unless its count lies inside the
+    benign range the catalogue row states there, where it reads ``normal`` (CLIN-26, CLIN-36).
+    A no-call keeps its stored status.
     """
     if not isinstance(alleles, list):
         return []
@@ -1653,10 +1651,8 @@ async def ingest_family_trgt_text(
 
 
 # The catalogue row that classifies a stored call, and what the call reads against it: the
-# family table and the genome track read a call alike. The track showed the status and the
-# thresholds stored at import, and found the catalogue's ranges by the stored locus ID alone,
-# so the two disagreed once the catalogue was reseeded (an FMR1 call of 200 under #799, the
-# thresholds #806 moved, a call stored as normal at a locus without thresholds; CLIN-14).
+# family table and the genome track read a call alike, its thresholds and ranges from that row
+# and its counts with QA's correction for it (CLIN-14, CLIN-57).
 # Fixed SQL, interpolated into the two queries: nothing in it comes from a request.
 _CALL_CATALOGUE_COLUMNS = """                COALESCE(catalog.locus_id, repeat_expansions.locus_id) AS locus_id,
                 COALESCE(catalog.gene, repeat_expansions.gene) AS gene,
@@ -1668,9 +1664,7 @@ _CALL_CATALOGUE_COLUMNS = """                COALESCE(catalog.locus_id, repeat_e
                 repeat_expansions."end",
                 COALESCE(catalog.motif, repeat_expansions.motif) AS motif,
                 -- Both thresholds from the catalogue row when one matched, a missing one
-                -- included, so a stored threshold the row no longer has (the old BEAN1
-                -- intermediate 300, CLIN-22) does not come back. The stored pair only
-                -- when no row matched.
+                -- included; the stored pair only when no row matched.
                 CASE WHEN catalog.locus_id IS NULL THEN repeat_expansions.warning_min
                      ELSE catalog.warning_min END AS warning_min,
                 CASE WHEN catalog.locus_id IS NULL THEN repeat_expansions.pathogenic_min
@@ -1971,7 +1965,7 @@ async def get_sample_repeat_expansion_track_response(
                 status=status,
                 review_reason=_review_reason(alleles, status),
                 # The counts as the family table reads them, with QA's correction, and TRGT's
-                # own beside them: the track showed the stored counts.
+                # own beside them.
                 allele_repeat_counts=[
                     int(allele["repeat_count"]) for allele in alleles if allele.get("repeat_count") is not None
                 ],
