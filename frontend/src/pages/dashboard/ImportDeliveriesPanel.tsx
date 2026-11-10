@@ -30,6 +30,9 @@ const REFUSABLE_STATES = new Set(['incomplete', 'ready', 'needs_attention']);
 const CORRECTABLE_STATES = new Set(['ready', 'needs_attention']);
 // The issues an approver resolves by choosing update or overwrite: the family exists.
 const RESOLVED_BY_A_CHOICE = new Set(['existing_family', 'existing_samples']);
+// The issue an approver resolves only by choosing overwrite: the package's members differ from
+// the family's beyond the members it adds, and an overwrite makes them the family's pedigree.
+const MEMBERS_DIFFER = 'package_members_differ_from_family';
 
 const STATE_LABELS: Record<string, string> = {
   incomplete: 'Still copying',
@@ -52,11 +55,20 @@ const stateClass = (state: string) =>
       ? 'badge-chip badge-chip--danger'
       : 'badge-chip';
 
-/** A delivery whose only issue is that its family exists: approved with update or overwrite. */
+/** A delivery whose only issue is that its family exists: approved with update or overwrite
+ * (only overwrite when its package's members differ from the family's, `needsAnOverwrite`). */
 export const needsAChoice = (delivery: Delivery) =>
   delivery.state === 'needs_attention' &&
   delivery.issues.some((issue) => issue.code === 'existing_family') &&
-  delivery.issues.every((issue) => RESOLVED_BY_A_CHOICE.has(issue.code));
+  delivery.issues.every(
+    (issue) => RESOLVED_BY_A_CHOICE.has(issue.code) || issue.code === MEMBERS_DIFFER
+  );
+
+/** A delivery whose package's members differ from its family's beyond the members it adds:
+ * an update changes none the family holds, so it is approved only with overwrite. */
+export const needsAnOverwrite = (delivery: Delivery) =>
+  needsAChoice(delivery) &&
+  delivery.issues.some((issue) => issue.code === MEMBERS_DIFFER);
 
 export const isApprovable = (delivery: Delivery) =>
   delivery.state === 'ready' || needsAChoice(delivery);
@@ -105,8 +117,9 @@ const ApproveDialog: React.FC<ApproveDialogProps> = ({
 }) => {
   const headingId = useId();
   const existing = deliveries.length === 1 && needsAChoice(deliveries[0]);
+  const overwriteOnly = existing && needsAnOverwrite(deliveries[0]);
   const [conflictMode, setConflictMode] = useState<ConflictMode>(
-    existing ? 'update' : 'cancel'
+    overwriteOnly ? 'overwrite' : existing ? 'update' : 'cancel'
   );
   const [acknowledged, setAcknowledged] = useState(false);
   const warned = deliveries.filter((delivery) => delivery.warnings.length > 0);
@@ -156,12 +169,21 @@ const ApproveDialog: React.FC<ApproveDialogProps> = ({
               setConflictMode(event.target.value as ConflictMode)
             }
           >
-            <option value="update">Update: add the missing datasets</option>
+            <option value="update" disabled={overwriteOnly}>
+              Update: add the missing datasets and members
+            </option>
             <option value="overwrite">
-              Overwrite: replace its datasets (administrators)
+              Overwrite: replace its datasets and pedigree (administrators)
             </option>
           </select>
         </label>
+      ) : null}
+      {overwriteOnly ? (
+        <p className="status-note">
+          The package&apos;s members differ from the family in CoGA: an update
+          changes none of the family&apos;s members. Correct the package, or
+          overwrite, which makes its members the family&apos;s pedigree.
+        </p>
       ) : null}
       {overwriteRefused ? (
         <p className="status-note status-note--error">

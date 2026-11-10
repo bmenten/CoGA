@@ -440,12 +440,16 @@ ends. The decided and superseded deliveries are listed on request.
 | Existing data policy | What happens when the family or a sample already exists |
 | --- | --- |
 | Cancel if family or samples exist | the import stops |
-| Update: add missing datasets only | the data is added to the existing family; datasets that already hold data are skipped (tracks and Paraphase results sample by sample), and a dataset skipped whole shows *skipped* |
-| Overwrite imported dataset rows | the data is added to the existing family; the selected datasets are replaced. For administrators only; a superuser may run it as a dry run |
+| Update: add missing datasets only | the data is added to the existing family; datasets that already hold data are skipped (tracks and Paraphase results sample by sample), and a dataset skipped whole shows *skipped*. The package's new members are added |
+| Overwrite imported dataset rows | the data is added to the existing family; the selected datasets are replaced, and the package's members become the family's pedigree. For administrators only; a superuser may run it as a dry run |
 
-**An existing family.** The package's members must be the family's as CoGA holds them: the same
-members, each with the same sex and parents. A package that says otherwise needs attention; correct
-it with **Correct…** to the family's members before you approve it.
+**An existing family.** The package's members are compared with the family as CoGA holds it.
+*Update* adds the members the family lacks (the delivery warns of them) and changes none it holds.
+A package that gives a member another sex or other parents, or lacks one, needs attention: correct
+it with **Correct…** to the family's members, or have an administrator approve it with
+*Overwrite*, which makes the package's members the family's pedigree (a member it lacks is made
+inactive). Either change is a new version of the family's structure, on its audit trail, and
+marks its analyses to be redone.
 
 **An existing family imported into another project.** The family is linked to that **Project**
 too, and before its datasets the import gives the project the family's small and structural

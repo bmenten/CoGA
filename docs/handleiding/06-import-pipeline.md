@@ -103,7 +103,12 @@ Een `~` vooraan is geen thuismap: CoGA leest er geen. Een kring vindt de control
 
 **De leden van het pakket zijn de stamboom.** De import leest geen PED: het manifest dat CoGA bewaart, noemt elk lid onder `family.add_members`, met zijn geslacht, ouders, rol en klinische status. Elk lid geldt als een PED-rij en doorloopt dezelfde controles; een lid zonder rol krijgt er een uit de stamboom, zoals een PED-rij. Een manifest dat toch een PED noemt, wordt geweigerd (`manifest_names_a_ped`); een manifest zonder leden ook (`members_missing`). Een PED in de map dient alleen de ontdekkingsstap, die er de leden uit voorstelt voor een map die met de hand toegevoegd wordt. Elke dataset per sample moet naar een lid van de familie verwijzen. Het manifest mag daarnaast dragerschap en expliciete relaties geven; een relatie mag alleen leden noemen.
 
-Bij een import in een *bestaande* familie moeten de leden van het pakket die van de familie in CoGA zijn: dezelfde leden, met hetzelfde geslacht en dezelfde ouders. Een pakket dat iets anders zegt, vraagt aandacht bij zijn controle (`package_members_differ_from_family`) en wordt eerst gecorrigeerd; de import weigert het ook zelf.
+Bij een import in een *bestaande* familie vergelijkt CoGA de leden van het pakket met de familie zoals CoGA ze kent: elk lid, zijn geslacht en zijn ouders.
+
+- **`update`** voegt de leden toe die de familie mist, met de verbanden die het pakket hun geeft, en verandert geen lid dat de familie heeft. De controle van de levering waarschuwt ervoor (`package_adds_members`). Een pakket dat een lid van de familie een ander geslacht of andere ouders geeft, of er een mist, vraagt aandacht (`package_members_differ_from_family`): goedkeuren met `update` wordt geweigerd (400), en de import weigert het ook zelf.
+- **`overwrite`** maakt de leden van het pakket de stamboom van de familie: een ontbrekend lid wordt toegevoegd (of opnieuw actief), elk lid krijgt het geslacht, de rol en de statussen van het pakket, een lid dat het pakket mist wordt inactief (zijn opgeslagen data blijven), en de verbanden zijn die van het pakket.
+
+Beide wijzigingen gebeuren nadat de import de familie gemarkeerd heeft, vóór de eerste dataset, via de dienst voor de familiestructuur (`family_structure_service.take_package_pedigree`): een nieuwe structuurversie, een stamboomwijziging op het klinische audittrail van de familie (bron: de pakketimport), en de analyses van de familie als verouderd gemarkeerd. Kan de familie de wijziging niet aan (de structuur veranderde sinds de import ze las, of het sample-ID van een nieuw lid hoort bij een andere familie), dan weigert de import vóór de eerste dataset. Faalt daarna een dataset of wordt de import ongedaan gemaakt, dan blijft de nieuwe stamboom staan; het herstel zet de datasets terug.
 
 **De PGT-pipeline (nf-cmgg/copgtm)** schrijft haar uitvoer per tool weg, met de PED in `ped/combined.ped`. Die PED schiet op twee punten tekort:
 
@@ -161,7 +166,7 @@ Eén gecombineerde VCF met een kolom voor de vader en een voor het plasma kan oo
 De dry-run is de veiligheidspoort van de import. Hij voert dezelfde pakketcontroles uit als een echte import, maar stopt vóór de eerste schrijfactie. Twee verschillen:
 
 - Met `cancel` is een bestaande familie of een bestaand sample in een dry-run een waarschuwing en bij een echte import een fout (`existing_family_or_samples`).
-- Of het pakket bij `update` of `overwrite` dezelfde sample-ID's heeft als de bestaande familie, toetst pas het registreren, dus alleen een echte import.
+- Of de leden van het pakket bij `update` of `overwrite` passen bij de bestaande familie, toetst de controle van de levering; het registreren toetst het opnieuw en voert de wijziging door, dus alleen bij een echte import.
 
 De controles, in volgorde:
 
@@ -464,7 +469,7 @@ De pagina *Package import* (`/package-import`) toont de leveringen en de importj
 
 1. **Leveringen:** elke levering met haar toestand, haar problemen en waarschuwingen. *Add a folder by hand* voegt een map toe die geen pipeline aanleverde: kies ze (of typ het pad), het project en de analyse. Mappen waaruit al een familie ingeladen werd, zijn gemarkeerd.
 2. **Corrigeren:** *Correct…* opent het pakket als formulier, met de reden en de eerdere correcties. Wat de ontdekkingsstap voorstelde en wie importeert moet nakijken (het NIPT-paar en een NIPT-bestand waarvan de kolom niet naar zijn sample heet, het koppel uit een long-read-pakket, de koppeling van een PGT-index), staat bij de waarschuwingen van de levering.
-3. **Dry run en goedkeuren:** *Dry run* controleert de levering zoals een import zou doen, zonder iets te schrijven; *Approve…* zet de import in de wachtrij. Bestaat de familie al, dan kies je een beleid voor bestaande data (`update` of `overwrite`); alleen een beheerder overschrijft een bestaande familie.
+3. **Dry run en goedkeuren:** *Dry run* controleert de levering zoals een import zou doen, zonder iets te schrijven; *Approve…* zet de import in de wachtrij. Bestaat de familie al, dan kies je een beleid voor bestaande data (`update` of `overwrite`); alleen een beheerder overschrijft een bestaande familie. Verschillen de leden van het pakket van die van de familie op meer dan nieuwe leden, dan kan alleen `overwrite`.
 4. **Volgen:** onder *Recent family imports* staat elke job; zolang hij loopt, ververst de pagina de status en toont ze per dataset het gelezen deel van zijn bestanden en ongeveer hoe lang hij nog duurt, aan het tempo tot dan (zie hierboven). *View* toont het verslag: tellers, fouten, waarschuwingen, het resultaat per dataset, de logregels, de SHA-256 van het bewaarde manifest en de vingerafdruk van het pakket.
 
 `docs/data-import.md` beschrijft deze werkwijze met de dry-run eerst: wie importeert, ziet de uitkomst van de controles voordat er iets naar de databank gaat.
