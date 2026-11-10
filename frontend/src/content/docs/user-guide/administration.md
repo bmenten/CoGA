@@ -100,6 +100,10 @@ page is an administrator's alone.
 - **Family & sample data** — the inventory of families and samples. Open a family's members and data,
   change its projects, download and verify the original import files, or delete a data layer, a sample
   or a family.
+  - A family's small and structural variants move with its projects: each project it is added to
+    gets them, and a project it leaves no longer holds them. A project on another assembly than
+    the family's variants is refused. **Save project access** waits while the family is being
+    imported, and takes longer for a family with many variants.
   - A deletion cannot be undone and is recorded in the audit log. Deleting a sample or a family is also
     written to the family's **Clinical audit trail**; a family's deletion is its last entry.
   - Deleting a family asks for its name, typed out, and the reason it goes, which its last entry

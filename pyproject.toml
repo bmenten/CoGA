@@ -56,6 +56,7 @@ files = [
     "backend/app/services/family_package_import.py",
     "backend/app/services/family_package_jobs.py",
     "backend/app/services/family_package_registration.py",
+    "backend/app/services/family_project_variants.py",
     "backend/app/services/family_structure_audit.py",
     "backend/app/services/family_variant_filters.py",
     "backend/app/services/family_variant_write_lock.py",

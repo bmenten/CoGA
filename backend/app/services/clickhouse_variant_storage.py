@@ -1530,6 +1530,196 @@ async def rewrite_family_structural_variants(
         raise
 
 
+# Every column of ``SV/entries``: what a copy of a family's rows to another of its projects
+# writes (:func:`copy_family_variants_to_projects`). A column added to the table belongs here.
+STRUCTURAL_VARIANT_ENTRY_COLUMNS: tuple[str, ...] = (
+    "key",
+    "variantId",
+    "project_guid",
+    "family_guid",
+    "chrom",
+    "start",
+    "end",
+    "svType",
+    "source",
+    "gene_symbols",
+    "calls.sampleId",
+    "calls.gt",
+    "calls.qual",
+    "calls.readSupport",
+    "calls.filter",
+    "calls.ps",
+    "calls.cn",
+    "sign",
+)
+_SMALL = "small"
+_STRUCTURAL = "structural"
+
+
+def _project_scoped_entry_tables(assembly_name: str) -> tuple[tuple[str, str, tuple[str, ...]], ...]:
+    """The tables that hold a family's rows once per project of the family, as ``(variant
+    type, table, columns)``.
+
+    Every writer stores each of its rows under each project the family is linked to, or under
+    ``unassigned`` when it has none (``_normalized_project_ids``), and every reader reads the
+    rows of the family's projects only. The family's other rows name no project (the SV
+    details and key lookup), or are counted from these (the small-variant summaries)."""
+    return (
+        (_SMALL, _small_table_name(assembly_name, "entries"), SMALL_VARIANT_ENTRY_COLUMNS),
+        (_STRUCTURAL, _structural_table_name(assembly_name, "entries"), STRUCTURAL_VARIANT_ENTRY_COLUMNS),
+    )
+
+
+async def _family_rows_by_source_and_project(table: str, family_uuid: str) -> dict[str, dict[str, int]]:
+    """How many of the family's rows ``table`` holds, per callset (``source``) and project."""
+    rows = await _execute(
+        f"SELECT source, project_guid, count() FROM {table} "
+        "WHERE family_guid = %(family_guid)s AND sign = 1 GROUP BY source, project_guid",
+        {"family_guid": family_uuid},
+    )
+    stored: dict[str, dict[str, int]] = {}
+    for source, project, count in rows or []:
+        stored.setdefault(str(source), {})[str(project)] = int(count)
+    return stored
+
+
+def _copy_origin(stored: dict[str, int], linked: Collection[str]) -> str:
+    """The project whose rows of a callset the other projects' copies are made from: of the
+    projects the family is linked to, whose rows every write of the family keeps current, the
+    one with the most rows; when none of them holds the callset, the project with the most."""
+    candidates = [project for project in stored if project in linked] or list(stored)
+    return max(sorted(candidates), key=lambda project: stored[project])
+
+
+async def family_has_project_scoped_variants(assembly_name: str, family_uuid: str) -> bool:
+    """Whether the family has small or structural variant rows on ``assembly_name``, under any
+    project. An assembly whose tables were never made has none: they are not made here."""
+    dataset = _require_clickhouse_identifier(assembly_name)
+    tables = {
+        f"{dataset}/SNV_INDEL/entries": _small_table_name(assembly_name, "entries"),
+        f"{dataset}/SV/entries": _structural_table_name(assembly_name, "entries"),
+    }
+    made = await _execute(
+        "SELECT name FROM system.tables WHERE database = %(database)s AND name IN %(names)s",
+        {"database": settings.clickhouse_database, "names": tuple(tables)},
+    )
+    for (name,) in made or []:
+        table = tables[str(name)]
+        rows = await _execute(
+            f"SELECT 1 FROM {table} WHERE family_guid = %(family_guid)s AND sign = 1 LIMIT 1",
+            {"family_guid": family_uuid},
+        )
+        if rows:
+            return True
+    return False
+
+
+async def copy_family_variants_to_projects(
+    assembly_name: str,
+    family_uuid: str,
+    *,
+    project_ids: Sequence[str],
+    linked_project_ids: Sequence[str],
+) -> bool:
+    """Store the family's small and structural variants under every project of
+    ``project_ids`` (``unassigned`` when it is empty) before the family is linked to them:
+    the first step of a change of its projects. Returns whether anything was written.
+
+    ``linked_project_ids`` are the projects the family is linked to until the change commits.
+    Their rows are current: every write of the family's variants writes under each of them.
+    Per callset (``source``), one project's rows (:func:`_copy_origin`) are copied:
+
+    * to a project the family is not linked to yet, in place of any rows it holds there:
+      those can only be left over from a change that did not finish, and no write has kept
+      them current since;
+    * to a linked project that holds none of the callset: a family whose projects were
+      changed before this step existed kept its rows under the project it left, and an
+      import that adds a project to a family writes only the callsets it imports.
+
+    A linked project's rows are never deleted here, so a step that fails part-way leaves every
+    project the family is linked to as it was. The rows of the projects the family leaves go
+    once it has left them (:func:`prune_family_variant_projects`). The caller holds the
+    family's variant-write locks, both types (``family_variant_write_lock``).
+    """
+    await ensure_clickhouse_variant_tables(assembly_name)
+    targets = _normalized_project_ids(project_ids)
+    linked = set(_normalized_project_ids(linked_project_ids))
+    written: set[str] = set()
+    for kind, table, columns in _project_scoped_entry_tables(assembly_name):
+        by_source = await _family_rows_by_source_and_project(table, family_uuid)
+        for source, stored in sorted(by_source.items()):
+            origin = _copy_origin(stored, linked)
+            for project in targets:
+                if project == origin or (project in linked and project in stored):
+                    continue
+                params = {"family_guid": family_uuid, "source": source, "origin": origin, "project": project}
+                if project in stored:
+                    await _execute(
+                        f"ALTER TABLE {table} DELETE WHERE family_guid = %(family_guid)s "
+                        "AND project_guid = %(project)s AND source = %(source)s "
+                        "SETTINGS mutations_sync = 1",
+                        params,
+                    )
+                selected = ", ".join(
+                    "%(project)s" if column == "project_guid" else f"`{column}`" for column in columns
+                )
+                await _execute(
+                    f"INSERT INTO {table} ({', '.join(f'`{column}`' for column in columns)}) "
+                    f"SELECT {selected} FROM {table} "
+                    "WHERE family_guid = %(family_guid)s AND project_guid = %(origin)s "
+                    "AND source = %(source)s AND sign = 1",
+                    params,
+                )
+                written.add(kind)
+    if _SMALL in written:
+        # Counted per project from the entries; it moves the data version too.
+        await refresh_family_small_variant_summaries(assembly_name, family_uuid)
+    if _STRUCTURAL in written:
+        await bump_family_structural_variant_data_version(assembly_name, family_uuid)
+    return bool(written)
+
+
+async def prune_family_variant_projects(
+    assembly_name: str,
+    family_uuid: str,
+    *,
+    project_ids: Sequence[str],
+) -> bool:
+    """Delete the family's small and structural variant rows stored under any project but
+    ``project_ids`` (``unassigned`` when it is empty): the last step of a change of its
+    projects, once the family has left the others. Returns whether anything was deleted.
+
+    No reader of the family looks there, so such rows only take room, and a family linked to
+    that project again later gets a fresh copy (:func:`copy_family_variants_to_projects`).
+    The caller holds the family's variant-write locks, both types.
+    """
+    await ensure_clickhouse_variant_tables(assembly_name)
+    params: dict[str, Any] = {
+        "family_guid": family_uuid,
+        "keep": tuple(_normalized_project_ids(project_ids)),
+    }
+    deleted: set[str] = set()
+    for kind, table, _columns in _project_scoped_entry_tables(assembly_name):
+        left = await _execute(
+            f"SELECT 1 FROM {table} WHERE family_guid = %(family_guid)s "
+            "AND project_guid NOT IN %(keep)s LIMIT 1",
+            params,
+        )
+        if not left:
+            continue
+        await _execute(
+            f"ALTER TABLE {table} DELETE WHERE family_guid = %(family_guid)s "
+            "AND project_guid NOT IN %(keep)s SETTINGS mutations_sync = 1",
+            params,
+        )
+        deleted.add(kind)
+    if _SMALL in deleted:
+        await refresh_family_small_variant_summaries(assembly_name, family_uuid)
+    if _STRUCTURAL in deleted:
+        await bump_family_structural_variant_data_version(assembly_name, family_uuid)
+    return bool(deleted)
+
+
 async def count_family_small_variants(
     assembly_name: str,
     family_uuid: str,
