@@ -16,12 +16,12 @@ A family's graph is in three Postgres tables:
 After every change the family's PED text is rebuilt into `families.pedigree`, and the change
 adds a row to `family_structure_versions`. The family response does not serve that stored
 text. It writes the PED text the pages draw from the members and parent-child relationships it
-serves (`pedigree_text.py`), so the drawing always shows the stored structure (SAFE-8). Of the
+serves (`pedigree_text.py`), so the drawing always shows the stored structure. Of the
 stored text only the member order is used: the drawing places siblings and couples by it.
 
 ## What is recorded of a change
 
-Every pedigree change is kept twice; neither record can be edited or deleted (SEC-7):
+Every pedigree change is kept twice; neither record can be edited or deleted:
 
 - **a structure version**: the family's next `family_structure_versions` row, with the whole
   pedigree as it then stood. The table is append-only and hash-chained per family, like the
@@ -128,7 +128,7 @@ and warm the prioritised variant ranking again. An HPO edit re-warms the ranking
 
 Changing an HPO term marks the phenotype-dependent views stale in
 `derived_data_status.hpo_annotations`. An analyst of the family's project or an admin, not a
-reader, adds, changes and removes its HPO terms (SEC-1). Each change is a `phenotype` event on
+reader, adds, changes and removes its HPO terms. Each change is a `phenotype` event on
 the family's clinical audit trail, written in the same transaction
 ([clinical-traceability.md](clinical-traceability.md)).
 
@@ -146,11 +146,11 @@ sends it.
 ClickHouse has no transactions, so the variants and tracks it holds are deleted last: after
 every other write of the edit (the Postgres-held data, the members, the relationships, the
 pedigree, the structure version), just before the commit. An edit that fails before then rolls
-back with the family's variants and tracks still stored (deleting them first used to lose them
+back with the family's variants and tracks still stored (deleting them first would lose them
 on a failure).
 
 Before the edit locks the family row, it marks the family for each of its datasets held in
-ClickHouse (`deletion-` and an id in `metadata.import_unfinished`, SAFE-31). If a commit fails,
+ClickHouse (`deletion-` and an id in `metadata.import_unfinished`). If a commit fails,
 or a process stops, after the deletes, the family comes back without its variants and tracks
 but marked, so its sign-out is gated until they are imported again with overwrite. The commit
 removes the mark, and so does an edit that fails before the deletes ([data-import.md](data-import.md#the-mark-of-an-upload-that-did-not-finish)).

@@ -138,7 +138,7 @@ both.
 - **Pedigree IBD colouring** — `backend/app/services/haplotype_lineage_service.py`
   (`annotate_lineage`): builds the pedigree, finds the embryo-anchored nuclear core, propagates
   founder colour by IBD matching and splits each relative at recombinations. It reads chrX one
-  stretch at a time by the PARs of the family's assembly (`_lineage_stretches`; CLIN-12). Between
+  stretch at a time by the PARs of the family's assembly (`_lineage_stretches`). Between
   the PARs a man recorded as male is one copy; a man and a member with two copies are read from the
   runs of her homolog he carries (`one_copy_share_runs` and `_one_copy_relative_blocks`); two men
   are not read at all. It greys chrY, chrM, unplaceable members and truncation tails. It is pure: the
@@ -164,9 +164,9 @@ both.
     does not hold (it holds GRCh38's, GRCh37's and T2T-CHM13v2.0's), is read as two copies.
 
   The response serves the window's one-copy ranges (`hemizygous_x_ranges`). The ROI marker review
-  (`FamilyRoiMarkersPage.tsx`) shades its Mendelian errors by the same rule (CLIN-60). The review's
+  (`FamilyRoiMarkersPage.tsx`) shades its Mendelian errors by the same rule. The review's
   rows and the haplotype track's marker tooltip show a man's call there, and any call of one allele,
-  as that one allele (`rowAlleles` in `frontend/src/lib/phasedMarkers.ts`, ENG-19).
+  as that one allele (`rowAlleles` in `frontend/src/lib/phasedMarkers.ts`).
 - **Disease haplotype and embryo call** — the backend makes the embryo calls in
   `backend/app/services/pgt_embryo_calls.py`: `infer_disease_haplotypes`; `assess_member` (the call
   and, when it is uninformative or depends on the sex, why); `call_embryos` (each embryo's call with
@@ -188,7 +188,7 @@ both.
   her only on the sides a disease haplotype was found on. With an unaffected father none is found on
   his side, so his X is taken as not at risk and her call rests on her maternal X: *Carrier* with the
   mother's risk haplotype, *Unaffected* with the mother's other X seen across the ROI. This is the
-  owner's confirmed rule for a fully penetrant X-linked recessive disorder (2026-10-14; CLIN-6, TF-09a
+  owner's confirmed rule for a fully penetrant X-linked recessive disorder (2026-10-14; TF-09a
   REQ-PGT-005). It is pinned by `haplotypeRisk.test.ts` (*still calls a son from his maternal X
   alone, and a daughter carrier from hers*) and by the parity case *X-linked recessive from an
   affected son* on both sides.
@@ -208,8 +208,8 @@ both.
   both. The per-child QC and the block builder read the same table site by site
   (`is_one_copy_x_site`).
 - **chrX in the blocks** — `haplotype_block_builder.py` reads chrX outside the PARs by the phasing
-  QC's rule, with its helpers (`_one_copy_alleles`, `_transmitted_single_parent_haplotype`, moved
-  there from `phased_marker_service.py`, which imports them back):
+  QC's rule, with its helpers (`_one_copy_alleles`, `_transmitted_single_parent_haplotype`, which
+  `phased_marker_service.py` imports from it):
   - A parent recorded as male is one allele, written once or twice; a call of two different alleles
     is no call (`_parent_alleles`, which keeps his own blocks there whichever way his calls are
     written).
@@ -227,22 +227,19 @@ both.
   exactly the blocks between the PARs. A block reaches past its first site, to the next block's first
   site or to the end of its chromosome or stretch. One opened at a stretch's last position could not
   do so without leaving its stretch and would end where it began, so none is kept there
-  (`_append_haplotype_state_row`, ENG-19); the member's block before it in the stretch, where there
+  (`_append_haplotype_state_row`); the member's block before it in the stretch, where there
   is one, already reaches that site. No stretch is cut on an assembly without PAR bounds. On
   T2T-CHM13v2.0 PAR1 starts at the first base, so chrX has no stretch before it.
 
-  Before this (CLIN-60's follow-up), with men's calls written as one allele, no child had a
-  transmission outside the PARs; with PAR1 in the callset, the PAR1 blocks ran over the X. An embryo
-  at an X-linked ROI then read *Uninformative* or was called from its PAR1 homologs. The blocks are
-  built at import with the sexes recorded then. A sex recorded or corrected later, and a family
-  imported before this change, need the phased genotypes imported again (a package import also
-  refreshes the genome-overview precompute).
-- **Outdated blocks** (CLIN-66) — beside each member's blocks, the loader keeps what they were built
+  The blocks are built at import with the sexes recorded then. A sex recorded or corrected later
+  needs the phased genotypes imported again (a package import also refreshes the genome-overview
+  precompute).
+- **Outdated blocks** — beside each member's blocks, the loader keeps what they were built
   for besides the genotypes: the index couple, which of the file's samples are the couple's children,
   and each sample's recorded sex (`haplotype_block_builder.haplotype_block_basis`, kept as
   `pedigree_basis` in the haplotype track's `sample_interval_track_sources.metadata`). The PGT
   analysis compares it with the family's pedigree (`pgt_analysis.blocks_outdated`). Blocks built for
-  another couple, other children or other sexes, or without the record (loaded before 2026-10-27),
+  another couple, other children or other sexes, or without the record,
   are outdated. The analysis then still reads them for the inputs' digest, but calls every embryo
   *Uninformative* and says why (`inputs.blocks_outdated`), as the family page and the signed record
   do, until the phased genotypes are imported again (the owner's choice of 2026-10-27). The
@@ -255,8 +252,7 @@ both.
 - **The genome overview's lineage precompute** is fingerprinted with a digest of the stored
   haplotype blocks too (`clickhouse_interval_tracks.interval_track_rows_digest`, in
   `bed_service._lineage_hash`). A single-file re-upload rewrites the blocks, so the precompute made
-  before it is no longer served. Before CLIN-66 the fingerprint left the blocks out, and the overview
-  showed the old ones until a pedigree, member or ROI edit refreshed it.
+  before it is no longer served.
 
 ## Known issues
 

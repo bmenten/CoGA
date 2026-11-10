@@ -227,7 +227,7 @@ EOF
 **Sign-in.** Left empty, `AZURE_TENANT_ID` and `AZURE_CLIENT_ID` give every account a CoGA
 password. With an app registration in the organisation's Entra ID, users sign in with their
 Microsoft account instead, MFA included, and nobody can sign up. IT creates the registration as
-[deployment-gcp.md §12.12](deployment-gcp.md#1212-microsoft-sign-in-azure-ad--microsoft-entra-id)
+[deployment-gcp.md §12.11](deployment-gcp.md#1211-microsoft-sign-in-azure-ad--microsoft-entra-id)
 describes, with the redirect URI `https://<host name>/login`. The go-live steps there apply
 here too, with `AZURE_ADMIN_OVERRIDE` in `.env` in place of the Terraform variable.
 
@@ -241,7 +241,7 @@ here too, with `AZURE_ADMIN_OVERRIDE` in `.env` in place of the Terraform variab
 
 **At Ghent University** ICT registers web applications on its CAS server, `login.ugent.be`
 (the self-service form for a URL/OAuth application), not in Entra ID. CoGA signs in there
-instead of with Microsoft ([security-posture.md](security-posture.md), SEC-4):
+instead of with Microsoft ([security-posture.md](security-posture.md)):
 
 ```env
 CAS_SERVER_URL=https://login.ugent.be

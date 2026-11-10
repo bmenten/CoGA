@@ -102,7 +102,7 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 
 - Terraform: `db_runtime_role = "coga_app"`, `cloud_armor_waf_enforce`, `allowed_ingress_cidrs`, `clickhouse_restrict_egress`, `storage_backend`, `alert_notification_emails`.
 - Microsoft sign-in: IT registers the app, single-tenant, limited to the lab's group; go live with `azure_admin_override` off.
-- Required reviewers on the `gcp-deploy` environment; TF-13 S-4 (download audit). See `deployment-gcp.md` §12.7–12.12.
+- Required reviewers on the `gcp-deploy` environment; TF-13 S-4 (download audit). See `deployment-gcp.md` §12.7–12.11.
 
 ### REG-3 · RC steps (TF-18 §3a)
 

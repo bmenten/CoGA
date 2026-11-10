@@ -26,7 +26,7 @@ A NIPT case is a trio backed by two samples (`backend/app/services/nipt.py`, `re
 - The father is the active `father` member. The fetus (`embryo`, else `proband`) is an optional
   placeholder without data. A NIPT PED usually gives the fetus an unknown sex and status, and the
   import reads such a child as an `embryo`. It has no haplotype blocks, so the signed record holds no
-  PGT section for it: `pgt_analysis` only where an embryo has blocks of its own (TRACE-19).
+  PGT section for it: `pgt_analysis` only where an embryo has blocks of its own.
 
 ## Input
 
@@ -48,7 +48,7 @@ Two inputs, one model:
     laboratory maps its verified tubes to files named after other tubes. A column named neither as
     the member nor as the entry's `vcf_sample` gives a warning in Discover, the dry run and the
     import, never a refusal (`nipt_vcf_column_warning`, code `nipt_vcf_column_named_otherwise`; the
-    owner's decision of 2026-10-28, CLIN-13). The dataset's summary records each sample's column
+    owner's decision of 2026-10-28). The dataset's summary records each sample's column
     (`vcf_column`).
 - **One combined VCF** with a father and a cfDNA column, through the family small-variant upload or a
   package import. Its quality is the site's QUAL (`entries.qual`).
@@ -126,20 +126,20 @@ it.
 - **The verdicts** — `nipt_quality_checks.py` makes every verdict of the page's quality checks,
   once: the fetal fraction (`fail` without an estimate, `warn` low-confidence), the fetal sex (`fail`
   when the two signals disagree, `warn` when neither tells), paternity and the plasma sample's sex
-  profile. The summary endpoint serves them (`fetal_fraction_status`, `fetal_sex.status`; before,
-  the page made the first two in the browser), and the signed record freezes them.
+  profile. The summary endpoint serves them (`fetal_fraction_status`, `fetal_sex.status`), and the
+  signed record freezes them.
 - **Sign-out** — a NIPT family is signed out through the family sign-out, from the NIPT report or
   the family report page (the NIPT page has none). Its record holds the section `nipt`
   (`signed_record_nipt.py`): the summary, the checks, each reported variant as the variant list
   classifies it (from
   `nipt_service.get_family_nipt_record`), the recessive fetal risk over them, the inputs, and,
   without a per-target table, the coverage check's notes over the coverage tracks (`coverage_notes`,
-  from `nipt_service.nipt_coverage_notes`, TRACE-17). A failed fetal-fraction, fetal-sex or plasma
+  from `nipt_service.nipt_coverage_notes`). A failed fetal-fraction, fetal-sex or plasma
   check gates it under the Sample QC's acknowledgement
   ([clinical-traceability.md](clinical-traceability.md#sign-out)). The sign-out runs the analysis
   once: its Sample QC and the section read the same run (`SharedNiptAnalysis`). The Sample QC runs
   its NIPT checks in a savepoint, so a database error there is noted and gated as a check that could
-  not run, and the rest of the sign-out keeps running (ENG-19).
+  not run, and the rest of the sign-out keeps running.
 - **Variant summary** — `nipt_variant_statistics.py` groups one analysis run for the NIPT-M tab of
   the family's *Variant summary* (`GET /families/{id}/nipt/statistics`). The run keeps its sites in
   the order of their classifications (`NiptAnalysisResult.sites`) and the plasma calls' own FILTER
@@ -176,18 +176,18 @@ it.
   Without the plasma's table, `nipt_coverage.py` takes the median depth over the genes or the family
   ROI from the plasma's one coverage track of read depth (`_load_coverage_intervals`,
   `coverage_read_depth.py`). That is its coverage BED when declared as read depth (the upload's or
-  the manifest entry's `content: read_depth`, TRACE-9), otherwise HiFiCNV's depth stored as read.
+  the manifest entry's `content: read_depth`), otherwise HiFiCNV's depth stored as read.
   Never read as depth:
   - a log2-ratio track (WisecondorX's or QDNAseq's bins, HiFiCNV's normalised depth, a BED declared
-    as a log2 ratio): merged with the BED, it pulled the median down, and its rows covered the BED's
+    as a log2 ratio): merged with the BED, it would pull the median down, and its rows would cover the BED's
     gaps;
-  - a coverage BED that declares nothing (`unknown`), which was read as depth before TRACE-9.
+  - a coverage BED that declares nothing (`unknown`).
 
   Each track left out is named, with the reason, in the check's `coverage_notes`, which the NIPT
   page, the coverage page and the printed report show. Without a depth track every region reads
   `no_coverage`. A sign-out freezes the notes word for word in `nipt.coverage_notes`, with what the
   check ran for: the sign-out is not told the page's search, so it runs the check without a gene or
-  panel, over the family ROI (TRACE-17).
+  panel, over the family ROI.
 
 ## Two paths
 
@@ -215,9 +215,9 @@ Both take FF from `filter_sites_and_estimate_ff` over all family records.
   comes back in `not_classified`, with the reason the signed record gives a reported one
   (`not_in_data`, `artifact_list`, `no_plasma_call`), from the same code (`_classify_selected`,
   which `get_family_nipt_record` uses). `review_tag=report` with no other filter is the page's
-  **Show reported**: what a sign-out freezes (UI-4). The sign-out selects the reported variants by
+  **Show reported**: what a sign-out freezes. The sign-out selects the reported variants by
   the same rule, a variant's own report tag or its compound-het pair's
-  (`report_signout_service._reported_reviews`, TRACE-19). So a pair tagged `report` is listed,
+  (`report_signout_service._reported_reviews`). So a pair tagged `report` is listed,
   counted, frozen and in the record's recessive fetal risk alike.
 
 Endpoints (`routers/families_nipt.py`, under `/api`):

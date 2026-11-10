@@ -491,7 +491,7 @@ its administrator role or deactivate it, so the break-glass sign-in works whenev
 override is on. Its password is `ADMIN_PASSWORD` (Secret Manager); the seed replaces the stored
 hash whenever it no longer matches, so rotating the secret rotates the password. It signs in
 with that password at `/login/emergency`, and only while `AZURE_ADMIN_OVERRIDE` is on (default
-off, deployment-gcp.md §12.12). Any other account's password, and any local token not its own,
+off, deployment-gcp.md §12.11). Any other account's password, and any local token not its own,
 is refused. Every such sign-in and every request made with it is logged
 (`azure_admin_override`, WARNING) and flagged in its audit row
 (`request_meta.emergency_sign_in`, §2). While the override is on, the admin trust boundary
@@ -507,7 +507,7 @@ every inactive account. No screen reads it: the family page's assignee and revie
 read the family's own list, its projects' analysts, the superusers and the admins (§1), and
 the *Users* page
 reads `GET /api/auth/users`. So a member of the directory who can sign in with Microsoft
-without being assigned to the lab's group (deployment-gcp.md §12.12) does not see the staff
+without being assigned to the lab's group (deployment-gcp.md §12.11) does not see the staff
 roster (owner's decision, 2026-10-28).
 
 ## 2. Access / audit logging

@@ -19,7 +19,7 @@ ranking never shows a stale annotation or review status.
 
 The ranking holds the same variants as the unranked search. A search that pairs (compound het,
 recessive, expanded carrier screening) ranks only its pairs' variants, its single variants and the
-couple's findings (CLIN-44, see [A search that pairs](#a-search-that-pairs)). The pairs themselves
+couple's findings (see [A search that pairs](#a-search-that-pairs)). The pairs themselves
 are not cached.
 
 Each family keeps its six most recent queries; storing a new one removes older rows.
@@ -35,7 +35,7 @@ Each row is keyed by `inputs_hash`, a SHA-256 over everything that changes the r
 | The genes and regions the panel filter applied | as the query read them for the family's assembly: `gene_panel_genes`, `gene_panel_regions` and each gene's loci in `genes` (a digest, `panel_members_digest`) |
 | The regions the query kept to or left out, and the genes it left out | as the query resolved them: the intervals, the excluded genes' loci (from `genes`) and names |
 | The present HPO terms of the affected members | `individual_hpo` |
-| The pedigree, who is affected and each member's sex (they name a carrier screen's couple and decide its X-linked findings) | the loaded family the ranking is computed on: members with sex, role and status, and the relationships. Before ENG-13 the key read the latest `family_structure_versions.structure_hash` after loading the family, so an edit committed in between filed a ranking of the old pedigree under the new pedigree's key |
+| The pedigree, who is affected and each member's sex (they name a carrier screen's couple and decide its X-linked findings) | the loaded family the ranking is computed on: members with sex, role and status, and the relationships |
 | The family's small-variant data | the ClickHouse `SNV_INDEL/family_data_version` table: every insert, delete or re-import of the family's variants adds a token |
 | The Monarch release | `monarch_gene_disease.release_version` |
 | The loaded HPO ontology: its release and import time | the most recently written `hpo_term` row (`release_version`, `updated_at`), read as the signed record reads it ([annotation-provenance.md](annotation-provenance.md#the-reference-modules)); the import time separates two imports that recorded no release |
@@ -48,8 +48,7 @@ gene therefore changes the regions, and so the key, of every panel and excluded 
 it, while the panel's version and the filters stay the same.
 
 A gene filter reads no loci: ranked or not, it keeps the variants annotated with the gene. A reload
-changes neither what it keeps nor its key (ENG-1; the ranked and paired searches used to keep only
-the variants inside the gene's loci).
+changes neither what it keeps nor its key.
 
 The panel digest is taken from what the query applied, so a panel edit committed while the query
 runs cannot pair the ranking with the panel's next version.
@@ -60,10 +59,7 @@ page is a slice of it.
 
 The scoring reads pLI and missense Z from the gene profiles of the family's assembly (the profiles
 the key's `gene_info.updated_at` covers), matching the gene's symbol in any case
-([gene_constraint_metrics.py](../backend/app/services/gene_constraint_metrics.py)). Before
-TRACE-15 it read the newest profile of any assembly, so a refresh of another assembly's profiles
-could change the scores without changing the key; and a symbol in other capitals than its profile found no
-constraint. `_ALGORITHM_VERSION` 7 retires the rankings computed then.
+([gene_constraint_metrics.py](../backend/app/services/gene_constraint_metrics.py)).
 
 ## Resolving a panel
 
@@ -73,10 +69,10 @@ The check that lets a broader ranking serve a narrower panel (below) reads the b
 panel the same way. For the Mendeliome that is 5,300 genes and, since the gene reference holds one
 row per transcript, some 40,000 loci.
 
-Read again on every request, this cost more than computing a small panel's ranking: 0.3 to 0.6 s
-per request with a gene reference of one row per gene, 0.4 to 1.7 s with one of GENCODE's size
-(ENG-14). Every request with the Mendeliome paid it, the default view's exact hit included, and so
-did the check for a narrower panel opened from the Mendeliome's ranking.
+Read again on every request, this would cost more than computing a small panel's ranking: 0.3 to 0.6 s
+per request with a gene reference of one row per gene, 0.4 to 1.7 s with one of GENCODE's size.
+Every request with the Mendeliome would pay it, the default view's exact hit included, and so
+would the check for a narrower panel opened from the Mendeliome's ranking.
 
 Each process therefore keeps a panel's resolution and its digest, per panel and assembly, and uses
 it only while the panel's token is unchanged. The token is read on every use, in one statement
@@ -102,21 +98,21 @@ reference or a restart.
 
 Reading a panel is cheaper as well:
 
-- Each gene is kept once with a dict; the list scan it replaced took about 0.2 s for the
+- Each gene is kept once with a dict; a list scan would take about 0.2 s for the
   Mendeliome.
 - The gene-reference lookup binds its gene list as one array parameter
   (`= ANY(CAST(:terms AS text[]))`) instead of one parameter per gene. asyncpg refuses a statement
-  of more than 32,767 parameters, and Postgres planned the expanding IN anew on every lookup: for
+  of more than 32,767 parameters, and Postgres plans an expanding IN anew on every lookup: for
   the Mendeliome in a GENCODE-size reference, a sequential scan of the assembly's transcripts,
   0.2 s and more. As one array it keeps a plan that reads the `upper(hgnc_symbol)` and
   `upper(gene_id)` indexes: 0.05 s.
 
 Measured with the sub-panel benchmark of 2026-10-13 on the throwaway stack: a synthetic trio of
-2,900 variants, a 5,300-gene Mendeliome and sub-panels of it; before and after ENG-14 back to
+2,900 variants, a 5,300-gene Mendeliome and sub-panels of it; without and with the measures above, back to
 back on a shared machine; best / median of 7, in seconds; a gene reference of one row per gene and
 one of GENCODE's size (eight transcripts per gene, 247,200 rows):
 
-| Request | One row per gene: before | after | GENCODE size: before | after |
+| Request | One row per gene: without | with | GENCODE size: without | with |
 | --- | --- | --- | --- | --- |
 | A 25-gene sub-panel, the Mendeliome's ranking cached | 0.33 / 0.33 | 0.06 / 0.06 | 0.48 / 0.51 | 0.06 / 0.06 |
 | The same computed afresh | 0.06 / 0.06 | | 0.06 / 0.06 | |
@@ -128,43 +124,32 @@ one of GENCODE's size (eight transcripts per gene, 247,200 rows):
 | The default view's exact hit (the preset's filters), a page of 100 | 0.31 / 0.34 | 0.06 / 0.06 | 0.49 / 0.50 | 0.06 / 0.07 |
 | Resolving the Mendeliome alone | 0.26 / 0.27 | 0.003 / 0.003 | 0.37 / 0.39 | 0.006 / 0.008 |
 
-The fresh computations were measured after the change. Each sub-panel gave the same result served
-and fresh (variants, order, scores, ranks, total). Served from the Mendeliome's ranking, a
+The fresh computations were measured only with the measures in place. Each sub-panel gave the
+same result served and fresh (variants, order, scores, ranks, total). Served from the Mendeliome's ranking, a
 sub-panel also reads that ranking (about 0.015 s for its 2,299 variants) and, for the check, the
 Mendeliome panel's token (about 0.003 s).
 
 ## Applying a panel
 
 A panel keeps a variant in one of its regions or annotated with one of its genes. The family
-search applies it in SQL, where it reads the family's rows. Until ENG-15 it also applied it in a
-record filter over the candidates it fetched (`_kept_small_candidates` → `_small_record_matches`,
-gone since the roadmap's *One filter definition*), for a ranking computed afresh, and for a
-compound-het, recessive or carrier-screening search (ranked or not) on an exact hit too, and both
-cost the number of rows times the panel's size:
+search applies it in SQL, where it reads the family's rows.
 
-- **In SQL** each of the family's rows was tested against every region (`arrayExists` over the
-  regions): 1.3 s at 500 regions and 2.1 s at 1,000, for a family of about 190,000 rows. The region
-  arrays, repeated for every row ClickHouse reads, could also run it out of memory, which the page
-  answers 422 ("matches too many variants"). The regions are now joined to the family's own rows on
-  64-kb windows, as the Variant Explorer joins its annotation index
-  (`_small_family_region_condition`). A row is kept when its chromosome, position and REF length
-  (all the overlap rule reads of a row) match a row of the family that overlaps a region. The join
-  reads the family's rows in its projects and within the search's locus, every row the search
-  itself reads, so it keeps exactly the rows the per-row test kept. The intervals and the excluded
-  genes and intervals, short lists, keep the per-row test.
-- **In the record filter** the panel's gene names (5,300 for the Mendeliome) were casefolded again
-  for every candidate, and every region was tested even after a gene had matched. ENG-15 prepared
-  the panel once per search, its regions read by bisection over a lookup built on first use
-  (`_RegionLookup`, which the structural-variant panel filter still reads); the record filter has
-  since gone.
+Testing each of the family's rows against every region (`arrayExists` over the regions) costs the
+number of rows times the panel's size: 1.3 s at 500 regions and 2.1 s at 1,000, for a family of
+about 190,000 rows. The region arrays, repeated for every row ClickHouse reads, can also run it out
+of memory, which the page answers 422 ("matches too many variants"). The regions are therefore
+joined to the family's own rows on 64-kb windows, as the Variant Explorer joins its annotation index
+(`_small_family_region_condition`). A row is kept when its chromosome, position and REF length
+(all the overlap rule reads of a row) match a row of the family that overlaps a region. The join
+reads the family's rows in its projects and within the search's locus, every row the search
+itself reads, so it keeps exactly the rows the per-row test keeps. The intervals and the excluded
+genes and intervals, short lists, keep the per-row test.
 
-Neither change alters what a search keeps or how it ranks, so the scoring version stays.
-
-Measured on the throwaway stack, main and the change back to back on a shared machine (best /
+Measured on the throwaway stack, the per-row test and the join back to back on a shared machine (best /
 median, in seconds). The family page, with synthetic trios written straight into the entries table
 and panels of regions only (the page: its rows and its count; the track: 10 Mb):
 
-| Panel and request | 190,000 rows: before | after | 1,000,000 rows: before | after |
+| Panel and request | 190,000 rows: per-row test | join | 1,000,000 rows: per-row test | join |
 | --- | --- | --- | --- | --- |
 | 5 regions, the page | 0.14 / 0.17 | 0.36 / 0.40 | 0.27 / 0.27 | 0.63 / 0.65 |
 | 25 regions, the page | 0.22 / 0.22 | 0.31 / 0.34 | 0.36 / 0.36 | 0.31 / 0.35 |
@@ -175,46 +160,25 @@ and panels of regions only (the page: its rows and its count; the track: 10 Mb):
 | 5 regions, the track | 0.01 / 0.01 | 0.03 / 0.05 | 0.01 / 0.02 | 0.06 / 0.06 |
 | 1,000 regions, the track | 0.06 / 0.06 | 0.11 / 0.12 | 0.13 / 0.14 | 0.06 / 0.06 |
 
-Before, 500 and 1,000 regions ran ClickHouse out of memory on the larger family, answered 422 (in
-a first round, on a more loaded machine, 500 regions on the smaller family too). Every request that
-answered gave the same answer before and after. The join costs about one more read of the family's
-rows: a five-region panel, which the per-row test handled in hundredths of a second, takes 0.2 to
+With the per-row test, 500 and 1,000 regions ran ClickHouse out of memory on the larger family,
+answered 422 (in a first round, on a more loaded machine, 500 regions on the smaller family too). Every request that
+answered gave the same answer with both. The join costs about one more read of the family's
+rows: a five-region panel, which the per-row test handles in hundredths of a second, takes 0.2 to
 0.4 s longer, and the track a few hundredths.
-
-The record filter, on the same synthetic trio and 5,300-gene Mendeliome (the benchmark above),
-with a gene reference of one row per gene and one of GENCODE's size:
-
-| Request on the Mendeliome | One row per gene: before | after | GENCODE size: before | after |
-| --- | --- | --- | --- | --- |
-| Ranked, computed afresh | 3.04 / 3.11 | 1.38 / 1.41 | 2.84 / 3.10 | 1.40 / 1.42 |
-| Compound het, ranked, exact hit | 1.57 / 1.80 | 0.20 / 0.25 | 1.61 / 1.67 | 0.20 / 0.25 |
-| Recessive, ranked, exact hit | 1.89 / 5.29 | 0.20 / 0.21 | 1.65 / 1.93 | 0.21 / 0.22 |
-| Carrier screening, ranked, exact hit | 1.64 / 1.68 | 0.19 / 0.25 | 1.66 / 1.69 | 0.21 / 0.22 |
-| Compound het, unranked | 4.84 / 4.86 | 0.15 / 0.16 | 1.60 / 1.64 | 0.15 / 0.17 |
-| Carrier screening, unranked | 1.58 / 1.69 | 0.15 / 0.15 | 1.61 / 1.64 | 0.16 / 0.16 |
-| The default view, computed afresh | 2.89 / 2.92 | 1.37 / 1.40 | 3.80 / 8.24 | 1.43 / 1.46 |
-| The record filter alone, in each of these (best) | 1.36 to 4.41 | 0.011 to 0.042 | 1.38 to 1.57 | 0.011 to 0.043 |
-
-Every request gave the same answer before and after: variants, order, pairs, scores, ranks and
-total. An exact hit of a search that does not pair reads no candidates, so it runs no record
-filter.
 
 ### A panel of any size
 
-Until 2026-10-14 a gene panel of more than 1,000 regions (`_PANEL_REGION_INLINE_LIMIT`), such as
-the Mendeliome, was matched on gene symbols alone, in SQL and in the record filter: inlining its
-regions risked the query-size limit, and testing each row against each region was slow. Such a
-panel missed a variant that a smaller panel reaches by position only: one whose annotation names
+Every gene panel, of any size, such as the Mendeliome, matches as above, by its genes and by
+position: on the family page and in the Variant Explorer. Matched on gene symbols alone, a large
+panel would miss a variant that a smaller panel reaches by position only: one whose annotation names
 its gene differently from the gene reference (an earlier symbol, or only the symbol of an
-overlapping gene). The owner decided that large panels match by position as well. Every panel, of
-any size, now matches as above: on the family page, in its record filter and in the Variant
-Explorer. `_ALGORITHM_VERSION` 6 retires the earlier rankings, which lack those variants. The
-structural-variant search follows the same rule since 2026-10-20 (see
+overlapping gene). The owner decided that large panels match by position as well. The
+structural-variant search follows the same rule (see
 [Structural variants](#structural-variants) below).
 
 In a gene reference of one row per transcript the Mendeliome resolves to some 42,000 loci. Bound
-one by one, they made each query that applies the panel 1.2 MB (0.13 MB on gene symbols alone) and
-slowed its join. They are bound merged instead (`_small_region_bounds`): the regions of a
+one by one, they would make each query that applies the panel 1.2 MB (0.13 MB on gene symbols alone) and
+slow its join. They are bound merged instead (`_small_region_bounds`): the regions of a
 chromosome that share a base become one, about one per gene. A variant overlaps a merged region
 exactly when it overlaps one of the regions merged into it; regions that only touch stay apart.
 The queries take 0.26 MB.
@@ -228,7 +192,7 @@ query built and bound by the app's own code, on a synthetic cohort:
   those in a Mendeliome gene under another symbol;
 - two families of 190,000 and 1,000,000 rows.
 
-| Request with the Mendeliome | Gene symbols alone (before) | Each locus bound | Merged (now) |
+| Request with the Mendeliome | Gene symbols alone | Each locus bound | Merged |
 | --- | --- | --- | --- |
 | Family page, 190,000 rows: a page of 100 | 0.14 | 0.31 | 0.19 |
 | the ranked window (5,001 rows) | 0.14 | 0.30 | 0.19 |
@@ -242,27 +206,19 @@ query built and bound by the app's own code, on a synthetic cohort:
 | variants kept | 96,133 | 98,092 | 98,092 |
 | Size of each query | 0.13 MB | 1.23 MB | 0.26 MB |
 
-Each locus bound and the merged loci keep the same variants (the same keys). The record filter
-over a ranked window of 5,001 candidates takes 0.037 s instead of 0.023 s: it builds the lookup of
-the panel's loci once, for the candidates that name none of its genes.
+Each locus bound and the merged loci keep the same variants (the same keys).
 
 The chromosome view's track availability (`GET /families/{family_id}/track-availability`) decides
-whose small-variant track the view draws. Until CLIN-62 it applied a panel's regions alone, each
-row tested against every region, and a panel without genes or regions as no panel. So:
+whose small-variant track the view draws. It applies the panel with the family page's own clause
+(`_small_variant_present_sample_names` builds its query with `_small_query_filter_parts`): a member
+is offered a track exactly when the list shows them a variant under the panel.
 
-- a member whose only variants under the panel are annotated with one of its genes outside its
-  regions (VEP's upstream and downstream genes) was offered no track, although the list showed them;
-- under a panel that keeps nothing, every member with a variant was offered one.
+Measured as above, on the same cohort and Mendeliome (best / median of 7 runs, the panel's regions
+tested per row and the list's clause alternating, on a shared machine under load): the
+availability's one aggregate over the rows the view reads, and for comparison a member's track (its
+bounded count).
 
-It now applies the panel with the family page's own clause (`_small_variant_present_sample_names`
-builds its query with `_small_query_filter_parts`): a member is offered a track exactly when the
-list shows them a variant under the panel.
-
-Measured as above, on the same cohort and Mendeliome (best / median of 7 runs, before and after
-alternating, on a shared machine under load): the availability's one aggregate over the rows the
-view reads, and for comparison a member's track (its bounded count).
-
-| Track availability with the Mendeliome | Regions tested per row (before) | The list's clause (now) | A member's track |
+| Track availability with the Mendeliome | Regions tested per row | The list's clause | A member's track |
 | --- | --- | --- | --- |
 | 190,000 rows, the whole of chromosome 1 | 0.49 / 0.52 | 0.13 / 0.14 | 0.07 / 0.08 |
 | 190,000 rows, 10 Mb of chromosome 1 | 0.04 / 0.05 | 0.12 / 0.12 | 0.06 / 0.07 |
@@ -270,16 +226,16 @@ view reads, and for comparison a member's track (its bounded count).
 | 1,000,000 rows, 10 Mb of chromosome 1 | 0.11 / 0.15 | 0.12 / 0.13 | 0.06 / 0.07 |
 | Size of the query | 0.13 MB | 0.26 MB | 0.26 MB |
 
-Before and after keep the same rows here (1,175 and 72, 6,302 and 335), as this cohort annotates a
+Both clauses keep the same rows here (1,175 and 72, 6,302 and 335), as this cohort annotates a
 variant only with the genes that hold it; `e2e/test_e2e_track_availability_panel.py` shows a
-variant reached by a gene alone. After CLIN-62 the availability cost about the same over any
+variant reached by a gene alone. With the list's clause the availability cost about the same over any
 window. ClickHouse's analyzer planned the aggregate worse than the track's count: with
 `enable_analyzer=0` the 10 Mb window of the smaller family took 0.045 s.
 
-The cause was the aggregate's shape (ENG-19). It wrapped the family's matching rows in a subquery,
-ARRAY JOINed their calls and grouped the samples outside it. Under the Mendeliome the analyzer took
-some 36 ms on that query whatever the window, three times a member's track count with the same
-panel clause (11 ms): in a small window, most of the availability's time. The aggregate is now one
+The cause is the aggregate's shape. A subquery over the family's matching rows, with their calls
+ARRAY JOINed and the samples grouped outside it, took the analyzer some 36 ms under the Mendeliome
+whatever the window, three times a member's track count with the same panel clause (11 ms): in a
+small window, most of the availability's time. The aggregate is therefore one
 SELECT over the family's rows: each matching row's visible samples with an ALT allele, picked from
 its call arrays (`arrayFilter`), and the distinct samples. Its base-match probe, which runs when the
 search sends sample filters, also reads the rows in one SELECT.
@@ -289,7 +245,7 @@ two shapes alternating, best / median of 9 runs, in seconds, on a cohort built l
 (19,157 genes, 5,287 of them the Mendeliome's, with 42,296 loci; families of 190,000 and 1,000,000
 rows).
 
-| The availability's aggregate with the Mendeliome | Subquery, ARRAY JOIN (before) | One SELECT (now) |
+| The availability's aggregate with the Mendeliome | Subquery, ARRAY JOIN | One SELECT |
 | --- | --- | --- |
 | 190,000 rows, the whole of chromosome 1 | 0.067 / 0.072 | 0.042 / 0.043 |
 | 190,000 rows, 10 Mb of chromosome 1 | 0.062 / 0.063 | 0.036 / 0.036 |
@@ -309,13 +265,10 @@ the analyzer's time over the aggregate within twice its time over a member's tra
 
 ### Structural variants
 
-Until 2026-10-20 the structural-variant search had a rule of its own. A panel over the same
-1,000-region limit, such as the Mendeliome, was matched only on the genes an SV's annotation names,
-and only in Python, after the candidate read had stopped at 50,000 SVs. A smaller panel was matched
-on its regions alone. So the Mendeliome, the SV page's default, missed an SV in one of its genes
-whose annotation names the gene differently. A smaller panel missed an SV whose annotation names one
-of its genes without overlapping it (a gene listed beside the SV, as VEP lists the genes up to 5 kb
-away).
+Matched only on the genes an SV's annotation names, a panel misses an SV in one of its genes
+whose annotation names the gene differently. Matched on its regions alone, it misses an SV whose
+annotation names one of its genes without overlapping it (a gene listed beside the SV, as VEP lists
+the genes up to 5 kb away).
 
 The owner decided that the SV page follows the small-variant rule. A gene panel of any size keeps
 an SV that:
@@ -325,8 +278,9 @@ an SV that:
   and its end at or after the region's start. Its breakend mate is not read.
 
 The SV list (ranked or not), its CSV export, the genome track and the track availability apply it,
-in SQL (`_structural_panel_filter_condition`) and in the record filter (`_StructuralPanelMatch`)
-alike. `_PANEL_REGION_INLINE_LIMIT` is gone. SV rankings are not cached, so none has to be retired.
+in SQL (`_structural_panel_filter_condition`) and in the record filter (`_StructuralPanelMatch`,
+its regions read by bisection over a lookup built on first use, `_RegionLookup`) alike. SV rankings
+are not cached.
 
 In SQL the panel's regions are joined to the family's own SV rows on 64-kb windows, as the family
 page joins its small variants (`_structural_family_region_condition`). Each SV is listed under every
@@ -340,9 +294,7 @@ region that holds both; a chain of regions merged into one can hold both where n
 Leaving out a region that lies inside another keeps every answer, and the record filter reads the
 same regions.
 
-The panel now narrows the candidate read in SQL, so the 50,000-SV cap counts the panel's SVs.
-Before, a family of more than 50,000 SV rows had its Mendeliome view read from the first 50,000 SVs
-of its callset in genome order, and flagged as incomplete.
+The panel narrows the candidate read in SQL, so the 50,000-SV cap counts the panel's SVs.
 
 Measured as above (`clickhouse local` 26.3, 4 threads, shared machine; best of 7, in seconds), each
 query built and bound by the app's own code, on a synthetic cohort:
@@ -357,7 +309,7 @@ query built and bound by the app's own code, on a synthetic cohort:
 The candidate read is the list's (at most 50,001 SVs, with their annotations); the track reads one
 member's SVs over 10 Mb of chromosome 1.
 
-| Request with the Mendeliome | Gene symbols alone (before) | Each locus bound | Merged | Inside another left out (now) |
+| Request with the Mendeliome | Gene symbols alone | Each locus bound | Merged | Inside another left out |
 | --- | --- | --- | --- | --- |
 | 60,000 SVs: the candidate read | 0.24 | 0.22 | 0.10 | 0.13 |
 | SVs read / kept by the panel | 50,001 / 5,792 | 7,040 / 7,040 | 7,040 / 7,040 | 7,040 / 7,040 |
@@ -367,9 +319,9 @@ member's SVs over 10 Mb of chromosome 1.
 | a member's track over 10 Mb | 0.017 | 0.056 | 0.039 | 0.038 |
 | Size of the candidate read / the track's read | 1.2 / 1.3 KB | 1.17 / 0.15 MB | 0.19 / 0.08 MB | 0.42 / 0.09 MB |
 
-Before, the candidate read stopped at the first 50,001 SVs of either family, so the panel kept
-5,792 and 5,837 SVs where the gene names alone reach 6,934 and 23,372. It now reads the panel's SVs
-only, 106 and 313 of them reached by position alone. Every way of binding the loci keeps the same
+On gene symbols alone, the candidate read stopped at the first 50,001 SVs of either family, so the
+panel kept 5,792 and 5,837 SVs where the gene names alone reach 6,934 and 23,372. Bound by locus, it
+reads the panel's SVs only, 106 and 313 of them reached by position alone. Every way of binding the loci keeps the same
 SVs (the cohort holds no SV with its END before its POS). Further:
 
 - The record filter over the SVs read takes 0.026 s and 0.036 s (0.008 s over 50,001 SVs on gene
@@ -393,7 +345,7 @@ themselves. These first steps of a direct computation are quick; the phenotype s
 takes the seconds. CoGA then looks for a cached row with the same `base_hash` that meets the
 conditions below. It reads the rows without their rankings, and a row's ranking only once its
 panel passes. A row on another panel thus costs no read of a ranking that can hold thousands of
-variants (until ENG-13 every row's ranking was read first). The row:
+variants. The row:
 
 1. is complete, not truncated: the ranking considers at most 5,000 candidates, and a truncated one
    may miss a low-ranked variant of the smaller panel. A request whose own variants overflow that
@@ -402,8 +354,7 @@ variants (until ENG-13 every row's ranking was read first). The row:
    row records them in its `provenance` (`panel_members`, the same digest as in the key). CoGA
    compares that record with the panel as it resolves now: its kept resolution while the token is
    unchanged (see [Resolving a panel](#resolving-a-panel)), else the panel read again. A row that
-   records nothing (cached before rankings recorded their panel), or whose panel has been deleted,
-   is not used;
+   records nothing, or whose panel has been deleted, is not used;
 3. covers the requested panel's genes (a row without a panel covers every gene);
 4. holds every variant the requested panel reaches; and
 5. recorded for each of them the segregation modes they have among themselves.
@@ -415,28 +366,21 @@ whenever conditions 4 and 5 hold. When no row qualifies, the ranking is computed
 variants already fetched.
 
 Why the second condition: restricting a ranking can only drop variants, never add any. A ranking
-computed before its panel gained a gene holds none of that gene's variants. Before CoGA compared
-the record, such a ranking served the panel itself once its version had moved (the exact key
-misses), and any other panel the grown panel now covered, the Mendeliome default view included
-(CLIN-27). A new version that leaves the genes and regions unchanged, such as a description edit,
+computed before its panel gained a gene holds none of that gene's variants. A new version that leaves the genes and regions unchanged, such as a description edit,
 still serves the panel from its earlier ranking.
 
 Why the fourth: narrowing cannot bring back a variant the row lacks. Every panel is matched by its
-genes and its regions, and the row's panel holds the requested genes (condition 3) with their loci
+genes and its regions (see [A panel of any size](#a-panel-of-any-size)), and the row's panel holds the requested genes (condition 3) with their loci
 as the gene reference gives them now (condition 2). So the row holds every variant the requested
 panel reaches by a gene or a gene's locus. It can still lack one the requested panel reaches only
 by a region of its own that the row's panel does not hold: coordinates PanelApp gave for a gene, or
 a gene's locus stored when the panel was made. Such a panel is computed directly; the others are
-served from the row. Before 2026-10-14 the Mendeliome's ranking lacked every variant a smaller
-panel reaches by position only (see [A panel of any size](#a-panel-of-any-size)). Before this
-condition, a smaller panel served from that ranking lacked them too (CLIN-34): CoGA checked that the
-row's panel held the requested panel's gene symbols, then narrowed the row's variants to the
-requested panel.
+served from the row.
 
 Why the fifth: a compound-het pair whose partner the requested panel leaves out is no pair within
 that panel. That variant loses the compound-het mode the row recorded, and with it segregation
-weight and score, unless another mode is as strong. Served from the row, the panel kept the pair,
-its weight and score, and the ranks the row numbered among all its own variants (CLIN-35). A row
+weight and score, unless another mode is as strong. Served from the row, the panel would keep the pair,
+its weight and score, and the ranks the row numbered among all its own variants. A row
 records rounded scores, so CoGA does not derive a new score from them: a panel that splits a pair
 is computed directly. The ranks are renumbered whenever a panel is served from a broader row.
 
@@ -446,10 +390,7 @@ A compound-het or recessive search keeps a variant for its partner; expanded car
 what the other partner carries in its gene. No SQL decides this: the search applies these rules in
 Python to a window of candidates (`_small_variants_candidate_page`). The ranked search applies the
 same rules to the same window (`_prioritized_small_variants_page`), so it keeps the same variants
-and pairs and ranks only those, each with the segregation modes it has among them. Before CLIN-44
-it ranked every candidate the SQL prefilter let through: for a compound-het search, every variant
-heterozygous in each affected member, paired or not. `_ALGORITHM_VERSION` 4 retires the rankings
-computed then.
+and pairs and ranks only those, each with the segregation modes it has among them.
 
 The cache holds the order of the variants, not the pairs. On an exact hit such a search first
 fetches its candidates and works out its pairs. It then numbers its variants in the cached order,
@@ -462,14 +403,9 @@ the inheritance filter itself applies: the candidate read returns them as flags
 (`_fetch_small_variant_rows(segregation_flags=True)`, built by `_small_segregation_flag_columns` from
 `_small_inheritance_mode_clauses`), so the ranking and the filter cannot read a mode apart. Only the
 trio de novo, which no search filters by, and the compound-het pairing are worked out in Python.
-`_ALGORITHM_VERSION` 9 retires the rankings computed when Python read the modes again.
 
 The candidates a ranking reads are the rows the SQL keeps: no filter is applied a second time in
-Python. The ranked search used to re-read each filter in Python (`_small_record_matches`), which
-read some values and gene names apart from the stored ones the SQL reads and dropped variants the
-plain page lists (a gnomAD value no 32-bit column holds, a gene named under an annotation key the
-import does not write). `_ALGORITHM_VERSION` 10 retires the rankings computed then (the roadmap's
-*One filter definition*).
+Python.
 
 A narrower panel is served from a broader row under the conditions above, applied
 to the variants the narrower search keeps; its pairs are worked out within its own reach. The page
@@ -493,10 +429,7 @@ after:
 The replay prepares the query as a live request does (`_resolve_small_variant_scope`): its panel,
 gene filter and other filters; its intervals, excluded intervals and excluded genes; and, for a
 search that asks for a structural-variant second hit, the genes the family's SVs hit as its SV→gene
-index holds them now. Its ranking thus goes under the key the query's next open reads. Until ENG-13
-it left out the intervals and exclusions and replayed the SV hit genes the stored ranking had
-resolved, so its ranking went under a key no request read and took one of the family's six
-rows.
+index holds them now. Its ranking thus goes under the key the query's next open reads.
 
 ## When the cache misses
 

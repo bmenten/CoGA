@@ -8,7 +8,7 @@ Datum van het voorstel: 2026-10-28.
 
 ## 1. Aanleiding en uitgangssituatie
 
-Small variants, structurele varianten en (sinds 2026-10-28) mtDNA-varianten hebben een review per familie:
+Small variants, structurele varianten en mtDNA-varianten hebben een review per familie:
 tags (Review, Exclude, Report, eigen tags), een notitie, een classificatie (ACMG of CNV-scoring), een
 bevroren evidence-snapshot met een driftpoort bij de sign-out, en een rij per wijziging in de
 hash-gekoppelde klinische audittrail. Repeat expansions (TRGT) en Paraphase hebben dat niet.
@@ -43,13 +43,13 @@ of anders inschat dan de automatische status.
 | B9 | Rechten | **Zoals bij small variants**: een analist of beheerder in het project; een lezer ziet de review maar kan niets wijzigen. |
 | B10 | Uitvoering | **Twee PR's**: eerst de backend, dan de UI. |
 | B11 | Technisch dossier | **Nieuwe eisen, nieuwe risico's en een gebied in TF-10 §8**, plus `clinical-traceability.md`. Geen CHANGELOG-regel en geen TF-18-rij (pre-RC). |
-| B12 | Grijze zone en near-boundary in de poort (was O1) | Een *intermediate*-call telt **niet** als afwijkend voor de poort van §6.2; een telling **near a boundary** bij een niet-gevalideerd locus telt **wel**, ook als de status *normal* of *intermediate* is. |
-| B13 | Reviews die de driftpoort controleert (was O2) | Alleen reviews met **een classificatie of de Report-tag**. |
-| B14 | ACMG-klassetags bij repeats en Paraphase (was O3) | De volledige catalogus blijft (B6), maar de dialoog van repeats en Paraphase biedt de groep *classification* (ACMG-klassetags en VUS-tiers) **niet** aan. Een review die zo'n tag toch bevat, toont hem gemarkeerd. |
-| B15 | Ander locus-ID na een herimport (was O4) | Een review **verhuist niet mee**. Een andere ID is een andere bevinding; de oude review blijft in de audittrail en de nieuwe afwijkende call telt als niet gereviewd. |
-| B16 | Gerapporteerde bevinding met status *normal* (was O5) | **Mag**, bijvoorbeeld als relevant negatief resultaat, met de markering "differs from CoGA's status" als het oordeel afwijkt. |
+| B12 | Grijze zone en near-boundary in de poort | Een *intermediate*-call telt **niet** als afwijkend voor de poort van §6.2; een telling **near a boundary** bij een niet-gevalideerd locus telt **wel**, ook als de status *normal* of *intermediate* is. |
+| B13 | Reviews die de driftpoort controleert | Alleen reviews met **een classificatie of de Report-tag**. |
+| B14 | ACMG-klassetags bij repeats en Paraphase | De volledige catalogus blijft (B6), maar de dialoog van repeats en Paraphase biedt de groep *classification* (ACMG-klassetags en VUS-tiers) **niet** aan. Een review die zo'n tag toch bevat, toont hem gemarkeerd. |
+| B15 | Ander locus-ID na een herimport | Een review **verhuist niet mee**. Een andere ID is een andere bevinding; de oude review blijft in de audittrail en de nieuwe afwijkende call telt als niet gereviewd. |
+| B16 | Gerapporteerde bevinding met status *normal* | **Mag**, bijvoorbeeld als relevant negatief resultaat, met de markering "differs from CoGA's status" als het oordeel afwijkt. |
 | B17 | Wanneer de calls opnieuw bevroren worden (PR 1) | Een opslag die de classificatie zet of wijzigt, of de Report-tag toevoegt, bevriest de calls opnieuw. Een opslag van alleen tags of een notitie houdt de bevroren calls, zodat hij geen drift kan wegwerken zonder nieuw oordeel (zoals bij ACMG- en CNV-classificaties). Vervangt "bij elke opslag" in §5. |
-| B18 | Geen Alembic-revisie (PR 1) | Twee nieuwe tabellen hebben er geen nodig: tot de release candidate worden de baselines bij elke migratierun opnieuw toegepast, zoals toen `repeat_locus_count_units` erbij kwam. Vervangt de revisie in §4.2. |
+| B18 | Geen Alembic-revisie (PR 1) | Twee nieuwe tabellen hebben er geen nodig: tot de release candidate worden de baselines bij elke migratierun opnieuw toegepast. Vervangt de revisie in §4.2. |
 | B19 | De dialoog van de nieuwe poort zit al in de backend-PR (PR 1) | `reportSignOut.tsx` en de Playwright-journey kennen de poort al in PR 1; anders kon een familie met een ongereviewde afwijkende call (de golden trio inbegrepen) tot de UI-PR niet ondertekend worden. De driftdialoog noemt ook de repeat- en Paraphase-reviews die hij telt. |
 | B20 | Calls die niet gelezen konden worden, houden de poort ook tegen (PR 1) | Kan de repeat- of Paraphase-sectie van het record niet gelezen worden, dan noemt de poort dat ("the repeat locus calls could not be read"), zodat een afwijkende call niet ongezien ondertekend wordt. Aanvulling op §6.2. |
 | B21 | *Secondary finding* in de dialoog (PR 2) | De dialoog van repeats en Paraphase laat alleen de ACMG-klassetags (`acmg_*`) en de VUS-tiers weg; *Secondary finding* blijft aangeboden: het is geen ACMG-klasse. Verfijning van B14. |
@@ -64,7 +64,7 @@ of anders inschat dan de automatische status.
 2. **Niets verdwijnt uit het record.** Het record blijft elke call bevriezen (B2). Report en Exclude zijn
    markeringen; ze filteren niets weg (B3).
 3. **Hetzelfde patroon als de bestaande reviews.** Dezelfde concurrency (409 bij een gewijzigde review),
-   dezelfde audittrail-acties, dezelfde poortmechaniek (reden en vingerafdruk van de concerns, TRACE-19)
+   dezelfde audittrail-acties, dezelfde poortmechaniek (reden en vingerafdruk van de concerns)
    en dezelfde UI-onderdelen (`FindingCard`, `ExcludedCardBar`, de reviewdialoog). Dat beperkt nieuwe
    risico's en houdt de gebruikerservaring gelijk.
 4. **Een stabiele sleutel.** Een herimport mag een review niet loskoppelen of aan een ander locus hangen
@@ -189,15 +189,15 @@ Twee recordsecties, opgebouwd volgens de vier stappen in `signed_record_sections
 
 De bestaande secties `repeat_expansions` en `paraphase` blijven ongewijzigd: alle calls (B2). Beide
 nieuwe secties gaan mee in de content-hash en in de wijzigingscontrole na de sign-out
-(`REPORT_CONTENT_SECTIONS`). Een record dat ondertekend werd voor deze secties bestonden, zegt dat het
+(`REPORT_CONTENT_SECTIONS`). Een record zonder deze secties zegt dat het
 ze niet bevat; het vult ze nooit in uit live data (REQ-TRACE-007).
 
 ### 6.2 Poort voor afwijkende calls zonder review (B8)
 
 Een nieuwe poort `unreviewed_findings`, na de importpoort, met dezelfde mechaniek als de QC-poort: de
 weigering somt de concerns op, de analist bevestigt met een reden, en de vingerafdruk van de concerns
-reist mee. Zijn de concerns intussen anders, dan volgt een nieuwe weigering met de huidige concerns
-(TRACE-19). De reden en de concerns worden in het record en in de audit-event van de sign-out bevroren.
+reist mee. Zijn de concerns intussen anders, dan volgt een nieuwe weigering met de huidige concerns.
+De reden en de concerns worden in het record en in de audit-event van de sign-out bevroren.
 
 Een concern is een call zonder review. Een review telt als review zodra hij een classificatie, een tag of
 een notitie heeft. Welke calls als afwijkend gelden (B12):
@@ -291,7 +291,7 @@ Bestaande gevaren die mee veranderen:
 
 ## 10. Openstaande punten
 
-Geen. De vijf punten van de eerste versie zijn beslist als B12–B16, de afwijkingen en keuzes van de
+Geen. De vragen van het voorstel zijn beslist als B12–B16, de afwijkingen en keuzes van de
 uitvoering als B17–B23 (§2).
 
 ## 11. Verificatie

@@ -116,7 +116,7 @@ Also summarised in [security-posture.md](../security-posture.md).
 
 **Go-live switches.** Five settings ship off by default. Each is switched on before clinical
 go-live, in its own change-controlled deployment
-([deployment-gcp.md §12.7–§12.10 and §12.12](../deployment-gcp.md)):
+([deployment-gcp.md §12.7–§12.11](../deployment-gcp.md)):
 
 1. **Enforce the web-application firewall** (`cloud_armor_waf_enforce`). Until then the OWASP
    rules only log.
