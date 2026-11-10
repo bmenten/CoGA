@@ -163,6 +163,23 @@ async def test_a_delivery_of_an_existing_family_is_queued_into_it_with_the_choic
 
 
 @pytest.mark.asyncio
+async def test_a_delivery_whose_members_differ_from_its_family_is_queued_only_to_overwrite(
+    queued: list[dict[str, Any]],
+) -> None:
+    # An update changes no member the family holds; an overwrite makes the package's members the
+    # family's pedigree.
+    issues = [{"code": "existing_family", "message": "x"}, {"code": "package_members_differ_from_family", "message": "y"}]
+
+    with pytest.raises(HTTPException) as refused:
+        await _approve(_Session(_delivery(state="needs_attention", issues=json.dumps(issues))), conflict_mode="update")
+    assert (refused.value.status_code, refused.value.detail) == (400, review.MEMBERS_DIFFER_NEED_AN_OVERWRITE)
+    assert queued == []
+
+    await _approve(_Session(_delivery(state="needs_attention", issues=json.dumps(issues))), conflict_mode="overwrite")
+    assert (queued[0]["queue"]["requested_family_id"], queued[0]["queue"]["conflict_mode"]) == ("FAM1", "overwrite")
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("row", "options", "status"),
     [
@@ -171,6 +188,8 @@ async def test_a_delivery_of_an_existing_family_is_queued_into_it_with_the_choic
         ({"state": "needs_attention", "issues": [{"code": "file_checksum_differs"}]}, {}, 409),
         ({"state": "needs_attention", "issues": [{"code": "existing_samples"}]}, {"conflict_mode": "update"}, 409),
         ({"state": "needs_attention", "issues": [{"code": "existing_family"}]}, {}, 400),
+        # The members differ, and the family does not exist: nothing a choice resolves.
+        ({"state": "needs_attention", "issues": [{"code": "package_members_differ_from_family"}]}, {"conflict_mode": "overwrite"}, 409),
         ({}, {"conflict_mode": "update"}, 400),
         ({"warnings": [{"code": "optional_dataset_missing"}]}, {}, 400),
         ({"project_id": None}, {}, 409),

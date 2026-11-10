@@ -507,6 +507,28 @@ if any. Files a file browser writes and no import reads (`.DS_Store`, `Thumbs.db
     sample holds WisecondorX bins, an APCAD though it holds HiFiCNV's minor allele fraction.
 - `overwrite`: import into the existing family, and replace each imported dataset.
 
+#### The existing family's members
+
+The package's members are the pedigree an import reads, compared with the family as CoGA holds it
+(each member, its sex and its parents):
+
+- `update` adds the members the family lacks, with the links the package gives them, and changes
+  no member the family holds. A package that does (another sex, other parents) or that lacks one
+  of the family's members is refused: the delivery's check says so
+  (`package_members_differ_from_family`), and its approval with `update` is refused (400), as is
+  the import itself. A package that only adds members warns of it (`package_adds_members`).
+- `overwrite` makes the package's members the family's pedigree: a member the family lacks is
+  added (one it held before is made active again), each member it holds takes the package's sex,
+  role and statuses, one the package lacks is made inactive (its stored data stays, as for a
+  structure edit), and the family's links are the package's.
+
+Either change is made once the import has marked the family, before its datasets, through the
+family-structure service: the next structure version, a pedigree change on the family's clinical
+audit trail made by the package import, and the family's analyses marked stale. A change the
+family cannot take refuses the import before its first dataset: a structure changed since the
+import read it, or a new member's sample ID held by another family. The changed pedigree stays
+when a dataset then fails or the import is undone; the restore puts back the datasets.
+
 An import into an existing family links it to the job's `project_id` too. Every project the
 family is linked to gets the small and structural variant callsets it holds none of, under the
 family's variant-write locks and before the import's snapshot, so the family's other callsets
@@ -1741,9 +1763,8 @@ Discover, dry run and import check:
 - **Members**: `family.add_members` names the members (`members_missing` when it names none), each
   once, every parent among them; the manifest's samples and per-sample entries name members; every
   `family.relationships` entry names members. A manifest that names a PED is refused
-  (`manifest_names_a_ped`). An import into a family that exists already refuses members that
-  differ from the family in CoGA: a member more or less, another sex, other parents
-  (`package_members_differ_from_family` in the delivery's check).
+  (`manifest_names_a_ped`). For a family that exists already, see
+  [the existing family's members](#the-existing-familys-members).
 - **Phenotypes**: a phenotype file named in the manifest exists and uses `format: hpo_tsv`.
 - **Files**: every file the manifest names lies in the package (a path that leads out of it,
   starts with `~` or runs through a symlink loop is refused with 400, see
@@ -2365,7 +2386,8 @@ capture panel takes the panel's key, the `assay_panel` of its cfDNA samples).
 | `members_missing` | The manifest names no members under `family.add_members`. |
 | `package_not_in_project_folder` | The delivery's package folder lies directly in the watched folder. Move it into the folder of its project (`<watched folder>/<project>/`), or refuse the delivery. |
 | `package_project_folder_differs` | The delivery lies in the folder of another project than its package file names. Correct the project in **Deliveries**, or move the package into the folder of its project. |
-| `package_members_differ_from_family` | The family exists in CoGA, and the package's members differ from it: a member more or less, another sex or other parents. Correct the package (**Correct…**) to the family's members. |
+| `package_members_differ_from_family` | The family exists in CoGA, and the package changes or lacks one of its members (another sex, other parents). An update changes no member the family holds: correct the package (**Correct…**) to the family's members, or have an administrator approve it with overwrite, which makes the package's members the family's pedigree. |
+| `package_adds_members` (warning) | The package adds members to a family that exists in CoGA. Update and overwrite add them to the family's pedigree: check that they belong to it. |
 | `package_folder_link` (warning) | The package's `ped/` folder, a long-read dataset folder, a sample's folder in one, or a folder in that is a symbolic link. The message says where it leads, relative to its import folder, or that it lies outside the import folders. The package list and Discover follow it (a member may come from it): check that what it holds belongs to this family, or put the files themselves in the package. |
 | "Package manifest path '…' starts with '~'", "… runs through a symlink loop", "Package manifest paths must stay within the package directory" (400) | A path in the manifest names no file in the package. Write it relative to the package folder, without `~`, and replace a symlink on it that leads out of the package or loops. An import job of such a package ends failed with the message. |
 | `manifest_schema_version_unsupported` | `schema_version` is not 1. |
