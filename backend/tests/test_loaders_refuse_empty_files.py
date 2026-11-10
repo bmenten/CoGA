@@ -354,7 +354,7 @@ def _repeats_failed() -> dict[str, Any]:
         "imported_datasets": [],
         "job_id": "job-0",
         "failed_jobs": {"repeats_trgt": "job-0"},
-        "scopes": {"repeats_trgt": _REPEATS_S1},
+        "failed_scopes": {"repeats_trgt": [{"scope": _REPEATS_S1, "job_id": "job-0"}]},
     }
 
 

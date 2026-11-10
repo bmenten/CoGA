@@ -46,8 +46,7 @@ const stringList = (value: unknown): string[] | null =>
  * A family-package import that partly fails keeps the datasets that did import and stamps
  * `metadata.import_incomplete` (family_package_registration._flag_family_import_incomplete);
  * it goes once an import has imported each failed dataset again. As on the server, a flag that is set but
- * not in the shape the import writes still counts as incomplete, with nothing to name,
- * and a flag written before the import job was recorded has no job to point to.
+ * not in the shape the import writes still counts as incomplete, with nothing to name.
  */
 export const importIncompleteFromMetadata = (metadata: unknown): FamilyImportIncomplete | null => {
   if (!metadata || typeof metadata !== 'object') return null;
@@ -68,8 +67,7 @@ export const importIncompleteFromMetadata = (metadata: unknown): FamilyImportInc
     if (typeof job === 'string' && job) failedJobs[name] = job;
     // Listed with no job: it failed outside one, so the flag's job, another failure's,
     // does not hold its error (as report_signout_service._import_incomplete_state reads it).
-    else if (job === null && name in jobs) listedWithoutJob.push(name);
-    else if (jobId) failedJobs[name] = jobId;
+    else listedWithoutJob.push(name);
   });
   return {
     at: typeof record.at === 'string' && record.at ? record.at : null,
@@ -77,8 +75,8 @@ export const importIncompleteFromMetadata = (metadata: unknown): FamilyImportInc
     importedDatasets: stringList(record.imported_datasets) ?? [],
     jobId,
     failedJobs,
-    // Named only beside a failure a job records: a flag written before jobs were recorded
-    // names none for any dataset.
+    // Named only beside a failure a job records: with no job beside them, no job is named
+    // that could be taken for theirs.
     withoutJob: Object.keys(failedJobs).length ? listedWithoutJob : [],
   };
 };

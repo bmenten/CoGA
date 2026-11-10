@@ -14,12 +14,19 @@ import ImportIncompleteBanner, {
   unfinishedWriter,
 } from '../ImportIncompleteBanner';
 
-// As family_package_registration._flag_family_import_incomplete records it.
+// As family_package_registration._flag_family_import_incomplete records it: each failed
+// dataset with the job that holds its error, and each failure's scope.
+const FLAG_JOB = '3f6c1a2e-8b4d-4e5f-9a7b-1c2d3e4f5a6b';
 const FLAG = {
   at: '2026-09-12T10:14:00.123456+00:00',
   failed_datasets: ['snv', 'sv'],
   imported_datasets: ['coverage'],
-  job_id: '3f6c1a2e-8b4d-4e5f-9a7b-1c2d3e4f5a6b',
+  job_id: FLAG_JOB,
+  failed_jobs: { snv: FLAG_JOB, sv: FLAG_JOB },
+  failed_scopes: {
+    snv: [{ scope: { source: 'clair3', samples: null }, job_id: FLAG_JOB }],
+    sv: [{ scope: { source: null, samples: null }, job_id: FLAG_JOB }],
+  },
 };
 // As family_package_registration.ImportMark records it: stopped inside haplotypes.
 const STOPPED_JOB = '7a1d2c3b-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
@@ -31,12 +38,6 @@ const UNFINISHED = {
     finished_datasets: ['apcad', 'qdnaseq'],
   },
 };
-// A flag written before the import job was recorded: the datasets only.
-const OLD_FLAG = {
-  at: FLAG.at,
-  failed_datasets: FLAG.failed_datasets,
-  imported_datasets: FLAG.imported_datasets,
-};
 // As family_package_registration records them after an overwrite that failed and whose
 // restore did not finish: the flag names the import's datasets as failed, and its entry
 // stays, naming every dataset of the family (the SV calls came with another import).
@@ -46,6 +47,11 @@ const RESTORE_FLAG = {
   failed_datasets: ['coverage', 'snv'],
   imported_datasets: [],
   job_id: RESTORE_JOB,
+  failed_jobs: { coverage: RESTORE_JOB, snv: RESTORE_JOB },
+  failed_scopes: {
+    coverage: [{ scope: { source: null, samples: ['S1'] }, job_id: RESTORE_JOB }],
+    snv: [{ scope: { source: 'auto', samples: null }, job_id: RESTORE_JOB }],
+  },
 };
 const SV_CALLS = { dataset: 'sv_needlr', scope: { source: null, samples: null } };
 const WHOLE_FAMILY = {
@@ -149,8 +155,10 @@ describe('ImportIncompleteBanner', () => {
     expect(banner).toHaveTextContent(/Sign-out needs this acknowledged with a reason/);
   });
 
-  it('names no job for a flag written before the job was recorded', () => {
-    render(<ImportIncompleteBanner metadata={{ import_incomplete: OLD_FLAG }} />);
+  it('names no job when every failure was outside one', () => {
+    // Single-file uploads of snv and sv failed: they run in no import job.
+    const uploads = { ...FLAG, job_id: null, failed_jobs: { snv: null, sv: null } };
+    render(<ImportIncompleteBanner metadata={{ import_incomplete: uploads }} />);
 
     const banner = screen.getByRole('alert');
     expect(banner).toHaveTextContent(/failed for snv and sv; coverage did import\./);
@@ -373,7 +381,6 @@ describe('importIncompleteFromMetadata', () => {
       failedJobs: { snv: FLAG.job_id, sv: FLAG.job_id },
       withoutJob: [],
     });
-    expect(importIncompleteFromMetadata({ import_incomplete: OLD_FLAG })?.jobId).toBeNull();
     expect(
       importIncompleteFromMetadata({ import_incomplete: { ...FLAG, job_id: 7 } })?.jobId,
     ).toBeNull();
@@ -404,10 +411,10 @@ describe('importIncompleteFromMetadata', () => {
     expect(read?.failedJobs).toEqual({ snv: FLAG.job_id });
     expect(read?.withoutJob).toEqual(['sv']);
     expect(failuresByJob(read!)).toEqual([[FLAG.job_id, ['snv']]]);
-    // No dataset with a job (a flag written before jobs were recorded, as a signed record
-    // freezes it): none is named as failed outside one.
+    // No dataset with a job (each failed in a single-file upload): none is named as failed
+    // outside one, as no job is named beside them.
     const none = importIncompleteFromMetadata({
-      import_incomplete: { ...OLD_FLAG, failed_jobs: { snv: null, sv: null } },
+      import_incomplete: { ...FLAG, job_id: null, failed_jobs: { snv: null, sv: null } },
     });
     expect(none?.withoutJob).toEqual([]);
     expect(failuresByJob(none!)).toBeNull();

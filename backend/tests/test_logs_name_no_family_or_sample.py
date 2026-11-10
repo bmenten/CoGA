@@ -132,13 +132,13 @@ _WRITES: dict[str, Callable[[_FailingSession], Awaitable[Any]]] = {
         session, _context(), import_key="job-1"  # type: ignore[arg-type]
     ),
     "the import-incomplete flag": lambda session: registration._flag_family_import_incomplete(
-        session, _context(), failed_datasets=["snv"], imported_datasets=[]  # type: ignore[arg-type]
+        session, _context(), failed_datasets=["snv"], imported_datasets=[], scopes={}  # type: ignore[arg-type]
     ),
     "the restore's whole-family entry": lambda session: registration._mark_family_import_restoring(
         session, _context(), _mark()  # type: ignore[arg-type]
     ),
     "the flag of a restore that failed": lambda session: registration._flag_family_restore_failed(
-        session, _context(), failed_datasets=["snv"], job_id="job-1", mark=_mark()  # type: ignore[arg-type]
+        session, _context(), failed_datasets=["snv"], job_id="job-1", mark=_mark(), scopes={}  # type: ignore[arg-type]
     ),
     "the clear of a completed import": lambda session: fpi._clear_family_import_incomplete(
         session, _context(), import_key="job-1"  # type: ignore[arg-type]

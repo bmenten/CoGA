@@ -43,6 +43,8 @@ from backend.tests._signout_dialogs import no_finding_reviews
 pytestmark = pytest.mark.integration
 
 _REASON = "SV calls are not part of this referral; the SNV re-import is booked."
+# What an overwrite of each failed dataset replaces (dataset_scopes), as the flag records it.
+_SCOPES = {"snv": {"source": "clair3", "samples": None}, "sv": {"source": None, "samples": None}}
 
 
 def test_sign_out_refuses_an_incomplete_import_unless_acknowledged(monkeypatch) -> None:
@@ -182,6 +184,7 @@ def test_sign_out_refuses_an_incomplete_import_unless_acknowledged(monkeypatch) 
                     failed_datasets=["sv", "snv"],
                     imported_datasets=["coverage"],
                     job_id=job_id,
+                    scopes=_SCOPES,
                 )
 
             # (a) Refused without an acknowledgement; nothing written or audited.
@@ -288,11 +291,11 @@ def test_sign_out_refuses_an_incomplete_import_unless_acknowledged(monkeypatch) 
             # round-trip; sign-out then needs no acknowledgement.
             async with sm() as s:
                 left = await _clear_family_import_incomplete(
-                    s, _context(), imported={"coverage": None}
+                    s, _context(), imported={"coverage": {"source": None, "samples": None}}
                 )
                 assert left is not None and set(left.failures.failed) == {"snv", "sv"}
             async with sm() as s:
-                await _clear_family_import_incomplete(s, _context(), imported={"snv": None, "sv": None})
+                await _clear_family_import_incomplete(s, _context(), imported=_SCOPES)
             async with sm() as s:
                 check = await rss.compare_report_with_latest_signout(s, family_id=label, user=user)
                 assert check["version"] == 2

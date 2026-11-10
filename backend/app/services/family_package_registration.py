@@ -900,10 +900,10 @@ def datasets_brought_again(endings: Iterable[tuple[str, str]], scopes: Mapping[s
 # The source of an SNV scope whose callset was never resolved: what the manifest's
 # `source_format: auto` (the default) says before the file is read. A scope records the
 # callset the import stores, `auto` as it resolves (SAFE-23); one that still reads `auto`
-# names no callset: written before imports resolved it, or by an import that could not
-# read its family VCF when it began. It covers nothing, and nothing covers it: two scopes
-# that read `auto` may stand for different callsets, and either may have stored another
-# callset than an import or upload that names one.
+# names no callset: the import could not read its family VCF when it began
+# (``snv_dataset_callset``). It covers nothing, and nothing covers it: two scopes that read
+# `auto` may stand for different callsets, and either may have stored another callset than
+# an import or upload that names one.
 UNRESOLVED_SNV_SOURCE = "auto"
 
 
@@ -1057,11 +1057,8 @@ def _failure_imported_again(imported: Mapping[str, Any], name: str, scope: Any) 
     """Whether a failure of a dataset was imported again: an import that imported the
     dataset (in any mode -- the failing loader's rows were rolled back or cleaned up, so an
     update finds none and imports it whole, while one whose clean-up left rows is skipped)
-    for the scope the failure records. A failure that records no scope (written before
-    flags did) compares the dataset only."""
-    if name not in imported:
-        return False
-    return scope is None or _scope_covers(imported[name], scope)
+    for the scope the failure records (``_scope_covers``)."""
+    return name in imported and _scope_covers(imported[name], scope)
 
 
 # `import_incomplete.failed_scopes`: for each failed dataset, every scope it failed for --
@@ -1069,8 +1066,7 @@ def _failure_imported_again(imported: Mapping[str, Any], name: str, scope: Any) 
 # first, each with the import job whose record holds its error (None: an upload, or an
 # import run outside a job). A later failure of the same dataset under another scope never
 # replaces an earlier one: each leaves the flag only once an import or upload has brought
-# that scope again (SAFE-26). A flag written before keeps one scope per dataset (`scopes`,
-# its job in `failed_jobs`), and reads as that one failure.
+# that scope again (SAFE-26).
 FAILED_SCOPES_KEY = "failed_scopes"
 
 
@@ -1081,42 +1077,26 @@ def _job_or_none(value: Any) -> str | None:
 def _flag_failures(flag: Any) -> dict[str, list[dict[str, Any]]] | None:
     """The datasets a stored ``import_incomplete`` flag names as failed, each with every
     failure of it the flag records, oldest first: its scope, and the import job whose record
-    holds its error (``failed_scopes``). A flag written before flags kept every scope reads
-    as one failure per dataset: its scope (``scopes``) and its job (``failed_jobs``, else the
-    flag's). None when the flag is not in the shape an import writes: also a
-    ``failed_scopes`` that does not list each failed dataset's failures as written."""
+    holds its error (``failed_scopes``). None when the flag is not in the shape an import
+    writes (``_flag_payload``): also a ``failed_scopes`` that does not list each failed
+    dataset's failures as written."""
     if not isinstance(flag, Mapping):
         return None
     failed = _dataset_names(flag.get("failed_datasets"))
-    if failed is None:
-        return None
     listed = flag.get(FAILED_SCOPES_KEY)
+    if failed is None or not isinstance(listed, Mapping):
+        return None
     failures: dict[str, list[dict[str, Any]]] = {}
-    if listed is not None:
-        if not isinstance(listed, Mapping):
-            return None
-        for name in failed:
-            items = listed.get(name)
-            if not (
-                isinstance(items, list)
-                and items
-                and all(isinstance(item, Mapping) and "scope" in item for item in items)
-            ):
-                return None
-            failures[name] = [
-                {"job_id": _job_or_none(item.get("job_id")), "scope": item["scope"]} for item in items
-            ]
-        return failures
-    job = _job_or_none(flag.get("job_id"))
-    jobs = flag.get("failed_jobs")
-    scopes = flag.get("scopes")
     for name in failed:
-        dataset_job = _job_or_none(jobs.get(name)) if isinstance(jobs, Mapping) else None
+        items = listed.get(name)
+        if not (
+            isinstance(items, list)
+            and items
+            and all(isinstance(item, Mapping) and "scope" in item for item in items)
+        ):
+            return None
         failures[name] = [
-            {
-                "job_id": dataset_job or job,
-                "scope": scopes.get(name) if isinstance(scopes, Mapping) else None,
-            }
+            {"job_id": _job_or_none(item.get("job_id")), "scope": item["scope"]} for item in items
         ]
     return failures
 
@@ -1482,8 +1462,7 @@ def whole_family_entry(
     (``dataset_clickhouse_stores``): the restore rewrites ClickHouse table by table, but puts
     Postgres back in one transaction, which a failure rolls back whole, so it cannot leave a
     dataset held in Postgres alone (repeats, Paraphase, QC, phenotypes) partly written. Those
-    of this import are all listed, as its flag names each as failed. They used to be listed
-    all the same, so the whole family had to be imported again for them too (SAFE-18)."""
+    of this import are all listed, as its flag names each as failed (SAFE-18)."""
     pairs: list[tuple[str, Any]] = [(name, mark.scopes.get(name)) for name in mark.datasets]
     for dataset, held in merged_imported_scopes(imported, ()).items():
         pairs.extend((dataset, scope) for scope in held if dataset_clickhouse_stores(dataset))
@@ -2034,9 +2013,9 @@ async def _flag_family_import_incomplete(
     *,
     failed_datasets: list[str],
     imported_datasets: list[str],
+    scopes: Mapping[str, Any],
     job_id: str | None = None,
     import_key: str | None = None,
-    scopes: Mapping[str, Any] | None = None,
     imported_scopes: Mapping[str, Any] | None = None,
 ) -> None:
     """Stamp a family as import-incomplete after an import that failed for some datasets
@@ -2079,7 +2058,7 @@ async def _flag_family_import_incomplete(
             imported_datasets=imported_datasets,
             job_id=job_id,
             import_key=import_key,
-            scopes=scopes or {},
+            scopes=scopes,
             imported_scopes=imported_scopes or {},
         )
     except Exception:  # flag write must not mask the import failure
@@ -2151,7 +2130,7 @@ async def _flag_family_restore_failed(
     failed_datasets: list[str],
     job_id: str | None,
     mark: ImportMark,
-    scopes: Mapping[str, Any] | None = None,
+    scopes: Mapping[str, Any],
     family_samples: Collection[str] | None = None,
 ) -> list[str] | None:
     """Flag a family whose failed overwrite's restore failed part-way (any way but
@@ -2173,7 +2152,7 @@ async def _flag_family_restore_failed(
             imported_datasets=[],
             job_id=job_id,
             import_key=mark.key,
-            scopes=scopes or {},
+            scopes=scopes,
             imported_scopes={},
             keep=mark,
             family_samples=family_samples,
