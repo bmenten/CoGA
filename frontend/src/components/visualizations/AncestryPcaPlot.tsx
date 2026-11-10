@@ -19,13 +19,16 @@ const COLORS: Record<string, string> = {
   EUR: '#cc79a7',
   SAS: '#d55e00',
 };
-const WIDTH = 1000;
-const HEIGHT = 530;
+// The plot's size in CSS pixels: it is drawn at this size (smaller only on a narrow screen), so
+// its text keeps the page's own sizes instead of growing with the window.
+const WIDTH = 760;
+const HEIGHT = 420;
 // A family individual's diamond, larger than a reference dot so it stays visible in a cluster.
 const FAMILY_RADIUS = 5;
+const REFERENCE_RADIUS = 2.2;
 // On the plot itself, so a screenshot or a print of it says it too.
 const EXPLORATORY_MARK = 'Exploratory — not for clinical use';
-const MARGIN = { left: 76, right: 44, top: 30, bottom: 66 };
+const MARGIN = { left: 56, right: 20, top: 26, bottom: 44 };
 
 const AncestryPcaPlot: React.FC<Props> = ({ reference, samples }) => {
   const id = useId();
@@ -56,6 +59,9 @@ const AncestryPcaPlot: React.FC<Props> = ({ reference, samples }) => {
   const y = scaleLinear()
     .domain(bounds(yAxis))
     .range([HEIGHT - MARGIN.bottom, MARGIN.top]);
+  // As many decimals as the tick step needs, so two ticks never read the same.
+  const xTick = x.tickFormat(7);
+  const yTick = y.tickFormat(7);
   const label = (axis: number) =>
     `PC${axis + 1} (${(reference.explained_variance[axis] * 100).toFixed(2)}%)`;
   const reset = () => {
@@ -156,6 +162,8 @@ const AncestryPcaPlot: React.FC<Props> = ({ reference, samples }) => {
       </fieldset>
       <div className="ancestry-chart-scroll">
         <svg
+          width={WIDTH}
+          height={HEIGHT}
           viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
           role="img"
           aria-labelledby={`${id}-title ${id}-description`}
@@ -195,10 +203,10 @@ const AncestryPcaPlot: React.FC<Props> = ({ reference, samples }) => {
               />
               <text
                 x={x(tick)}
-                y={HEIGHT - MARGIN.bottom + 24}
+                y={HEIGHT - MARGIN.bottom + 16}
                 textAnchor="middle"
               >
-                {tick.toFixed(1)}
+                {xTick(tick)}
               </text>
             </g>
           ))}
@@ -211,24 +219,30 @@ const AncestryPcaPlot: React.FC<Props> = ({ reference, samples }) => {
                 y1={y(tick)}
                 y2={y(tick)}
               />
-              <text x={MARGIN.left - 12} y={y(tick) + 4} textAnchor="end">
-                {tick.toFixed(1)}
+              <text x={MARGIN.left - 8} y={y(tick) + 4} textAnchor="end">
+                {yTick(tick)}
               </text>
             </g>
           ))}
           <text
             x={MARGIN.left}
-            y={MARGIN.top - 10}
+            y={MARGIN.top - 9}
             className="ancestry-exploratory-mark"
           >
             {EXPLORATORY_MARK}
           </text>
-          <text x={WIDTH / 2} y={HEIGHT - 15} textAnchor="middle">
+          <text
+            x={(MARGIN.left + WIDTH - MARGIN.right) / 2}
+            y={HEIGHT - 8}
+            textAnchor="middle"
+            className="ancestry-axis-title"
+          >
             {label(xAxis)}
           </text>
           <text
-            transform={`translate(18 ${HEIGHT / 2}) rotate(-90)`}
+            transform={`translate(14 ${(MARGIN.top + HEIGHT - MARGIN.bottom) / 2}) rotate(-90)`}
             textAnchor="middle"
+            className="ancestry-axis-title"
           >
             {label(yAxis)}
           </text>
@@ -240,7 +254,7 @@ const AncestryPcaPlot: React.FC<Props> = ({ reference, samples }) => {
                   key={point.id}
                   cx={x(point.pcs[xAxis])}
                   cy={y(point.pcs[yAxis])}
-                  r="2.7"
+                  r={REFERENCE_RADIUS}
                   fill={COLORS[point.population] || '#777'}
                   opacity="0.52"
                   data-population={point.population}
