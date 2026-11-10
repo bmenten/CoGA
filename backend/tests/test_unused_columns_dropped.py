@@ -4,8 +4,8 @@ The owner's decision of 2026-10-28 (ENG-6): the schema keeps no column that noth
 
 - Postgres: ``auth_login_attempts.last_success_at`` and
   ``small_variant_reviews.compound_het_partner_variant_keys`` were never read or written, and
-  ``structural_variant_reviews.variant_key`` never written (#853): the sign-out froze it into
-  each reported structural variant, always null. The baselines create none of them; revision
+  ``structural_variant_reviews.variant_key`` never written (#853): the sign-out neither reads
+  it nor freezes it. The baselines create none of them; revision
   0011 drops them from a database made before (``test_postgres_migrations.py`` and its
   integration test).
 - ClickHouse: ``liftedOverChrom``, ``liftedOverPos`` (always null) and ``sample_type`` (always
@@ -161,12 +161,10 @@ def test_the_sign_out_freezes_each_reported_sv_without_reading_its_key() -> None
 
     [sql] = session.sql
     assert "FROM structural_variant_reviews" in sql and "variant_key" not in sql
-    # The record keeps its form: the key every record so far holds as null (nothing ever wrote
-    # it), so a signed version still compares with the report as it is now, section by section.
+    # Nor does the record hold the key.
     assert frozen == [
         {
             "variant_id": "1-30000-31000-DEL---",
-            "variant_key": None,
             "classification": "Pathogenic - class 5",
             "cnv_class": "cnv_class_5",
             "cnv_point_total": 1.0,

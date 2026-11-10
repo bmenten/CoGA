@@ -437,8 +437,7 @@ the patient report happens in the EPD, which refers to the record by its report 
 sign-out, with its checks and report code: one record per family, whether signed out here or from the
 family report. The NIPT page itself offers no sign-out. Once signed, the button reads **Amend
 sign-out**. The NIPT report then names the latest signed version, its report code, and whether the
-family's data still matches it. It names what it could not compare because that version does not hold
-it (*Not in signed version 2, so not compared: …*).
+family's data still matches it.
 
 For a NIPT family the record also holds the **NIPT results**, as CoGA computes them at sign-out. The
 signed version shows them:

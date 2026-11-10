@@ -35,7 +35,7 @@ export const repeatStatusLabel = (status: ApiRepeatStatus, reviewReason?: ApiRep
 
 /**
  * QA's count correction at a locus in words (repeat_count_units.py, CLIN-57): "TRGT's count −1",
- * "TRGT's count +2"; null without one (0, or a record from before corrections).
+ * "TRGT's count +2"; null without one (0).
  */
 export const describeCountOffset = (offset: number | null | undefined): string | null =>
   offset ? `TRGT’s count ${offset > 0 ? '+' : '−'}${Math.abs(offset)}` : null;

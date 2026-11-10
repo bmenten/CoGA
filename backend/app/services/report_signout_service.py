@@ -47,12 +47,10 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.config import settings
-from .review_pg_utils import current_class_label, review_class_label
+from .review_pg_utils import review_class_label
 from .annotation_manifest_service import (
-    REFERENCE_MODULE_KEYS,
     UNAVAILABLE_MODULE_VERSION,
     get_family_annotation_manifest,
-    module_label,
 )
 from .assembly_scope import is_validated_assembly, off_scope_message, validated_assemblies
 from .classification_drift_service import evaluate_classification_drift
@@ -68,7 +66,6 @@ from .finding_review_pg import (
 )
 from .family_package_registration import is_whole_family_entry, unfinished_entry_writer
 from .family_variant_write_lock import try_share_family_variant_writes
-from .pgt_analysis import comparable_with_record as pgt_analysis_comparable_with_record
 from .hash_chain import ChainVerification, canonical_hash, canonical_json, chain_row_hash, verify_chain
 from .access_control import CurrentUser, RecordNotVisible, require_sign_out_authority
 from .nipt_service import SharedNiptAnalysis
@@ -78,14 +75,12 @@ from .report_code import (
     parse_report_code,
     report_code,
 )
-from .signed_record_nipt import nipt_comparable_with_record, nipt_signout_concerns
+from .signed_record_nipt import nipt_signout_concerns
 from .signed_record_sections import (
     NIPT_RESULTS,
     RECORD_SECTIONS,
-    REPEAT_EXPANSIONS,
     build_record_sections,
     record_section_gaps,
-    repeat_expansions_comparable_with_record,
 )
 from .sample_integrity_qc import (
     MIN_MATERNAL_TRANSMISSION_SITES,
@@ -568,8 +563,7 @@ async def _import_unfinished_state(
     The entry a failed overwrite's restore leaves when it does not finish (its datasets the
     whole family's: ``family_package_registration.whole_family_entry``) is frozen with
     ``whole_family`` true, so the gate, its dialog and the signed record describe it as that
-    restore, not as an import that stopped (SAFE-18). Only then is the key set: every other
-    entry is frozen as before.
+    restore, not as an import that stopped (SAFE-18). Only then is the key set.
     """
     raw = (
         await session.execute(
@@ -964,7 +958,7 @@ async def _reported_reviews(session: AsyncSession, family_uuid: str) -> list[dic
     The pair review that holds the tag is frozen with the variant (``compound_het``: the
     partner, the gene, the pair's classification, tags and note, and its phase), so the record
     says why a variant is reported whose own tags do not; a variant reported by its own tag
-    alone is frozen as before. Each holds its classification text as stored; the class its review
+    alone holds none. Each holds its classification text as stored; the class its review
     shows is added by :func:`build_report_snapshot` (``class_shown``, CLIN-80).
     """
     rows = (
@@ -1009,13 +1003,9 @@ async def _reported_structural_reviews(
     """Structural variants / CNVs tagged for the report, with their classification and the
     evidence its CNV scoring froze.
 
-    The report page renders these beside the small variants, so the signed record must
-    freeze them too — before #508 a reported CNV was printed but never signed.
-
-    Each keeps ``variant_key``, null: the review's column of that name was never written
-    (#853) and went with ENG-6, so every record signed before holds null there, and the
-    sign-out's change check compares this section with theirs whole. The class the review
-    shows is added by :func:`build_report_snapshot` (``class_shown``, CLIN-80).
+    The report page renders these beside the small variants, so the signed record freezes
+    them too. The class the review shows is added by :func:`build_report_snapshot`
+    (``class_shown``, CLIN-80).
     """
     rows = (
         await session.execute(
@@ -1035,7 +1025,6 @@ async def _reported_structural_reviews(
     return [
         {
             "variant_id": row["variant_id"],
-            "variant_key": None,
             "classification": row["classification"],
             "cnv_class": row["cnv_class"],
             "cnv_point_total": row["cnv_point_total"],
@@ -1097,37 +1086,13 @@ async def _canonical_sequencing_qc(
     }
 
 
-def _reference_modules_looked_up(snapshot: Mapping[str, Any]) -> set[str]:
-    """The reference-layer modules the software that built ``snapshot`` looked up.
-
-    Every snapshot records them (``reference_modules``); one that does not names none, so
-    each reference module it lacks is said to be missing, never assumed looked up.
-    """
-    recorded = snapshot.get("reference_modules")
-    if isinstance(recorded, list):
-        return {str(key) for key in recorded}
-    return set()
-
-
-def _module_keys(modules: Any) -> set[str]:
-    return {
-        str(module.get("key"))
-        for module in (modules if isinstance(modules, list) else [])
-        if isinstance(module, Mapping)
-    }
-
-
 def snapshot_gaps(snapshot: Mapping[str, Any] | None) -> list[dict[str, str]]:
     """The parts a report snapshot records as unavailable, with the reason (#514).
 
     A lookup that failed while the snapshot was built is frozen as an explicit marker,
     never as an empty block that reads like "nothing there". This lists those markers so
     the audit event and the report page can say what the signed record lacks, a section of
-    what the analysis looked at included (``signed_record_sections``). It also lists a
-    reference module CoGA added after the record was signed (not among the modules it
-    looked up, and not held): the record cannot say which version its report was produced
-    with. A whole section a record predates is not listed here: the sign-out check names it
-    as not compared, and the signed view says the record does not hold it.
+    what the analysis looked at included (``signed_record_sections``).
     """
     if not isinstance(snapshot, Mapping):
         return []
@@ -1150,18 +1115,6 @@ def snapshot_gaps(snapshot: Mapping[str, Any] | None) -> list[dict[str, str]]:
                     "reason": str(module.get("detail") or "version could not be read"),
                 }
             )
-    if "modules" in snapshot:
-        held = _module_keys(snapshot.get("modules"))
-        looked_up = _reference_modules_looked_up(snapshot)
-        for key in REFERENCE_MODULE_KEYS:
-            if key not in looked_up and key not in held:
-                gaps.append(
-                    {
-                        "section": "modules",
-                        "item": module_label(key),
-                        "reason": "signed before CoGA recorded its version",
-                    }
-                )
     gaps.extend(record_section_gaps(snapshot))
     return gaps
 
@@ -1226,8 +1179,7 @@ async def build_report_snapshot(
     )
     # The same for the reported structural variants and CNVs: their classification's
     # frozen evidence against the SV as it is now, and a reported one whose evidence was
-    # never frozen (no CNV scoring saved, or one saved before CoGA froze it) as
-    # "no_snapshot".
+    # never frozen (no CNV scoring saved) as "no_snapshot".
     structural = drift["structural"]
     structural_unsnapshotted = [
         {
@@ -1266,10 +1218,6 @@ async def build_report_snapshot(
         "family_id": context.family_id,
         "assembly": manifest.get("assembly"),
         "modules": manifest.get("modules", []),
-        # The reference-layer modules looked up for `modules`: one of them missing there
-        # was not loaded at sign-out. A reference module CoGA adds later is not in this
-        # list, which is how the sign-out check tells the two apart and leaves it out.
-        "reference_modules": list(REFERENCE_MODULE_KEYS),
         # Build identity of the software that produced this snapshot, frozen into the
         # content hash so a signed report is bound to the exact code that made it.
         # These are build-time constants (no per-call/runtime-varying value), so the
@@ -1500,8 +1448,7 @@ async def sign_out_report(
         f" ({'; '.join(part for part in drift_parts if part)})" if any(drift_parts) else ""
     )
     # The refusal lists the classifications it counts, as the other gates' refusals list
-    # their concerns, and as the acknowledgement covers them (TRACE-19): before, it was a
-    # sentence with their number, and its dialog named none of them.
+    # their concerns, and as the acknowledgement covers them (TRACE-19).
     drift_concerns = _drift_concerns(snapshot_body)
     drift_refusal = {
         "message": (
@@ -1514,8 +1461,7 @@ async def sign_out_report(
     if drifted_count and not acknowledge_drift:
         raise _gate_refusal(DRIFT_GATE, drift_refusal, drift_concerns)
     # Overriding the drift gate is attested like the QC override: with a reason that is
-    # frozen into the content hash and the audit event (#508). Before, it was a bare
-    # confirm with nothing recorded about why stale evidence was signed.
+    # frozen into the content hash and the audit event (#508).
     drift_reason = (drift_acknowledgement_reason or "").strip()
     if drifted_count and acknowledge_drift and not drift_reason:
         raise HTTPException(
@@ -1571,9 +1517,9 @@ async def sign_out_report(
 
     # Incomplete-import gate (after the QC gate, and like it acknowledged independently
     # with a reason frozen into the content hash). A family-package import that partly
-    # failed keeps the family, and the datasets that did import, flagged import_incomplete.
-    # Nothing read that flag before, so a report that could lack whole datasets signed
-    # out with no warning at all. An import that stopped part-way (its process ended) left
+    # failed keeps the family, and the datasets that did import, flagged import_incomplete,
+    # so a report that could lack whole datasets is never signed out without a warning. An
+    # import that stopped part-way (its process ended) left
     # no flag, only its import_unfinished entry: the same gate, one acknowledgement.
     import_incomplete: Mapping[str, Any] | None = snapshot_body.get("import_incomplete")
     import_unfinished: Mapping[str, Any] = snapshot_body.get("import_unfinished") or {}
@@ -2043,7 +1989,7 @@ REPORT_CONTENT_SECTIONS = (
     "import_incomplete",
     "import_unfinished",
     # The repeat and Paraphase reviews, their drift, and the abnormal calls without a review
-    # (finding_review_pg); a record signed before them names them not compared.
+    # (finding_review_pg).
     REPEAT_REVIEWS_SECTION,
     PARAPHASE_REVIEWS_SECTION,
     FINDING_DRIFT_SECTION,
@@ -2055,10 +2001,9 @@ REPORT_CONTENT_SECTIONS = (
     # results.
     *(section.key for section in RECORD_SECTIONS),
 )
-# A section a record does not hold (one CoGA adds after it was signed) cannot be compared
-# and is reported as such; a section of one application (the PGT embryo calls, the NIPT
-# results) that neither the record nor the family's current data holds is no section of
-# this family and is not named. The record's statement of what it is ("record_statement")
+# Each section is compared whole. A section of one application (the PGT embryo calls, the
+# NIPT results) that neither the record nor the family's current data holds is no section of
+# this family and is not compared. The record's statement of what it is ("record_statement")
 # is not report content either: it is the same sentence for every record of one build.
 
 
@@ -2066,65 +2011,6 @@ def _section_fingerprint(value: Any) -> str:
     # Normalise through the JSON encoding the stored snapshot went through, so a value
     # read back from JSONB and a freshly built one compare equal when unchanged.
     return _canonical_hash(json.loads(json.dumps(value, default=str)))
-
-
-# The keys whose text names a class label: a review's classification, and the class a reported
-# variant's review showed (CLIN-80).
-_CLASS_LABEL_KEYS = frozenset({"classification", CLASS_SHOWN_KEY})
-
-
-def _with_current_class_labels(value: Any) -> Any:
-    """``value`` with each classification that names a class label in another case written
-    as the label is now (:func:`current_class_label`).
-
-    The labels were put in sentence case (ENG-6), and revision 0013 rewrote the stored reviews
-    to match; a record signed before keeps "Likely Pathogenic - class 4". The comparison with
-    the latest sign-out reads the two as one, so the case alone is no change since sign-out.
-    Only a string under a ``classification`` or ``class_shown`` key is read; any other text
-    compares as it is.
-    """
-    if isinstance(value, Mapping):
-        return {
-            key: (
-                current_class_label(item)
-                if key in _CLASS_LABEL_KEYS and isinstance(item, str)
-                else _with_current_class_labels(item)
-            )
-            for key, item in value.items()
-        }
-    if isinstance(value, list):
-        return [_with_current_class_labels(item) for item in value]
-    return value
-
-
-def _modules_comparable_with(
-    signed: Mapping[str, Any], current: list[Any]
-) -> tuple[list[Any], list[str]]:
-    """The current modules to compare with a signed record's, and the keys left out.
-
-    A reference-layer module the record neither holds nor looked up postdates it: CoGA
-    added it after the record was signed. Like a snapshot section a record predates, it is
-    not compared, instead of turning every such record into a change to modules nothing in
-    it froze. One the record looked up and does not hold was not loaded then, so its
-    arrival is a change; and a pipeline module is always compared, as one the family's
-    pipeline declared since came with a re-import.
-    """
-    held = _module_keys(signed.get("modules"))
-    looked_up = _reference_modules_looked_up(signed)
-    comparable: list[Any] = []
-    postdating: list[str] = []
-    for module in current:
-        key = module.get("key") if isinstance(module, Mapping) else None
-        if (
-            key is not None
-            and module.get("layer") == "reference"
-            and str(key) not in held
-            and str(key) not in looked_up
-        ):
-            postdating.append(str(key))
-        else:
-            comparable.append(module)
-    return comparable, postdating
 
 
 async def compare_report_with_latest_signout(
@@ -2141,18 +2027,11 @@ async def compare_report_with_latest_signout(
     re-import, a QC cut-off change) leaves the signed version as it was, so the page uses
     this check to say so: on the live report, whether it still matches the latest signed
     version; on that version, whether the family's data changed since (#508). This
-    rebuilds the snapshot body and compares it, section by section, with the frozen one. A
-    section or reference module the signed record predates is listed in ``not_compared``
-    (a module as ``modules.<key>``) rather than reported as changed, and so is what a section
-    gained since (``pgt_analysis.qc_verdict``, ``repeat_expansions.count_units``,
-    ``nipt.coverage_notes``): the rest of such a section is compared on what the record holds.
-    A section of one application that neither holds (``pgt_analysis`` of a family without an
-    embryo, or of a monogenic NIPT family whose embryo, its fetus, has no haplotype blocks;
-    ``nipt`` of a family that is no monogenic NIPT family) is neither compared nor listed. The
-    report page and the signed view name what is listed as not compared beside what changed,
-    and beside "still matches" (TRACE-19). A class label compares whatever its case
-    (:func:`_with_current_class_labels`): a record signed before the labels were put in
-    sentence case (ENG-6) still matches a report whose only difference is that case.
+    rebuilds the snapshot body and compares it, section by section and each section whole,
+    with the frozen one: a section that differs, or that only one of the two holds, is
+    changed. A section of one application that neither holds (``pgt_analysis`` of a family
+    without an embryo, or of a monogenic NIPT family whose embryo, its fetus, has no haplotype
+    blocks; ``nipt`` of a family that is no monogenic NIPT family) is not compared.
     """
     context = await build_family_metadata_context(
         session, family_identifier=family_id, user=user, project_id=project_id
@@ -2179,7 +2058,6 @@ async def compare_report_with_latest_signout(
             "content_hash": None,
             "matches": None,
             "changed_sections": [],
-            "not_compared": [],
             "not_captured": [],
             "checked_at": checked_at,
         }
@@ -2188,37 +2066,16 @@ async def compare_report_with_latest_signout(
         session, family_id=family_id, user=user, project_id=project_id
     )
     changed: list[str] = []
-    not_compared: list[str] = []
     for section in REPORT_CONTENT_SECTIONS:
-        if section not in signed:
-            # A section CoGA added after the record was signed is not compared. One that
-            # neither holds is another application's (the PGT embryo calls of a family
-            # without an embryo or of a NIPT family's fetus, the NIPT results of a family that
-            # is no NIPT family): there is nothing to compare, and nothing to name.
-            if section in current:
-                not_compared.append(section)
+        if section not in signed and section not in current:
+            # Another application's section (the PGT embryo calls of a family without an
+            # embryo or of a NIPT family's fetus, the NIPT results of a family that is no
+            # NIPT family): there is nothing to compare.
             continue
-        signed_value = signed[section]
-        current_value = current.get(section)
-        if section == "modules" and isinstance(current_value, list):
-            current_value, postdating = _modules_comparable_with(signed, current_value)
-            not_compared.extend(f"modules.{key}" for key in postdating)
-        if section == "pgt_analysis":
-            # The embryos' QC verdict, which a record signed before it does not hold.
-            current_value, predated = pgt_analysis_comparable_with_record(signed_value, current_value)
-            not_compared.extend(predated)
-        if section == REPEAT_EXPANSIONS.key:
-            # The near-boundary warnings and QA's counting-units records, which a record signed
-            # before them does not hold.
-            current_value, predated = repeat_expansions_comparable_with_record(signed_value, current_value)
-            not_compared.extend(predated)
-        if section == NIPT_RESULTS.key:
-            # The notes of the NIPT coverage check over the coverage tracks, which a record
-            # signed before them does not hold (TRACE-17).
-            current_value, predated = nipt_comparable_with_record(signed_value, current_value)
-            not_compared.extend(predated)
-        if _section_fingerprint(_with_current_class_labels(signed_value)) != _section_fingerprint(
-            _with_current_class_labels(current_value)
+        if (
+            section not in signed
+            or section not in current
+            or _section_fingerprint(signed[section]) != _section_fingerprint(current[section])
         ):
             changed.append(section)
     return {
@@ -2227,7 +2084,6 @@ async def compare_report_with_latest_signout(
         "content_hash": row["content_hash"],
         "matches": not changed,
         "changed_sections": changed,
-        "not_compared": not_compared,
         "not_captured": snapshot_gaps(signed),
         "checked_at": checked_at,
     }

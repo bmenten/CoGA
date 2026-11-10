@@ -13,13 +13,12 @@ specific when it is what moved, and so is each value the snapshot froze: the con
 impact and LoF call, each population frequency and in-silico score (CLIN-7), and, for a
 missense variant, the gene's missense Z PP2 reads and its source, the gene profile's, which
 is not under the hash, else the VCF's own (TRACE-15): ``changed`` names what moved,
-``evidence_from`` and ``evidence_to`` hold the values. Only the fields a snapshot froze are compared, so a snapshot frozen before a field
-was (it holds none of its group) is never compared on it: one frozen before the
-frequencies were is compared by its hash and ClinVar significance alone, and one of a
-variant that is not a missense variant, which holds no missense Z, never drifts on its
-gene's profile. The current values are read as a classification saved now would freeze
-them, so a missense variant no longer called missense names its consequence and its
-missense Z as gone.
+``evidence_from`` and ``evidence_to`` hold the values. Each field the snapshot froze is
+compared: the gene's missense Z only for a missense variant, which alone has it, so one of a
+variant that is not a missense variant never drifts on its gene's profile; a group that is
+not a mapping cannot be verified (``unknown``). The current values are read as a
+classification saved now would freeze them, so a missense variant no longer called missense
+names its consequence and its missense Z as gone.
 
 Structural-variant / CNV classifications are checked the same way, under ``structural``:
 each CNV (ClinGen) scoring's frozen ``cnv_evidence_snapshot`` against the row of the
@@ -87,11 +86,9 @@ def _current_evidence(record: Any, *, gene_missense_z: float | None) -> dict[str
 
 def _evidence_values(snapshot: Mapping[str, Any]) -> tuple[dict[str, Any] | None, bool]:
     """The transcript and the consequence, frequencies, in-silico scores and gene missense
-    Z a snapshot froze, as one mapping of field to value, and whether all of it can be read.
-
-    None when the snapshot froze none of them, as one frozen before CLIN-7 did; a snapshot
-    frozen before a group was holds only the others. A group that is there but is not a
-    mapping cannot be read: its values cannot be shown unchanged.
+    Z a snapshot froze, as one mapping of field to value (None when it holds none of them),
+    and whether all of it can be read: a group that is there but is not a mapping cannot be
+    read, and its values cannot be shown unchanged.
     """
     values: dict[str, Any] = {}
     readable = True
@@ -139,10 +136,8 @@ def _diff(snapshot: dict[str, Any], current: dict[str, Any] | None) -> dict[str,
     each, ``annotations`` for the annotation set), ``unknown`` (nothing is seen to have
     moved, but a hash is missing or a frozen group cannot be read, so the match cannot be
     verified) and ``variant_missing`` (the variant is no longer present in the dataset).
-    Only what the snapshot froze is compared: a snapshot frozen before the frequencies and
-    in-silico scores were holds none, and its ``evidence_from`` is None; one frozen before
-    the consequence and the gene's missense Z were, or of a variant that is not a missense
-    variant (no missense Z), is compared on what it holds.
+    Each value the snapshot froze is compared: one of a variant that is not a missense
+    variant holds no missense Z, and is compared on the rest.
     """
     snap_hash = snapshot.get("annotation_set_hash")
     snap_clinvar = snapshot.get("clinvar")
@@ -178,9 +173,8 @@ def _diff(snapshot: dict[str, Any], current: dict[str, Any] | None) -> dict[str,
     # classification. When either hash is absent, or a frozen group cannot be read, the
     # binding CANNOT be verified as unchanged, so fail safe to "unknown" — which the
     # sign-out drift gate counts like a real drift (requiring acknowledgement) — rather
-    # than silently reporting "current". Previously a present-but-hashless current record
-    # read as "current" and cleared the gate, letting a stale classification freeze into a
-    # report unchallenged. A value seen to move is a drift whatever else is missing.
+    # than silently reporting "current". A value seen to move is a drift whatever else is
+    # missing.
     if changed:
         status = "drifted"
     elif not snap_hash or not cur_hash or not readable:

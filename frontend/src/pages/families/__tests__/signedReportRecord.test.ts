@@ -35,7 +35,6 @@ import {
   describeNiptVariant,
   describeMixedHomologsRule,
   describeNoCall,
-  describeNotCompared,
   describePgtInheritance,
   describePgtInputs,
   describePgtMembers,
@@ -60,7 +59,6 @@ import {
   liveReportSignedNotice,
   liveReportSignedState,
   NIPT_NOT_CLASSIFIED_REASONS,
-  notComparedSentence,
   paraphaseStatusWords,
   parseSignedReport,
   parseSignedVersionParam,
@@ -75,9 +73,6 @@ import { describeCountUnitWarning } from '../../../lib/repeatStatus';
 import {
   SIGNED_ANALYSIS,
   SIGNED_PGT_ANALYSIS,
-  SIGNED_PGT_ANALYSIS_BEFORE_QC_VERDICT,
-  SIGNED_REPEAT_EXPANSIONS_BEFORE_COUNT_OFFSETS,
-  SIGNED_REPEAT_EXPANSIONS_BEFORE_COUNT_UNITS,
   SIGNED_REPEAT_EXPANSIONS_WITH_CORRECTION,
 } from '../../../test/signedAnalysisFixture';
 
@@ -200,7 +195,6 @@ const SNAPSHOT = {
   reported_structural_variants: [
     {
       variant_id: '2-1000-50000-DEL---',
-      variant_key: 123,
       classification: null,
       class_shown: null,
       cnv_class: 'cnv_class_5',
@@ -480,7 +474,7 @@ describe('parseSignedReport', () => {
           evidence_snapshot: {
             ...FROZEN_EVIDENCE,
             consequence: { effect: 'missense_variant', impact: 'MODERATE', lof: null },
-            gene_constraint: { gene_missense_z: 3.521 },
+            gene_constraint: { gene_missense_z: 3.521, gene_missense_z_source: 'gene_profile' },
           },
         },
         {
@@ -529,7 +523,7 @@ describe('parseSignedReport', () => {
           evidence_snapshot: {
             transcript_id: null,
             consequence: { effect: 7, impact: 'MODERATE' },
-            gene_constraint: { gene_missense_z: 'high' },
+            gene_constraint: { gene_missense_z: 'high', gene_missense_z_source: 'gene_profile' },
           },
         },
       ],
@@ -542,7 +536,7 @@ describe('parseSignedReport', () => {
 
   it('says where the frozen missense Z PP2 read came from (TRACE-15)', () => {
     // PP2 reads the gene profile's missense Z, else the VCF's own MISSENSE_Z; the snapshot freezes
-    // the value with its source. One frozen before the source was holds the gene profile's.
+    // the value with its source.
     const missenseZ = (gene_constraint: Record<string, unknown>) =>
       parseSignedReport({
         ...SNAPSHOT,
@@ -559,9 +553,6 @@ describe('parseSignedReport', () => {
     );
     const fromProfile = missenseZ({ gene_missense_z: 3.521, gene_missense_z_source: 'gene_profile' });
     expect(describeFrozenEvidenceValues(fromProfile)).toBe("From its gene's profile: gnomAD missense Z 3.52.");
-    const earlier = missenseZ({ gene_missense_z: 3.521 });
-    expect(earlier.geneConstraintSource).toBe('gene_profile');
-    expect(describeFrozenEvidenceValues(earlier)).toBe("From its gene's profile: gnomAD missense Z 3.52.");
     // Neither held one: the record says so, rather than "not annotated" in one of them.
     const neither = missenseZ({ gene_missense_z: null, gene_missense_z_source: null });
     expect(neither.geneConstraintSource).toBeNull();
@@ -605,7 +596,6 @@ describe('parseSignedReport', () => {
     const [sv] = parseSignedReport(SNAPSHOT)!.reportedStructuralVariants!;
 
     expect(sv.variantId).toBe('2-1000-50000-DEL---');
-    expect(sv.variantKey).toBe('123');
     // Its review shows no class: Not classified, with the CNV scoring beside it as the score.
     expect(sv.classification).toBeNull();
     expect(sv.score).toBe('Pathogenic - class 5');
@@ -628,7 +618,6 @@ describe('parseSignedReport', () => {
         'an entry that is not an object',
         {
           variant_id: '3-100-900-DUP---',
-          variant_key: 'k-7',
           class_shown: null,
           cnv_class: 'cnv_class_3',
           cnv_acmg: {
@@ -643,7 +632,6 @@ describe('parseSignedReport', () => {
     // Kept as a reported SV the record holds nothing readable of, never dropped.
     expect(unreadable).toEqual({
       variantId: null,
-      variantKey: null,
       classification: null,
       score: null,
       pointTotal: null,
@@ -652,7 +640,7 @@ describe('parseSignedReport', () => {
       tags: [],
       note: null,
     });
-    expect(gain.variantKey).toBe('k-7');
+    expect(gain.variantId).toBe('3-100-900-DUP---');
     // No class shown and no scoring classification: the CNV class's label is the score.
     expect(gain.classification).toBeNull();
     expect(gain.score).toBe('VUS - class 3');
@@ -721,7 +709,7 @@ describe('parseSignedReport', () => {
     expect([cleared.classification, cleared.score, cleared.pointTotal]).toEqual([null, 'Pathogenic - class 5', 1]);
   });
 
-  it('reads a section an older record predates as absent, never as empty', () => {
+  it('reads a part the record does not hold as null, never as empty', () => {
     const older = {
       family_id: 'F1',
       assembly: 'GRCh38',
@@ -732,13 +720,9 @@ describe('parseSignedReport', () => {
 
     expect(record.software).toBeNull();
     expect(record.drift).toBeNull();
-    // Signed before CoGA froze the SV/CNV evidence: the record holds no drift for them.
     expect(record.structuralDrift).toBeNull();
     expect(record.sampleQc).toBeNull();
     expect(record.sequencingQc).toBeNull();
-    expect(record.importIncomplete).toBe('absent');
-    expect(record.importUnfinished).toBe('absent');
-    // Signed before CoGA froze the reported SVs: the record holds none.
     expect(record.reportedStructuralVariants).toBeNull();
     expect(record.driftAcknowledgement).toEqual({ acknowledged: null, reason: null });
     expect(record.modules).toEqual([]);
@@ -1207,7 +1191,7 @@ describe('what the analysis looked at', () => {
     expect(describeGeneReferenceReleases(geneReference.value)).toBe('HGNC 2026-09-01');
   });
 
-  it('reads a record signed before these sections as not holding them', () => {
+  it('reads a record without these sections as unreadable, never as empty', () => {
     const record = parseSignedReport(SNAPSHOT)!;
     expect(record.statement).toBeNull();
     for (const section of [
@@ -1217,7 +1201,7 @@ describe('what the analysis looked at', () => {
       record.repeatExpansions,
       record.paraphase,
     ]) {
-      expect(section).toEqual({ state: 'absent' });
+      expect(section).toEqual({ state: 'unavailable', reason: 'it cannot be read here; the downloaded record holds it as stored' });
     }
   });
 
@@ -1317,24 +1301,6 @@ describe('the repeat calls’ near-boundary warnings', () => {
     );
   });
 
-  it('reads a record signed before the warnings as it was signed', () => {
-    const repeats = repeatsOf({
-      ...SNAPSHOT,
-      ...SIGNED_ANALYSIS,
-      repeat_expansions: SIGNED_REPEAT_EXPANSIONS_BEFORE_COUNT_UNITS,
-    });
-    expect(repeats.countUnitMargin).toBeNull();
-    expect(repeats.loci.map((locus) => locus.countUnits)).toEqual([null, null]);
-    expect(
-      repeats.loci.flatMap((locus) => locus.calls.flatMap((call) => call.alleles.map((allele) => allele.countUnitWarning))),
-    ).toEqual([null, null, null, null]);
-    // Its calls read as they always did: no warning, nothing of QA's records.
-    expect(repeats.loci.map(describeRepeatLocusCalls)).toEqual([
-      'PROBAND 0/1: 18, 40 repeats — Pathogenic',
-      'MOTHER 1/2: 30, 53 repeats — Grey zone',
-    ]);
-  });
-
   it('reads QA’s count correction and TRGT’s own count beside each corrected count', () => {
     const repeats = repeatsOf({ ...SNAPSHOT, ...SIGNED_ANALYSIS, repeat_expansions: SIGNED_REPEAT_EXPANSIONS_WITH_CORRECTION });
     const [htt, fmr1] = repeats.loci;
@@ -1358,23 +1324,6 @@ describe('the repeat calls’ near-boundary warnings', () => {
     expect(
       describeCountUnits({ countOffset: 2, validated: false, reason: 'Offset from VAL-7', updatedBy: null, updatedAt: null }),
     ).toBe('not validated, corrected to TRGT’s count +2 — Offset from VAL-7');
-  });
-
-  it('reads a record signed before the corrections as it was signed', () => {
-    const repeats = repeatsOf({
-      ...SNAPSHOT,
-      ...SIGNED_ANALYSIS,
-      repeat_expansions: SIGNED_REPEAT_EXPANSIONS_BEFORE_COUNT_OFFSETS,
-    });
-    expect(repeats.loci.map((locus) => locus.countUnits?.countOffset)).toEqual([null, null]);
-    expect(
-      repeats.loci.flatMap((locus) => locus.calls.flatMap((call) => call.alleles.map((allele) => allele.trgtRepeatCount))),
-    ).toEqual([null, null, null, null]);
-    expect(describeCountCorrections(repeats)).toBeNull();
-    expect(repeats.loci.map(describeRepeatLocusCalls)).toEqual([
-      'PROBAND 0/1: 18, 40 repeats — Pathogenic. TRGT’s counting units: validated — Validation report 7 (qa-lead, 2026-10-15 09:00 UTC).',
-      'MOTHER 1/2: 30, 53 repeats — Grey zone ⚠ Near a boundary: 53 is within 3 repeats of 55 (Premutation). TRGT’s counting units: not validated (no QA record).',
-    ]);
   });
 
   it('keeps a warning or a record it cannot fully read, and says so', () => {
@@ -1560,8 +1509,8 @@ describe('what each coverage track held', () => {
     expect(tracksOf({ ...SNAPSHOT, coverage_tracks: { tracks: [] } })).toEqual([]);
   });
 
-  it('reads a record signed before the section as not holding it, and one that could not capture it as unavailable', () => {
-    expect(parseSignedReport(SNAPSHOT)!.coverageTracks).toEqual({ state: 'absent' });
+  it('reads a record without the section, or one that could not capture it, as unavailable', () => {
+    expect(parseSignedReport(SNAPSHOT)!.coverageTracks).toEqual({ state: 'unavailable', reason: 'it cannot be read here; the downloaded record holds it as stored' });
     expect(
       parseSignedReport({ ...SNAPSHOT, coverage_tracks: { unavailable: 'The coverage tracks could not be read.' } })!
         .coverageTracks,
@@ -1571,7 +1520,7 @@ describe('what each coverage track held', () => {
   });
 });
 
-// The delivered package and its corrections at intake, frozen since 2026-11-10
+// The delivered package and its corrections at intake
 // (signed_record_sections.package_intake; owner decision of 2026-11-10).
 describe('the delivered package and its corrections at intake', () => {
   it('reads the delivery, the revision imported and each correction, marking what the pipeline used', () => {
@@ -1638,12 +1587,12 @@ describe('the delivered package and its corrections at intake', () => {
     });
   });
 
-  it('reads a family not imported from a delivery, a record signed before, and one that could not capture it', () => {
+  it('reads a family not imported from a delivery, a record without the section, and one that could not capture it', () => {
     expect(parseSignedReport({ ...SNAPSHOT, package_intake: { delivery: null } })!.packageIntake).toEqual({
       state: 'recorded',
       value: { delivery: null },
     });
-    expect(parseSignedReport(SNAPSHOT)!.packageIntake).toEqual({ state: 'absent' });
+    expect(parseSignedReport(SNAPSHOT)!.packageIntake).toEqual({ state: 'unavailable', reason: 'it cannot be read here; the downloaded record holds it as stored' });
     expect(
       parseSignedReport({
         ...SNAPSHOT,
@@ -1654,40 +1603,7 @@ describe('the delivered package and its corrections at intake', () => {
   });
 });
 
-// The sign-out check lists what the signed version does not hold, and so could not compare
-// (not_compared): a section, a reference module, or a part CoGA records since. The pages name
-// it beside "still matches" and beside what changed (TRACE-19).
-describe('what the sign-out check could not compare', () => {
-  it('names each section, module and part in words', () => {
-    expect(describeNotCompared(['nipt', 'coverage_tracks'])).toBe('NIPT results and coverage tracks');
-    expect(describeNotCompared(['repeat_expansions.count_units'])).toBe(
-      'the repeat calls’ near-boundary warnings and QA’s records of their counting units',
-    );
-    expect(describeNotCompared(['pgt_analysis.qc_verdict', 'pgt_analysis.inputs.blocks_outdated'])).toBe(
-      'the embryos’ QC verdicts and whether the haplotype blocks were built for the family’s pedigree',
-    );
-    expect(describeNotCompared(['nipt.coverage_notes'])).toBe(
-      'the NIPT coverage check’s notes on the coverage tracks it did not read as depth',
-    );
-    // A reference module CoGA records since: by its name, else by its key.
-    expect(describeNotCompared(['modules.hpo', 'modules.gene_loci', 'modules.gencc'])).toBe(
-      'the HPO version, the gene loci’s source and the gencc version',
-    );
-    // A part the page has no words for yet, under its section's name.
-    expect(describeNotCompared(['pgt_analysis.inputs.new_flag'])).toBe('PGT embryo results (inputs new flag)');
-    expect(describeNotCompared(['some_new_section'])).toBe('some_new_section');
-  });
-
-  it('says so in one sentence, or not at all', () => {
-    expect(notComparedSentence([], 'signed version 2')).toBeNull();
-    expect(notComparedSentence(undefined, 'signed version 2')).toBeNull();
-    expect(notComparedSentence(['repeat_expansions.count_units', 'modules.hpo'], 'signed version 2')).toBe(
-      'Not in signed version 2, so not compared: the repeat calls’ near-boundary warnings and QA’s records of their counting units and the HPO version.',
-    );
-  });
-});
-
-// A PGT family's embryo calls at the ROI, frozen since 2026-10-20 (pgt_analysis.py): the calls
+// A PGT family's embryo calls at the ROI (pgt_analysis.py): the calls
 // the family page showed, each with what it rests on.
 describe('the PGT embryo results', () => {
   const pgtRecord = (pgtAnalysis: unknown) =>
@@ -1859,9 +1775,6 @@ describe('the PGT embryo results', () => {
     expect(describeMixedHomologsRule(mixed.qcThresholds!)).toBe(
       "An embryo whose markers at the ROI, on a parental side the call reads, were more than 10% off one homolog (or two either side of one crossover), over at least 20 of them, was not called: it may carry both of that parent's homologs, as in a trisomy, which its haplotype blocks cannot show.",
     );
-    // A record from before the measure holds neither.
-    const before = recorded(pgtRecord(SIGNED_PGT_ANALYSIS_BEFORE_QC_VERDICT));
-    expect(before.embryos[0].mixedHomologs).toEqual([]);
   });
 
   it('says why an embryo is not called: no disease haplotype, or its unrecorded sex', () => {
@@ -1963,19 +1876,6 @@ describe('the PGT embryo results', () => {
     ).toBe(
       'thresholds the record does not state',
     );
-  });
-
-  it('reads a PGT record signed before the QC verdict as before: no verdict, no thresholds', () => {
-    const analysis = recorded(pgtRecord(SIGNED_PGT_ANALYSIS_BEFORE_QC_VERDICT));
-    expect(analysis.qcThresholds).toBeNull();
-    expect(analysis.embryos.map((embryo) => embryo.qcVerdict)).toEqual([null, null, null, null]);
-    // The rest reads as it did.
-    expect(analysis.embryos.map((embryo) => embryo.call)).toEqual([
-      'affected_or_at_risk',
-      'uninformative',
-      'unaffected_non_carrier',
-      null,
-    ]);
   });
 
   it('reads a record without the section as absent, and one that could not capture it as unavailable', () => {
@@ -2092,10 +1992,6 @@ describe('a NIPT family’s NIPT results', () => {
     const other = parseSignedReport(SNAPSHOT)!;
     expect(other.nipt).toEqual({ state: 'absent' });
     expect(isNiptRecord(other)).toBe(false);
-    // A NIPT family's record signed before CoGA froze them: absent, and said so.
-    const before = parseSignedReport({ ...SNAPSHOT, sample_qc: { ...SNAPSHOT.sample_qc, application: 'nipt' } })!;
-    expect(before.nipt).toEqual({ state: 'absent' });
-    expect(isNiptRecord(before)).toBe(true);
     // Results that could not be read: not captured, with the reason.
     const unread = parseSignedReport({ ...SNAPSHOT, nipt: { unavailable: 'The NIPT results could not be read.' } })!;
     expect(unread.nipt).toEqual({ state: 'unavailable', reason: 'The NIPT results could not be read.' });
@@ -2196,9 +2092,8 @@ describe('a NIPT family’s NIPT results', () => {
     );
   });
 
-  it('reads a record without the coverage check’s notes as not holding them, never as none', () => {
-    // Signed before CoGA froze them: absent.
-    expect(coverageNotesOf(NIPT).notes).toEqual({ state: 'absent' });
+  it('reads a record without the coverage check’s notes as unreadable, never as none', () => {
+    expect(coverageNotesOf(NIPT).notes).toEqual({ state: 'unavailable', reason: 'it cannot be read here; the downloaded record holds it as stored' });
     // With a per-target table the check reads its targets: recorded, as none.
     expect(coverageNotesOf({ ...NIPT, coverage_notes: null }).notes).toEqual({ state: 'recorded', value: null });
     // A value this view cannot read: not captured, and said so.

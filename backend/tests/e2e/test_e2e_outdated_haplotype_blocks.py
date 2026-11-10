@@ -161,5 +161,4 @@ def test_the_signed_record_holds_the_outdated_flag_and_the_uninformative_calls(o
     assert detail["snapshot"]["pgt_analysis"] == _ok(outdated, "after_sex")
     assert detail["snapshot"]["pgt_analysis"]["inputs"]["blocks_outdated"] is True
     check = _ok(outdated, "check")
-    assert check["matches"] is True, check
-    assert check["not_compared"] == []
+    assert check["matches"] is True and check["changed_sections"] == [], check

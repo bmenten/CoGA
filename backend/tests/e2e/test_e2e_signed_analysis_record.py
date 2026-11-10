@@ -12,10 +12,7 @@ refers to the frozen record by its report code. Over the golden trio, through th
   sentence that says what the record is, a verified content hash and a verified chain;
 * finds the record by its report code (as typed back, lower case, spaced), refuses a code
   with two symbols swapped (422), and answers an unknown code and a code whose family is
-  outside the caller's projects with the same 404;
-* signs out once more as a build from before these sections (their keys left out) and shows
-  that record still verifies, reads and is found by its code, and that the check names the
-  sections it predates as not compared.
+  outside the caller's projects with the same 404.
 
 Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``e2e`` job sets it.
 """
@@ -36,7 +33,7 @@ _FIXTURE = Path(__file__).parent / "fixtures" / "golden_trio"
 FAMILY = "FAM_TRIO"
 SMALL_VARIANT = "1-2000-C-T"  # GENE_PATH, stop_gained, de novo in the proband
 STRUCTURAL_VARIANT = "1-7000-12000-DEL---"  # the NeedlR deletion of BRCA2
-NEW_SECTIONS = ("variant_descriptions", "gene_panels", "reference_data", "repeat_expansions", "paraphase")
+ANALYSIS_SECTIONS = ("variant_descriptions", "gene_panels", "reference_data", "repeat_expansions", "paraphase")
 SIGN_OUT_BODY = {
     "acknowledge_drift": True,
     "drift_acknowledgement_reason": "e2e: the reported SV holds no CNV scoring",
@@ -90,7 +87,6 @@ async def _collect(root: Path) -> dict:
     from httpx import ASGITransport, AsyncClient
 
     from backend.app.main import app
-    from backend.app.services import report_signout_service as rss
     from backend.app.services.report_code import report_code
     from backend.tests.e2e import _harness
 
@@ -161,33 +157,9 @@ async def _collect(root: Path) -> dict:
         finally:
             await viewer.aclose()
 
-        # A record signed by a build from before these sections: their keys left out.
-        real_build = rss.build_report_snapshot
-
-        async def _old_build(*args, **kwargs):
-            body = await real_build(*args, **kwargs)
-            for key in (*NEW_SECTIONS, "record_statement"):
-                body.pop(key, None)
-            return body
-
-        mp = pytest.MonkeyPatch()
-        mp.setattr(rss, "build_report_snapshot", _old_build)
-        try:
-            r["old_signout"] = capture(await _harness.sign_out(ac, f"{family}/report/sign-out", SIGN_OUT_BODY))
-        finally:
-            mp.undo()
-        old = r["old_signout"]["json"] or {}
-        r["old_detail"] = capture(await ac.get(f"{family}/report/sign-outs/{old.get('version')}"))
-        r["old_check"] = capture(await ac.get(f"{family}/report/sign-out-check"))
-        r["old_lookup"] = capture(await ac.get(f"/api/report-codes/{old.get('report_code')}"))
-        r["old_chain"] = capture(
-            await ac.get("/api/admin/integrity/verify", params={"table": "report_signouts", "family_id": FAMILY})
-        )
-        # The family ends on a record of today's build, for the modules that run after this one,
-        # and with nothing tagged for the report: the golden trio's database is shared by the
-        # modules of a run, and a module that lists the reported variants (as
+        # The family ends with nothing tagged for the report: the golden trio's database is
+        # shared by the modules of a run, and a module that lists the reported variants (as
         # test_e2e_report_lists_complete does) would otherwise find these two as well.
-        r["final_signout"] = capture(await _harness.sign_out(ac, f"{family}/report/sign-out", SIGN_OUT_BODY))
         r["untag_small"] = capture(
             await ac.put(f"{family}/small-variants/{SMALL_VARIANT}/review", json={"tags": [], "note": None})
         )
@@ -349,14 +321,13 @@ def test_the_record_holds_the_paraphase_results(signed) -> None:
 
 
 def test_the_record_verifies_and_still_matches_right_after_it_was_signed(signed) -> None:
-    # Every new section reads back from JSONB as it was hashed.
+    # Every section reads back from JSONB as it was hashed.
     assert ok_json(signed, "chain")["verified"] is True
     check = ok_json(signed, "check")
-    assert check["matches"] is True, check
-    assert check["not_compared"] == []
+    assert check["matches"] is True and check["changed_sections"] == [], check
     # Each section was read: none is named as not captured. (The e2e stack's HPO terms come
     # without an ontology release, which the modules name; that is not one of these.)
-    assert [gap for gap in check["not_captured"] if gap["section"].split(".")[0] in NEW_SECTIONS] == []
+    assert [gap for gap in check["not_captured"] if gap["section"].split(".")[0] in ANALYSIS_SECTIONS] == []
 
 
 # ----------------------------------------------------------------- the report-code lookup
@@ -391,21 +362,3 @@ def test_an_unknown_code_and_one_outside_the_callers_projects_answer_alike(signe
 # ------------------------------------------------- a record from before these sections
 
 
-def test_a_record_without_the_sections_still_verifies_reads_and_is_found(signed) -> None:
-    old = ok_json(signed, "old_signout")
-    detail = ok_json(signed, "old_detail")
-    assert detail["verified"] is True
-    assert not set(NEW_SECTIONS) & set(detail["snapshot"])
-    assert "record_statement" not in detail["snapshot"]
-    # Nothing it predates is called "not captured": the signed view says it is not held.
-    assert [gap for gap in detail["not_captured"] if gap["section"].split(".")[0] in NEW_SECTIONS] == []
-    assert detail["report_code"] == old["report_code"]
-    assert ok_json(signed, "old_lookup")["version"] == old["version"]
-    assert ok_json(signed, "old_chain")["verified"] is True
-    # The check against it compares what it holds and names the sections it predates.
-    check = ok_json(signed, "old_check")
-    assert check["version"] == old["version"]
-    assert set(NEW_SECTIONS) <= set(check["not_compared"])
-    assert check["matches"] is True, check
-    final = ok_json(signed, "final_signout")
-    assert final["version"] == old["version"] + 1 and final["report_code"] != old["report_code"]
