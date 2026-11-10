@@ -19,6 +19,10 @@ ClickHouse:
   rows under B when its projects are saved again, and A's go;
 * rows left under B from earlier, with other calls, are replaced by A's when the family is
   linked to B: no write kept them current;
+* a family in no project (its rows under ``unassigned``), and one whose only project was
+  deleted (its rows under that project's id), are refused C with 409 and keep their rows; no
+  project of theirs names the assembly the rows are on, so every assembly is searched. Linked
+  to A, they get their rows there;
 * every column of ``SV/entries`` is copied (the copy names them).
 
 Everything runs in ONE event loop via an in-process ``httpx.ASGITransport`` client (see
@@ -249,6 +253,26 @@ async def _exercise(root: Path) -> dict[str, Any]:
             out["after_link_stale"] = await _rows(family_uuid)
 
             out["end"] = capture(await ac.put(url, json={"project_ids": [project_a]}))
+
+            # A family in no project: its rows under "unassigned", on an assembly no project
+            # of the family names any more.
+            out["none"] = capture(await ac.put(url, json={"project_ids": []}))
+            out["after_none"] = await _rows(family_uuid)
+            out["none_to_other_assembly"] = capture(await ac.put(url, json={"project_ids": [project_c]}))
+            out["after_none_to_other_assembly"] = await _rows(family_uuid)
+            out["projects_after_none_to_other_assembly"] = await _family_projects(family_uuid)
+            out["none_to_a"] = capture(await ac.put(url, json={"project_ids": [project_a]}))
+            out["after_none_to_a"] = await _rows(family_uuid)
+
+            # A family whose only project was deleted before that was refused (PR #1223): the
+            # links went with the project, its rows stayed under the deleted project's id.
+            out["to_b"] = capture(await ac.put(url, json={"project_ids": [project_b]}))
+            await _sql("DELETE FROM projects WHERE id = CAST(:b AS uuid)", {"b": project_b})
+            out["projects_after_delete"] = await _family_projects(family_uuid)
+            out["deleted_to_other_assembly"] = capture(await ac.put(url, json={"project_ids": [project_c]}))
+            out["after_deleted_to_other_assembly"] = await _rows(family_uuid)
+            out["deleted_to_a"] = capture(await ac.put(url, json={"project_ids": [project_a]}))
+            out["after_deleted_to_a"] = await _rows(family_uuid)
     finally:
         # The family back in A alone with its rows as imported, whatever happened above.
         await copy_family_variants_to_projects(
@@ -343,6 +367,34 @@ def test_rows_left_under_a_project_are_replaced_when_the_family_is_linked_to_it(
     assert run["link_stale"]["status"] == 200, run["link_stale"]["text"]
     assert _only(run["after_link_stale"], run["project_a"], run["project_b"], like=run["before"], under=run["project_a"])
     assert run["end"]["status"] == 200, run["end"]["text"]
+
+
+def test_a_family_in_no_project_is_refused_another_assembly_and_keeps_its_rows(run) -> None:
+    # No project of the family named the assembly its rows are on, so none was searched: the
+    # family was linked to C, its rows stayed on GRCh38 where no page of C looks, and the copy
+    # and prune ran on no assembly.
+    assert run["none"]["status"] == 200, run["none"]["text"]
+    assert _only(run["after_none"], "unassigned", like=run["before"], under=run["project_a"])
+    refused = run["none_to_other_assembly"]
+    assert refused["status"] == 409, refused["text"]
+    assert "stored on GRCh38" in refused["json"]["detail"]
+    assert run["after_none_to_other_assembly"] == run["after_none"]
+    assert run["projects_after_none_to_other_assembly"] == []
+    # A project on the rows' assembly gets them, and "unassigned" keeps none.
+    assert run["none_to_a"]["status"] == 200, run["none_to_a"]["text"]
+    assert run["after_none_to_a"] == run["before"]
+
+
+def test_a_family_whose_project_was_deleted_is_refused_another_assembly_and_keeps_its_rows(run) -> None:
+    assert run["to_b"]["status"] == 200, run["to_b"]["text"]
+    assert run["projects_after_delete"] == []
+    refused = run["deleted_to_other_assembly"]
+    assert refused["status"] == 409, refused["text"]
+    assert "stored on GRCh38" in refused["json"]["detail"]
+    assert _only(run["after_deleted_to_other_assembly"], run["project_b"], like=run["before"], under=run["project_a"])
+    # Linked to A, the rows under the deleted project's id are copied there and go.
+    assert run["deleted_to_a"]["status"] == 200, run["deleted_to_a"]["text"]
+    assert run["after_deleted_to_a"] == run["before"]
 
 
 def test_the_copy_names_every_sv_entries_column(run) -> None:

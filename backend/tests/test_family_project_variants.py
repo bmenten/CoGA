@@ -19,7 +19,9 @@ Over a fake ClickHouse (the storage module's ``_execute``) and a fake Postgres s
   it wrote; the prune deletes only rows outside the kept projects;
 * a family without a project keeps its rows under ``unassigned``, as the writers store them;
 * a project on another assembly is refused with 409 before anything is written, and the
-  change runs copy, commit, then prune, in its own transaction.
+  change runs copy, commit, then prune, in its own transaction;
+* a family in no project, whose assembly no project names, is looked for on every assembly:
+  a project on another one is refused, and the copy and prune run where its rows are.
 
 The values are synthetic.
 """
@@ -292,6 +294,78 @@ async def test_a_family_without_variants_may_go_to_any_assembly(monkeypatch) -> 
     monkeypatch.setattr(family_project_variants, "family_has_project_scoped_variants", stored)
 
     assert await family_project_variants.family_variant_assemblies(None, FAMILY, linked=[A], project_ids=[C]) == []
+
+
+class _AssemblySession:
+    """Answers the read of every assembly's name."""
+
+    def __init__(self, names: list[Any]) -> None:
+        self.names = names
+        self.statements: list[str] = []
+
+    async def execute(self, statement, params=None):
+        self.statements.append(" ".join(str(statement).split()))
+        names = self.names
+
+        class _Result:
+            def scalars(self):
+                return self
+
+            def all(self):
+                return names
+
+        return _Result()
+
+
+@pytest.mark.asyncio
+async def test_a_family_in_no_project_is_looked_for_on_every_assembly(monkeypatch) -> None:
+    # Its projects saved as none (its rows under "unassigned"), or its only project deleted
+    # before that was refused (its rows under the deleted id): no project names the assembly
+    # its rows are on, and a project on another one was not refused.
+    searched: list[str] = []
+
+    async def assemblies(_session, project_ids):
+        return {"GRCh37"} if project_ids == [C] else {ASSEMBLY} if project_ids else set()
+
+    async def every_assembly(_session):
+        searched.append("all")
+        return {"GRCh37", ASSEMBLY, "T2T"}
+
+    async def stored(name, _family):
+        return name == ASSEMBLY
+
+    monkeypatch.setattr(family_project_variants, "_project_assembly_names", assemblies)
+    monkeypatch.setattr(family_project_variants, "_all_assembly_names", every_assembly)
+    monkeypatch.setattr(family_project_variants, "family_has_project_scoped_variants", stored)
+
+    with pytest.raises(HTTPException) as refused:
+        await family_project_variants.family_variant_assemblies(None, FAMILY, linked=[], project_ids=[C])
+    assert refused.value.status_code == 409
+    assert "stored on GRCh38" in refused.value.detail
+    # Through the check a package import into the family runs, too.
+    async def no_project(_session, _family):
+        return []
+
+    monkeypatch.setattr(family_project_variants, "linked_project_ids", no_project)
+    with pytest.raises(HTTPException):
+        await family_project_variants.refuse_project_on_other_assembly(None, FAMILY, C)
+
+    # A project on the assembly the rows are on gets them copied there, and saving none again
+    # copies and prunes there too.
+    assert await family_project_variants.family_variant_assemblies(None, FAMILY, linked=[], project_ids=[B]) == [ASSEMBLY]
+    assert await family_project_variants.family_variant_assemblies(None, FAMILY, linked=[], project_ids=[]) == [ASSEMBLY]
+    assert searched == ["all"] * 4
+
+    # A family with a project is looked for on its projects' assemblies only, as before.
+    assert await family_project_variants.family_variant_assemblies(None, FAMILY, linked=[A], project_ids=[B]) == [ASSEMBLY]
+    assert searched == ["all"] * 4
+
+
+@pytest.mark.asyncio
+async def test_every_assembly_is_read_by_name_without_blank_ones() -> None:
+    session = _AssemblySession(["GRCh38", "GRCh37", "", "  ", None])
+    assert await family_project_variants._all_assembly_names(session) == {"GRCh38", "GRCh37"}
+    assert session.statements == ["SELECT DISTINCT assembly_name FROM assemblies"]
 
 
 class _Session:
