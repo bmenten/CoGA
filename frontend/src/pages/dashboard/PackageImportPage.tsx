@@ -1,8 +1,8 @@
 import React from 'react';
 import { Link } from 'react-router';
 
-import FamilyPackageImportPanel from './FamilyPackageImportPanel';
 import ImportDeliveriesPanel from './ImportDeliveriesPanel';
+import ImportJobsPanel from './ImportJobsPanel';
 
 const PackageImportPage: React.FC = () => {
   return (
@@ -13,8 +13,9 @@ const PackageImportPage: React.FC = () => {
             <p className="page-kicker">Intake</p>
             <h1 className="catalog-card-title">Package import</h1>
             <p className="catalog-card-copy">
-              Validate manifests and bulk-import family data packages from a folder. To create a
-              family by hand, use Family Builder.
+              Check, correct and approve the family packages the pipelines deliver, or add a
+              folder by hand, and follow their imports. To create a family by hand, use Family
+              Builder.
             </p>
           </div>
           <Link to="/dashboard" className="subtle-link">
@@ -25,7 +26,7 @@ const PackageImportPage: React.FC = () => {
 
       <ImportDeliveriesPanel />
 
-      <FamilyPackageImportPanel />
+      <ImportJobsPanel />
     </div>
   );
 };

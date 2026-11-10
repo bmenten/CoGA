@@ -1,26 +1,25 @@
-"""Package paths over the API: a manifest through a symlink, ``~``, a symlink loop (E2E).
+"""Package paths through the import: a manifest through a symlink, ``~``, a symlink loop (E2E).
 
 Over the real API (an in-process ``httpx.ASGITransport`` client that answers an app failure
 with 500, see test_e2e_api_contract.py) and Postgres, with synthetic packages:
 
-* a package whose ``manifest.yaml`` is a symlink to a manifest outside the import root:
-  Discover and Validate refuse it (``manifest_outside_package``), Write manifest answers 400
-  and leaves the outside file as it was, and an import job of it ends ``failed`` with that
-  error, having written no family. Before, the outside manifest was read as the package's:
-  Validate passed, the job imported the family by it, and Write manifest replaced it;
-* a package whose manifest names a file under ``~coga-no-such-user``: Validate answers 400,
-  and the job ends failed with that refusal; before, a 500, and a job failed on "Could not
-  determine home directory.". Discover drafts, the file absent (it was a 500);
-* a package whose manifest names a file through a symlink loop: Validate answers 400, and the
-  job ends failed with that refusal; before, on Python 3.12, which CI runs, a 500 and a job
-  failed on "Symlink loop from ...", and on 3.13 a missing file;
-* a package whose PED names a father it lacks, with an escape in his ID: Discover drafts
-  nothing (``sample_id_invalid``); before, it drafted and looked his NIPT VCF up;
+* a package whose ``manifest.yaml`` is a symlink to a manifest outside the import root: an
+  import job of it ends ``failed`` with ``manifest_outside_package``, having written no family,
+  and the outside file is as it was. Before, the outside manifest was read as the package's,
+  and the job imported the family by it;
+* a package whose manifest names a file under ``~coga-no-such-user``: the job ends failed with
+  that refusal; before, a job failed on "Could not determine home directory.";
+* a package whose manifest names a file through a symlink loop: the job ends failed with that
+  refusal; before, on Python 3.12, which CI runs, a job failed on "Symlink loop from ...", and
+  on 3.13 a missing file;
+* a package whose PED names a father it lacks, with an escape in his ID, added to Deliveries
+  by hand: CoGA proposes no members for it, and the delivery needs attention, naming the ID
+  (``sample_id_invalid``);
 * the package list, with a package folder that is a symlink to a package outside the import
   root, one that loops and one that leads to a folder in the root: it leaves out the first
-  two and lists the third by the folder it leads to, and Validate refuses the first typed
-  (``package_folder_not_allowed``). Before, the list showed the first by its path outside the
-  root, under the family and analysis type of the manifest it read there.
+  two and lists the third by the folder it leads to, and adding the first by hand, typed, is
+  refused. Before, the list showed the first by its path outside the root, under the family
+  and analysis type of the manifest it read there.
 
 Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``e2e`` job sets it.
 """
@@ -34,7 +33,7 @@ import pytest
 import yaml
 
 from backend.tests.e2e._harness import capture, ensure_postgres_schema
-from backend.tests.e2e._import_jobs import issue_codes, row_counts, run_import_job
+from backend.tests.e2e._import_jobs import row_counts, run_import_job
 
 pytestmark = pytest.mark.integration
 
@@ -119,24 +118,19 @@ async def _collect(base: Path) -> dict[str, Any]:
         token = await _harness.login_admin_token(ac)
         ac.headers["Authorization"] = f"Bearer {token}"
 
-        for name, folder in (("linked", linked), ("tilde", tilde), ("parent", parent)):
-            out[f"discover_{name}"] = capture(
-                await ac.post("/api/family-imports/manifest/discover", json={"folder_path": str(folder)})
+        async def add(folder: Path) -> dict[str, Any]:
+            return capture(
+                await ac.post(
+                    "/api/family-imports/deliveries",
+                    json={"folder_path": str(folder), "project_id": project_id, "analysis_type": "wgs_trio"},
+                )
             )
+
+        out["added_parent"] = await add(parent)
         for name, folder in (("linked", linked), ("tilde", tilde), ("looping", looping)):
-            out[f"validate_{name}"] = capture(await ac.post("/api/family-imports/validate", json={"folder_path": str(folder)}))
-        out["write_linked"] = capture(
-            await ac.post(
-                "/api/family-imports/manifest/write",
-                json={"folder_path": str(linked), "manifest_yaml": _manifest("FAMPATH1"), "overwrite": True},
-            )
-        )
-        for name, folder in (("linked", linked), ("tilde", tilde), ("looping", looping)):
-            out[f"job_{name}"] = await run_import_job(ac, folder, project_id, _WORKER)
+            out[f"job_{name}"] = await run_import_job(folder, project_id, _WORKER)
         out["packages"] = capture(await ac.get("/api/family-imports/packages"))
-        out["validate_linked_folder"] = capture(
-            await ac.post("/api/family-imports/validate", json={"folder_path": str(imports / "FAMPATH5")})
-        )
+        out["added_linked_folder"] = await add(imports / "FAMPATH5")
     out["decoy_after"] = decoy.read_text()
     out["after"] = await row_counts()
     return out
@@ -155,14 +149,6 @@ def snap(tmp_path_factory: pytest.TempPathFactory, request: pytest.FixtureReques
 
 
 def test_a_manifest_through_a_symlink_out_of_the_package_is_refused(snap: dict[str, Any]) -> None:
-    for name in ("discover_linked", "validate_linked"):
-        response = snap[name]
-        assert response["status"] == 200, (name, response["text"])
-        assert issue_codes(response) == ["manifest_outside_package"], (name, response["json"])
-    assert snap["discover_linked"]["json"]["manifest_yaml"] == ""
-    write = snap["write_linked"]
-    assert write["status"] == 400, write["text"]
-    assert write["json"]["detail"].startswith("manifest.yaml is a symlink that leads out of the package folder")
     assert snap["decoy_after"] == snap["decoy_before"]
     job = snap["job_linked"]
     assert "raised" not in job, job
@@ -175,29 +161,23 @@ def test_a_manifest_path_starting_with_a_tilde_is_refused(snap: dict[str, Any]) 
         f"Package manifest path '{UNKNOWN_HOME}/FAMPATH2.vcf.gz' starts with '~': a manifest path is "
         "relative to the package directory, and CoGA does not read a home folder"
     )
-    assert (snap["validate_tilde"]["status"], snap["validate_tilde"]["json"]) == (400, {"detail": detail})
-    discover = snap["discover_tilde"]
-    assert discover["status"] == 200, discover["text"]
-    snv = next(item for item in discover["json"]["datasets"] if item["dataset_type"] == "snv")
-    assert [(item["path"], item["exists"]) for item in snv["files"]] == [(f"{UNKNOWN_HOME}/FAMPATH2.vcf.gz", False)]
     job = snap["job_tilde"]
     assert (job["status"], job["ended"], job["error"], job["family_id"]) == ("failed", True, f"400: {detail}", None)
 
 
 def test_a_manifest_path_through_a_symlink_loop_is_refused(snap: dict[str, Any]) -> None:
     detail = f"Package manifest path 'snv/FAMPATH3.vcf.gz' {LOOP}"
-    assert (snap["validate_looping"]["status"], snap["validate_looping"]["json"]) == (400, {"detail": detail})
     job = snap["job_looping"]
     assert (job["status"], job["ended"], job["error"], job["family_id"]) == ("failed", True, f"400: {detail}", None)
 
 
-def test_discover_refuses_a_parent_id_the_ped_lacks_that_cannot_be_stored(snap: dict[str, Any]) -> None:
+def test_a_parent_id_the_ped_lacks_that_cannot_be_stored_gets_no_members_proposed(snap: dict[str, Any]) -> None:
     from backend.app.services.family_identifiers import IDENTIFIER_RULE
 
-    response = snap["discover_parent"]
+    response = snap["added_parent"]
     assert response["status"] == 200, response["text"]
-    assert response["json"]["manifest_yaml"] == ""
-    messages = [issue["message"] for issue in response["json"]["errors"] if issue["code"] == "sample_id_invalid"]
+    assert response["json"]["state"] == "needs_attention"
+    messages = [issue["message"] for issue in response["json"]["issues"] if issue["code"] == "sample_id_invalid"]
     assert messages == [
         "Sample ID 'FATHER\\x1bP4' (a parent of CHILDP4 in the PED) contains a control character (\\x1b). "
         f"{IDENTIFIER_RULE}"
@@ -211,17 +191,13 @@ def test_the_package_list_leaves_out_a_package_folder_linked_out_of_the_import_r
     # FAMPATH5 was listed by its path outside the root, under the family and analysis type of
     # the manifest found there. FAMPATH6 loops.
     assert sorted(by_name) == ["FAMPATH1", "FAMPATH2", "FAMPATH3", "FAMPATH4", "FAMPATH7"]
-    assert [by_name["FAMPATH7"][key] for key in ("folder_path", "family_id", "analysis_type")] == [
-        snap["archived"],
-        "FAMPATH7",
-        "trio_check",
-    ]
+    assert [by_name["FAMPATH7"][key] for key in ("folder_path", "family_id")] == [snap["archived"], "FAMPATH7"]
     for value in (snap["foreign"], "FAMPATHOUT", "decoy_analysis"):
         assert value not in listed["text"]
-    # Typed, the folder is refused, as it was.
-    validate = snap["validate_linked_folder"]
-    assert validate["status"] == 200, validate["text"]
-    assert issue_codes(validate) == ["package_folder_not_allowed"]
+    # Typed, the folder is refused.
+    added = snap["added_linked_folder"]
+    assert added["status"] == 403, added["text"]
+    assert added["json"]["detail"].startswith("Family import path is outside configured FAMILY_IMPORT_ROOTS")
 
 
 def test_nothing_of_a_refused_package_was_written(snap: dict[str, Any]) -> None:

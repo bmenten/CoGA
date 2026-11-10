@@ -2,7 +2,7 @@ Choose the way in that matches how your data arrives.
 
 ```cards
 Family builder | Build a new family by hand: add samples, set sex and roles, link parents and couples, and set affected and carrier status. Open to the analysts of a project whose role is analyst or higher, who add families to it, and to superusers and administrators; uploading a PED file here is for administrators.
-Package import | A superuser or an administrator points at a family folder on the CoGA server, lets CoGA write its manifest, validates it, and imports the family with all its data in one job.
+Package import | A superuser or an administrator checks, corrects and approves the family folder a pipeline delivers to the CoGA server, or adds a folder by hand, and imports the family with all its data in one job.
 ```
 
 - **Package import is for superusers and administrators.** The rest of loading data is for

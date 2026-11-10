@@ -60,7 +60,7 @@ async def _exercise(base: Path, run: str) -> dict[str, Any]:
     async with AsyncClient(transport=transport, base_url="http://e2e") as client:
         client.headers["Authorization"] = f"Bearer {await _harness.login_admin_token(client)}"
         out["before"] = capture(await client.get("/api/family-imports/packages"))
-        out["job"] = await run_import_job(client, imported, project_id, f"e2e-scan-{uuid4().hex[:8]}")
+        out["job"] = await run_import_job(imported, project_id, f"e2e-scan-{uuid4().hex[:8]}")
         out["after"] = capture(await client.get("/api/family-imports/packages"))
         async with sessionmaker() as session:
             out["registered_at"] = (

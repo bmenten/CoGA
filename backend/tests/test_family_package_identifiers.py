@@ -42,7 +42,6 @@ from backend.app.services.family_package_discovery import discover_family_packag
 from backend.app.services.family_package_jobs import queue_family_import_job
 from backend.app.services.family_package_long_read import long_read_sample_ids
 from backend.app.services.family_package_manifest import _manifest_added_ped_rows
-from backend.app.services.family_package_registration import existing_family_sample_ids
 from backend.app.services.family_package_validation import load_validated_family_package
 from backend.tests._family_import_fakes import admin_user
 
@@ -268,18 +267,6 @@ def test_discover_reports_a_per_sample_folder_no_sample_can_be_stored_under(tmp_
     ]
 
 
-def test_discover_refuses_a_sample_id_of_the_family_in_the_database_that_cannot_be_stored(tmp_path: Path) -> None:
-    root = _write_package(tmp_path / FAMILY)
-
-    out = discover_family_package_manifest(
-        FamilyPackageManifestBuildRequest(folder_path=str(root), family_id=FAMILY),
-        db_sample_ids=[MOTHER, f"FATHER{BEL}1"],
-    )
-
-    assert [issue.code for issue in out.errors] == ["sample_id_invalid"]
-    assert "'FATHER\\x071' (of the family in the database)" in out.errors[0].message
-
-
 # --------------------------------------------------------------------------- #
 # The package validation
 # --------------------------------------------------------------------------- #
@@ -462,10 +449,9 @@ async def test_an_import_of_a_family_id_no_family_can_have_writes_nothing(
 async def test_the_lookups_of_a_requested_family_skip_an_id_no_family_can_have(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # Discover, Write manifest and Validate look the request's family up before the package
-    # is read; such an ID reaches no query (Postgres cannot even take a NUL).
+    # The import looks the request's family up before the package is read; such an ID reaches
+    # no query (Postgres cannot even take a NUL).
     for family_id in (f"FAM{NUL}001", f"FAM{ESC}001", "FAM 001", "  "):
-        assert await existing_family_sample_ids(_ExplodingSession(), family_id) == []  # type: ignore[arg-type]
         assert await package_import.db_pedigree_fallback(_ExplodingSession(), family_id) is None  # type: ignore[arg-type]
 
     asked: list[str] = []

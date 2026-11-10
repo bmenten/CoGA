@@ -8,12 +8,13 @@ client that answers an app failure with 500, see test_e2e_api_contract.py) and P
 synthetic packages in an import root of the test's own:
 
 * FAMLINK1, a long-read couple without a PED whose father's SNV folder is a symbolic link to
-  his folder in another package, FAMLINK2: the package list lists FAMLINK1, Discover still
-  proposes the father from the linked folder, and says that ``snv/FATHERL1`` is a symbolic
-  link to ``FAMLINK2/snv/FATHERL1`` in the import folders (``package_folder_link``); once its
-  manifest is written, Validate and a dry-run import job report the same warning, and pass;
+  his folder in another package, FAMLINK2: the package list lists FAMLINK1; added to Deliveries
+  by hand, the package CoGA makes still has the father from the linked folder, and the delivery
+  says that ``snv/FATHERL1`` is a symbolic link to ``FAMLINK2/snv/FATHERL1`` in the import
+  folders (``package_folder_link``); approved as a dry run, its import job reports the same
+  warning, and passes;
 * FAMLINK3, a trio whose ``ped/`` folder is a symbolic link to a folder outside the import
-  root: Validate passes and says the folder leads outside the import folders, naming no
+  root: added by hand, the delivery says the folder leads outside the import folders, naming no
   path there;
 * no message names an absolute path, and nothing is written.
 
@@ -28,7 +29,6 @@ from typing import Any
 
 import pytest
 from sqlalchemy import text
-import yaml
 
 from backend.tests.e2e._harness import capture, ensure_postgres_schema
 from backend.tests.e2e._import_jobs import claim_import_job
@@ -64,17 +64,17 @@ async def _counts() -> dict[str, int]:
     return dict(row)
 
 
-async def _run_dry_run_job(ac: Any, folder: Path, project_id: str) -> dict[str, Any]:
-    """Queue a dry run of ``folder`` as the page does, claim it as the worker does, run it."""
+async def _run_dry_run_job(ac: Any, delivery: dict[str, Any]) -> dict[str, Any]:
+    """Approve ``delivery`` as a dry run, claim its job as the worker does, run it."""
     from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.services import family_package_import
 
     resp = await ac.post(
-        "/api/family-imports",
-        json={"folder_path": str(folder), "project_id": project_id, "dry_run": True, "conflict_mode": "cancel"},
+        f"/api/family-imports/deliveries/{delivery['_id']}/approve",
+        json={"revision": 0, "dry_run": True, "acknowledge_warnings": True},
     )
     assert resp.status_code == 200, resp.text
-    job_id = str(resp.json()["_id"])
+    job_id = str(resp.json()["job"]["_id"])
     await claim_import_job(job_id, _WORKER)
     await family_package_import.run_family_import_job(job_id=job_id, worker_id=_WORKER)
     async with get_postgres_sessionmaker()() as session:
@@ -112,10 +112,6 @@ async def _collect(base: Path) -> dict[str, Any]:
     trio.mkdir(parents=True)
     ped = "FAMLINK3 FATHERL3 0 0 1 1\nFAMLINK3 MOTHERL3 0 0 2 1\nFAMLINK3 CHILDL3 FATHERL3 MOTHERL3 1 2\n"
     (trio / "family.ped").write_text(ped, encoding="utf-8")
-    (trio / "manifest.yaml").write_text(
-        yaml.safe_dump({"schema_version": 1, "family_id": "FAMLINK3", "ped": "family.ped", "datasets": {}}),
-        encoding="utf-8",
-    )
     outside_peds = base / "outside" / "peds"
     outside_peds.mkdir(parents=True)
     (outside_peds / "FAMLINK3.ped").write_text(ped, encoding="utf-8")
@@ -131,17 +127,21 @@ async def _collect(base: Path) -> dict[str, Any]:
         ac.headers["Authorization"] = f"Bearer {await _harness.login_admin_token(ac)}"
 
         out["packages"] = capture(await ac.get("/api/family-imports/packages"))
-        out["discover"] = capture(await ac.post("/api/family-imports/manifest/discover", json={"folder_path": str(couple)}))
-        manifest_yaml = (out["discover"]["json"] or {}).get("manifest_yaml") or ""
-        out["write"] = capture(
+        out["added"] = capture(
             await ac.post(
-                "/api/family-imports/manifest/write",
-                json={"folder_path": str(couple), "manifest_yaml": manifest_yaml, "overwrite": False},
+                "/api/family-imports/deliveries",
+                json={"folder_path": str(couple), "project_id": project_id, "analysis_type": "long_read_couple"},
             )
         )
-        out["validate"] = capture(await ac.post("/api/family-imports/validate", json={"folder_path": str(couple)}))
-        out["job"] = await _run_dry_run_job(ac, couple, project_id)
-        out["validate_ped"] = capture(await ac.post("/api/family-imports/validate", json={"folder_path": str(trio)}))
+        delivery = out["added"]["json"]
+        out["package"] = capture(await ac.get(f"/api/family-imports/deliveries/{delivery['_id']}/package"))
+        out["job"] = await _run_dry_run_job(ac, delivery)
+        out["added_ped"] = capture(
+            await ac.post(
+                "/api/family-imports/deliveries",
+                json={"folder_path": str(trio), "project_id": project_id, "analysis_type": "wgs_trio"},
+            )
+        )
     out["after"] = await _counts()
     return out
 
@@ -175,50 +175,40 @@ def test_the_package_list_still_lists_the_package(snap: dict[str, Any]) -> None:
     assert {"FAMLINK1", "FAMLINK2", "FAMLINK3"} <= {item["name"] for item in listed["json"]}
 
 
-def test_discover_still_proposes_a_member_from_a_linked_folder_and_reports_the_link(snap: dict[str, Any]) -> None:
-    discover = snap["discover"]
-    assert discover["status"] == 200, discover["text"]
-    members = yaml.safe_load(discover["json"]["manifest_yaml"])["family"]["add_members"]
-    assert [member["sample_id"] for member in members] == ["FATHERL1", "MOTHERL1"]
-    assert _links(discover["json"]["warnings"]) == [
-        (
-            f"{snap['couple']}/snv/FATHERL1",
-            _warning("snv/FATHERL1", "'FAMLINK2/snv/FATHERL1' in the import folders"),
-        )
-    ]
+def test_the_package_coga_makes_has_the_member_of_a_linked_folder_and_the_delivery_reports_the_link(
+    snap: dict[str, Any],
+) -> None:
+    added = snap["added"]
+    assert added["status"] == 200, added["text"]
+    members = snap["package"]["json"]["package"]["members"]
+    assert sorted(member["sample_id"] for member in members) == ["FATHERL1", "MOTHERL1"]
+    assert set(_links(added["json"]["warnings"])) == {
+        (None, _warning("snv/FATHERL1", "'FAMLINK2/snv/FATHERL1' in the import folders"))
+    }
 
 
-def test_validate_and_a_dry_run_report_the_link_and_pass(snap: dict[str, Any]) -> None:
-    assert snap["write"]["status"] == 200, snap["write"]["text"]
-    expected = [
-        (
-            f"{snap['couple']}/snv/FATHERL1",
-            _warning("snv/FATHERL1", "'FAMLINK2/snv/FATHERL1' in the import folders"),
-        )
-    ]
-    validate = snap["validate"]
-    assert validate["status"] == 200, validate["text"]
-    assert validate["json"]["valid"] is True, validate["json"]["errors"]
-    assert _links(validate["json"]["warnings"]) == expected
+def test_a_dry_run_of_the_delivery_reports_the_link_and_passes(snap: dict[str, Any]) -> None:
     job = snap["job"]
     assert (job["status"], job["error"], job["validation_errors"]) == ("completed", None, []), job
-    assert _links(job["validation_warnings"]) == expected
+    assert _links(job["validation_warnings"]) == [
+        (
+            f"{snap['couple']}/snv/FATHERL1",
+            _warning("snv/FATHERL1", "'FAMLINK2/snv/FATHERL1' in the import folders"),
+        )
+    ]
 
 
 def test_a_ped_folder_linked_out_of_the_import_root_is_reported_without_its_path(snap: dict[str, Any]) -> None:
-    validate = snap["validate_ped"]
-    assert validate["status"] == 200, validate["text"]
-    assert validate["json"]["valid"] is True, validate["json"]["errors"]
-    [(path, message)] = _links(validate["json"]["warnings"])
-    assert path.endswith("/FAMLINK3/ped")
-    assert message == _warning("ped", "a folder outside the import folders")
+    added = snap["added_ped"]
+    assert added["status"] == 200, added["text"]
+    assert set(_links(added["json"]["warnings"])) == {(None, _warning("ped", "a folder outside the import folders"))}
 
 
 def test_no_message_names_an_absolute_path_and_nothing_is_written(snap: dict[str, Any]) -> None:
     def naming_a_path(issues: list[dict[str, Any]]) -> list[str]:
         return [issue["message"] for issue in issues if any(base in issue["message"] for base in snap["bases"])]
 
-    for name in ("discover", "validate", "validate_ped"):
-        assert naming_a_path([*snap[name]["json"]["errors"], *snap[name]["json"]["warnings"]]) == [], name
+    for name in ("added", "added_ped"):
+        assert naming_a_path([*snap[name]["json"]["issues"], *snap[name]["json"]["warnings"]]) == [], name
     assert naming_a_path(snap["job"]["validation_warnings"]) == []
     assert snap["after"] == snap["before"]

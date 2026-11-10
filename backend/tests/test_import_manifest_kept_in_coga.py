@@ -1,22 +1,19 @@
 """A package is validated and imported with the manifest CoGA keeps, instead of the folder's own.
 
-The test deployment reads packages from a share mounted read-only. Validation and the import
-read the manifest from the package folder alone, and Write manifest cannot put one there, so a
-package on the share imported only when its pipeline wrote a CoGA manifest into it. An import
-request now gives the manifest (``manifest_yaml``): the job keeps it with its SHA-256
+The test deployment reads packages from a share mounted read-only, and CoGA writes nothing into a
+package folder. An approved delivery queues its import with the manifest its package makes: the
+job keeps it with its SHA-256
 (``family_import_jobs.manifest_text``, ``manifest_sha256``), validation and the import read it
 instead of a file in the folder, and its paths are read relative to the package, which they
 must not leave. The report and the family's package record name the manifest read
 (``manifest_source``, ``manifest_sha256``), the folder's file too, by the SHA-256 of its bytes;
-the family's raw files hold a managed copy of a kept one. Writing a manifest into a folder CoGA
-cannot write answers 409 with what to do, not a 500.
+the family's raw files hold a managed copy of a kept one.
 
 All samples and values here are synthetic.
 """
 
 from __future__ import annotations
 
-import errno
 import hashlib
 from pathlib import Path
 from types import SimpleNamespace
@@ -26,7 +23,7 @@ from fastapi import HTTPException
 import pytest
 
 from backend.app.core.config import settings
-from backend.app.services import family_package_discovery, family_package_jobs, family_package_registration, raw_import_files_pg
+from backend.app.services import family_package_jobs, family_package_registration, raw_import_files_pg
 from backend.app.services.family_package_validation import load_validated_family_package
 
 _PED = "FAM1\tPROBAND\t0\t0\t1\t2\n"
@@ -196,36 +193,6 @@ async def test_a_manifest_the_job_cannot_store_is_refused_before_the_job_is_writ
 
     assert refused.value.status_code == 400
     assert session.inserted is None
-
-
-@pytest.mark.parametrize("code", [errno.EROFS, errno.EACCES, errno.EPERM])
-def test_writing_into_a_folder_coga_cannot_write_answers_409_with_what_to_do(
-    package: Path, monkeypatch: pytest.MonkeyPatch, code: int
-) -> None:
-    def refuse(_root: Path, _text: str) -> Path:
-        raise OSError(code, "refused")
-
-    monkeypatch.setattr(family_package_discovery, "_write_manifest_in_folder", refuse)
-
-    with pytest.raises(HTTPException) as refused:
-        family_package_discovery.write_family_package_manifest(
-            folder_path=package, manifest_yaml=_KEPT, overwrite=False
-        )
-
-    assert refused.value.status_code == 409
-    assert refused.value.detail == family_package_discovery.MANIFEST_FOLDER_NOT_WRITABLE
-
-
-def test_another_write_error_is_not_taken_for_a_read_only_folder(package: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    def full(_root: Path, _text: str) -> Path:
-        raise OSError(errno.ENOSPC, "no space")
-
-    monkeypatch.setattr(family_package_discovery, "_write_manifest_in_folder", full)
-
-    with pytest.raises(OSError):
-        family_package_discovery.write_family_package_manifest(
-            folder_path=package, manifest_yaml=_KEPT, overwrite=False
-        )
 
 
 class _RawFileSession:

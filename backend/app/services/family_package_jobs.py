@@ -105,15 +105,6 @@ async def _require_import_project(session: AsyncSession, project_id: str) -> str
     return project_uuid
 
 
-# Why an import that follows a dry run or a validation is refused when the package's fingerprint
-# differs from the one that dry run or validation took.
-PACKAGE_CHANGED_SINCE_CHECKED = (
-    "The package changed since its dry run or validation: a file in the folder was added, removed "
-    "or changed (by name, size or modification time), or the folder can no longer be read. Nothing "
-    "was queued. Run the dry run again, check its report, then import."
-)
-
-
 async def _queued_package_fingerprint(folder_path: str, *, manifest_text: str | None) -> PackageFingerprint | None:
     """The fingerprint of the local package folder ``folder_path`` as the job is queued, read with
     the kept manifest ``manifest_text``; None for a package in a bucket and a folder that cannot be
@@ -134,7 +125,6 @@ async def queue_family_import_job(
     conflict_mode: str = "cancel",
     requested_by: CurrentUser,
     manifest_text: str | None = None,
-    expected_package_fingerprint: str | None = None,
     delivery: dict[str, Any] | None = None,
     commit: bool = True,
 ) -> FamilyPackageImportJobOut:
@@ -151,11 +141,10 @@ async def queue_family_import_job(
 
     The job keeps the fingerprint of a local package folder as it is queued, read with that
     manifest (``package_fingerprint``): the worker imports nothing when the folder's differs as
-    the job starts. Given ``expected_package_fingerprint``, the fingerprint of the dry run or the
-    validation the import follows, the import is refused (409, ``PACKAGE_CHANGED_SINCE_CHECKED``)
-    before the job is written when the folder's differs, or the folder can no longer be read: the
-    package is not the one the user checked. A package in a bucket, and a folder the queue cannot
-    read, are queued without one; the job's validation reports such a folder.
+    the job starts. (A delivery's approval refuses a folder whose fingerprint differs from the
+    one it was checked with before it queues the job: import_delivery_review.py.) A package in a
+    bucket, and a folder the queue cannot read, are queued without one; the job's validation
+    reports such a folder.
 
     ``delivery`` is the delivery of a watched import folder the job imports (its id, run,
     marker's SHA-256 and package fingerprint; import_delivery_review.py), kept in the job's
@@ -176,10 +165,6 @@ async def queue_family_import_job(
         raise HTTPException(status_code=400, detail=manifest_problem)
     project_uuid = await _require_import_project(session, project_id) if project_id else None
     fingerprint = await _queued_package_fingerprint(folder_path, manifest_text=manifest_text)
-    if expected_package_fingerprint is not None and (
-        fingerprint is None or fingerprint.sha256 != expected_package_fingerprint
-    ):
-        raise HTTPException(status_code=409, detail=PACKAGE_CHANGED_SINCE_CHECKED)
     metadata: dict[str, Any] = {
         "requested_family_id": requested_family_id,
         "conflict_mode": conflict_mode,

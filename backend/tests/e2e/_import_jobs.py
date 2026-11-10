@@ -56,26 +56,36 @@ def one_sample_package(
 
 
 async def queue_import(
-    ac: Any,
     folder: Path,
     project_id: str | None,
     *,
     conflict_mode: str = "cancel",
     family_id: str | None = None,
     dry_run: bool = False,
+    requested_by: Any = None,
+    manifest_text: str | None = None,
 ) -> str:
-    """Queue an import of ``folder`` as the import page does, and return the job's id."""
-    body: dict[str, Any] = {
-        "folder_path": str(folder),
-        "project_id": project_id,
-        "dry_run": dry_run,
-        "conflict_mode": conflict_mode,
-    }
-    if family_id:
-        body["family_id"] = family_id
-    resp = await ac.post("/api/family-imports", json=body)
-    assert resp.status_code == 200, resp.text
-    return str(resp.json()["_id"])
+    """Queue an import of ``folder`` as the approval of a delivery does
+    (``import_delivery_review.approve_delivery`` calls ``queue_family_import_job`` so), as
+    ``requested_by`` (the e2e administrator when None), and return the job's id."""
+    from backend.app.core.postgres import get_postgres_sessionmaker
+    from backend.app.services.family_package_jobs import queue_family_import_job
+    from backend.tests.e2e import _harness
+
+    async with get_postgres_sessionmaker()() as session:
+        if requested_by is None:
+            requested_by, _project_id, _assembly_id = await _harness.ensure_e2e_project(session)
+        job = await queue_family_import_job(
+            session,
+            folder_path=str(folder),
+            project_id=project_id,
+            dry_run=dry_run,
+            requested_family_id=family_id,
+            conflict_mode=conflict_mode,
+            requested_by=requested_by,
+            manifest_text=manifest_text,
+        )
+    return str(job.id)
 
 
 async def claim_import_job(job_id: str, worker_id: str) -> None:
@@ -179,12 +189,12 @@ async def job_outcome(job_id: str) -> dict[str, Any]:
     return dict(row)
 
 
-async def run_import_job(ac: Any, folder: Path, project_id: str, worker_id: str) -> dict[str, Any]:
-    """Queue an import of ``folder`` as the page does, claim it as the worker does and run it;
+async def run_import_job(folder: Path, project_id: str, worker_id: str) -> dict[str, Any]:
+    """Queue an import of ``folder`` as an approved delivery does, claim it as the worker does and run it;
     return its ``job_outcome``, with ``raised`` naming what the run raised, if it did."""
     from backend.app.services import family_package_import
 
-    job_id = await queue_import(ac, folder, project_id)
+    job_id = await queue_import(folder, project_id)
     await claim_import_job(job_id, worker_id)
     try:
         await family_package_import.run_family_import_job(job_id=job_id, worker_id=worker_id)

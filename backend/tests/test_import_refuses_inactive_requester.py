@@ -363,14 +363,14 @@ def test_the_route_refuses_a_superuser_the_overwrite_before_queuing_it(
 
     calls: list[dict[str, Any]] = []
 
-    async def queue(session: Any, **kwargs: Any) -> Any:
+    async def approve(session: Any, **kwargs: Any) -> Any:
         calls.append(kwargs)
         raise RuntimeError("queued")
 
-    monkeypatch.setattr(family_imports, "queue_family_import_job", queue)
-    body = {"folder_path": "/data/families/FAM001", "dry_run": dry_run, "conflict_mode": conflict_mode}
+    monkeypatch.setattr(family_imports, "approve_delivery", approve)
+    body = {"revision": 0, "dry_run": dry_run, "conflict_mode": conflict_mode}
     with signed_in_client(role, raise_server_exceptions=False) as client:
-        response = client.post("/api/family-imports", json=body)
+        response = client.post("/api/family-imports/deliveries/00000000-0000-4000-8000-0000000000d1/approve", json=body)
 
     if queued:
         assert [call["conflict_mode"] for call in calls] == [conflict_mode]

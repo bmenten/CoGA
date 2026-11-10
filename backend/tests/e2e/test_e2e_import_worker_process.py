@@ -47,6 +47,7 @@ import pytest
 from sqlalchemy import text
 
 from backend.tests.e2e._harness import ensure_postgres_schema
+from backend.tests.e2e._import_jobs import queue_import
 
 pytestmark = pytest.mark.integration
 
@@ -290,17 +291,7 @@ async def _collect(base: Path) -> dict:
 
             async def queue(prefix: str) -> tuple[str, str]:
                 family_id = f"FAM_WORKER_{prefix}_{uuid4().hex[:8].upper()}"
-                resp = await ac.post(
-                    "/api/family-imports",
-                    json={
-                        "folder_path": str(_write_package(base / family_id, family_id)),
-                        "project_id": project_id,
-                        "dry_run": False,
-                        "conflict_mode": "cancel",
-                    },
-                )
-                assert resp.status_code == 200, resp.text
-                jobs.append(str(resp.json()["_id"]))
+                jobs.append(await queue_import(_write_package(base / family_id, family_id), project_id))
                 return family_id, jobs[-1]
 
             # 1. One process, as the image runs it, imports a family end to end.

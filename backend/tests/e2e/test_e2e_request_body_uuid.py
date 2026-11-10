@@ -1,9 +1,8 @@
 """A UUID a request body names a record by is read as one in a path is (E2E).
 
 The three writes to the NIPT artifact list (``POST /api/admin/nipt/artifacts``, its
-``auto-seed`` and its table ``import``, a form) and the import request (``POST
-/api/family-imports``) bound the ``assembly_id`` or ``project_id`` of their body as they
-received it. A value that is no UUID failed asyncpg's uuid codec or the insert's uuid cast,
+``auto-seed`` and its table ``import``, a form) and the import request bound the
+``assembly_id`` or ``project_id`` of their body as they received it. A value that is no UUID failed asyncpg's uuid codec or the insert's uuid cast,
 and a UUID of no assembly or project failed the insert's foreign key: each a 500. Each now
 reads the value once (``core/sql.py``: ``require_uuid``) and looks the record up before it
 writes anything.
@@ -15,11 +14,10 @@ it, a variant tag), the seeded admin and a viewer who is a member of the project
 * a value that is no UUID, and a UUID of no record as it is, in braces and after
   ``urn:uuid:``, are answered as an unknown assembly or project is, with a 404, and so is a
   blank project; nothing is written for them: no artifact, no event in the artifact list's
-  audit chain, no import job;
+  audit chain, no delivery;
 * the assembly's and the project's id in braces, after ``urn:uuid:``, in capitals or without
-  hyphens names that record: the artifact, its audit event and the import job hold the
-  canonical id; an import request that names no project (``null`` or ``""``) is queued
-  without one, as before;
+  hyphens names that record: the artifact, its audit event and the delivery a folder added
+  by hand makes (``POST /api/family-imports/deliveries``) hold the canonical id;
 * the artifact list's audit chain verifies afterwards;
 * the viewer is refused (403) by each of these routes, whatever the id, and nothing is
   written;
@@ -36,6 +34,7 @@ Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``e2e`` job sets 
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 from uuid import uuid4
@@ -189,8 +188,6 @@ def _sweep_bodies(run: str, records: dict[str, str]) -> dict[tuple[str, str], di
         ("PUT", "/api/admin/families/{family_id}/projects"): {},
         ("POST", "/api/admin/variant-tags"): tag,
         ("PUT", "/api/admin/variant-tags/{tag_key}"): tag,
-        ("POST", "/api/family-imports"): {"folder_path": f"/nonexistent/e2e-body-uuid-{run}/sweep", "dry_run": True},
-        ("POST", "/api/family-imports/validate"): {"folder_path": f"/nonexistent/e2e-body-uuid-{run}/sweep"},
         ("POST", "/api/family-imports/deliveries"): {
             "folder_path": f"/nonexistent/e2e-body-uuid-{run}/sweep",
             "analysis_type": "wgs",
@@ -270,7 +267,7 @@ async def _request_audit(session: Any, paths: list[str], user_emails: list[str])
     )
 
 
-async def _collect(run: str) -> dict[str, Any]:
+async def _collect(run: str, base: Path) -> dict[str, Any]:
     from httpx import ASGITransport, AsyncClient
     from sqlalchemy import text
 
@@ -285,9 +282,10 @@ async def _collect(run: str) -> dict[str, Any]:
 
     family, sample = f"E2EBODY{run}", f"E2EBODY{run}M"
     assay = f"E2E_BODY_{run}"
-    folder = f"/nonexistent/e2e-body-uuid-{run}"
+    # The folders added to the deliveries by hand, one per request, under the import roots.
+    folder = str(base)
     viewer_email, viewer_password = f"e2e-body-viewer-{run}@example.com", f"viewer-password-{run}"
-    audited_paths = ["/api/admin/nipt/artifacts", "/api/family-imports"]
+    audited_paths = ["/api/admin/nipt/artifacts", "/api/family-imports/deliveries"]
 
     await ensure_postgres_schema()
     # The table import reads the assembly's annotation in ClickHouse.
@@ -405,19 +403,14 @@ async def _collect(run: str) -> dict[str, Any]:
                     )
                 )
 
-            # --- the import request: each project, as the admin -------------------------
-            projects = {
-                "none_null": None,
-                "none_empty": "",
-                "blank": "  ",
-                **_refused(not_a_uuid),
-                **_spellings(records["project"]),
-            }
+            # --- a folder added by hand: each project, as the admin ------------------------
+            projects = {"blank": "  ", **_refused(not_a_uuid), **_spellings(records["project"])}
             for name, value in projects.items():
+                (base / name).mkdir()
                 r["job"][name] = capture(
                     await ac.post(
-                        "/api/family-imports",
-                        json={"folder_path": f"{folder}/{name}", "project_id": value, "dry_run": True},
+                        "/api/family-imports/deliveries",
+                        json={"folder_path": f"{folder}/{name}", "project_id": value, "analysis_type": "wgs"},
                     )
                 )
 
@@ -444,8 +437,8 @@ async def _collect(run: str) -> dict[str, Any]:
             for name, value in {"not_a_uuid": not_a_uuid, "unknown": str(uuid4()), "canonical": records["project"]}.items():
                 r["viewer"][f"job_{name}"] = capture(
                     await viewer.post(
-                        "/api/family-imports",
-                        json={"folder_path": f"{folder}/viewer-{name}", "project_id": value, "dry_run": True},
+                        "/api/family-imports/deliveries",
+                        json={"folder_path": f"{folder}/viewer-{name}", "project_id": value, "analysis_type": "wgs"},
                     )
                 )
 
@@ -491,17 +484,17 @@ async def _collect(run: str) -> dict[str, Any]:
                     {"assay": assay, "run": f"%-{run}-%"},
                 )
                 out["artifacts"] = [dict(row) for row in artifacts.mappings().all()]
-                jobs = await session.execute(
+                deliveries = await session.execute(
                     text(
                         """
-                        SELECT submitted_path, project_id::text AS project_id
-                        FROM family_import_jobs
-                        WHERE submitted_path LIKE :folder
+                        SELECT folder_path, project_id::text AS project_id
+                        FROM import_deliveries
+                        WHERE folder_path LIKE :folder
                         """
                     ),
-                    {"folder": f"{folder}/%"},
+                    {"folder": f"{base.resolve()}/%"},
                 )
-                out["jobs"] = {row["submitted_path"].rsplit("/", 1)[-1]: row["project_id"] for row in jobs.mappings()}
+                out["jobs"] = {row["folder_path"].rsplit("/", 1)[-1]: row["project_id"] for row in deliveries.mappings()}
                 out["audit_after"] = await _request_audit(
                     session, audited_paths, [settings.admin_email, viewer_email]
                 )
@@ -547,7 +540,7 @@ async def _collect(run: str) -> dict[str, Any]:
                 await ac.delete(f"/api/projects/{records['project']}")
         async with sessionmaker() as session:
             await session.execute(
-                text("DELETE FROM family_import_jobs WHERE submitted_path LIKE :folder"), {"folder": f"{folder}/%"}
+                text("DELETE FROM import_deliveries WHERE folder_path LIKE :folder"), {"folder": f"{base.resolve()}/%"}
             )
             # A deleted tag is kept, inactive, through its project's deletion (SAFE-37): the
             # test's own goes here.
@@ -567,11 +560,16 @@ async def _collect(run: str) -> dict[str, Any]:
 
 
 @pytest.fixture(scope="module")
-def snap() -> dict[str, Any]:
+def snap(tmp_path_factory: pytest.TempPathFactory, request: pytest.FixtureRequest) -> dict[str, Any]:
+    from backend.app.core.config import settings
     from backend.tests.e2e import _harness
 
+    base = tmp_path_factory.mktemp("request_body_uuid")
+    patch = pytest.MonkeyPatch()
+    patch.setattr(settings, "family_import_roots", [str(base)])
+    request.addfinalizer(patch.undo)
     run = uuid4().hex[:10].upper()
-    return _harness.run_async(lambda: _collect(run))
+    return _harness.run_async(lambda: _collect(run, base))
 
 
 REFUSED = ["not_a_uuid", "unknown", "unknown_braces", "unknown_urn"]
@@ -636,28 +634,17 @@ def test_the_artifact_lists_audit_chain_verifies(snap: dict[str, Any]) -> None:
 
 
 @pytest.mark.parametrize("name", ["blank", *REFUSED])
-def test_an_import_naming_a_project_that_is_not_one_is_refused_as_unknown(snap: dict[str, Any], name: str) -> None:
-    # A value that is no UUID failed the insert's uuid cast, an unknown UUID its foreign key
-    # (in braces too): each a 500.
+def test_a_folder_added_for_a_project_that_is_not_one_is_refused_as_unknown(snap: dict[str, Any], name: str) -> None:
     assert _status(snap["responses"]["job"][name]) == PROJECT_NOT_FOUND, snap["responses"]["job"][name]
-    # No job was written for it.
+    # No delivery was written for it.
     assert name not in snap["jobs"]
 
 
 @pytest.mark.parametrize("name", SPELLINGS)
 def test_each_spelling_of_the_project_id_names_the_project(snap: dict[str, Any], name: str) -> None:
-    job = snap["responses"]["job"][name]
-    assert job["status"] == 200, job
-    assert job["json"]["project_id"] == snap["records"]["project"]
+    delivery = snap["responses"]["job"][name]
+    assert delivery["status"] == 200, delivery
     assert snap["jobs"][name] == snap["records"]["project"]
-
-
-@pytest.mark.parametrize("name", ["none_null", "none_empty"])
-def test_an_import_that_names_no_project_is_queued_without_one(snap: dict[str, Any], name: str) -> None:
-    job = snap["responses"]["job"][name]
-    assert job["status"] == 200, job
-    assert job["json"]["project_id"] is None
-    assert snap["jobs"][name] is None
 
 
 def test_the_viewer_is_refused_whatever_the_id(snap: dict[str, Any]) -> None:
@@ -677,13 +664,13 @@ def test_each_answer_is_audited_under_its_callers_name(snap: dict[str, Any]) -> 
     before, after = snap["audit_before"], snap["audit_after"]
     added = {key: after.get(key, 0) - before.get(key, 0) for key in after}
     admin, viewer = snap["admin_email"], snap["viewer_email"]
-    artifacts, jobs = "/api/admin/nipt/artifacts", "/api/family-imports"
+    artifacts, jobs = "/api/admin/nipt/artifacts", "/api/family-imports/deliveries"
     assert {key: count for key, count in added.items() if count} == {
         f"{artifacts} {admin} 404": len(REFUSED),
         f"{artifacts} {admin} 200": len(SPELLINGS),
         f"{artifacts} {viewer} 403": 3,
         f"{jobs} {admin} 404": len(REFUSED) + 1,
-        f"{jobs} {admin} 200": len(SPELLINGS) + 2,
+        f"{jobs} {admin} 200": len(SPELLINGS),
         f"{jobs} {viewer} 403": 3,
     }
 
@@ -733,7 +720,6 @@ def test_no_operation_answers_a_body_id_that_is_no_uuid_with_a_500(snap: dict[st
         (("POST", "/api/admin/nipt/artifacts"), "assembly_id", ASSEMBLY_NOT_FOUND),
         (("POST", "/api/admin/nipt/artifacts/auto-seed"), "assembly_id", ASSEMBLY_NOT_FOUND),
         (("POST", "/api/admin/nipt/artifacts/import"), "assembly_id", ASSEMBLY_NOT_FOUND),
-        (("POST", "/api/family-imports"), "project_id", PROJECT_NOT_FOUND),
         # A folder added to the deliveries by hand (import_manual_delivery.py).
         (("POST", "/api/family-imports/deliveries"), "project_id", PROJECT_NOT_FOUND),
         # An account's projects, set from the Users page (SEC-1).

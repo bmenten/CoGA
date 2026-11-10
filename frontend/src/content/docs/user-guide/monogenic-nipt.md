@@ -7,7 +7,7 @@ fetus.
 
 In **Family builder**, tick **Monogenic NIPT (cfDNA from maternal plasma)**. Add the father, the cfDNA
 sample as the mother (mark it **cfDNA (maternal plasma)**) and the fetus as the proband. A package import
-does the same when its manifest says `analysis_type: monogenic_nipt`. The family page then shows a
+does the same when its package says `analysis_type: monogenic_nipt`. The family page then shows a
 **Monogenic NIPT** button.
 
 The data is the NIPT-M pipeline's output: a single-sample VCF of the plasma and one of the father, with

@@ -41,14 +41,16 @@ until that connection is gone.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Mapping
-from dataclasses import dataclass, field
 import json
 import logging
 import os
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import yaml
+from pydantic import BaseModel, ValidationError
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession, async_sessionmaker
 
@@ -56,9 +58,6 @@ from ..core.coga_logging import describe_error
 from ..core.config import settings
 from ..core.object_storage import is_remote_uri
 from ..core.postgres import get_postgres_engine, get_postgres_sessionmaker
-from pydantic import BaseModel, ValidationError
-import yaml
-
 from ..schemas import (
     ApiId,
     FamilyPackageManifestBuildRequest,
@@ -88,7 +87,11 @@ from .family_package_manifest import (
     _parse_ped_text_strict,
     _ped_members_for_import,
 )
-from .family_package_registration import _existing_package_entity_warnings, manifest_roi_issue
+from .family_package_nipt import NIPT_VCF_COLUMN_WARNING
+from .family_package_registration import (
+    _existing_package_entity_warnings,
+    manifest_roi_issue,
+)
 from .family_package_source import _authorized_local_roots, _listed_package_folder
 from .family_package_validation import load_validated_family_package
 from .worker_tasks import stop_worker
@@ -306,7 +309,7 @@ def _folder_ped_differences(folder: Path, package: CogaPackage) -> DeliveryIssue
     members, never the PED. None when there is no PED, or it agrees."""
     if package.members is None or package.family is None:
         return None
-    ped_path, _errors, _warnings = _detect_ped_path(folder, requested_ped_path=None, family_id=package.family.family_id)
+    ped_path, _errors, _warnings = _detect_ped_path(folder, family_id=package.family.family_id)
     if ped_path is None:
         return None
     try:
@@ -470,6 +473,12 @@ async def assess_content(
     return assessment
 
 
+# Discover's warnings a delivery does not keep: a dataset it did not find (the delivery's own check
+# says what the import lacks), and what validation checks again at every check of the delivery,
+# against the package as corrected: kept, the warning a correction resolved would stay.
+_NOT_KEPT_FROM_DISCOVER = frozenset({"dataset_not_detected", NIPT_VCF_COLUMN_WARNING, "package_folder_link"})
+
+
 async def _proposal(
     folder: Path, package: CogaPackage
 ) -> tuple[CogaPackage, list[DeliveryIssue], list[DeliveryIssue]]:
@@ -501,7 +510,7 @@ async def _proposal(
         completed = proposed_package(package, draft_manifest, members)
     except ValidationError:
         return package, [], failed
-    warnings = [_as_issue(issue) for issue in draft.warnings if issue.code != "dataset_not_detected"]
+    warnings = [_as_issue(issue) for issue in draft.warnings if issue.code not in _NOT_KEPT_FROM_DISCOVER]
     for section in proposed:
         warnings.append(
             _issue(

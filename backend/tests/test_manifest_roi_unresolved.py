@@ -7,9 +7,9 @@ does not name. Now:
 
 - the import leaves the family with the manifest's region or with none, and its result warns
   ``manifest_roi_unresolved``, naming the region it cleared;
-- the dry run and ``/family-imports/validate`` look the region up as the import will, in the
-  assembly of the import's project or of the existing family, and warn the same; with no
-  assembly to look it up in they warn ``manifest_roi_not_checked``;
+- the dry run looks the region up as the import will, in the
+  assembly of the import's project or of the existing family, and warns the same; with no
+  assembly to look it up in it warns ``manifest_roi_not_checked``;
 - a gene is looked up on its chromosome before a copy on an ALT contig, as the family page does.
 
 All values are synthetic.
@@ -26,12 +26,11 @@ from typing import Any
 import pytest
 
 from backend.app.core.config import settings
-from backend.app.routers import family_imports
 from backend.app.schemas import FamilyImportValidationIssue
 from backend.app.services import family_package_import as package_import
 from backend.app.services import family_package_registration as registration
 from backend.app.services.family_metadata_context import FamilyMetadataContext
-from backend.tests._family_import_fakes import admin_user, signed_in_client
+from backend.tests._family_import_fakes import admin_user
 
 FAMILY_UUID = "00000000-0000-0000-0000-00000000f001"
 ASSEMBLY = "00000000-0000-0000-0000-0000000000a1"
@@ -407,21 +406,3 @@ async def test_the_import_puts_the_roi_warning_in_its_result(monkeypatch: pytest
     assert warning not in seen[0] and warning in seen[-1]
 
 
-def test_the_validate_route_looks_the_roi_up_as_the_import_will(monkeypatch: pytest.MonkeyPatch, package: Path) -> None:
-    looked_up: list[dict[str, Any]] = []
-
-    async def roi_issue(_session: Any, **kwargs: Any) -> FamilyImportValidationIssue:
-        looked_up.append(kwargs)
-        return FamilyImportValidationIssue(code=registration.MANIFEST_ROI_UNRESOLVED, message="Not found.")
-
-    monkeypatch.setattr(family_imports, "manifest_roi_issue", roi_issue)
-
-    with signed_in_client("admin") as client:
-        response = client.post(
-            "/api/family-imports/validate", json={"folder_path": str(package), "project_id": PROJECT}
-        )
-
-    assert response.status_code == 200, response.text
-    assert looked_up == [{"roi_query": "NOT_A_GENE", "project_id": PROJECT, "family_id": "FAM001"}]
-    warnings = [FamilyImportValidationIssue(**issue) for issue in response.json()["warnings"]]
-    assert _roi_warnings(warnings) == [registration.MANIFEST_ROI_UNRESOLVED]

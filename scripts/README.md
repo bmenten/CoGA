@@ -35,5 +35,4 @@ scripts that import backend code need the backend's environment, installed from
 | [seed_playwright_e2e.py](seed_playwright_e2e.py) | Imports the golden trio and creates the user the Playwright journeys sign in as. |
 | [seed_style_diff_demo.py](seed_style_diff_demo.py) | Adds the NIPT demo and the demo quartet on top of that seed, for the frontend style diff (`frontend/scripts/stylediff`). |
 | **Other tools** | |
-| [validate_family_package.py](validate_family_package.py) | Validates a family-package folder without importing it, and prints the result as JSON. |
 | [benchmark_clickhouse_scale.py](benchmark_clickhouse_scale.py) | Fills a throwaway ClickHouse container with a synthetic cohort, step by step up to 1,000 genomes, and measures the family search, the Variant Explorer, a family's overwrite, the integrity check and the storage per table ([clickhouse-scale-benchmark.md](../docs/clickhouse-scale-benchmark.md)). It refuses a server that holds any other database. |

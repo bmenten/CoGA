@@ -176,7 +176,7 @@ async def _collect(base: Path, mp: pytest.MonkeyPatch) -> dict:
 
             async def queue(root: Path, conflict_mode: str, family_id: str | None = None) -> str:
                 jobs.append(
-                    await queue_import(ac, root, project_id, conflict_mode=conflict_mode, family_id=family_id)
+                    await queue_import(root, project_id, conflict_mode=conflict_mode, family_id=family_id)
                 )
                 return jobs[-1]
 

@@ -221,7 +221,7 @@ def _write_copgtm_package(
 
 def _discover(root: Path) -> Any:
     return family_package_discovery.discover_family_package_manifest(
-        FamilyPackageManifestBuildRequest(folder_path=str(root), naming_scheme="standard_v1")
+        FamilyPackageManifestBuildRequest(folder_path=str(root))
     )
 
 
@@ -542,7 +542,7 @@ def test_a_family_id_with_a_line_break_cannot_forge_a_log_line(
         # Discover refuses such a family ID before it reads any file named after it
         # (test_family_package_identifiers.py), so it logs nothing here.
         out = family_package_discovery.discover_family_package_manifest(
-            FamilyPackageManifestBuildRequest(folder_path=str(root), naming_scheme="standard_v1", family_id=forged)
+            FamilyPackageManifestBuildRequest(folder_path=str(root), family_id=forged)
         )
 
     assert [issue.code for issue in out.errors] == ["family_id_invalid"]
@@ -584,36 +584,6 @@ def test_a_relative_link_must_add_to_what_the_family_records(
     assert [(issue.code, issue.sample_id) for issue in issues] == [expected]
 
 
-def test_rediscovery_keeps_the_family_block_the_user_wrote(tmp_path: Path) -> None:
-    root = _write_copgtm_package(tmp_path / FAMILY)
-    written = yaml.safe_load(_discover(root).manifest_yaml)
-    written["family"]["relationships"] = {"parent_child": [{"child": MOTHER, "parents": ["0", INDEX]}]}
-    written["roi"] = "CFTR"
-    (root / "manifest.yaml").write_text(yaml.safe_dump(written, sort_keys=False), encoding="utf-8")
-
-    manifest = yaml.safe_load(_discover(root).manifest_yaml)
-
-    assert manifest["family"]["relationships"] == written["family"]["relationships"]
-    assert manifest["roi"] == "CFTR"
-    assert INDEX in manifest["samples"]
-
-
-def test_rediscovery_keeps_the_affected_parent_and_model_the_manifest_records(tmp_path: Path) -> None:
-    root = _write_copgtm_package(tmp_path / FAMILY)
-    manifest = yaml.safe_load(_discover(root).manifest_yaml)
-    manifest["metadata"]["pgt"] = {"inheritance_model": "AD", "affected_parents": [FATHER]}
-    (root / "manifest.yaml").write_text(yaml.safe_dump(manifest), encoding="utf-8")
-
-    rediscovered = yaml.safe_load(_discover(root).manifest_yaml)
-
-    # The run's index, which the manifest did not name, is added beside them.
-    assert rediscovered["metadata"]["pgt"] == {
-        "inheritance_model": "AD",
-        "affected_parents": [FATHER],
-        "indexes": [INDEX],
-    }
-
-
 def test_package_list_finds_a_folder_whose_ped_is_in_its_ped_folder(tmp_path: Path) -> None:
     _write_copgtm_package(tmp_path / FAMILY)
 
@@ -647,9 +617,7 @@ def test_every_file_role_discovery_writes_leaves_a_provenance_record() -> None:
 
 
 def _write_discovered_manifest(root: Path) -> None:
-    family_package_discovery.write_family_package_manifest(
-        folder_path=root, manifest_yaml=_discover(root).manifest_yaml, overwrite=True
-    )
+    (root / "manifest.yaml").write_text(_discover(root).manifest_yaml, encoding="utf-8")
 
 
 def test_the_discovered_manifest_validates_with_the_index_as_a_member(tmp_path: Path) -> None:
@@ -1243,22 +1211,6 @@ def test_the_index_must_be_a_member_other_than_the_affected_parent(
     )
 
     assert [(error.code, error.sample_id) for error in errors] == [(code, sample_id)]
-
-
-def test_discovery_keeps_the_indexes_a_manifest_already_names(tmp_path: Path) -> None:
-    root = _write_copgtm_package(tmp_path / FAMILY)
-    manifest = yaml.safe_load(_discover(root).manifest_yaml)
-    manifest["metadata"]["pgt"]["indexes"] = []
-    (root / "manifest.yaml").write_text(yaml.safe_dump(manifest), encoding="utf-8")
-
-    rediscovered = yaml.safe_load(_discover(root).manifest_yaml)
-
-    assert rediscovered["metadata"]["pgt"]["indexes"] == []
-
-
-# ---------------------------------------------------------------------------
-# Parsers
-# ---------------------------------------------------------------------------
 
 
 def test_sample_value_csv_reads_headerless_rows_and_skips_a_header() -> None:

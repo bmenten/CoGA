@@ -765,22 +765,6 @@ export interface FamilyInventorySummaryOut {
   total_records: number;
 }
 
-export interface FamilyManifestDatasetAvailability {
-  dataset_type: string;
-  enabled: boolean;
-  complete: boolean;
-  files: FamilyManifestFileAvailability[];
-  samples: string[];
-  message: string | null;
-}
-
-export interface FamilyManifestFileAvailability {
-  role: string;
-  path: string;
-  exists: boolean;
-  sample_id: string | null;
-}
-
 export interface FamilyMemberBatchUpdate {
   expected_structure_version?: number | null;
   change_reason?: string | null;
@@ -917,26 +901,14 @@ export interface FamilyOut {
   can_sign_out: boolean;
 }
 
-/** A family package discovered under the configured import roots. */
+/** A package folder under the import roots that can be added to Deliveries by hand. */
 export interface FamilyPackageCandidateOut {
   folder_path: string;
   name: string;
   family_id: string;
-  has_manifest: boolean;
   has_ped: boolean;
-  analysis_type: string | null;
   imported_families: ImportedPackageFamily[];
   changed_during_import: boolean;
-}
-
-export interface FamilyPackageImportCreate {
-  folder_path: string;
-  project_id?: string | null;
-  dry_run?: boolean;
-  family_id?: string | null;
-  conflict_mode?: "cancel" | "update" | "overwrite";
-  manifest_yaml?: string | null;
-  expected_package_fingerprint?: string | null;
 }
 
 export interface FamilyPackageImportJobOut {
@@ -959,54 +931,6 @@ export interface FamilyPackageImportJobOut {
   metadata: Record<string, unknown>;
   error: string | null;
   manifest_sha256: string | null;
-  package_fingerprint: string | null;
-}
-
-export interface FamilyPackageManifestBuildOut {
-  valid: boolean;
-  family_id: string | null;
-  ped_path: string | null;
-  manifest_path: string;
-  naming_scheme: string;
-  sample_ids: string[];
-  manifest_yaml: string;
-  datasets: FamilyManifestDatasetAvailability[];
-  errors: FamilyImportValidationIssue[];
-  warnings: FamilyImportValidationIssue[];
-  metadata: Record<string, unknown>;
-}
-
-export interface FamilyPackageManifestBuildRequest {
-  folder_path: string;
-  ped_path?: string | null;
-  family_id?: string | null;
-  naming_scheme?: string;
-  hpo_terms?: string[];
-  notes?: string | null;
-}
-
-export interface FamilyPackageManifestWriteOut {
-  manifest_path: string;
-  validation: FamilyPackageValidationOut;
-}
-
-export interface FamilyPackageManifestWriteRequest {
-  folder_path: string;
-  manifest_yaml: string;
-  overwrite?: boolean;
-  family_id?: string | null;
-}
-
-export interface FamilyPackageValidationOut {
-  valid: boolean;
-  family_id: string | null;
-  manifest_path: string | null;
-  ped_path: string | null;
-  sample_ids: string[];
-  errors: FamilyImportValidationIssue[];
-  warnings: FamilyImportValidationIssue[];
-  datasets: FamilyImportDatasetSummary[];
-  metadata: Record<string, unknown>;
   package_fingerprint: string | null;
 }
 

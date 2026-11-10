@@ -106,18 +106,7 @@ async def _exercise(base: Path, data_dir: Path, run: str, patch: pytest.MonkeyPa
         manifest_yaml = (new / "manifest.yaml").read_text(encoding="utf-8")
         (new / "manifest.yaml").unlink()
         change.update(after="snv", folder=new)
-        queued = await client.post(
-            "/api/family-imports",
-            json={
-                "folder_path": str(new),
-                "project_id": project_id,
-                "dry_run": False,
-                "conflict_mode": "cancel",
-                "manifest_yaml": manifest_yaml,
-            },
-        )
-        assert queued.status_code == 200, queued.text
-        new_job_id = str(queued.json()["_id"])
+        new_job_id = await queue_import(new, project_id, manifest_text=manifest_yaml)
         worker = f"e2e-undo-{uuid4().hex[:8]}"
         await claim_import_job(new_job_id, worker)
         await package_import.run_family_import_job(job_id=new_job_id, worker_id=worker)
@@ -135,11 +124,11 @@ async def _exercise(base: Path, data_dir: Path, run: str, patch: pytest.MonkeyPa
         existing_id = f"E2E_UNDO_EXISTING_{run}"
         existing = one_sample_package(base / existing_id, existing_id, variants=_VARIANTS, datasets=("snv",))
         change.update(after=None, folder=existing)
-        out["first_job"] = await run_import_job(client, existing, project_id, f"e2e-undo-{uuid4().hex[:8]}")
+        out["first_job"] = await run_import_job(existing, project_id, f"e2e-undo-{uuid4().hex[:8]}")
         out["record_before"] = await record_of(existing_id)
         one_sample_package(base / existing_id, existing_id, variants=_VARIANTS, datasets=("snv", "coverage"))
         change.update(after="coverage", folder=existing)
-        job_id = await queue_import(client, existing, project_id, conflict_mode="update")
+        job_id = await queue_import(existing, project_id, conflict_mode="update")
         worker = f"e2e-undo-{uuid4().hex[:8]}"
         await claim_import_job(job_id, worker)
         await package_import.run_family_import_job(job_id=job_id, worker_id=worker)

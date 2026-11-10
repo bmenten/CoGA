@@ -4,32 +4,9 @@ from app.services.family_metadata_context import SampleMetadataContext
 from app.services.family_package_common import APCAD_PCF_SOURCE, APCAD_PCF_TRACK_TYPE
 from app.services.family_package_discovery import (
     NAMING_SCHEMES,
-    _availability_from_manifest_dataset,
     _pcf_dataset_availability,
 )
 from app.services.family_package_tracks import _parse_pcf_segment_row
-
-
-def test_manifest_availability_does_not_stat_paths_outside_root(tmp_path: Path) -> None:
-    # A secret file exists OUTSIDE the package root; a manifest that points at it via
-    # `../` must be reported as not-present rather than having its existence probed
-    # outside the authorized package directory.
-    secret = tmp_path / "secret.txt"
-    secret.write_text("token", encoding="utf-8")
-    root = tmp_path / "package"
-    root.mkdir()
-    (root / "inside.vcf").write_text("x", encoding="utf-8")
-
-    availability = _availability_from_manifest_dataset(
-        root,
-        "snv",
-        {"family_vcf": "../secret.txt", "vcf": "inside.vcf"},
-    )
-    by_path = {f.path: f.exists for f in availability.files}
-    # The escaping path is never stat'd outside root -> reported not-present.
-    assert by_path["../secret.txt"] is False
-    # A legitimate in-root path is still detected.
-    assert by_path["inside.vcf"] is True
 
 
 def test_pcf_availability_detects_verified_dataset_naming(tmp_path: Path) -> None:

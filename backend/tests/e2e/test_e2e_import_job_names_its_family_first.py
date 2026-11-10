@@ -41,7 +41,7 @@ import pytest
 from sqlalchemy import text
 
 from backend.tests.e2e._harness import capture
-from backend.tests.e2e._import_jobs import claim_import_job
+from backend.tests.e2e._import_jobs import claim_import_job, queue_import
 
 pytestmark = pytest.mark.integration
 
@@ -179,18 +179,8 @@ async def _collect(base: Path, mp: pytest.MonkeyPatch) -> dict:
             current["signout_url"] = f"/api/families/{FAMILY}/report/sign-out"
 
             async def _import(name: str, root: Path, trigger: str | None) -> None:
-                resp = await ac.post(
-                    "/api/family-imports",
-                    json={
-                        "folder_path": str(root),
-                        "project_id": facts["project_id"],
-                        "dry_run": False,
-                        # No family_id: the request does not name the family.
-                        "conflict_mode": "overwrite",
-                    },
-                )
-                assert resp.status_code == 200, resp.text
-                job_id = str(resp.json()["_id"])
+                # No family_id: the request does not name the family.
+                job_id = await queue_import(root, facts["project_id"], conflict_mode="overwrite")
                 jobs.append(job_id)
                 run: dict[str, Any] = {
                     "job": job_id,

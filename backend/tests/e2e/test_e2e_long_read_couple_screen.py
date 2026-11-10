@@ -160,10 +160,8 @@ async def _exercise(base: Path, suffix: str) -> dict:
     from backend.app.services import family_package_import as package_import
     from backend.app.services.clickhouse_variant_ids import _small_table_name
     from backend.app.services.clickhouse_variant_storage import ensure_clickhouse_variant_tables
-    from backend.app.services.family_package_discovery import (
-        discover_family_package_manifest,
-        write_family_package_manifest,
-    )
+    from backend.app.services.family_package_discovery import discover_family_package_manifest
+    from backend.app.services.family_package_validation import load_validated_family_package
     from backend.app.services.family_package_source import scan_family_import_packages
     from backend.tests.e2e import _harness
 
@@ -182,11 +180,12 @@ async def _exercise(base: Path, suffix: str) -> dict:
 
     out["listed"] = any(package["name"] == family_id for package in scan_family_import_packages())
     draft = discover_family_package_manifest(
-        FamilyPackageManifestBuildRequest(folder_path=str(root), naming_scheme="standard_v1")
+        FamilyPackageManifestBuildRequest(folder_path=str(root))
     )
     out["discover"] = {"valid": draft.valid, "errors": [issue.message for issue in draft.errors], "ped_path": draft.ped_path}
-    written = write_family_package_manifest(folder_path=root, manifest_yaml=draft.manifest_yaml, overwrite=False)
-    out["validation_valid"] = written.validation.valid
+    # The manifest a delivery of the folder keeps, as CoGA made it from what Discover proposed.
+    validation, _bundle = load_validated_family_package(root, manifest_text=draft.manifest_yaml)
+    out["validation_valid"] = validation.valid
 
     async with sessionmaker() as session:
         result = await package_import.execute_family_package_import(
@@ -196,6 +195,7 @@ async def _exercise(base: Path, suffix: str) -> dict:
             dry_run=False,
             user=admin,
             conflict_mode="cancel",
+            manifest_text=draft.manifest_yaml,
         )
     out["import"] = {
         "completed": result.completed,

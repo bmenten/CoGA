@@ -819,3 +819,44 @@ async def test_stopping_the_watcher_ends_its_task() -> None:
     await watcher.stop_import_watcher(task, stop)
 
     assert stop.is_set() and task.cancelled()
+
+
+def test_the_proposal_keeps_no_warning_validation_checks_again(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # A warning validation gives at every check of the delivery (a NIPT file's column, a linked
+    # folder) is not kept from Discover: kept, it stayed after a correction that resolved it.
+    from backend.app.schemas import FamilyImportValidationIssue, FamilyPackageManifestBuildOut
+
+    def issue(code: str) -> FamilyImportValidationIssue:
+        return FamilyImportValidationIssue(code=code, message=f"{code} message")
+
+    draft = FamilyPackageManifestBuildOut(
+        valid=True,
+        family_id="FAM1",
+        manifest_yaml="schema_version: 1\nfamily_id: FAM1\n",
+        warnings=[issue(code) for code in ("nipt_vcf_column_named_otherwise", "package_folder_link", "dataset_not_detected", "nipt_pair_detected")],
+    )
+    bundle = SimpleNamespace(ped=None, manifest=None)
+    monkeypatch.setattr(watcher, "discover_family_package_manifest", lambda _request: draft)
+    monkeypatch.setattr(watcher, "load_validated_family_package", lambda *_a, **_k: (SimpleNamespace(errors=[]), bundle))
+    monkeypatch.setattr(watcher, "_ped_members_for_import", lambda *_a, **_k: [])
+    monkeypatch.setattr(watcher, "_manifest_carrier_types", lambda _manifest: {})
+    monkeypatch.setattr(watcher, "_manifest_member_overrides", lambda _manifest: {})
+    monkeypatch.setattr(watcher, "proposed_package", lambda package, _draft, _members: package)
+    package = CogaPackage.model_validate(
+        {
+            "schema": "coga-package/1",
+            "status": "complete",
+            "written_at": "2026-11-10T12:00:00Z",
+            "pipeline": {"name": "p", "version": "1", "run_id": "r"},
+            "family": {"family_id": "FAM1"},
+        }
+    )
+
+    _completed, warnings, issues = asyncio.run(watcher._proposal(tmp_path, package))
+
+    assert issues == []
+    assert [warning.code for warning in warnings] == [
+        "nipt_pair_detected",
+        "package_members_proposed",
+        "package_datasets_proposed",
+    ]
