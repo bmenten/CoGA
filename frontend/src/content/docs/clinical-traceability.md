@@ -86,12 +86,7 @@ banner lists every classification whose evidence changed:
   - A variant no longer called missense shows its missense Z as gone (*gnomAD missense Z 2.95 → n/a*),
     beside its new consequence.
 - The annotation changed in another way, or cannot be compared because a fingerprint is missing
-  (*annotation set changed*). For older classifications:
-  - one saved before CoGA froze the frequencies and in-silico scores is compared on its fingerprint and
-    ClinVar significance alone, so its line does not say which value moved;
-  - one saved before CoGA froze the consequence and the missense Z is compared on the values it froze:
-    a consequence change shows only as a changed annotation, and a change of the gene's missense Z
-    alone does not show.
+  (*annotation set changed*).
 - For a structural variant: what moved in the row of the caller its evidence was frozen from, for
   example *genes TCF4, TXNL1 → TCF4* or *pLI 0.990 → 0.410*, and likewise its inheritance, type or
   position. It says *annotation changed* when only its other annotation changed, and *its frozen
@@ -402,10 +397,9 @@ It shows what the record holds (section 4):
 
 - each reported small variant, named by its variant ID, with its description as you reviewed it, its
   classification and points, the accepted ACMG criteria and their evidence, its tags and its note. Its
-  frozen evidence is the ClinVar significance and the annotation version and, for a classification
-  saved since CoGA froze them, the consequence, impact and LoF call, the frequencies and in-silico
-  scores and, for a missense variant, the gene's missense Z with its source (section 2), as they were
-  then. A variant its compound-het pair review reports shows that review (*Compound-het pair*: the
+  frozen evidence is the ClinVar significance, the annotation version, the consequence, impact and
+  LoF call, the frequencies and in-silico scores and, for a missense variant, the gene's missense Z
+  with its source (section 2), as they were then. A variant its compound-het pair review reports shows that review (*Compound-het pair*: the
   partner, the gene, the phase, the pair's tags and classification, and its note);
 - each reported structural variant or CNV, with its description, classification and ClinGen CNV
   criteria;
@@ -414,7 +408,7 @@ It shows what the record holds (section 4):
   3 (ACMG score: Likely pathogenic - class 4 · 8 pts)*, *Not classified (CNV score: Pathogenic - class
   5 · +1.00 pts)*;
 - in a PGT family, the embryo calls (*PGT embryo results*), with the haplotypes named as the track names
-  them (P1, P2, M1, M2). Since CoGA checks the QC against thresholds, the verdict shows too (*⚠ The
+  them (P1, P2, M1, M2). CoGA checks the QC against thresholds, and the verdict shows too (*⚠ The
   phasing QC at the ROI did not meet its thresholds …*), with the thresholds in force. A call that did
   not meet them stands as called: the warning is not a gate;
 - the gene panels applied, the repeat expansions, the Paraphase results and the reference-data
@@ -429,10 +423,8 @@ It shows what the record holds (section 4):
   parents, which the pipeline used, marked. The family page lists the same corrections (*Corrected at
   intake*);
 - for a monogenic NIPT family, its **NIPT results**, with the coverage tracks the coverage check did not
-  read as depth in its words (*Coverage tracks not read as depth: …*). A NIPT family's version signed
-  before CoGA froze them says *Not in the signed record*. One signed before CoGA froze the coverage
-  check's notes says so on that line. Another family's record has no NIPT results, and the page says
-  nothing of them;
+  read as depth in its words (*Coverage tracks not read as depth: …*). Another family's record has no
+  NIPT results, and the page says nothing of them;
 - the evidence drift, the Sample QC, the sequencing QC and the import state at sign-out, with any
   acknowledgement and its reason;
 - in the footer, with the report code: the versions it was signed with, the reference-data releases and
@@ -444,19 +436,7 @@ silico predictions, the segregation and the family's members, the gene descripti
 panels, the phenotype match, the audit trail and the pipeline settings. The page says so, once for the
 report and on each variant, and never fills them in from current data.
 
-A part the record does not hold is marked *Not in the signed record*, never shown as empty. For older
-versions:
-
-- A version signed before CoGA recorded the variant description, the gene panels, the reference-data
-  releases, the repeat expansions, the Paraphase results or what each coverage track holds says so for
-  each (*Not in the signed record: version 2 was signed before CoGA recorded …*). So does a PGT
-  family's version signed before CoGA recorded the embryo calls.
-- A PGT family's version signed before CoGA checked the embryos' QC against thresholds reads as it was
-  signed, with no verdict. Nothing it predates is called *not captured*, and the sign-out check
-  compares it on what it holds.
-- A version signed before CoGA froze the repeat calls' near-boundary warnings and QA's records of the
-  counting units is treated the same way: it shows its calls without them. So is a version signed
-  before QA's count corrections: its counts are TRGT's own, shown as signed.
+A part the record does not hold is marked *Not in the signed record*, never shown as empty.
 
 **Print signed version N** prints this view. The printout starts with a notice when the version is not
 the latest, intact record:
@@ -468,10 +448,9 @@ the latest, intact record:
 *Signed versions* at the top lists every version; an earlier one names the version that replaces it.
 On the latest version the page says whether the family's current data still matches it, or what has
 changed since (a review, a report tag, a re-import, a QC cut-off, QA's validation or count correction
-of a repeat locus). What the version does not hold, because CoGA records it only since, cannot be
-compared, and the line names it: *The family’s current data still matches this signed version in
-everything it holds. Not in this version, so not compared: the repeat calls’ near-boundary warnings and
-QA’s records of their counting units.* That line is not printed: the version stays what was signed.
+of a repeat locus). What the version does not hold cannot be compared, and the line names it: *The
+family’s current data still matches this signed version in everything it holds. Not in this version,
+so not compared: …* That line is not printed: the version stays what was signed.
 Sign out again to issue a new version.
 
 **Download signed version N (JSON)** returns the frozen record itself.
@@ -502,15 +481,6 @@ cut-offs, or the version of the assembly, the gene loci, Monarch or HPO), sign-o
 That part is recorded as unavailable, not as empty, and the signed version says so: *Not captured in
 signed version 2: …*. The audit trail lists the same parts. An HPO ontology imported from a file that
 recorded no release is marked the same way (*release not recorded*).
-
-A reference module CoGA starts recording after a version was signed is not in that version. The signed
-version says so (*… (signed before CoGA recorded its version)*); that alone does not count as a change.
-
-A part CoGA now computes differently does count. The Sample QC now counts a check that could not run as
-a warning and names each sample whose sex could not be checked. So for a family with such a check, the
-page says the *sample-integrity QC* changed since a version signed before: that version holds no such
-note, and *Pass* where the other checks passed. The signed version still shows what was signed. Sign
-out again to record the new verdict.
 
 **When part of the report cannot be loaded.** The page never shows a part it could not load as empty:
 
