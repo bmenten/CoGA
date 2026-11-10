@@ -451,6 +451,7 @@ The API behind the page:
 | --- | --- |
 | `GET /family-imports/packages` | lists the packages under `FAMILY_IMPORT_ROOTS`, each with the families imported from it (`imported_families`: `family_id`, `registered_at`, `import_incomplete`) and whether its latest import was undone because the package changed (`changed_during_import`) |
 | `GET /family-imports/deliveries` | lists the packages pipelines delivered into the watched import folders, with their state ([below](#watched-import-folders)) |
+| `POST /family-imports/deliveries` | adds a package folder to the deliveries by hand: CoGA makes its package from the folder (`folder_path`, `project_id`, `analysis_type`, `family_id`; [below](#adding-a-folder-by-hand)) |
 | `GET /family-imports/deliveries/{id}/package` | a delivery's package as its import would read it now, the pipeline's file, what CoGA proposed, and every correction ([below](#correcting-a-delivery)) |
 | `POST /family-imports/deliveries/{id}/revisions` | corrects a delivery's package before it is approved (`revision`, `reason`, `changes`) |
 | `POST /family-imports/deliveries/{id}/approve` | queues the import, or a dry run, of a delivery that is ready or whose family exists (`revision`, `dry_run`, `conflict_mode`, `acknowledge_warnings`) |
@@ -911,6 +912,38 @@ with its SHA-256. The import reads the latest.
   (`families.metadata.package_import.delivery.corrections`): the family page lists them (*Corrected
   at intake*), and every signed version of the family's analysis freezes them in its section
   `package_intake` ([clinical-traceability.md](clinical-traceability.md)).
+
+#### Adding a folder by hand
+
+A folder no pipeline delivered, or delivered without a package file, goes the same way
+([import_manual_delivery.py](../backend/app/services/import_manual_delivery.py); phase 3 of the
+owner's plan of 2026-11-10). On the Package Import page, **Add a folder by hand** under
+**Deliveries** (or `POST /family-imports/deliveries`, superuser) takes a folder under the import
+roots, the project it belongs to, its analysis and, where it is not the folder's name, its family
+ID. CoGA makes the package a pipeline's `coga-package.json` would hold: the project and its
+assembly, the analysis, the family, and the members and datasets Discover proposes from the folder
+(from its PED or per-sample folders, and its layout), written into the package. It is checked as a
+delivered package is, and is a delivery of origin `manual` (`import_deliveries.origin`), listed as
+*Added by hand*. It is then corrected (**Correct…**), approved or refused like any delivery, and the
+family's record names it as added by hand.
+
+- CoGA writes nothing in the folder: the package it made is kept with the delivery.
+- No file list with checksums is made (the owner's decision of 2026-11-10; the warning
+  `added_by_hand` says so): the folder's fingerprint guards it until the import, which records each
+  file it reads with its SHA-256 (`raw_import_files`).
+- An analysis is needed: Discover names one only where the folder shows it (a NIPT pair, a PGT
+  run); without one, the delivery needs attention until it is corrected.
+- No watcher looks at it, also when the folder lies in a watched folder: it is never superseded or
+  gone by a round, and is not checked again when what CoGA holds changes; a correction checks it.
+- Refused: a package in a bucket (400; it keeps its own manifest), a folder outside the import
+  roots, a family ID no family can be stored under (400), a project CoGA does not have (404), a
+  folder that holds its own `coga-package.json` (409: deliver it through a watched import folder,
+  whose watcher checks its checksums) and a second open delivery of the same folder (409). A folder
+  imported before can be added again: its family exists, and the approval asks update or overwrite.
+- The addition is the event `import_delivery_added` on the `system:import-inbox` chain, by the
+  person who made it.
+
+The earlier form of the page (Discover, the manifest, **Start import**) stays until phase 4.
 
 **Approving a delivery** ([import_delivery_review.py](../backend/app/services/import_delivery_review.py)).
 Nothing is imported until a superuser decides, on the Package Import page or through the API:

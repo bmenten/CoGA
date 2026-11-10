@@ -143,7 +143,7 @@ describe('ImportDeliveriesPanel', () => {
             }
           : [
               ...deliveries.filter((item) => item.folder_name !== 'FAM2'),
-              delivery('FAM2', { revision: 2 }),
+              delivery('FAM2', { revision: 2, origin: 'manual' }),
             ],
       })
     );
@@ -158,6 +158,11 @@ describe('ImportDeliveriesPanel', () => {
     ).not.toBeInTheDocument();
     expect(
       within(row('FAM2')).getByText('Corrected (revision 2)')
+    ).toBeInTheDocument();
+    // A folder added by hand says so where a pipeline's delivery names its pipeline.
+    expect(within(row('FAM2')).getByText('Added by hand')).toBeInTheDocument();
+    expect(
+      within(row('FAM1')).getByText('nf-core/example 1.0.0')
     ).toBeInTheDocument();
 
     fireEvent.click(ready.getByRole('button', { name: 'Correct…' }));

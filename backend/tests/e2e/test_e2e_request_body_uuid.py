@@ -191,6 +191,10 @@ def _sweep_bodies(run: str, records: dict[str, str]) -> dict[tuple[str, str], di
         ("PUT", "/api/admin/variant-tags/{tag_key}"): tag,
         ("POST", "/api/family-imports"): {"folder_path": f"/nonexistent/e2e-body-uuid-{run}/sweep", "dry_run": True},
         ("POST", "/api/family-imports/validate"): {"folder_path": f"/nonexistent/e2e-body-uuid-{run}/sweep"},
+        ("POST", "/api/family-imports/deliveries"): {
+            "folder_path": f"/nonexistent/e2e-body-uuid-{run}/sweep",
+            "analysis_type": "wgs",
+        },
     }
 
 
@@ -730,6 +734,8 @@ def test_no_operation_answers_a_body_id_that_is_no_uuid_with_a_500(snap: dict[st
         (("POST", "/api/admin/nipt/artifacts/auto-seed"), "assembly_id", ASSEMBLY_NOT_FOUND),
         (("POST", "/api/admin/nipt/artifacts/import"), "assembly_id", ASSEMBLY_NOT_FOUND),
         (("POST", "/api/family-imports"), "project_id", PROJECT_NOT_FOUND),
+        # A folder added to the deliveries by hand (import_manual_delivery.py).
+        (("POST", "/api/family-imports/deliveries"), "project_id", PROJECT_NOT_FOUND),
         # An account's projects, set from the Users page (SEC-1).
         (("PATCH", "/api/auth/users/{user_id}"), "project_ids", PROJECT_NOT_FOUND),
         (("PATCH", "/api/auth/users/{user_id}"), "reader_project_ids", PROJECT_NOT_FOUND),

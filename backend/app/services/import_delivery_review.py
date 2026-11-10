@@ -79,7 +79,7 @@ async def _locked_delivery(session: AsyncSession, delivery_id: str) -> dict[str,
                 """
                 SELECT id::text AS id, folder_path, folder_name, state, package_fingerprint,
                        marker_sha256, run_id, family_id, project_id::text AS project_id, issues,
-                       warnings, manifest_text, package
+                       warnings, manifest_text, package, origin
                 FROM import_deliveries
                 WHERE id = CAST(:id AS uuid)
                 FOR UPDATE
@@ -214,6 +214,8 @@ async def approve_delivery(
             "revision": current,
             "package_sha256": package_document_sha256(package) if isinstance(package, dict) else None,
             "corrections": corrections,
+            # ``manual``: a folder a person added by hand, whose package CoGA made.
+            "origin": delivery.get("origin") or "watched",
         },
         commit=False,
     )

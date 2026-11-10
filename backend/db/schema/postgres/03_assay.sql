@@ -300,7 +300,10 @@ CREATE INDEX IF NOT EXISTS idx_family_import_jobs_status ON family_import_jobs U
 -- ---------------------------------------------------------------------------
 -- A package a pipeline delivered into a watched import folder (FAMILY_IMPORT_WATCH_ROOTS): one row
 -- per package folder and package fingerprint (family_package_fingerprint.py), so a folder that
--- changes is a new delivery. The import watcher (import_watcher.py) writes it from the folder's
+-- changes is a new delivery. origin 'manual' is a folder a person added by hand
+-- (import_manual_delivery.py): CoGA made its package from the folder, no watcher looks at it, and
+-- the folder and fingerprint are unique among the watcher's deliveries only, so a folder imported
+-- before can be added again. The import watcher (import_watcher.py) writes it from the folder's
 -- package file (coga-package.json: marker holds it, marker_sha256 its bytes' SHA-256, run_id the
 -- run it names) and its checks: state is where the delivery stands, issues why it needs
 -- attention, warnings what an approver should see. package is the package as the watcher checked
@@ -329,13 +332,14 @@ CREATE TABLE IF NOT EXISTS import_deliveries (
     manifest_sha256 text,
     package jsonb,
     package_check jsonb,
+    origin text DEFAULT 'watched'::text NOT NULL,
     job_id uuid,
     missing_rounds integer DEFAULT 0 NOT NULL,
     first_seen_at timestamp with time zone DEFAULT now() NOT NULL,
     last_seen_at timestamp with time zone DEFAULT now() NOT NULL,
     state_changed_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT import_deliveries_pkey PRIMARY KEY (id),
-    CONSTRAINT import_deliveries_folder_fingerprint_key UNIQUE (folder_path, package_fingerprint),
+    CONSTRAINT import_deliveries_origin_check CHECK ((origin = ANY (ARRAY['watched'::text, 'manual'::text]))),
     CONSTRAINT import_deliveries_fingerprint_check CHECK ((package_fingerprint ~ '^[0-9a-f]{64}$'::text)),
     CONSTRAINT import_deliveries_marker_sha256_check CHECK (((marker_sha256 IS NULL) OR (marker_sha256 ~ '^[0-9a-f]{64}$'::text))),
     CONSTRAINT import_deliveries_manifest_check CHECK (((manifest_text IS NULL) = (manifest_sha256 IS NULL))),
@@ -344,6 +348,7 @@ CREATE TABLE IF NOT EXISTS import_deliveries (
     CONSTRAINT import_deliveries_job_id_fkey FOREIGN KEY (job_id) REFERENCES family_import_jobs(id) ON DELETE SET NULL
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS import_deliveries_folder_fingerprint_key ON import_deliveries USING btree (folder_path, package_fingerprint) WHERE (origin = 'watched'::text);
 CREATE INDEX IF NOT EXISTS idx_import_deliveries_folder ON import_deliveries USING btree (folder_path, first_seen_at);
 CREATE INDEX IF NOT EXISTS idx_import_deliveries_state ON import_deliveries USING btree (state, state_changed_at);
 

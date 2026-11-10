@@ -16,6 +16,7 @@ from ..schemas import (
     FamilyPackageManifestWriteOut,
     FamilyPackageManifestWriteRequest,
     FamilyPackageValidationOut,
+    ImportDeliveryAdd,
     ImportDeliveryApprove,
     ImportDeliveryApproveOut,
     ImportDeliveryOut,
@@ -41,6 +42,7 @@ from ..services.family_package_validation import validate_family_package
 from ..services.family_package_common import manifest_text_problem
 from ..services.import_delivery_review import approve_delivery, refuse_delivery
 from ..services.import_delivery_revisions import delivery_package, revise_delivery
+from ..services.import_manual_delivery import add_manual_delivery
 from ..services.import_watcher import list_import_deliveries
 from ..services.imported_package_folders import folders_changed_during_import, imported_package_folders
 from ..services.access_control import CurrentUser, is_admin_user
@@ -183,6 +185,25 @@ async def list_family_package_deliveries(
     ``state`` (repeatable) keeps those in one of the states named."""
     del user
     return await list_import_deliveries(session, states=list(state) if state else None, limit=limit)
+
+
+@router.post("/deliveries", response_model=ImportDeliveryOut)
+async def add_family_package_delivery(
+    payload: ImportDeliveryAdd,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_superuser),
+) -> ImportDeliveryOut:
+    """Add a package folder to Deliveries by hand: CoGA makes its package from the folder (members
+    and datasets as Discover proposes them) and checks it as a pipeline's delivery; it is then
+    corrected, approved or refused the same way (import_manual_delivery.py)."""
+    return await add_manual_delivery(
+        session,
+        folder_path=payload.folder_path,
+        project_id=payload.project_id,
+        family_id=payload.family_id,
+        analysis_type=payload.analysis_type,
+        user=user,
+    )
 
 
 @router.post("/deliveries/{delivery_id}/approve", response_model=ImportDeliveryApproveOut)
