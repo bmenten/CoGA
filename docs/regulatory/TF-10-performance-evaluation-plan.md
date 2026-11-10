@@ -190,6 +190,9 @@ pull request updates this list only when it adds clinical behaviour that no area
   - A gene panel of any size, the Mendeliome included, keeps the variants in its regions as
     well as those annotated with its genes. So the default view also lists a variant inside a
     Mendeliome gene whose annotation names another gene.
+  - The review-classification filters, on the family page and in the Variant Explorer, keep a
+    variant by the class its review shows: a bare class word in the text, else its class tag,
+    else the text; the compound-het pair's review alike.
 - **Inheritance**
   - De novo and hemizygous calls on a son's X and Y, and the sex-aware PM6/PS2 rule.
   - Compound-heterozygote pairing with read-backed phasing and informative relatives; the SV

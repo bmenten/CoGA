@@ -8,8 +8,9 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import datetime, timedelta, timezone
-from typing import Any, Callable, Iterable, Sequence, TypeVar
+from typing import Any, Callable, Collection, Iterable, Mapping, Sequence, TypeVar
 
 from fastapi import HTTPException
 from fastapi.encoders import jsonable_encoder
@@ -59,17 +60,91 @@ def review_class_label(classification: str | None, tags: Iterable[Any] | None = 
     A bare class word in the text ("VUS", "likely pathogenic") is that class's label; else the
     most severe ACMG class tag the review holds (``acmg_class_5`` … ``acmg_class_1``) is its
     label, so a review classified by its class tag alone shows that class; else the text as
-    stored, trimmed. None when there is neither. A VUS tier tag is no class tag.
+    stored, trimmed. None when there is neither. A VUS tier tag is no class tag, and tags that
+    are no list (a JSON object or text) hold none, as in SQL (:func:`review_class_label_sql`).
     """
     text_value = str(classification or "").strip()
     word_tag = CLASS_WORD_TAG_KEYS.get(text_value.lower())
     if word_tag:
         return acmg_points.CLASS_LABELS[word_tag]
-    held = {str(tag or "").strip() for tag in (tags or [])}
+    listed = () if isinstance(tags, (str, bytes, Mapping)) else (tags or ())
+    held = {str(tag or "").strip() for tag in listed}
     for tag_key, label in acmg_points.CLASS_LABELS.items():
         if tag_key in held:
             return label
     return text_value or None
+
+
+def review_class_filter(values: Iterable[Any] | None) -> list[str]:
+    """The classes a review-classification filter asks for, each once, in the order given.
+
+    Each value is read as a review's text is (:func:`review_class_label`): a bare class word
+    ("VUS") asks for its class label, any other value for itself, trimmed. Lowercased: a filter
+    compares whatever the case (ENG-6). A blank value asks for nothing.
+    """
+    requested = (review_class_label(str(value)) for value in values or [] if str(value).strip())
+    return list(dict.fromkeys(label.lower() for label in requested if label))
+
+
+def review_shows_class(
+    classification: str | None, tags: Iterable[Any] | None, requested: Collection[str]
+) -> bool:
+    """Whether a review shows one of the ``requested`` classes (:func:`review_class_filter`).
+
+    The rule of the small-variant classification filters, the family search's and the
+    Variant Explorer's (CLIN-75, the owner's decision of 2026-11-10): a review is kept by the
+    class it shows (:func:`review_class_label`), so a class filter keeps every review shown with
+    that class, one classified by its class tag alone too, and none shown with another. The
+    Explorer applies it in SQL (:func:`review_class_label_sql`).
+    """
+    shown = review_class_label(classification, tags)
+    return shown is not None and shown.lower() in requested
+
+
+# The characters ``str.strip()`` removes (those ``str.isspace()`` holds; none lies past U+3000),
+# for ``btrim`` in the SQL rule to trim what review_class_label trims.
+_STRIPPED_CHARACTERS = "".join(character for character in map(chr, range(0x3001)) if character.isspace())
+_SQL_COLUMN = re.compile(r"[a-z_]+(?:\.[a-z_]+)?")
+
+
+def review_class_label_sql(classification_column: str, tags_column: str) -> tuple[str, dict[str, str]]:
+    """:func:`review_class_label` as an SQL expression over a review row's classification text
+    column and its JSONB tag column, with the parameters it binds.
+
+    For the Variant Explorer's classification filter, which selects its reviews in Postgres:
+    the expression is the class the review shows (NULL for none), as the Python rule gives it.
+    The class words, the class tags in their order and the labels are bound from the Python
+    tables, so the two cannot name a class apart; the integration test of the Explorer's export
+    evaluates it on Postgres over the cases of ``review-class-cases.json`` beside the Python
+    rule. A tag column that is no JSON array holds no class tag. The columns are the caller's
+    own identifiers, never a request's value.
+    """
+    for column in (classification_column, tags_column):
+        if not _SQL_COLUMN.fullmatch(column):
+            raise ValueError("review_class_label_sql takes a column name")
+    text_value = f"btrim({classification_column}, CAST(:rcl_strip AS text))"
+    params: dict[str, str] = {"rcl_strip": _STRIPPED_CHARACTERS}
+    cases: list[str] = []
+    for index, (word, tag_key) in enumerate(CLASS_WORD_TAG_KEYS.items()):
+        params[f"rcl_word_{index}"] = word
+        params[f"rcl_word_label_{index}"] = acmg_points.CLASS_LABELS[tag_key]
+        cases.append(
+            f"WHEN lower({text_value}) = CAST(:rcl_word_{index} AS text) "
+            f"THEN CAST(:rcl_word_label_{index} AS text)"
+        )
+    held_tags = (
+        f"jsonb_array_elements_text(CASE WHEN jsonb_typeof({tags_column}) = 'array' "
+        f"THEN {tags_column} ELSE '[]'::jsonb END)"
+    )
+    for index, (tag_key, label) in enumerate(acmg_points.CLASS_LABELS.items()):
+        params[f"rcl_tag_{index}"] = tag_key
+        params[f"rcl_tag_label_{index}"] = label
+        cases.append(
+            f"WHEN EXISTS (SELECT 1 FROM {held_tags} AS held(tag) "
+            f"WHERE btrim(held.tag, CAST(:rcl_strip AS text)) = CAST(:rcl_tag_{index} AS text)) "
+            f"THEN CAST(:rcl_tag_label_{index} AS text)"
+        )
+    return f"(CASE {' '.join(cases)} ELSE NULLIF({text_value}, '') END)", params
 
 
 def _stored_classification(value: str | None) -> str | None:

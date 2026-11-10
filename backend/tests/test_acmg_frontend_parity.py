@@ -17,7 +17,7 @@ the built-in classification and VUS-tier tags carry them; all are in sentence ca
 
 The server reads the class a review shows from its text and its tags as the family page does
 (``review_class_label`` and ``normalizeReviewClassification``): both read one table of cases
-(CLIN-71).
+(CLIN-71). The classification filters keep a review by that class (CLIN-75).
 """
 
 from __future__ import annotations
@@ -283,3 +283,35 @@ def test_a_review_shows_the_class_the_family_page_reads_from_its_text_and_its_ta
     assert body, f"CLASS_WORD_TAG_KEYS not found in {SMALL_VARIANT_SEARCH_TS.name}"
     assert dict(re.findall(r"'?(\w[\w ]*?)'?:\s*'(\w+)'", body.group(1))) == CLASS_WORD_TAG_KEYS
     assert list(_ts_tags("export const ACMG_CLASSIFICATION_TAGS")) == list(acmg_points.CLASS_LABELS)
+
+
+def test_a_classification_filter_keeps_each_review_by_the_class_the_family_page_shows() -> None:
+    # CLIN-75 (the owner's decision of 2026-11-10): the classification filters keep a review by the
+    # class it shows, so over the shared cases a class filter keeps every review shown with that
+    # class and none shown with another. A filter value is read as a review's text is: a bare
+    # class word asks for its class, in any case; free text asks for itself.
+    from backend.app.services.review_pg_utils import (
+        CLASS_WORD_TAG_KEYS,
+        review_class_filter,
+        review_shows_class,
+    )
+
+    cases = json.loads(REVIEW_CLASS_CASES.read_text(encoding="utf-8"))["cases"]
+    labels = list(acmg_points.CLASS_LABELS.values())
+    for case in cases:
+        for label in labels:
+            kept = review_shows_class(case["classification"], case["tags"], review_class_filter([label]))
+            assert kept == (case["shown"].lower() == label.lower()), (case["why"], label)
+        if case["shown"]:
+            assert review_shows_class(
+                case["classification"], case["tags"], review_class_filter([case["shown"].upper()])
+            ), case["why"]
+    for word, tag in CLASS_WORD_TAG_KEYS.items():
+        assert review_class_filter([f" {word.upper()} "]) == [acmg_points.CLASS_LABELS[tag].lower()]
+    assert review_class_filter(["Likely Pathogenic - class 4", "likely pathogenic", " ", "My words"]) == [
+        "likely pathogenic - class 4",
+        "my words",
+    ]
+    # Tags that are no list hold no class tag, as in SQL.
+    assert not review_shows_class(None, {"acmg_class_4": True}, review_class_filter(labels))
+    assert not review_shows_class(None, "acmg_class_4", review_class_filter(labels))

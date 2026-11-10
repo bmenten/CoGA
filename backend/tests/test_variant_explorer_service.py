@@ -695,8 +695,7 @@ def test_the_classification_filter_matches_a_review_whatever_the_case_of_its_lab
     )
     statement, params = session.calls[0]
     assert params["classifications"] == ["likely pathogenic - class 4", "vus - class 3"]
-    assert "lower(btrim(r.classification)) IN" in str(statement)
-    assert "lower(btrim(r.compound_het_classification)) IN" in str(statement)
+    assert "lower((CASE" in str(statement) and ") IN (__[POSTCOMPILE_classifications])" in str(statement)
 
 
 def test_review_display_map_binds_any_number_of_variant_ids_as_one_parameter() -> None:
@@ -881,23 +880,73 @@ def test_the_shown_class_and_review_time_do_not_depend_on_the_order_the_reviews_
     assert "ORDER BY r.variant_id, r.updated_at DESC, r.family_id" in statement
 
 
-def test_the_classification_filter_reads_the_classification_text_as_the_family_search_does() -> None:
-    # CLIN-71: the family search's classification filter (list_matching_small_variant_review_ids)
-    # matches a review's classification text, or its pair's, and no tag: a review classified by
-    # its class tag alone is kept by the tag filter, not the classification filter. The Explorer's
-    # keeps the same reviews (integration/test_variant_explorer_export_integration.py compares
-    # the two on Postgres).
+def test_the_classification_filter_keeps_a_review_by_the_class_it_shows_as_the_family_search_does() -> None:
+    # CLIN-75 (the owner's decision of 2026-11-10): the filter matched the classification text
+    # alone, so a review classified by its class tag was shown with its class (CLIN-71) and not
+    # found by it. It now keeps a review, or its pair review, by the class it shows, in SQL:
+    # review_class_label_sql over the review's own text and tags and over the pair's, the rule of
+    # the family search's filter (review_shows_class). A bare class word asks for its class.
+    # integration/test_variant_explorer_export_integration.py evaluates the SQL on Postgres
+    # beside the Python rule, and compares this filter with the family search's.
+    from backend.app.services.review_pg_utils import review_class_label_sql
     from backend.app.services.variant_explorer_service import _variant_ids_matching_reviews
 
     session = _RecordingSession(rows=[("1-100-A-G",)])
     asyncio.run(
         _variant_ids_matching_reviews(
-            session, project_ids=[_PROJECT], classifications=["Likely pathogenic - class 4"], tags=[], limit=10
+            session,
+            project_ids=[_PROJECT],
+            classifications=["Likely pathogenic - class 4", "VUS"],
+            tags=[],
+            limit=10,
         )
     )
     statement, params = session.calls[0]
-    assert "tags" not in str(statement)
-    assert "tags" not in params
+    own, own_params = review_class_label_sql("r.classification", "r.tags")
+    pair, pair_params = review_class_label_sql("r.compound_het_classification", "r.compound_het_tags")
+    assert own_params == pair_params
+    sql = str(statement)
+    assert f"(lower({own}) IN (__[POSTCOMPILE_classifications])" in sql
+    assert f"OR lower({pair}) IN (__[POSTCOMPILE_classifications]))" in sql
+    assert params["classifications"] == ["likely pathogenic - class 4", "vus - class 3"]
+    assert {name: params[name] for name in own_params} == own_params
+
+
+def test_the_sql_class_rule_reads_the_python_rule_s_tables() -> None:
+    # The SQL rule binds the class words, the class tags in their order and the labels from the
+    # Python tables, and trims what str.strip() trims: the two cannot read a class apart.
+    import sys
+
+    from backend.app.services import acmg_points
+    from backend.app.services.review_pg_utils import (
+        CLASS_WORD_TAG_KEYS,
+        _STRIPPED_CHARACTERS,
+        review_class_label_sql,
+    )
+
+    sql, params = review_class_label_sql("r.classification", "r.tags")
+    words = [params[f"rcl_word_{index}"] for index in range(len(CLASS_WORD_TAG_KEYS))]
+    assert words == list(CLASS_WORD_TAG_KEYS)
+    assert [params[f"rcl_word_label_{index}"] for index in range(len(words))] == [
+        acmg_points.CLASS_LABELS[tag] for tag in CLASS_WORD_TAG_KEYS.values()
+    ]
+    tags = [params[f"rcl_tag_{index}"] for index in range(len(acmg_points.CLASS_LABELS))]
+    assert tags == list(acmg_points.CLASS_LABELS)
+    assert [params[f"rcl_tag_label_{index}"] for index in range(len(tags))] == list(
+        acmg_points.CLASS_LABELS.values()
+    )
+    # The class words come first, then the tags, most severe first, then the text.
+    assert sql.index("rcl_word_4") < sql.index("rcl_tag_0") < sql.index("rcl_tag_4") < sql.index("ELSE NULLIF")
+    assert params["rcl_strip"] == _STRIPPED_CHARACTERS
+    assert set(_STRIPPED_CHARACTERS) == {
+        chr(code) for code in range(sys.maxunicode + 1) if chr(code).isspace()
+    }
+    # Only a column name goes into the SQL.
+    for column in ("r.classification; DROP TABLE x", "lower(r.classification)", ""):
+        with pytest.raises(ValueError):
+            review_class_label_sql(column, "r.tags")
+        with pytest.raises(ValueError):
+            review_class_label_sql("r.classification", column)
 
 
 def test_a_classification_ranks_by_the_class_it_names() -> None:

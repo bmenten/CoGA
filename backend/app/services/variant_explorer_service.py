@@ -83,7 +83,7 @@ from .family_variant_filters import (
 )
 from .genotypes import ALT_CLASSES, HET, HOM_ALT, classify_genotype, clickhouse_genotype_condition
 from .access_control import CurrentUser, has_superuser_rights, user_metadata_project_ids
-from .review_pg_utils import _as_utc, review_class_label
+from .review_pg_utils import _as_utc, review_class_filter, review_class_label, review_class_label_sql
 from .variant_ranking_cache import panel_members_digest
 
 
@@ -574,14 +574,16 @@ async def _variant_ids_matching_reviews(
 
     At most ``limit`` ids, the first in variant_id order, so a capped list is the same
     list on every request; the query reads one row more to know whether more matched.
+
+    A classification keeps a review, or its compound-het pair review, by the class it shows,
+    as the family search's filter does (``list_matching_small_variant_review_ids``, CLIN-75):
+    the rule ``review_shows_class``, here in SQL (``review_class_label_sql``), so the Explorer
+    keeps exactly the variants a family search keeps in some family. Whatever the case: a
+    filter or a review saved before the labels were put in sentence case (ENG-6) holds "Likely
+    Pathogenic - class 4"; Postgres's lower() and Python's agree on the class labels and words.
     """
 
-    # A classification matches whatever its case, as on the family page: a filter or a review
-    # saved before the labels were put in sentence case (ENG-6) holds "Likely Pathogenic -
-    # class 4". Postgres's lower() and Python's agree on these ASCII labels.
-    classifications = list(
-        dict.fromkeys(value.strip().lower() for value in classifications if str(value).strip())
-    )
+    classifications = review_class_filter(classifications)
     tags = [value.strip() for value in tags if str(value).strip()]
     if not classifications and not tags:
         return [], False
@@ -598,10 +600,14 @@ async def _variant_ids_matching_reviews(
     bind_params = [uuid_list_bindparam("project_ids")]
 
     if classifications:
-        clauses.append(
-            "(lower(btrim(r.classification)) IN :classifications"
-            " OR lower(btrim(r.compound_het_classification)) IN :classifications)"
+        shown, label_params = review_class_label_sql("r.classification", "r.tags")
+        pair_shown, _same_params = review_class_label_sql(
+            "r.compound_het_classification", "r.compound_het_tags"
         )
+        clauses.append(
+            f"(lower({shown}) IN :classifications OR lower({pair_shown}) IN :classifications)"
+        )
+        params.update(label_params)
         params["classifications"] = classifications
         bind_params.append(bindparam("classifications", expanding=True))
     if tags:

@@ -5,7 +5,9 @@ array (DATA-3); the summary counts a review that holds only an ACMG record; clea
 and a re-classification that changes only a criterion's strength, are on the clinical audit
 trail in the save's transaction; a tag the review holds is kept whatever became of its
 definition, and only a tag the save adds is checked. A classification filter, here and on the
-structural-variant page, matches a review's label whatever its case (ENG-6).
+structural-variant page, matches a review's label whatever its case (ENG-6); the small-variant
+one keeps a review, or its pair review, by the class it shows: its class tag, a bare class word
+or its text (CLIN-75).
 """
 
 from __future__ import annotations
@@ -90,6 +92,79 @@ def test_a_compound_het_pair_classification_matches_whatever_its_case() -> None:
     assert asyncio.run(
         small_variant_review_pg.list_matching_small_variant_review_ids(
             session, family_uuid="f1", classifications=["Likely pathogenic - class 4"]
+        )
+    ) == {"1-100-A-G"}
+
+
+def _review(variant_id: str, classification=None, tags=(), pair_classification=None, pair_tags=()):
+    return {
+        "variant_id": variant_id,
+        "classification": classification,
+        "tags": list(tags),
+        "note": None,
+        "compound_het_classification": pair_classification,
+        "compound_het_tags": list(pair_tags),
+        "compound_het_note": None,
+    }
+
+
+# The reviews of the owner's before/after table (CLIN-75), one per variant.
+_SHOWN_CLASS_REVIEWS = [
+    _review("1-100-A-G", tags=["acmg_class_4", "report"]),  # a class tag alone
+    _review("1-200-A-G", classification="VUS"),  # a bare class word
+    _review("1-300-A-G", classification="VUS - class 3", tags=["acmg_class_4"]),  # text and tag apart
+    _review("1-400-A-G", pair_tags=["acmg_class_5"]),  # the pair review's class tag alone
+    _review("1-500-A-G", classification="Some free text"),  # free text
+    _review("1-600-A-G", classification="Some free text", tags=["acmg_class_1"]),  # free text, class tag
+    _review("1-700-A-G", classification="Likely Pathogenic - class 4"),  # a label in an older case
+]
+
+
+@pytest.mark.parametrize(
+    ("wanted", "kept"),
+    [
+        ("Pathogenic - class 5", {"1-400-A-G"}),
+        ("Likely pathogenic - class 4", {"1-100-A-G", "1-300-A-G", "1-700-A-G"}),
+        ("VUS - class 3", {"1-200-A-G"}),
+        ("Benign - class 1", {"1-600-A-G"}),
+        # A bare class word asks for its class, as a review's text does.
+        ("VUS", {"1-200-A-G"}),
+        (" likely PATHOGENIC ", {"1-100-A-G", "1-300-A-G", "1-700-A-G"}),
+        # Free text keeps the reviews that show it: not one whose class tag shows a class.
+        ("some free TEXT", {"1-500-A-G"}),
+        ("acmg_class_4", set()),
+    ],
+)
+def test_a_classification_filter_keeps_a_review_by_the_class_it_shows(wanted, kept) -> None:
+    # CLIN-75 (the owner's decision of 2026-11-10): the filter read the classification text
+    # alone, so "Likely pathogenic - class 4" dropped a variant the family page shows with that
+    # class by its class tag, and kept one shown as class 4 for text saying class 3. It now keeps
+    # a review, or its pair review, by the class it shows (review_class_label), in any case.
+    session = _RecordingSession(_SHOWN_CLASS_REVIEWS)
+    assert asyncio.run(
+        small_variant_review_pg.list_matching_small_variant_review_ids(
+            session, family_uuid="f1", classifications=[wanted]
+        )
+    ) == kept
+
+
+def test_a_classification_filter_with_several_classes_keeps_a_review_showing_any_of_them() -> None:
+    session = _RecordingSession(_SHOWN_CLASS_REVIEWS)
+    assert asyncio.run(
+        small_variant_review_pg.list_matching_small_variant_review_ids(
+            session,
+            family_uuid="f1",
+            # The P/LP/VUS quick choice.
+            classifications=["Pathogenic - class 5", "Likely pathogenic - class 4", "VUS - class 3"],
+        )
+    ) == {"1-100-A-G", "1-200-A-G", "1-300-A-G", "1-400-A-G", "1-700-A-G"}
+
+
+def test_a_classification_filter_with_a_tag_filter_needs_both() -> None:
+    session = _RecordingSession(_SHOWN_CLASS_REVIEWS)
+    assert asyncio.run(
+        small_variant_review_pg.list_matching_small_variant_review_ids(
+            session, family_uuid="f1", classifications=["Likely pathogenic - class 4"], tags=["report"]
         )
     ) == {"1-100-A-G"}
 

@@ -25,8 +25,9 @@ classification, consequence and tags, with the number of carriers (het and hom) 
 A variant reviewed in more than one family shows the most severe classification of those reviews, and
 the tags of all of them. Each review counts with the class the family page shows for it, also when it
 holds only a class tag such as *Likely pathogenic - class 4*. Of two reviews of the same class, the row
-shows the one saved last. The classification filter reads the classification text, as on the family
-page: to find a variant classified by its class tag alone, filter on that tag.
+shows the one saved last. The classification filter keeps a variant one of whose reviews shows that
+class, as on the family page, so it also finds a review classified by its class tag alone. The row may
+show a more severe class, from another family's review.
 
 - Filter as on the family page (gene, consequence, ClinVar, frequency, in-silico scores), plus tags and
   classification — for example every variant tagged *Report*.

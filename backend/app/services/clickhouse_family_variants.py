@@ -3059,10 +3059,11 @@ async def resolve_review_selection(
     has_notes: bool = False,
 ) -> ReviewSelection:
     """The review filters of a family's variant list, read from its reviews
-    (``list_matching_small_variant_review_ids``): the classifications, the review tags (a
-    variant's own or its compound-het pair's) and the saved notes it keeps, and the review
-    tags it leaves out. A filter sent with blank values only still counts as set, and
-    matches nothing. The small-variant list and the NIPT variant list select by it alike."""
+    (``list_matching_small_variant_review_ids``): the classifications (by the class a review
+    shows, CLIN-75), the review tags (a variant's own or its compound-het pair's) and the saved
+    notes it keeps, and the review tags it leaves out. A filter sent with blank values only
+    still counts as set, and matches nothing. The small-variant list and the NIPT variant list
+    select by it alike."""
     include: set[str] | None = None
     if classifications or tags or has_notes:
         include = await list_matching_small_variant_review_ids(

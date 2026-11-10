@@ -48,6 +48,12 @@ quality**, **Locations**, **Exclude** and **Review and curation**.
     *RefCall*) holds nothing back. A multi-sample VCF gives the FILTER of the site.
   - The quick choices *High quality* and *Passing* turn it on, as in seqr; *All variants* turns it
     off.
+- **Review and curation** keeps a variant by the class its review, or its compound-het pair's review,
+  shows. A class word typed as the classification (*VUS*) gives its class; otherwise the review's class
+  tag gives it, the most severe of two; otherwise the classification as typed. So *Likely pathogenic -
+  class 4* also finds a variant classified by its class tag alone, and not one classified as *VUS -
+  class 3* beside the *Likely pathogenic - class 4* tag: that variant shows class 4. Capitals do not
+  matter.
 
 For de novo and dominant, a male's call on chrX or chrY outside the pseudo-autosomal regions (`1` or
 `1/1`) counts as one copy. A location entry that cannot be read (for example an end before its start)
