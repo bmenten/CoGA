@@ -17,7 +17,8 @@ its row is dimmed.
   (*VUS*) gives its class; otherwise the review's class tag gives it, the most severe of two;
   otherwise the classification as typed. A class tag of another class is not shown beside it. The VUS
   tiers and *Secondary finding* are tags, never the class. The filters, the Variant Explorer and
-  **Download CSV** read the class the same way.
+  **Download CSV** read the class the same way; the CSV also gives the classification as typed, in
+  *Classification text*.
 - **Review**, **Exclude** and **Report** change the tags only: the classification stays as stored.
   **Tags & notes** opens on the class shown. Choosing another class there, or none, replaces the
   classification and every class tag; left alone, the save keeps both as they are.

@@ -249,9 +249,18 @@ def _most_severe(
 ) -> str | None:
     """The value of highest rank, as given; of two that rank alike, the first. ``rank`` is
     a table of lowercased values (an unlisted one ranks 0) or a function of the value."""
-    best_value: str | None = None
+    index = _most_severe_index(values, rank)
+    return None if index is None else str(values[index] or "").strip()
+
+
+def _most_severe_index(
+    values: Sequence[str], rank: Mapping[str, int] | Callable[[str], int]
+) -> int | None:
+    """The position in ``values`` of :func:`_most_severe`'s value; None when every value is
+    empty."""
+    best_index: int | None = None
     best_rank = -1
-    for value in values:
+    for index, value in enumerate(values):
         text_value = str(value or "").strip()
         if not text_value:
             continue
@@ -261,8 +270,8 @@ def _most_severe(
             value_rank = rank.get(text_value.lower(), 0)
         if value_rank > best_rank:
             best_rank = value_rank
-            best_value = text_value
-    return best_value
+            best_index = index
+    return best_index
 
 
 def _classification_rank(value: str) -> int:
@@ -664,8 +673,9 @@ async def _review_display_map(
     project_ids: Sequence[str],
     variant_ids: Sequence[str],
 ) -> dict[str, dict[str, Any]]:
-    """Per variant_id: the union of its reviews' tags, the class each review shows, and the
-    latest review time, across the families of ``project_ids``.
+    """Per variant_id: the union of its reviews' tags, the class each review shows with that
+    review's classification text as stored (``classification_texts``, in the same order), and
+    the latest review time, across the families of ``project_ids``.
 
     Each review shows its class as the family page reads it (``review_class_label``): a
     review classified by its class tag alone shows that class. Its own class comes
@@ -709,7 +719,8 @@ async def _review_display_map(
         if not variant_id:
             continue
         entry = aggregated.setdefault(
-            variant_id, {"tags": set(), "classifications": [], "updated_at": None}
+            variant_id,
+            {"tags": set(), "classifications": [], "classification_texts": [], "updated_at": None},
         )
         for tag in (row.get("tags") or []):
             text_tag = str(tag or "").strip()
@@ -719,12 +730,14 @@ async def _review_display_map(
             text_tag = str(tag or "").strip()
             if text_tag:
                 entry["tags"].add(text_tag)
-        for shown in (
-            review_class_label(row.get("classification"), row.get("tags")),
-            review_class_label(row.get("compound_het_classification"), row.get("compound_het_tags")),
+        for stored, tags in (
+            (row.get("classification"), row.get("tags")),
+            (row.get("compound_het_classification"), row.get("compound_het_tags")),
         ):
+            shown = review_class_label(stored, tags)
             if shown:
                 entry["classifications"].append(shown)
+                entry["classification_texts"].append(stored)
         updated_at = row.get("updated_at")
         if updated_at is not None and (
             entry["updated_at"] is None or updated_at > entry["updated_at"]
@@ -1258,7 +1271,14 @@ async def _fetch_variant_rows(
         # The transcript the row's consequence and HGVS come from: [effect, HGVSc, HGVSp].
         shown = annotation.get("shown", [])
         clinvar_terms = annotation.get("clinvar_terms", [])
-        classification = _most_severe(review.get("classifications", []), _classification_rank)
+        # The class the reviews show, the most severe, and beside it the text of the review
+        # that shows it, as stored.
+        shown_classes: list[str] = review.get("classifications", [])
+        shown_index = _most_severe_index(shown_classes, _classification_rank)
+        classification = None if shown_index is None else shown_classes[shown_index].strip()
+        classification_text = (
+            None if shown_index is None else review["classification_texts"][shown_index]
+        )
         impact = _most_severe(impacts, _IMPACT_RANK) or _first_non_empty(impacts)
 
         variants.append(
@@ -1281,6 +1301,7 @@ async def _fetch_variant_rows(
                 hgvsp=_first_non_empty(shown[2:3]) if shown else _first_non_empty(annotation.get("hgvsp_values", [])),
                 clinvar=_most_severe(clinvar_terms, _CLINVAR_RANK) or _first_non_empty(clinvar_terms),
                 classification=classification,
+                classification_text=classification_text,
                 tags=sorted(review.get("tags", set())),
                 total_samples=int(row[11] or 0),
                 het_samples=int(row[10] or 0),

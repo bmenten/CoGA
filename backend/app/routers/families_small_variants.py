@@ -300,7 +300,9 @@ _FAMILY_EXPORT_COLUMNS: list[tuple[str, str]] = [
     ("spliceai_max", "SpliceAI"),
     ("sift", "SIFT"),
     ("polyphen", "PolyPhen"),
+    # The class the review shows, then its classification text as written.
     ("classification", "Classification"),
+    ("classification_text", "Classification text"),
     ("tags", "Tags"),
     ("genotypes", "Genotypes"),
     # The transcript the annotation filters held on, when the row's transcript (the
@@ -343,6 +345,10 @@ def _family_export_cell(variant: VariantOut, field: str) -> str:
         if variant.review is None:
             return ""
         return review_class_label(variant.review.classification, variant.review.tags) or ""
+    if field == "classification_text":
+        # Beside it the classification as the reviewer wrote it, as stored: where the
+        # rule shows a class tag's class, the text the review also holds stays in the file.
+        return (variant.review.classification or "") if variant.review else ""
     if field == "tags":
         return "; ".join(variant.review.tags) if variant.review else ""
     if field == "genotypes":

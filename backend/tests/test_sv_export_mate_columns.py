@@ -71,6 +71,7 @@ _COLUMNS = [
     "pLI",
     "Region flags",
     "Classification",
+    "Classification text",
     "Tags",
     "Genotypes",
 ]

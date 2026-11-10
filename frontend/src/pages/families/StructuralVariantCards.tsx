@@ -4,14 +4,13 @@ import {
   buildGnomadSvRegionHref,
   formatFrequency,
   formatScore,
-  getReviewClassificationTone,
+  reviewClassChips,
   sortReviewTagKeys,
   visibleReviewTagKeys,
 } from './smallVariantResultUtils';
 import {
   COLLABORATION_QUICK_TAGS,
   getTagDefinitionMap,
-  normalizeReviewClassification,
   type SmallVariantTagDefinition,
 } from './smallVariantSearch';
 import {
@@ -144,11 +143,15 @@ export default function StructuralVariantCards({
         const hasReviewTag = sortedReviewTags.includes(COLLABORATION_QUICK_TAGS.review);
         const isExcluded = sortedReviewTags.includes(COLLABORATION_QUICK_TAGS.excluded);
         const isReported = sortedReviewTags.includes(COLLABORATION_QUICK_TAGS.report);
-        const visibleReviewTags = visibleReviewTagKeys(sortedReviewTags);
-        const normalizedClassification = normalizeReviewClassification(
+        // The review's class once, by the one rule of the family page: in the
+        // heading, and among the tags only as its own class tag; a class tag that is not the
+        // class shown is no chip.
+        const reviewClass = reviewClassChips(
           variant.review?.classification,
           variant.review?.tags,
+          visibleReviewTagKeys(sortedReviewTags),
         );
+        const visibleReviewTags = reviewClass.tagKeys;
 
         const freqRows = [
           { label: 'Control', value: formatFrequency(extra.control_af) },
@@ -195,14 +198,10 @@ export default function StructuralVariantCards({
                   <span className="variant-card-chip variant-card-chip--strong">{extra.inheritance}</span>
                 ) : null}
               </GeneDiseaseHeading>
-              {normalizedClassification ? (
+              {reviewClass.label ? (
                 <div className="variant-card-headtags">
-                  <span
-                    className={`variant-card-chip variant-card-chip--${getReviewClassificationTone(
-                      normalizedClassification,
-                    )}`}
-                  >
-                    {normalizedClassification}
+                  <span className={`variant-card-chip variant-card-chip--${reviewClass.tone}`}>
+                    {reviewClass.label}
                   </span>
                 </div>
               ) : null}
