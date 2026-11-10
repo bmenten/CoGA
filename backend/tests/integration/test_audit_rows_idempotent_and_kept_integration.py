@@ -9,22 +9,21 @@ batch when it stops, and the rows are read back.
 - A batch whose first commit is made but whose answer is lost (the connection drops as Postgres
   commits) is written again by the worker. Each event carries the id it was given before it was
   queued, and the INSERT does nothing for an id the table holds (``ON CONFLICT (event_id) DO
-  NOTHING``): every event is stored once. Before, every row of the batch was stored twice.
-  Every write runs under ``SET LOCAL ROLE coga_app``.
+  NOTHING``): every event is stored once. Every write runs under ``SET LOCAL ROLE coga_app``.
 - A row naming a user whose account was deleted while the row waited in the queue fails the
-  foreign key on ``user_id`` on every attempt of its batch. Written alone, it is now stored
+  foreign key on ``user_id`` on every attempt of its batch. Written alone, it is stored
   without the link, the user's id kept in ``request_meta._deleted_user_id`` or
   ``detail._deleted_user_id``, its copied e-mail and role as they were; the batch's other rows
   keep their link. One line says so, naming the error by its kind; nothing is counted as lost.
-  Before, the row was lost. Every write runs under ``SET LOCAL ROLE coga_app``.
+  Every write runs under ``SET LOCAL ROLE coga_app``.
 - A row refused for something other than its characters fails that INSERT on every attempt: a
   request's row whose duration the driver cannot encode (more than the 32-bit ``duration_ms``
   holds), or a UI event whose client timestamp it cannot encode (year 1 at +05:00 is year 0 in
-  UTC). Every other row of the batch, any user's, used to be lost with it. After the batch's
-  last attempt the worker now writes the rows one at a time, so the refused row costs only
-  itself: it is counted once and logged once with its payload, and no log line quotes the
-  database's error, which repeats the rows. (A row naming a deleted user was this case's
-  example until SEC-17; it is now stored without the link, as above.)
+  UTC). After the batch's last attempt the worker writes the rows one at a time, so the
+  refused row costs only itself and every other row of the batch, any user's, is stored: it is
+  counted once and logged once with its payload, and no log line quotes the database's error,
+  which repeats the rows. (A row naming a deleted user is not this case: it is stored without
+  the link, as above.)
 - The rows stored are read back by the administrator's lists (``list_audit_log_events``,
   ``list_ui_events``), which no other test ran: each filter (the request's method, its status,
   the user's e-mail address, a path, route, label or target the text is part of, the UI

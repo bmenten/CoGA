@@ -314,9 +314,8 @@ async def test_a_rewrite_whose_rows_cannot_be_put_back_names_every_sample_they_h
     with pytest.raises(DatasetLeftMissing) as raised:
         await _upload(_PROBAND_VCF, overwrite=True)
 
-    # Before: the failed restore was only logged, and the import flagged the dataset for the
-    # samples it names alone (SAFE-31). Now its error names each sample whose calls the rows
-    # held, and the import flags the dataset for them too (scope_with_samples).
+    # SAFE-31: the error names each sample whose calls the rows held, and the import flags
+    # the dataset for them too (scope_with_samples), not only for the samples it names.
     assert raised.value.samples == ["MOTHER", "PROBAND"]
     assert str(raised.value.__cause__) == "ClickHouse went away"
     assert len(storage["rewrites"]) == 2 and storage["deletes"] == []
@@ -505,7 +504,7 @@ async def test_the_mito_import_records_the_samples_haplogroup_and_removes_its_lo
 
     assert summary.status == "imported"
     assert summary.summary["PROBAND"]["inserted"] == 2
-    # Read from the annotation after the upload, which used to have closed it by then.
+    # Read from the annotation after the upload, which leaves it open for its caller.
     assert recorded_mtdna == {"PROBAND": {"haplogroup": "H1", "haplogroup_support": 2}}
     assert list(scratch.iterdir()) == []
 
@@ -532,8 +531,8 @@ async def test_a_chrm_vcf_without_a_record_fails_the_dataset_with_the_calls_as_t
     storage, scratch: Path, recorded_mtdna, tmp_path: Path, vcf: str
 ) -> None:
     # The owner's decision (SAFE-29): a mitochondrial SNV file without a variant record is a
-    # failed analysis. Before, it was read as "no chrM variants called": the proband's stored
-    # call was removed and the dataset ended imported.
+    # failed analysis, not "no chrM variants called": the proband's stored call stays, and
+    # the dataset fails.
     with pytest.raises(RuntimeError, match=r"the chrM VCF of PROBAND \(PROBAND\.vcf\) holds no variant record"):
         await family_package_datasets._import_mito_dataset(_mito_job(tmp_path / "package", vcf))
 
@@ -564,7 +563,7 @@ async def test_a_chrm_vcf_without_a_record_fails_the_dataset_before_any_samples_
     with pytest.raises(RuntimeError, match="No mitochondrial call was replaced"):
         await family_package_datasets._import_mito_dataset(job)
 
-    # Before: the mother's file replaced her calls, and the proband's removed his.
+    # Neither the mother's calls nor the proband's are replaced.
     assert storage["rewrites"] == [] and storage["shared_writes"] == []
     assert recorded_mtdna == {}
 
@@ -584,8 +583,8 @@ async def test_a_failed_mito_upload_leaves_no_lookup(storage, scratch: Path, rec
 async def test_a_file_naming_another_sample_is_refused_before_its_annotation_is_read(
     storage, scratch: Path, recorded_mtdna, tmp_path: Path
 ) -> None:
-    # The mother's file under the proband's entry: it used to be bound to the proband,
-    # because a one-column file was taken as its entry's sample whatever it named.
+    # The mother's file under the proband's entry: a one-column file is not taken as its
+    # entry's sample whatever it names, so it is not bound to the proband.
     mothers_file = _PROBAND_VCF.replace("FORMAT\tPROBAND", "FORMAT\tMOTHER")
 
     with pytest.raises(VcfSampleColumnError, match="'MOTHER' is MOTHER"):

@@ -2,25 +2,25 @@
 
 ``repeat_expansions.status`` has a check constraint. A male with two different FMR1 alleles
 (TRGT run without ``--karyotype XY``, size mosaicism, a recorded sex that does not match)
-gets ``review`` (#757), as does a contraction locus outside every stated range (#535); an
-FMR1 premutation gets ``premutation``. The constraint allowed neither, so the insert was
-refused and the whole repeat dataset with it. These run the real TRGT ingest against
+gets ``review``, as does a contraction locus outside every stated range; an FMR1
+premutation gets ``premutation``. A constraint that refused either would refuse the insert,
+and the whole repeat dataset with it. These run the real TRGT ingest against
 Postgres, on a family of its own, deleted afterwards. Only Postgres is needed. Skipped unless
 ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``smoke`` job sets it.
 
-The built-in FMR1 row once called 200 repeats a full mutation (CLIN-2). A database seeded
-then gets the corrected row (201) from the next start's seed, and a call imported after it
-stores a male's 200-repeat allele as a premutation.
+The built-in FMR1 row starts the full mutation at 201 repeats (CLIN-2). A database whose row
+holds 200 gets the row (201) from the next start's seed, and a call imported after it stores a
+male's 200-repeat allele as a premutation.
 
-Fifteen built-in rows once started the intermediate or the pathogenic range at another count
-than their STRchive row (CLIN-22). The next start gives each built-in row its STRchive row's
-thresholds (BEAN1's intermediate threshold becomes NULL); a call imported under an old row
+Each built-in row takes its STRchive row's thresholds (CLIN-22). Fifteen built-in rows whose
+intermediate or pathogenic range starts at another count get them from the next start
+(BEAN1's intermediate threshold becomes NULL); a call imported under an old row
 keeps its stored status until it is imported again, while the family table reads it with the
 catalogue row's thresholds at once.
 
 A call at a locus without thresholds (a TRID no catalogue row names, or a row that states no
 threshold) gets ``not_assessed`` (CLIN-26), which the constraint must store too; a call stored
-as ``normal`` there before reads not assessed in the family table at once.
+there as ``normal`` reads not assessed in the family table at once.
 """
 
 from __future__ import annotations
@@ -95,7 +95,7 @@ def test_the_next_start_corrects_an_fmr1_threshold_seeded_before_and_imports_cla
         try:
             async with sessionmaker() as session:
                 await seed_builtin_repeat_catalog(session)
-                # What a start before the fix left: the built-in row's full mutation at 200.
+                # A built-in FMR1 row whose full mutation starts at 200.
                 await session.execute(text("UPDATE repeat_loci SET pathogenic_min = 200 WHERE locus_id = 'FMR1'"))
                 await session.commit()
                 await seed_builtin_repeat_catalog(session)  # the next start
@@ -139,8 +139,8 @@ def test_the_next_start_corrects_an_fmr1_threshold_seeded_before_and_imports_cla
     assert stored == {"MAN200": ("premutation", 201), "MAN201": ("pathogenic", 201)}
 
 
-# The built-in rows' thresholds (warning_min, pathogenic_min) before CLIN-22, where they
-# differed from their STRchive row's.
+# Built-in rows' thresholds (warning_min, pathogenic_min) that differ from their STRchive
+# row's.
 _OLD_BUILT_IN_THRESHOLDS = {
     "ATXN1": (39, 45),
     "ATXN2": (32, 34),
@@ -202,7 +202,7 @@ def test_the_next_start_gives_each_built_in_row_strchives_thresholds_and_the_tab
         try:
             async with sessionmaker() as session:
                 await seed_builtin_repeat_catalog(session)
-                # What a start before the fix left: the built-in rows' old thresholds.
+                # Built-in rows holding those other thresholds.
                 for locus_id, (warning_min, pathogenic_min) in _OLD_BUILT_IN_THRESHOLDS.items():
                     await session.execute(
                         text("UPDATE repeat_loci SET warning_min = :w, pathogenic_min = :p WHERE locus_id = :l"),
@@ -296,7 +296,7 @@ def test_the_next_start_gives_each_built_in_row_strchives_thresholds_and_the_tab
 _NOT_ASSESSED_CALLS = {
     "chr2_1000000_1000030_CAG": ("chr2", 1000000, "CAG", 300),  # no catalogue row names it
     "ADTKD_MUC1": ("chr1", 155188000, "CCCCACCCCACCCCACCCCA", 60),  # a row without thresholds
-    "HD_HTT": ("chr4", 3074876, "CAG", 40),  # catalogued: pathogenic from 36, as before
+    "HD_HTT": ("chr4", 3074876, "CAG", 40),  # catalogued: pathogenic from 36
 }
 
 
@@ -349,7 +349,7 @@ def test_a_call_at_a_locus_without_thresholds_is_stored_not_assessed_and_the_tab
                     ).all()
                 }
 
-                # What an import before CLIN-26 stored for the uncatalogued call: normal.
+                # The uncatalogued call stored as normal.
                 await session.execute(
                     text(
                         "UPDATE repeat_expansions SET status = 'normal', alleles = CAST(:alleles AS jsonb) "
@@ -386,9 +386,9 @@ def test_a_call_at_a_locus_without_thresholds_is_stored_not_assessed_and_the_tab
 
     stored, read_by_table = asyncio.run(_run())
 
-    # Stored as such: the constraint refused not_assessed before, and with it the whole dataset.
+    # Stored as such: the constraint allows not_assessed, so the dataset is not refused.
     assert stored == {uncatalogued: "not_assessed", "ADTKD_MUC1": "not_assessed", "HD_HTT": "pathogenic"}
-    # The family table reads the call stored as normal before as not assessed at once.
+    # The family table reads the call stored as normal as not assessed at once.
     assert read_by_table == {
         uncatalogued: ("not_assessed", "not_assessed", ["not_assessed", "not_assessed"], None, None),
         "ADTKD_MUC1": ("not_assessed", "not_assessed", ["not_assessed", "not_assessed"], None, None),
@@ -465,7 +465,7 @@ def test_a_polg_count_inside_its_benign_range_is_stored_normal_and_the_table_rea
                     await _import(name)
                 stored = await _stored()
 
-                # What an import from CLIN-26 to CLIN-36 stored for the woman's POLG call.
+                # The woman's POLG call stored as not assessed.
                 await session.execute(
                     text(
                         "UPDATE repeat_expansions SET status = 'not_assessed', alleles = CAST(:alleles AS jsonb) "
@@ -523,7 +523,7 @@ def test_a_polg_count_inside_its_benign_range_is_stored_normal_and_the_table_rea
         ("MAN", "CPEO_POLG"): "not_assessed",
     }
     assert stored == expected_stored
-    # The family table reads the call stored as not assessed before as normal at once; the
+    # The family table reads the call stored as not assessed as normal at once; the
     # locus reads its most severe call, the man's allele of 13.
     assert read_by_table == {
         "CPEO_POLG": (
@@ -540,7 +540,7 @@ def test_a_polg_count_inside_its_benign_range_is_stored_normal_and_the_table_rea
             {"WOMAN": ("not_assessed", ["not_assessed", "not_assessed"])},
         ),
     }
-    # The genome track reads the call as the table does, at once (CLIN-14): it showed the
-    # status stored at import ("not_assessed") until the call was imported again.
+    # The genome track reads the call as the table does, at once (CLIN-14), not by the
+    # status stored at import ("not_assessed").
     assert (track_before, track_after) == ("normal", "normal")
     assert stored_after == expected_stored

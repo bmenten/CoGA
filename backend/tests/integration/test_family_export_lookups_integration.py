@@ -1,15 +1,13 @@
 """The family CSV exports past 32,767 rows, on real Postgres and ClickHouse (DATA-3).
 
 A family export reads up to 50,001 rows, its 50,000-row cap and one more to know whether more
-matched (#512), and looks each row up in Postgres: its review, its gene's constraint metrics
-and the structural variants on its genes (the SV second-hit badge). The lookups bound one
-parameter per id, and asyncpg refuses a statement with more than 32,767 parameters, so every
-export of more than about 32,766 rows answered 500 and its truncation signal never fired.
-They now bind their ids as one text[] parameter.
+matched, and looks each row up in Postgres: its review, its gene's constraint metrics
+and the structural variants on its genes (the SV second-hit badge). asyncpg refuses a statement
+with more than 32,767 parameters, so the lookups bind their ids as one text[] parameter.
 
 On real Postgres, each lookup is run with 50,001 ids and finds exactly the rows seeded for
 them, one of them past the 32,767th id and none for an id it was not given. An empty id list
-reads no rows, where an expanding IN over no ids was refused (text = integer).
+reads no rows; an expanding IN over no ids would be refused (text = integer).
 
 On real ClickHouse and Postgres, one family holds 50,001 small variants and 50,001 SVs, and
 both are exported through their routes: each file holds the first 50,000 rows, is named
@@ -39,7 +37,7 @@ pytestmark = pytest.mark.integration
 
 _ASSEMBLY = "GRCh38"
 _SAMPLE = "PROBAND"
-# What an export reads: its 50,000-row cap and one row more (#512).
+# What an export reads: its 50,000-row cap and one row more.
 _EXPORT_READ = 50_001
 _EXPORT_CAP = 50_000
 # A row past the 32,767 parameters asyncpg sends in one statement.
@@ -173,9 +171,9 @@ def test_the_lookups_take_more_ids_than_a_statement_has_parameters() -> None:
 
 def test_no_ids_read_no_rows() -> None:
     # The array parameter is typed in the SQL, so an empty list is an empty text[]. An
-    # expanding IN over no ids rendered IN (SELECT CAST(NULL AS INTEGER) WHERE 1!=1), which
+    # expanding IN over no ids renders IN (SELECT CAST(NULL AS INTEGER) WHERE 1!=1), which
     # Postgres refuses on the text column (text = integer). The review map never sends an
-    # empty list (it answers {} first); the lookup under it now takes one as well.
+    # empty list (it answers {} first); the lookup under it takes one as well.
     from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
     from backend.app.services.small_variant_review_repository import _fetch_review_rows_for_variants
 

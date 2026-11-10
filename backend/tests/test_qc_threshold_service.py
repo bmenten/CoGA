@@ -192,7 +192,7 @@ def test_mtdna_metrics_are_configured_here_but_evaluated_elsewhere() -> None:
     assert not any(entry["metric_key"].startswith("mtdna.") for entry in result["metrics"])
 
 
-# --- mitochondrial QC now reads the same configured cut-offs --------------------------
+# --- mitochondrial QC reads the same configured cut-offs ------------------------------
 
 
 def test_mito_sample_qc_uses_configured_limits_not_constants() -> None:
@@ -207,18 +207,18 @@ def test_mito_sample_qc_uses_configured_limits_not_constants() -> None:
     assert any("50.0" in note for note in warned.notes)
 
     # The same depth against a stricter limit fails instead. Nothing about this verdict
-    # is hard-coded in the analysis module any more.
+    # is hard-coded in the analysis module.
     failed = _sample_qc({}, coverage, {"mtdna.mean_depth": {"warn_value": 60.0, "error_value": 40.0}})
     assert failed.status == "fail"
 
 
 def test_mito_sample_qc_without_limits_is_not_assessed() -> None:
-    """`skip` — not assessed — never `pass`, and never the old `unknown` spelling."""
+    """`skip` — not assessed — never `pass`, and never `unknown`."""
     from app.schemas import MitoDNACoverageOut
     from app.services.mitochondrial_analysis import _sample_qc
 
     # A measured sample with no configured cut-off must not be reported as passing a gate
-    # that does not exist — this used to be a hard-coded `< 50x` rule.
+    # that does not exist.
     verdict = _sample_qc({}, MitoDNACoverageOut(mean_depth=5.0), {})
 
     assert verdict.status == "skip"
@@ -574,7 +574,7 @@ async def test_a_stored_limit_on_a_metric_that_left_the_catalogue_can_be_cleared
     from app.services.qc_threshold_service import set_qc_threshold
 
     # ENG-12 (REQ-QC-003). The admin list surfaces such a limit, which gates nothing, so it
-    # can be removed. Before: refused as an unknown metric, so it stayed for good.
+    # can be removed: clearing it is not refused as an unknown metric.
     session = _RecordingThresholdSession(previous={"warn_value": 20.0, "error_value": 10.0})
     result = await set_qc_threshold(
         session,

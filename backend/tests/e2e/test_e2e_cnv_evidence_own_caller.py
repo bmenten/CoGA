@@ -1,12 +1,11 @@
 """A CNV classification freezes the evidence of the caller's row it was made on (E2E, TRACE-11).
 
-A package's NeedlR call of a deletion and an uploaded Sniffles call of it have one SV id since
-CLIN-43 (two uploads' calls of one event already did), and share its review. Each caller's call
+A package's NeedlR call of a deletion and an uploaded Sniffles call of it have one SV id
+(CLIN-43), as two uploads' calls of one event do, and share its review. Each caller's call
 is a row of its own on the SV page, with its own evidence: NeedlR annotates the genes, their pLI
 and the inheritance; the upload's genes come from the gene loci, and it carries neither. The save
-froze the row with the lowest storage key, whatever row the classification was made on, so a
-classification made on the NeedlR row could freeze the upload's evidence; and the drift check
-read that row again.
+freezes the evidence of the row the classification was made on, and the drift check reads that
+row again.
 
 Here a trio is imported through the front door (``execute_family_package_import``) with a NeedlR
 VCF holding two deletions of the proband, one of which the proband's Sniffles VCF, uploaded
@@ -21,7 +20,7 @@ deletion for the upload, and removed afterwards. Then, over HTTP:
   Sniffles call does not drift it;
 * saved again naming the Sniffles row's caller, it freezes the upload's evidence instead, and a
   re-upload that changes the Sniffles call drifts it (its annotation), compared with that row;
-* a save that names no caller (a client from before ``source``) is refused with 422 for the shared
+* a save that names no caller (a client that sends no ``source``) is refused with 422 for the shared
   deletion, writing nothing, and takes the one row of the deletion NeedlR alone calls; one naming
   a caller that does not call the SV is refused with 404.
 
@@ -297,8 +296,7 @@ def test_needlr_and_the_upload_list_the_shared_deletion_as_a_row_each(run) -> No
 
 def test_a_classification_on_the_needlr_row_freezes_the_needlr_rows_evidence(run) -> None:
     assert run["needlr_save"]["status"] == 200, run["needlr_save"]["text"]
-    # Before: the row with the lowest storage key, the upload's half the time, without
-    # NeedlR's genes, pLI and inheritance.
+    # The NeedlR row's evidence, with NeedlR's genes, pLI and inheritance.
     served = _rows(run["svs"])[(_SHARED, "needlr")]
     assert _frozen_evidence(run["needlr_snapshot"]) == _served_evidence(served)
     assert _structural(run["needlr_drift"]) == {"checked": 1, "drifted_count": 0, "drifted": []}

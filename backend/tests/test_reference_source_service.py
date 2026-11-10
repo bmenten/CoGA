@@ -384,12 +384,12 @@ async def test_import_reference_from_ucsc_creates_records_and_loads_cytobands_an
         ("assembly-1", "cytobands", "chr1\t0\t100\tp36.33\tgneg\n", True, False),
         ("assembly-1", "genes", "chr1\t100\t200\tGENE1\t\t+\t\tNM_000001\t1\t100-200\t0\t\n", True, False),
     ]
-    # The import record names the table actually used and where it came from (#536).
+    # The import record names the table actually used and where it came from.
     assert applied_sources["genes"] == ("ucsc refGene", "https://example.org/refGene.txt.gz")
     # No GTF was configured for the genome, so the UCSC table is not a fallback.
     assert result.gene_warning is None
 
-    # When the GTF was wanted but could not be fetched, the result says so (#536).
+    # When the GTF was wanted but could not be fetched, the result says so.
     async def failing_gencode(client, *, assembly_id: str, ucsc_genome: str):
         raise reference_source_service._AnnotationDownloadFailed("ConnectError: timed out")
 

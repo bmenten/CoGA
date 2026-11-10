@@ -4,10 +4,10 @@ A small variant's fields describe its primary transcript (MANE Select, else cano
 the most severe impact), while the annotation filters must all hold on one transcript of it,
 in SQL and in Python alike. So SIFT *deleterious* keeps a variant whose primary transcript
 SIFT calls tolerated and a second one deleterious, and its card and its CSV row read
-*tolerated*. The variant now names the transcript the filters held on (``filter_transcript``)
+*tolerated*. The variant names the transcript the filters held on (``filter_transcript``)
 whenever its primary one does not meet them, with that transcript's values. Its own fields
-stay the primary transcript's, so the ranking, the ACMG suggestions, the report and the
-signed record read what they read before.
+stay the primary transcript's, which the ranking, the ACMG suggestions, the report and the
+signed record read.
 
 Which transcripts the filters hold on the SQL decides, on the stored rows the search reads
 (``_filter_transcript_matches``, by each row's ``annotationHash``); the real-ClickHouse filter

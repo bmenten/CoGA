@@ -1,5 +1,5 @@
-"""Every change to the NIPT artifact list is a hash-chained clinical audit event (#683) —
-real Postgres.
+"""Every change to the NIPT artifact list is a hash-chained clinical audit event — real
+Postgres.
 
 The list decides which variants every NIPT analysis of its scope filters out, and it is
 curated through the admin API alone. This adds an entry, updates it, re-saves it unchanged,

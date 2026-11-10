@@ -4,10 +4,9 @@ The report sign-out refuses a family while a package-import job of it is queued,
 or running, and finds that job by the family the job records (``family_id``) or the one its
 request named (``report_signout_service._ACTIVE_IMPORT_JOB``). An import writes the family's
 pedigree, samples and provenance before it takes the family's variant-write locks, so until
-it holds them its job is all that keeps a sign-out out. The update that recorded the job as
-``running`` on its family was one of the import's best-effort progress updates: when it
-failed, or matched no row because another worker had claimed the job, the import registered
-the family all the same, under a job no sign-out could find.
+it holds them its job is all that keeps a sign-out out. The update that records the job as
+``running`` on its family comes first: when it fails, or matches no row because another
+worker has claimed the job, the import writes nothing of the family.
 
 The job row is modelled as Postgres keeps it: an UPDATE applies only when its WHERE clause
 matches the row (the job's id, the worker that runs it, its status) and others see it once
@@ -308,8 +307,7 @@ async def test_an_import_whose_job_cannot_name_its_family_writes_nothing(jobs) -
 
     await _run(jobs)
 
-    # Before: the progress update failed, was logged, and the import registered the family
-    # under a job that named no family, so a sign-out then would have frozen it part-way.
+    # The job cannot name its family: nothing of the family is written, and the job ends failed.
     assert jobs.writes == []
     assert ("variant-write locks held",) not in jobs.events
     assert jobs.committed["status"] == "failed"
@@ -340,8 +338,7 @@ async def test_an_import_whose_job_another_worker_claimed_writes_nothing(jobs, m
 
     await _run(jobs)
 
-    # Before: worker-1's progress update matched no row, which went unnoticed, and it
-    # registered the family beside worker-2's run of the same job.
+    # Worker-1's update matches no row: it writes nothing beside worker-2's run of the job.
     assert jobs.writes == []
     # The job is worker-2's: worker-1 neither ran it nor ended it.
     assert jobs.committed["worker_id"] == "worker-2"

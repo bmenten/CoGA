@@ -3,10 +3,9 @@
 The PED download, the variant CSV exports and the signed URLs of a CRAM, a signal track or a
 QC report name the file after a family or sample ID. Such an ID is printable text without
 spaces, so it may hold a ``"``, a ``\\``, a ``%`` or a character outside ASCII. Put into the
-header as it was, the name was cut at the quote or misread, and an ID beyond Latin-1 failed
-the PED download with an encoding error (a 500): Starlette encodes a header as Latin-1. Such
-a name now goes percent-encoded as UTF-8 in ``filename*``, with an ASCII stand-in in
-``filename``. The IDs are synthetic.
+header as it is, the name would be cut at the quote or misread, and Starlette encodes a header
+as Latin-1. Such a name goes percent-encoded as UTF-8 in ``filename*``, with an ASCII stand-in
+in ``filename``. The IDs are synthetic.
 """
 
 from __future__ import annotations
@@ -78,8 +77,7 @@ def test_the_ped_download_names_the_file_after_any_family_id(monkeypatch: pytest
     monkeypatch.setattr(admin, "build_pedigree_text", pedigree)
 
     for family_id in AWKWARD:
-        # Before: a family ID beyond Latin-1 raised UnicodeEncodeError (a 500), and one with
-        # a quote ended the name early.
+        # A family ID beyond Latin-1, or with a quote, names the file whole.
         response = asyncio.run(admin.download_family_pedigree(family_id, session=None, user=None))  # type: ignore[arg-type]
         assert _read(response.headers["content-disposition"]) == f"{family_id}.ped"
 
@@ -119,6 +117,6 @@ def test_a_signed_url_names_the_file_after_any_sample_id(monkeypatch: pytest.Mon
         for backend in ("gcs", "s3"):
             monkeypatch.setattr(object_storage.settings, "storage_backend", backend)
             object_storage.presigned_get_url("F1/S1.cram", filename=f"{sample_id}.cram", expires=60)
-            # Before: `inline; filename="<sample ID>.cram"`, the ID as it was.
+            # Read back whole from the header.
             assert captured[backend].startswith("inline; ")
             assert _read(captured[backend]) == f"{sample_id}.cram"

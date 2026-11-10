@@ -3,20 +3,16 @@
 In local storage mode the CRAM endpoints look for ``<sample>.cram`` (``.crai``, ``.bam``,
 ``.bai``) under five layouts in the family's two folders, ``<data>/<family>`` and
 ``<data>/families/<family>``. The family and sample IDs come from the request, and may hold
-``/`` and ``..`` (the ID rule refuses both for a new ID since SEC-15, not in a request or an ID
-stored before). The lookup used to join them into a path and check
-only that the path stayed inside the data directory, so a sample ID ``../F2/S2`` of family F1
-found family F2's reads and the alignment manifest listed them, a family ID such as
-``families/F2`` reached F2's package, and a symlinked folder could lead into another family's
-folder. When every layout was refused, it fell back to ``<data>/<family>/<file>`` unchecked,
-and the GET served that file even when it lay outside the data directory.
+``/`` and ``..`` (the ID rule, SEC-15, refuses both for a new ID, not in a request).
 
-Now each path is joined and normalised as a string and dropped, before anything is looked up,
-when it leaves the family's folder; a family ID that is no single folder name has no folder;
-a path that stays must also have its real path, symlinks resolved, inside one of the family's
-folders; and nothing outside the layouts is looked at. Through the app (``httpx`` on the ASGI
-app, local storage, a data directory in ``tmp_path``) the manifest, GET and HEAD answer the
-same way. All IDs and files are synthetic.
+Each path is joined and normalised as a string and dropped, before anything is looked up, when
+it leaves the family's folder, so a sample ID ``../F2/S2`` of family F1 finds none of family
+F2's reads; a family ID that is no single folder name, such as ``families/F2``, has no folder; a
+path that stays must also have its real path, symlinks resolved, inside one of the family's
+folders, so a symlinked folder leads into no other family's folder; and nothing outside the
+layouts is looked at, even when every layout is refused. Through the app (``httpx`` on the ASGI
+app, local storage, a data directory in ``tmp_path``) the manifest, GET and HEAD answer the same
+way. All IDs and files are synthetic.
 """
 
 from __future__ import annotations
@@ -247,8 +243,7 @@ def test_a_symlink_that_leads_into_another_familys_folder_is_not_followed(data: 
 
 
 def test_a_symlink_between_the_familys_own_folders_is_followed(data: Path) -> None:
-    # The flat folder made a link to the package's reads, as before the package layouts were
-    # probed.
+    # The flat folder is a link to the package's reads.
     _place(data, LAYOUTS[1], "F1", "S1")
     (data / "F1").symlink_to(data / "families" / "F1" / "bams")
 
@@ -268,7 +263,7 @@ def _folders_leading_out(data: Path, tmp_path: Path) -> None:
 
 
 def test_a_family_whose_folders_lead_out_of_the_data_directory_has_no_reads(data: Path, tmp_path: Path) -> None:
-    # Every layout is refused, and nothing else is tried: the GET used to serve
+    # Every layout is refused, and nothing else is tried: the GET does not serve
     # <data>/F1/S1.cram from outside the data directory (SEC-13).
     _folders_leading_out(data, tmp_path)
 

@@ -1,13 +1,12 @@
 """The family SV list and its CSV export read one set of filters (ENG-2).
 
-``GET /families/{family_id}/structural-variants`` and ``…/structural-variants/export`` each
-declared the same 26 filter parameters, so a filter added to one route alone would have made
-the downloaded file differ from the list on screen. Both now read their filters through one
-dependency, ``_family_structural_variant_filters``, which builds the
-``StructuralVariantQueryFilters`` both searches take.
+``GET /families/{family_id}/structural-variants`` and ``…/structural-variants/export`` read
+their filters through one dependency, ``_family_structural_variant_filters``, which builds the
+``StructuralVariantQueryFilters`` both searches take: a filter added to one route alone would
+make the downloaded file differ from the list on screen.
 
 The tests pin the declaration (each route takes every filter from that dependency and declares
-none itself, under the names, types and defaults the routes had), the wiring (a request that
+none itself, under the same names, types and defaults on both), the wiring (a request that
 sets every filter hands both searches the same filters, none dropped), the result (for each
 filter the list and the CSV hold the same SVs, in the same order: the real SV search over
 synthetic calls, with ClickHouse and the Postgres lookups stood in for) and when an unreadable
@@ -177,8 +176,8 @@ def _json_type(schema: dict[str, Any]) -> str:
 
 
 def test_each_route_reads_every_filter_through_the_one_dependency() -> None:
-    # Before: each route declared the 26 filters itself, so one could gain a filter the
-    # other lacked. The dependency comes after the sign-in, which also holds the request's
+    # Neither route declares a filter itself, so neither can gain one the other lacks.
+    # The dependency comes after the sign-in, which also holds the request's
     # values to the control-character rule, so no filter is read before either.
     for path, own in _OWN.items():
         dependant = _route(path).dependant
@@ -642,10 +641,10 @@ def test_a_control_character_is_refused_before_a_filter_is_read(signed_in: dict[
 def test_an_unreadable_filter_value_is_refused_before_the_family_is_looked_up(
     signed_in: dict[str, Any], path: str, value: tuple[str, str]
 ) -> None:
-    # A start that is no number always was: FastAPI reads the query before the route runs. A
-    # sample filter's number is read with the other filters now, by the dependency. Before,
-    # the search read it after the family lookup, so a family the caller cannot see (or one
-    # nobody uses) answered 404 first.
+    # A start that is no number is refused as FastAPI reads the query, before the route runs.
+    # A sample filter's number is read with the other filters, by the dependency, before the
+    # family lookup: a family the caller cannot see (or one nobody uses) does not answer 404
+    # first.
     response = signed_in["client"].get(path, params=[value], headers=signed_in["headers"])
 
     assert response.status_code == 422

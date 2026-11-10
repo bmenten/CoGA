@@ -2,15 +2,15 @@
 
 The report page lists its structural variants with a review-tag search
 (``GET /structural-variants?review_tag=report``). A review filter keeps that search off the
-native page, so it read the first rows of the callset up to the candidate cap (50,000) and
-only then kept the reviewed ones: a reported SV past the cap was missing from the report,
-while the signed record, which reads the reviews from Postgres, held it.
+native page. Were it to read the first rows of the callset up to the candidate cap (50,000)
+and only then keep the reviewed ones, a reported SV past the cap would be missing from the
+report, while the signed record, which reads the reviews from Postgres, held it.
 
 Over the golden trio (two NeedlR SVs) the cap is lowered to 1, so the window holds the first
 SV only. The SV that sorts last is tagged ``report`` through the review API, and then:
 
 * a search with a Python-side filter matching both SVs reads a capped window (the control:
-  without the fix, the reported SV would fall outside it);
+  the reported SV falls outside it);
 * the review-tag search, unranked and prioritised, returns the reported SV, with its total
   and no cap flag;
 * both report lists answer the page size the report asks for (the API maximum).

@@ -1,8 +1,8 @@
 """A record outside the caller's projects answers like an unknown one (E2E, real Postgres).
 
-A viewer used to get 403 "Not authorized" for a family or sample of another project, and 404
-"Family not found" or "Sample not found" for an ID nobody uses, so they could find out which
-family and sample IDs exist in other projects. Both now answer 404 with the same body, at the
+A viewer gets the same 404, "Family not found" or "Sample not found" with the same body, for a
+family or sample of another project as for an ID nobody uses, so they cannot find out which
+family and sample IDs exist in other projects. Both answers come from the
 checkpoint every family and sample endpoint goes through; a project ID given to the Family
 Builder or the gene profile is treated the same way (REQ-SEC-001). Only the request's audit row
 tells the two apart: it names the hidden record's kind in ``request_meta.record_hidden``.

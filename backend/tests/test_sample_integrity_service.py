@@ -417,10 +417,8 @@ async def _unreadable_value(*args, **kwargs):
 def test_service_nipt_parent_sex_that_could_not_be_read_warns_and_gates_sign_out(
     monkeypatch, caplog, failing
 ) -> None:
-    # The callset lookup or the chrX load fails. The parents' sex checks used to vanish
-    # without a log line or a note: the QC passed, and sign-out went ahead with nothing
-    # checking either parent's sample against its record. Each parent's sex now reads
-    # indeterminate, as for a parent without chrX calls, which the sign-out gate holds.
+    # The callset lookup or the chrX load fails. Each parent's sex reads indeterminate, with a
+    # log line and a note, as for a parent without chrX calls, which the sign-out gate holds.
     from backend.app.services.report_signout_service import _unverifiable_swap_checks
 
     caplog.set_level(logging.WARNING, logger=sample_integrity_service.logger.name)
@@ -511,10 +509,9 @@ def _without_chrx_calls(monkeypatch) -> None:
 
 def test_service_nipt_parents_without_chrx_calls_warn_and_are_named(monkeypatch) -> None:
     # Paternity, fetal sex and the category check pass, but the callset has no chrX site
-    # for the parents: both sex checks could not run. The family read "All sample-integrity
-    # checks passed", and the signed report froze that pass. It reads warn, and a note names
-    # the parents. The sign-out gate already held both (no relatedness check anchors a
-    # NIPT parent), and still does.
+    # for the parents: both sex checks could not run. The family reads warn, not "All
+    # sample-integrity checks passed", and a note names the parents. The sign-out gate holds
+    # both (no relatedness check anchors a NIPT parent).
     from backend.app.services.report_signout_service import _unverifiable_swap_checks
 
     _patch_passing_nipt(monkeypatch)
@@ -549,7 +546,7 @@ def test_service_nipt_parents_without_chrx_calls_warn_and_are_named(monkeypatch)
 
 def test_service_trio_without_chrx_calls_warns_and_the_signed_snapshot_records_it(monkeypatch) -> None:
     # Relatedness and the Mendelian check confirm the trio, but no sample could be sexed.
-    # The overall read pass. It is a warning now, in the report and in the Sample QC that
+    # The overall is a warning, in the report and in the Sample QC that
     # sign-out freezes, with a note naming the samples. Every sample is anchored by a
     # parent-child check, so the sign-out gate stays open: a warning does not block.
     from backend.app.services.report_signout_service import _unverifiable_swap_checks
@@ -1136,10 +1133,9 @@ def test_vaf_genotype() -> None:
 
 # --- Off the event loop (OPS-9) ---------------------------------------------------------
 #
-# The Sample QC of ten samples held the event loop, and with it every other request, for
-# about 2.3 s: over a million genotypes parsed, relatedness over every pair of samples and
-# the Mendelian checks, all on the loop. They run in worker threads now, the queries on
-# the loop.
+# The Sample QC of ten samples parses over a million genotypes, works out relatedness over
+# every pair of samples and runs the Mendelian checks: on the event loop, that would hold
+# every other request. They run in worker threads, the queries on the loop.
 
 _TEN = ["FATHER", "MOTHER", *(f"E{index}" for index in range(1, 9))]
 

@@ -1,10 +1,10 @@
-"""Signed chain-head anchor (#263): signing, canonicalisation, and the writer and verifiers.
+"""Signed chain-head anchor: signing, canonicalisation, and the writer and verifiers.
 
 The pure parts (key loading, the signed core, the head order, the structural walk of the
 anchor chain), then ``create_integrity_anchor``, ``verify_against_latest_anchor`` and
 ``verify_anchor_chain`` against a stand-in for the database: every verdict a verifier can
 give (ok, diverged, chain_broken, signature_invalid, unknown_key, unverifiable_unsigned,
-no_anchor), and no unsigned anchor written outside development (#522). End-to-end anchoring
+no_anchor), and no unsigned anchor written outside development. End-to-end anchoring
 against real Postgres (create → verify → detect re-chain/truncation) lives in
 ``backend/tests/integration/test_integrity_anchor_integration.py`` (smoke job).
 """
@@ -441,7 +441,7 @@ def test_an_unsigned_anchor_of_a_development_stack_verifies_only_as_unverifiable
 
 
 def test_no_unsigned_anchor_is_written_outside_development(monkeypatch) -> None:
-    # An unsigned anchor carries no tamper-evidence against the owner (#522): refused before
+    # An unsigned anchor carries no tamper-evidence against the owner: refused before
     # anything is locked, read or written.
     monkeypatch.setattr(settings, "integrity_anchor_signing_key", "")
     monkeypatch.setattr(settings, "app_env", "production")

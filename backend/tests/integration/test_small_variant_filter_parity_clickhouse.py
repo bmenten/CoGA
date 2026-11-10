@@ -5,9 +5,8 @@ The family search's SQL (``_small_query_filter_parts``, through ``_fetch_small_v
 is the one definition of its filters (``SmallVariantQueryFilters``) and of its single-variant
 inheritance modes (as segregation flags). The ranked page and the compound-het, recessive and
 carrier-screening searches read the SQL's rows and apply in Python only what compares rows:
-the compound-het pairing, the couple's carrier rule, the ranking. They used to apply every
-filter again in Python (``_small_record_matches``), which read some filters more narrowly and
-dropped variants the plain page listed; that reading is gone.
+the compound-het pairing, the couple's carrier rule, the ranking. They apply no filter again,
+so none drops a variant the plain page lists.
 
 Seventeen synthetic variants of one trio (an affected son and his unaffected parents) go in
 once, through the import's write path (``insert_small_variant_records``), annotated as the
@@ -24,8 +23,7 @@ The scope is built by the search's own ``_resolve_small_variant_scope``, with it
 lookups (the panel, the excluded genes' loci, the review selections) answered by stubs. A
 second test opens the family page itself, plain and ranked: *Phenotype prioritization*
 orders a search and keeps what it keeps (CLIN-44). Its cases are the gene filter's, alone
-and with each kind of mode, whose gene loci the ranked and paired views used to read from
-the gene reference, and the default view. The ranking's Postgres inputs (the cache, the
+and with each kind of mode, and the default view. The ranking's Postgres inputs (the cache, the
 phenotypes, the hydration) are stubbed there: they order and decorate the rows, and keep
 or drop none.
 
@@ -36,12 +34,11 @@ prioritization* computed, served again from its cached ranking, and, for a gene 
 from the broader cached ranking of the same search without it; with the plain list's count,
 and, where a case names them, the transcript each variant names as the one its annotation
 filters held on and the genotypes shown. The ranking cache is held in memory. A second family
-holds the variants at which the SQL and the Python record filter used to read a filter apart:
-a member with calls stored there whom the family's record does not show, and annotation keys
-and values no CSQ the parser reads writes. What a view keeps that the rule does not would be
-listed in ``KNOWN_GAPS``, by the change that closes it, each a strict xfail; the list is empty
-since the Python record filter went (the owner's decisions of 2026-11-06). A fourth test
-checks that the views reach every path a page can take.
+holds the variants at which two readings of a filter could part: a member with calls stored
+there whom the family's record does not show, and annotation keys and values no CSQ the parser
+reads writes. What a view keeps that the rule does not would be listed in ``KNOWN_GAPS``, by
+the change that closes it, each a strict xfail; the list is empty. A fourth test checks that
+the views reach every path a page can take.
 
 The variants sit on chromosome 11 at 95.1 Mb, chromosome X at 72 Mb and chrM 12,345, where
 no other test writes: the annotation tables are keyed by variant, not by project or family.
@@ -340,7 +337,7 @@ def _panels() -> dict[str, Any]:
             genes=("SYNC",), regions=(Region("chr11", 95_100_175, 95_100_185),)
         ),
         # More than 1,000 regions, as the Mendeliome has: matched by its genes and its regions
-        # too, so UNANNOTATED is reached by position (it was matched on its genes alone).
+        # too, so UNANNOTATED is reached by position.
         LARGE_PANEL: PanelFilterConstraints(
             genes=("SYNC",),
             regions=(
@@ -1020,7 +1017,7 @@ def test_the_page_keeps_the_same_variants_plain_and_ranked(
 # Every view of the family page keeps what the rule keeps
 # --------------------------------------------------------------------------- #
 
-# A second family, at variants where the two readings of a filter parted: a member with
+# A second family, at variants where two readings of a filter could part: a member with
 # calls stored at them whom the family's record does not show (a sample taken out of the
 # family, or not yet added to it), whose calls no filter reads (the owner's decision of
 # 2026-11-06), and annotations with keys and values the CSQ parser never writes but the
@@ -1331,8 +1328,7 @@ ALL_CASES: dict[tuple[str, str], _Case] = {
 }
 
 # What a view keeps today that the rule does not, by the change that closes it: each a strict
-# xfail, so the change that closes one must delete its entry. One filter definition closed
-# every gap the SQL and the Python record filter had read apart; none is left.
+# xfail, so the change that closes one must delete its entry. None is left.
 KNOWN_GAPS: dict[tuple[str, str, str], str] = {}
 
 

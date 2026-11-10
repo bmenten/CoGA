@@ -1,8 +1,7 @@
 """Loads of the pinned DGV release (``dgv_load_jobs``): the file read, checked and committed whole.
 
-The DGV variants were loaded only by hand (``scripts/import_dgv.py``, or an upload too small for
-DGV's file). A load now streams the release pinned per assembly (``DGV_PINNED_RELEASES``) from
-DGV, inserts its rows in one transaction and commits only once the whole file has been read and
+A load streams the release pinned per assembly (``DGV_PINNED_RELEASES``) from DGV, inserts its
+rows in one transaction and commits only once the whole file has been read and
 is the pinned one by size and SHA-256 (TRACE-14); anything else commits nothing. A download that
 stalls or drops is resumed from the byte it reached. The job keeps the administrator who asked
 for it and runs, and commits, only while that account is an active administrator (SEC-35); a load

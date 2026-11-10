@@ -1,10 +1,8 @@
 """One clinical CNV knowledgebase rebuild at a time — real Postgres.
 
-The rule is a partial unique index. It used to be keyed on the status, so a job could be
-queued beside a running one: the second request was accepted, its switch to running then
-hit the index outside the job's error handling, and it stayed queued for good, refusing
-every later rebuild. And a build cut off with its server (a restart, a redeploy) stayed
-running for good, with the same effect. Against the real schema, this checks that
+The rule is a partial unique index: no job is queued beside a running one, and a build cut
+off with its server (a restart, a redeploy) is closed once its worker is gone, so neither
+leaves every later rebuild refused. Against the real schema, this checks that
 
 * a rebuild is refused (409) while another is queued or running, and accepted once none is;
 * two requests at the same moment get one job between them;
@@ -229,8 +227,7 @@ def test_a_rebuild_is_refused_while_another_is_queued_or_running(kb) -> None:
         first = await _queue(service, sm, assembly)
         assert await _refusal(service, sm, assembly) == 409  # while it is queued
 
-        # The claim its run makes. Before the fix, a request from here on was accepted, and
-        # that second job could never start.
+        # The claim its run makes; a request from here on is refused too.
         claimed = await service._claim_job(str(first.id), "worker-a")
         assert claimed is not None
         # It gives the run the administrator who asked for the rebuild, by the account's id,

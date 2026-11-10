@@ -485,8 +485,8 @@ def _sv_family_context(*, affected: set[str]):
         ("maternal", {"CHILD", "MOTHER"}, [MODE_DOMINANT]),
         ("paternal", {"CHILD", "FATHER"}, [MODE_DOMINANT]),
         ("inherited", {"CHILD", "FATHER"}, [MODE_DOMINANT]),
-        # From an unaffected parent it argues against a dominant model; it used to count
-        # as support all the same.
+        # From an unaffected parent it argues against a dominant model, and does not count
+        # as support.
         ("maternal", {"CHILD"}, []),
         ("inherited", {"CHILD"}, []),
         # The affected parent is not the one it came from.

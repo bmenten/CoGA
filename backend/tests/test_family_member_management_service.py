@@ -5,7 +5,7 @@ the member already has are no relationship change. The member page resolves the 
 once and threads its UUID into the HPO lookup and the impact call, without running the
 family-mapping aggregation again. The impact of a member change names what it makes stale;
 when the ClickHouse genotype counts cannot be read it says so, and a rename is then blocked
-(fails closed, #333): a rename must not orphan ClickHouse rows keyed by the old sample ID.
+(fails closed): a rename must not orphan ClickHouse rows keyed by the old sample ID.
 The service's reads are faked at its helpers. All IDs are synthetic.
 """
 
@@ -262,7 +262,7 @@ async def test_impact_skips_mapping_when_family_uuid_supplied(
 async def test_an_impact_whose_clickhouse_counts_cannot_be_read_says_so_and_blocks_a_rename(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # #333: ClickHouse unreachable is no "no genotypes": the impact names it, counts the
+    # ClickHouse unreachable is no "no genotypes": the impact names it, counts the
     # change as destructive, and the rename guard reads the marker and refuses.
     _impact_reads(monkeypatch, clickhouse_counts=RuntimeError("ClickHouse unreachable"))
 
@@ -290,10 +290,9 @@ def test_rename_block_reason_fails_closed_on_unverified_clickhouse() -> None:
     assert service._rename_block_reason({}) is None
     # Imported genomic data -> blocked (raw datasets still use the source sample id).
     assert service._rename_block_reason({"small_variants": 5}) is not None
-    # #333: when the ClickHouse counts could not be verified, fail CLOSED even with no
+    # When the ClickHouse counts could not be verified, fail CLOSED even with no
     # other genomic data — a rename must not silently orphan CH variant rows keyed by the
-    # old sample id. (Previously the marker was excluded from the count, so it summed to
-    # 0 and the rename proceeded.)
+    # old sample id.
     reason = service._rename_block_reason({"clickhouse_counts_unavailable": 1})
     assert reason is not None
     assert "could not be verified" in reason

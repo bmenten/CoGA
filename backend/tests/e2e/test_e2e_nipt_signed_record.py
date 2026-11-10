@@ -582,8 +582,8 @@ def test_a_nipt_fetus_of_unknown_status_is_imported_as_an_embryo(pair_signed) ->
 
 
 def test_a_nipt_record_holds_no_pgt_section_for_its_fetus(pair_signed) -> None:
-    # The fetus has no sequencing column, so no haplotype blocks: the record held a PGT analysis
-    # of it all the same, a section of another application (#922).
+    # The fetus has no sequencing column, so no haplotype blocks: the record holds no PGT
+    # analysis of it, a section of another application.
     snapshot = _pair_snapshot(pair_signed)
     assert snapshot["sample_qc"]["application"] == "nipt"
     assert "nipt" in snapshot
@@ -629,7 +629,7 @@ def test_a_pair_tagged_for_the_report_is_frozen_as_the_nipt_page_listed_it(pair_
 
 def test_the_recessive_risk_frozen_is_the_one_the_reported_view_computes(pair_signed) -> None:
     # Both parents carry an allele of GENE_RECESS among the reported variants: the record's
-    # recessive fetal risk (#900) is the one the NIPT page computes over "Show reported".
+    # recessive fetal risk is the one the NIPT page computes over "Show reported".
     [gene] = ok_json(pair_signed, "reported_recessive_view")["recessive_genes"]
     assert (gene["gene"], gene["maternal_variant_id"], gene["paternal_variant_id"]) == ("GENE_RECESS", MATERNAL, PATERNAL)
     [frozen] = _pair_snapshot(pair_signed)["nipt"]["recessive_genes"]

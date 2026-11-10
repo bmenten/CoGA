@@ -1,17 +1,16 @@
 """A source-scoped SV delete leaves none of that source's rows behind (unit, SQLite stand-in).
 
-Since #658 an SV's storage key hashes its source, so each caller's call of an SV has its own
+An SV's storage key hashes its source, so each caller's call of an SV has its own
 ``SV/variants/details`` row (span, length, filters, annotation) and its own ``SV/key_lookup``
 row beside its ``SV/entries`` rows. ``delete_family_structural_variants`` with a ``source``,
 the delete half of a per-sample upload's rewrite and of a package dataset's re-import,
-deleted that source's ``entries`` rows only. The details and lookup rows of every SV it
-removed stayed behind, and no entry reached them. Before #658 that was deliberate: two
-callers at one position shared those rows.
+deletes that source's ``entries`` rows, and no details or lookup row of an SV it removed stays
+behind unreached.
 
 Both tables are family-scoped: the key hashes the family and every row carries
-``family_guid``. The delete now also removes the deleted source's details and lookup rows
-whose key no remaining ``entries`` row of the family has. A row that another source's entry
-still reaches (a key two callers shared, as before #658) is kept. Other sources' and other
+``family_guid``. The delete removes the deleted source's details and lookup rows whose key no
+remaining ``entries`` row of the family has. A row that another source's entry still reaches
+(a key two callers' rows share) is kept. Other sources' and other
 families' rows are never touched, and every value is bound.
 
 The storage functions run against an in-memory SQLite copy of the SV tables, so each
@@ -275,7 +274,7 @@ async def test_the_stand_in_starts_with_one_row_per_caller_in_each_table(tables)
 async def test_a_source_delete_leaves_no_row_of_that_source(tables) -> None:
     await _store_two_families()
     await cvs.delete_family_structural_variants(_ASSEMBLY, _FAMILY, source="sniffles")
-    # Before: the entries went, and both SVs' details and lookup rows stayed.
+    # The entries go, and both SVs' details and lookup rows with them.
     for suffix in _SV_TABLES:
         left = [row for row in tables.identities(suffix) if row[:2] == (_FAMILY, "sniffles")]
         assert left == [], suffix
@@ -303,7 +302,7 @@ async def test_other_sources_and_other_families_keep_every_row_as_stored(tables)
 
 @pytest.mark.asyncio
 async def test_a_row_another_sources_entry_still_reaches_is_kept(tables) -> None:
-    # Before #658 two callers' calls at one position had one key; a row written back keeps
+    # Two callers' calls at one position may share one key: a row written back keeps
     # its stored key. ClickHouse keeps one details row per key, which may be the one labelled
     # with the deleted source: removing it would strip the Spectre SV of its span, length and
     # annotation.
@@ -339,8 +338,8 @@ async def test_an_overwrite_that_drops_an_sv_leaves_no_row_for_it(tables) -> Non
     )
     for suffix in _SV_TABLES:
         sniffles = [row for row in tables.identities(suffix) if row[:2] == (_FAMILY, "sniffles")]
-        # Before: the duplication kept its details and lookup row, and the deletion had two
-        # of each (the replaced ones beside the new ones) until ClickHouse merged the parts.
+        # The duplication keeps no details or lookup row, and the deletion has one of each,
+        # not the replaced ones beside the new ones.
         assert sniffles == [(_FAMILY, "sniffles", _DEL, stored_key)], suffix
     assert tables.unreached() == {"SV/variants/details": [], "SV/key_lookup": []}
 

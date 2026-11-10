@@ -1,11 +1,10 @@
 """The SV second-hit badge follows every write to the family's SVs, not only the package import.
 
 The small-variant page flags a variant whose gene is also hit by a structural variant
-(the SNV + SV "second hit") from a per-family SV→gene index built on first use. Only the
-package import used to clear that index, so after an admin SV delete or a per-sample SV
-upload the badge went on describing SVs that no longer matched the family's data. The
-index now records the storage-level SV data version it was built from (every SV insert,
-delete and snapshot restore moves it), and a moved version rebuilds it on the next read.
+(the SNV + SV "second hit") from a per-family SV→gene index built on first use. The
+index records the storage-level SV data version it was built from (every SV insert,
+delete and snapshot restore moves it), and a moved version rebuilds it on the next read,
+so after an admin SV delete or a per-sample SV upload the badge describes the family's SVs.
 
 This imports the golden trio into real Postgres + ClickHouse, opens the small variants
 (which builds the index), then:
@@ -13,8 +12,7 @@ This imports the golden trio into real Postgres + ClickHouse, opens the small va
 * uploads a per-sample SV file for the mother with a duplication over BRCA2. Each SV
   gets its own phase (CLIN-28): the mother, unaffected, carries the SNV and her own
   duplication but has a reference call at the deletion, so the deletion stays in trans
-  and the badge biallelic. Any SV of hers used to count as the deletion, which made her a
-  carrier of both hits and the gene cis.
+  and the badge biallelic.
 * deletes the proband's SVs through the admin data endpoint. The BRCA2 badge must stop
   calling the maternal SNV and the paternal deletion biallelic: the father's deletion is
   still stored, but the proband no longer carries it.
@@ -226,8 +224,7 @@ def test_a_parents_own_sv_of_another_type_does_not_hide_the_deletion_in_trans(ru
     hit = hits[0]
     assert hit["sv_types"] == ["DEL", "DUP"], hit
     # The unaffected mother carries the SNV and her own duplication, and has a reference
-    # call at the deletion. Before CLIN-28 any SV of hers counted as the deletion: she
-    # carried both hits, so the gene was cis and the deletion in trans hidden.
+    # call at the deletion. Each SV gets its own phase (CLIN-28): the deletion stays in trans.
     assert hit["phase"] == "trans", hit
     assert hit["phase_evidence"] == "segregation", hit
     assert hit["deletion_unmasked"] is True, hit
@@ -255,7 +252,7 @@ def test_the_badge_stops_claiming_a_deletion_the_proband_no_longer_carries(run) 
     assert hits, "the father's BRCA2 deletion keeps the gene in the index"
     hit = hits[0]
     # ...but not in the proband: no zygosity, no phase, and above all not "biallelic".
-    # Before the fix the index built on the first open was served again, unchanged.
+    # The index built on the first open is rebuilt once the SV data version moved.
     assert hit["affected_zygosity"] is None, hit
     assert hit["phase"] == "unknown", hit
     assert hit["deletion_unmasked"] is False, hit
@@ -270,7 +267,7 @@ def test_the_uploaded_deletion_reaches_the_second_hit_badge(run) -> None:
     after = run["ch_after_upload"]
     assert after["status"] == 200, after["text"]
     hits = _second_hits(after)
-    # Before the fix the index had no GENE_CH entry and was served again: no badge.
+    # The rebuilt index has a GENE_CH entry: every GENE_CH variant carries the badge.
     assert hits and all(hit is not None for hit in hits), hits
     for hit in hits:
         assert hit["gene"] == "GENE_CH"

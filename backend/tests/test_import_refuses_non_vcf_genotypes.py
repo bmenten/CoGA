@@ -2,17 +2,15 @@
 
 VCF writes a genotype (GT) in allele notation: allele indices, ``.`` for a missing allele, ``/``
 or ``|`` between them (``0/1``, ``1|0``, ``./.``, haploid ``1``). Only a malformed VCF holds a
-word such as ``HET`` or ``HETEROZYGOUS``, and the small-variant loaders stored it as written.
-Three helpers then read it three ways: ``classify_genotype`` as a no-call (every filter, count
-and inheritance check), ``_normalize_gt`` as ``0/1`` on the variant list (``HOM`` as ``1/1``,
-``REF`` as ``0/0``), and the compound-het partner check ``HET`` as het, ``HETEROZYGOUS`` not.
+word such as ``HET`` or ``HETEROZYGOUS``.
 
-Now a record whose GT holds anything VCF's allele notation does not use fails the upload or
+A record whose GT holds anything VCF's allele notation does not use fails the upload or
 the dataset, naming the file, the line and the sample, and the value shown short: the
 small-variant loader (the upload, a package's family VCF, a NIPT or mitochondrial sample's
 file, imputed genotypes) and a long-read sample's SNV file. The helpers read only VCF
-notation: the variant list shows a stored genotype as stored, and the compound-het check
-classifies it as every filter does.
+notation: ``classify_genotype`` takes a word for a no-call (every filter, count and
+inheritance check), the variant list (``_normalize_gt``) shows a stored genotype as stored,
+and the compound-het check classifies it as every filter does.
 
 The stores are faked at their edge: the loader's lock, count, delete and insert.
 """
@@ -138,7 +136,7 @@ def test_vcf_allele_notation_is_a_vcf_genotype(gt: str) -> None:
 )
 def test_a_word_is_no_vcf_genotype(gt: str) -> None:
     assert not genotypes.is_vcf_genotype(gt)
-    # Read as every filter reads it, as before: a no-call.
+    # Read as every filter reads it: a no-call.
     assert genotypes.classify_genotype(gt) == genotypes.NO_CALL
 
 
@@ -155,7 +153,6 @@ async def test_a_genotype_word_is_refused_before_the_upload_replaces_the_callset
     assert refused.value.status_code == 400
     assert refused.value.detail == f"The VCF family.vcf, line 5: the genotype (GT) of S2 is '{gt}', {_REFUSED}"
     # Read whole before the delete, as every refusal is (SAFE-25): the callset as it was.
-    # Before: stored, the word as S2's genotype.
     assert stores["events"] == ["lock"]
 
 
@@ -171,7 +168,7 @@ async def test_a_genotype_word_fails_a_package_imports_load_naming_its_file(stor
     assert refused.value.detail == (
         f"The VCF S2.mutect2.vcf, line 4: the genotype (GT) of S2 is 'HET', {_REFUSED}"
     )
-    # Before: stored, the word as S2's genotype.
+    # Nothing inserted: the word is not stored as S2's genotype.
     assert "insert" not in stores["events"]
 
 
@@ -251,7 +248,7 @@ async def test_a_long_read_samples_genotype_word_is_refused_before_any_write(
     assert refused.value.detail == (
         f"The SNV file of S2 (S2.vcf), line 4: the genotype (GT) is 'HETEROZYGOUS', {_REFUSED}"
     )
-    # Each file's first record is read before anything is written. Before: stored.
+    # Each file's first record is read before anything is written.
     assert events == []
 
 
@@ -259,7 +256,7 @@ async def test_a_long_read_samples_genotype_word_is_refused_before_any_write(
 
 
 def test_the_variant_list_shows_a_stored_genotype_as_stored() -> None:
-    # Before: HET shown as 0/1, HOM as 1/1, REF as 0/0, which no filter read so.
+    # A word is shown as stored, never as a genotype that no filter reads it as.
     assert [_normalize_gt(gt) for gt in ("HET", "HOM", "REF", "0/1", "1|1", "", None)] == [
         "HET",
         "HOM",
@@ -277,7 +274,7 @@ def test_the_compound_het_check_reads_a_genotype_as_every_filter_does() -> None:
             variant_key=None, variant_id="1-1000-A-G", gene_symbols=["GENE1"], sample_calls={"S1": gt}, annotations=[]
         )
 
-    # Before: HET read as het, HETEROZYGOUS not.
+    # A word is no het call, whatever it spells.
     assert [has_affected_het_call(record(gt), ["S1"]) for gt in ("0/1", "./1", "HET", "HETEROZYGOUS", "1/1")] == [
         True,
         True,

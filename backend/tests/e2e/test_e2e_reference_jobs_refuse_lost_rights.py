@@ -1,11 +1,10 @@
 """A gene-reference refresh and a clinical CNV knowledgebase rebuild run only for an active administrator (E2E, real Postgres; SEC-35).
 
 Only an administrator asks for either (``/api/admin/gene-reference/refresh-gene``,
-``/api/admin/clinical-cnv-kb/rebuild``), and the job ran whoever had asked for it by then:
-those jobs act with no account's rights, and recorded who asked only by the e-mail address.
-The owner decided on 2026-10-28 that a job whose requester was deactivated, or is no longer an
-administrator, is refused. Each job now keeps its requester by the account's id
-(``requested_by_id``), and its run checks that account first.
+``/api/admin/clinical-cnv-kb/rebuild``); those jobs act with no account's rights. A job whose
+requester was deactivated, or is no longer an administrator, is refused (owner decision
+2026-10-28). Each job keeps its requester by the account's id (``requested_by_id``), and its
+run checks that account first.
 
 Through the app over HTTP (an in-process ``httpx.ASGITransport`` client on one event loop, see
 test_e2e_api_contract.py), for each of two colleagues, administrators with a password of their
@@ -280,7 +279,7 @@ def test_the_refresh_ends_failed_saying_why_and_frees_its_slot(ran, change: str)
     seen = ran[change]
     assert seen["refresh_taken"] == str(seen["refresh_queued"]["json"]["_id"])
     job = seen["refresh"]
-    # Before, the worker ran the refresh, whoever had asked for it.
+    # The worker refuses the refresh, saying why.
     assert job["status"] == "failed", job
     assert job["error"] == getattr(gene_jobs, _ERRORS[change])
     assert job["ended"] is True and job["worker_id"] is None and job["active_slot"] is None

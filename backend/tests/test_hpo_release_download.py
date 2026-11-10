@@ -1,11 +1,11 @@
 """The HPO release check and an HPO release downloaded for the admin sync.
 
-HPO was updated only from a file an administrator put on the server, and nothing said that a
-newer release had been published. The HPO admin page now shows the newest release beside the
-loaded one, read from HPO's GitHub releases, and its sync can take a release's file from the
-release's own PURL, which never floats. Nothing is imported without the administrator: a
-downloaded file goes through the sync as a file on the server does, must state the release
-asked for, and is applied only with the SHA-256 its preview showed (TRACE-18). A start on an
+The HPO admin page shows the newest release beside the loaded one, read from HPO's GitHub
+releases, and its sync can take a release's file from the release's own PURL, which never
+floats, as well as a file an administrator put on the server. Nothing is imported without the
+administrator: a downloaded file goes through the sync as a file on the server does, must
+state the release asked for, and is applied only with the SHA-256 its preview showed
+(TRACE-18). A start on an
 empty database imports the newest release the same way (``test_hpo_startup_latest_release.py``),
 with the vendored release as its backup (TRACE-14, ``test_hpo_download_pin.py``).
 """

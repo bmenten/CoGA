@@ -178,9 +178,9 @@ _VCF_TEXT = "".join(f"chr1\t{position}\t.\tA\tT\n" for position in range(1, 2_00
 
 def test_read_path_reads_the_member_after_one_larger_than_a_step(tmp_path):
     # Two gzip files joined (`cat a.gz b.gz`), the first inflating past one
-    # decompression step (1 MiB). The reader used to take the second member from the
-    # decompressor's unconsumed_tail and feed it, pass after pass, to the finished
-    # decompressor: it never returned. The deadline turns that into a failure.
+    # decompression step (1 MiB). A reader that took the second member from the
+    # decompressor's unconsumed_tail and fed it, pass after pass, to the finished
+    # decompressor would never return. The deadline turns that into a failure.
     first = b"##fileformat=VCFv4.2\n" + b"#" * (3 * 1024 * 1024) + b"\n"
     second = b"chr1\t1\t.\tA\tT\n"
     path = tmp_path / "sv.vcf.gz"
@@ -200,7 +200,7 @@ def test_read_path_reads_the_member_after_one_larger_than_a_step(tmp_path):
     ],
 )
 def test_read_path_gzip_cut_short_rejected_as_bad_request(tmp_path, data):
-    # The reader used to return the part that was there, as if it were the whole file.
+    # Refused, rather than read as the part that was there, as if it were the whole file.
     path = tmp_path / "sv.vcf.gz"
     path.write_bytes(data)
     with pytest.raises(HTTPException) as exc:
@@ -220,8 +220,9 @@ async def test_truncated_gzip_upload_rejected_as_bad_request():
 
 # ---------------------------------------------------------------------------
 # A BGZF file must end with its end-of-file block (DATA-4, the owner's decision of
-# 2026-10-28). Cut exactly where one of its blocks ends, a bgzip file is whole gzip: the
-# reader returned its first blocks as the file. A plain gzip file has no such block.
+# 2026-10-28). Cut exactly where one of its blocks ends, a bgzip file is whole gzip: without
+# that check the reader would return its first blocks as the file. A plain gzip file has no
+# such block.
 # ---------------------------------------------------------------------------
 
 _BGZF_TEXT = (_VCF_TEXT * 4).encode()  # three BGZF blocks

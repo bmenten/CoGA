@@ -1,12 +1,12 @@
-"""Password hashing without passlib (#525).
+"""Password hashing without passlib.
 
-passlib 1.7.4 is unmaintained and held bcrypt at 3.2.0. The backend now calls bcrypt
-directly; these tests pin that every hash passlib stored keeps verifying.
+passlib 1.7.4 is unmaintained and holds bcrypt at 3.2.0, so the backend calls bcrypt
+directly; these tests pin that a hash in passlib's bcrypt format verifies.
 """
 
 from backend.app.dependencies import get_password_hash, verify_password
 
-# Made by the code this replaces, passlib 1.7.4 with bcrypt 3.2.0:
+# Made by passlib 1.7.4 with bcrypt 3.2.0:
 #   CryptContext(schemes=["bcrypt"]).hash(...)
 # of "coga-passlib-compat" and of "L" * 80.
 PASSLIB_BCRYPT = "$2b$12$pcsvlI13kXFibfeN43efzuBGhIDhOoLLnuB7YRkioPn840wTRrseu"

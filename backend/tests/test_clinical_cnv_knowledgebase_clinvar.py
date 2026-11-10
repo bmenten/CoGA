@@ -1,10 +1,10 @@
-"""The knowledgebase build reads the loss/gain side of a ClinVar CNV correctly (#566).
+"""The knowledgebase build reads the loss/gain side of a ClinVar CNV correctly.
 
-The side came from words in the record's name only. ClinVar names an array-based record in
-ISCN notation, e.g. ``GRCh38/hg38 7q11.23(chr7:73330452-74799773)x1``, without any of
-those words, so it counted toward neither the loss nor the gain support of a region. The
-side now comes from ClinVar's ``Type`` column, then from the copy number in the name, and
-only then from the name's words.
+ClinVar names an array-based record in ISCN notation, e.g.
+``GRCh38/hg38 7q11.23(chr7:73330452-74799773)x1``, without any words that name a side, so
+read from those words alone it would count toward neither the loss nor the gain support of a
+region. The side comes from ClinVar's ``Type`` column, then from the copy number in the name,
+and only then from the name's words.
 """
 
 from __future__ import annotations
@@ -44,7 +44,7 @@ WBS = "GRCh38/hg38 7q11.23(chr7:73330452-74799773)"
         ("", "GRCh38/hg38 Xp22.31(chrX:6537236-8167639)x2", "chrX", "unknown"),
         ("", "GRCh38/hg38 Xp22.31(chrX:6537236-8167639)x3", "X", "gain"),
         ("", "GRCh38/hg38 Yq11.223(chrY:22000000-24000000)x0", "Y", "loss"),
-        # Last, the name's words, as before.
+        # Last, the name's words.
         ("", "Williams-Beuren syndrome deletion", "7", "loss"),
         ("", "1q21.1 duplication", "1", "gain"),
         ("", "complex rearrangement", "7", "unknown"),
@@ -108,7 +108,7 @@ def test_array_records_count_toward_a_regions_loss_and_gain_support() -> None:
     assert out.loc[0, "clinvar_pathogenic_accessions"] == "TEST-0;TEST-1;TEST-2"
 
 
-# #624 — the counts are written only once ClinVar support has been computed: a region the
+# The counts are written only once ClinVar support has been computed: a region the
 # build never checked against ClinVar is not a region without ClinVar support.
 def test_counts_stay_empty_until_clinvar_support_is_computed() -> None:
     clingen = pd.DataFrame(

@@ -1,15 +1,14 @@
 """A compound-het pair save keeps a partner review saved in the meantime (real Postgres).
 
-A pair save writes the partner's review as well as the variant's. It read the partner's review
-without its lock and wrote it back whole, stamped with a time taken before the save began. The
-owner's experiment showed the lost update: the partner was saved as class 5 with a new note, a
-concurrent pair save wrote back the partner review it had read earlier, and the partner was
-class 2 again, without the note, its modification time gone backwards.
+A pair save writes the partner's review as well as the variant's. One that read the partner's
+review without its lock and wrote it back whole would lose an update: the partner saved as
+class 5 with a new note, a concurrent pair save writing back the partner review it had read
+earlier, and the partner class 2 again, without the note, its modification time gone backwards.
 
-The pair save now locks the partner's review as a save of it does, reads it under that lock,
+The pair save locks the partner's review as a save of it does, reads it under that lock,
 and checks it against ``compound_het.partner_expected_updated_at``. This runs the real writer
 (``upsert_small_variant_review``) against real Postgres, the clinical audit included, in two
-ways: the owner's three steps one after the other, with the versions the client loaded; and
+ways: those three steps one after the other, with the versions the client loaded; and
 the race itself, the pair save running while the partner's save holds its transaction open.
 Only the variants' ClickHouse records and the pairing rules read from them are stubbed: the
 reviews live in Postgres. Synthetic data only.
@@ -318,7 +317,7 @@ def test_a_partner_review_saved_during_a_pair_save_is_kept(monkeypatch) -> None:
             await asyncio.wait_for(partner_written.wait(), timeout=10)
             pair_task = asyncio.create_task(_pair_save())
             # The pair save must reach the partner (and wait on it) before the partner's
-            # save commits: that is the window in which the lost update happened.
+            # save commits: that is the window in which an update could be lost.
             for _ in range(200):
                 if pair_task.done() or await _waiting_on_a_lock(sm, pair_pid):
                     break

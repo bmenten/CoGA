@@ -6,8 +6,8 @@ take a member's new sample ID and its father and mother from the request; the st
 (``PUT /families/{family}/structure``) takes the IDs of the members it adds. One that holds a
 control character (C0 or DEL: a line break, a tab, an escape, a NUL) or whitespace is refused
 (400) with the rule's message, before anything is read or written under it: no member of the
-request is renamed, and a NUL never reaches Postgres. So, since SEC-15, is one that holds a C1
-control, a text-direction or zero-width character, a ``/`` or a ``\\``, or is ``.`` or ``..``.
+request is renamed, and a NUL never reaches Postgres. So is one that holds a C1 control, a
+text-direction or zero-width character, a ``/`` or a ``\\``, or is ``.`` or ``..`` (SEC-15).
 The whitespace around an ID is still stripped, and an empty parent still clears the link. All
 IDs here are synthetic.
 """

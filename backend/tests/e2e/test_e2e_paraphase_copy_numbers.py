@@ -1,10 +1,8 @@
 """A Paraphase copy number that no Postgres ``integer`` holds fails its dataset cleanly (DATA-7), E2E.
 
 The Paraphase copy numbers (``total_cn``, ``gene_cn``, ``highest_total_cn``) are ``integer``
-columns of ``sample_paraphase_results``, filled from each sample's JSON. One beyond them
-failed the insert with a database error, after the sample's results were deleted: the
-dataset's message was the driver's error, with the statement and its parameters. Such a JSON
-is now refused as a TRGT value that cannot be read as a number is (#985): the dataset fails
+columns of ``sample_paraphase_results``, filled from each sample's JSON. A JSON with a value
+beyond them is refused as a TRGT value that cannot be read as a number is: the dataset fails
 before any sample's results are replaced, with a message that names the field and the gene.
 
 Here one sample's family (a new id each run) goes through the package import into real
@@ -12,8 +10,7 @@ Postgres and ClickHouse:
 
 * package 1 (cancel): a Paraphase JSON with GBA's copy numbers (2) is stored;
 * package 2 (overwrite): GBA's ``total_cn`` is 2,147,483,648, one beyond ``integer``: the
-  dataset fails with the refusal, and GBA's stored result is as it was (before: the driver's
-  error, "value out of int32 range", with the SQL);
+  dataset fails with the refusal, and GBA's stored result is as it was;
 * package 3 (overwrite): GBA's ``total_cn`` is 2,147,483,647, the column's largest: stored.
 
 Everything runs in ONE event loop (see test_e2e_api_contract.py for why).
@@ -154,8 +151,6 @@ def test_a_copy_number_no_integer_holds_fails_the_dataset_with_the_results_as_th
     imported = step["import"]
     assert imported["completed"] is False, imported
     status, message = imported["datasets"]["paraphase"]
-    # Before: the driver's error, "invalid input for query argument … (value out of int32
-    # range)", with the statement and its parameters.
     assert (status, message) == (
         "failed",
         f"Paraphase JSON for {run['sample']} holds a value that cannot be read where a number is expected "

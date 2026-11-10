@@ -213,7 +213,7 @@ def test_small_variant_out_primary_in_flat_fields_others_in_transcripts() -> Non
 
 
 def test_small_variant_out_says_where_a_male_is_hemizygous() -> None:
-    # The ACMG dialog reads it to apply the sex-aware de novo rule (#621): the PAR
+    # The ACMG dialog reads it to apply the sex-aware de novo rule: the PAR
     # bounds stay in one place, the backend.
     def flagged(chrom: str, pos: int, assembly: str | None = "GRCh38") -> bool:
         record = SmallVariantRecord(
@@ -395,7 +395,7 @@ async def test_get_family_small_variants_page_uses_clickhouse_pagination(
     assert [str(variant.id) for variant in page.variants] == ["v2"]
     assert len(queries) == 4
     assert "hasAny(e.calls.sampleId, %(visible_sample_ids)s)" in queries[0][0]
-    # The list dedups by key (#333) so it agrees with the deduped count.
+    # The list dedups by key so it agrees with the deduped count.
     assert "GROUP BY e.key" in queries[0][0]
     assert queries[0][1]["visible_sample_ids"] == [
         "PROBAND",
@@ -413,7 +413,7 @@ async def test_get_family_small_variants_page_uses_clickhouse_pagination(
 
 
 def test_parse_genotype_filter_expands_group_aliases() -> None:
-    # Filters name genotype classes (#511); the UI's literal groups mean their class.
+    # Filters name genotype classes; the UI's literal groups mean their class.
     assert parse_genotype_filter("het") == (frozenset({"het"}), False)
     assert parse_genotype_filter("hom") == (frozenset({"hom_alt"}), False)
     assert parse_genotype_filter("wt") == (frozenset({"hom_ref"}), True)
@@ -471,7 +471,7 @@ async def test_get_family_small_variants_page_filters_simple_sample_gt_in_clickh
     assert "NOT arrayExists(sample_id -> sample_id IN %(sample_filter_1_samples)s" in queries[0][0]
     assert "LIMIT %(limit)s OFFSET %(offset)s" in queries[0][0]
     assert queries[0][1]["sample_filter_0_samples"] == ("PROBAND", "sample-proband")
-    # The het group matches the het class (#511): the four orientations and a "1/2".
+    # The het group matches the het class: the four orientations and a "1/2".
     assert queries[0][1]["sample_filter_0_gts"] == genotype_vocabulary("het")
     assert {"0/1", "1/0", "0|1", "1|0", "1/2"} <= set(queries[0][1]["sample_filter_0_gts"])
     assert queries[0][1]["sample_filter_0_min_gq"] == 20.0
@@ -703,7 +703,7 @@ async def test_get_family_small_variants_page_filters_vep_annotations_in_clickho
     assert "INNER JOIN" not in query
     assert "GRCh38/SNV_INDEL/variants/annotations" in query
     assert "(e.key, e.annotationSetHash) IN (SELECT a.key, a.annotationSetHash" in query
-    assert "GROUP BY e.key" in query  # list dedups by key (#333)
+    assert "GROUP BY e.key" in query  # list dedups by key
     assert "a.impact IN %(detail_impact_terms)s" in query
     assert "hasAny(a.effects, %(detail_effect_terms)s)" in query
     assert "hasAny(a.clinvar_terms, %(detail_clinvar_terms)s)" in query
@@ -1090,7 +1090,7 @@ async def test_a_non_native_structural_page_says_whether_the_candidate_cap_cut_i
     assert page.count_limit == (2 if capped else None)
     assert page.total == 2
     assert len(page.variants) == 2
-    # The table says where the search stopped (#725 follow-up).
+    # The table says where the search stopped.
     assert page.candidates_capped is capped
     assert page.candidate_limit == (2 if capped else None)
 
@@ -1098,7 +1098,7 @@ async def test_a_non_native_structural_page_says_whether_the_candidate_cap_cut_i
 @pytest.mark.asyncio
 async def test_structural_track_reports_the_total_beyond_its_page(monkeypatch: pytest.MonkeyPatch) -> None:
     # 5 SVs in view for a track page of 2: the track must be able to tell it is
-    # drawing part of the view (#585). It used to get total=0.
+    # drawing part of the view.
     page = await _run_non_native_structural_page(
         monkeypatch, returned_rows=5, variant_type=None, page_size=2, track_mode=True
     )
@@ -1144,7 +1144,7 @@ async def test_structural_track_fetches_only_its_samples_svs(monkeypatch: pytest
     assert params["call_sample_ids"] == ["PROBAND", "sample-proband"]
     assert params["limit"] == 50_001
 
-    # No sample named: the whole family, as before.
+    # No sample named: the whole family.
     queries.clear()
     await _run_non_native_structural_page(
         monkeypatch, returned_rows=1, queries=queries, variant_type=None, track_mode=True
@@ -1392,7 +1392,7 @@ async def test_fetch_small_variant_rows_pushes_simple_inheritance_to_clickhouse(
     assert "inheritance_affected_het_0_gts" in params
     assert "inheritance_unaffected_alt_0_gts" in params
     assert "arrayExists((sample_id, gt) ->" in query
-    assert "GROUP BY e.key" in query  # list dedups by key (#333)
+    assert "GROUP BY e.key" in query  # list dedups by key
 
 
 @pytest.mark.asyncio
@@ -2131,10 +2131,10 @@ async def test_prioritized_small_variants_tie_order_is_deterministic(
 async def test_prioritized_ranking_cache_misses_after_the_family_variant_data_changes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # #509: the ranking cache is keyed on the family's storage-level data version, so a
-    # write that no import path invalidated (a direct upload, an admin delete) can no
-    # longer leave the prioritised view serving a ranking over the old variants. Drives
-    # the real hash computation against an in-memory cache.
+    # The ranking cache is keyed on the family's storage-level data version, so a write
+    # that no import path invalidates (a direct upload, an admin delete) cannot leave the
+    # prioritised view serving a ranking over the old variants. Drives the real hash
+    # computation against an in-memory cache.
     from backend.app.services import variant_ranking_cache as vrc
 
     calls = [_small_call("PROBAND", "0/1")]
@@ -2221,8 +2221,8 @@ async def test_prioritized_ranking_cache_misses_after_the_family_variant_data_ch
     again = await _open()
     assert again.ranking_cached is True
 
-    # New variant data under the SAME data version: the cached order still wins. This is
-    # exactly the pre-fix behaviour, so it shows the version is what invalidates.
+    # New variant data under the SAME data version: the cached order still wins, so the
+    # version is what invalidates.
     data["records"] = [rec_a, rec_b]
     stale = await _open()
     assert stale.ranking_cached is True
@@ -2553,10 +2553,10 @@ def _callset_fetch(records: list[StructuralVariantRecord], seen: list[dict]):
 async def test_a_reported_sv_beyond_the_candidate_cap_is_still_found(
     monkeypatch: pytest.MonkeyPatch, prioritize: bool
 ) -> None:
-    # The report lists its SVs with a review-tag search. That search read the first rows
-    # of the callset up to the candidate cap and only then kept the reviewed ones, so a
-    # reported SV past the cap was missing from the report. The selection now narrows the
-    # read, so the cap bounds the reported SVs, not the callset.
+    # The report lists its SVs with a review-tag search. The selection narrows the read,
+    # so the cap bounds the reported SVs, not the callset: a read of the callset's first
+    # rows up to the cap, keeping the reviewed ones only then, would leave a reported SV
+    # past the cap out of the report.
     m = "backend.app.services.clickhouse_family_variants."
     monkeypatch.setattr(m + "_SV_NON_NATIVE_STRUCTURAL_CANDIDATE_CAP", 2)
     callset = [_reported_sv(f"sv-{index}", start=index * 1000) for index in range(1, 6)]
@@ -2657,8 +2657,8 @@ def test_clamp_small_variant_page_bounds_deep_offset() -> None:
 #
 # Compound-het / recessive pairing and expanded carrier screening run in Python over a
 # candidate window of at most _SMALL_INHERITANCE_MAX_CANDIDATE_ROWS rows, however large the
-# export cap. A match beyond the window is absent from the CSV; before this fix the export
-# still reported itself complete because it only looked at its own row cap.
+# export cap. A match beyond the window is absent from the CSV, so the export says it is
+# truncated, not only when its own row cap is reached.
 
 
 def _patch_small_candidate_path(monkeypatch: pytest.MonkeyPatch, *, candidates: int) -> list[int | None]:
@@ -2877,7 +2877,7 @@ async def test_prioritized_small_ranking_that_filters_to_nothing_still_flags_the
     # The candidate window overflowed and none of it survived the rules applied after the
     # SQL (here: a compound-het search whose candidates pair nothing, each in a gene of its
     # own): the empty ranking covers only the window, so a matching variant may lie beyond
-    # it. The early return used to drop ranking_truncated, and the prioritised export said
+    # it. The early return keeps ranking_truncated, so the prioritised export does not say
     # "complete".
     from backend.app.services.clickhouse_family_variants import _PRIORITIZE_CANDIDATE_LIMIT
 
@@ -3046,7 +3046,7 @@ async def test_genotype_site_sample_reads_chrx_outside_the_pseudoautosomal_regio
     )
     assert params["sample_limit"] == 20_000
 
-    # On an assembly whose PARs CoGA does not know, all of chrX is read, as before.
+    # On an assembly whose PARs CoGA does not know, all of chrX is read.
     other = dataclasses.replace(_family_context(), assembly_name="T2T-CHM13v1.0")
     await fetch_genotype_site_sample(other, scope="chrX", limit=20_000, source="clair3")
     query, params = queries[1]
@@ -3128,8 +3128,7 @@ async def test_a_search_a_write_lands_during_is_run_once_more(
     # ENG-17. A search's subqueries (a panel's window join, the annotation and sample
     # subqueries) read the family's rows apart from its main read, so a write landing between
     # two of them could make the answer miss a row. Every write moves the family's data
-    # version once done: a search during which it moved is run once more. Before: once, the
-    # row missed until the page was opened again.
+    # version once done: a search during which it moved is run once more.
     read = iter(versions)
     searched: list[object] = []
 

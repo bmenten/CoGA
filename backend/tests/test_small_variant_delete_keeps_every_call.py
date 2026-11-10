@@ -4,10 +4,10 @@
 family's ``SNV_INDEL/entries`` rows and writing them back without that sample. It reads them
 with ``fetch_family_small_variant_entries`` (the family-wide delete's scope, every column as
 stored) and writes them back with ``rewrite_family_small_variant_entries`` (column for column),
-so the calls and fields it does not mean to change come back unchanged. It used to read them
-through the family view, which leaves out the imputed callsets, inactive members' calls and
-rows under projects the family has left, and normalises the genotype, the allele fractions
-and the annotation version. ``test_e2e_small_variant_delete_keeps_every_call`` shows the same
+so the calls and fields it does not mean to change come back unchanged. The family view would
+not do: it leaves out the imputed callsets, inactive members' calls and rows under projects
+the family has left, and normalises the genotype, the allele fractions and the annotation
+version. ``test_e2e_small_variant_delete_keeps_every_call`` shows the same
 against real ClickHouse and Postgres.
 """
 

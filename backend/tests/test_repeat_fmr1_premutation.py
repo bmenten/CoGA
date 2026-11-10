@@ -8,9 +8,9 @@ classification gives such an allele ``premutation``, which ranks between the gre
 full mutation, and the stored status may hold it (integration/test_repeat_status_storage.py).
 
 A full mutation is more than 200 repeats. FMR1 has two catalogue rows, the built-in ``FMR1``
-and STRchive's ``FXS_FMR1``, and the call's TRID decides which one classifies it. The
-built-in row put the pathogenic threshold at 200, so under it a 200-repeat premutation read
-as a full mutation (CLIN-2); both rows now start the full mutation at 201.
+and STRchive's ``FXS_FMR1``, and the call's TRID decides which one classifies it. Both rows
+start the full mutation at 201, so a 200-repeat premutation reads as a full mutation under
+neither (CLIN-2).
 All samples and values are synthetic.
 """
 
@@ -122,7 +122,7 @@ def test_a_males_premutation_is_one_too() -> None:
 
 @pytest.mark.asyncio
 async def test_the_family_table_reads_the_premutation_from_the_catalogue() -> None:
-    # Stored before the catalogue knew the premutation: the table reclassifies.
+    # Stored as intermediate, not as a premutation: the table reclassifies.
     stored = {
         "sample_uuid": "00000000-0000-4000-8000-000000000001",
         "locus_id": "FXS_FMR1",

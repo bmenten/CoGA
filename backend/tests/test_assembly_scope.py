@@ -1,4 +1,4 @@
-"""The validated-assembly scope (TF-01 §4 item 6, TF-06 H12, #515)."""
+"""The validated-assembly scope (TF-01 §4 item 6, TF-06 H12)."""
 
 import pytest
 

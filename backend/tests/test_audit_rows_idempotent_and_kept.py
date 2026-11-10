@@ -2,13 +2,13 @@
 
 Both workers write what they drain in one INSERT, and write a batch again after a failed attempt
 (``event_pipeline.write_event_batch_with_retry``). A commit whose answer never reached the writer
-(the connection dropped as Postgres committed) looked like a failure, so the batch was written
-again and each of its rows was stored twice. Each event now carries an id of its own, given when
+(the connection dropped as Postgres committed) looks like a failure, so the batch is written
+again. Each event carries an id of its own, given when
 the event is made, before it is queued; the INSERT does nothing for an id the table holds
 (``ON CONFLICT (event_id) DO NOTHING``), so every write of an event stores it once.
 
-A row naming a user whose account was deleted while the row waited in the queue failed the
-foreign key on ``user_id`` and was lost. It is now stored without the link, the user's id kept in
+A row naming a user whose account was deleted while the row waited in the queue would fail the
+foreign key on ``user_id``; it is stored without the link, the user's id kept in
 the row's own data (``request_meta._deleted_user_id``, ``detail._deleted_user_id``), and the log
 names the error by its kind, without values.
 
@@ -228,7 +228,7 @@ async def test_a_batch_written_again_after_a_commit_whose_outcome_was_unknown_st
 ) -> None:
     # The first commit is made, and its answer lost. The worker takes that for a failure and
     # writes the batch again (two attempts), or, after its last attempt, each of its events
-    # alone (#820). Either way every event was stored twice.
+    # alone. Either way each event is stored once.
     monkeypatch.setattr(settings, "audit_log_max_write_attempts", attempts)
     database = _Postgres(users=(_KEPT_USER,), lose_first_commit_answer=True)
     chosen = _on(pipeline, database, monkeypatch)
@@ -251,8 +251,8 @@ async def test_a_batch_written_again_after_a_commit_whose_outcome_was_unknown_st
 async def test_a_row_naming_a_user_deleted_while_it_waited_is_stored_without_the_link(
     pipeline, monkeypatch, caplog
 ) -> None:
-    # The account is deleted (operator SQL) while its event waits in the queue. The foreign key
-    # refused the row on every attempt of its batch, and then alone: it was counted and lost.
+    # The account is deleted (operator SQL) while its event waits in the queue. With the link,
+    # the foreign key would refuse the row on every attempt of its batch, and then alone.
     database = _Postgres(users=(_KEPT_USER,))
     chosen = _on(pipeline, database, monkeypatch)
     caplog.set_level(logging.WARNING)

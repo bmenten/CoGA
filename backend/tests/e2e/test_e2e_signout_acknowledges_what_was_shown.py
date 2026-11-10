@@ -1,10 +1,10 @@
 """A sign-out's acknowledgement covers the concerns its dialog showed, end to end (TRACE-19).
 
-"Sign out anyway" sent a gate's acknowledgement and its reason, and the sign-out read the gate
-again: a concern that arose after the dialog listed them was signed out over, as
-acknowledged, unseen. Each refusal now carries the fingerprint of the concerns it lists, the
-dialog sends it back, and a sign-out whose concerns are no longer those is refused with them
-as they are now. Over the golden trio, through the API, this:
+"Sign out anyway" sends a gate's acknowledgement and its reason, and the sign-out reads the gate
+again. Each refusal carries the fingerprint of the concerns it lists, the dialog sends it back,
+and a sign-out whose concerns are no longer those is refused with them as they are now, so a
+concern that arose after the dialog listed them is never signed out over unseen. Over the golden
+trio, through the API, this:
 
 * tags a variant for the report, unclassified: the drift refusal lists it and gives its
   fingerprint;

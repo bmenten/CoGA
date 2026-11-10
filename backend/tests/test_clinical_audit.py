@@ -409,7 +409,7 @@ def test_record_structural_review_changes_marks_the_events_as_sv() -> None:
     assert all(c["row_hash"] for c in inserts)
 
 
-# --- the chain each family's events are written on (#261) -------------------------------------
+# --- the chain each family's events are written on --------------------------------------------
 
 
 class _AuditTrail:

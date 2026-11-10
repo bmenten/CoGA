@@ -477,7 +477,7 @@ def test_revision_0011_drops_the_columns_nothing_reads_and_the_unresolved_roi_ke
 
 def test_revision_0013_writes_the_class_labels_the_code_writes_in_mutable_rows_only() -> None:
     # ENG-6: the class labels in sentence case. The revision rewrites the reviews' and the
-    # filter presets' class labels as the code writes them now, and no append-only table: a
+    # filter presets' class labels as the code writes them, and no append-only table: a
     # record signed, or an audit event written, before keeps its text.
     from backend.app.services import acmg_points, cnv_acmg_points
 

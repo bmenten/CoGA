@@ -182,9 +182,9 @@ def test_explorer_export_says_when_it_was_cut(monkeypatch) -> None:
 
 
 def test_explorer_finds_and_shows_a_classification_whatever_the_case_of_its_label(monkeypatch) -> None:
-    # ENG-6: the class labels are in sentence case. A review saved before holds "Likely
-    # Pathogenic - class 4"; the classification filter, lowercased on both sides in Postgres,
-    # finds it by either spelling. CLIN-69: a variant reviewed in two families shows the more
+    # ENG-6: the class labels are in sentence case. A review holding "Likely Pathogenic -
+    # class 4" is found by the classification filter, lowercased on both sides in Postgres, by
+    # either spelling. CLIN-69: a variant reviewed in two families shows the more
     # severe classification, as stored, whichever review Postgres reads first.
     import backend.app.services.variant_explorer_service as svc
     from sqlalchemy import text
@@ -242,10 +242,9 @@ def test_explorer_finds_and_shows_a_classification_whatever_the_case_of_its_labe
 
 
 def test_explorer_shows_the_class_a_review_holds_by_its_tag_and_filters_as_the_family_search(monkeypatch) -> None:
-    # CLIN-71: the Explorer read a review's classification text alone, so a review classified by
-    # its class tag (no text) showed no class, though the family page shows one; and with no
-    # ORDER BY, of two reviews of one class the first Postgres returned was shown. Each review now
-    # shows its class as the family page reads it, the reviews read saved last first, then by
+    # CLIN-71: each review shows its class as the family page reads it, a review classified by
+    # its class tag (no text) included, and of two reviews of one class the one shown does not
+    # depend on the order Postgres returns them in: the reviews are read saved last first, then by
     # family id. The classification filter keeps, family by family, what the family search's keeps.
     import backend.app.services.variant_explorer_service as svc
     from sqlalchemy import text
@@ -355,7 +354,7 @@ def test_explorer_shows_the_class_a_review_holds_by_its_tag_and_filters_as_the_f
     run_closing_stores(_scenario)
 
 
-# The reviews of the owner's before/after table (CLIN-75), each in a family of its own: variant,
+# The reviews of the owner's table of cases (CLIN-75), each in a family of its own: variant,
 # classification text, tags, pair classification text, pair tags.
 _SHOWN_CLASS_REVIEWS = (
     ("1-100-A-G", None, ["acmg_class_4"], None, []),  # a class tag alone
@@ -381,11 +380,11 @@ _KEPT_BY_SHOWN_CLASS = {
 
 def test_the_classification_filters_keep_a_variant_by_the_class_its_review_shows(monkeypatch) -> None:
     # CLIN-75 (the owner's decision of 2026-11-10): the family search's and the Explorer's
-    # classification filters read the classification text alone, so a class filter dropped a
-    # variant shown with that class by its class tag (its own or its pair review's), and kept one
-    # shown with another class (text "VUS - class 3" beside the tag acmg_class_4). Both now keep a
-    # review by the class it shows: in Python on the family search, in SQL in the Explorer, here
-    # on real Postgres and, for the Explorer's export, real ClickHouse.
+    # classification filters keep a review by the class it shows, not by its classification text
+    # alone: a class filter keeps a variant shown with that class by its class tag (its own or its
+    # pair review's), and drops one shown with another class (text "VUS - class 3" beside the tag
+    # acmg_class_4). In Python on the family search, in SQL in the Explorer, here on real Postgres
+    # and, for the Explorer's export, real ClickHouse.
     import backend.app.services.variant_explorer_service as svc
     from sqlalchemy import text
 

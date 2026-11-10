@@ -2,14 +2,14 @@
 
 The haplotype blocks are built when the phased genotypes are imported, from the index couple, the
 couple's children and each member's recorded sex, and the embryo calls read them. A later edit of
-the pedigree or of a sex neither rebuilt them nor warned. The loader now keeps, beside each
+the pedigree or of a sex does not rebuild them, so the loader keeps, beside each
 member's blocks, what they were built for (``pedigree_basis``); the PGT analysis compares it with
 the family's pedigree, and blocks built for another, or without the record, are outdated: every
 embryo is then uninformative, which the family page and the signed record say, until the phased
 genotypes are imported again (the owner's choice of 2026-10-27). An affected status is not part
-of it: the calls read the statuses when they are made. A single-file re-upload rewrote the blocks
-but not the genome overview's lineage precompute, whose fingerprint left them out; it now covers
-a digest of the stored blocks.
+of it: the calls read the statuses when they are made. A single-file re-upload rewrites the blocks
+but not the genome overview's lineage precompute, so the precompute's fingerprint covers a digest
+of the stored blocks.
 """
 
 from __future__ import annotations
@@ -155,13 +155,12 @@ def test_blocks_built_for_the_pedigree_as_it_is_are_current(now: FamilyMetadataC
     ids=["a sex corrected", "a sex removed", "a child unlinked"],
 )
 def test_blocks_built_for_another_pedigree_are_outdated(now: FamilyMetadataContext) -> None:
-    # Before, the blocks were read as current whatever had changed.
     assert pgt_analysis.blocks_outdated(now, _sources(haplotype_block_basis(_context(), _CALLSET))) is True
 
 
 @pytest.mark.parametrize("kept", [None, "not json", json.dumps({"father": "FATHER"}), json.dumps(["x"])])
 def test_blocks_without_their_record_count_as_outdated(kept: Any) -> None:
-    # Loaded before the basis was kept, or with a record that does not say: not trusted.
+    # Without the record, or with one that does not say: not trusted.
     assert pgt_analysis.blocks_outdated(_context(), _sources(kept)) is True
 
 
@@ -240,7 +239,7 @@ async def test_a_precompute_of_blocks_written_again_is_not_served(monkeypatch: p
     monkeypatch.setattr(bed_service, "interval_track_rows_digest", blocks_now)
     monkeypatch.setattr(bed_service, "fetch_interval_track_rows", must_not_fetch)
 
-    # Before, the fingerprint left the blocks out, and the old precompute was served.
+    # The blocks' digest moved the fingerprint: the stored precompute is not served.
     assert await bed_service._fetch_precomputed_lineage(context) is None
 
 
@@ -272,5 +271,5 @@ async def test_the_haplotype_tracks_are_told_when_the_blocks_are_outdated(
     genome = await bed_service.get_family_haplotypes_batch_response(session, context=now, chromosomes=["7"])
 
     assert session.executed and all("FROM sample_interval_track_sources" in sql for sql, _params in session.executed)
-    # Before, the tracks read every member's risk state from them whatever had changed.
+    # The tracks say whether the blocks are outdated.
     assert (region.blocks_outdated, genome.blocks_outdated) == (outdated, outdated)

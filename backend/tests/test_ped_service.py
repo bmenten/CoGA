@@ -232,7 +232,7 @@ async def test_create_family_inserts_samples_one_by_one_for_returning_ids() -> N
         "family_uuid": "family-uuid",
         "project_id": "00000000-0000-0000-0000-000000000001",
     }
-    # sample_projects is now a single batched (executemany) insert — params is the list of
+    # sample_projects is a single batched (executemany) insert — params is the list of
     # per-sample dicts in one call, mirroring the family_members insert above.
     sample_project_insert = next(
         params for sql, params in session.calls if "INSERT INTO sample_projects" in sql

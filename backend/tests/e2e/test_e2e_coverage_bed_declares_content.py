@@ -1,9 +1,9 @@
 """Each coverage BED declares what it holds, read depth or a log2 ratio (TRACE-9), E2E.
 
-A coverage BED recorded nothing of what its values are: the depth readers read it as depth and the
-coverage chart drew it on its log2-ratio axis. Each now declares it (the upload's ``content``, the
-manifest entry's ``content`` key), its record keeps it, and an undeclared one is ``unknown``, never
-read as depth.
+Nothing in a coverage BED's values says what they are: undeclared, the depth readers would read
+a log2 ratio as depth and the coverage chart would draw depth on its log2-ratio axis. Each declares
+it (the upload's ``content``, the manifest entry's ``content`` key), its record keeps it, and an
+undeclared one is ``unknown``, never read as depth.
 
 Here a two-member family (a new id each run), with chrM calls for both members at 500 reads, goes
 through the package import and the BED upload route into real Postgres and ClickHouse:
@@ -12,7 +12,7 @@ through the package import and the BED upload route into real Postgres and Click
   nothing (0.2 over chrM). The validation warns of S2's; each record keeps what was declared, S2's
   as ``unknown``, and so does what the family holds (``imported_scopes``); the track availability
   serves ``read_depth`` and ``unknown``; the mtDNA coverage reads S1's BED, and S2's calls' depth,
-  with a note naming S2's BED and why (before: S2's 0.2 was read as its mean depth);
+  with a note naming S2's BED and why;
 * S2's BED uploaded again without ``content``: refused (422), its record as it was;
 * uploaded with ``content=log2_ratio``: stored as declared, the raw file's record and what the
   family holds say so, and the mtDNA note says it holds log2 ratios;
@@ -245,7 +245,7 @@ def test_the_package_records_what_each_coverage_bed_declares(run) -> None:
     # The validation said S2's BED declares nothing.
     assert ("coverage_content_undeclared", s2) in imported["warnings"]
     step = run["steps"]["package"]
-    # Before: neither record said what its BED held.
+    # Each record says what its BED holds.
     assert step["records"] == {s1: "read_depth", s2: "unknown"}
     assert step["held"]["coverage"] == [
         {"source": None, "samples": [s1], "content": "read_depth"},
@@ -259,7 +259,7 @@ def test_the_views_and_the_mtdna_coverage_read_what_was_declared(run) -> None:
     assert step["availability"]["status"] == 200, step["availability"]
     assert step["availability"]["contents"] == {s1: {"web": "read_depth"}, s2: {"web": "unknown"}}
     assert step["mtdna"]["status"] == 200, step["mtdna"]
-    # Before: S2's 0.2 was read as its mean chrM depth. Now its calls' depth, and a note says why.
+    # S2's 0.2 is not read as its mean chrM depth: its calls' depth is, and a note says why.
     assert step["mtdna"]["coverage"] == {s1: (300.0, "coverage BED"), s2: (500.0, "variant calls")}
     assert _undeclared_note(s2) in step["mtdna"]["notes"]
     assert not any(note.startswith(f"{s1}:") for note in step["mtdna"]["notes"])
@@ -268,7 +268,6 @@ def test_the_views_and_the_mtdna_coverage_read_what_was_declared(run) -> None:
 def test_an_upload_that_declares_nothing_is_refused_and_replaces_nothing(run) -> None:
     s2 = run["samples"]["S2"]
     step = run["steps"]["undeclared"]
-    # Before: 200, the BED read as depth.
     assert step["status"] == 422, step["json"]
     assert step["json"]["detail"] == "Declare what the coverage BED holds: content=read_depth or content=log2_ratio"
     assert step["records"][s2] == "unknown"

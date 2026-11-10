@@ -1,12 +1,11 @@
 """A compound-heterozygous pair review is a clinical audit event (SEC-7).
 
 The review of a compound-het pair (its classification, tags and note, given on one variant's
-review with its partner) is a clinical decision like a single variant's review. It wrote no
-clinical audit event: only the HTTP audit log saw it. Each save that records a pair, changes
-it or breaks it up now writes a ``compound_het_pair`` event on the family's hash-chained
-trail, in the save's transaction, with the pair as it was and as it is: one event per pair
-that changed, filed under the variant whose review held the pair, naming the partner. An
-unchanged re-save writes none.
+review with its partner) is a clinical decision like a single variant's review. Each save that
+records a pair, changes it or breaks it up writes a ``compound_het_pair`` event on the family's
+hash-chained trail, in the save's transaction, with the pair as it was and as it is: one event
+per pair that changed, filed under the variant whose review held the pair, naming the partner.
+An unchanged re-save writes none.
 
 The review store is a fake keeping each variant's review row; the values are synthetic.
 """

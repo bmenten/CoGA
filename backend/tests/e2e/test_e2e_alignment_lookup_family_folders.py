@@ -1,23 +1,22 @@
 """The alignment endpoints serve a sample's reads only from its own family's folders (E2E).
 
 In local storage mode the CRAM endpoints look for a sample's reads in its family's folders,
-``<data>/<family>`` and ``<data>/families/<family>``. The lookup used to check only that a
-path stayed inside the data directory, so a sample whose ID climbs into another family
-(``../F2/S2``; the ID rule accepted it until SEC-15) was listed in the alignment manifest with
-that family's reads, and a folder linked into another family's folder served that family's
-file (SEC-20).
+``<data>/<family>`` and ``<data>/families/<family>``. A check only that a path stays inside
+the data directory would list a sample whose ID climbs into another family (``../F2/S2``) in
+the alignment manifest with that family's reads, and let a folder linked into another family's
+folder serve that family's file (SEC-20).
 
 Over the real API (an in-process ``httpx.ASGITransport`` client, one event loop, see
 test_e2e_api_contract.py), with the families in Postgres made through the Family Builder and
 the seeded admin signed in: family F2 has sample S2, family F1 has S1, a sample ``../F2/S2``
-and S3. Every writer refuses ``../F2/S2`` since SEC-15, so that sample is made under another
-ID and renamed in Postgres, as a sample stored before could be named. The reads lie in a data
+and S3. Every writer refuses ``../F2/S2`` (SEC-15), so that sample is made under another ID
+and renamed in Postgres. The reads lie in a data
 directory of the test's own: F2's S2 in every layout, F1's S1 in its flat folder, and F1's
 package ``bams`` folder is a link to F2's, which holds a file named after S3.
 
-* F1's alignment manifest lists S1 alone (before: also ``../F2/S2`` with F2's reads, and S3
-  with the file the link leads to), and following S1's URLs fetches S1's reads and index;
-* S3's reads and index answer 404 to GET and HEAD (before: 200 with F2's file);
+* F1's alignment manifest lists S1 alone (not ``../F2/S2`` with F2's reads, nor S3 with the
+  file the link leads to), and following S1's URLs fetches S1's reads and index;
+* S3's reads and index answer 404 to GET and HEAD;
 * F2's manifest still lists S2, and its URLs fetch S2's reads.
 
 Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``e2e`` job sets it. The IDs
@@ -108,8 +107,8 @@ async def _exercise(run: str, data: Path) -> dict[str, Any]:
                 ).status_code
                 for family_id, sample_ids in ((f2, [s2]), (f1, [s1, stand_in, s3]))
             ]
-            # The Family Builder refuses an ID holding '/' since SEC-15: the climbing sample is
-            # renamed in Postgres, as one stored before could be named.
+            # The Family Builder refuses an ID holding '/' (SEC-15): the climbing sample is
+            # renamed in Postgres.
             async with sessionmaker() as session:
                 renamed = await session.execute(
                     text("UPDATE samples SET sample_id = :climbing WHERE sample_id = :stand_in"),

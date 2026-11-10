@@ -1,13 +1,13 @@
 """A project that families are linked to is not deleted: their variants stay found (E2E).
 
 ClickHouse stores a family's small and structural variant rows once per project it is linked
-to, and the family's pages read the rows of its projects only. ``DELETE /api/projects/{id}``
-dropped the project's family links (``ON DELETE CASCADE``) and left the rows under the deleted
-project: a family whose only project it was had no project left, no assembly to read, and its
-pages found no small or structural variants, while all of them stayed under the deleted id; a
-family with other projects kept a full copy there, which no reader looks at. The owner chose
-(2026-11-10) to refuse the deletion while a family is linked (409, naming how many): moving a
-family (``PUT /admin/families/{family_id}/projects``) takes its rows along.
+to, and the family's pages read the rows of its projects only. Deleting a linked project would
+drop its family links (``ON DELETE CASCADE``) and leave the rows under the deleted project: a
+family whose only project it was would have no project left, no assembly to read, and pages
+that find no small or structural variants; a family with other projects would keep a full copy
+there, which no reader looks at. So ``DELETE /api/projects/{id}`` refuses the deletion while a
+family is linked (409, naming how many; owner decision 2026-11-10): moving a family
+(``PUT /admin/families/{family_id}/projects``) takes its rows along.
 
 Over the golden trio (clair3 SNVs and needlr SVs, in the e2e project A), with a project D on
 the same assembly, through the real API, Postgres and ClickHouse:
@@ -170,8 +170,7 @@ def test_the_golden_trio_has_small_and_structural_variants_in_project_a(run) -> 
 
 
 def test_deleting_a_familys_only_project_is_refused_and_its_variants_stay_found(run) -> None:
-    # Before the fix: 204, the family in no project, every row left under D, and its pages
-    # (read without a project, so without an assembly) found none.
+    # D is the family's only project: refused, and its pages find its rows under D.
     assert run["move_d"]["status"] == 200, run["move_d"]["text"]
     assert _under(run["after_move_d"], run["project_d"], like=run["before"], at=run["project_a"])
     _refused_for_one_family(run["delete_only"])
@@ -185,7 +184,7 @@ def test_deleting_a_familys_only_project_is_refused_and_its_variants_stay_found(
 
 
 def test_deleting_one_of_a_familys_projects_is_refused_and_both_keep_every_row(run) -> None:
-    # Before the fix: 204, and a full copy of the family's rows left under D, read by no one.
+    # Linked to A and D: refused, and both keep every row.
     assert run["link_ad"]["status"] == 200, run["link_ad"]["text"]
     _refused_for_one_family(run["delete_one_of_two"])
     assert sorted(run["projects_after_delete_one_of_two"]) == sorted([run["project_a"], run["project_d"]])

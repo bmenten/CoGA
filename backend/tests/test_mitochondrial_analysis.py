@@ -457,8 +457,8 @@ async def test_maternal_transmission_follows_the_mother_the_pedigree_links_to_th
 async def test_mtdna_response_lists_chrm_structural_variants_with_each_samples_heteroplasmy(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The chrM SV callset was found but never imported or shown: a large heteroplasmic
-    deletion went unseen."""
+    """The mtDNA response lists the chrM SV callset, with each sample's heteroplasmy, so a
+    large heteroplasmic deletion is seen."""
     context = _three_generation_context()
     deletion = StructuralVariantRecord(
         variant_key=1,

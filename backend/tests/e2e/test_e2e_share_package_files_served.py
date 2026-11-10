@@ -2,9 +2,10 @@
 
 On a VM a network share is mounted read-only as a second import root
 (``FAMILY_IMPORT_ROOTS=/data/families,/data/share``, docs/deployment-vm.md), and its packages
-are imported in place. With local storage the genome browser looked for a sample's reads only
-in the family's folders, ``<data>/<family>`` and ``<data>/families/<family>``, as the QC report
-was, so a package on the share showed no reads in IGV and opened no report.
+are imported in place. With local storage the genome browser finds a sample's reads, and its
+QC report, where the package lies, not only in the family's folders (``<data>/<family>`` and
+``<data>/families/<family>``), so a package on the share shows its reads in IGV and opens its
+report.
 
 Here a one-sample package lies on the share in a folder named after its run, not its family,
 its CRAM and index named as a pipeline names them (``bams/<sample>.markdup.cram``), with a QC
@@ -14,8 +15,8 @@ report. A real import job (``POST /api/family-imports``, then the worker's
 admin signed in:
 
 * the alignment manifest lists the sample under its own name, and its URLs fetch the package's
-  reads and index; HEAD answers 200 (before: an empty manifest, and 404);
-* the QC-report link opens the package's report (before: 404).
+  reads and index; HEAD answers 200;
+* the QC-report link opens the package's report.
 
 Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``e2e`` job sets it. The IDs and
 files are synthetic, a new family each run.

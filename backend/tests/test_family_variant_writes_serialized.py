@@ -4,10 +4,10 @@ Every write to a family's variants reads its stored rows, deletes them and write
 changed, in ClickHouse, which has no transactions. The per-sample SV upload reads its
 source's rows and merges the file's calls into them; the admin per-sample SV delete rewrites
 the family's rows without the sample; the per-sample small-variant upload (the mitochondrial
-calls) merges its file's calls into the callset's rows. Two such writes of one family ran at
-once, each from the rows it had read before the other wrote. One writer's calls were then
-lost although both answered 200, or one variant was stored twice with different calls, and a
-part merge keeps only one of the two rows.
+calls) merges its file's calls into the callset's rows. Two such writes of one family run at
+once, each from the rows it had read before the other wrote, would lose one writer's calls
+although both answered 200, or store one variant twice with different calls, of which a part
+merge keeps only one.
 
 The storage is faked as ClickHouse behaves: a read returns the rows as stored, and a rewrite
 deletes them and then inserts the new rows, with other work able to run in between. Postgres
@@ -588,8 +588,7 @@ async def test_two_sv_uploads_of_one_family_keep_both_samples_calls(sv_store) ->
     )
 
     assert [result["merged"] for result in results] == [1, 1]
-    # Before: each upload wrote back the rows it had read before the other one wrote, so
-    # the deletion was stored twice, once with each upload's call beside the father's.
+    # The deletion is stored once, with both uploads' calls beside the father's.
     assert store.calls() == {
         ("needlr", _NEEDLR): [{"FATHER": "0/1", "MOTHER": "0/0", "PROBAND": "0/1"}],
         ("sniffles", _DEL): [{"FATHER": "0/1", "MOTHER": "1/1", "PROBAND": "0/1"}],
@@ -614,8 +613,7 @@ async def test_an_admin_sv_delete_and_an_upload_of_one_family_keep_each_others_c
         _sv_upload(postgres, "MOTHER", _sniffles_del("1/1")),
     )
 
-    # Before: the upload wrote back the father's call it had read, or the admin delete
-    # wrote back the family's rows without the mother's new call.
+    # The father's calls stay deleted, and the mother's new call stays.
     assert store.calls() == {
         ("needlr", _NEEDLR): [{"MOTHER": "0/0", "PROBAND": "0/1"}],
         ("sniffles", _DEL): [{"MOTHER": "1/1", "PROBAND": "0/1"}],
@@ -635,8 +633,7 @@ async def test_two_per_sample_small_variant_uploads_of_one_family_keep_both_samp
     )
 
     assert [result["inserted"] for result in results] == [2, 2]
-    # Before: each upload merged its file into the rows it had read, and the second rewrite
-    # removed the first upload's calls, or stored their variant twice.
+    # Neither rewrite removes the other upload's calls, and their shared variant is stored once.
     assert store.calls() == {
         73: [{"FATHER": "1/1", "MOTHER": "1/1", "PROBAND": "1/1"}],
         3243: [{"PROBAND": "1/1"}],
@@ -680,8 +677,8 @@ async def test_two_whole_family_uploads_of_one_callset_leave_one_of_the_two_file
         upload("second", _family_vcf((100, "A", "G", "1/1"), (300, "G", "A", "0/1"))),
     )
 
-    # Before: both counted an empty callset and inserted, so every variant of both files
-    # was stored, 1:100 twice with different genotypes.
+    # The store holds one file's rows, not both: 1:100 is not stored twice with different
+    # genotypes.
     assert sorted(store.rows) in (sorted(first), sorted(second))
 
 
@@ -720,7 +717,7 @@ async def test_the_sv_upload_holds_the_lock_from_its_read_until_its_commit(sv_st
         (lambda session: admin_service.delete_sample_with_data(session, "FATHER", True), list(VARIANT_TYPES)),
         (lambda session: admin_service.delete_family_with_data(session, "FAM", True, reason="duplicate"), list(VARIANT_TYPES)),
         # A sample's track and its repeat calls, which a package import's restore rewrites too:
-        # both locks, as their single-file uploads hold (SAFE-18; before: none).
+        # both locks, as their single-file uploads hold (SAFE-18).
         (
             lambda session: admin_service.delete_sample_data_by_type(session, "FATHER", "coverage", True),
             list(VARIANT_TYPES),
@@ -1021,8 +1018,8 @@ async def test_an_upload_that_waited_for_a_delete_of_its_family_or_sample_writes
     with pytest.raises(HTTPException) as exc:
         await upload
     assert (exc.value.status_code, exc.value.detail) == (404, detail)
-    # Before: the upload read and wrote the mother's calls back for a sample or a family
-    # that no longer exists.
+    # The upload reads nothing and writes nothing back for a sample or a family that no
+    # longer exists.
     assert store.interleaving.reads == 0
     assert store.calls() == stored
 
@@ -1128,8 +1125,8 @@ async def test_the_package_import_holds_the_familys_locks_from_its_snapshot_unti
         "read SVs",
         "rewrite SVs",
     ]
-    # Before: the upload wrote the mother's call while the import ran, and the restore put
-    # back the rows as they were before the import, without it.
+    # The upload waits until the import's hold ends, so the restore does not undo the mother's
+    # call.
     assert store.calls() == {("sniffles", _DEL): [{"FATHER": "0/1", "MOTHER": "1/1"}]}
 
 
@@ -1250,7 +1247,7 @@ async def test_a_hold_whose_connection_is_lost_keeps_the_blocks_outcome(
 
 # --- A hold whose connection is checked (SAFE-15) --------------------------------------
 # A package import's hold lives on a connection of its own, and Postgres releases its locks
-# with the connection: the import went on writing beside the next writer. The worker's
+# with the connection, and an import that went on would write beside the next writer. The worker's
 # heartbeat checks the hold from another task: SELECT 1 in the hold's transaction.
 
 

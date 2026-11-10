@@ -1,21 +1,19 @@
 """The thinned APCAD track keeps each chromosome's own density, on real ClickHouse (E2E).
 
 The genome overview asks for every chromosome's APCAD points at once, within one point
-budget, and ``fetch_apcad_downsampled`` thins the track in ClickHouse. It ranked the
-markers by their VCF ``qual`` across the whole genome. Joint calling scores a chromosome's
-markers higher wherever any sample of the cohort carries extra reads there: one embryo's
-trisomy raised a whole chromosome's ``qual`` for every embryo, and the overview drew that
-chromosome far denser than the others while the stored sites were as dense as elsewhere.
-The budget is now split over the chromosomes in proportion to their sites first, and the
-markers are ranked by quality within each chromosome.
+budget, and ``fetch_apcad_downsampled`` thins the track in ClickHouse. Joint calling scores
+a chromosome's markers higher wherever any sample of the cohort carries extra reads there:
+one embryo's trisomy raises a whole chromosome's ``qual`` for every embryo, so markers ranked
+by ``qual`` across the whole genome would draw that chromosome far denser than the others
+while the stored sites are as dense as elsewhere. The budget is split over the chromosomes in
+proportion to their sites first, and the markers are ranked by quality within each chromosome.
 
 Synthetic markers go in through the app's own writer, for a new family and sample each run:
 chr1 and chr9 with the same number of sites over the same span, chr9's scored higher, and
 chr21 with a quarter of the sites over a quarter of the span. Read back within a budget
 smaller than the track:
 
-* every chromosome keeps its share of the budget, in proportion to its sites (before: chr9
-  took the whole budget and chr1 and chr21 drew nothing);
+* every chromosome keeps its share of the budget, in proportion to its sites;
 * within a chromosome the highest-quality markers are still the ones kept;
 * a window on one chromosome still gets the whole budget.
 

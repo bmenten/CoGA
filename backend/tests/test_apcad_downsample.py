@@ -18,7 +18,7 @@ The fallback is therefore a property of the *track*, not of the window being dra
 distinction is the point of the origin tests: on a genuinely phased track a stretch with no
 informative markers renders empty, and that emptiness is the autozygosity signal. Filling it
 with ``und`` points would mask exactly what the view exists to show. Markers without a quality
-score (a MAF bigWig) are spread across the chromosome instead of taken from its start (#421).
+score (a MAF bigWig) are spread across the chromosome instead of taken from its start.
 """
 
 from __future__ import annotations
@@ -189,8 +189,8 @@ async def test_a_phased_track_stays_empty_where_no_informative_markers_fall(
     fake = RecordingClickHouse(has_phased=True, het=0, homo=0)
     rows = await _run(fake, monkeypatch)
 
-    # This is the regression the track-scoped probe exists to prevent: an empty
-    # region on a phased track is the autozygosity signal, not a rendering gap.
+    # The track-scoped probe exists for this case: an empty region on a phased
+    # track is the autozygosity signal, not a rendering gap.
     assert rows == []
     assert fake.band_queries == []
 
@@ -246,6 +246,6 @@ async def test_markers_without_a_quality_score_are_spread_across_the_range(
     # chromosome. Measured on the reference family: 2000 points inside 2.1 Mb of
     # chr1's 249 Mb, with the rest of the track blank.
     assert "cityHash64(chrom, start)" in band
-    # Quality still decides the ranking outright where it exists; the hash only
-    # makes the previously arbitrary tie order reproducible and spatially even.
+    # Quality decides the ranking outright where it exists; the hash only makes
+    # the tie order, otherwise arbitrary, reproducible and spatially even.
     assert band.index("qual") < band.index("cityHash64")

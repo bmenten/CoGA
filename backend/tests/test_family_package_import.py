@@ -660,7 +660,7 @@ async def test_qdnaseq_overwrite_import_does_not_report_update_skipped_tracks(
     async def fake_import_copy_number_track(*args, **kwargs) -> dict[str, int]:
         return {"processed": 1, "inserted": 1, "skipped": 1}
 
-    # _import_qdnaseq_dataset now lives in family_package_datasets; patch the helpers
+    # _import_qdnaseq_dataset lives in family_package_datasets; patch the helpers
     # it calls where that module resolves them.
     monkeypatch.setattr(
         "backend.app.services.family_package_datasets._interval_track_count", fake_interval_track_count
@@ -1237,7 +1237,7 @@ async def test_package_import_continues_after_dataset_failure(
     )
 
     statuses = {dataset.dataset_type: dataset.status for dataset in result.datasets}
-    # Fail-clean hardening: any failed enabled dataset now marks the whole import as
+    # Fail-clean: any failed enabled dataset marks the whole import as
     # failed (error set -> job status 'failed'), but a partial success keeps the
     # datasets that did import (no family-shell rollback when something succeeded).
     assert result.completed is False
@@ -1252,9 +1252,10 @@ async def test_package_import_continues_after_dataset_failure(
 async def test_a_dataset_failure_shows_cogas_own_refusal_and_names_any_other_error_by_its_kind(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    # SEC-39. The dataset's message and the job's log line, which the import page shows, held
-    # the error's text: for a failed statement, its SQL and the values it was given. CoGA's own
-    # refusal (a loader's HTTPException, an ImportRefused) is still shown as it is written.
+    # SEC-39. The dataset's message and the job's log line, which the import page shows, name
+    # any other error by its kind, never by its text (for a failed statement, its SQL and the
+    # values it was given). CoGA's own refusal (a loader's HTTPException, an ImportRefused) is
+    # shown as it is written.
     from sqlalchemy.exc import OperationalError
 
     from backend.app.services.family_package_common import ImportRefused

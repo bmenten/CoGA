@@ -1,16 +1,16 @@
 """The family small-variant page sends what the small-variant list reads, and no more.
 
 Saved searches are each user's own, and the family small-variant page and the NIPT page share
-them. A search saved on the NIPT page carries the NIPT list's own filters, and the small-variant
-page sent them (found while fixing #1012): one of the NIPT list's inheritance views failed the
-whole search (400), its fetal de novo view (``de_novo``) was read as the family's de novo /
-dominant mode, and its other filters (the categories, the minimum confidence, the alleles the
-fetus did not inherit, the lowest de novo priority), which the route does not declare, were
-never applied though the page chipped them. The page now sends an inheritance only when the list
-reads it, and none of those filters (``SMALL_VARIANT_INHERITANCE_MODES``,
-``SMALL_VARIANT_INHERITANCE_ALIASES`` and ``SMALL_VARIANT_UNSUPPORTED_FILTERS`` in
-``smallVariantSearch.ts``). These tests keep those lists equal to the backend's, and the route
-refuses ``de_novo`` rather than read it as another mode.
+them. A search saved on the NIPT page carries the NIPT list's own filters. Sent by the
+small-variant page, one of the NIPT list's inheritance views would fail the whole search (400),
+its fetal de novo view (``de_novo``) would be read as the family's de novo / dominant mode, and
+its other filters (the categories, the minimum confidence, the alleles the fetus did not
+inherit, the lowest de novo priority), which the route does not declare, would never be applied
+though the page chipped them. The page sends an inheritance only when the list reads it, and
+none of those filters (``SMALL_VARIANT_INHERITANCE_MODES``, ``SMALL_VARIANT_INHERITANCE_ALIASES``
+and ``SMALL_VARIANT_UNSUPPORTED_FILTERS`` in ``smallVariantSearch.ts``). These tests keep those
+lists equal to the backend's, and the route refuses ``de_novo`` rather than read it as another
+mode.
 """
 
 from __future__ import annotations

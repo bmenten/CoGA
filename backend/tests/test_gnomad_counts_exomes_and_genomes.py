@@ -3,10 +3,10 @@
 
 A VEP ``--custom`` gnomAD file names its fields after the file's short name, so a pipeline that
 annotates gnomAD's exomes and genomes writes ``gnomADe_nhomalt`` and ``gnomADg_nhomalt``. The
-parser read neither: the maximum homozygote filter and the BS2 suggestion never saw a count.
-Of ``gnomADe_AC`` and ``gnomADg_AC`` it took the exome count alone. The owner chose gnomAD's
-own total (2026-10-27), as its browser shows it: the combined count where the record has one,
-else the exome and genome counts added, either alone when the other is missing.
+parser reads both: unread, they would leave the maximum homozygote filter and the BS2
+suggestion without a count. The owner chose gnomAD's own total (2026-10-27), as its browser
+shows it: the combined count where the record has one, else the exome and genome counts added,
+either alone when the other is missing.
 """
 
 from __future__ import annotations
@@ -86,7 +86,7 @@ def test_the_exome_and_genome_counts_are_added() -> None:
         }
     )
 
-    # Before: (12, None, None), the exome AC alone and neither prefixed count read.
+    # Exomes and genomes added: AC 12 + 7, homozygotes 3 + 2, hemizygotes 1 + 4.
     assert _counts(annotation) == (19, 5, 5)
 
 
@@ -168,8 +168,8 @@ def test_a_maximum_homozygote_filter_reads_the_total(maximum: int, kept: bool) -
     annotations = extract_small_variant_annotations(
         {"CSQ": _csq(gnomADe_nhomalt="3", gnomADg_nhomalt="2")}, _state()
     )
-    # Before, the maximum kept the variant at any value: it had no homozygote count. The SQL
-    # keeps a transcript whose stored count is within the maximum (ifNull(count, 0) <= it).
+    # The homozygote count is the total, 5. The SQL keeps a transcript whose stored count is
+    # within the maximum (ifNull(count, 0) <= it).
     (annotation,) = annotations
     stored = _annotation_columns(annotation).gnomad_hom_count
     assert ((stored or 0) <= maximum) is kept

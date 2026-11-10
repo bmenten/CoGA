@@ -1,9 +1,8 @@
 """A start on an empty database imports HPO's newest release; the vendored release is the backup.
 
-The start imported the vendored data/ref-data/hpo/hp.obo, so a new instance began on a release
-that could be months old (owner decision, 2026-11-05: download the newest by default, the local
-file only as a backup). It now reads which release HPO published last and downloads it from the
-release's own PURL, as the admin sync does. The file is imported only if it states that release;
+The start reads which release HPO published last and downloads it from the release's own PURL,
+as the admin sync does (owner decision, 2026-11-05: download the newest by default, the local
+file only as a backup). The file is imported only if it states that release;
 the terms keep the release and the SHA-256 of the bytes imported (TRACE-18). When HPO cannot be
 reached, or what it serves is refused, or HPO_DOWNLOAD_LATEST_ON_STARTUP is off, the start imports
 the vendored file, held to its pinned SHA-256 (TRACE-14, ``test_hpo_download_pin.py``).

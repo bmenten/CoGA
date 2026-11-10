@@ -103,7 +103,7 @@ def test_hash_changes_with_review_filter(monkeypatch) -> None:
 
 
 def test_hash_changes_when_the_family_variant_data_changes(monkeypatch) -> None:
-    # #509: an insert/delete/re-import moves the storage-level data version, whichever
+    # An insert/delete/re-import moves the storage-level data version, whichever
     # code path made it — the ranking over the old variants must not be served.
     assert _hash(monkeypatch, data="1:111") != _hash(monkeypatch, data="2:222")
     assert _hash(monkeypatch, data="0:0") != _hash(monkeypatch, data="1:111")
@@ -128,9 +128,9 @@ def test_hash_changes_when_an_ontology_without_a_release_is_imported_again(monke
 
 
 def test_a_ranking_cached_before_the_sift_and_polyphen_rule_is_not_a_hit(monkeypatch) -> None:
-    # CLIN-45: a SIFT or PolyPhen filter now keeps "deleterious(0.01)" where the ranked view
-    # kept nothing, so a ranking cached before under the same filters and data (an empty one
-    # is cached too) must miss: the scoring version moved past it.
+    # CLIN-45: a SIFT or PolyPhen filter keeps "deleterious(0.01)". A ranking cached under an
+    # earlier scoring version, the same filters and data (an empty one is cached too), must
+    # miss.
     filters = _default_filters(sift="deleterious")
     current = _hash(monkeypatch, filters=filters)
     monkeypatch.setattr(vrc, "_ALGORITHM_VERSION", "2")
@@ -138,9 +138,9 @@ def test_a_ranking_cached_before_the_sift_and_polyphen_rule_is_not_a_hit(monkeyp
 
 
 def test_a_ranking_cached_before_the_record_filter_read_filters_as_sql_is_not_a_hit(monkeypatch) -> None:
-    # ENG-1: the ranked search's Python record filter dropped variants the plain page keeps
-    # (chrM named MT, an interval in lower case, ...). A ranking cached before under the same
-    # filters and data lacks them, so it must miss: the scoring version moved past it.
+    # ENG-1: the ranked search keeps the variants the plain page keeps (chrM named MT, an
+    # interval in lower case, ...). A ranking cached under an earlier scoring version, the same
+    # filters and data, must miss.
     filters = _default_filters(chromosome="MT")
     current = _hash(monkeypatch, filters=filters)
     monkeypatch.setattr(vrc, "_ALGORITHM_VERSION", "4")
@@ -149,19 +149,18 @@ def test_a_ranking_cached_before_the_record_filter_read_filters_as_sql_is_not_a_
 
 def test_a_ranking_cached_before_large_panels_matched_by_position_is_not_a_hit(monkeypatch) -> None:
     # A gene panel of more than 1,000 regions, the Mendeliome among them, keeps the variants
-    # in its regions as well as its genes' (owner decision 2026-10-14). A ranking cached
-    # before on the default view lacks those it reaches by position only, and the panel's
-    # digest is the same, so it must miss: the scoring version moved past it.
+    # in its regions as well as its genes' (owner decision 2026-10-14). A ranking cached under
+    # an earlier scoring version on the default view, the panel's digest the same, must miss.
     current = _hash(monkeypatch)
     monkeypatch.setattr(vrc, "_ALGORITHM_VERSION", "5")
     assert _hash(monkeypatch) != current
 
 
 def test_a_ranking_cached_under_the_earlier_key_is_not_a_hit(monkeypatch) -> None:
-    # The key gained the ontology's import time. A ranking cached under the earlier payload,
+    # The key covers the ontology's import time. A ranking cached under a key without it,
     # even with the same HPO release string, may have been computed on another ontology, so
-    # it must miss. The payload change retires those rows; _ALGORITHM_VERSION is left for
-    # scoring changes, and a bump of it combines with this (either change alone moves the key).
+    # it must miss. _ALGORITHM_VERSION is for scoring changes, and a bump of it combines with
+    # this (either change alone moves the key).
     current = _hash(monkeypatch)
     monkeypatch.delitem(REFERENCE_VERSIONS, "hpo_imported_at")
     assert _hash(monkeypatch) != current
@@ -181,7 +180,7 @@ class _GeneInfoSession:
 
 def test_the_reference_versions_name_the_loaded_hpo_ontology(monkeypatch) -> None:
     # The same reader as the signed record and the admin summary: the release of the
-    # latest import, and when it was imported. `max(release_version)` named a release no
+    # latest import, and when it was imported. `max(release_version)` would name a release no
     # longer loaded after a downgrade, and could not tell apart two imports without one.
     imported_at = "2026-09-01T08:00:00+00:00"
 
@@ -347,7 +346,7 @@ class _NoStructureVersionSession:
 
 
 def test_the_pedigree_read_from_the_context_covers_each_members_sex() -> None:
-    # The structure hash covers each member's sex; the fallback did not. The X-linked rules
+    # The structure hash covers each member's sex. The X-linked rules
     # read it: the segregation of a son's hemizygous call, and which chrX variants a carrier
     # screen keeps (a female partner's on their own, REQ-CARR-002).
     def context(sex: str):
@@ -409,11 +408,11 @@ def test_superset_candidates_carry_what_their_panel_held() -> None:
 
 
 def test_the_pedigree_signed_is_the_contexts_never_the_latest_structure_hash() -> None:
-    # ENG-13. The ranking is computed on the pedigree the context loaded. Before: the key read
-    # the family's latest structure hash after that, so an edit committed in between stored a
-    # ranking computed on the old pedigree under the new pedigree's key. Now two contexts that
-    # differ in an affected status sign differently whatever the database's latest version
-    # says, and the database is not asked.
+    # ENG-13. The ranking is computed on the pedigree the context loaded, and signed by it:
+    # two contexts that differ in an affected status sign differently whatever the database's
+    # latest version says, and the database is not asked. Keyed on the family's latest
+    # structure hash, read after that, an edit committed in between would store a ranking
+    # computed on the old pedigree under the new pedigree's key.
     def context(affected: list[str]):
         return types.SimpleNamespace(
             family_uuid="u1",
@@ -433,8 +432,8 @@ def test_the_pedigree_signed_is_the_contexts_never_the_latest_structure_hash() -
 
 
 def test_superset_candidates_are_read_without_their_rankings() -> None:
-    # ENG-13 (#858). Before: every candidate's whole ranking was read before the caller
-    # checked its panel; the caller now reads the one that passes.
+    # ENG-13. The candidates are read without their rankings; the caller reads the ranking of
+    # the one whose panel passes.
     session = _RecordingSession()
     asyncio.run(vrc.find_superset_candidates(session, family_uuid="f", base_hash="b"))
     columns = session.statements[0].split("SELECT", 1)[1].split("FROM", 1)[0]

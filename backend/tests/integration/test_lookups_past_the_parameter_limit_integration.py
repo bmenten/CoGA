@@ -1,11 +1,11 @@
 """Lookups past 32,767 items, on real Postgres (DATA-6).
 
-asyncpg refuses a statement with more than 32,767 parameters, and these lookups bound one
-parameter per item (an expanding IN): a panel's genes and a NIPT target's gene terms, a PED
-file's families and samples, the family list's families (every family the caller may see),
-and the admin data inventory's families and samples. A laboratory's families and samples grow
-past that limit in time; the others need an input that long. Each lookup now binds its items
-as one array, as the export lookups do since #835.
+asyncpg refuses a statement with more than 32,767 parameters, so one parameter per item (an
+expanding IN) would fail these lookups past that many items: a panel's genes and a NIPT
+target's gene terms, a PED file's families and samples, the family list's families (every
+family the caller may see), and the admin data inventory's families and samples. A
+laboratory's families and samples grow past that limit in time; the others need an input that
+long. Each lookup binds its items as one array, as the export lookups do.
 
 Each lookup is run with 40,000 items, the seeded one among them past the 32,767th, and finds
 exactly what was seeded for it; the project family lookup, which reads a project's families

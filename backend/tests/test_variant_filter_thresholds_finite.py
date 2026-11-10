@@ -1,9 +1,9 @@
 """A variant filter's threshold is a finite number or absent (CLIN-50).
 
-The family small-variant and structural-variant lists, the Variant Explorer and the NIPT
-variant list took ``nan`` (and ``inf``) as a threshold, which the SQL and the Python filter
-paths compare differently, so one path kept what the other dropped. Each such query parameter
-is now a ``FiniteThreshold``, and such a value is refused with 422 before the route runs.
+In the family small-variant and structural-variant lists, the Variant Explorer and the NIPT
+variant list each threshold query parameter is a ``FiniteThreshold``: ``nan`` (and ``inf``),
+which the SQL and the Python filter paths would compare differently, one keeping what the
+other drops, is refused with 422 before the route runs.
 """
 
 from __future__ import annotations

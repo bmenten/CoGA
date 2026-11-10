@@ -4,9 +4,9 @@ The report sign-out refuses a family while a package-import job of it is queued,
 or running, and finds the job by the family the job records or by the family its request
 named (test_e2e_signout_during_import.py). An import writes the family's pedigree, samples
 and provenance before it takes the family's variant-write locks: until then its job is all
-that keeps a sign-out out. The update that recorded the job as ``running`` on its family was
-best-effort, so when it failed the import went on to write the family under a job no
-sign-out could find, and a sign-out meanwhile froze the family part-way (TF-06 H16).
+that keeps a sign-out out. Were the update that records the job as ``running`` on its family
+best-effort, an import whose update failed would go on to write the family under a job no
+sign-out could find, and a sign-out meanwhile would freeze the family part-way (TF-06 H16).
 
 Over the golden trio this runs real re-import jobs whose request names no family
 (``POST /api/family-imports`` without ``family_id``, then the worker's
@@ -258,8 +258,7 @@ def test_a_job_records_its_family_as_running_before_the_import_writes_it(snap) -
 
 def test_an_import_whose_job_cannot_record_its_family_writes_nothing_of_it(snap) -> None:
     run = snap["runs"]["running_refused"]
-    # Before: the import registered the family under a job that named none, and the
-    # sign-out made then was signed out (200) from a family part-way through its import.
+    # The import makes no first write of the family: no dataset, its registration as it was.
     assert "first_write" not in run, run.get("first_write")
     assert run["datasets"] == []
     assert run["registered_after"] == run["registered_before"]

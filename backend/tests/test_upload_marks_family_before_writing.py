@@ -2,11 +2,11 @@
 
 ClickHouse has no transactions, and an upload that replaces stored data deletes it before it
 writes the file's rows: a process that stops after that delete -- a restart, a crash,
-running out of memory -- runs none of the upload's clean-up, and left the family without
-its data, or with part of the file's, and nothing marking it. An import marks a family
-before its first write (its ``import_unfinished`` entry); an upload did not.
+running out of memory -- runs none of the upload's clean-up, and leaves the family without
+its data, or with part of the file's. An import marks a family before its first write (its
+``import_unfinished`` entry), and so does an upload.
 
-Now the small-variant, structural-variant and interval-track uploads write a mark into
+The small-variant, structural-variant and interval-track uploads write a mark into
 ``import_unfinished`` first, under a key of their own (``upload-…``), committed on a
 connection of their own: it names what the upload may leave partly written or missing, one
 sample at a time. The upload's commit removes it; a failure removes it once nothing is
@@ -270,8 +270,8 @@ async def test_a_small_variant_upload_whose_process_stops_after_its_delete_leave
     with pytest.raises(_ProcessStopped):
         await _small_variants(database, _HEADER + _calls(3))
 
-    # The callset is gone, and nothing of the upload's own transaction committed. Before:
-    # nothing marked the family, which read as complete without its callset.
+    # The callset is gone, and nothing of the upload's own transaction committed; the mark
+    # names it.
     assert clickhouse.rows["clair3"] == [] and database.commits == 0
     key, mark = database.mark()
     assert key.startswith("upload-")
@@ -393,16 +393,16 @@ async def test_a_bed_upload_that_fails_after_its_delete_leaves_the_family_marked
     with pytest.raises(RuntimeError, match="ClickHouse insert failed"):
         await _coverage(database)
 
-    # The sample's track is gone: before, nothing marked the family.
+    # The sample's track is gone, and the mark names it.
     assert clickhouse.coverage == []
     assert database.mark()[1]["whole_family"] == [{"dataset": "bed_coverage", "scope": _DECLARED_COVERAGE_S1}]
 
 
 @pytest.mark.asyncio
 async def test_a_bed_upload_that_fails_after_its_delete_removes_the_tracks_record(stores, monkeypatch) -> None:
-    # SAFE-18 (#846). The record's delete was the upload's, and rolled back with it: Postgres
-    # kept the record of a track whose rows the upload had deleted, which the coverage readers
-    # and the signed record read. It is now removed again in a transaction of its own.
+    # SAFE-18. The record's delete is the upload's, and rolls back with it, so the record is
+    # removed again in a transaction of its own: else Postgres would keep the record of a track
+    # whose rows the upload had deleted, which the coverage readers and the signed record read.
     database = _Postgres()
     clickhouse = stores(database)
     clickhouse.fail = True
@@ -422,7 +422,7 @@ async def test_a_bed_upload_that_fails_after_its_delete_removes_the_tracks_recor
     # The upload's own delete, rolled back; then one committed on its own.
     assert len(record_deletes) == 2
     assert database.commits == record_deletes[-1] + 1
-    # The mark stays, as before: the track is still to upload again.
+    # The mark stays: the track is still to upload again.
     assert database.mark()[1]["datasets"] == ["bed_coverage"]
 
 

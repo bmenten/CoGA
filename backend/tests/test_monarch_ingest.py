@@ -2,7 +2,7 @@
 
 The parsing and aggregation of the KG's TSVs, the admin search, the release the KG metadata
 states (a refresh of an unknown release loads nothing, DATA-4), downloads that cannot be read
-or hold no association (#859), and the refresh of both tables in one transaction under one
+or hold no association, and the refresh of both tables in one transaction under one
 release. No network: every download is replaced."""
 
 import pytest
@@ -234,7 +234,7 @@ async def test_a_download_without_one_association_empties_no_table(monkeypatch, 
     monkeypatch.setattr(monarch, "_download_gzip_tsv", header_only)
     session = _RecordingSession()
 
-    # It deleted every row and wrote none: the refresh emptied the table (#859).
+    # Refused before any statement, so the refresh does not empty the table.
     with pytest.raises(monarch.MonarchSourceError, match="no .* association"):
         await getattr(monarch, refresh)(session, release_version="2026-06-08")
     assert session.statements == []

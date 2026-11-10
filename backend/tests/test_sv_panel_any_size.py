@@ -1,17 +1,16 @@
 """A gene panel of any size keeps an SV named by one of its genes or in one of its regions.
 
-The owner decided on 2026-10-20 that the structural-variant page follows the rule of the
-small-variant page (#897): a gene panel of any size, the Mendeliome included, keeps an SV
-whose annotation names one of its genes (the entry's gene symbols, in any capitals) or that
-overlaps one of its regions (PanelApp's regions for the assembly and each gene's loci in the
-gene reference), by the SV region rule: on the same chromosome, the SV's start at or before
-the region's end and its end at or after the region's start; its breakend mate is not read.
+By the owner's decision, the structural-variant page follows the rule of the small-variant
+page: a gene panel of any size, the Mendeliome included, keeps an SV whose annotation names
+one of its genes (the entry's gene symbols, in any capitals) or that overlaps one of its
+regions (PanelApp's regions for the assembly and each gene's loci in the gene reference), by
+the SV region rule: on the same chromosome, the SV's start at or before the region's end and
+its end at or after the region's start; its breakend mate is not read.
 
-Until then a panel of more than 1,000 regions (``_PANEL_REGION_INLINE_LIMIT``) was matched on
-the genes an SV's annotation names alone, and only in Python, after the 50,000-SV candidate
-cap; a smaller panel on its regions alone. The Mendeliome, the page's default, missed an SV in
-one of its genes whose annotation names the gene otherwise, and a smaller panel an SV whose
-annotation names one of its genes beside it (VEP's upstream and downstream genes).
+The panel is matched in the SQL, whatever its size, before the 50,000-SV candidate cap: the
+Mendeliome, the page's default, keeps an SV in one of its genes whose annotation names the gene
+otherwise, and a smaller panel an SV whose annotation names one of its genes beside it (VEP's
+upstream and downstream genes).
 
 Here, on synthetic SVs: each path of the SV search (the list, ranked or not, the genome track,
 the CSV export) keeps the same SVs for a panel of three regions and for one of more than
@@ -22,8 +21,7 @@ out only the regions inside another, which keeps every answer, an SV stored with
 before its POS included; merging the regions that share a base, as the small-variant
 condition does, would not. The gene side of the rule also runs through the record filter on
 its own: a panel gene written in other capitals keeps an SV, another gene does not, and a
-search without a panel is not constrained by gene (merged from
-``test_structural_panel_gene_match.py``).
+search without a panel is not constrained by gene.
 """
 
 from __future__ import annotations
@@ -190,9 +188,8 @@ async def _kept_by(path: str, **filters: Any) -> set[str]:
 async def test_a_panel_of_any_size_keeps_the_svs_named_by_its_genes_or_in_its_regions(
     monkeypatch: pytest.MonkeyPatch, panel: str, path: str
 ) -> None:
-    # Before: the panel of three regions left out the SV its annotation links to SVPANB
-    # beside the gene, and the panel of more than 1,000 the SV in SVPANA's locus that names
-    # the gene otherwise and the breakend on SVPANB's last base.
+    # Both panels keep the SV its annotation links to SVPANB beside the gene, the SV in
+    # SVPANA's locus that names the gene otherwise and the breakend on SVPANB's last base.
     _serve(monkeypatch, _PANELS[panel], _CALLSET)
 
     assert await _kept_by(path) == _KEPT
@@ -213,9 +210,8 @@ async def test_the_track_draws_a_members_svs_the_panel_keeps(monkeypatch: pytest
 async def test_the_sql_holds_the_panels_regions_and_genes_whatever_its_size(
     monkeypatch: pytest.MonkeyPatch, panel: str, prioritize: bool
 ) -> None:
-    # Before: a panel of more than 1,000 regions reached no SQL. The candidate read took the
-    # first 50,000 SVs of the callset and only then kept the panel's, so the cap decided which
-    # SVs the panel was matched against.
+    # The panel reaches the SQL whatever its size, so the 50,000-SV candidate cap does not
+    # decide which SVs the panel is matched against.
     sent = _serve(monkeypatch, _PANELS[panel], _CALLSET)
 
     await _kept_by("ranked" if prioritize else "list")
@@ -277,8 +273,8 @@ async def test_a_mendeliome_sized_panel_is_bound_not_written_into_the_query(monk
 @pytest.mark.parametrize("panel", list(_PANELS))
 async def test_a_panel_and_a_gene_filter_both_apply(monkeypatch: pytest.MonkeyPatch, panel: str) -> None:
     # A gene outside the panel, with an SV in its locus that names it: the panel leaves it
-    # out. Before, a panel of up to 1,000 regions was read with the gene's loci as one list of
-    # regions, so an SV in either was kept: the gene filter set aside the panel.
+    # out. The panel and the gene's loci are not read as one list of regions, which would keep
+    # an SV in either.
     other = _sv("sv-other-gene", "3", 7_000_000, 7_100_000, ["OTHERGENE"])
     _serve(monkeypatch, _PANELS[panel], [*_CALLSET, other])
 
@@ -305,10 +301,8 @@ async def test_a_panel_without_genes_or_regions_keeps_no_sv(monkeypatch: pytest.
 async def test_the_track_availability_applies_the_panel_as_the_track_does(
     monkeypatch: pytest.MonkeyPatch, panel: str
 ) -> None:
-    # The mother's only SV lies beside SVPANB, its annotation naming the gene. Before, the
-    # availability matched a panel's regions alone, so her SV track was not offered although
-    # the track drew that SV with a panel of more than 1,000 regions (and, with this change,
-    # with every panel).
+    # The mother's only SV lies beside SVPANB, its annotation naming the gene: her SV track is
+    # offered, as the track draws that SV with every panel.
     sent = _serve(monkeypatch, _PANELS[panel], _CALLSET)
     service = "backend.app.services.family_service."
 

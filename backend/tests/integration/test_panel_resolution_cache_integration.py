@@ -3,7 +3,7 @@ real Postgres.
 
 A panel filter applies the panel's genes, its regions stored for the family's assembly and
 each gene's loci in that assembly's gene reference (``_fetch_panel_constraints``). The
-resolution is now kept per panel and assembly while its token is unchanged: the panel's
+resolution is kept per panel and assembly while its token is unchanged: the panel's
 version, a SHA-256 of its gene rows and of its region rows in the assembly, and the
 gene-reference imports recorded for the assembly. The unit tests
 (``test_panel_resolution_cache.py``) drive the cache over an in-memory stand-in; this runs

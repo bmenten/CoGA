@@ -2,8 +2,8 @@
 
 A search that applies a panel records it before it runs, the first time it applies that
 version of the panel (local version and the release of its source); a sign-out freezes the
-panels recorded. Nothing recorded it before: the signed record could not say which panel
-version the analysis used.
+panels recorded. Without it, the signed record could not say which panel version the analysis
+used.
 """
 
 from __future__ import annotations
@@ -147,7 +147,7 @@ def test_a_panel_version_already_recorded_is_not_recorded_again(recorded) -> Non
 def test_a_new_version_or_a_new_panelapp_release_is_recorded_again(recorded) -> None:
     session = _Session(_panel_row())
     _apply(session)
-    # The panel edited since (#809 archives version 3), then PanelApp's next release
+    # The panel edited since (version 3 now), then PanelApp's next release
     # imported with the same genes: the local version stays, the source's release moves.
     session.panel = _panel_row(version=3)
     _apply(session)
@@ -215,7 +215,7 @@ def test_the_signed_record_lists_each_panel_version_once_with_its_first_use() ->
     epilepsy = pua.panel_identity(_panel_row())
     rows = [
         {"created_at": first, "actor": "analyst", "after": {**epilepsy, "search": "small_variants"}},
-        # The same version again (two searches at once before the lock existed): once.
+        # The same version recorded twice (two searches at once, without the lock): once.
         {"created_at": later, "actor": "second", "after": {**epilepsy, "search": "structural_variants"}},
         {
             "created_at": later,

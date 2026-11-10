@@ -219,9 +219,9 @@ def test_parse_spliceai_pred_drops_position_leak() -> None:
 
 # --- CLIN-59: a population count is read only from its source's own field --------------------
 # INFO/AC is the callset's own allele count, a reserved VCF key a joint caller writes (the
-# demo quartet's clair3 VCF has AC=4;AN=8). The parser read it as gnomAD's AC wherever the
-# CSQ had none, so a maximum gnomAD AC filter filtered on the family's own count. AC_Adj,
-# nhomalt and hemi, without a prefix, name no source either. Each key here was read before.
+# demo quartet's clair3 VCF has AC=4;AN=8). Read as gnomAD's AC wherever the CSQ has none, it
+# would make a maximum gnomAD AC filter filter on the family's own count. AC_Adj, nhomalt and
+# hemi, without a prefix, name no source either.
 
 _CSQ_HEADER = (
     '##INFO=<ID=CSQ,Number=.,Type=String,Description="Consequence annotations from Ensembl VEP.'
@@ -274,13 +274,13 @@ def test_an_unprefixed_info_count_fills_no_gnomad_count(key: str) -> None:
 
 
 def test_a_record_without_csq_gets_no_annotation_from_its_own_allele_count() -> None:
-    # Before, [{"extra": {"gnomad_ac": 4}}]: an unannotated variant with a gnomAD AC.
+    # Not an unannotated variant with a gnomAD AC.
     assert extract_small_variant_annotations({"AC": "4", "AN": "8"}, AnnotationHeaderState()) == []
 
 
 def test_the_gnomad_counts_come_from_gnomads_own_fields() -> None:
     # The CSQ's gnomAD counts, whatever the callset's keys say; a gnomAD count in INFO, under
-    # gnomAD's own name, fills a transcript without one, as before.
+    # gnomAD's own name, fills a transcript without one.
     state = _csq_state()
     from_csq = extract_small_variant_annotations(
         {
@@ -436,7 +436,7 @@ _ALLELE_CSQ_HEADER = (
 
 
 def test_each_entry_of_a_multi_allelic_record_names_its_alt() -> None:
-    # Before, the entries of both alleles were read as the record's, unnamed.
+    # Each allele's entries name their alt, not read as the record's.
     state = _clinvar_state(_ALLELE_CSQ_HEADER)
     annotations = extract_small_variant_annotations(
         {"CSQ": "G|missense_variant|GENE1|ENST1|0.2,T|stop_gained|GENE1|ENST1|"}, state, ref="A", alt="G,T"

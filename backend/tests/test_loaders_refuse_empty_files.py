@@ -1,15 +1,15 @@
 """A loader refuses a file without a record before it deletes what the file replaces (SAFE-29).
 
-Most loaders replace what they load: they delete the stored data of their source, then read
-the file and write its records. ClickHouse has no transactions, and a package import commits
-each dataset as it goes. A file without a record -- a header alone, a file cut short before its
-first record, nothing at all -- was read as a result with nothing in it: the stored data was
-deleted and none written, the upload answered 200 and the dataset ended ``imported``. An upload
-or import that brings a dataset again strikes it off a whole-family entry and removes a failure
-the import-incomplete flag records for it (``record_family_upload``,
-``imported_dataset_scopes``), so a file that brought nothing completed what was missing.
+Most loaders replace what they load: they delete the stored data of their source and write the
+file's records. ClickHouse has no transactions, and a package import commits each dataset as it
+goes. A file without a record -- a header alone, a file cut short before its first record,
+nothing at all -- read as a result with nothing in it would delete the stored data and write
+none, the upload answering 200 and the dataset ending ``imported``. An upload or import that
+brings a dataset again strikes it off a whole-family entry and removes a failure the
+import-incomplete flag records for it (``record_family_upload``, ``imported_dataset_scopes``), so
+such a file would complete what was missing.
 
-Each of these loaders now reads its file before it deletes anything, and refuses one without a
+Each of these loaders reads its file before it deletes anything, and refuses one without a
 record, the TRGT upload with 400 and a package dataset by failing, with the stored data as it
 was:
 
@@ -17,26 +17,24 @@ was:
 - the interval-track readers: WisecondorX and QDNAseq bins and segments, HiFiCNV's
   copy-number bedGraph and its depth and minor-allele-fraction bigWigs, APCAD (a VCF or BED per
   embryo, or a family VCF) and the PCF segment tables;
-- Paraphase's JSON, a sample's NeedlR file and a long-read sample's SNV file, which each
-  replaced the sample's data with none while the other samples' files imported.
+- Paraphase's JSON, a sample's NeedlR file and a long-read sample's SNV file, which would each
+  replace the sample's data with none while the other samples' files import.
 
 A chrM SV file with its header and no call is a result, not an empty file: most samples carry
-no mtDNA deletion. It replaces the sample's earlier chrM SV calls with none, as before; one
+no mtDNA deletion. It replaces the sample's earlier chrM SV calls with none; one
 without its header is refused before anything is written.
 
-A dataset of one file per sample checks every sample's file before it writes any (SAFE-3): a
-later sample's refused file used to fail the dataset with the earlier samples' data replaced.
-The APCAD file per embryo and the coverage BED or per-target table per sample were the last
-checked as each was written. A TRGT value that is no number is refused with 400 (it answered
-500), and a dry run warns of a data file without a record, which the import will refuse. A
-Paraphase copy number that its Postgres ``integer`` column cannot hold fails the dataset as such
-a TRGT value does (DATA-7: it failed the insert with a database error, after the sample's
-results were deleted). A sample's coverage BED, APCAD file read as a BED or TRGT VCF that its
+A dataset of one file per sample checks every sample's file before it writes any (SAFE-3), the
+APCAD file per embryo and the coverage BED or per-target table per sample included: a later
+sample's refused file fails the dataset with the earlier samples' data as it was. A TRGT value
+that is no number is refused with 400, and a dry run warns of a data file without a record,
+which the import will refuse. A Paraphase copy number that its Postgres ``integer`` column
+cannot hold fails the dataset as such a TRGT value does, before the sample's results are
+deleted (DATA-7). A sample's coverage BED, APCAD file read as a BED or TRGT VCF that its
 loader refuses fails the dataset naming the sample and the file, by its path in the package:
 the loaders' refusals, which the single-file uploads answer with, name neither. A refused
-per-target coverage table names both too (it named the table alone), and a family TRGT VCF's
-refusal names the file before the loader's words, which name the samples (it named no file;
-DATA-9).
+per-target coverage table names both too, and a family TRGT VCF's refusal names the file before
+the loader's words, which name the samples (DATA-9).
 
 The stores are faked at their edge: the interval table answers the statements
 ``clickhouse_interval_tracks`` sends ClickHouse, and the session the Postgres statements the
@@ -399,8 +397,7 @@ async def test_a_trgt_upload_without_a_record_is_refused_with_the_calls_and_the_
     with pytest.raises(HTTPException) as refused:
         await upload_trgt(text)
 
-    # Before: 200 with the sample's calls deleted and none stored, its TRGT calls struck off
-    # the whole-family entry and its failure removed from the flag.
+    # 400, the sample's calls kept, and the whole-family entry and the flag as they were.
     assert refused.value.status_code == 400
     assert refused.value.detail == "No valid TRGT records found"
     assert stores.repeats == {_uuid("S1"): 5}
@@ -421,7 +418,6 @@ async def test_a_trgt_upload_reads_its_file_whole_before_it_replaces_the_calls(s
     assert stores.repeats == {_uuid("S1"): 1}
     # The file is read (the catalogue it is scored against, the column of the sample) before
     # the calls are deleted; then the upload is recorded, the calls stored and committed.
-    # Before: the calls were deleted first.
     deleted = stores.index("DELETE FROM repeat_expansions")
     assert stores.first("FROM repeat_loci") < deleted
     assert stores.first("OR sample_id IN") < deleted
@@ -455,13 +451,10 @@ async def test_a_trgt_file_without_a_record_fails_the_dataset_with_the_samples_c
     with pytest.raises(RuntimeError) as refused:
         await _run(_job(stores, tmp_path, "repeats_trgt", dataset))
 
-    # The failure names the sample and its file, by its path in the package. Before: "400: No
-    # valid TRGT records found", whichever sample's file it was.
+    # The failure names the sample and its file, by its path in the package.
     assert str(refused.value) == "The TRGT VCF of S2 (trgt/S2.vcf): No valid TRGT records found"
     # Every sample's file is read before any sample's calls are replaced: S1's as much as
-    # S2's are as they were. Before: S2's calls were deleted and the dataset ended imported
-    # (SAFE-29); then S1's file was stored before S2's was read, so the dataset failed with
-    # S1's calls replaced (SAFE-3).
+    # S2's are as they were (SAFE-29, SAFE-3).
     assert stores.repeats == {_uuid("S1"): 4, _uuid("S2"): 6}
     assert stores.deletes == []
 
@@ -516,10 +509,9 @@ async def test_every_refusal_of_a_family_trgt_vcf_names_the_file_and_replaces_no
         await _run(_job(stores, tmp_path, "repeats_trgt", dataset))
 
     # The failure names the file, by its path in the package, before the loader's words
-    # (DATA-9). Before: "400: " and the loader's words alone, naming no file (for a file
-    # without a record for S2, "400: No valid TRGT records found for S2").
+    # (DATA-9).
     assert str(refused.value) == f"The family TRGT VCF (trgt/family.vcf): {detail}"
-    # Before: both samples' calls were deleted as the #CHROM line was read.
+    # Both samples' calls are as they were.
     assert stores.repeats == {_uuid("S1"): 4, _uuid("S2"): 6}
     assert stores.deletes == []
     assert stores.commits == 0
@@ -569,8 +561,6 @@ async def test_a_wisecondorx_file_without_a_bin_fails_the_dataset_before_the_tra
     with pytest.raises(EmptyTrackFileError, match="S1_bins.bed holds no record of the coverage track"):
         await _run(_job(stores, tmp_path, "wisecondorx", dataset))
 
-    # Before: the sample's WisecondorX coverage was cleared, none stored, and the dataset
-    # ended imported.
     _assert_untouched(stores, before)
 
 
@@ -687,7 +677,6 @@ async def test_a_hificnv_signal_file_without_a_value_fails_the_dataset_before_it
     with pytest.raises(EmptyTrackFileError, match=message):
         await _run(_job(stores, tmp_path, "cnv", dataset))
 
-    # Before: the track was cleared, none stored, and the dataset went on to import the calls.
     _assert_untouched(stores, before)
 
 
@@ -712,8 +701,7 @@ async def test_a_pcf_table_without_a_segment_fails_the_dataset_before_the_track_
     with pytest.raises(EmptyTrackFileError, match="S1_paternal.pcf holds no segment"):
         await _run(_job(stores, tmp_path, "pcf", dataset))
 
-    # Both of the sample's tables are read before its track is deleted. Before: the track
-    # was deleted, the maternal table stored and the paternal one read as none.
+    # Both of the sample's tables are read before its track is deleted.
     _assert_untouched(stores, before)
 
 
@@ -742,7 +730,7 @@ def _apcad_vcf(samples: list[str], *calls: list[str]) -> str:
             id="vcf-without-the-samples-column",
         ),
         # No record at all: read as a BED, which holds none either. The failure names the
-        # sample and the file (before: "400: No valid BED records found").
+        # sample and the file.
         pytest.param(
             {"vcf": ("apcad/S1.vcf", _apcad_vcf(["S1"]))},
             "The APCAD file of S1 (apcad/S1.vcf), read as a BED: No valid BED records found",
@@ -769,8 +757,7 @@ async def test_an_apcad_file_without_a_value_for_its_sample_fails_the_dataset_be
         await _run(_job(stores, tmp_path, "apcad", dataset))
 
     assert error in str(refused.value)
-    # Before: the sample's APCAD was deleted and none stored, and the dataset ended imported
-    # (a VCF without a record was refused as a BED only after its delete).
+    # A VCF without a record is refused as a BED before any delete.
     _assert_untouched(stores, before)
 
 
@@ -801,7 +788,7 @@ async def test_an_apcad_family_vcf_replaces_only_the_tracks_of_the_samples_it_ho
 
     result = await _run(_job(stores, tmp_path, "apcad", dataset))
 
-    # S2 has no column in the file: its track stays. Before: deleted, and none stored.
+    # S2 has no column in the file: its track stays.
     assert result.status == "imported"
     assert stores.rows == {
         (_uuid("S1"), "apcad", APCAD_SOURCE, "family.vcf"): 2,
@@ -823,7 +810,6 @@ async def test_a_paraphase_json_without_a_gene_fails_the_dataset_with_the_result
     with pytest.raises(RuntimeError, match="Paraphase JSON for S1 holds no gene result"):
         await _run(_job(stores, tmp_path, "paraphase", dataset))
 
-    # Before: the sample's results were deleted, none stored, and the dataset ended imported.
     assert stores.paraphase == {_uuid("S1"): 3}
     assert stores.deletes == []
 
@@ -857,7 +843,7 @@ async def test_a_needlr_file_without_a_record_fails_the_dataset_before_the_calls
     with pytest.raises(RuntimeError, match=r"The NeedlR file of S2 \(S2.needlr.vcf\) holds no structural variant"):
         await _run(_job(stores, tmp_path, "sv_needlr", dataset))
 
-    # Before: the family's NeedlR calls were replaced by S1's alone, S2's removed.
+    # The family's NeedlR calls are not replaced.
     assert replaced == []
 
 
@@ -915,7 +901,7 @@ async def test_a_long_read_samples_snv_file_without_a_record_is_refused_before_t
             overwrite=True,
         )
 
-    # Before: the callset was deleted and S1's calls stored, S2 left without a call.
+    # Refused before anything is written.
     assert refused.value.status_code == 400
     assert "The SNV file of S2 (S2.vcf) holds no record" in str(refused.value.detail)
     assert events == []
@@ -1024,8 +1010,8 @@ async def test_a_trgt_upload_with_a_value_that_is_no_number_is_refused_with_the_
     with pytest.raises(HTTPException) as refused:
         await upload_trgt(_TRGT_HEADER + _TRGT_COLUMNS.format(samples="S1") + record)
 
-    # Before: 500, from the int() or float() that read the value, or from the insert, as
-    # Postgres holds no 25-digit position and no NaN in JSON (DATA-7).
+    # Refused with 400, the calls as they were: Postgres holds no 25-digit position and no
+    # NaN in JSON (DATA-7).
     assert (refused.value.status_code, refused.value.detail) == (400, _TRGT_REFUSAL)
     assert stores.repeats == {_uuid("S1"): 5}
     assert stores.deletes == []
@@ -1045,11 +1031,11 @@ async def test_a_later_samples_trgt_file_with_a_value_that_is_no_number_fails_th
         }
     )
 
-    # The failure names the sample and its file (before: the line alone, "400: TRGT VCF line 4 …").
+    # The failure names the sample and its file.
     with pytest.raises(RuntimeError, match=r"^The TRGT VCF of S2 \(trgt/S2\.vcf\): TRGT VCF line 4 holds a value"):
         await _run(_job(stores, tmp_path, "repeats_trgt", dataset))
 
-    # Before: S1's calls were replaced, then S2's file failed the dataset with a ValueError.
+    # Every sample's calls are as they were.
     assert stores.repeats == {_uuid("S1"): 4, _uuid("S2"): 6}
     assert stores.deletes == []
 
@@ -1091,7 +1077,6 @@ async def test_a_later_samples_refused_hificnv_file_fails_the_dataset_before_any
     with pytest.raises(error, match=message):
         await _run(_job(stores, tmp_path, "cnv", dataset))
 
-    # Before: S1's copy-number track was replaced, then S2's file failed the dataset.
     _assert_untouched(stores, before)
 
 
@@ -1112,7 +1097,6 @@ async def test_a_later_samples_wisecondorx_file_without_a_bin_fails_the_dataset_
     with pytest.raises(EmptyTrackFileError, match="S2_bins.bed holds no record of the coverage track"):
         await _run(_job(stores, tmp_path, "wisecondorx", dataset))
 
-    # Before: S1's bins replaced its track, then S2's file failed the dataset.
     _assert_untouched(stores, before)
 
 
@@ -1132,7 +1116,6 @@ async def test_a_later_samples_pcf_table_without_a_segment_fails_the_dataset_bef
     with pytest.raises(EmptyTrackFileError, match="S2_maternal.pcf holds no segment"):
         await _run(_job(stores, tmp_path, "pcf", dataset))
 
-    # Before: S1's track was deleted and its table stored, then S2's failed the dataset.
     _assert_untouched(stores, before)
 
 
@@ -1175,8 +1158,7 @@ async def test_a_chrm_sv_file_whose_records_all_lie_off_chrm_fails_the_mito_data
     with pytest.raises(RuntimeError, match=r"the chrM SV VCF of S1 \(S1_sv.vcf\) holds 1 record\(s\), none on chrM"):
         await _run(job)
 
-    # Before: the chrM calls were written, and the file read as one without a call removed
-    # the sample's chrM SVs.
+    # Nothing is written.
     assert writes == []
 
 
@@ -1191,7 +1173,7 @@ async def test_a_chrm_sv_file_that_cannot_be_read_fails_the_mito_dataset_before_
     with pytest.raises(HTTPException, match="must be UTF-8 text"):
         await _run(job)
 
-    # Before: the chrM calls were written, then the SV file failed the dataset.
+    # Nothing is written.
     assert writes == []
 
 
@@ -1224,12 +1206,12 @@ async def test_a_nipt_fathers_snv_file_without_a_record_fails_the_dataset_before
     with pytest.raises(RuntimeError, match=r"The NIPT SNV file of S2 \(S2.vcf\) holds no record"):
         await _run(job)
 
-    # Before: the plasma's calls were written, then the father's file failed the dataset.
+    # Nothing is written, the plasma's calls included.
     assert writes == []
 
 
-# An APCAD file per embryo and a coverage file per sample, checked as each was written until the
-# rest of SAFE-3: every one is now checked before any sample's track is cleared.
+# An APCAD file per embryo and a coverage file per sample (SAFE-3): every one is checked before
+# any sample's track is cleared.
 
 _COVERAGE_BED = "chr1\t0\t1000\t30\nchr1\t1000\t2000\t32\n"
 _TARGET_TABLE = "chromosome\tstart\tend\tattribute\tmean\n"
@@ -1246,7 +1228,7 @@ _TARGET_TABLE = "chromosome\tstart\tend\tattribute\tmean\n"
             id="vcf-without-the-embryos-column",
         ),
         # No record at all: read as a BED, which holds none either. The failure names the
-        # embryo and its file (before: "400: No valid BED records found", for either embryo).
+        # embryo and its file.
         pytest.param(
             {"vcf": ("apcad/S2.vcf", _apcad_vcf(["S2"]))},
             "The APCAD file of S2 (apcad/S2.vcf), read as a BED: No valid BED records found",
@@ -1277,8 +1259,6 @@ async def test_a_later_embryos_apcad_file_without_a_value_fails_the_dataset_befo
         await _run(_job(stores, tmp_path, "apcad", dataset))
 
     assert error in str(refused.value)
-    # Before: S1's track was replaced by its file's two sites, then S2's file failed the
-    # dataset.
     _assert_untouched(stores, before)
 
 
@@ -1337,10 +1317,7 @@ async def test_a_later_samples_refused_coverage_bed_fails_the_dataset_before_any
         await _run(_job(stores, tmp_path, "coverage", dataset))
 
     # The BED loader's words, after the sample and its file, by its path in the package.
-    # Before: "400: " and the loader's words alone, whichever sample's BED it was.
     assert str(refused.value) == f"The coverage BED of S2 (coverage/S2.bed): {detail}"
-    # Before: S1's coverage was replaced by its BED's two bins, then S2's BED failed the
-    # dataset.
     _assert_untouched(stores, before)
 
 
@@ -1385,12 +1362,9 @@ async def test_a_later_samples_refused_coverage_table_fails_the_dataset_before_a
     with pytest.raises(RuntimeError) as refused:
         await _run(_job(stores, tmp_path, "coverage", dataset))
 
-    # The refusal names the sample and its table, by its path in the package (DATA-9). Before:
-    # the table alone ("coverage_S2.txt holds no target"), or, for one that is no text or
-    # whole gzip, neither ("400: Coverage table file …").
+    # The refusal names the sample and its table, by its path in the package (DATA-9).
     assert str(refused.value) == error
-    # A monogenic NIPT pair's per-target tables. Before: the plasma's (S1's) table replaced
-    # its track, then the father's failed the dataset.
+    # A monogenic NIPT pair's per-target tables.
     _assert_untouched(stores, before)
 
 
@@ -1485,7 +1459,7 @@ def test_a_dry_run_warns_of_a_samples_data_file_without_a_record(
         **extra,
     )
 
-    # Before: no warning; the import then failed the dataset.
+    # The dry run warns of S2's file, which the import would refuse.
     assert _validated(tmp_path, dataset_type, dataset) == [("dataset_file_without_record", "S2")]
 
 
@@ -1561,7 +1535,7 @@ def test_a_dry_run_warns_of_an_embryos_apcad_file_or_a_samples_coverage_bed_with
         }
     )
 
-    # Before: no warning; the import then failed the dataset.
+    # The dry run warns of S2's file, which the import would refuse.
     assert _validated(tmp_path, dataset_type, dataset) == [("dataset_file_without_record", "S2")]
 
 
@@ -1594,7 +1568,7 @@ async def test_a_chrm_sv_file_whose_calls_state_no_extent_fails_the_mito_dataset
     with pytest.raises(RuntimeError) as refused:
         await _run(job)
 
-    # Before: stored on its POS (it was not left out yet); left out, the file read as "no call".
+    # Its one call cannot be read, so the file is refused, not read as "no call".
     assert str(refused.value) == (
         "No mitochondrial call was replaced: the chrM SV VCF of S1 (S1_sv.vcf) holds no call it can read: "
         + _EXTENT_REFUSAL
@@ -1652,10 +1626,9 @@ async def test_a_needlr_file_whose_calls_state_no_extent_says_why_it_holds_none(
 # --- DATA-7: a Paraphase copy number that no Postgres integer column holds -----------------------
 #
 # The copy numbers are Postgres ``integer`` columns (``total_cn``, ``gene_cn``,
-# ``highest_total_cn``) filled from the sample's JSON. One beyond them failed the insert with a
-# database error, after the sample's results were deleted. Such a file is refused as a TRGT
-# value that cannot be read as a number is (#985): before any sample's results are replaced,
-# the dataset failed with a message that names where the value is, never the value.
+# ``highest_total_cn``) filled from the sample's JSON. A file with a value beyond them is
+# refused as a TRGT value that cannot be read as a number is: before any sample's results are
+# replaced, the dataset fails with a message that names where the value is, never the value.
 
 
 def _paraphase_json(**smn1: Any) -> str:
@@ -1691,7 +1664,6 @@ async def test_a_paraphase_copy_number_no_integer_column_holds_fails_the_dataset
     with pytest.raises(RuntimeError) as refused:
         await _run(_job(stores, tmp_path, "paraphase", dataset))
 
-    # Before: the sample's results deleted, then the insert failed with a database error.
     assert str(refused.value) == _paraphase_refusal("S1", f"{field} of SMN1")
     assert stores.paraphase == {_uuid("S1"): 3}
     assert stores.deletes == []
@@ -1713,8 +1685,6 @@ async def test_a_later_samples_paraphase_copy_number_no_integer_column_holds_fai
     with pytest.raises(RuntimeError) as refused:
         await _run(_job(stores, tmp_path, "paraphase", dataset))
 
-    # Before: S1's results were replaced and committed, then S2's insert failed with a
-    # database error.
     assert str(refused.value) == _paraphase_refusal("S2", "total_cn of SMN1")
     assert stores.paraphase == {_uuid("S1"): 3, _uuid("S2"): 4}
     assert stores.deletes == []
@@ -1743,8 +1713,8 @@ async def test_a_paraphase_copy_number_at_the_integer_columns_bounds_is_stored_a
 
 # --- a BGZF file cut where one of its blocks ends (DATA-4) -------------------------------------
 #
-# Cut exactly where one of its blocks ends, a BGZF file is whole gzip: its first blocks were read
-# as the file, the records after the cut gone without a word. A BGZF file must end with BGZF's
+# Cut exactly where one of its blocks ends, a BGZF file is whole gzip: its first blocks would
+# read as the file, the records after the cut gone without a word. A BGZF file must end with BGZF's
 # end-of-file block (the owner's decision of 2026-10-28). The datasets that check every
 # sample's file before they replace any read each file's end in that check.
 
@@ -1771,7 +1741,6 @@ async def test_a_later_samples_qdnaseq_file_cut_where_a_bgzf_block_ends_fails_th
         await _run(_job(stores, tmp_path, "qdnaseq", dataset))
 
     assert str(refused.value) == f"S2_bins.csv.gz {_BGZF_CUT}"
-    # Before: both files imported, S2's track holding its first block's bins alone.
     _assert_untouched(stores, before)
 
 
@@ -1794,7 +1763,6 @@ async def test_a_later_embryos_apcad_bed_cut_where_a_bgzf_block_ends_fails_the_d
         await _run(_job(stores, tmp_path, "apcad", dataset))
 
     assert str(refused.value) == f"S2.apcad.bed.gz {_BGZF_CUT}"
-    # Before: S1's track replaced, then S2's by its first block's sites alone.
     _assert_untouched(stores, before)
 
 
@@ -1830,5 +1798,5 @@ async def test_a_nipt_fathers_snv_file_cut_where_a_bgzf_block_ends_fails_the_dat
         await _run(job)
 
     assert str(refused.value) == f"The NIPT SNV file of S2 (S2.vcf.gz) {_BGZF_CUT}"
-    # Before: the plasma's calls were written, then the father's first block read as his file.
+    # Nothing is written, the plasma's calls included.
     assert writes == []

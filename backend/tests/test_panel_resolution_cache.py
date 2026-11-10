@@ -5,9 +5,9 @@ each gene's loci in that assembly's gene reference (``_fetch_panel_constraints``
 Mendeliome that is 5,300 genes and, in a gene reference of one row per transcript, some
 40,000 loci, and the digest of them that the ranking cache keys on: read again on every
 Mendeliome request, and in the check that serves a sub-panel from the Mendeliome's ranking
-(CLIN-27), it cost more than computing a small sub-panel afresh.
+(CLIN-27), it would cost more than computing a small sub-panel afresh.
 
-A resolution is now kept per panel and assembly, and used only while its token is
+A resolution is kept per panel and assembly, and used only while its token is
 unchanged: the panel's version, a SHA-256 of its gene rows and of its region rows in the
 assembly, and the gene-reference imports recorded for the assembly. These tests drive
 ``_fetch_panel_constraints`` over an in-memory stand-in for those tables that answers the
@@ -200,8 +200,7 @@ def test_an_unchanged_panel_is_served_from_its_token_alone(tables) -> None:
     assert _loci(first) == [("1", 1_000, 2_000), ("1", 1_200, 1_800), ("1", 3_000, 4_000)]
     assert [read for read in first_reads if read != TOKEN] == FULL_READ
 
-    # Read again unchanged: the token alone, and the same resolution. Before, every
-    # resolution read the panel's genes, its regions and every locus of its genes again.
+    # Read again unchanged: the token alone, and the same resolution.
     again, again_reads = _resolve(tables)
     assert again_reads == [TOKEN]
     assert again is first
@@ -298,7 +297,7 @@ def test_each_assembly_keeps_its_own_resolution(tables) -> None:
 
 def test_without_an_assembly_the_genes_alone_are_read_and_nothing_is_kept(tables) -> None:
     # Without a resolved assembly no stored coordinates can be trusted: they belong to some
-    # assembly, not necessarily the family's (#515). The panel narrows by gene alone, and
+    # assembly, not necessarily the family's. The panel narrows by gene alone, and
     # neither its stored regions nor the gene reference is read.
     tables.make_panel(PANEL, "GENE1")
     first, reads = _resolve(tables, assembly_id=None)
@@ -348,7 +347,7 @@ def test_the_digest_of_a_kept_resolution_is_kept_with_it(tables, monkeypatch) ->
     again, _ = _resolve(tables)
     assert cfv._panel_members(again) == vrc.panel_members_digest(first)
     assert len(digests) == 1
-    # A resolution that is not kept (any other) is digested as before.
+    # A resolution that is not kept (any other) is digested by panel_members_digest.
     other = dataclasses.replace(first, genes=("GENE1",))
     assert cfv._panel_members(other) == vrc.panel_members_digest(other)
     assert len(digests) == 2
@@ -406,7 +405,7 @@ def test_the_gene_reference_lookup_reads_nothing_without_terms() -> None:
 
 
 def test_the_panel_genes_are_kept_once_each_in_the_order_read(tables) -> None:
-    # As before: stripped, empty ones left out, the panel's genes and then its regions'.
+    # Stripped, empty ones left out, the panel's genes and then its regions'.
     tables.make_panel(PANEL, " GENE2 ", "GENE1", "")
     tables.panels[PANEL]["regions"][ASSEMBLY] = [("GENE3", "2", 7_000, 8_000), ("GENE1 ", "1", 1_000, 2_000)]
     resolved, _ = _resolve(tables)

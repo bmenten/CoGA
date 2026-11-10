@@ -1,11 +1,11 @@
 """An uploaded SV VCF is read from the uploaded sample's own column (E2E).
 
 ``POST /structural-variants/upload/{sample_id}`` stores one sample's calls from one Sniffles
-or Spectre VCF. It used to read the file's first sample column whatever that column was
-named, and store it under the sample in the URL: a joint Sniffles2 VCF uploaded for the
-child stored the mother's genotypes as the child's, and the mother's own file uploaded for
-the child replaced the child's calls without a word. The column is now chosen by the rule of
-the TRGT upload and the package's per-sample files (``per_sample_vcf_column``).
+or Spectre VCF. The column is chosen by the rule of the TRGT upload and the package's
+per-sample files (``per_sample_vcf_column``): read from the file's first sample column whatever
+its name, a joint Sniffles2 VCF uploaded for the child would store the mother's genotypes as
+the child's, and the mother's own file uploaded for the child would replace the child's calls
+without a word.
 
 The family here is its own, created through the PED upload under a new id each run, so the
 golden trio is never touched:
@@ -218,7 +218,7 @@ def test_a_joint_vcf_uploaded_for_the_child_stores_the_childs_column_only(run) -
     upload = run["proband_joint"]
     assert upload["status"] == 200, upload["text"]
     assert (upload["json"]["processed"], upload["json"]["created"]) == (2, 2)
-    # Before the fix: the first column, the mother's ("0|1" with her phase set, "1/1").
+    # The child's column, not the first one, the mother's ("0|1" with her phase set, "1/1").
     assert run["after_proband_joint"] == [
         (_DEL_30000, {proband: ("1|1", 2002)}),
         (_DUP_50000, {proband: ("0/0", None)}),
@@ -239,7 +239,7 @@ def test_the_same_joint_vcf_uploaded_for_the_mother_adds_her_column(run) -> None
 def test_the_mothers_own_file_uploaded_for_the_child_is_refused_and_nothing_is_written(run) -> None:
     mother, proband = run["samples"]["MOTHER"], run["samples"]["PROBAND"]
     refused = run["wrong_member"]
-    # Before the fix: 200, and the child's calls replaced by the mother's.
+    # Refused: the child's calls are not replaced by the mother's.
     assert refused["status"] == 400, refused["text"]
     assert refused["json"]["detail"] == (
         f"Sniffles VCF has no sample column for {proband}: '{mother}' is {mother}. "

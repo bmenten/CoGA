@@ -1,4 +1,4 @@
-"""Bounded outbound download + gunzip (Refs #336).
+"""Bounded outbound download + gunzip.
 
 Reference/gene/phenotype refreshes pull gzip files from external hosts and decompress
 them in memory. These tests prove the caps hold: a tiny "bomb" that inflates to tens of
@@ -117,8 +117,8 @@ def test_the_end_of_file_block_is_the_specifications() -> None:
     ],
 )
 def test_gunzip_bounded_refuses_a_bgzf_file_without_its_end_of_file_block(data: bytes) -> None:
-    # Each is one or more complete gzip members: it used to be read as the whole file (here
-    # the first three blocks of ten, without a word).
+    # Each is one or more complete gzip members without BGZF's end-of-file block: refused, not
+    # read as the whole file.
     with pytest.raises(InvalidGzipError) as refused:
         gunzip_bounded(data, source="t")
     assert str(refused.value) == (
@@ -149,7 +149,7 @@ def test_gunzip_bounded_refuses_a_bgzf_file_without_its_end_of_file_block(data: 
     ],
 )
 def test_gunzip_bounded_reads_a_whole_bgzf_file_and_plain_gzip(data: bytes, text: bytes) -> None:
-    # A plain gzip file has no end-of-file block, and reads as before whatever its last member.
+    # A plain gzip file has no end-of-file block, and reads whole whatever its last member.
     assert gunzip_bounded(data, source="t") == text
 
 

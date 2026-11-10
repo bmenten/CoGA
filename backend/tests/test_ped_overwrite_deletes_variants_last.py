@@ -2,18 +2,18 @@
 last, just before its commit (SAFE-25).
 
 Replacing a family deletes it, in the request's transaction, and its small variants and
-structural variants, in ClickHouse, which has no transactions. The variants went first,
-before the checks that can still refuse the upload: a sample ID another family has (409), a
-phenotype the PED does not allow (400; a header line such as ``#FID IID PAT MAT SEX
-PHENOTYPE`` is read as a family and refused there), carriers not in the PED, the region of
-interest, a database constraint. The refusal rolled the family back, without its variants.
-Now they are deleted once everything else of the replacement is written.
+structural variants, in ClickHouse, which has no transactions. Deleted before the checks
+that can still refuse the upload (a sample ID another family has (409), a phenotype the PED
+does not allow (400; a header line such as ``#FID IID PAT MAT SEX PHENOTYPE`` is read as a
+family and refused there), carriers not in the PED, the region of interest, a database
+constraint), the variants would be gone while the refusal rolled the family back. They are
+deleted once everything else of the replacement is written.
 
 ``ped_service`` runs against a fake of the request's transaction and of the stores; the
 family's variants are deleted by ``delete_family_small_variants`` and
 ``delete_family_structural_variants``, and its interval tracks by ``delete_interval_tracks``,
 as a structure change that clears a family's data deletes them (``family_structure_service``),
-whose code the replacement runs. The tracks used to stay (SAFE-35).
+whose code the replacement runs; the tracks go with the variants (SAFE-35).
 """
 
 from __future__ import annotations
@@ -144,7 +144,7 @@ async def test_a_ped_upload_refused_after_the_replacement_leaves_the_familys_var
 
     assert refused.value.status_code == status, case
     # The family's delete is the transaction's, which the refusal rolls back; its variants
-    # are not deleted (before: deleted at once, so the family came back without them).
+    # are not deleted.
     assert events == [
         ("lock", "uuid-old"),
         ("audit: phenotypes removed", "uuid-old", "replaced"),
@@ -164,8 +164,7 @@ async def test_a_ped_upload_that_replaces_a_family_deletes_its_variants_last(eve
     )
 
     assert [family.family_id for family in result.families] == ["FAM1"]
-    # Once the new family is written, before the commit (before: before the checks); its
-    # tracks with them (before: never, SAFE-35).
+    # Once the new family is written, before the commit; its tracks with them (SAFE-35).
     assert events == [
         ("lock", "uuid-old"),
         ("audit: phenotypes removed", "uuid-old", "replaced"),

@@ -13,7 +13,7 @@ from backend.app.services.nipt_artifact_pg import (
 
 @pytest.fixture(autouse=True)
 def audit_events(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
-    """The clinical audit events the artifact service records (#683), captured."""
+    """The clinical audit events the artifact service records, captured."""
     recorded: list[dict] = []
 
     async def record(_session, **kwargs):
@@ -230,8 +230,9 @@ async def test_auto_seed_nipt_artifacts_upserts_recurrent(
 async def test_auto_seed_counts_recurrence_among_the_assays_own_cfdna_samples(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # Recurrence used to be counted over every sample on the assembly: all common SNPs
-    # (the paternal sites FF is read from) and every other assay's artifacts qualified.
+    # Recurrence is counted among the assay's own cfDNA samples: over every sample on the
+    # assembly, all common SNPs (the paternal sites FF is read from) and every other assay's
+    # artifacts would qualify.
     seen: dict = {}
 
     async def fake_recurrent(assembly_name, *, min_carrier_samples, carrier_samples=None, **kwargs):

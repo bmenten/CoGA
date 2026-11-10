@@ -3,7 +3,7 @@
 The motivating case is a three-generation family with a dominant disorder: the
 affected paternal grandmother (stored with the overloaded role ``mother``) must
 show one haplotype matching the affected father's shared homolog and the other
-greyed, instead of the old two-green rendering.
+greyed, not both green.
 """
 import asyncio
 import logging
@@ -75,16 +75,16 @@ THREE_GEN_RELATIONSHIPS = [
 # Each entry: (gm_raw0, gm_raw1, father_raw1). father_raw0 == gm_raw0 (the shared
 # haplotype).
 #
-# The match is now confirmed from *phase-informative* (opposite-zygosity) sites
+# The match is confirmed from *phase-informative* (opposite-zygosity) sites
 # only — one individual heterozygous, the other homozygous — so double-het sites
-# (which carry no transmission direction) no longer count. We therefore supply
+# (which carry no transmission direction) do not count. We therefore supply
 # both kinds of informative sites in sufficient number (>= MIN_INFORMATIVE_SITES on
 # each resolving side):
 #   * anchor-informative: grandmother homozygous, father heterozygous
 #     -> pins the father's shared homolog (raw0).
 #   * relative-informative: grandmother heterozygous, father homozygous
 #     -> pins the grandmother's shared homolog (raw0).
-# Intent is unchanged from the original 12-site fixture: gm raw0 == father raw0.
+# The intent: gm raw0 == father raw0.
 _SITES = (
     [(g, g, 1 - g) for g in (0, 1) for _ in range(6)]  # gm hom, father het (anchor side)
     + [(g, 1 - g, g) for g in (0, 1) for _ in range(6)]  # gm het, father hom (relative side)
@@ -181,7 +181,7 @@ def test_identify_core_says_when_two_couples_share_as_many_children(caplog):
         core = identify_core(build_pedigree(members, rels))
     assert (core.father, core.mother, core.children) == ("GF", "GM", {"F"})
     # By counts: the couples and their children are named by their sample IDs, which a log
-    # line never carries (SEC-39; before, "('GF', 'GM'), ('F', 'M')", the children and the pick).
+    # line never carries (SEC-39).
     assert [record.getMessage() for record in caplog.records] == [
         "identify_core: ambiguous nuclear core — 2 couples each share 1 child(ren); picking the "
         "first found. Lineage colouring may be grounded on the wrong couple."
@@ -455,8 +455,7 @@ def test_core_homologs_missing_shade_is_grey_not_raw_index():
     # Only homolog 0's shade is known for the father; homolog 1 is unresolved.
     homs = _core_homologs("F", core, father_shade={0: 1}, mother_shade={0: 0, 1: 1})
     assert homs[0].origin == PATERNAL and homs[0].shade == 1
-    # The old code returned HomologAssignment(PATERNAL, 1) here via .get(1, 1) — a
-    # raw-index colour. It must now be grey.
+    # Not the raw-index colour HomologAssignment(PATERNAL, 1): it must be grey.
     assert homs[1] == GREY
     assert not homs[1].is_founder
 
@@ -521,8 +520,8 @@ def test_smooth_runs_ignores_isolated_noise():
 
 
 def test_smooth_runs_commits_an_early_short_leading_tract_then_sustained_switch():
-    # Regression for H4: a genuine leading tract of <50 informative pins followed
-    # by a *sustained* switch. The old head-window majority vote (pins[:50]) would
+    # H4: a genuine leading tract of <50 informative pins followed
+    # by a *sustained* switch. A head-window majority vote (pins[:50]) would
     # let the 60 idx-1 pins outvote the 24-pin idx-0 head and seed the run at 1,
     # collapsing 0 -> 1 into a single mis-coloured run and hiding the breakpoint.
     # Seeding from the first pin keeps the start at 0 and emits the crossover.
@@ -540,7 +539,7 @@ def test_segment_relative_blocks_splits_at_a_crossover():
     # (second half); the anchor's shared homolog (and thus the colour) is fixed.
     # Result: the coloured lane jumps hap1 -> hap2 at the crossover, grey follows.
     #
-    # NB (anchor-shade fix): the founder shade is only painted where an anchor-
+    # NB: the founder shade is only painted where an anchor-
     # informative site (anchor het, relative hom) pins WHICH founder homolog is
     # shared — otherwise the shade is undetermined and the lane is greyed. We
     # therefore interleave such sites that consistently pin anchor homolog 1 (the
@@ -628,7 +627,7 @@ def test_segment_relative_blocks_single_block_without_recombination():
 
 
 def test_segment_relative_blocks_greys_shared_lane_when_anchor_shade_unresolved():
-    """Anchor-shade fix: when only the relative side resolved the match (the anchor is
+    """When only the relative side resolved the match (the anchor is
     homozygous wherever it could distinguish its homologs, so there are zero
     anchor-informative pins), WHICH founder homolog the relative shares is genuinely
     undetermined. ``match.anchor_idx`` is then just a coin flip, so the shared lane must
@@ -672,7 +671,7 @@ def _coloured_lane_shade(seg):
 
 
 def test_segment_relative_blocks_resolver_carries_anchor_crossover():
-    """Fix H3 (mechanism): B is anchored to founder A and B has an *anchor* crossover —
+    """H3 (mechanism): B is anchored to founder A and B has an *anchor* crossover —
     the side that switches WHICH of A's homologs B shares — at the region midpoint, so
     the founder shade B's shared homolog carries changes 0 -> 1. The resolver returned
     for B must record that change per position, not a single shade, so the next hop can
@@ -729,12 +728,12 @@ def test_segment_relative_blocks_resolver_carries_anchor_crossover():
 
 
 def test_three_generation_propagation_tracks_mid_region_crossover():
-    """Fix H3 (end of chain): C is anchored to B, where B itself crossed over the
+    """H3 (end of chain): C is anchored to B, where B itself crossed over the
     anchor side mid-region (shade 0 -> 1). C shares B's founder-coloured homolog with
     no crossover of its own, so C's coloured lane must track B's crossover (shade 0 in
     the first half, shade 1 in the second), NOT a single shade smeared across the whole
-    region (the pre-fix bug, where B's flat chromosome-level homolog map lost the
-    crossover and coloured C uniformly)."""
+    region (as B's flat chromosome-level homolog map, which loses the crossover, would
+    colour C)."""
     # Build B's resolver via the same anchor-crossover construction as above.
     first = [1_000_000 + i * 10_000 for i in range(70)]
     second = [2_500_000 + i * 10_000 for i in range(70)]
@@ -765,7 +764,7 @@ def test_three_generation_propagation_tracks_mid_region_crossover():
 
     # C shares B's raw homolog 0 (the founder-coloured one) with NO crossover of its
     # own. C is het at the main sites (relative-informative: pins C raw0 as the shared
-    # lane). To resolve WHICH of B's homologs C shares — required now that an anchor
+    # lane). To resolve WHICH of B's homologs C shares — required since an anchor
     # shade is only painted where an anchor-informative site supports it — we interleave
     # sites where B is het and C is homozygous for the allele on B's raw homolog 0,
     # pinning B raw0 (the founder-coloured one) as the shared anchor homolog throughout.
@@ -783,7 +782,7 @@ def test_three_generation_propagation_tracks_mid_region_crossover():
         positions=c_positions,
         rel_alleles=c_rel,
         anc_alleles=c_anc,
-        # The KEY of the fix: propagate B's POSITION-AWARE resolver, not a flat map.
+        # The KEY: propagate B's POSITION-AWARE resolver, not a flat map.
         anchor_homologs=b_resolver,
         match=MatchResult(relative_idx=0, anchor_idx=0, informative=len(c_positions), confidence=1.0),
         region_start=region_start,
@@ -798,9 +797,9 @@ def test_three_generation_propagation_tracks_mid_region_crossover():
     assert _coloured_lane_shade(c_blocks[0]) == ("hap1", "0")
     assert _coloured_lane_shade(c_blocks[-1]) == ("hap1", "1")
 
-    # Regression guard: a FLAT (position-blind) propagation — the pre-fix behaviour —
-    # would colour C with a single shade across the whole region. Feeding B's flat
-    # chromosome-level map reproduces that, proving the resolver is what fixes it.
+    # A FLAT (position-blind) propagation would colour C with a single shade across the
+    # whole region. Feeding B's flat chromosome-level map reproduces that, proving the
+    # resolver is what tracks the crossover.
     flat_anchor = HomologResolver.from_flat({0: HomologAssignment(PATERNAL, 0), 1: GREY})  # B's single-shade global map
     flat_blocks, _g, _r = _segment_relative_blocks(
         chrom="1",
@@ -813,7 +812,7 @@ def test_three_generation_propagation_tracks_mid_region_crossover():
         region_end=region_end,
     )
     flat_shades = {_coloured_lane_shade(seg) for seg in flat_blocks}
-    assert flat_shades == {("hap1", "0")}  # one wrong shade everywhere — the bug we fixed
+    assert flat_shades == {("hap1", "0")}  # one wrong shade everywhere
 
 
 def test_homolog_resolver_position_lookup():

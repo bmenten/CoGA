@@ -1,12 +1,12 @@
-"""DATA-3: the family CSV exports failed above about 32,766 rows.
+"""DATA-3: the family CSV exports reach their cap above asyncpg's 32,767 parameters.
 
 A family export reads up to 50,001 rows, its 50,000-row cap and one more to know whether more
-matched (#512), and looks each row up in Postgres: its review, its gene's constraint metrics
-and the structural variants on its genes (the SV second-hit badge). Those lookups bound one
-parameter per id (an expanding IN), and asyncpg refuses a statement with more than 32,767
-parameters, so an export of a larger result answered 500 before it reached its cap and its
-truncation signal never fired. Each lookup now binds its ids as one text[] parameter, as the
-Variant Explorer's review lookup does since #808.
+matched, and looks each row up in Postgres: its review, its gene's constraint metrics and the
+structural variants on its genes (the SV second-hit badge). asyncpg refuses a statement with
+more than 32,767 parameters, so each lookup binds its ids as one text[] parameter, as the
+Variant Explorer's review lookup does: with one parameter per id (an expanding IN), an export
+of a larger result would answer 500 before it reached its cap, and its truncation signal would
+never fire.
 
 Each lookup is run with 50,001 ids through a session that records the statement and its
 parameters; the statement is compiled as the asyncpg dialect sends it, and the ids must
@@ -53,7 +53,7 @@ def _a_steady_small_variant_data_version(monkeypatch: pytest.MonkeyPatch) -> Non
 _FAMILY = "00000000-0000-0000-0000-00000000da73"
 # The family's assembly, whose gene profiles the constraint lookup reads (TRACE-15).
 _ASSEMBLY = "00000000-0000-0000-0000-0000000a55e7"
-# What an export reads: its 50,000-row cap and one row more (#512).
+# What an export reads: its 50,000-row cap and one row more.
 _EXPORT_READ = 50_001
 # The most parameters asyncpg sends in one statement.
 _ASYNCPG_MAX_PARAMETERS = 32_767
@@ -125,7 +125,7 @@ def test_the_small_variant_review_lookup_binds_any_number_of_ids_as_one_paramete
 
     statement, params = session.calls[0]
     names, values = _sent(statement, params)
-    # The family and one array holding every id; before, 50,002 parameters.
+    # The family and one array holding every id.
     assert names == ["family_id", "variant_ids"]
     assert values["variant_ids"] == variant_ids
     assert "variant_id = ANY(CAST(:variant_ids AS text[]))" in str(statement)
@@ -154,8 +154,7 @@ def test_the_gene_constraint_lookup_binds_any_number_of_genes_as_one_parameter_p
 
     statement, params = session.calls[0]
     names, values = _sent(statement, params)
-    # The family's assembly, one array of symbols and one of gene ids; before, 100,002
-    # parameters.
+    # The family's assembly, one array of symbols and one of gene ids.
     assert names == ["assembly_id", "gene_symbols", "gene_ids"]
     assert values["assembly_id"] == _ASSEMBLY
     assert values["gene_symbols"] == sorted(f"G{index}" for index in range(_EXPORT_READ))
@@ -310,7 +309,7 @@ def test_a_small_variant_export_past_its_cap_is_cut_at_the_cap_and_says_so(monke
 
     export = asyncio.run(cfv.export_family_small_variants(session, context=_context()))
 
-    # Before, the review lookup's 50,002 parameters failed the export (a 500).
+    # The export reaches its cap: no lookup sends more parameters than asyncpg takes.
     assert export.truncated_reason == "row-limit"
     assert export.limit == 50_000
     assert [row.id for row in export.rows] == [record.variant_id for record in records[:50_000]]

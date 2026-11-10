@@ -1,8 +1,8 @@
 """The package list names the families imported from each folder it lists.
 
 A package folder stays on the share after its import (CoGA serves the alignments and the QC
-report from it), so the import page's list kept every folder ever imported, reading like one that
-waits. The list now gives each folder the families whose package record names it
+report from it), so the import page's list would keep every folder ever imported, reading like
+one that waits. The list gives each folder the families whose package record names it
 (``families.metadata.package_import.folder_path``), when their last import registered them, and
 whether that import did not complete or still runs; the page hides a folder whose families all
 imported completely. A bucket folder's URI is matched with or without the ``/`` it may end with.

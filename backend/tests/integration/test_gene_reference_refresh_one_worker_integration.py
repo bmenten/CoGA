@@ -172,7 +172,7 @@ def test_the_heartbeat_advances_while_the_sources_load(monkeypatch: pytest.Monke
 
         await _run_job(job_id)
 
-        # Before, the job's heartbeat stood still until the sources had loaded.
+        # The job's heartbeat is written while the sources load.
         assert seen[1] > seen[0], "no heartbeat was written while the sources loaded"
         assert ran == ["genes chosen"]
         job = await _job(sm, job_id)
@@ -192,7 +192,7 @@ def test_a_worker_whose_job_was_taken_up_while_it_loaded_stops(monkeypatch: pyte
 
         await _run_job(job_id)
 
-        # Before, it went on to choose the genes and write their records beside the other worker.
+        # It chooses no genes and writes no records beside the other worker.
         assert ran == []
         job = await _job(sm, job_id)
         assert (job["status"], job["worker_id"], job["active_slot"], job["error"]) == (
@@ -256,7 +256,7 @@ def test_a_failed_run_leaves_a_job_another_worker_has_taken_up(monkeypatch: pyte
         with pytest.raises(RuntimeError):
             await _run_job(job_id)
 
-        # Before, the failed run ended the other worker's job and freed its slot.
+        # The failed run leaves the other worker's job running, in its slot.
         job = await _job(sm, job_id)
         assert (job["status"], job["worker_id"], job["active_slot"], job["error"]) == (
             "running",

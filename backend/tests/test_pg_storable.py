@@ -1,7 +1,7 @@
 """The values Postgres refuses are escaped, visibly, and the escaped columns are named.
 
 Postgres stores no NUL in TEXT and no ``\\u0000``, lone surrogate, NaN or Infinity in JSONB; one
-such value used to fail the INSERT of a request's audit row. The real refusals are checked on
+such value would fail the INSERT of a request's audit row. The real refusals are checked on
 Postgres in backend/tests/e2e/test_e2e_request_audit_unstorable_characters.py.
 """
 
@@ -42,7 +42,7 @@ def test_half_a_surrogate_pair_is_written_as_its_escape() -> None:
     assert stored == {"high": "a\\ud800b", "low": "\\udfff"}
     assert escaped == ["high", "low"]
     for value in stored.values():
-        value.encode("utf-8")  # storable as UTF-8 TEXT now
+        value.encode("utf-8")  # storable as UTF-8 TEXT
 
 
 def test_non_finite_numbers_become_the_strings_json_needs() -> None:

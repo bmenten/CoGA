@@ -1,10 +1,8 @@
 """Each coverage BED declares what it holds: read depth or a log2 ratio (TRACE-9).
 
-A coverage BED (source ``web``: the BED upload's, and a package's ``coverage`` dataset's) recorded
-nothing of what its values are. The importer called it a BED of depths and the depth readers read
-it as depth (CLIN-46), while the coverage chart drew it on its log2-ratio axis. The owner decided
-(2026-10-14) that each coverage BED declares what it holds, in the upload form and in the package
-manifest, and that an undeclared file is "unknown" and never read as depth:
+A coverage BED (source ``web``: the BED upload's, and a package's ``coverage`` dataset's) declares
+what it holds, in the upload form and in the package manifest, and an undeclared file is "unknown"
+and never read as depth (the owner's decision of 2026-10-14):
 
 * the BED upload takes ``content`` (``read_depth`` or ``log2_ratio``) as a required query
   parameter for a coverage BED, refused (422) when it is missing, and for another track type;
@@ -158,8 +156,7 @@ class _Untouched:
 
 @pytest.mark.asyncio
 async def test_a_coverage_bed_upload_that_declares_nothing_is_refused_before_anything_is_read() -> None:
-    # Before: stored, and read as depth by the mtDNA and NIPT checks while the chart drew it as
-    # a log2 ratio.
+    # Refused (422) before anything is read.
     with pytest.raises(HTTPException) as refused:
         await bed_router.upload_bed(
             sample_id="S1",
@@ -311,7 +308,7 @@ async def test_a_package_coverage_bed_stores_what_its_manifest_entry_declares(
         "S1": {"inserted": 2, "content": "log2_ratio"},
         "S2": {"inserted": 2, "content": "unknown"},
     }
-    # Before: neither record said what its BED held, and both were read as depth.
+    # Each record says what its BED holds.
     assert stores.records[(_uuid("S1"), "coverage", "web")]["content"] == "log2_ratio"
     assert stores.records[(_uuid("S2"), "coverage", "web")]["content"] == "unknown"
     # A package import records what it imported itself, when it ends: not per file.
@@ -467,7 +464,7 @@ async def test_the_track_availability_serves_what_each_coverage_track_holds(monk
 
     async def declarations(*_args: Any, **_kwargs: Any) -> dict[str, dict[str, list[str]]]:
         # S1's BED was declared as read depth; S2's declared nothing (a package entry without
-        # `content` records unknown, a track stored before BEDs declared it records none).
+        # `content` records unknown; here S2's track records none).
         return {"S1": {"web": ["read_depth"]}}
 
     monkeypatch.setattr(service + "build_family_metadata_context", family)
@@ -486,8 +483,7 @@ async def test_the_track_availability_serves_what_each_coverage_track_holds(monk
         include_small_variants=False,
     )
 
-    # Before: nothing said what a coverage BED held, and the views drew each on their log2-ratio
-    # axis.
+    # Each coverage track says what it holds; one that declared nothing is unknown.
     assert {name: sample.coverage_contents for name, sample in availability.samples.items()} == {
         "S1": {"hificnv": "read_depth", "web": "read_depth", "wisecondorx": "log2_ratio"},
         "S2": {"web": "unknown"},

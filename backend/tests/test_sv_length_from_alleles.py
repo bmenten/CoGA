@@ -2,23 +2,20 @@
 (CLIN-41).
 
 VCF 4.4 writes SVLEN for a symbolic allele only, and ``.`` for a sequence allele, whose bases
-hold its length. CoGA measured a call without SVLEN by END − POS (#827's rule), and an
-insertion written as its sequence has its END at its POS: it was 0 bp in the SV list and to
-the length filters, so any minimum length dropped it. A deletion written as its sequence
-measured its REF in the uploads (its END at POS + len(REF) − 1 since #831), but one bp in
-the package's NeedlR and HiFiCNV files (END at POS + 1) and none on the mtDNA page (END at
-POS).
+hold its length. Measured by END − POS, an insertion written as its sequence, whose END is
+its POS, would be 0 bp in the SV list and to the length filters, so any minimum length would
+drop it.
 
-The owner's decision (2026-10-14): such a call is measured by its alleles. Every SV reader
+Such a call is measured by its alleles (owner decision 2026-10-14). Every SV reader
 stores it with len(ALT) − len(REF) as its SVLEN (``svLen``, ``record_sv_len``): the bases an
 insertion inserts, and those a deletion deletes, negative as Sniffles2 and pbsv write a
 deletion's SVLEN. The SV list shows that length, the length filters measure it without its
 sign, the CSV export and the report sentence read the list's, and the mtDNA page shows it
 too. A call that writes SVLEN keeps it as written; a symbolic allele or a breakend without
-one, or alleles as long as each other, is still measured by END − POS; no call's END or id
+one, or alleles as long as each other, is measured by END − POS; no call's END or id
 changes. The read side derives nothing: a call stored without SVLEN is measured by END − POS.
 
-The helper tests import the new helpers inside the test; every other test reads the records
+The helper tests import the helpers inside the test; every other test reads the records
 through the readers, the upload, the filters, the list, the export and the mtDNA page as
 they stand. The records and the family are synthetic.
 """
@@ -181,7 +178,7 @@ def test_a_written_svlen_is_kept_and_a_missing_one_taken_from_the_alleles() -> N
     ],
 )
 def test_a_sequence_allele_s_type_and_length_agree(ref: str, alt: str, sv_type: str | None) -> None:
-    # The type a record without SVTYPE takes from its sequence allele (#831), and the length
+    # The type a record without SVTYPE takes from its sequence allele, and the length
     # it is stored with, come from one comparison: an insertion is longer, a deletion shorter.
     from backend.app.services.structural_variant_ingest import sequence_allele_sv_len
 
@@ -200,8 +197,7 @@ def test_a_sequence_allele_s_type_and_length_agree(ref: str, alt: str, sv_type: 
 @pytest.mark.parametrize(
     ("ref", "alt", "info", "stored"),
     [
-        # Before: no SVLEN, so 0 bp for the insertion (END at POS) and END − POS for the
-        # deletion.
+        # The insertion's inserted bases (its END at POS), the deletion's deleted bases.
         pytest.param(_INS_REF, _INS_ALT, "", ("INS", POS, POS, 350), id="insertion"),
         pytest.param(_INS_REF, _INS_ALT, "SVLEN=.;SVTYPE=INS;SUPPORT=9", ("INS", POS, POS, 350), id="insertion-svlen-dot"),
         pytest.param(_DEL_REF, _DEL_ALT, "", ("DEL", POS, POS + 100, -100), id="deletion"),
@@ -213,7 +209,7 @@ def test_an_upload_stores_a_sequence_allele_with_the_length_its_alleles_state(
 ) -> None:
     record = _uploaded(_vcf(_record(ref, alt, info)), record_format)
 
-    # The END and so the SV's id are those VCF 4.4 gives it (#831): only the SVLEN is new.
+    # The END and so the SV's id are those VCF 4.4 gives it; the SVLEN is the alleles'.
     assert (record.sv_type, record.start, record.end, record.sv_len) == stored
 
 
@@ -241,7 +237,7 @@ def test_an_upload_keeps_a_written_svlen_and_states_none_for_other_alleles(
 @pytest.mark.parametrize(
     ("ref", "alt", "end", "sv_len"),
     [
-        # Before: a TSV has no SVLEN column, so every row was measured by END − POS.
+        # A TSV has no SVLEN column: a sequence allele's row is measured by its alleles.
         (_INS_REF, _INS_ALT, POS, 350),
         (_DEL_REF, _DEL_ALT, POS + 100, -100),
         ("N", "<INS>", POS, None),
@@ -307,8 +303,7 @@ def _chrm(ref: str, alt: str, info: str) -> StructuralVariantRecord:
     ("read", "ref", "alt", "info", "stored"),
     [
         # NeedlR ends a call without END where VCF 4.4 puts it, as the uploads do, and its id
-        # is theirs (CLIN-39; before: POS + SVLEN, else POS + 1). Before CLIN-41: 1 bp, its
-        # END − POS.
+        # is theirs (CLIN-39); its length is its alleles' (CLIN-41).
         pytest.param(_needlr_family, _INS_REF, _INS_ALT, "", ("1-100000-100000-INS---", 100_000, 350), id="needlr-insertion"),
         pytest.param(_needlr_family, _DEL_REF, _DEL_ALT, "SVLEN=.;", ("1-100000-100100-DEL---", 100_100, -100), id="needlr-deletion"),
         pytest.param(_needlr_per_sample, _INS_REF, _INS_ALT, "SVTYPE=INS;", ("1-100000-100000-INS---", 100_000, 350), id="needlr-per-sample-insertion"),
@@ -318,7 +313,7 @@ def _chrm(ref: str, alt: str, info: str) -> StructuralVariantRecord:
         pytest.param(_hificnv, _DEL_REF, _DEL_ALT, f"END={POS + 100}", ("1-100000-100100-DEL----hificnv", 100_100, -100), id="hificnv-deletion"),
         pytest.param(_hificnv, "N", "<DEL>", f"SVTYPE=DEL;END={POS + 100}", ("1-100000-100100-DEL----hificnv", 100_100, None), id="hificnv-symbolic"),
         # The chrM reader ends a sequence deletion without END on its REF's last base, where
-        # VCF 4.4 puts it (CLIN-39; before: on its POS). Before CLIN-41: no length.
+        # VCF 4.4 puts it (CLIN-39), with its alleles' length (CLIN-41).
         pytest.param(_chrm, "A" + "C" * 500, "A", "", ("M-8470-8970-DEL----mito_sv", 8_970, -500), id="chrm-deletion"),
         pytest.param(_chrm, "N", "<DEL>", "SVLEN=-500;", ("M-8470-8970-DEL----mito_sv", 8_970, -500), id="chrm-written-svlen"),
     ],
@@ -346,8 +341,7 @@ _INSERTION_ID, _DELETION_ID, _SYMBOLIC_ID = (record.variant_id for record in _SE
 @pytest.mark.parametrize(
     ("filters", "expected"),
     [
-        # Before: the insertion was 0 bp, so every minimum above 0 dropped it and no exact
-        # length but 0 found it.
+        # The insertion measures 350 bp, to every minimum and exact length.
         ({"min_length": 50}, [_INSERTION_ID, _DELETION_ID, _SYMBOLIC_ID]),
         ({"min_length": 350}, [_INSERTION_ID, _SYMBOLIC_ID]),
         ({"min_length": 351}, [_SYMBOLIC_ID]),
@@ -409,8 +403,7 @@ async def test_the_list_shows_and_measures_the_alleles_length(stored, prioritize
 
     # The list shows the length the report sentence reads (without its sign): the
     # insertion's inserted bases, the deletion's deleted bases negative, as a deletion's
-    # SVLEN is shown. Before: the insertion was 0 bp and dropped by the minimum, and the
-    # deletion shown as its END − POS, 100.
+    # SVLEN is shown.
     shown = {str(variant.id): variant.length for variant in page.variants}
     assert shown == {_INSERTION_ID: 350, _DELETION_ID: -100, _SYMBOLIC_ID: 5000}
     assert page.total == 3
@@ -432,8 +425,8 @@ def test_the_mtdna_page_shows_a_chrm_sequence_deletion_by_its_alleles() -> None:
 
     shown = _mtdna_sv_out(record, member_by_sample={})
 
-    # Before: no SVLEN and its END on its POS, so "length n/a". Its END is where VCF 4.4 puts
-    # it, its REF's last base (CLIN-39; before: its POS).
+    # Its length is its alleles'. Its END is where VCF 4.4 puts it, its REF's last base
+    # (CLIN-39).
     assert (shown.sv_type, shown.start, shown.end, shown.length) == ("DEL", 8470, 8970, 500)
 
 
@@ -465,7 +458,7 @@ async def test_the_upload_stores_each_call_with_the_length_its_alleles_state(
 
     assert (result["processed"], result["created"]) == (4, 4)
     stored = {row.record.variant_id: (row.record.sv_type, row.record.sv_len) for row in store.written()}
-    # The ids are the coordinates and type the calls had before: only their SVLEN is new.
+    # The ids are the calls' coordinates and type: the SVLEN does not enter them.
     assert stored == {
         "1-100000-100000-INS---": ("INS", 350),
         "1-200000-200100-DEL---": ("DEL", -100),

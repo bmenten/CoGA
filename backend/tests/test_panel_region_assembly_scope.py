@@ -1,14 +1,13 @@
-"""Gene-panel coordinates are resolved and stored per assembly (#515, TF-06 H12).
+"""Gene-panel coordinates are resolved and stored per assembly (TF-06 H12).
 
-A panel is a gene list; its coordinates depend on the assembly. Before, one region per gene
-was kept across all assemblies (GRCh38 first, else T2T) with no assembly recorded, and every
-family's panel filter used them. Now a gene is resolved in every assembly that has it, each
-region is stored with its assembly, PanelApp's coordinates are kept for the assembly requested
-only, and the family filter (``_fetch_panel_constraints``) reads the panel's genes, the regions
-stored for the family's own assembly and the genes' loci in that assembly's gene reference.
+A panel is a gene list; its coordinates depend on the assembly. A gene is resolved in every
+assembly that has it, each region is stored with its assembly, PanelApp's coordinates are kept
+for the assembly requested only, and the family filter (``_fetch_panel_constraints``) reads
+the panel's genes, the regions stored for the family's own assembly and the genes' loci in
+that assembly's gene reference.
 Without a resolved assembly it reads no coordinates at all, as no stored region can be trusted
-then (test_panel_resolution_cache.py). The real-database behaviour (storage, the family filter
-and the schema upgrade) is covered by ``integration/test_panel_regions_per_assembly.py``.
+then (test_panel_resolution_cache.py). The real-database behaviour (storage and the family
+filter) is covered by ``integration/test_panel_regions_per_assembly.py``.
 """
 
 from __future__ import annotations
@@ -177,7 +176,7 @@ def test_panelapp_coordinates_are_kept_for_the_requested_assembly_only(monkeypat
 
 
 def test_panelapp_coordinates_for_an_unloaded_assembly_are_not_kept(monkeypatch) -> None:
-    # GRCh37 coordinates apply to no family here; stored assembly-less they used to be
+    # GRCh37 coordinates apply to no family here; stored assembly-less they would be
     # applied to every family's filter.
     session = _PanelSession()
     out = _import(monkeypatch, session, assembly="GRCh37")
@@ -236,6 +235,6 @@ async def test_panel_constraints_include_family_assembly_gene_regions() -> None:
         ("2", 100, 200),
     ]
     assert any("FROM genes" in statement for statement in session.statements)
-    # #515: stored regions are read for the family's own assembly only.
+    # Stored regions are read for the family's own assembly only.
     stored = next(s for s in session.statements if "FROM gene_panel_regions" in s)
     assert "assembly_id = CAST(:assembly_id AS uuid)" in stored

@@ -1,7 +1,7 @@
 """A candidate cap must bound the ranking, not decide what the filter gets to see.
 
-The prioritised SV page used to read the first N rows of the callset and only then apply
-the gene/panel filter, so a gene-filtered search returned nothing whenever that gene's SV
+Were the prioritised SV page to read the first N rows of the callset and only then apply
+the gene/panel filter, a gene-filtered search would return nothing whenever that gene's SV
 sat outside the window — indistinguishable, in the UI, from "this gene has no SV".
 """
 

@@ -1,9 +1,9 @@
-"""The knowledgebase's ClinVar loss/gain support reaches clinical_cnvs and the API (#624).
+"""The knowledgebase's ClinVar loss/gain support reaches clinical_cnvs and the API.
 
 The build writes, per region, the pathogenic ClinVar CNVs that overlap it (loss and gain
-counts and their VariationIDs). The loader dropped those columns, so curators never saw
-them. It now keeps them, and a knowledgebase without them (built without ClinVar, or a
-BED-style file) stores NULL: not recorded, never 0.
+counts and their VariationIDs). The loader keeps those columns, so curators see them, and a
+knowledgebase without them (built without ClinVar, or a BED-style file) stores NULL: not
+recorded, never 0.
 """
 
 from __future__ import annotations

@@ -720,7 +720,7 @@ def test_a_scoring_freezes_the_row_of_the_caller_it_was_made_on(monkeypatch) -> 
 
 
 def test_a_scoring_naming_no_caller_takes_the_svs_one_row(monkeypatch) -> None:
-    # A client from before the field: with one caller there is no doubt which row it was.
+    # A scoring that names no caller: with one caller there is no doubt which row it was.
     table = _ReviewTable()
     _patch_evidence(monkeypatch, table, _needlr_row())
     _save(table, StructuralVariantReviewUpdate(cnv_acmg=_scoring(("2A", 1.0, True))))

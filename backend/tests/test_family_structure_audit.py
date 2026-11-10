@@ -4,8 +4,7 @@ Each change of a family's pedigree (its members with their sex, role, affected a
 status, whether each is active, and their parents, couples and relatives) is stored as the
 family's next structure version, on a hash chain of its own per family, and recorded on the
 family's clinical audit trail as a ``pedigree`` event naming who made it and what changed,
-before and after. Before, a structure version could be rewritten or deleted, carried no
-hash chain, and no pedigree or member change reached the clinical audit trail.
+before and after.
 
 These tests cover the audited pedigree and its diff (a status change, a member added,
 deleted or made inactive, a rename, the couples and the relatives), the summaries, the
@@ -444,7 +443,7 @@ async def test_each_version_links_to_the_head_of_its_familys_chain_and_the_chain
     assert stored[0]["prev_hash"] is None and stored[1]["prev_hash"] == stored[0]["row_hash"] == first.row_hash
     assert stored[1]["created_at"] > stored[0]["created_at"]
     assert stored[1]["family_identifier"] == FAMILY and stored[1]["structure_hash"] == second.structure_hash
-    # The structure hash is the ranking cache's key: the stored snapshot's SHA-256, as before.
+    # The structure hash is the ranking cache's key: the stored snapshot's SHA-256.
     assert second.structure_hash == audit.structure_hash(database.snapshot)
 
     verified = await audit.verify_family_structure_chain(database, FAMILY)  # type: ignore[arg-type]
@@ -1077,11 +1076,11 @@ async def _family_life(database: _ChainDatabase, family_uuid: str, *, deleted: b
 @pytest.mark.asyncio
 async def test_a_family_made_again_under_its_id_names_its_structure_versions_apart() -> None:
     # Structure versions are numbered per family row: a family made again under the ID of a
-    # deleted family numbers its own from 1 again, on the ID's chains, and its pedigree events
-    # named "structure version 1" and 2 as the deleted family's had, told apart only by their
-    # order and their hash. Each now names how many versions the families deleted under the ID
+    # deleted family numbers its own from 1 again, on the ID's chains, so its pedigree events
+    # would name "structure version 1" and 2 as the deleted family's did, told apart only by
+    # their order and their hash. Each names how many versions the families deleted under the ID
     # stored before it, its first says so in its summary, and so does its deletion; a family
-    # never made again is recorded as before.
+    # never made again names none.
     database = _ChainDatabase()
     await _family_life(database, "fam-a", deleted=True)
     await _family_life(database, "fam-b", deleted=True)
@@ -1094,7 +1093,8 @@ async def test_a_family_made_again_under_its_id_names_its_structure_versions_apa
     ]
     assert named == [(0, 1), (0, 2), (2, 1), (2, 2), (4, 1), (4, 2)]
     assert len(set(named)) == len(named)
-    # The first family's events are as before; each made again says so when it is created.
+    # The first family's events name no deleted versions; each made again says so when it is
+    # created.
     assert set(pedigree[0]["metadata"]) == {"source", "structure_version", "structure_hash"}
     assert [event["summary"] for event in pedigree[0::2]] == [
         _TRIO_RECORDED,

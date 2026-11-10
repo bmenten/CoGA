@@ -1,14 +1,14 @@
 """A stored variant row is one callset's (unit).
 
 A small variant's storage key is the variant (``hash(assembly, variantId)``), shared by
-every family and callset so they all find the one annotation. A family's ``entries`` rows
-were sorted by ``(project, family, position, key)`` only, so a clair3 row and a GLIMPSE2
-row for one variant had the same sort key, and the CollapsingMergeTree kept one of them
-when ClickHouse merged the parts. The row identity ends with the callset (``source``).
+every family and callset so they all find the one annotation. Sorted by
+``(project, family, position, key)`` only, a family's clair3 row and GLIMPSE2 row for one
+variant would share a sort key, and the CollapsingMergeTree would keep one of them when
+ClickHouse merged the parts. The ``entries`` row identity ends with the callset (``source``).
 
-An SV's key hashed only the family and the variant id, and a per-sample upload's id
-(``chrom-start-end-type---``) names no caller, so a Sniffles and a Spectre call at the same
-coordinates shared a key, an ``entries`` sort key, a ``variants/details`` row and a
+A per-sample upload's SV id (``chrom-start-end-type---``) names no caller, so a key hashing
+only the family and the variant id would give a Sniffles and a Spectre call at the same
+coordinates one key, one ``entries`` sort key, one ``variants/details`` row and one
 ``key_lookup`` row. The key hashes the source too; the variant id does not, since reviews,
 drift snapshots, the ranking cache and the SV gene index attach by it.
 ``e2e/test_e2e_callset_storage_identity.py`` shows the same on real ClickHouse, with a forced
@@ -157,8 +157,7 @@ def test_an_sv_key_names_the_source_and_the_variant_id_does_not() -> None:
     details, lookups, entries = _structural_variant_entry_rows(
         "GRCh38", "fam-1", ["p1"], [_sv("sniffles"), _sv("spectre")]
     )
-    # Before the fix both rows got one key, so the details, the lookup and the entries of
-    # the two callers collided.
+    # Each caller's row has its own key, in the details, the lookup and the entries.
     assert [row[0] for row in details] == [sniffles, spectre]
     assert [row[0] for row in entries] == [sniffles, spectre]
     assert [row[1] for row in entries] == ["1-30000-31000-DEL---", "1-30000-31000-DEL---"]

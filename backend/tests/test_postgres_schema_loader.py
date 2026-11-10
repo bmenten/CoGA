@@ -56,7 +56,7 @@ def test_split_ignores_a_semicolon_in_a_line_comment() -> None:
 def test_traceability_immutable_trigger_parses_with_dollar_quoted_body() -> None:
     # The append-only audit immutability (block-mutation function + trigger) lives in the
     # consolidated 04_traceability.sql. Its dollar-quoted PL/pgSQL body has internal
-    # semicolons (RAISE EXCEPTION) that must not split the statement — the bug this guards.
+    # semicolons (RAISE EXCEPTION) that must not split the statement.
     path = (
         Path(__file__).resolve().parents[1]
         / "db" / "schema" / "postgres" / "04_traceability.sql"
@@ -76,12 +76,12 @@ def test_traceability_immutable_trigger_parses_with_dollar_quoted_body() -> None
 
 
 def test_tag_scope_consolidation_has_no_destructive_backfill_update() -> None:
-    # Regression guard (#255): init_postgres_schema() replays every baseline statement on
+    # init_postgres_schema() replays every baseline statement on
     # every restart until the release candidate (core/postgres_migrations.py; a one-shot
     # change belongs in an Alembic revision, which runs once), so an UPDATE normalizing rows back to
     # scope='global'/project_id=NULL would silently clobber every legitimately created
-    # project-scoped tag on each boot. The project-scoped-tag definition — now folded into
-    # the consolidated 03_assay.sql — must contain no such UPDATE; the inline column
+    # project-scoped tag on each boot. The project-scoped-tag definition — in the
+    # consolidated 03_assay.sql — must contain no such UPDATE; the inline column
     # DEFAULT 'global' + CHECK constraints already cover fresh DBs.
     path = (
         Path(__file__).resolve().parents[1]
@@ -91,7 +91,7 @@ def test_tag_scope_consolidation_has_no_destructive_backfill_update() -> None:
     kinds = [s.split()[0].upper() for s in stmts]
     assert "UPDATE" not in kinds
     joined = "\n".join(stmts)
-    # The folded scope column + constraints + project-links table must be present.
+    # The scope column + constraints + project-links table must be present.
     assert "scope text DEFAULT 'global'::text NOT NULL" in joined
     assert "small_variant_tag_definitions_scope_check" in joined
     assert "small_variant_tag_definitions_scope_project_check" in joined

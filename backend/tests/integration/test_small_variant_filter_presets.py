@@ -1,7 +1,7 @@
-"""Small-variant filter presets (#681) — real Postgres.
+"""Small-variant filter presets — real Postgres.
 
 A small-variant preset is its owner's, reusable in every family they can open; there is no
-family-scoped kind any more. Its owner is the account, whatever its user name is now (SEC-32).
+family-scoped kind. Its owner is the account, whatever its user name is now (SEC-32).
 This checks, against the real schema, that
 
 * saving a preset under a name its owner already uses replaces its content, in one row;

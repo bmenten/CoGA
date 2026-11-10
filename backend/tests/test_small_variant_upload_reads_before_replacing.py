@@ -1,15 +1,14 @@
 """A small-variant upload with overwrite reads and checks the whole file before it deletes
 the callset it replaces (SAFE-25).
 
-Before, the upload deleted the family's rows of its callset, and for imputed genotypes the
-family's haplotype blocks, and only then read the file: a file it refused (a sample the
-family does not have, no record it could store, a gzip file cut short, a line over the
-limit) answered 400 or 413, or a read error 500, with the callset and the blocks gone.
-Now a first read checks the whole file, building each record and the blocks as the write
-does and storing nothing; only then is the callset deleted and the file read again and
-written. A write that fails after that delete (a ClickHouse insert error) leaves the
-callset without its rows: the upload's clean-up removes what it wrote, and the family is
-flagged import-incomplete for what the upload was to bring, until it is brought again.
+A first read checks the whole file, building each record and the blocks as the write does
+and storing nothing; only then are the family's rows of its callset, and for imputed
+genotypes the family's haplotype blocks, deleted and the file read again and written. A file
+it refuses (a sample the family does not have, no record it could store, a gzip file cut
+short, a line over the limit) or cannot read leaves the callset and the blocks as they were.
+A write that fails after that delete (a ClickHouse insert error) leaves the callset without
+its rows: the upload's clean-up removes what it wrote, and the family is flagged
+import-incomplete for what the upload was to bring, until it is brought again.
 
 The upload runs through its route (``POST /families/{family_id}/small-variants/upload``)
 against fakes at the stores' edge: ClickHouse (the callsets' rows and the haplotype
@@ -256,8 +255,7 @@ def _a_records_annotation_fails(monkeypatch) -> None:
 
 
 # Files the upload refuses, or cannot read, each with what it answers. The fault is in the
-# header, at the end of the file, or in a record after the first ones: before, each
-# answered with the callset deleted, and the records before the fault stored and removed.
+# header, at the end of the file, or in a record after the first ones.
 _INVALID_FILES = {
     "a sample the family does not have": (
         _HEADER.replace("\tS2\n", "\tS9\n") + _calls(3),
@@ -275,8 +273,8 @@ _INVALID_FILES = {
         400,
         "VCF file must be plain text or gzipped",
     ),
-    # Two BGZF blocks, cut where the first ends: whole gzip, which the upload used to store
-    # as the callset, its later records gone (DATA-4).
+    # Two BGZF blocks, cut where the first ends: whole gzip, but not the whole callset, its
+    # later records gone (DATA-4).
     "a BGZF file cut where one of its blocks ends": (
         bgzip_cut_after((_HEADER + _calls(2_000)).encode(), 1),
         400,
@@ -303,8 +301,7 @@ async def test_an_invalid_file_uploaded_with_overwrite_leaves_the_callset_as_it_
         await _upload(database, body, name="family.vcf.gz" if isinstance(body, bytes) else "family.vcf")
 
     assert (refused.value.status_code, refused.value.detail) == (status, detail)
-    # Before: the clair3 rows deleted first, and what was read of the file stored and then
-    # removed again (a gzip file cut short even answered 500).
+    # Nothing deleted or stored: the family as it was.
     assert not [event for event in stores.events if event[0] in {"delete", "insert"}]
     _as_stored_before(stores, database)
     assert database.commits == 0
@@ -336,7 +333,7 @@ async def test_a_bgzf_file_cut_where_a_block_ends_is_refused_before_a_package_im
         400,
         "VCF file is not valid gzip: it is truncated (it does not end with BGZF's end-of-file block)",
     )
-    # Before: the callset deleted, the first block's records stored as the callset.
+    # Nothing written: the callset as it was.
     assert stores.events == []
     assert stores.rows == _STORED_ROWS
     assert not write_state.began
@@ -366,7 +363,7 @@ async def test_a_mitochondrial_upload_without_a_record_leaves_the_mitochondrial_
     # The owner's decision (SAFE-29): a mitochondrial SNV file without a variant record is a
     # failed analysis, never "no mitochondrial variant". The upload of the family's chrM calls
     # (source_format=mito) reads its file whole before it replaces them, as every small-variant
-    # upload does since SAFE-25, and refuses it with them as they were.
+    # upload does (SAFE-25), and refuses it with them as they were.
     stores.rows["mito"] = ["stored-mito-1"]
     database = _Postgres()
 
@@ -398,8 +395,8 @@ async def test_invalid_imputed_genotypes_leave_the_callset_and_the_haplotype_blo
         )
 
     assert refused.value.status_code == 400
-    # Before: the imputed rows and the blocks' rows deleted; Postgres, whose delete the
-    # error rolled back, still recorded the blocks.
+    # Nothing deleted: the imputed rows, the blocks' rows and Postgres's record of the
+    # blocks as they were.
     assert not [event for event in stores.events if event[0] in {"delete", "delete blocks", "insert"}]
     _as_stored_before(stores, database)
 
@@ -412,7 +409,7 @@ async def test_a_valid_file_with_overwrite_is_read_whole_before_it_replaces_the_
 
     assert result.inserted == 3 and result.source_format == "clair3"
     # Read to its end once, storing nothing; then the callset deleted, and the file read
-    # again and written. Before: the delete came first, and the file was read once.
+    # again and written.
     assert stores.events == [
         ("lock",),
         ("read",),
@@ -422,7 +419,7 @@ async def test_a_valid_file_with_overwrite_is_read_whole_before_it_replaces_the_
         ("read to its end",),
         ("insert", "clair3", 3),
     ]
-    # Replaced as before: the callset's rows, its record, in one commit; the imputed
+    # Replaced: the callset's rows, its record, in one commit; the imputed
     # callset and the blocks as they were.
     assert stores.rows["clair3"] == ["1-1000-A-G", "1-1010-A-G", "1-1020-A-G"]
     assert stores.rows["glimpse2"] == _STORED_ROWS["glimpse2"]
@@ -563,7 +560,7 @@ async def test_a_write_that_fails_after_the_delete_flags_the_family_for_the_call
     assert stores.rows["glimpse2"] == _STORED_ROWS["glimpse2"]
     # The family does not read as complete: it is flagged import-incomplete for the callset
     # the upload was to bring, under no import job, in a commit of its own. What the upload
-    # would have recorded is not (before: nothing marked the family).
+    # would have recorded is not.
     flag = database.committed["flag"]
     assert flag is not None
     assert (flag["failed_datasets"], flag["imported_datasets"]) == (["snv"], [])

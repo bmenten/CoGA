@@ -245,7 +245,7 @@ def test_pedigree_changes_are_chained_versions_and_clinical_audit_events(monkeyp
             )
             assert deletion["before"]["samples"] == [mother, f"{child}2"]
             assert deletion["before"]["structure_version"] == 4
-            # The administrator's reason, required since TRACE-16.
+            # The administrator's reason, required (TRACE-16).
             assert deletion["metadata"] == {"source": "admin_delete", "reason": "integration test"}
             assert (endpoint.verified, endpoint.rows_checked, endpoint.family_id) == (True, 4, label), endpoint
             assert audit_after.verified and audit_after.rows_checked == 5, audit_after

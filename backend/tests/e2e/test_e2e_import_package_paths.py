@@ -5,21 +5,18 @@ with 500, see test_e2e_api_contract.py) and Postgres, with synthetic packages:
 
 * a package whose ``manifest.yaml`` is a symlink to a manifest outside the import root: an
   import job of it ends ``failed`` with ``manifest_outside_package``, having written no family,
-  and the outside file is as it was. Before, the outside manifest was read as the package's,
-  and the job imported the family by it;
+  and the outside file is as it was;
 * a package whose manifest names a file under ``~coga-no-such-user``: the job ends failed with
-  that refusal; before, a job failed on "Could not determine home directory.";
+  that refusal;
 * a package whose manifest names a file through a symlink loop: the job ends failed with that
-  refusal; before, on Python 3.12, which CI runs, a job failed on "Symlink loop from ...", and
-  on 3.13 a missing file;
+  refusal;
 * a package whose PED names a father it lacks, with an escape in his ID, added to Deliveries
   by hand: CoGA proposes no members for it, and the delivery needs attention, naming the ID
   (``sample_id_invalid``);
 * the package list, with a package folder that is a symlink to a package outside the import
   root, one that loops and one that leads to a folder in the root: it leaves out the first
   two and lists the third by the folder it leads to, and adding the first by hand, typed, is
-  refused. Before, the list showed the first by its path outside the root, under the family
-  and analysis type of the manifest it read there.
+  refused.
 
 Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``e2e`` job sets it.
 """

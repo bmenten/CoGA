@@ -1,9 +1,9 @@
 """The NIPT quality checks' verdicts (REQ-NIPT-015), made once for the NIPT page and the
 signed record (``nipt_quality_checks``).
 
-The page made the fetal-fraction and the fetal-sex verdicts in the browser; a signed record
-must hold values made by the backend's tested code, so both are made here now, beside the
-plasma sample's and paternity's. Synthetic values only.
+A signed record must hold values made by the backend's tested code, so the fetal-fraction and
+the fetal-sex verdicts are made here, beside the plasma sample's and paternity's. Synthetic
+values only.
 """
 
 from __future__ import annotations

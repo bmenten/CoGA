@@ -1,12 +1,12 @@
 """A UUID a request body names a record by is read once, and its record looked up before
 anything is written (``core/sql.py``: ``require_uuid``).
 
-The NIPT artifact list's add, auto-seed and table import, and the import request, bound the
-``assembly_id`` or ``project_id`` of their body as they received it. A value that spells no
-UUID failed asyncpg's uuid codec (or the insert's uuid cast) with a 500, and so did a UUID in
-braces or after ``urn:uuid:``; a UUID of no assembly or project failed the add's or the job's
-foreign key, also with a 500. Over the routes, signed in as an admin on a session that finds
-nothing (synthetic ids):
+The NIPT artifact list's add, auto-seed and table import, and the import request, name a
+record by the ``assembly_id`` or ``project_id`` of their body. Bound as received, a value that
+spells no UUID would fail asyncpg's uuid codec (or the insert's uuid cast) with a 500, and so
+would a UUID in braces or after ``urn:uuid:``; a UUID of no assembly or project would fail the
+add's or the job's foreign key, also with a 500. Over the routes, signed in as an admin on a
+session that finds nothing (synthetic ids):
 
 * a value that spells no UUID is answered as a UUID of no record is, ``404 Assembly not
   found`` or ``404 Project not found``, before any query: it is never bound;
@@ -15,9 +15,9 @@ nothing (synthetic ids):
 * a viewer is refused (403) before the body is read.
 
 On a session that finds the assembly or the project, every statement binds its canonical id
-and the artifact list's audit event records it: an id in capitals used to be recorded as it
-came, and an audit search by the assembly's id missed the event. An import request that names
-no project (``None`` or ``""``) is queued without one, as before.
+and the artifact list's audit event records it, so an audit search by the assembly's id finds
+the event however the request spelled the id. An import request that names no project
+(``None`` or ``""``) is queued without one.
 
 The same over the real API and Postgres: e2e/test_e2e_request_body_uuid.py.
 """
