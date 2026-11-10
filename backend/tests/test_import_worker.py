@@ -44,7 +44,6 @@ _START = (
     "verify_postgres_schema_revision",
     "wait_for_clickhouse",
     "init_clickhouse_schema",
-    "verify_clickhouse_variant_storage_identity",
     "drop_orphaned_import_backups",
 )
 
@@ -316,7 +315,6 @@ def test_the_api_starts_as_many_import_workers_as_it_is_given(monkeypatch, caplo
         "queue_startup_gene_reference_refresh_if_needed",
         "wait_for_clickhouse",
         "init_clickhouse_schema",
-        "verify_clickhouse_variant_storage_identity",
         "drop_orphaned_import_backups",
         "start_clickhouse_integrity_monitor",
         "gene_reference_refresh_worker",

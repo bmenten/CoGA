@@ -153,13 +153,6 @@ docker compose exec -T backend printenv | grep -E '^(APP_ENV|POSTGRES_(HOST|PORT
 
 - **"Refusing to start … with missing or weak secrets"** — `APP_ENV` is not `development`
   and a secret still holds a placeholder; see [First-time setup](#first-time-setup).
-- **"Refusing to use ClickHouse variant tables whose rows are not identified by their
-  callset"** — the local ClickHouse data holds variant tables with a different row identity.
-  Reset (`docker compose down -v`) and load the demo data again, or follow the recovery steps
-  in [database.md](database.md#row-identity), which keep the interval tracks.
-- **"Refusing to use ClickHouse variant tables created by an earlier version"** — an
-  assembly's `SNV_INDEL/entries` table lacks the per-call columns `calls.filters` and
-  `calls.metrics`. Reset or recover as above.
 - **"The database is at schema revision …, which this version of CoGA does not have"** — a
   newer branch migrated your local Postgres. Start that branch again, or reset
   (`docker compose down -v`). An older local database needs nothing: the next start brings it

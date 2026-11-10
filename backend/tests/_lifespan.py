@@ -35,7 +35,6 @@ LIFESPAN_STEPS = (
     "queue_startup_gene_reference_refresh_if_needed",
     "wait_for_clickhouse",
     "init_clickhouse_schema",
-    "verify_clickhouse_variant_storage_identity",
     "drop_orphaned_import_backups",
     "start_clickhouse_integrity_monitor",
     "gene_reference_refresh_worker",

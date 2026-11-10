@@ -62,7 +62,6 @@ from .services.clickhouse_integrity_monitor import (
     start_clickhouse_integrity_monitor,
     stop_clickhouse_integrity_monitor,
 )
-from .services.clickhouse_variant_storage import verify_clickhouse_variant_storage_identity
 from .services.ui_event_pg import start_ui_event_worker, stop_ui_event_worker
 
 logger = logging.getLogger(__name__)
@@ -119,9 +118,6 @@ async def lifespan(app: FastAPI):
 
     await wait_for_clickhouse()
     await init_clickhouse_schema()
-    # Refuse to start on variant tables whose rows are not identified by their callset
-    # (created by an earlier version): their merges lose calls. See docs/database.md.
-    await verify_clickhouse_variant_storage_identity()
     # An overwrite import's backup tables (a copy of the family's earlier variant rows)
     # that no running import owns: left by an import whose process stopped. Best-effort.
     await drop_orphaned_import_backups()

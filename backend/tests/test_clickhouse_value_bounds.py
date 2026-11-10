@@ -18,8 +18,7 @@ tables the backend creates, with the column types their CREATE statements give t
 serialises every insert for those types with clickhouse-connect itself, so a value its
 column cannot hold fails here as it fails before reaching the server.
 ``e2e/test_e2e_values_beyond_columns.py`` shows the same through the routes and a package
-import against real ClickHouse, and ``integration/test_depth_columns_widened_clickhouse.py``
-the widening of a table created before. All samples and values are synthetic.
+import against real ClickHouse. All samples and values are synthetic.
 """
 
 from __future__ import annotations
@@ -95,15 +94,13 @@ def _ddl_columns(statement: str) -> tuple[str, dict[str, str]]:
 class _TypedClickHouse:
     """The tables the backend creates, and every insert serialised for its columns' types
     as clickhouse-connect serialises it: a value its column cannot hold raises the client's
-    own error. Nothing is stored before; ``stored_rows`` makes a count read rows.
-    ``column_types`` answers ``system.columns`` for the depth-column check."""
+    own error. Nothing is stored before; ``stored_rows`` makes a count read rows."""
 
     def __init__(self) -> None:
         self.tables: dict[str, dict[str, str]] = {}
         self.rows: dict[str, list[dict[str, Any]]] = defaultdict(list)
         self.statements: list[str] = []
         self.stored_rows = 0
-        self.column_types: list[tuple[str, str]] = []
 
     async def execute(self, query: str, params: Any = None, data: Any = None) -> Any:
         text = " ".join(query.split())
@@ -116,8 +113,6 @@ class _TypedClickHouse:
             table, columns = _ddl_columns(query)
             self.tables[table] = columns
             return None
-        if "FROM system.columns" in text and "SELECT name, type" in text:
-            return list(self.column_types)
         if text.startswith("SELECT count()") and "SNV_INDEL/entries" in text:
             return [(self.stored_rows,)]
         return []
@@ -296,45 +291,6 @@ async def test_the_depth_columns_are_created_wide_and_the_genotype_quality_is_no
     assert entries["calls.ad"] == "Array(Array(Nullable(UInt32)))"
     # A genotype quality is a phred score, not a count of reads: it stays UInt16.
     assert entries["calls.gq"] == "Array(Nullable(UInt16))"
-    # A table created wide is not altered.
-    assert not [text for text in clickhouse.statements if "MODIFY COLUMN" in text]
-
-
-@pytest.mark.asyncio
-async def test_a_table_created_with_narrow_depth_columns_is_widened_once(clickhouse) -> None:
-    clickhouse.column_types = [
-        ("calls.dp", "Array(Nullable(UInt16))"),
-        ("calls.ad", "Array(Array(Nullable(UInt16)))"),
-    ]
-    await clickhouse_variant_storage.ensure_clickhouse_variant_tables(_ASSEMBLY)
-    alters = [text for text in clickhouse.statements if "MODIFY COLUMN" in text]
-    assert alters == [
-        f"ALTER TABLE coga.`{_ASSEMBLY}/SNV_INDEL/entries` "
-        "MODIFY COLUMN `calls.ad` Array(Array(Nullable(UInt32))), "
-        "MODIFY COLUMN `calls.dp` Array(Nullable(UInt32))"
-    ]
-    # Once ensured, the process does not look again; a new process finds the wide types.
-    await clickhouse_variant_storage.ensure_clickhouse_variant_tables(_ASSEMBLY)
-    clickhouse_variant_storage._ensured_variant_table_assemblies.clear()
-    clickhouse.column_types = [
-        ("calls.dp", "Array(Nullable(UInt32))"),
-        ("calls.ad", "Array(Array(Nullable(UInt32)))"),
-    ]
-    await clickhouse_variant_storage.ensure_clickhouse_variant_tables(_ASSEMBLY)
-    assert [text for text in clickhouse.statements if "MODIFY COLUMN" in text] == alters
-
-
-@pytest.mark.asyncio
-async def test_only_the_narrow_type_of_a_depth_column_is_altered(clickhouse) -> None:
-    # A column with any other type is not this version's to change.
-    clickhouse.column_types = [
-        ("calls.dp", "Array(Nullable(UInt32))"),
-        ("calls.ad", "Array(Array(Nullable(UInt16)))"),
-    ]
-    await clickhouse_variant_storage.ensure_clickhouse_variant_tables(_ASSEMBLY)
-    assert [text for text in clickhouse.statements if "MODIFY COLUMN" in text] == [
-        f"ALTER TABLE coga.`{_ASSEMBLY}/SNV_INDEL/entries` MODIFY COLUMN `calls.ad` Array(Array(Nullable(UInt32)))"
-    ]
 
 
 # --- The small-variant upload ------------------------------------------------------------------

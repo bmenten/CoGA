@@ -72,9 +72,7 @@ SV→gene index attach by it. A ClickHouse row is one callset's call of one vari
 family and one project: its sort key ends with the callset (`source`). So a direct and an
 imputed call of one variant, or two callers' calls of one SV, are separate rows, and a part
 merge keeps both. The diagnostic lists show the direct call; the SV list shows an SV once per
-caller. The backend refuses to start on a table whose sort key leaves out the callset, or on a
-small-variant calls table without the per-call `calls.filters` and `calls.metrics` columns.
-The sort keys, how storage keys are built and the recovery steps are in
+caller. The sort keys and how storage keys are built are in
 [database.md](database.md#row-identity).
 
 ## Runtime flow
@@ -123,9 +121,7 @@ On start the backend (`backend/app/main.py`):
    assembly only; not the clinical CNVs, which the knowledgebase rebuild loads); and queues the
    first gene-reference sync when no gene information is cached (with or without the local
    dbNSFP gene file), or when the file is there and no cached gene was synced with it;
-4. waits for ClickHouse and creates the database; refuses to start when a variant table's sort
-   key leaves out the callset, or the small-variant calls table lacks the per-call FILTER and
-   metrics columns ([Storage identity](#storage-identity)); drops the backup tables of
+4. waits for ClickHouse and creates the database; drops the backup tables of
    `overwrite` imports that no running import owns (left by one whose process stopped;
    [database.md](database.md#clickhouse-tables)); and starts the scheduled ClickHouse
    integrity check;
@@ -153,9 +149,7 @@ On start it makes the checks the API makes before its workers run, and nothing e
 
 1. waits for Postgres and refuses to start unless the database is at this version's schema
    revision. It never migrates; Compose starts it once the backend, which migrates, is healthy;
-2. waits for ClickHouse, creates the database when it is missing, and refuses variant tables
-   whose sort key leaves the callset out or that lack the per-call columns
-   ([Storage identity](#storage-identity));
+2. waits for ClickHouse and creates the database when it is missing;
 3. drops the backup tables of `overwrite` imports that no running import owns;
 4. starts its workers.
 

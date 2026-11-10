@@ -562,7 +562,7 @@ Column-level detail lives with the DDL in `clickhouse_variant_storage.py`
 
 | Table | Column | Why it exists |
 | --- | --- | --- |
-| `…/SNV_INDEL/entries` | `calls.dp`, `calls.ad` | The call's read depth and allele depths, `UInt32` (up to 4,294,967,295 reads). A mitochondrial or amplicon call reads far more than the 65,535 a `UInt16` holds. A table created with the narrower type is altered to `UInt32` the first time the backend ensures the assembly's tables (`_widen_small_variant_call_columns`). It reads the two columns' types from `system.columns` first, so it alters a table once; every stored value is kept. `calls.gq`, a phred score, stays `UInt16`. |
+| `…/SNV_INDEL/entries` | `calls.dp`, `calls.ad` | The call's read depth and allele depths, `UInt32` (up to 4,294,967,295 reads). A mitochondrial or amplicon call reads far more than the 65,535 a `UInt16` holds. `calls.gq`, a phred score, is `UInt16`. |
 | `…/SNV_INDEL/entries` | `calls.ps` | Phase set, for read-based cis/trans against a phased SV |
 | `…/SNV_INDEL/entries` | `calls.af` | Per-allele fraction; on chrM this *is* the heteroplasmy level the mtDNA workspace reads |
 | `…/SNV_INDEL/entries` | `calls.filters` | The call's own FILTER values (`PASS` kept as is). Filled only when the VCF holds one sample, as each file of a monogenic NIPT pair, or of a primary callset read one file per sample, does: the record's FILTER then describes that one call. A DeepVariant `RefCall` kept as a partner's call says the caller read that partner as reference there. A call from a multi-sample VCF has none, since its record's FILTER describes the site. |
@@ -570,15 +570,6 @@ Column-level detail lives with the DDL in `clickhouse_variant_storage.py`
 | `…/SV/entries` | `calls.ps` | Phase set for a structural call |
 | `…/SV/entries` | `calls.cn` | Copy number from a call's `FORMAT/CN`: a depth-based CNV caller's (HiFiCNV), and an uploaded Sniffles or Spectre call's. `GT=1/1` on a duplication cannot tell CN=3 from CN=6; the ClinGen CNV dosage scoring needs the actual number, and a CNV's gain or loss is read from it (`sv_copy_change`). Null for callers that report none. |
 | `…/INTERVAL/entries` | `value`, `record_id`, `metadata_json` | On a `target_coverage` row (source `coverage_table`), one capture target of a per-target coverage table, at the table's BED coordinates: its mean depth, its gene (the first field of the table's `attribute`), and the table's `attribute`, `median`, `min`, `max`, `proportion_covered` (the percentage of its bases with any coverage) and `zero_coverage_bases`. The NIPT coverage check, the plasma's sex profile and the plasma's depth where it has no call read them ([nipt_target_coverage.py](../backend/app/services/nipt_target_coverage.py)); the track viewers do not draw this track. |
-
-The first time it ensures an assembly's tables, the backend drops columns no code reads, where a
-table has them (`_drop_unused_columns`): `liftedOverChrom` and
-`liftedOverPos` of `SNV_INDEL/variants/details` (always null), `sample_type` of both `entries`
-tables (always `WGS`), `transcript_ids`, `sift_terms` and `polyphen_terms` of
-`SNV_INDEL/variants/annotation_index` (written, never read) and `calls.gq` of `SV/entries`
-(never written). It reads the assembly's columns from `system.columns` first: a table that
-has some gets one `ALTER TABLE … DROP COLUMN IF EXISTS`, once; a table created without
-them gets none. Every other value of every row is kept.
 
 Every value a loader writes is bound to its column first
 ([clickhouse_column_bounds.py](../backend/app/services/clickhouse_column_bounds.py), applied by
@@ -862,35 +853,6 @@ deletes its rows. `delete_project_record` locks the project's row before it coun
 families: a link being written holds a share lock on that row (its foreign-key check), so it
 commits before the count, and one written after waits and then finds no project.
 
-#### Tables with a different row identity
-
-A table's sort key is fixed when ClickHouse creates it. At startup, and before it creates an
-assembly's tables, the backend compares each table's sort key with the one in the list above.
-If a table has another key, the backend refuses to start; the message names the table, its sort
-key and the one it needs. The rows are not copied into a new table: under the other key, merges
-may already have dropped calls, and only a re-import brings them back.
-
-An `SNV_INDEL/entries` table without the per-call columns `calls.filters` and `calls.metrics`
-is refused the same way, at the same two points. The message
-("Refusing to use ClickHouse variant tables created by an earlier version") names the table and
-the columns it lacks. The backend adds no column to a stored table, and a re-import is what
-fills the columns, so the recovery is the same. The one change it makes to a stored table is to
-widen the depth columns `calls.dp` and `calls.ad` to `UInt32` ([above](#clickhouse-tables)).
-
-To recover, for each assembly the message names:
-
-1. Stop the backend.
-2. Drop the assembly's small-variant and SV tables. List them with
-   `SELECT name FROM system.tables WHERE database = 'coga' AND match(name, '^GRCh38/(SNV_INDEL|SV)/')`
-   (with your database and assembly), then drop each one with ``DROP TABLE coga.`<name>` SYNC``.
-   The interval tracks (`INTERVAL/entries`) stay.
-3. Start the backend. It creates the tables with the sort keys above and every column.
-4. Re-import every family of the assembly. Reviews, classifications and signed reports are in
-   Postgres, and attach again by variant id.
-
-Locally, `docker compose down -v` and loading the demo data again does the same
-([development.md](development.md#stop-and-reset)).
-
 ## Identifier Rules
 
 - Metadata rows use UUID primary keys.
@@ -920,11 +882,9 @@ admin user exists. With the restricted runtime role a separate migration step
 on unless the database is at this version's own schema revision
 ([A start that does not migrate](#schema-migrations)).
 
-In ClickHouse, startup creates the database and refuses to go on when an assembly's tables have
-a different row identity, or its `SNV_INDEL/entries` table lacks the per-call columns
-([Row identity](#row-identity)). Each assembly's tables are created at first use; an
-`SNV_INDEL/entries` table created with the narrower depth columns is widened then
-([ClickHouse Tables](#clickhouse-tables)). The full startup order is in
+In ClickHouse, startup creates the database. Each assembly's tables are created at first use,
+with the row identity of [Row identity](#row-identity) and the columns of
+[ClickHouse Tables](#clickhouse-tables). The full startup order is in
 [application-scheme.md](application-scheme.md), "Startup and background work"; the reference
 data it loads is listed in [data-import.md](data-import.md), section 1.
 
