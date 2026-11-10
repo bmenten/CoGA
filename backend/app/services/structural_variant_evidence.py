@@ -278,7 +278,7 @@ def _changed_groups(frozen: Mapping[str, Any], current: Mapping[str, Any]) -> li
     return [
         name
         for name, fields in _CHANGE_GROUPS
-        if any(field in frozen and not _same(frozen.get(field), current.get(field)) for field in fields)
+        if any(not _same(frozen.get(field), current.get(field)) for field in fields)
     ]
 
 
@@ -293,9 +293,8 @@ def diff_structural_evidence(
     ``unknown`` (the frozen evidence cannot be read, or does not name the caller whose row
     it was frozen from, so it cannot be shown unchanged; the sign-out gate counts it like a
     drift) or ``variant_missing`` (that caller's call of the SV is no longer in the
-    family's data, whether or not another caller still calls it). Only the fields the
-    snapshot froze are compared, so evidence a later version of CoGA adds does not turn an
-    older classification into a drift.
+    family's data, whether or not another caller still calls it). The evidence is compared
+    whole, by its hash.
     """
     snapshot = _as_snapshot(snapshot)
     frozen_hash = snapshot.get("evidence_hash") if isinstance(snapshot, Mapping) else None
@@ -312,7 +311,7 @@ def diff_structural_evidence(
     # not cannot say which caller's row it is to be compared with.
     if evidence_from is None or not frozen_hash or frozen_evidence_source(snapshot) is None:
         return {"status": "unknown", "changed": [], "evidence_from": evidence_from, "evidence_to": current}
-    current_hash = canonical_hash({field: current.get(field) for field in evidence_from})
+    current_hash = canonical_hash(current)
     if current_hash == frozen_hash:
         return {"status": "current", "changed": [], "evidence_from": evidence_from, "evidence_to": current}
     return {

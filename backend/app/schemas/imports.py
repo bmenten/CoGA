@@ -261,6 +261,9 @@ class ImportDeliveryOut(ApiDocumentModel):
     # How many corrections were made to its package in CoGA (import_delivery_revisions.py): the
     # revision an approval names.
     revision: int = 0
+    # ``watched``: a package the import watcher found; ``manual``: a folder a person added by hand
+    # (import_manual_delivery.py), whose package CoGA made from the folder.
+    origin: Literal["watched", "manual"] = "watched"
     # The last import job the delivery was approved for (a dry run, or the import), and where it
     # stands.
     job_id: Optional[ApiId] = None
@@ -281,6 +284,19 @@ class ImportDeliveryApprove(BaseModel):
     dry_run: bool = False
     conflict_mode: Literal["cancel", "update", "overwrite"] = "cancel"
     acknowledge_warnings: bool = False
+
+
+class ImportDeliveryAdd(BaseModel):
+    """A package folder added to Deliveries by hand (import_manual_delivery.py): the folder under
+    the import roots, the project it belongs to, and, where they differ from what CoGA reads in
+    the folder, the family ID (the folder's name by default) and the analysis."""
+
+    folder_path: str = Field(min_length=1, max_length=4096)
+    project_id: str = Field(min_length=1)
+    family_id: Optional[str] = Field(default=None, max_length=512)
+    analysis_type: Optional[
+        Literal["wgs", "wgs_trio", "pgt_m", "monogenic_nipt", "long_read_wgs", "long_read_couple"]
+    ] = None
 
 
 class ImportDeliveryRefuse(BaseModel):

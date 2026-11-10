@@ -12,8 +12,8 @@ CoGA reads the file with. Its JSON Schema is
 [schemas/coga-package-1.schema.json](schemas/coga-package-1.schema.json), and
 [schemas/examples/](schemas/examples/) holds a synthetic example of each kind of package.
 
-**Where this stands (2026-11-10).** The watched import folders read `coga-package.json`; a
-`coga-ready.json` is no longer read ([data-import.md](data-import.md#watched-import-folders)). The
+**Where this stands (2026-11-10).** The watched import folders read `coga-package.json`, not a
+`coga-ready.json` ([data-import.md](data-import.md#watched-import-folders)). The
 owner approved the plan on 2026-11-10, in phases:
 
 1. Done: CoGA reads `coga-package.json` in the watched folders, in place of `coga-ready.json` and
@@ -24,9 +24,13 @@ owner approved the plan on 2026-11-10, in phases:
    ([data-import.md](data-import.md#correcting-a-delivery)) and **Correct…** in **Deliveries**;
    the family page (*Corrected at intake*) and every signed record (*Package intake*) list the
    corrections.
-3. Adding a family by hand makes the same file: CoGA drafts it from the folder, a PED if there
-   is one, and what the person adds. Such a delivery goes through Deliveries like a pipeline's.
-4. The PED and the manifest are no longer read by the import of a typed folder either.
+3. Done: adding a family by hand makes the same package: CoGA drafts it from the folder, a PED
+   if there is one, and what the person adds, and keeps it with a delivery of origin `manual`,
+   which goes through Deliveries like a pipeline's
+   ([data-import.md](data-import.md#adding-a-folder-by-hand)). The owner decided on 2026-11-10 that
+   CoGA computes no checksums for it (the import records each file's SHA-256), and that the
+   Package Import page's other form (Discover, the manifest, **Start import**) goes in phase 4.
+4. To do: the import of a typed folder stops reading the PED and the manifest.
 
 ## Writing the file
 
@@ -110,7 +114,7 @@ manifest's `family.members`, `family.add_members` and `individuals`, and the rea
 For PGT-M, `family.pgt` gives the `inheritance_model` (`AD`, `AR`, `XLD`, `XLR` or
 `mitochondrial`), the `affected_parents` (whose condition the test is for) and the `indexes` (the
 relatives the risk haplotype is read from). The import derives their statuses from the model, as
-it does now ([data-import.md](data-import.md#the-manifest)).
+it does for a manifest ([data-import.md](data-import.md#the-manifest)).
 
 ### Datasets
 
@@ -132,7 +136,7 @@ then refused until those datasets are left out of the import or the pipeline run
 ### A minimal file and a full one
 
 A pipeline can start with a **minimal** file: the fields every file holds, and what a complete
-one needs (where the package belongs and its files). That is what `coga-ready.json` asked
+one needs (where the package belongs and its files)
 ([schemas/examples/minimum.json](schemas/examples/minimum.json)). CoGA then proposes the members
 (from the pipeline's PED, if the folder has one) and the datasets (from the folder's layout), for
 the family the file names, and the delivery warns that it did (`package_members_proposed`,

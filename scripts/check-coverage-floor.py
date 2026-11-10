@@ -75,6 +75,8 @@ MODULE_FLOORS: dict[str, float] = {
     # (90.1 measured locally when it was added: approving and refusing a delivery; the e2e tests
     # run the job sync)
     "backend/app/services/import_delivery_review.py": 87.0,
+    # (100.0 measured locally when it was added: a folder added to the deliveries by hand)
+    "backend/app/services/import_manual_delivery.py": 97.0,
     # (100.0 measured locally when it was added: the families imported from each listed folder)
     "backend/app/services/imported_package_folders.py": 97.0,
     "backend/app/services/integrity_anchor_service.py": 97.0,  # (100.0, 2026-11-03; also floored combined)

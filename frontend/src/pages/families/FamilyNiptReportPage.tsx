@@ -41,7 +41,6 @@ import {
   LIVE_REPORT_SIGN_OFF_STATEMENT,
   liveReportSignedNotice,
   liveReportSignedState,
-  notComparedSentence,
 } from './signedReportRecord';
 import { routePath } from '../../lib/routePath';
 
@@ -467,8 +466,6 @@ const FamilyNiptReportPage: React.FC = () => {
   const printNotice = [incompleteNotice, liveReportSignedNotice(signedState, latestSignout?.version ?? null)]
     .filter(Boolean)
     .join(' ');
-  // What the check could not compare, the signed version not holding it (TRACE-19).
-  const notCompared = notComparedSentence(signoutCheck?.not_compared, `signed version ${latestSignout?.version}`);
   const signedVersionSearch = (version: number) => {
     const params = new URLSearchParams();
     if (preferredProjectId) params.set('project_id', preferredProjectId);
@@ -549,15 +546,9 @@ const FamilyNiptReportPage: React.FC = () => {
             out by <strong>{latestSignout.signed_out_by}</strong> on{' '}
             {formatReportTime(latestSignout.signed_out_at)}: it holds the NIPT results.{' '}
             {signedState === 'checking' ? 'Checking the family’s current data against it… ' : null}
-            {signedState === 'matches'
-              ? notCompared
-                ? `The family’s current data still matches it in everything it holds. ${notCompared} `
-                : 'The family’s current data still matches it. '
-              : null}
+            {signedState === 'matches' ? 'The family’s current data still matches it. ' : null}
             {signedState === 'changed'
-              ? `Changed since sign-out: ${describeReportSections(signoutCheck?.changed_sections ?? [])}. ${
-                  notCompared ? `${notCompared} ` : ''
-                }`
+              ? `Changed since sign-out: ${describeReportSections(signoutCheck?.changed_sections ?? [])}. `
               : null}
             {signedState === 'unverified'
               ? 'Whether the family’s current data still matches it could not be checked. '

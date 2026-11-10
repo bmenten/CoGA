@@ -97,10 +97,9 @@ export const SIGNED_ANALYSIS = {
   },
   repeat_expansions: {
     catalogue: { loci: 96, sources: ['CoGA built-in', 'STRchive'], digest: 'abcdef0123456789' },
-    // Since CoGA froze the near-boundary warnings (repeat_count_units.py): the margin in force,
-    // each locus's QA record of TRGT's counting units and each allele's warning. Since QA's count
-    // corrections (CLIN-57): each record's correction (none here) and TRGT's own count beside
-    // each count classified.
+    // The near-boundary warnings (repeat_count_units.py): the margin in force, each locus's QA
+    // record of TRGT's counting units and each allele's warning; QA's count corrections (CLIN-57):
+    // each record's correction (none here) and TRGT's own count beside each count classified.
     count_unit_margin: 3,
     loci: [
       {
@@ -293,41 +292,6 @@ export const SIGNED_ANALYSIS = {
   },
 };
 
-// The same repeat expansions as a record signed before CoGA froze the near-boundary warnings and
-// QA's records of TRGT's counting units holds them: no margin, no record per locus, no warning
-// beside an allele, and no TRGT count beside the count (it was TRGT's own).
-export const SIGNED_REPEAT_EXPANSIONS_BEFORE_COUNT_UNITS = {
-  catalogue: SIGNED_ANALYSIS.repeat_expansions.catalogue,
-  loci: SIGNED_ANALYSIS.repeat_expansions.loci.map((locus) => ({
-    ...Object.fromEntries(Object.entries(locus).filter(([key]) => key !== 'count_units')),
-    calls: locus.calls.map((call) => ({
-      ...call,
-      alleles: call.alleles.map((allele) =>
-        Object.fromEntries(
-          Object.entries(allele).filter(([key]) => key !== 'count_unit_warning' && key !== 'trgt_repeat_count'),
-        ),
-      ),
-    })),
-  })),
-};
-
-// The same repeat expansions as a record signed after CoGA froze the warnings but before QA's
-// count corrections (CLIN-57) holds them: no correction in a locus's record, no TRGT count
-// beside the count.
-export const SIGNED_REPEAT_EXPANSIONS_BEFORE_COUNT_OFFSETS = {
-  ...SIGNED_ANALYSIS.repeat_expansions,
-  loci: SIGNED_ANALYSIS.repeat_expansions.loci.map((locus) => ({
-    ...locus,
-    count_units: Object.fromEntries(Object.entries(locus.count_units).filter(([key]) => key !== 'count_offset')),
-    calls: locus.calls.map((call) => ({
-      ...call,
-      alleles: call.alleles.map((allele) =>
-        Object.fromEntries(Object.entries(allele).filter(([key]) => key !== 'trgt_repeat_count')),
-      ),
-    })),
-  })),
-};
-
 // The same repeat expansions with QA's correction of −1 at HTT, which TRGT reads one above the
 // usual count: TRGT's 19 and 41 were classified as 18 and 40 (CLIN-57).
 export const SIGNED_REPEAT_EXPANSIONS_WITH_CORRECTION = {
@@ -346,7 +310,7 @@ export const SIGNED_REPEAT_EXPANSIONS_WITH_CORRECTION = {
   ),
 };
 
-// A PGT family's embryo calls at the ROI, as its record freezes them since 2026-10-20
+// A PGT family's embryo calls at the ROI, as its record freezes them
 // (backend/app/services/pgt_analysis.py, the snapshot key pgt_analysis).
 export const SIGNED_PGT_ANALYSIS = {
   region_of_interest: { query: 'GENE1', label: 'GENE1', source: 'gene', chrom: '7', start: 30500000, end: 30600000 },
@@ -463,32 +427,4 @@ export const SIGNED_PGT_ANALYSIS = {
       min_discordance_markers: 20,
     },
   },
-};
-
-// The QC counts a record holds from before the markers on each flank of the ROI were counted apart
-// (and before their discordance was measured).
-const FLANK_COUNTS = [
-  'paternal_markers_left',
-  'paternal_markers_right',
-  'maternal_markers_left',
-  'maternal_markers_right',
-  'paternal_discordance',
-  'maternal_discordance',
-];
-const withoutFlankCounts = (qc: unknown) =>
-  qc && typeof qc === 'object' ? Object.fromEntries(Object.entries(qc).filter(([key]) => !FLANK_COUNTS.includes(key))) : qc;
-
-// The same analysis as a PGT family's record signed before CoGA checked each embryo's phasing QC
-// against thresholds holds it: no verdict beside the embryos' QC, no thresholds, and no markers
-// counted on each flank of the ROI.
-export const SIGNED_PGT_ANALYSIS_BEFORE_QC_VERDICT = {
-  ...SIGNED_PGT_ANALYSIS,
-  embryos: SIGNED_PGT_ANALYSIS.embryos.map((embryo) =>
-    Object.fromEntries(
-      Object.entries(embryo)
-        .filter(([key]) => key !== 'qc_verdict' && key !== 'mixed_homologs')
-        .map(([key, value]) => [key, key === 'qc' ? withoutFlankCounts(value) : value]),
-    ),
-  ),
-  rules: { window_flank: 1000000, recombination_flank: 250000, phase_switch_uncertainty: 2000000 },
 };

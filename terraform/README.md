@@ -117,9 +117,6 @@ deployment-gcp.md §12.7 and §12.9.
   ([deployment-gcp.md §12.4](../docs/deployment-gcp.md)). Terraform stores the new key and
   certificate before it destroys the old ones, so a VM that boots during that apply still
   finds both, though not always a matching pair until that restart.
-- **Older state versions.** An environment applied before OPS-10 still has the owner's
-  password and the old TLS keys in its older state versions: rotate and tidy up once
-  ([deployment-gcp.md §12.11](../docs/deployment-gcp.md)).
 - **Bucket grants are bucket-wide.** The backend's read access covers each whole bucket, not
   a prefix.
 - **No secret rotation automation.** Rotating a secret is a manual step

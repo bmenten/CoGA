@@ -19,17 +19,14 @@ the repeat page marks a count within 3 repeats of a classification boundary
 The record holds the counts and warnings the repeat page serves, made by the family table's own
 code, beside QA's record as the table's own statement read it with the calls: no second read
 can freeze a record the calls were not classified with. A validation, a withdrawal or a
-correction since sign-out changes what the check compares; a record signed before these fields
-is compared on what it holds (``repeat_expansions_comparable_with_record``), and nothing it
-predates is "not captured". The check itself is tested in test_report_signout.py, and all of it
-on Postgres and ClickHouse in e2e/test_e2e_signed_repeat_count_units.py. All samples and values
-are synthetic.
+correction since sign-out changes what the check compares, and none of these fields is "not
+captured". The check itself is tested in test_report_signout.py, and all of it on Postgres and
+ClickHouse in e2e/test_e2e_signed_repeat_count_units.py. All samples and values are synthetic.
 """
 
 from __future__ import annotations
 
 import asyncio
-import copy
 from datetime import datetime, timezone
 from typing import Any
 
@@ -394,30 +391,6 @@ def test_the_record_frozen_beside_the_calls_is_the_one_the_tables_statement_read
 # ---- What the check compares ------------------------------------------------------------------
 
 
-def _before_count_units(section: dict[str, Any]) -> dict[str, Any]:
-    """The section as a record signed before CoGA froze the warnings holds it."""
-    old = {key: value for key, value in copy.deepcopy(section).items() if key != "count_unit_margin"}
-    for locus in old["loci"]:
-        locus.pop("count_units")
-        for call in locus["calls"]:
-            for allele in call["alleles"]:
-                allele.pop("count_unit_warning")
-                allele.pop("trgt_repeat_count")
-    return old
-
-
-def _before_count_offsets(section: dict[str, Any]) -> dict[str, Any]:
-    """The section as a record signed after CoGA froze the warnings but before QA's count
-    corrections holds it: no correction in ``count_units``, no TRGT count beside the count."""
-    old = copy.deepcopy(section)
-    for locus in old["loci"]:
-        locus["count_units"].pop("count_offset")
-        for call in locus["calls"]:
-            for allele in call["alleles"]:
-                allele.pop("trgt_repeat_count")
-    return old
-
-
 def test_a_validation_a_withdrawal_or_a_correction_since_sign_out_changes_what_the_check_compares() -> None:
     rows = [_table_row(PROBAND_UUID, [30, 53], locus_id="FXS_FMR1", gene="FMR1", locus=FMR1)]
     signed = _freeze(rows)
@@ -431,119 +404,12 @@ def test_a_validation_a_withdrawal_or_a_correction_since_sign_out_changes_what_t
         "normal",
         "premutation",
     ]
-    # A record that holds them is compared whole: nothing is left out, nothing named.
-    for current in (validated, withdrawn, corrected):
-        assert srs.repeat_expansions_comparable_with_record(signed, current) == (current, [])
 
 
-def test_a_record_signed_before_the_warnings_is_compared_on_what_it_holds() -> None:
-    rows = [_table_row(PROBAND_UUID, [30, 53], locus_id="FXS_FMR1", gene="FMR1", locus=FMR1)]
-    current = _freeze(rows)
-    old = _before_count_units(current)
-
-    comparable, predated = srs.repeat_expansions_comparable_with_record(old, current)
-    assert comparable == old
-    # It predates QA's records and, with them, the corrections and TRGT's count beside the count.
-    assert predated == ["repeat_expansions.count_units", "repeat_expansions.count_offset"]
-    assert rss._section_fingerprint(comparable) == rss._section_fingerprint(old)
-    # What it holds is still compared: a count that changed since reads as a change.
-    changed = _freeze([_table_row(PROBAND_UUID, [30, 56], locus_id="FXS_FMR1", gene="FMR1", locus=FMR1)])
-    comparable, predated = srs.repeat_expansions_comparable_with_record(old, changed)
-    assert predated == ["repeat_expansions.count_units", "repeat_expansions.count_offset"]
-    assert rss._section_fingerprint(comparable) != rss._section_fingerprint(old)
-    # The current section itself is left as it was.
-    assert current["loci"][0]["count_units"]["validated"] is False
+# ---- None of it is "not captured" ---------------------------------------------------------------
 
 
-def test_an_older_record_without_calls_names_the_margin_it_predates() -> None:
-    current = _freeze([])
-    old = _before_count_units(current)
-    assert srs.repeat_expansions_comparable_with_record(old, current) == (
-        old,
-        ["repeat_expansions.count_units"],
-    )
-    # Both before the warnings: nothing to leave out, nothing to name.
-    assert srs.repeat_expansions_comparable_with_record(old, old) == (old, [])
-
-
-@pytest.mark.parametrize(
-    "signed",
-    [
-        {"unavailable": "The repeat-expansion calls could not be read."},
-        None,
-        "not a section",
-    ],
-)
-def test_a_record_that_holds_no_readable_section_is_compared_whole(signed) -> None:
-    current = _freeze([_table_row(PROBAND_UUID, [30, 53], locus_id="FXS_FMR1", gene="FMR1", locus=FMR1)])
-    assert srs.repeat_expansions_comparable_with_record(signed, current) == (current, [])
-
-
-def test_a_section_that_cannot_be_read_now_is_compared_as_it_is() -> None:
-    old = _before_count_units(_freeze([]))
-    unavailable = {"unavailable": "The repeat-expansion calls could not be read."}
-    assert srs.repeat_expansions_comparable_with_record(old, unavailable) == (unavailable, [])
-    assert srs.repeat_expansions_comparable_with_record(old, None) == (None, [])
-
-
-def test_entries_the_comparison_cannot_read_are_kept_as_they_are() -> None:
-    old = {"catalogue": {}, "loci": []}
-    current = {
-        "catalogue": {},
-        "count_unit_margin": 3,
-        "loci": [
-            "not a locus",
-            {"locus_id": "L1", "count_units": {"validated": False}, "calls": "not a list"},
-            {"locus_id": "L2", "calls": ["not a call", {"sample": "S1"}, {"sample": "S2", "alleles": ["x", {"a": 1}]}]},
-        ],
-    }
-    comparable, predated = srs.repeat_expansions_comparable_with_record(old, current)
-    assert predated == ["repeat_expansions.count_units"]
-    assert comparable["loci"] == [
-        "not a locus",
-        {"locus_id": "L1", "calls": "not a list"},
-        {"locus_id": "L2", "calls": ["not a call", {"sample": "S1"}, {"sample": "S2", "alleles": ["x", {"a": 1}]}]},
-    ]
-
-
-def test_a_record_signed_before_the_corrections_is_compared_on_what_it_holds() -> None:
-    rows = [_table_row(PROBAND_UUID, [30, 53], locus_id="FXS_FMR1", gene="FMR1", locus=FMR1)]
-    current = _freeze(rows)
-    old = _before_count_offsets(current)
-
-    comparable, predated = srs.repeat_expansions_comparable_with_record(old, current)
-    assert comparable == old
-    assert predated == ["repeat_expansions.count_offset"]
-    assert rss._section_fingerprint(comparable) == rss._section_fingerprint(old)
-    # The count it holds is the count classified: a correction recorded since that moves it, or
-    # a validation since, still reads as a change.
-    for units in (
-        _units(validated=False, reason="Offset from VAL-7", count_offset=-1),
-        _units(validated=True, reason="Validation report 13"),
-    ):
-        since = _freeze([{**row, **units} for row in rows])
-        comparable, predated = srs.repeat_expansions_comparable_with_record(old, since)
-        assert predated == ["repeat_expansions.count_offset"]
-        assert rss._section_fingerprint(comparable) != rss._section_fingerprint(old)
-    # Both before the corrections: nothing to leave out, nothing to name.
-    assert srs.repeat_expansions_comparable_with_record(old, old) == (old, [])
-    # The current section itself is left as it was.
-    assert current["loci"][0]["count_units"]["count_offset"] == 0
-    assert _alleles(current["loci"][0], "PROBAND1")[1]["trgt_repeat_count"] == 53
-
-
-def test_a_record_with_the_corrections_but_no_locus_is_compared_whole() -> None:
-    signed = _freeze([])
-    current = _freeze([_table_row(PROBAND_UUID, [30, 53], locus_id="FXS_FMR1", gene="FMR1", locus=FMR1)])
-    assert srs.repeat_expansions_comparable_with_record(signed, current) == (current, [])
-
-
-# ---- Nothing it predates is "not captured" ------------------------------------------------------
-
-
-def test_nothing_a_record_holds_or_predates_of_the_warnings_is_a_gap() -> None:
+def test_the_warnings_and_qas_records_are_no_gap() -> None:
     section = _freeze([_table_row(PROBAND_UUID, [30, 53], locus_id="FXS_FMR1", gene="FMR1", locus=FMR1)])
     assert srs.record_section_gaps({"repeat_expansions": section}) == []
-    assert srs.record_section_gaps({"repeat_expansions": _before_count_units(section)}) == []
-    assert rss.snapshot_gaps({"repeat_expansions": _before_count_units(section)}) == []
-    assert srs.record_section_gaps({"repeat_expansions": _before_count_offsets(section)}) == []
+    assert rss.snapshot_gaps({"repeat_expansions": section}) == []

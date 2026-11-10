@@ -35,32 +35,32 @@ of its own:
   2026-11-10). A family not imported from a delivery holds ``{"delivery": null}``;
 * ``pgt_analysis`` — in a PGT family (one with an embryo) only: the PGT analysis at the ROI,
   each embryo's call with what it rests on, as the family page shows it (``pgt_analysis``,
-  REQ-PGT-005). A family without an embryo has no such key, so its record is as before, and
-  nor has a monogenic NIPT family none of whose embryos has haplotype blocks of its own: its
-  fetus is an embryo member without data of its own (TRACE-19).
+  REQ-PGT-005). A family without an embryo has no such key, and nor has a monogenic NIPT
+  family none of whose embryos has haplotype blocks of its own: its fetus is an embryo
+  member without data of its own (TRACE-19).
 * ``nipt`` — in a monogenic NIPT family only: its NIPT analysis as the NIPT page shows it, the
   reported variants' classification among it, and the inputs it ran with
-  (``signed_record_nipt``). Another family has no such key, so its record is as before.
+  (``signed_record_nipt``). Another family has no such key.
 
 A section with an ``application`` is held by that application's families alone. Every
 section is built inside a savepoint. A section that cannot be read is frozen as
 ``{"unavailable": <a fixed sentence>}``, never as an empty one that would read as "nothing
-there" (#514), and ``report_signout_service.snapshot_gaps`` names it. A record signed before
-CoGA recorded a section does not hold it: the sign-out check lists it as not compared, and
-the signed view says the record does not hold it.
+there" (#514), and ``report_signout_service.snapshot_gaps`` names it. Every record holds
+every section (a section of one application, that application's families' records only).
 
 Adding a section (as the PGT and NIPT results were added):
 
 1. write its builder here: ``async (session, inputs) -> dict``, JSON-safe and deterministic
    (lists sorted, no clock, no random order), reading what the analysis showed the analyst;
 2. add it to ``RECORD_SECTIONS`` and to ``build_record_sections``. It is then hashed with
-   the record, compared by the sign-out check (``REPORT_CONTENT_SECTIONS`` includes every
-   key here) and named in ``not_captured`` when it could not be read. A section of one
+   the record, compared whole by the sign-out check (``REPORT_CONTENT_SECTIONS`` includes
+   every key here) and named in ``not_captured`` when it could not be read. A section of one
    application (``pgt_analysis``, ``nipt``) is added only for a family of it: the check
-   compares it where the record holds it, names it not compared where only the family's
-   current data does, and says nothing of it where neither does;
+   compares it where the record or the family's current data holds it, and skips it where
+   neither does;
 3. read it in ``frontend/src/pages/families/signedReportRecord.ts`` (``parseRecordSection``
-   gives the absent / unavailable / recorded states) and render it in
+   gives the unavailable / recorded states, and absent for another application's section)
+   and render it in
    ``SignedFamilyReport.tsx`` (``RecordSectionBlock``), with its label in
    ``REPORT_SECTION_LABELS``: a key the view does not render is missing from the signed
    view without a trace;
@@ -540,16 +540,10 @@ async def repeat_catalogue_identity(session: AsyncSession) -> dict[str, Any]:
     }
 
 
-# The section-level key that says the record holds the near-boundary warnings and QA's records:
-# the margin they were made with. A record signed before CoGA froze them holds neither.
+# The section-level key of the margin the near-boundary warnings were made with.
 COUNT_UNIT_MARGIN_KEY = "count_unit_margin"
-# What the check names as not compared for such a record (``repeat_expansions_comparable_with_record``).
-COUNT_UNITS_NOT_COMPARED = "repeat_expansions.count_units"
-# The key, in a locus's ``count_units``, of QA's count correction (CLIN-57); and what the check
-# names as not compared for a record that holds QA's records but was signed before corrections:
-# no ``count_offset`` per locus and no ``trgt_repeat_count`` per allele.
+# The key, in a locus's ``count_units``, of QA's count correction (CLIN-57).
 COUNT_OFFSET_KEY = "count_offset"
-COUNT_OFFSETS_NOT_COMPARED = "repeat_expansions.count_offset"
 
 
 def _count_units(locus: RepeatExpansionRowOut) -> dict[str, Any]:
@@ -646,116 +640,6 @@ async def repeat_expansion_calls(
         COUNT_UNIT_MARGIN_KEY: COUNT_UNIT_MARGIN,
         "loci": loci,
     }
-
-
-def _without_count_units(locus: Any) -> Any:
-    """A frozen locus as a record signed before the warnings holds it: no ``count_units``, and no
-    ``count_unit_warning`` on its alleles."""
-    if not isinstance(locus, Mapping):
-        return locus
-    held = {key: value for key, value in locus.items() if key != "count_units"}
-    calls = held.get("calls")
-    if isinstance(calls, list):
-        held["calls"] = [
-            {
-                **call,
-                "alleles": [
-                    {key: value for key, value in allele.items() if key != "count_unit_warning"}
-                    if isinstance(allele, Mapping)
-                    else allele
-                    for allele in call["alleles"]
-                ],
-            }
-            if isinstance(call, Mapping) and isinstance(call.get("alleles"), list)
-            else call
-            for call in calls
-        ]
-    return held
-
-
-def _without_count_offsets(locus: Any) -> Any:
-    """A frozen locus as a record signed before QA's count corrections holds it: no
-    ``count_offset`` in its ``count_units``, and no ``trgt_repeat_count`` on its alleles. Each
-    allele keeps ``repeat_count``, the count classified, which was TRGT's own count then."""
-    if not isinstance(locus, Mapping):
-        return locus
-    held = dict(locus)
-    units = held.get("count_units")
-    if isinstance(units, Mapping):
-        held["count_units"] = {key: value for key, value in units.items() if key != COUNT_OFFSET_KEY}
-    calls = held.get("calls")
-    if isinstance(calls, list):
-        held["calls"] = [
-            {
-                **call,
-                "alleles": [
-                    {key: value for key, value in allele.items() if key != "trgt_repeat_count"}
-                    if isinstance(allele, Mapping)
-                    else allele
-                    for allele in call["alleles"]
-                ],
-            }
-            if isinstance(call, Mapping) and isinstance(call.get("alleles"), list)
-            else call
-            for call in calls
-        ]
-    return held
-
-
-def _holds_count_offsets(signed: Mapping[str, Any]) -> bool:
-    """Whether a record holds QA's count corrections: a locus whose ``count_units`` has one. A
-    record without a locus holds nothing they could be compared with."""
-    loci = signed.get("loci")
-    if not isinstance(loci, list) or not loci:
-        return True
-    return any(
-        isinstance(locus, Mapping)
-        and isinstance(locus.get("count_units"), Mapping)
-        and COUNT_OFFSET_KEY in locus["count_units"]
-        for locus in loci
-    )
-
-
-def repeat_expansions_comparable_with_record(signed: Any, current: Any) -> tuple[Any, list[str]]:
-    """The current ``repeat_expansions`` to compare with a signed record's, and what of it the
-    record predates.
-
-    A record signed before CoGA froze the near-boundary warnings holds no ``count_unit_margin``,
-    no ``count_units`` per locus and no ``count_unit_warning`` per allele. A record signed after
-    that but before QA's count corrections (CLIN-57) holds no ``count_offset`` in a locus's
-    ``count_units`` and no ``trgt_repeat_count`` per allele. Like a section a record predates,
-    these are left out of the comparison and named as not compared (``COUNT_UNITS_NOT_COMPARED``,
-    ``COUNT_OFFSETS_NOT_COMPARED``), rather than every such record reading as changed; the calls,
-    their counts, statuses and the thresholds are compared on what the record holds, so a count
-    a correction recorded since changed reads as a change. A record that holds them is compared
-    whole, so a locus validated, withdrawn or corrected since it was signed reads as a change,
-    and so is a section the record froze as unavailable.
-    """
-    if not isinstance(signed, Mapping) or "unavailable" in signed or not isinstance(current, Mapping):
-        return current, []
-    if COUNT_UNIT_MARGIN_KEY in signed:
-        if _holds_count_offsets(signed):
-            return current, []
-        loci = current.get("loci")
-        if not isinstance(loci, list):
-            return current, []
-        held = [_without_count_offsets(locus) for locus in loci]
-        if held == loci:
-            return current, []
-        return {**current, "loci": held}, [COUNT_OFFSETS_NOT_COMPARED]
-    comparable = {key: value for key, value in current.items() if key != COUNT_UNIT_MARGIN_KEY}
-    predated = len(comparable) != len(current)
-    offsets_predated = False
-    loci = comparable.get("loci")
-    if isinstance(loci, list):
-        without_offsets = [_without_count_offsets(locus) for locus in loci]
-        offsets_predated = without_offsets != loci
-        held = [_without_count_units(locus) for locus in without_offsets]
-        predated = predated or held != loci
-        comparable["loci"] = held
-    if not predated:
-        return comparable, []
-    return comparable, [COUNT_UNITS_NOT_COMPARED, *([COUNT_OFFSETS_NOT_COMPARED] if offsets_predated else [])]
 
 
 # --- Paraphase --------------------------------------------------------------------

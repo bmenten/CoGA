@@ -469,6 +469,7 @@ SUPERUSER_CHANGE_ROUTES = {
     ("POST", "/api/family-imports/manifest/write"),
     ("POST", "/api/family-imports"),
     ("POST", "/api/family-imports/validate"),
+    ("POST", "/api/family-imports/deliveries"),
     ("POST", "/api/family-imports/deliveries/{delivery_id}/approve"),
     ("POST", "/api/family-imports/deliveries/{delivery_id}/refuse"),
     ("POST", "/api/family-imports/deliveries/{delivery_id}/revisions"),

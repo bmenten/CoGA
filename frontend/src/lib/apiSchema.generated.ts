@@ -1775,6 +1775,18 @@ export interface IdeogramBandOut {
 }
 
 /**
+ * A package folder added to Deliveries by hand (import_manual_delivery.py): the folder under
+ * the import roots, the project it belongs to, and, where they differ from what CoGA reads in
+ * the folder, the family ID (the folder's name by default) and the analysis.
+ */
+export interface ImportDeliveryAdd {
+  folder_path: string;
+  project_id: string;
+  family_id?: string | null;
+  analysis_type?: "wgs" | "wgs_trio" | "pgt_m" | "monogenic_nipt" | "long_read_wgs" | "long_read_couple" | null;
+}
+
+/**
  * A delivery approved for import: as a dry run or for real; ``cancel`` for a new family,
  * ``update`` or ``overwrite`` (an administrator's) for one whose family exists; its warnings
  * acknowledged when it has any. ``revision`` is the revision of its package the approver saw (0
@@ -1838,6 +1850,7 @@ export interface ImportDeliveryOut {
   warnings: ImportDeliveryIssue[];
   manifest_sha256: string | null;
   revision: number;
+  origin: "watched" | "manual";
   job_id: string | null;
   job_status: "queued" | "validating" | "running" | "completed" | "failed" | null;
   job_dry_run: boolean | null;
@@ -3582,10 +3595,8 @@ export interface ReportCodeLookupOut {
  * Whether the report, as it would be signed now, matches the latest sign-out.
  *
  * ``matches`` is None when the family has never been signed out. ``changed_sections``
- * names the snapshot sections whose content differs from the signed one;
- * ``not_compared`` those the signed snapshot predates and so cannot be compared (a
- * reference module as ``modules.<key>``, e.g. ``modules.hpo``); ``not_captured`` the
- * parts the signed snapshot records as unavailable or, being older, does not hold.
+ * names the snapshot sections whose content differs from the signed one, each section
+ * compared whole; ``not_captured`` the parts the signed snapshot records as unavailable.
  */
 export interface ReportSignoutCheckOut {
   family_id: string;
@@ -3593,7 +3604,6 @@ export interface ReportSignoutCheckOut {
   content_hash: string | null;
   matches: boolean | null;
   changed_sections: string[];
-  not_compared: string[];
   not_captured: ReportSnapshotGapOut[];
   checked_at: string;
 }

@@ -235,6 +235,7 @@ def test_the_family_and_the_job_name_the_delivery_it_came_from(ran) -> None:
         "revision": 0,
         "package_sha256": ran["record"]["package_sha256"],
         "corrections": [],
+        "origin": "watched",
     }
     assert len(ran["record"]["package_sha256"]) == 64
     assert ran["record"] == expected

@@ -448,10 +448,8 @@ the latest, intact record:
 *Signed versions* at the top lists every version; an earlier one names the version that replaces it.
 On the latest version the page says whether the family's current data still matches it, or what has
 changed since (a review, a report tag, a re-import, a QC cut-off, QA's validation or count correction
-of a repeat locus). What the version does not hold cannot be compared, and the line names it: *The
-family’s current data still matches this signed version in everything it holds. Not in this version,
-so not compared: …* That line is not printed: the version stays what was signed.
-Sign out again to issue a new version.
+of a repeat locus). That line is not printed: the version stays what was signed. Sign out again to
+issue a new version.
 
 **Download signed version N (JSON)** returns the frozen record itself.
 
@@ -467,10 +465,6 @@ matches that version:
 - *This page still matches signed version 2* — even then, print the signed version for the record;
 - amber — something changed after sign-out, and the card names what;
 - grey — *This page could not be checked against signed version N — treat it as unsigned.*
-
-Beside a match or a change, the card names what signed version 2 does not hold, so could not be
-compared (*Not in signed version 2, so not compared: …*). A match then reads *still matches signed
-version 2 in everything that version holds*.
 
 Every printout of the live report starts with a notice: *Not the signed report — …*, or *Draft — this
 report has not been signed* for a case never signed out. After **Sign out report**, the page shows the

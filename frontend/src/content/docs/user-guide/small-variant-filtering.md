@@ -52,7 +52,7 @@ quality**, **Locations**, **Exclude** and **Review and curation**.
   shows. A class word typed as the classification (*VUS*) gives its class; otherwise the review's class
   tag gives it, the most severe of two; otherwise the classification as typed. So *Likely pathogenic -
   class 4* also finds a variant classified by its class tag alone, and not one classified as *VUS -
-  class 3* beside the *Likely pathogenic - class 4* tag: that variant shows class 4. Capitals do not
+  class 3* beside the *Pathogenic - class 5* tag: that variant shows class 5. Capitals do not
   matter.
 
 For de novo and dominant, a male's call on chrX or chrY outside the pseudo-autosomal regions (`1` or

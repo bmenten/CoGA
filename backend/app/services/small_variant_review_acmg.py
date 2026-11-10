@@ -35,8 +35,7 @@ from .review_pg_utils import _json_payload, _read_stored_classification
 EVIDENCE_CONSEQUENCE_FIELDS: tuple[str, ...] = ("effect", "impact", "lof", "lof_flags", "nmd")
 # For a multi-allelic record (ALT ``G,T``) only: the ALT the consequence, frequencies and
 # scores are of, frozen in the consequence group. The transcript alone does not say which
-# allele's annotation the classification read. A snapshot frozen before has none, and is
-# compared on what it froze.
+# allele's annotation the classification read.
 EVIDENCE_ALLELE_FIELD = "alt_allele"
 # The population frequencies a small-variant classification rests on (CLIN-7), in the order
 # a reviewer reads them: the gnomAD allele frequency the frequency criteria read (PM2, BS1,

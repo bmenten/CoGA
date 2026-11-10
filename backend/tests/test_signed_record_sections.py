@@ -498,7 +498,7 @@ def test_a_section_that_cannot_be_read_is_frozen_as_unavailable_and_named(monkey
     # The reference data names no gene when no variant could be described.
     assert sections["reference_data"]["gene_reference"]["genes"] == []
 
-    gaps = rss.snapshot_gaps({**sections, "modules": [], "reference_modules": ["assembly", "gene_loci", "monarch", "hpo"]})
+    gaps = rss.snapshot_gaps({**sections, "modules": []})
     assert gaps == [
         {"section": "variant_descriptions", "item": "Variant descriptions", "reason": srs.VARIANT_DESCRIPTIONS.unavailable},
         {"section": "paraphase", "item": "Paraphase results", "reason": srs.PARAPHASE.unavailable},
@@ -619,16 +619,6 @@ def test_nipt_results_that_cannot_be_read_are_frozen_as_unavailable_and_named(mo
     assert srs.record_section_gaps(sections) == [
         {"section": "nipt", "item": "NIPT results", "reason": "The NIPT results could not be read."}
     ]
-
-
-@pytest.mark.parametrize("absent", [section.key for section in srs.RECORD_SECTIONS])
-def test_a_section_a_record_predates_is_no_gap(absent: str) -> None:
-    # Said by the signed view and listed by the check as not compared, not as not captured.
-    snapshot = {section.key: {} for section in srs.RECORD_SECTIONS if section.key != absent}
-    assert srs.record_section_gaps(snapshot) == []
-
-
-# --- The PGT analysis, in a PGT family ---------------------------------------------------
 
 
 def _pgt_context(*roles: str) -> types.SimpleNamespace:
@@ -874,7 +864,6 @@ def test_only_the_pgt_and_nipt_sections_belong_to_one_application() -> None:
     }
     assert srs.PGT_ANALYSIS.application == "pgt"
     assert srs.NIPT_RESULTS.application == "nipt"
-
 
 
 # --- The delivered package and its corrections --------------------------------------

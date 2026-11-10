@@ -55,22 +55,6 @@ describe('useStructuralVariantSearchState default (fresh open)', () => {
     expect(result.current.filters.panel_id).toBe('');
   });
 
-  it('reads a class label a link saved before the labels were in sentence case as the options write it', async () => {
-    // ENG-6: "Likely Pathogenic - class 4" in a link ticks the "Likely pathogenic - class 4" box.
-    const { result } = renderHook(() =>
-      useStructuralVariantSearchState({
-        family,
-        locationSearch: '?classification=Likely+Pathogenic+-+class+4&classification=My+own+words',
-        navigate: () => {},
-        mendeliomePanelId: 'mendel-1',
-        panelsLoaded: true,
-      }),
-    );
-    await waitFor(() =>
-      expect(result.current.filters.classification).toBe('Likely pathogenic - class 4, My own words'),
-    );
-  });
-
   it('waits for the panels query before applying the default', async () => {
     const { result, rerender } = renderHook(
       ({ loaded, id }: { loaded: boolean; id?: string }) =>

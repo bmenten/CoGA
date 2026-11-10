@@ -11,7 +11,6 @@ import {
   buildActiveFilterChips,
   buildSmallVariantQueryParams,
   buildPresetPayload,
-  canonicalClassificationFilter,
   createEmptySmallFilters,
   describeUnappliedFilters,
   deserializePresetFilters,
@@ -588,36 +587,7 @@ describe('class labels in sentence case', () => {
     expect(Object.values(CNV_CLASS_LABELS)).toEqual(ACMG_CLASSIFICATION_TAGS.map((tag) => tag.label));
   });
 
-  it('reads a class label saved in another case as the option writes it, and keeps any other value', () => {
-    expect(canonicalClassificationFilter('Likely Pathogenic - class 4, VUS - CLASS 3, My own words')).toBe(
-      'Likely pathogenic - class 4, VUS - class 3, My own words',
-    );
-    expect(canonicalClassificationFilter('')).toBe('');
-    expect(
-      deserializePresetFilters({ classification: ['Pathogenic - class 5', 'Likely Pathogenic - class 4'] })
-        .classification,
-    ).toBe('Pathogenic - class 5, Likely pathogenic - class 4');
-  });
 
-  it('reads a link saved before as the options write it', async () => {
-    const family = {
-      members: [{ sample_id: 'S1', role: 'proband', affected: true, sex: 'female' }],
-      relationships: [],
-      projects: [],
-    } as never;
-    const { result } = renderHook(() =>
-      useSmallVariantSearchState({
-        family,
-        locationSearch: '?classification=Pathogenic+-+class+5&classification=Likely+Pathogenic+-+class+4',
-        navigate: () => {},
-        mendeliomePanelId: 'mendel-1',
-        panelsLoaded: true,
-      }),
-    );
-    await waitFor(() =>
-      expect(result.current.filters.classification).toBe('Pathogenic - class 5, Likely pathogenic - class 4'),
-    );
-  });
 });
 
 // The class a review shows, from its text and its tags. The Variant Explorer reads it on the server

@@ -13,10 +13,11 @@ link and listed in ``ALLOWED_LINKS``, with the reason it stays; a listed link th
 cites any more fails, so the list cannot grow stale. The checker itself is tested on a document
 that holds every form, so that it cannot pass by reading nothing.
 
-An open-issue ID the technical file cites (``CLIN-57``, ``SAFE-15``) can be looked up too
-(DOC-10): it is open, a row of ``docs/open-issues.md`` or an item of ``docs/ROADMAP.md``, or it is
-closed and ``docs/closed-issues.md`` says what it was and what closed it, by commit and date. That
-register cites no pull-request or issue number either.
+An issue ID the technical file cites (``CLIN-57``, ``SEC-23``) tracks open work: it is a row of
+``docs/open-issues.md`` or an item of ``docs/ROADMAP.md``. An ID that only labelled the change
+that built a behaviour has no place in the technical file, which states the behaviour instead;
+so a closed ID is refused, and an ID that is closed while the file still cites it fails here
+until the file says what it stood for.
 """
 
 from __future__ import annotations
@@ -124,25 +125,20 @@ def test_a_link_left_off_the_allowed_list_is_reported() -> None:
     assert numbered_references(text) == []
 
 
-# --- An open-issue ID the technical file cites can be looked up (DOC-10) ---------------------------
-# An ID leaves docs/open-issues.md when it is closed. The technical file keeps citing it, so
-# docs/closed-issues.md says what it was and what closed it.
+# --- An issue ID the technical file cites tracks open work ---------------------------------------
 
 _DOCS = _REPO / "docs"
-_CLOSED_ISSUES = _DOCS / "closed-issues.md"
 _ID = r"(?:CLIN|DATA|DOC|ENG|OPS|PROD|REG|SAFE|SEC|TRACE|UI)-\d+"
 # An open-issue ID on its own: not the tail of a requirement ID such as REQ-SEC-001.
 _ISSUE_ID = re.compile(rf"(?<![\w-]){_ID}\b")
-# The first cell of a table row (open-issues.md, closed-issues.md) and a roadmap item's ID
+# The first cell of a row of open-issues.md and a roadmap item's ID
 # ("- **Request tracing** (SEC-16): …").
 _ROW_ID = re.compile(rf"^\|\s*({_ID})\s*\|", re.MULTILINE)
 _ROADMAP_ITEM_ID = re.compile(rf"^\s*-\s+\*\*[^*]+\*\*\s+\(({_ID})\)", re.MULTILINE)
-_DATE = re.compile(r"\b20\d\d-\d\d-\d\d\b")
-_COMMIT = re.compile(r"`[0-9a-f]{8}`")
 
 
 def cited_issue_ids(text: str) -> set[str]:
-    """The open-issue IDs ``text`` cites, whether open or closed."""
+    """The issue IDs ``text`` cites, whether open or closed."""
     return set(_ISSUE_ID.findall(text))
 
 
@@ -157,51 +153,20 @@ def _open_issue_ids() -> set[str]:
     return listed | roadmap
 
 
-def _closed_issue_rows() -> list[list[str]]:
-    rows = []
-    for line in _read(_CLOSED_ISSUES).splitlines():
-        if _ROW_ID.match(line):
-            rows.append([cell.strip() for cell in line.strip().strip("|").split("|")])
-    assert rows, "docs/closed-issues.md lists no issue"
-    return rows
-
-
-def test_each_issue_id_the_technical_file_cites_is_open_or_in_the_closed_register() -> None:
-    known = _open_issue_ids() | {row[0] for row in _closed_issue_rows()}
-    unknown = [
+def test_each_issue_id_the_technical_file_cites_is_open() -> None:
+    open_ids = _open_issue_ids()
+    closed = [
         f"{doc.relative_to(_REPO)}: {issue_id}"
         for doc in _documents()
         for issue_id in sorted(cited_issue_ids(_read(doc)))
-        if issue_id not in known
+        if issue_id not in open_ids
     ]
-    assert not unknown, (
-        "The technical file cites issue IDs that are neither open (docs/open-issues.md, "
-        "docs/ROADMAP.md) nor in docs/closed-issues.md. Add a row there for each: what it was, "
-        "and what closed it with the commit on main and its date:\n" + "\n".join(unknown)
+    assert not closed, (
+        "The technical file cites issue IDs that are not open (neither a row of "
+        "docs/open-issues.md nor an item of docs/ROADMAP.md). An ID only labels the change that "
+        "built a behaviour: state the behaviour, the decision with its date and role, or the "
+        "verifying test instead, and drop the ID:\n" + "\n".join(closed)
     )
-
-
-def test_no_issue_is_both_open_and_closed() -> None:
-    closed = [row[0] for row in _closed_issue_rows()]
-    assert len(closed) == len(set(closed)), "an ID has two rows in docs/closed-issues.md"
-    both = sorted(_open_issue_ids() & set(closed))
-    assert not both, f"Open again, so off docs/closed-issues.md: {both}"
-
-
-def test_each_closed_issue_says_what_it_was_and_what_closed_it() -> None:
-    incomplete = [
-        row[0]
-        for row in _closed_issue_rows()
-        if len(row) != 3 or not row[1] or not _DATE.search(row[2]) or not _COMMIT.search(row[2])
-    ]
-    assert not incomplete, (
-        "Each row of docs/closed-issues.md has the ID, what it was, and what closed it naming a "
-        f"commit on main (its short SHA, 8 characters) and the date: {incomplete}"
-    )
-
-
-def test_the_closed_issue_register_cites_no_pull_request_or_issue_number() -> None:
-    assert numbered_references(_read(_CLOSED_ISSUES), allowed=()) == []
 
 
 def test_an_issue_id_is_told_from_the_ids_around_it() -> None:

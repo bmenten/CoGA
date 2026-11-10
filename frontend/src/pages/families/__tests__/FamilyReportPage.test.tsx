@@ -8,9 +8,6 @@ import { renderFamilyRoute } from '../../../test/familyRoute';
 import {
   SIGNED_ANALYSIS,
   SIGNED_PGT_ANALYSIS,
-  SIGNED_PGT_ANALYSIS_BEFORE_QC_VERDICT,
-  SIGNED_REPEAT_EXPANSIONS_BEFORE_COUNT_OFFSETS,
-  SIGNED_REPEAT_EXPANSIONS_BEFORE_COUNT_UNITS,
   SIGNED_REPEAT_EXPANSIONS_WITH_CORRECTION,
   SIGNED_STATEMENT,
 } from '../../../test/signedAnalysisFixture';
@@ -1327,7 +1324,6 @@ describe('FamilyReportPage', () => {
         content_hash: 'abc123def456',
         matches: true,
         changed_sections: [],
-        not_compared: [],
         checked_at: '2026-09-28T10:00:00Z',
         ...overrides,
       },
@@ -1374,7 +1370,6 @@ describe('FamilyReportPage', () => {
       { key: 'assembly', label: 'Reference assembly', version: 'GRCh38', detail: '2013-12-01', layer: 'reference' },
       { key: 'clinvar', label: 'ClinVar', version: '2026-04', detail: null, layer: 'pipeline' },
     ],
-    reference_modules: ['assembly', 'gene_loci', 'monarch', 'hpo'],
     software: { version: '0.1.0', git_sha: 'abc1234def567' },
     drift: { checked: 1, drifted_count: 0, drifted: [] },
     structural_drift: { checked: 0, drifted_count: 0, drifted: [] },
@@ -1440,7 +1435,6 @@ describe('FamilyReportPage', () => {
     reported_structural_variants: [
       {
         variant_id: '2-1000-50000-DEL---',
-        variant_key: 123,
         classification: 'Pathogenic - class 5',
         class_shown: 'Pathogenic - class 5',
         cnv_class: 'cnv_class_5',
@@ -1615,7 +1609,6 @@ describe('FamilyReportPage', () => {
           reported_structural_variants: [
             {
               variant_id: '2-1000-50000-DEL---',
-              variant_key: 123,
               classification: 'Uncertain significance - class 3',
               class_shown: 'Uncertain significance - class 3',
               cnv_class: 'cnv_class_3',
@@ -1657,17 +1650,13 @@ describe('FamilyReportPage', () => {
       const note = (await screen.findByRole('heading', { name: 'Not in the signed record' })).closest(
         'section',
       )!;
-      expect(note).toHaveTextContent(
-        'the variant description: gene, HGVS, consequence, genotypes, population frequency and in silico predictions',
-      );
+      expect(note).toHaveTextContent('the population frequency and the in silico predictions the live report shows');
       expect(note).toHaveTextContent('the segregation in the family, and the family’s members');
       expect(note).toHaveTextContent('the gene description, its associated conditions and its gene panels');
       expect(note).toHaveTextContent('the phenotype (HPO) terms and their overlap with the gene');
       expect(note).toHaveTextContent('the clinical audit trail and the analysis pipeline settings');
       // Said on each variant card, which prints on its own.
-      expect(
-        screen.getAllByText('Not in the signed record: the variant description, segregation, gene and phenotype.'),
-      ).toHaveLength(2);
+      expect(screen.getAllByText('Not in the signed record: the segregation, gene and phenotype.')).toHaveLength(2);
     });
 
     // The signed analysis record (owner decisions of 2026-10-14): what the analysis looked at,
@@ -1738,31 +1727,6 @@ describe('FamilyReportPage', () => {
       );
     });
 
-    it('says which of these a record signed before them does not hold, and still shows it', async () => {
-      mockSignedCase();
-      const { container } = renderPage();
-
-      const card = await signedRecordCard();
-      // Its code is made from fields every record holds; the sentence says what it is.
-      expect(within(card).getByText('Report code').closest('p')).toHaveTextContent('Report code 7KQM2X-2-4PHT');
-      expect(card).toHaveTextContent(SIGNED_STATEMENT);
-      const section = (name: string) => screen.getByRole('heading', { name }).closest('section')!;
-      expect(section('Gene panels applied')).toHaveTextContent(
-        'Not in the signed record: version 2 was signed before CoGA recorded the gene panels the analysis applied.',
-      );
-      expect(section('Repeat expansions (TRGT)')).toHaveTextContent(
-        'Not in the signed record: version 2 was signed before CoGA recorded the repeat-expansion calls.',
-      );
-      expect(section('Paraphase')).toHaveTextContent(
-        'Not in the signed record: version 2 was signed before CoGA recorded the Paraphase results.',
-      );
-      expect(section('Reference-data releases')).toHaveTextContent(
-        'Not in the signed record: version 2 was signed before CoGA recorded the reference-data releases.',
-      );
-      expect(screen.queryByRole('heading', { name: 'Variant description as reviewed' })).not.toBeInTheDocument();
-      expect(container.querySelector('footer')).toHaveTextContent('Reference data as signed: not in the signed record');
-    });
-
     it('says what a record could not capture of what the analysis looked at', async () => {
       mockSignedCase({
         snapshot: {
@@ -1825,44 +1789,6 @@ describe('FamilyReportPage', () => {
       expect(repeats).not.toHaveTextContent('Not captured');
     });
 
-    it('reads a repeat record signed before the corrections as it was signed', async () => {
-      mockSignedCase({
-        snapshot: { ...SIGNED_SNAPSHOT, ...SIGNED_ANALYSIS, repeat_expansions: SIGNED_REPEAT_EXPANSIONS_BEFORE_COUNT_OFFSETS },
-      });
-      renderPage();
-
-      const repeats = (await screen.findByRole('heading', { name: 'Repeat expansions (TRGT)' })).closest('section')!;
-      const items = within(repeats).getAllByRole('listitem');
-      expect(items.map((item) => item.textContent)).toEqual([
-        'HTT (HD_HTT), Huntington disease: Pathogenic (grey zone from 27, pathogenic from 36; motif CAG). PROBAND 0/1: 18, 40 repeats — Pathogenic. TRGT’s counting units: validated — Validation report 7 (qa-lead, 2026-10-15 09:00 UTC).',
-        'FMR1 (FXS_FMR1), Fragile X syndrome: Grey zone (grey zone from 45, premutation from 55, pathogenic from 201; motif CGG). MOTHER 1/2: 30, 53 repeats — Grey zone ⚠ Near a boundary: 53 is within 3 repeats of 55 (Premutation). TRGT’s counting units: not validated (no QA record).',
-      ]);
-      expect(repeats).not.toHaveTextContent('count correction');
-      expect(repeats).not.toHaveTextContent('Not captured');
-    });
-
-    it('reads a repeat record signed before the warnings as it was signed, with nothing called not captured', async () => {
-      mockSignedCase({
-        snapshot: {
-          ...SIGNED_SNAPSHOT,
-          ...SIGNED_ANALYSIS,
-          repeat_expansions: SIGNED_REPEAT_EXPANSIONS_BEFORE_COUNT_UNITS,
-        },
-      });
-      renderPage();
-
-      const repeats = (await screen.findByRole('heading', { name: 'Repeat expansions (TRGT)' })).closest('section')!;
-      const items = within(repeats).getAllByRole('listitem');
-      expect(items.map((item) => item.textContent)).toEqual([
-        'HTT (HD_HTT), Huntington disease: Pathogenic (grey zone from 27, pathogenic from 36; motif CAG). PROBAND 0/1: 18, 40 repeats — Pathogenic',
-        'FMR1 (FXS_FMR1), Fragile X syndrome: Grey zone (grey zone from 45, premutation from 55, pathogenic from 201; motif CGG). MOTHER 1/2: 30, 53 repeats — Grey zone',
-      ]);
-      expect(repeats).not.toHaveTextContent('Near a boundary');
-      expect(repeats).not.toHaveTextContent('counting units');
-      expect(repeats).not.toHaveTextContent('Not captured');
-      expect(repeats).not.toHaveTextContent('Not in the signed record');
-    });
-
     // What each coverage track held (signed_record_sections.coverage_tracks, owner decision of
     // 2026-10-20): which kind of coverage a depth check rested on, on screen and in print.
     it('shows what each coverage track held and where it came from, on screen and in print', async () => {
@@ -1913,7 +1839,7 @@ describe('FamilyReportPage', () => {
 
     it('names the NIPT coverage check among the depth readers in a NIPT family’s record', async () => {
       const niptQc = { ...SIGNED_SNAPSHOT.sample_qc, application: 'nipt', application_label: 'Monogenic NIPT (cfDNA)' };
-      mockSignedCase({ snapshot: { ...SIGNED_SNAPSHOT, ...SIGNED_ANALYSIS, sample_qc: niptQc } });
+      mockSignedCase({ snapshot: { ...SIGNED_SNAPSHOT, ...SIGNED_ANALYSIS, sample_qc: niptQc, nipt: { unavailable: 'x' } } });
       renderPage();
 
       const coverage = (await screen.findByRole('heading', { name: 'Coverage tracks' })).closest('section')!;
@@ -1972,7 +1898,7 @@ describe('FamilyReportPage', () => {
       expect(none).toHaveTextContent('The family’s last package import was not from a delivered package file');
     });
 
-    it('says a family held no coverage track, and what a record could not capture or predates', async () => {
+    it('says a family held no coverage track, and what a record could not capture', async () => {
       mockSignedCase({ snapshot: { ...SIGNED_SNAPSHOT, ...SIGNED_ANALYSIS, coverage_tracks: { tracks: [] } } });
       const first = renderPage();
       const none = (await screen.findByRole('heading', { name: 'Coverage tracks' })).closest('section')!;
@@ -1995,17 +1921,6 @@ describe('FamilyReportPage', () => {
       expect(second.container.querySelector('footer')).toHaveTextContent(
         'Coverage tracks as signed: not captured (The coverage tracks could not be read.)',
       );
-      second.unmount();
-
-      // A record signed before CoGA froze them: not in the record, never "not captured".
-      mockSignedCase();
-      const third = renderPage();
-      const older = (await screen.findByRole('heading', { name: 'Coverage tracks' })).closest('section')!;
-      expect(older).toHaveTextContent(
-        'Not in the signed record: version 2 was signed before CoGA recorded what each coverage track holds.',
-      );
-      expect(older).not.toHaveTextContent('Not captured');
-      expect(third.container.querySelector('footer')).toHaveTextContent('Coverage tracks as signed: not in the signed record');
     });
 
     it('names the coverage tracks when they changed since the latest signed version', async () => {
@@ -2070,6 +1985,8 @@ describe('FamilyReportPage', () => {
         advisory_mean_depth: 1000,
         genes: [{ gene: 'GENEA', targets: 1, weak_targets: 1, min_mean: 250, mean_of_means: 250 }],
       },
+      // With a per-target table the coverage check reads its targets: no notes (TRACE-17).
+      coverage_notes: null,
       variants: [
         {
           variant_id: '1-1001-A-G',
@@ -2190,34 +2107,6 @@ describe('FamilyReportPage', () => {
       expect(nipt).toHaveTextContent('Target coverage: no per-target coverage table');
       expect(nipt).toHaveTextContent(
         'Coverage tracks not read as depth: CFDNA1: the coverage BED does not declare whether it holds read depth or a log2 ratio; it is not read as depth. The coverage check ran without a gene or panel, over the family’s region of interest GENEA locus (7:1–1,000).',
-      );
-    });
-
-    it('says a NIPT record signed before CoGA froze the coverage check’s notes does not hold them', async () => {
-      // A record of the format signed before TRACE-17: its NIPT section without the key, and the
-      // rest of it read as before.
-      mockSignedCase({
-        snapshot: { ...SIGNED_SNAPSHOT, ...SIGNED_ANALYSIS, sample_qc: NIPT_SAMPLE_QC, nipt: WITHOUT_TARGET_TABLE },
-      });
-      renderPage();
-
-      const nipt = (await screen.findByRole('heading', { name: 'NIPT results' })).closest('section')!;
-      expect(nipt).toHaveTextContent(
-        'Coverage tracks not read as depth: not in the signed record (version 2 was signed before CoGA recorded the coverage check’s notes).',
-      );
-      expect(nipt).toHaveTextContent('Paternity: Pass — Paternity supported');
-      expect(nipt).toHaveTextContent('Artifact list: nipt_cfdna, 2 alleles, digest abcdef01abcd; 1 left out of this analysis');
-      expect(nipt).not.toHaveTextContent('kept in by the family’s annotation');
-      expect(nipt).toHaveTextContent('Model: R NIPT-M v0.5.1 validation (6 families with trio exomes).');
-      expect(nipt).not.toHaveTextContent('cannot be read here');
-    });
-
-    it('says a NIPT family’s record signed before CoGA froze the NIPT results does not hold them', async () => {
-      mockSignedCase({ snapshot: { ...SIGNED_SNAPSHOT, sample_qc: NIPT_SAMPLE_QC } });
-      renderPage();
-      const nipt = (await screen.findByRole('heading', { name: 'NIPT results' })).closest('section')!;
-      expect(nipt).toHaveTextContent(
-        'Not in the signed record: version 2 was signed before CoGA recorded the NIPT results.',
       );
     });
 
@@ -2447,26 +2336,6 @@ describe('FamilyReportPage', () => {
       print.mockRestore();
     });
 
-    it("reads a PGT family's record signed before the QC verdict as before, nothing called not captured", async () => {
-      mockSignedCase({
-        snapshot: {
-          ...SIGNED_SNAPSHOT,
-          ...SIGNED_ANALYSIS,
-          sample_qc: PGT_SAMPLE_QC,
-          pgt_analysis: SIGNED_PGT_ANALYSIS_BEFORE_QC_VERDICT,
-        },
-      });
-      renderPage();
-
-      const pgt = await pgtSection();
-      const [e1] = within(pgt).getAllByRole('listitem');
-      expect(e1).toHaveTextContent(
-        /^E1 \(female\): Affected \/ at risk\. Inherited at the ROI: M1 and P2 \(29,000,000–32,000,000\)\. QC at the ROI: 40 informative sites, Mendelian error rate 2\.5% \(1 of 40\); informative markers 22 paternal, 18 maternal\.$/,
-      );
-      expect(pgt).not.toHaveTextContent(/thresholds|phasing QC/);
-      expect(pgt).not.toHaveTextContent(/not captured|Not in the signed record/i);
-    });
-
     it('says when the family had no region of interest, so no embryo was called', async () => {
       mockSignedCase({
         snapshot: {
@@ -2489,15 +2358,6 @@ describe('FamilyReportPage', () => {
       expect(pgt).toHaveTextContent('The family had no region of interest when version 2 was signed, so no embryo was called.');
       expect(pgt).toHaveTextContent('E1 (female): Not assessed.');
       expect(pgt).not.toHaveTextContent('QC at the ROI');
-    });
-
-    it("says a PGT family's record signed before CoGA froze the embryo calls does not hold them", async () => {
-      mockSignedCase({ snapshot: { ...SIGNED_SNAPSHOT, sample_qc: PGT_SAMPLE_QC } });
-      renderPage();
-
-      expect(await pgtSection()).toHaveTextContent(
-        'Not in the signed record: version 2 was signed before CoGA recorded the PGT embryo results.',
-      );
     });
 
     it('says when the embryo calls could not be captured at sign-out', async () => {
@@ -2611,7 +2471,9 @@ describe('FamilyReportPage', () => {
       const checks = screen.getByRole('heading', { name: 'Checks at sign-out' }).closest('section')!;
       // Sample QC, sequencing QC, the calls without a review and the import.
       expect(within(checks).getAllByText('Not in the signed record.')).toHaveLength(4);
-      expect(screen.getByText(/holds no reviews of repeat loci or Paraphase regions/)).toBeInTheDocument();
+      expect(
+        screen.getByText('Not in the signed record: the reviews of repeat loci and Paraphase regions.'),
+      ).toBeInTheDocument();
       const drift = screen.getByRole('heading', { name: 'Evidence drift at sign-out' }).closest('section')!;
       expect(drift).toHaveTextContent('Not in the signed record.');
       expect(container.querySelector('footer')).toHaveTextContent('Signed with: not in the signed record');
@@ -2855,7 +2717,7 @@ describe('FamilyReportPage', () => {
                 ...reported.evidence_snapshot,
                 transcript_id: 'ENST00000000001',
                 consequence: { effect: 'missense_variant', impact: 'MODERATE', lof: null },
-                gene_constraint: { gene_missense_z: 2.95 },
+                gene_constraint: { gene_missense_z: 2.95, gene_missense_z_source: 'gene_profile' },
               },
             },
           ],
@@ -3044,31 +2906,6 @@ describe('FamilyReportPage', () => {
       expect(line).toHaveClass('no-print');
       // The version is still what was signed: its printout carries no notice.
       expect(container.querySelector('.report-print-notice')).toBeNull();
-    });
-
-    it('names what the check could not compare with the latest version, off the printout (TRACE-19)', async () => {
-      mockSignedCase({ check: () => checkResult({ matches: true, not_compared: ['pgt_analysis.qc_verdict'] }) });
-      renderPage();
-
-      const line = (
-        await screen.findByText(/The family’s current data still matches this signed version in everything it holds\./)
-      ).closest('p')!;
-      expect(line).toHaveTextContent(
-        'The family’s current data still matches this signed version in everything it holds. Not in this version, so not compared: the embryos’ QC verdicts.',
-      );
-      expect(line).toHaveClass('no-print');
-    });
-
-    it('names what the check could not compare beside what changed since the latest version', async () => {
-      mockSignedCase({
-        check: () => checkResult({ matches: false, changed_sections: ['sample_qc'], not_compared: ['nipt'] }),
-      });
-      renderPage();
-
-      const line = (await screen.findByText(/Changed since this version was signed:/)).closest('p')!;
-      expect(line).toHaveTextContent(
-        '⚠ Changed since this version was signed: sample-integrity QC. Not in this version, so not compared: NIPT results. This page still shows version 2 as it was signed.',
-      );
     });
 
     it('shows the compound-het pair review that reports a variant (TRACE-19)', async () => {
@@ -3341,33 +3178,6 @@ describe('FamilyReportPage', () => {
       expect(screen.getByText(/Changed since sign-out/)).toBeInTheDocument();
       expect(container.querySelector('.report-print-notice')?.textContent).toMatch(
         /Not the signed report — the content differs from signed version 2/,
-      );
-    });
-
-    it('names what it could not compare with the signed version, beside "still matches" (TRACE-19)', async () => {
-      mockSignedCase({
-        check: () => checkResult({ matches: true, not_compared: ['repeat_expansions.count_units', 'modules.hpo'] }),
-      });
-      renderPage(undefined, '/families/F1/report?view=live');
-
-      const status = (
-        await screen.findByText(/This page still matches signed version 2 in everything that version holds\./)
-      ).closest('p')!;
-      expect(status).toHaveTextContent(
-        'This page still matches signed version 2 in everything that version holds. Not in signed version 2, so not compared: the repeat calls’ near-boundary warnings and QA’s records of their counting units and the HPO version.',
-      );
-    });
-
-    it('names what it could not compare beside what changed', async () => {
-      mockSignedCase({
-        check: () =>
-          checkResult({ matches: false, changed_sections: ['reported_variants'], not_compared: ['coverage_tracks'] }),
-      });
-      renderPage(undefined, '/families/F1/report?view=live');
-
-      const status = (await screen.findByText(/Changed since sign-out/)).closest('p')!;
-      expect(status).toHaveTextContent(
-        '⚠ Changed since sign-out: reported small variants. Not in signed version 2, so not compared: coverage tracks. This page shows the current state',
       );
     });
 

@@ -125,6 +125,7 @@ async def test_a_ready_delivery_is_queued_as_the_approver_in_one_transaction(que
             "revision": 0,
             "package_sha256": None,
             "corrections": [],
+            "origin": "watched",
         },
         "commit": False,
     }

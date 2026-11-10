@@ -14,10 +14,8 @@ coverage track of the family's members, per sample and caller:
   a package's dataset, which the BED loaders now record (``metadata.uploaded_from``), since the
   upload and a package's coverage BED share the source ``web``.
 
-The section is bound into the content hash and compared by the sign-out check like every section;
-a record signed before it still reads, the check names the section not compared, and nothing it
-predates is called not captured. The same runs against Postgres and ClickHouse in
-e2e/test_e2e_signed_coverage_tracks.py.
+The section is bound into the content hash and compared whole by the sign-out check like every
+section. The same runs against Postgres and ClickHouse in e2e/test_e2e_signed_coverage_tracks.py.
 """
 
 from __future__ import annotations
@@ -417,7 +415,8 @@ def test_the_coverage_tracks_are_bound_into_the_content_hash() -> None:
 
 def test_the_check_matches_the_coverage_tracks_as_signed(monkeypatch) -> None:
     out = _check(monkeypatch, signed=_body(_SIGNED_TRACKS), current=_body(copy.deepcopy(_SIGNED_TRACKS)))
-    assert (out["matches"], out["changed_sections"], out["not_compared"], out["not_captured"]) == (True, [], [], [])
+    assert (out["matches"], out["changed_sections"], out["not_captured"]) == (True, [], [])
+    assert "not_compared" not in out
 
 
 @pytest.mark.parametrize(
@@ -444,15 +443,13 @@ def test_the_check_names_coverage_tracks_that_changed_since_sign_out(monkeypatch
     assert out["changed_sections"] == ["coverage_tracks"]
 
 
-def test_a_record_signed_before_the_section_names_it_not_compared_and_nothing_not_captured(monkeypatch) -> None:
+def test_a_record_without_the_section_reads_as_changed(monkeypatch) -> None:
+    # Every record holds the section: one without it does not hold what the family's data
+    # holds now, and the check compares the section whole.
     signed = _body(_SIGNED_TRACKS)
     signed.pop("coverage_tracks")
     out = _check(monkeypatch, signed=signed, current=_body(_SIGNED_TRACKS))
-    # Not compared, and still matching: the record predates the section, which it does not
-    # hold; nothing it predates is called "not captured".
-    assert (out["matches"], out["changed_sections"], out["not_compared"]) == (True, [], ["coverage_tracks"])
-    assert out["not_captured"] == []
-    assert rss.snapshot_gaps(signed) == []
+    assert (out["matches"], out["changed_sections"]) == (False, ["coverage_tracks"])
 
 
 def test_coverage_tracks_not_captured_at_sign_out_are_named_by_the_check(monkeypatch) -> None:

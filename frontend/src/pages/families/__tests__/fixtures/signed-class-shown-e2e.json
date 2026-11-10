@@ -1570,12 +1570,6 @@
    "import_incomplete": null,
    "import_unfinished": {},
    "paraphase_reviews": [],
-   "reference_modules": [
-    "assembly",
-    "gene_loci",
-    "monarch",
-    "hpo"
-   ],
    "repeat_expansions": {
     "loci": [
      {
@@ -2166,7 +2160,6 @@
      "cnv_class": null,
      "variant_id": "1-20000-20000-BND-5-3000000-3000000",
      "class_shown": "Likely pathogenic - class 4",
-     "variant_key": null,
      "classification": null,
      "cnv_point_total": null,
      "evidence_snapshot": null
@@ -2193,7 +2186,6 @@
      "cnv_class": "cnv_class_5",
      "variant_id": "1-7000-12000-DEL---",
      "class_shown": "Pathogenic - class 5",
-     "variant_key": null,
      "classification": "Pathogenic - class 5",
      "cnv_point_total": 1.0,
      "evidence_snapshot": {
@@ -2539,12 +2531,6 @@
    "import_incomplete": null,
    "import_unfinished": {},
    "paraphase_reviews": [],
-   "reference_modules": [
-    "assembly",
-    "gene_loci",
-    "monarch",
-    "hpo"
-   ],
    "repeat_expansions": {
     "loci": [
      {
@@ -3135,7 +3121,6 @@
      "cnv_class": null,
      "variant_id": "1-20000-20000-BND-5-3000000-3000000",
      "class_shown": "Likely pathogenic - class 4",
-     "variant_key": null,
      "classification": null,
      "cnv_point_total": null,
      "evidence_snapshot": null
@@ -3162,7 +3147,6 @@
      "cnv_class": "cnv_class_5",
      "variant_id": "1-7000-12000-DEL---",
      "class_shown": null,
-     "variant_key": null,
      "classification": null,
      "cnv_point_total": 1.0,
      "evidence_snapshot": {

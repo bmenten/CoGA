@@ -333,7 +333,7 @@ def test_the_record_holds_the_reviews_and_nothing_unreviewed(run: dict[str, Any]
     assert snapshot["finding_review_drift"] == {"checked": 2, "drifted_count": 0, "drifted": []}
     assert snapshot["acknowledged_unreviewed_findings"] is False
     check = ok_json(run, "check")
-    assert (check["matches"], check["changed_sections"], check["not_compared"]) == (True, [], [])
+    assert (check["matches"], check["changed_sections"]) == (True, [])
 
 
 def test_a_change_in_the_calls_under_a_review_gates_the_sign_out(run: dict[str, Any]) -> None:

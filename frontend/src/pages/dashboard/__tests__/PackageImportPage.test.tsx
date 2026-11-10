@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -182,9 +182,10 @@ describe('PackageImportPage', () => {
     renderPage();
 
     const select = await screen.findByLabelText(/discovered family folder/i);
-    await screen.findByRole('option', { name: 'NEWFAM' });
+    // Within the folder select: the Deliveries panel's form lists the folders too.
+    await within(select).findByRole('option', { name: 'NEWFAM' });
     expect(screen.getByRole('option', { name: 'HALFFAM · import incomplete (HALFFAM)' })).toBeInTheDocument();
-    expect(screen.queryByRole('option', { name: /DONEFAM/ })).not.toBeInTheDocument();
+    expect(within(select).queryByRole('option', { name: /DONEFAM/ })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('checkbox', { name: 'Show imported folders (1)' }));
     expect(screen.getByRole('option', { name: 'DONEFAM · imported as DONEFAM' })).toBeInTheDocument();

@@ -166,7 +166,7 @@ export interface SignedFindingReview {
   drift: { status: string; changes: string[] };
 }
 
-/** The repeat and Paraphase reviews of a record; null when signed before CoGA froze them. */
+/** The repeat and Paraphase reviews of a record; null when the record holds none of their keys. */
 export interface SignedFindingReviews {
   reviews: SignedFindingReview[];
   /** The abnormal calls without a review the sign-out listed (REQ-TRACE-016). */
@@ -179,8 +179,7 @@ const frozenCalls = (kind: 'repeat' | 'paraphase', evidence: Json): SignedFindin
         const alleles = objects(call.alleles);
         return {
           sample: text(call.sample) ?? 'a sample',
-          // The counts classified, with TRGT's own beside them where QA's correction changed them
-          // (a review frozen before corrections holds only the count).
+          // The counts classified, with TRGT's own beside them where QA's correction changed them.
           call: formatCorrectedCounts(
             alleles.map((allele) => number(allele.repeat_count)),
             alleles.map((allele) => number(allele.trgt_repeat_count)),
@@ -267,7 +266,7 @@ export interface SignedEvidence {
   capturedAt: string | null;
   /** The primary transcript the consequence, frequencies and scores were read from. */
   transcriptId: string | null;
-  /** Null when the record holds none (frozen before CoGA froze them). */
+  /** Null when the record holds none. */
   consequence: SignedEvidenceValue[] | null;
   frequencies: SignedEvidenceValue[] | null;
   inSilico: SignedEvidenceValue[] | null;
@@ -278,8 +277,7 @@ export interface SignedEvidence {
   geneConstraint: SignedEvidenceValue[] | null;
   /**
    * Where that missense Z came from: 'gene_profile', 'vcf' (the VCF's own MISSENSE_Z, read when
-   * the gene profile held none), or null when neither held one (TRACE-15). A record frozen before
-   * the source was holds the gene profile's: 'gene_profile'.
+   * the gene profile held none), or null when neither held one (TRACE-15).
    */
   geneConstraintSource: string | null;
 }
@@ -333,7 +331,6 @@ export interface SignedCnvCriterion {
 
 export interface SignedStructuralVariant {
   variantId: string | null;
-  variantKey: string | null;
   /**
    * The class its review showed, frozen at sign-out (`class_shown`, CLIN-80) as the SV page shows
    * it; null: *Not classified*.
@@ -440,8 +437,8 @@ export interface SignedModule {
 }
 
 /**
- * What a signed record is (owner decision of 2026-10-14). Frozen into each record since
- * (`record_statement`); said on the live report, and on a record signed before CoGA froze it.
+ * What a signed record is (owner decision of 2026-10-14), frozen into each record
+ * (`record_statement`).
  */
 export const ANALYTICAL_SIGN_OFF_STATEMENT =
   'This record is the analytical sign-off in CoGA, which closes and freezes the analysis; the medical sign-off of the patient report happens in the EPD, which refers to this record by its report code.';
@@ -451,18 +448,23 @@ export const LIVE_REPORT_SIGN_OFF_STATEMENT =
   'Signing out is the analytical sign-off in CoGA, which closes and freezes the analysis; the medical sign-off of the patient report happens in the EPD, which refers to the signed record by its report code.';
 
 /**
- * A section of what the analysis looked at (`signed_record_sections.py`): `absent` from a
- * record signed before CoGA recorded it, `unavailable` when it could not be read at sign-out
- * (the reason frozen in its place), else `recorded`. Adding a section: parse it with
+ * A section of what the analysis looked at (`signed_record_sections.py`): `unavailable` when it
+ * could not be read at sign-out (the reason frozen in its place), or when this view cannot read
+ * it (not in the record, or no object), else `recorded`. Adding a section: parse it with
  * `parseRecordSection` and render it with `RecordSectionBlock` (SignedFamilyReport.tsx).
  *
  * A recorded section's `malformed` counts the lists of it this view cannot read: a value that
  * is no list, or an entry not of its list's kind, each read as empty or left out (TRACE-17).
  */
 export type SignedRecordSection<T> =
-  | { state: 'absent' }
   | { state: 'unavailable'; reason: string }
   | { state: 'recorded'; value: T; malformed?: number };
+
+/**
+ * A section of one application (the PGT embryo calls, the NIPT results): `absent` from the record
+ * of a family of any other application, which holds no such key.
+ */
+export type SignedApplicationSection<T> = SignedRecordSection<T> | { state: 'absent' };
 
 export interface SignedGenotype {
   sample: string;
@@ -583,14 +585,11 @@ export interface SignedCountUnitWarning {
 export interface SignedRepeatAllele {
   /** The count classified: TRGT's count with QA's correction for the locus (CLIN-57). */
   repeatCount: number | null;
-  /**
-   * TRGT's own count, before the correction; null for a record signed before corrections, whose
-   * count was TRGT's own.
-   */
+  /** TRGT's own count, before the correction. */
   trgtRepeatCount: number | null;
   bpLength: number | null;
   status: string;
-  /** Null: no count near a boundary, or a record signed before CoGA froze the warnings. */
+  /** Null: no count near a boundary. */
   countUnitWarning: SignedCountUnitWarning | null;
 }
 
@@ -601,7 +600,7 @@ export interface SignedRepeatAllele {
  * and when are null.
  */
 export interface SignedCountUnits {
-  /** Repeat units added to TRGT's count before it was classified; null: signed before corrections. */
+  /** Repeat units added to TRGT's count before it was classified. */
   countOffset: number | null;
   validated: boolean;
   reason: string | null;
@@ -630,7 +629,7 @@ export interface SignedRepeatLocus {
     pathogenicMin: number | null;
   };
   status: string;
-  /** Null: a record signed before CoGA froze QA's records. */
+  /** Null: not in the record. */
   countUnits: SignedCountUnits | null;
   calls: SignedRepeatCall[];
 }
@@ -644,10 +643,7 @@ export interface SignedCatalogue {
 
 export interface SignedRepeatExpansions {
   catalogue: SignedCatalogue | null;
-  /**
-   * How close to a boundary a count was marked, in repeats, while a locus was not validated;
-   * null: a record signed before CoGA froze the warnings and QA's records.
-   */
+  /** How close to a boundary a count was marked, in repeats, while a locus was not validated. */
   countUnitMargin: number | null;
   loci: SignedRepeatLocus[];
 }
@@ -798,7 +794,7 @@ export interface SignedPgtEmbryo {
   inherited: SignedPgtInherited[];
   recombinations: number[];
   qc: SignedPgtEmbryoQc | null;
-  /** Null: not assessed, or a record signed before CoGA checked the QC against thresholds. */
+  /** Null: not assessed. */
   qcVerdict: SignedPgtQcVerdict | null;
   /** The parental sides whose markers at the ROI mixed both of that parent's homologs: the
    * embryo was not called. */
@@ -837,12 +833,11 @@ export interface SignedPgtAnalysis {
   sources: SignedPgtSource[];
   blocksRead: number | null;
   blocksDigest: string | null;
-  /** The blocks were built for another pedigree or other sexes (CLIN-66); false in a record
-   * signed before the check. */
+  /** The blocks were built for another pedigree or other sexes (CLIN-66). */
   blocksOutdated: boolean;
   markersTruncated: boolean;
   recombinationFlank: number | null;
-  /** Null: a record signed before CoGA checked each embryo's QC against thresholds. */
+  /** Null: not in the record. */
   qcThresholds: SignedPgtQcThresholds | null;
 }
 
@@ -941,8 +936,8 @@ export interface SignedNipt {
   plasmaSample: SignedNiptCheck | null;
   targetCoverage: SignedNiptTargetCoverage | null;
   /**
-   * The coverage check's notes over the coverage tracks: `absent` from a record signed before
-   * CoGA froze them; recorded as null with a per-target table, whose targets the check reads.
+   * The coverage check's notes over the coverage tracks: recorded as null with a per-target table,
+   * whose targets the check reads.
    */
   coverageNotes: SignedRecordSection<SignedNiptCoverageNotes | null>;
   variants: SignedNiptVariant[];
@@ -960,7 +955,7 @@ export interface SignedNipt {
 }
 
 export interface SignedReport {
-  /** What the record says it is; null: signed before CoGA froze the sentence. */
+  /** What the record says it is; null: not in the record. */
   statement: string | null;
   familyId: string | null;
   assembly: string | null;
@@ -973,7 +968,7 @@ export interface SignedReport {
   sampleQc: SignedSampleQc | null;
   qcAcknowledgement: SignedAcknowledgement;
   sequencingQc: SignedSequencingQc | null;
-  /** `absent`: the record holds no import state; null: the import was complete. */
+  /** `absent`: not in the record; null: the import was complete. */
   importIncomplete: FamilyImportIncomplete | null | 'absent';
   /** The imports that had begun writing the family and not finished; `absent`: not in the record. */
   importUnfinished: FamilyImportUnfinished[] | 'absent';
@@ -987,15 +982,15 @@ export interface SignedReport {
   referenceData: SignedRecordSection<SignedReferenceData>;
   repeatExpansions: SignedRecordSection<SignedRepeatExpansions>;
   paraphase: SignedRecordSection<SignedParaphase>;
-  /** What each coverage track of the family's samples held: every family's record holds it since 2026-10-20. */
+  /** What each coverage track of the family's samples held. */
   coverageTracks: SignedRecordSection<SignedCoverageTrack[]>;
-  /** The delivered package and its corrections at intake: every family's record holds it since 2026-11-10. */
+  /** The delivered package and its corrections at intake. */
   packageIntake: SignedRecordSection<SignedPackageIntake>;
-  /** A PGT family's embryo calls at the ROI; `absent` from a record of any other family too. */
-  pgtAnalysis: SignedRecordSection<SignedPgtAnalysis>;
-  /** A monogenic NIPT family's NIPT results; `absent` from a record of any other family too. */
-  nipt: SignedRecordSection<SignedNipt>;
-  /** The repeat and Paraphase reviews; null: signed before CoGA froze them. */
+  /** A PGT family's embryo calls at the ROI; `absent` from a record of any other family. */
+  pgtAnalysis: SignedApplicationSection<SignedPgtAnalysis>;
+  /** A monogenic NIPT family's NIPT results; `absent` from a record of any other family. */
+  nipt: SignedApplicationSection<SignedNipt>;
+  /** The repeat and Paraphase reviews; null: not in the record. */
   findingReviews: SignedFindingReviews | null;
   unreviewedAcknowledgement: SignedAcknowledgement;
 }
@@ -1087,12 +1082,12 @@ const IN_SILICO_FIELDS: EvidenceField[] = [
 const GENE_CONSTRAINT_FIELDS: EvidenceField[] = [{ key: 'gene_missense_z', label: 'gnomAD missense Z', format: 2 }];
 
 // The source of the frozen missense Z (TRACE-15): the gene's profile, else the VCF's own
-// MISSENSE_Z. Before the source was frozen, the missense Z was the gene profile's.
+// MISSENSE_Z.
 const MISSENSE_Z_SOURCE_KEY = 'gene_missense_z_source';
 const MISSENSE_Z_SOURCE_LABEL: Record<string, string> = { gene_profile: 'gene profile', vcf: 'VCF' };
 
 const parseMissenseZSource = (value: unknown): string | null =>
-  isObject(value) ? (has(value, MISSENSE_Z_SOURCE_KEY) ? text(value[MISSENSE_Z_SOURCE_KEY]) : 'gene_profile') : null;
+  isObject(value) ? text(value[MISSENSE_Z_SOURCE_KEY]) : null;
 
 const missenseZSourceLabel = (source: unknown): string | null => {
   const value = text(source);
@@ -1182,7 +1177,6 @@ const parseStructuralVariant = (entry: unknown): SignedStructuralVariant => {
   if (!isObject(entry)) {
     return {
       variantId: null,
-      variantKey: null,
       classification: null,
       score: null,
       pointTotal: null,
@@ -1213,14 +1207,11 @@ const parseStructuralVariant = (entry: unknown): SignedStructuralVariant => {
   });
   const cnvClass = text(entry.cnv_class);
   const cnvScore = text(cnvAcmg?.classification) || (cnvClass ? (CNV_CLASS_LABELS[cnvClass] ?? cnvClass) : null);
-  const variantKey = entry.variant_key;
   // The class its review showed, frozen at sign-out as the SV page shows it (CLIN-80), with the
   // CNV scoring beside it as the score, never as the class.
   const shown = text(entry[CLASS_SHOWN_KEY]);
   return {
     variantId: text(entry.variant_id),
-    variantKey:
-      typeof variantKey === 'number' || typeof variantKey === 'string' ? String(variantKey) : null,
     classification: shown,
     score: scoreBesideClass(shown, cnvScore),
     pointTotal: number(entry.cnv_point_total) ?? number(cnvAcmg?.point_total),
@@ -1414,7 +1405,6 @@ export const parseRecordSection = <T>(
   key: string,
   parse: (value: Json) => T,
 ): SignedRecordSection<T> => {
-  if (!has(holder, key)) return { state: 'absent' };
   const value = holder[key];
   if (!isObject(value)) return { state: 'unavailable', reason: UNREADABLE_SECTION };
   const reason = text(value.unavailable);
@@ -1523,9 +1513,8 @@ const parseReferenceData = (value: Json): SignedReferenceData => ({
     notInReference: strings(part.not_in_reference),
   })),
   // A knowledgebase never loaded is frozen as null: recorded, as none.
-  clinicalCnvs: !has(value, 'clinical_cnvs')
-    ? { state: 'absent' }
-    : value.clinical_cnvs === null
+  clinicalCnvs:
+    value.clinical_cnvs === null
       ? { state: 'recorded', value: null }
       : parseRecordSection(value, 'clinical_cnvs', (part) => ({
           source: text(part.source),
@@ -1977,9 +1966,8 @@ const parseNipt = (value: Json): SignedNipt => {
         }
       : null,
     // Null with a per-target table: recorded, as none (TRACE-17).
-    coverageNotes: !has(value, 'coverage_notes')
-      ? { state: 'absent' }
-      : value.coverage_notes === null
+    coverageNotes:
+      value.coverage_notes === null
         ? { state: 'recorded', value: null }
         : parseRecordSection(value, 'coverage_notes', parseNiptCoverageNotes),
     variants: objects(value.variants).map(parseNiptVariant),
@@ -2034,12 +2022,8 @@ export const parseSignedReport = (snapshot: unknown): SignedReport | null => {
     sampleQc: parseSampleQc(snapshot.sample_qc),
     qcAcknowledgement: acknowledgement(snapshot, 'acknowledged_qc', 'qc_acknowledgement_reason'),
     sequencingQc: parseSequencingQc(snapshot.sequencing_qc),
-    importIncomplete: has(snapshot, 'import_incomplete')
-      ? importIncompleteFromMetadata(snapshot)
-      : 'absent',
-    importUnfinished: has(snapshot, 'import_unfinished')
-      ? importUnfinishedFromMetadata(snapshot)
-      : 'absent',
+    importIncomplete: has(snapshot, 'import_incomplete') ? importIncompleteFromMetadata(snapshot) : 'absent',
+    importUnfinished: has(snapshot, 'import_unfinished') ? importUnfinishedFromMetadata(snapshot) : 'absent',
     importAcknowledgement: acknowledgement(
       snapshot,
       'acknowledged_import_incomplete',
@@ -2058,8 +2042,10 @@ export const parseSignedReport = (snapshot: unknown): SignedReport | null => {
     paraphase: parseRecordSection(snapshot, 'paraphase', parseParaphase),
     coverageTracks: parseRecordSection(snapshot, 'coverage_tracks', parseCoverageTracks),
     packageIntake: parseRecordSection(snapshot, 'package_intake', parsePackageIntake),
-    pgtAnalysis: parseRecordSection(snapshot, 'pgt_analysis', parsePgtAnalysis),
-    nipt: parseRecordSection(snapshot, 'nipt', parseNipt),
+    pgtAnalysis: has(snapshot, 'pgt_analysis')
+      ? parseRecordSection(snapshot, 'pgt_analysis', parsePgtAnalysis)
+      : { state: 'absent' },
+    nipt: has(snapshot, 'nipt') ? parseRecordSection(snapshot, 'nipt', parseNipt) : { state: 'absent' },
     findingReviews: parseFindingReviews(snapshot),
     unreviewedAcknowledgement: acknowledgement(
       snapshot,
@@ -2070,12 +2056,10 @@ export const parseSignedReport = (snapshot: unknown): SignedReport | null => {
 };
 
 /**
- * Whether the record is a monogenic NIPT family's: it holds the NIPT results, or its Sample QC
- * was run for a NIPT family (a record signed before CoGA froze the NIPT results). Any other
- * family's record holds no NIPT section, and the signed view says nothing of one.
+ * Whether the record is a monogenic NIPT family's: it holds the NIPT results. Any other family's
+ * record holds no NIPT section, and the signed view says nothing of one.
  */
-export const isNiptRecord = (record: SignedReport): boolean =>
-  record.nipt.state !== 'absent' || record.sampleQc?.application === 'nipt';
+export const isNiptRecord = (record: SignedReport): boolean => record.nipt.state !== 'absent';
 
 // --- Wording shared by the live and the signed report ----------------------
 
@@ -2323,9 +2307,8 @@ export const describeCountUnits = (units: SignedCountUnits): string => {
 
 /**
  * A locus's calls on one line, as the signed view lists them, and QA's record of TRGT's counting
- * units there where the record holds it: "PROBAND 1/2: 30, 53 repeats — Grey zone ⚠ Near a
- * boundary: …; MOTHER 1/2: 30, 40 repeats — Normal. TRGT’s counting units: not validated (no QA
- * record)." A record signed before CoGA froze QA's records lists the calls alone, as it did.
+ * units there: "PROBAND 1/2: 30, 53 repeats — Grey zone ⚠ Near a boundary: …; MOTHER 1/2: 30, 40
+ * repeats — Normal. TRGT’s counting units: not validated (no QA record)."
  */
 export const describeRepeatLocusCalls = (locus: SignedRepeatLocus): string => {
   const calls = locus.calls.map(describeRepeatCall).join('; ');
@@ -2340,7 +2323,7 @@ export const describeCountUnitMargin = (margin: number): string =>
 
 /**
  * Why a count differs from TRGT's, said once for the section, where the record froze a count
- * correction at any locus (CLIN-57); null where none was recorded or the record predates them.
+ * correction at any locus (CLIN-57); null where none was recorded.
  */
 export const describeCountCorrections = (repeats: SignedRepeatExpansions): string | null =>
   repeats.loci.some((locus) => Boolean(locus.countUnits?.countOffset))
@@ -2568,55 +2551,6 @@ export const NIPT_NOT_CLASSIFIED_REASONS: Record<string, string> = {
 export const describeReportSections = (sections: string[]): string =>
   joinWithAnd(sections.map((section) => REPORT_SECTION_LABELS[section] ?? section));
 
-// The parts of a section CoGA records since a record was signed: the sign-out check compares
-// such a record's section on what it holds and names these as not compared
-// (pgt_analysis.comparable_with_record, signed_record_sections.repeat_expansions_comparable_with_record,
-// signed_record_nipt.nipt_comparable_with_record).
-const NOT_COMPARED_PART_LABELS: Record<string, string> = {
-  'pgt_analysis.qc_verdict': 'the embryos’ QC verdicts',
-  'pgt_analysis.inputs.blocks_outdated': 'whether the haplotype blocks were built for the family’s pedigree',
-  'repeat_expansions.count_units': 'the repeat calls’ near-boundary warnings and QA’s records of their counting units',
-  'repeat_expansions.count_offset': 'QA’s count corrections and TRGT’s own counts beside the corrected ones',
-  'nipt.coverage_notes': 'the NIPT coverage check’s notes on the coverage tracks it did not read as depth',
-};
-
-// The reference-layer modules a record can predate (annotation_manifest_service.REFERENCE_MODULE_KEYS),
-// as `modules.<key>`: what each one's version says.
-const NOT_COMPARED_MODULE_LABELS: Record<string, string> = {
-  assembly: 'the reference assembly’s version',
-  gene_loci: 'the gene loci’s source',
-  monarch: 'the Monarch version',
-  hpo: 'the HPO version',
-};
-
-const notComparedLabel = (key: string): string => {
-  if (NOT_COMPARED_PART_LABELS[key]) return NOT_COMPARED_PART_LABELS[key];
-  if (key.startsWith('modules.')) {
-    const module = key.slice('modules.'.length);
-    return NOT_COMPARED_MODULE_LABELS[module] ?? `the ${module} version`;
-  }
-  if (REPORT_SECTION_LABELS[key]) return REPORT_SECTION_LABELS[key];
-  // A part the page has no words for yet: under its section's name.
-  const [section, ...part] = key.split('.');
-  return REPORT_SECTION_LABELS[section] && part.length
-    ? `${REPORT_SECTION_LABELS[section]} (${part.join(' ').replace(/_/g, ' ')})`
-    : key;
-};
-
-/**
- * What the sign-out check could not compare (`not_compared`): a section, a reference module or
- * a part of a section that the signed version does not hold, CoGA having recorded it since.
- */
-export const describeNotCompared = (keys: string[]): string => joinWithAnd(keys.map(notComparedLabel));
-
-/**
- * The sentence that names what the check could not compare with `version` ("signed version 2",
- * "this version"), said beside "still matches" and beside what changed, so that neither reads as
- * covering it; null when it compared everything (TRACE-19).
- */
-export const notComparedSentence = (keys: string[] | null | undefined, version: string): string | null =>
-  keys?.length ? `Not in ${version}, so not compared: ${describeNotCompared(keys)}.` : null;
-
 /**
  * The compound-het pair review that put a small variant in the report, as the record froze it:
  * "Reported through its compound-het pair review: paired with 1-3001-A-G in GENE_RECESS (phase
@@ -2658,7 +2592,7 @@ const describeFrozenMissenseZ = (evidence: SignedEvidence, list: (values: Signed
  * missense Z, as the signed view writes them: "Read from its primary transcript ENST…:
  * consequence stop_gained, impact HIGH and LoF HC; population frequencies gnomAD AF 3.10e-5, …;
  * in silico scores CADD 24.3, …. From its gene's profile: gnomAD missense Z 3.52." A group
- * the record does not hold (frozen before CoGA froze it) is left out; null when it holds none.
+ * the record does not hold is left out; null when it holds none.
  */
 export const describeFrozenEvidenceValues = (evidence: SignedEvidence): string | null => {
   const list = (values: SignedEvidenceValue[]) =>

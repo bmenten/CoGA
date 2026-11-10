@@ -3,7 +3,7 @@
 Schema `05_grants.sql` creates a **restricted runtime role `coga_app`** and revokes
 `UPDATE`/`DELETE`/`TRUNCATE` on the fourteen append-only tables: `audit_log_events`,
 `clinical_audit_events`, `report_signouts`, `integrity_anchors`, `qc_threshold_changes`,
-`family_structure_versions` and `ui_events` (both since SEC-7), `wgs_sources`,
+`family_structure_versions`, `ui_events`, `wgs_sources`,
 `ancestry_reference_panels`, `ancestry_results`, `ancestry_sample_choices`, `ancestry_files`,
 `ancestry_file_scans` and `import_delivery_revisions` (the corrections of a delivered package). It ships in **fallback mode**: the role
 exists (`NOLOGIN`), but the application still connects as the table **owner**, so nothing
@@ -169,8 +169,7 @@ Every **new append-only table** must get the same `REVOKE UPDATE, DELETE, TRUNCA
 coga_app;` in `05_grants.sql`, after the broad `GRANT` — the `GRANT … ON ALL TABLES` and
 the `ALTER DEFAULT PRIVILEGES` in that file otherwise give the new table full CRUD for
 `coga_app`. Add it to `_APPEND_ONLY` in `test_app_role_privileges.py` as well: the test fails
-for a trigger-guarded table it does not list. That is how it would have caught
-`qc_threshold_changes`, which shipped with its trigger but without the `REVOKE`.
+for a trigger-guarded table it does not list.
 
 A change to a table that already exists also needs an Alembic revision. In this mode the
 migration step runs it as the owner, before the rollout

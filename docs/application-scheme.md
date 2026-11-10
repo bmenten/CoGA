@@ -195,30 +195,30 @@ The API and the refresh worker share the process's one event loop, as do the imp
 when the API runs them ([import-worker processes](#import-worker-processes) run them apart).
 CPU work that a request or an import runs on the loop holds every other request until it ends.
 So these run in a worker thread (`asyncio.to_thread`), with their queries and writes on the
-loop, each giving the result it gave on the loop (OPS-9):
+loop, each giving the result it would give on the loop:
 
 - **Sample QC**: the read of the sampled sites' genotypes, their parse (each distinct genotype
   string parsed once) and the checks (relatedness over every pair, Mendelian, sex).
 - **Small-variant VCF uploads and imports**: the file is read and its lines parsed a batch at a
   time (`variant_upload_service._read_off_the_event_loop`), and each batch's rows are built for
   the insert. The loop awaits each insert and progress report before the reader reads on, so an
-  upload holds one batch, as before. A cancelled upload waits for its reader's batch before it
+  upload holds one batch. A cancelled upload waits for its reader's batch before it
   cleans up. The family's write lock, the check of a file before it replaces stored rows and the
-  upload's mark are unchanged.
+  upload's mark work as for any other write.
 - **NIPT sign-out**: the family's NIPT analysis, read by both the Sample QC's NIPT checks and
   the record's NIPT section, runs once per snapshot (`nipt_service.SharedNiptAnalysis`).
 
 Measured on synthetic data with Postgres and ClickHouse faked (each ClickHouse write awaits
-2 ms), main and this change alternated on a shared 10-core machine (Python 3.13), median of 6
+2 ms), with the work on the loop and in a worker thread in turn, on a shared 10-core machine (Python 3.13), median of 6
 runs. The longest stall is the longest wait of a coroutine that wakes every millisecond:
 
-| Work | Before: time / longest stall | After: time / longest stall |
+| Work | On the loop: time / longest stall | In a worker thread: time / longest stall |
 | --- | --- | --- |
 | Sample QC of ten samples (90,000 autosomal and 20,000 chrX sites) | 2.90 s / 2.90 s | 1.28 s / 0.05 s |
 | VCF upload of 50,000 records (a trio, VEP-annotated, gzipped) | 9.4 s / 0.21 s, 50 stalls over 50 ms | 9.5 s / 0.04 s, none over 50 ms |
 | NIPT sign-out snapshot of 50,000 sites | 1.74 s, the analysis run twice | 0.95 s, run once |
 
-The results were the same before and after: the frozen Sample QC, every row written, every
+Both gave the same results: the frozen Sample QC, every row written, every
 progress report, and the record's Sample QC and NIPT section. What is left of a stall is a
 garbage collection, which stops every thread.
 [clickhouse-scale-benchmark.md](clickhouse-scale-benchmark.md) measures how ClickHouse storage
@@ -227,11 +227,11 @@ done:
 
 - the refresh worker in a process of its own;
 - import-worker processes on Google Cloud, where the imports still run in the API's instances;
-- the Variant Explorer's unfiltered page, which aggregates every carrier (found on 2026-10-13);
+- the Variant Explorer's unfiltered page, which aggregates every carrier;
   that benchmark finds it the first query to fail;
-- the ranked view's limit of 5,000 SVs, which a family with more than 50,000 SVs reaches more
-  often since a gene panel on the SV page keeps every SV it matches, not only those among the
-  first 50,000 (2026-10-20).
+- the ranked view's limit of 5,000 SVs, which a family with more than 50,000 SVs can reach: a
+  gene panel on the SV page keeps every SV it matches, not only those among the
+  first 50,000.
 
 ### Small-variant import
 
@@ -242,21 +242,20 @@ seeded VCF shaped like that callset: one sample, DeepVariant's RefCall and NoCal
 import as the import worker runs it, into its own Postgres 16 and ClickHouse 26.8 containers.
 Of a 200,000-record import (100,000 stored, 50 s), reading the lines and their CSQ entries took
 12 s, building the five tables' rows 19 s and the inserts 18 s, one after the other. Three
-changes, none to what is stored:
+measures save time, none changing what is stored:
 
 - each annotation is read once for its `annotations` row and its variant's `annotation_index`
-  and `gene_index` rows, and serialized once for both hashes (before, its population
-  frequencies were read ten times and it was serialized twice);
+  and `gene_index` rows, and serialized once for both hashes;
 - a CSQ or ANN entry is read by the alias tables narrowed to the fields its header declares;
   a record's INFO without an annotation field is not read;
 - the variant tables are written as synchronous inserts
-  ([database.md](database.md#inserts-are-synchronous)): each batch had waited for ClickHouse's
-  async-insert timer once per table.
+  ([database.md](database.md#inserts-are-synchronous)), so no batch waits for ClickHouse's
+  async-insert timer.
 
-Main and the change on the same 1,000,000-record file (500,004 records stored), on a shared
-10-core machine that other work was loading:
+Without and with the three measures, on the same 1,000,000-record file (500,004 records stored),
+on a shared 10-core machine that other work was loading:
 
-| | Before | After |
+| | Without | With |
 | --- | --- | --- |
 | Time | 394 s | 179 s |
 | CPU time of the process | 238 s | 127 s |
@@ -264,11 +263,11 @@ Main and the change on the same 1,000,000-record file (500,004 records stored), 
 | ClickHouse's time answering the inserts | 107 s, 45 s of it async-insert flushes | 27 s |
 | Event-loop lag, 99th percentile / longest | 51 ms / 594 ms | 35 ms / 357 ms |
 
-Every table held the same rows before and after (the count and a checksum of each, leaving
+Every table held the same rows without and with them (the count and a checksum of each, leaving
 out the run's family and project UUIDs and the write times). The progress reports, the
 dataset's summary and the job log were the same too. The check fixes `PYTHONHASHSEED`: the
 annotation index's effect and ClinVar term arrays are gathered from Python sets, so their order
-follows the process's hash seed, before as after.
+follows the process's hash seed.
 
 What is left is CPU. The imports of one process share its one GIL (Python's global interpreter
 lock), so together they use one core, whatever `FAMILY_IMPORT_WORKER_COUNT` says; in the API's
@@ -279,9 +278,9 @@ speed up that import alone, and would end the reader's one-batch bound (above).
 
 ### Interval-track import
 
-The interval tracks waited for ClickHouse's async-insert timer, as the variant tables had,
-until every insert was sent synchronous ([database.md](database.md#inserts-are-synchronous)).
-A synthetic, seeded package went through the package import, into its own Postgres 16 and
+The interval tracks, like the variant tables, are written as synchronous inserts
+([database.md](database.md#inserts-are-synchronous)), so they do not wait for ClickHouse's
+async-insert timer. A synthetic, seeded package went through the package import, into its own Postgres 16 and
 ClickHouse 26.8 containers. It held:
 
 - three long-read genomes, each with HiFiCNV's depth bigWig (1.5 million 2 kb bins), MAF bigWig
@@ -289,13 +288,13 @@ ClickHouse 26.8 containers. It held:
 - six shallow PGT samples with WisecondorX and QDNAseq bins (100 kb), WisecondorX segments and
   a small APCAD BED.
 
-That is 10.4 million rows in 213 inserts. Before, 110 of those inserts went into the buffer;
-the others, over 10 MiB each, never had.
+That is 10.4 million rows in 213 inserts. As async inserts, 110 of them go into the buffer;
+the others, over 10 MiB each, never do.
 
-Main and the change, three runs each, one after the other, on a shared 10-core machine that
-other work was loading (load average 12 to 20):
+Async and synchronous inserts, three runs each, one after the other, on a shared 10-core machine
+that other work was loading (load average 12 to 20):
 
-| | Before (median) | After (median) |
+| | Async inserts (median) | Synchronous inserts (median) |
 | --- | --- | --- |
 | Time | 287 s (238–373) | 211 s (169–236) |
 | CPU time of the process | 127 s | 123 s |
@@ -303,10 +302,11 @@ other work was loading (load average 12 to 20):
 | ClickHouse's time answering them | 55 s, with 110 async-insert flushes | 30 s, no flush |
 
 The same package at a twentieth of its rows (520,254 rows in 42 inserts, 37 of them buffered
-before) took 25.8 s before and 16.2 s after. Every run stored the same rows (the count and a
+as async inserts) took 25.8 s with async inserts and 16.2 s with synchronous ones. Every run
+stored the same rows (the count and a
 checksum of each track's rows per sample, with the run's family and sample UUIDs mapped to
 their IDs and the write times left out), and the same `sample_interval_track_sources` records,
-dataset summaries and job log. Each run made one part per insert, before as after.
+dataset summaries and job log. Each run made one part per insert, either way.
 
 ## Main code areas
 

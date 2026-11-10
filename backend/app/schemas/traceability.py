@@ -61,10 +61,8 @@ class ClassificationDriftItem(BaseModel):
     # ("gene_profile" or "vcf", TRACE-15); or "annotations", the annotation set.
     changed: List[str] = Field(default_factory=list)
     # The transcript, consequence, frequencies, in-silico scores and (a missense variant's)
-    # gene missense Z and its source as frozen (None when the snapshot froze none, being
-    # older; a snapshot frozen before the consequence and missense Z were holds the others,
-    # one frozen before the source was holds no source) and as they are now (None when the
-    # variant is gone).
+    # gene missense Z and its source as frozen and as they are now (None when the variant is
+    # gone).
     evidence_from: Optional[Dict[str, Any]] = None
     evidence_to: Optional[Dict[str, Any]] = None
 
@@ -187,29 +185,28 @@ class ReportSignoutSummary(BaseModel):
     # the content hash (services/report_code.py), so no column holds it. None only for a
     # record whose stored fields cannot make one.
     report_code: Optional[str] = None
-    # Frozen software identity that produced this sign-out (NULL for sign-outs
-    # created before version-binding shipped). Extracted from the JSONB snapshot.
+    # Frozen software identity that produced this sign-out, extracted from the JSONB
+    # snapshot.
     software_version: Optional[str] = None
     git_sha: Optional[str] = None
-    # Frozen Sample-integrity QC verdict + override (NULL for sign-outs created before
-    # the QC gate). Extracted from the JSONB snapshot like the software identity.
+    # Frozen Sample-integrity QC verdict + override, extracted from the JSONB snapshot like
+    # the software identity.
     qc_status: Optional[str] = None
     qc_acknowledged: Optional[bool] = None
     qc_acknowledgement_reason: Optional[str] = None
-    # Frozen evidence-drift override and its reason (NULL for sign-outs made before a
-    # drift override needed a reason).
+    # Frozen evidence-drift override and its reason.
     drift_acknowledged: Optional[bool] = None
     drift_acknowledgement_reason: Optional[str] = None
     # Frozen incomplete-import state and its override: the datasets a partly failed
     # package import had not loaded when the report was signed (NULL when the import was
     # complete), the import job whose record holds each dataset's error (NULL when not
-    # recorded), and the acknowledgement. All NULL for sign-outs made before the gate.
+    # recorded), and the acknowledgement.
     import_incomplete_failed_datasets: Optional[List[str]] = None
     import_incomplete_job_id: Optional[str] = None
     import_incomplete_acknowledged: Optional[bool] = None
     import_incomplete_acknowledgement_reason: Optional[str] = None
     # The override of the gate for abnormal repeat and Paraphase calls without a review, and
-    # its reason (NULL for sign-outs made before the gate).
+    # its reason.
     unreviewed_findings_acknowledged: Optional[bool] = None
     unreviewed_findings_acknowledgement_reason: Optional[str] = None
     # Re-verification of the stored content hash against the snapshot, done on detail
@@ -221,8 +218,8 @@ class ReportSignoutDetail(ReportSignoutSummary):
     """A frozen, content-hashed report snapshot."""
 
     snapshot: Optional[Dict[str, Any]] = None
-    # What this version's snapshot froze as unavailable or, being older, does not hold. The
-    # report page renders a signed version from its snapshot alone, so it names these.
+    # What this version's snapshot froze as unavailable. The report page renders a signed
+    # version from its snapshot alone, so it names these.
     not_captured: List[ReportSnapshotGapOut] = Field(default_factory=list)
 
 
@@ -251,10 +248,8 @@ class ReportSignoutCheckOut(BaseModel):
     """Whether the report, as it would be signed now, matches the latest sign-out.
 
     ``matches`` is None when the family has never been signed out. ``changed_sections``
-    names the snapshot sections whose content differs from the signed one;
-    ``not_compared`` those the signed snapshot predates and so cannot be compared (a
-    reference module as ``modules.<key>``, e.g. ``modules.hpo``); ``not_captured`` the
-    parts the signed snapshot records as unavailable or, being older, does not hold.
+    names the snapshot sections whose content differs from the signed one, each section
+    compared whole; ``not_captured`` the parts the signed snapshot records as unavailable.
     """
 
     family_id: str
@@ -262,7 +257,6 @@ class ReportSignoutCheckOut(BaseModel):
     content_hash: Optional[str] = None
     matches: Optional[bool] = None
     changed_sections: List[str] = Field(default_factory=list)
-    not_compared: List[str] = Field(default_factory=list)
     not_captured: List[ReportSnapshotGapOut] = Field(default_factory=list)
     checked_at: datetime
 

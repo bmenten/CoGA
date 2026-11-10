@@ -625,28 +625,6 @@ async def test_a_plasma_with_a_target_table_freezes_no_coverage_notes(monkeypatc
     assert (page.notes, track_reads) == ([], [])
 
 
-def test_a_record_signed_before_the_coverage_notes_is_compared_without_them() -> None:
-    # Such a record's NIPT section holds no coverage_notes: the check leaves them out of the
-    # comparison and names them as not compared, rather than reading the section as changed.
-    notes = {"gene": None, "panel": None, "regions": [], "notes": ["a note"]}
-    current = {"fetal_fraction": {"ff": 0.12}, "coverage_notes": notes}
-    older = {"fetal_fraction": {"ff": 0.12}}
-    assert srn.nipt_comparable_with_record(older, current) == (older, [srn.COVERAGE_NOTES_NOT_COMPARED])
-    assert srn.COVERAGE_NOTES_NOT_COMPARED == "nipt.coverage_notes"
-    # What the record holds is still compared: a moved fetal fraction stays in.
-    moved = {"fetal_fraction": {"ff": 0.13}, "coverage_notes": notes}
-    assert srn.nipt_comparable_with_record(older, moved) == ({"fetal_fraction": {"ff": 0.13}}, ["nipt.coverage_notes"])
-    # A record that holds them, also as null (a target table), is compared whole.
-    for signed in (current, {**older, "coverage_notes": None}):
-        assert srn.nipt_comparable_with_record(signed, current) == (current, [])
-    # A section that could not be read, then or now, is compared as it is.
-    unavailable = {"unavailable": srn.TRIO_UNRESOLVED}
-    assert srn.nipt_comparable_with_record(unavailable, current) == (current, [])
-    assert srn.nipt_comparable_with_record(older, unavailable) == (unavailable, [])
-    assert srn.nipt_comparable_with_record("?", current) == (current, [])
-    assert srn.nipt_comparable_with_record(older, None) == (None, [])
-
-
 def test_a_load_time_is_frozen_as_written() -> None:
     assert srn._iso(_LOADED) == "2026-10-01T09:00:00+00:00"
     assert srn._iso("2026-10-01 09:00:00+00") == "2026-10-01 09:00:00+00"

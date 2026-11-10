@@ -59,6 +59,7 @@ const delivery: ImportDeliveryOut = {
   warnings: [],
   manifest_sha256: null,
   revision: 1,
+  origin: 'watched',
   job_id: null,
   job_status: null,
   job_dry_run: null,

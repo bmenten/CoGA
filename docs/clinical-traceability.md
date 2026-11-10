@@ -284,8 +284,9 @@ the variant's current annotation:
   `variant_missing`);
 - `variant_missing`: the variant is no longer in the data.
 
-Only the values a snapshot froze are compared, numbers by value (JSONB keeps a number's digits,
-not whether it was an integer).
+Each value the snapshot froze is compared, numbers by value (JSONB keeps a number's digits, not
+whether it was an integer). A variant that is not a missense variant froze no missense Z, so its
+gene's profile never makes it drift.
 
 Current values are read as a classification saved now would freeze them. A variant classified as
 missense and no longer called missense names its consequence and missense Z as gone (*gnomAD
@@ -298,8 +299,9 @@ caller's call of the SV is other evidence, not a change to this one. `drifted` n
 `changed` (`gene_symbols`, `pli`, `inheritance`, `sv_type`, `locus`, or `annotations` for any
 other annotation), with the evidence from → to. `variant_missing` means that caller's call is no
 longer in the data, even while another caller still calls the SV; the drift banner and the signed
-version name that caller (*its needlr call is no longer present*). Only frozen fields are compared. Frozen
-evidence that cannot be read, or that names no caller, is `unknown`, never `current`.
+version name that caller (*its needlr call is no longer present*). The evidence is compared
+whole, by its hash. Frozen evidence that cannot be read, or that names no caller, is `unknown`,
+never `current`.
 
 At sign-out, a reported classification without a snapshot, of a small variant or an SV, also
 counts as drift (`no_snapshot`).
@@ -566,19 +568,13 @@ deleted family's stay on the chain, verifiable by the ID, and are not opened thr
 family.
 
 An amendment is a new sign-out; no version is ever changed. The sign-out is also written to the
-clinical audit trail. A stored hash is always checked against the snapshot as stored, so a
-version that lacks a section still verifies; the sign-out check reports that section
-as `not_compared`. A section neither the record nor the family's current data holds (the NIPT
-results of a family that is not a NIPT family) is neither compared nor listed. The live report,
-the signed version and the NIPT pages name what the check lists as not compared, beside *still
-matches* and beside what changed (*This page still matches signed version 2 in everything that
-version holds. Not in signed version 2, so not compared: the HPO version.*), so neither reads as
-covering it.
-
-The check reads a class label whatever its case. The class labels are in sentence case, and
-revision `0013` rewrites the reviews to match. Only a
-`classification` or `class_shown` that names a class label is read so
-(`_with_current_class_labels` in `report_signout_service.py`); a different class is still a change.
+clinical audit trail. A stored hash is always checked against the snapshot as stored. The
+sign-out check (`compare_report_with_latest_signout`) reads the record in the format CoGA writes:
+every record holds every section, and each section is compared whole, so a section that differs,
+or that only one of the record and the family's current data holds, is changed. A section of one
+application that neither holds (the NIPT results of a family that is not a NIPT family) is not
+compared. The live report, the signed version and the NIPT pages say whether the family's data
+still matches the latest version, and name the sections that changed.
 
 Six gates run first, in this order:
 
@@ -765,7 +761,7 @@ The other sign-out endpoints:
 | --- | --- |
 | `GET /families/{family_id}/report/sign-outs` | the list of signed versions, each with its `report_code` |
 | `GET /families/{family_id}/report/sign-outs/{version}` | one signed version, with its `report_code`, `verified` (its content hash recomputed on read) and `not_captured` (what its record could not capture) |
-| `GET /families/{family_id}/report/sign-out-check` | whether the report as it would be signed now matches the latest version: `matches`, `changed_sections`, `not_compared`, `not_captured` |
+| `GET /families/{family_id}/report/sign-out-check` | whether the report as it would be signed now matches the latest version: `matches`, `changed_sections`, `not_captured` |
 | `GET /report-codes/{code}` | the family and version of the signed record a report code names (*The report code*) |
 
 ### The report code
@@ -864,9 +860,10 @@ version; one never signed out opens on the live report.
 
 What it cannot show, it says:
 
-- A section the snapshot lacks shows as not in the record (*Not in the signed record: version N
-  was signed before CoGA recorded …*), never as empty; one frozen as unavailable shows as not
-  captured, with its reason.
+- A section frozen as unavailable shows as not captured, with its reason; one the view cannot read
+  (not in the record, or not an object) shows as not captured too (*it cannot be read here; the
+  downloaded record holds it as stored*), never as empty. A check or list the snapshot lacks
+  reads as *Not in the signed record*, never as none.
 - A list of a section that the view cannot read (a value that is not a list, an entry not of the
   list's kind) is left out, and the section says so (*Part of … cannot be read here (N lists or
   entries): it is left out below, and the downloaded record holds it as stored*).
@@ -874,8 +871,8 @@ What it cannot show, it says:
   (*A phase correction the record holds cannot be read here; …*), never dropped unsaid.
 - A reported variant without a description it can read, in a record holding descriptions it
   cannot read, names both causes.
-- A record without `pgt_analysis` says so only when its Sample QC read the family as a PGT family
-  (`sample_qc.application`); any other family's record shows no PGT section.
+- A record without `pgt_analysis` or `nipt` is another application's family's: it shows no PGT
+  or NIPT section.
 - What no snapshot holds is said on the page: the population frequencies and in silico
   predictions the live report shows, the segregation, the gene and phenotype context, the audit
   trail and the pipeline settings.
@@ -899,9 +896,6 @@ latest signed version with its report code, and checks itself against the latest
 
 - the content matches the signed version: it says so, and is still not the signed report;
 - the content changed after sign-out: the changed sections are named;
-- in either case, what the signed version does not hold, so the check could not compare
-  (`not_compared`), is named after it (*Not in signed version 2, so not compared: …*), with words
-  for each section, reference module and part (`describeNotCompared` in `signedReportRecord.ts`);
 - the check could not be made: treat the page as unsigned.
 
 Every printout of the live report starts with a notice ("Draft …", "Not the signed report …",
@@ -921,11 +915,8 @@ NIPT report is live too: it says so on screen, beside the latest signed version,
 printout starts with the live report's notice ("Draft …", "Not the signed report …", "Not
 verified …").
 
-Each snapshot also records the reference modules its build looked up (`reference_modules`). A
-module CoGA adds later is not in that list: for a record that does not list it, the check lists
-`modules.<key>` under `not_compared` instead of calling the record changed, and `not_captured`
-names the missing version. A module in the list but not held was not loaded at sign-out, so one
-loaded since is a change.
+A reference module in the record's `modules` was loaded at sign-out; one loaded since, or a new
+release of one, is a change to `modules`.
 
 Each of the parts below is compared whole, so a change since signing reads as a change:
 
@@ -953,7 +944,9 @@ the VCF's MISSENSE_Z, as its gene's profile held none: …*, or *Neither its gen
 VCF held a gnomAD missense Z.*). A group the snapshot did not freeze is left out. A drift
 entry the check recomputes holds the values as they are now (`evidence_to`).
 
-CoGA reads one snapshot format, the one it writes (the owner's decision of 2026-09-30).
+CoGA reads one snapshot format, the one it writes: every record holds every section and field (a
+section of one application, that application's families' records only), and the sign-out check
+compares sections whole.
 
 Both views download the frozen record as JSON.
 
@@ -965,11 +958,9 @@ signed view without a trace.
 
 A section only one application's families hold names that application in its `RecordSection`
 (`application="pgt"`, `application="nipt"`). `build_record_sections` builds it for those families
-alone, so another family's record holds no such key. The sign-out check
-compares it where the record or the family's current data holds it, names it as not compared
-only where the data holds it and the record does not, and neither compares nor lists it where
-neither holds it. The signed view renders it only for a record of that application, read from
-the section itself or, for a record without it, from `sample_qc.application`
+alone, so another family's record holds no such key. The sign-out check compares it where the
+record or the family's current data holds it (one side alone is a change), and skips it where
+neither holds it. The signed view renders it only for a record that holds it
 (`PgtAnalysisSection`, `isNiptRecord`).
 
 1. **Its builder** in `backend/app/services/signed_record_sections.py`: an async function that
@@ -979,15 +970,14 @@ the section itself or, for a record without it, from `sample_qc.application`
    fixed sentence frozen when it cannot be read, and for one application's section its
    `application`), add it to `RECORD_SECTIONS` and call it in `build_record_sections` through
    `_guarded`. It is then frozen and hashed with the record, compared by `sign-out-check`
-   (`REPORT_CONTENT_SECTIONS` holds every key of `RECORD_SECTIONS`), listed as `not_compared`
-   against a record signed before it, and named in `not_captured` when it could not be read.
+   (`REPORT_CONTENT_SECTIONS` holds every key of `RECORD_SECTIONS`), and named in `not_captured`
+   when it could not be read.
 2. **Its reading** in `frontend/src/pages/families/signedReportRecord.ts`: a field of
-   `SignedReport` parsed with `parseRecordSection`, which gives the absent, unavailable and
-   recorded states; and its label in `REPORT_SECTION_LABELS`, which names the check's changed and
-   not-compared sections (a part of a section the check leaves out of the comparison for an older
-   record gets its words in `NOT_COMPARED_PART_LABELS`).
-3. **Its rendering** in `SignedFamilyReport.tsx`, through `RecordSectionBlock`, which says what a
-   record that does not hold the section lacks and what one could not capture.
+   `SignedReport` parsed with `parseRecordSection`, which gives the unavailable and recorded states
+   (an application's section is `absent` from another family's record); and its label in
+   `REPORT_SECTION_LABELS`, which names the check's changed sections.
+3. **Its rendering** in `SignedFamilyReport.tsx`, through `RecordSectionBlock`, which says what
+   a record could not capture or this view cannot read.
 4. **Its description** here, under *Sign-out*, and in the in-app reference and handleiding
    chapter 11, with tests of each (`test_signed_record_sections.py`,
    `signedReportRecord.test.ts`, `FamilyReportPage.test.tsx`).

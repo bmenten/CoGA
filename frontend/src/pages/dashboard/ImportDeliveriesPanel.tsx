@@ -12,6 +12,7 @@ import { getErrorMessage } from '../../lib/errorMessage';
 import { formatTimestamp } from '../../lib/format';
 import ModalDialog from '../../components/ModalDialog';
 import QueryFailure from '../../components/QueryFailure';
+import AddDeliveryForm from './AddDeliveryForm';
 import DeliveryCorrectionDialog from './DeliveryCorrectionDialog';
 
 type Delivery = ImportDeliveryOut;
@@ -404,6 +405,16 @@ const ImportDeliveriesPanel: React.FC = () => {
         approve it.
       </p>
 
+      <AddDeliveryForm
+        onAdded={(delivery) => {
+          setStatusTone('success');
+          setStatusMessage(
+            `Added ${delivery.folder_name}: ${(STATE_LABELS[delivery.state] ?? delivery.state).toLowerCase()}. Check and correct its package with Correct…, then approve it.`
+          );
+          refresh();
+        }}
+      />
+
       {deliveriesQuery.isError ? (
         <QueryFailure what="the deliveries" error={deliveriesQuery.error} />
       ) : null}
@@ -485,10 +496,9 @@ const ImportDeliveriesPanel: React.FC = () => {
                   <td>{delivery.project || '—'}</td>
                   <td>
                     <div>
-                      {delivery.pipeline_name || '—'}
-                      {delivery.pipeline_version
-                        ? ` ${delivery.pipeline_version}`
-                        : ''}
+                      {delivery.origin === 'manual'
+                        ? 'Added by hand'
+                        : `${delivery.pipeline_name || '—'}${delivery.pipeline_version ? ` ${delivery.pipeline_version}` : ''}`}
                     </div>
                     <div className="table-subtle">
                       {delivery.run_id

@@ -2,7 +2,6 @@
 
 What still has to be done: P1 blocks the release candidate (RC), P2 is due before the RC, P3 after it.
 Status 2026-11-10, `origin/main` at `d82d8ac1`. Ideas that are not defects are in [ROADMAP.md](ROADMAP.md).
-A closed ID the technical file cites is in [closed-issues.md](closed-issues.md): what it was and what closed it.
 
 | ID | Pri | What has to happen | Who | Blocks |
 |---|---|---|---|---|
@@ -103,7 +102,7 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 
 - Terraform: `db_runtime_role = "coga_app"`, `cloud_armor_waf_enforce`, `allowed_ingress_cidrs`, `clickhouse_restrict_egress`, `storage_backend`, `alert_notification_emails`.
 - Microsoft sign-in: IT registers the app, single-tenant, limited to the lab's group; go live with `azure_admin_override` off.
-- Required reviewers on the `gcp-deploy` environment; TF-13 S-4 (download audit). See `deployment-gcp.md` §12.7–12.12.
+- Required reviewers on the `gcp-deploy` environment; TF-13 S-4 (download audit). See `deployment-gcp.md` §12.7–12.11.
 
 ### REG-3 · RC steps (TF-18 §3a)
 
@@ -159,7 +158,6 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 - 2026-11-05 to 2026-11-09:
     - The package file `coga-package.json`'s choices, to confirm with the pipeline owners ([coga-package.md](coga-package.md)): MD5 accepted beside SHA-256, a minimal file accepted (CoGA proposes the members and datasets), `request_id` kept, a pipeline QC `fail` needs attention, an unknown field refused.
     - A review's classification text is audited as stored, trimmed but case-sensitive (#1199).
-    - The register of closed IDs the technical file cites, `closed-issues.md`: its wording (#1200).
 - 2026-11-10:
     - Raw files are read only in the latest import's package folder and CoGA's upload folder, as IGV reads them (the owner's decision): the files an earlier package of the same family recorded show as not read (#1204).
     - An error of a class CoGA defines keeps its text where an import or a gene source stores its failure (`own_error_message`); any other is named by its kind. The sign-out tamper alarm's log field is now `family_uuid` (#1213). A refused raw-file path is logged by its kind (the owner's decision, #1215).

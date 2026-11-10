@@ -66,7 +66,7 @@ Both are in Postgres (baseline `backend/db/schema/postgres/02_reference.sql`); c
   × segregation weight) with the phenotype score, half and half; a gene without Monarch data scores 0 on
   the phenotype side. `GET /api/families/{family_id}/small-variants?prioritize=true` ranks at most 5,000
   candidates (`_PRIORITIZE_CANDIDATE_LIMIT`) and sets `ranking_truncated` when more matched. It ranks
-  only what the same search keeps unranked (CLIN-44): with compound-het or recessive pairing, or
+  only what the same search keeps unranked: with compound-het or recessive pairing, or
   expanded carrier screening, the pairs' variants, the single variants and the couple's findings. Each
   pair is listed at its better-ranked variant; past the window it also sets `candidates_capped`.
   Rankings are cached ([variant-ranking-cache.md](variant-ranking-cache.md)).
@@ -77,8 +77,6 @@ Both are in Postgres (baseline `backend/db/schema/postgres/02_reference.sql`); c
   - loss (0.7, at least 0.9 in a gene with pLI ≥ 0.9): a `DEL` of any subtype, or a `CNV` whose
     carriers' copy number shows a loss (or that stores none);
   - gain (0.5): a `DUP` of any subtype, or a CNV gain.
-
-  Matching exact type names used to score a `DEL:ME`, a `DUP:TANDEM` and every CNV 0.4 (CLIN-47).
 - **ACMG PP4** — the ACMG dialog reads the variant's phenotype score (see
   [acmg-classification.md](acmg-classification.md)).
 

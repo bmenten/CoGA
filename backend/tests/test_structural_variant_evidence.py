@@ -334,14 +334,14 @@ def test_the_snapshot_as_the_driver_hands_back_json_text_still_compares() -> Non
     assert sve.diff_structural_evidence(as_text, _record())["status"] == "current"
 
 
-def test_evidence_a_later_version_adds_does_not_drift_an_older_classification() -> None:
-    # Only the fields a snapshot froze are compared: an older snapshot without a field a
-    # newer CoGA extracts still reads as current while what it froze is unchanged.
-    older = _frozen()
-    older["evidence"].pop("remote_start")
-    older["evidence_hash"] = canonical_hash(older["evidence"])
-    assert sve.diff_structural_evidence(older, _record())["status"] == "current"
-    assert sve.diff_structural_evidence(older, _record(gene_symbols=["TCF4"]))["status"] == "drifted"
+def test_evidence_without_a_field_the_sv_holds_now_reads_as_drifted() -> None:
+    # The evidence is compared whole: a snapshot without a field the SV's evidence holds now
+    # does not hold what the classification would rest on now.
+    partial = _frozen()
+    partial["evidence"].pop("pli")
+    partial["evidence_hash"] = canonical_hash(partial["evidence"])
+    diff = sve.diff_structural_evidence(partial, _record())
+    assert (diff["status"], diff["changed"]) == ("drifted", ["pli"])
 
 
 def test_the_snapshot_names_the_caller_whose_row_it_was_frozen_from() -> None:

@@ -13,9 +13,6 @@ the sign-out readers against the real schema:
 - an acknowledgement without a reason is refused (422); with one, the flag's details and
   the reason are frozen in the content-hashed snapshot, extracted by the list/detail
   reads, and recorded in the audit event;
-- a sign-out stored before the gate existed (a snapshot without the gate's keys, as the
-  old writer wrote it) keeps verifying on read and in the chain beside new ones, and
-  reads as "no acknowledgement recorded", not as ``False``;
 - once the flag is cleared, sign-out needs no acknowledgement, and the page check sees
   that the import state changed since the acknowledged sign-out.
 
@@ -28,7 +25,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import Any
 from uuid import uuid4
@@ -37,7 +33,6 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy import text
 
-from backend.app.services import hash_chain
 from backend.tests._signout_dialogs import no_finding_reviews
 
 pytestmark = pytest.mark.integration
@@ -99,27 +94,6 @@ def test_sign_out_refuses_an_incomplete_import_unless_acknowledged(monkeypatch) 
     monkeypatch.setattr(rss, "_canonical_sequencing_qc", _sequencing_qc)
 
     user = SimpleNamespace(username="signer", email="signer@example.org", id=None, role="supervisor")
-    signed_at = datetime(2026, 9, 1, 8, 30, 0, 250000, tzinfo=timezone.utc)
-    # The snapshot the writer stored before the gate existed: none of its keys.
-    pre_gate_snapshot = {
-        "family_id": label,
-        "assembly": "GRCh38",
-        "modules": [{"key": "clinvar", "version": "2026-05"}],
-        "software": {"version": "1.4.0", "git_sha": "0123abc"},
-        "drift": {"checked": 0, "drifted_count": 0, "drifted": []},
-        "sample_qc": {"overall_status": "pass"},
-        "sequencing_qc": {"profile_key": None, "profile_label": None, "thresholds": {}, "samples": {}},
-        "reported_variants": [],
-        "reported_structural_variants": [],
-        "version": 1,
-        "generated_at": signed_at.isoformat(),
-        "signed_out_by": "auditor",
-        "acknowledged_drift": False,
-        "drift_acknowledgement_reason": None,
-        "acknowledged_qc": False,
-        "qc_acknowledgement_reason": None,
-    }
-
     counts = {
         "report_signouts": text(
             "SELECT count(*) FROM report_signouts WHERE family_identifier = :f"
@@ -137,7 +111,7 @@ def test_sign_out_refuses_an_incomplete_import_unless_acknowledged(monkeypatch) 
             await init_postgres_schema()
             sm = get_postgres_sessionmaker()
 
-            # A family with one sign-out already on record, made before the gate.
+            # The family.
             async with sm() as s:
                 holder["uuid"] = (
                     await s.execute(
@@ -145,35 +119,6 @@ def test_sign_out_refuses_an_incomplete_import_unless_acknowledged(monkeypatch) 
                         {"f": label},
                     )
                 ).scalar_one()
-                content_hash = rss._canonical_hash(pre_gate_snapshot)
-                row_hash = hash_chain.chain_row_hash(
-                    None,
-                    rss._signout_chain_payload(
-                        {
-                            "version": 1,
-                            "content_hash": content_hash,
-                            "signed_out_at": signed_at,
-                            "signed_out_by": "auditor",
-                            "family_identifier": label,
-                        }
-                    ),
-                )
-                await s.execute(
-                    text(
-                        "INSERT INTO report_signouts (family_id, family_identifier, version, "
-                        "signed_out_by, signed_out_at, content_hash, snapshot, row_hash, prev_hash) "
-                        "VALUES (CAST(:f AS uuid), :fl, 1, 'auditor', :ts, :ch, "
-                        "CAST(:snap AS jsonb), :rh, NULL)"
-                    ),
-                    {
-                        "f": holder["uuid"],
-                        "fl": label,
-                        "ts": signed_at,
-                        "ch": content_hash,
-                        "snap": json.dumps(pre_gate_snapshot),
-                        "rh": row_hash,
-                    },
-                )
                 await s.commit()
 
             # A re-import partly fails: the real import helper flags the family.
@@ -201,7 +146,7 @@ def test_sign_out_refuses_an_incomplete_import_unless_acknowledged(monkeypatch) 
             assert flag["job_id"] == job_id
             assert f"import job {job_id}" in refused.value.detail["message"]
             async with sm() as s:
-                assert await _count(s, "report_signouts") == 1
+                assert await _count(s, "report_signouts") == 0
                 assert await _count(s, "clinical_audit_events") == 0
 
             # (b) An acknowledgement needs a reason.
@@ -218,7 +163,7 @@ def test_sign_out_refuses_an_incomplete_import_unless_acknowledged(monkeypatch) 
             assert no_reason.value.status_code == 422
 
             # (c) Acknowledged with a reason and the fingerprint of the flag the refusal listed,
-            # as its dialog sends it (TRACE-19): signed out as version 2, on the same chain.
+            # as its dialog sends it (TRACE-19): signed out as version 1.
             # Read back through JSONB, the flag still has the fingerprint the refusal gave.
             shown: Any = refused.value.detail
             async with sm() as s:
@@ -230,14 +175,14 @@ def test_sign_out_refuses_an_incomplete_import_unless_acknowledged(monkeypatch) 
                     import_incomplete_acknowledgement_reason=_REASON,
                     import_incomplete_concerns_fingerprint=shown["concerns_fingerprint"],
                 )
-            assert signed["version"] == 2
+            assert signed["version"] == 1
 
             async with sm() as s:
                 stored = (
                     await s.execute(
                         text(
                             "SELECT snapshot FROM report_signouts "
-                            "WHERE family_identifier = :f AND version = 2"
+                            "WHERE family_identifier = :f AND version = 1"
                         ),
                         {"f": label},
                     )
@@ -249,20 +194,12 @@ def test_sign_out_refuses_an_incomplete_import_unless_acknowledged(monkeypatch) 
 
                 listed = await rss.list_report_signouts(s, family_id=label, user=user)
                 by_version = {row["version"]: row for row in listed["signouts"]}
-                assert by_version[2]["import_incomplete_acknowledged"] is True
-                assert by_version[2]["import_incomplete_acknowledgement_reason"] == _REASON
-                assert by_version[2]["import_incomplete_failed_datasets"] == ["snv", "sv"]
-                assert by_version[2]["import_incomplete_job_id"] == job_id
-                # The pre-gate record claims no acknowledgement either way.
-                assert by_version[1]["import_incomplete_acknowledged"] is None
-                assert by_version[1]["import_incomplete_acknowledgement_reason"] is None
-                assert by_version[1]["import_incomplete_failed_datasets"] is None
-                assert by_version[1]["import_incomplete_job_id"] is None
+                assert by_version[1]["import_incomplete_acknowledged"] is True
+                assert by_version[1]["import_incomplete_acknowledgement_reason"] == _REASON
+                assert by_version[1]["import_incomplete_failed_datasets"] == ["snv", "sv"]
+                assert by_version[1]["import_incomplete_job_id"] == job_id
 
-                old = await rss.get_report_signout(s, family_id=label, version=1, user=user)
-                new = await rss.get_report_signout(s, family_id=label, version=2, user=user)
-                assert old["verified"] is True, "a pre-gate record must not read as tampered"
-                assert old["import_incomplete_acknowledged"] is None
+                new = await rss.get_report_signout(s, family_id=label, version=1, user=user)
                 assert new["verified"] is True
                 assert new["import_incomplete_failed_datasets"] == ["snv", "sv"]
                 assert new["import_incomplete_job_id"] == job_id
@@ -298,20 +235,20 @@ def test_sign_out_refuses_an_incomplete_import_unless_acknowledged(monkeypatch) 
                 await _clear_family_import_incomplete(s, _context(), imported=_SCOPES)
             async with sm() as s:
                 check = await rss.compare_report_with_latest_signout(s, family_id=label, user=user)
-                assert check["version"] == 2
+                assert check["version"] == 1
                 assert check["changed_sections"] == ["import_incomplete"]
             async with sm() as s:
                 complete = await rss.sign_out_report(s, family_id=label, user=user)
-            assert complete["version"] == 3
+            assert complete["version"] == 2
             assert complete["snapshot"]["import_incomplete"] is None
             assert complete["snapshot"]["acknowledged_import_incomplete"] is False
 
-            # The whole history — pre-gate, acknowledged, complete — is one verified chain.
+            # The whole history — acknowledged, complete — is one verified chain.
             async with sm() as s:
                 chain = await rss.verify_report_signout_chain(s, label)
-                assert chain.verified and chain.rows_checked == 3, chain
+                assert chain.verified and chain.rows_checked == 2, chain
                 check = await rss.compare_report_with_latest_signout(s, family_id=label, user=user)
-                assert check["version"] == 3 and check["matches"] is True, check
+                assert check["version"] == 2 and check["matches"] is True, check
         finally:
             await close_postgres_engine()
 

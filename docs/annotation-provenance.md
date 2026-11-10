@@ -21,7 +21,7 @@ header lines.
 | Small variants (SNV/indel), package or direct upload | `variant_upload_service.upload_family_small_variant_file` (a monogenic NIPT pair's files one by one); for a long-read package's one VCF per sample read as one callset, `per_sample_small_variants.upload_family_per_sample_small_variant_files` | the VCF header: caller (`##source`, `##DeepVariant_version`, `##GATKCommandLine`, `##SentieonCommandLine`), annotation engine (`##VEP=…` with the gnomAD, ClinVar, dbNSFP, SpliceAI, dbSNP, COSMIC, SIFT, PolyPhen, assembly and GENCODE releases it embeds; `##SnpEffVersion`; `##bcftools_*Version`); and, when the annotation comes as a separate VEP table, that file's `## … version …` lines (`extract_vep_tab_provenance`) |
 | Structural variants, from a package (NeedlR, and the `mito` dataset's chrM SV files) or a per-sample upload (Sniffles, Spectre) | `family_package_datasets._import_sv_needlr_dataset`, `_import_mito_structural_variants`, `variant_upload_service.upload_structural_variant_file` | the SV caller (`##source=Sniffles2_…`, Spectre, NeedlR) and `##reference`; for NeedlR and an upload also the database releases named in the `##INFO` descriptions (`extract_info_description_provenance`: GENCODE, OMIM, GenCC, gnomAD, GIAB, ClinVar, dbSNP, COSMIC, each tied to a version-shaped token) |
 | Repeat expansions (TRGT), family or per sample | `repeat_expansion_pg.ingest_family_trgt_text`, `ingest_trgt_text` | `##trgtVersion`, `##source=TRGT`, `##reference` |
-| Copy-number calls (HiFiCNV), from a package's `cnv` dataset | `family_package_datasets._import_cnv_dataset` | each sample's VCF header: `##source=HiFiCNV v…`, recorded as the `cnv caller` (TRACE-8) |
+| Copy-number calls (HiFiCNV), from a package's `cnv` dataset | `family_package_datasets._import_cnv_dataset` | each sample's VCF header: `##source=HiFiCNV v…`, recorded as the `cnv caller` |
 | The pipeline run record of a long-read or PGT package | `family_package_datasets._import_pipeline_info_dataset` | not a VCF: the Nextflow `software_versions.yaml` (the PGT pipeline's `copgtm_software_mqc_versions.yml`), recorded with `source='manifest'`. It names every tool behind the data, including tools whose outputs carry no version. The run parameters go to `families.metadata["pipeline"]`. |
 
 A version is read only from a line that states one:
@@ -64,8 +64,7 @@ glued to the name (`shapeit4.1.3`, which SHAPEIT4 4.2.2 still writes). Further r
 When one header names a tool at several versions (`##bcftools_viewVersion=1.10.2+htslib-1.10.2`
 and `##bcftools_normVersion=1.21+htslib-1.21`, two `##SnpEffVersion` lines, gnomAD's exome and
 genome releases on one `##VEP=` line), every version is kept, joined with `, ` as the pipeline
-run record joins them; a repeated version is listed once (TRACE-8). Before, only the first was
-kept (of several `##SnpEffVersion` lines, the last).
+run record joins them; a repeated version is listed once.
 
 The parser is best-effort and never raises: an unrecognised header yields less information,
 never an error, so capture cannot fail an import.
@@ -88,9 +87,6 @@ from VEP's cache (`CLIN_SIG`) only when no such file was annotated
   is the date in ClinVar's file name (`20261101`). A ClinVar version line of its own
   (`##ClinVarVersion=…`) wins over the name. A file named without a date is recorded by its name,
   with no version: the cache's release never stands in for the file's.
-
-Before, the module was always the cache's release, and the classification the cache's whenever a
-record had both: the sign-out froze the cache's ClinVar release beside it.
 
 ## How it is stored
 
@@ -124,7 +120,7 @@ All in `merge_vcf_header_provenance`
 - **The ClinVar modules are replaced whole.** A new `clinvar` or `clinvar_vep_cache` module
   replaces the stored version and detail together, and one without a version drops its
   modality's entry in `by_modality`. Merged field by field, an earlier import's cache release
-  stayed beside a ClinVar file named without a date, and read as that file's release.
+  would stay beside a ClinVar file named without a date, and read as that file's release.
 - **A manual manifest is never overwritten.** Once an admin has replaced it through
   `PUT /families/{family_id}/annotation-manifest` (`source='manual'`), imports leave it alone.
 - **An import and a replacement take turns.** Both take the family's manifest lock before
@@ -154,7 +150,7 @@ versions in use at that moment.
 | `assembly` | the family's assembly, with its release date |
 | `gene_loci` | the source of the latest gene import for the assembly (GENCODE, or the UCSC table used when GENCODE could not be fetched), with its date |
 | `monarch` | the loaded Monarch release |
-| `hpo` | the release of the latest HPO ontology import, with its release date and, for an import that recorded it, the SHA-256 of the ontology file (`2026-02-16; SHA-256 8d6c…`, TRACE-18) |
+| `hpo` | the release of the latest HPO ontology import, with its release date and, for an import that recorded it, the SHA-256 of the ontology file (`2026-02-16; SHA-256 8d6c…`) |
 
 Each lookup runs in its own savepoint, so a failure cannot break the sign-out around it. A
 failed lookup is listed as version `unavailable` with the detail `lookup failed`, never left
@@ -165,9 +161,9 @@ term that a newer release no longer lists keeps its old release. So the loaded r
 one on the most recently written term (`get_loaded_hpo_release` in `hpo_service.py`). It is
 not the highest release string (an older release can be imported again), nor the latest one
 recorded. Each term also keeps the SHA-256 of its source file (`metadata.release_sha256`),
-recorded by the startup import of the pinned file and by the admin sync (TRACE-18). The admin
-sync no longer imports a file without a `data-version` header. A term imported earlier from
-such a file has no release; the module then reads `unavailable` with the detail
+recorded by the startup import of the pinned file and by the admin sync. The admin
+sync does not import a file without a `data-version` header. When the most recently written term
+holds no release, the module reads `unavailable` with the detail
 `release not recorded`. The HPO admin page and the cached phenotype ranking
 ([variant-ranking-cache.md](variant-ranking-cache.md)) read the release the same way.
 
