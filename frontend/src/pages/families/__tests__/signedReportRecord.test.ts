@@ -176,6 +176,8 @@ const SNAPSHOT = {
   reported_variants: [
     {
       variant_id: '17-43000000-A-G',
+      classification: 'Likely Pathogenic - class 4',
+      class_shown: 'Likely pathogenic - class 4',
       acmg_class: 'acmg_class_4',
       acmg: {
         criteria: [
@@ -192,7 +194,7 @@ const SNAPSHOT = {
       evidence_snapshot: { annotation_version: 'v1', clinvar: 'Likely_pathogenic', captured_at: '2026-06-20T08:30:00+00:00' },
     },
     // Classified through the review tags only, never through ACMG classify.
-    { variant_id: '2-200-C-T', acmg_class: null, acmg: null, tags: ['acmg_class_3', 'report'], note: null, evidence_snapshot: null },
+    { variant_id: '2-200-C-T', classification: null, class_shown: 'VUS - class 3', acmg_class: null, acmg: null, tags: ['acmg_class_3', 'report'], note: null, evidence_snapshot: null },
     'an entry that is not an object',
   ],
   reported_structural_variants: [
@@ -200,6 +202,7 @@ const SNAPSHOT = {
       variant_id: '2-1000-50000-DEL---',
       variant_key: 123,
       classification: null,
+      class_shown: null,
       cnv_class: 'cnv_class_5',
       cnv_point_total: 1,
       cnv_acmg: {
@@ -296,9 +299,10 @@ describe('parseSignedReport', () => {
     const [classified, tagged, unreadable] = parseSignedReport(SNAPSHOT)!.reportedVariants!;
 
     expect(classified.variantId).toBe('17-43000000-A-G');
-    // The record was signed before the class labels were put in sentence case (ENG-6): it reads
-    // as signed, in the case it was signed in.
-    expect(classified.classification).toBe('Likely Pathogenic - class 4');
+    // The class its review showed, as frozen; the ACMG classification is that class in another
+    // case (a label from before ENG-6), so no score is shown beside it.
+    expect(classified.classification).toBe('Likely pathogenic - class 4');
+    expect(classified.score).toBeNull();
     expect(classified.pointTotal).toBe(6);
     // The accepted criteria, the ones the classification rests on, named from the catalogue.
     expect(classified.criteria.map((criterion) => [criterion.code, criterion.strengthLabel])).toEqual([
@@ -324,7 +328,7 @@ describe('parseSignedReport', () => {
       geneConstraintSource: null,
     });
 
-    // No ACMG criteria: the class its classification tag names; no evidence was frozen.
+    // No ACMG criteria: the class its review showed, by its class tag; no evidence was frozen.
     expect(tagged.classification).toBe('VUS - class 3');
     expect(tagged.pointTotal).toBeNull();
     expect(tagged.criteria).toEqual([]);
@@ -602,8 +606,9 @@ describe('parseSignedReport', () => {
 
     expect(sv.variantId).toBe('2-1000-50000-DEL---');
     expect(sv.variantKey).toBe('123');
-    // No review label: the CNV scoring's.
-    expect(sv.classification).toBe('Pathogenic - class 5');
+    // Its review shows no class: Not classified, with the CNV scoring beside it as the score.
+    expect(sv.classification).toBeNull();
+    expect(sv.score).toBe('Pathogenic - class 5');
     expect(sv.pointTotal).toBe(1);
     expect(sv.criteria).toEqual([
       {
@@ -624,6 +629,7 @@ describe('parseSignedReport', () => {
         {
           variant_id: '3-100-900-DUP---',
           variant_key: 'k-7',
+          class_shown: null,
           cnv_class: 'cnv_class_3',
           cnv_acmg: {
             kind: 'gain',
@@ -647,8 +653,9 @@ describe('parseSignedReport', () => {
       note: null,
     });
     expect(gain.variantKey).toBe('k-7');
-    // No review label and no scoring classification: the CNV class's label.
-    expect(gain.classification).toBe('VUS - class 3');
+    // No class shown and no scoring classification: the CNV class's label is the score.
+    expect(gain.classification).toBeNull();
+    expect(gain.score).toBe('VUS - class 3');
     expect(gain.pointTotal).toBeNull();
     // A gain's criterion is named from the gain catalogue; the two it cannot read are counted.
     expect(gain.criteria).toEqual([
@@ -693,36 +700,6 @@ describe('parseSignedReport', () => {
     expect([agreed.classification, agreed.score, agreed.pointTotal]).toEqual(['Likely pathogenic - class 4', null, 8]);
   });
 
-  it('reads a record signed before the class shown as it was read when signed', () => {
-    // No class_shown: the ACMG classification, else the class tag's, and no score beside it.
-    const [overridden, tagOnly, wordOnly] = parseSignedReport({
-      ...SNAPSHOT,
-      reported_variants: [
-        {
-          variant_id: '1-2000-C-T',
-          acmg_class: 'acmg_class_4',
-          acmg: { criteria: [], point_total: 8, classification: 'Likely pathogenic - class 4' },
-          tags: ['acmg_class_3', 'report'],
-        },
-        { variant_id: '1-3000-G-A', acmg_class: null, acmg: null, tags: ['acmg_class_4', 'report'] },
-        { variant_id: '1-5000-A-T', acmg_class: null, acmg: null, tags: ['report'] },
-      ],
-      reported_structural_variants: [
-        {
-          variant_id: '1-7000-12000-DEL---',
-          classification: null,
-          cnv_class: 'cnv_class_5',
-          cnv_point_total: 1,
-          cnv_acmg: { kind: 'loss', criteria: [], point_total: 1, classification: 'Pathogenic - class 5' },
-          tags: ['report'],
-        },
-      ],
-    })!.reportedVariants!;
-    expect([overridden.classification, overridden.score]).toEqual(['Likely pathogenic - class 4', null]);
-    expect([tagOnly.classification, tagOnly.score]).toEqual(['Likely pathogenic - class 4', null]);
-    expect([wordOnly.classification, wordOnly.score]).toEqual([null, null]);
-  });
-
   it('reads the class a reported SV’s review showed, its CNV scoring the score, never the class', () => {
     const scoring = {
       kind: 'loss',
@@ -730,21 +707,18 @@ describe('parseSignedReport', () => {
       point_total: 1,
       classification: 'Pathogenic - class 5',
     };
-    const [tagOnly, scored, cleared, olderCleared] = parseSignedReport({
+    const [tagOnly, scored, cleared] = parseSignedReport({
       ...SNAPSHOT,
       reported_structural_variants: [
         { variant_id: '1-20000-20000-BND-5-3000000-3000000', classification: null, class_shown: 'Likely pathogenic - class 4', cnv_class: null, cnv_acmg: null, tags: ['acmg_class_4', 'report'] },
         { variant_id: '1-7000-12000-DEL---', classification: 'Pathogenic - class 5', class_shown: 'Pathogenic - class 5', cnv_class: 'cnv_class_5', cnv_point_total: 1, cnv_acmg: scoring, tags: ['report'] },
         // Its text cleared: no class shown, the CNV scoring beside it.
         { variant_id: '1-7000-12000-DEL---', classification: null, class_shown: null, cnv_class: 'cnv_class_5', cnv_point_total: 1, cnv_acmg: scoring, tags: ['report'] },
-        // The same in a record signed before: read then as the CNV scoring's class.
-        { variant_id: '1-7000-12000-DEL---', classification: null, cnv_class: 'cnv_class_5', cnv_point_total: 1, cnv_acmg: scoring, tags: ['report'] },
       ],
     })!.reportedStructuralVariants!;
     expect([tagOnly.classification, tagOnly.score, tagOnly.pointTotal]).toEqual(['Likely pathogenic - class 4', null, null]);
     expect([scored.classification, scored.score, scored.pointTotal]).toEqual(['Pathogenic - class 5', null, 1]);
     expect([cleared.classification, cleared.score, cleared.pointTotal]).toEqual([null, 'Pathogenic - class 5', 1]);
-    expect([olderCleared.classification, olderCleared.score]).toEqual(['Pathogenic - class 5', null]);
   });
 
   it('reads a section an older record predates as absent, never as empty', () => {
@@ -1694,10 +1668,6 @@ describe('what the sign-out check could not compare', () => {
     );
     expect(describeNotCompared(['nipt.coverage_notes'])).toBe(
       'the NIPT coverage check’s notes on the coverage tracks it did not read as depth',
-    );
-    // The class each reported variant's review showed, which records hold since CLIN-80.
-    expect(describeNotCompared(['reported_variants.class_shown', 'reported_structural_variants.class_shown'])).toBe(
-      'the class each reported small variant’s review showed (with its classification text) and the class each reported structural variant’s review showed',
     );
     // A reference module CoGA records since: by its name, else by its key.
     expect(describeNotCompared(['modules.hpo', 'modules.gene_loci', 'modules.gencc'])).toBe(

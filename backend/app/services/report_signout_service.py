@@ -131,14 +131,6 @@ STRUCTURAL_DRIFT_SECTION = "structural_drift"
 REPORTED_VARIANTS_SECTION = "reported_variants"
 REPORTED_STRUCTURAL_SECTION = "reported_structural_variants"
 CLASS_SHOWN_KEY = "class_shown"
-# What a record signed before CoGA froze the class shown holds none of, per section: a small
-# variant's classification text came with it. The sign-out check leaves these out of the
-# comparison with such a record and names ``<section>.class_shown`` as not compared
-# (:func:`reported_comparable_with_record`).
-_CLASS_SHOWN_KEYS: dict[str, tuple[str, ...]] = {
-    REPORTED_VARIANTS_SECTION: ("classification", CLASS_SHOWN_KEY),
-    REPORTED_STRUCTURAL_SECTION: (CLASS_SHOWN_KEY,),
-}
 
 # What a signed record is, frozen into it and said on the report page (owner decision of
 # 2026-10-14). The report code is not in the record: it is made from the record's content
@@ -1022,8 +1014,8 @@ async def _reported_structural_reviews(
 
     Each keeps ``variant_key``, null: the review's column of that name was never written
     (#853) and went with ENG-6, so every record signed before holds null there, and the
-    sign-out's change check compares this section with theirs on what they hold. The class
-    the review shows is added by :func:`build_report_snapshot` (``class_shown``, CLIN-80).
+    sign-out's change check compares this section with theirs whole. The class the review
+    shows is added by :func:`build_report_snapshot` (``class_shown``, CLIN-80).
     """
     rows = (
         await session.execute(
@@ -2105,36 +2097,6 @@ def _with_current_class_labels(value: Any) -> Any:
     return value
 
 
-def reported_comparable_with_record(section: str, signed: Any, current: Any) -> tuple[Any, list[str]]:
-    """The current reported variants of ``section`` (``reported_variants``,
-    ``reported_structural_variants``) to compare with a signed record's, and what of them the
-    record predates.
-
-    A record signed before CoGA froze the class each reported variant's review showed (CLIN-80)
-    holds no ``class_shown`` in its entries, and its small variants hold no classification text.
-    Like a part of a section a record predates, these are left out of the comparison and named as
-    not compared (``<section>.class_shown``), rather than every such record reading as changed;
-    the rest is compared on what the record holds, so a class tag, an ACMG classification, a CNV
-    scoring or an SV's classification text changed since still reads as a change. A record that
-    holds them is compared whole, so a class changed since signing reads as a change, a small
-    variant's classification text changed alone too. A record whose list is empty holds no
-    entry to tell by: it is compared whole, and a variant reported since is a change.
-    """
-    keys = _CLASS_SHOWN_KEYS.get(section)
-    if keys is None or not isinstance(signed, list) or not isinstance(current, list):
-        return current, []
-    entries = [entry for entry in signed if isinstance(entry, Mapping)]
-    if not entries or any(CLASS_SHOWN_KEY in entry for entry in entries):
-        return current, []
-    comparable = [
-        {key: value for key, value in entry.items() if key not in keys} if isinstance(entry, Mapping) else entry
-        for entry in current
-    ]
-    if comparable == current:
-        return current, []
-    return comparable, [f"{section}.{CLASS_SHOWN_KEY}"]
-
-
 def _modules_comparable_with(
     signed: Mapping[str, Any], current: list[Any]
 ) -> tuple[list[Any], list[str]]:
@@ -2183,13 +2145,11 @@ async def compare_report_with_latest_signout(
     section or reference module the signed record predates is listed in ``not_compared``
     (a module as ``modules.<key>``) rather than reported as changed, and so is what a section
     gained since (``pgt_analysis.qc_verdict``, ``repeat_expansions.count_units``,
-    ``nipt.coverage_notes``, and the class each reported variant's review showed,
-    ``reported_variants.class_shown`` and ``reported_structural_variants.class_shown``, CLIN-80:
-    :func:`reported_comparable_with_record`): the rest of such a section is compared on what the
-    record holds. A section of one application that neither holds (``pgt_analysis`` of a family
-    without an embryo, or of a monogenic NIPT family whose embryo, its fetus, has no haplotype
-    blocks; ``nipt`` of a family that is no monogenic NIPT family) is neither compared nor
-    listed. The report page and the signed view name what is listed as not compared beside what changed,
+    ``nipt.coverage_notes``): the rest of such a section is compared on what the record holds.
+    A section of one application that neither holds (``pgt_analysis`` of a family without an
+    embryo, or of a monogenic NIPT family whose embryo, its fetus, has no haplotype blocks;
+    ``nipt`` of a family that is no monogenic NIPT family) is neither compared nor listed. The
+    report page and the signed view name what is listed as not compared beside what changed,
     and beside "still matches" (TRACE-19). A class label compares whatever its case
     (:func:`_with_current_class_labels`): a record signed before the labels were put in
     sentence case (ENG-6) still matches a report whose only difference is that case.
@@ -2243,11 +2203,6 @@ async def compare_report_with_latest_signout(
         if section == "modules" and isinstance(current_value, list):
             current_value, postdating = _modules_comparable_with(signed, current_value)
             not_compared.extend(f"modules.{key}" for key in postdating)
-        if section in _CLASS_SHOWN_KEYS:
-            # The class each reported variant's review showed, and a small variant's
-            # classification text, which a record signed before CLIN-80 does not hold.
-            current_value, predated = reported_comparable_with_record(section, signed_value, current_value)
-            not_compared.extend(predated)
         if section == "pgt_analysis":
             # The embryos' QC verdict, which a record signed before it does not hold.
             current_value, predated = pgt_analysis_comparable_with_record(signed_value, current_value)

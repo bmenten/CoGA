@@ -867,9 +867,9 @@ version; one never signed out opens on the live report.
   4 · 8 pts)*, *Not classified (CNV score: Pathogenic - class 5 · +1.00 pts)*), and the
   classification motivation names the class the criteria score apart from the class shown (*The
   ACMG/AMP criteria PVS1 score this variant Likely pathogenic - class 4; it is classified as VUS -
-  class 3.*). A record signed before CoGA froze the class shown is shown as it was signed: a small
-  variant's ACMG classification, else the class its class tag names; an SV's class by the rule,
-  else its CNV scoring's; no score beside it;
+  class 3.*). The sign-out check compares the class shown: a class changed since signing reads as
+  a change, a small variant's text changed alone too (*VUS* beside the tag of class 4 rewritten
+  as *Likely benign*);
 - in a PGT family, the embryo calls (*PGT embryo results*): the ROI, the inheritance model, the
   disease haplotype, and per embryo its call, the homologs it carries at the ROI as the track
   names them (P1, P2, M1, M2), its warnings, its QC at the ROI and, in a record that holds them,
@@ -1001,14 +1001,6 @@ to what it does hold still reads as a change. A record that holds the part is co
   per-target table the signed view says such a record does not hold them (*Coverage tracks not
   read as depth: not in the signed record …*); with a table the check read its targets and noted
   no track.
-- **The class each reported variant's review showed.** A record from before holds no
-  `class_shown` in its reported small variants and SVs, and no classification text in its small
-  variants. Listed: `reported_variants.class_shown` and `reported_structural_variants.class_shown`
-  (`report_signout_service.reported_comparable_with_record`); a class tag, an ACMG classification,
-  a CNV scoring or an SV's classification text changed since still reads as a change. In a record
-  that holds them, a class changed since signing reads as a change, a small variant's text changed
-  alone too (*VUS* beside the tag of class 4 rewritten as *Likely benign*), which the check missed
-  before. A record with no reported variant holds no entry to tell by, and is compared whole.
 
 A section CoGA has since computed differently reads as changed too. The Sample QC now counts a
 check that could not run as `warn`, with a note naming each sample whose sex could not be checked.

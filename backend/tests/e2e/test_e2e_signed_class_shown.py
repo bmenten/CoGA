@@ -15,9 +15,7 @@ the two differ. Over the golden trio, through the API, this:
   verifies and the check matches;
 * changes a class by its text alone ("VUS" to "Likely benign") and clears the CNV-scored SV's
   text: the check names both sections as changed, and the next sign-out freezes the new classes,
-  the SV with none (its CNV scoring is the score, never the class);
-* signs out once more as a build from before CLIN-80 (the new keys left out) and shows that the
-  check compares it on what it holds and names the class shown as not compared.
+  the SV with none (its CNV scoring is the score, never the class).
 
 It leaves nothing tagged for the report: the golden trio's database is shared by the modules of
 a run. Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``e2e`` job sets it.
@@ -58,7 +56,6 @@ SIGN_OUT_BODY = {
     "acknowledge_unreviewed_findings": True,
     "unreviewed_findings_acknowledgement_reason": "e2e: the repeat and Paraphase calls are not reviewed",
 }
-CLASS_SHOWN_NOT_COMPARED = ["reported_variants.class_shown", "reported_structural_variants.class_shown"]
 _REPORTED = {"review_tag": "report", "page": 1, "page_size": 100}
 
 
@@ -66,7 +63,6 @@ async def _collect(root: Path) -> dict:
     from httpx import ASGITransport, AsyncClient
 
     from backend.app.main import app
-    from backend.app.services import report_signout_service as rss
     from backend.tests.e2e import _harness
 
     facts = await _harness.import_golden_trio(root)
@@ -144,31 +140,6 @@ async def _collect(root: Path) -> dict:
         r["chain"] = capture(
             await ac.get("/api/admin/integrity/verify", params={"table": "report_signouts", "family_id": FAMILY})
         )
-
-        # A record signed by a build from before CLIN-80: no class shown, no small variant's text.
-        real_build = rss.build_report_snapshot
-
-        async def _old_build(*args, **kwargs):
-            body = await real_build(*args, **kwargs)
-            for entry in body["reported_variants"]:
-                entry.pop("class_shown", None)
-                entry.pop("classification", None)
-            for entry in body["reported_structural_variants"]:
-                entry.pop("class_shown", None)
-            return body
-
-        mp = pytest.MonkeyPatch()
-        mp.setattr(rss, "build_report_snapshot", _old_build)
-        try:
-            r["old_signout"] = capture(await _harness.sign_out(ac, f"{family}/report/sign-out", SIGN_OUT_BODY))
-        finally:
-            mp.undo()
-        old = (r["old_signout"]["json"] or {}).get("version")
-        r["old_detail"] = capture(await ac.get(f"{family}/report/sign-outs/{old}"))
-        r["old_check"] = capture(await ac.get(f"{family}/report/sign-out-check"))
-        # A class tag changed since is a change to what such a record holds.
-        r["tag_changed"] = capture(await ac.put(small(TAG_ONLY), json={"tags": ["acmg_class_5", "report"]}))
-        r["old_check_changed"] = capture(await ac.get(f"{family}/report/sign-out-check"))
 
         # The family ends on a record of today's build, with nothing tagged for the report.
         r["final_signout"] = capture(await _harness.sign_out(ac, f"{family}/report/sign-out", SIGN_OUT_BODY))
@@ -270,21 +241,6 @@ def test_the_next_sign_out_freezes_the_classes_shown_now(signed) -> None:
     assert structural[SV_SCORED]["classification"] is None
     assert structural[SV_SCORED]["cnv_acmg"]["classification"] == "Pathogenic - class 5"
     assert ok_json(signed, "chain")["verified"] is True
-
-
-def test_a_record_from_before_the_class_shown_is_compared_on_what_it_holds(signed) -> None:
-    detail = ok_json(signed, "old_detail")
-    assert detail["verified"] is True
-    assert not any("class_shown" in entry for entry in detail["snapshot"]["reported_variants"])
-    check = ok_json(signed, "old_check")
-    assert check["matches"] is True, check
-    assert check["not_compared"] == CLASS_SHOWN_NOT_COMPARED
-    # A class tag changed since is a change to what it holds.
-    ok_json(signed, "tag_changed")
-    changed = ok_json(signed, "old_check_changed")
-    assert changed["matches"] is False
-    assert "reported_variants" in changed["changed_sections"]
-    assert changed["not_compared"] == CLASS_SHOWN_NOT_COMPARED
 
 
 def test_the_module_leaves_nothing_tagged_for_the_report(signed) -> None:

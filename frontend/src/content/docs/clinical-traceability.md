@@ -412,7 +412,7 @@ It shows what the record holds (section 4):
 - as each variant's class, the class its review showed when the version was signed, *Not classified*
   when it showed none, and beside it the ACMG (or CNV) score when that is another class: *VUS - class
   3 (ACMG score: Likely pathogenic - class 4 · 8 pts)*, *Not classified (CNV score: Pathogenic - class
-  5 · +1.00 pts)*. A version signed before CoGA froze that class shows the class as it was signed;
+  5 · +1.00 pts)*;
 - in a PGT family, the embryo calls (*PGT embryo results*), with the haplotypes named as the track names
   them (P1, P2, M1, M2). Since CoGA checks the QC against thresholds, the verdict shows too (*⚠ The
   phasing QC at the ROI did not meet its thresholds …*), with the thresholds in force. A call that did

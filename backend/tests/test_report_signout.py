@@ -3556,9 +3556,6 @@ def test_signout_check_compares_the_sv_evidence_a_record_does_not_hold(monkeypat
     assert out["changed_sections"] == ["reported_structural_variants"]
     # Nor does it hold the unfinished imports, a section added after it too.
     assert out["not_compared"] == [
-        # Nor the class the SV's review showed, which records hold since CLIN-80: the reported
-        # SV is compared without it, and still reads as changed by its frozen evidence.
-        "reported_structural_variants.class_shown",
         "structural_drift",
         "import_unfinished",
         # Nor the repeat and Paraphase reviews, which records hold since 2026-10-28.
@@ -4909,64 +4906,3 @@ def test_signout_check_reads_an_svs_class_changed_since_as_a_change(monkeypatch)
     out = _checked_with_latest(signed)
     assert out["matches"] is False
     assert out["changed_sections"] == ["reported_structural_variants"]
-
-
-def _as_signed_before_the_class_shown(snapshot: dict) -> dict:
-    """``snapshot`` as a build from before CLIN-80 froze it: no class shown, and no small
-    variant's classification text."""
-    older = copy.deepcopy(snapshot)
-    for entry in older["reported_variants"]:
-        entry.pop("class_shown", None)
-        entry.pop("classification", None)
-    for entry in older["reported_structural_variants"]:
-        entry.pop("class_shown", None)
-    return older
-
-
-def test_signout_check_compares_a_record_signed_before_the_class_shown_on_what_it_holds(monkeypatch) -> None:
-    _patch_reported(
-        monkeypatch,
-        rows=[row for row, _shown in _OWNER_SMALL_CASES],
-        structural=[entry for entry, _shown in _OWNER_SV_CASES],
-    )
-    older = _as_signed_before_the_class_shown(_snapshot_now())
-
-    out = _checked_with_latest(older)
-    # Nothing it holds changed: it still matches, and what it predates is named, not compared.
-    assert out["matches"] is True, out
-    assert out["changed_sections"] == []
-    assert out["not_compared"] == ["reported_variants.class_shown", "reported_structural_variants.class_shown"]
-
-    # A class tag changed since is still a change, and an SV's text, which such a record holds.
-    rows = [row for row, _shown in _OWNER_SMALL_CASES]
-    rows[1] = _classified_row("1-200-A-G", None, ["acmg_class_5", "report"])
-    structural = [entry for entry, _shown in _OWNER_SV_CASES]
-    structural[1] = {**structural[1], "classification": None}
-    _patch_reported(monkeypatch, rows=rows, structural=structural)
-    out = _checked_with_latest(older)
-    assert out["changed_sections"] == ["reported_variants", "reported_structural_variants"]
-    assert out["not_compared"] == ["reported_variants.class_shown", "reported_structural_variants.class_shown"]
-
-
-def test_a_record_holding_the_class_shown_or_no_reported_variant_is_compared_whole() -> None:
-    current = [{"variant_id": "1-1-A-G", "classification": "VUS", "class_shown": "VUS - class 3", "tags": []}]
-    # A record that holds it.
-    assert rss.reported_comparable_with_record("reported_variants", current, current) == (current, [])
-    # A record with no reported variant holds no entry to tell by: a variant reported since is a change.
-    assert rss.reported_comparable_with_record("reported_variants", [], current) == (current, [])
-    # One that predates it, read on what it holds.
-    older = [{"variant_id": "1-1-A-G", "tags": []}]
-    assert rss.reported_comparable_with_record("reported_variants", older, current) == (
-        [{"variant_id": "1-1-A-G", "tags": []}],
-        ["reported_variants.class_shown"],
-    )
-    # An SV's record held its classification text before: only the class shown is left out.
-    signed_sv = [{"variant_id": "1-1000-5000-DEL---", "classification": "x"}]
-    current_sv = [{"variant_id": "1-1000-5000-DEL---", "classification": "x", "class_shown": "x"}]
-    assert rss.reported_comparable_with_record("reported_structural_variants", signed_sv, current_sv) == (
-        signed_sv,
-        ["reported_structural_variants.class_shown"],
-    )
-    # Another section, or a value that is no list, is compared as it is.
-    assert rss.reported_comparable_with_record("drift", older, current) == (current, [])
-    assert rss.reported_comparable_with_record("reported_variants", {"unavailable": "x"}, current) == (current, [])

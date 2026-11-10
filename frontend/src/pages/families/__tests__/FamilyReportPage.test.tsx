@@ -1413,6 +1413,8 @@ describe('FamilyReportPage', () => {
     reported_variants: [
       {
         variant_id: '17-43000000-A-G',
+        classification: 'Likely pathogenic - class 4',
+        class_shown: 'Likely pathogenic - class 4',
         acmg_class: 'acmg_class_4',
         acmg: {
           criteria: [
@@ -1440,6 +1442,7 @@ describe('FamilyReportPage', () => {
         variant_id: '2-1000-50000-DEL---',
         variant_key: 123,
         classification: 'Pathogenic - class 5',
+        class_shown: 'Pathogenic - class 5',
         cnv_class: 'cnv_class_5',
         cnv_point_total: 1,
         cnv_acmg: {
@@ -1614,6 +1617,7 @@ describe('FamilyReportPage', () => {
               variant_id: '2-1000-50000-DEL---',
               variant_key: 123,
               classification: 'Uncertain significance - class 3',
+              class_shown: 'Uncertain significance - class 3',
               cnv_class: 'cnv_class_3',
               cnv_point_total: 0.6,
               cnv_acmg: {
@@ -3161,8 +3165,7 @@ describe('FamilyReportPage', () => {
   // the class each reported variant's review shows, by the family page's rule, and beside it the
   // ACMG (or CNV) score when that is another class. Rendered from what the API served on real
   // Postgres and ClickHouse (backend/tests/e2e/test_e2e_signed_class_shown.py): the live lists,
-  // the record signed from them, the record signed after a class changed, and one signed as a
-  // build from before CLIN-80.
+  // the record signed from them, and the record signed after a class changed.
   describe('the class each reported variant shows (CLIN-80)', () => {
     // A signed version as GET …/report/sign-outs/{version} served it.
     type SignedDetail = Pick<(typeof CLASS_SHOWN_E2E)['signed'], 'version' | 'report_code' | 'content_hash' | 'signed_out_by' | 'signed_out_at'>;
@@ -3288,34 +3291,6 @@ describe('FamilyReportPage', () => {
       ]);
       const cleared = screen.getByRole('heading', { name: 'Structural variant 1-7000-12000-DEL---' }).closest('article')!;
       expect(cleared).toHaveTextContent('The ClinGen CNV criteria 2A score this variant Pathogenic - class 5; it is not classified.');
-    });
-
-    it('shows a record signed before CLIN-80 exactly as it was signed, and names what the check could not compare', async () => {
-      const record = CLASS_SHOWN_E2E.signed_before_class_shown;
-      mockSignedRecord(record, () =>
-        checkResult({
-          version: record.version,
-          not_compared: ['reported_variants.class_shown', 'reported_structural_variants.class_shown'],
-        }),
-      );
-      const { container } = renderPage();
-
-      await screen.findByRole('heading', { name: '1-2000-C-T' });
-      // The record holds no class shown: read as it was read when signed, the ACMG
-      // classification first, then the class tag, an SV's CNV scoring last; no score beside.
-      expect(classChips(container)).toEqual([
-        'Likely pathogenic - class 4 · 8 pts',
-        'Likely pathogenic - class 4',
-        'Likely pathogenic - class 4',
-        'Not classified',
-        'Likely pathogenic - class 4',
-        'Pathogenic - class 5 · +1.00 pts',
-      ]);
-      expect(
-        await screen.findByText(/so not compared: the class each reported small variant’s review showed/),
-      ).toHaveTextContent(
-        `Not in this version, so not compared: the class each reported small variant’s review showed (with its classification text) and the class each reported structural variant’s review showed.`,
-      );
     });
   });
 

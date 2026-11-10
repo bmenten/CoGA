@@ -121,8 +121,7 @@ record: *Signed version N — signed out by … on …*, with its report code an
 was signed:
 
 - each reported variant's description, classification, criteria, evidence and note. The class is the
-  one its review showed when you signed, with the ACMG or CNV score beside it as on the live report; a
-  version signed before CoGA recorded that class shows the class as it was signed;
+  one its review showed when you signed, with the ACMG or CNV score beside it as on the live report;
 - in a PGT family, the embryo calls (*PGT embryo results*, with each call's QC verdict and the
   thresholds);
 - in a monogenic NIPT family, its NIPT results (*NIPT results*);

@@ -37,11 +37,6 @@ import { COUNT_UNIT_MARK, describeCountOffset, formatCorrectedCounts } from '../
 import { FATHER_STATE_LABELS, depth, niptEvidenceSummary, pct, readsText } from './niptClassification';
 import { formatAlleleFrequency, scoreBesideClass } from './reportNarrative';
 import { formatCompoundHetPhaseStatus, formatLocus } from './smallVariantResultUtils';
-import {
-  getClassificationLabelFromTagKey,
-  getClassificationTagKeyFromTags,
-  normalizeReviewClassification,
-} from './smallVariantSearch';
 
 type Json = Record<string, unknown>;
 
@@ -307,14 +302,13 @@ export interface SignedSmallVariant {
   /** Null when the entry cannot be read here (the downloaded record holds it). */
   variantId: string | null;
   /**
-   * The class shown. In a record that froze the class its review showed (`class_shown`,
-   * CLIN-80), that class, by the family page's rule; null: *Not classified*. In a record signed
-   * before, as it was read then: its ACMG classification, else the class its class tag names.
+   * The class its review showed, frozen at sign-out (`class_shown`, CLIN-80) by the family page's
+   * rule; null: *Not classified*.
    */
   classification: string | null;
   /**
-   * In a record that froze the class shown, its ACMG classification when that is another class:
-   * shown beside it as the ACMG score. Null otherwise, and in a record signed before.
+   * Its ACMG classification when that is another class than the class shown: shown beside it as
+   * the ACMG score. Null otherwise.
    */
   score: string | null;
   pointTotal: number | null;
@@ -341,15 +335,13 @@ export interface SignedStructuralVariant {
   variantId: string | null;
   variantKey: string | null;
   /**
-   * The class shown. In a record that froze the class its review showed (`class_shown`,
-   * CLIN-80), that class, as the SV page shows it; null: *Not classified*. In a record signed
-   * before, as it was read then: its review's, else its ClinGen CNV scoring's.
+   * The class its review showed, frozen at sign-out (`class_shown`, CLIN-80) as the SV page shows
+   * it; null: *Not classified*.
    */
   classification: string | null;
   /**
-   * In a record that froze the class shown, the CNV scoring's class when that is another class:
-   * shown beside it as the CNV score, never as the class. Null otherwise, and in a record signed
-   * before.
+   * The CNV scoring's class when that is another class than the class shown: shown beside it as
+   * the CNV score, never as the class. Null otherwise.
    */
   score: string | null;
   pointTotal: number | null;
@@ -1124,7 +1116,7 @@ const parseEvidenceValues = (value: unknown, fields: EvidenceField[]): SignedEvi
     : null;
 
 // The key, in a reported variant's entry, of the class its review showed when it was signed
-// (report_signout_service.CLASS_SHOWN_KEY, CLIN-80). A record signed before holds none.
+// (report_signout_service.CLASS_SHOWN_KEY, CLIN-80).
 const CLASS_SHOWN_KEY = 'class_shown';
 
 const parseSmallVariant = (entry: unknown): SignedSmallVariant => {
@@ -1148,19 +1140,12 @@ const parseSmallVariant = (entry: unknown): SignedSmallVariant => {
   const { criteria, unreadable } = parseAcmgCriteria(acmg);
   const evidence = isObject(entry.evidence_snapshot) ? entry.evidence_snapshot : null;
   // The class its review showed, frozen at sign-out by the family page's rule (CLIN-80), with
-  // the ACMG classification beside it as the score. A record signed before reads as it was read
-  // then: the ACMG classification, else the class the review's classification tag names.
-  const shownFrozen = has(entry, CLASS_SHOWN_KEY);
-  const shown = shownFrozen
-    ? text(entry[CLASS_SHOWN_KEY])
-    : (text(acmg?.classification) ??
-      (getClassificationLabelFromTagKey(text(entry.acmg_class)) ||
-        getClassificationLabelFromTagKey(getClassificationTagKeyFromTags(tags)) ||
-        null));
+  // the ACMG classification beside it as the score when that is another class.
+  const shown = text(entry[CLASS_SHOWN_KEY]);
   return {
     variantId: text(entry.variant_id),
     classification: shown,
-    score: shownFrozen ? scoreBesideClass(shown, text(acmg?.classification)) : null,
+    score: scoreBesideClass(shown, text(acmg?.classification)),
     pointTotal: number(acmg?.point_total),
     criteria,
     unreadableCriteria: unreadable,
@@ -1230,18 +1215,14 @@ const parseStructuralVariant = (entry: unknown): SignedStructuralVariant => {
   const cnvScore = text(cnvAcmg?.classification) || (cnvClass ? (CNV_CLASS_LABELS[cnvClass] ?? cnvClass) : null);
   const variantKey = entry.variant_key;
   // The class its review showed, frozen at sign-out as the SV page shows it (CLIN-80), with the
-  // CNV scoring beside it as the score, never as the class. A record signed before reads as it
-  // was read then: its review's class by the rule, else the CNV scoring's.
-  const shownFrozen = has(entry, CLASS_SHOWN_KEY);
-  const shown = shownFrozen
-    ? text(entry[CLASS_SHOWN_KEY])
-    : normalizeReviewClassification(text(entry.classification), tags) || cnvScore;
+  // CNV scoring beside it as the score, never as the class.
+  const shown = text(entry[CLASS_SHOWN_KEY]);
   return {
     variantId: text(entry.variant_id),
     variantKey:
       typeof variantKey === 'number' || typeof variantKey === 'string' ? String(variantKey) : null,
     classification: shown,
-    score: shownFrozen ? scoreBesideClass(shown, cnvScore) : null,
+    score: scoreBesideClass(shown, cnvScore),
     pointTotal: number(entry.cnv_point_total) ?? number(cnvAcmg?.point_total),
     criteria,
     unreadableCriteria: unreadable,
@@ -2590,15 +2571,13 @@ export const describeReportSections = (sections: string[]): string =>
 // The parts of a section CoGA records since a record was signed: the sign-out check compares
 // such a record's section on what it holds and names these as not compared
 // (pgt_analysis.comparable_with_record, signed_record_sections.repeat_expansions_comparable_with_record,
-// signed_record_nipt.nipt_comparable_with_record, report_signout_service.reported_comparable_with_record).
+// signed_record_nipt.nipt_comparable_with_record).
 const NOT_COMPARED_PART_LABELS: Record<string, string> = {
   'pgt_analysis.qc_verdict': 'the embryos’ QC verdicts',
   'pgt_analysis.inputs.blocks_outdated': 'whether the haplotype blocks were built for the family’s pedigree',
   'repeat_expansions.count_units': 'the repeat calls’ near-boundary warnings and QA’s records of their counting units',
   'repeat_expansions.count_offset': 'QA’s count corrections and TRGT’s own counts beside the corrected ones',
   'nipt.coverage_notes': 'the NIPT coverage check’s notes on the coverage tracks it did not read as depth',
-  'reported_variants.class_shown': 'the class each reported small variant’s review showed (with its classification text)',
-  'reported_structural_variants.class_shown': 'the class each reported structural variant’s review showed',
 };
 
 // The reference-layer modules a record can predate (annotation_manifest_service.REFERENCE_MODULE_KEYS),
