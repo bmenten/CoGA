@@ -31,6 +31,8 @@ from .review_pg_utils import (
     _normalize_tags,
     _read_stored_classification,
     _stored_classification,
+    review_class_filter,
+    review_shows_class,
 )
 from .small_variant_review_tags import list_small_variant_tag_definitions
 from .clickhouse_variant_records import StructuralVariantRecord
@@ -233,13 +235,20 @@ async def list_matching_structural_variant_review_ids(
     tags: Sequence[str] | None = None,
     has_notes: bool = False,
 ) -> set[str]:
-    # A classification matches whatever its case: a filter or a review saved before the labels
-    # were put in sentence case (ENG-6) holds "Likely Pathogenic - class 4".
-    normalized_classifications = {
-        value.strip().lower() for value in (classifications or []) if str(value).strip()
-    }
+    """The SVs of the family whose review the review filters keep: a classification, a review
+    tag, a saved note (each set filter must hold).
+
+    A classification keeps a review by the class the SV table and cards show for it
+    (``review_shows_class``, the small-variant filters' rule; CLIN-77, the owner's decision of
+    2026-11-10): a bare class word in its text, else its most severe class tag, else its text,
+    whatever the case (ENG-6). So *Likely pathogenic - class 4* keeps a review classified by its
+    class tag alone, and not one whose text says another class beside that tag. A CNV (ClinGen)
+    scoring counts as the page shows it, through the class label the CNV dialog writes as the
+    text: its stored class (``cnv_class``) alone is not shown, and not read here.
+    """
+    requested_classes = set(review_class_filter(classifications))
     normalized_tags = {value.strip() for value in (tags or []) if str(value).strip()}
-    if not normalized_classifications and not normalized_tags and not has_notes:
+    if not requested_classes and not normalized_tags and not has_notes:
         return set()
     result = await session.execute(
         text(
@@ -256,9 +265,8 @@ async def list_matching_structural_variant_review_ids(
         variant_id = str(document.get("variant_id") or "")
         if not variant_id:
             continue
-        matches_classification = (
-            not normalized_classifications
-            or str(document.get("classification") or "").strip().lower() in normalized_classifications
+        matches_classification = not requested_classes or review_shows_class(
+            document.get("classification"), document.get("tags"), requested_classes
         )
         matches_tags = not normalized_tags or bool(
             set(_normalize_tags(document.get("tags", []))).intersection(normalized_tags)
