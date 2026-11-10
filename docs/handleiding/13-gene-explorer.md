@@ -28,9 +28,7 @@ Het profiel toont onder meer:
 
 - Staat het gen erop, dan toont de rij de versie (met een link naar de publicatie), het fenotype, de categorie, de overerving, de te melden varianten en de voetnoten van de lijst voor het gen (bv. bij *TTN*: alleen truncerende varianten).
 - Anders staat er *Not on ACMG SF v3.3*.
-- *Not checked* betekent dat de lijst voor dit gen niet gelezen is: de geninformatie werd ververst voordat CoGA de lijst had, of de lijst kon niet gelezen worden.
-
-De rijen *Clinical actionability* en *Variant pathogenicity* zijn weg: geen bron vulde ze, dus toonden ze altijd "—".
+- *Not checked* betekent dat de lijst voor dit gen niet gelezen is: de geninformatie heeft geen status van de lijst, of de lijst kon niet gelezen worden.
 
 **ClinGen-dosage.** Onder *ClinGen dosage assertions* staan twee soorten items. *ClinGen dosage curation* komt uit ClinGens eigen dosagebestand: de haploinsufficiëntie en de triplosensitiviteit in woorden, de datum van de curatie en een link naar ClinGens rapport. Het item met een *HI score* is dezelfde haploinsufficiëntiescore zoals dbNSFP ze meegeeft.
 
@@ -77,13 +75,13 @@ Bij elke status horen het tijdstip, de URL en, als de bron het vermeldt, de **ui
 
 ## Waarom en hoe CoGA dit bewaart
 
-De externe bronnen worden **niet** bij elk paginabezoek bevraagd. Dat zou traag, kwetsbaar en niet reproduceerbaar zijn: twee reviewers konden verschillende data zien. De verrijking staat daarom in de Postgres-tabel **`gene_info`**, één rij per assembly en symbool, met de bronstatus en het tijdstip van de laatste verversing. De pagina leest alleen uit die tabel.
+De externe bronnen worden **niet** bij elk paginabezoek bevraagd. Dat zou traag, kwetsbaar en niet reproduceerbaar zijn: twee reviewers zouden verschillende data kunnen zien. De verrijking staat daarom in de Postgres-tabel **`gene_info`**, één rij per assembly en symbool, met de bronstatus en het tijdstip van de laatste verversing. De pagina leest alleen uit die tabel.
 
 **Verversen als achtergrondjob.** Een volledige verversing omvat duizenden genen en draait daarom als job in `gene_info_refresh_jobs`, voor één gen of alle menselijke genen.
 
 - Er kan maar **één actieve job** tegelijk zijn. De databank dwingt dat af; een tweede aanvraag krijgt `409`.
 - Elke job bewaart wie hem aanvroeg: het account van de beheerder (`requested_by_id`) en het e-mailadres waaronder hij gevraagd werd (`requested_by`). De eerste job bij de installatie is van geen account en krijgt `startup-bootstrap`.
-- Een worker voert de job alleen uit zolang dat account een actieve beheerder is (SEC-35). Is het gedeactiveerd, geen beheerder meer of bestaat het niet meer, dan eindigt de job `failed` met de reden, zonder een genrecord te schrijven. De plaats komt dan vrij voor de volgende verversing.
+- Een worker voert de job alleen uit zolang dat account een actieve beheerder is. Is het gedeactiveerd, geen beheerder meer of bestaat het niet meer, dan eindigt de job `failed` met de reden, zonder een genrecord te schrijven. De plaats komt dan vrij voor de volgende verversing.
 - Een worker neemt de job, verwerkt de genen en schrijft geregeld de voortgang weg. Een job waarvan de worker stopte, wordt na een tijd opnieuw opgepakt.
 
 **Beheer.** Op de pagina *Gene reference sync* (`GeneReferenceAdminPage.tsx`) kan een beheerder één gen of alle genen laten verversen, de actieve job volgen, de dekking per bron bekijken (met de kolommen *Release*, *No record* en *Not consulted*) en de recente jobs zien. Alle endpoints daarvoor (`/api/admin/gene-reference/...`) zijn alleen voor beheerders.
