@@ -31,6 +31,16 @@ const packages = [
     changed_during_import: false,
   },
 ];
+// A folder in the project folder of a project CoGA has.
+packages.push({
+  folder_path: '/data/families/Rare disease/FAM002',
+  name: 'FAM002',
+  family_id: 'FAM002',
+  has_ped: true,
+  project_folder: 'Rare disease',
+  imported_families: [],
+  changed_during_import: false,
+} as (typeof packages)[number]);
 const projects = [{ _id: 'p1', name: 'Rare disease' }];
 
 describe('AddDeliveryForm', () => {
@@ -140,6 +150,22 @@ describe('AddDeliveryForm', () => {
         analysis_type: 'monogenic_nipt',
       })
     );
+  });
+
+  it('shows a folder by its project folder, and takes that project when chosen', async () => {
+    renderForm();
+
+    await screen.findByRole('option', { name: 'Rare disease' });
+    const option = await screen.findByRole('option', {
+      name: 'Rare disease / FAM002',
+    });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Folder to add' }), {
+      target: { value: option.getAttribute('value') },
+    });
+
+    expect(
+      screen.getByRole('combobox', { name: 'Project to add it to' })
+    ).toHaveValue('p1');
   });
 
   it('says why a folder was not added', async () => {

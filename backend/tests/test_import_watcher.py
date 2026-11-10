@@ -85,6 +85,44 @@ def test_the_marked_package_folders_of_a_watched_folder_are_found(tmp_path: Path
     assert watcher.marked_folders(tmp_path) == watcher.WatchedFolderListing(folders=[marked.resolve()], empty=False)
 
 
+def test_the_package_folders_in_the_project_folders_of_a_watched_folder_are_found(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(settings, "family_import_roots", [str(tmp_path)])
+    in_wgs = _package(tmp_path / "WGS", "FAM1")
+    in_pgt = _package(tmp_path / "PGT", "FAM2")
+    _package(tmp_path / "PGT", "FAM3", package_file=False)
+    loose = _package(tmp_path, "FAM4")
+
+    listing = watcher.marked_folders(tmp_path)
+
+    assert listing is not None
+    assert sorted(listing.folders) == sorted([in_wgs.resolve(), in_pgt.resolve(), loose.resolve()])
+    assert [watcher.project_folder_of(tmp_path, folder) for folder in (in_wgs, in_pgt, loose)] == ["WGS", "PGT", None]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("project_folder", "issue"),
+    [("WGS", None), ("PGT", "package_project_folder_differs"), (None, "package_not_in_project_folder")],
+)
+async def test_a_delivery_lies_in_the_folder_of_its_project(
+    tmp_path: Path, project_folder: str | None, issue: str | None
+) -> None:
+    folder = _package(tmp_path / project_folder if project_folder else tmp_path, "FAM1")
+    _complete_file(folder)
+
+    assessment = await watcher.assess_delivery(_factory([]), folder, watched_in=tmp_path)
+
+    placed = [
+        found.code
+        for found in assessment.issues
+        if found.code in {"package_not_in_project_folder", "package_project_folder_differs"}
+    ]
+    assert placed == ([issue] if issue else [])
+    assert assessment.package_check["project_folder"] == {"name": project_folder}
+
+
 def test_a_watched_folder_with_only_hidden_entries_is_empty_and_one_with_unmarked_folders_is_not(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -335,7 +373,7 @@ async def test_a_check_that_fails_is_recorded_with_a_fixed_sentence(tmp_path: Pa
     async def fingerprint(_folder: Path) -> str:
         return "a" * 64
 
-    async def fail(*_args: Any) -> Any:
+    async def fail(*_args: Any, **_kwargs: Any) -> Any:
         raise RuntimeError("a value of FAM1")
 
     monkeypatch.setattr(watcher, "_fingerprint", fingerprint)
@@ -624,7 +662,7 @@ async def test_an_open_delivery_seen_again_is_checked_again_only_when_coga_chang
     async def coga_side_changed(_session: Any, _row: Any) -> bool:
         return changed["value"]
 
-    async def assess(_factory: Any, checked: Path, _read: Any = None) -> Any:
+    async def assess(_factory: Any, checked: Path, _read: Any = None, **_kwargs: Any) -> Any:
         assessed.append(checked)
         return watcher.DeliveryAssessment(state="ready", project_id="p1")
 

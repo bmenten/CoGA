@@ -140,6 +140,8 @@ class FamilyPackageCandidateOut(BaseModel):
     name: str
     family_id: str
     has_ped: bool
+    # The project folder it lies in (``<root>/<project>/<package>``); None directly in a root.
+    project_folder: Optional[str] = None
     # The families imported from this folder, by their package record (none for a folder not
     # imported yet): the import page hides a folder whose families all imported completely.
     imported_families: List[ImportedPackageFamily] = Field(default_factory=list)

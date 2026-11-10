@@ -1,10 +1,14 @@
 """The import watcher: the packages pipelines deliver into the watched import folders.
 
-A pipeline, or the step that copies its output onto the share, writes a package folder into a
-watched import folder (``FAMILY_IMPORT_WATCH_ROOTS``) with its package file ``coga-package.json``
+A pipeline, or the step that copies its output onto the share, writes a package folder into the
+folder of its project in a watched import folder (``FAMILY_IMPORT_WATCH_ROOTS``:
+``<watched folder>/<project>/<package>``) with its package file ``coga-package.json``
 (``coga_package``, docs/coga-package.md), which says what the package is and, by its ``status``,
 whether it is complete. Every ``FAMILY_IMPORT_WATCH_INTERVAL_SECONDS`` the watcher looks into
-each watched folder. A folder without a package file is no delivery. One whose file says the run
+each watched folder and each project folder in it. A package folder directly in the watched
+folder, or in the folder of another project than its package names, needs attention for it
+(``package_not_in_project_folder``, ``package_project_folder_differs``). A folder without a
+package file is no delivery. One whose file says the run
 is under way, or failed, is no delivery either, and an open delivery of that folder before it is
 superseded: the pipeline is writing the folder again. A folder whose file says it is complete is
 a delivery per package fingerprint (``family_package_fingerprint``): a folder that changes is a
@@ -159,37 +163,87 @@ def watch_roots() -> list[Path]:
 @dataclass(slots=True)
 class WatchedFolderListing:
     """A watched folder as a round lists it: ``folders``, the package folders in it that hold a
-    package file; ``empty``, whether it lists nothing but hidden entries (a share that is not
-    mounted reads as an empty folder; one that lists any other entry is mounted)."""
+    package file (in its project folders, and directly in it); ``empty``, whether it lists nothing
+    but hidden entries (a share that is not mounted reads as an empty folder; one that lists any
+    other entry is mounted)."""
 
     folders: list[Path]
     empty: bool
 
 
-def marked_folders(root: Path) -> WatchedFolderListing | None:
-    """The package folders directly in the watched folder ``root`` that hold a package file, as
-    selection takes them (``_listed_package_folder``: links resolved, none out of the import
-    roots), and whether ``root`` lists nothing but hidden entries; None when ``root`` cannot be
-    read."""
+def _names_in(folder: Path) -> list[str] | None:
+    """The entries of ``folder`` but its hidden ones, sorted; None when it cannot be read."""
     try:
-        if not root.is_dir():
-            return None
-        with os.scandir(root) as listing:
-            names = sorted(entry.name for entry in listing if not entry.name.startswith("."))
+        with os.scandir(folder) as listing:
+            return sorted(entry.name for entry in listing if not entry.name.startswith("."))
     except OSError:
+        return None
+
+
+def _holds_package_file(folder: Path) -> bool:
+    try:
+        os.lstat(folder / PACKAGE_FILE_NAME)
+    except OSError:
+        return False
+    return True
+
+
+def marked_folders(root: Path) -> WatchedFolderListing | None:
+    """The package folders in the watched folder ``root`` that hold a package file, as selection
+    takes them (``_listed_package_folder``: links resolved, none out of the import roots), and
+    whether ``root`` lists nothing but hidden entries; None when ``root`` cannot be read.
+
+    The watched folder holds a folder per project, named as the project, and a pipeline delivers
+    each package folder into the folder of its project (``<root>/<project>/<package>``, the owner's
+    decision of 2026-11-10). A folder directly in ``root`` that holds a package file is a package
+    folder too, outside any project folder: its delivery needs attention for it
+    (``package_not_in_project_folder``)."""
+    if not root.is_dir():
+        return None
+    names = _names_in(root)
+    if names is None:
         return None
     folders: list[Path] = []
     for name in names:
-        folder = _listed_package_folder(root / name)
-        if folder is None or not folder.is_dir():
+        child = _listed_package_folder(root / name)
+        if child is None or not child.is_dir():
             continue
-        try:
-            os.lstat(folder / PACKAGE_FILE_NAME)
-        except OSError:
+        if _holds_package_file(child):
+            if child not in folders:
+                folders.append(child)
             continue
-        if folder not in folders:
-            folders.append(folder)
+        for inner in _names_in(child) or []:
+            folder = _listed_package_folder(child / inner)
+            if folder is not None and folder.is_dir() and _holds_package_file(folder) and folder not in folders:
+                folders.append(folder)
     return WatchedFolderListing(folders=folders, empty=not names)
+
+
+def project_folder_of(root: Path, folder: Path) -> str | None:
+    """The name of the project folder the package folder ``folder`` lies in under the watched
+    folder ``root``; None when it lies directly in ``root``."""
+    return None if folder.parent.resolve() == root.resolve() else folder.parent.name
+
+
+def _project_folder_issue(project_folder: str | None, project: str | None) -> DeliveryIssue | None:
+    """Why a delivery's place in its watched folder is not the folder of its project: it lies
+    directly in the watched folder, or in the folder of another project than its package names (the
+    owner's decision of 2026-11-10). None when it lies in the folder of its project, and when the
+    package names no project (``package_issues`` says so)."""
+    if project_folder is None:
+        return _issue(
+            "package_not_in_project_folder",
+            "The package folder lies directly in the watched import folder, not in the folder of its "
+            "project: move it into <watched folder>/<project>/, or refuse the delivery.",
+        )
+    if project is not None and project != project_folder:
+        return _issue(
+            "package_project_folder_differs",
+            f"The package lies in the folder of project '{project_folder}', and {PACKAGE_FILE_NAME} "
+            f"names project '{project}': correct the project, or move the package into the folder of "
+            "its project.",
+        )
+    return None
 
 
 @dataclass(slots=True)
@@ -401,6 +455,12 @@ async def assess_content(
     ]
     issues.extend(DeliveryIssue.model_validate(item) for item in check.get("issues") or [])
     warnings: list[DeliveryIssue] = [DeliveryIssue.model_validate(item) for item in check.get("warnings") or []]
+    place = check.get("project_folder")
+    if isinstance(place, dict):
+        # Delivered into the folder of a project: that project and the package's must agree.
+        place_issue = _project_folder_issue(place.get("name"), effective.project)
+        if place_issue is not None:
+            issues.append(place_issue)
     if effective.qc is not None and effective.qc.status == "fail":
         issues.append(_issue("package_qc_failed", f"The pipeline's QC failed ({PACKAGE_FILE_NAME}, qc.status)."))
     elif effective.qc is not None and effective.qc.status == "warn":
@@ -531,11 +591,17 @@ async def _proposal(
 
 
 async def assess_delivery(
-    session_factory: async_sessionmaker[AsyncSession], folder: Path, read: PackageRead | None = None
+    session_factory: async_sessionmaker[AsyncSession],
+    folder: Path,
+    read: PackageRead | None = None,
+    *,
+    watched_in: Path | None = None,
 ) -> DeliveryAssessment:
     """Check the new delivery in the package folder ``folder`` (see the module's docstring),
     with its package file as ``read`` read it (read here when not given): read the folder once
-    (sizes, checksums, what the file leaves out proposed), then its content (``assess_content``)."""
+    (sizes, checksums, what the file leaves out proposed), then its content (``assess_content``).
+    ``watched_in`` is the watched folder the watcher found it in: the project folder it lies in
+    there is kept with the delivery, and compared with its package's project at every check."""
     if read is None:
         read = await asyncio.to_thread(read_package_file, folder)
     assessment = DeliveryAssessment(state="needs_attention", marker_sha256=read.sha256, marker=read.payload)
@@ -576,6 +642,8 @@ async def assess_delivery(
         "proposed": proposed_sections(read.package),
         "proposal_issues": [issue.model_dump() for issue in proposal_issues],
     }
+    if watched_in is not None:
+        assessment.package_check["project_folder"] = {"name": project_folder_of(watched_in, folder)}
     return await assess_content(session_factory, folder, assessment, base=package, effective=package)
 
 
@@ -643,11 +711,15 @@ async def _coga_side_changed(session: AsyncSession, delivery: Mapping[Any, Any])
 
 
 async def _assess(
-    session_factory: async_sessionmaker[AsyncSession], folder: Path, read: PackageRead | None = None
+    session_factory: async_sessionmaker[AsyncSession],
+    folder: Path,
+    read: PackageRead | None = None,
+    *,
+    watched_in: Path | None = None,
 ) -> DeliveryAssessment:
     """``assess_delivery``, or, when the check fails, the delivery as one that needs attention for it."""
     try:
-        return await assess_delivery(session_factory, folder, read)
+        return await assess_delivery(session_factory, folder, read, watched_in=watched_in)
     except asyncio.CancelledError:
         raise
     except Exception as exc:  # noqa: BLE001 - one folder's failure never stops the round
@@ -762,7 +834,7 @@ async def look_at_folder(
         state = await _store_check_again(session_factory, folder, str(seen["id"]), fingerprint, assessment)
         return ("checked_again", state) if state is not None else None
     # The package file as read before the fingerprint: a folder changed since then is left below.
-    assessment = await _assess(session_factory, folder, read)
+    assessment = await _assess(session_factory, folder, read, watched_in=root)
     # Changed while it was checked: what was checked is not what is there.
     if await _fingerprint(folder) != fingerprint:
         return None

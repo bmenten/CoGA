@@ -302,20 +302,27 @@ top of the page, with how many wait. Nothing is imported until a superuser appro
 
 **The watched folder.** The server's administrator names the watched folders
 (`FAMILY_IMPORT_WATCH_ROOTS`). They lie under the import folder, on the server's disk or a mounted
-share; a storage bucket is not watched. Each delivery is one family folder directly inside:
+share; a storage bucket is not watched. The watched folder holds a folder per project, named exactly
+as the project in CoGA, and each delivery is one family folder in the folder of its project:
 
 ```text
 <watched folder>/
-  FAM001/
-    coga-package.json   the package file
-    snv/ needlr/ …      the data
-  FAM002/
-    coga-package.json
-    …
+  PGT/
+    FAM001/
+      coga-package.json   the package file
+      snv/ needlr/ …      the data
+  BeGECS/
+    FAM002/
+      coga-package.json
+      …
 ```
 
-- Only folders directly in the watched folder count, and only once they hold `coga-package.json`. A
-  folder whose name starts with `.` is skipped.
+- A family folder counts once it holds `coga-package.json`. A folder whose name starts with `.` is
+  skipped.
+- **A delivery lies in the folder of its project.** One whose package file names another project
+  than its folder needs attention: correct the project with **Correct…**, or move the folder into
+  the folder of its project. A family folder directly in the watched folder needs attention too:
+  move it into the folder of its project.
 - **The package file says when the package is complete**: its `status` is `running` while the
   pipeline runs, and `complete` as its last step. CoGA offers only a complete one. A pipeline that
   runs again in a folder writes `running` first: a delivery of that folder no one has decided on is

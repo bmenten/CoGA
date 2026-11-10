@@ -59,6 +59,18 @@ const AddDeliveryForm: React.FC<{
     },
   });
 
+  // A folder chosen from the list: the project of the project folder it lies in, when CoGA has
+  // one of that name and none is chosen yet.
+  const choose = (path: string) => {
+    setFolderPath(path);
+    const chosen = packages.find((pkg) => pkg.folder_path === path);
+    const project = projects.find(
+      (item) => item.name === chosen?.project_folder
+    );
+    if (project && !projectId) {
+      setProjectId(project.id);
+    }
+  };
   const canAdd =
     !addMutation.isPending &&
     folderPath.trim().length > 0 &&
@@ -84,7 +96,7 @@ const AddDeliveryForm: React.FC<{
                   ? folderPath
                   : ''
               }
-              onChange={(event) => setFolderPath(event.target.value)}
+              onChange={(event) => choose(event.target.value)}
               disabled={packagesQuery.isLoading}
             >
               <option value="">
@@ -94,6 +106,7 @@ const AddDeliveryForm: React.FC<{
               </option>
               {packages.map((pkg) => (
                 <option key={pkg.folder_path} value={pkg.folder_path}>
+                  {pkg.project_folder ? `${pkg.project_folder} / ` : ''}
                   {pkg.name}
                   {(pkg.imported_families ?? []).length ? ' · imported' : ''}
                 </option>

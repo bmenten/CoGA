@@ -623,7 +623,8 @@ class Settings(BaseSettings):
     family_import_worker_count: int = Field(default=1, ge=0, le=8, alias="FAMILY_IMPORT_WORKER_COUNT")
     # The import folders the import watcher looks into, every FAMILY_IMPORT_WATCH_INTERVAL_SECONDS,
     # for packages a pipeline delivered with their package file (coga-package.json): local folders under
-    # FAMILY_IMPORT_ROOTS, comma-separated or a JSON list. Empty, the default: no watcher.
+    # FAMILY_IMPORT_ROOTS, comma-separated or a JSON list, each holding a folder per project with the
+    # package folders in it (<watched folder>/<project>/<package>). Empty, the default: no watcher.
     family_import_watch_roots: Annotated[list[str], NoDecode] = Field(
         default_factory=list, alias="FAMILY_IMPORT_WATCH_ROOTS"
     )

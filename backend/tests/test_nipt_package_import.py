@@ -33,6 +33,10 @@ def test_the_scan_lists_the_folders_that_can_be_added_by_hand(monkeypatch: pytes
     (delivered / "family.ped").write_text("DELIVERED\tP\t0\t0\t1\t2\n")
     (delivered / "coga-package.json").write_text("{}")
     (tmp_path / "not-a-package").mkdir()
+    # A folder in a project folder, as a pipeline delivers it.
+    in_project = tmp_path / "WGS" / "FAM_IN_PROJECT"
+    in_project.mkdir(parents=True)
+    (in_project / "family.ped").write_text("FAM_IN_PROJECT\tP\t0\t0\t1\t2\n")
 
     monkeypatch.setattr(settings, "family_import_roots", [str(tmp_path)])
 
@@ -44,7 +48,15 @@ def test_the_scan_lists_the_folders_that_can_be_added_by_hand(monkeypatch: pytes
             "name": "FAM_NIPT_DEMO",
             "family_id": "FAM_NIPT_DEMO",
             "has_ped": True,
-        }
+            "project_folder": None,
+        },
+        "FAM_IN_PROJECT": {
+            "folder_path": str(in_project.resolve()),
+            "name": "FAM_IN_PROJECT",
+            "family_id": "FAM_IN_PROJECT",
+            "has_ped": True,
+            "project_folder": "WGS",
+        },
     }
 
 
