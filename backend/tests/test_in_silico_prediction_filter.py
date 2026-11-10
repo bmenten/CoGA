@@ -29,7 +29,7 @@ from backend.app.services.clickhouse_variant_queries import _small_detail_filter
 from backend.app.services.clickhouse_variant_records import (
     SmallVariantRecord,
 )
-from backend.app.services.clickhouse_variant_rows import _small_annotation_row
+from backend.app.services.clickhouse_variant_rows import _small_variant_entry_rows
 from backend.app.services.family_variant_filters import SmallVariantQueryFilters
 
 # A SIFT value, and the predictions it names. VEP writes the first ten forms: with the
@@ -88,7 +88,8 @@ _CASES = [
 
 def _stored(annotation: dict[str, Any]) -> dict[str, str]:
     """A transcript's ``sift`` and ``polyphen`` as the import writes them to the
-    ``annotations`` table (``_small_annotation_row``, whose last two columns they are)."""
+    ``annotations`` table (``_small_variant_entry_rows``: the last two columns of the
+    variant's one annotations row)."""
     record = SmallVariantRecord(
         variant_key=1,
         variant_id="1-100-A-T",
@@ -104,14 +105,10 @@ def _stored(annotation: dict[str, Any]) -> dict[str, str]:
         annotations=[annotation],
         calls=[],
     )
-    row = _small_annotation_row(
-        variant_key=1,
-        variant_id="1-100-A-T",
-        annotation_version="current",
-        annotation_set_hash=1,
-        record=record,
-        annotation=annotation,
+    _details, _entries, annotation_rows, _index, _gene_index = _small_variant_entry_rows(
+        "GRCh38", "family-uuid", ["project-uuid"], [record]
     )
+    (row,) = annotation_rows
     return {"sift": row[-2], "polyphen": row[-1]}
 
 

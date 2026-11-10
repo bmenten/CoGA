@@ -191,11 +191,13 @@ def _iso(value: Any) -> str | None:
 
 
 def _int_or_none(value: Any) -> int | None:
+    """A whole number, or None: a bool, no number and an infinity (``int`` raises
+    ``OverflowError`` on one) are none."""
     if value is None or isinstance(value, bool):
         return None
     try:
         return int(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
 
 

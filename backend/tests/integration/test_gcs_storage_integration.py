@@ -25,6 +25,7 @@ import os
 from collections.abc import Sequence
 from pathlib import Path
 import shutil
+import socket
 import subprocess
 import time
 from typing import Any
@@ -44,7 +45,6 @@ from backend.tests._pinned_images import pinned_image
 pytestmark = pytest.mark.integration
 
 _BUCKET = "coga-it-bucket"
-_PORT = 4443
 _ALIGNMENTS_MANIFEST = b"""schema_version: 1
 family_id: F1
 ped: family.ped
@@ -60,6 +60,13 @@ datasets:
         read_stats: qc/S1.NanoStats.txt
 """
 _NANOSTATS = b"General summary:\nNumber of reads:  1,000\n"
+
+
+def _free_port() -> int:
+    """A local port nothing listens on now, for this run's emulator."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.bind(("127.0.0.1", 0))
+        return int(probe.getsockname()[1])
 
 
 def _wait_ready(endpoint: str, timeout: float = 30.0) -> bool:
@@ -87,22 +94,25 @@ def gcs_endpoint():
     if not shutil.which("docker"):
         pytest.skip("no GCS_ENDPOINT_URL and docker unavailable")
 
-    name = "coga-fake-gcs-it"
-    subprocess.run(["docker", "rm", "-f", name], capture_output=True)
+    # A container and a port of this run's own (ENG-23): a fixed name had a second run at once,
+    # another worktree's say, remove the first run's emulator as it started its own, and both
+    # bind the same port.
+    name = f"coga-fake-gcs-it-{uuid4().hex[:12]}"
+    port = _free_port()
     subprocess.run(
         [
             "docker", "run", "-d", "--name", name,
-            "-p", f"{_PORT}:{_PORT}",
+            "-p", f"127.0.0.1:{port}:{port}",
             # The image CI starts, as ci/pinned-images.Dockerfile pins it (#520, OPS-12).
             pinned_image("fake-gcs-server"),
             "-scheme", "http",
-            "-port", str(_PORT),
-            "-public-host", f"127.0.0.1:{_PORT}",
+            "-port", str(port),
+            "-public-host", f"127.0.0.1:{port}",
         ],
         check=True,
         capture_output=True,
     )
-    endpoint = f"http://127.0.0.1:{_PORT}"
+    endpoint = f"http://127.0.0.1:{port}"
     try:
         if not _wait_ready(endpoint):
             logs = subprocess.run(["docker", "logs", name], capture_output=True, text=True)

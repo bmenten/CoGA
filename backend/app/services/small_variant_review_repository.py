@@ -22,7 +22,7 @@ def _postgres_bigint_or_none(value: Any) -> int | None:
         return None
     try:
         int_value = int(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):  # an infinity is no bigint either
         return None
     if POSTGRES_BIGINT_MIN <= int_value <= POSTGRES_BIGINT_MAX:
         return int_value

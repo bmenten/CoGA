@@ -24,13 +24,15 @@ def json_object(value: Any) -> dict[str, Any]:
 
 def int_or_none(value: Any) -> int | None:
     """A whole number: an int, or text or a float read as one (``"3"``, ``"3.7"`` and ``3.7``
-    are 3). None for None, ``""`` and anything that reads as no number."""
+    are 3). None for None, ``""`` and anything that reads as no number, an infinity
+    (``"inf"``, ``"1e400"``, ``float("inf")``) and NaN included: no whole number is one, and
+    ``int`` raises ``OverflowError`` on it, not ``ValueError``."""
     if value in (None, ""):
         return None
     try:
         return int(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         try:
             return int(float(value))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return None

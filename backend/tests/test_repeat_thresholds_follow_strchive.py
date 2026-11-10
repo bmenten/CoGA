@@ -37,6 +37,7 @@ from backend.tests._repeat_fakes import (
     family_context,
     import_lookup,
     seed_a_start,
+    shipped_strchive_loci,
     trgt_insert_params,
     upserts,
 )
@@ -84,10 +85,6 @@ CHANGED_LOCI = [
 LOCUS_IDS = [locus.gene_trid for locus in CHANGED_LOCI]
 
 
-def _shipped_strchive_rows() -> list[dict]:
-    return repeat_expansion_pg.load_strchive_repeat_loci(repeat_expansion_pg.REPO_STRCHIVE_LOCI_PATH)
-
-
 def _strchive_rows_of(builtin: dict, strchive_rows: list[dict]) -> list[dict]:
     """The STRchive rows of a built-in locus: those whose gene is its gene or one of its aliases."""
     names = {str(name).lower() for name in (builtin["gene"], *builtin.get("aliases", []))}
@@ -100,7 +97,7 @@ def _strchive_rows_of(builtin: dict, strchive_rows: list[dict]) -> list[dict]:
 def test_every_built_in_row_has_one_strchive_row_with_the_same_thresholds() -> None:
     """Fails whenever a built-in row's thresholds drift from its STRchive row's: change the
     built-in row and STRchive-loci.json together."""
-    strchive_rows = _shipped_strchive_rows()
+    strchive_rows = shipped_strchive_loci()
     assert strchive_rows, "the shipped STRchive file did not load"
 
     unmatched: dict[str, list[str]] = {}
@@ -126,7 +123,7 @@ def test_every_built_in_row_has_one_strchive_row_with_the_same_thresholds() -> N
 def test_the_cases_below_are_the_built_in_rows_whose_thresholds_changed() -> None:
     """Each case pairs a built-in row with its STRchive row and STRchive's thresholds; the six
     built-in rows without a case already agreed with STRchive (FMR1 since #799)."""
-    strchive_by_id = {row["locus_id"]: row for row in _shipped_strchive_rows()}
+    strchive_by_id = {row["locus_id"]: row for row in shipped_strchive_loci()}
     builtin_by_id = {locus["locus_id"]: locus for locus in BUILTIN_REPEAT_LOCI}
     for locus in CHANGED_LOCI:
         strchive = strchive_by_id[locus.strchive_trid]

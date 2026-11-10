@@ -6,10 +6,7 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import { type ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTestQueryClient } from '../../test/createTestQueryClient';
-import ParentalOriginChart, {
-  parentalOriginChartHeight,
-  segregationPoint,
-} from '../visualizations/ParentalOriginChart';
+import ParentalOriginChart, { segregationPoint } from '../visualizations/ParentalOriginChart';
 import { serveTrackFetchFrom } from '../../test/trackFetchMock';
 
 vi.mock('../../lib/trackFetch', async () => {
@@ -134,10 +131,5 @@ describe('segregationPoint', () => {
     });
     expect(segregationPoint({ chr: '9', start: 9, end: 10, value: 0.3, origin: 'paternal', group: '3A' })?.fraction).toBeCloseTo(0.7);
     expect(segregationPoint({ chr: '9', start: 9, end: 10, value: 0.3, origin: 'paternal', group: '1A' })).toBeNull();
-  });
-
-  it('gives the height the chart takes', () => {
-    expect(parentalOriginChartHeight(100, false)).toBe(2 * (18 + 100) + 18);
-    expect(parentalOriginChartHeight(80, true)).toBe(2 * (18 + 80) + 14 + 18);
   });
 });

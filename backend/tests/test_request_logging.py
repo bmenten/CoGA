@@ -4,6 +4,9 @@ import logging
 import types
 
 import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.exc import DBAPIError
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -176,6 +179,110 @@ def test_derive_db_update_ignores_bare_api_prefix() -> None:
     # A request to the mount root alone has no entity once the prefix is stripped.
     request = _build_request("DELETE", "/api")
     assert _derive_db_update(request, None) is None
+
+
+class _ProjectChange(BaseModel):
+    name: str | None = None
+    description: str | None = None
+
+
+class _SampleChange(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    sample: str | None = Field(default=None, alias="sampleId")
+    status: str | None = Field(default=None, alias="clinicalStatus")
+
+
+class _AliasOnly(BaseModel):
+    sample: str | None = Field(default=None, alias="sampleId")
+
+
+class _TakesExtraKeys(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    name: str | None = None
+
+
+def _audited_update_fields(monkeypatch, method: str, path: str, body: dict) -> list[str] | None:
+    """The ``updateFields`` the request's audit row lists, through an app with the middleware,
+    so that the route is matched as the API matches it."""
+    captured: list = []
+
+    async def _fake_write(payload):
+        captured.append(payload)
+
+    monkeypatch.setattr(rl, "write_audit_log_event", _fake_write)
+    app = FastAPI()
+    app.middleware("http")(rl.log_request_response)
+
+    @app.put("/api/projects/{project_id}")
+    async def change(project_id: str, payload: _ProjectChange) -> dict:
+        return {}
+
+    @app.put("/api/projects/{project_id}/optional")
+    async def change_optionally(project_id: str, payload: _ProjectChange | None = None) -> dict:
+        return {}
+
+    @app.post("/api/projects/{project_id}/both")
+    async def change_both(project_id: str, project: _ProjectChange, sample: _SampleChange) -> dict:
+        return {}
+
+    @app.patch("/api/samples/{sample_id}")
+    async def change_sample(sample_id: str, payload: _SampleChange) -> dict:
+        return {}
+
+    @app.patch("/api/samples/{sample_id}/alias-only")
+    async def change_sample_by_alias(sample_id: str, payload: _AliasOnly) -> dict:
+        return {}
+
+    @app.patch("/api/projects/{project_id}/open")
+    async def change_openly(project_id: str, payload: _TakesExtraKeys) -> dict:
+        return {}
+
+    @app.post("/api/projects/{project_id}/mapping")
+    async def change_by_mapping(project_id: str, payload: dict) -> dict:
+        return {}
+
+    @app.post("/api/projects/{project_id}/raw")
+    async def change_by_request(project_id: str, request: Request) -> dict:
+        return {}
+
+    with TestClient(app) as client:
+        response = client.request(method, path, json=body)
+    assert response.status_code == 200, response.text
+    (row,) = captured
+    # The body is recorded whole, the keys the model ignores included.
+    assert row.request_body == body
+    return row.db_update.get("updateFields")
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "body", "listed"),
+    [
+        # Before, "note" was listed: a key ProjectChange ignores, which changed nothing.
+        ("PUT", "/api/projects/p1", {"name": "n", "note": "x"}, ["name"]),
+        ("PUT", "/api/projects/p1/optional", {"description": "d", "note": "x"}, ["description"]),
+        # Several body models: the body's keys are the parameters'.
+        ("POST", "/api/projects/p1/both", {"project": {}, "sample": {}, "note": "x"}, ["project", "sample"]),
+        # A model that reads fields by name and by alias; one that reads the alias only.
+        (
+            "PATCH",
+            "/api/samples/S1",
+            {"sampleId": "S1", "status": "affected", "note": "x"},
+            ["sampleId", "status"],
+        ),
+        ("PATCH", "/api/samples/S1/alias-only", {"sampleId": "S1", "sample": "S2"}, ["sampleId"]),
+        # Every key is read: a model that takes extra keys, a dict, the request itself.
+        ("PATCH", "/api/projects/p1/open", {"name": "n", "note": "x"}, ["name", "note"]),
+        ("POST", "/api/projects/p1/mapping", {"a": 1, "b": 2}, ["a", "b"]),
+        ("POST", "/api/projects/p1/raw", {"a": 1, "b": 2}, ["a", "b"]),
+        # Only keys the model ignores: the request changes no field.
+        ("PUT", "/api/projects/p1", {"note": "x"}, None),
+    ],
+    ids=["model", "optional-model", "two-models", "by-name-and-alias", "alias-only", "extra-allowed", "dict", "request", "ignored-only"],
+)
+def test_the_audit_lists_only_the_body_fields_the_route_reads(monkeypatch, method, path, body, listed) -> None:
+    assert _audited_update_fields(monkeypatch, method, path, body) == listed
 
 
 def _get_with_query(query_string: bytes) -> Request:

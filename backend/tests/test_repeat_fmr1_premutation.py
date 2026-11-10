@@ -35,6 +35,7 @@ from backend.tests._repeat_fakes import (
     family_context,
     import_lookup,
     seed_a_start,
+    shipped_strchive_loci,
     trgt_insert_params,
 )
 
@@ -231,11 +232,7 @@ async def test_a_males_single_x_allele_is_a_premutation_at_200_and_a_full_mutati
 
 def test_the_built_in_fmr1_row_and_strchive_start_the_full_mutation_at_201() -> None:
     builtin = next(locus for locus in BUILTIN_REPEAT_LOCI if locus["locus_id"] == "FMR1")
-    strchive = next(
-        locus
-        for locus in repeat_expansion_pg.load_strchive_repeat_loci(repeat_expansion_pg.REPO_STRCHIVE_LOCI_PATH)
-        if locus["locus_id"] == "FXS_FMR1"
-    )
+    strchive = next(locus for locus in shipped_strchive_loci() if locus["locus_id"] == "FXS_FMR1")
 
     # Inclusive ranges: the full mutation starts right after the intermediate range ends.
     assert strchive["metadata"]["intermediate_max"] == 200

@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import json
 import time
-from typing import Any
+from types import UnionType
+from typing import Any, Union, get_args, get_origin
 from urllib.parse import parse_qsl
 from urllib.parse import urlencode
 
 from fastapi import Request, Response
+from pydantic import BaseModel
 
 from ..core.coga_logging import CoGALogger, describe_error, describe_traceback, is_sensitive_key
 from ..core.config import API_PATH_PREFIX, settings
@@ -159,6 +161,49 @@ def _get_request_user(request: Request) -> dict[str, str | None] | None:
     }
 
 
+def _body_model(route: Any) -> type[BaseModel] | None:
+    """The Pydantic model the matched route reads its JSON body into: its one body parameter's
+    model (an optional one's too), or the model FastAPI builds for several body parameters or
+    an embedded one, whose fields are the parameters. None for a route without such a model:
+    one that reads a dict, a scalar or the request itself, and for no matched route."""
+    body_field = getattr(route, "body_field", None)
+    annotation = getattr(getattr(body_field, "field_info", None), "annotation", None)
+    if get_origin(annotation) in (Union, UnionType):
+        members = [member for member in get_args(annotation) if member is not type(None)]
+        annotation = members[0] if len(members) == 1 else None
+    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+        return annotation
+    return None
+
+
+def _body_keys_read(route: Any) -> frozenset[str] | None:
+    """The top-level body keys the matched route's model reads: each field's alias, and its
+    name where the model reads fields by name too. None where every key may be read: no model
+    is known (``_body_model``), the model takes extra keys, or it names a field by an alias
+    path or a choice of aliases."""
+    model = _body_model(route)
+    if model is None:
+        return None
+    config = model.model_config
+    if config.get("extra") == "allow":
+        return None
+    by_name = bool(config.get("validate_by_name") or config.get("populate_by_name"))
+    by_alias = config.get("validate_by_alias", True)
+    keys: set[str] = set()
+    for name, field in model.model_fields.items():
+        alias = field.validation_alias if field.validation_alias is not None else field.alias
+        if alias is None:
+            keys.add(name)
+            continue
+        if not isinstance(alias, str):
+            return None
+        if by_alias:
+            keys.add(alias)
+        if by_name:
+            keys.add(name)
+    return frozenset(keys)
+
+
 def _derive_db_update(
     request: Request,
     request_body: Any | None,
@@ -193,7 +238,15 @@ def _derive_db_update(
 
     update_fields: list[str] | None = None
     if isinstance(request_body, dict):
-        update_fields = [key for key in request_body.keys() if not str(key).startswith("_")]
+        # The fields the request changes are those its body model reads: a key the model
+        # ignores changed nothing, so it is not listed (ENG-23). The body itself is recorded
+        # whole, the ignored keys included.
+        read = _body_keys_read(request.scope.get("route"))
+        update_fields = [
+            key
+            for key in request_body.keys()
+            if not str(key).startswith("_") and (read is None or str(key) in read)
+        ]
 
     return log_model_update(
         entity=entity,

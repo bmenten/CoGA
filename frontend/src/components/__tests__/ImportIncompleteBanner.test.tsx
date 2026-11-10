@@ -12,7 +12,6 @@ import ImportIncompleteBanner, {
   importUnfinishedFromMetadata,
   pendingDatasets,
   unfinishedWriter,
-  wholeFamilyImportKeys,
 } from '../ImportIncompleteBanner';
 
 // As family_package_registration._flag_family_import_incomplete records it.
@@ -338,10 +337,18 @@ describe('importUnfinishedFromMetadata', () => {
     expect(pendingDatasets(entry)).toEqual(['coverage', 'snv', 'sv_needlr']);
     const frozen = { ...WHOLE_FAMILY[RESTORE_JOB], whole_family: true };
     expect(importUnfinishedFromMetadata({ import_unfinished: { [RESTORE_JOB]: frozen } })[0].wholeFamily).toBe(true);
-    // An upload's mark lists its items the same way, but is no restore.
+    // An upload's or a deletion's mark lists its items the same way, but is no restore.
     expect(
       importUnfinishedFromMetadata({ import_unfinished: { [UPLOAD_KEY]: frozen } })[0].wholeFamily,
     ).toBe(false);
+    const restores = (metadata: unknown) =>
+      importUnfinishedFromMetadata(metadata)
+        .filter((unfinished) => unfinished.wholeFamily)
+        .map((unfinished) => unfinished.key);
+    expect(restores({ import_unfinished: { ...UNFINISHED, ...WHOLE_FAMILY } })).toEqual([RESTORE_JOB]);
+    expect(restores({ import_unfinished: { ...WHOLE_FAMILY, ...UPLOAD_MARK, ...DELETION_MARK } })).toEqual([
+      RESTORE_JOB,
+    ]);
   });
 });
 
@@ -352,22 +359,6 @@ describe('unfinishedWriter', () => {
     expect(unfinishedWriter(STOPPED_JOB)).toBe('import');
     expect(unfinishedWriter('run-5f2c')).toBe('import');
     expect(unfinishedWriter('unreadable')).toBe('import');
-  });
-});
-
-describe('wholeFamilyImportKeys', () => {
-  it('reads which entries a restore that did not finish left', () => {
-    expect(wholeFamilyImportKeys({ import_unfinished: { ...UNFINISHED, ...WHOLE_FAMILY } })).toEqual(
-      new Set([RESTORE_JOB]),
-    );
-    // An upload's or a deletion's mark lists its items the same way, but is no restore.
-    expect(
-      wholeFamilyImportKeys({ import_unfinished: { ...WHOLE_FAMILY, ...UPLOAD_MARK, ...DELETION_MARK } }),
-    ).toEqual(new Set([RESTORE_JOB]));
-    expect(wholeFamilyImportKeys({ import_unfinished: UNFINISHED })).toEqual(new Set());
-    expect(wholeFamilyImportKeys({ import_unfinished: 'garbage' })).toEqual(new Set());
-    expect(wholeFamilyImportKeys({ import_unfinished: { k: 'not an entry' } })).toEqual(new Set());
-    expect(wholeFamilyImportKeys(null)).toEqual(new Set());
   });
 });
 

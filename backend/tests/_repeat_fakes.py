@@ -6,7 +6,8 @@ built-in loci and the shipped STRchive file) into a recording session and reads 
 ``locus_id``); ``import_lookup`` builds the import's TRID lookup from them. ``RowsSession``
 answers every query, the family table's and the genome track's among them, with the rows given.
 ``trgt_insert_params`` builds the row the import stores for one TRGT record of one sample.
-All samples and values are synthetic.
+``shipped_strchive_loci`` reads the shipped STRchive release's loci as a start does. All samples
+and values are synthetic.
 
 Import as ``from backend.tests._repeat_fakes import ...``.
 """
@@ -83,6 +84,14 @@ _CATALOGUE_COLUMNS = (
     "pathogenic_min",
     "notes",
 )
+
+
+def shipped_strchive_loci() -> list[dict[str, Any]]:
+    """The loci of the shipped STRchive release (``data/ref-data/STRchive-loci.json``), read as
+    a start reads them: the file checked against the pinned release, then each entry
+    normalized."""
+    payload = repeat_expansion_pg.read_shipped_strchive_release(repeat_expansion_pg.REPO_STRCHIVE_LOCI_PATH)
+    return repeat_expansion_pg._strchive_repeat_loci_from_payload(json.loads(payload))
 
 
 async def seed_a_start(monkeypatch: pytest.MonkeyPatch) -> RecordingSession:

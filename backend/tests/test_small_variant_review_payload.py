@@ -21,3 +21,5 @@ def test_json_payload_serializes_datetime_values() -> None:
 def test_postgres_bigint_or_none_drops_clickhouse_uint64_overflow() -> None:
     assert _postgres_bigint_or_none(9_223_372_036_854_775_807) == 9_223_372_036_854_775_807
     assert _postgres_bigint_or_none(17_002_747_318_664_912_484) is None
+    # An infinity is no bigint: int() raises OverflowError on it, which escaped.
+    assert _postgres_bigint_or_none(float("inf")) is None

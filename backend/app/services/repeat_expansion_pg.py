@@ -173,13 +173,6 @@ def _strchive_repeat_loci_from_payload(payload: Any) -> list[dict[str, Any]]:
     ]
 
 
-def load_strchive_repeat_loci(path: str | Path) -> list[dict[str, Any]]:
-    path = Path(path)
-    if not path.exists():
-        return []
-    return _strchive_repeat_loci_from_payload(json.loads(path.read_bytes()))
-
-
 def _configured_strchive_loci_paths() -> list[Path]:
     raw_paths = [settings.trgt_strchive_loci_path, REPO_STRCHIVE_LOCI_PATH]
     paths: list[Path] = []
