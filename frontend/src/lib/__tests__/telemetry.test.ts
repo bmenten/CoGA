@@ -1,23 +1,18 @@
-// UI telemetry durability — #521: a failed batch and the events before logout were lost.
+// UI telemetry durability: a failed batch, and the events queued before a logout, are not lost.
 //
-// A page closed after an idle hour sent its last events with the session's stored token (found
-// while fixing SEC-32, #1005): a Microsoft access token lives about an hour, and only a request
-// through the API client renewed it, so the flush at page hide or unload, which cannot wait for a
-// renewal, was refused (401) and its events lost. The flush timer now renews the token ahead, and
-// events whose token has expired anyway are kept under their account, never sent to be refused,
-// until that account's session can send them. Values are made up; tokens are put together here.
+// A Microsoft access token lives about an hour, and the flush at page hide or unload cannot wait
+// for a renewal: the flush timer renews the token ahead, and events whose token has expired anyway
+// are kept under their account, never sent to be refused, until that account's session can send
+// them. Values are made up; tokens are put together here.
 //
-// Two older losses (found while fixing the keepalive flush, #1018): the events queued when
-// another request's 401 ended the session were dropped, as no token was left to send them with,
-// and a batch in flight through the API client when the page closed was in neither the queue nor
-// the page-close flush. Both are now kept, the batch until the API acknowledges it; each event
-// carries its own id, by which the API stores it once (SEC-17), so a batch sent again is harmless.
+// The events queued when another request's 401 ended the session are kept under their account,
+// and a batch in flight through the API client when the page closes is kept until the API
+// acknowledges it; each event carries its own id, by which the API stores it once, so a batch
+// sent again is harmless.
 //
-// Three more (SEC-36): nothing read the page-close keepalive's answer, so one that failed lost
-// its events; tabs wrote the kept events as one value, so one tab's write could undo another's;
-// and an event made with no session went out with the session the next flush found, recorded as
-// that user's. A keepalive's events now stay kept until the API takes them, each kept event is
-// stored on its own, and an event no session made is not recorded.
+// A page-close keepalive's events stay kept until the API takes them; each kept event is stored
+// on its own, so one tab's write cannot undo another's; and an event no session made is not
+// recorded, never sent with the session the next flush finds.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -223,8 +218,7 @@ describe('UI telemetry', () => {
       logUiEvent({ event_type: 'click', label: 'Close the family' });
       window.dispatchEvent(new Event('pagehide'));
 
-      // Before, the timer flushed only queued events and renewed nothing: the page sent the
-      // token it held, an hour old, and the API refused the batch.
+      // The timer renewed the token ahead: the page-close flush sends the renewed one.
       expect(keepaliveHeaders(fetchMock).map((headers) => headers.Authorization)).toEqual([`Bearer ${renewed}`]);
       expect(getAuthToken()).toBe(renewed);
       // Renewed once, five minutes before it expired, not at every tick.
@@ -241,7 +235,7 @@ describe('UI telemetry', () => {
       closing.logUiEvent({ event_type: 'click', label: 'Open the report' });
       window.dispatchEvent(new Event('pagehide'));
 
-      // Before, they were sent with the expired token, refused, and lost.
+      // None is sent with the expired token, to be refused.
       expect(fetchMock).not.toHaveBeenCalled();
 
       // Another account signs in at this browser: it sends none of them.
@@ -283,7 +277,7 @@ describe('UI telemetry', () => {
       logUiEvent({ event_type: 'click', label: 'Compare the samples' });
 
       setVisibility('hidden');
-      // Before, sent at once with the expired token, and lost.
+      // Not sent at once with the expired token.
       expect(fetchMock).not.toHaveBeenCalled();
 
       // The renewal the hidden page started has finished by the timer's next flush.
@@ -329,7 +323,7 @@ describe('UI telemetry', () => {
     persistSession(accessToken(ACCOUNT, Date.now() + 2 * HOUR), 'a.colleague@example.org', 'viewer', 'microsoft');
     await flushUiEvents();
 
-    // Before, the refused batch was dropped and nothing was sent again.
+    // The refused batch goes out at the account's next sign-in.
     expect(postMock).toHaveBeenCalledTimes(2);
     expect(sentLabels(postMock, 1)).toEqual(['Save the review', 'Sign out']);
   });
@@ -372,7 +366,7 @@ describe('UI telemetry', () => {
       page.endExpiredSession(familyPage());
       window.dispatchEvent(new Event('pagehide'));
 
-      // Before, the page-close flush found no token and emptied the queue.
+      // The page-close flush finds no token and sends nothing: the events stay kept.
       expect(fetchMock).not.toHaveBeenCalled();
 
       // Another account signs in at this browser: it sends none of them.
@@ -398,7 +392,7 @@ describe('UI telemetry', () => {
       page.logUiEvent({ event_type: 'click', label: 'Open the report' });
       page.endExpiredSession(familyPage());
 
-      // Before, the timer's flush found no token and emptied the queue.
+      // The timer's flush finds no token and sends nothing: the events stay kept.
       await vi.advanceTimersByTimeAsync(5000);
       window.dispatchEvent(new Event('pagehide'));
       expect(postMock).not.toHaveBeenCalled();
@@ -420,7 +414,7 @@ describe('UI telemetry', () => {
       page.logUiEvent({ event_type: 'click', label: 'Open the dashboard' });
       await page.flushUiEvents();
 
-      // Before, the queue went out whole under the session the flush found.
+      // Only the events queued under this session's account go out under it.
       expect(postMock).toHaveBeenCalledTimes(1);
       expect(sentLabels(postMock, 0)).toEqual(['Open the dashboard']);
 
@@ -444,8 +438,8 @@ describe('UI telemetry', () => {
       await flushing;
       await page.flushUiEvents();
 
-      // Before, the flush went on with the next batch, which the API client sends with the token
-      // the session holds: the other account's.
+      // The flush leaves the rest: the next batch would go out with the token the session holds,
+      // the other account's.
       expect(postMock).toHaveBeenCalledTimes(1);
       expect(sentLabels(postMock, 0)).toHaveLength(50);
 
@@ -468,11 +462,11 @@ describe('UI telemetry', () => {
       page.logUiEvent({ event_type: 'click', label: 'Close the tab' });
       window.dispatchEvent(new Event('pagehide'));
 
-      // Before, the batch in flight was in neither the queue nor the page-close flush.
+      // The batch in flight goes out again in the page-close flush.
       expect(fetchMock).toHaveBeenCalledTimes(1);
       const resent = keepaliveEvents(fetchMock, 0);
       expect(resent.map((event) => event.label)).toEqual(['Sign out the analysis', 'Close the tab']);
-      // The API stores an event once by its id (SEC-17): one that did arrive is not stored twice.
+      // The API stores an event once by its id: one that did arrive is not stored twice.
       expect(resent[0].event_id).toBe(sentEvents(postMock, 0)[0].event_id);
       expect(resent[0].event_id).toMatch(UUID);
     });
@@ -492,7 +486,7 @@ describe('UI telemetry', () => {
       const next = await load();
       persistSession(accessToken(ACCOUNT, Date.now() + 2 * HOUR), 'a.colleague@example.org', 'viewer', 'microsoft');
       await next.flushUiEvents();
-      // Before, it was lost. Sent again with the id it first went with.
+      // Sent again with the id it first went with.
       expect(postMock).toHaveBeenCalledTimes(2);
       expect(sentLabels(postMock, 1)).toEqual(['Save the review']);
       expect(sentEvents(postMock, 1)[0].event_id).toBe(sentEvents(postMock, 0)[0].event_id);
@@ -528,7 +522,7 @@ describe('UI telemetry', () => {
     });
   });
 
-  describe('the keepalive as the page is hidden or closed (SEC-36)', () => {
+  describe('the keepalive as the page is hidden or closed', () => {
     it('that fails while the page is only hidden is sent again by the next flush, with the same ids', async () => {
       persistSession(accessToken(ACCOUNT, Date.now() + HOUR), 'a.colleague@example.org', 'viewer', 'microsoft');
       const page = await load();
@@ -539,10 +533,10 @@ describe('UI telemetry', () => {
       await answersRead();
       await page.flushUiEvents();
 
-      // Before, nothing read the keepalive's answer: its events had left the queue, and were lost.
+      // The keepalive's failure is read: its events are sent again.
       expect(postMock).toHaveBeenCalledTimes(1);
       expect(sentLabels(postMock, 0)).toEqual(['Open the family']);
-      // An event that did arrive is stored once, by its id (SEC-17).
+      // An event that did arrive is stored once, by its id.
       expect(sentEvents(postMock, 0)[0].event_id).toBe(keepaliveEvents(fetchMock, 0)[0].event_id);
     });
 
@@ -560,7 +554,7 @@ describe('UI telemetry', () => {
       persistSession(accessToken(ACCOUNT, Date.now() + 2 * HOUR), 'a.colleague@example.org', 'viewer', 'microsoft');
       await next.flushUiEvents();
 
-      // Before, a keepalive that did not arrive lost its events.
+      // A keepalive that did not arrive keeps its events.
       expect(postMock).toHaveBeenCalledTimes(1);
       expect(sentLabels(postMock, 0)).toEqual(['Sign out the analysis']);
       expect(sentEvents(postMock, 0)[0].event_id).toBe(keepaliveEvents(fetchMock, 0)[0].event_id);
@@ -579,7 +573,7 @@ describe('UI telemetry', () => {
       persistSession(accessToken(ACCOUNT, Date.now() + 2 * HOUR), 'a.colleague@example.org', 'viewer', 'microsoft');
       await next.flushUiEvents();
 
-      // Before, the refused keepalive's events were lost.
+      // The refused keepalive's events go out at the account's next sign-in.
       expect(postMock).toHaveBeenCalledTimes(1);
       expect(sentLabels(postMock, 0)).toEqual(['Save the review']);
     });
@@ -606,7 +600,7 @@ describe('UI telemetry', () => {
     });
   });
 
-  describe('the events kept in the browser, with two tabs open (SEC-36)', () => {
+  describe('the events kept in the browser, with two tabs open', () => {
     it('lose none when both tabs keep theirs at the same moment', async () => {
       // The device slept past the token's expiry, and both tabs are closed.
       persistSession(accessToken(ACCOUNT, Date.now() - MINUTE), 'a.colleague@example.org', 'viewer', 'microsoft');
@@ -621,8 +615,7 @@ describe('UI telemetry', () => {
       persistSession(accessToken(ACCOUNT, Date.now() + HOUR), 'a.colleague@example.org', 'viewer', 'microsoft');
       await next.flushUiEvents();
 
-      // Before, the tab that wrote last wrote the kept events as it had read them, without the
-      // other tab's.
+      // Each tab's kept events are sent: neither tab's write undid the other's.
       expect([...allSentLabels(postMock)].sort()).toEqual(['Open the family', 'Open the report']);
     });
 
@@ -649,8 +642,7 @@ describe('UI telemetry', () => {
       persistSession(accessToken(OTHER_ACCOUNT, Date.now() + 2 * HOUR), 'other@example.org', 'viewer', 'microsoft');
       await next.flushUiEvents();
 
-      // Before, the sending tab wrote back the kept events as it had read them, without the
-      // other tab's.
+      // The sending tab leaves the other tab's kept event in place.
       expect(postMock).toHaveBeenCalledTimes(2);
       expect(sentLabels(postMock, 1)).toEqual(['Open the report']);
     });
@@ -671,7 +663,7 @@ describe('UI telemetry', () => {
     });
   });
 
-  describe('an event made with no session (SEC-36)', () => {
+  describe('an event made with no session', () => {
     it('on the sign-in page is not sent under the account that signs in there', async () => {
       localStorage.removeItem('token');
       const page = await load();
@@ -680,7 +672,7 @@ describe('UI telemetry', () => {
       page.logUiEvent({ event_type: 'click', label: 'Open the dashboard' });
       await page.flushUiEvents();
 
-      // Before, it went out with the session the flush found, and the API recorded it as that
+      // It does not go out with the session the flush finds, which the API would record as that
       // user's: it takes the actor from the token.
       expect(postMock).toHaveBeenCalledTimes(1);
       expect(sentLabels(postMock, 0)).toEqual(['Open the dashboard']);
@@ -694,7 +686,7 @@ describe('UI telemetry', () => {
       persistSession(accessToken(OTHER_ACCOUNT, Date.now() + HOUR), 'other@example.org', 'viewer', 'microsoft');
       await page.flushUiEvents();
 
-      // Before, the account that signed in next on the page sent it.
+      // The account that signs in next on the page does not send it.
       expect(postMock).not.toHaveBeenCalled();
 
       const next = await load();
@@ -716,16 +708,15 @@ describe('UI telemetry', () => {
       persistSession(accessToken(ACCOUNT, Date.now() + 2 * HOUR), 'a.colleague@example.org', 'viewer', 'microsoft');
       await next.flushUiEvents();
 
-      // Before, the refused batch was kept, the event made with no session in it, for the account.
+      // The refused batch is kept for the account without the event made with no session.
       expect(sentLabels(postMock, 1)).toEqual(['Open the dashboard']);
     });
   });
 
   // What the page's click and submit listeners record of an action: what was acted on (its
   // kind, its name, its audit ID and a link's target) and where. Only a click on a control
-  // or on an element marked for audit is recorded. Before this test only a plain button's
-  // click ran in one; a link's, a role's, a marked element's, a submit input's and a form's
-  // submission did not.
+  // or on an element marked for audit is recorded: a plain button's, a link's, a role's, a marked
+  // element's and a submit input's click, and a form's submission.
   describe('what a click or a submit records', () => {
     const recorded = async (act: () => void) => {
       const { api, startUiTelemetry, flushUiEvents } = await load();

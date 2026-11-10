@@ -1,13 +1,15 @@
-"""The family CSV exports past 32,767 rows, on real Postgres and ClickHouse (DATA-3).
+"""The family CSV exports past 32,767 rows, on real Postgres and ClickHouse.
 
 A family export reads up to 50,001 rows, its 50,000-row cap and one more to know whether more
 matched, and looks each row up in Postgres: its review, its gene's constraint metrics
-and the structural variants on its genes (the SV second-hit badge). asyncpg refuses a statement
-with more than 32,767 parameters, so the lookups bind their ids as one text[] parameter.
+and the structural variants on its genes (the SV second-hit badge). asyncpg refuses a
+statement with more than 32,767 parameters, so the lookups bind their ids as one text[]
+parameter, not one parameter per id: an export of more than about 32,766 rows would
+otherwise answer 500, and its truncation signal never fire.
 
 On real Postgres, each lookup is run with 50,001 ids and finds exactly the rows seeded for
 them, one of them past the 32,767th id and none for an id it was not given. An empty id list
-reads no rows; an expanding IN over no ids would be refused (text = integer).
+reads no rows, never an expanding IN over no ids, which Postgres refuses (text = integer).
 
 On real ClickHouse and Postgres, one family holds 50,001 small variants and 50,001 SVs, and
 both are exported through their routes: each file holds the first 50,000 rows, is named
@@ -90,10 +92,17 @@ async def _seed_postgres(session_factory) -> dict[str, str]:
             for variant_id in variant_ids:
                 await session.execute(
                     text(
-                        f"INSERT INTO {table} (family_id, variant_id, classification, tags, updated_by) "
-                        "VALUES (CAST(:f AS uuid), :v, 'VUS - class 3', CAST(:t AS jsonb), 'reviewer')"
+                        f"INSERT INTO {table} (family_id, variant_id, classification, tags, tag_metadata, "
+                        "updated_by) VALUES (CAST(:f AS uuid), :v, 'VUS - class 3', CAST(:t AS jsonb), "
+                        "CAST(:m AS jsonb), 'reviewer')"
                     ),
-                    {"f": family, "v": variant_id, "t": json.dumps(["report"])},
+                    {
+                        "f": family,
+                        "v": variant_id,
+                        "t": json.dumps(["report"]),
+                        # As every save records it, per tag it writes.
+                        "m": json.dumps({"report": {"updated_by": "reviewer", "updated_at": "2026-01-01T00:00:00+00:00"}}),
+                    },
                 )
         for symbol, gene_id, pli in (
             (_gene(0), None, 0.11),
@@ -171,7 +180,7 @@ def test_the_lookups_take_more_ids_than_a_statement_has_parameters() -> None:
 
 def test_no_ids_read_no_rows() -> None:
     # The array parameter is typed in the SQL, so an empty list is an empty text[]. An
-    # expanding IN over no ids renders IN (SELECT CAST(NULL AS INTEGER) WHERE 1!=1), which
+    # expanding IN over no ids rendered IN (SELECT CAST(NULL AS INTEGER) WHERE 1!=1), which
     # Postgres refuses on the text column (text = integer). The review map never sends an
     # empty list (it answers {} first); the lookup under it takes one as well.
     from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
@@ -241,7 +250,7 @@ def _sv_record(index: int):
 
 def _context(family_uuid: str, family_id: str, project: str, assembly_id: str):
     """The family's context; its gene constraint is read from the gene profiles of
-    ``assembly_id`` (TRACE-15), the assembly ``_seed_postgres`` made."""
+    ``assembly_id``, the assembly ``_seed_postgres`` made."""
     from backend.app.services.family_metadata_context import FamilyMetadataContext
 
     return FamilyMetadataContext(

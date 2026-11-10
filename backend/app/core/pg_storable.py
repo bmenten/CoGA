@@ -4,7 +4,7 @@ UI-event log).
 Postgres stores no NUL character in TEXT and no ``\\u0000`` in JSONB. JSONB also refuses half of
 a UTF-16 surrogate pair, and the numbers ``NaN`` and ``Infinity``, which Python's JSON parser
 accepts. A request can carry any of them (``%00`` in its path or query string, the escape in a
-JSON field the endpoint ignores), and one such value used to fail the INSERT of the request's
+JSON field the endpoint ignores), and one such value would fail the INSERT of the request's
 audit row, and with it every row of the same batch.
 
 The writers pass each column through :func:`storable_columns` first. A NUL is written as the

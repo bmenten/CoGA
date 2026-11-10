@@ -147,7 +147,7 @@ async def _recorded_report_path(
 def _stored_report_url(family_id: str, relative_path: str) -> str:
     """Remote mode: a short-lived URL of the report's object under the storage prefix; 404
     when the object is gone. Both are requests to the object store, so the routes run this in
-    a worker thread, off the event loop (SEC-14)."""
+    a worker thread, off the event loop."""
     key = object_key(family_id, relative_path)
     if not object_exists(key):
         raise HTTPException(status_code=404, detail="QC report file is no longer available")
@@ -210,7 +210,7 @@ async def get_family_qc_report_link(
             filename=Path(relative_path).name,
         )
     # Confirm the file is there before handing out a link that would 404 on click; the file
-    # system is read in a worker thread (SEC-14).
+    # system is read in a worker thread.
     await asyncio.to_thread(_resolve_report_file, family_id, relative_path, report.package_folder)
     token = _qc_report_token(family_id, sample_id)
     # Each ID one encoded segment: an ID may hold `?`, `#`, `%` or `..`.

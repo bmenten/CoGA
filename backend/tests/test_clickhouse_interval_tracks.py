@@ -92,8 +92,8 @@ async def test_a_track_delete_is_synchronous_bound_and_never_unfiltered(monkeypa
     # Returns once the rows are gone (AGENTS.md, "Deletes are synchronous"), every value bound.
     assert query == (
         "ALTER TABLE coga.`GRCh38/INTERVAL/entries` DELETE WHERE sample_guid = %(sample_uuid)s "
-        "AND track_type = %(track_type)s AND source = %(source)s AND (filename = %(filename)s OR "
-        "JSONExtractString(metadata_json, 'filename') = %(filename)s) SETTINGS mutations_sync = 1"
+        "AND track_type = %(track_type)s AND source = %(source)s AND filename = %(filename)s "
+        "SETTINGS mutations_sync = 1"
     )
     assert params == {"sample_uuid": "uuid-S1", "track_type": "coverage", "source": "web", "filename": "S1.bed"}
 

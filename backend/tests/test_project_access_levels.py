@@ -1,4 +1,4 @@
-"""Project access levels (SEC-1): an analyst reads and changes a project's records, a reader
+"""Project access levels: an analyst reads and changes a project's records, a reader
 only reads them.
 
 Each project member is an analyst or a reader (``project_users.access_level``); a member whose

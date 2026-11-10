@@ -9,7 +9,7 @@ export const CHROMS = [...NUCLEAR_CHROMOSOMES, 'MT'];
 /**
  * The genome overview's chromosomes: 1–22, X and Y. The mitochondrion, 16.6 kb of a genome of
  * 3.1 Gb, would be about 0.006 px wide there; it is left out, as on the Circos plot, and the
- * chromosome view's list and the mtDNA page show it (owner decision, 2026-10-28; ENG-20).
+ * chromosome view's list and the mtDNA page show it (owner decision, 2026-10-28).
  */
 export const GENOME_OVERVIEW_CHROMS = NUCLEAR_CHROMOSOMES;
 

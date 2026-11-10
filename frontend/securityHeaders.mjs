@@ -11,7 +11,7 @@
 // If an unforeseen origin is blocked in staging, switch the header name to
 // `Content-Security-Policy-Report-Only` to observe before enforcing.
 //
-// connect-src defaults to any HTTPS host (#521): IGV loads its hosted genomes from a
+// connect-src defaults to any HTTPS host: IGV loads its hosted genomes from a
 // changing set of hosts (igv.org, several S3 buckets, UCSC) and a presigned CRAM URL
 // points at whichever object store the backend uses, so a fixed list would break the
 // genome browser. A deployment that knows its hosts should narrow it with
@@ -42,7 +42,7 @@ export const buildCsp = (env = process.env) => [
 
 export const CSP = buildCsp();
 
-// No view uses these browser features; deny them outright (#521).
+// No view uses these browser features; deny them outright.
 export const PERMISSIONS_POLICY = [
   'camera=()',
   'microphone=()',
@@ -60,9 +60,8 @@ export const PERMISSIONS_POLICY = [
 ].join(', ');
 
 // The values of ENABLE_HSTS that switch HSTS on: those the backend's setting reads as true
-// (pydantic's booleans, any case). Compose hands both containers the one value from .env, and
-// the frontend took only an exact `true`, so `1`, `True` or `yes` sent HSTS from the API alone
-// (SEC-23).
+// (pydantic's booleans, any case). Compose hands both containers the one value from .env: read
+// as an exact `true` only, `1`, `True` or `yes` would send HSTS from the API alone.
 const HSTS_ON = new Set(['1', 'on', 't', 'true', 'y', 'yes']);
 
 export function hstsEnabled(value = process.env.ENABLE_HSTS) {

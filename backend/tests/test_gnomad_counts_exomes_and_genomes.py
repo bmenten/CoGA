@@ -1,5 +1,4 @@
-"""gnomAD's counts are read as gnomAD's total: the combined count, else exomes and genomes added
-(CLIN-67).
+"""gnomAD's counts are read as gnomAD's total: the combined count, else exomes and genomes added.
 
 A VEP ``--custom`` gnomAD file names its fields after the file's short name, so a pipeline that
 annotates gnomAD's exomes and genomes writes ``gnomADe_nhomalt`` and ``gnomADg_nhomalt``. The

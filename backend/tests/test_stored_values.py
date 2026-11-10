@@ -1,5 +1,5 @@
-"""The readers of loosely typed stored values (``services/stored_values.py``), shared since
-ENG-8 by the services that had a copy each: a stored JSON object, and a whole number."""
+"""The readers of loosely typed stored values (``services/stored_values.py``), shared by the
+services that read them: a stored JSON object, and a whole number."""
 
 from __future__ import annotations
 

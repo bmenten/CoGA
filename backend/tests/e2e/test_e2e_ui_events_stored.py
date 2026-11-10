@@ -4,8 +4,7 @@
 acknowledges it (frontend ``lib/telemetry.ts``): when its page closes while the batch is in
 flight, it sends the batch again, whether or not the first request arrived. Each event
 carries the id the browser gave it, the endpoint stores the event under that id
-(``routers/ui_events.py``), and the writers' INSERT does nothing for an id the table holds
-(SEC-17), so the batch is stored once.
+(``routers/ui_events.py``), and the writers' INSERT does nothing for an id the table holds, so the batch is stored once.
 Here a batch is sent twice, then a third time with its ids in capitals and in braces, and, to
 compare, an event without an id is sent twice. An event of another user, written as the
 worker writes one, under an id the table holds stores nothing.

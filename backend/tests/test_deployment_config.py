@@ -142,7 +142,7 @@ def _chomp(text: str) -> str:
 
 
 def test_the_clickhouse_vm_gets_the_users_d_files_compose_mounts(tmp_path: Path) -> None:
-    # OPS-14. Compose mounts clickhouse/users.d/memory-guards.xml into ClickHouse: each query
+    # Compose mounts clickhouse/users.d/memory-guards.xml into ClickHouse: each query
     # capped at 4 GB, GROUP BY and ORDER BY state spilled to disk past 2 GB. The Google Cloud
     # VM's startup script writes each such file from the repository, as database.tf reads it,
     # and mounts it where Compose does, read-only.
@@ -1036,7 +1036,7 @@ def _hsts_policy(source: str) -> str:
 
 def test_the_app_page_and_the_api_both_send_hsts_on_google_cloud(monkeypatch) -> None:
     # TLS ends at the load balancer for the page and for /api alike (loadbalancer.tf).
-    # Terraform turns HSTS on for the app page as for the backend (SEC-5).
+    # Terraform turns HSTS on for the app page as for the backend.
     # Each container of the frontend image sets ENABLE_HSTS to the value its server compares
     # with, and does so unconditionally: the optional entries are left out here.
     frontend = _containers("var.frontend_image")
@@ -1052,7 +1052,7 @@ def test_the_app_page_and_the_api_both_send_hsts_on_google_cloud(monkeypatch) ->
 
 
 def test_the_load_balancer_sends_the_one_hsts_policy_on_the_https_path_only() -> None:
-    # SEC-23. An answer Cloud Run gives itself, such as its error page when no instance can
+    # An answer Cloud Run gives itself, such as its error page when no instance can
     # serve, carries no HSTS, so the HTTPS URL map sets the policy both servers send on every
     # answer it relays, in place of theirs, so an answer carries one HSTS header, never two.
     # The plain-HTTP listener only redirects to HTTPS, and sends none (a browser ignores HSTS
@@ -1080,7 +1080,7 @@ def test_the_load_balancer_sends_the_one_hsts_policy_on_the_https_path_only() ->
 
 
 def test_the_frontend_proxies_api_to_the_backend_service() -> None:
-    # SEC-23. The frontend's server proxies /api to BACKEND_URL (server.mjs), which defaults
+    # The frontend's server proxies /api to BACKEND_URL (server.mjs), which defaults
     # to Compose's http://backend:8000, a host Cloud Run does not have. The load balancer sends
     # /api to the backend itself; the frontend names the backend service all the same.
     assert "process.env.BACKEND_URL" in (REPO / "frontend" / "server.mjs").read_text()
@@ -1173,7 +1173,7 @@ def test_the_repository_carries_one_version() -> None:
     assert result.returncode == 0, result.stdout + result.stderr
 
 
-# ---- No password or private key in the Terraform state (OPS-10) -----------------------------
+# ---- No password or private key in the Terraform state -----------------------------
 #
 # Terraform writes every argument of a resource, and everything a data source reads, into its
 # state and its plan, in clear. A password or a private key therefore reaches a resource only
@@ -1268,7 +1268,7 @@ def test_the_clickhouse_tls_keys_are_ephemeral_and_the_ca_is_issued_with_the_ser
 
 
 def test_a_new_clickhouse_tls_secret_version_exists_before_the_old_one_is_destroyed() -> None:
-    # SEC-19. Terraform creates a new version of the ClickHouse TLS key or certificate before it
+    # Terraform creates a new version of the ClickHouse TLS key or certificate before it
     # destroys the old one, so a VM that boots in between finds a version to read and its
     # startup script starts ClickHouse. The VM reads the latest version of each secret, by the
     # secret's ID, at boot and in its daily refresh: the old one until the new one exists.
@@ -1325,7 +1325,7 @@ def test_the_rollback_to_the_owner_role_can_still_remove_the_migration_job() -> 
     assert job.get("deletion_protection") == "false"
 
 
-# ---- The backup before each schema migration (OPS-23) ---------------------------------------
+# ---- The backup before each schema migration ---------------------------------------
 #
 # Every new backend image migrates the Postgres schema: the db-migrate job with the restricted
 # role, the API's first start in owner mode. Before either, the apply takes an on-demand Cloud

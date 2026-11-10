@@ -1,4 +1,4 @@
-"""A track whose values the import transforms records the transform (TRACE-4, TRACE-7).
+"""A track whose values the import transforms records the transform.
 
 HiFiCNV's copy-number bedGraph holds integer copy number and its depth bigWig holds read
 depth. The package import stores both as log2 ratios, the scale of the WisecondorX and
@@ -12,7 +12,7 @@ file.
 A depth bigWig without autosomal depth gives no median to normalise by, and its depths are
 stored as read. The record names the transform the stored values went through, ``none``
 here, not ``log2_ratio_to_autosomal_median``, so the viewers do not draw the raw depths on
-their log2-ratio axis (TRACE-7); the track availability the viewers read serves it with the
+their log2-ratio axis; the track availability the viewers read serves it with the
 track.
 
 The datastores are faked at their edge: the session keeps what each track-source INSERT
@@ -327,7 +327,7 @@ async def _track_availability(
     monkeypatch.setattr(service + "interval_track_normalizations_by_sample", normalizations)
 
     async def no_declarations(*_args: Any, **_kwargs: Any) -> dict[str, dict[str, list[str]]]:
-        return {}  # no coverage BED among these tracks (TRACE-9)
+        return {}  # no coverage BED among these tracks
 
     monkeypatch.setattr(service + "interval_track_contents_by_sample", no_declarations)
 

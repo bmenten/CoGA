@@ -1,4 +1,4 @@
-"""Raw-file download, Verify, the list and the deletes keep to the family's own folders (E2E, SEC-29, SEC-38).
+"""Raw-file download, Verify, the list and the deletes keep to the family's own folders (E2E).
 
 The admin page lists a family's ``raw_import_files`` rows, downloads a file and verifies its
 SHA-256 at the recorded ``storage_path``, and deleting a sample or the family unlinks the
@@ -20,7 +20,7 @@ the upload folder) and ``elsewhere``, which is neither.
   downloaded and verified; a row naming a file elsewhere, a path that climbs out of the import
   root with ``..`` or a link in the package that leads out is listed unavailable, and its
   download and Verify answer 403; so does one naming a file of another family's package in
-  the import area, or a link in the package to it (SEC-38);
+  the import area, or a link in the package to it;
 * deleting the second sample unlinks its upload and leaves the file elsewhere that another of
   its managed rows names; deleting the family unlinks its upload, also one in the folder of a
   former ID, and leaves the package file and the file elsewhere that its managed rows name;
@@ -124,7 +124,7 @@ async def _exercise(run: str, base: Path) -> dict[str, Any]:
                     await session.execute(text("SELECT id::text FROM families WHERE family_id = :f"), {"f": family})
                 ).scalar_one()
                 # The package folder the family's import read, as the import's registration
-                # records it: its files are read only there and in the upload folder (SEC-38).
+                # records it: its files are read only there and in the upload folder.
                 await session.execute(
                     text(
                         "UPDATE families SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object("
@@ -239,7 +239,7 @@ def test_the_list_shows_a_file_outside_the_folders_unavailable(exercised: dict[s
         "elsewhere": unavailable,
         "climbing": unavailable,
         "linked_out": unavailable,
-        # SEC-38: another family's package, below the import root too.
+        # another family's package, below the import root too.
         "other_package": unavailable,
         "linked_across": unavailable,
         # Read where it lies (the family's package); not deleted for it, below.

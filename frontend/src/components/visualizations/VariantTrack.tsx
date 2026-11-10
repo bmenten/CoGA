@@ -108,11 +108,11 @@ const VariantTrack: React.FC<Props> = ({
 
   // The view holds more SVs than one track page (or than the backend's candidate cap):
   // drawing the page would show only the left-most SVs, and the rest of the view as if
-  // it had none (#585). Say so instead, as the small-variant track does past its cap.
+  // it had none. Say so instead, as the small-variant track does past its cap.
   const tooManyVariants = Boolean(
     data && (data.total_is_estimated || data.total > (data.variants?.length ?? 0)),
   );
-  // Every type is drawn, in its row or in the OTHER row (CLIN-54).
+  // Every type is drawn, in its row or in the OTHER row.
   const variants = React.useMemo(
     () =>
       (tooManyVariants ? [] : data?.variants || []).filter((v) =>
@@ -136,10 +136,10 @@ const VariantTrack: React.FC<Props> = ({
       .sort((left, right) => left.start - right.start);
   }, [regionStart, rowHeight, span, variants, width]);
 
-  // The chart's accessible name (#529): what it shows now. A failure or a load is said
-  // as such, never as zero SVs (#510).
+  // The chart's accessible name: what it shows now. A failure or a load is said
+  // as such, never as zero SVs.
   const typeSummary = React.useMemo(() => describeSvTypes(items), [items]);
-  // A view with no width asks for nothing: it is not "none" (#602).
+  // A view with no width asks for nothing: it is not "none".
   const chartRegion = describeTrackRegion(chrom, regionStart, regionEnd);
   const chartState = isError
     ? 'failed to load'
@@ -271,7 +271,7 @@ const VariantTrack: React.FC<Props> = ({
       {isError && <VizErrorOverlay what="structural variants" onRetry={() => void refetch()} />}
       {tooltip && (
         <VizTooltip x={tooltip.x} y={tooltip.y}>
-          {/* The chromosome as the viewer names it (#602), however the SV is stored: `chrM`, not `M`. */}
+          {/* The chromosome as the viewer names it, however the SV is stored: `chrM`, not `M`. */}
           <div>{`${formatChromosomeLabel(tooltip.v.chr)}:${tooltip.v.start}-${tooltip.v.end} ${describeSvType(
             tooltip.v.type,
             tooltip.v.copy_change,

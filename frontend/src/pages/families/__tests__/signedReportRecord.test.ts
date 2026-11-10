@@ -1,6 +1,6 @@
 // REQ-TRACE-007: a signed version is rendered from its frozen snapshot alone. These pin how
-// the snapshot is read: every section the record holds, a section an older record predates
-// as absent (never as empty), and an entry that cannot be read kept, not dropped.
+// the snapshot is read: every section the record holds, a section it does not hold as absent
+// (never as empty), and an entry that cannot be read kept, not dropped.
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -76,7 +76,7 @@ import {
   SIGNED_REPEAT_EXPANSIONS_WITH_CORRECTION,
 } from '../../../test/signedAnalysisFixture';
 
-// The evidence a small-variant classification froze since CLIN-7: the annotation identity,
+// The evidence a small-variant classification freezes: the annotation identity,
 // ClinVar, and the primary transcript's frequencies and in-silico scores
 // (backend small_variant_review_acmg.build_evidence_snapshot).
 const FROZEN_EVIDENCE = {
@@ -171,7 +171,7 @@ const SNAPSHOT = {
   reported_variants: [
     {
       variant_id: '17-43000000-A-G',
-      classification: 'Likely Pathogenic - class 4',
+      classification: 'Likely pathogenic - class 4',
       class_shown: 'Likely pathogenic - class 4',
       acmg_class: 'acmg_class_4',
       acmg: {
@@ -182,7 +182,7 @@ const SNAPSHOT = {
           'not a criterion',
         ],
         point_total: 6,
-        classification: 'Likely Pathogenic - class 4',
+        classification: 'Likely pathogenic - class 4',
       },
       tags: ['acmg_class_4', 'report'],
       note: 'Signed interpretation.',
@@ -294,7 +294,7 @@ describe('parseSignedReport', () => {
 
     expect(classified.variantId).toBe('17-43000000-A-G');
     // The class its review showed, as frozen; the ACMG classification is that class in another
-    // case (a label from before ENG-6), so no score is shown beside it.
+    // case, so no score is shown beside it.
     expect(classified.classification).toBe('Likely pathogenic - class 4');
     expect(classified.score).toBeNull();
     expect(classified.pointTotal).toBe(6);
@@ -307,8 +307,8 @@ describe('parseSignedReport', () => {
     expect(classified.criteria[0].name).not.toBe('PS3');
     // An entry that cannot be read is counted, not dropped.
     expect(classified.unreadableCriteria).toBe(1);
-    // Frozen before CoGA froze the consequence, frequencies, in-silico scores and gene
-    // missense Z: the record holds none.
+    // The record's evidence holds no consequence, frequencies, in-silico scores or gene
+    // missense Z: none is read.
     expect(classified.evidence).toEqual({
       clinvar: 'Likely_pathogenic',
       clinvarReviewStatus: null,
@@ -333,7 +333,7 @@ describe('parseSignedReport', () => {
     expect([classified.compoundHet, tagged.compoundHet, unreadable.compoundHet]).toEqual([null, null, null]);
   });
 
-  it('reads the compound-het pair review that reports a variant (TRACE-19)', () => {
+  it('reads the compound-het pair review that reports a variant', () => {
     const record = parseSignedReport({
       ...SNAPSHOT,
       reported_variants: [
@@ -382,7 +382,7 @@ describe('parseSignedReport', () => {
     );
   });
 
-  it('reads the frequencies and in-silico scores frozen with a classification (CLIN-7)', () => {
+  it('reads the frequencies and in-silico scores frozen with a classification', () => {
     const record = parseSignedReport({
       ...SNAPSHOT,
       reported_variants: [
@@ -427,12 +427,7 @@ describe('parseSignedReport', () => {
         'CADD 24.3, REVEL 0.412, SpliceAI 0.02, SIFT deleterious(0.01), PolyPhen probably_damaging(0.981), ' +
         'AlphaMissense class not annotated and AlphaMissense score not annotated.',
     );
-    // A record frozen before them holds none, and says nothing of them.
-    const older = parseSignedReport(SNAPSHOT)!.reportedVariants![0].evidence!;
-    expect(describeFrozenEvidenceValues(older)).toBeNull();
-    // Nor does one frozen before the consequence and the gene's missense Z were: no group
-    // of them is read, so none is said to be "not annotated".
-    expect(variant.evidence?.consequence).toBeNull();
+    // Evidence that freezes no gene constraint (no missense variant) reads none.
     expect(variant.evidence?.geneConstraint).toBeNull();
   });
 
@@ -534,7 +529,7 @@ describe('parseSignedReport', () => {
     );
   });
 
-  it('says where the frozen missense Z PP2 read came from (TRACE-15)', () => {
+  it('says where the frozen missense Z PP2 read came from', () => {
     // PP2 reads the gene profile's missense Z, else the VCF's own MISSENSE_Z; the snapshot freezes
     // the value with its source.
     const missenseZ = (gene_constraint: Record<string, unknown>) =>
@@ -641,9 +636,9 @@ describe('parseSignedReport', () => {
       note: null,
     });
     expect(gain.variantId).toBe('3-100-900-DUP---');
-    // No class shown and no scoring classification: the CNV class's label is the score.
+    // No class shown and no scoring classification: no score either.
     expect(gain.classification).toBeNull();
-    expect(gain.score).toBe('VUS - class 3');
+    expect(gain.score).toBeNull();
     expect(gain.pointTotal).toBeNull();
     // A gain's criterion is named from the gain catalogue; the two it cannot read are counted.
     expect(gain.criteria).toEqual([
@@ -652,7 +647,7 @@ describe('parseSignedReport', () => {
     expect(gain.unreadableCriteria).toBe(2);
   });
 
-  // CLIN-80 (the owner's decision of 2026-11-10): a record freezes the class each reported
+  // The owner's decision of 2026-11-10: a record freezes the class each reported
   // variant's review showed (class_shown), by the family page's rule; the signed version shows
   // it, with the ACMG (or CNV) score beside it when that is another class.
   it('reads the class a reported small variant’s review showed, and the ACMG score beside it', () => {
@@ -670,8 +665,8 @@ describe('parseSignedReport', () => {
         { variant_id: '1-5000-A-T', classification: 'Pathogenic', class_shown: 'Pathogenic - class 5', acmg: null, tags: ['report'] },
         // A review that showed no class beside an ACMG classification: Not classified, the score beside.
         { variant_id: '1-6000-C-G', classification: null, class_shown: null, acmg, tags: ['report'] },
-        // The score that is the class shown, in the case of a record from before ENG-6: no score beside.
-        { variant_id: '1-7000-AG-A', classification: null, class_shown: 'Likely pathogenic - class 4', acmg: { ...acmg, classification: 'Likely Pathogenic - class 4' }, tags: ['acmg_class_4'] },
+        // The score that is the class shown: no score beside.
+        { variant_id: '1-7000-AG-A', classification: null, class_shown: 'Likely pathogenic - class 4', acmg, tags: ['acmg_class_4'] },
       ],
     })!.reportedVariants!;
 
@@ -710,13 +705,13 @@ describe('parseSignedReport', () => {
   });
 
   it('reads a part the record does not hold as null, never as empty', () => {
-    const older = {
+    const sparse = {
       family_id: 'F1',
       assembly: 'GRCh38',
       modules: [],
       reported_variants: [],
     };
-    const record = parseSignedReport(older)!;
+    const record = parseSignedReport(sparse)!;
 
     expect(record.software).toBeNull();
     expect(record.drift).toBeNull();
@@ -727,7 +722,7 @@ describe('parseSignedReport', () => {
     expect(record.driftAcknowledgement).toEqual({ acknowledged: null, reason: null });
     expect(record.modules).toEqual([]);
     // A module list that is no list is not read as no modules.
-    expect(parseSignedReport({ ...older, modules: { gencode: '49' } })!.modules).toBeNull();
+    expect(parseSignedReport({ ...sparse, modules: { gencode: '49' } })!.modules).toBeNull();
   });
 
   it('reads an incomplete import and QC cut-offs that could not be resolved', () => {
@@ -929,7 +924,7 @@ describe('the signed report’s wording', () => {
     );
   });
 
-  it('names the source of a missense Z read from elsewhere (TRACE-15)', () => {
+  it('names the source of a missense Z read from elsewhere', () => {
     const profile = { gene_missense_z: 3.52, gene_missense_z_source: 'gene_profile' };
     // The same value, read from the VCF now that the gene profile holds none.
     expect(
@@ -999,7 +994,7 @@ describe('the signed report’s wording', () => {
     const evidence = { chrom: '18', start: 55000000, end: 55400000, gene_symbols: ['TCF4', 'TXNL1'], pli: 0.99, sv_type: 'DEL', source: 'needlr', inheritance: 'de_novo' };
     const item = { variantId: 'sv', changed: [], evidenceFrom: evidence, evidenceTo: evidence, classifiedBy: null };
     // A missing SV names the caller whose call is gone: another caller may still call it under
-    // the same id (TRACE-12; it read as gone whoever called it).
+    // the same id.
     expect(describeSignedStructuralDrift({ ...item, status: 'variant_missing' })).toBe(
       'its needlr call is no longer present in the data',
     );
@@ -1047,8 +1042,8 @@ describe('the signed report’s wording', () => {
     ).toBe('Mean coverage 18 × (Warning; warning 20 ×, fail 10 ×)');
   });
 
-  // ENG-10: the signed version wrote the value as measured, "18.57 x", where the members
-  // table's QC chip writes "18.6x".
+  // The signed version writes the value as the members table's QC chip does ("18.6x"), not
+  // as measured ("18.57 x").
   it('writes the value and its limits as the QC chip writes them', () => {
     const metric = { label: 'Mean depth', unit: 'x', verdict: 'warn', warnValue: 20, errorValue: 10, direction: 'lower_is_worse' };
     expect(describeBreachedMetric({ ...metric, value: 18.57 })).toBe('Mean depth 18.6x (Warning; warning 20x, fail 10x)');
@@ -1365,8 +1360,8 @@ describe('the repeat calls’ near-boundary warnings', () => {
     });
     expect(repeats.countUnitMargin).toBeNull();
     const [l1, l2] = repeats.loci;
-    // Only `true` is validated; a reason that is blank is none; a record without a correction
-    // predates them.
+    // Only `true` is validated; a reason that is blank is none; a record that states no
+    // correction reads none.
     expect(l1.countUnits).toEqual({ countOffset: null, validated: false, reason: null, updatedBy: null, updatedAt: null });
     expect(l2.countUnits).toBeNull();
     const [kept, bare, none] = l1.calls[0].alleles.map((allele) => allele.countUnitWarning);
@@ -1389,7 +1384,7 @@ describe('the repeat calls’ near-boundary warnings', () => {
   });
 });
 
-// A list in a section that this view cannot read (TRACE-17): read as empty, or its entry left
+// A list in a section that this view cannot read: read as empty, or its entry left
 // out, it read as if the section held nothing there.
 describe('a section’s lists this view cannot read', () => {
   it('counts each list that is no list, and each entry not of its list’s kind', () => {
@@ -1434,7 +1429,7 @@ describe('a section’s lists this view cannot read', () => {
 });
 
 // What each coverage track held, frozen since 2026-10-20 (signed_record_sections.coverage_tracks):
-// which kind of coverage a depth check rested on (TRACE-9).
+// which kind of coverage a depth check rested on.
 describe('what each coverage track held', () => {
   const tracksOf = (snapshot: Record<string, unknown>): SignedCoverageTrack[] => {
     const section = parseSignedReport(snapshot)!.coverageTracks;
@@ -1499,7 +1494,7 @@ describe('what each coverage track held', () => {
           { sample: 'S1', source: 'cnvkit', content: 'unknown', files: [] },
           // A value that is neither read depth nor a log2 ratio is read as unknown.
           { sample: 'S1', source: 'web', content: 'depth', files: [{ file: 'S1.bed', loaded_from: 'demo-script' }] },
-          // A track stored before its loader recorded where it came from.
+          // A track whose record names no file and no origin.
           { sample: 'S2', source: 'web', content: 'unknown', files: [{ file: null, rows: null, loaded_at: null, loaded_from: null }] },
         ],
       },
@@ -1690,7 +1685,7 @@ describe('the PGT embryo results', () => {
     expect(describeReportSections(['pgt_analysis'])).toBe('PGT embryo results');
   });
 
-  it('says the embryos were not called from blocks built for another pedigree (CLIN-66)', () => {
+  it('says the embryos were not called from blocks built for another pedigree', () => {
     const outdated = recorded(
       pgtRecord({
         ...SIGNED_PGT_ANALYSIS,
@@ -1704,11 +1699,15 @@ describe('the PGT embryo results', () => {
     expect(describeNoCall(e2, outdated)).toBe(
       "The haplotype blocks were built for another pedigree or other sexes than the family's, so no embryo is called from them: import the phased genotypes again.",
     );
-    // A record signed before the check holds none: read as current blocks.
-    expect(recorded(pgtRecord(SIGNED_PGT_ANALYSIS)).blocksOutdated).toBe(false);
+    // Blocks built for the family's own pedigree: no such warning.
+    expect(
+      recorded(
+        pgtRecord({ ...SIGNED_PGT_ANALYSIS, inputs: { ...SIGNED_PGT_ANALYSIS.inputs, blocks_outdated: false } }),
+      ).blocksOutdated,
+    ).toBe(false);
   });
 
-  // TRACE-17: a phase correction near the ROI that this view cannot read is counted where its
+  // A phase correction near the ROI that this view cannot read is counted where its
   // warning stands, never dropped as if the record held none.
   it('counts a phase correction it cannot read, and says so in the warning', () => {
     const [correction] = SIGNED_PGT_ANALYSIS.phase_corrections;
@@ -1890,7 +1889,7 @@ describe('the PGT embryo results', () => {
       state: 'unavailable',
       reason: "The PGT analysis's embryo results could not be read.",
     });
-    // The Sample QC says which application read the family: a PGT family's older record is told apart.
+    // The Sample QC names the application it read the family as.
     expect(parseSignedReport({ ...SNAPSHOT, sample_qc: { overall_status: 'pass', application: 'pgt' } })!.sampleQc?.application).toBe('pgt');
   });
 });
@@ -2050,7 +2049,7 @@ describe('a NIPT family’s NIPT results', () => {
   });
 
   // Without a per-target table, the notes of the coverage check over the coverage tracks, word for
-  // word, with what the check ran for: frozen since TRACE-17 (owner, 2026-10-28).
+  // word, with what the check ran for, as frozen (owner decision of 2026-10-28).
   const COVERAGE_NOTES = {
     gene: null,
     panel: null,

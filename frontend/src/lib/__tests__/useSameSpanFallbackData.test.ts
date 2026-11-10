@@ -26,17 +26,17 @@ describe('useSameSpanFallbackData', () => {
     expect(result.current).toBeNull();
   });
 
-  it('never shows one chromosome’s data under another at the same zoom (#510)', () => {
+  it('never shows one chromosome’s data under another at the same zoom', () => {
     const { result, rerender } = setup({ data: ['chr1 blocks'], span: 100, scope: 'F1|chr1' });
     rerender({ data: null, span: 100, scope: 'F1|chr2' });
     expect(result.current).toBeNull();
   });
 
-  it('never falls back to held data on a failure (#586)', () => {
+  it('never falls back to held data on a failure', () => {
     const { result, rerender } = setup({ data: ['window 1'], span: 100, scope: 'F1|chr1' });
 
-    // A pan whose request failed: same span and scope, no data. It used to return the
-    // previous window, drawn under the error overlay against the new region.
+    // A pan whose request failed: same span and scope, no data. The previous window is not
+    // returned, to be drawn under the error overlay against the new region.
     rerender({ data: null, span: 100, scope: 'F1|chr1', failed: true });
     expect(result.current).toBeNull();
 

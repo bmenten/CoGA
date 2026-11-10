@@ -1,6 +1,6 @@
-"""The SV search's classification filter keeps an SV by the class its review shows (CLIN-77).
+"""The SV search's classification filter keeps an SV by the class its review shows.
 
-As for small variants (CLIN-75), the structural-variant
+As for small variants, the structural-variant
 search's classification filter keeps an SV when the class its review shows on the SV page equals
 a requested class: never drops one shown with that class, never keeps one shown with another. The
 SV table and cards show a review's class from its text and its tags (``normalizeReviewClassification``;

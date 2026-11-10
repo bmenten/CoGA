@@ -1,17 +1,16 @@
-"""The Variant Explorer keeps and drops what the family search does (CLIN-29, CLIN-5), on real ClickHouse.
+"""The Variant Explorer keeps and drops what the family search does, on real ClickHouse.
 
 The family search needs one transcript of a variant to meet every annotation filter
 together: impact, consequence, ClinVar, frequency, the in-silico scores and *Canonical*,
-*MANE* and *LoF only*. The explorer tested each filter against the annotation index, which
-pools a variant's transcripts, so with *MANE only* and impact HIGH it kept a variant whose
-HIGH transcript is not its MANE transcript, which the family page drops; and it required
-every in-silico minimum, where the family page takes any one.
+*MANE* and *LoF only*. The explorer does the same: tested against the annotation index, which
+pools a variant's transcripts, *MANE only* and impact HIGH would keep a variant whose HIGH
+transcript is not its MANE transcript, which the family page drops; and the explorer takes any
+one in-silico minimum, as the family page does.
 
-*MANE only* keeps a variant with a MANE Select or a MANE Plus Clinical transcript (CLIN-5).
-The explorer read ``has_mane_select`` alone, so a variant whose only MANE transcript is MANE
-Plus Clinical was missing from its results and its CSV export: one such variant (its canonical
-transcript not MANE) is kept by *MANE only*, beside the MANE Select ones, and a variant with
-neither is dropped.
+*MANE only* keeps a variant with a MANE Select or a MANE Plus Clinical transcript, in the
+explorer's results and its CSV export too: one variant whose only MANE transcript is MANE Plus
+Clinical (its canonical transcript not MANE) is kept by *MANE only*, beside the MANE Select
+ones, and a variant with neither is dropped.
 
 Eight variants go in once, through the import's write path (``insert_small_variant_records``),
 annotated as the import parses VEP's CSQ, most with transcripts that disagree. For each
@@ -148,7 +147,7 @@ _ALL = set(_VARIANTS)
 _CASES = [
     pytest.param({}, _ALL, id="no-filter"),
     pytest.param({"impact": ["HIGH"]}, {_HIGH_OFF_MANE, _MANE_HIGH, _LOF_OFF_MANE}, id="high"),
-    # MANE Select or MANE Plus Clinical, on any transcript of the variant (CLIN-5).
+    # MANE Select or MANE Plus Clinical, on any transcript of the variant.
     pytest.param({"mane_only": True}, _ALL - {_NO_MANE}, id="mane-only"),
     pytest.param({"mane_only": True, "impact": ["HIGH"]}, {_MANE_HIGH}, id="mane-only-and-high"),
     pytest.param({"canonical_only": True, "impact": ["HIGH"]}, {_MANE_HIGH}, id="canonical-only-and-high"),

@@ -63,7 +63,7 @@ class _AdaptedIntegrityError(Exception):
 def _foreign_key_violation(rows: list) -> IntegrityError:
     # What SQLAlchemy raises when Postgres refuses one row of an INSERT, here by a foreign key
     # its writer does not handle (a row naming a user deleted while it waited is stored by its
-    # writer without the link, SEC-17: test_audit_rows_idempotent_and_kept.py). Its text quotes
+    # writer without the link, test_audit_rows_idempotent_and_kept.py). Its text quotes
     # the statement and every row it was given, so the values of the whole batch.
     orig = _AdaptedIntegrityError("insert violates foreign key constraint")
     orig.__cause__ = ForeignKeyViolationError("insert violates foreign key constraint")

@@ -68,7 +68,7 @@ const baseSpan = (base: string, key: number): React.ReactNode => (
  * by the ROI marker review's rule (`rowAlleles`). A call of one allele (a man's one X outside the
  * PARs written once, or the same allele twice where he has one X) shows its allele once, on the
  * side the track draws his one X on (the father's first, anyone else's second), and – on the
- * other. It read '—', as a missing or unphased call does (ENG-19).
+ * other. It read '—', as a missing or unphased call does.
  */
 const renderPhasedGenotype = (
   gt: string,
@@ -252,7 +252,7 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
   // Keep the previous window painted across a pan (same span); dropped on zoom.
   // Scoped to the family + chromosome: a jump to another chromosome at the same zoom must
   // not keep painting the previous chromosome's blocks, and a failed request never falls
-  // back to stale data (#510).
+  // back to stale data.
   const fallbackScope = `${familyId}|${chrom}`;
   const haplotypeData = useSameSpanFallbackData(
     rawHaplotypeData,
@@ -291,8 +291,7 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
   const riskEnabled =
     highlightRiskHaplotype ??
     membersForRisk.some((member) => member.affected || member.carrier_status === 'carrier');
-  // Outdated blocks resolve no disease haplotype: the family page calls no embryo from them
-  // (CLIN-66).
+  // Outdated blocks resolve no disease haplotype: the family page calls no embryo from them.
   // Read from the blocks drawn, which a refetch of the same span keeps meanwhile.
   const blocksOutdated = haplotypeData?.blocks_outdated === true;
   const diseaseModel = useMemo(
@@ -325,7 +324,7 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
     [showMarkers, phasedData?.samples, sampleId],
   );
   // Positions the hover tooltip can anchor on: the UNION of every member's marker
-  // positions (equivalently, the sites positions — the server now emits one site
+  // positions (equivalently, the sites positions — the server emits one site
   // per position that produced a marker for >=1 member). This makes a RELATIVE's
   // own track hoverable even though it carries no markers of its own: the nearest
   // site still resolves and the all-member genotype table is shown. Members that do
@@ -684,7 +683,7 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
       node: (
         <div>
           <div style={{ marginBottom: 4 }}>
-            {/* The chromosome as the viewer names it (#602): `chr1`, not the route's `1`. */}
+            {/* The chromosome as the viewer names it: `chr1`, not the route's `1`. */}
             <strong>
               {formatChromosomeLabel(chrom)}:{sitePos.toLocaleString()}
             </strong>
@@ -754,12 +753,12 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
   };
 
   // A failed load has no risk state — not "uninformative", which is a real outcome — and
-  // a view with no width asks for nothing, so it assessed none (#602).
+  // a view with no width asks for nothing, so it assessed none.
   const shownRiskState = haplotypeError ? 'unavailable' : !hasRegion ? 'not_assessed' : riskState;
 
   // The accessible name: whose haplotypes, where, and the risk state the track's border
   // shows — assessed at the ROI when there is one. A load in flight claims no risk state
-  // and a failed one says so (#510, #529).
+  // and a failed one says so.
   const trackLabel = (() => {
     const subject = `Haplotypes of ${sampleId} on ${describeTrackRegion(chrom, regionStart, regionEnd)}`;
     if (haplotypeError) return `${subject}: failed to load; risk state: unavailable`;

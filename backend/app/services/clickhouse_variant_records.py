@@ -23,64 +23,39 @@ _KNOWN_ANNOTATION_KEYS = {
     "spliceai_dp_dl",
     "gene",
     "gene_id",
-    "geneId",
-    "geneID",
     "gene_symbol",
-    "geneSymbol",
     "hgnc_symbol",
-    "hgncSymbol",
     "impact",
     "effect",
-    "majorConsequence",
     "consequence",
     "most_severe_consequence",
     "clinvar",
-    "clinvarClinicalSignificance",
     "transcript_id",
-    "transcriptId",
     "feature_type",
-    "featureType",
     "transcript_biotype",
-    "transcriptBiotype",
     "hgvsc",
     "hgvsp",
     "canonical",
     "mane_select",
-    "maneSelect",
     "mane_plus_clinical",
-    "manePlusClinical",
     "exon",
     "intron",
     "lof",
     "lof_filter",
-    "lofFilter",
     "lof_flags",
-    "lofFlags",
     "gnomad_af",
-    "gnomadAf",
     "gnomad_hom_count",
-    "gnomadHomCount",
     "cadd_raw",
-    "caddRaw",
     "cadd_phred",
-    "caddPhred",
     "revel",
     "sift",
-    "siftPrediction",
     "polyphen",
-    "polyphenPrediction",
     "spliceai_ds_ag",
-    "spliceaiDsAg",
     "spliceai_ds_al",
-    "spliceaiDsAl",
     "spliceai_ds_dg",
-    "spliceaiDsDg",
     "spliceai_ds_dl",
-    "spliceaiDsDl",
     "spliceai_max",
-    "spliceaiMax",
     "population_frequencies",
-    "populationFrequencies",
     "extra",
     "rsid",
 }
@@ -144,8 +119,7 @@ class SmallVariantRecord:
     gene_symbols: list[str]
     annotations: list[dict[str, Any]]
     calls: list[SmallVariantCall]
-    # Site-level VCF QUAL (column 6). Optional and defaulted so existing
-    # construction sites are unaffected; the upload path populates it.
+    # Site-level VCF QUAL (column 6), which the upload path populates; None otherwise.
     qual: float | None = None
     # The inheritance modes the variant fits, when the fetch was asked for them
     # (``_fetch_small_variant_rows(segregation_flags=True)``); None otherwise.
@@ -247,20 +221,15 @@ def _normalized_status_term(value: Any) -> str:
 
 
 # ClinVar significances that "rescue" a variant past the gnomAD frequency ceilings when
-# the caller opts in (``clinvar_overrides_frequency``), as the ClickHouse filter reads them
-# (#534).
+# the caller opts in (``clinvar_overrides_frequency``), as the ClickHouse filter reads them.
 CLINVAR_FREQUENCY_RESCUE_TERMS: tuple[str, ...] = ("Pathogenic", "Likely_pathogenic")
 
 # The transcripts *MANE only* keeps: MANE Select and MANE Plus Clinical. Each flag is an
-# annotation key (or its camelCase alias) and a column of the ``annotations`` table; the
-# ``annotation_index`` holds it per variant as ``has_<flag>``. The family search, in SQL
-# and in Python, and the Variant Explorer read this one list, so they cannot disagree: the
-# explorer had read MANE Select alone, and dropped a variant whose MANE transcript is MANE
-# Plus Clinical (CLIN-5).
-MANE_ONLY_TRANSCRIPT_FLAGS: tuple[tuple[str, str], ...] = (
-    ("mane_select", "maneSelect"),
-    ("mane_plus_clinical", "manePlusClinical"),
-)
+# annotation key and a column of the ``annotations`` table; the ``annotation_index`` holds
+# it per variant as ``has_<flag>``. The family search, in SQL and in Python, and the
+# Variant Explorer read this one list, so they cannot disagree on a variant whose MANE
+# transcript is MANE Plus Clinical.
+MANE_ONLY_TRANSCRIPT_FLAGS: tuple[str, ...] = ("mane_select", "mane_plus_clinical")
 
 
 def mane_only_condition(column_prefix: str) -> str:
@@ -269,7 +238,7 @@ def mane_only_condition(column_prefix: str) -> str:
     ``column_prefix`` precedes each flag's name: ``"a."`` for a transcript row of the
     ``annotations`` table, ``"ai.has_"`` for a variant row of the ``annotation_index``.
     """
-    columns = (f"{column_prefix}{flag}" for flag, _alias in MANE_ONLY_TRANSCRIPT_FLAGS)
+    columns = (f"{column_prefix}{flag}" for flag in MANE_ONLY_TRANSCRIPT_FLAGS)
     return f"({' OR '.join(columns)})"
 
 
@@ -280,8 +249,8 @@ def _status_terms(value: Any) -> set[str]:
     Multiple values are separated by ``,`` ``;`` ``&`` ``|`` or ``/``. The ``/`` is
     ClinVar's own aggregate form (``Pathogenic/Likely_pathogenic``,
     ``Benign/Likely_benign``) as carried in CLNSIG: without splitting it, such a variant
-    matched neither a "Pathogenic" / "Likely pathogenic" filter nor the frequency
-    rescue (#534).
+    would match neither a "Pathogenic" / "Likely pathogenic" filter nor the frequency
+    rescue.
     """
     if isinstance(value, (list, tuple, set)):
         terms: set[str] = set()
@@ -395,7 +364,7 @@ def _annotation_bool(annotation: dict[str, Any], *keys: str) -> bool:
 def _annotation_rank(annotation: dict[str, Any]) -> tuple[int, int, int]:
     impact_order = {"HIGH": 4, "MODERATE": 3, "MEDIUM": 3, "LOW": 2, "MODIFIER": 1}
     return (
-        1 if _annotation_bool(annotation, "mane_select", "maneSelect") else 0,
+        1 if _annotation_bool(annotation, "mane_select") else 0,
         1 if _annotation_bool(annotation, "canonical") else 0,
         impact_order.get(
             _casefold(_annotation_text(annotation, "impact") or "").upper(),
@@ -405,22 +374,17 @@ def _annotation_rank(annotation: dict[str, Any]) -> tuple[int, int, int]:
 
 
 def _annotation_population_frequencies(annotation: dict[str, Any]) -> dict[str, float]:
-    payload = _annotation_value(annotation, "population_frequencies", "populationFrequencies")
+    payload = _annotation_value(annotation, "population_frequencies")
     result: dict[str, float] = {}
     if isinstance(payload, dict):
         for key, value in payload.items():
             parsed = _coerce_float(value)
             if parsed is not None:
                 result[str(key)] = parsed
-    for key in (
-        ("gnomad_exomes_af", "gnomadExomesAf"),
-        ("gnomad_genomes_af", "gnomadGenomesAf"),
-        ("gnomad_popmax_af", "gnomadPopmaxAf"),
-        ("topmed_af", "topmedAf"),
-    ):
-        parsed = _annotation_float(annotation, *key)
+    for key in ("gnomad_exomes_af", "gnomad_genomes_af", "gnomad_popmax_af", "topmed_af"):
+        parsed = _annotation_float(annotation, key)
         if parsed is not None:
-            result[key[0]] = parsed
+            result[key] = parsed
     return result
 
 
@@ -440,47 +404,44 @@ def _annotation_gene(annotation: dict[str, Any]) -> str | None:
         annotation,
         "gene",
         "gene_symbol",
-        "geneSymbol",
         "hgnc_symbol",
-        "hgncSymbol",
     )
 
 
 def _annotation_gene_id(annotation: dict[str, Any]) -> str | None:
-    return _annotation_text(annotation, "gene_id", "geneId", "geneID")
+    return _annotation_text(annotation, "gene_id")
 
 
 def _annotation_effect(annotation: dict[str, Any]) -> str | None:
     return _annotation_text(
         annotation,
         "effect",
-        "majorConsequence",
         "consequence",
         "most_severe_consequence",
     )
 
 
 def _annotation_clinvar(annotation: dict[str, Any]) -> str | None:
-    return _annotation_text(annotation, "clinvar", "clinvarClinicalSignificance")
+    return _annotation_text(annotation, "clinvar")
 
 
 def _annotation_sift(annotation: dict[str, Any]) -> str | None:
-    return _annotation_text(annotation, "sift", "siftPrediction")
+    return _annotation_text(annotation, "sift")
 
 
 def _annotation_polyphen(annotation: dict[str, Any]) -> str | None:
-    return _annotation_text(annotation, "polyphen", "polyphenPrediction")
+    return _annotation_text(annotation, "polyphen")
 
 
 def _annotation_spliceai_max(annotation: dict[str, Any]) -> float | None:
-    explicit = _spliceai_delta(_annotation_float(annotation, "spliceai_max", "spliceaiMax"))
+    explicit = _spliceai_delta(_annotation_float(annotation, "spliceai_max"))
     if explicit is not None:
         return explicit
     values = [
-        _spliceai_delta(_annotation_float(annotation, "spliceai_ds_ag", "spliceaiDsAg")),
-        _spliceai_delta(_annotation_float(annotation, "spliceai_ds_al", "spliceaiDsAl")),
-        _spliceai_delta(_annotation_float(annotation, "spliceai_ds_dg", "spliceaiDsDg")),
-        _spliceai_delta(_annotation_float(annotation, "spliceai_ds_dl", "spliceaiDsDl")),
+        _spliceai_delta(_annotation_float(annotation, "spliceai_ds_ag")),
+        _spliceai_delta(_annotation_float(annotation, "spliceai_ds_al")),
+        _spliceai_delta(_annotation_float(annotation, "spliceai_ds_dg")),
+        _spliceai_delta(_annotation_float(annotation, "spliceai_ds_dl")),
     ]
     present = [value for value in values if value is not None]
     return max(present) if present else None

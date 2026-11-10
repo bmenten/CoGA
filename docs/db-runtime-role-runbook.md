@@ -22,9 +22,9 @@ The switch is a configuration change; the application needs no code change:
   DDL it may not run. At its default (`true`) the app migrates itself as the owner: the current
   single-DSN deployment, unchanged.
 - The owner-privileged migration is a standalone entrypoint, `python -m backend.app.db_migrate`
-  (`python -m app.db_migrate` inside the backend image). It migrates the schema (the
-  baselines, then the Alembic revisions the ledger `alembic_version` lacks:
-  [database.md](database.md#schema-migrations)) and seeds the admin user. With
+  (`python -m app.db_migrate` inside the backend image). It migrates the schema (an empty
+  database made from the baselines, then the Alembic revisions the ledger `alembic_version`
+  lacks: [database.md](database.md#schema-migrations)) and seeds the admin user. With
   `POSTGRES_APP_PASSWORD` set it also enables `coga_app`'s login (step 2). The startup path and
   this entrypoint call the same `init_postgres_schema` / `init_postgres_admin_user`, so the
   schema apply has one source of truth.
@@ -171,6 +171,5 @@ the `ALTER DEFAULT PRIVILEGES` in that file otherwise give the new table full CR
 `coga_app`. Add it to `_APPEND_ONLY` in `test_app_role_privileges.py` as well: the test fails
 for a trigger-guarded table it does not list.
 
-A change to a table that already exists also needs an Alembic revision. In this mode the
-migration step runs it as the owner, before the rollout
-([database.md](database.md#schema-migrations)).
+A schema change reaches a database through the migration step, which in this mode runs as the
+owner, before the rollout ([database.md](database.md#schema-migrations)).

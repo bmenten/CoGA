@@ -1,4 +1,4 @@
-"""The phenotypes an import changes are on the family's clinical audit trail (E2E, SEC-1).
+"""The phenotypes an import changes are on the family's clinical audit trail (E2E).
 
 A phenotype added, changed or removed on screen is a ``phenotype`` event on the family's
 hash-chained clinical audit trail. So is every change an import makes to a family's

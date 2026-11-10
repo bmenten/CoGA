@@ -68,7 +68,7 @@ def _require_storable_member_ids(
     family_identifiers): its new sample ID, its father or its mother. The routes call this
     before anything is read or written under such an ID, and before any member of the
     request is renamed. The whitespace around an ID is stripped first, as where the ID is
-    used; a value that is empty once stripped is left to the route, which reads it as before."""
+    used; a value that is empty once stripped is left to the route."""
     for field_name, kind in (
         (new_sample_id_field, "Sample ID"),
         ("father_id", "Father ID"),
@@ -550,9 +550,9 @@ def _rename_block_reason(counts: dict[str, int]) -> str | None:
 
     Fails CLOSED: if the ClickHouse genotype counts could not be verified (ClickHouse
     unreachable), we cannot confirm there is nothing to orphan, so the rename is blocked
-    rather than allowed. Previously the ``clickhouse_counts_unavailable`` marker was not
-    in GENOMIC_DATA_KEYS, so the guard summed to 0 and the rename proceeded — silently
-    orphaning ClickHouse variant rows still keyed by the old sample-id string.
+    rather than allowed. The ``clickhouse_counts_unavailable`` marker is no genomic data
+    (``GENOMIC_DATA_KEYS``) and is checked on its own: a rename past it could orphan
+    ClickHouse variant rows still keyed by the old sample-id string.
     """
     if _genomic_data_count(counts) > 0:
         return (
@@ -633,7 +633,7 @@ async def update_family_member_for_admin(
 
     new_sample_id = resolved_sample_id
     # The member's new ID and its old one, when the edit renames it: the audit event of the
-    # change names the rename (SEC-7).
+    # change names the rename.
     renamed: dict[str, str] = {}
     if _payload_has_field(update, "sample_id") and update.sample_id is not None:
         new_sample_id = _clean_sample_id(update.sample_id)
@@ -711,7 +711,7 @@ async def update_family_members_batch_for_admin(
     member_updates: list[FamilyStructureMemberUpdate] = []
     seen: set[str] = set()
     relationships_changed = False
-    # Each renamed member's new ID and its old one, for the change's audit event (SEC-7).
+    # Each renamed member's new ID and its old one, for the change's audit event.
     renamed: dict[str, str] = {}
 
     for item in update.updates:

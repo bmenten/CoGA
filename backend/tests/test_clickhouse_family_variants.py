@@ -55,7 +55,7 @@ from backend.tests._segregation_flags import flag, members_of
 
 @pytest.fixture(autouse=True)
 def _a_steady_small_variant_data_version(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The family's small-variant data version, read before and after each search (ENG-17):
+    """The family's small-variant data version, read before and after each search:
     steady, as no write lands during these searches. A test that keys a ranking on it sets
     its own."""
 
@@ -85,11 +85,9 @@ def _inheritance_filter_records(
     sample_rows=None,
 ):
     """Adapt the production inheritance selector (_inheritance_result_items, which
-    returns kind-tagged items / compound-het pairs) back to the flat,
-    original-order record list the (removed) _apply_small_inheritance_filter
-    returned, so these tests exercise the live code path. The matched-id union
-    is faithful: each compound-het pair contributes its {left, right} ids, the
-    variants the old filter kept."""
+    returns kind-tagged items / compound-het pairs) to a flat, original-order
+    record list, so these tests exercise the live code path. The matched-id union
+    is faithful: each compound-het pair contributes its {left, right} ids."""
     if not inheritance:
         return list(records)
     # The records as the search fetches them, with the modes the SQL finds each to fit.
@@ -228,7 +226,7 @@ def test_small_variant_out_says_where_a_male_is_hemizygous() -> None:
     assert not flagged("chrX", 1_000_000)  # PAR1
     assert not flagged("chr1", 31_500_000)
     assert not flagged("chrX", 31_500_000, assembly="T2T-CHM13v1.0")  # PARs not known
-    # T2T-CHM13v2.0 by its own PARs (CLIN-12): PAR1 ends at 2,394,410.
+    # T2T-CHM13v2.0 by its own PARs: PAR1 ends at 2,394,410.
     assert flagged("chrX", 31_500_000, assembly="T2T-CHM13v2.0")
     assert not flagged("chrX", 2_394_410, assembly="T2T-CHM13v2.0")
     assert flagged("chrX", 2_394_411, assembly="T2T-CHM13v2.0")
@@ -399,13 +397,9 @@ async def test_get_family_small_variants_page_uses_clickhouse_pagination(
     assert "GROUP BY e.key" in queries[0][0]
     assert queries[0][1]["visible_sample_ids"] == [
         "PROBAND",
-        "sample-proband",
         "MOM",
-        "sample-mom",
         "DAD",
-        "sample-dad",
         "SIB",
-        "sample-sib",
     ]
     assert "LIMIT %(limit)s OFFSET %(offset)s" in queries[0][0]
     assert queries[0][1]["limit"] == 2
@@ -470,7 +464,7 @@ async def test_get_family_small_variants_page_filters_simple_sample_gt_in_clickh
     assert "ad[2] >= %(sample_filter_0_min_ad_alt)s" in queries[0][0]
     assert "NOT arrayExists(sample_id -> sample_id IN %(sample_filter_1_samples)s" in queries[0][0]
     assert "LIMIT %(limit)s OFFSET %(offset)s" in queries[0][0]
-    assert queries[0][1]["sample_filter_0_samples"] == ("PROBAND", "sample-proband")
+    assert queries[0][1]["sample_filter_0_samples"] == ("PROBAND",)
     # The het group matches the het class: the four orientations and a "1/2".
     assert queries[0][1]["sample_filter_0_gts"] == genotype_vocabulary("het")
     assert {"0/1", "1/0", "0|1", "1|0", "1/2"} <= set(queries[0][1]["sample_filter_0_gts"])
@@ -478,7 +472,7 @@ async def test_get_family_small_variants_page_filters_simple_sample_gt_in_clickh
     assert queries[0][1]["sample_filter_0_min_dp"] == 10
     assert queries[0][1]["sample_filter_0_min_af"] == 0.2
     assert queries[0][1]["sample_filter_0_min_ad_alt"] == 4
-    assert queries[0][1]["sample_filter_1_samples"] == ("MOM", "sample-mom")
+    assert queries[0][1]["sample_filter_1_samples"] == ("MOM",)
     assert queries[0][1]["sample_filter_1_gts"] == genotype_vocabulary("hom_ref")
     assert {"0/0", "0|0", "0"} <= set(queries[0][1]["sample_filter_1_gts"])
 
@@ -826,9 +820,7 @@ def test_small_annotation_effect_filter_splits_vep_compound_terms() -> None:
     ("transcript", "kept"),
     [
         ({"mane_plus_clinical": True}, True),
-        ({"manePlusClinical": True}, True),
         ({"mane_select": True}, True),
-        ({"maneSelect": True}, True),
         ({"canonical": True}, False),
         ({}, False),
     ],
@@ -836,7 +828,7 @@ def test_small_annotation_effect_filter_splits_vep_compound_terms() -> None:
 def test_mane_only_keeps_a_mane_select_or_a_mane_plus_clinical_transcript(
     transcript: dict[str, bool], kept: bool
 ) -> None:
-    # The family search's *MANE only*, which the Variant Explorer follows (CLIN-5): the two
+    # The family search's *MANE only*, which the Variant Explorer follows: the two
     # flags the import stores, which the SQL reads (below).
     columns = _annotation_columns({"gene": "GENE1", **transcript})
     assert (columns.mane_select or columns.mane_plus_clinical) is kept
@@ -919,13 +911,9 @@ async def test_get_family_structural_variants_page_uses_clickhouse_pagination(
     assert "hasAny(e.calls.sampleId, %(visible_sample_ids)s)" in queries[0][0]
     assert queries[0][1]["visible_sample_ids"] == [
         "PROBAND",
-        "sample-proband",
         "MOM",
-        "sample-mom",
         "DAD",
-        "sample-dad",
         "SIB",
-        "sample-sib",
     ]
     assert "LIMIT %(limit)s OFFSET %(offset)s" in queries[1][0]
     assert queries[1][1]["limit"] == 1
@@ -1138,13 +1126,12 @@ async def test_structural_track_fetches_only_its_samples_svs(monkeypatch: pytest
         selected_samples=["PROBAND"],
     )
     (query, params), = queries
-    # In SQL, so the candidate cap counts the sample's SVs, not the family's; by name
-    # and by uuid, like every other sample match.
+    # In SQL, so the candidate cap counts the sample's SVs, not the family's.
     assert clause in query
-    assert params["call_sample_ids"] == ["PROBAND", "sample-proband"]
+    assert params["call_sample_ids"] == ["PROBAND"]
     assert params["limit"] == 50_001
 
-    # No sample named: the whole family.
+    # No sample named: the whole family, as before.
     queries.clear()
     await _run_non_native_structural_page(
         monkeypatch, returned_rows=1, queries=queries, variant_type=None, track_mode=True
@@ -1258,29 +1245,6 @@ async def test_fetch_small_variant_rows_excludes_imputed_by_default(
 
 
 @pytest.mark.asyncio
-async def test_fetch_small_variant_rows_maps_stored_sample_uuid_to_display_id(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    async def fake_execute_clickhouse(_query: str, _params: dict[str, object]):
-        if "variants/details" in _query:
-            return [_small_detail_row()]
-        return [_small_entry_row(["sample-proband"])]
-
-    monkeypatch.setattr(
-        "backend.app.services.clickhouse_family_variants._execute_clickhouse",
-        fake_execute_clickhouse,
-    )
-
-    rows = await _fetch_small_variant_rows(
-        _family_context(),
-        SmallVariantQueryFilters(page=1, page_size=1),
-    )
-
-    assert len(rows) == 1
-    assert [call.sample for call in rows[0].calls] == ["PROBAND"]
-
-
-@pytest.mark.asyncio
 async def test_fetch_small_variant_rows_pushes_panel_and_review_filters_to_clickhouse(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1318,7 +1282,7 @@ async def test_fetch_small_variant_rows_pushes_panel_and_review_filters_to_click
     assert "gi.gene_term IN %(panel_annotation_gene_terms)s" in query
     assert "panel_gene_terms" in params
     assert params["panel_annotation_gene_terms"] == ("gene2",)
-    # The panel's regions are joined to the family's own rows on 64-kb windows (ENG-15),
+    # The panel's regions are joined to the family's own rows on 64-kb windows,
     # not tested against each row.
     assert "(e.chrom, e.pos, length(e.ref)) IN (SELECT v.chrom, v.pos, v.ref_length" in query
     assert "arrayExists((region_chrom, region_start, region_end) ->" not in query
@@ -2131,10 +2095,10 @@ async def test_prioritized_small_variants_tie_order_is_deterministic(
 async def test_prioritized_ranking_cache_misses_after_the_family_variant_data_changes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # The ranking cache is keyed on the family's storage-level data version, so a write
-    # that no import path invalidates (a direct upload, an admin delete) cannot leave the
-    # prioritised view serving a ranking over the old variants. Drives the real hash
-    # computation against an in-memory cache.
+    # The ranking cache is keyed on the family's storage-level data version, so a
+    # write that no import path invalidates (a direct upload, an admin delete) cannot
+    # leave the prioritised view serving a ranking over the old variants. Drives
+    # the real hash computation against an in-memory cache.
     from backend.app.services import variant_ranking_cache as vrc
 
     calls = [_small_call("PROBAND", "0/1")]
@@ -2221,8 +2185,8 @@ async def test_prioritized_ranking_cache_misses_after_the_family_variant_data_ch
     again = await _open()
     assert again.ranking_cached is True
 
-    # New variant data under the SAME data version: the cached order still wins, so the
-    # version is what invalidates.
+    # New variant data under the SAME data version: the cached order still wins, which shows
+    # the version is what invalidates.
     data["records"] = [rec_a, rec_b]
     stale = await _open()
     assert stale.ranking_cached is True
@@ -2553,10 +2517,10 @@ def _callset_fetch(records: list[StructuralVariantRecord], seen: list[dict]):
 async def test_a_reported_sv_beyond_the_candidate_cap_is_still_found(
     monkeypatch: pytest.MonkeyPatch, prioritize: bool
 ) -> None:
-    # The report lists its SVs with a review-tag search. The selection narrows the read,
-    # so the cap bounds the reported SVs, not the callset: a read of the callset's first
-    # rows up to the cap, keeping the reviewed ones only then, would leave a reported SV
-    # past the cap out of the report.
+    # The report lists its SVs with a review-tag search. The selection narrows that search's
+    # read, so the cap bounds the reported SVs, not the callset: a read of the callset's first
+    # rows up to the candidate cap, the reviewed ones kept only then, would miss a reported SV
+    # past the cap.
     m = "backend.app.services.clickhouse_family_variants."
     monkeypatch.setattr(m + "_SV_NON_NATIVE_STRUCTURAL_CANDIDATE_CAP", 2)
     callset = [_reported_sv(f"sv-{index}", start=index * 1000) for index in range(1, 6)]
@@ -2657,8 +2621,8 @@ def test_clamp_small_variant_page_bounds_deep_offset() -> None:
 #
 # Compound-het / recessive pairing and expanded carrier screening run in Python over a
 # candidate window of at most _SMALL_INHERITANCE_MAX_CANDIDATE_ROWS rows, however large the
-# export cap. A match beyond the window is absent from the CSV, so the export says it is
-# truncated, not only when its own row cap is reached.
+# export cap. A match beyond the window is absent from the CSV, so the export reports itself
+# truncated when the window is capped, not only at its own row cap.
 
 
 def _patch_small_candidate_path(monkeypatch: pytest.MonkeyPatch, *, candidates: int) -> list[int | None]:
@@ -3046,14 +3010,14 @@ async def test_genotype_site_sample_reads_chrx_outside_the_pseudoautosomal_regio
     )
     assert params["sample_limit"] == 20_000
 
-    # On an assembly whose PARs CoGA does not know, all of chrX is read.
+    # On an assembly whose PARs CoGA does not know, all of chrX is read, as before.
     other = dataclasses.replace(_family_context(), assembly_name="T2T-CHM13v1.0")
     await fetch_genotype_site_sample(other, scope="chrX", limit=20_000, source="clair3")
     query, params = queries[1]
     assert not any(name.startswith("sample_hemizygous") for name in params)
     assert (params["sample_xpos_start"], params["sample_xpos_end"]) == (23_000_000_000, 23_999_999_999)
 
-    # T2T-CHM13v2.0 by its own PARs (CLIN-12).
+    # T2T-CHM13v2.0 by its own PARs.
     t2t = dataclasses.replace(_family_context(), assembly_name="T2T-CHM13v2.0")
     await fetch_genotype_site_sample(t2t, scope="chrX", limit=20_000, source="clair3")
     query, params = queries[2]
@@ -3125,10 +3089,10 @@ async def test_genotype_site_sample_reads_its_rows_off_the_event_loop(
 async def test_a_search_a_write_lands_during_is_run_once_more(
     monkeypatch: pytest.MonkeyPatch, versions: list[str], runs: int
 ) -> None:
-    # ENG-17. A search's subqueries (a panel's window join, the annotation and sample
-    # subqueries) read the family's rows apart from its main read, so a write landing between
-    # two of them could make the answer miss a row. Every write moves the family's data
-    # version once done: a search during which it moved is run once more.
+    # A search's subqueries (a panel's window join, the annotation and sample subqueries)
+    # read the family's rows apart from its main read, so a write landing between two of
+    # them could make the answer miss a row. Every write moves the family's data version
+    # once done: a search during which it moved is run once more.
     read = iter(versions)
     searched: list[object] = []
 

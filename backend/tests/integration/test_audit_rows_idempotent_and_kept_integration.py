@@ -1,4 +1,4 @@
-"""Each audit event of a batch is stored once, or costs only itself, on real Postgres (SEC-17, TF-13 S-5).
+"""Each audit event of a batch is stored once, or costs only itself, on real Postgres (TF-13 S-5).
 
 The request audit (``audit_log_events``) and the UI-event log (``ui_events``) each write what
 their worker drains in one INSERT, as the runtime role ``coga_app``, which holds INSERT and

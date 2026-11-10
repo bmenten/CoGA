@@ -1346,7 +1346,7 @@ def _delivery_out(row: Any) -> ImportDeliveryOut:
     marker: dict[str, Any] = (
         row["marker"]
         if isinstance(row["marker"], dict)
-        else (row["package"] if "package" in row and isinstance(row["package"], dict) else {})
+        else (row["package"] if isinstance(row["package"], dict) else {})
     )
     pipeline: dict[str, Any] = marker["pipeline"] if isinstance(marker.get("pipeline"), dict) else {}
     return ImportDeliveryOut(
@@ -1368,8 +1368,8 @@ def _delivery_out(row: Any) -> ImportDeliveryOut:
         issues=[ImportDeliveryIssue.model_validate(item) for item in _json_list(row["issues"])],
         warnings=[ImportDeliveryIssue.model_validate(item) for item in _json_list(row["warnings"])],
         manifest_sha256=row["manifest_sha256"],
-        revision=int(row["revision"] or 0) if "revision" in row else 0,
-        origin=row["origin"] if "origin" in row and row["origin"] else "watched",
+        revision=int(row["revision"]),
+        origin=row["origin"],
         job_id=ApiId(row["job_id"]) if row["job_id"] else None,
         job_status=row["job_status"],
         job_dry_run=row["job_dry_run"],

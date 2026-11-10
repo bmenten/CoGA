@@ -1,4 +1,4 @@
-"""A genotype written as a word is refused at import (CLIN-16, the owner's decision of 2026-10-28).
+"""A genotype written as a word is refused at import (the owner's decision of 2026-10-28).
 
 VCF writes a genotype (GT) in allele notation: allele indices, ``.`` for a missing allele, ``/``
 or ``|`` between them (``0/1``, ``1|0``, ``./.``, haploid ``1``). Only a malformed VCF holds a
@@ -152,7 +152,7 @@ async def test_a_genotype_word_is_refused_before_the_upload_replaces_the_callset
 
     assert refused.value.status_code == 400
     assert refused.value.detail == f"The VCF family.vcf, line 5: the genotype (GT) of S2 is '{gt}', {_REFUSED}"
-    # Read whole before the delete, as every refusal is (SAFE-25): the callset as it was.
+    # Read whole before the delete, as every refusal is: the callset as it was.
     assert stores["events"] == ["lock"]
 
 

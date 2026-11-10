@@ -1,11 +1,11 @@
-"""A NeedlR SV is named by its coordinates, never by the record's ID (CLIN-43), and a NeedlR
-breakend is stored with its mate, read from its ALT as the uploads read it (CLIN-40).
+"""A NeedlR SV is named by its coordinates, never by the record's ID, and a NeedlR
+breakend is stored with its mate, read from its ALT as the uploads read it.
 
 Both are the package's NeedlR reader (``family_package_variants._needlr_records``, through the
 family VCF reader and the per-sample reader), and what makes one NeedlR SV: its id and, for a
 breakend, its mate, which the id holds.
 
-**The id (CLIN-43).** A caller numbers its calls per run (Sniffles2 writes
+**The id.** A caller numbers its calls per run (Sniffles2 writes
 ``Sniffles2.DEL.1S0``), so two samples' per-sample files, or two runs in one family VCF, give
 one ID to different calls. A NeedlR SV's id is the one an uploaded SV's call of the same event
 gets: its chromosome, start, end and type, and a breakend's mate
@@ -24,7 +24,7 @@ The lines merge by that id:
 ``e2e/test_e2e_needlr_coordinate_ids.py`` imports such per-sample files through the package
 import into Postgres and ClickHouse and reads the SVs back through the API.
 
-**The mate (CLIN-40).** A breakend's ALT holds its mate in brackets, and the NeedlR reader reads
+**The mate.** A breakend's ALT holds its mate in brackets, and the NeedlR reader reads
 it as the Sniffles and manual uploads do (``parse_bnd_alt``), so a NeedlR translocation names its
 partner in the SV list (its *Remote chr* and *Remote start*, the report's remote breakpoint, the
 circos link), and a search by the mate's position (``remote_chr``, ``remote_start``) finds it.
@@ -34,8 +34,7 @@ breakend notation (``is_breakend_alt``), and a breakend's mate is read from its 
 reads it, with ``remote_end`` equal to ``remote_start``: through the family VCF reader and the
 per-sample reader, in the four bracket forms, with SVTYPE BND, ``bnd`` or TRA, and without one
 (such a record is typed BND). A single breakend (``G.``) names no mate, and a record that is no
-breakend keeps none. Records that merge by id keep their mate. A breakend's id holds its mate
-(CLIN-43), as an uploaded breakend's does, so two breakends on one position with other mates
+breakend keeps none. Records that merge by id keep their mate. A breakend's id holds its mate, as an uploaded breakend's does, so two breakends on one position with other mates
 have their own ids. A record without END ends where VCF 4.4 puts it (CLIN-39), as an upload's
 does: a breakend, an insertion and a record whose extent is not stated on its POS, so a
 breakend's id is an uploaded breakend's.
@@ -125,7 +124,7 @@ _READERS: dict[str, Callable[..., list[StructuralVariantRecord]]] = {
 
 
 # =============================================================================================
-# The id: the call's coordinates and type, never the record's ID (CLIN-43)
+# The id: the call's coordinates and type, never the record's ID
 # =============================================================================================
 
 # Sniffles2 numbers its calls per run: two runs give their first deletion one ID.
@@ -441,7 +440,7 @@ def test_the_same_event_uploaded_from_sniffles_has_the_same_id(needlr: str, snif
 
 
 # =============================================================================================
-# A breakend's mate, read from its ALT as an upload reads it (CLIN-40)
+# A breakend's mate, read from its ALT as an upload reads it
 # =============================================================================================
 
 # The query's call and its parents' calls, as NeedlR writes them.
@@ -529,7 +528,7 @@ def test_a_breakend_has_its_mate_whatever_its_svtype_says(info: str, sv_type: st
         pytest.param("N", "<INS>", "SVTYPE=INS;SVLEN=300;", "INS", 20000, 300, id="INS"),
         # An inversion states how far it reaches (one that does not is left out, CLIN-39).
         pytest.param("N", "<INV>", "End_Pos=20500;", "INV", 20500, None, id="INV-without-SVTYPE"),
-        # Without SVLEN, a sequence allele is stored with the length its alleles state (CLIN-41).
+        # Without SVLEN, a sequence allele is stored with the length its alleles state.
         pytest.param("A" + "C" * 60, "A", "End_Pos=20060;", "DEL", 20060, -60, id="sequence-deletion"),
     ],
 )
@@ -537,7 +536,7 @@ def test_a_record_that_names_no_mate_keeps_none(
     ref: str, alt: str, info: str, sv_type: str, end: int, sv_len: int | None
 ) -> None:
     (record,) = _family_vcf(_breakend_line(alt, info, ref=ref))
-    # The id its coordinates and type give it (CLIN-43): with no mate, none in it.
+    # The id its coordinates and type give it: with no mate, none in it.
     assert (record.variant_id, record.chr, record.start, record.end, record.sv_type, record.sv_len) == (
         f"1-20000-{end}-{sv_type}---",
         "1",
@@ -551,7 +550,7 @@ def test_a_record_that_names_no_mate_keeps_none(
 
 @pytest.mark.parametrize("reader", sorted(_READERS))
 def test_a_breakend_s_id_holds_its_mate_as_an_uploaded_breakend_s_does(reader: str) -> None:
-    # Its coordinates, type and mate (CLIN-43), never the record's ID (SVBND1).
+    # Its coordinates, type and mate, never the record's ID (SVBND1).
     with_id, without_id = _READERS[reader](
         _breakend_line("N]chr5:3000000]", record_id="SVBND1"),
         _breakend_line("N[chr7:4000000[", record_id=".", pos=30000),

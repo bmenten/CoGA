@@ -1,6 +1,6 @@
 // Genome-wide SV track: the accessible name of its canvas summarises what it draws now —
 // the sample's SVs on the displayed chromosomes, by type — and names a load or a failure
-// as such, never as zero SVs (#510, #529).
+// as such, never as zero SVs.
 import { fireEvent, render, screen } from '@testing-library/react';
 import type { ComponentProps } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -54,7 +54,7 @@ const sv = (type: string, chr: string, start: number, sample = 'S1', gt = '0/1')
   genotypes: [{ sample, gt }],
 });
 
-describe('SvTrack accessible name (#529)', () => {
+describe('SvTrack accessible name', () => {
   beforeEach(() => {
     useQueryMock.mockReset();
   });
@@ -98,7 +98,7 @@ describe('SvTrack accessible name (#529)', () => {
     ).toBeInTheDocument();
   });
 
-  it('a failure is named as a failure, never as zero SVs (#510)', () => {
+  it('a failure is named as a failure, never as zero SVs', () => {
     serve({ isError: true });
     render(track());
 
@@ -109,7 +109,7 @@ describe('SvTrack accessible name (#529)', () => {
     expect(screen.queryByText(/no SVs for this region/)).not.toBeInTheDocument();
   });
 
-  it('past the backend cap, says too many instead of drawing part of the genome (#585)', () => {
+  it('past the backend cap, says too many instead of drawing part of the genome', () => {
     serve({ data: page([sv('DEL', '1', 100_000), sv('DUP', '2', 200_000)], true) });
     render(track());
 
@@ -123,7 +123,7 @@ describe('SvTrack accessible name (#529)', () => {
     expect(screen.queryByText(/no SVs for this region/)).not.toBeInTheDocument();
   });
 
-  // #602 — a track that asked for nothing found nothing: it is not "none".
+  // A track that asked for nothing found nothing: it is not "none".
   it('before the genome layout is known it asks for nothing and is loading, not empty', () => {
     serve({});
     render(track({ layout: null }));
@@ -147,7 +147,7 @@ describe('SvTrack accessible name (#529)', () => {
   });
 });
 
-describe('SvTrack request (#585)', () => {
+describe('SvTrack request', () => {
   beforeEach(() => {
     useQueryMock.mockReset();
     fetchTrackJsonMock.mockReset();
@@ -173,9 +173,9 @@ describe('SvTrack request (#585)', () => {
   });
 });
 
-// CLIN-54: the track drew DEL, DUP, INV, INS and BND by their exact names only, so a DEL:ME, a
-// DUP:TANDEM, an INS:ME, a CNV or a TRA was not drawn, though the SV list showed it.
-describe('SvTrack draws every SV the list shows (CLIN-54)', () => {
+// The track draws every SV the list shows, not only DEL, DUP, INV, INS and BND by their exact
+// names: a DEL:ME, a DUP:TANDEM, an INS:ME, a CNV and a TRA too.
+describe('SvTrack draws every SV the list shows', () => {
   beforeEach(() => {
     useQueryMock.mockReset();
   });
@@ -243,8 +243,7 @@ describe('SvTrack draws every SV the list shows (CLIN-54)', () => {
     const canvas = screen.getByRole('img');
 
     // 200 px over 2 Mb: chr2:400,000 is at x 140. Six rows of 80/6 px: the Other row is the
-    // last, the DEL row the first. The chromosome as the viewer names it (#602), not as stored
-    // (ENG-20).
+    // last, the DEL row the first. The chromosome as the viewer names it, not as stored.
     fireEvent.mouseMove(canvas, { clientX: 140.5, clientY: 72 });
     expect(screen.getByText('chr2:400000-400100 CPX [caller]')).toBeInTheDocument();
 
@@ -254,19 +253,17 @@ describe('SvTrack draws every SV the list shows (CLIN-54)', () => {
   });
 });
 
-// Found while fixing the viewer's chrM names (#1023): the track looked an SV up in the layout
-// under its stored name, then without `chr`, so an SV stored as `chrM` or `M` never found the
-// layout's `MT`, and was neither drawn nor counted. The mitochondrial SV dataset (mito_sv) comes
-// as `M`: its VCF's chromosome name without `chr`. Its tooltip wrote that stored name, `M:…`,
-// where the viewer names the mitochondrion chrM (#602; ENG-20).
+// An SV stored as `chrM` or `M` is placed on the layout's `MT`, drawn and counted. The
+// mitochondrial SV dataset (mito_sv) comes as `M`: its VCF's chromosome name without `chr`. Its
+// tooltip names the mitochondrion chrM, as the viewer does, not by that stored name (`M:…`).
 describe('SvTrack places an SV on the mitochondrion however it is stored', () => {
   beforeEach(() => {
     useQueryMock.mockReset();
   });
 
   // A layout with the mitochondrion, which it names MT, as normalizeChrom does: chr1, then MT at
-  // 1 Mb. The genome overview has left the mitochondrion out since ENG-20; the track places an SV
-  // on whichever chromosome its layout holds.
+  // 1 Mb. The genome overview leaves the mitochondrion out; the track places an SV on whichever
+  // chromosome its layout holds.
   const WITH_MT = {
     offsets: { '1': 0, MT: 1_000_000 },
     lengths: { '1': 1_000_000, MT: 16_569 },

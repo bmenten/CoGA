@@ -2,10 +2,9 @@
 
 An ``overwrite`` import of an existing family copies the family's ClickHouse rows into
 backup tables before it rewrites them, and drops them when it ends. When its process stops
-part-way it cannot: the tables, a copy of the family's earlier variant rows, were named
-after a random token only that process knew, so nothing ever dropped them. Now a backup is
-named after the import that owns it (``<assembly>/SNAPSHOT/<job id>/<table>``), the worker
-that ends a stopped job drops that job's backups, and startup drops every backup no running
+part-way it cannot, so a backup, a copy of the family's earlier variant rows, is named after
+the import that owns it (``<assembly>/SNAPSHOT/<job id>/<table>``), never after a token only
+that process knew: the worker that ends a stopped job drops that job's backups, and startup drops every backup no running
 import owns. These tests cover the naming, the listing, which backups count as orphaned,
 the drop, and the worker's and startup's part; the statements run against ClickHouse in
 integration/test_import_backup_cleanup_integration.py and the whole path in

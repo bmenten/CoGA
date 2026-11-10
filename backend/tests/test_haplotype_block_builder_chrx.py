@@ -6,7 +6,7 @@ embryos at an X-linked ROI would have no blocks there, or their PAR1 blocks woul
 the whole X with the homologs read in PAR1. Written twice (``1|1``), a son's maternal
 homolog would be read only where his father's allele was his.
 
-The builder reads chrX by the rule of the phasing QC (CLIN-60), where
+The builder reads chrX by the rule of the phasing QC, where
 ``sex_chromosomes`` knows the PAR bounds of the family's assembly: a member recorded as male
 has one copy outside the PARs, his call written once or twice. A son's blocks come from his
 mother alone: his maternal homolog is read where she is heterozygous, and he has no
@@ -404,7 +404,7 @@ def test_a_daughter_father_x_is_not_counted_to_orient_the_father() -> None:
     assert {(hap1, hap2) for _start, _end, hap1, hap2 in _blocks(rows, "MOTHER")} == {("1", "0")}
 
 
-# --- A block at a stretch's last position (ENG-19) -----------------------------------------
+# --- A block at a stretch's last position -----------------------------------------
 #
 # A block reaches past its first site: to the next block's first site, or to the end of its
 # chromosome or of its stretch of chrX. One opened at a stretch's last position could do
@@ -676,7 +676,7 @@ async def test_no_block_is_one_copy_where_the_assembly_s_pars_are_not_known(monk
 
 @pytest.mark.asyncio
 async def test_t2t_marks_one_copy_by_its_own_pars(monkeypatch: pytest.MonkeyPatch) -> None:
-    # CLIN-12: T2T-CHM13v2.0's PAR1 ends at 2,394,410 and its PAR2 starts at 153,925,835.
+    # T2T-CHM13v2.0's PAR1 ends at 2,394,410 and its PAR2 starts at 153,925,835.
     _serve_the_stored_blocks(monkeypatch)
     t2t_blocks = [
         _stored_block("u-son", "X", 2_394_411, 3_000_000),

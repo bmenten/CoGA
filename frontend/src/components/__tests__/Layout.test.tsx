@@ -1,5 +1,5 @@
-// Logout — #521: it cleared the session but left the previous user's query cache. A session
-// signed in with Microsoft also forgets the Microsoft account's tokens in the tab (SEC-4).
+// Logout — it clears the session and the user's query cache. A session signed in with
+// Microsoft also forgets the Microsoft account's tokens in the tab.
 // Main menu — the main sections behind the arrow at the right of the header; Admin only for an
 // admin.
 // Footer — the device label (TF-15 §1): the running build, the in-house IVD status and the
@@ -104,10 +104,10 @@ describe('Layout logout', () => {
 });
 
 // A logout in another tab of the browser removes the session the tabs share, and the browser
-// tells this tab of each key removed. This tab went on showing the user's family data, with its
-// Microsoft account and its tokens in the tab. A sign-in of another account there replaced the
-// session without a logout: this tab went on showing the first account's pages while its
-// requests went out as the other account (both found while fixing SEC-36).
+// tells this tab of each key removed: this tab ends its session too, and shows none of the
+// user's family data, nor keeps its Microsoft account and tokens in the tab. A sign-in of
+// another account there replaces the session without a logout: this tab ends that session too,
+// and never goes on showing the first account's pages while its requests go out as the other.
 describe('Layout: the session ended or replaced in another tab', () => {
   const [token, renewed, next] = ['microsoft', 'renewed', 'next'].map((part) => [part, 'session'].join('-'));
 

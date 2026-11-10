@@ -1,4 +1,4 @@
-"""A gene-reference refresh and a clinical CNV knowledgebase rebuild run only for an active administrator (E2E, real Postgres; SEC-35).
+"""A gene-reference refresh and a clinical CNV knowledgebase rebuild run only for an active administrator (E2E, real Postgres).
 
 Only an administrator asks for either (``/api/admin/gene-reference/refresh-gene``,
 ``/api/admin/clinical-cnv-kb/rebuild``); those jobs act with no account's rights. A job whose

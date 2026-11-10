@@ -227,7 +227,7 @@ describe('ClinicalCnvExplorerPage', () => {
     );
   });
 
-  it('encodes the assembly name as one path segment (#521)', async () => {
+  it('encodes the assembly name as one path segment', async () => {
     serve({ assemblies: [{ ...GRCH38, _id: 'odd', assembly_name: 'GRCh38/../admin', version: '1' }] });
     renderPage();
 
@@ -256,7 +256,7 @@ describe('ClinicalCnvExplorerPage', () => {
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
     expect(resultCount()).toHaveTextContent('0');
   });
-  it('does not read an unfinished or failed lookup as "no match" (#526)', async () => {
+  it('does not read an unfinished or failed lookup as "no match"', async () => {
     // Still loading the assemblies: no catalogue request yet, and no "no match".
     mockedGet.mockImplementation(() => new Promise(() => undefined));
     const { unmount } = renderPage();
@@ -312,7 +312,7 @@ describe('ClinicalCnvExplorerPage', () => {
     expect(resultCount()).toHaveTextContent('1,000+');
   });
 
-  // #624 — the knowledgebase's ClinVar support: counted, or not recorded, never read as 0.
+  // The knowledgebase's ClinVar support: counted, or not recorded, never read as 0.
   it('shows the ClinVar loss/gain support, and "—" where the knowledgebase recorded none', async () => {
     serve({
       catalogue: [

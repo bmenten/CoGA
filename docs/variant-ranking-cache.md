@@ -38,7 +38,7 @@ Each row is keyed by `inputs_hash`, a SHA-256 over everything that changes the r
 | The pedigree, who is affected and each member's sex (they name a carrier screen's couple and decide its X-linked findings) | the loaded family the ranking is computed on: members with sex, role and status, and the relationships |
 | The family's small-variant data | the ClickHouse `SNV_INDEL/family_data_version` table: every insert, delete or re-import of the family's variants adds a token |
 | The Monarch release | `monarch_gene_disease.release_version` |
-| The loaded HPO ontology: its release and import time | the most recently written `hpo_term` row (`release_version`, `updated_at`), read as the signed record reads it ([annotation-provenance.md](annotation-provenance.md#the-reference-modules)); the import time separates two imports that recorded no release |
+| The loaded HPO ontology: its release and import time | the most recently written `hpo_term` row (`release_version`, `updated_at`), read as the signed record reads it ([annotation-provenance.md](annotation-provenance.md#the-reference-modules)) |
 | Gene constraint (pLI, missense-Z) | the latest `gene_info.updated_at` for the assembly |
 | The review-filter state | the query's review-tag and excluded-variant sets |
 | The assembly and the scoring version | the family, and `_ALGORITHM_VERSION` in `variant_ranking_cache.py` |
@@ -161,8 +161,7 @@ and panels of regions only (the page: its rows and its count; the track: 10 Mb):
 | 1,000 regions, the track | 0.06 / 0.06 | 0.11 / 0.12 | 0.13 / 0.14 | 0.06 / 0.06 |
 
 With the per-row test, 500 and 1,000 regions ran ClickHouse out of memory on the larger family,
-answered 422 (in a first round, on a more loaded machine, 500 regions on the smaller family too). Every request that
-answered gave the same answer with both. The join costs about one more read of the family's
+answered 422. Every request that answered gave the same answer with both. The join costs about one more read of the family's
 rows: a five-region panel, which the per-row test handles in hundredths of a second, takes 0.2 to
 0.4 s longer, and the track a few hundredths.
 

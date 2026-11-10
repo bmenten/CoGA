@@ -30,7 +30,7 @@ const CANDIDATE_LIMIT = 8;
 const byLabel = (left: AccessEntry, right: AccessEntry) => left.label.localeCompare(right.label);
 
 /**
- * Who has access, and at what level (SEC-1): an analyst reads and changes the project's
+ * Who has access, and at what level: an analyst reads and changes the project's
  * records, a reader only reads them. It is the same memberships seen from either side: a
  * project's members on *Projects & access*, an account's projects on *Users*. Those with access
  * are a table, each with their level and Remove; one is added from a search that lists a few

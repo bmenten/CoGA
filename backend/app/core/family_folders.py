@@ -6,7 +6,7 @@ serve a family's files from there look a file up only inside those folders: the 
 (``routers/cram.py``), the CNV caller's signal files (``routers/signal_tracks.py``) and the
 sequencing-QC report (``routers/family_qc_reports.py``). What names the file is data: the
 family and sample IDs come from the request, and may hold ``/`` and ``..`` (the ID rule refuses
-both in a stored ID, SEC-15, but a request is not held to it); a
+both in a stored ID, but a request is not held to it); a
 recorded path comes back from ``samples.metadata``, where an edited row can hold ``..`` or an
 absolute path.
 
@@ -14,7 +14,7 @@ So a path is built and checked as a string first: joined to the family's folder,
 (``os.path.normpath``) and dropped when it leaves that folder, before anything is looked up by
 it. One that stays is kept only when its real path, symlinks resolved, lies inside one of the
 family's own folders too, so a link cannot lead into another family's folder or out of the
-data directory (SEC-20, SEC-25). A link between the family's own folders still works.
+data directory. A link between the family's own folders still works.
 """
 
 from __future__ import annotations

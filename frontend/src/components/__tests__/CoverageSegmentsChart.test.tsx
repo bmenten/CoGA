@@ -98,9 +98,9 @@ describe('CoverageSegmentsChart', () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
   });
 
-  // ENG-4 — the chart reads the BED endpoint's JSON through its generated type, `BedTrackOut`,
-  // whose `value` is null where the stored row holds none. Such a bin is left out: it was drawn
-  // as 0, a normal log2 ratio. (It also read a bare array, which no route serves.)
+  // The chart reads the BED endpoint's JSON through its generated type, `BedTrackOut`,
+  // whose `value` is null where the stored row holds none. Such a bin is left out, never drawn
+  // as 0, a normal log2 ratio.
   it('draws each bin the BED endpoint serves with a value, and leaves out one without', async () => {
     const fetchMock = vi.fn(() =>
       Promise.resolve({
@@ -131,7 +131,7 @@ describe('CoverageSegmentsChart', () => {
     await waitFor(() => expect(canvasContext.arc).toHaveBeenCalledTimes(1));
   });
 
-  it('shows the gain/loss thresholds in use, and marks this browser’s own (#529)', async () => {
+  it('shows the gain/loss thresholds in use, and marks this browser’s own', async () => {
     serveTrackFetchFrom(
       vi.fn(() =>
         Promise.resolve({
@@ -163,9 +163,9 @@ describe('CoverageSegmentsChart', () => {
     }
   });
 
-  // Regression: with no stored coverageRange, getCoverageRange() used to return 0,
-  // collapsing the y-scale so every coverage point was drawn at a non-finite
-  // coordinate (invisible) even though the data loaded correctly.
+  // With no stored coverageRange, getCoverageRange() returns the default: a range of 0
+  // would collapse the y-scale and draw every coverage point at a non-finite coordinate
+  // (invisible) although the data loaded.
   it('draws coverage at finite coordinates when coverageRange is unset', async () => {
     storage.clear();
     const ys: number[] = [];
@@ -226,7 +226,7 @@ describe('CoverageSegmentsChart', () => {
     await waitFor(() => expect(canvasContext.stroke).toHaveBeenCalled());
   });
 
-  // #510 — the BED endpoints answer "no data" with a 404; that is an empty source, while
+  // The BED endpoints answer "no data" with a 404; that is an empty source, while
   // any other failure must fail the chart rather than draw what did load.
   it('treats a "no data" 404 as an empty source and still draws the rest', async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
@@ -280,11 +280,11 @@ describe('CoverageSegmentsChart', () => {
 
     expect(await screen.findByText(/Could not load coverage — this is not an empty result/)).toBeInTheDocument();
     expect(screen.queryByText(/No coverage data in this region/)).not.toBeInTheDocument();
-    // The name says so too: it used to name only the thresholds, as if drawn (#602).
+    // The name says so too, not only the thresholds, as if drawn.
     expect(screen.getByRole('img', { name: /^Coverage log2 ratio: failed to load; gain > / })).toBeInTheDocument();
   });
 
-  // #602 — like every other chart's, the name says when the chart is loading or has
+  // Like every other chart's, the name says when the chart is loading or has
   // nothing to show, not only which thresholds colour it.
   it('is named as loading while its sources load, and as empty when they hold nothing', async () => {
     serveTrackFetchFrom(vi.fn(() => new Promise<never>(() => {})));
@@ -307,7 +307,7 @@ describe('CoverageSegmentsChart', () => {
     expect(screen.getByText('No coverage data in this region')).toBeInTheDocument();
   });
 
-  // TRACE-9 — a coverage track is drawn on the axis of what it holds. Read depth on a depth axis
+  // A coverage track is drawn on the axis of what it holds. Read depth on a depth axis
   // from 0, without the gain/loss colouring (its thresholds are log2 ratios) and without the
   // segments (log2 ratios).
   it('draws read depth on a depth axis from 0, without the log2 thresholds or the segments', async () => {

@@ -1,5 +1,5 @@
-// How the small-variant track marks a variant — #529: the classes were told apart by
-// the colour of one dot shape, and a review tag's colour hid the ClinVar class.
+// How the small-variant track marks a variant: the salient classes by a shape of their own, not
+// by the colour of one dot shape alone.
 
 import { describe, expect, it } from 'vitest';
 

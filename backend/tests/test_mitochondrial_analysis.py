@@ -65,7 +65,10 @@ def _family_context() -> FamilyMetadataContext:
                 "role": "proband",
                 "affected": True,
                 "sex": "female",
-                "sample_metadata": {"mtdna": {"haplogroup": "H1", "qc_status": "pass"}},
+                "sample_metadata": {
+                    "mtdna": {"haplogroup": "H1"},
+                    "package_sample_metadata": {"mtdna": {"qc_status": "pass"}},
+                },
             },
             {
                 "sample_uuid": "sample-mom",
@@ -74,10 +77,8 @@ def _family_context() -> FamilyMetadataContext:
                 "affected": False,
                 "sex": "female",
                 "sample_metadata": {
-                    "mtdna": {
-                        "haplogroup": "H1",
-                        "contamination": 0.012,
-                    }
+                    "mtdna": {"haplogroup": "H1"},
+                    "package_sample_metadata": {"mtdna": {"contamination": 0.012}},
                 },
             },
             {
@@ -661,7 +662,9 @@ def test_a_calls_heteroplasmy_reads_its_fraction_else_its_reads_else_its_genotyp
     ],
 )
 def test_the_pipelines_qc_verdict_is_read_as_one_of_the_qc_statuses(stored: str, status: str) -> None:
-    qc = mitochondrial_analysis._sample_qc({"mtdna": {"qc_status": stored}}, MitoDNACoverageOut())
+    qc = mitochondrial_analysis._sample_qc(
+        {"package_sample_metadata": {"mtdna": {"qc_status": stored}}}, MitoDNACoverageOut()
+    )
     assert qc.status == status
 
 
@@ -673,7 +676,9 @@ _LIMITS = {
 
 def test_a_failed_pipeline_verdict_is_not_passed_by_the_lab_s_limits() -> None:
     qc = mitochondrial_analysis._sample_qc(
-        {"mtdna": {"qc_status": "fail", "contamination": 0.001}}, MitoDNACoverageOut(mean_depth=1_000.0), _LIMITS
+        {"package_sample_metadata": {"mtdna": {"qc_status": "fail", "contamination": 0.001}}},
+        MitoDNACoverageOut(mean_depth=1_000.0),
+        _LIMITS,
     )
     assert (qc.status, qc.notes) == ("fail", [])
 
@@ -681,7 +686,7 @@ def test_a_failed_pipeline_verdict_is_not_passed_by_the_lab_s_limits() -> None:
 def test_a_failed_limit_is_not_lowered_to_a_warning_by_another() -> None:
     # Contamination above its error limit, the depth under its warning limit only.
     qc = mitochondrial_analysis._sample_qc(
-        {"mtdna": {"contamination": 0.05}}, MitoDNACoverageOut(mean_depth=280.0), _LIMITS
+        {"package_sample_metadata": {"mtdna": {"contamination": 0.05}}}, MitoDNACoverageOut(mean_depth=280.0), _LIMITS
     )
     assert qc.status == "fail"
     assert qc.notes == [
@@ -690,7 +695,7 @@ def test_a_failed_limit_is_not_lowered_to_a_warning_by_another() -> None:
     ]
     # The pipeline's own pass does not hide a failed limit either.
     qc = mitochondrial_analysis._sample_qc(
-        {"mtdna": {"qc_status": "pass"}}, MitoDNACoverageOut(mean_depth=200.0), _LIMITS
+        {"package_sample_metadata": {"mtdna": {"qc_status": "pass"}}}, MitoDNACoverageOut(mean_depth=200.0), _LIMITS
     )
     assert qc.status == "fail"
 
@@ -699,7 +704,9 @@ def test_without_a_limit_or_a_verdict_a_sample_is_not_claimed_to_pass() -> None:
     qc = mitochondrial_analysis._sample_qc({}, MitoDNACoverageOut(mean_depth=1_000.0), {})
     assert qc.status == "skip"
     # The depth recorded with the sample is read when no coverage track gives one.
-    qc = mitochondrial_analysis._sample_qc({"mtdna": {"mean_depth": "200"}}, MitoDNACoverageOut(), _LIMITS)
+    qc = mitochondrial_analysis._sample_qc(
+        {"package_sample_metadata": {"mtdna": {"mean_depth": "200"}}}, MitoDNACoverageOut(), _LIMITS
+    )
     assert (qc.status, qc.mean_depth) == ("fail", 200.0)
 
 

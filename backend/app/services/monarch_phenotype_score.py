@@ -265,7 +265,7 @@ async def score_genes_for_hpo(
     ancestors = await _term_ancestors(session, all_terms)
 
     # The per-gene similarity is what makes a prioritised ranking take seconds; it is pure
-    # CPU work, so it runs in a worker thread and other requests are served meanwhile (#527).
+    # CPU work, so it runs in a worker thread and other requests are served meanwhile.
     return await asyncio.to_thread(_score_gene_terms, patient, capped, ancestors, ic, max_ic)
 
 

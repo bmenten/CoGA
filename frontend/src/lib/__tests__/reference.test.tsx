@@ -51,7 +51,7 @@ describe('useFamilyReference', () => {
     apiGetMock.mockReset();
   });
 
-  // #608 — a failed catalogue leaves the reference unknown, and says so: it is not "not
+  // A failed catalogue leaves the reference unknown, and says so: it is not "not
   // linked", and not a validation scope that was checked.
   it('reports a failed project catalogue, and loads it again on retry', async () => {
     apiGetMock.mockRejectedValueOnce(Object.assign(new Error('HTTP 500'), { response: { status: 500 } }));
@@ -145,7 +145,7 @@ describe('useFamilyReference', () => {
     });
   });
 
-  it('carries whether the linked assembly is inside the validated scope (#515)', async () => {
+  it('carries whether the linked assembly is inside the validated scope', async () => {
     apiGetMock.mockResolvedValue({
       data: [
         {
@@ -212,8 +212,8 @@ describe('useFamilyReference', () => {
 
 // The UCSC reference import names T2T-CHM13v2.0 as UCSC's description does, `T2T CHM13v2.0`
 // with a space; NCBI writes `T2T-CHM13v2.0`, its ClickHouse tables `T2T_CHM13v2.0`, and UCSC
-// calls it `hs1`. Only the hyphen was recognised, and IGV opened hg38 for any other name: a
-// T2T family's reads and variants were drawn on another reference.
+// calls it `hs1`. Each is recognised: IGV opening hg38 for one of them would draw a T2T family's
+// reads and variants on another reference.
 const T2T_NAMES = ['T2T CHM13v2.0', 'T2T-CHM13v2.0', 'T2T_CHM13v2.0', 'T2T-CHM13', 'CHM13v2.0', 'hs1', 'HS1'];
 const UNKNOWN_NAMES = ['T2T-YAO', 'T2T-CHM13v1.0', 'GRCz11', 'GRCh38_no_alt', 'hs2'];
 
@@ -260,8 +260,8 @@ describe('mapAssemblyToIgvGenome', () => {
 
 // GRCh38 and GRCh37 under their GRC and UCSC names, in any case and with or without a patch
 // suffix, as the backend reads them (`sex_chromosomes.grc_build`). The variant list's UCSC and
-// gnomAD links read them by a part of the name or version, so an assembly whose version merely
-// held "hg38" got GRCh38's links; the panel list put only the exact name GRCh38 first.
+// gnomAD links and the panel list read the build from it, never from a part of the name or
+// version: an assembly whose version merely holds "hg38" is not GRCh38.
 const GRCH38_NAMES = ['GRCh38', 'hg38', 'GRCh38.p14', 'grch38', 'HG38', ' GRCh38 '];
 const GRCH37_NAMES = ['GRCh37', 'hg19', 'GRCh37.p13', 'HG19'];
 

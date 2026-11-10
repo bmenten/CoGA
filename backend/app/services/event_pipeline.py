@@ -25,9 +25,9 @@ accountability trail (TF-13 S-5) is never silently lost:
   attempt the worker therefore writes the batch's events one at a time, each once, so
   that event costs only itself (``_write_each_event_alone``).
 * ``AUDIT_LOG_DROP_ALLOWED`` true (non-production only; refused in prod by the
-  settings validator): a full queue drops with a WARN, preserving the original
-  low-overhead dev/test behaviour.
-* Writing an event again cannot store it twice (SEC-17). Each event carries an id of its
+  settings validator): a full queue drops with a WARN, for low overhead in development and
+  tests.
+* Writing an event again cannot store it twice. Each event carries an id of its
   own (``new_event_id``), given as it is made, before it is queued, and the writers'
   INSERT does nothing for an id the table holds (``ON CONFLICT (event_id) DO NOTHING``).
   A commit whose answer never reached the worker looks like a failure, and the batch is
@@ -322,8 +322,8 @@ async def write_batch_unlinking_deleted_user(
 
     A row naming a user whose account was deleted while the row waited in the queue fails
     ``foreign_key``, the row's link to its user. One such event written alone is written again
-    without the link, the user's id kept in the row, and logged without values (SEC-17,
-    ``record_unlinked``). A batch is left to the worker, which writes its events one at a time
+    without the link, the user's id kept in the row, and logged without values
+    (``record_unlinked``). A batch is left to the worker, which writes its events one at a time
     after its last attempt (``write_event_batch_with_retry``).
     """
     if not payloads:
@@ -401,7 +401,7 @@ async def _write_each_event_alone(
     and the other events are stored. Each event is written once, without waiting, so a
     batch costs at most as many more writes as it holds events (``AUDIT_LOG_BATCH_SIZE``).
     A write that never reached the database (``_UNREACHABLE_ERRORS``) ends the pass: the
-    events not yet written are recorded untried, as the whole batch used to be. The event
+    events not yet written are recorded untried. The event
     of a one-event batch has been written alone already, and is recorded at once with the
     batch's error (``batch_error``, named by ``describe_error``).
     """

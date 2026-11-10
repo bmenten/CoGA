@@ -33,7 +33,7 @@ export const alleleBase = (index: string, ref: string, alt: string): string => {
   return alt.split(',')[n - 1] ?? '?';
 };
 
-// On chrX outside the PARs a man has one X (CLIN-60), as the backend's QC counts read it:
+// On chrX outside the PARs a man has one X, as the backend's QC counts read it:
 // his call written as one allele ('1') or twice ('1|1') is that allele, read as a pair; a
 // call of two different alleles is one he cannot have.
 export const callAlleles = (gt: string): number[] | null => {
@@ -57,7 +57,7 @@ export const inRanges = (ranges: number[][], pos: number): boolean =>
 // What a member's two homologs show at a site: the allele index on each, '' when the call is
 // missing or unphased, null for no allele. A phased call has one allele per homolog. A call of
 // one allele, written once, or a man's same allele twice where he has one X (which the QC reads
-// as his one allele), is shown once (ENG-19): on the homolog the haplotype tracks draw a man's
+// as his one allele), is shown once: on the homolog the haplotype tracks draw a man's
 // one X on, the father's first and anyone else's second (a child's maternal one: a son's X is
 // his mother's), with no allele on the other. The ROI marker review draws its two rows by it,
 // and the haplotype track's tooltip writes a call by it.

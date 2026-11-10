@@ -542,7 +542,7 @@ async def _collect(run: str, base: Path) -> dict[str, Any]:
             await session.execute(
                 text("DELETE FROM import_deliveries WHERE folder_path LIKE :folder"), {"folder": f"{base.resolve()}/%"}
             )
-            # A deleted tag is kept, inactive, through its project's deletion (SAFE-37): the
+            # A deleted tag is kept, inactive, through its project's deletion: the
             # test's own goes here.
             if "tag_key" in records:
                 await session.execute(
@@ -722,7 +722,7 @@ def test_no_operation_answers_a_body_id_that_is_no_uuid_with_a_500(snap: dict[st
         (("POST", "/api/admin/nipt/artifacts/import"), "assembly_id", ASSEMBLY_NOT_FOUND),
         # A folder added to the deliveries by hand (import_manual_delivery.py).
         (("POST", "/api/family-imports/deliveries"), "project_id", PROJECT_NOT_FOUND),
-        # An account's projects, set from the Users page (SEC-1).
+        # An account's projects, set from the Users page.
         (("PATCH", "/api/auth/users/{user_id}"), "project_ids", PROJECT_NOT_FOUND),
         (("PATCH", "/api/auth/users/{user_id}"), "reader_project_ids", PROJECT_NOT_FOUND),
     ],

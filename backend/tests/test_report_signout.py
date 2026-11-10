@@ -3,13 +3,12 @@ record and its chain, and the check of the report against the latest record.
 
 The sections, in order: the signer's role (TF-06 H15); the assembly-scope gate (TF-06 H12); a
 family whose data is being
-written (TF-06 H16); a family made again under its ID (TRACE-13); the evidence-drift gate and
-the content hash; the Sample-QC gate, its could-not-run checks and the reasons it names
-(CLIN-8, CLIN-58); the sequencing QC cut-offs and what a record could not capture; the
+written (TF-06 H16); a family made again under its ID; the evidence-drift gate and
+the content hash; the Sample-QC gate, its could-not-run checks and the reasons it names; the sequencing QC cut-offs and what a record could not capture; the
 incomplete-import gate and imports that stopped part-way; reading a signed version; the gate of
 abnormal repeat and Paraphase calls without a review (REQ-TRACE-016); the HPO release; the
 reported SVs' evidence (REQ-TRACE-014); the signed analysis record's sections, its NIPT and PGT
-parts and the repeat calls' warnings; the report code; and what is frozen as reported (TRACE-19).
+parts and the repeat calls' warnings; the report code; and what is frozen as reported.
 Every acknowledgement is given as the sign-out dialogs give it (``_signout_dialogs.py``). The
 gates' fingerprints over what each dialog showed are in test_signout_acknowledges_what_was_shown.py.
 """
@@ -108,7 +107,7 @@ def _user():
 def _through_the_dialogs(session, **kwargs):
     """``rss.sign_out_report`` as the sign-out dialogs call it: each acknowledgement in
     ``kwargs`` given once its gate refuses, with the fingerprint of the concerns the refusal
-    listed (TRACE-19; ``backend/tests/_signout_dialogs.py``)."""
+    listed (``backend/tests/_signout_dialogs.py``)."""
     return sign_out_report_through_the_dialogs(rss.sign_out_report, session, **kwargs)
 
 
@@ -503,7 +502,7 @@ def test_the_active_import_job_is_read_as_a_mapping() -> None:
 
 
 # ---------------------------------------------------------------------------
-# A family made again under its ID (TRACE-13)
+# A family made again under its ID
 # ---------------------------------------------------------------------------
 
 
@@ -577,7 +576,7 @@ class _SignoutTable(_Session):
 
 def _sign_out_two_families(monkeypatch) -> _SignoutTable:
     """Family FAM1 signed out twice, deleted, made again under its ID (another family row)
-    and signed out twice more: the case TRACE-13 found."""
+    and signed out twice more: the case of a family made again under its ID."""
     _patch_common(monkeypatch, drifted_count=0)
     family = {"uuid": "u1"}
 
@@ -1237,7 +1236,7 @@ def test_audit_records_qc_status_and_acknowledgement(monkeypatch) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Each reason of a Sample-QC refusal names its sample, pair or child (CLIN-8)
+# Each reason of a Sample-QC refusal names its sample, pair or child
 # ---------------------------------------------------------------------------
 
 _NO_CHRX = "No chrX genotypes available for sex inference."
@@ -1247,7 +1246,7 @@ _PARTNERS_NAMED = [
 ]
 
 # The refusal's message: a sentence for each kind of concern the gate holds, then what to do
-# (CLIN-58). The concerns themselves are in the refusal's lists, one group each.
+#. The concerns themselves are in the refusal's lists, one group each.
 _QC_FAILED = "Sample-integrity QC status is 'fail' (possible sample or pedigree swap — TF-06 H4)."
 _COULD_NOT_RUN = (
     "A sample-integrity check that confirms the pedigree or a sample's identity could not run. "
@@ -1300,7 +1299,7 @@ def _qc_refusal(monkeypatch, report: SampleIntegrityReport) -> dict:
 def test_the_qc_refusal_names_the_sample_of_each_reason(monkeypatch) -> None:
     # Neither partner's sex could be checked: the refusal gave "No chrX genotypes available
     # for sex inference." twice and named neither. Each reason names its sample, in the
-    # list the report page shows under the message (CLIN-58: the message names the kind of
+    # list the report page shows under the message (the message names the kind of
     # concern, the lists hold the concerns).
     detail = _qc_refusal(monkeypatch, _couple_without_chrx())
 
@@ -1331,7 +1330,7 @@ def test_the_qc_refusal_names_the_pair_and_the_child_with_its_parents(monkeypatc
     assert detail["qc_summary"]["messages"] == [*pairs, child]
     # In the groups the dialog shows, each concern is listed once: the parents' pair is a
     # warning, which does not gate on its own; the checks that could not run are not
-    # listed again among the warnings (CLIN-58).
+    # listed again among the warnings.
     assert detail["warning_checks"] == [pairs[2]]
     assert detail["failed_checks"] == []
 
@@ -1505,7 +1504,7 @@ def test_a_check_without_its_message_or_its_samples_still_gives_its_reason() -> 
 
 # ---------------------------------------------------------------------------
 # A failure does not hide a check that could not run: each group of concerns is listed,
-# and audited, on its own (CLIN-58)
+# and audited, on its own
 # ---------------------------------------------------------------------------
 
 _WRONG_FATHER = (
@@ -1585,7 +1584,7 @@ def test_an_acknowledged_refusal_audits_each_group_its_dialog_listed(monkeypatch
     )
 
     after = captured["after"]
-    # The fingerprint of the groups the dialog showed, which the acknowledgement covered (TRACE-19).
+    # The fingerprint of the groups the dialog showed, which the acknowledgement covered.
     assert after["qc_concerns_fingerprint"] == detail["concerns_fingerprint"]
     assert after["qc_failed"] == detail["failed_checks"] == [_WRONG_FATHER]
     assert after["qc_unverifiable"] == detail["unverifiable_checks"] == [_RELATIVE_UNCHECKED]
@@ -1837,7 +1836,7 @@ def test_reported_structural_variants_are_frozen_and_hashed(monkeypatch) -> None
     with_cnv = _body([cnv])
     without = _body([])
     # With the class its review shows, by the family page's rule: the class word as its label
-    # (CLIN-80).
+    #.
     assert with_cnv["reported_structural_variants"] == [{**cnv, "class_shown": "Pathogenic - class 5"}]
     assert without["reported_structural_variants"] == []
     assert rss._canonical_hash(with_cnv) != rss._canonical_hash(without)
@@ -2108,7 +2107,7 @@ def test_the_import_gate_is_acknowledged_independently_of_drift_and_qc(monkeypat
     }
 
     def attempt(**acknowledgements):
-        # Each acknowledgement given in its dialog, once its gate refuses (TRACE-19).
+        # Each acknowledgement given in its dialog, once its gate refuses.
         _patch_common(
             monkeypatch, drifted_count=1, qc_status="fail", import_incomplete=_INCOMPLETE
         )
@@ -2191,7 +2190,7 @@ def test_the_import_flag_reader_is_deterministic_and_fails_safe() -> None:
 
 
 def test_a_flag_of_failures_outside_any_import_job_still_gates(monkeypatch) -> None:
-    # Single-file uploads that failed (SAFE-25) run in no import job: the flag reads and
+    # Single-file uploads that failed run in no import job: the flag reads and
     # gates the same, with no job to point to.
     state = asyncio.run(rss._import_incomplete_state(_ScalarSession(dict(_UPLOADS_INCOMPLETE)), "u1"))
     assert state == _UPLOADS_INCOMPLETE
@@ -2314,7 +2313,7 @@ def test_a_failed_and_a_stopped_import_are_one_gate_with_one_acknowledgement(mon
             user=_user(),
             acknowledge_import_incomplete=True,
             import_incomplete_acknowledgement_reason=_IMPORT_ACK_REASON,
-            # One fingerprint over both: what failed and what did not finish (TRACE-19).
+            # One fingerprint over both: what failed and what did not finish.
             import_incomplete_concerns_fingerprint=detail["concerns_fingerprint"],
         )
     )
@@ -2378,7 +2377,7 @@ def test_the_gate_message_names_each_failed_datasets_job() -> None:
 
 
 def test_a_failure_no_import_job_records_is_never_named_under_another_failures_job() -> None:
-    # SAFE-18. An upload of sv failed (SAFE-25: no job), then an import failed for snv: the
+    # An upload of sv failed (no job), then an import failed for snv: the
     # flag's job is the import's, and its failed_jobs lists sv with none: sv is not named
     # under the import's job, whose record holds no error of it.
     flag = {**_INCOMPLETE, "failed_jobs": {"snv": _IMPORT_JOB_ID, "sv": None}}
@@ -2403,7 +2402,7 @@ def test_a_failure_no_import_job_records_is_never_named_under_another_failures_j
 
 
 def test_a_restore_that_did_not_finish_is_frozen_and_named_as_one() -> None:
-    # SAFE-18. A failed overwrite whose restore did not finish leaves its entry listing the
+    # A failed overwrite whose restore did not finish leaves its entry listing the
     # whole family's datasets. It is frozen as a restore, so the 409, its dialog and the
     # signed record do not call it an import that "stopped before it finished".
     restore = {
@@ -2649,7 +2648,7 @@ def test_a_signed_version_whose_record_was_changed_is_served_unverified(monkeypa
     [record] = [r for r in caplog.records if "content hash mismatch" in r.getMessage()]
     assert record.signout_version == 1 and record.stored_content_hash == _PRE_GATE_CONTENT_HASH
     assert record.recomputed_content_hash == rss._canonical_hash(row["snapshot"])
-    # The family by its UUID, never its ID (SEC-39).
+    # The family by its UUID, never its ID.
     assert record.family_uuid == "u1" and not hasattr(record, "family_id")
 
 
@@ -3033,7 +3032,7 @@ def test_a_reported_cnv_whose_evidence_changed_blocks_sign_out(monkeypatch) -> N
     detail: Any = refused.value.detail
     assert detail["gate"] == "evidence_drift"
     assert "1 classification(s) (1 of them structural-variant or CNV classifications)" in detail["message"]
-    # The refusal lists the classification it counts, as its dialog shows it (TRACE-19).
+    # The refusal lists the classification it counts, as its dialog shows it.
     assert [entry["variant_id"] for entry in detail["structural_drifted"]] == [_SV_ID]
     assert _inserts(session) == [], "nothing may be written for a refused sign-out"
 
@@ -3346,7 +3345,7 @@ def test_a_nipt_refusal_lists_each_group_of_concerns_beside_the_failures(monkeyp
     # while its paternity and maternal lineage could not run (too few informative sites):
     # the refusal said only that the QC and a NIPT check failed, and its dialog never showed
     # the maternal lineage. The message names each kind of concern, and each concern is in
-    # its own group, once (CLIN-58).
+    # its own group, once.
     report = SampleIntegrityReport(
         overall_status="fail",
         application="nipt",
@@ -3390,7 +3389,7 @@ def test_a_nipt_refusal_lists_each_group_of_concerns_beside_the_failures(monkeyp
     ]
 
     # The acknowledged sign-out's audit event records the same groups, and the fingerprint of
-    # what the dialog showed of them (TRACE-19).
+    # what the dialog showed of them.
     captured = _capture_audit(monkeypatch)
     asyncio.run(
         rss.sign_out_report(
@@ -3496,7 +3495,7 @@ def test_a_nipt_familys_results_are_bound_into_the_content_hash_and_compared(mon
 
 def test_a_nipt_coverage_note_gone_since_sign_out_is_a_change(monkeypatch) -> None:
     # The notes of the NIPT coverage check over the coverage tracks are frozen with the section
-    # (TRACE-17) and compared with it.
+    # and compared with it.
     notes = {
         "gene": None,
         "panel": None,
@@ -4051,7 +4050,7 @@ def test_the_report_code_endpoint_serves_the_lookup(monkeypatch) -> None:
     assert (out.family_id, out.version, out.report_code) == ("FAM1", 2, "7KQM2X-2-4PHT")
 
 
-# --- What a sign-out freezes as reported: a variant's own report tag or its pair's (TRACE-19)
+# --- What a sign-out freezes as reported: a variant's own report tag or its pair's
 
 
 class _ReviewRowsSession:
@@ -4129,7 +4128,7 @@ def test_a_variant_reported_through_its_pair_is_frozen_with_the_pair_review() ->
     assert list(by_id) == ["1-100-A-G", "1-3001-A-G", "1-10000-A-G", "1-200-A-G"]
     # A variant reported by its own tag keeps exactly the keys it was frozen with: the record of
     # a family without a reported pair holds no pair key. Its classification text is frozen as
-    # stored (CLIN-80).
+    # stored.
     assert by_id["1-100-A-G"] == {
         "variant_id": "1-100-A-G",
         "classification": None,
@@ -4179,7 +4178,7 @@ def test_a_variant_its_pair_reports_without_frozen_evidence_gates_like_any_other
     ]
 
 
-# --- The class each reported variant's review showed (CLIN-80) -------------------------------
+# --- The class each reported variant's review showed -------------------------------
 #
 # The owner's decision of 2026-11-10: the signed record freezes the class a reported variant's
 # review shows, by the family page's one rule (review_class_label), beside its classification

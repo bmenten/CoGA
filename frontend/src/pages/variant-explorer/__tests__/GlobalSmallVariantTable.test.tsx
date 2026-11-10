@@ -80,7 +80,7 @@ describe('GlobalSmallVariantTable', () => {
     expect(bodyCells()).toHaveLength(2);
 
     // The gene links to the gene page for that gene, under the parameter the gene page
-    // reads: it was ?symbol=, which opened an empty gene search (#526).
+    // reads.
     const geneLink = within(brca2[0]).getByRole('link', { name: 'BRCA2' });
     expect(geneLink).toHaveAttribute('href', '/genes?gene=BRCA2');
 

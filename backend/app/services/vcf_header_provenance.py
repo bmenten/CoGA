@@ -36,7 +36,7 @@ Design notes
 * Several versions of one tool in one header are all kept, joined with ``, `` as the
   pipeline record joins them (``extract_pipeline_versions``): a header that a merge or
   a second annotation left with two version lines of a tool names both, never only the
-  first or the last (TRACE-8).
+  first or the last.
 * Raw captured lines are kept (truncated) under ``raw`` while a header is read, but
   ``as_modules`` stores neither them nor ``fileformat`` and ``file_date``: what reaches the
   manifest is the per-tool versions and details.

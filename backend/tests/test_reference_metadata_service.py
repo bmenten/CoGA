@@ -2,7 +2,7 @@
 region is read from, the region window, and an admin's upload of a dataset.
 
 A gene's region is its MANE Select transcript's, as HGNC names it or GENCODE marks it, else its
-Ensembl-canonical transcript's, else its longest; one transcript per gene (ENG-8). The release
+Ensembl-canonical transcript's, else its longest; one transcript per gene. The release
 each import records is tested in ``test_reference_import_versions.py``, the pinned files the
 start loads in ``test_reference_file_pins.py``. All values are synthetic.
 """
@@ -68,7 +68,7 @@ def test_gene_region_uses_canonical_when_mane_select_is_absent() -> None:
 
     selected = reference_metadata_service._select_preferred_gene_rows(rows)
 
-    # ENG-8: the canonical transcript is read from the keys an import writes, and wins over
+    # the canonical transcript is read from the keys an import writes, and wins over
     # the longest transcript.
     assert [row["gene_id"] for row in selected] == ["ENST_CANON"]
 
@@ -87,7 +87,7 @@ def test_gene_region_keeps_one_transcript_per_gene() -> None:
 
 def test_gene_region_reads_mane_select_as_gencode_writes_it_and_no_key_no_import_writes() -> None:
     # GENCODE's import marks the MANE Select transcript's row (`mane_select`); keys no import
-    # writes name nothing (ENG-8).
+    # writes name nothing.
     rows = [
         _gene_row("ENST_LONG", end=1000, gene_info_extra={"ensembl_canonical_transcript": "ENST_LONG"}),
         _gene_row("ENST_MANE", end=250, extra={"mane_select": True}),

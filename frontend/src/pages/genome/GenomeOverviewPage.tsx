@@ -94,9 +94,8 @@ const GenomeOverviewPage: React.FC = () => {
   const sampleFilters = useMemo(() => searchParams.getAll('sample'), [searchParams]);
   const baseVariantParams = useMemo(() => {
     const source = new URLSearchParams(location.search);
-    // The SV filters the SV route and the track availability take. `qual`, `read_support` and
-    // `filter` were sent too, and listed in each track's filters, though neither route takes
-    // them (ENG-7).
+    // The SV filters the SV route and the track availability take: not `qual`, `read_support`
+    // or `filter`, which neither route takes.
     const allowed = [
       'type',
       'source',
@@ -238,7 +237,6 @@ const GenomeOverviewPage: React.FC = () => {
     ) => {
       const params = new URLSearchParams();
       chroms.forEach((chrom) => params.append('chrom', chrom));
-      params.set('format', 'json');
       Object.entries(extra).forEach(([key, value]) => params.set(key, value));
       return `${api.defaults.baseURL}/bed/${encodeURIComponent(sampleId)}/${encodeURIComponent(bedType)}/batch?${params.toString()}`;
     };
@@ -453,7 +451,7 @@ const GenomeOverviewPage: React.FC = () => {
     );
   }
 
-  // The project catalogue failed: the reference is unknown, not missing (#608).
+  // The project catalogue failed: the reference is unknown, not missing.
   if (referenceFailed) {
     return (
       <PageState
@@ -496,7 +494,7 @@ const GenomeOverviewPage: React.FC = () => {
     );
   });
   // Without the chromosome lengths there is no layout to wait for: the failure is said in
-  // place of the tracks, not as a load that never ends (#610).
+  // place of the tracks, not as a load that never ends.
   const availabilityPending =
     visibleMembers.length > 0 &&
     chroms.length > 0 &&

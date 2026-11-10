@@ -1,4 +1,4 @@
-"""A monogenic NIPT family's signed record, end to end (REG-2; owner decision of 2026-10-14).
+"""A monogenic NIPT family's signed record, end to end (owner decision of 2026-10-14).
 
 The NIPT analysis is signed out through the family sign-out: one signed record per analysis,
 which holds the NIPT results. Over the synthetic demo NIPT package (``demo/nipt_family``: a
@@ -10,7 +10,7 @@ API, this:
   classifications the record freezes, and the variant summary's NIPT-M statistics, read from
   the same analysis and left out of the record;
 * tags a de novo candidate, a paternal allele and the listed artifact for the report, and
-  reads the NIPT page's reported view before signing out (UI-4: the review-tag filter
+  reads the NIPT page's reported view before signing out (the review-tag filter
   ``review_tag=report`` with no other filter, and ``exclude_review_tag``);
 * signs the family out, the drift and Sample QC gates acknowledged (the demo's paternity rests
   on too few sites, so the Sample QC gate holds; no NIPT quality check fails, and the 409 says
@@ -20,12 +20,12 @@ API, this:
   classifies it, the artifact as not classified, the de novo candidate's triage, the inputs),
   the variants the reported view listed and named, a verified content hash and chain, and a
   check that matches;
-* asks the sign-out as a reader in the family's project (SEC-1), the account made for the run
+* asks the sign-out as a reader in the family's project, the account made for the run
   and removed at its end: the family reads as read-only to them, which both pages that sign it
   out (the NIPT page and the report) disable the sign-out by, and the server refuses theirs
   with 403, signing nothing.
 
-A second copy gives the fetus the status a NIPT PED usually has, unknown (TRACE-19). The import
+A second copy gives the fetus the status a NIPT PED usually has, unknown. The import
 reads it as an embryo, and the run:
 
 * tags the demo's compound heterozygote in GENE_RECESS (a paternal and a maternal allele) for
@@ -66,7 +66,7 @@ DE_NOVO = "1-1001-A-G"  # GENE_DENOVO, category 1, in the fetal window
 ROI = "1:1000-20000"
 PATERNAL = "1-10000-A-G"  # a paternal allele the fetus inherited, category 7
 ARTIFACT = "1-9501-A-G"  # the demo's recurrent artifact (EXP_CAT=ARTIFACT), in the plasma only
-# What the server answers a reader's change (SEC-1, access_control.require_change_access).
+# What the server answers a reader's change (access_control.require_change_access).
 READ_ONLY = (
     "Read-only access: you are a reader in this project, so you can view and export its records "
     "but not change them."
@@ -86,7 +86,7 @@ def _shown_fingerprint(refusal: dict) -> str | None:
 
 
 async def _add_reader(project_id: str, email: str) -> tuple[str, str]:
-    """An account that reads the family's project only (SEC-1): its id, and a bearer the app
+    """An account that reads the family's project only: its id, and a bearer the app
     issues for it. It signs in with no password: the bearer is made as a sign-in makes one."""
     from sqlalchemy import text
 
@@ -214,7 +214,7 @@ async def _sign_out_and_read(ac, r: dict, family: str, family_id: str) -> None:
             await ac.put(f"{family}/small-variants/{variant_id}/review", json={"tags": ["report"]})
         )
 
-    # What the NIPT page lists before the sign-out (UI-4): "Show reported", the review tag
+    # What the NIPT page lists before the sign-out: "Show reported", the review tag
     # report with no other filter; within a view; the list without them; a tag none holds.
     nipt_variants = f"{family}/nipt/variants"
     r["reported_view"] = capture(await ac.get(nipt_variants, params={"review_tag": "report", "page_size": 500}))
@@ -226,7 +226,7 @@ async def _sign_out_and_read(ac, r: dict, family: str, family_id: str) -> None:
 
     # The gates, one by one: the drift of the unclassified reported variants, then the
     # Sample QC (the demo's paternity cannot be verified). Each acknowledgement carries the
-    # fingerprint of the concerns its refusal listed, as its dialog sends it (TRACE-19).
+    # fingerprint of the concerns its refusal listed, as its dialog sends it.
     r["refused_drift"] = capture(await ac.post(f"{family}/report/sign-out", json={}))
     drift_acknowledged = {
         **{key: SIGN_OUT_BODY[key] for key in ("acknowledge_drift", "drift_acknowledgement_reason")},
@@ -260,7 +260,7 @@ def signed(tmp_path_factory, request) -> dict:
     if not (DEMO / "manifest.yaml").exists():
         pytest.fail("the demo NIPT package is missing: it is committed (scripts/generate_nipt_demo.py rebuilds it)")
     # A region of interest for the coverage check, and a coverage BED that declares nothing: the
-    # check names it as not read as depth (TRACE-9), the note the record freezes (TRACE-17).
+    # check names it as not read as depth, the note the record freezes.
     copy = prepare_copy(tmp_path_factory.mktemp("nipt_signed_record"), roi=ROI, declare_coverage=False)
     root = Path(copy["root"])
     mp = pytest.MonkeyPatch()
@@ -321,7 +321,7 @@ def test_the_sample_qc_gate_holds_and_no_nipt_check_failed(signed) -> None:
     assert refused_drift["status"] == 409, refused_drift["text"]
     drift = refused_drift["json"]["detail"]
     # The drift refusal lists the classifications it counts, as its dialog shows them: the
-    # reported variants, which hold no classification and so no frozen evidence (TRACE-19).
+    # reported variants, which hold no classification and so no frozen evidence.
     assert drift["gate"] == "evidence_drift"
     assert {(entry["variant_id"], entry["status"]) for entry in drift["drifted"]} >= {
         (DE_NOVO, "no_snapshot"),
@@ -336,7 +336,7 @@ def test_the_sample_qc_gate_holds_and_no_nipt_check_failed(signed) -> None:
     assert detail["nipt_failed_checks"] == []
     # The refusal lists each group of concerns once, as the sign-out dialog shows them, and
     # the acknowledged sign-out's audit event records the same groups: what the
-    # acknowledgement covered (CLIN-58).
+    # acknowledgement covered.
     assert not set(detail["warning_checks"]) & set(detail["unverifiable_checks"])
     event = next(event for event in ok_json(signed, "audit")["events"] if event["action"] == "sign_out")
     assert event["after"]["qc_failed"] == detail["failed_checks"]
@@ -344,7 +344,7 @@ def test_the_sample_qc_gate_holds_and_no_nipt_check_failed(signed) -> None:
     assert event["after"]["nipt_failed_checks"] == detail["nipt_failed_checks"]
     assert event["after"]["qc_warnings"] == detail["warning_checks"]
     # And the fingerprint of the concerns each dialog showed, which its acknowledgement
-    # carried and covered (TRACE-19).
+    # carried and covered.
     assert event["after"]["qc_concerns_fingerprint"] == detail["concerns_fingerprint"]
     assert event["after"]["drift_concerns_fingerprint"] == drift["concerns_fingerprint"]
 
@@ -397,7 +397,7 @@ def test_the_record_holds_the_artifact_list_the_analysis_applied(signed) -> None
 
 def test_a_reader_is_refused_the_nipt_sign_out(signed) -> None:
     # The family reads as read-only to them: what the NIPT page and the report disable the
-    # sign-out by (SEC-1).
+    # sign-out by.
     assert ok_json(signed, "reader_family")["read_only"] is True
     refused = signed["responses"]["reader_signout"]
     assert (refused["status"], refused["json"]) == (403, {"detail": READ_ONLY}), refused["text"]
@@ -432,7 +432,7 @@ def test_each_reported_variant_is_frozen_as_the_nipt_variant_list_classifies_it(
     assert _nipt(signed)["not_classified"] == [{"variant_id": ARTIFACT, "reason": "artifact_list"}]
 
 
-# ------------------------------------------------- the NIPT page's reported view (UI-4)
+# ------------------------------------------------- the NIPT page's reported view
 
 
 def test_the_nipt_page_listed_what_the_sign_out_froze(signed) -> None:
@@ -542,7 +542,7 @@ async def _collect_pair(root: Path, family_id: str) -> dict:
         # The live report's list of the reported small variants.
         r["live_report"] = capture(await ac.get(f"{family}/small-variants", params={"review_tag": "report"}))
         # Through the dialogs, each acknowledgement with the fingerprint of what its refusal
-        # listed (TRACE-19).
+        # listed.
         r["signout"] = capture(await _harness.sign_out(ac, f"{family}/report/sign-out", SIGN_OUT_BODY))
         version = (r["signout"]["json"] or {}).get("version")
         r["detail"] = capture(await ac.get(f"{family}/report/sign-outs/{version}"))

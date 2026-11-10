@@ -1,7 +1,7 @@
 """Small-variant filter presets — real Postgres.
 
 A small-variant preset is its owner's, reusable in every family they can open; there is no
-family-scoped kind. Its owner is the account, whatever its user name is now (SEC-32).
+family-scoped kind. Its owner is the account, whatever its user name is now.
 This checks, against the real schema, that
 
 * saving a preset under a name its owner already uses replaces its content, in one row;
@@ -105,7 +105,7 @@ def test_a_preset_is_saved_listed_replaced_and_deleted_by_its_owner() -> None:
                     listed = await list_small_variant_filter_presets_for_owner(s, user=owner)
                     assert [preset.id for preset in listed] == [first.id]
 
-                    # The owner's user name changes (SEC-32): the preset stays theirs, shown
+                    # The owner's user name changes: the preset stays theirs, shown
                     # under the user name it was saved with, and the account that takes the
                     # old user name gets none of it.
                     await s.execute(
@@ -124,7 +124,7 @@ def test_a_preset_is_saved_listed_replaced_and_deleted_by_its_owner() -> None:
 
                     with pytest.raises(HTTPException) as refused:
                         await delete_small_variant_filter_preset_for_owner(s, preset_id=first.id, user=other)
-                    # Another user's preset answers as an unknown one does (SEC-9).
+                    # Another user's preset answers as an unknown one does.
                     assert (refused.value.status_code, refused.value.detail) == (404, "Preset not found")
 
                     # Saved again, it shows the owner's user name now, still in one row.

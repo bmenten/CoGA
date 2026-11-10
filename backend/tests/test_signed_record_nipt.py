@@ -417,7 +417,7 @@ async def test_a_reported_variant_the_analysis_does_not_classify_says_why(monkey
 
 @pytest.mark.asyncio
 async def test_the_variant_lists_reported_view_is_what_a_sign_out_freezes(monkeypatch: pytest.MonkeyPatch) -> None:
-    # UI-4: the NIPT page lists the variants tagged report (review_tag=report, no other
+    # the NIPT page lists the variants tagged report (review_tag=report, no other
     # filter), so the analyst sees before signing out what the record will hold: each
     # classified one as frozen, and each the analysis does not classify, with the same why.
     joint_without_plasma = _record("7-600-T-C", [_call(FATHER, [150, 150])], genes=["GENED"], source="clair3")
@@ -539,7 +539,7 @@ async def test_a_plasma_without_a_target_table_has_no_coverage_check_and_no_sex_
     assert "no_plasma_depth" in entry["flags"]
 
 
-# --- The notes of the coverage check over the coverage tracks (TRACE-17) ---------------------
+# --- The notes of the coverage check over the coverage tracks ---------------------
 # Without a per-target table the NIPT page reads the plasma's coverage tracks over the genes or
 # panel of its search, else the family's region of interest, and names each track it does not
 # read as depth. The record freezes those notes (the owner's decision of 2026-10-28). The
@@ -893,7 +893,7 @@ async def test_a_sign_out_reads_one_nipt_analysis_for_its_sample_qc_and_its_reco
     assert (list_reads, analyses) == (["panel-v2"], [FATHER])
     qc, section = snapshot["sample_qc"], snapshot["nipt"]
     assert qc["application"] == "nipt" and "NIPT cfDNA analysis could not run." not in qc["notes"]
-    # The fetus is an embryo member without haplotype blocks: no PGT section (TRACE-19).
+    # The fetus is an embryo member without haplotype blocks: no PGT section.
     assert "pgt_analysis" not in snapshot
     paternity = section["checks"]["paternity"]
     counts = ("hom_alt_transmitted", "hom_alt_not_transmitted", "het_transmitted", "het_not_transmitted")
@@ -979,7 +979,7 @@ async def test_a_database_error_in_the_sample_qc_nipt_step_leaves_the_sign_out_r
 ) -> None:
     # The Sample QC's NIPT analysis reads the artifact list from Postgres, outside a savepoint:
     # a database error there aborted the sign-out's transaction, and its next statement failed
-    # the sign-out (ENG-19). In a savepoint of its own, the error reads like the analysis's
+    # the sign-out. In a savepoint of its own, the error reads like the analysis's
     # other failures: the Sample QC's fixed note, a NIPT check the gate lists as one that could
     # not run, and the record's NIPT section frozen as unavailable.
     from backend.app.services import nipt_artifact_pg

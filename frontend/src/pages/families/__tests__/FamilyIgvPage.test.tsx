@@ -137,7 +137,7 @@ describe('FamilyIgvPage', () => {
   });
 
   // The link that opens the viewer chooses its back_path: taken as it came, one to another
-  // site sent the Back link there (SEC-15).
+  // site sent the Back link there.
   it('goes Back only to one of the family pages', async () => {
     apiGetMock.mockImplementation((url: string) => {
       if (url === '/families/F1') {
@@ -228,9 +228,9 @@ describe('FamilyIgvPage', () => {
     renderPage();
   };
 
-  // The UCSC reference import names the T2T assembly `T2T CHM13v2.0`, with a space. IGV
-  // recognised only `T2T-CHM13…` and opened hg38 for it: the family's reads and variants
-  // were drawn on another reference.
+  // The UCSC reference import names the T2T assembly `T2T CHM13v2.0`, with a space; IGV knows
+  // only `T2T-CHM13…`. The page opens hs1 for it, never hg38: the family's reads and variants
+  // are drawn on their own reference.
   it('opens the hs1 genome for a family on T2T-CHM13 as the UCSC import names it', async () => {
     renderOnAssembly('T2T CHM13v2.0');
 
@@ -245,7 +245,7 @@ describe('FamilyIgvPage', () => {
     expect(screen.queryByTestId('igv-viewer')).not.toBeInTheDocument();
   });
 
-  // #610 — a server error is not a family that does not exist.
+  // A server error is not a family that does not exist.
   it('says the family could not be loaded, not that it was not found, and retries', async () => {
     let familyRequests = 0;
     apiGetMock.mockImplementation((url: string): Promise<never> => {

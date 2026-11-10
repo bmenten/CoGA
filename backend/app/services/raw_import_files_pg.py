@@ -10,7 +10,7 @@ Two kinds of records exist:
 * ``managed`` files are copies we own under ``data/raw_imports/<family_id>/``. These
   come from web uploads where the original bytes would otherwise be discarded after
   parsing. We delete them when the owning family or sample is deleted, once that deletion
-  has committed: a deletion that fails keeps every file its records name (SAFE-35).
+  has committed: a deletion that fails keeps every file its records name.
 * referenced files live at their original on-disk location (e.g. a family package
   import directory). We never move or delete those; we only record where they are.
   For a package imported from a bucket, that location is the object's gs:// or s3://
@@ -26,9 +26,9 @@ which holds every managed copy; its real path, symlinks resolved, inside one of 
 object only in the family's bucket package folder (``within_family_package``). The IGV
 endpoints serve a sample's recorded files by the same rule. So an edited row can point at
 most at another file of its family's own package, never at another family's package in the
-import area (SEC-38; SEC-29 kept it to the import area). The upload folder is not split by
-family: a managed folder need not be named after the family's present ID. A family or sample
-delete unlinks a managed copy only inside the upload folder (SEC-29).
+import area. The upload folder is not split by family: a managed folder need not be named
+after the family's present ID. A family or sample delete unlinks a managed copy only inside
+the upload folder.
 """
 
 from __future__ import annotations
@@ -114,7 +114,7 @@ def _managed_dir(family_id: str) -> Path:
     return DATA_DIR / MANAGED_SUBDIR / _safe_name(family_id)
 
 
-# --- Where a recorded file may be read or deleted (SEC-29) ------------------------------
+# --- Where a recorded file may be read or deleted ---------------------------------------
 
 # The answers to a download or Verify of a file whose recorded location CoGA does not read.
 OUTSIDE_FOLDERS_DETAIL = (
@@ -149,7 +149,7 @@ def readable_folders(package_folder: object = None) -> tuple[str, ...]:
     file of the family lies in one of the two, wherever the row says it is. Not the rest of
     the import area (another family's package there), and not the staging folder of a bucket
     package: such an import records the objects' URIs, and its staged copy is deleted after
-    it (SEC-38). Without a usable package folder (none recorded, a bucket's URI, the import
+    it. Without a usable package folder (none recorded, a bucket's URI, the import
     root itself, outside the roots, FAMILY_IMPORT_ROOTS empty as in development) it is the
     upload folder alone. Blocking (file-system look-ups).
     """
@@ -186,7 +186,7 @@ def readable_remote_uri(uri: str, package_folder: object = None) -> bool:
     remote FAMILY_IMPORT_ROOTS entry (``within_family_package``), written as nothing but
     scheme, bucket and key, with no empty, ``.`` or ``..`` segment in its key (the rules the
     CRAM endpoint signs a recorded location by, without its configured bucket: a package may
-    come from any bucket the roots name). Never without such a folder (SEC-38)."""
+    come from any bucket the roots name). Never without such a folder."""
     try:
         location = parse_remote_uri(uri)
     except ValueError:
@@ -198,7 +198,7 @@ def readable_remote_uri(uri: str, package_folder: object = None) -> bool:
 
 def _storage_path_kind(storage_path: Any) -> str:
     """What kind of place a refused storage path names, for its log line: never the path
-    itself, which can name a family's folder, and so its ID (SEC-39; the owner's decision of
+    itself, which can name a family's folder, and so its ID (the owner's decision of
     2026-11-10). The record, by its ID, still holds the path."""
     value = str(storage_path or "").strip()
     if not value:
@@ -406,8 +406,8 @@ async def record_uploaded_file(
         )
         await session.commit()
     except Exception:
-        # Provenance must not fail the import, but a missing record must leave a trace (#686).
-        # The family by its UUID, and no file name, which can hold a sample's ID (SEC-39).
+        # Provenance must not fail the import, but a missing record must leave a trace.
+        # The family by its UUID, and no file name, which can hold a sample's ID.
         logger.warning(
             "Raw-file provenance for family %s (%s) was not recorded",
             family_uuid,
@@ -475,8 +475,7 @@ def _row_to_dict(row: Any, folders: Iterable[str] | None = None) -> dict[str, An
     in_object_store = is_remote_uri(storage_path)
     exists: bool | None = None
     # A recorded location CoGA does not read from: a local path outside its family's folders,
-    # or an object outside its family's bucket package. Such a remote row was listed as kept
-    # in the object store, though Verify refuses it (SEC-27).
+    # or an object outside its family's bucket package, which Verify refuses too.
     outside = in_object_store and not readable_remote_uri(storage_path, package_folder)
     if not in_object_store:
         # A recorded path outside the folders its family's files are read from is shown
@@ -540,8 +539,8 @@ async def list_raw_import_files(session: AsyncSession, family_uuid: str) -> list
         ),
         {"family_uuid": family_uuid},
     )
-    # Each local file is looked up on the file system: in a worker thread, off the event loop
-    # (SEC-14), as a family can hold many files on a slow mount.
+    # Each local file is looked up on the file system: in a worker thread, off the event loop,
+    # as a family can hold many files on a slow mount.
     return await asyncio.to_thread(_rows_to_dicts, result.mappings().all())
 
 
@@ -578,7 +577,7 @@ async def get_raw_import_file(session: AsyncSession, file_id: str) -> dict[str, 
     row = result.mappings().first()
     if row is None:
         return None
-    # Its file is looked up on the file system: off the event loop (SEC-14).
+    # Its file is looked up on the file system: off the event loop.
     return await asyncio.to_thread(_row_to_dict, row)
 
 
@@ -597,7 +596,7 @@ async def verify_raw_import_file(record: dict[str, Any]) -> dict[str, Any]:
     A recorded location CoGA does not read from is refused (403) before anything is read or
     the store is asked: a local path outside its family's package folder and the upload folder
     (``readable_folders``, with the record's ``package_folder``), an object outside its
-    family's bucket package folder (``readable_remote_uri``; SEC-38)."""
+    family's bucket package folder (``readable_remote_uri``)."""
     storage_path = record.get("storage_path") or ""
     package_folder = record.get("package_folder")
     if is_remote_uri(storage_path):
@@ -794,8 +793,7 @@ def _unlink_managed_files(rows: Iterable[tuple[str, str]]) -> int:
             continue
         except OSError as exc:
             # Not by its path, which holds the family's ID and the uploaded file's name: by the
-            # random prefix CoGA gave the copy's name, which finds it in the upload folder
-            # (SEC-39).
+            # random prefix CoGA gave the copy's name, which finds it in the upload folder.
             logger.warning(
                 "The file of deleted raw-file record %s could not be unlinked (%s) and is left "
                 "in the upload folder as %s",
@@ -809,7 +807,7 @@ def _unlink_managed_files(rows: Iterable[tuple[str, str]]) -> int:
 async def family_managed_files(session: AsyncSession, family_uuid: str) -> list[tuple[str, str]]:
     """The managed copies the family's rows name, ``(storage_path, record id)``: read in the
     transaction that deletes the family, before its rows go (they cascade away with it), for
-    ``unlink_managed_files`` once that transaction has committed (SAFE-35)."""
+    ``unlink_managed_files`` once that transaction has committed."""
     result = await session.execute(
         text(
             """
@@ -846,10 +844,10 @@ async def unlink_managed_files(files: Iterable[tuple[str, str]]) -> int:
     ``sample_managed_files``) once the deletion of their rows has committed, each only inside
     the upload folder (``_managed_file_to_unlink``). Returns the number unlinked.
 
-    Unlinked before the commit, a copy was gone when the deletion then failed and its rows
-    came back: a record naming a file that was gone (SAFE-35). After it, the deletion stands
-    whatever becomes of this: a copy that cannot be unlinked is left, a file without a
-    record, never a record without its file, and the log says so. Never raises."""
+    Unlinked only after the commit, so a deletion that fails keeps every file its rows name;
+    once it has committed the deletion stands whatever becomes of this: a copy that cannot be
+    unlinked is left, a file without a record, never a record without its file, and the log
+    says so. Never raises."""
     try:
         rows = list(files)
         return await asyncio.to_thread(_unlink_managed_files, rows) if rows else 0

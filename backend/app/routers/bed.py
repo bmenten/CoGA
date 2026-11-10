@@ -1,5 +1,3 @@
-from typing import Literal
-
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,13 +19,9 @@ from ..services.raw_import_files_pg import record_upload_file_obj
 
 router = APIRouter(prefix="/bed", tags=["bed"])
 
-# The reads answer JSON. Their text format (a header line and tab-separated rows), once the
-# default, was removed with the routes no screen called (ENG-5): a read that asks for it is
-# refused (422) before anything is read, rather than answered in another format.
-_FORMAT_DESCRIPTION = "The answer's format: json, the only one (the text format was removed)."
-# What a read answers is `BedReadOut`, by the track type read (ENG-4). The reads return the
-# JSON the service builds, as before, so FastAPI does not validate up to a million rows a
-# second time: the model describes them, and tests compare each track type's answer with it.
+# A read answers JSON, `BedReadOut`, by the track type read. The reads return the JSON the
+# service builds, so FastAPI does not validate up to a million rows a second time: the model
+# describes them, and tests compare each track type's answer with it.
 
 
 @router.post("/upload/{sample_id}/{bed_type}", response_model=BedUploadResult)
@@ -36,7 +30,7 @@ async def upload_bed(
     bed_type: str,
     file: UploadFile = File(...),
     overwrite: bool = False,
-    # What a coverage BED holds (TRACE-9): required for `coverage`, refused for the other
+    # What a coverage BED holds: required for `coverage`, refused for the other
     # types. A query parameter, so the request's audit row records it.
     content: DeclaredCoverageContent | None = Query(
         None,
@@ -49,7 +43,7 @@ async def upload_bed(
     user: CurrentUser = Depends(get_current_admin_user),
 ) -> dict[str, int]:
     # Before anything is read: the request names what it loads, or it is refused (422). A
-    # coverage BED that declared nothing was read as depth and drawn as a log2 ratio.
+    # coverage BED that declared nothing would be read as depth and drawn as a log2 ratio.
     validate_bed_type(bed_type)
     if bed_type == "coverage" and content not in DECLARED_COVERAGE_CONTENTS:
         raise HTTPException(
@@ -111,7 +105,6 @@ async def fetch_bed_batch(
     window: int | None = Query(None, ge=1),
     start: int | None = Query(None, ge=0),
     end: int | None = Query(None, ge=0),
-    format: Literal["json"] = Query("json", description=_FORMAT_DESCRIPTION),
     limit: int = Query(100000, ge=1, le=1000000),
     # Which caller's rows to return. A sample can carry HiFiCNV, WisecondorX and
     # QDNAseq coverage at once; merged, a windowed coverage read averaged three
@@ -121,7 +114,6 @@ async def fetch_bed_batch(
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ) -> Response:
-    del format
     sample_context = await build_sample_metadata_context(
         session,
         sample_identifier=sample_id,
@@ -148,7 +140,6 @@ async def fetch_bed(
     window: int | None = Query(None, ge=1),
     start: int | None = Query(None, ge=0),
     end: int | None = Query(None, ge=0),
-    format: Literal["json"] = Query("json", description=_FORMAT_DESCRIPTION),
     limit: int = Query(100000, ge=1, le=1000000),
     # See the batch endpoint above: a coverage read without this is refused where the
     # sample holds several callers' coverage.
@@ -156,7 +147,6 @@ async def fetch_bed(
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ) -> Response:
-    del format
     sample_context = await build_sample_metadata_context(
         session,
         sample_identifier=sample_id,

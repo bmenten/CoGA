@@ -145,7 +145,7 @@ export default function SmallVariantReviewDialog({
   isPending = false,
   errorMessage = null,
 }: SmallVariantReviewDialogProps) {
-  // A reader in the family's projects sees the review but cannot change it (SEC-1).
+  // A reader in the family's projects sees the review but cannot change it.
   const readOnly = useFamilyReadOnly();
   const [classificationTagKey, setClassificationTagKey] = useState('');
   // The class shown when the dialog opened, to tell a classification left alone from one
@@ -155,7 +155,7 @@ export default function SmallVariantReviewDialog({
   const [note, setNote] = useState('');
 
   useEffect(() => {
-    // The class the review shows on the page, by the one rule (CLIN-76): a class word in its
+    // The class the review shows on the page, by the one rule: a class word in its
     // text before its class tag ("VUS" beside the tag of class 4 shows class 3, and opens so).
     const variantClassificationTagKey = getReviewClassTagKey(
       variant.review?.classification,
@@ -212,7 +212,7 @@ export default function SmallVariantReviewDialog({
 
   const handleSave = async () => {
     try {
-      // Left alone, the class goes back as stored, its text and its class tags (CLIN-76), as a
+      // Left alone, the class goes back as stored, its text and its class tags, as a
       // quick tag toggle sends it: a save of the tags or the note changes no classification. So
       // does a stored label the class boxes cannot show (the ClinGen CNV dialog writes one
       // without a class tag); left out, the save would erase it. A class the user chose, or
@@ -237,7 +237,7 @@ export default function SmallVariantReviewDialog({
     }
   };
 
-  // Escape, focus trap, and a check before unsaved input is discarded (#529).
+  // Escape, focus trap, and a check before unsaved input is discarded.
   const dialog = useModalDialog({
     onClose,
     discardMessage: 'Discard your unsaved changes to this review?',

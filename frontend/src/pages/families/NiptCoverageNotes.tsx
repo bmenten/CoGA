@@ -1,7 +1,7 @@
 import React from 'react';
 
 /**
- * Why each of the plasma's coverage tracks over the regions was not read as depth (TRACE-9):
+ * Why each of the plasma's coverage tracks over the regions was not read as depth:
  * a track of log2 ratios, or a coverage BED that does not declare whether it holds read depth
  * or a log2 ratio. Shown with the coverage check, so regions without coverage say why.
  */

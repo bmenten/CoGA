@@ -1,4 +1,4 @@
-"""A sign-out's acknowledgement covers exactly the concerns its dialog showed (TRACE-19).
+"""A sign-out's acknowledgement covers exactly the concerns its dialog showed.
 
 "Sign out anyway" sends the acknowledgement of a gate (evidence drift, Sample QC, an
 incomplete import) and its reason, and the sign-out reads the gate again. Each refusal carries

@@ -144,8 +144,8 @@ def _split_sql_script(contents: str) -> list[str]:
 async def init_postgres_schema() -> None:
     """Bring the database to this version's schema, as the table owner, in one transaction.
 
-    Until the release candidate this re-applies the baseline files, then runs the Alembic
-    revisions the ledger lacks (core/postgres_migrations.py).
+    It makes an empty database from the baseline files, refuses one this version did not make,
+    and runs the Alembic revisions the ledger lacks (core/postgres_migrations.py).
     """
 
     # Imported here: postgres_migrations reads the baseline helpers above from this module.
@@ -157,11 +157,13 @@ async def init_postgres_schema() -> None:
 
 
 async def verify_postgres_schema_revision() -> str:
-    """Refuse to start unless the database is at this version's newest schema revision.
+    """Refuse to start unless the database is at this version's newest schema revision, made
+    from this version's baselines.
 
     For a start that does not migrate (``POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP=false``): the
-    migration step ran before the rollout, as the owner, and this only reads the ledger, which
-    the restricted role may (``check_schema_revision`` in core/postgres_migrations.py).
+    migration step ran before the rollout, as the owner, and this only reads the ledger and the
+    baselines' digest, which the restricted role may (``check_schema_revision`` in
+    core/postgres_migrations.py).
     """
 
     from .postgres_migrations import check_schema_revision

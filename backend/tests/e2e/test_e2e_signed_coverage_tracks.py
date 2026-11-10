@@ -1,6 +1,6 @@
 """The signed record freezes what each coverage track holds, end to end (owner decision of 2026-10-20).
 
-Each coverage BED declares whether it holds read depth or a log2 ratio (TRACE-9), and the depth
+Each coverage BED declares whether it holds read depth or a log2 ratio, and the depth
 readers read only a track of read depth; the signed record freezes, per sample and caller, what
 each coverage track holds and where it came from (``coverage_tracks``), so it stays traceable which
 kind of coverage a depth check rested on.

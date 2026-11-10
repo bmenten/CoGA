@@ -91,8 +91,8 @@ async def _require_import_project(session: AsyncSession, project_id: str) -> str
     """The canonical id of the project an import request names.
 
     A value that spells no UUID, or a UUID of no project, is refused as an unknown project
-    (404) before the job is written; the insert's uuid cast refused the first, and its
-    foreign key the second, with a 500. Only an admin may queue an import, and an admin
+    (404) before the job is written; unchecked, the insert's uuid cast would refuse the first,
+    and its foreign key the second, with a 500. Only an admin may queue an import, and an admin
     sees every project: the answer tells the caller nothing they may not know.
     """
     project_uuid = require_uuid(project_id, _PROJECT_NOT_FOUND, status_code=404)
@@ -130,7 +130,7 @@ async def queue_family_import_job(
 ) -> FamilyPackageImportJobOut:
     """Queue the import a user asked for. The job keeps its requester by the account's id,
     which the import runs as and the requester's job list reads, and the e-mail address it
-    was asked under, which it shows: a Microsoft sign-in may change the address (SEC-32).
+    was asked under, which it shows: a Microsoft sign-in may change the address.
 
     ``manifest_text`` is the manifest the import validates and imports the package with, the one
     the approved delivery's package makes. The job keeps it, with its SHA-256

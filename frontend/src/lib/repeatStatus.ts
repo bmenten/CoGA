@@ -3,8 +3,8 @@ import type { RepeatCountUnitWarningOut } from './apiSchema.generated';
 
 /**
  * A repeat status as the repeat page names it: on its chips, and in a count-unit warning. A
- * review says why, by the reason the API gives with it (CLIN-14): it said "outside catalogued
- * ranges" for a man's two chrX alleles too.
+ * review says why, by the reason the API gives with it: a man's two chrX alleles do not read
+ * "outside catalogued ranges".
  */
 export const repeatStatusLabel = (status: ApiRepeatStatus, reviewReason?: ApiRepeatReviewReason | null): string => {
   switch (status) {
@@ -12,12 +12,12 @@ export const repeatStatusLabel = (status: ApiRepeatStatus, reviewReason?: ApiRep
       // A man's two different chrX alleles at a locus where he carries one.
       if (reviewReason === 'male_x_alleles') return 'Review: two chrX alleles in a male';
       // A count outside every catalogued range at a contraction locus: the catalog
-      // cannot classify it, so it is surfaced rather than read as normal (#535).
+      // cannot classify it, so it is surfaced rather than read as normal.
       return 'Review: outside catalogued ranges';
     case 'not_assessed':
       // A locus without thresholds: no catalogue row names the call's TRID, or the row
-      // states none. Read as normal before, so an expansion there could not be seen (CLIN-26).
-      // A count inside the benign range the row states there reads normal (CLIN-36).
+      // states none. Not read as normal, so an expansion there can be seen.
+      // A count inside the benign range the row states there reads normal.
       return 'Not assessed';
     case 'intermediate':
       return 'Grey zone';

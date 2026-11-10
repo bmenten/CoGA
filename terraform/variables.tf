@@ -167,7 +167,7 @@ variable "frontend_max_instances" {
 # ---------------------------------------------------------------------------
 
 variable "azure_ad_tenant_id" {
-  description = "Directory (tenant) ID of the organisation, a GUID, for Microsoft sign-in (SEC-4; docs/deployment-gcp.md §12.11). Set together with azure_ad_client_id, or leave both empty for the password sign-in."
+  description = "Directory (tenant) ID of the organisation, a GUID, for Microsoft sign-in (docs/deployment-gcp.md §12.11). Set together with azure_ad_client_id, or leave both empty for the password sign-in."
   type        = string
   default     = ""
 
@@ -178,7 +178,7 @@ variable "azure_ad_tenant_id" {
 }
 
 variable "azure_ad_client_id" {
-  description = "Application (client) ID of CoGA's app registration, a GUID (Microsoft sign-in, SEC-4)."
+  description = "Application (client) ID of CoGA's app registration, a GUID (Microsoft sign-in)."
   type        = string
   default     = ""
 
@@ -239,11 +239,11 @@ variable "allowed_ingress_cidrs" {
 }
 
 # ---------------------------------------------------------------------------
-# Database privilege separation (#262)
+# Database privilege separation
 # ---------------------------------------------------------------------------
 
 variable "db_runtime_role" {
-  description = "Postgres login the API runs as. \"owner\" = the table owner (coga_admin), which also applies the schema on startup: the single-login mode every deployment starts in. \"coga_app\" = the restricted runtime role, which cannot run DDL or change the append-only audit tables (TF-09b REQ-TRACE-008). The db-migrate Cloud Run job (migrate.tf) then applies the schema as the owner before each backend rollout, after an on-demand backup of the database, and enables coga_app's login from the coga-postgres-app-password secret, and the API no longer receives the owner's password. Needs a version in that secret and the db-migrate service account: docs/db-runtime-role-runbook.md, \"Google Cloud\"."
+  description = "Postgres login the API runs as. \"owner\" = the table owner (coga_admin), which also applies the schema on startup: the single-login mode every deployment starts in. \"coga_app\" = the restricted runtime role, which cannot run DDL or change the append-only audit tables (TF-09b REQ-TRACE-008). The db-migrate Cloud Run job (migrate.tf) then applies the schema as the owner before each backend rollout, after an on-demand backup of the database, and enables coga_app's login from the coga-postgres-app-password secret, and the API does not receive the owner's password. Needs a version in that secret and the db-migrate service account: docs/db-runtime-role-runbook.md, \"Google Cloud\"."
   type        = string
   default     = "owner"
 
@@ -260,7 +260,7 @@ variable "run_db_schema_migrations_on_startup" {
 }
 
 variable "forwarded_allow_ips" {
-  description = "Peers uvicorn trusts X-Forwarded-For from (FORWARDED_ALLOW_IPS). Cloud Run terminates the connection at Google's managed front end, so the immediate peer is a Google-internal IP that varies and the container gets no direct external ingress, so '*' is the standard value there. With '*' uvicorn would take the left-most X-Forwarded-For entry, which a client sets itself; the backend therefore re-derives the client from the right using trusted_proxy_hops (#520), and uvicorn is only relied on for the scheme."
+  description = "Peers uvicorn trusts X-Forwarded-For from (FORWARDED_ALLOW_IPS). Cloud Run terminates the connection at Google's managed front end, so the immediate peer is a Google-internal IP that varies and the container gets no direct external ingress, so '*' is the standard value there. With '*' uvicorn would take the left-most X-Forwarded-For entry, which a client sets itself; the backend therefore re-derives the client from the right using trusted_proxy_hops, and uvicorn is only relied on for the scheme."
   type        = string
   default     = "*"
 }
@@ -277,7 +277,7 @@ variable "trusted_proxy_hops" {
 }
 
 variable "family_import_roots" {
-  description = "Locations Package Import may read family folders from (FAMILY_IMPORT_ROOTS). Empty = 'gs://<phi bucket>/imports' when storage_backend is gcs, otherwise the application default. Upload packages under that prefix (#520)."
+  description = "Locations Package Import may read family folders from (FAMILY_IMPORT_ROOTS). Empty = 'gs://<phi bucket>/imports' when storage_backend is gcs, otherwise the application default. Upload packages under that prefix."
   type        = list(string)
   default     = []
 }

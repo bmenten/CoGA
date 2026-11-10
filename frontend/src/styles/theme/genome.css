@@ -822,7 +822,7 @@
   border-width: 3px;
 }
 
-/* The coverage chart's gain/loss thresholds, always on screen (#529). */
+/* The coverage chart's gain/loss thresholds, always on screen. */
 .viz-threshold-legend {
   position: absolute;
   top: 2px;
@@ -848,7 +848,7 @@
   color: var(--color-text-muted);
 }
 
-/* Why a coverage track is drawn on the axis it is (TRACE-7, TRACE-9), in the track's head:
+/* Why a coverage track is drawn on the axis it is, in the track's head:
    depths stored as read, quietly; values of unknown kind (a coverage BED that does not
    declare what it holds) in the warning tone, so they are read as neither depth nor a log2
    ratio. */
@@ -863,7 +863,7 @@
 }
 
 /* A failed track request — deliberately unlike the quiet empty-state text above, so a
-   failure can never be read as "nothing in this region" (#510). */
+   failure can never be read as "nothing in this region". */
 .viz-error-overlay {
   position: absolute;
   inset: 0;

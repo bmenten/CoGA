@@ -1,6 +1,6 @@
-// The locus box shared by the small- and structural-variant searches (#526): a region is
+// The locus box shared by the small- and structural-variant searches: a region is
 // chromosome:start[-end], with or without "chr" and thousands separators. Input with a
-// colon, or a BED-like line, that does not parse is neither (#604); anything else is a gene.
+// colon, or a BED-like line, that does not parse is neither; anything else is a gene.
 import { describe, expect, it } from 'vitest';
 
 import { intervalListProblems, parseGeneOrRegionInput } from '../variantSearch';
@@ -29,7 +29,7 @@ describe('parseGeneOrRegionInput', () => {
     expect(parseGeneOrRegionInput(`  ${input} `)).toEqual({ kind: 'gene', gene: input });
   });
 
-  // #604 — the dash of a range may be an en dash, as the viewer writes one.
+  // The dash of a range may be an en dash, as the viewer writes one.
   it.each(['chr13:32,315,508–32,400,268', 'chr13:32315508 - 32400268'])('reads %s as a region', (input) => {
     expect(parseGeneOrRegionInput(input)).toEqual({
       kind: 'region',
@@ -39,7 +39,7 @@ describe('parseGeneOrRegionInput', () => {
     });
   });
 
-  // #604 — these were searched as gene names, matched nothing and read as no variants.
+  // Searched as gene names, these would match nothing and read as no variants.
   it.each([
     ['chr1:abc', "Location 'chr1:abc' is not a gene or chr:start-end."],
     ['chr1:100-', "Location 'chr1:100-' is not a gene or chr:start-end."],
@@ -57,7 +57,7 @@ describe('parseGeneOrRegionInput', () => {
   });
 });
 
-// #604 — the interval lists, read as the backend reads them, so the form can name an
+// The interval lists, read as the backend reads them, so the form can name an
 // entry the search would refuse before running it.
 describe('intervalListProblems', () => {
   it('accepts ranges with a hyphen or an en dash, single positions, and blank entries', () => {

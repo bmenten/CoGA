@@ -78,7 +78,7 @@ describe('AnnotationProvenanceSummary', () => {
     expect(container.querySelector('[data-testid="annotation-provenance"]')).toBeNull();
   });
 
-  it('shows the per-modality version and hides other modalities (#294)', async () => {
+  it('shows the per-modality version and hides other modalities', async () => {
     apiMock.get.mockResolvedValue({
       data: {
         family_id: 'FAM1',
@@ -112,8 +112,7 @@ describe('AnnotationProvenanceSummary', () => {
     expect(screen.queryByText('49')).toBeNull();
   });
 
-  // #610 — a failed manifest made the footer vanish, as for a family with no versions
-  // recorded.
+  // A failed manifest is said as such, never as a family with no versions recorded.
   it('says the annotation versions could not be loaded, and retries', async () => {
     apiMock.get.mockRejectedValue(Object.assign(new Error('HTTP 500'), { response: { status: 500 } }));
 

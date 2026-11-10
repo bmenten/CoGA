@@ -83,7 +83,7 @@ logger = logging.getLogger(__name__)
 # Computed once at import so it matches the configured bcrypt work factor.
 _DUMMY_LOGIN_PASSWORD_HASH = get_password_hash("coga-login-timing-equalizer")
 
-# With the organisation's sign-in (Microsoft, or its CAS server; SEC-4), the password sign-in
+# With the organisation's sign-in (Microsoft, or its CAS server), the password sign-in
 # serves the emergency administrator alone, and only while AZURE_ADMIN_OVERRIDE is on; accounts
 # come from the first sign-in through the organisation.
 PASSWORD_SIGN_IN_OFF_DETAIL = (
@@ -96,7 +96,7 @@ EMERGENCY_ONLY_DETAIL = (
 SIGNUP_OFF_DETAIL = (
     "Accounts are made at the first sign-in with an organisation account: there is no sign-up."
 )
-# A first CAS sign-in makes an account that waits for an administrator's approval (SEC-4).
+# A first CAS sign-in makes an account that waits for an administrator's approval.
 CAS_ACCOUNT_WAITING_DETAIL = (
     "Your CoGA account waits for an administrator's approval. You can sign in once it is "
     "activated."
@@ -162,7 +162,7 @@ async def _authenticate_and_issue_token(
         # Run a throwaway verify so the no-such-account path costs roughly the
         # same as a wrong-password path; otherwise the response time reveals
         # which emails are registered (account enumeration). bcrypt is slow on purpose,
-        # so every hash and check runs in a worker thread, not on the event loop (#527).
+        # so every hash and check runs in a worker thread, not on the event loop.
         await asyncio.to_thread(verify_password, password, _DUMMY_LOGIN_PASSWORD_HASH)
         await record_failed_login(
             session,
@@ -227,7 +227,7 @@ async def signup(
     session: AsyncSession = Depends(get_postgres_session),
 ):
     if settings.organisation_sign_in_enabled:
-        # Accounts come from the first sign-in through the organisation (SEC-4); refused before
+        # Accounts come from the first sign-in through the organisation; refused before
         # anything is read, so the answer says nothing about accounts either.
         raise HTTPException(status_code=403, detail=SIGNUP_OFF_DETAIL)
     # Signup is unauthenticated; throttle per source IP so it cannot be used to
@@ -488,8 +488,8 @@ async def update_user(
     current: CurrentUser = Depends(get_current_admin_user),
     session: AsyncSession = Depends(get_postgres_session),
 ):
-    """Activate or deactivate an account, set its global role, archive or restore it (SEC-4),
-    or set its projects and its level in each (SEC-1).
+    """Activate or deactivate an account, set its global role, archive or restore it,
+    or set its projects and its level in each.
 
     Nobody changes their own role, deactivates or archives their own account, and the emergency
     administrator keeps its role and stays active, so the break-glass sign-in works when it is
@@ -524,7 +524,7 @@ async def update_user(
             if is_emergency_admin_account(target):
                 raise HTTPException(status_code=403, detail=EMERGENCY_ROLE_DETAIL)
         if update.is_active is False and own:
-            # An administrator deactivating their own account locks themselves out (SEC-32).
+            # An administrator deactivating their own account locks themselves out.
             raise HTTPException(status_code=403, detail=OWN_ACTIVE_DETAIL)
         if update.is_active is False and target["is_active"] and is_emergency_admin_account(target):
             raise HTTPException(status_code=403, detail=EMERGENCY_ACTIVE_DETAIL)
@@ -560,7 +560,7 @@ async def delete_user(
     session: AsyncSession = Depends(get_postgres_session),
 ):
     """Delete an account that was never active: a sign-up or a first CAS sign-in that is not
-    approved (SEC-4).
+    approved.
 
     Any other account is refused (409) and archived instead, so that every record naming it
     still does. The deleted account (its id, e-mail address, name and how it signed in) is

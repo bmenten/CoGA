@@ -1,12 +1,11 @@
 """Every small-variant filter keeps what its documented rule keeps, in every view of the family
-page, on real ClickHouse (ENG-1; the roadmap's *One filter definition*).
+page, on real ClickHouse (the roadmap's *One filter definition*).
 
 The family search's SQL (``_small_query_filter_parts``, through ``_fetch_small_variant_rows``)
 is the one definition of its filters (``SmallVariantQueryFilters``) and of its single-variant
 inheritance modes (as segregation flags). The ranked page and the compound-het, recessive and
 carrier-screening searches read the SQL's rows and apply in Python only what compares rows:
-the compound-het pairing, the couple's carrier rule, the ranking. They apply no filter again,
-so none drops a variant the plain page lists.
+the compound-het pairing, the couple's carrier rule, the ranking.
 
 Seventeen synthetic variants of one trio (an affected son and his unaffected parents) go in
 once, through the import's write path (``insert_small_variant_records``), annotated as the
@@ -22,7 +21,7 @@ keeps.
 The scope is built by the search's own ``_resolve_small_variant_scope``, with its Postgres
 lookups (the panel, the excluded genes' loci, the review selections) answered by stubs. A
 second test opens the family page itself, plain and ranked: *Phenotype prioritization*
-orders a search and keeps what it keeps (CLIN-44). Its cases are the gene filter's, alone
+orders a search and keeps what it keeps. Its cases are the gene filter's, alone
 and with each kind of mode, and the default view. The ranking's Postgres inputs (the cache, the
 phenotypes, the hydration) are stubbed there: they order and decorate the rows, and keep
 or drop none.
@@ -34,11 +33,11 @@ prioritization* computed, served again from its cached ranking, and, for a gene 
 from the broader cached ranking of the same search without it; with the plain list's count,
 and, where a case names them, the transcript each variant names as the one its annotation
 filters held on and the genotypes shown. The ranking cache is held in memory. A second family
-holds the variants at which two readings of a filter could part: a member with calls stored
-there whom the family's record does not show, and annotation keys and values no CSQ the parser
-reads writes. What a view keeps that the rule does not would be listed in ``KNOWN_GAPS``, by
-the change that closes it, each a strict xfail; the list is empty. A fourth test checks that
-the views reach every path a page can take.
+holds a member with calls stored there whom the family's record does not show, and annotation
+keys and values no CSQ the parser reads writes. What a view keeps that the rule does not would
+be listed in ``KNOWN_GAPS``, by the change that closes it, each a strict xfail; the list is
+empty (the owner's decisions of 2026-11-06). A fourth test
+checks that the views reach every path a page can take.
 
 The variants sit on chromosome 11 at 95.1 Mb, chromosome X at 72 Mb and chrM 12,345, where
 no other test writes: the annotation tables are keyed by variant, not by project or family.
@@ -337,7 +336,7 @@ def _panels() -> dict[str, Any]:
             genes=("SYNC",), regions=(Region("chr11", 95_100_175, 95_100_185),)
         ),
         # More than 1,000 regions, as the Mendeliome has: matched by its genes and its regions
-        # too, so UNANNOTATED is reached by position.
+        # too, so UNANNOTATED is reached by position (it was matched on its genes alone).
         LARGE_PANEL: PanelFilterConstraints(
             genes=("SYNC",),
             regions=(
@@ -639,7 +638,7 @@ CASES: dict[str, _Case] = {
 # The family page opened plain and ranked. A gene filter keeps the variants annotated with
 # the gene in every view, as the plain page keeps them: HIGH_OFF_MANE lies just past SYNA's
 # loci in the gene reference (``_gene_loci``), and the ranked and paired views kept the
-# variants inside the loci alone (ENG-1).
+# variants inside the loci alone.
 PAGE_CASES: dict[str, _Case] = {
     "gene": _case({DE_NOVO_MISSENSE, HIGH_OFF_MANE}, gene="SYNA"),
     "gene, de novo / dominant": _case(
@@ -1017,7 +1016,7 @@ def test_the_page_keeps_the_same_variants_plain_and_ranked(
 # Every view of the family page keeps what the rule keeps
 # --------------------------------------------------------------------------- #
 
-# A second family, at variants where two readings of a filter could part: a member with
+# A second family, at variants where the two readings of a filter parted: a member with
 # calls stored at them whom the family's record does not show (a sample taken out of the
 # family, or not yet added to it), whose calls no filter reads (the owner's decision of
 # 2026-11-06), and annotations with keys and values the CSQ parser never writes but the
@@ -1047,7 +1046,7 @@ MULTI_ALLELIC_HOM = "11-95101110-C-T"
 X_HAPLOID_FATHER = "X-72001000-C-T"
 MITO_HAPLOID_MOTHER = "M-12400-A-G"
 # Two transcripts each: the primary one (MANE Select, canonical) misses the filter its case
-# sets, the other meets it, and is the transcript the variant names (CLIN-51).
+# sets, the other meets it, and is the transcript the variant names.
 FT_IMPACT = "11-95101200-C-T"
 FT_TRANSCRIPT = "11-95101210-G-A"
 FT_LOF = "11-95101220-A-G"
@@ -1123,10 +1122,10 @@ _DIVERGENCES: dict[str, _Variant] = {
         ),
         calls=_trio("0/1"),
     ),
-    # A gene id under another annotation source's key.
+    # A gene id under its own key, apart from the gene symbol.
     GENE_ID_KEY: _Variant(
         csq=[],
-        annotations=({**_annotation(None, "ENST_SYNH_9", canonical=True), "gene": "SYNH", "geneID": "ENSG_SYNH9"},),
+        annotations=({**_annotation(None, "ENST_SYNH_9", canonical=True), "gene": "SYNH", "gene_id": "ENSG_SYNH9"},),
         calls=_trio("0/1"),
     ),
     # A gene symbol under another key, and other symbols on the entry.
@@ -1247,7 +1246,7 @@ DIVERGENCE_CASES: dict[str, _Case] = {
     ),
     "gnomAD AC no 32-bit integer holds": _divergence({OUT_OF_RANGE}, max_gnomad_ac=10, intervals="11:95101040"),
     # Gene names as the gene index holds them.
-    "gene id under the key geneID": _divergence({GENE_ID_KEY}, gene="ENSG_SYNH9"),
+    "gene id under the key gene_id": _divergence({GENE_ID_KEY}, gene="ENSG_SYNH9"),
     "gene symbol under the key gene_symbol": _divergence({GENE_SYMBOL_KEY}, gene="SYNK"),
     "excluded gene named second": _divergence({SECOND_SYMBOL}, exclude_gene="SYNJ", intervals="11:95101070"),
     "gene named second": _divergence(set(), gene="SYNJ"),
@@ -1264,7 +1263,7 @@ DIVERGENCE_CASES: dict[str, _Case] = {
         intervals="11:95101090",
         filter_transcripts={NAN_ON_PRIMARY: None},
     ),
-    # Each annotation filter held on another transcript names it, in every view (CLIN-51).
+    # Each annotation filter held on another transcript names it, in every view.
     "filter transcript, impact": _divergence(
         {FT_IMPACT}, impact=["HIGH"], intervals="11:95101200", filter_transcripts={FT_IMPACT: "ENST_SYNT1_2"}
     ),
@@ -1327,8 +1326,8 @@ ALL_CASES: dict[tuple[str, str], _Case] = {
     **{("divergences", name): case for name, case in DIVERGENCE_CASES.items()},
 }
 
-# What a view keeps today that the rule does not, by the change that closes it: each a strict
-# xfail, so the change that closes one must delete its entry. None is left.
+# What a view keeps that the rule does not, by the change that closes it: each a strict
+# xfail, so the change that closes one must delete its entry. None is listed.
 KNOWN_GAPS: dict[tuple[str, str, str], str] = {}
 
 

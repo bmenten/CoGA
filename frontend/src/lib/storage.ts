@@ -34,8 +34,8 @@ export function createMemoryStorage(): StorageLike {
 
 // The page's own copy of the writes the browser's storage did not take: it is unavailable, or
 // refused the write. A write it takes drops the copy, as a removal does: the browser's storage
-// is shared by the tabs, and a copy kept of every write brought back a key another tab had
-// removed, such as the session's token after a logout in that tab (found while fixing SEC-36).
+// is shared by the tabs, and a copy kept of every write would bring back a key another tab had
+// removed, such as the session's token after a logout in that tab.
 const fallbackStorage = createMemoryStorage();
 
 function hasStorageShape(value: unknown): value is StorageLike {

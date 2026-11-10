@@ -241,10 +241,8 @@ describe('GeneInfoPage', () => {
               ],
               extra: {
                 hgnc_gene_group: ['DNA repair'],
-                // No ensembl_canonical_transcript / clingen mane_select_transcript here:
-                // those came from a per-gene Ensembl call and a ClinGen page scrape that
-                // no longer run, and were absent for all but a handful of genes even
-                // when they did. The transcript flags are the only source now.
+                // No gene-level canonical or MANE transcript: the transcript flags are the
+                // only source of them.
                 ensembl_description: 'BRCA1 DNA repair associated',
                 ncbi_other_designations: ['breast cancer type 1 susceptibility protein'],
                 // As the API actually returns it for a dbNSFP-covered gene: HGNC's
@@ -457,7 +455,7 @@ describe('GeneInfoPage', () => {
     );
     expect(screen.getByText(/HI score 3 · Sufficient evidence .* · via dbNSFP/)).toBeInTheDocument();
     // ClinGen's own dosage file: both curations in words, the curation's day and its report,
-    // not a second "ClinGen haploinsufficiency" item that calls the words an HI score (CLIN-19).
+    // not a second "ClinGen haploinsufficiency" item that calls the words an HI score.
     expect(screen.getByText('ClinGen dosage curation')).toBeInTheDocument();
     expect(
       screen.getByText(
@@ -471,8 +469,8 @@ describe('GeneInfoPage', () => {
     );
     expect(screen.queryByText(/HI score Sufficient/)).not.toBeInTheDocument();
     // BRCA1 is on the ACMG SF list: the row names the list's version, linked to the policy
-    // statement, and the gene's phenotype and category as the list states them. The two
-    // ClinGen count rows that no source fills are gone (CLIN-19).
+    // statement, and the gene's phenotype and category as the list states them. No row shows
+    // a ClinGen count that no source fills.
     const acmgRow = acmgSecondaryFindingRow();
     expect(acmgRow).toHaveTextContent('On ACMG SF v3.3');
     expect(within(acmgRow).getByRole('link', { name: 'ACMG SF v3.3' })).toHaveAttribute(
@@ -489,7 +487,7 @@ describe('GeneInfoPage', () => {
     const vegaRow = screen.getByText('Vega').closest('.gene-compact-detail-row');
     expect(vegaRow).not.toBeNull();
     expect(within(vegaRow as HTMLElement).getByText('OTTHUMG00000157426')).toBeInTheDocument();
-    // Gene-level RefSeq accessions in the overview. Scoped, because the accession now
+    // Gene-level RefSeq accessions in the overview. Scoped, because the accession
     // also appears in the transcript table twice — as a transcript and as a mapping.
     const refseqRow = screen.getByText('RefSeq accessions').closest('.gene-compact-detail-row');
     expect(within(refseqRow as HTMLElement).getByText('NM_007294.4')).toBeInTheDocument();
@@ -545,9 +543,7 @@ describe('GeneInfoPage', () => {
     expect(within(transcriptTable).getByText('CCDS')).toBeInTheDocument();
     expect(within(transcriptTable).getByText('Ensembl Canonical')).toBeInTheDocument();
     // The overview names the transcripts too, not just the badges in the table. Both
-    // read the per-transcript GENCODE flags — the gene-level values these rows used to
-    // take came from a ClinGen scrape and an Ensembl call that no longer run, and were
-    // absent for all but a handful of genes even when they did.
+    // read the per-transcript GENCODE flags.
     // MANE Plus Clinical is rare but clinically important, so the overview names it
     // beside the other two rather than leaving it to a badge further down.
     // The label also exists as a badge in the transcript table, so match the term.
@@ -581,7 +577,7 @@ describe('GeneInfoPage', () => {
       'https://monarchinitiative.org/HGNC:1100',
     );
     // MGI catalogues the mouse: the ortholog's marker page, not a search for the human
-    // symbol. The old searchtool endpoint answers every query with the MGI homepage.
+    // symbol. MGI's searchtool endpoint answers every query with the MGI homepage.
     expect(screen.getByRole('link', { name: 'MGI' })).toHaveAttribute(
       'href',
       'https://www.informatics.jax.org/marker/MGI:104537',
@@ -601,8 +597,8 @@ describe('GeneInfoPage', () => {
     expect(screen.queryByRole('button', { name: /refresh gene/i })).not.toBeInTheDocument();
   });
 
-  // #610 — a failed gene profile fell back to "Select a human gene", as if none had been
-  // chosen.
+  // A failed gene profile is said as such, never as "Select a human gene", as if none had
+  // been chosen.
   it('says the gene could not be loaded, not that none was chosen, and retries', async () => {
     const get = api.get as unknown as Mock;
     const working = get.getMockImplementation()!;
@@ -628,9 +624,9 @@ describe('GeneInfoPage', () => {
     expect(await screen.findByRole('heading', { name: 'BRCA1' })).toBeInTheDocument();
   });
 
-  // The T2T locus was the one whose label holds "t2t" or "chm13": the T2T assembly the UCSC
-  // import names `hs1` (UCSC's name for it, where its description gives no other) had none,
-  // and another telomere-to-telomere genome would have been taken for it.
+  // The T2T locus is found under the name the UCSC import gives T2T-CHM13, `hs1` (UCSC's name
+  // for it, where its description gives no other), and no other telomere-to-telomere genome is
+  // taken for it.
   const renameT2t = (name: string, version: string) => (profile: ProfileFixture) => {
     const [, t2t] = (profile as unknown as { assembly_locations: Record<string, unknown>[] }).assembly_locations;
     Object.assign(t2t, { assembly_name: name, assembly_version: version });
@@ -648,8 +644,8 @@ describe('GeneInfoPage', () => {
     expect(await screen.findByText(/T2T Not imported/)).toBeInTheDocument();
   });
 
-  // The hg38 locus was the first whose label held "grch38" or "hg38": an assembly whose version
-  // merely held it was taken for GRCh38. It is now read as the backend reads GRCh38 (`grc_build`).
+  // The hg38 locus is read as the backend reads GRCh38 (`grc_build`): an assembly whose version
+  // merely holds "grch38" or "hg38" is not taken for it.
   const renameGrch38 = (name: string, version: string) => (profile: ProfileFixture) => {
     const [grch38] = (profile as unknown as { assembly_locations: Record<string, unknown>[] }).assembly_locations;
     Object.assign(grch38, { assembly_name: name, assembly_version: version });
@@ -667,7 +663,6 @@ describe('GeneInfoPage', () => {
     expect(await screen.findByText(/hg38 Not imported/)).toBeInTheDocument();
   });
 
-  // ENG-10: the row saying there are none spanned 7 of the table's 8 columns.
   it('spans the whole transcript table with the row saying none are cached', async () => {
     renderGeneFrom('CFTR', (profile) => {
       Object.assign(profile as unknown as Record<string, unknown>, { transcripts: [], transcript_count: 0 });
@@ -680,8 +675,6 @@ describe('GeneInfoPage', () => {
     expect(empty).toHaveAttribute('colspan', String(table.querySelectorAll('thead th').length));
   });
 
-  // ENG-10: the subsection holding ClinGen's curation counts and the ACMG SF row was titled
-  // "GenCC details".
   it('titles the curation counts and the ACMG SF row for what they are', async () => {
     renderPage();
     const row = await screen.findByText('ACMG secondary finding');
@@ -691,7 +684,6 @@ describe('GeneInfoPage', () => {
     expect(screen.queryByText('GenCC details')).not.toBeInTheDocument();
   });
 
-  // CLIN-19: the row read a key nothing wrote, so it said "—" for every gene, BRCA1 included.
   it('says a gene the ACMG SF list leaves out is not on it, naming the list version', async () => {
     renderGeneFrom('CFTR', (profile) => {
       delete profile.extra.acmg_secondary_finding;
@@ -749,7 +741,7 @@ describe('GeneInfoPage', () => {
   });
 
   it('never says a gene is not on the list when the list was not read for it', async () => {
-    // A gene cached by a gene reference sync from before CoGA had the list.
+    // A gene no gene reference sync has read the list for.
     renderGeneFrom('CFTR', (profile) => {
       delete profile.extra.acmg_secondary_finding;
       delete profile.source_status.acmg_sf;

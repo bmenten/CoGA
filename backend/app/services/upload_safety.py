@@ -1,16 +1,15 @@
 """Bounded reading/decompression for user uploads.
 
-Several admin upload endpoints used to ``await file.read()`` the whole upload into
-memory and then ``gzip.decompress()`` it — also fully in memory — with no size cap.
-A small, highly compressible ``.gz`` ("decompression bomb") could therefore inflate
-to exhaust the worker's memory (DoS). ``decode_upload_text`` reads the upload and
-decompresses it with explicit caps on both the bytes read and the decompressed size,
-rejecting oversized input with HTTP 413 instead of buffering it without limit.
+A small, highly compressible ``.gz`` ("decompression bomb") read whole into memory and
+decompressed there could exhaust the worker's memory (DoS). ``decode_upload_text`` reads
+the upload and decompresses it with explicit caps on both the bytes read and the
+decompressed size, rejecting oversized input with HTTP 413 instead of buffering it without
+limit.
 
-The small-variant ingestion path streams line-by-line via ``gzip.open`` and is already
-memory-safe; this helper brings the remaining full-buffer decoders (SV, reference,
-BED, repeat-expansion, PED) up to the same standard. A BGZF file that does not end with
-BGZF's end-of-file block is refused as cut short (400), here and by the streaming readers.
+The small-variant ingestion path streams line-by-line via ``gzip.open``; the full-buffer
+decoders (SV, reference, BED, repeat-expansion, PED) read through this helper. A BGZF file
+that does not end with BGZF's end-of-file block is refused as cut short (400), here and by
+the streaming readers.
 """
 
 from __future__ import annotations
@@ -58,7 +57,7 @@ def _gunzip_bounded(data: bytes, max_bytes: int, *, kind: str) -> bytes:
         ) from exc
     except TruncatedBgzfError as exc:
         # Says why: gzip tools read a BGZF file cut where one of its blocks ends without a
-        # word (DATA-4).
+        # word.
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except InvalidGzipError as exc:
         raise HTTPException(

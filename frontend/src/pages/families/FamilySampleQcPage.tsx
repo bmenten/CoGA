@@ -446,7 +446,7 @@ const FamilySampleQcPage: React.FC = () => {
   }
 
   // Without the family it is not known whether its import is complete, nor whether its
-  // assembly is validated: the checks are not shown without those warnings (SAFE-14).
+  // assembly is validated: the checks are not shown without those warnings.
   if (familyFailed) {
     return (
       <FamilyLoadFailure
@@ -479,7 +479,7 @@ const FamilySampleQcPage: React.FC = () => {
         message="The genotypes for this family could not be analysed."
         action={
           <>
-            {/* The checks run again on a retry, as the family's own failure offers one (ENG-10). */}
+            {/* The checks run again on a retry, as the family's own failure offers one. */}
             <button type="button" className="button-secondary" disabled={qcFetching} onClick={() => void refetchQc()}>
               {qcFetching ? 'Retrying…' : 'Retry'}
             </button>

@@ -70,8 +70,8 @@ MENDEL_FAIL_RATE = 0.05
 # (nipt_analysis.paternal_transmission_evidence). The fetus inherits every allele its
 # father is homozygous for, and half of his het ones: the true father's homozygous alleles
 # are all seen but a few coverage dropouts, another man's far from all, and his het ones
-# well under half. Pooling the two kinds hid a wrong paternal file: the share of its
-# alleles absent stayed under the old 40% warning.
+# well under half. Each kind is graded on its own: pooled, the share of a wrong paternal
+# file's alleles absent can stay under a single warning.
 MIN_PATERNITY_HOM_ALT_SITES = 20
 MIN_PATERNITY_HET_SITES = 50
 PATERNITY_HOM_ALT_PASS_RATE = 0.90

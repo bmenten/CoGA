@@ -22,10 +22,10 @@ are then mapped to displayed shades via each parent's STORED-block shade map
 makes the markers agree with the blocks genome-wide — with no region-local
 affected-child recount, and no dependence on current affected status.
 
-On chrX outside the pseudo-autosomal regions of the family's assembly a male has one X
-(CLIN-60). There a member recorded as male is read as one copy: his call written as one
-allele (``1``) or as the same allele twice (``1|1``) is that allele. A son's X is his
-mother's, so he is checked against her alone (his father, or a donor, gives him a Y: a
+On chrX outside the pseudo-autosomal regions of the family's assembly a male has one X.
+There a member recorded as male is read as one copy: his call written as one allele (``1``)
+or as the same allele twice (``1|1``) is that allele. A son's X is his mother's, so he is
+checked against her alone (his father, or a donor, gives him a Y: a
 father–son pair is neither informative nor a Mendelian error), and a call of two
 different alleles, which a son cannot carry there, is a Mendelian error. A daughter
 receives her father's one X. A member whose sex is not recorded is read as two copies, as

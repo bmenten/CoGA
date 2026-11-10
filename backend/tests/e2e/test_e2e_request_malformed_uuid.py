@@ -234,7 +234,7 @@ async def _collect(run: str) -> dict[str, Any]:
     viewer_email, viewer_password = f"e2e-uuid-viewer-{run}@example.com", f"viewer-password-{run}"
     storage = Path(tempfile.mkdtemp(prefix="e2e-uuid-"))
     # The raw file lies in the upload folder of a data directory of the test's own, where the
-    # admin page reads a recorded file (SEC-29).
+    # admin page reads a recorded file.
     (storage / "raw_imports").mkdir()
     (storage / "raw_imports" / "raw.txt").write_text("synthetic raw import file\n")
 
@@ -424,7 +424,7 @@ async def _collect(run: str) -> dict[str, Any]:
                 "artifact_delete": ("DELETE", "/api/admin/nipt/artifacts/{v}", "artifact", "urn"),
                 "preset_owner_delete": ("DELETE", "/api/auth/small-variant-filter-presets/{v}", "preset_owner", "capitals"),
                 # The preset saved on the family page, deleted by the owner's route without its
-                # hyphens: the family page's own delete route was removed (ENG-5).
+                # hyphens: the family page's own delete route was removed.
                 "preset_family_delete": (
                     "DELETE",
                     "/api/auth/small-variant-filter-presets/{v}",

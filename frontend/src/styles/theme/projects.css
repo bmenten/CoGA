@@ -718,7 +718,7 @@
   min-height: var(--control-height);
 }
 
-/* Who may open a project (SEC-1): its members in a table, and below it a search that lists a
+/* Who may open a project: its members in a table, and below it a search that lists a
    few users without access at a time, so the section stays short however many accounts there
    are. */
 .project-member-picker {

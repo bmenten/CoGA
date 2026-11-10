@@ -1,4 +1,4 @@
-"""The admin HPO sync records the release the ontology file states, and the file's SHA-256 (TRACE-18).
+"""The admin HPO sync records the release the ontology file states, and the file's SHA-256.
 
 A release the admin typed over the one the file states would go onto every term and into every
 signed record after it, so a record could name a release the file was not. The sync

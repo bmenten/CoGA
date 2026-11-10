@@ -1,6 +1,6 @@
 """A deletion keeps every file its records name until it has committed, a family replaced by a
 PED upload loses its interval tracks, and a sample's deletion strikes the sample off the import
-flags (SAFE-35), E2E.
+flags, E2E.
 
 Into real Postgres and ClickHouse, over the real API (an in-process ``httpx.ASGITransport``
 client, one event loop, see test_e2e_api_contract.py), with the seeded admin signed in:

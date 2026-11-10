@@ -2,8 +2,8 @@ import { lazy } from 'react';
 
 // Each page of the app is a file of its own, loaded when it is first opened, and named by a
 // hash of its content; a release replaces those files with new names. A tab opened before a
-// release still asks for the old names, which are gone (server.mjs answers 404 for them),
-// so the page it opens cannot load. That page is then loaded by reloading the tab once, which
+// release still asks for the previous release's names, which are gone (server.mjs answers 404
+// for them), so the page it opens cannot load. That page is then loaded by reloading the tab once, which
 // fetches the release's own files. Opening a page has already left the one before, so the
 // reload loses nothing on screen.
 

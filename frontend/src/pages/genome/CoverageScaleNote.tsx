@@ -1,7 +1,7 @@
 import React from 'react';
 
 /**
- * A coverage track's note, in its head: why it is drawn on the axis it is (TRACE-9), as
+ * A coverage track's note, in its head: why it is drawn on the axis it is, as
  * `coverageScaleNote` words it. A track whose values are of unknown kind says so in the
  * warning tone, so it is not read as depth or as a log2 ratio.
  */

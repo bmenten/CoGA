@@ -25,7 +25,7 @@ export type UiEventInput = {
 };
 
 type QueuedUiEvent = UiEventInput & {
-  // The event's own id: the API stores an event once by it (SEC-17), so a batch sent again (one
+  // The event's own id: the API stores an event once by it, so a batch sent again (one
   // in flight as the page closed) stores nothing twice.
   event_id: string;
   session_id: string;
@@ -41,7 +41,7 @@ type PendingUiEvent = { event: QueuedUiEvent; account: string | null; seq: numbe
 const MAX_QUEUE = 200;
 const MAX_BATCH = 50;
 // Keepalive flushes the whole queue at once; chunk it so no single POST exceeds
-// the backend per-batch cap (_MAX_EVENTS_PER_BATCH = 100), which now rejects
+// the backend per-batch cap (_MAX_EVENTS_PER_BATCH = 100), which rejects
 // oversize batches with 422 instead of silently dropping the overflow.
 const MAX_KEEPALIVE_BATCH = 100;
 const FLUSH_INTERVAL_MS = 5000;
@@ -49,8 +49,8 @@ const MAX_LABEL_LEN = 120;
 // A Microsoft access token lives about an hour, and only a request renews it (MSAL, through
 // sessionAccessToken). The flush at page hide or unload sends the token the session holds and
 // cannot wait for a renewal, so the flush timer renews it this long before it expires, also
-// with nothing queued: a page closed after an idle hour sent its last events with an expired
-// token, and the API refused them (found while fixing SEC-32).
+// with nothing queued: a page closed after an idle hour would otherwise send its last events
+// with an expired token, which the API refuses.
 const RENEW_AHEAD_MS = 5 * 60 * 1000;
 // After a renewal that brought no new token (MSAL needs the user), the next is asked a minute
 // later rather than at every flush.
@@ -61,8 +61,8 @@ const EXPIRY_MARGIN_MS = 30 * 1000;
 // flush of that account the API takes (its token renewed, or the account signed in again): in
 // the browser's storage, so that they outlive the page, and never sent under another account.
 // Each is kept under a key of its own, this prefix and its event_id: tabs share the storage, and
-// one value that each tab read, changed and wrote back lost what another tab wrote in between
-// (SEC-36).
+// one value that each tab read, changed and wrote back would lose what another tab wrote in
+// between.
 const KEPT_EVENT_KEY_PREFIX = 'coga.ui-events.kept.';
 
 // Interactive elements we treat as meaningful clicks. `data-audit-id` lets a
@@ -119,8 +119,8 @@ export const logUiEvent = (event: UiEventInput): void => {
   const token = getAuthToken();
   // An event no session made (on the sign-in page, or once the session has ended) is not
   // recorded: the API records every event of a batch as the act of the user whose token sends
-  // it, and no user's session made this one. Before, it went out with the session the next flush
-  // found, if any, as that user's (SEC-36).
+  // it, and no user's session made this one: sent with the session the next flush finds, it would
+  // be recorded as that user's.
   if (!token) return;
   if (queue.length >= MAX_QUEUE) {
     queue.shift();
@@ -178,7 +178,7 @@ const tokenExpiresAt = (token: string): number | null => {
 };
 
 // The account a token signs in: a Microsoft token's object ID, which stays when the account's
-// address changes (SEC-32), else its subject; null when it names none.
+// address changes, else its subject; null when it names none.
 const tokenAccount = (token: string): string | null => {
   const claims = tokenClaims(token);
   const account = claims?.oid ?? claims?.sub;
@@ -241,9 +241,9 @@ const readKept = (): KeptUiEvent[] => {
 };
 
 // Keep events under their account instead of sending them to be refused, or dropping them: the
-// UI-event log is part of the audit, and its rows are kept for good (#893). Each event is written
+// UI-event log is part of the audit, and its rows are kept for good. Each event is written
 // on its own, so tabs keeping or sending events at the same moment leave each other's in place;
-// at worst two tabs both send an event, which the API stores once, by its event_id (SEC-17).
+// at worst two tabs both send an event, which the API stores once, by its event_id.
 // Bounded by MAX_QUEUE per account, as the queue is: beyond it, the oldest go.
 const keepForAccount = (account: string, pending: PendingUiEvent[]): void => {
   for (const { event, seq } of pending) {
@@ -345,7 +345,7 @@ const keepTokenFresh = async (): Promise<void> => {
 // the queue until the API acknowledges it, so a page closed while it is in flight sends it again
 // with the rest (flushKeepalive), and the API stores an event that did arrive once, by its
 // event_id. A batch that fails transiently stays at the front of the queue for the next flush
-// instead of being lost (#521); the queue stays bounded by MAX_QUEUE. The events kept for the
+// instead of being lost; the queue stays bounded by MAX_QUEUE. The events kept for the
 // session's account go out first, and leave the browser's storage once the API has answered
 // them; a batch the API refuses for the session's token (401) is kept for the account, with the
 // rest of the queue, rather than dropped.
@@ -421,8 +421,7 @@ const sendKeepalive = (token: string, events: QueuedUiEvent[]): Promise<void> =>
 // that request, whether or not it arrived. It is kept for the account before it is sent, and
 // stays kept until the API takes it: a keepalive that fails, is refused, or whose answer the
 // closing page never reads goes out again with the account's next flush the API takes, and the
-// API stores an event that did arrive once, by its event_id (SEC-36; before, nothing read the
-// answer). The token is the session's, which the flush timer keeps renewed (keepTokenFresh); one
+// API stores an event that did arrive once, by its event_id. The token is the session's, which the flush timer keeps renewed (keepTokenFresh); one
 // that has expired anyway (the device slept, or MSAL needs the user) would be refused, so the
 // events are only kept. Settles once the API has answered every request it sent.
 const flushKeepalive = (): Promise<void> => {
@@ -488,7 +487,7 @@ const handleDocumentClick = (event: MouseEvent): void => {
 /**
  * Send everything queued now, with the current session's token, surviving a
  * navigation. Called on logout before the session is cleared, so the logout click
- * and the events before it are recorded under the user who made them (#521). They
+ * and the events before it are recorded under the user who made them. They
  * stay kept for the account until the API takes them; when that token has expired,
  * they are only kept, for the account's next sign-in. Settles once the API has answered every
  * request it sent: the logout ends the session on the server only then, as the API would refuse

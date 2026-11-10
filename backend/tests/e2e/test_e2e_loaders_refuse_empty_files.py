@@ -1,4 +1,4 @@
-"""A file without a record replaces nothing (SAFE-29), E2E.
+"""A file without a record replaces nothing, E2E.
 
 Most loaders replace what they load: they delete the stored data of their source, then read
 the file and write its records. A file without a record (a header alone, a file cut short

@@ -123,7 +123,7 @@ export interface AcmgGeneContext {
   // HPO ids associated with the gene (gene → phenotype).
   geneHpoIds?: string[];
   // The gene profile could not be loaded: each gene-derived fact above is unknown, not
-  // absent, and the criteria that read it say so instead of a negative finding (#609).
+  // absent, and the criteria that read it say so instead of a negative finding.
   unavailable?: boolean;
 }
 
@@ -136,7 +136,7 @@ export interface AcmgPhenotypeContext {
   phenotypeScore?: number | null;
   // Top matched HPO terms behind the score (for the PP4 evidence string).
   phenotypeMatches?: { hpo_id: string; label?: string | null }[];
-  // The proband's HPO terms could not be loaded: unknown, not none (#609).
+  // The proband's HPO terms could not be loaded: unknown, not none.
   probandHpoUnavailable?: boolean;
 }
 

@@ -1,4 +1,4 @@
-"""The release mechanics (OPS-8): the version a build reports, the commits that may be released,
+"""The release mechanics: the version a build reports, the commits that may be released,
 the image a deploy runs, and where a release keeps its SBOM.
 
 TF-18 §2: only a release build reports a release's version; every other build reports VERSION

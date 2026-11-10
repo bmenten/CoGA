@@ -1,8 +1,8 @@
 // @vitest-environment node
-// The /api proxy in server.mjs — #521: an upstream reset mid-stream could crash the
-// server, there was no upstream timeout, the 502 named the internal backend URL, and
-// client-supplied X-Forwarded-For went to the backend unchecked. Its own 502 and 504 were
-// sent without the server's security headers, which only its later middleware set.
+// The /api proxy in server.mjs: an upstream reset mid-stream ends that response and the server
+// keeps serving, a backend that does not answer in time gets a 504, a 502 does not name the
+// internal backend URL, and the backend gets one clean client address, not the client's own
+// X-Forwarded-For. Its own 502 and 504 carry the server's security headers.
 
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -94,7 +94,7 @@ describe('API proxy', () => {
     try {
       const res = await fetch(`${base}/api/hang`);
       expect(res.status).toBe(504);
-      // Before: none of them; the security-headers middleware runs after the proxy.
+      // Set by the proxy itself: the security-headers middleware runs after the proxy.
       expectSecurityHeaders(res);
       expect(res.headers.get('strict-transport-security')).toBeNull();
 
@@ -129,12 +129,12 @@ describe('API proxy', () => {
     const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const res = await fetch(`${base}/api/ok%25s`);
     expect(res.status).toBe(502);
-    // The server's own answer: its security headers (before: none).
+    // The server's own answer: its security headers.
     expectSecurityHeaders(res);
     const body = await res.text();
     expect(body).not.toContain(backendUrl);
     expect(body).toContain('Unable to reach the backend API');
-    // The URL is an argument, never the format string: a "%s" in it stays text (#702).
+    // The URL is an argument, never the format string: a "%s" in it stays text.
     expect(logged).toHaveBeenLastCalledWith('API proxy failed for %s %s', 'GET', '/api/ok%25s', expect.anything());
     logged.mockRestore();
     backend = http.createServer();

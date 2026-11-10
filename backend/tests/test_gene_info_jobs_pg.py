@@ -439,7 +439,7 @@ def test_expand_groups_keeps_a_renamed_locus_even_though_its_old_symbol_is_unkno
     assert result["LMTK1"][0]["gene_id"] == "ENST3"
 
 
-# --- the account that requested the refresh (SEC-35) ---------------------------------------------
+# --- the account that requested the refresh ---------------------------------------------
 #
 # A refresh is an administrator's (the routes require one). The job keeps its requester by the
 # account's id, and the worker runs it only for an active administrator (the owner's decision of
@@ -644,7 +644,7 @@ async def test_the_refresh_a_start_queues_is_no_accounts_and_runs(monkeypatch: p
     assert job.looked_up == []
 
 
-# --- one worker per refresh (SAFE-36) -------------------------------------------------------------
+# --- one worker per refresh -------------------------------------------------------------
 #
 # Another worker takes a running job up once its heartbeat is older than
 # GENE_REFERENCE_STALE_HEARTBEAT (five minutes). Without a heartbeat while it loads the bulk
@@ -732,7 +732,7 @@ async def test_a_failed_refresh_ends_the_job_only_while_it_is_this_workers(
     assert sql.endswith("WHERE id = CAST(:job_id AS uuid) AND worker_id = :worker_id")
     assert (params["job_id"], params["worker_id"]) == (JOB, WORKER)
     # The job's error, which the admin page shows, is a fixed sentence naming the error by its
-    # kind, never the error's text, the address and the value with it (SEC-37). The log line
+    # kind, never the error's text, the address and the value with it. The log line
     # names the job and the kind.
     assert params["error"] == (
         "The gene reference refresh failed (RuntimeError). The genes it had saved keep their new "
@@ -834,7 +834,7 @@ class _InsertSession:
 
 @pytest.mark.asyncio
 async def test_a_queued_refresh_keeps_its_requester_by_the_account_id() -> None:
-    # As an import job's (SEC-32): the address it was asked under is shown with the job, and a
+    # As an import job's: the address it was asked under is shown with the job, and a
     # Microsoft sign-in may change it later.
     session = _InsertSession()
 

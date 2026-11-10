@@ -227,7 +227,7 @@ async def approve_delivery(
             "package_sha256": package_document_sha256(package) if isinstance(package, dict) else None,
             "corrections": corrections,
             # ``manual``: a folder a person added by hand, whose package CoGA made.
-            "origin": delivery.get("origin") or "watched",
+            "origin": delivery["origin"],
         },
         commit=False,
     )

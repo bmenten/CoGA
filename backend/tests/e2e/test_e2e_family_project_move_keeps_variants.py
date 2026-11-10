@@ -2,9 +2,10 @@
 
 ClickHouse stores a family's small and structural variant rows once per project it is linked
 to, and the family's pages read the rows of its projects only. ``PUT
-/admin/families/{family_id}/projects`` moves the rows with the links: a family whose rows stayed
-under its old project would find no small or structural variants on its pages (the presence
-check says none, so the links are hidden), while its import says they are stored.
+/admin/families/{family_id}/projects`` moves the rows with the links: a family whose links
+changed in Postgres alone would keep its rows under the old project, and its pages would find
+no small or structural variants (the presence check would say none, so the links would be
+hidden), while its import said they were stored.
 
 Over the golden trio (clair3 SNVs and needlr SVs, in the e2e project A), with a second project
 B on the same assembly and a project C on another one, through the real API, Postgres and
@@ -141,8 +142,8 @@ async def _make_projects(project_a: str) -> tuple[str, str, str]:
 
 
 async def _link_in_postgres_only(family_uuid: str, project_id: str) -> None:
-    """Link the family and its samples to ``project_id`` alone, in Postgres only: the
-    variants left where they are."""
+    """Link the family and its samples to ``project_id`` alone, as the change did before the
+    fix: Postgres only, the variants left where they are."""
     await _sql("DELETE FROM family_projects WHERE family_id = CAST(:f AS uuid)", {"f": family_uuid})
     await _sql(
         "INSERT INTO family_projects (family_id, project_id) VALUES (CAST(:f AS uuid), CAST(:p AS uuid))",
@@ -251,9 +252,13 @@ async def _exercise(root: Path) -> dict[str, Any]:
             out["none_to_a"] = capture(await ac.put(url, json={"project_ids": [project_a]}))
             out["after_none_to_a"] = await _rows(family_uuid)
     finally:
-        # The family back in A alone with its rows as imported, whatever happened above.
+        # The family back in A alone with its rows as imported, whatever happened above: A
+        # gets them from the projects the family is linked to now.
         await copy_family_variants_to_projects(
-            _harness.ASSEMBLY, family_uuid, project_ids=[project_a], linked_project_ids=[project_a]
+            _harness.ASSEMBLY,
+            family_uuid,
+            project_ids=[project_a],
+            linked_project_ids=await _family_projects(family_uuid),
         )
         await _link_in_postgres_only(family_uuid, project_a)
         await prune_family_variant_projects(_harness.ASSEMBLY, family_uuid, project_ids=[project_a])

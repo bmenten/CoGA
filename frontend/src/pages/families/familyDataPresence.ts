@@ -17,14 +17,14 @@ import type {
  * bounded row count and summary aggregation, which scan the whole family. The queries share
  * their keys across pages, so moving from one family page to another reads them once. The keys
  * sit under the family (`['family', id, 'has-data', …]`), apart from each page's own list: a review
- * saved on the small-variant page writes into its list's cached pages, and a presence answer
- * (`{ total }`) among them broke that save.
+ * saved on the small-variant page writes into its list's cached pages, which must hold no
+ * presence answer (`{ total }`).
  *
  * A check that failed leaves it unknown whether the family has that data: its link is shown,
- * so its page can say for itself, rather than hidden as if there were none (#607).
+ * so its page can say for itself, rather than hidden as if there were none.
  */
 export interface FamilyDataPresence {
-  /** Every check has answered or failed: "Checking…" used to stay up for good (#607). */
+  /** Every check has answered or failed, so "Checking…" never stays up for good. */
   loaded: boolean;
   hasSmallVariants: boolean;
   hasStructuralVariants: boolean;
@@ -32,7 +32,7 @@ export interface FamilyDataPresence {
   hasParaphase: boolean;
   hasMitoDna: boolean;
   /**
-   * The variant summary summarises every kind of variant data (PROD-1): offered when the
+   * The variant summary summarises every kind of variant data: offered when the
    * family has any, or when a check failed.
    */
   hasVariantSummary: boolean;

@@ -1,4 +1,4 @@
-"""The sign-in routes with Microsoft sign-in configured, and an administrator's role changes (SEC-4).
+"""The sign-in routes with Microsoft sign-in configured, and an administrator's role changes.
 
 ``GET /api/auth/config`` tells the browser how users sign in: with Microsoft (the application
 ID, the directory's authority and CoGA's API scope, none of it secret) or with a password.
@@ -12,7 +12,7 @@ right password is refused with 403 and counts as a failed attempt. There is no s
 accounts come from the first Microsoft sign-in.
 
 ``PATCH /api/auth/users/{id}`` sets an account's global role as well as its activation,
-archives or restores it, and sets its projects with its level in each (SEC-1); a field it does
+archives or restores it, and sets its projects with its level in each; a field it does
 not take, such as the account list's ``projects``, is refused (422). An administrator cannot change their own role, nor the emergency
 administrator's, and cannot deactivate or archive their own account or the emergency
 administrator's; an account is not archived and activated at once; a viewer cannot call it.
@@ -494,7 +494,7 @@ def test_a_change_that_changes_nothing_records_nothing(
         pytest.param(
             EMERGENCY, {"is_active": False}, auth_router.EMERGENCY_ACTIVE_DETAIL, id="the-emergency-admin-deactivated"
         ),
-        # SEC-32: an administrator who deactivated their own account locked themselves out.
+        # An administrator who deactivated their own account locked themselves out.
         pytest.param(LOCAL_ADMIN, {"is_active": False}, auth_router.OWN_ACTIVE_DETAIL, id="your-own-account-deactivated"),
     ],
 )
@@ -550,7 +550,7 @@ def test_a_field_the_change_does_not_take_is_refused_whole(
 def test_an_admin_sets_an_accounts_projects_and_the_audit_row_says_from_what_to_what(
     client: TestClient, store: _Store, audit_rows: list[Any], caplog: pytest.LogCaptureFixture
 ) -> None:
-    # The same memberships a project's members set, from the account's side (SEC-1). Each id is
+    # The same memberships a project's members set, from the account's side. Each id is
     # read as the canonical text of the UUID it spells, whatever its spelling.
     analysed, read = str(uuid4()), str(uuid4())
     with caplog.at_level(logging.INFO, logger=auth_router.__name__):

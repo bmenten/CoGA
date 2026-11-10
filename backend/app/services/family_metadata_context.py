@@ -126,10 +126,10 @@ async def _resolve_family_assembly(
         return None, None
     if len(rows) > 1:
         # The family's visible projects span more than one assembly and no single
-        # project was specified. Returning None here made every variant/track view
-        # silently render empty (200 OK) — indistinguishable from "no variants". Fail
-        # loud so the caller disambiguates with a project_id (mirrors
-        # family_service._resolve_family_assembly).
+        # project was specified. None here would make every variant/track view render
+        # empty (200 OK), indistinguishable from "no variants", so the caller
+        # disambiguates with a project_id (as family_service._resolve_family_assembly
+        # asks).
         raise HTTPException(
             status_code=400,
             detail="Could not resolve a single assembly for this family; specify a project to disambiguate.",

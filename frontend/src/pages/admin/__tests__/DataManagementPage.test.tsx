@@ -188,7 +188,8 @@ describe('DataManagementPage', () => {
     // Embedded, editable family workspace is reused for the overview.
     expect(await screen.findByTestId('embedded-family-detail')).toBeInTheDocument();
 
-    // Single deletion action remains; the removed actions are gone.
+    // The one deletion action is the whole family's; no per-dataset deletion, and no links to
+    // edit or open the family workspace.
     expect(screen.getByRole('button', { name: 'Delete entire family' })).toBeInTheDocument();
     expect(screen.queryByText('Delete family small variants')).not.toBeInTheDocument();
     expect(
@@ -212,7 +213,6 @@ describe('DataManagementPage', () => {
     expect(screen.getByText('S1_bins.bed')).toBeInTheDocument();
   });
 
-  // ENG-10: "Sample type" headed the sex and "Metadata" the affected status.
   it('heads each sample column with what it holds', async () => {
     mockResponses();
     renderPage();
@@ -242,7 +242,7 @@ describe('DataManagementPage', () => {
     expect(continueButton).toBeDisabled();
 
     fireEvent.change(screen.getByPlaceholderText('F1'), { target: { value: 'F1' } });
-    // The name alone is not enough: the deletion's reason is required (TRACE-16).
+    // The name alone is not enough: the deletion's reason is required.
     expect(continueButton).toBeDisabled();
     const reason = screen.getByRole('textbox', { name: /reason for the deletion/i });
     fireEvent.change(reason, { target: { value: '   ' } });
@@ -263,7 +263,7 @@ describe('DataManagementPage', () => {
     );
   });
 
-  it('cancels the family deletion on Escape, with focus starting in the name field (#529)', async () => {
+  it('cancels the family deletion on Escape, with focus starting in the name field', async () => {
     mockResponses();
     renderPage();
 

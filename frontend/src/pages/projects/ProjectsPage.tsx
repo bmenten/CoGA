@@ -31,7 +31,7 @@ interface ProjectFormState {
   speciesId: string;
   assemblyId: string;
   userIds: string[];
-  // The members among userIds who are readers; the others are analysts (SEC-1).
+  // The members among userIds who are readers; the others are analysts.
   readerIds: string[];
 }
 
@@ -107,7 +107,7 @@ const MEMBER_PICKER_TEXT: AccessLevelPickerText = {
 };
 
 /**
- * Who may open the project, and what each member may do in it (SEC-1): an analyst reads and
+ * Who may open the project, and what each member may do in it: an analyst reads and
  * changes its records, a reader only reads them. A superuser or an administrator has every right
  * in every project and needs no membership. The same memberships are set from the account's side
  * on the Users page.
@@ -146,10 +146,10 @@ const projectDeletionBlocker = (project: Project): string | null => {
 };
 
 /**
- * What deleting `project`, which no family is linked to, takes with it, for the confirmation
- * (UI-7): its members lose the access it gave them, and its review tags are deleted as a tag
+ * What deleting `project`, which no family is linked to, takes with it, for the confirmation:
+ * its members lose the access it gave them, and its review tags are deleted as a tag
  * delete does it: each stays on the reviews that hold it, marked deleted, and can no longer be
- * added (SAFE-37).
+ * added.
  */
 const projectDeletionEffects = (project: Project): string[] => {
   const members = project.user_ids?.length ?? 0;
@@ -169,7 +169,7 @@ const uploadedDateMs = (family: Project['families'][number]) => {
 const familySampleIds = (family: Project['families'][number]) =>
   family.members.map((member) => member.sample_id);
 
-// Mounted only behind RequireAdmin (/admin/access/projects and /projects in index.tsx), so
+// Mounted only behind RequireAdmin (/admin/access/projects in index.tsx), so
 // every control is an administrator's.
 const ProjectsPage: React.FC = () => {
   const queryClient = useQueryClient();
@@ -179,7 +179,7 @@ const ProjectsPage: React.FC = () => {
   const [createForm, setCreateForm] = useState<ProjectFormState>(EMPTY_FORM);
   const [editForm, setEditForm] = useState<ProjectFormState>(EMPTY_FORM);
   const [busy, setBusy] = useState<string | null>(null);
-  // The project whose deletion awaits confirmation (UI-7), read from the current list.
+  // The project whose deletion awaits confirmation, read from the current list.
   const [projectToDeleteId, setProjectToDeleteId] = useState<string | null>(null);
   const [status, setStatus] = useState<PageStatus | null>(null);
   const [familySortKey, setFamilySortKey] = useState<FamilySortKey>('created_at');
@@ -318,7 +318,7 @@ const ProjectsPage: React.FC = () => {
     [assemblies, editForm.speciesId],
   );
 
-  // Unknown, not zero, while the project list could not be loaded (#610).
+  // Unknown, not zero, while the project list could not be loaded.
   const projectTotals = useMemo(() => {
     if (projectsFailed) return { projects: '—', families: '—', samples: '—' };
     const totalFamilies = projects.reduce((sum, project) => sum + project.families.length, 0);
@@ -331,8 +331,8 @@ const ProjectsPage: React.FC = () => {
   }, [projects, projectsFailed]);
 
   // The Users page lists each account's projects, and their names, from caches of its own:
-  // without these, a saved change of access showed there only once they went stale, up to
-  // 30 s later (ENG-10).
+  // these refresh them, so a saved change of access shows there at once, not only once they
+  // go stale.
   const refetchProjects = async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ['projects'] }),
@@ -609,7 +609,7 @@ const ProjectsPage: React.FC = () => {
           </p>
         )}
 
-        {/* A failed list is not an empty one: it read "No projects yet" (#610). */}
+        {/* A failed list is not an empty one: it never reads "No projects yet". */}
         {projectsFailed ? (
           <QueryFailure what="the projects" error={projectsError} onRetry={() => void retryProjects()} />
         ) : filteredProjects.length === 0 ? (

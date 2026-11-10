@@ -16,7 +16,7 @@ import {
 /**
  * The family's review tags, deleted ones too (flagged inactive): a review that still holds a
  * deleted tag shows it, marked. So does one that holds a tag of a project the family left, or of
- * a deleted project, which the server lists inactive too (SAFE-37). Structural and small variants
+ * a deleted project, which the server lists inactive too. Structural and small variants
  * share one tag store, so every family page reads this list.
  */
 export const fetchFamilyReviewTags = async (
@@ -33,10 +33,10 @@ export const fetchFamilyReviewTags = async (
  * What a quick tag toggle on a variant card or table row saves: the review's tags with the
  * tag added or removed, its classification and note sent back as stored so the save keeps them.
  *
- * The classification goes back as stored, never as the class shown (CLIN-76): toggling *Report*
+ * The classification goes back as stored, never as the class shown: toggling *Report*
  * on a review of text "VUS - class 3" beside the tag *Likely pathogenic - class 4* rewrote the text
  * as "Likely pathogenic - class 4", a change of classification the user never made, and one the
- * clinical audit records (TRACE-20). Only the review dialog's class choice, or ACMG classify,
+ * clinical audit records. Only the review dialog's class choice, or ACMG classify,
  * changes it. Small-variant and SV pages share this payload.
  */
 export const quickTagTogglePayload = (
@@ -85,7 +85,7 @@ export const buildOptimisticReview = (
     note: payload.note ?? null,
     updated_by: variant.review?.updated_by ?? null,
     // The version the save was made against, not a client clock: a following save sends
-    // it back, and a made-up timestamp would read as someone else's edit (#513).
+    // it back, and a made-up timestamp would read as someone else's edit.
     updated_at: variant.review?.updated_at ?? null,
     compound_het: variant.review?.compound_het ?? null,
     // The ACMG classification comes back with the saved review: the server keeps or

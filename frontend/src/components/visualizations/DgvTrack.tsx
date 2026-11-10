@@ -114,10 +114,10 @@ const DgvTrack: React.FC<Props> = ({
     isError,
   );
 
-  // The surface's name for a screen reader (#529): the variants in view, by class.
+  // The surface's name for a screen reader: the variants in view, by class.
   const variantsOn = `DGV variants on ${describeTrackRegion(chrom, regionStart, regionEnd)}`;
 
-  // A failed request must never read as an empty region (#510).
+  // A failed request must never read as an empty region.
   if (isError) {
     return (
       <div className="relative" style={{ width, height }}>
@@ -127,7 +127,7 @@ const DgvTrack: React.FC<Props> = ({
     );
   }
 
-  // A view with no width asks for nothing: it is neither loading nor empty (#602).
+  // A view with no width asks for nothing: it is neither loading nor empty.
   if (!hasRegionInView(regionStart, regionEnd)) {
     return <svg width={width} height={height} role="img" aria-label={`${variantsOn}: ${NO_REGION_IN_VIEW}`} />;
   }
@@ -191,7 +191,7 @@ const DgvTrack: React.FC<Props> = ({
     const maxLanes = Math.max(1, Math.floor(half / LANE_MIN_HEIGHT));
     // Gains (and minor mixed/other) above the baseline, losses below it.
     // Only what overlaps the region: while a pan loads, a held variant left of the new
-    // window was drawn as a bar at its left edge (#586).
+    // window would be drawn as a bar at its left edge.
     const up = packLanes(variantsInView.filter((v) => v.variant_class !== 'loss'), maxLanes);
     const down = packLanes(variantsInView.filter((v) => v.variant_class === 'loss'), maxLanes);
     const upLaneH = half / up.laneCount;

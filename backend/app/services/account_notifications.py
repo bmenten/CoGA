@@ -1,4 +1,4 @@
-"""E-mail to the administrators about an account that waits for approval (SEC-4).
+"""E-mail to the administrators about an account that waits for approval.
 
 A sign-up (with a password, where the organisation's sign-in is not configured) and a first
 sign-in through the organisation's CAS server each make an inactive account, which an
@@ -9,7 +9,7 @@ signs in and when it was made) and the *Users* page; it holds no patient data.
 
 A mail that cannot be sent leaves the sign-up or the sign-in as it is: the account waits on the
 *Users* page all the same. The log names neither the addresses nor the mail server's error
-text, which can quote them (SEC-11): only the error's type.
+text, which can quote them: only the error's type.
 """
 
 from __future__ import annotations

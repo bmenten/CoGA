@@ -1,10 +1,9 @@
-"""What each coverage track holds, and which one a depth reader takes (CLIN-46, TRACE-9).
+"""What each coverage track holds, and which one a depth reader takes.
 
 ``coverage_read_depth`` decides it from a track's source and its records
 (``sample_interval_track_sources.metadata``): a coverage BED (``web``) holds what it declared when
 it was loaded (``content``: ``read_depth`` or ``log2_ratio``), and values of unknown kind when it
-declared nothing, which no depth reader takes as depth: the views may draw it as a log2 ratio
-(TRACE-9). Another caller's track holds what its import's transform made of its file
+declared nothing, which no depth reader takes as depth: the views may draw it as a log2 ratio. Another caller's track holds what its import's transform made of its file
 (``normalization``): HiFiCNV's depth is depth only when its records name ``none`` (stored as read);
 WisecondorX's and QDNAseq's bins, which record none, are log2 ratios; any caller's track this module
 does not know is of unknown kind until its import records what it is. A depth reader reads one track
@@ -56,7 +55,7 @@ def test_a_declaration_is_read_depth_or_a_log2_ratio_or_unknown(value: object, e
 @pytest.mark.parametrize(
     ("source", "normalizations", "contents", "expected"),
     [
-        # A coverage BED holds what it declared (TRACE-9) ...
+        # A coverage BED holds what it declared ...
         ("web", [], ["read_depth"], "read_depth"),
         ("web", [], ["log2_ratio"], "log2_ratio"),
         # ... and, declaring nothing, values of unknown kind, not depth.
@@ -102,7 +101,7 @@ def test_what_a_track_holds_by_its_source_and_its_records(
         (["hificnv", "web"], {"hificnv": ["none"]}, {"web": ["read_depth"]}, "web"),
         # A BED that declares nothing is not depth: HiFiCNV's depths stored as read are read.
         (["hificnv", "web"], {"hificnv": ["none"]}, {}, "hificnv"),
-        # A BED declared as a log2 ratio, or declaring nothing, alone: no depth (TRACE-9).
+        # A BED declared as a log2 ratio, or declaring nothing, alone: no depth.
         (["web"], {}, {"web": ["log2_ratio"]}, None),
         (["web"], {}, {}, None),
         # No BED: HiFiCNV's depths stored as read.

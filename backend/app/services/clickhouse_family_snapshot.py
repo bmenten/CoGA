@@ -4,7 +4,7 @@ ClickHouse writes are non-transactional, and overwrite-mode import is
 delete-then-insert (``delete_family_small_variants`` /
 ``replace_family_structural_variants`` pre-clear before insert). So a failed
 overwrite of a PRE-EXISTING family can destroy its prior variant rows and leave
-nothing but the ``import_incomplete`` flag behind (issue #365).
+nothing but the ``import_incomplete`` flag behind.
 
 This module provides a pre-import snapshot of the family-scoped ClickHouse rows
 (mechanism A: per-import backup tables filled via ``INSERT … SELECT``) and a

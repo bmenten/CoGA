@@ -1,4 +1,4 @@
-"""The ACMG secondary-findings list CoGA ships, and the gene reference sync's verdict (CLIN-19).
+"""The ACMG secondary-findings list CoGA ships, and the gene reference sync's verdict.
 
 The gene page's "ACMG secondary finding" row reads the vendored list (data/ref-data/acmg-sf/,
 ACMG SF v3.3), and the gene reference sync reads it for every gene: a listed gene gets its
@@ -262,7 +262,7 @@ def test_a_missing_or_unreadable_list_is_an_error_for_every_gene(
     dataset = gene_info_bulk_sources._load_acmg_sf_dataset(path)
 
     assert dataset.status == "error"
-    # The error by its kind, not its text, which is not CoGA's sentence (SEC-39).
+    # The error by its kind, not its text, which is not CoGA's sentence.
     assert dataset.message == f"The ACMG SF list at {path} could not be read: {kind}"
     status = _bundle("BRCA1", dataset)["source_status"]["acmg_sf"]
     assert status["status"] == "error"

@@ -12,14 +12,18 @@
   never the medical one. The technical file is in `docs/regulatory/`. Weigh every change for its
   clinical-safety, traceability and security consequences, not engineering merit alone.
 - **CoGA is still entirely in development, with test data only: there is no history and no
-  legacy** (the owner, 2026-11-10). Any database can be recreated from zero. Never add read
-  shims, fallbacks, data repair, backfills, or an "older record is read as signed" or "compared on
-  what it holds" path for rows, records or files an earlier build wrote, and never ask how older
-  records should behave: there are none. Where such handling exists, remove it rather than
-  extend it.
-- The same holds for the **technical file and the other docs**: start from a clean slate. They
-  describe the device as it is, with no patchwork: no "before X it did Y", no pre-release history
-  of fixes, no transitional statements.
+  legacy** (the owner, 2026-11-10). Every instance starts from an empty database; there is no
+  historical data. Never add read shims, fallbacks, data repair, backfills, upgrade or migration
+  paths, or an "older record is read as signed" or "compared on what it holds" path for rows,
+  records, files, settings or payloads an earlier build wrote, and never ask how older records
+  should behave: there are none. A value the current writer always writes is required when
+  read. Where such handling exists, remove it rather than extend it.
+- The same holds for the **technical file, the docs, the handleiding and the code's comments**:
+  start from a clean slate. They describe the device as it is, with no patchwork ("geen
+  koterij"): no "before X it did Y", no "used to", no pre-release history of fixes, no
+  transitional statements, and no closed issue IDs or PR numbers as labels (an open ID from
+  `docs/open-issues.md` only where it points at the open item). **History is visible only on
+  GitHub**: in git, pull requests and issues, never in the files.
 - The folders under `data/` that `.gitignore` excludes (`data/families/` and the like) may
   hold **real patient data** on a developer's machine. Nothing from them reaches git, GitHub or
   any outside service: no file, family or sample ID, gene, region or value, not in a test, a
@@ -73,13 +77,15 @@
 
 ## Database Schema
 
-- Postgres: five idempotent baseline files in `backend/db/schema/postgres/` (`01_access` …
-  `05_grants`), then the Alembic revisions in `backend/db/migrations/versions/`, recorded in
-  the ledger table `alembic_version` (`core/postgres_migrations.py`). Until the release
-  candidate every migration run re-applies the baselines first, so a baseline edit reaches
-  existing databases; a change to a table that already exists (a `CHECK`, a column) also
-  needs a revision, which must end at the baseline's definition. Migrations run as the table
-  owner, never as `coga_app`. ClickHouse: the SQL
+- Postgres: five baseline files in `backend/db/schema/postgres/` (`01_access` … `05_grants`),
+  which Alembic revision `0001` applies to an empty database, recording their digest in
+  `schema_baselines` and the revision in `alembic_version` (`core/postgres_migrations.py`). The
+  migration refuses any database this version did not make. **Until the release candidate a
+  schema change is an edit of the baseline only**: no revision, no `ALTER`/upgrade statement in a
+  baseline; a developer's or test VM's database is made again from empty
+  (`docker compose down -v`). From the release candidate on the baselines are frozen and each
+  schema change is a revision (`docs/database.md`, "Schema Migrations"). Migrations run as the
+  table owner, never as `coga_app`. ClickHouse: the SQL
   file only creates the database; the per-assembly tables are created at runtime
   (`clickhouse_variant_storage.py`, `clickhouse_interval_tracks.py`). `docs/database.md` is
   the table-by-table reference — treat it as the source of truth and keep it current.

@@ -1,14 +1,16 @@
-"""Each coverage BED declares what it holds: read depth or a log2 ratio (TRACE-9).
+"""Each coverage BED declares what it holds: read depth or a log2 ratio.
 
-A coverage BED (source ``web``: the BED upload's, and a package's ``coverage`` dataset's) declares
-what it holds, in the upload form and in the package manifest, and an undeclared file is "unknown"
-and never read as depth (the owner's decision of 2026-10-14):
+A coverage BED (source ``web``: the BED upload's, and a package's ``coverage`` dataset's) holds
+read depths or log2 ratios, and the depth readers and the coverage chart must read it as what it
+holds. The owner decided (2026-10-14) that each coverage BED declares what it holds, in the upload
+form and in the package manifest, and that an undeclared file is "unknown" and never read as
+depth:
 
 * the BED upload takes ``content`` (``read_depth`` or ``log2_ratio``) as a required query
   parameter for a coverage BED, refused (422) when it is missing, and for another track type;
 * the track's record keeps it (``sample_interval_track_sources.metadata.content``), as ``unknown``
-  for a package entry without the manifest's ``content`` key, and what the family holds (SAFE-19's
-  ``imported_scopes``) says it with the sample: a later record replaces it, and no overwrite
+  for a package entry without the manifest's ``content`` key, and what the family holds
+  (``imported_scopes``) says it with the sample: a later record replaces it, and no overwrite
   compares it;
 * the validation warns of an entry without it and refuses a value that is neither;
 * the track availability serves what each coverage track holds (``coverage_contents``), by the rule
@@ -75,7 +77,7 @@ class _Stores:
     """The track's rows as inserted (``rows``), the records Postgres was given (``records``:
     sample, track type, source -> the metadata bound), what the upload recorded for the
     family (``recorded``: the ``record_family_upload`` calls) and how it marked the family
-    before its first ClickHouse write (``marked``: the ``mark_family_upload`` items, SAFE-28)."""
+    before its first ClickHouse write (``marked``: the ``mark_family_upload`` items)."""
 
     def __init__(self) -> None:
         self.rows: list[dict[str, Any]] = []
@@ -156,7 +158,8 @@ class _Untouched:
 
 @pytest.mark.asyncio
 async def test_a_coverage_bed_upload_that_declares_nothing_is_refused_before_anything_is_read() -> None:
-    # Refused (422) before anything is read.
+    # Stored undeclared, it would be read as depth by the mtDNA and NIPT checks while the chart
+    # drew it as a log2 ratio.
     with pytest.raises(HTTPException) as refused:
         await bed_router.upload_bed(
             sample_id="S1",
@@ -233,8 +236,8 @@ async def test_what_a_coverage_bed_declares_is_stored_with_its_track_and_recorde
     record = stores.records[(_uuid("S1"), "coverage", "web")]
     assert record["content"] == content
     assert {json.loads(row["metadata_json"])["content"] for row in stores.rows} == {content}
-    # What the family holds says what the sample's coverage BED declared (SAFE-19's record),
-    # and so does the mark the upload leaves until it commits (SAFE-28).
+    # What the family holds says what the sample's coverage BED declared, and so does the
+    # mark the upload leaves until it commits.
     scope = {"source": None, "samples": ["S1"], "content": content}
     assert stores.recorded == [{"dataset": "bed_coverage", "scope": scope, "overwrite": True}]
     assert stores.marked == [[("bed_coverage", scope)]]
@@ -307,7 +310,7 @@ async def test_a_package_coverage_bed_stores_what_its_manifest_entry_declares(
         "S1": {"inserted": 2, "content": "log2_ratio"},
         "S2": {"inserted": 2, "content": "unknown"},
     }
-    # Each record says what its BED holds.
+    # Each record says what its BED holds; neither is read as depth unless it says so.
     assert stores.records[(_uuid("S1"), "coverage", "web")]["content"] == "log2_ratio"
     assert stores.records[(_uuid("S2"), "coverage", "web")]["content"] == "unknown"
     # A package import records what it imported itself, when it ends: not per file.
@@ -482,7 +485,6 @@ async def test_the_track_availability_serves_what_each_coverage_track_holds(monk
         include_small_variants=False,
     )
 
-    # Each coverage track says what it holds; one that declared nothing is unknown.
     assert {name: sample.coverage_contents for name, sample in availability.samples.items()} == {
         "S1": {"hificnv": "read_depth", "web": "read_depth", "wisecondorx": "log2_ratio"},
         "S2": {"web": "unknown"},

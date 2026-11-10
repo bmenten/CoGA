@@ -20,7 +20,7 @@ import { raw, routePath } from '../../lib/routePath';
  * A variant total as the page shows it. An estimated total is a lower bound, marked `+`.
  * The backend counts one past its count limit to tell "more" from "exactly the limit", so
  * a total above `countLimit` reads as the limit; a total from a capped candidate read is
- * the true count of what was read, so it is shown as it is (it read "11+" for 12 rows).
+ * the true count of what was read, so it is shown as it is.
  */
 export const formatVariantTotal = (
   total: number | undefined,
@@ -81,9 +81,9 @@ export interface FilterTranscriptSummary {
 
 /**
  * What a card says of the transcript the search's annotation filters held on, when the
- * primary transcript the card describes does not meet them (CLIN-51): the annotation
- * filters must all hold on one transcript, and a variant kept by SIFT *deleterious* on a
- * second transcript showed its primary transcript's *tolerated*.
+ * primary transcript the card describes does not meet them: the annotation
+ * filters must all hold on one transcript, so a variant kept by SIFT *deleterious* on a
+ * second transcript can show its primary transcript's *tolerated*.
  *
  * Gives the transcript, its gene when it is another, and each of its values that the card
  * would write otherwise: the consequence, LoF, CADD, REVEL, SpliceAI, SIFT and PolyPhen,
@@ -131,7 +131,7 @@ export const describeFilterTranscript = (
 };
 
 // A variant's chromosome with its `chr` prefix, the mitochondrion as `chrM`: prefixing the
-// stored `MT` gave `chrMT`, a name neither the viewers nor IGV's genomes know. Other names are
+// stored `MT` would give `chrMT`, a name neither the viewers nor IGV's genomes know. Other names are
 // kept as written, so an alt contig (chrUn_…) keeps its spelling.
 const prefixedChromosome = (chr: string): string => {
   if (normalizeChrom(chr) === 'MT') return 'chrM';
@@ -147,7 +147,7 @@ export const formatLocus = (variant: Pick<SmallVariant, 'chr' | 'start' | 'end'>
 };
 
 // The genomic change in g. notation, derived from the VCF-style chr/pos/ref/alt the API
-// returns. It is *not* HGVS-compliant, and the card does not call it HGVS (#536): the
+// returns. It is *not* HGVS-compliant, and the card does not call it HGVS: the
 // reference is named by its UCSC-style chromosome rather than a versioned RefSeq accession,
 // a change in a repeat is not shifted 3′, and a duplication is written as an insertion,
 // because deciding `dup` or shifting needs the flanking reference sequence the client does
@@ -402,7 +402,7 @@ export const visibleReviewTagKeys = (tagKeys: string[]): string[] =>
 
 /**
  * How a small-variant review, or a compound-het pair review, shows its class beside its tag
- * chips (CLIN-76): once, by the one rule (normalizeReviewClassification: a bare class word in the
+ * chips: once, by the one rule (normalizeReviewClassification: a bare class word in the
  * text, else the most severe class tag, else the text as stored).
  *
  * - `label`: the class it shows, '' for none; `tone`: that class's chip tone.
@@ -479,7 +479,7 @@ export const getUcscDb = (
 
   if (species.includes('human') || species.includes('homo sapiens') || !species) {
     // By the name, else the version, each read whole as the backend reads it: a part of either
-    // ("hg38" in a version) gave GRCh38's links.
+    // ("hg38" in a version) is not read as GRCh38.
     const human = humanAssemblyOf(assemblyName, assemblyVersion);
     if (human === 'GRCh38') return 'hg38';
     if (human === 'GRCh37') return 'hg19';

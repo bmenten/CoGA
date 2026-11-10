@@ -238,7 +238,7 @@ describe('PipelineSettingsPanel', () => {
     expect(tools).toHaveTextContent('not reported');
   });
 
-  // #610 — a failed manifest read as a run whose tools reported no version, on a panel
+  // A failed manifest never reads as a run whose tools reported no version, on a panel
   // that is printed on the report.
   it('says the tool versions could not be loaded, not that none were reported', async () => {
     const api = (await import('../../../lib/api')).default;

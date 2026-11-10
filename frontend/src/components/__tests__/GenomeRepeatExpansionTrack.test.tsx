@@ -1,5 +1,5 @@
 // Genome-wide repeat-expansion track: the per-sample request, loci placed at chromosome offset + midpoint
-// (clamped inside the track), status colours, the locus tooltip, and loading / empty / failed (#510) states.
+// (clamped inside the track), status colours, the locus tooltip, and loading / empty / failed states.
 import { fireEvent, render, screen } from '@testing-library/react';
 import type { ComponentProps } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -128,7 +128,7 @@ describe('GenomeRepeatExpansionTrack', () => {
     ]);
     expect(options.enabled).toBe(true);
     await expect(options.queryFn()).resolves.toEqual({ items: [] });
-    // Identifiers are single encoded segments (#521); every chromosome is its own chr= param.
+    // Identifiers are single encoded segments; every chromosome is its own chr= param.
     expect(apiGetMock).toHaveBeenCalledWith(
       '/families/FAM%201/repeat-expansions/sample/S%2F1?chr=1&chr=4&chr=X&project_id=P1'
     );
@@ -192,9 +192,8 @@ describe('GenomeRepeatExpansionTrack', () => {
     expect(baseline).toHaveAttribute('stroke', '#e5e7eb');
   });
 
-  // Found while fixing ENG-7 (#1019): a locus was placed on the layout's chromosome named as
-  // its own without `chr`, so a locus on the mitochondrion stored as chrM or M found no `MT`
-  // and was not drawn. MT, M, chrM and chrMT are one chromosome, as the API reads them.
+  // A locus on the mitochondrion is placed on the layout's MT however it is stored: MT, M,
+  // chrM and chrMT are one chromosome, as the API reads them.
   it.each(['chrM', 'M', 'MT', 'chrMT'])('places a locus on the mitochondrion stored as %s', (chr) => {
     serve({
       data: { items: [locus({ locus_id: 'MT_LOCUS', display_name: 'MT_LOCUS', chr, start: 3_000, end: 3_010 })] },
@@ -248,14 +247,12 @@ describe('GenomeRepeatExpansionTrack', () => {
     expect(markers(container).map((marker) => marker.x)).toEqual([148]);
   });
 
-  // Found while fixing the viewer's chrM names (#1023), as in the SV track: a locus was looked up
-  // in the layout without its `chr`, so one stored as `chrM` or `M` never found the layout's `MT`
-  // and was not drawn.
+  // As in the SV track: a locus stored as `chrM` or `M` is placed on the layout's `MT`.
   it.each(['chrM', 'M', 'MT', 'chrMT'])('places a locus stored on %s on the mitochondrion', (chr) => {
     serve({ data: { items: [locus({ locus_id: 'MITO', chr, start: 7_990, end: 8_010 })] } });
     // A layout with the mitochondrion, which it names MT, as normalizeChrom does: chr1, then MT at
-    // 1 Mb. The genome overview has left the mitochondrion out since ENG-20; the track places a
-    // locus on whichever chromosome its layout holds.
+    // 1 Mb. The genome overview leaves the mitochondrion out; the track places a locus on
+    // whichever chromosome its layout holds.
     const layout = {
       offsets: { '1': 0, MT: 1_000_000 },
       lengths: { '1': 1_000_000, MT: 16_569 },
@@ -298,7 +295,7 @@ describe('GenomeRepeatExpansionTrack', () => {
     ).toEqual([
       '#9ca3af', // normal
       '#7c3aed', // review
-      '#0369a1', // not assessed: a locus without thresholds (CLIN-26), its own colour, not unknown's
+      '#0369a1', // not assessed: a locus without thresholds, its own colour, not unknown's
       '#d97706', // intermediate
       '#b42318', // pathogenic
       '#c6ccd3', // unknown
@@ -306,7 +303,7 @@ describe('GenomeRepeatExpansionTrack', () => {
     ]);
   });
 
-  it('draws a not-assessed locus over a normal or review one, and under a finding (CLIN-26)', () => {
+  it('draws a not-assessed locus over a normal or review one, and under a finding', () => {
     serve({
       data: {
         items: [
@@ -329,9 +326,9 @@ describe('GenomeRepeatExpansionTrack', () => {
     ]);
   });
 
-  it('draws the most severe status on top, so a pathogenic locus is not covered (#526)', () => {
+  it('draws the most severe status on top, so a pathogenic locus is not covered', () => {
     // FMR1 (pathogenic) and AFF2 (normal) are 588 kb apart on chrX: at genome scale their
-    // 4 px markers overlap, and in API order (by position) AFF2 was drawn over FMR1.
+    // 4 px markers overlap, and in API order (by position) AFF2 would be drawn over FMR1.
     serve({
       data: {
         items: [
@@ -443,7 +440,7 @@ describe('GenomeRepeatExpansionTrack', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
-  it('a failed request shows the failure with retry, never "no repeat loci" (#510)', () => {
+  it('a failed request shows the failure with retry, never "no repeat loci"', () => {
     const refetch = vi.fn();
     serve({ isError: true, refetch });
     render(track());
@@ -513,7 +510,7 @@ describe('GenomeRepeatExpansionTrack', () => {
     }
   });
 
-  describe('accessible name (#529)', () => {
+  describe('accessible name', () => {
     it('names the drawn loci, the pathogenic ones by name', () => {
       serve({
         data: {
@@ -563,7 +560,7 @@ describe('GenomeRepeatExpansionTrack', () => {
       ).toBeInTheDocument();
     });
 
-    it('counts a not-assessed locus as one, not as unknown (CLIN-26)', () => {
+    it('counts a not-assessed locus as one, not as unknown', () => {
       serve({
         data: {
           items: [
@@ -607,7 +604,7 @@ describe('GenomeRepeatExpansionTrack', () => {
       ).toBeInTheDocument();
     });
 
-    it('a load is named as loading, and a failure as a failure — never as zero loci (#510)', () => {
+    it('a load is named as loading, and a failure as a failure — never as zero loci', () => {
       serve({ isLoading: true });
       const { unmount } = render(track());
       expect(
@@ -622,7 +619,7 @@ describe('GenomeRepeatExpansionTrack', () => {
       ).toBeInTheDocument();
     });
 
-    // #602 — a track that asked for nothing found nothing: it is not "none".
+    // A track that asked for nothing found nothing: it is not "none".
     it('before the genome layout is known it is loading, not empty', () => {
       serve({ data: { items: [locus()] } });
       render(track({ layout: null }));

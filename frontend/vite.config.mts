@@ -46,7 +46,7 @@ export default defineConfig({
           if (id.includes('/node_modules/d3') || id.includes('/node_modules/internmap')) {
             return 'd3-vendor';
           }
-          // MSAL (Microsoft sign-in, SEC-4): its own chunk, loaded only where it is used.
+          // MSAL (Microsoft sign-in): its own chunk, loaded only where it is used.
           if (id.includes('/node_modules/@azure/')) {
             return 'msal-vendor';
           }
@@ -63,7 +63,7 @@ export default defineConfig({
     // is a separate runner (npm run test:e2e) — keep vitest from collecting it.
     include: ['src/**/*.{test,spec}.{ts,tsx}'],
     coverage: {
-      // Measure frontend coverage (#273) (mirrors the backend coverage floor). The global
+      // Measure frontend coverage (mirrors the backend coverage floor). The global
       // threshold ratchets against regression; `npm run test:coverage` fails below it.
       provider: 'v8',
       reporter: ['text-summary', 'json-summary', 'json'],
@@ -79,14 +79,10 @@ export default defineConfig({
         'src/setupTests.ts',
         'src/vite-env.d.ts'
       ],
-      // Ratchet floors set just below the measured baseline (2026-09-29, #526 close-out:
-      // lines 81.9 / statements 80.1 / functions 77.5 / branches 69.5; before: 80.3 /
-      // 78.4 / 75.7 / 66.2 earlier that day, and 69.3 / 67.7 / 65.1 / 57.2 on
-      // 2026-06-28). The visualisations, which draw what the clinician reads off a
-      // track, have a floor of their own (lines 89.9 / statements 88.5 / functions 90.9 /
-      // branches 78.2). Raised after the test-suite review of 2026-11-03 to 3 points under
-      // what it measured: lines 93.2 / statements 92.0 / functions 90.8 / branches 82.4,
-      // the visualisations 95.7 / 94.3 / 95.5 / 86.2.
+      // Ratchet floors about 3 points under what the suite measures (lines 93.2 / statements
+      // 92.0 / functions 90.8 / branches 82.4). The visualisations, which draw what the
+      // clinician reads off a track, have a floor of their own (measured 95.7 / 94.3 / 95.5 /
+      // 86.2).
       thresholds: {
         lines: 90,
         functions: 87,

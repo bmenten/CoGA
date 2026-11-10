@@ -73,7 +73,7 @@ const escapedFlag = (meta: FlagSource): AuditFlag | null => {
 };
 
 // request_meta.emergency_sign_in: the emergency administrator's password sign-in beside
-// Microsoft sign-in, or a request made with it (SEC-4).
+// Microsoft sign-in, or a request made with it.
 const emergencySignInFlag = (meta: FlagSource): AuditFlag | null =>
   meta?.emergency_sign_in === true
     ? {
@@ -91,7 +91,7 @@ const isFieldChange = (value: unknown): value is FieldChange =>
   typeof value === 'object' && value !== null && 'to' in value;
 
 // request_meta.account_change: the account this request made (a first Microsoft sign-in) or
-// whose role, activation (SEC-4) or project access (SEC-1) it changed, each field from and to.
+// whose role, activation or project access it changed, each field from and to.
 const accountChangeFlag = (meta: FlagSource): AuditFlag | null => {
   const change = meta?.account_change;
   if (typeof change !== 'object' || change === null) return null;

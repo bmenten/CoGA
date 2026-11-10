@@ -1,8 +1,7 @@
-"""Who is asking, and what they may see: the signed-in user and the project-scoped rules (#528).
+"""Who is asking, and what they may see: the signed-in user and the project-scoped rules.
 
-Split out of ``metadata_service`` so that the many routers and services that need only the user
-model and the access rules do not depend on the metadata layer. The rules that need the
-database (``get_accessible_family_mapping``, ``get_accessible_sample_mapping``) stay with the
+The many routers and services that need only the user model and the access rules read them
+from here, without depending on the metadata layer. The rules that need the database (``get_accessible_family_mapping``, ``get_accessible_sample_mapping``) stay with the
 queries they guard, in ``metadata_service``.
 
 Two things decide what a user may do with a record:
@@ -14,7 +13,7 @@ Two things decide what a user may do with a record:
   member or not, and the configuration the analyses read: gene panels, variant tags, filter
   presets, sequencing QC thresholds, and package import. An *admin* also has the rest of the
   administration: accounts, projects, reference data, data deletion, audit.
-- Their **access level** in each project they are a member of (SEC-1): an analyst reads and
+- Their **access level** in each project they are a member of: an analyst reads and
   changes the project's records, a reader only reads them. The level can only take rights
   away: a viewer changes nothing in any project, whatever their level there.
 
@@ -94,7 +93,7 @@ class CurrentUser(BaseModel):
     first_name: str = ""
     last_name: str = ""
     affiliation: str = ""
-    # The Microsoft object ID of an account that signs in with Microsoft (SEC-4); None for a
+    # The Microsoft object ID of an account that signs in with Microsoft; None for a
     # local account.
     azure_object_id: str | None = None
     is_active: bool = True
@@ -197,8 +196,7 @@ def user_analyst_project_ids(user: CurrentUser) -> list[str]:
 
 def user_can_change_metadata_projects(project_ids: Iterable[Any] | None, user: CurrentUser) -> bool:
     """Whether the user may change a record linked to these projects: a superuser or an admin
-    always, a viewer never, anyone else when they are an analyst in at least one of them
-    (SEC-1).
+    always, a viewer never, anyone else when they are an analyst in at least one of them.
 
     A record linked to several projects may be changed by an analyst of any one of them, as it
     may be seen by a member of any one of them.
@@ -224,7 +222,7 @@ class ReadOnlyAccess(HTTPException):
 
 def require_change_access(project_ids: Iterable[Any] | None, user: CurrentUser) -> None:
     """Refuse a change to a record of these projects by a user who only reads them: a viewer,
-    or a reader of the projects (SEC-1).
+    or a reader of the projects.
 
     The family, sample and project checkpoints call this once they have found that the user
     may see the record, so a viewer or reader is told why (403) while a record they may not

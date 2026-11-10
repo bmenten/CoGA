@@ -77,7 +77,7 @@ describe('CnvAcmgClassificationModal', () => {
     expect(select.value).toBe('gain');
   });
 
-  it('opens a tandem duplication on gain, without the loss criterion 2H (CLIN-47)', () => {
+  it('opens a tandem duplication on gain, without the loss criterion 2H', () => {
     render(
       <CnvAcmgClassificationModal
         variant={{ ...variant, _id: 'DUP-1', type: 'DUP:TANDEM', gene_pli: 0.99 }}
@@ -93,7 +93,7 @@ describe('CnvAcmgClassificationModal', () => {
     expect(screen.queryByDisplayValue(/supports haploinsufficiency/)).not.toBeInTheDocument();
   });
 
-  it("scores a deletion switched to gain with the gain's own suggestions (CLIN-55)", async () => {
+  it("scores a deletion switched to gain with the gain's own suggestions", async () => {
     let saved: StructuralVariantReviewSavePayload | undefined;
     render(
       <CnvAcmgClassificationModal
@@ -149,7 +149,7 @@ describe('CnvAcmgClassificationModal', () => {
     });
   });
 
-  it("scores a duplication switched to loss with the loss's own suggestions (CLIN-55)", async () => {
+  it("scores a duplication switched to loss with the loss's own suggestions", async () => {
     let saved: StructuralVariantReviewSavePayload | undefined;
     render(
       <CnvAcmgClassificationModal
@@ -190,7 +190,7 @@ describe('CnvAcmgClassificationModal', () => {
     });
   });
 
-  it('keeps what was changed by hand in the kind it was changed in (CLIN-55)', async () => {
+  it('keeps what was changed by hand in the kind it was changed in', async () => {
     let saved: StructuralVariantReviewSavePayload | undefined;
     render(
       <CnvAcmgClassificationModal
@@ -242,7 +242,7 @@ describe('CnvAcmgClassificationModal', () => {
 
   it('replaces the review’s ACMG class tags with the class it saves, keeping its other tags', async () => {
     // A class tag outranks a class label in the class a review shows: kept beside the CNV class,
-    // acmg_class_5 would show class 5 for a CNV this dialog classifies otherwise (CLIN-76).
+    // acmg_class_5 would show class 5 for a CNV this dialog classifies otherwise.
     let saved: StructuralVariantReviewSavePayload | undefined;
     const onSave = vi.fn(async (payload: StructuralVariantReviewSavePayload) => {
       saved = payload;
@@ -286,13 +286,13 @@ describe('CnvAcmgClassificationModal', () => {
     expect(saved?.classification).toBe(acmg?.classification);
   });
 
-  it('names the caller of the row it was opened on, whose evidence the save freezes (TRACE-11)', async () => {
+  it('names the caller of the row it was opened on, whose evidence the save freezes', async () => {
     const saves: StructuralVariantReviewSavePayload[] = [];
     const onSave = vi.fn(async (payload: StructuralVariantReviewSavePayload) => {
       saves.push(payload);
     });
     // Two callers' rows of one SV share its id; each dialog names its own row's caller, in its
-    // header too (TRACE-12: the header named none, so the two dialogs looked the same).
+    // header too, so the two dialogs do not look the same.
     const { unmount } = render(
       <CnvAcmgClassificationModal variant={{ ...variant, source: 'needlr' }} onClose={vi.fn()} onSave={onSave} />,
     );
@@ -352,7 +352,7 @@ describe('CnvAcmgClassificationModal', () => {
     expect(screen.getAllByTitle('fixed 0.00').length).toBeGreaterThan(0); // 1A, 2G, 3A, 5F
   });
 
-  it('warns before an unreadable stored CNV classification is overwritten (#514)', () => {
+  it('warns before an unreadable stored CNV classification is overwritten', () => {
     render(
       <CnvAcmgClassificationModal
         variant={{
@@ -373,7 +373,7 @@ describe('CnvAcmgClassificationModal', () => {
     );
   });
 
-  it('asks before a backdrop click discards changed criteria (#529)', () => {
+  it('asks before a backdrop click discards changed criteria', () => {
     const onClose = vi.fn();
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
     const { container } = render(
@@ -408,7 +408,7 @@ describe('CnvAcmgClassificationModal', () => {
   });
 });
 
-// SEC-1: a reader in the family's projects sees the scoring but cannot save it.
+// A reader in the family's projects sees the scoring but cannot save it.
 describe('CnvAcmgClassificationModal for a reader', () => {
   it('does not save a reader’s classification and says why', () => {
     const onSave = vi.fn(async () => undefined);

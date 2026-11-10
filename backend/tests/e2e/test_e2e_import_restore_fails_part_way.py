@@ -1,5 +1,5 @@
 """A restore that fails part-way keeps the family marked until it is imported again in full
-(E2E, SAFE-13, SAFE-16, SAFE-19, SAFE-20 and SAFE-23).
+(E2E).
 
 An overwrite of an existing family that fails puts the family back from the backup it made
 first, table by table: the family's rows deleted, then the backup's re-inserted. A restore
@@ -8,11 +8,11 @@ import wrote them. A flag naming only the dataset that had failed would be clear
 import of that dataset alone, and the family would sign out without the incomplete-import
 gate while its small variants were gone (TF-06 H16, REQ-TRACE-013). So the flag names every
 dataset of the import as failed, and the import's ``import_unfinished`` entry stays, naming
-every dataset of the family, those the import did not carry included (SAFE-16), until an
+every dataset of the family, those the import did not carry included, until an
 overwrite import of the whole family completes. Uploads record what they brought, and an
-upload with overwrite brings it again (SAFE-19). An SNV dataset whose ``source_format`` is
+upload with overwrite brings it again. An SNV dataset whose ``source_format`` is
 ``auto`` records the callset its file held, so two such imports do not bring each other's
-callset again (SAFE-23).
+callset again.
 
 Over six new one-sample families this runs real import jobs (``POST /api/family-imports``,
 then the worker's ``run_family_import_job``) and structural-variant uploads
@@ -43,7 +43,7 @@ The second family (the restore fails in the tracks, which the failing import did
 * package 4 (overwrite, coverage alone) completes: the whole family has been imported again,
   the entry goes, and the report signs out with no import acknowledgement.
 
-The third and fourth families (SAFE-20: an update after such a restore):
+The third and fourth families (an update after such a restore):
 
 * package 1 (cancel): 6 small variants and coverage: the family is complete;
 * package 2 (overwrite): 4 other small variants, and coverage, which fails; ClickHouse fails
@@ -364,7 +364,7 @@ async def _collect(base: Path, mp: pytest.MonkeyPatch) -> dict:
             await sign_out("tracks", await run_import("tracks", "4_coverage_again", "overwrite", variants=None))
 
             # The third and fourth families: an update after the restore failed part-way,
-            # its coverage rows left by it, or removed (SAFE-20).
+            # its coverage rows left by it, or removed.
             for scenario, table in (("kept", "SNV_INDEL/entries"), ("removed", "INTERVAL/entries")):
                 await run_import(scenario, "1_complete", "cancel")
                 failing.update(dataset="coverage", restore=table)
@@ -381,7 +381,7 @@ async def _collect(base: Path, mp: pytest.MonkeyPatch) -> dict:
                 await sign_out(scenario, await run_import(scenario, "3_coverage_update", "update", variants=None))
 
             # The fifth family: the restore removes SV calls a single-file upload loaded,
-            # which no package dataset brings (SAFE-19).
+            # which no package dataset brings.
             await run_import("upload", "1_complete", "cancel", coverage=False)
             await upload_svs("upload", "1_sv_upload", overwrite=False)
             failing.update(dataset="snv", restore="SV/entries")
@@ -402,7 +402,7 @@ async def _collect(base: Path, mp: pytest.MonkeyPatch) -> dict:
 
             # The sixth family: the restore removes the direct calls an import stored, its
             # source_format left at auto; an import of imputed genotypes, auto too, does not
-            # bring them again (SAFE-23).
+            # bring them again.
             await run_import("callset", "1_complete", "cancel")
             failing.update(dataset="coverage", restore="SNV_INDEL/entries")
             try:
@@ -465,7 +465,7 @@ def test_the_family_was_complete_before_the_overwrite(snap) -> None:
 def test_the_restore_failed_part_way_and_removed_the_small_variants(snap) -> None:
     step = snap["steps"]["snv/2_overwrite_restore_fails"]
     assert step["job"]["status"] == "failed"
-    # The job's record says what the flag says (SAFE-18): both failed.
+    # The job's record says what the flag says: both failed.
     assert step["job"]["error"] == "Family package import failed for dataset(s): coverage, snv"
     summaries = {item["dataset_type"]: item for item in step["job"]["dataset_summaries"]}
     assert (summaries["coverage"]["status"], summaries["snv"]["status"]) == ("failed", "failed")
@@ -576,7 +576,7 @@ def test_an_import_of_the_rest_of_the_family_completes_it(snap) -> None:
     _signed(step)
 
 
-# --- the third and fourth families: an update after the restore (SAFE-20) ----------------
+# --- the third and fourth families: an update after the restore ----------------
 
 
 def _coverage_summary(step: dict) -> dict:
@@ -634,8 +634,8 @@ def test_an_upload_records_what_it_brought_for_the_family(snap) -> None:
     assert imported["job"]["status"] == "completed", imported["job"]["error"]
     assert step["upload"]["status"] == 200, step["upload"]["text"]
     assert step["family"]["svs"] == 2
-    # The family records the upload's SV calls beside the package's small variants (SAFE-19).
-    # Their callset is the one the package's file holds, its source_format being auto (SAFE-23).
+    # The family records the upload's SV calls beside the package's small variants.
+    # Their callset is the one the package's file holds, its source_format being auto.
     sample = f"{snap['families']['upload']}_S1"
     assert step["family"]["imported_scopes"] == {
         "snv": [{"source": "clair3", "samples": None}],
@@ -681,7 +681,7 @@ def test_the_calls_uploaded_again_with_overwrite_complete_the_family(snap) -> No
     _signed(step)
 
 
-# --- the sixth family: the restore removes the callset an auto import stored (SAFE-23) -----
+# --- the sixth family: the restore removes the callset an auto import stored -----
 
 _DIRECT_CALLSET = {"source": "clair3", "samples": None}
 

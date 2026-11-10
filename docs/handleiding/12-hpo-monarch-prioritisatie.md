@@ -107,7 +107,7 @@ Verandert één invoer, dan verandert de hash: de cache mist en de rangschikking
 Een smaller panel kan uit een bredere rangschikking van dezelfde familie worden bediend (het Mendeliome dekt zijn deelpanels), maar alleen als:
 
 - die rangschikking volledig is;
-- haar panel nog precies de genen en regio's bevat waarop ze berekend werd. Elke cacherij legt die vast (`provenance.panel_members`). Het smallere panel kan immers alleen varianten uit de bredere rangschikking weglaten, nooit toevoegen. Een rangschikking van vóór een gen aan haar panel werd toegevoegd, mist de varianten van dat gen en dient dus geen enkel panel meer. Een rij die niets vastlegde, of waarvan het panel verwijderd is, wordt evenmin gebruikt;
+- haar panel nog precies de genen en regio's bevat waarop ze berekend werd. Elke cacherij legt die vast (`provenance.panel_members`). Het smallere panel kan immers alleen varianten uit de bredere rangschikking weglaten, nooit toevoegen. Een rangschikking van vóór een gen aan haar panel werd toegevoegd, mist de varianten van dat gen en dient dus geen enkel panel meer. Een rij waarvan het panel verwijderd is, wordt evenmin gebruikt;
 - ze elke variant bevat die het smallere panel bereikt, met de segregatie die ze binnen dat panel heeft. CoGA haalt die varianten daarom eerst op.
 
 Elk panel wordt op gen en op positie vergeleken, ook het Mendeliome (beslissing van de eigenaar van 14 oktober 2026). De rangschikking van het Mendeliome bevat dus ook een variant die het kleinere panel via de locus van een gen bereikt, bv. omdat de annotatie het gen anders noemt dan de genreferentie. Twee gevallen kunnen de laatste voorwaarde doen falen; het smallere panel wordt dan rechtstreeks berekend:

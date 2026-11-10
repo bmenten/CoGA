@@ -101,7 +101,7 @@ def _metadata_filename(row: dict[str, Any]) -> str:
 
 def _interval_row_tuple(row: dict[str, Any]) -> tuple[Any, ...] | None:
     """The row as the table stores it, or None when the ``UInt64`` columns cannot hold its
-    start or end. Its other values are bound to their columns (SAFE-30): a phase set no
+    start or end. Its other values are bound to their columns: a phase set no
     ``UInt64`` holds is stored as missing."""
     start = column_int(row["start"], UINT64)
     end = column_int(row["end"], UINT64)
@@ -188,7 +188,7 @@ async def delete_interval_tracks(
         clauses.append("source = %(source)s")
         params["source"] = source
     if filename is not None:
-        clauses.append("(filename = %(filename)s OR JSONExtractString(metadata_json, 'filename') = %(filename)s)")
+        clauses.append("filename = %(filename)s")
         params["filename"] = filename
     if not clauses:
         raise ValueError("At least one interval-track delete filter is required")
@@ -268,9 +268,9 @@ async def fetch_interval_track_rows(
     # `metadata_json` (per-row provenance: filename, line_no, …) is NOT selected unless
     # asked for. It is large (a JSON blob per row) and unused by every track reader but
     # the per-target coverage table's (whose rows keep their median and covered share
-    # there), so streaming it for a whole-genome APCAD track meant moving megabytes of
-    # dead weight per request — slow, and the prime trigger for stream corruption under
-    # the genome view's concurrent fan-out.
+    # there), so streaming it for a whole-genome APCAD track would move megabytes of
+    # dead weight per request — slow, and a trigger for stream corruption under the genome
+    # view's concurrent fan-out.
     metadata_column = ", metadata_json" if include_metadata else ""
     query = f"""
         SELECT
@@ -345,7 +345,7 @@ def _apcad_chromosome_budgets(site_counts: Mapping[str, int], budget: int) -> di
 
     One quality-ranked budget across the genome does not: joint calling gives a
     chromosome's markers higher ``qual`` wherever any sample of the cohort carries extra
-    reads there (one embryo's trisomy raised a whole chromosome's ``qual`` for every
+    reads there (one embryo's trisomy raises a whole chromosome's ``qual`` for every
     embryo), and a genome-wide ranking then draws that chromosome denser than the others
     while its stored sites are not. A track that fits the budget keeps every site; else
     each chromosome gets its floor share and the points left over go to the largest
@@ -380,8 +380,8 @@ async def fetch_apcad_downsampled(
     entirely server-side, to at most ~``budget`` points.
 
     APCAD is stored at SNV resolution (millions of markers/sample). Pulling them all
-    into Python and thinning there moved megabytes and blocked the event loop for
-    seconds. Instead ClickHouse does the selection:
+    into Python and thinning there would move megabytes and block the event loop for
+    seconds, so ClickHouse does the selection:
 
     - Informative markers only: ``origin IN ('paternal','maternal')`` — these are the
       SNVs that distinguish the parental haplotypes (``und`` markers are not phasing-
@@ -435,7 +435,7 @@ async def fetch_apcad_downsampled(
     # Whether to fall back to unphased markers is a property of the *track*, not of the
     # window being drawn. Deciding it per window would be wrong in the direction that
     # matters: on a genuinely phased track a stretch with no informative markers
-    # currently renders empty, and that emptiness is the autozygosity signal -- filling
+    # renders empty, and that emptiness is the autozygosity signal -- filling
     # it with `und` points would mask exactly what the view exists to show. So probe the
     # whole track once (LIMIT 1 on the primary key: family, sample, track_type).
     if origin_clause:
@@ -474,13 +474,13 @@ async def fetch_apcad_downsampled(
     # while there *is* a quality to rank by: a track whose markers carry no `qual`
     # -- HiFiCNV's minor-allele-fraction bigWig, which records a value per site and
     # nothing else -- extracts 0.0 for every row, making the ORDER BY a constant. The
-    # LIMIT then keeps whatever ClickHouse read first, which in primary-key order is
-    # the start of the chromosome: 2000 points landed in 2.1 Mb of chr1's 249 Mb and
-    # the rest of the track was blank.
+    # LIMIT would then keep whatever ClickHouse read first, which in primary-key order is
+    # the start of the chromosome: 2000 points in 2.1 Mb of chr1's 249 Mb, and the rest
+    # of the track blank.
     #
     # Hashing the position spreads those ties uniformly across the requested range.
     # Where `qual` does exist it still decides the ranking outright and this only
-    # makes the previously arbitrary tie order reproducible.
+    # makes the tie order reproducible.
     order_expr = f"{qual_expr} DESC, cityHash64(chrom, start)"
 
     def _band_query(chrom_param: str, band_expr: str, target: int) -> str:
@@ -559,8 +559,8 @@ async def get_interval_track_sources_by_sample(
 ) -> dict[str, list[str]]:
     """Sample name → the sources that actually have rows for ``track_type``.
 
-    Presence alone ("this sample has coverage") is not enough once a sample can
-    carry three callers' coverage at once: the view has to know *which* callers,
+    Presence alone ("this sample has coverage") is not enough: a sample can carry
+    three callers' coverage at once, and the view has to know *which* callers,
     so it can draw one track per caller rather than one track of everything
     averaged together.
     """
@@ -664,8 +664,7 @@ async def count_interval_track_rows(
     ``sample_uuid`` None of every sample's of the family, of ``source`` or of every source:
     what is stored. ``count_interval_track_source_rows`` reads instead what the loaders
     recorded in Postgres, which a failed overwrite's restore does not rewrite with these
-    rows: one that fails part-way can leave the record of a track whose rows it deleted
-    (SAFE-20)."""
+    rows: one that fails part-way can leave the record of a track whose rows it deleted."""
     await ensure_clickhouse_interval_table(assembly_name)
     clauses = ["family_guid = %(family_uuid)s", "track_type = %(track_type)s"]
     params: dict[str, Any] = {"family_uuid": str(family_uuid), "track_type": track_type}
@@ -695,7 +694,7 @@ async def interval_track_rows_digest(
     """An order-independent digest of a family's ``track_type`` rows as stored: their number
     and the XOR of each row's hash over its sample, place, haplotypes, metadata and load time.
     It changes when a row is added, removed or written again, so the lineage precompute's
-    fingerprint covers the haplotype blocks it was computed from (CLIN-66)."""
+    fingerprint covers the haplotype blocks it was computed from."""
     await ensure_clickhouse_interval_table(assembly_name)
     rows = await _execute(
         f"""
@@ -884,7 +883,7 @@ async def interval_counts_by_family(
     if not family_uuids:
         return {}
     # One uuid[] parameter, not one per family (an expanding IN): asyncpg takes at most 32,767
-    # per statement, and the data inventory counts every one (DATA-6).
+    # per statement, and the data inventory counts every one.
     result = await session.execute(
         text(
             """
@@ -914,7 +913,7 @@ async def interval_counts_by_sample(
     if not sample_uuids:
         return {}
     # One uuid[] parameter, not one per sample (an expanding IN): asyncpg takes at most 32,767
-    # per statement, and the data inventory counts every one (DATA-6).
+    # per statement, and the data inventory counts every one.
     result = await session.execute(
         text(
             """
@@ -948,7 +947,7 @@ async def interval_source_counts_by_sample(
     if not sample_uuids:
         return {}
     # One uuid[] parameter, not one per sample (an expanding IN): asyncpg takes at most 32,767
-    # per statement, and the data inventory counts every one (DATA-6).
+    # per statement, and the data inventory counts every one.
     result = await session.execute(
         text(
             """
@@ -1005,7 +1004,7 @@ async def interval_track_contents_by_sample(
     track_type: str,
 ) -> dict[str, dict[str, list[str]]]:
     """Sample name → source → what its ``track_type`` records declare the values are
-    (``metadata.content``, TRACE-9): a coverage BED's ``read_depth``, ``log2_ratio`` or
+    (``metadata.content``): a coverage BED's ``read_depth``, ``log2_ratio`` or
     ``unknown`` (``coverage_content``). A source whose records declare nothing, every other
     caller's track, is left out. Distinct and sorted, as
     ``interval_track_normalizations_by_sample``."""

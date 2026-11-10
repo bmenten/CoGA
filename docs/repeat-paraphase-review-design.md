@@ -1,60 +1,52 @@
-# Ontwerpvoorstel: review van repeat expansions en Paraphase-bevindingen
+# Ontwerp: review van repeat expansions en Paraphase-bevindingen
 
-Status: **goedgekeurd door de eigenaar en QA, en gebouwd**: backend in PR 1, UI in PR 2 (§12; beide
-gemerged op 2026-10-29). De beslissingen staan in §2: B1–B16 uit de vragenronde van 2026-10-28, B17–B20
-de afwijkingen die PR 1 voorlegde en die met die PR aanvaard werden, B21–B23 de keuzes die de eigenaar in
-PR 2 bevestigde. Waar de tekst hieronder afwijkt van B17–B23, gelden B17–B23.
-Datum van het voorstel: 2026-10-28.
+Status: **goedgekeurd door de eigenaar en QA, en gebouwd**. De beslissingen staan in §2: B1–B16 uit de
+vragenronde van 2026-10-28, B17–B23 de keuzes bij de bouw, door de eigenaar aanvaard op 2026-10-29.
 
-## 1. Aanleiding en uitgangssituatie
+## 1. Aanleiding
 
 Small variants, structurele varianten en mtDNA-varianten hebben een review per familie:
 tags (Review, Exclude, Report, eigen tags), een notitie, een classificatie (ACMG of CNV-scoring), een
 bevroren evidence-snapshot met een driftpoort bij de sign-out, en een rij per wijziging in de
-hash-gekoppelde klinische audittrail. Repeat expansions (TRGT) en Paraphase hebben dat niet.
+hash-gekoppelde klinische audittrail. Repeat expansions (TRGT) en Paraphase krijgen dezelfde review,
+zodat in CoGA vastligt welke bevinding de analist rapporteert, als artefact beschouwt of anders inschat
+dan de automatische status.
 
-Wat er nu is:
+De calls zelf:
 
 | Onderdeel | Repeat expansions | Paraphase |
 | --- | --- | --- |
 | Opslag | `repeat_expansions`: één rij per sample per locus; een herimport vervangt de rijen (nieuwe `id`) | `sample_paraphase_results`: één rij per sample per gen (`UNIQUE (sample_id, gene_symbol)`) |
 | Status | automatisch, live herberekend tegen de catalogus `repeat_loci` (normal, intermediate, premutation, pathogenic, review, not_assessed, unknown) | automatisch uit de catalogus van medische regio's (pathogenic, carrier, normal, review, no_call) |
-| Review | geen | geen |
-| Live rapport | geen sectie | geen sectie |
 | Ondertekend record | sectie `repeat_expansions`: **elke** call met status, drempels, catalogus, near-boundary-waarschuwing en het QA-register van de telwijze | sectie `paraphase`: **elk** resultaat met status en de catalogusregel |
 | Eisen | REQ-DIAG-004 (C, geen risico) | REQ-DIAG-005 (C, geen risico) |
-
-Het klinische oordeel over een repeat- of Paraphase-bevinding staat vandaag dus alleen in het
-EPD-verslag. In CoGA is niet vastgelegd welke bevinding de analist rapporteert, als artefact beschouwt
-of anders inschat dan de automatische status.
 
 ## 2. Beslissingen van de eigenaar (2026-10-28)
 
 | # | Vraag | Beslissing |
 | --- | --- | --- |
 | B1 | Reviewniveau | **Per locus (repeat) of regio (Paraphase) per familie**, zoals bij small variants en SV's. De notitie kan het betrokken sample noemen. |
-| B2 | Betekenis van Report | **Markeren; het record blijft volledig.** Het record bevriest zoals nu alle calls met status. Report zet een bevinding bovendien in een lijst "gerapporteerde bevindingen", met de review erbij. |
+| B2 | Betekenis van Report | **Markeren; het record blijft volledig.** Het record bevriest alle calls met status. Report zet een bevinding bovendien in een lijst "gerapporteerde bevindingen", met de review erbij. |
 | B3 | Betekenis van Exclude | **Zoals bij small variants.** De kaart klapt dicht tot de kop en blijft in de lijst; ook *Aberrant only* blijft hem tonen. Status en record veranderen nooit. |
 | B4 | Classificatie | **Een eigen schaal per type, met verminderde penetrantie en risicoallel** (§4.3), naast de automatische status. |
 | B5 | Call gewijzigd na de review | **Snapshot + sign-outpoort.** De review bevriest waarop het oordeel steunde; wijkt dat af bij de sign-out, dan is een bevestiging met reden nodig, zoals bij de ACMG-driftpoort. |
 | B6 | Tags | **De volledige tagcatalogus** (dezelfde als bij small variants, ook de ACMG-klassetags en VUS-tiers), met de beperking van B14 in de dialoog. |
-| B7 | Rapport | **De gerapporteerde lijst op het live rapport én in de ondertekende versie**; de ondertekende versie toont daarnaast, zoals nu, alle calls. |
+| B7 | Rapport | **De gerapporteerde lijst op het live rapport én in de ondertekende versie**; de ondertekende versie toont daarnaast alle calls. |
 | B8 | Afwijkende call zonder review | **Bevestigen met reden** bij de sign-out; de reden wordt in het record en de audittrail bevroren. |
 | B9 | Rechten | **Zoals bij small variants**: een analist of beheerder in het project; een lezer ziet de review maar kan niets wijzigen. |
-| B10 | Uitvoering | **Twee PR's**: eerst de backend, dan de UI. |
-| B11 | Technisch dossier | **Nieuwe eisen, nieuwe risico's en een gebied in TF-10 §8**, plus `clinical-traceability.md`. Geen CHANGELOG-regel en geen TF-18-rij (pre-RC). |
+| B11 | Technisch dossier | **Eigen eisen en risico's en een gebied in TF-10 §8**, plus `clinical-traceability.md`. Geen CHANGELOG-regel en geen TF-18-rij (pre-RC). |
 | B12 | Grijze zone en near-boundary in de poort | Een *intermediate*-call telt **niet** als afwijkend voor de poort van §6.2; een telling **near a boundary** bij een niet-gevalideerd locus telt **wel**, ook als de status *normal* of *intermediate* is. |
 | B13 | Reviews die de driftpoort controleert | Alleen reviews met **een classificatie of de Report-tag**. |
 | B14 | ACMG-klassetags bij repeats en Paraphase | De volledige catalogus blijft (B6), maar de dialoog van repeats en Paraphase biedt de groep *classification* (ACMG-klassetags en VUS-tiers) **niet** aan. Een review die zo'n tag toch bevat, toont hem gemarkeerd. |
 | B15 | Ander locus-ID na een herimport | Een review **verhuist niet mee**. Een andere ID is een andere bevinding; de oude review blijft in de audittrail en de nieuwe afwijkende call telt als niet gereviewd. |
 | B16 | Gerapporteerde bevinding met status *normal* | **Mag**, bijvoorbeeld als relevant negatief resultaat, met de markering "differs from CoGA's status" als het oordeel afwijkt. |
-| B17 | Wanneer de calls opnieuw bevroren worden (PR 1) | Een opslag die de classificatie zet of wijzigt, of de Report-tag toevoegt, bevriest de calls opnieuw. Een opslag van alleen tags of een notitie houdt de bevroren calls, zodat hij geen drift kan wegwerken zonder nieuw oordeel (zoals bij ACMG- en CNV-classificaties). Vervangt "bij elke opslag" in §5. |
-| B18 | Geen Alembic-revisie (PR 1) | Twee nieuwe tabellen hebben er geen nodig: tot de release candidate worden de baselines bij elke migratierun opnieuw toegepast. Vervangt de revisie in §4.2. |
-| B19 | De dialoog van de nieuwe poort zit al in de backend-PR (PR 1) | `reportSignOut.tsx` en de Playwright-journey kennen de poort al in PR 1; anders kon een familie met een ongereviewde afwijkende call (de golden trio inbegrepen) tot de UI-PR niet ondertekend worden. De driftdialoog noemt ook de repeat- en Paraphase-reviews die hij telt. |
-| B20 | Calls die niet gelezen konden worden, houden de poort ook tegen (PR 1) | Kan de repeat- of Paraphase-sectie van het record niet gelezen worden, dan noemt de poort dat ("the repeat locus calls could not be read"), zodat een afwijkende call niet ongezien ondertekend wordt. Aanvulling op §6.2. |
-| B21 | *Secondary finding* in de dialoog (PR 2) | De dialoog van repeats en Paraphase laat alleen de ACMG-klassetags (`acmg_*`) en de VUS-tiers weg; *Secondary finding* blijft aangeboden: het is geen ACMG-klasse. Verfijning van B14. |
-| B22 | Wanneer "differs from CoGA's status" verschijnt (PR 2) | Alleen als de classificatie met **geen enkele** call van de familieleden overeenkomt. Een review geldt per locus (B1) en kan over één lid gaan: *Premutation* voor de moeder bij een locus waar het kind *Pathogenic* leest, wordt niet gemarkeerd; *Normal* terwijl elke call *Pathogenic* leest wel. |
-| B23 | Een leesendpoint voor de tellingen in de family workspace (PR 2) | `GET /families/{id}/finding-review-summary`, alleen lezend, met de gewone familiecontrole: een lezer mag het lezen, zoals de samenvatting van small variants. |
+| B17 | Wanneer de calls opnieuw bevroren worden | Een opslag die de classificatie zet of wijzigt, of de Report-tag toevoegt, bevriest de calls opnieuw. Een opslag van alleen tags of een notitie houdt de bevroren calls, zodat hij geen drift kan wegwerken zonder nieuw oordeel (zoals bij ACMG- en CNV-classificaties). |
+| B18 | Geen Alembic-revisie | De twee tabellen staan alleen in hun baseline: vóór de release candidate is een schemawijziging een aanpassing van de baselines, en wordt een database opnieuw leeg aangemaakt. |
+| B19 | De sign-outdialoog | De dialoog van de sign-out (`reportSignOut.tsx`) toont de poort voor afwijkende calls zonder review (§6.2), en de driftdialoog noemt ook de repeat- en Paraphase-reviews die hij telt. |
+| B20 | Calls die niet gelezen konden worden, houden de poort ook tegen | Kan de repeat- of Paraphase-sectie van het record niet gelezen worden, dan noemt de poort dat ("the repeat locus calls could not be read"), zodat een afwijkende call niet ongezien ondertekend wordt (§6.2). |
+| B21 | *Secondary finding* in de dialoog | De dialoog van repeats en Paraphase laat alleen de ACMG-klassetags (`acmg_*`) en de VUS-tiers weg; *Secondary finding* blijft aangeboden: het is geen ACMG-klasse. Verfijnt B14. |
+| B22 | Wanneer "differs from CoGA's status" verschijnt | Alleen als de classificatie met **geen enkele** call van de familieleden overeenkomt. Een review geldt per locus (B1) en kan over één lid gaan: *Premutation* voor de moeder bij een locus waar het kind *Pathogenic* leest, wordt niet gemarkeerd; *Normal* terwijl elke call *Pathogenic* leest wel. |
+| B23 | Een leesendpoint voor de tellingen in de family workspace | `GET /families/{id}/finding-review-summary`, alleen lezend, met de gewone familiecontrole: een lezer mag het lezen, zoals de samenvatting van small variants. |
 
 ## 3. Principes
 
@@ -63,7 +55,7 @@ of anders inschat dan de automatische status.
    genoomtracks. Status en oordeel staan altijd naast elkaar.
 2. **Niets verdwijnt uit het record.** Het record blijft elke call bevriezen (B2). Report en Exclude zijn
    markeringen; ze filteren niets weg (B3).
-3. **Hetzelfde patroon als de bestaande reviews.** Dezelfde concurrency (409 bij een gewijzigde review),
+3. **Hetzelfde patroon als de andere reviews.** Dezelfde concurrency (409 bij een gewijzigde review),
    dezelfde audittrail-acties, dezelfde poortmechaniek (reden en vingerafdruk van de concerns)
    en dezelfde UI-onderdelen (`FindingCard`, `ExcludedCardBar`, de reviewdialoog). Dat beperkt nieuwe
    risico's en houdt de gebruikerservaring gelijk.
@@ -112,7 +104,7 @@ paraphase_reviews
   UNIQUE (family_id, assembly_id, gene_symbol)
 ```
 
-`docs/database.md` krijgt beide tabellen.
+`docs/database.md` beschrijft beide tabellen.
 
 ### 4.3 Classificatieschalen (B4)
 
@@ -128,17 +120,19 @@ Leeg laten mag: dan is er geen oordeel.
 | `normal` | Normal | `uncertain` | Uncertain significance |
 | `uncertain` | Uncertain significance | | |
 
-Een oordeel dat duidelijk afwijkt van de automatische status (bijvoorbeeld *Normal* bij status
-*pathogenic*) mag, ook op een gerapporteerde bevinding (B16). De kaart en het rapport tonen dan beide,
-met een markering "differs from CoGA's status". Er is geen automatische verzoening (§8, H18).
+Een oordeel dat afwijkt van de automatische status (bijvoorbeeld *Normal* bij status *pathogenic*) mag,
+ook op een gerapporteerde bevinding (B16). Komt de classificatie met geen enkele call van de familieleden
+overeen, dan tonen de kaart en het rapport beide, met een markering "differs from CoGA's status" (B22).
+Er is geen automatische verzoening (§8, H18).
 
 ### 4.4 Tags (B6)
 
 Dezelfde tagdefinities als small variants (`small_variant_tag_definitions`, globaal en per project), via
-het bestaande endpoint `/families/{id}/small-variant-tags`. De snelle tags *review*, *excluded* en
-*report* betekenen hetzelfde als elders. De dialoog biedt de groep *classification* (ACMG-klassetags en
-VUS-tiers) niet aan: bij small variants zijn die van de ACMG-classificatie afgeleid, hier zouden ze
-tegenstrijdige labels geven (B14, H10/H18). Een review die zo'n tag toch bevat, toont hem gemarkeerd.
+het endpoint `/families/{id}/small-variant-tags`. De snelle tags *review*, *excluded* en *report*
+betekenen hetzelfde als elders. De dialoog biedt de ACMG-klassetags (`acmg_*`) en de VUS-tiers niet aan:
+bij small variants zijn die van de ACMG-classificatie afgeleid, hier zouden ze tegenstrijdige labels
+geven (B14, H10/H18). *Secondary finding* blijft aangeboden: het is geen ACMG-klasse (B21). Een review
+die zo'n tag toch bevat, toont hem gemarkeerd.
 
 ## 5. Evidence-snapshot en driftcontrole (B5)
 
@@ -165,10 +159,11 @@ Een hash van de snapshot gaat mee in de audit-event van de opslag.
 
 **Drift** is een verschil tussen de bevroren snapshot en dezelfde opbouw op het huidige moment. Oorzaken:
 een herimport met andere tellingen of kopieaantallen, een andere drempel in de catalogus, of een
-gewijzigde validatie van de telwijze. De drift telt mee in de **bestaande driftpoort** van de sign-out
-(één poort, één bevestiging, zoals small-variant- en SV/CNV-drift nu samen gaan). Ze wordt per bevinding
+gewijzigde validatie van de telwijze. De drift telt mee in de **driftpoort** van de sign-out
+(één poort, één bevestiging, zoals small-variant- en SV/CNV-drift samen gaan). Ze wordt per bevinding
 opgesomd met wat veranderde ("PROBAND allel 2: 38 → 41; status intermediate → pathogenic"). Op de kaart
-staat een chip "Changed since review" met hetzelfde detail in de tooltip.
+staat een chip "Changed since review" met hetzelfde detail in de tooltip. De driftdialoog van de
+sign-out noemt de repeat- en Paraphase-reviews die hij telt (B19).
 
 Een review zonder snapshot (kan niet bij een classificatie of de Report-tag: elke opslag daarvan maakt
 er een, B17) of met een snapshot die niet te lezen is, telt als "cannot be verified", net als bij ACMG.
@@ -178,23 +173,22 @@ review met alleen een notitie of een Review-tag steunt geen oordeel dat het rapp
 
 ## 6. Sign-out en het ondertekende record
 
-### 6.1 Nieuwe secties
+### 6.1 Recordsecties
 
-Twee recordsecties, opgebouwd volgens de vier stappen in `signed_record_sections.py`:
+Twee recordsecties voor de reviews, opgebouwd volgens de vier stappen in `signed_record_sections.py`:
 
 - `repeat_expansion_reviews` — elke repeat-review met een classificatie of de Report-tag: sleutel,
   classificatie, tags, notitie, wie en wanneer, de bevroren snapshot, en de vergelijking met nu bij de
   sign-out;
 - `paraphase_reviews` — idem voor Paraphase.
 
-De bestaande secties `repeat_expansions` en `paraphase` blijven ongewijzigd: alle calls (B2). Beide
-nieuwe secties gaan mee in de content-hash en in de wijzigingscontrole na de sign-out
-(`REPORT_CONTENT_SECTIONS`). Een record zonder deze secties zegt dat het
-ze niet bevat; het vult ze nooit in uit live data (REQ-TRACE-007).
+De secties `repeat_expansions` en `paraphase` houden alle calls (B2). Beide reviewsecties gaan mee in
+de content-hash en in de wijzigingscontrole na de sign-out (`REPORT_CONTENT_SECTIONS`); ze worden nooit
+ingevuld uit live data (REQ-TRACE-007).
 
 ### 6.2 Poort voor afwijkende calls zonder review (B8)
 
-Een nieuwe poort `unreviewed_findings`, na de importpoort, met dezelfde mechaniek als de QC-poort: de
+Een poort `unreviewed_findings`, na de importpoort, met dezelfde mechaniek als de QC-poort: de
 weigering somt de concerns op, de analist bevestigt met een reden, en de vingerafdruk van de concerns
 reist mee. Zijn de concerns intussen anders, dan volgt een nieuwe weigering met de huidige concerns.
 De reden en de concerns worden in het record en in de audit-event van de sign-out bevroren.
@@ -220,7 +214,7 @@ gelezen worden, dan houdt de poort ook tegen en zegt hij dat (B20).
 
   Zonder gerapporteerde bevindingen zegt de sectie dat.
 - **Ondertekende weergave** (`signedReportRecord.ts` + `SignedFamilyReport.tsx`): dezelfde lijst uit het
-  record, op scherm en in print, en daaronder, zoals nu, alle calls.
+  record, op scherm en in print, en daaronder alle calls.
 
 ## 7. API, rechten, concurrency en audit
 
@@ -230,15 +224,16 @@ gelezen worden, dan houdt de poort ook tegen en zegt hij dat (B20).
 - `PUT /families/{id}/repeat-expansions/{locus_id}/review` met `classification`, `tags`, `note`,
   `expected_updated_at` en optioneel `project_id`.
 - `PUT /families/{id}/paraphase/{gene_symbol}/review`, idem.
-- De reviewsamenvatting voor de family workspace krijgt tellingen voor beide types.
+- `GET /families/{id}/finding-review-summary` geeft de tellingen van beide types voor de family
+  workspace, alleen lezend, met de gewone familiecontrole: een lezer mag het lezen (B23).
 
-Paden worden gebouwd met `apiPath`; ID's worden gecanoniseerd volgens de bestaande regels voor
+Paden worden gebouwd met `apiPath`; ID's worden gecanoniseerd volgens de regels voor
 request-ID's.
 
 **Rechten (B9):**
 - projectgebonden toegangscontrole (`access_control.py`, `family_metadata_context.py`);
 - schrijven mag een analist of beheerder in een project van de familie;
-- een lezer krijgt 403 met de bestaande read-only-reden;
+- een lezer krijgt 403 met de gewone read-only-reden;
 - een familie buiten je projecten geeft 404, alsof ze onbekend is;
 - de controle-op-stuurtekens van request-parameters geldt ook voor `locus_id` en `gene_symbol`.
 
@@ -249,7 +244,7 @@ request-ID's.
 - opslagen van één sleutel worden geserialiseerd (rijlock in dezelfde transactie).
 
 **Audit (REQ-TRACE-004), in dezelfde transactie als de opslag:**
-- acties `classification`, `tags` en `note`, met before/after per veld, op de bestaande keten per familie;
+- acties `classification`, `tags` en `note`, met before/after per veld, op de keten van de familie;
 - `variant_id` is `repeat:<locus_id>` of `paraphase:<gene_symbol>`;
 - `metadata` bevat `kind`, `assembly_id` en de snapshot-hash.
 
@@ -257,16 +252,16 @@ De audittijdlijn op het rapport toont deze events met een leesbaar label ("FMR1 
 
 ## 8. Risicoanalyse (TF-06)
 
-Nieuwe gevaren:
+Gevaren van deze review:
 
 | ID | Gevaar | Ernst | Beheersmaatregelen |
 | --- | --- | --- | --- |
-| H17 | **Review hoort bij een andere of verouderde bevinding**: na een herimport, een catalogusupdate of een andere assembly steunt een classificatie of Report-tag op calls die niet meer gelden | S4 | Stabiele sleutel incl. assembly (§4.1); evidence-snapshot bij elke opslag; drift in de sign-outpoort met reden (§5); chip "Changed since review"; tests op herimport en drempelwijziging |
+| H17 | **Review hoort bij een andere of verouderde bevinding**: na een herimport, een catalogusupdate of een andere assembly steunt een classificatie of Report-tag op calls die niet meer gelden | S4 | Stabiele sleutel incl. assembly (§4.1); evidence-snapshot bij een opslag die de classificatie zet of wijzigt of de Report-tag toevoegt (B17); drift in de sign-outpoort met reden (§5); chip "Changed since review"; tests op herimport en drempelwijziging |
 | H18 | **Oordeel van de analist strijdig met de automatische status** wordt verkeerd gelezen of verkeerd gerapporteerd | S4 | Status en oordeel altijd naast elkaar, nooit vervangen; markering "differs from CoGA's status" op kaart, rapport en record; IFU-tekst; usability-evaluatie (TF-12) |
 
-Bestaande gevaren die mee veranderen:
-- **H1** (gemiste bevinding): de poort voor afwijkende calls zonder review (§6.2) wordt een extra maatregel.
-- **H9** (reproduceerbaarheid): twee nieuwe recordsecties onder de content-hash.
+Andere gevaren die de review raakt:
+- **H1** (gemiste bevinding): de poort voor afwijkende calls zonder review (§6.2) is een extra maatregel.
+- **H9** (reproduceerbaarheid): twee recordsecties onder de content-hash.
 - **H10** (use error): de folding van Exclude houdt een uitgesloten bevinding zichtbaar.
 
 ## 9. Technisch dossier en documentatie (B11)
@@ -274,25 +269,23 @@ Bestaande gevaren die mee veranderen:
 - **TF-09a**:
   - REQ-DIAG-009 (C, H17/H18): review per repeat-locus en Paraphase-regio per familie, met tags, notitie
     en een classificatie op de schaal van het type; de automatische status wijzigt nooit.
-  - REQ-TRACE-015 (C, H17): de evidence-snapshot bij elke opslag, en de drift in de sign-outpoort.
+  - REQ-TRACE-015 (C, H17): de evidence-snapshot bij een opslag die de classificatie zet of wijzigt of de
+    Report-tag toevoegt, en de drift in de sign-outpoort.
   - REQ-TRACE-016 (C, H1): de poort voor afwijkende calls zonder review.
   - REQ-TRACE-017 (C, H9): de recordsecties voor de gerapporteerde en geclassificeerde reviews, en de
     lijst op het live rapport.
-  - REQ-TRACE-004 en -010 worden uitgebreid tot deze reviews.
-- **TF-09b**: een RTM-rij per nieuwe eis, verwijzend naar de unit-, integratie- en e2e-tests (§11).
+  - REQ-TRACE-004 en -010 gelden ook voor deze reviews.
+- **TF-09b**: een RTM-rij per eis, verwijzend naar de unit-, integratie- en e2e-tests (§11).
 - **TF-06**: H17 en H18, en de aanvullingen bij H1, H9 en H10.
-- **TF-10 §8**: een gebied "Review van repeat expansions en Paraphase" (nieuw klinisch gedrag dat geen
-  bestaand gebied dekt).
-- **TF-15 (IFU)** en **TF-12**: de nieuwe bediening en het naast elkaar tonen van status en oordeel.
-- `docs/clinical-traceability.md` (sign-out, de nieuwe secties en de poort), `docs/database.md`,
+- **TF-10 §8**: een gebied "Review van repeat expansions en Paraphase".
+- **TF-15 (IFU)** en **TF-12**: de bediening en het naast elkaar tonen van status en oordeel.
+- `docs/clinical-traceability.md` (sign-out, de reviewsecties en de poort), `docs/database.md`,
   `docs/testing.md`, de user guide (*Specialised analyses*, *Interpretation and review*) en de handleiding
-  (hoofdstukken 10 en 11, opnieuw gebouwd met `build_site.py`).
-- Geen CHANGELOG-regel en geen TF-18-rij (pre-RC, TF-18 §3a).
+  (hoofdstukken 10 en 11).
 
 ## 10. Openstaande punten
 
-Geen. De vragen van het voorstel zijn beslist als B12–B16, de afwijkingen en keuzes van de
-uitvoering als B17–B23 (§2).
+Geen: elke vraag is beslist (§2).
 
 ## 11. Verificatie
 
@@ -300,10 +293,10 @@ uitvoering als B17–B23 (§2).
   - validatie van de schalen;
   - de snapshotopbouw is deterministisch;
   - de driftvergelijking per veld;
-  - de concerns en de vingerafdruk van de nieuwe poort;
+  - de concerns en de vingerafdruk van de poort voor afwijkende calls;
   - de audit-payload, die herberekend moet kunnen worden voor de hashketen.
 - **Integratie (Postgres)**:
-  - de baseline is idempotent (B18: geen revisie);
+  - de tabellen staan in de baseline (B18: geen revisie);
   - de grants van de app-rol (privilegetest);
   - de unieke sleutels;
   - 409 bij een gelijktijdige opslag.
@@ -314,31 +307,4 @@ uitvoering als B17–B23 (§2).
   - de sign-out weigert en aanvaardt (drift en ongereviewd), en het record bevat de secties met een
     stabiele hash.
 - **Browser (TF-09d)**: een journey die een FMR1-call reviewt, rapporteert en ondertekent.
-- De nieuwe services komen in de mypy-lijst van `pyproject.toml` en in `check-coverage-floor.py`.
-
-## 12. Uitvoering (B10)
-
-**PR 1 — backend**, gebouwd (met de poortdialoog, B19):
-- schema en grants (geen revisie, B18);
-- de services voor reviews, snapshot en drift;
-- de endpoints;
-- audit;
-- de sign-outpoort en de recordsecties;
-- de wijzigingscontrole;
-- de gegenereerde API-types;
-- de tests uit §11 (zonder de browserjourney);
-- `database.md` en `clinical-traceability.md`;
-- de TF-delen uit §9.
-
-**PR 2 — UI**, gebouwd:
-- kaarten met Review, Exclude, Report, Tags & notes, de classificatiechip, de tags, de notitie en de
-  drift-chip;
-- Exclude klapt de kaart dicht (`ExcludedCardBar`);
-- de reviewdialoog met de schaal van het type;
-- de poortdialoog op het rapport;
-- de sectie op het live rapport en de ondertekende weergave;
-- de tellingen in de family workspace;
-- de user guide en de handleiding;
-- de browserjourney.
-
-Elke PR haalt de gates uit CONTRIBUTING.md ("Before you open a PR").
+- De services staan in de mypy-lijst van `pyproject.toml` en in `check-coverage-floor.py`.

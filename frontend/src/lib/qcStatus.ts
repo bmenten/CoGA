@@ -6,9 +6,8 @@ import type { QcStatus } from './apiTypes';
  *
  * The wire values are terse (`warn`, `skip`) because they are also the backend's
  * `Literal` and CSS-class suffixes; what a reviewer reads is the label below. Keeping
- * both in one place is the point — the mtDNA workspace previously rendered its raw
- * status, so the same verdict appeared as "warning" there and "Warning" on the
- * sample-QC page, off a different backend spelling.
+ * both in one place is the point: every workspace shows the same verdict by the same label,
+ * never a raw status.
  */
 export const QC_STATUS_LABEL: Record<QcStatus, string> = {
   pass: 'Pass',

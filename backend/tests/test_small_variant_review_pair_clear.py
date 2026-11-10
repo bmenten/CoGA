@@ -1,13 +1,16 @@
 """A review save that breaks up a compound-het pair stores what it audits.
 
 Breaking up a pair clears it from each review of the pair and deletes a review that held
-nothing else, but leaves the reviews the save that broke it up writes itself (the variant's
-own and, re-pairing, the partner's), so the tags and note the save audits are stored.
+nothing else. The save that breaks it up then writes the variant's own review (and,
+re-pairing, the partner's). Written over the copy it had read before the clear, a review the
+clear had just deleted would be gone: the save's update would match no row, its tags and note
+would be lost, yet its clinical audit events would be committed with the deletion.
 
-An update that matches no row raises, and the save reads its review back before it commits, so
-a save that did not store it commits nothing. The store is a fake kept by the session: the
-real repository code (the pair clear, the row update with its guard, insert and delete) runs
-over it, as does the real clinical audit diff. The values are synthetic.
+The pair clear leaves the reviews the save writes itself; an update that matches no row
+raises; and the save reads its review back before it commits, so a save that did not store
+it commits nothing. The store is a fake kept by the session: the real repository code (the
+pair clear, the row update with its guard, insert and delete) runs over it, as does the real
+clinical audit diff. The values are synthetic.
 """
 
 from __future__ import annotations
@@ -62,6 +65,10 @@ def _row(variant_id: str, **fields: Any) -> dict[str, Any]:
         "updated_at": None,
     }
     row.update(fields)
+    # Who added each tag, as every save records it beside the tags.
+    for tags_key, metadata_key in (("tags", "tag_metadata"), ("compound_het_tags", "compound_het_tag_metadata")):
+        if metadata_key not in fields:
+            row[metadata_key] = {tag: {"updated_by": "analyst-b", "updated_at": None} for tag in row[tags_key]}
     return row
 
 

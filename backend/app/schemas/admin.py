@@ -184,7 +184,7 @@ class RepeatLocusCountUnitsCatalogueOut(BaseModel):
 
 
 class FamilyDeleteRequest(BaseModel):
-    """Why an administrator deletes a family with its data (required, TRACE-16): recorded on
+    """Why an administrator deletes a family with its data (required): recorded on
     the family's last clinical audit event."""
 
     reason: str

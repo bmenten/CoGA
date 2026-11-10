@@ -36,7 +36,7 @@ from .vcf_fields import parse_format, parse_info
 def _unpositionable(start: int, end: int) -> bool:
     """Whether the SV tables' UInt32 position columns cannot hold a record's span (a
     negative POS, an END beyond 4,294,967,295): the record is skipped as one without a POS
-    is (SAFE-30)."""
+    is."""
     return column_int(start, UINT32) is None or column_int(end, UINT32) is None
 
 
@@ -81,10 +81,9 @@ def _needlr_call_rank(call: StructuralVariantCall, *, own: bool) -> tuple[bool, 
     the lines of one event merge: a call with a genotype over one without (``./.``, a
     parent's call from a line without its ``Maternal_GT`` or ``Paternal_GT``), then the
     sample's own call, ``own`` -- its line's query call -- over one that another sample's
-    line gives it as a parent. Of two calls that rank alike the later line's is kept, as
-    every later call was before.
+    line gives it as a parent. Of two calls that rank alike the later line's is kept.
 
-    One event in two samples' per-sample files is one SV (CLIN-43): a mother's own call,
+    One event in two samples' per-sample files is one SV: a mother's own call,
     from her file, must not give way to the ``./.`` her child's line gives her.
     """
     return (classify_genotype(call.gt) != NO_CALL, own)
@@ -111,12 +110,12 @@ def _needlr_variant_id(
 ) -> str:
     """A NeedlR SV's id: its coordinates and type, and a breakend's mate, as an uploaded
     SV's call of the same event is named (``chrom-start-end-type-mate``), never the
-    record's ID (CLIN-43).
+    record's ID.
 
     A caller numbers its calls per run (``Sniffles2.DEL.1S0``), so two samples' files, or
-    two runs in one family VCF, give one ID to different calls. Named by the ID, they were
-    one SV at the first call's position: the other call was attached to it, and its own
-    SV was lost. The chrM reader names its SVs by their coordinates for the same reason.
+    two runs in one family VCF, give one ID to different calls. Named by the ID, they would
+    be one SV at the first call's position: the other call attached to it, and its own SV
+    lost. The chrM reader names its SVs by their coordinates for the same reason.
     The same event called by NeedlR and by an upload has one id, and so one review, as two
     uploads' calls of one event have; the storage key names the source
     (``structural_variant_key``), so their rows stay apart. ``discriminator`` keeps apart
@@ -240,8 +239,8 @@ def _needlr_records(
             continue
         info = parse_info(info_raw, flags=True)
         sv_type = _first_info_value(info, "SVTYPE") or sv_type_from_alt(ref, alt) or "SV"
-        # A breakend's mate as every SV reader reads it (``breakend_mate``): the reader stored
-        # none before CLIN-40, so a NeedlR translocation named no partner in the SV list.
+        # A breakend's mate as every SV reader reads it (``breakend_mate``), so a NeedlR
+        # translocation names its partner in the SV list.
         remote_chr, remote_start = breakend_mate(sv_type=sv_type, alt=alt, info=info, chrom=chrom)
         sv_len = _coerce_int(_first_info_value(info, "SVLEN"))
         end_written = _first_info_value(info, "END", "End_Pos", "END_POS", "End")
@@ -249,9 +248,9 @@ def _needlr_records(
             if skipped is not None:
                 skipped.without_extent += 1
             continue
-        # Without END, where VCF 4.4 puts it, as the uploads do: it was POS + SVLEN for any
-        # type, so an insertion or a breakend spanned bases after its POS, and the same call
-        # had another id than an upload's (CLIN-39).
+        # Without END, where VCF 4.4 puts it, as the uploads do: not POS + SVLEN for any
+        # type, which would have an insertion or a breakend span bases after its POS, and the
+        # same call another id than an upload's.
         end = record_end(
             pos=start, ref=ref, alt=alt, sv_len=sv_len, info=info, chrom=chrom, end=end_written
         )
@@ -302,7 +301,7 @@ def _needlr_records(
         read.append(
             _NeedlrLine(
                 # The id is the call's coordinates, type and mate, never the record's ID,
-                # which a caller repeats across samples and runs (CLIN-43).
+                # which a caller repeats across samples and runs.
                 base_id=_needlr_variant_id(
                     chrom, start, end, sv_type, remote_chr=remote_chr, remote_start=remote_start
                 ),
@@ -329,7 +328,7 @@ def _needlr_records(
     # their length does: a symbolic allele (<INS>) does not hold it. They would otherwise
     # collapse onto one id, one call attached to the other's SV. One keeps the id, another
     # gets a discriminator, its length, by the order of the events, not of the lines: by the
-    # lines, a reordered file gave each event the other's id (CLIN-39).
+    # lines, a reordered file would give each event the other's id.
     discriminators = event_discriminators((item.base_id, item.event) for item in read)
     merged: dict[str, StructuralVariantRecord] = {}
     call_ranks: dict[str, dict[str, tuple[bool, bool]]] = {}
@@ -376,7 +375,7 @@ def _needlr_records(
                 remote_start=item.remote_start,
                 remote_end=item.remote_start,
                 # The SVLEN as written gave the END; the one stored is a sequence allele's own
-                # length without it (CLIN-41), the length its event states.
+                # length without it, the length its event states.
                 sv_len=record_sv_len(sv_len=item.sv_len, ref=item.ref, alt=item.alt),
                 filters=[] if filt is None else [filt],
                 gene_symbols=gene_symbols,
@@ -461,7 +460,7 @@ def _iter_cnv_structural_records(
                 skipped.without_extent += 1
             continue
         # Without END where VCF 4.4 puts it, and a breakend with its mate, as every SV reader
-        # reads them (CLIN-39).
+        # reads them.
         end = record_end(
             pos=start, ref=ref, alt=alt, sv_len=sv_len, info=info, chrom=chrom, end=end_written
         )
@@ -486,7 +485,7 @@ def _iter_cnv_structural_records(
                 gene_symbols.append(str(gene))
         # Named by its coordinates, type and mate, and its source, as every other reader
         # names a call, never by the record's ID, which a caller numbers per run: two
-        # samples' calls of one event share it (CLIN-39). The ID stays in the annotation.
+        # samples' calls of one event share it. The ID stays in the annotation.
         variant_id = build_structural_variant_id(
             chrom,
             start,
@@ -575,16 +574,16 @@ async def _update_sv_file_metadata(
 
 
 class ParaphaseValueError(ValueError):
-    """A copy number in a sample's Paraphase JSON that its column cannot hold (DATA-7). The
+    """A copy number in a sample's Paraphase JSON that its column cannot hold. The
     message names where it is, the field and the gene, never the value: a malformed value can
     be of any length."""
 
 
 def _paraphase_copy_number(raw_result: dict[str, Any], field: str, *, gene_symbol: str) -> int | None:
     """``field`` of a gene's Paraphase result as its ``integer`` column stores it (Postgres's
-    ``integer`` holds what ClickHouse's ``Int32`` does); None when it is missing or no number,
-    as before. A whole number beyond the column raises ``ParaphaseValueError``: it failed the
-    insert with a database error, after the sample's results were deleted (DATA-7)."""
+    ``integer`` holds what ClickHouse's ``Int32`` does); None when it is missing or no number.
+    A whole number beyond the column raises ``ParaphaseValueError``: it would fail the insert
+    with a database error, after the sample's results were deleted."""
     value = _coerce_int(raw_result.get(field))
     if value is not None and column_int(value, INT32) is None:
         raise ParaphaseValueError(f"{field} of {visible(gene_symbol)}")
@@ -747,7 +746,7 @@ def _iter_mito_sv_records(
                 skipped.without_extent += 1
             continue
         # Without END where VCF 4.4 puts it, and a breakend with its mate, as every SV reader
-        # reads them (CLIN-39).
+        # reads them.
         end = record_end(pos=start, ref=ref, alt=alt, sv_len=sv_len, info=info, chrom=chrom)
         if end is None or _unpositionable(start, end):
             continue
@@ -840,7 +839,7 @@ def _mito_sv_rows_after_import(
     else: every other sample's calls -- and their heteroplasmy annotations -- are written
     back as stored, under their own project; a row left with no call goes. A new SV joins
     the stored row of the same id, or gets a row in each of the family's projects.
-    ``replaced_samples`` holds each sample's id and uuid: a stored call names either.
+    ``replaced_samples`` holds the replaced samples' IDs.
     """
     rows: list[StoredStructuralVariantRow] = []
     for row in stored_rows:

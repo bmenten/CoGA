@@ -1,4 +1,4 @@
-// The structural-variant results table (#526: 16 % covered): the columns shown and their
+// The structural-variant results table: the columns shown and their
 // sort, how each value is written, the review cell's quick tags and chips, the genotypes,
 // and the IGV / chromosome-view links, including the BND partner's.
 import { fireEvent, render, screen, within } from '@testing-library/react';
@@ -176,7 +176,7 @@ describe('StructuralVariantTable', () => {
     const review = screen.getByRole('button', { name: 'Review' });
     const exclude = screen.getByRole('button', { name: 'Exclude' });
     const report = screen.getByRole('button', { name: 'Report' });
-    // Not by the tint alone: the state is announced (#529).
+    // Not by the tint alone: the state is announced.
     expect(review).toHaveAttribute('aria-pressed', 'true');
     expect(exclude).toHaveAttribute('aria-pressed', 'false');
     expect(report).toHaveAttribute('aria-pressed', 'true');
@@ -208,7 +208,7 @@ describe('StructuralVariantTable', () => {
     expect(screen.getByRole('button', { name: 'Review' })).toBeDisabled();
   });
 
-  it('leaves the quick tags off for a reader in the family’s projects (SEC-1)', () => {
+  it('leaves the quick tags off for a reader in the family’s projects', () => {
     const onToggleReviewTag = vi.fn(async () => undefined);
     render(
       <FamilyReadOnlyContext.Provider value>

@@ -6,7 +6,7 @@ import { svKind as trackSvKind } from '../../components/visualizations/svTypes';
 import { cnvKindForType } from '../cnvAcmg/evaluate';
 
 // One copy each of two rules the review pages, the small-variant track and the CNV classifier
-// kept apart (ENG-7).
+// kept apart.
 describe('a review tag’s label', () => {
   it('marks a deleted tag, and reads an unknown key as the key', () => {
     expect(reviewTagLabel({ label: 'Report', is_active: true }, 'report')).toBe('Report');
@@ -21,7 +21,7 @@ describe('an SV’s type without its subtypes', () => {
     expect(trackSvKind).toBe(svKind);
     expect(svKind(' dup:tandem ')).toBe('DUP');
     expect(svKind(null)).toBe('');
-    // The classifier reads a tandem duplication as a gain (CLIN-47), through the same rule.
+    // The classifier reads a tandem duplication as a gain, through the same rule.
     expect(cnvKindForType('DUP:TANDEM')).toBe('gain');
     expect(cnvKindForType('DEL:ME')).toBe('loss');
   });

@@ -1,4 +1,4 @@
-// #602 — the chromosome view's region tracks, on a view with no width and on the
+// The chromosome view's region tracks, on a view with no width and on the
 // mitochondrion. A zero-width or inverted region asks the API for nothing, so a track over
 // it is neither loading, nor empty, nor over its cap: it says there is no region in view.
 // And the mitochondrion is chrM in every track's name, as the viewer header writes it.

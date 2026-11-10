@@ -1,16 +1,15 @@
-"""The routes no screen calls are gone, and the BED endpoints answer JSON only (ENG-5).
+"""The routes no screen calls are gone, and the BED endpoints answer JSON only.
 
 The owner's decision of 2026-10-28: remove what no screen calls, except the two routes a
-planned screen needs (``docs/ROADMAP.md``): the SV filter preset's delete (PROD-3) and a
-phenotype's edit (PROD-8). Removed:
+planned screen needs (``docs/ROADMAP.md``): the SV filter preset's delete and a
+phenotype's edit. Removed:
 
 * ``GET /assemblies/{species_id}`` (the screens read every assembly, ``GET /assemblies/``);
 * ``GET /families/{family_id}/hpo/query`` and ``GET /hpo/{hpo_id}`` (the screens search the
   terms, ``GET /hpo/search``, and read a family's phenotypes, ``GET /families/{id}/hpo``);
 * ``DELETE /families/{family_id}/small-variant-filter-presets/{preset_id}`` (the *Settings*
   page deletes a small-variant preset through ``DELETE /auth/small-variant-filter-presets/{id}``);
-* the BED endpoints' text format: ``GET /bed/{sample}/{type}`` and its ``/batch`` answer JSON,
-  without ``format`` too, and refuse ``format=text`` (422) before reading anything.
+* a BED read's ``format``: ``GET /bed/{sample}/{type}`` and its ``/batch`` answer JSON.
 
 Through the app, signed in as an administrator; the BED reads go through the real routes and
 ``bed_service`` with a fake interval store. Synthetic IDs.
@@ -31,7 +30,7 @@ REMOVED = [
     ("get", "/api/hpo/{hpo_id}"),
     ("delete", "/api/families/{family_id}/small-variant-filter-presets/{preset_id}"),
 ]
-# What the screens call instead, and what a planned screen needs (PROD-3, PROD-8).
+# What the screens call instead, and what a planned screen needs.
 KEPT = [
     ("get", "/api/assemblies/"),
     ("get", "/api/hpo/search"),
@@ -97,35 +96,10 @@ def test_a_request_to_a_removed_route_finds_none(client, method: str, path: str)
 )
 def test_a_bed_read_answers_json_without_format(client, path: str, params: dict[str, Any]) -> None:
     test_client, _reads = client
-    # Text (a header line and tab-separated rows) was the default.
-    for asked in (params, {**params, "format": "json"}):
-        response = test_client.get(path, params=asked)
-        assert response.status_code == 200, response.text
-        assert response.headers["content-type"] == "application/json"
-        assert response.json() == {
-            "bed_type": "coverage",
-            "items": [{"chr": "1", "start": 0, "end": 1000, "value": 400.0}],
-        }
-
-
-@pytest.mark.parametrize(
-    "path",
-    ["/api/bed/PROBAND/coverage", "/api/bed/PROBAND/coverage/batch"],
-    ids=["one-chromosome", "batch"],
-)
-def test_a_bed_read_in_the_text_format_is_refused_before_anything_is_read(client, path: str) -> None:
-    test_client, reads = client
-    response = test_client.get(path, params={"chrom": "1", "format": "text"})
-    assert response.status_code == 422, response.text
-    assert [error["loc"] for error in response.json()["detail"]] == [["query", "format"]]
-    assert reads == []
-
-
-def test_the_bed_reads_declare_json_their_only_format() -> None:
-    paths = app.openapi()["paths"]
-    for path in ("/api/bed/{sample_id}/{bed_type}", "/api/bed/{sample_id}/{bed_type}/batch"):
-        operation = paths[path]["get"]
-        (parameter,) = [p for p in operation["parameters"] if p["name"] == "format"]
-        assert parameter["schema"].get("enum", [parameter["schema"].get("const")]) == ["json"]
-        assert parameter["schema"].get("default") == "json"
-        assert list(operation["responses"]["200"]["content"]) == ["application/json"]
+    response = test_client.get(path, params=params)
+    assert response.status_code == 200, response.text
+    assert response.headers["content-type"] == "application/json"
+    assert response.json() == {
+        "bed_type": "coverage",
+        "items": [{"chr": "1", "start": 0, "end": 1000, "value": 400.0}],
+    }

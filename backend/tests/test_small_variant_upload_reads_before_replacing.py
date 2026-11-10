@@ -1,5 +1,5 @@
 """A small-variant upload with overwrite reads and checks the whole file before it deletes
-the callset it replaces (SAFE-25).
+the callset it replaces.
 
 A first read checks the whole file, building each record and the blocks as the write does
 and storing nothing; only then are the family's rows of its callset, and for imputed
@@ -128,7 +128,7 @@ class _Postgres(FamilyImportState):
     state (``_family_import_state_fakes``), the haplotype blocks' records and the phase
     corrections. A write is the transaction's until it commits; a rollback discards it. The
     upload writes its mark on a connection of its own before its first ClickHouse write
-    (``family_package_registration.mark_family_upload``, SAFE-28): ``mark_connection()``,
+    (``family_package_registration.mark_family_upload``): ``mark_connection()``,
     committed at once, so the upload's transaction sees it, and its rollback keeps it."""
 
     def __init__(self, *, flag=None, unfinished=None) -> None:
@@ -274,7 +274,7 @@ _INVALID_FILES = {
         "VCF file must be plain text or gzipped",
     ),
     # Two BGZF blocks, cut where the first ends: whole gzip, but not the whole callset, its
-    # later records gone (DATA-4).
+    # later records gone.
     "a BGZF file cut where one of its blocks ends": (
         bgzip_cut_after((_HEADER + _calls(2_000)).encode(), 1),
         400,
@@ -313,7 +313,7 @@ async def test_a_bgzf_file_cut_where_a_block_ends_is_refused_before_a_package_im
 ) -> None:
     # A package import's load reads its file once, after it deleted the callset
     # (check_before_replacing=False): the file's end is read first, so the refusal comes
-    # before the lock and the delete, and the import's clean-up deletes nothing (DATA-4).
+    # before the lock and the delete, and the import's clean-up deletes nothing.
     write_state = variant_upload_service.SmallVariantWriteState()
     body = bgzip_cut_after((_HEADER + _calls(2_000)).encode(), 1)
 
@@ -360,10 +360,10 @@ async def test_a_record_that_cannot_be_read_leaves_the_callset_as_it_was(stores,
     ids=["header-alone", "no-readable-record"],
 )
 async def test_a_mitochondrial_upload_without_a_record_leaves_the_mitochondrial_calls(stores, body) -> None:
-    # The owner's decision (SAFE-29): a mitochondrial SNV file without a variant record is a
+    # The owner's decision: a mitochondrial SNV file without a variant record is a
     # failed analysis, never "no mitochondrial variant". The upload of the family's chrM calls
     # (source_format=mito) reads its file whole before it replaces them, as every small-variant
-    # upload does (SAFE-25), and refuses it with them as they were.
+    # upload does, and refuses it with them as they were.
     stores.rows["mito"] = ["stored-mito-1"]
     database = _Postgres()
 
@@ -496,7 +496,7 @@ async def test_a_caller_that_puts_the_family_back_itself_reads_the_file_once(sto
 @pytest.mark.asyncio
 async def test_a_caller_is_told_whether_the_load_began_writing(stores) -> None:
     # A package import's clean-up deletes its callset after a failed load only once the load
-    # began writing (SAFE-32): one refused before that -- here its VEP table, which has no
+    # began writing: one refused before that -- here its VEP table, which has no
     # header -- replaced nothing, and the callset is as it was.
     database = _Postgres()
     refused = variant_upload_service.SmallVariantWriteState()
@@ -622,7 +622,7 @@ async def test_a_failed_write_with_nothing_replaced_leaves_no_flag(stores) -> No
         await _upload(database, _HEADER + _calls(3), overwrite=False)
 
     assert stores.rows["clair3"] == []
-    # The upload's one commit removes the mark it wrote before its first insert (SAFE-28):
+    # The upload's one commit removes the mark it wrote before its first insert:
     # nothing is missing or partly written.
     assert database.committed["flag"] is None and database.commits == 1
     assert database.committed["unfinished"] is None
@@ -676,7 +676,7 @@ async def test_a_flag_that_cannot_be_written_leaves_the_uploads_own_error(stores
 
     assert database.committed["flag"] is None and database.commits == 0
     # The mark the upload wrote before its delete stays, and still marks the family for the
-    # callset (SAFE-28).
+    # callset.
     [(key, mark)] = database.committed["unfinished"].items()
     assert key.startswith("upload-")
     assert mark["datasets"] == ["snv"]

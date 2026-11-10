@@ -14,7 +14,7 @@ import { isDeletedHaplotype } from './phasedMarkers';
  * readable and the risk allele is flagged unobtrusively, on both the chromosome and
  * whole-genome tracks.
  *
- * The line does not rely on its hue alone (#529): a red or orange line on a dark green
+ * The line does not rely on its hue alone: a red or orange line on a dark green
  * or blue band has little contrast for many colour-blind readers. So an affected
  * haplotype's line is solid and a carrier's is dashed, and the line is set off from
  * the band by a light gap: along the band's bottom edge for a band tall enough to keep

@@ -4,7 +4,7 @@ import json
 import re
 from bisect import bisect_right
 from dataclasses import dataclass
-from typing import Any, Collection, Final, Iterable, Mapping, Protocol, Sequence, cast
+from typing import Any, Collection, Final, Iterable, Protocol, Sequence, cast
 
 from fastapi import HTTPException
 
@@ -152,7 +152,7 @@ def vaf_genotype(ad: Sequence[Any] | None, gt: str, *, min_depth: int = 10) -> s
 
 # One entry of an interval list: chr:start-end, with a hyphen or an en dash, or chr:position
 # for one base; thousands separators are allowed. A BED line ("chr start end") is not read:
-# BED is 0-based, and taken as 1-based its interval would shift by a base (#604).
+# BED is 0-based, and taken as 1-based its interval would shift by a base.
 _INTERVAL_PATTERN = re.compile(
     r"^\s*(?P<chr>[^:\s]+)\s*:\s*(?P<start>\d[\d,]*)\s*(?:[-\u2013]\s*(?P<end>\d[\d,]*)\s*)?$"
 )
@@ -215,12 +215,11 @@ _SMALL_COUNT_LIMIT = 10001
 
 
 # Other spellings of a mode, read as that mode. "de_novo" is none: it is the NIPT list's fetal de
-# novo view (nipt_service.DE_NOVO), another filter than the family's de novo / dominant mode, and
-# was read as it when a search saved on the NIPT page reached this list (found while fixing
-# #1012). It is refused, as the NIPT list's other views are. The family small-variant page sends
-# a mode only by these names (SMALL_VARIANT_INHERITANCE_MODES and SMALL_VARIANT_INHERITANCE_ALIASES
-# in smallVariantSearch.ts); test_small_variant_page_sends_what_the_list_reads.py keeps the lists
-# equal.
+# novo view (nipt_service.DE_NOVO), another filter than the family's de novo / dominant mode, so a
+# search saved on the NIPT page that reaches this list is refused, as the NIPT list's other views
+# are. The family small-variant page sends a mode only by these names
+# (SMALL_VARIANT_INHERITANCE_MODES and SMALL_VARIANT_INHERITANCE_ALIASES in smallVariantSearch.ts);
+# test_small_variant_page_sends_what_the_list_reads.py keeps the lists equal.
 _SMALL_INHERITANCE_ALIASES = {
     "compound_heterozygous": _COMPOUND_HET_INHERITANCE,
     "recessive_hom": _RECESSIVE_HOMOZYGOUS_INHERITANCE,
@@ -262,13 +261,12 @@ def _append_unique(values: list[str], value: Any) -> None:
         values.append(text_value)
 
 
-def _clickhouse_sample_ids(sample_name_to_uuid: Mapping[str, str]) -> list[str]:
-    """The IDs the calls of these samples (name -> UUID) are stored under in ClickHouse:
-    each sample's name and its UUID."""
+def _clickhouse_sample_ids(sample_names: Iterable[str]) -> list[str]:
+    """The IDs the calls of these samples are stored under in ClickHouse: each sample's
+    ID, once."""
     sample_ids: list[str] = []
-    for sample_name, sample_uuid in sample_name_to_uuid.items():
+    for sample_name in sample_names:
         _append_unique(sample_ids, sample_name)
-        _append_unique(sample_ids, sample_uuid)
     return sample_ids
 
 
@@ -279,26 +277,9 @@ def _visible_clickhouse_sample_ids(context: FamilyMetadataContext) -> list[str]:
     return _clickhouse_sample_ids(context.sample_name_to_uuid)
 
 
-def _display_sample_name(context: FamilyMetadataContext, stored_sample_id: Any) -> str:
-    sample_id = str(stored_sample_id or "").strip()
-    if not sample_id:
-        return ""
-    if sample_id in context.sample_name_to_uuid:
-        return sample_id
-    mapped_name = context.sample_uuid_to_name.get(sample_id)
-    if mapped_name:
-        return mapped_name
-    for sample_name, sample_uuid in context.sample_name_to_uuid.items():
-        if sample_id == sample_uuid:
-            return sample_name
-    return sample_id
-
-
-def _clickhouse_ids_for_sample(context: FamilyMetadataContext, sample_name: str) -> tuple[str, ...]:
-    sample_ids: list[str] = []
-    _append_unique(sample_ids, sample_name)
-    _append_unique(sample_ids, context.sample_name_to_uuid.get(sample_name))
-    return tuple(sample_ids)
+def _stored_sample_id(stored_sample_id: Any) -> str:
+    """The sample ID a stored call names its sample by."""
+    return str(stored_sample_id or "").strip()
 
 
 def _chromosome_options(chromosome: str) -> tuple[str, ...]:
@@ -395,24 +376,12 @@ def _decode_json_payload(raw_value: Any) -> Any:
 
 
 def _collect_annotations(payload: Any) -> list[dict[str, Any]]:
-    if isinstance(payload, list):
-        return [item for item in payload if isinstance(item, dict)]
+    """The annotations of a stored ``annotationsJson``, as the writer stores them
+    (``clickhouse_variant_rows._json_payload``: ``{"annotations": [...]}``); none for a row
+    read without one."""
     if not isinstance(payload, dict):
         return []
-    for key in (
-        "annotations",
-        "sortedTranscriptConsequences",
-        "transcriptConsequences",
-        "transcripts",
-    ):
-        value = payload.get(key)
-        if isinstance(value, list):
-            return [item for item in value if isinstance(item, dict)]
-    for value in payload.values():
-        annotations = _collect_annotations(value)
-        if annotations:
-            return annotations
-    return []
+    return [item for item in payload["annotations"] if isinstance(item, dict)]
 
 
 def _select_primary_annotation(annotations: Sequence[dict[str, Any]]) -> dict[str, Any]:
@@ -437,7 +406,7 @@ def _small_transcript_annotations(
     transcripts: list[SmallVariantTranscriptOut] = []
     seen: set[tuple[str, str, str, str, str, str]] = set()
     for annotation in sorted(annotations, key=_annotation_rank, reverse=True):
-        transcript_id = _annotation_text(annotation, "transcript_id", "transcriptId")
+        transcript_id = _annotation_text(annotation, "transcript_id")
         hgvsc = _annotation_text(annotation, "hgvsc")
         hgvsp = _annotation_text(annotation, "hgvsp")
         effect = _annotation_effect(annotation)
@@ -469,8 +438,8 @@ def _small_transcript_annotations(
                 gene_id=_annotation_gene_id(annotation),
                 transcript_id=transcript_id,
                 transcript_source=_transcript_source(transcript_id),
-                feature_type=_annotation_text(annotation, "feature_type", "featureType"),
-                transcript_biotype=_annotation_text(annotation, "transcript_biotype", "transcriptBiotype"),
+                feature_type=_annotation_text(annotation, "feature_type"),
+                transcript_biotype=_annotation_text(annotation, "transcript_biotype"),
                 impact=impact,
                 effect=effect,
                 hgvsc=hgvsc,
@@ -478,8 +447,8 @@ def _small_transcript_annotations(
                 exon=_annotation_text(annotation, "exon"),
                 intron=_annotation_text(annotation, "intron"),
                 canonical=_annotation_bool(annotation, "canonical"),
-                mane_select=_annotation_bool(annotation, "mane_select", "maneSelect"),
-                mane_plus_clinical=_annotation_bool(annotation, "mane_plus_clinical", "manePlusClinical"),
+                mane_select=_annotation_bool(annotation, "mane_select"),
+                mane_plus_clinical=_annotation_bool(annotation, "mane_plus_clinical"),
                 primary=False,
             )
         )
@@ -488,8 +457,8 @@ def _small_transcript_annotations(
 
 def _normalize_gt(value: Any) -> str:
     """A stored genotype as the variant list shows it: as stored, ``./.`` for none. Only VCF's
-    allele notation is stored (the import refuses a word such as ``HET``, CLIN-16), and none
-    is turned into another: a word read as a genotype here was a no-call to every filter."""
+    allele notation is stored (the import refuses a word such as ``HET``), and none
+    is turned into another: a word read as a genotype here would be a no-call to every filter."""
     return str(value or "").strip() or "./."
 
 
@@ -506,9 +475,8 @@ def _split_gene_terms(raw_value: str | None) -> list[str]:
 def _parse_interval_regions(raw_value: str | None, *, label: str = "Interval") -> list[Region]:
     """The regions of an interval list, one per line or ``;``-separated entry.
 
-    An entry that cannot be read as written is refused (422) and named. It used to be
-    skipped: the search then covered less than the list asked, and a list with no entry
-    left was answered as a family without variants (#604). Blank entries are ignored.
+    An entry that cannot be read as written is refused (422) and named: skipped, it would
+    leave the search covering less than the list asks. Blank entries are ignored.
     """
     regions: list[Region] = []
     for raw_entry in re.split(r"[\n;]+", str(raw_value or "")):
@@ -543,9 +511,9 @@ def _chromosome_filter_matches(chromosome: str, filter_chromosome: str) -> bool:
 def _variant_overlaps_regions(chr_value: str, start: int, end: int, regions: Sequence[Region]) -> bool:
     """Whether a variant overlaps one of the regions. The chromosomes are compared by
     ``_chromosome_match_key``, as the SQL region conditions compare them: in any capitals,
-    with or without ``chr``, and chrM by any of its names. Compared as written, an interval
-    typed as ``x:…`` or a region on chrMT missed a variant the SQL kept (ENG-1). A region
-    reaches from the lower of its two coordinates to the higher, as the SQL reads it (CLIN-50)."""
+    with or without ``chr``, and chrM by any of its names, so an interval typed as ``x:…`` or
+    a region on chrMT keeps what the SQL keeps. A region reaches from the lower of its two
+    coordinates to the higher, as the SQL reads it."""
     chromosome = _chromosome_match_key(chr_value)
     return any(
         chromosome == _chromosome_match_key(region.chr)
@@ -602,7 +570,7 @@ class _RegionLookup:
         furthest_ends: dict[str, list[int]] = {}
         for chromosome, unordered in bounds.items():
             # Each region from the lower of its coordinates to the higher, as
-            # _variant_overlaps_regions and the SQL read it (CLIN-50).
+            # _variant_overlaps_regions and the SQL read it.
             chromosome_bounds = sorted((min(start, end), max(start, end)) for start, end in unordered)
             starts[chromosome] = [start for start, _end in chromosome_bounds]
             furthest: list[int] = []
@@ -627,13 +595,10 @@ class _StructuralPanelMatch:
     one of the panel's genes (its entry's gene symbols, in any capitals), or that overlaps
     one of its regions by the SV region rule (``_structural_region_filter_condition``), is
     kept; a panel with neither keeps no SV. The SQL applies the same rule to the same
-    regions (``_structural_panel_filter_condition``), whatever the panel's size.
-
-    Until the owner's decision of 2026-10-20 a panel of more than 1,000 regions, the
-    Mendeliome among them, was matched on the genes an SV's annotation names alone, and a
-    smaller panel on its regions alone: the Mendeliome missed an SV in one of its genes whose
-    annotation names that gene otherwise, and a smaller panel an SV whose annotation names
-    one of its genes beside it (VEP's upstream and downstream genes).
+    regions (``_structural_panel_filter_condition``), whatever the panel's size. Matched on
+    its genes alone, a panel would miss an SV in one of its genes whose annotation names that
+    gene otherwise; matched on its regions alone, an SV whose annotation names one of its
+    genes beside it (VEP's upstream and downstream genes).
 
     The regions are read only for an SV none of the panel's genes names, through a lookup
     built on first use from the regions the SQL binds (``_structural_region_bounds``), which
@@ -976,8 +941,8 @@ def _structural_record_matches(
 ) -> bool:
     """Whether the search's ``filters``, its regions (a gene filter's loci) and its gene
     panel (``panel``, prepared once per search) keep ``record``."""
-    # As the SQL reads the filter (its aliases), so chrM is chrM by any of its names: compared
-    # as written, MT against M dropped what the SQL kept (CLIN-50).
+    # As the SQL reads the filter (its aliases), so chrM is chrM by any of its names: MT and M
+    # keep the same SVs.
     if filters.chromosome and not _chromosome_filter_matches(record.chr, filters.chromosome):
         return False
     if filters.overlap:
@@ -1105,7 +1070,7 @@ def _small_call_map(record: SmallVariantRecord) -> dict[str, SmallVariantCall]:
 
 
 # Genotype classes come from services/genotypes.py, so a haploid call (chrM, male
-# chrX/chrY) and a multi-allelic one are judged like any other (#511).
+# chrX/chrY) and a multi-allelic one are judged like any other.
 def _call_is_het(call: SmallVariantCall | None) -> bool:
     return call is not None and classify_genotype(call.gt) == HET
 
@@ -1224,8 +1189,7 @@ def _record_matches_de_novo(
 
     A son is hemizygous on chrX and chrY outside the PARs, so there his call is an ALT call
     of either ploidy: haploid ``1``, ``1/1``, or ``0/1`` (e.g. mosaic). Whether a parent
-    could have passed it on is then decided by :func:`_hemizygous_inheritance_ruled_out`
-    (#545).
+    could have passed it on is then decided by :func:`_hemizygous_inheritance_ruled_out`.
     """
     call_map = _small_call_map(record)
     sex_of = sample_sex or {}
@@ -1590,11 +1554,11 @@ def _filter_transcript_annotation(
     matched_hashes: Collection[int] | None,
 ) -> dict[str, Any] | None:
     """The annotation a search's annotation filters held on, when the primary one does not
-    meet them (CLIN-51); None otherwise.
+    meet them; None otherwise.
 
     The annotation filters must all hold on one transcript, while the variant's fields
     describe its primary transcript, which need not be that one: a variant kept by SIFT
-    *deleterious* on a second transcript showed its primary transcript's *tolerated*. Which
+    *deleterious* on a second transcript shows its primary transcript's *tolerated*. Which
     transcripts the filters hold on the SQL decides, on the stored rows the search itself
     reads (``_filter_transcript_matches``): ``matched_hashes`` are their hashes
     (``annotationHash``, the hash of the annotation as stored), None where the search asks
@@ -1617,14 +1581,14 @@ def _small_filter_transcript_out(annotation: dict[str, Any]) -> SmallVariantFilt
     """A transcript's values as the variant's own fields read them for its primary one."""
     return SmallVariantFilterTranscriptOut(
         gene=_annotation_gene(annotation),
-        transcript_id=_annotation_text(annotation, "transcript_id", "transcriptId"),
+        transcript_id=_annotation_text(annotation, "transcript_id"),
         alt_allele=_annotation_text(annotation, "alt_allele"),
         impact=_annotation_text(annotation, "impact"),
         effect=_annotation_effect(annotation),
         hgvsc=_annotation_text(annotation, "hgvsc"),
         hgvsp=_annotation_text(annotation, "hgvsp"),
         lof=_annotation_text(annotation, "lof"),
-        cadd_phred=_annotation_float(annotation, "cadd_phred", "caddPhred"),
+        cadd_phred=_annotation_float(annotation, "cadd_phred"),
         revel=_annotation_float(annotation, "revel"),
         spliceai_max=_annotation_spliceai_max(annotation),
         sift=_annotation_sift(annotation),
@@ -1675,43 +1639,43 @@ def _small_variant_out(
         clinvar_conditions=clinvar_conditions(_annotation_text(annotation, "clinvar_conditions")),
         clinvar_variation_id=_annotation_text(annotation, "clinvar_variation_id"),
         rsid=record.rsid or _annotation_text(annotation, "rsid"),
-        transcript_id=_annotation_text(annotation, "transcript_id", "transcriptId"),
+        transcript_id=_annotation_text(annotation, "transcript_id"),
         alt_allele=_annotation_text(annotation, "alt_allele"),
-        feature_type=_annotation_text(annotation, "feature_type", "featureType"),
-        transcript_biotype=_annotation_text(annotation, "transcript_biotype", "transcriptBiotype"),
+        feature_type=_annotation_text(annotation, "feature_type"),
+        transcript_biotype=_annotation_text(annotation, "transcript_biotype"),
         hgvsc=_annotation_text(annotation, "hgvsc"),
         hgvsp=_annotation_text(annotation, "hgvsp"),
         canonical=_annotation_bool(annotation, "canonical"),
-        mane_select=_annotation_bool(annotation, "mane_select", "maneSelect"),
-        mane_plus_clinical=_annotation_bool(annotation, "mane_plus_clinical", "manePlusClinical"),
+        mane_select=_annotation_bool(annotation, "mane_select"),
+        mane_plus_clinical=_annotation_bool(annotation, "mane_plus_clinical"),
         exon=_annotation_text(annotation, "exon"),
         intron=_annotation_text(annotation, "intron"),
         lof=_annotation_text(annotation, "lof"),
-        lof_filter=_annotation_text(annotation, "lof_filter", "lofFilter"),
-        lof_flags=_annotation_text(annotation, "lof_flags", "lofFlags"),
+        lof_filter=_annotation_text(annotation, "lof_filter"),
+        lof_flags=_annotation_text(annotation, "lof_flags"),
         nmd=_annotation_text(annotation, "nmd"),
-        gnomad_af=_annotation_float(annotation, "gnomad_af", "gnomadAf"),
-        gnomad_hom_count=_annotation_int(annotation, "gnomad_hom_count", "gnomadHomCount"),
+        gnomad_af=_annotation_float(annotation, "gnomad_af"),
+        gnomad_hom_count=_annotation_int(annotation, "gnomad_hom_count"),
         population_frequencies=population_frequencies,
-        cadd_raw=_annotation_float(annotation, "cadd_raw", "caddRaw"),
-        cadd_phred=_annotation_float(annotation, "cadd_phred", "caddPhred"),
+        cadd_raw=_annotation_float(annotation, "cadd_raw"),
+        cadd_phred=_annotation_float(annotation, "cadd_phred"),
         revel=_annotation_float(annotation, "revel"),
         sift=_annotation_sift(annotation),
         polyphen=_annotation_polyphen(annotation),
-        spliceai_ds_ag=_spliceai_delta(_annotation_float(annotation, "spliceai_ds_ag", "spliceaiDsAg")),
-        spliceai_ds_al=_spliceai_delta(_annotation_float(annotation, "spliceai_ds_al", "spliceaiDsAl")),
-        spliceai_ds_dg=_spliceai_delta(_annotation_float(annotation, "spliceai_ds_dg", "spliceaiDsDg")),
-        spliceai_ds_dl=_spliceai_delta(_annotation_float(annotation, "spliceai_ds_dl", "spliceaiDsDl")),
+        spliceai_ds_ag=_spliceai_delta(_annotation_float(annotation, "spliceai_ds_ag")),
+        spliceai_ds_al=_spliceai_delta(_annotation_float(annotation, "spliceai_ds_al")),
+        spliceai_ds_dg=_spliceai_delta(_annotation_float(annotation, "spliceai_ds_dg")),
+        spliceai_ds_dl=_spliceai_delta(_annotation_float(annotation, "spliceai_ds_dl")),
         spliceai_max=_annotation_spliceai_max(annotation),
         spliceai_dp_ag=_annotation_int(annotation, "spliceai_dp_ag"),
         spliceai_dp_al=_annotation_int(annotation, "spliceai_dp_al"),
         spliceai_dp_dg=_annotation_int(annotation, "spliceai_dp_dg"),
         spliceai_dp_dl=_annotation_int(annotation, "spliceai_dp_dl"),
         alpha_missense_pathogenicity=_annotation_float(
-            annotation, "alpha_missense_pathogenicity", "alphaMissensePathogenicity"
+            annotation, "alpha_missense_pathogenicity"
         ),
         alpha_missense_class=_normalize_alpha_missense_class(
-            _annotation_text(annotation, "alpha_missense_class", "alphaMissenseClass")
+            _annotation_text(annotation, "alpha_missense_class")
         ),
         annotation_extra=_annotation_extra(annotation),
         transcripts=transcripts,
@@ -1775,8 +1739,8 @@ def _structural_variant_out(
     """
     allowed_samples = set(selected_samples)
     calls = [call for call in record.calls if not allowed_samples or call.sample in allowed_samples]
-    # A translocation has no length: it showed 0 or 1 bp, its END − POS, and the report read
-    # "A 0 bp breakend" (CLIN-39), while the length filters already gave it none.
+    # A translocation has no length (its END − POS, 0 or 1 bp, is none), as the length
+    # filters read it.
     length = (
         None
         if is_translocation_sv_type(record.sv_type)
@@ -1818,8 +1782,8 @@ def _structural_variant_out(
             )
             for call in calls
         ],
-        # Drawn by the genome, chromosome and Circos views, which matched exact type names
-        # and so drew no DEL:ME, DUP:TANDEM or CNV (CLIN-54).
+        # Drawn by the genome, chromosome and Circos views, for every SV type a gain or loss
+        # can be read from (DEL:ME, DUP:TANDEM and CNV among them), not only exact type names.
         copy_change=copy_change(
             record.sv_type,
             [(call.sample, call.gt, call.copy_number) for call in calls],
@@ -1868,8 +1832,7 @@ def _small_sample_gt_exists_condition(
     params: dict[str, Any],
 ) -> str:
     sample_param = f"{prefix}_samples"
-    sample_ids = _clickhouse_ids_for_sample(context, sample_name)
-    params[sample_param] = sample_ids or (sample_name,)
+    params[sample_param] = (sample_name,)
     gt_condition = clickhouse_genotype_condition(
         "gt", classes, param=f"{prefix}_gts", params=params
     )
@@ -1929,8 +1892,8 @@ def _small_hemizygous_position_condition(
 ) -> str | None:
     """SQL: the entry lies where a male is hemizygous (chrX or chrY outside the PARs).
 
-    None when the assembly's PARs are not known: there a male is read as diploid, as
-    before (#545). The PAR bounds are bound as parameters.
+    None when the assembly's PARs are not known: there a male is read as diploid. The PAR
+    bounds are bound as parameters.
     """
     regions = pseudoautosomal_regions(assembly_name)
     if regions is None:
@@ -1975,7 +1938,7 @@ def _small_inheritance_mode_clauses(
     can share one query.
 
     - de novo / dominant: one copy in every affected member (a heterozygous call or, for a
-      male where he is hemizygous, a haploid ``1`` or ``1/1`` call, #545), no ALT call in
+      male where he is hemizygous, a haploid ``1`` or ``1/1`` call), no ALT call in
       any unaffected member;
     - homozygous recessive: off chromosome X, homozygous ALT in every affected member and in
       no unaffected one;
@@ -1986,7 +1949,7 @@ def _small_inheritance_mode_clauses(
     x_chromosomes = f"{prefix}_x_chromosomes"
     if mode == _DE_NOVO_DOMINANT_INHERITANCE:
         # One copy in every affected sample: a heterozygous call, or, for a male where he is
-        # hemizygous, a haploid "1" or "1/1" call (#545).
+        # hemizygous, a haploid "1" or "1/1" call.
         sample_sex = _sample_sex_map(context.sample_rows)
         hemizygous_position: str | None = None
         if any(_is_male_sex(sample_sex.get(sample, "")) for sample in affected_samples):
@@ -2289,8 +2252,7 @@ def _small_callset_clauses(
     text, as typed but for the spaces around it. Without one, ``exclude_imputed`` hides the
     imputed callsets (GLIMPSE2, SHAPEIT), as the family page's list and count and the Variant
     Explorer do by default; the phased-marker and sample-QC readers see every callset. A
-    blank callset asks nothing: untrimmed, a value with a space around it found nothing, and
-    a blank callset kept nothing and skipped the imputed-callset default (ENG-1)."""
+    blank callset asks nothing, so the imputed-callset default applies to it."""
     source = (filters.source or "").strip()
     if source:
         params["source"] = source
@@ -2306,8 +2268,8 @@ def _small_locus_clauses(
 ) -> list[str]:
     """The location filters on the rows ``alias``: the chromosome with or without ``chr``,
     and chrM by any of its names (``_chromosome_options``); a variant that starts at or after
-    the start or, with ``overlap``, whose REF reaches it (from a start alone too, which used
-    to read the variant's start, ENG-1); one that starts at or before the end; and, with a
+    the start or, with ``overlap``, whose REF reaches it (from a start alone too); one that
+    starts at or before the end; and, with a
     chromosome, the ``xpos`` range of the locus, which the sort key reads. The annotation
     subqueries repeat the locus as these clauses bind it (``_small_annotation_scope_clauses``,
     ``_small_family_key_condition``)."""
@@ -2488,8 +2450,8 @@ def _small_region_window_rows(
     by that rule (``_SMALL_REGION_WINDOW_MATCH``). A variant and a region that overlap share
     the window of a base they share, so no pair is missed, and the rule decides each pair,
     so none is added. The Variant Explorer joins its annotation index this way
-    (``variant_explorer_service._region_key_condition``, CLIN-48), and the family page its
-    family's own rows (``_small_family_region_condition``, ENG-15)."""
+    (``variant_explorer_service._region_key_condition``), and the family page its
+    family's own rows (``_small_family_region_condition``)."""
     return _region_window_rows(_small_region_bounds(regions), prefix=prefix, params=params)
 
 
@@ -2570,9 +2532,9 @@ def _small_family_region_condition(
     ``_small_region_filter_condition``, found by a join on 64-kb windows over the family's
     own rows (``_small_region_window_rows``).
 
-    Tested against every region for each row (``arrayExists`` over the regions), the rule cost
+    Tested against every region for each row (``arrayExists`` over the regions), the rule costs
     1.3 s at 500 regions and 2.1 s at 1,000 for a family of about 190,000 rows, and longer for
-    a whole genome (ENG-15); the region arrays, repeated for every row ClickHouse reads, could
+    a whole genome; the region arrays, repeated for every row ClickHouse reads, could
     also run it out of memory. The join costs about one more read of the family's rows.
 
     A row is kept when its chromosome, position and REF length, all that the rule reads of
@@ -2622,15 +2584,14 @@ def _small_panel_filter_condition(
 ) -> str | None:
     """A variant in one of the panel's regions, or annotated with one of its genes: in the
     entry row's own gene symbols or in the gene index. Every panel is matched both ways,
-    whatever its size: a panel of more than 1,000 regions, the Mendeliome among them, was
-    matched on gene symbols alone, and missed a variant a smaller panel reaches by position
-    only (owner decision 2026-10-14, reversing CLIN-34's limit).
+    whatever its size, the Mendeliome included: matched on gene symbols alone, a panel would
+    miss a variant it reaches by position only (the owner's decision of 2026-10-14).
 
     ``region_condition`` builds the regions' condition; by default, the overlap rule tested
     against each region (``_small_region_filter_condition``). The family page passes a join
-    over the family's own rows that keeps the same rows (``_small_family_region_condition``,
-    ENG-15), and the Variant Explorer one over the annotation index, for every family's
-    variants at once (``variant_explorer_service._region_key_condition``, CLIN-48). Both
+    over the family's own rows that keeps the same rows (``_small_family_region_condition``),
+    and the Variant Explorer one over the annotation index, for every family's
+    variants at once (``variant_explorer_service._region_key_condition``). Both
     bind the region arrays once, as parameters of the join."""
     conditions: list[str] = []
     in_regions = region_condition(panel_constraints.regions, prefix="panel_region", params=params)
@@ -2708,8 +2669,8 @@ def _small_annotation_filter_condition(
         impact_effect_conditions.append("hasAny(a.effects, %(detail_effect_terms)s)")
     # A frequency or a score is stored as Float32, and compared with the threshold at that
     # precision (toFloat32): at 64 bits a value stored exactly at the threshold could round
-    # past it, and a CADD score of 25.3 failed a minimum of 25.3, a gnomAD frequency of 0.001
-    # a maximum of 0.001 (ENG-1).
+    # past it, so that a CADD score of 25.3 would fail a minimum of 25.3, a gnomAD frequency
+    # of 0.001 a maximum of 0.001.
     if filters.min_spliceai is not None:
         params["detail_min_spliceai"] = filters.min_spliceai
         impact_effect_conditions.append("ifNull(a.spliceai_max, -1) >= toFloat32(%(detail_min_spliceai)s)")
@@ -2778,8 +2739,7 @@ def _small_annotation_filter_condition(
         params["detail_min_revel"] = filters.min_revel
         in_silico_conditions.append("ifNull(a.revel, -1) >= toFloat32(%(detail_min_revel)s)")
     # The stored SIFT or PolyPhen value names the prediction asked for, whatever its score:
-    # the filter's one test (in_silico_prediction_pattern, CLIN-45). This condition
-    # used to find the filter's text anywhere in the value, so "deleterious" also kept
+    # the filter's one test (in_silico_prediction_pattern), so "deleterious" does not keep
     # "deleterious_low_confidence(0.03)".
     for column, prediction in (("sift", filters.sift), ("polyphen", filters.polyphen)):
         pattern = in_silico_prediction_pattern(prediction)
@@ -2852,13 +2812,13 @@ def _small_family_key_condition(
     The annotation tables are shared by every family on the assembly. An annotation subquery
     (``_small_annotation_*_membership_condition``) without this clause gathers every matching
     variant of the whole cohort into the set its ``IN`` tests, whatever the family's size: a
-    frequency filter alone gathered almost every variant stored, 1.6 GiB for 8 M variants, and
+    frequency filter alone gathers almost every variant stored, 1.6 GiB for 8 M variants, and
     at a few hundred genomes would pass the 4 GB a query may hold
     (``clickhouse/users.d/memory-guards.xml``). With it the set holds at most the family's own
     variants: 0.9 GiB for a whole-genome family of 5.4 M rows on that data, in half the time,
     and no more as other families are added. A narrow filter (rare and of high or moderate
-    impact) gathered few variants either way; it now also holds the family's keys, about
-    240 MiB for that family, at the same speed.
+    impact) gathers few variants either way; with the clause it also holds the family's keys,
+    about 240 MiB for that family, at the same speed.
 
     The key is tested through ``identity``, which ClickHouse does not match to an index:
     ``key`` is in the primary key of the annotation tables and has a bloom filter, so a plain
@@ -2892,14 +2852,14 @@ def _small_family_key_condition(
 # annotations as the import read them). The annotation version, which names where the
 # annotations came from (``vcf_info``, ``vep_tsv``), is not matched: the rows of one key and
 # one set hold the same annotations under any version, so their transcripts, genes and ClinVar
-# terms meet the same filters. Matched too, the version (a LowCardinality string) made the set
+# terms meet the same filters. Matched too, the version (a LowCardinality string) makes the set
 # an annotation subquery builds two to three times slower: on 4 M entries rows of 2 M variants
 # a Variant Explorer search under a frequency, impact or CADD filter took 0.6-1.0 s with it
 # and 0.23-0.47 s without, the family list 5-30 % longer (ClickHouse 26.8, 2026-11-06).
 # One value of ``annotation_index`` is not the annotation's: the rsID of the record (its VCF
 # ID). A row's own is in ``e.rsid``, which the rsID filter reads first; through the index a
 # row also finds the rsID another import of the variant wrote with the same annotations, under
-# any version, as it did under the same version.
+# any version.
 _OWN_ANNOTATION: Final = "(e.key, e.annotationSetHash)"
 
 
@@ -2996,12 +2956,9 @@ def _small_native_sample_filter_clauses(
         parsed = parse_small_variant_sample_filter(entry)
         if parsed is None:
             continue
-        sample_ids = _clickhouse_ids_for_sample(context, parsed.sample_name)
-        if not sample_ids:
-            continue
         clauses.append(
             _small_sample_call_condition(
-                sample_ids, parsed, prefix=f"sample_filter_{index}", params=params
+                (parsed.sample_name,), parsed, prefix=f"sample_filter_{index}", params=params
             )
         )
     return clauses, params
@@ -3040,7 +2997,7 @@ def _small_sample_call_condition(
         params[dp_param] = sample_filter.minimum_depth
     if sample_filter.minimum_allele_frequency is not None:
         # At the precision the fraction is stored at (Float32), as in Python: 0.45 is
-        # stored a little below 0.45 and failed a minimum of 0.45 (ENG-1).
+        # stored a little below 0.45, and at 64 bits would fail a minimum of 0.45.
         af_param = f"{prefix}_min_af"
         conditions.append(
             "("
@@ -3213,7 +3170,7 @@ def _structural_family_region_condition(
     ``e``): the rows that overlap a region by the rule of
     ``_structural_region_filter_condition``, found by a join on 64-kb windows over the
     family's own SV rows, as the small-variant family page finds its rows
-    (``_small_family_region_condition``, ENG-15). None without a region.
+    (``_small_family_region_condition``). None without a region.
 
     Tested against every region for each row (``arrayExists`` over the regions), the
     Mendeliome's thousands of loci cost each SV row thousands of tests, and the region arrays,
@@ -3267,12 +3224,8 @@ def _structural_panel_filter_condition(
 ) -> str:
     """An SV that overlaps one of the panel's regions (``_structural_family_region_condition``)
     or whose annotation names one of its genes (the entry row's gene symbols, in any
-    capitals): the rule of ``_StructuralPanelMatch``, whatever the panel's size. A panel with
-    neither keeps no SV.
-
-    Until the owner's decision of 2026-10-20 a panel of more than 1,000 regions, the
-    Mendeliome among them, was matched on gene symbols alone, and in Python only, after the
-    candidate cap; a smaller panel on its regions alone."""
+    capitals): the rule of ``_StructuralPanelMatch``, whatever the panel's size, in SQL and so
+    before the candidate cap. A panel with neither keeps no SV."""
     conditions: list[str] = []
     in_regions = _structural_family_region_condition(
         context, filters, panel.regions, prefix="sv_panel_region", params=params
@@ -3318,7 +3271,7 @@ def _structural_variant_where_clauses(
     # A review selection (the report's "report" tag, a classification, notes) resolves to
     # variant ids in Postgres. In SQL, like the regions, it narrows the rows before the
     # candidate cap, so the cap cannot decide which reviewed SVs the search sees: a
-    # reported SV beyond the first 50,000 rows of the callset was missing from the report.
+    # reported SV beyond the first 50,000 rows of the callset is in the report too.
     # ``None`` means no selection; an empty selection matches nothing.
     if include_variant_ids is not None:
         normalized_include_ids = sorted(
@@ -3347,8 +3300,8 @@ def _clamp_small_variant_page(page: int, page_size: int) -> int:
 
     The small-variant total is capped at ``_SMALL_COUNT_LIMIT``, so any page past the one
     that could hold real data returns empty regardless. Without this, ``page=10_000_000``
-    turned into a ~10^10-row DB OFFSET on the native/track_mode list path — a cheap
-    amplification vector. (#333)
+    would turn into a ~10^10-row DB OFFSET on the native/track_mode list path — a cheap
+    amplification vector.
     """
     page = max(page, 1)
     if page_size <= 0:
@@ -3615,7 +3568,7 @@ def _small_search_keeps_by_pairing(filters: SmallVariantQueryFilters) -> bool:
     """Whether the search keeps a variant for what else it finds, not for the variant alone:
     compound-het and recessive pairing, and the couple's gene rule of expanded carrier
     screening. No SQL decides these: such a search reads a window of candidates and applies
-    them in Python, ranked or not (CLIN-44)."""
+    them in Python, ranked or not."""
     return filters.inheritance in _PAIR_BASED_SMALL_INHERITANCE or filters.expanded_carrier_screening
 
 
@@ -3751,8 +3704,8 @@ def _structural_segregation_modes(
 
     An inherited call supports a dominant model only when the parent it came from is
     affected, and so is the child it was called in -- the rule the small-variant matcher
-    applies to genotypes. Any inherited SV used to count as dominant, so an SV from an
-    unaffected parent ranked as supporting segregation it argues against. "maternal" names
+    applies to genotypes, so an SV from an unaffected parent does not rank as supporting
+    segregation it argues against. "maternal" names
     the child's mother, "paternal" the father, and a bare "inherited" either parent. With
     no ``context``, or no pedigree link to read the parent from, the inherited call is left
     neutral (empty), matching the small-variant ``segregation_weight`` semantics.

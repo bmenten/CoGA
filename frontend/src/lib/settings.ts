@@ -66,7 +66,7 @@ export function getCoverageLowerThreshold(): number {
 /**
  * True when this browser colours coverage with its own gain/loss thresholds rather than
  * the defaults. They live in browser storage, so two workstations can colour the same
- * data differently; the chart says so rather than letting it pass unseen (#529).
+ * data differently; the chart says so rather than letting it pass unseen.
  */
 export function hasCustomCoverageThresholds(): boolean {
   return (

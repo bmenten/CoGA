@@ -1,4 +1,4 @@
-"""An X-linked PGT family's haplotype blocks and embryo calls, from its import (CLIN-60's rule).
+"""An X-linked PGT family's haplotype blocks and embryo calls, from its import.
 
 Over a synthetic X-linked recessive family imported from a package (the father, the mother,
 their affected son as the index, a son and a daughter as embryos; a phased GLIMPSE2 family VCF
@@ -14,9 +14,9 @@ API, this:
   disease haplotype is the mother's homolog the affected son carries, the son embryo who
   carries it is at risk and the daughter unaffected, each QC read on the mother's side.
 
-Read as two copies, the men's one-allele calls gave no transmission outside the PARs: the PAR1
-blocks ran over the X, the affected son was read on both lanes and gave two candidates for the
-disease haplotype, and every embryo was uninformative.
+Read as two copies, the men's one-allele calls would give no transmission outside the PARs: the
+PAR1 blocks would run over the X, the affected son would be read on both lanes and give two
+candidates for the disease haplotype, and every embryo would be uninformative.
 
 Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``e2e`` job sets it.
 """

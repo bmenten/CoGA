@@ -171,8 +171,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
-# Per-table verifiers for the append-only tamper-evidence hash chains (#261), the
-# pedigree's structure versions among them (SEC-7).
+# Per-table verifiers for the append-only tamper-evidence hash chains, the
+# pedigree's structure versions among them.
 _INTEGRITY_VERIFIERS = {
     "report_signouts": verify_report_signout_chain,
     "clinical_audit_events": verify_clinical_audit_chain,
@@ -496,7 +496,7 @@ async def download_raw_import_file(
 ) -> FileResponse:
     record = await get_raw_import_file_record(session, file_id=file_id)
     # The recorded path is data: only a file inside the folders CoGA reads source files from
-    # is served, by its real path (409 object store, 403 elsewhere, 410 gone; SEC-29).
+    # is served, by its real path (409 object store, 403 elsewhere, 410 gone).
     path = await asyncio.to_thread(local_file_to_download, record)
     return FileResponse(
         path=path,
@@ -815,7 +815,7 @@ async def delete_sample(
 async def delete_family(
     family_id: str,
     confirm: bool = False,
-    # The reason goes in the body, not the query string: it is free text (TRACE-16).
+    # The reason goes in the body, not the query string: it is free text.
     payload: FamilyDeleteRequest | None = None,
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_admin_user),
@@ -919,7 +919,7 @@ async def sync_hpo_terms(
     user: CurrentUser = Depends(get_current_admin_user),
 ) -> dict[str, Any]:
     """Preview, or apply, an ontology file on the server or an HPO release downloaded from its
-    own PURL. A downloaded release must state the release asked for (TRACE-18)."""
+    own PURL. A downloaded release must state the release asked for."""
     del user
     try:
         if payload.download_release is not None:
@@ -1014,14 +1014,14 @@ async def refresh_monarch_associations(
             detail=f"Failed to download Monarch data: {exc}",
         ) from exc
     except MonarchSourceError as exc:
-        # Nothing was committed: the loaded release stays (DATA-4).
+        # Nothing was committed: the loaded release stays.
         raise HTTPException(
             status_code=502,
             detail=f"Monarch data could not be loaded, and the loaded release was kept: {exc}",
         ) from exc
     # A new Monarch release means a new Mendeliome: re-version the generated panel
     # (a no-op if the gene set is unchanged). It never fails the refresh, but the admin
-    # is told when it did not happen, instead of only a log line (#514).
+    # is told when it did not happen, instead of only a log line.
     mendeliome_error: str | None = None
     try:
         await regenerate_mendeliome(session, user)

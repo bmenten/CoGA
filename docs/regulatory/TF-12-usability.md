@@ -61,7 +61,7 @@ The UI-level risk controls above are requirements, traced in the TF-09 RTM. Desi
   glyph or text carries it too. It is applied to the pedigree QC ring, the
   risk-haplotype line, the small-variant marks and the Review, Exclude and Report
   toggles, whose pressed state carries a check mark and is announced as pressed to screen
-  readers. Two colour codes remain, each named in a tooltip: the pedigree's carrier-type
+  readers. Two colour codes are the exceptions, each named in a tooltip: the pedigree's carrier-type
   half-fill, and the MODERATE versus LOW small-variant dots.
 - Every chart, track, ideogram and the pedigree is an image with a **text name that states
   what it shows now** (WCAG 1.1.1): the counts and the salient items, or that it is loading or

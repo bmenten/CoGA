@@ -62,7 +62,7 @@ def prepare_copy(
     plasma on an assay panel of this run's own; the new ids and the panel (``panel``). With
     ``fetus_status``, the PED gives the fetus that status instead of the demo's (affected). With
     ``roi``, the manifest gives the family that region of interest; without
-    ``declare_coverage``, the plasma's coverage BED declares nothing (TRACE-9)."""
+    ``declare_coverage``, the plasma's coverage BED declares nothing."""
     suffix = uuid4().hex[:8]
     ids = {token: f"{token}_{suffix}" for token in TOKENS}
     panel = f"e2e-nipt-signed-record-{suffix}"

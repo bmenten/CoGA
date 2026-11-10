@@ -14,7 +14,7 @@ contract:
 * raw-file provenance still names every file, including the ones left in the store;
 * the CRAM endpoint serves the recorded object first -- but only an object in the
   configured bucket below FAMILY_IMPORT_ROOTS, in the package folder the family's own
-  import read (SEC-27), so a tampered metadata row cannot make it sign a URL for anything
+  import read, so a tampered metadata row cannot make it sign a URL for anything
   else, another family's package included -- and falls back to the layout probes.
 """
 
@@ -578,7 +578,7 @@ async def test_the_log_line_about_an_ignored_location_names_no_sample(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     # The warning does not name the sample whose recorded location it ignored: logs carry no
-    # values (SEC-37). It says that a location was ignored, and why.
+    # values. It says that a location was ignored, and why.
     use_store(monkeypatch, "gs", {"imports/F1/bams/PROBAND7.cram": "cram"})
     _family_members(monkeypatch, "PROBAND7")
     _sign_urls(monkeypatch)
@@ -626,7 +626,7 @@ async def test_a_location_another_import_root_allows_is_not_signed_in_the_config
 
 @pytest.mark.asyncio
 async def test_another_familys_package_in_the_import_area_is_never_signed(monkeypatch: pytest.MonkeyPatch) -> None:
-    # SEC-27: F2's sample row changed to name F1's reads, which lie in the import area. The
+    # F2's sample row changed to name F1's reads, which lie in the import area. The
     # location was checked against the import area alone and signed; it must lie in the
     # package folder F2's own import read.
     use_store(monkeypatch, "gs", {"imports/F1/bams/S1.cram": "cram", "imports/F1/bams/S1.cram.crai": "crai"})

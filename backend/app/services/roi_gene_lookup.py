@@ -25,9 +25,8 @@ _ROI_GENE_SQL = text(
         lower(hgnc_symbol) = lower(:query)
         OR lower(gene_id) = lower(:query)
         -- Under GENCODE, gene_id is an Ensembl transcript accession. Match the
-        -- unversioned form, the Ensembl gene, and the RefSeq accessions the
-        -- refGene-derived table used to be keyed on, so a query naming any of
-        -- them still resolves.
+        -- unversioned form, the Ensembl gene, and the gene's RefSeq accessions, so a
+        -- query naming any of them resolves.
         OR lower(COALESCE(extra->>'ensembl_transcript_id', '')) = lower(:query)
         OR lower(COALESCE(extra->>'ensembl_gene_id', '')) = lower(:query)
         OR EXISTS (

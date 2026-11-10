@@ -60,7 +60,7 @@ const CnvDetailsPage: React.FC = () => {
     );
   }
 
-  // A server error is not a CNV that does not exist (#624, as #610).
+  // A server error is not a CNV that does not exist.
   if (isError && !isNotFoundError(error)) {
     return (
       <div className="page-shell content-shell">

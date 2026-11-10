@@ -1,4 +1,5 @@
-"""The Postgres schema migration: the baseline files, then the Alembic revisions.
+"""The Postgres schema migration: the Alembic revisions, of which revision 0001 makes an empty
+database from the five baseline files.
 
 The API runs it at startup when it connects as the table owner
 (``POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP``, the default), and ``python -m app.db_migrate``
@@ -9,32 +10,30 @@ here. It runs in one transaction, so it applies whole or not at all:
 1. a transaction-level advisory lock, so that two instances starting together migrate one
    after the other;
 2. a refusal when connected as ``coga_app``: migrations run as the owner, and ``coga_app``
-   may neither run DDL nor write the ledger. A ledger naming a revision this version does
-   not have is refused here too, before anything runs (below);
-3. until the release candidate, the five idempotent baseline files
-   (``backend/db/schema/postgres/``), re-applied on every run, so that a pull request that
-   edits a baseline still reaches every existing database. ``CREATE TABLE IF NOT EXISTS``
-   leaves a table that exists as it is, so a change to an existing table needs a revision;
-4. the Alembic revisions (``backend/db/migrations/versions/``) that the ledger
-   (``alembic_version``) does not list yet, recorded there as they run.
+   may neither run DDL nor write the ledger;
+3. a refusal of any database this version did not make: it migrates only an empty database
+   (an empty ledger and no table in the public schema) or one whose ledger (``alembic_version``)
+   names one of its revisions and whose baselines' digest (``schema_baselines``) equals its
+   own (``baseline_digest``). Tables without a ledger, a ledger naming a revision this version
+   does not have, and a database made from other baselines are refused before anything runs;
+4. the Alembic revisions (``backend/db/migrations/versions/``) the ledger does not list yet,
+   recorded there as they run. Revision 0001 applies the baseline files
+   (``backend/db/schema/postgres/``) to the empty database and records their digest.
 
-A database the baselines created before the ledger existed has an empty ledger: it gets every
-revision, which each end at the baseline's schema whatever they start from, and keeps its
-rows. A ledger naming a revision this version does not know was written by a newer version:
-the migration refuses it rather than run older code on a newer schema.
+Until the release candidate a schema change is an edit of a baseline and revision 0001 is the
+only revision, so a database made from other baselines is made again from empty, never
+migrated. The release candidate freezes the baselines: from then on every schema change is a
+revision of its own, and the digest stays that of the frozen baselines (docs/database.md,
+"Schema Migrations").
 
 A start that does not migrate (``POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP=false``, as with
-``coga_app``) runs ``check_schema_revision`` instead: it only reads the ledger, and refuses to
-start unless it names exactly this version's newest revision. Behind it, the migration job has
-not run for this version; ahead of it, a newer version migrated the database.
-
-The release candidate freezes the baselines: ``REAPPLY_BASELINES_ON_EVERY_RUN`` becomes
-``False``, revision 0001 is then the only step that applies them (to a new database), and every
-schema change is a revision of its own (docs/database.md, "Schema Migrations").
+``coga_app``) runs ``check_schema_revision`` instead: it only reads the ledger and the digest,
+and refuses to start unless they are this version's newest revision and its baselines.
 """
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from dataclasses import dataclass
 from pathlib import Path
@@ -57,27 +56,25 @@ MIGRATIONS_DIR = Path(__file__).resolve().parents[2] / "db" / "migrations"
 # The restricted runtime role (05_grants.sql). It never runs a migration.
 APP_ROLE = "coga_app"
 
-# Until the release candidate every run re-applies the baselines before the revisions (step 3
-# above). The RC sets this to False: docs/database.md, "Freezing the baselines at the release
-# candidate".
-REAPPLY_BASELINES_ON_EVERY_RUN = True
-
 _LOCK_KEY = "coga:postgres-schema-migration"
+
+# Where a database made from other baselines, or by another version, is sent.
+_SCHEMA_DOC = 'docs/database.md, "Schema Migrations"'
 
 
 class SchemaMigrationRefused(RuntimeError):
-    """The migration did not run: the wrong role, or a ledger written by a newer version."""
+    """The migration did not run: the wrong role, or a database this version did not make."""
 
 
 class SchemaRevisionMismatch(RuntimeError):
-    """A start that does not migrate found the database at another revision than its own."""
+    """A start that does not migrate found a database this version did not bring to its schema."""
 
 
 @dataclass(frozen=True)
 class SchemaRevision:
     """The ledger's revision before and after a migration run.
 
-    ``before`` is None for a new database and for one created before the ledger existed.
+    ``before`` is None for an empty database, which the run made.
     """
 
     before: str | None
@@ -92,13 +89,41 @@ def apply_baselines(connection: Connection) -> None:
             connection.exec_driver_sql(statement)
 
 
-def baseline_statements(filename: str) -> list[str]:
-    """The statements of one baseline file, split as ``apply_baselines`` runs them. A revision
-    that brings an existing table to its baseline's definition runs the baseline's own
-    statements (revision 0004)."""
+def baseline_digest() -> str:
+    """The SHA-256 over the five baseline files, each file's name and bytes in name order."""
 
-    path = next(path for path in _schema_files() if path.name == filename)
-    return _split_sql_script(path.read_text())
+    digest = hashlib.sha256()
+    for path in _schema_files():
+        digest.update(path.name.encode())
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def record_baseline_digest(connection: Connection) -> None:
+    """Record which baselines made the database (revision 0001, right after it applied them)."""
+
+    connection.execute(
+        text("INSERT INTO schema_baselines (digest) VALUES (:digest)"),
+        {"digest": baseline_digest()},
+    )
+
+
+def stored_baseline_digest(connection: Connection) -> str | None:
+    """The digest of the baselines the database was made from, or None when it records none."""
+
+    if connection.execute(text("SELECT to_regclass('public.schema_baselines')")).scalar() is None:
+        return None
+    return connection.execute(text("SELECT digest FROM schema_baselines")).scalar()
+
+
+def _public_table_count(connection: Connection) -> int:
+    return int(
+        connection.execute(
+            text("SELECT count(*) FROM pg_catalog.pg_tables WHERE schemaname = 'public'")
+        ).scalar_one()
+    )
 
 
 def migration_script() -> ScriptDirectory:
@@ -135,9 +160,31 @@ def refuse_unknown_revision(revision: str | None, script: ScriptDirectory) -> No
     if revision not in known:
         raise SchemaMigrationRefused(
             f"The database is at schema revision {revision}, which this version of CoGA "
-            f"does not have (its newest is {script.get_current_head()}): a newer version "
-            "migrated it. Run that version, or restore the database from the backup taken "
-            "before that upgrade (docs/database.md, \"Schema Migrations\")."
+            f"does not have (its newest is {script.get_current_head()}): another version made "
+            "or migrated it. Run that version, or restore the database from the backup taken "
+            f"before that version migrated it ({_SCHEMA_DOC})."
+        )
+
+
+def refuse_unless_made_here(connection: Connection, revision: str | None) -> None:
+    """Refuse a database this version did not make: with tables but no ledger, or made from
+    other baselines than this version's."""
+
+    if revision is None:
+        tables = _public_table_count(connection)
+        if tables:
+            raise SchemaMigrationRefused(
+                f"The database holds {tables} table(s) in its public schema but no schema "
+                "ledger (alembic_version), so CoGA's migration did not make it. CoGA makes its "
+                f"schema only in an empty database: point it at an empty one ({_SCHEMA_DOC})."
+            )
+        return
+    stored = stored_baseline_digest(connection)
+    if stored != baseline_digest():
+        raise SchemaMigrationRefused(
+            "The database was made from other baseline files than this version's "
+            f"(schema_baselines records {stored or 'none'}, this version has "
+            f"{baseline_digest()}), so this version does not migrate it ({_SCHEMA_DOC})."
         )
 
 
@@ -149,14 +196,16 @@ def _refuse_start(message: str) -> SchemaRevisionMismatch:
 
 
 def check_schema_revision(connection: Connection) -> str:
-    """This version's newest revision, when the ledger on ``connection`` names exactly that one.
+    """This version's newest revision, when the database on ``connection`` is at exactly that
+    revision and was made from this version's baselines.
 
     For a start that does not migrate (``POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP=false``, as
     with the restricted runtime role ``coga_app``): the migration step runs separately, as the
-    owner, before the rollout. Any other ledger raises ``SchemaRevisionMismatch``, and the
+    owner, before the rollout. Any other database raises ``SchemaRevisionMismatch``, and the
     message is logged. An older revision or none means the migration did not run for this
-    version; a revision this version does not have means a newer version migrated the
-    database. It only reads the ledger, which ``coga_app`` may.
+    version; a revision this version does not have means another version made or migrated the
+    database; other baselines mean it was made from them. It only reads the ledger and the
+    digest, which ``coga_app`` may.
     """
 
     head = head_revision()
@@ -164,26 +213,30 @@ def check_schema_revision(connection: Connection) -> str:
         current = ledger_revision(connection)
     except SchemaMigrationRefused as exc:
         raise _refuse_start(f"{exc} The backend does not start.") from exc
-    if current == head:
-        logger.info("Postgres schema at revision %s, this version's own", head)
-        return head
     known = {script_revision.revision for script_revision in migration_script().walk_revisions()}
-    if current is None or current in known:
+    if current is not None and current not in known:
+        raise _refuse_start(
+            f"The database is at schema revision {current}, which this version of CoGA does not "
+            f"have (its newest is {head}): another version made or migrated it. The backend "
+            "does not start. Roll out that version again, or restore the database from the "
+            f"backup taken before that version migrated it ({_SCHEMA_DOC})."
+        )
+    if current != head:
         raise _refuse_start(
             f"The database is at schema revision {current or 'none (no ledger)'}, and this "
             f"version of CoGA needs revision {head}. It does not migrate at start "
             "(POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP=false), so the backend does not start. "
             "Run the migration job first, python -m app.db_migrate as the owner of the tables "
             "(on Google Cloud: gcloud run jobs execute coga-db-migrate --region <region> --wait), "
-            "then start this version again (docs/database.md, \"Schema Migrations\")."
+            f"then start this version again ({_SCHEMA_DOC})."
         )
-    raise _refuse_start(
-        f"The database is at schema revision {current}, which this version of CoGA does not "
-        f"have (its newest is {head}): this version is older than the database, which a newer "
-        "version migrated. The backend does not start. Roll out the version that migrated it "
-        "again, or restore the database from the backup taken before that migration "
-        "(docs/database.md, \"Schema Migrations\")."
-    )
+    if stored_baseline_digest(connection) != baseline_digest():
+        raise _refuse_start(
+            "The database was made from other baseline files than this version's "
+            f"(schema_baselines), so the backend does not start ({_SCHEMA_DOC})."
+        )
+    logger.info("Postgres schema at revision %s, this version's own", head)
+    return head
 
 
 def _alembic_config(connection: Connection) -> Config:
@@ -192,20 +245,18 @@ def _alembic_config(connection: Connection) -> Config:
     config.set_main_option("script_location", str(MIGRATIONS_DIR).replace("%", "%%"))
     # env.py runs only with this connection, inside the transaction opened below.
     config.attributes["connection"] = connection
-    # Revision 0001 applies the baselines with the same function as step 3.
+    # Revision 0001 applies the baselines and records their digest with these.
     config.attributes["apply_baselines"] = apply_baselines
-    # A revision that runs some of a baseline's own statements reads them split the same way.
-    config.attributes["baseline_statements"] = baseline_statements
+    config.attributes["record_baseline_digest"] = record_baseline_digest
     return config
 
 
 def _migrate(connection: Connection) -> SchemaRevision:
     script = migration_script()
     before = ledger_revision(connection)
-    # Before anything runs: this version's baselines must not touch a newer schema.
+    # Before anything runs: only an empty database, or one this version made.
     refuse_unknown_revision(before, script)
-    if REAPPLY_BASELINES_ON_EVERY_RUN:
-        apply_baselines(connection)
+    refuse_unless_made_here(connection, before)
     try:
         command.upgrade(_alembic_config(connection), "head")
     except CommandError as exc:
@@ -233,12 +284,12 @@ async def apply_postgres_schema(conn: AsyncConnection) -> SchemaRevision:
             "the API (docs/db-runtime-role-runbook.md)."
         )
     revision = await conn.run_sync(_migrate)
-    if revision.before == revision.after:
+    if revision.before is None:
+        logger.info("Postgres schema made at revision %s", revision.after)
+    elif revision.before == revision.after:
         logger.info("Postgres schema at revision %s", revision.after)
     else:
         logger.info(
-            "Postgres schema migrated from revision %s to %s",
-            revision.before or "none (no ledger)",
-            revision.after,
+            "Postgres schema migrated from revision %s to %s", revision.before, revision.after
         )
     return revision

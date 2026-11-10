@@ -11,11 +11,8 @@ import { themeRules, themeTextWithoutComments } from './themeSource';
  * class-level weight: the selector scores **(0,2,1)**, not (0,0,1) as its shape
  * suggests. A two-class override like `.some-table .some-input` scores (0,2,0) and
  * *loses* — silently, with no warning anywhere, leaving the control at the shared
- * height and padding.
- *
- * That is exactly what happened to the QC threshold inputs: three rounds of tuning
- * padding, width and height had no effect at all, because none of it applied. jsdom
- * does not apply external stylesheets, so no component test can catch it either.
+ * height and padding. jsdom does not apply external stylesheets, so no component test
+ * can catch it either.
  *
  * This asserts that every override of that rule carries enough specificity to win.
  */

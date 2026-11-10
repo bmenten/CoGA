@@ -1,5 +1,5 @@
 """A family-structure change that clears the family's genomic data deletes it in ClickHouse
-last, just before its commit (SAFE-28).
+last, just before its commit.
 
 ``PUT /families/{id}/structure`` with ``clear_existing_genomic_data`` deletes the family's
 variants and tracks with its reviews and Postgres-held data. ClickHouse has no transactions:
@@ -75,7 +75,7 @@ def events(monkeypatch) -> list[str]:
         "delete_interval_tracks": record("ClickHouse: delete interval tracks"),
         "_update_member_row": record("update member"),
         "_record_family_structure_version": record("record structure version"),
-        # Its mark is test_deletions_mark_the_family.py's (SAFE-31).
+        # Its mark is test_deletions_mark_the_family.py's.
         "FamilyDeletion": UnmarkedDeletion,
     }.items():
         monkeypatch.setattr(service, name, value)
@@ -118,7 +118,7 @@ async def test_a_structure_change_deletes_the_familys_clickhouse_data_last_befor
     # The Postgres-held data and every write of the change first, under the locks the clear
     # took; then the variants and tracks in ClickHouse; then the commit. The change takes the
     # variant-write locks and then the family's pedigree lock (the SELECT) before it reads the
-    # pedigree (SEC-7); the clear takes the variant-write locks again, granted at once.
+    # pedigree; the clear takes the variant-write locks again, granted at once.
     assert events == [
         "lock",
         "SELECT",

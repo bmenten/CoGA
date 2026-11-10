@@ -148,7 +148,7 @@ describe('RawFileProvenanceTable', () => {
 
     for (const fileName of ['edited.cram', 'report.pdf']) {
       const row = await rowOf(fileName);
-      // Before: the bucket row said it was kept in the object store, the disk row that it was gone.
+      // Neither as kept in the object store nor as gone.
       expect(row.getByRole('button', { name: 'Download' })).toHaveAttribute('title', OUTSIDE);
       expect(row.getByRole('button', { name: 'Verify' })).toHaveAttribute('title', OUTSIDE);
       expect(row.getByText(`${OUTSIDE}.`)).toBeInTheDocument();
@@ -242,7 +242,7 @@ describe('RawFileProvenanceTable', () => {
     const remote = await rowOf('report.pdf');
     fireEvent.click(remote.getByRole('button', { name: 'Verify' }));
 
-    // Before: "Could not verify report.pdf." and nothing more.
+    // The server's reason, not "Could not verify report.pdf." alone.
     expect(await screen.findByText(`Could not verify report.pdf: ${reason}`)).toBeInTheDocument();
     expect(api.post).toHaveBeenCalledWith('/admin/data/files/remote-outside/verify');
   });

@@ -224,8 +224,7 @@ def combine(variant_score: float, phenotype_score: float | None) -> float:
 # A copy-number change is scored by its direction, which the caller reads by the rule the
 # SNV + SV second hit reads too (``sv_copy_change.copy_change``): a deletion of any subtype
 # (``DEL:ME``) or a CNV whose copy number shows a loss scores as a loss, a duplication of
-# any subtype (``DUP:TANDEM``) or a CNV gain as a gain. Exact type names were matched, so
-# those scored as an unknown event (CLIN-47).
+# any subtype (``DUP:TANDEM``) or a CNV gain as a gain, never as an unknown event.
 _SV_COPY_CHANGE_BASE: dict[CopyChange, float] = {COPY_LOSS: 0.7, COPY_GAIN: 0.5}
 # Every other event, by its type without subtypes (``sv_copy_change.sv_kind``).
 _SV_TYPE_BASE = {

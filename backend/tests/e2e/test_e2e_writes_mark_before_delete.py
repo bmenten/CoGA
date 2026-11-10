@@ -1,4 +1,4 @@
-"""Writes that fail or stop after their delete leave the family marked (SAFE-28), E2E.
+"""Writes that fail or stop after their delete leave the family marked, E2E.
 
 ClickHouse has no transactions. Here a trio (a new family id each run) goes through the PED,
 structural-variant, small-variant and BED upload routes, the admin delete of a sample's SVs
@@ -236,7 +236,7 @@ async def _exercise(family_id: str) -> dict[str, Any]:
 
         response = await ac.post(
             f"/api/bed/upload/{names['child']}/coverage",
-            # A coverage BED declares what it holds (TRACE-9).
+            # A coverage BED declares what it holds.
             params={"overwrite": "true", "content": "read_depth"},
             files={"file": ("coverage.bed", b"1\t0\t1000\tbin1\t31.0\n1\t1000\t2000\tbin2\t29.5\n", "text/plain")},
         )

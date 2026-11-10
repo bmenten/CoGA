@@ -6,7 +6,7 @@ MiB is aborted at the ceiling instead of exhausting worker memory, an oversized 
 is stopped mid-stream, and the optional-file (404) and upstream-error paths are preserved.
 They also prove every member of a multi-member (bgzip) file is read, under one cap on
 the output of all members, and that a truncated file or trailing bytes are refused, a BGZF
-file cut exactly where one of its blocks ends included (DATA-4).
+file cut exactly where one of its blocks ends included.
 """
 from __future__ import annotations
 
@@ -82,7 +82,7 @@ def test_gunzip_bounded_reads_a_bgzip_file_whole() -> None:
     assert gunzip_bounded(BGZF_EOF_BLOCK, source="t") == b""
 
 
-# --- a BGZF file ends with its end-of-file block (DATA-4) ----------------------------------
+# --- a BGZF file ends with its end-of-file block ----------------------------------
 #
 # gzip has no end mark, so a BGZF file cut exactly where one of its blocks ends is a whole
 # gzip file, short of the rest. BGZF ends every file with an empty block "so that unintended
@@ -309,7 +309,7 @@ def _serve(monkeypatch, body: bytes, seen: list[dict] | None = None) -> None:
 
 @pytest.mark.asyncio
 async def test_download_text_gunzips_a_gz_url_and_decodes_utf8(monkeypatch) -> None:
-    # Monarch's association files and the gene-info bulk sources are read through it (ENG-8).
+    # Monarch's association files and the gene-info bulk sources are read through it.
     seen: list[dict] = []
     _serve(monkeypatch, gzip.compress("gene\tziekte é\n".encode()), seen)
 

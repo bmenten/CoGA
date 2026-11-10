@@ -275,8 +275,8 @@ describe('FamilyParaphasePage', () => {
                 has_copy_number_signal: false,
                 samples: {
                   // A normal GBA + GBAP1 pair: total CN 4, gene CN not called. The
-                  // backend calls it unchanged; the page used to re-flag any value
-                  // other than 2 (a no-call included), so the filter kept it.
+                  // backend calls it unchanged, and the page does not re-flag a value
+                  // other than 2 (a no-call included), so the filter drops it.
                   MOTHER: {
                     sample: 'MOTHER',
                     role: 'mother',
@@ -352,7 +352,7 @@ describe('FamilyParaphasePage', () => {
       'https://www.omim.org/entry/253300',
     );
     // The shared family header: the title is the way back to the workspace, and the
-    // page no longer carries a separate button to the same place.
+    // page carries no separate button to the same place.
     expect(screen.getByRole('link', { name: 'Family F1' })).toHaveAttribute(
       'href',
       '/families/F1',
@@ -427,8 +427,8 @@ describe('FamilyParaphasePage', () => {
   });
 });
 
-// #610 — any failure read "Family not found", a server error included.
-describe('FamilyParaphasePage — failed requests (#610)', () => {
+// A failure is said as such: a server error never reads "Family not found".
+describe('FamilyParaphasePage — failed requests', () => {
 
   it('says the family could not be loaded, not that it was not found', async () => {
     let failedRequests = 0;

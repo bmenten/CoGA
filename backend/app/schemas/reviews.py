@@ -26,8 +26,8 @@ class SmallVariantCompoundHetReviewOut(BaseModel):
 
 class SmallVariantCompoundHetReviewUpdate(BaseModel):
     partner_variant_id: Optional[str] = None
-    # The pair save writes the partner's review too, so it is checked like the variant's own
-    # (#513): the partner review's ``updated_at`` as the client loaded it, or null when it
+    # The pair save writes the partner's review too, so it is checked like the variant's
+    # own: the partner review's ``updated_at`` as the client loaded it, or null when it
     # loaded none. On a mismatch the save is refused with 409 and the partner's current
     # review. Left out, the partner's version is not checked; its review is still read
     # under its lock, so the save never writes an older copy of it back.
@@ -84,14 +84,14 @@ class SmallVariantReviewOut(BaseModel):
     acmg: Optional[AcmgClassificationPayload] = None
     # CNV (ClinGen) classification — only populated for structural-variant reviews.
     cnv_acmg: Optional[CnvAcmgClassificationPayload] = None
-    # A classification record is stored but no longer validates, so ``acmg`` /
+    # A classification record is stored but does not validate, so ``acmg`` /
     # ``cnv_acmg`` is None although one exists — told apart from "never classified" so
-    # the editor can warn before it is overwritten (#514).
+    # the editor can warn before it is overwritten.
     acmg_unreadable: bool = False
 
 
 class _VariantReviewUpdate(BaseModel):
-    # Optimistic concurrency (#513): the review's ``updated_at`` as the client loaded it,
+    # Optimistic concurrency: the review's ``updated_at`` as the client loaded it,
     # or null when it loaded no review. On a mismatch the save is refused with 409 and
     # the current review, instead of silently overwriting another reviewer's edit. A
     # client that leaves the field out keeps the unconditional write.
@@ -103,8 +103,7 @@ class _VariantReviewUpdate(BaseModel):
 
 class SmallVariantReviewUpdate(_VariantReviewUpdate):
     # A field the save does not take is refused (422, naming it), not left out without a word:
-    # ``cnv_acmg``, a structural variant's CNV classification, was accepted here and never read
-    # (ENG-4). No page sends one.
+    # ``cnv_acmg``, a structural variant's CNV classification, among them.
     model_config = ConfigDict(extra="forbid")
 
     compound_het: Optional[SmallVariantCompoundHetReviewUpdate] = None
@@ -124,7 +123,7 @@ class StructuralVariantReviewUpdate(_VariantReviewUpdate):
     cnv_acmg: Optional[CnvAcmgClassificationPayload] = None
     # The caller (the SV row's ``source``) whose row a CNV scoring is made on. Several
     # callers can call one SV under one id and share its review, and a scoring freezes
-    # the evidence of the row it was made on (TRACE-11). Read only with a scoring: left
+    # the evidence of the row it was made on. Read only with a scoring: left
     # out, the SV's one row is taken, and a scoring of an SV that several callers share
     # is refused (422).
     source: Optional[str] = None
@@ -277,6 +276,6 @@ class SmallVariantTagDefinitionOut(BaseModel):
     shared_project_ids: List[str] = Field(default_factory=list)
     is_custom: bool = False
     # False for a deleted custom tag, and in a family's list for a tag its reviews hold that
-    # its projects do not list (SAFE-37); listed only on request so a review that still holds
+    # its projects do not list; listed only on request so a review that still holds
     # it can show it; it can no longer be added to a review.
     is_active: bool = True

@@ -77,7 +77,7 @@ async def _collect_api_responses(root: Path) -> dict:
         )
 
         r["sv"] = capture(await ac.get(f"/api/families/{FAMILY}/structural-variants"))
-        # CLIN-40: the NeedlR breakend's mate is on 5:3000000 (its ALT, N]chr5:3000000]).
+        # The NeedlR breakend's mate is on 5:3000000 (its ALT, N]chr5:3000000]).
         r["sv_by_mate"] = capture(
             await ac.get(
                 f"/api/families/{FAMILY}/structural-variants",
@@ -93,11 +93,9 @@ async def _collect_api_responses(root: Path) -> dict:
         r["sv_sample_counts"] = capture(await ac.get(f"/api/families/{FAMILY}/structural-variant-sample-counts"))
         r["small_stats"] = capture(await ac.get(f"/api/families/{FAMILY}/small-variant-statistics"))
 
-        r["bed_json"] = capture(await ac.get("/api/bed/PROBAND/coverage", params={"chrom": "1", "format": "json"}))
-        r["bed_default"] = capture(await ac.get("/api/bed/PROBAND/coverage", params={"chrom": "1"}))
-        r["bed_text"] = capture(await ac.get("/api/bed/PROBAND/coverage", params={"chrom": "1", "format": "text"}))
+        r["bed_json"] = capture(await ac.get("/api/bed/PROBAND/coverage", params={"chrom": "1"}))
         r["bed_bad"] = capture(await ac.get("/api/bed/PROBAND/not-a-track", params={"chrom": "1"}))
-        r["bed_empty"] = capture(await ac.get("/api/bed/PROBAND/coverage", params={"chrom": "22", "format": "json"}))
+        r["bed_empty"] = capture(await ac.get("/api/bed/PROBAND/coverage", params={"chrom": "22"}))
 
         r["hap"] = capture(await ac.get(f"/api/families/{FAMILY}/haplotypes", params={"chr": "1"}))
         r["hap_batch"] = capture(await ac.get(f"/api/families/{FAMILY}/haplotypes/batch", params={"chr": ["1"]}))
@@ -219,17 +217,17 @@ def test_structural_variants_page_contract(api, expected):
     assert by_type["DEL"]["length"] == -5000, by_type["DEL"]  # svLen, not end-start
     assert by_type["DEL"]["gene_count"] >= 1
     # Both a DEL and a BND ingest via the Needlr path. The BND has the mate its ALT names
-    # (N]chr5:3000000]), read as an upload reads it (CLIN-40). The DEL has none.
+    # (N]chr5:3000000]), read as an upload reads it. The DEL has none.
     assert "BND" in by_type, by_type
     assert (by_type["BND"]["remote_chr"], by_type["BND"]["remote_start"]) == ("5", 3_000_000), by_type["BND"]
     assert (by_type["DEL"]["remote_chr"], by_type["DEL"]["remote_start"]) == (None, None), by_type["DEL"]
-    # CLIN-43: each is named by its coordinates and type (the BND's with its mate), not by
+    # Each is named by its coordinates and type (the BND's with its mate), not by
     # its record ID (SVDEL1, SVBND1), as an uploaded call of the same event is.
     assert {v["_id"] for v in body["variants"]} == set(expected["structural_variants"]["ids"])
 
 
 def test_structural_variants_found_by_their_mate(api):
-    # CLIN-40: a search by the mate's position never found a Needlr breakend.
+    # A search by the mate's position never found a Needlr breakend.
     resp = _resp(api, "sv_by_mate")
     assert resp["status"] == 200, resp["text"]
     assert [(v["_id"], v["type"], v["start"]) for v in resp["json"]["variants"]] == [
@@ -310,7 +308,7 @@ def test_small_variant_statistics_of_the_trio(api, expected):
 
 def test_the_family_pedigree_text_is_its_stored_structure(api):
     # The text the family page draws is written from the family's members and their parents
-    # (SAFE-8), one row of six fields per member, as the stored structure has it.
+    # one row of six fields per member, as the stored structure has it.
     family = _resp(api, "family")
     assert family["status"] == 200, family["text"]
     body = family["json"]
@@ -336,13 +334,6 @@ def test_bed_coverage_answers_json_only(api):
     body = j["json"]
     assert body["bed_type"] == "coverage"
     assert body["items"] and {"chr", "start", "end", "value"} <= set(body["items"][0])
-
-    # Without format the same JSON: the text format, once the default, was removed (ENG-5),
-    # and a read that asks for it is refused.
-    d = _resp(api, "bed_default")
-    assert (d["status"], d.get("json")) == (200, body), d["text"]
-    t = _resp(api, "bed_text")
-    assert t["status"] == 422, t["text"]
 
 
 def test_bed_invalid_type_and_empty_region(api):
@@ -409,8 +400,8 @@ def _page_ids(resp: dict) -> set[str]:
 
 
 def test_clinvar_pathogenic_survives_the_frequency_ceiling_in_clickhouse(api):
-    # "ClinVar P/LP overrides frequency" holds in the ClickHouse fetch too: it keeps the
-    # variant rather than dropping it first.
+    # "ClinVar P/LP overrides frequency" holds in the ClickHouse fetch itself, not only in
+    # the Python matcher.
     rescued = _page_ids(_resp(api, "freq_rescue_on"))
     strict = _page_ids(_resp(api, "freq_rescue_off"))
     assert "1-2000-C-T" in rescued, rescued

@@ -1,4 +1,4 @@
-"""Where a male carries a single copy of the genome: chrX and chrY outside the PARs (#545).
+"""Where a male carries a single copy of the genome: chrX and chrY outside the PARs.
 
 A male has one X and one Y. Outside the pseudo-autosomal regions (PAR1 and PAR2) he
 carries one copy of each, so a variant there is hemizygous. A caller writes it as a
@@ -7,7 +7,7 @@ an autosome, and a male is diploid.
 
 The boundaries are 1-based and inclusive: the Genome Reference Consortium's for GRCh38 and
 GRCh37, and for T2T-CHM13v2.0 (UCSC's hs1) the T2T consortium's, as NCBI's assembly states them
-too (CLIN-12; the sources are named beside them). An assembly whose boundaries are not listed
+too (the sources are named beside them). An assembly whose boundaries are not listed
 here (another species, another CHM13 release) has no hemizygous positions as far as this module
 is concerned, so the diploid rules apply there, rather than guessed boundaries.
 """
@@ -34,7 +34,7 @@ _PSEUDOAUTOSOMAL_REGIONS: dict[str, dict[SexChromosome, tuple[Interval, ...]]] =
         "X": ((60_001, 2_699_520), (154_931_044, 155_260_560)),
         "Y": ((10_001, 2_649_520), (59_034_050, 59_363_566)),
     },
-    # T2T-CHM13v2.0 (CLIN-12), from two sources that agree, both read on 2026-11-04:
+    # T2T-CHM13v2.0, from two sources that agree, both read on 2026-11-04:
     # - the T2T consortium's analysis set, chm13v2.0_PAR.bed
     #   (https://s3-us-west-2.amazonaws.com/human-pangenomics/T2T/CHM13/assemblies/analysis_set/chm13v2.0_PAR.bed,
     #   linked from https://github.com/marbl/CHM13; 78 bytes, SHA-256
@@ -83,9 +83,9 @@ def grc_build(assembly_name: str | None) -> str | None:
     or without a patch suffix (``GRCh38.p14``); None for any other assembly (T2T-CHM13, another
     species). The PARs of GRCh38 and GRCh37 are looked up by it (T2T-CHM13's by
     ``is_t2t_chm13``), and the startup loads the shipped GRCh38 segmental-duplication file only
-    into an assembly it reads as GRCh38 (OPS-17). The gene
-    page's UCSC and gnomAD links and the order of a list of assemblies
-    (``assembly_display_rank``) read it too; the frontend reads the same rule (``grcBuild``)."""
+    into an assembly it reads as GRCh38. The gene page's UCSC and gnomAD links and the order
+    of a list of assemblies (``assembly_display_rank``) read it too; the frontend reads the
+    same rule (``grcBuild``)."""
     key = _PATCH_SUFFIX.sub("", str(assembly_name or "").strip().lower())
     return _ASSEMBLY_ALIASES.get(key)
 
@@ -97,7 +97,7 @@ def is_t2t_chm13(assembly_name: str | None) -> bool:
     without ``v2.0``, ``CHM13v2.0`` and ``hs1``. Not another CHM13 release (``T2T-CHM13v1.0``,
     whose acrocentric arms differ) nor another telomere-to-telomere genome. The UCSC link and
     the order of a gene's or a panel's assemblies read it, the STRchive coordinates a repeat
-    call is placed by, and the PARs (CLIN-12); the frontend reads the same rule
+    call is placed by, and the PARs; the frontend reads the same rule
     (``isT2tChm13``)."""
     return _T2T_CHM13_NAME.fullmatch(str(assembly_name or "").strip().lower()) is not None
 

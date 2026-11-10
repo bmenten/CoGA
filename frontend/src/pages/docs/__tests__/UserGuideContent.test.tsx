@@ -1,4 +1,4 @@
-// The user guide's content (#528), written as Markdown (src/content/docs/user-guide/*.md).
+// The user guide's content, written as Markdown (src/content/docs/user-guide/*.md).
 // It is part of the information for safety (TF-15), so no word may change unnoticed. This
 // test compares each section, as rendered, with the reviewed snapshot
 // (fixtures/user-guide-content.json): the section's whole text, its paragraphs, headings,

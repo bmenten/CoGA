@@ -3,7 +3,7 @@ import { expect, test as base } from '@playwright/test';
 /**
  * The production server sends an enforcing Content-Security-Policy (securityHeaders.mjs).
  * A script, style, font or request it blocks shows up only as a console error, so every
- * journey fails if the browser reports a CSP violation (#526). Specs import `test` and
+ * journey fails if the browser reports a CSP violation. Specs import `test` and
  * `expect` from here rather than from '@playwright/test'.
  */
 export const test = base.extend<{ cspViolations: string[] }>({

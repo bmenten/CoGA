@@ -4,7 +4,7 @@ UCSC cannot serve it.
 Adding a human assembly from UCSC (GRCh38 at the first start) reads UCSC's cytoband table and
 records it by name and SHA-256 (owner decision, 2026-11-05: a new instance starts on the newest
 reference data, a shipped file only as a backup). When UCSC cannot serve it, the import loads the
-shipped backup of the genome (data/ref-data/cytobands/), held to its pinned SHA-256 (TRACE-14),
+shipped backup of the genome (data/ref-data/cytobands/), held to its pinned SHA-256,
 and the genes, which come in the same import, load too. Nothing here goes to the network: UCSC is
 an httpx mock transport.
 """

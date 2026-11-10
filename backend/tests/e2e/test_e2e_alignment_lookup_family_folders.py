@@ -2,7 +2,7 @@
 
 In local storage mode the CRAM endpoints look for a sample's reads in its family's folders,
 ``<data>/<family>`` and ``<data>/families/<family>``, and only there: a folder linked into
-another family's folder serves none of that family's files (SEC-20).
+another family's folder serves none of that family's files.
 
 Over the real API (an in-process ``httpx.ASGITransport`` client, one event loop, see
 test_e2e_api_contract.py), with the families in Postgres made through the Family Builder and

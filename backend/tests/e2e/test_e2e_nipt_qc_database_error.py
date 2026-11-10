@@ -1,4 +1,4 @@
-"""A database error in the Sample QC's NIPT step, during a NIPT family's sign-out (ENG-19).
+"""A database error in the Sample QC's NIPT step, during a NIPT family's sign-out.
 
 The Sample QC runs a monogenic NIPT family's cfDNA checks (paternity, fetal sex, the category
 distribution) from its NIPT analysis, which reads the family and the assay's artifact list

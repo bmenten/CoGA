@@ -43,7 +43,7 @@ const Layout: React.FC = () => {
   const handleLogout = () => {
     // The logout click and anything still queued go out under this session first,
     // then nothing of this user's may stay behind for the next person at this tab:
-    // the query cache held their family data for up to ten minutes (#521).
+    // the query cache holds their family data for up to ten minutes.
     const microsoft = getSessionSignIn() === 'microsoft';
     const token = getAuthToken();
     const flushed = flushUiEventsNow();
@@ -54,19 +54,19 @@ const Layout: React.FC = () => {
     void endServerSession(token, flushed);
     if (microsoft) {
       // And no Microsoft token either: MSAL could otherwise renew one without asking. The
-      // sign-in page then offers to sign out of Microsoft too (SEC-4).
+      // sign-in page then offers to sign out of Microsoft too.
       void forgetMicrosoftAccount();
     }
     navigate('/login?logged_out=1', { replace: true });
   };
 
   // A logout in another tab of this browser ends the session in this tab too, as this tab's
-  // own logout does: the tabs share the session, and this tab went on showing the user's data,
-  // with MSAL's tokens in the tab. So does a sign-in there of another account, which replaced the
-  // session without a logout: this tab went on showing the first account's pages while its
-  // requests went out as the other (both found while fixing SEC-36). That account's session ends
-  // with it, in every tab: no tab goes on as an account it does not show, and the account signs
-  // in again. A sign-in page has no session to end.
+  // own logout does: the tabs share the session, and this tab would otherwise go on showing the
+  // user's data, with MSAL's tokens in the tab. So does a sign-in there of another account, which
+  // replaces the session without a logout: this tab would otherwise go on showing the first
+  // account's pages while its requests go out as the other. That account's session ends with it,
+  // in every tab: no tab goes on as an account it does not show, and the account signs in again.
+  // A sign-in page has no session to end.
   useEffect(
     () =>
       onSessionEndedElsewhere(() => {
@@ -203,7 +203,7 @@ const Layout: React.FC = () => {
         </div>
       </footer>
       {showSettings && (
-        // A real dialog now (#529): named, Escape closes it, focus stays inside.
+        // A dialog: named, Escape closes it, focus stays inside.
         <ModalDialog
           label="User settings"
           confirmDiscard={false}

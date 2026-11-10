@@ -31,11 +31,11 @@ The ClinGen dosage curation and the recurrent CNV regions are the knowledgebase'
 either cannot be loaded the build stops with a non-zero exit, rather than write a knowledgebase
 that lacks them (SourceUnavailable). The optional enrichments are skipped with a log line.
 
-ClinGen's recurrent CNV file is pinned per assembly by its SHA-256 (CLINGEN_RECURRENT_CNV_SHA256,
-TRACE-14): the build reads the file only if its SHA-256 is the pinned one, and stops otherwise,
+ClinGen's recurrent CNV file is pinned per assembly by its SHA-256 (CLINGEN_RECURRENT_CNV_SHA256):
+the build reads the file only if its SHA-256 is the pinned one, and stops otherwise,
 as it does for an assembly with no pinned file, before downloading it. The other sources are
-read as published on the day, and each file is recorded by its SHA-256 and size as it is read
-(TRACE-18); the OMIM enrichment asks OMIM's API, whose answers are not recorded. With
+read as published on the day, and each file is recorded by its SHA-256 and size as it is read;
+the OMIM enrichment asks OMIM's API, whose answers are not recorded. With
 --sources-out the build writes the files it checked (source, release, URL, SHA-256) and the
 files it read (source, URL, SHA-256, size) as JSON, which the admin rebuild records with the
 load.
@@ -75,7 +75,7 @@ CLINGEN_RECURRENT_CNV = {
     "GRCh38": "https://ftp.clinicalgenome.org/ClinGen_recurrent_CNV_V2.1-hg38.bed",
     "GRCh37": "https://ftp.clinicalgenome.org/ClinGen_recurrent_CNV_V2.1-hg37.bed",
 }
-# The SHA-256 of that release's file, per assembly (TRACE-14). The build reads a recurrent CNV
+# The SHA-256 of that release's file, per assembly. The build reads a recurrent CNV
 # file only if its SHA-256 is pinned here, so the knowledgebase's named regions are always the
 # release that was checked; a file ClinGen changes stops the build until it is checked again and
 # the pin moved, in a reviewed change recorded in TF-08. GRCh38: ClinGen's V2.1 GRCh38 file,
@@ -84,7 +84,7 @@ CLINGEN_RECURRENT_CNV = {
 # checked against ClinGen's download on 2026-10-14 (the backend pins the same file as
 # SEGMENTAL_DUPLICATIONS_PINNED_SHA256). GRCh37: ClinGen's V2.1 GRCh37 file, downloaded from
 # ftp.clinicalgenome.org on 2026-10-27 with the owner's permission (16,772 bytes, last modified
-# 2026-03-18, the date ClinGen moved to V2.1; TRACE-18). Only the build reads it, so the
+# 2026-03-18, the date ClinGen moved to V2.1). Only the build reads it, so the
 # repository holds no copy.
 CLINGEN_RECURRENT_CNV_SHA256 = {
     "GRCh38": "e6a7428f58b055e51a956941da85cdc984d9519ea7839c365c9b557ccc76a763",
@@ -122,7 +122,7 @@ class SourceUnavailable(RuntimeError):
 
 @dataclass(frozen=True)
 class CheckedFile:
-    """A source file the build read only because its SHA-256 is the pinned one (TRACE-14)."""
+    """A source file the build read only because its SHA-256 is the pinned one."""
 
     source: str
     release: str
@@ -134,8 +134,8 @@ class CheckedFile:
 class RecordedFile:
     """A source file the build read as published on the day, unpinned: the ClinGen dosage
     curation, the UCSC cytobands, ClinVar's variant summary, Orphanet's nomenclature and a
-    DECIPHER map. Its SHA-256 and size name the exact file the knowledgebase was built from
-    (TRACE-18), where only the rebuild's date did before."""
+    DECIPHER map. Its SHA-256 and size name the exact file the knowledgebase was built
+    from."""
 
     source: str
     url: str
@@ -158,7 +158,7 @@ def safe_get(url: str, timeout: int = 60) -> bytes:
 
 
 def record_file(source: str, url: str, payload: bytes) -> None:
-    """Record a source file the build read, by its SHA-256 (TRACE-18)."""
+    """Record a source file the build read, by its SHA-256."""
     _RECORDED_FILES.append(
         RecordedFile(source=source, url=url, sha256=hashlib.sha256(payload).hexdigest(), size=len(payload))
     )
@@ -438,7 +438,7 @@ def normalize_clingen_table(df: pd.DataFrame, source_url: str, assembly: str) ->
             "clingen_url": make_clingen_url(source_id),
             "source_url": source_url,
             # Empty, not 0, until add_clinvar_overlap_support has counted: a knowledgebase
-            # built without ClinVar must not read as a region without ClinVar support (#624).
+            # built without ClinVar must not read as a region without ClinVar support.
             "clinvar_pathogenic_loss_count": "",
             "clinvar_pathogenic_gain_count": "",
             "clinvar_pathogenic_accessions": "",
@@ -507,7 +507,7 @@ def annotate_cytobands(df: pd.DataFrame, cyto: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-# ClinVar's Type column states the side of a copy-number record directly (#566).
+# ClinVar's Type column states the side of a copy-number record directly.
 _CLINVAR_LOSS_TYPES = frozenset({"copy number loss", "deletion"})
 _CLINVAR_GAIN_TYPES = frozenset({"copy number gain", "duplication", "tandem duplication"})
 
@@ -517,12 +517,11 @@ _ISCN_COPY_NUMBER = re.compile(r"\)\s*x(\d+)\b", re.IGNORECASE)
 
 
 def clinvar_cnv_side(type_value: object, name: object, chromosome: object) -> str:
-    """The side of a ClinVar copy-number record: "loss", "gain" or "unknown" (#566).
+    """The side of a ClinVar copy-number record: "loss", "gain" or "unknown".
 
     Read, in order, from ClinVar's ``Type`` column; from the copy number an array record
-    carries in its name (``x1``, ``x3``), and only then from words in the name. The side
-    used to come from the name's words only, so an array record, named in ISCN notation
-    without them, counted toward neither side.
+    carries in its name (``x1``, ``x3``), and only then from words in the name, so an array
+    record, named in ISCN notation without them, counts toward its side.
 
     On an autosome two copies are normal, so ``x0``/``x1`` is a loss and ``x3`` or more a
     gain. On chrX and chrY the normal count depends on the carrier's sex, which ClinVar's
@@ -570,7 +569,7 @@ def load_clinvar_cnv_support(assembly: str) -> pd.DataFrame:
     tmp = tempfile.NamedTemporaryFile(prefix="clinvar-", suffix=".txt.gz", delete=False)
     frames = []
     try:
-        # The archive's SHA-256 and size, taken as it streams (TRACE-18).
+        # The archive's SHA-256 and size, taken as it streams.
         digest = hashlib.sha256()
         size = 0
         with requests.get(CLINVAR_VARIANT_SUMMARY, stream=True, timeout=600) as r:
@@ -1057,7 +1056,7 @@ def parse_recurrent_cnv_bed(text: str, *, assembly: str, source_url: str) -> pd.
 
 
 def fetch_pinned_recurrent_cnv_file(assembly: str) -> Tuple[str, CheckedFile]:
-    """ClinGen's recurrent CNV file for the assembly, if it is the pinned one (TRACE-14).
+    """ClinGen's recurrent CNV file for the assembly, if it is the pinned one.
 
     The file is downloaded only when a SHA-256 is pinned for the assembly, and read only when
     its SHA-256 is that one; otherwise the build stops (SourceUnavailable), naming the file,
@@ -1151,7 +1150,7 @@ def build_kb(
     tables = []
 
     # The dosage curation is the backbone: a file the downloads page lists but that cannot be
-    # loaded stops the build, where it used to be skipped and the build went on without it.
+    # loaded stops the build.
     for url in urls:
         log(f"Loading {url}")
         try:
@@ -1302,7 +1301,7 @@ def main():
         sys.exit(1)
     kb.to_csv(args.out, sep="\t", index=False)
     if args.sources_out:
-        # What the admin rebuild records with the load (TRACE-14, TRACE-18).
+        # What the admin rebuild records with the load.
         sources = {
             "checked_files": [asdict(checked) for checked in checked_files],
             "recorded_files": [asdict(recorded) for recorded in recorded_files()],

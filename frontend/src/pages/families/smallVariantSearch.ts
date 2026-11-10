@@ -71,7 +71,7 @@ export interface CnvAcmgReviewPayload {
 // A variant's review (SmallVariantReviewOut), its ACMG blocks read as above. `cnv_acmg`, the
 // ClinGen CNV classification, is only populated for structural-variant reviews.
 // `acmg_unreadable`: a classification is stored but could not be read, so acmg / cnv_acmg is
-// empty although one exists; saving replaces it (#514).
+// empty although one exists; saving replaces it.
 export type SmallVariantReview = Omit<SmallVariantReviewOut, 'acmg' | 'cnv_acmg'> & {
   acmg: AcmgReviewPayload | null;
   cnv_acmg: CnvAcmgReviewPayload | null;
@@ -85,9 +85,9 @@ export type SmallVariantTranscript = SmallVariantTranscriptOut;
 
 // A variant as the family's variant lists serve it (VariantOut), its review read as
 // SmallVariantReview. `filter_transcript` is the transcript the search's annotation filters
-// held on, when the primary transcript the variant's fields describe does not meet them
-// (CLIN-51). `hemizygous_in_males`: on chrX/chrY outside the pseudo-autosomal regions, where a
-// male carries one copy (#621), set by the backend, which holds the PAR bounds.
+// held on, when the primary transcript the variant's fields describe does not meet them.
+// `hemizygous_in_males`: on chrX/chrY outside the pseudo-autosomal regions, where a male
+// carries one copy, set by the backend, which holds the PAR bounds.
 export type SmallVariant = Omit<VariantOut, 'review'> & {
   review: SmallVariantReview | null;
   // mtDNA-specific ACMG context, attached by the mitochondrial page adapter for
@@ -366,7 +366,7 @@ export const COMPOUND_HET_PHASE_STATUS_LABELS: Record<string, string> = {
  * saved on the NIPT page, or a link, can carry one of the NIPT list's views
  * (`NIPT_INHERITANCE_VIEWS`): the small-variant page does not send it and names it as a filter the
  * list does not apply. Its fetal de novo view (`de_novo`) is not the family's de novo / dominant
- * mode, which the server read it as (found while fixing #1012); it now refuses it.
+ * mode: the server refuses it.
  */
 export const SMALL_VARIANT_INHERITANCE_MODES = [
   'de_novo_dominant',
@@ -527,7 +527,7 @@ export const isNiptInheritanceView = (value: string): value is NiptInheritanceVi
 
 /**
  * Whether the NIPT variant list applies the filter a chip names: one it sends, and no
- * per-sample genotype or quality filter, none of which it sends (ENG-19), nor an inheritance
+ * per-sample genotype or quality filter, none of which it sends, nor an inheritance
  * mode that is not one of its views.
  */
 export const niptAppliesFilterChip = (chip: ActiveSmallFilterChip): boolean =>
@@ -558,7 +558,7 @@ export const inheritanceLabel = (value: string): string => {
  * list's own (the maternal/fetal categories, the minimum classification confidence, the alleles
  * the fetus did not inherit and the lowest de novo priority), none of which its route declares.
  * The form offers them no control. A search saved on the NIPT page, or a link, can still carry
- * them (found while fixing #1012): the small-variant page does not send them, shows no chip for
+ * them: the small-variant page does not send them, shows no chip for
  * them and names them (`smallVariantAppliesFilterChip`, `smallVariantListFilters`). Each is sent
  * under its own name; `test_small_variant_page_sends_what_the_list_reads.py` fails when the page
  * sends a parameter the route does not declare that is not here (the locus apart, which the page
@@ -590,7 +590,7 @@ export const smallVariantListFilters = (filters: SmallFilterState): SmallFilterS
   return listFilters;
 };
 
-// How the note names the filters of a search a list does not apply (ENG-19).
+// How the note names the filters of a search a list does not apply.
 const UNAPPLIED_FILTER_NAMES: Partial<Record<keyof SmallFilterState, string>> = {
   classification: 'classification',
   has_notes: 'saved-notes',
@@ -945,10 +945,10 @@ const buildPresetState = (
 
   // A frequency ceiling has to bound popmax as well as the global AF. An annotation run
   // can carry VEP's MAX_AF while carrying no gnomAD AF at all, and the query reads a
-  // missing AF as 0 — so an AF-only ceiling let a variant at popmax 1.0 straight through.
+  // missing AF as 0, so an AF-only ceiling would let a variant at popmax 1.0 through.
   // The popmax column is gnomAD's own popmax, else MAX_AF (clickhouse_variant_rows).
   // popmax is >= the global AF by construction, so bounding both is the stricter reading:
-  // a variant that is rare globally but common in one population no longer survives.
+  // a variant that is rare globally but common in one population does not pass.
   const setFrequencyCeiling = (value: string) => {
     filters.max_gnomad_af = value;
     filters.max_gnomad_popmax_af = value;
@@ -1166,7 +1166,7 @@ export interface LocationProblems {
 /**
  * The location filters that cannot be read as written. Sent on, a malformed locus was
  * searched as a gene name, and an unreadable interval was skipped, so the search covered
- * less than it asked, or read as a family without variants (#604).
+ * less than it asked, or read as a family without variants.
  */
 export const smallVariantLocationProblems = (
   filters: Pick<SmallFilterState, 'locus' | 'intervals' | 'exclude_intervals'>,
@@ -1552,7 +1552,7 @@ export const useSmallVariantSearchState = ({
   const [filters, setFilters] = useState(emptyFilters);
   const [draftFilters, setDraftFilters] = useState(emptyFilters);
   // Draft location filters that cannot be read, named under their fields instead of
-  // searched (#604).
+  // searched.
   const [draftLocationProblems, setDraftLocationProblems] = useState<LocationProblems | null>(null);
   const [sampleFilters, setSampleFilters] = useState<Record<string, SmallVariantSampleFilter>>({});
   const [sampleDraftFilters, setSampleDraftFilters] = useState<Record<
@@ -1810,7 +1810,7 @@ export const useSmallVariantSearchState = ({
       category: 'small-variant-filter',
       detail: {
         // A comma-separated string: the event store keeps scalars only, and stored an
-        // array as the placeholder "[list]" (#521).
+        // array as the placeholder "[list]".
         filter_keys: activeFilterKeys(searchFilters).join(','),
         active_filter_count: countActiveFilters(searchFilters, searchSampleFilters),
       },
@@ -1862,7 +1862,7 @@ export const useSmallVariantSearchState = ({
   };
 
   // The family small-variant list's count and request: what it applies, never a NIPT list's own
-  // filter a saved search or a link carries (found while fixing #1012). The URL keeps them. The
+  // filter a saved search or a link carries. The URL keeps them. The
   // NIPT page, which shares this state, counts and requests its own way.
   const listFilters = useMemo(() => smallVariantListFilters(filters), [filters]);
 
@@ -1972,7 +1972,7 @@ export const countPresetRules = (preset: Pick<SmallVariantFilterPreset, 'filters
   const sampleCount = Object.keys(preset.sample_filters || {}).length;
   // A template is a rule when it holds a filter, as a small-variant preset's do. An SV preset
   // keeps each member's role there (`buildStructuralPresetPayload`), which filters nothing: it
-  // counted one rule per member (ENG-10).
+  // counted one rule per member.
   const templateCount = Object.values(preset.sample_templates || {}).filter(
     (template) => template !== null && typeof template === 'object',
   ).length;
@@ -2059,7 +2059,7 @@ export const getReviewClassTagKey = (value?: string | null, tags?: Iterable<stri
 
 /**
  * The class a review shows, the one rule of every page that shows a small-variant review's
- * class (CLIN-76) and of both classification filters (CLIN-75): a bare class word in the text
+ * class and of both classification filters: a bare class word in the text
  * ("VUS") as that class's label, else the most severe ACMG class tag's label, else the text as
  * stored, trimmed. The server's review_class_label (review_pg_utils.py) reads a review alike;
  * both read the cases of __tests__/fixtures/review-class-cases.json.

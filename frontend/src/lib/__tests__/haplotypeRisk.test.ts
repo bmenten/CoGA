@@ -272,8 +272,8 @@ describe('pedigree-aware lineage tags override role-based origin', () => {
 
   it('falls back to role-based origin when no lineage tag is present', () => {
     const seg = { chr: '1', start: 0, end: 100, hap1: '0', hap2: '1' };
-    // role "mother" -> both lanes maternal (the legacy behaviour, still used for
-    // the nuclear core and for un-tagged data).
+    // role "mother" -> both lanes maternal: the origin read for the nuclear core and for a
+    // block without a lineage tag.
     expect(getHaplotypeLaneSignature(grandmother, seg, 'hap1', '1')).toEqual({ origin: 'maternal', value: '0' });
     expect(getHaplotypeLaneSignature(grandmother, seg, 'hap2', '1')).toEqual({ origin: 'maternal', value: '1' });
   });
@@ -396,8 +396,8 @@ describe('pedigree-aware lineage tags override role-based origin', () => {
 
 // No data is not a clear side. A negative call (Unaffected, or the clear side of a Carrier
 // call) must rest on the member's OWN haplotype at the ROI, on the parental side that call
-// needs. It used to rest on "no risk haplotype found", which is also what a member with no
-// block over the ROI finds, so an embryo without data there was called Unaffected.
+// needs, never on "no risk haplotype found", which is also what a member with no block over the
+// ROI finds: an embryo without data there is not called Unaffected.
 describe('a negative call needs the member\'s own haplotype across the ROI', () => {
   type Seg = HaplotypeSegmentLike;
   const block = (start: number, end: number, hap1: string, hap2: string, extra: Partial<Seg> = {}): Seg => ({
@@ -484,8 +484,8 @@ describe('a negative call needs the member\'s own haplotype across the ROI', () 
 
     it('does not take an unconfirmed side (?) the affected share for the disease haplotype', () => {
       // Before the first informative site of a side the trio block builder writes '?'. Two
-      // affected children with '?' there share no known homolog; reading '?' as one made it
-      // the "disease haplotype", and every embryo with a confirmed paternal homolog read
+      // affected children with '?' there share no known homolog; read as one, '?' would be the
+      // "disease haplotype", and every embryo with a confirmed paternal homolog would read
       // unaffected against it.
       const sib: HaplotypeMemberLike = { sample_id: 'SIB', role: 'sibling', affected: true, sex: 'male' };
       const samples: HaplotypeSampleLike[] = [
@@ -620,7 +620,7 @@ describe('a negative call needs the member\'s own haplotype across the ROI', () 
 
     // An embryo's sex is often not recorded. In X-linked recessive disease a son with the
     // maternal risk haplotype is affected and a daughter a carrier, so a call that depends on
-    // the sex must not assume one. It used to assume a daughter and say "Carrier".
+    // the sex must not assume one: never a daughter's "Carrier".
     describe("recessive, the embryo's sex not recorded", () => {
       const affectedSon: HaplotypeMemberLike = { sample_id: 'SON', role: 'proband', affected: true, sex: 'male' };
       const embryo: HaplotypeMemberLike = { sample_id: 'EMBRYO', role: 'embryo', affected: false, sex: 'unknown' };
@@ -707,8 +707,8 @@ describe('a negative call needs the member\'s own haplotype across the ROI', () 
   });
 
   // In the pseudo-autosomal regions a son has two copies: his mother's and his father's
-  // (on the father's X or Y). He used to be read on his maternal copy alone across all of X,
-  // so a paternal risk haplotype there was not seen (SHOX in PAR1, pseudo-autosomal dominant).
+  // (on the father's X or Y). Read on his maternal copy alone, a paternal risk haplotype there
+  // would not be seen (SHOX in PAR1, pseudo-autosomal dominant).
   describe('pseudo-autosomal: a son has two copies there', () => {
     const parRoi = { chr: 'X', start: 600_000, end: 650_000 };
     // A PAR1 block (GRCh38), as the backend marks it: not one copy in males.
@@ -767,7 +767,7 @@ describe('a negative call needs the member\'s own haplotype across the ROI', () 
       // The backend then marks no block as one copy, so a son is read on both lanes: an
       // X-linked dominant call against his father's haplotype needs his paternal side, which
       // the trio phasing leaves unconfirmed ('?') outside a PAR. Read on his maternal X alone
-      // he was called unaffected, which at a PAR locus can be wrong.
+      // he would be called unaffected, which at a PAR locus can be wrong.
       const xRoi = { chr: 'X', start: 40, end: 60 };
       const unmarked = (hap1: string, hap2: string): Seg => block(0, 100, hap1, hap2, { chr: 'X' });
       const risk = riskOf(

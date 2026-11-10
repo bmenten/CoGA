@@ -50,10 +50,10 @@ Postgres is authoritative for metadata and state, ClickHouse for variant payload
   their append-only change history; the ranking cache; the source records of the interval
   tracks; and the traceability records: the annotation manifest, the append-only,
   hash-chained clinical audit and sign-out tables, and the integrity anchors. The schema is
-  five idempotent (safe to re-run) baseline files in `backend/db/schema/postgres/`
-  (`01_access.sql` to `05_grants.sql`) plus the Alembic revisions in
-  `backend/db/migrations/versions/`, recorded in the ledger table `alembic_version`
-  ([database.md](database.md#schema-migrations)).
+  five baseline files in `backend/db/schema/postgres/` (`01_access.sql` to `05_grants.sql`),
+  which Alembic revision `0001` in `backend/db/migrations/versions/` applies to an empty
+  database; the ledger table `alembic_version` records the revision and `schema_baselines` the
+  baselines' digest ([database.md](database.md#schema-migrations)).
 - **ClickHouse** holds, for each assembly, the small variants (details, annotations and their
   indexes, the per-sample calls in `entries`, and per-family summaries), the structural
   variants and CNVs, and the interval tracks: coverage, a capture panel's per-target
@@ -106,10 +106,12 @@ caller. The sort keys and how storage keys are built are in
 
 On start the backend (`backend/app/main.py`):
 
-1. waits for Postgres, migrates its schema (the baseline files, then the revisions its ledger
+1. waits for Postgres, migrates its schema (an empty database made from the baseline files, a
+   database another version or other baselines made refused, then the revisions its ledger
    lacks) and makes sure the admin user exists. With
-   `POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP=false` it skips this and only reads the ledger:
-   it refuses to start unless the database is at its own schema revision
+   `POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP=false` it skips this and only reads the ledger and
+   the baselines' digest: it refuses to start unless the database is at its own schema revision
+   and baselines
    ([database.md](database.md#schema-migrations)). This lets the schema be applied separately
    and the API run as the restricted database role
    ([db-runtime-role-runbook.md](db-runtime-role-runbook.md));

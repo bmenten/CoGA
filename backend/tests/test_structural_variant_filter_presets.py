@@ -141,7 +141,7 @@ def test_the_body_the_sv_page_sends_saves_a_preset_for_the_family(client_for) ->
         )
     assert response.status_code == 200, response.text
     params = _saved_params(session)
-    # The owner is the account; its user name is stored to show with the preset (SEC-32).
+    # The owner is the account; its user name is stored to show with the preset.
     assert (params["family_id"], params["scope"], params["owner_id"], params["owner"]) == (
         FAMILY_UUID,
         "family",
@@ -245,7 +245,7 @@ def test_the_list_serves_each_presets_scope_and_family(client_for) -> None:
         (PRESET_ID, "family", FAMILY_UUID),
         ("00000000-0000-0000-0000-0000000000a2", "global", None),
     ]
-    # The owner's presets: the account's, whatever its user name is now (SEC-32).
+    # The owner's presets: the account's, whatever its user name is now.
     assert [params for _sql, params in session.executed] == [{"family_id": FAMILY_UUID, "owner_id": USER.id}]
 
 
@@ -264,7 +264,7 @@ def test_another_users_preset_answers_as_an_unknown_one_and_is_kept(client_for) 
     with client_for(session) as client:
         response = client.delete(f"{PRESETS}/{PRESET_ID}")
 
-    # It answered 403 "Not authorized to delete this preset", telling the caller it exists (SEC-9).
+    # It answered 403 "Not authorized to delete this preset", telling the caller it exists.
     assert response.status_code == 404, response.text
     assert response.json() == {"detail": "Preset not found"}
     assert not any(sql.startswith("DELETE") for sql, _params in session.executed)

@@ -1,5 +1,5 @@
 """A NIPT pair's file whose one column is named after another tube is warned of, and still read
-as its entry's sample (E2E, CLIN-13).
+as its entry's sample (E2E).
 
 The import reads a monogenic NIPT pair's per-sample SNV file's one sample column as its
 entry's sample, whatever the column is named: the laboratory maps its genetically verified

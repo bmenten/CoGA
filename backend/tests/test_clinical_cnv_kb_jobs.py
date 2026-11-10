@@ -9,12 +9,13 @@ writes only while the job is its own; the status and a rebuild request first clo
 whose worker is gone. The one-active rule and the closing itself are SQL, checked against
 real Postgres in ``integration/test_clinical_cnv_kb_one_active_job.py``.
 
-A rebuild is an administrator's (the route requires one), and the job keeps its requester by
-the account's id and runs only for an active administrator (SEC-35), as the owner decided on
-2026-10-28: a job whose requester no longer exists, has been deactivated or is no longer an
-administrator when it starts ends failed, saying why, with nothing built or loaded; and since
-the build, which writes nothing, runs for up to two hours before the load, a requester who lost
-those rights meanwhile has nothing loaded either. Neither refusal names the account in the log.
+A rebuild is an administrator's (the route requires one). The job keeps its requester by the
+account's id, and runs only for an active administrator, as the owner decided on 2026-10-28:
+a job whose requester no longer exists, has been deactivated or is no longer an administrator
+when it starts ends failed,
+saying why, with nothing built or loaded; and since the build, which writes nothing, runs
+for up to two hours before the load, a requester who lost those rights meanwhile has nothing
+loaded either. Neither refusal names the account in the log.
 """
 
 from __future__ import annotations
@@ -309,12 +310,12 @@ class _Process:
         return self.returncode
 
 
-# What the build records of the pinned file it checked and read (--sources-out, TRACE-14). The
+# What the build records of the pinned file it checked and read (--sources-out). The
 # digest stands in for the file's: the job records it as given, the build checked it.
 _RECURRENT_URL = "https://ftp.clinicalgenome.org/ClinGen_recurrent_CNV_V2.1-hg38.bed"
 _RECURRENT_SHA256 = hashlib.sha256(b"ClinGen recurrent CNV V2.1, GRCh38").hexdigest()
 _CHECKED_FILE = {"source": "ClinGen recurrent CNV", "release": "V2.1", "url": _RECURRENT_URL, "sha256": _RECURRENT_SHA256}
-_SOURCES = json.dumps({"checked_files": [_CHECKED_FILE]})
+_SOURCES = json.dumps({"checked_files": [_CHECKED_FILE], "recorded_files": []})
 _RECORDED_RELEASE = f"ClinGen recurrent CNV V2.1: ClinGen_recurrent_CNV_V2.1-hg38.bed, SHA-256 {_RECURRENT_SHA256}"
 
 
@@ -407,7 +408,7 @@ def test_a_successful_build_replaces_the_knowledgebase(script: Path, monkeypatch
             "overwrite": True,
             "performed_by": "lab.admin",
             "source": "clinical-cnv-kb",
-            # The pinned file the build read, recorded with the load (TRACE-14).
+            # The pinned file the build read, recorded with the load.
             "source_version": _RECORDED_RELEASE,
         }
     ]
@@ -457,7 +458,7 @@ def test_a_failed_build_that_said_nothing_keeps_the_plain_error(script: Path, mo
     assert params["error"] == "Knowledgebase build failed (exit 1)."
 
 
-# --- the pinned file the build read is recorded with the load (TRACE-14) ------------------------
+# --- the pinned file the build read is recorded with the load -----------------------------------
 
 
 @pytest.mark.parametrize(
@@ -490,7 +491,7 @@ def test_each_file_the_build_checked_is_recorded_by_release_file_name_and_sha256
     other_sha256 = hashlib.sha256(b"another pinned file").hexdigest()
     other = {"source": "Other source", "release": "7", "url": "https://example.org/files/other.bed", "sha256": other_sha256}
 
-    recorded = kb.checked_files_release(json.dumps({"checked_files": [_CHECKED_FILE, other]}))
+    recorded = kb.checked_files_release(json.dumps({"checked_files": [_CHECKED_FILE, other], "recorded_files": []}))
 
     assert recorded == f"{_RECORDED_RELEASE}; Other source 7: other.bed, SHA-256 {other_sha256}"
 
@@ -530,10 +531,9 @@ def test_a_job_whose_build_script_is_gone_is_marked_failed(monkeypatch: pytest.M
     ids=["refused-by-the-index", "database-unreachable"],
 )
 def test_a_job_that_cannot_be_taken_is_marked_failed(script: Path, monkeypatch: pytest.MonkeyPatch, error: Exception) -> None:
-    # The switch to running is within the job's error handling: when it fails (refused by the
-    # index, or the database unreachable), the job is marked failed rather than left queued
-    # for good, refusing every later rebuild. Not taken, the job has no owner: the write is
-    # guarded by its being still queued.
+    # The switch to running is inside the job's error handling: a job whose switch fails is
+    # marked failed, never left queued for good, which would refuse every later rebuild. Not
+    # taken, the job has no owner: the write is guarded by its being still queued.
     run = _run(monkeypatch, claim_error=error)
 
     assert run.commands == [] and run.applied == []
@@ -618,11 +618,11 @@ def test_a_job_closed_before_the_load_does_not_replace_the_knowledgebase(
     assert [assignments for assignments, *_ in run.updates] == [_HEARTBEAT]
 
 
-# --- the account that requested the rebuild (SEC-35) ---------------------------------------------
+# --- the account that requested the rebuild ------------------------------------------------------
 
 
 def test_a_queued_rebuild_keeps_its_requester_by_the_account_id(script: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    # The run checks the account the job names by its id, as an import job does (SEC-32): the
+    # The run checks the account the job names by its id, as an import job does: the
     # e-mail address it was asked under is shown with the job, and a Microsoft sign-in may
     # change it later.
     async def run_job(job_id: str) -> None:
@@ -662,7 +662,6 @@ def test_a_rebuild_whose_requester_lost_their_rights_before_it_started_is_not_ru
     caplog.set_level(logging.DEBUG)
     run = _run(monkeypatch, row=row, accounts=accounts)
 
-    # Nothing is built or loaded for the account.
     assert run.commands == [], "the build ran for an account that may no longer ask for it"
     assert run.applied == []
     expected = getattr(kb, error)
@@ -695,7 +694,6 @@ def test_a_rebuild_whose_requester_lost_their_rights_while_it_built_loads_nothin
     run = _run(monkeypatch, row=row, during_build=lose_rights)
 
     assert run.commands, "the build ran: its requester was an active administrator when it started"
-    # The knowledgebase is not replaced.
     assert run.applied == [], "the knowledgebase was loaded for an account that may no longer ask for it"
     assignments, params, worker = run.updates[-1]
     assert assignments.startswith("status = 'failed'") and worker == run.claims[0]

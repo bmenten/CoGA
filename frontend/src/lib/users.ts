@@ -16,8 +16,8 @@ export const formatUserRef = (user?: ApiUserRef | null): string => {
 /**
  * The user accounts as the API serves them (`GET /auth/users`, administrators only). The Users,
  * Projects and Audit logs pages share this cache entry, so each reads it through this one
- * definition. When each had its own, the audit page cached only id and e-mail, and the Users
- * page opened next read those as whole accounts and threw on the missing project list (UI-1).
+ * definition: a page that cached only part of an account (id and e-mail) under it would leave the
+ * Users page opened next reading those as whole accounts, without their project list.
  */
 export const userAccountsQuery = queryOptions({
   queryKey: ['admin', 'users'],

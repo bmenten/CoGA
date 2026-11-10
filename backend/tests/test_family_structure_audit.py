@@ -1,4 +1,4 @@
-"""A family's pedigree on the clinical record: chained structure versions and pedigree events (SEC-7).
+"""A family's pedigree on the clinical record: chained structure versions and pedigree events.
 
 Each change of a family's pedigree (its members with their sex, role, affected and carrier
 status, whether each is active, and their parents, couples and relatives) is stored as the
@@ -928,14 +928,14 @@ async def test_deleting_a_sample_with_its_data_records_the_pedigree_change(monke
         "record_phenotypes_deleted_with_sample": phenotypes_deleted,
         "read_structure_snapshot": snapshot,
         "record_structure_change": structure_change,
-        # Its mark is test_deletions_mark_the_family.py's (SAFE-31).
+        # Its mark is test_deletions_mark_the_family.py's.
         "FamilyDeletion": UnmarkedDeletion,
     }.items():
         monkeypatch.setattr(admin_service, name, fake)
 
     await admin_service.delete_sample_with_data(_Session(), "P1", True, user=_admin())  # type: ignore[arg-type]
 
-    # The sample's phenotypes are recorded as removed first, before the pedigree lock (TRACE-16).
+    # The sample's phenotypes are recorded as removed first, before the pedigree lock.
     assert [step for step, _detail in trace] == ["phenotypes", "lock", "snapshot", "delete", "change", "commit"]
     phenotypes = trace[0][1]
     assert (phenotypes["family_identifier"], phenotypes["sample_id"], phenotypes["change"]) == (
@@ -1029,7 +1029,7 @@ def test_the_deletion_summary_names_five_samples_at_most_and_says_why() -> None:
     assert audit.family_deleted_summary(audit.ADMIN_DELETE, [], {}) == "Family deleted with its data: 0 samples"
 
 
-# ------------------------------------------------------ a family made again under its ID (ENG-19)
+# ------------------------------------------------------ a family made again under its ID
 
 _TRIO_RECORDED = (
     "Pedigree recorded with 3 members: F1 (father, male, unaffected); M1 (mother, female, unaffected); "
@@ -1162,9 +1162,9 @@ def _admin_family_delete(monkeypatch, steps: list[str], *, failing: str | None =
         "delete_interval_tracks": step("ClickHouse: delete interval tracks"),
         "delete_interval_track_sources": step("delete interval track sources", 0),
         # The family's kept copies of uploads, read before its rows go (unlinked after the
-        # commit, SAFE-35).
+        # commit).
         "family_managed_files": step("list raw files", []),
-        # Its mark is test_deletions_mark_the_family.py's (SAFE-31).
+        # Its mark is test_deletions_mark_the_family.py's.
         "FamilyDeletion": UnmarkedDeletion,
     }.items():
         monkeypatch.setattr(admin_service, name, fake)
@@ -1190,7 +1190,7 @@ async def test_the_admins_family_delete_records_its_event_before_it_deletes_anyt
     await admin_service.delete_family_with_data(_DeleteSession(steps), FAMILY, True, user=_admin(), reason="duplicate")  # type: ignore[arg-type]
 
     event = f"audit: family deleted {FAMILY} {{'small_variants': 7, 'structural_variants': 7}}"
-    # The phenotypes that go with the family are recorded as removed just before (TRACE-16).
+    # The phenotypes that go with the family are recorded as removed just before.
     phenotypes = "audit: phenotypes deleted_with_family by admin_deletion as analyst-a"
     assert steps[: steps.index(event) + 1] == ["lock", "count", "count", phenotypes, event]
     assert steps.index(event) < steps.index("ClickHouse: delete small variants")
@@ -1216,7 +1216,7 @@ async def test_a_family_delete_that_fails_commits_nothing(monkeypatch) -> None:
 @pytest.mark.parametrize("reason", [None, "", "   "])
 async def test_a_family_delete_without_a_reason_does_nothing(monkeypatch, reason) -> None:
     # The reason is on the family's last clinical audit event: without one, the deletion is
-    # refused before it locks, counts or deletes anything (TRACE-16, the owner's decision of
+    # refused before it locks, counts or deletes anything (the owner's decision of
     # 2026-10-27).
     from fastapi import HTTPException
 
@@ -1232,7 +1232,7 @@ async def test_a_family_delete_without_a_reason_does_nothing(monkeypatch, reason
 
 @pytest.mark.asyncio
 async def test_the_delete_route_takes_the_reason_from_its_body(monkeypatch) -> None:
-    # The reason is free text: it travels in the body, not the URL (TRACE-16).
+    # The reason is free text: it travels in the body, not the URL.
     from app.routers import admin as admin_router
     from app.schemas import FamilyDeleteRequest
 

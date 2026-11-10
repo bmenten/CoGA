@@ -8,7 +8,7 @@ type Props = {
   /**
    * Clears a caught error when it changes — the Layout passes the route, so navigating
    * away (e.g. via the "Dashboard" link on the error screen itself) shows the new view
-   * instead of the same error screen (#510).
+   * instead of the same error screen.
    */
   resetKey?: string;
 };

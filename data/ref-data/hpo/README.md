@@ -34,12 +34,12 @@ them (a newer release is applied under Administration → HPO terminology, below
    floats. Every request, each redirect included, goes over HTTPS, and each answer is read within
    a size cap. The file must be an OBO file that states the release asked for (its
    `data-version:` header), or it is refused. It is imported from the bytes that were checked;
-   nothing is written to disk. This is the admin sync's download (TRACE-18), without the preview.
+   nothing is written to disk. This is the admin sync's download, without the preview.
 2. **The backup**, when step 1 fails (HPO unreachable, GitHub's limit of 60 requests an hour,
    a file that states another release or is not an OBO file) or is switched off. The backend logs
    one warning that names what failed and the backup release, then imports the ontology file it
    finds (`HPO_ONTOLOGY_PATH`, on Cloud Run the reference-data bucket's copy), and only if its
-   SHA-256 is the one above (TRACE-14). Another file, such as a later release, is refused before
+   SHA-256 is the one above. Another file, such as a later release, is refused before
    anything is written: the backend logs one error that names the file, both digests and the
    fix, imports nothing and downloads nothing in its place, and the start goes on with the HPO
    terminology empty.
@@ -65,11 +65,9 @@ the release on each admin HPO page, and apply the same release to both if they m
 
 The backup's pin is kept in one place, `backend/app/core/config.py`: `HPO_PINNED_RELEASE` and
 `HPO_PINNED_ONTOLOGY_SHA256`, with the URL built from the release. No setting changes them, so
-the backup release changes only through a reviewed code change, together with this file. The
-`HPO_ONTOLOGY_URL` and `HPO_ONTOLOGY_SHA256` settings that could replace them were removed; the
-backend ignores either variable if a deployment still sets it, as it ignores every variable it
-does not define. Nor is the newest release's source a setting: the GitHub releases URL and the
-PURL template are code constants.
+the backup release changes only through a reviewed code change, together with this file. Nor is
+the newest release's source a setting: the GitHub releases URL and the PURL template are code
+constants.
 [`test_hpo_download_pin.py`](../../../backend/tests/test_hpo_download_pin.py) fails until this
 file, the pin and the table above agree;
 [`test_hpo_startup_latest_release.py`](../../../backend/tests/test_hpo_startup_latest_release.py)
@@ -82,9 +80,9 @@ Terminology (`/admin/reference/hpo`), which says when HPO has published one newe
 release: choose *Download an HPO release* with the release's date (it is fetched from its
 versioned PURL and must state that release), or a file under `/data/ref-data/hpo/` with the
 release as the *Expected release*; preview, then apply. The sync records the release the file
-states and its SHA-256 with the terms, and refuses a file that states another release, or none
-(TRACE-18). A newer release changes phenotype matching, so on a running system it is an
-administrator's step, never a start's.
+states and its SHA-256 with the terms, and refuses a file that states another release, or none. A
+newer release changes phenotype matching, so on a running system it is an administrator's step,
+never a start's.
 
 ## Updating the backup (controlled change)
 

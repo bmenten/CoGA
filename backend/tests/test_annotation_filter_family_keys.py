@@ -18,8 +18,8 @@ pass the 4 GB a query may hold at a few hundred genomes.
   the family's key set once for all of them.
 * The Variant Explorer, which reads every family at once, keeps no such bound.
 * A row is matched to the annotation rows of its key and annotation set, under any version
-  (``_OWN_ANNOTATION``): matched on the version too, each set was two to three times slower
-  to build.
+  (``_OWN_ANNOTATION``): matched on the version too, each set would be two to three times
+  slower to build.
 
 That the filters keep the same variants in ClickHouse is shown by
 integration/test_small_variant_filter_parity_clickhouse.py, which runs every filter field

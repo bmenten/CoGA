@@ -240,7 +240,7 @@ describe('FamilyRepeatExpansionsPage', () => {
     );
 
     // The shared family header: the title is the way back to the workspace, and the
-    // page no longer carries a separate button to the same place.
+    // page carries no separate button to the same place.
     expect(screen.getByRole('link', { name: 'Family F1' })).toHaveAttribute(
       'href',
       '/families/F1',
@@ -257,7 +257,7 @@ describe('FamilyRepeatExpansionsPage', () => {
   });
 });
 
-describe('FamilyRepeatExpansionsPage — review status (#535)', () => {
+describe('FamilyRepeatExpansionsPage — review status', () => {
   it('keeps a locus the catalog cannot classify in the aberrant-only view', async () => {
     apiMock.get.mockImplementation((url: string) => {
       if (url === '/families/F1') {
@@ -318,7 +318,7 @@ describe('FamilyRepeatExpansionsPage — review status (#535)', () => {
     expect((await screen.findAllByText(/Review: outside catalogued ranges/)).length).toBeGreaterThan(0);
     await showEveryLocus();
     fireEvent.click(screen.getByLabelText('Aberrant only'));
-    // Before #535 this allele ranked below "normal" and the row vanished from the view.
+    // The review allele ranks above "normal": the row stays in the view.
     expect(screen.getByText('1 of 1 loci')).toBeInTheDocument();
     expect(screen.getByRole('article', { name: /VWA1/ })).toBeInTheDocument();
   });
@@ -385,8 +385,8 @@ describe('FamilyRepeatExpansionsPage — review status (#535)', () => {
     expect(screen.getByText(note)).toBeInTheDocument();
   });
 
-  // CLIN-14: a man's two normal chrX alleles read review for that reason, which the page
-  // named "outside catalogued ranges", the reason of a count the catalogue cannot classify.
+  // A man's two normal chrX alleles read review for that reason, never "outside catalogued
+  // ranges", the reason of a count the catalogue cannot classify.
   it("names a man's two chrX alleles as the reason a call needs review", async () => {
     apiMock.get.mockImplementation((url: string) => {
       if (url === '/families/F1') {
@@ -530,9 +530,9 @@ describe('FamilyRepeatExpansionsPage — FMR1 premutation', () => {
   });
 });
 
-// CLIN-26 — a call whose TRID no catalogue row names got no thresholds and read Normal, so
-// the aberrant-only view hid it, whatever its size.
-describe('FamilyRepeatExpansionsPage — a locus without thresholds (CLIN-26)', () => {
+// A call whose TRID no catalogue row names has no thresholds: it reads Not assessed, never
+// Normal, and the aberrant-only view keeps it, whatever its size.
+describe('FamilyRepeatExpansionsPage — a locus without thresholds', () => {
   const members = [
     { sample_id: 'PROBAND', role: 'proband', affected: true, sex: 'male' },
     { sample_id: 'MOTHER', role: 'mother', affected: false, sex: 'female' },
@@ -625,7 +625,7 @@ describe('FamilyRepeatExpansionsPage — a locus without thresholds (CLIN-26)', 
     expect(screen.queryByText('Not assessed')).not.toBeInTheDocument();
   });
 
-  // CLIN-36 — at a locus that states a benign range and no threshold (STRchive's POLG: 10), the
+  // At a locus that states a benign range and no threshold (STRchive's POLG: 10), the
   // backend reads a count inside the range Normal and any other Not assessed.
   const polg = (calls: Record<string, ReturnType<typeof call>>, status: string) => ({
     locus_id: 'CPEO_POLG',
@@ -993,7 +993,7 @@ describe('repeat cutoff labels', () => {
       'No reference cutoff',
     ],
     // A benign range is not a threshold: a count inside it reads Normal, any other Not
-    // assessed (CLIN-26, CLIN-36), so the cutoff names the range and says there is no threshold.
+    // assessed, so the cutoff names the range and says there is no threshold.
     [
       'locus with a benign range only (POLG)',
       { warning_min: null, pathogenic_min: null, benign_min: 10, benign_max: 10, pathogenic_max: null },
@@ -1024,8 +1024,8 @@ describe('repeat cutoff labels', () => {
   });
 });
 
-// #610 — any failure read "Family not found", a server error included.
-describe('FamilyRepeatExpansionsPage — failed requests (#610)', () => {
+// A failure is said as such: a server error never reads "Family not found".
+describe('FamilyRepeatExpansionsPage — failed requests', () => {
 
   it('says the repeat expansions could not be loaded, not that the family was not found', async () => {
     let failedRequests = 0;

@@ -1,4 +1,4 @@
-// API path segments are encoded — #521: an imported identifier could redirect a call.
+// API path segments are encoded: raw, an imported identifier could redirect a call.
 
 import { describe, expect, it } from 'vitest';
 

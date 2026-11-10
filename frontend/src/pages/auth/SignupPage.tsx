@@ -18,10 +18,10 @@ const SignupPage: React.FC = () => {
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   // The server's acknowledgement. The account waits for an administrator, and the page
-  // says so: it used to go straight to the login page, where signing in then failed as
-  // "User not active" with no word of why (#526).
+  // says so rather than going to the login page, where signing in would fail as "User not
+  // active" with no word of why.
   const [acknowledgement, setAcknowledgement] = useState<string | null>(null);
-  // With Microsoft sign-in there is no sign-up: the first sign-in makes the account (SEC-4).
+  // With Microsoft sign-in there is no sign-up: the first sign-in makes the account.
   const [microsoftSignIn, setMicrosoftSignIn] = useState(false);
   // Nor with the organisation's CAS sign-in, whose first sign-in makes an account that waits
   // for an administrator: the name the sign-in goes by, such as UGent.

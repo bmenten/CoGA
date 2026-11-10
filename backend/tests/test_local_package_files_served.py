@@ -5,19 +5,18 @@ import root (``FAMILY_IMPORT_ROOTS=/data/families,/data/share``, docs/deployment
 there. The imports record each file relative to the package (``samples.metadata``:
 ``alignment``, ``signal_tracks``, ``sequencing_qc.report``), and the family the folder it read
 (``families.metadata.package_import.folder_path``). With local storage the genome browser's
-reads, the CNV caller's signal tracks and the QC report were looked up only in the family's
-folders, ``<data>/<family>`` and ``<data>/families/<family>``, so a package on the share showed
-no reads in IGV, and neither did one under ``<data>/families`` in a folder not named after the
-family.
+reads, the CNV caller's signal tracks and the QC report are looked up beyond the family's
+folders, ``<data>/<family>`` and ``<data>/families/<family>``, so a package on the share, or one
+under ``<data>/families`` in a folder not named after the family, shows its reads in IGV.
 
-Now the recorded file comes first, in the folder the family's import read, as in remote mode:
+The recorded file comes first, in the folder the family's import read, as in remote mode:
 
 * the reads are served at ``/cram/<family>/<sample>.cram`` whatever the file is called, with the
   recorded index or the one beside them, never an index a layout probe found elsewhere;
 * the layouts in the family's folders stay the fallback when nothing usable is recorded or the
   recorded file is gone;
 * a recorded path is data: one that leaves the package (``..``, an absolute path, a symlink into
-  another package) or lacks its file's extension names no file (SEC-27);
+  another package) or lacks its file's extension names no file;
 * the package folder is data too: it is used only when it lies, symlinks resolved, below a local
   import root, and not when it is the root itself, a URI, a relative path, or when no local root
   is configured.

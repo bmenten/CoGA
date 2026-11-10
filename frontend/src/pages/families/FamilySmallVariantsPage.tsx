@@ -149,9 +149,8 @@ const FamilySmallVariantsPage: React.FC = () => {
   });
   // Chipped (and counted, activeFilterCount): the filters the small-variant list applies. A
   // search saved on the NIPT page, which shares the saved searches, or a link, may carry the NIPT
-  // list's own: an inheritance view, which failed the whole search or, the fetal de novo one, was
-  // read as de novo / dominant, and filters the list never applied though they were chipped
-  // (found while fixing #1012). They are not sent, and are named once instead.
+  // list's own: an inheritance view, which the server refuses, and filters the list does not
+  // apply. They are not sent and get no chip: they are named once.
   const appliedFilterChips = useMemo(
     () => activeFilterChips.filter(smallVariantAppliesFilterChip),
     [activeFilterChips],
@@ -217,7 +216,7 @@ const FamilySmallVariantsPage: React.FC = () => {
     enabled: variantQueryReady,
     queryFn: async () => {
       // A location from the URL that cannot be read fails the search with its reason:
-      // sent on, a malformed locus was searched as a gene name (#604).
+      // sent on, a malformed locus would be searched as a gene name.
       const locationProblems = smallVariantLocationProblems(filters);
       if (hasLocationProblems(locationProblems)) {
         throw new Error([...locationProblems.include, ...locationProblems.exclude].join(' '));
@@ -357,7 +356,7 @@ const FamilySmallVariantsPage: React.FC = () => {
   const totalPages = Math.max(1, Math.ceil((data?.total ?? 0) / 100));
 
   // The family failed: the search waits for it, and would otherwise wait for good. Without
-  // it, whether its import is complete is not known either (SAFE-14).
+  // it, whether its import is complete is not known either.
   if (familyFailed) {
     return (
       <FamilyLoadFailure
@@ -371,7 +370,7 @@ const FamilySmallVariantsPage: React.FC = () => {
   }
 
   // The project catalogue failed: the search runs within the family's project, and would
-  // otherwise wait for it for good (#608).
+  // otherwise wait for it for good.
   if (referenceFailed) {
     return (
       <PageState

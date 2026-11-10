@@ -55,8 +55,8 @@ LINEAGE_PHASED_FETCH_LIMIT = 500_000
 # stored overview lineage is coloured genome-wide with no truncated q-arm.
 LINEAGE_PRECOMPUTE_FETCH_LIMIT = 5_000_000
 # Interval track-type holding the precomputed genome-wide lineage. The two per-lane
-# lineage tags are packed into the existing `origin` column as "hap1l|hap2l" so no
-# ClickHouse schema change is needed; `metadata_json.lineage_hash` records the
+# lineage tags are packed into the `origin` column as "hap1l|hap2l";
+# `metadata_json.lineage_hash` records the
 # pedigree/status fingerprint the colours were computed for (staleness guard).
 LINEAGE_TRACK_TYPE = "haplotype_lineage"
 
@@ -75,7 +75,7 @@ _SEGREGATION_GROUPS = frozenset({"2A", "2B", "3A", "3B"})
 # upload's, and a package's coverage BED's (its ``coverage`` dataset), which replace each
 # other. A sample can carry other callers' tracks of the same types (WisecondorX, QDNAseq,
 # HiFiCNV, a package's APCAD VCF or PCF tables): each loader replaces only its own source's
-# track, so this one leaves theirs (SAFE-22).
+# track, so this one leaves theirs.
 BED_UPLOAD_SOURCE = "web"
 
 
@@ -111,8 +111,8 @@ def _upload_metadata(
 
 def _storable_coordinates(start: int, end: int) -> bool:
     """Whether the interval table's UInt64 columns hold a line's start and end. A line with
-    a negative coordinate, or one beyond them, is not a record and is left out (SAFE-30):
-    it failed the insert of the whole file after the stored track was deleted."""
+    a negative coordinate, or one beyond them, is not a record and is left out: it would
+    fail the insert of the whole file after the stored track was deleted."""
     return column_int(start, UINT64) is not None and column_int(end, UINT64) is not None
 
 
@@ -237,11 +237,10 @@ async def _forget_track_after_failed_write(
 ) -> None:
     """Remove Postgres's record of the sample's ``bed_type`` track of ``source`` after an
     overwrite failed once it may have deleted the track's rows. The upload's transaction
-    rolls back, and with it the record's delete: the record left named rows that are gone,
-    which the coverage readers and the signed record read (SAFE-18, #846). Removed in a
+    rolls back, and with it the record's delete: the record would name rows that are gone,
+    which the coverage readers and the signed record read. Removed in a
     transaction of its own, after the upload's is rolled back. Best-effort: the upload's own
-    error is what the caller raises, and a single-file upload's mark still marks the family
-    (SAFE-28)."""
+    error is what the caller raises, and a single-file upload's mark still marks the family."""
     try:
         await session.rollback()
         await delete_interval_track_sources(
@@ -277,25 +276,25 @@ async def upload_bed_data(
 ) -> dict[str, int]:
     """Store one sample's ``bed_type`` track from a BED file under ``source``, replacing
     (with ``overwrite``) the track of that type the sample has from that source. The tracks
-    of other sources stay (SAFE-22): the coverage and segments of WisecondorX, QDNAseq or
+    of other sources stay: the coverage and segments of WisecondorX, QDNAseq or
     HiFiCNV, HiFiCNV's minor allele fraction, a package's APCAD or PCF tracks.
 
     Without ``overwrite`` the upload is refused (409) when rows of that source's track are
     stored: read from the store, as an update reads them, not from Postgres's record of the
     track, which a failed overwrite's restore that stopped part-way can leave for rows it
-    deleted (SAFE-20). The file is read and checked whole before anything is replaced: one
+    deleted. The file is read and checked whole before anything is replaced: one
     that is not text, or holds no record of ``bed_type``, is refused (400), and the stored
     track and its record stay as they were.
 
     ``check_only`` stops there, once the file has been decoded whole and its first record
     read, deleting and storing nothing: the check a package's dataset of one BED per sample
-    makes of every sample's file before it replaces any sample's track (SAFE-3).
+    makes of every sample's file before it replaces any sample's track.
 
     ``source`` is ``web`` (``BED_UPLOAD_SOURCE``), except for a package's ``apcad`` dataset,
     which reads a file its own reader finds no record in as a BED, into its own track
     (``APCAD_SOURCE``).
 
-    ``content`` is what a coverage BED declares it holds (TRACE-9): ``read_depth`` or
+    ``content`` is what a coverage BED declares it holds: ``read_depth`` or
     ``log2_ratio``, which the single-file upload requires (``routers/bed.py``) and a package's
     coverage entry gives as its ``content`` key. Its track's record keeps it, as ``unknown``
     when the BED declares neither (``declared_coverage_content``): such a track is drawn
@@ -318,7 +317,7 @@ async def upload_bed_data(
 
     ClickHouse has no transactions: the track this replaces is gone once deleted, and rows
     written before a failure stay. So a single-file upload marks the family before its first
-    ClickHouse write, for the sample's track it brings (``mark_family_upload``, SAFE-28): a
+    ClickHouse write, for the sample's track it brings (``mark_family_upload``): a
     process that stops after that write, or a failure after it, leaves the family marked,
     which gates its sign-out until the track has been uploaded again with ``overwrite``. The
     upload's commit removes the mark, and so does a failure before that write."""
@@ -353,14 +352,14 @@ async def upload_bed_data(
         dataset, scope = interval_track_upload_scope(
             bed_type, sample_context.sample_id, content=declared
         )
-        # Before the first ClickHouse write, committed whatever becomes of this transaction
-        # (SAFE-28); before the record below too, which locks the family row this write
+        # Before the first ClickHouse write, committed whatever becomes of this transaction;
+        # before the record below too, which locks the family row this write
         # needs. An upload that cannot mark the family writes nothing.
         upload_mark = await mark_family_upload(
             family_uuid=sample_context.family_uuid, items=[(dataset, scope)]
         )
         try:
-            # What the upload brings, recorded for the family (SAFE-19) before its first
+            # What the upload brings, recorded for the family before its first
             # write, in the transaction that commits its track: an upload that fails takes
             # the record with it, and a record that cannot be written stops the upload first.
             await record_family_upload(
@@ -428,10 +427,10 @@ async def _require_one_coverage_source(
     end: int | None,
 ) -> None:
     """Refuse (400) a read of coverage that names no caller (``source``) where the sample holds
-    coverage of several there (TRACE-10). Their rows came back merged, and a window averaged
-    them: independent measurements, a depth and log2 ratios, made one value that is none of
-    them. The views always name the caller (#852); a read where the sample holds one caller's
-    coverage is answered as before."""
+    coverage of several there (TRACE-10). Their rows would come back merged, and a window
+    would average them: independent measurements, a depth and log2 ratios, made one value
+    that is none of them. The views always name the caller; a read where the sample holds
+    one caller's coverage is answered without one."""
     if bed_type != "coverage" or source is not None or not sample_context.assembly_name:
         return
     sources = (
@@ -597,9 +596,9 @@ async def _fetch_bed_records_for_chroms(
     """Fetch and process BED records for many chromosomes with a single
     ClickHouse query (``chrom IN (...)``) instead of one query per chromosome.
 
-    Rows are regrouped back into per-chromosome buckets so coverage windowing and
-    plain per-chromosome serialization stay identical to the previous
-    one-query-per-chromosome path. (Windowed APCAD never reaches here — it is
+    Rows are regrouped back into per-chromosome buckets, so coverage windowing and
+    plain serialization run per chromosome, as one query per chromosome would give
+    them. (Windowed APCAD never reaches here — it is
     selected and downsampled entirely in ClickHouse by ``fetch_apcad_downsampled``.)
     """
     _ = session
@@ -767,7 +766,7 @@ async def _apply_haplotype_lineage(
         for sample_uuid, segs in segments_by_uuid.items()
     }
     # IBD matching over up to LINEAGE_PHASED_FETCH_LIMIT sites is pure CPU work: run it in a
-    # worker thread so other requests are served meanwhile (#527).
+    # worker thread so other requests are served meanwhile.
     annotated = await asyncio.to_thread(
         annotate_lineage,
         sample_rows=context.sample_rows,
@@ -780,7 +779,7 @@ async def _apply_haplotype_lineage(
         # Even in a bounded region the fetch can cap; do not colour relatives past the
         # last fetched site within the window.
         genotype_truncated=len(genotype_rows) >= LINEAGE_PHASED_FETCH_LIMIT,
-        # chrX is read by the PARs of the family's assembly (CLIN-12).
+        # chrX is read by the PARs of the family's assembly.
         assembly_name=context.assembly_name,
     )
     links = relative_links(context.relationship_rows)
@@ -864,7 +863,7 @@ _HAPLOTYPE_SOURCES_SQL = text(
 
 async def haplotype_source_rows(session: AsyncSession, context: FamilyMetadataContext) -> list[dict[str, Any]]:
     """What Postgres records of each member's stored haplotype blocks: the file, the rows and
-    what the blocks were built for (``pedigree_basis``, CLIN-66)."""
+    what the blocks were built for (``pedigree_basis``)."""
     rows = (await session.execute(_HAPLOTYPE_SOURCES_SQL, {"family_uuid": context.family_uuid})).mappings().all()
     members = set(context.sample_name_to_uuid)
     return [dict(row) for row in rows if str(row["sample"]) in members]
@@ -901,7 +900,7 @@ async def get_family_haplotypes_response(
         chr=chr,
         start=start,
         end=end,
-        # Built for another pedigree or other sexes (CLIN-66): the tracks read no risk state.
+        # Built for another pedigree or other sexes: the tracks read no risk state.
         blocks_outdated=blocks_outdated(context, await haplotype_source_rows(session, context)),
         samples=[
             HaplotypeSample.model_validate(
@@ -962,8 +961,8 @@ def _lineage_hash(context: FamilyMetadataContext, *, blocks: str | None = None) 
     edges, each member's role and sex, the affected set, the parents' phase corrections,
     for a family with a relative of unknown degree the ROI, and ``blocks``, the digest of the
     stored haplotype blocks (``interval_track_rows_digest``). If this changes, a stored
-    precompute is stale and must not be served. Without the blocks a single-file re-upload,
-    which rewrites them, left the overview on the old ones until an edit (CLIN-66)."""
+    precompute is stale and must not be served. The blocks are in it because a single-file
+    re-upload rewrites them without any other input changing."""
     pedigree = sorted(
         (
             str(r.get("relationship_type") or ""),
@@ -982,8 +981,8 @@ def _lineage_hash(context: FamilyMetadataContext, *, blocks: str | None = None) 
         "pedigree": pedigree,
         "roles": roles,
         "affected": sorted(context.affected_sample_names),
-        # chrX between the PARs is read by each member's sex (CLIN-12): a precompute made
-        # before it was read there, or before a sex changed, is stale.
+        # chrX between the PARs is read by each member's sex: a precompute made
+        # before a sex changed is stale.
         "sexes": sorted(
             (str(row.get("sample_id") or ""), normalize_sex(row.get("sex"))) for row in context.sample_rows
         ),
@@ -996,8 +995,7 @@ def _lineage_hash(context: FamilyMetadataContext, *, blocks: str | None = None) 
     if blocks is not None:
         fingerprint["blocks"] = blocks
     if context.phase_corrections:
-        # The parents' phase switches the blocks undid; a family without any keeps the
-        # fingerprint it had.
+        # The parents' phase switches the blocks undid.
         fingerprint["phase_corrections"] = sorted(
             (str(item.get("parent")), str(item.get("chr")), int(item.get("position") or 0))
             for item in context.phase_corrections
@@ -1153,7 +1151,7 @@ async def precompute_family_haplotype_lineage(context: FamilyMetadataContext) ->
             continue
         segments_by_name[name].append(_haplotype_segment(row))
     # The blocks as read, before the lineage is computed from them: blocks written again
-    # meanwhile make the stored fingerprint stale (CLIN-66).
+    # meanwhile make the stored fingerprint stale.
     blocks = await interval_track_rows_digest(
         context.assembly_name, family_uuid=context.family_uuid, track_type="haplotype"
     )
@@ -1180,7 +1178,7 @@ async def precompute_family_lineage_safe(family_identifier: str, user: Any) -> N
     from .family_metadata_context import build_family_metadata_context
 
     # The log names the family by its UUID once it is known, never by the ID the request
-    # gave (SEC-39).
+    # gave.
     family_uuid: str | None = None
     try:
         get_postgres_engine()
@@ -1263,8 +1261,8 @@ async def _apply_haplotype_lineage_genomewide(
     it here (a couple of cheap interval reads), hash-guarded so a pedigree/affected
     edit never serves stale colours.
 
-    When no (current) precompute exists — a family uploaded before this feature, or
-    one whose pedigree just changed — we fall back to the cheap path: the nuclear core
+    When no (current) precompute exists — none made yet, or a family whose pedigree
+    just changed — we fall back to the cheap path: the nuclear core
     (father/mother + their children/embryos) keeps its role-based colours and
     relatives (plus single-parent donor lanes) are greyed, "not resolved at this
     zoom". Their precise blue/green lineage is still available in the bounded
@@ -1311,8 +1309,8 @@ async def get_track_sources_by_sample(
 ) -> dict[str, list[str]]:
     """Sample name → the callers that have rows for ``track_type``.
 
-    Supersedes bare presence for the track types more than one caller can write.
-    Being told a sample "has coverage" is not enough to draw it: HiFiCNV,
+    For the track types more than one caller can write, presence alone does not do:
+    being told a sample "has coverage" is not enough to draw it: HiFiCNV,
     WisecondorX and QDNAseq each produce their own, and they are separate tracks.
     """
 

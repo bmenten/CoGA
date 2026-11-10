@@ -106,13 +106,12 @@ async def test_fetch_recurrent_small_variant_ids_counts_only_the_given_samples_a
     result = await clickhouse_family_variants.fetch_recurrent_small_variant_ids(
         "GRCh38",
         min_carrier_samples=5,
-        # ClickHouse stores a sample under its name or its UUID; both map to one sample.
-        carrier_samples={"CF1": "CF1", "uuid-1": "CF1", "CF2": "CF2", "uuid-2": "CF2"},
+        carrier_samples=["CF1", "CF2"],
     )
 
     assert result == [("1-100-A-G", 5)]
     assert "sample_id IN %(carrier_ids)s" in captured["query"]
-    assert sorted(captured["params"]["carrier_ids"]) == ["CF1", "CF2", "uuid-1", "uuid-2"]
+    assert sorted(captured["params"]["carrier_ids"]) == ["CF1", "CF2"]
     # Every common variant recurs: the import-time > 5% population-frequency flag excludes it.
     assert "NOT is_gnomad_gt_5_percent" in captured["query"]
 
@@ -152,7 +151,7 @@ async def test_fetch_recurrent_small_variant_ids_with_no_carrier_samples_counts_
 
     monkeypatch.setattr(clickhouse_family_variants, "_execute_clickhouse", no_query)
     assert await clickhouse_family_variants.fetch_recurrent_small_variant_ids(
-        "GRCh38", min_carrier_samples=5, carrier_samples={}
+        "GRCh38", min_carrier_samples=5, carrier_samples=[]
     ) == []
 
 
@@ -164,8 +163,8 @@ class _AutoSeedResult:
         return self._first
 
 
-# (sample uuid, sample name, assay_panel) rows the cfDNA-sample lookup returns.
-_DEFAULT_CFDNA_SAMPLES = [("uuid-1", "CF1", None), ("uuid-2", "CF2", None)]
+# (sample ID, assay_panel) rows the cfDNA-sample lookup returns.
+_DEFAULT_CFDNA_SAMPLES = [("CF1", None), ("CF2", None)]
 
 
 class _AutoSeedSession:
@@ -230,9 +229,8 @@ async def test_auto_seed_nipt_artifacts_upserts_recurrent(
 async def test_auto_seed_counts_recurrence_among_the_assays_own_cfdna_samples(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # Recurrence is counted among the assay's own cfDNA samples: over every sample on the
-    # assembly, all common SNPs (the paternal sites FF is read from) and every other assay's
-    # artifacts would qualify.
+    # Counted over every sample on the assembly, recurrence would qualify all common SNPs
+    # (the paternal sites FF is read from) and every other assay's artifacts.
     seen: dict = {}
 
     async def fake_recurrent(assembly_name, *, min_carrier_samples, carrier_samples=None, **kwargs):
@@ -241,9 +239,9 @@ async def test_auto_seed_counts_recurrence_among_the_assays_own_cfdna_samples(
 
     monkeypatch.setattr(nipt_artifact_pg, "fetch_recurrent_small_variant_ids", fake_recurrent)
     cfdna = [
-        ("uuid-1", "CF1", None),  # no panel: the default scope
-        ("uuid-2", "CF2", "  PANEL_A "),  # a panel of its own (trimmed, as nipt_assay_key does)
-        ("uuid-3", "CF3", ""),  # a blank panel is the default scope too
+        ("CF1", None),  # no panel: the default scope
+        ("CF2", "  PANEL_A "),  # a panel of its own (trimmed, as nipt_assay_key does)
+        ("CF3", ""),  # a blank panel is the default scope too
     ]
 
     session = _AutoSeedSession("GRCh38", cfdna)
@@ -253,7 +251,7 @@ async def test_auto_seed_counts_recurrence_among_the_assays_own_cfdna_samples(
         assay_key="nipt_cfdna",
     )
     assert session.sample_queries == [{"assay": "nipt_cfdna"}]
-    assert seen["carrier_samples"] == {"CF1": "CF1", "uuid-1": "CF1", "CF3": "CF3", "uuid-3": "CF3"}
+    assert seen["carrier_samples"] == ["CF1", "CF3"]
     assert seen["exclude_common"] is True
     assert seen["exclude_clinvar_pathogenic"] is True
     assert result == {"seeded": 1, "min_carrier_samples": 5}
@@ -263,7 +261,7 @@ async def test_auto_seed_counts_recurrence_among_the_assays_own_cfdna_samples(
         assembly_id="0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
         assay_key="PANEL_A",
     )
-    assert seen["carrier_samples"] == {"CF2": "CF2", "uuid-2": "CF2"}
+    assert seen["carrier_samples"] == ["CF2"]
 
 
 @pytest.mark.asyncio
@@ -271,11 +269,11 @@ async def test_auto_seed_without_cfdna_samples_for_the_assay_seeds_nothing(
     monkeypatch: pytest.MonkeyPatch, audit_events: list[dict]
 ) -> None:
     async def fake_recurrent(assembly_name, *, min_carrier_samples, carrier_samples=None, **_kwargs):
-        assert carrier_samples == {}
+        assert carrier_samples == []
         return []
 
     monkeypatch.setattr(nipt_artifact_pg, "fetch_recurrent_small_variant_ids", fake_recurrent)
-    session = _AutoSeedSession("GRCh38", [("uuid-2", "CF2", "PANEL_A")])
+    session = _AutoSeedSession("GRCh38", [("CF2", "PANEL_A")])
 
     result = await auto_seed_nipt_artifacts(
         session,  # type: ignore[arg-type]

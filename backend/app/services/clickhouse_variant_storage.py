@@ -436,8 +436,8 @@ async def bump_family_small_variant_data_version(assembly_name: str, family_uuid
     last also covers a snapshot restore), after the mutation has completed, so a ranking
     computed while the data was changing is keyed to a version that no longer exists.
     Doing it here, rather than asking each import/upload/delete path to invalidate the
-    ranking cache, is the point: only the package import used to, so a direct upload or
-    an admin delete left a stale prioritised ranking behind (#509).
+    ranking cache, is the point: a direct upload or an admin delete moves the version as
+    the package import does, so no path leaves a stale prioritised ranking behind.
     """
     await ensure_clickhouse_variant_tables(assembly_name)
     await _bump_family_data_version(
@@ -465,7 +465,7 @@ async def bump_family_structural_variant_data_version(assembly_name: str, family
     every SV insert and delete below and after a snapshot restore. The SV→gene index behind
     the small-variant "second hit" badge is stamped with this version, so any write, from
     whichever path (package import, per-sample upload, admin delete, pedigree change),
-    makes the next read rebuild it; only the package import used to clear it.
+    makes the next read rebuild it.
     """
     await ensure_clickhouse_variant_tables(assembly_name)
     await _bump_family_data_version(
@@ -528,36 +528,22 @@ async def delete_family_structural_variants(
 ) -> None:
     """Delete the family's structural variants: every source's, or exactly ``source``'s.
 
-    The ``entries`` rows go first. Then the ``variants/details`` and ``key_lookup`` rows of
-    the same scope go, except a row whose key a remaining ``entries`` row of the family
-    still has. Both tables are family-scoped: the key hashes the family
-    (``structural_variant_key``), every row carries ``family_guid``, and a write that keeps
-    a stored key writes it back to the family it read it from. So only the family's own
-    entries can reach these rows, and the check reads those alone.
-
-    After a family delete no entry is left, so all of the family's rows go. After a
-    source-scoped delete the source's rows go unless another source's entry has their key,
-    as two callers' calls at one position had before the key named the source (#658).
-    ClickHouse keeps one details row per key, so removing that row would strip the other
-    caller's SV of its span, length and annotation.
+    The ``entries`` rows go first, then the ``variants/details`` and ``key_lookup`` rows of
+    the same scope. Both tables are family-scoped, and each row belongs to one caller's
+    call: the key hashes the family and the source (``structural_variant_key``), and every
+    row carries ``family_guid`` and ``source``. So the scope that deletes a source's entries
+    deletes exactly the details and lookup rows those entries had, and no other caller's.
     """
     await ensure_clickhouse_variant_tables(assembly_name)
-    entries_table = _structural_table_name(assembly_name, "entries")
     params: dict[str, Any] = {"family_guid": family_uuid}
     scope = "family_guid = %(family_guid)s"
     if source is not None:
         scope += " AND source = %(source)s"
         params["source"] = source
-    await _execute(
-        f"ALTER TABLE {entries_table} DELETE WHERE {scope} SETTINGS mutations_sync = 1",
-        params,
-    )
-    for suffix in ("variants/details", "key_lookup"):
+    for suffix in ("entries", "variants/details", "key_lookup"):
         await _execute(
             f"ALTER TABLE {_structural_table_name(assembly_name, suffix)} DELETE "
-            f"WHERE {scope} AND key NOT IN "
-            f"(SELECT key FROM {entries_table} WHERE family_guid = %(family_guid)s) "
-            "SETTINGS mutations_sync = 1",
+            f"WHERE {scope} SETTINGS mutations_sync = 1",
             params,
         )
     await bump_family_structural_variant_data_version(assembly_name, family_uuid)
@@ -578,7 +564,7 @@ async def insert_small_variant_records(
     into the stored rows: see :func:`small_variant_record_entries`)."""
     await ensure_clickhouse_variant_tables(assembly_name)
     # Building a batch's rows is CPU work, more than parsing its VCF lines: it runs in a
-    # worker thread, so the event loop serves other requests meanwhile (OPS-9).
+    # worker thread, so the event loop serves other requests meanwhile.
     detail_rows, entry_rows, annotation_rows, annotation_index_rows, annotation_gene_index_rows = await asyncio.to_thread(
         _small_variant_entry_rows,
         assembly_name,
@@ -951,7 +937,7 @@ async def refresh_family_small_variant_summaries(
     # callsets (glimpse2/shapeit) — matching the live-fallback query in
     # _fetch_small_variant_summary and the default of the per-family variant list.
     params["imputed_sources"] = tuple(IMPUTED_SMALL_VARIANT_SOURCES)
-    # Per-sample counts from the one genotype classification (#511): a haploid "1" or a
+    # Per-sample counts from the one genotype classification: a haploid "1" or a
     # "2/2" is homozygous alt, a "1/2" heterozygous, and a haploid "0" is not a variant.
     is_alt = clickhouse_genotype_condition("gt", ALT_CLASSES, param="gt_alt", params=params)
     is_het = clickhouse_genotype_condition("gt", {HET}, param="gt_het", params=params)
@@ -1238,7 +1224,7 @@ class StructuralVariantsNotRestored(RuntimeError):
 class SmallVariantsNotRestored(RuntimeError):
     """A rewrite of the family's small variants failed after its delete, and the rows it
     deleted could not be written back either: the family's small-variant rows of ``source``
-    (of every source when None) may be partly written or missing (SAFE-31). Raised from the
+    (of every source when None) may be partly written or missing. Raised from the
     rewrite's own error by a caller that puts the rows back itself (the admin's deletion of
     a sample); the caller marks the family for what may be missing."""
 
@@ -1282,8 +1268,8 @@ async def rewrite_family_structural_variants(
     rows the delete removes, as the caller read them under the family's variant-write lock.
 
     ClickHouse has no transactions, so a write that fails after the delete (an insert
-    error, a value a column cannot hold, ClickHouse failing part-way) puts them back
-    (SAFE-28): the scope is deleted again, with whatever the failed write had stored, and
+    error, a value a column cannot hold, ClickHouse failing part-way) puts them back:
+    the scope is deleted again, with whatever the failed write had stored, and
     ``stored`` is written, and the write's error is raised with the family's rows as they
     were. When they cannot be put back either, ``StructuralVariantsNotRestored`` is raised
     from the write's error: the scope may then be partly written or missing, and the
@@ -1360,11 +1346,18 @@ async def _family_rows_by_source_and_project(table: str, family_uuid: str) -> di
     return stored
 
 
-def _copy_origin(stored: dict[str, int], linked: Collection[str]) -> str:
+def _copy_origin(stored: dict[str, int], linked: Collection[str]) -> str | None:
     """The project whose rows of a callset the other projects' copies are made from: of the
     projects the family is linked to, whose rows every write of the family keeps current, the
-    one with the most rows; when none of them holds the callset, the project with the most."""
-    candidates = [project for project in stored if project in linked] or list(stored)
+    one with the most rows. When none of them holds the callset, the rows of a family in no
+    project (``unassigned``, where every write of such a family keeps them): an import that
+    links it to its first project copies them from there. None when neither holds it: rows that
+    only other projects hold are no current copy, as no write of the family keeps them current."""
+    candidates = [project for project in stored if project in linked] or [
+        project for project in stored if project == _normalized_project_ids([])[0]
+    ]
+    if not candidates:
+        return None
     return max(sorted(candidates), key=lambda project: stored[project])
 
 
@@ -1409,10 +1402,8 @@ async def copy_family_variants_to_projects(
     * to a project the family is not linked to yet, in place of any rows it holds there:
       those can only be left over from a change that did not finish, and no write has kept
       them current since;
-    * to a linked project that holds none of the callset: an import that links the family to
-      a project writes there only the callsets it imports, and one that stops before its copy
-      (``family_project_variants.copy_variants_to_linked_projects``) leaves the project
-      holding none.
+    * to a linked project that holds none of the callset: an import that adds a project to a
+      family links it first and writes only the callsets it imports.
 
     A linked project's rows are never deleted here, so a step that fails part-way leaves every
     project the family is linked to as it was: a copy whose insert fails removes what it may
@@ -1429,6 +1420,8 @@ async def copy_family_variants_to_projects(
             by_source = await _family_rows_by_source_and_project(table, family_uuid)
             for source, stored in sorted(by_source.items()):
                 origin = _copy_origin(stored, linked)
+                if origin is None:
+                    continue
                 for project in targets:
                     if project == origin or (project in linked and project in stored):
                         continue
@@ -1561,8 +1554,7 @@ async def family_small_variant_call_samples(
     *,
     source: str,
 ) -> set[str]:
-    """Every sample a call of the family's ``source`` rows names (its sample id, or the
-    sample uuid a call may be stored under)."""
+    """The ID of every sample a call of the family's ``source`` rows names."""
     await ensure_clickhouse_variant_tables(assembly_name)
     rows = await _execute(
         f"""
@@ -1927,8 +1919,8 @@ async def _distinct_key_count(table: str) -> int:
 # CHECK as a command and splits the tab-separated body on tabs only. A part-by-part result
 # (check_query_single_value_result = 0) therefore arrives as ONE flattened row, each next
 # part starting with the newline left in front of its path, and a table without active
-# parts as a single empty value. Read row by row, a table was judged on its first part
-# alone and a table without parts raised IndexError. The helpers below read every shape.
+# parts as a single empty value. Read row by row, a table would be judged on its first part
+# alone, and a table without parts would raise IndexError. The helpers below read every shape.
 _CHECK_PASSED = {"1": True, "true": True, "0": False, "false": False}
 _TSV_ESCAPES = {"\\": "\\", "t": "\t", "n": "\n", "r": "\r", "0": "\0", "'": "'", "b": "\b", "f": "\f"}
 

@@ -1,11 +1,10 @@
-"""A family's PED text, built from its stored structure (SAFE-8).
+"""A family's PED text, built from its stored structure.
 
 The family's members (their sex and clinical status) and its parent-child relationships are the
 pedigree; the PED text the family page draws is written from them, one row per active member, so
 the two never disagree. The text stored on the family (``families.pedigree``) is the one its
-last import or Family Builder save wrote, and could: a package import of an existing family
-replaces it but not the stored relationships or sexes (#893), and a Family Builder request with a
-parent ID of spaces alone wrote a row of five fields, which shifted the drawing's columns.
+last import or Family Builder save wrote, and can: a package import of an existing family
+replaces it but not the stored relationships or sexes.
 """
 
 from __future__ import annotations

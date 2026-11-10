@@ -92,7 +92,7 @@ class _Recorder:
     is what Postgres records of the track (``sample_interval_track_sources``), ``stored``
     how many of its rows the interval table holds (by default as many). ``events`` is the
     order of the importer's check of its file, the clears and its import; with ``empty``
-    the check refuses the file, as an importer refuses one without a row (SAFE-29)."""
+    the check refuses the file, as an importer refuses one without a row."""
 
     def __init__(self, existing: int, stored: int | None = None, *, empty: bool = False) -> None:
         self.existing = existing
@@ -173,7 +173,7 @@ async def test_update_mode_imports_a_track_whose_rows_are_gone_though_postgres_r
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # A failed overwrite's restore that stopped part-way deleted the rows and left their
-    # record (SAFE-20). An update reads the store: it imports the track again, clearing the
+    # record. An update reads the store: it imports the track again, clearing the
     # stale record first.
     recorder = _Recorder(existing=500, stored=0)
     result = await _run_guard(monkeypatch, recorder, "update")
@@ -227,7 +227,7 @@ async def test_a_file_without_a_row_is_refused_before_the_track_is_cleared(
 ) -> None:
     from app.services.family_package_tracks import EmptyTrackFileError
 
-    # SAFE-29: the guard cleared the track, and the importer stored none of an empty file.
+    # the guard cleared the track, and the importer stored none of an empty file.
     recorder = _Recorder(existing=500, empty=True)
     with pytest.raises(EmptyTrackFileError):
         await _run_guard(monkeypatch, recorder, "overwrite")

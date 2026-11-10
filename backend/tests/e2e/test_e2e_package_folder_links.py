@@ -3,7 +3,7 @@
 The package list and Discover follow a package's ``ped/`` folder and its long-read folders
 when one is a symbolic link, wherever it leads: Discover proposes a member from a linked
 per-sample folder, though what it holds may be another family's. The owner chose a warning
-over a refusal (SEC-27, 2026-10-28). Over the real API (an in-process ``httpx.ASGITransport``
+over a refusal (2026-10-28). Over the real API (an in-process ``httpx.ASGITransport``
 client that answers an app failure with 500, see test_e2e_api_contract.py) and Postgres, with
 synthetic packages in an import root of the test's own:
 

@@ -393,7 +393,7 @@ class NiptCoverageSummaryOut(BaseModel):
     # above then stay empty.
     targets: Optional[NiptTargetCoverageOut] = None
     # Without a table: why each of the plasma's coverage tracks over the regions was not read
-    # as depth (TRACE-9), a log2 ratio or a coverage BED that does not declare what it holds,
+    # as depth, a log2 ratio or a coverage BED that does not declare what it holds,
     # so regions without coverage say why. Empty when a track of read depth was read, or none
     # is there.
     coverage_notes: List[str] = Field(default_factory=list)

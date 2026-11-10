@@ -1,7 +1,7 @@
 import { expect, test } from './fixtures';
 
-// The production server's page-level security headers (securityHeaders.mjs, #521). The
-// journeys run against that server (#526), so a policy that breaks the app fails them
+// The production server's page-level security headers (securityHeaders.mjs). The
+// journeys run against that server, so a policy that breaks the app fails them
 // through the CSP fixture; this checks the headers are actually sent.
 test('the frontend server sends its security headers', async ({ page }) => {
   test.skip(process.env.E2E_FRONTEND === 'dev', 'the Vite dev server sends no CSP');

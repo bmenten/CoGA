@@ -124,7 +124,7 @@ const VariantSummaryStructuralVariants: React.FC<{ familyId: string }> = ({
 
   // The matrix has no totals. Each cell counts SVs per pair of carriers, so an SV
   // shared by three samples is in three cells: a row sum is not what that sample
-  // carries, and the grand sum is not the number of SVs (#526).
+  // carries, and the grand sum is not the number of SVs.
   const sampleNames = React.useMemo(
     () => Object.keys(sharedCounts ?? {}).sort(),
     [sharedCounts]

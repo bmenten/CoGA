@@ -99,7 +99,7 @@ async def _get_json(
     try:
         payload = response.json()
     except ValueError as exc:
-        # A 200 whose body is no JSON: a fault upstream like a failed request (DATA-4).
+        # A 200 whose body is no JSON: a fault upstream like a failed request.
         raise HTTPException(status_code=502, detail=f"Unexpected response from {url}") from exc
     if not isinstance(payload, dict):
         raise HTTPException(status_code=502, detail=f"Unexpected response from {url}")
@@ -498,7 +498,7 @@ def cytoband_backup_candidates(file_name: str) -> list[Path]:
 
 def read_cytoband_backup(ucsc_genome: str) -> CytobandFile | None:
     """The shipped cytoband backup of the UCSC genome, if it has one and the file found is the
-    pinned file byte for byte (TRACE-14). None, with one logged line, when the genome has no
+    pinned file byte for byte. None, with one logged line, when the genome has no
     backup file in place, or the file found is another (refused, the error naming the file, both
     digests and the fix) or cannot be read."""
     pin = CYTOBAND_BACKUP_FILES.get(ucsc_genome)
@@ -658,7 +658,7 @@ async def _download_gencode_genes(
     its preamble (empty when it has none, as UCSC's GTF does). Returns ``None`` for a
     genome without a configured GTF. A failure to fetch or read the GTF raises
     ``_AnnotationDownloadFailed``: the caller still falls back to the UCSC track, so a
-    bootstrap is not blocked, but it records that it did (#536).
+    bootstrap is not blocked, but it records that it did.
     """
     if ucsc_genome == HUMAN_GRCH38_UCSC_GENOME:
         url = str(settings.reference_gencode_gtf_url or "").strip()
@@ -687,7 +687,7 @@ async def _download_gencode_genes(
         return rows, url, label, release
     except Exception as exc:  # pragma: no cover - network shape varies
         # Values from the request and the upstream error are scrubbed of control
-        # characters so they cannot forge log lines (CodeQL py/log-injection, #522).
+        # characters so they cannot forge log lines (CodeQL py/log-injection).
         logger.warning(
             "GTF gene import failed for %s (%s); falling back to UCSC",
             scrub_log(ucsc_genome),
@@ -1052,7 +1052,7 @@ async def import_reference_from_ucsc(
                         overwrite=overwrite,
                         commit=False,
                         performed_by=performed_by,
-                        # The table actually used, so the import record says which (#536).
+                        # The table actually used, so the import record says which.
                         source=f"ucsc {gene_source}",
                         source_url=gene_source_url,
                     )
@@ -1060,7 +1060,7 @@ async def import_reference_from_ucsc(
                     genes_replaced = genes.replaced
                 if gtf_failure:
                     # The configured annotation was wanted and is not what was loaded:
-                    # say so in the result instead of only in a log line (#536).
+                    # say so in the result instead of only in a log line.
                     fallback = (
                         f"the UCSC {gene_source} table was used instead, without biotypes, "
                         "Ensembl identifiers or MANE tags"

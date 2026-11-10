@@ -3,13 +3,11 @@
 A start on an empty database imports HPO's newest release (``test_hpo_startup_latest_release.py``).
 When it cannot, it imports the backup: the vendored data/ref-data/hpo/hp.obo, and only when it
 finds no ontology file, as on a deployment whose reference data lacks it, does it download one.
-That download was the floating hp.obo, unchecked unless HPO_ONTOLOGY_SHA256 was set. It fetches
-the vendored file's own release from its versioned PURL, and uses the file only if its SHA-256 is
-the vendored file's. The URL and the digest are code constants: the HPO_ONTOLOGY_URL and
-HPO_ONTOLOGY_SHA256 settings that could replace them were removed (owner decision), so the backup
-release changes only through a reviewed code change, and a deployment that still sets either
-variable gets the pin. Nothing here goes to the network: urlopen is replaced, and HPO's newest
-release cannot be reached.
+It fetches the vendored file's own release from its versioned PURL, and uses the file only if
+its SHA-256 is the vendored file's. The URL and the digest are code constants that no setting
+replaces (owner decision), so the backup release changes only through a reviewed code change.
+Nothing here goes to the network: urlopen is replaced, and HPO's newest release cannot be
+reached.
 """
 
 from __future__ import annotations
@@ -24,7 +22,6 @@ from typing import Any
 
 import pytest
 
-from backend.app import main as app_main
 from backend.app.core.config import (
     HPO_PINNED_ONTOLOGY_SHA256,
     HPO_PINNED_ONTOLOGY_URL,
@@ -32,17 +29,12 @@ from backend.app.core.config import (
     Settings,
 )
 from backend.app.services import hpo_release_download, hpo_service
-from backend.tests._lifespan import LifespanApp, stub_lifespan_steps
 
 _VENDORED_HPO = Path(__file__).resolve().parents[2] / "data" / "ref-data" / "hpo" / "hp.obo"
 # What the floating hp.obo serves once HPO has published a later release.
 _LATER_RELEASE = (
     b"format-version: 1.2\ndata-version: hp/releases/2026-09-01\n\n[Term]\nid: HP:0000001\nname: All\n"
 )
-# The two variables that could replace the pin until they were removed.
-_REMOVED_VARIABLES = ("HPO_ONTOLOGY_URL", "HPO_ONTOLOGY_SHA256")
-# A mirror an operator once configured, serving another release.
-_MIRROR_URL = "https://hpo-mirror.example/hp.obo"
 
 
 @functools.cache
@@ -108,17 +100,10 @@ def test_the_pin_is_the_vendored_files_release_and_sha256() -> None:
         assert value in readme, value
 
 
-def test_no_setting_and_no_argument_moves_the_pin(monkeypatch: pytest.MonkeyPatch) -> None:
-    # The settings define neither the URL nor the digest, under any name.
+def test_no_setting_and_no_argument_moves_the_pin() -> None:
+    # No setting names an HPO URL or digest.
     names = {name.upper() for key, field in Settings.model_fields.items() for name in (key, field.alias) if name}
-    assert names.isdisjoint(_REMOVED_VARIABLES)
-    # A deployment that still sets them starts: the settings ignore them, like every variable
-    # they do not define, and keep neither value.
-    monkeypatch.setenv("HPO_ONTOLOGY_URL", _MIRROR_URL)
-    monkeypatch.setenv("HPO_ONTOLOGY_SHA256", hashlib.sha256(_LATER_RELEASE).hexdigest())
-    loaded = Settings(_env_file=None, APP_ENV="test")
-    assert not {"hpo_ontology_url", "hpo_ontology_sha256"} & loaded.model_dump().keys()
-    assert _MIRROR_URL not in loaded.model_dump().values()
+    assert not {name for name in names if name.startswith("HPO_") and ("URL" in name or "SHA" in name)}
     # Nor can a caller hand the startup another URL or digest.
     assert set(inspect.signature(hpo_service.ensure_hpo_ontology_on_startup).parameters) == {
         "session",
@@ -126,50 +111,6 @@ def test_no_setting_and_no_argument_moves_the_pin(monkeypatch: pytest.MonkeyPatc
         "download_latest",
         "enabled",
     }
-
-
-@pytest.mark.asyncio
-async def test_a_deployment_that_still_sets_the_removed_variables_imports_the_pinned_release(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    # An operator once pointed the download at a mirror serving a later release and set that
-    # release's digest. The variables were removed: the startup, as the backend runs it, with
-    # HPO's newest release out of reach, downloads the pinned release from its PURL and imports
-    # the vendored file's bytes.
-    payload, release, _digest = _vendored()
-    monkeypatch.setenv("HPO_ONTOLOGY_URL", _MIRROR_URL)
-    monkeypatch.setenv("HPO_ONTOLOGY_SHA256", hashlib.sha256(_LATER_RELEASE).hexdigest())
-    deployment = Settings(
-        _env_file=None,
-        APP_ENV="test",
-        HPO_BOOTSTRAP_ON_STARTUP=True,
-        HPO_DOWNLOAD_LATEST_ON_STARTUP=True,
-        FAMILY_IMPORT_WORKER_COUNT=1,
-    )
-    monkeypatch.setattr(app_main, "settings", deployment)
-    monkeypatch.setattr(hpo_service, "settings", deployment)
-
-    class _SessionFactory:
-        async def __aenter__(self) -> _Session:
-            return _Session()
-
-        async def __aexit__(self, *_exc: Any) -> bool:
-            return False
-
-    # Every step of the start but the HPO bootstrap: replaced, so the start touches no database.
-    stub_lifespan_steps(monkeypatch)
-    monkeypatch.setattr(app_main, "get_postgres_sessionmaker", lambda: _SessionFactory)
-    target = tmp_path / "ref-data" / "hpo" / "hp.obo"
-    requested = _serve(monkeypatch, payload, **{_MIRROR_URL: _LATER_RELEASE})
-    imported = _start_without_an_ontology_file(monkeypatch, target)
-
-    async with app_main.lifespan(LifespanApp()):
-        pass
-
-    assert requested == [HPO_PINNED_ONTOLOGY_URL]
-    assert target.read_bytes() == payload
-    assert imported == [{"path": target, "release_version": release}]
 
 
 @pytest.mark.asyncio
@@ -258,7 +199,7 @@ def test_the_download_follows_a_redirect_only_to_another_https_url() -> None:
     # The PURL redirects to the release on GitHub: followed.
     onward = handler.redirect_request(request, None, 302, "Found", {}, "https://github.com/obophenotype/hp.obo")
     assert onward.full_url == "https://github.com/obophenotype/hp.obo"
-    # A redirect to plain HTTP was followed too (SEC-32); it is refused before any request.
+    # A redirect to plain HTTP is refused before any request.
     with pytest.raises(URLError, match="not HTTPS"):
         handler.redirect_request(request, None, 302, "Found", {}, "http://mirror.example.org/hp.obo")
     # The download's opener is the one with this handler.

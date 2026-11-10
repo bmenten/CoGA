@@ -113,7 +113,7 @@ test('density mode draws stacked bars with a per-bin tooltip', () => {
   expect(tooltip?.textContent).toContain('gain 10');
 });
 
-test('names the variants it draws for a screen reader, by class, and keeps each one\'s name (#529)', () => {
+test('names the variants it draws for a screen reader, by class, and keeps each one\'s name', () => {
   useQueryMock.mockReturnValue({
     data: {
       total: 5,
@@ -138,7 +138,7 @@ test('names the variants it draws for a screen reader, by class, and keeps each 
   expect(container.querySelectorAll('rect[aria-label]')).toHaveLength(5);
 });
 
-test('names a density profile by its total, as its note does (#529)', () => {
+test('names a density profile by its total, as its note does', () => {
   useQueryMock.mockReturnValue({
     data: {
       total: 50000,
@@ -159,8 +159,8 @@ test('names a density profile by its total, as its note does (#529)', () => {
 test.each([
   ['an empty region', { data: { total: 0, mode: 'lines', bin_size: 0, variants: [], bins: [] } }, 'none'],
   ['a request in flight', { data: undefined }, 'loading'],
-  ['a failed request (#510)', { data: undefined, isError: true, refetch: vi.fn() }, 'failed to load'],
-])('names %s as what it is, and only an empty region as "none" (#529)', (_label, state, summary) => {
+  ['a failed request', { data: undefined, isError: true, refetch: vi.fn() }, 'failed to load'],
+])('names %s as what it is, and only an empty region as "none"', (_label, state, summary) => {
   useQueryMock.mockReturnValue(state);
 
   renderTrack();
@@ -168,7 +168,7 @@ test.each([
   expect(screen.getByRole('img', { name: `DGV variants on chr1:0–300: ${summary}` })).toBeInTheDocument();
 });
 
-test('while a pan loads, a held variant left of the new window is not drawn at its edge (#586)', () => {
+test('while a pan loads, a held variant left of the new window is not drawn at its edge', () => {
   const region = (regionStart: number) => (
     <DgvTrack assembly="GRCh38" chrom="1" width={100} height={48} regionStart={regionStart} regionEnd={regionStart + 300} />
   );
@@ -187,8 +187,8 @@ test('while a pan loads, a held variant left of the new window is not drawn at i
   const { container, rerender } = render(region(0));
   expect(container.querySelectorAll('rect[aria-label]')).toHaveLength(2);
 
-  // Same span, 200 bp right, still loading: "left" (50–100) now lies left of the window.
-  // It was drawn as a 1 px bar at x = 0 under its own name.
+  // Same span, 200 bp right, still loading: "left" (50–100) now lies left of the window,
+  // and is not drawn as a 1 px bar at x = 0 under its own name.
   useQueryMock.mockReturnValue({ data: undefined, isLoading: true });
   rerender(region(200));
   const drawn = Array.from(container.querySelectorAll('rect[aria-label]')).map((rect) =>

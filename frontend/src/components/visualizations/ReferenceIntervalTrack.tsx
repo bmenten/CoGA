@@ -67,10 +67,10 @@ const ReferenceIntervalTrack: React.FC<ReferenceIntervalTrackProps & { kind: Ref
     isError,
   );
 
-  // The surface's name for a screen reader (#529): how many intervals are in view.
+  // The surface's name for a screen reader: how many intervals are in view.
   const intervalsOn = `${kind.label} on ${describeTrackRegion(chrom, regionStart, regionEnd)}`;
 
-  // A failed request must never read as an empty region (#510).
+  // A failed request must never read as an empty region.
   if (isError) {
     return (
       <div className="relative" style={{ width, height }}>
@@ -80,7 +80,7 @@ const ReferenceIntervalTrack: React.FC<ReferenceIntervalTrackProps & { kind: Ref
     );
   }
 
-  // A view with no width asks for nothing: it is neither loading nor empty (#602).
+  // A view with no width asks for nothing: it is neither loading nor empty.
   if (!hasRegionInView(regionStart, regionEnd)) {
     return <svg width={width} height={height} role="img" aria-label={`${intervalsOn}: ${NO_REGION_IN_VIEW}`} />;
   }
@@ -93,8 +93,8 @@ const ReferenceIntervalTrack: React.FC<ReferenceIntervalTrackProps & { kind: Ref
   const trackY = Math.max(2, Math.floor(height * 0.2));
   const trackHeight = Math.max(height - trackY * 2, 4);
   // Only what overlaps the region: while a pan loads, the previous window's intervals
-  // are held, and one left of the new window was drawn as a 2 px block at its left
-  // edge, under its own label (#526).
+  // are held, and one left of the new window would be drawn as a 2 px block at its left
+  // edge, under its own label.
   const inView = data.filter(
     (interval) => interval.end > regionStart && interval.start < regionEnd,
   );

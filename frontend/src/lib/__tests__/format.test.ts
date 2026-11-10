@@ -27,7 +27,7 @@ describe('formatDateTime', () => {
 });
 
 describe('formatDate', () => {
-  it('shows a date-only value in UTC, so it does not fall a day early west of UTC (#526)', () => {
+  it('shows a date-only value in UTC, so it does not fall a day early west of UTC', () => {
     expect(formatDate('2026-06-06')).toBe(
       new Date('2026-06-06').toLocaleDateString(undefined, { timeZone: 'UTC' }),
     );

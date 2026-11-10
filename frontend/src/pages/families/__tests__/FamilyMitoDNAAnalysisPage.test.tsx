@@ -437,7 +437,7 @@ describe('FamilyMitoDNAAnalysisPage', () => {
       expect(screen.getByText(/3 of 3 variants/)).toBeInTheDocument();
     });
 
-    // The chrM deletion and its heteroplasmy, which used to be dropped at import.
+    // The chrM deletion and its heteroplasmy, as imported.
     expect(screen.getByRole('heading', { name: 'Mitochondrial structural variants' })).toBeInTheDocument();
     const svRow = screen.getByRole('row', { name: /DEL m\.8,470-13,447/ });
     expect(within(svRow).getByText('4,977 bp')).toBeInTheDocument();
@@ -470,8 +470,8 @@ describe('FamilyMitoDNAAnalysisPage', () => {
 
   it("shows each overlapping gene's consequence and the mtDNA population frequencies", async () => {
     // At 8530 MT-ATP8 and MT-ATP6 overlap: the annotation names one consequence per gene, and
-    // only the first was shown. gnomAD-MT's homoplasmic frequency, which the frequency filter
-    // now reads beside the gnomAD AF, takes out a variant common as homoplasmic calls.
+    // each is shown. gnomAD-MT's homoplasmic frequency, which the frequency filter reads beside
+    // the gnomAD AF, takes out a variant common as homoplasmic calls.
     const annotation = (overrides: Record<string, unknown>) => ({
       region: 'MT-ATP8',
       gene: 'MT-ATP8',
@@ -686,8 +686,8 @@ describe('FamilyMitoDNAAnalysisPage', () => {
   });
 });
 
-// #610 — any failure read "Family not found", a server error included.
-describe('FamilyMitoDNAAnalysisPage — failed requests (#610)', () => {
+// A failure is said as such: a server error never reads "Family not found".
+describe('FamilyMitoDNAAnalysisPage — failed requests', () => {
 
   it('says the mtDNA analysis could not be loaded, not that the family was not found', async () => {
     let failedRequests = 0;
@@ -904,9 +904,8 @@ describe('mtDNA variant review', () => {
     });
   });
 
-  // CLIN-76: the card showed every class tag the review holds, and its classification text not at
-  // all: text "VUS" beside the tag of class 4 showed class 4. It shows the class the family page
-  // shows, by the one rule, and a quick tag sends the text back as stored.
+  // The card shows the class the family page shows, by the one rule: text "VUS" beside the tag
+  // of class 4 shows VUS, not class 4. A quick tag sends the text back as stored.
   it('shows the review’s class by the one rule, and a quick tag keeps its text', async () => {
     renderWith([
       mitoVariant('m.3243A>G', {

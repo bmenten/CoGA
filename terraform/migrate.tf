@@ -2,7 +2,7 @@
 # SCHEMA MIGRATION JOB (db_runtime_role = "coga_app" only)
 # ==========================================
 #
-# With the restricted runtime role the API cannot run DDL, so it no longer applies the
+# With the restricted runtime role the API cannot run DDL, so it does not apply the
 # schema on startup. This Cloud Run job does, as the table owner, from the backend image:
 # `python -m app.db_migrate` applies the idempotent schema baselines, seeds the admin user
 # and enables coga_app's login from the coga-postgres-app-password secret (as a SCRAM

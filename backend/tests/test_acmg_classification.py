@@ -112,7 +112,7 @@ def test_normalize_rejects_invalid_strength() -> None:
     assert exc.value.detail == "Invalid ACMG strength: ultra"
 
 
-# --- each criterion once, at a strength it takes (CLIN-3) ------------------------------------
+# --- each criterion once, at a strength it takes ---------------------------------------------
 # The dialog holds one selection per criterion and offers each criterion only its
 # `allowedStrengths` (frontend/src/lib/acmg/criteria.ts). Another payload is refused, so a
 # client calling the API cannot count PVS1 twice or apply BS1 at very strong.
@@ -197,7 +197,7 @@ _UNREADABLE_ACMG = {"criteria": [{"code": {"note": "private curation text"}, "st
 
 
 def test_an_unreadable_stored_classification_is_logged_without_its_values(caplog) -> None:
-    # Logged, so it is not silently read as "never classified".
+    # Never a silent None, which would read as "never classified".
     with caplog.at_level(logging.ERROR):
         assert _deserialize_acmg(json.dumps(_UNREADABLE_ACMG)) is None
         assert _deserialize_acmg("{not json") is None
@@ -217,7 +217,7 @@ def test_a_stored_json_null_is_no_classification_and_not_an_error(caplog) -> Non
 def test_the_review_marks_an_unreadable_classification_instead_of_dropping_it(caplog) -> None:
     from backend.app.services.small_variant_review_pg import _serialize_review
 
-    stored = {"variant_id": "1-2000-C-T", "classification": "acmg_class_4"}
+    stored = {"variant_id": "1-2000-C-T", "classification": "acmg_class_4", "tag_metadata": {}}
     with caplog.at_level(logging.ERROR):
         broken = _serialize_review({**stored, "acmg": json.dumps(_UNREADABLE_ACMG)})
     assert broken.acmg is None

@@ -1,6 +1,4 @@
 -- 03_assay.sql — Domain: Families/samples + per-sample assay data + review/curation
--- Consolidated baseline. Folds all later ADD COLUMN / index additions into each
--- table's final form. Idempotent: safe to re-run on every boot.
 
 -- ---------------------------------------------------------------------------
 -- family_statuses (admin-managed catalogue; families.status_id references it)
@@ -136,7 +134,7 @@ CREATE TABLE IF NOT EXISTS sample_projects (
 CREATE INDEX IF NOT EXISTS idx_sample_projects_project_id ON sample_projects USING btree (project_id);
 
 -- ---------------------------------------------------------------------------
--- family_relationships (final form; superseded 001 by 014)
+-- family_relationships
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS family_relationships (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
@@ -163,25 +161,25 @@ CREATE INDEX IF NOT EXISTS idx_family_relationships_sample_a ON family_relations
 CREATE INDEX IF NOT EXISTS idx_family_relationships_sample_b ON family_relationships USING btree (sample_id_b) WHERE active;
 
 -- ---------------------------------------------------------------------------
--- family_structure_versions (final form; superseded 001 by 014)
+-- family_structure_versions
 -- ---------------------------------------------------------------------------
--- One row per pedigree change, append-only and hash-chained like the clinical audit trail
--- (SEC-7): its immutability trigger is in 04_traceability, its REVOKE in 05_grants.
+-- One row per pedigree change, append-only and hash-chained like the clinical audit trail:
+-- its immutability trigger is in 04_traceability, its REVOKE in 05_grants.
 -- row_hash binds each row's content to the previous row's hash, per family. The chain is
 -- partitioned and ordered on the immutable family_identifier (the family's own ID, kept
--- when the family row is deleted, which nulls family_id) and on created_at, then id. Rows
--- written before the chain keep NULL hashes and no family_identifier.
+-- when the family row is deleted, which nulls family_id) and on created_at, then id. prev_hash
+-- is NULL in a family's first row.
 CREATE TABLE IF NOT EXISTS family_structure_versions (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
     family_id uuid,
-    family_identifier text,
+    family_identifier text NOT NULL,
     version integer NOT NULL,
     structure_hash text NOT NULL,
     snapshot jsonb NOT NULL,
     metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
     created_by uuid,
     created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
-    row_hash text,
+    row_hash text NOT NULL,
     prev_hash text,
     CONSTRAINT family_structure_versions_pkey PRIMARY KEY (id),
     CONSTRAINT family_structure_versions_family_id_version_key UNIQUE (family_id, version),
@@ -189,51 +187,24 @@ CREATE TABLE IF NOT EXISTS family_structure_versions (
     CONSTRAINT family_structure_versions_created_by_fkey FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
 );
 
--- Upgrade of a database made before the chain (SEC-7), each statement a no-op on one the
--- CREATE TABLE above made: the chain's columns, family_id nullable, and the family's
--- deletion nulling family_id instead of deleting the family's versions (an append-only
--- row is never deleted). A migration revision carries the same change once the schema
--- has a migration ledger.
-ALTER TABLE family_structure_versions ADD COLUMN IF NOT EXISTS family_identifier text;
-ALTER TABLE family_structure_versions ADD COLUMN IF NOT EXISTS row_hash text;
-ALTER TABLE family_structure_versions ADD COLUMN IF NOT EXISTS prev_hash text;
-ALTER TABLE family_structure_versions ALTER COLUMN family_id DROP NOT NULL;
-DO $$
-BEGIN
-    IF EXISTS (
-        SELECT 1
-        FROM pg_constraint
-        WHERE conrelid = 'family_structure_versions'::regclass
-          AND conname = 'family_structure_versions_family_id_fkey'
-          AND confdeltype <> 'n'
-    ) THEN
-        ALTER TABLE family_structure_versions
-            DROP CONSTRAINT family_structure_versions_family_id_fkey;
-        ALTER TABLE family_structure_versions
-            ADD CONSTRAINT family_structure_versions_family_id_fkey
-            FOREIGN KEY (family_id) REFERENCES families(id) ON DELETE SET NULL;
-    END IF;
-END
-$$;
-
 CREATE INDEX IF NOT EXISTS idx_family_structure_versions_family ON family_structure_versions USING btree (family_id, version DESC);
 CREATE INDEX IF NOT EXISTS idx_family_structure_versions_chain ON family_structure_versions USING btree (family_identifier, created_at DESC, id DESC);
 
 -- ---------------------------------------------------------------------------
 -- family_import_jobs
 -- ---------------------------------------------------------------------------
--- A job's requester is the account that asked for it (requested_by_id, SEC-32): the import
+-- A job's requester is the account that asked for it (requested_by_id): the import
 -- runs as that account, and a user who is no administrator sees only their own jobs.
 -- requested_by is the e-mail address it was asked under, shown with the job; a Microsoft
--- sign-in may change the account's address later (SEC-4). The account's deletion keeps the
+-- sign-in may change the account's address later. The account's deletion keeps the
 -- job, linked to no account (it can then no longer run). manifest_text is the manifest CoGA
 -- keeps for the job, which its validation and import read instead of the package folder's own
 -- (a folder CoGA cannot write, such as a share mounted read-only), with its SHA-256; both are
 -- NULL for a job that reads the folder's manifest. package_fingerprint is the fingerprint of the
 -- local package folder when the job was queued (family_package_fingerprint.py: SHA-256 over each
 -- file's path, size and modification time, and the kept manifest's SHA-256); the job imports
--- nothing when the folder's differs as it starts. NULL for a package in a bucket, one the queue
--- could not read, and a job queued before fingerprints.
+-- nothing when the folder's differs as it starts. NULL for a package in a bucket and for one the
+-- queue could not read.
 CREATE TABLE IF NOT EXISTS family_import_jobs (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
     submitted_path text NOT NULL,
@@ -264,32 +235,6 @@ CREATE TABLE IF NOT EXISTS family_import_jobs (
     CONSTRAINT family_import_jobs_project_id_fkey FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL,
     CONSTRAINT family_import_jobs_requested_by_id_fkey FOREIGN KEY (requested_by_id) REFERENCES users(id) ON DELETE SET NULL
 );
-
--- Upgrade of a database made before SEC-32, a no-op on one the CREATE TABLE above made: the
--- column, each job linked to the account its requested_by address finds (to none when no
--- account has it), and the foreign key. It runs once, when the column is added: a job whose
--- account is deleted later stays linked to none, never to an account that has its address
--- by then. Revision 0008 runs the same statement.
-DO $$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1
-        FROM pg_attribute
-        WHERE attrelid = 'family_import_jobs'::regclass
-          AND attname = 'requested_by_id'
-          AND NOT attisdropped
-    ) THEN
-        ALTER TABLE family_import_jobs ADD COLUMN requested_by_id uuid;
-        UPDATE family_import_jobs AS job
-        SET requested_by_id = account.id
-        FROM users AS account
-        WHERE account.email = job.requested_by;
-        ALTER TABLE family_import_jobs
-            ADD CONSTRAINT family_import_jobs_requested_by_id_fkey
-            FOREIGN KEY (requested_by_id) REFERENCES users(id) ON DELETE SET NULL;
-    END IF;
-END
-$$;
 
 CREATE INDEX IF NOT EXISTS idx_family_import_jobs_family ON family_import_jobs USING btree (family_id);
 CREATE INDEX IF NOT EXISTS idx_family_import_jobs_requested ON family_import_jobs USING btree (requested_at);
@@ -526,7 +471,7 @@ CREATE INDEX IF NOT EXISTS idx_sample_interval_track_sources_family_type ON samp
 CREATE INDEX IF NOT EXISTS idx_sample_interval_track_sources_sample_type ON sample_interval_track_sources USING btree (sample_id, track_type);
 
 -- ---------------------------------------------------------------------------
--- small_variant_reviews (folds ACMG cols from 025 + evidence snapshot from 031)
+-- small_variant_reviews
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS small_variant_reviews (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
@@ -567,9 +512,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_small_variant_reviews_family_variant_key O
 -- small_variant_filter_presets
 -- ---------------------------------------------------------------------------
 -- A small-variant preset is its owner's, reusable in every family they can open. The owner is
--- the account (owner_id, SEC-32), whose deletion deletes its presets; owner is the account's
+-- the account (owner_id), whose deletion deletes its presets; owner is the account's
 -- user name when the preset was last saved, shown with it, as a Microsoft sign-in may change
--- the user name later (SEC-4).
+-- the user name later.
 CREATE TABLE IF NOT EXISTS small_variant_filter_presets (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
     owner text NOT NULL,
@@ -585,44 +530,15 @@ CREATE TABLE IF NOT EXISTS small_variant_filter_presets (
     CONSTRAINT small_variant_filter_presets_owner_id_fkey FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
--- Upgrade of a database made before SEC-32, a no-op on one the CREATE TABLE above made: the
--- column, each preset given to the account its owner user name finds, a preset of a user name
--- no account has removed (it is nobody's), then the column required, its foreign key, and
--- the unique index below on the account in place of the one on the user name. It runs once,
--- when the column is added. Revision 0008 runs the same statements.
-DO $$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1
-        FROM pg_attribute
-        WHERE attrelid = 'small_variant_filter_presets'::regclass
-          AND attname = 'owner_id'
-          AND NOT attisdropped
-    ) THEN
-        ALTER TABLE small_variant_filter_presets ADD COLUMN owner_id uuid;
-        UPDATE small_variant_filter_presets AS preset
-        SET owner_id = account.id
-        FROM users AS account
-        WHERE account.username = preset.owner;
-        DELETE FROM small_variant_filter_presets WHERE owner_id IS NULL;
-        ALTER TABLE small_variant_filter_presets ALTER COLUMN owner_id SET NOT NULL;
-        ALTER TABLE small_variant_filter_presets
-            ADD CONSTRAINT small_variant_filter_presets_owner_id_fkey
-            FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE;
-        DROP INDEX IF EXISTS idx_small_variant_filter_presets_unique;
-    END IF;
-END
-$$;
-
 CREATE UNIQUE INDEX IF NOT EXISTS idx_small_variant_filter_presets_unique ON small_variant_filter_presets USING btree (owner_id, name);
 
 -- ---------------------------------------------------------------------------
--- small_variant_tag_definitions (folds scope/project cols from 006)
+-- small_variant_tag_definitions
 -- ---------------------------------------------------------------------------
 -- A tag is never removed: its key stays on the reviews, signed records and audit events that
 -- hold it. A delete deactivates it. A project's deletion deactivates the project's tags, then
 -- detaches them (project_id SET NULL): such a tag stays a project tag, inactive, so no reader
--- lists it as global, and its key stays taken (revision 0022).
+-- lists it as global, and its key stays taken.
 CREATE TABLE IF NOT EXISTS small_variant_tag_definitions (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
     family_id uuid,
@@ -659,7 +575,7 @@ CREATE TABLE IF NOT EXISTS small_variant_tag_definition_project_links (
 );
 
 -- ---------------------------------------------------------------------------
--- structural_variant_reviews (folds CNV ACMG cols from 026)
+-- structural_variant_reviews
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS structural_variant_reviews (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
@@ -743,7 +659,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_paraphase_reviews_key ON paraphase_reviews
 -- structural_variant_filter_presets
 -- ---------------------------------------------------------------------------
 -- A structural-variant preset is its owner's, for one family or reusable. The owner is the
--- account (owner_id, SEC-32), whose deletion deletes its presets; owner is the account's user
+-- account (owner_id), whose deletion deletes its presets; owner is the account's user
 -- name when the preset was last saved, shown with it (as for small_variant_filter_presets).
 CREATE TABLE IF NOT EXISTS structural_variant_filter_presets (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
@@ -763,32 +679,6 @@ CREATE TABLE IF NOT EXISTS structural_variant_filter_presets (
     CONSTRAINT structural_variant_filter_presets_family_id_fkey FOREIGN KEY (family_id) REFERENCES families(id) ON DELETE CASCADE,
     CONSTRAINT structural_variant_filter_presets_owner_id_fkey FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE
 );
-
--- Upgrade of a database made before SEC-32, as for small_variant_filter_presets above: a
--- no-op on one the CREATE TABLE made. Revision 0008 runs the same statements.
-DO $$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1
-        FROM pg_attribute
-        WHERE attrelid = 'structural_variant_filter_presets'::regclass
-          AND attname = 'owner_id'
-          AND NOT attisdropped
-    ) THEN
-        ALTER TABLE structural_variant_filter_presets ADD COLUMN owner_id uuid;
-        UPDATE structural_variant_filter_presets AS preset
-        SET owner_id = account.id
-        FROM users AS account
-        WHERE account.username = preset.owner;
-        DELETE FROM structural_variant_filter_presets WHERE owner_id IS NULL;
-        ALTER TABLE structural_variant_filter_presets ALTER COLUMN owner_id SET NOT NULL;
-        ALTER TABLE structural_variant_filter_presets
-            ADD CONSTRAINT structural_variant_filter_presets_owner_id_fkey
-            FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE;
-        DROP INDEX IF EXISTS idx_structural_variant_filter_presets_unique;
-    END IF;
-END
-$$;
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_structural_variant_filter_presets_unique ON structural_variant_filter_presets USING btree (COALESCE(family_id, '00000000-0000-0000-0000-000000000000'::uuid), scope, owner_id, name);
 
@@ -821,7 +711,7 @@ CREATE TABLE IF NOT EXISTS family_sv_gene_index_status (
 );
 
 -- ---------------------------------------------------------------------------
--- family_variant_ranking_cache (folds superset cols from 036)
+-- family_variant_ranking_cache
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS family_variant_ranking_cache (
     id uuid DEFAULT gen_random_uuid() NOT NULL,

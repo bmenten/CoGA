@@ -1,4 +1,4 @@
-"""The class a reported variant's review shows, frozen into the signed record (E2E, CLIN-80).
+"""The class a reported variant's review shows, frozen into the signed record (E2E).
 
 The owner's decision of 2026-11-10: the signed record freezes the class each reported variant's
 review shows, by the family page's one rule (``review_class_label``: a bare class word in the

@@ -11,7 +11,7 @@ import type {
   AcmgSuggestion,
 } from '../types';
 
-// CLIN-3: the server refuses a criterion at a strength its `allowedStrengths` do not list
+// The server refuses a criterion at a strength its `allowedStrengths` do not list
 // (backend acmg_points.ALLOWED_STRENGTHS mirrors them). The dialog saves a criterion at the
 // strength it starts from unless the analyst picks another: its default, or the strength the
 // pre-evaluation suggests. Each must be one the criterion allows, or the classification could

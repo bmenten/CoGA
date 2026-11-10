@@ -314,7 +314,7 @@ async def test_a_rewrite_whose_rows_cannot_be_put_back_names_every_sample_they_h
     with pytest.raises(DatasetLeftMissing) as raised:
         await _upload(_PROBAND_VCF, overwrite=True)
 
-    # SAFE-31: the error names each sample whose calls the rows held, and the import flags
+    # the error names each sample whose calls the rows held, and the import flags
     # the dataset for them too (scope_with_samples), not only for the samples it names.
     assert raised.value.samples == ["MOTHER", "PROBAND"]
     assert str(raised.value.__cause__) == "ClickHouse went away"
@@ -530,7 +530,7 @@ _HEADER = "\n".join(_PROBAND_VCF.splitlines()[:2]) + "\n"
 async def test_a_chrm_vcf_without_a_record_fails_the_dataset_with_the_calls_as_they_were(
     storage, scratch: Path, recorded_mtdna, tmp_path: Path, vcf: str
 ) -> None:
-    # The owner's decision (SAFE-29): a mitochondrial SNV file without a variant record is a
+    # The owner's decision: a mitochondrial SNV file without a variant record is a
     # failed analysis, not "no chrM variants called": the proband's stored call stays, and
     # the dataset fails.
     with pytest.raises(RuntimeError, match=r"the chrM VCF of PROBAND \(PROBAND\.vcf\) holds no variant record"):

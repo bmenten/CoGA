@@ -2,7 +2,7 @@ import React from 'react';
 import { useModalDialog } from '../lib/useModalDialog';
 
 /**
- * A modal dialog shell with the behaviour of `useModalDialog` (#529): Escape, a focus
+ * A modal dialog shell with the behaviour of `useModalDialog`: Escape, a focus
  * trap and focus restore, and a check before unsaved input is discarded. For dialogs
  * rendered inline and conditionally, where a hook cannot be called directly. Children
  * may be a function of `requestClose`, for Cancel/Close buttons that should ask too.

@@ -145,6 +145,6 @@ An ID such as `CLIN-57` names an open item of CoGA's issue list, in
 only while its work is open; what a closed item built, they state as the behaviour (the owner's
 decision of 2026-11-10). The same unit test refuses an ID that is not open.
 
-> **🔲 OWNER:** fill the Owner and Approver fields with names (from
-> [INPUTS A3](INPUTS-QUESTIONNAIRE.md) and [TF-07 §3](TF-07-software-lifecycle-plan.md)), or keep
-> them as roles.
+The Owner and Approver fields name roles, not people: this repository is public, so who holds
+each role is recorded in the CMGG QMS (KHB and organigram), as for the roles of
+[TF-07 §3](TF-07-software-lifecycle-plan.md) ([INPUTS A3](INPUTS-QUESTIONNAIRE.md)).

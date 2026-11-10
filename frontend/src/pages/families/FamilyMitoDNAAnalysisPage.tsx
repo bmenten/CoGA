@@ -963,7 +963,7 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
             const mitomapQuery = variant.annotation.mitomap_query || variant.label;
             const mitimpactHref = buildMitoMitimpactHref(variant);
             const sortedReviewTags = sortReviewTagKeys(variant.review?.tags || [], tagMap);
-            // The review's class once, by the one rule of the family page (CLIN-76): its class
+            // The review's class once, by the one rule of the family page: its class
             // tag's chip, or a chip of its own; a class tag that is not the class shown is no chip.
             const reviewClass = reviewClassChips(
               variant.review?.classification,

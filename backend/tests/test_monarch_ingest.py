@@ -1,7 +1,7 @@
 """Monarch's gene -> disease and disease -> phenotype associations (``monarch_ingest``).
 
 The parsing and aggregation of the KG's TSVs, the admin search, the release the KG metadata
-states (a refresh of an unknown release loads nothing, DATA-4), downloads that cannot be read
+states (a refresh of an unknown release loads nothing), downloads that cannot be read
 or hold no association, and the refresh of both tables in one transaction under one
 release. No network: every download is replaced."""
 
@@ -178,7 +178,7 @@ async def test_resolve_release_version_raises_when_unknown(monkeypatch) -> None:
 
     monkeypatch.setattr(monarch, "_fetch_release_version", _fake_fetch_none)
     # An unresolvable release version must hard-fail rather than load NULL-version data,
-    # as a fault upstream the refresh router answers 502 (DATA-4).
+    # as a fault upstream the refresh router answers 502.
     with pytest.raises(monarch.MonarchSourceError, match="unknown release version"):
         await _resolve_release_version(None)
 
@@ -212,7 +212,7 @@ async def test_a_download_larger_than_the_cap_is_a_monarch_source_error(monkeypa
     monkeypatch.setattr(bounded_download, "download_bounded_bytes", download)
 
     # Raised past the conversion, it reached the refresh router as a 500, though the class says a
-    # download too large is a fault upstream, answered 502 with the loaded release kept (ENG-8).
+    # download too large is a fault upstream, answered 502 with the loaded release kept.
     with pytest.raises(monarch.MonarchSourceError, match="download exceeds"):
         await monarch._download_gzip_tsv("https://example.org/gene_disease.tsv.gz")
 

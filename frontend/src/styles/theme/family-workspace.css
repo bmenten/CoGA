@@ -631,7 +631,7 @@
   gap: 0.625rem;
   width: min(1650px, calc(100vw - 1rem));
   /* Scale to the (variable) content height; only cap + scroll once it would
-     exceed the viewport. A fixed height left short members oversized. */
+     exceed the viewport: a fixed height would leave a short member's dialog oversized. */
   height: auto;
   max-height: min(96vh, calc(100vh - 1rem));
   overflow: auto;

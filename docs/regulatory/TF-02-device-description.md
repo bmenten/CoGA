@@ -115,7 +115,7 @@ The reference is written into the report by the person who drafts it.
 
 **Which outputs are signed.** The sign-out freezes the family's analysis into one signed record,
 which the clinical report in the EPD quotes by its report code (§3; the owner's decision of
-2026-10-14).
+2026-10-14; TF-06 H5, H6, H9).
 
 - **Every family's record** holds the reported small variants, structural variants and CNVs
   (each with its classification, criteria, frozen evidence, tags and note, and its description
@@ -136,9 +136,6 @@ which the clinical report in the EPD quotes by its report code (§3; the owner's
 - **The record holds no** gene or phenotype context, no population frequencies or in silico
   predictions beyond those a small variant's classification froze in its evidence snapshot, and
   no NIPT candidate that is not tagged for the report (TF-09b §3).
-
-**🔲 OWNER:** decide per application what the signed record is to hold (decided on 2026-10-14,
-as above; TF-06 H5, H6, H9).
 
 > No output is an autonomous diagnosis. All outputs are reviewed by a qualified professional
 > (TF-01 §4). A supervisor signs out the analysis in CoGA (the analytical sign-off), from the

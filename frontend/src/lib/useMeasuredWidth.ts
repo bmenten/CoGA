@@ -15,7 +15,7 @@ import { useCallback, useEffect, useState } from 'react';
  * The ref is a callback, so an element that mounts after the first render is measured as
  * well. A viewer opened from a variant list starts in a new tab with nothing cached: it
  * shows "Loading…" while it fetches the family and the project catalogue and mounts its
- * track panel only then, and a ref object's effect had already run, found nothing and
+ * track panel only then, when a ref object's effect would have run already, found nothing and
  * never looked again.
  */
 export const useMeasuredWidth = <T extends HTMLElement>() => {

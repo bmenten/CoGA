@@ -118,7 +118,7 @@ def test_snv_vep_extracts_caller_engine_and_db_versions():
     assert mods["vep"]["version"] == "110"
     assert "110_GRCh38" in mods["vep"]["detail"]  # cache path
     # Database releases embedded in the VEP header.
-    # gnomADe and gnomADg are both gnomAD: both releases, joined (TRACE-8).
+    # gnomADe and gnomADg are both gnomAD: both releases, joined.
     assert mods["gnomad"]["version"] == "r2.1.1, v3.1.2"
     assert mods["clinvar"]["version"] == "202301"
     assert mods["dbnsfp"]["version"] == "4.3a"
@@ -513,7 +513,7 @@ def test_sentieon_states_its_version_in_the_version_field():
 
 
 def test_several_versions_of_one_tool_in_a_header_are_all_kept() -> None:
-    # The first was kept, where the pipeline record joins them (TRACE-8): a header that a
+    # The first was kept, where the pipeline record joins them: a header that a
     # merge or a second annotation left with two version lines of a tool names both.
     header = (
         "##fileformat=VCFv4.2\n"

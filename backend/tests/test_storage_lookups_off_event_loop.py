@@ -1,4 +1,4 @@
-"""File and object-store lookups of a request run in a worker thread, not on the event loop (SEC-14).
+"""File and object-store lookups of a request run in a worker thread, not on the event loop.
 
 The backend runs one uvicorn worker, so a blocking call on the event loop stalls every request.
 The QC-report link and report asked the object store whether the report is there and signed

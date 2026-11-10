@@ -4,14 +4,14 @@ A family or sample ID is printable text without spaces (``services/family_identi
 so it may hold ``?``, ``#``, ``%`` or ``..`` inside a longer name. Put into a URL as it is,
 such an ID changes what the URL names: ``?`` and ``#`` end the path, ``%`` starts an escape the
 server decodes, and a ``/`` with ``..`` would let the client resolve the request to another
-path (the class of #521). ``url_path`` percent-encodes each value as exactly one path segment,
+path. ``url_path`` percent-encodes each value as exactly one path segment,
 as the frontend's ``apiPath`` (``lib/apiPath.ts``) does.
 
 Two kinds of value still name no resource: one that is exactly ``.`` or ``..``, which a
 client resolves whatever the encoding (a browser reads ``%2E%2E`` as ``..``), and one holding
 ``/``, which reaches the server as ``%2F`` and is decoded before the routes are matched, so a
-route that takes it as one parameter does not match (404). The ID rule refuses both in an ID
-(SEC-15).
+route that takes it as one parameter does not match (404). The ID rule refuses both in an
+ID.
 """
 
 from __future__ import annotations

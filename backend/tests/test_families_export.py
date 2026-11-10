@@ -49,7 +49,7 @@ def test_family_export_cell_scalars_review_and_genotypes() -> None:
     assert _family_export_cell(row, "gnomad_af") == "0.0001"
     assert _family_export_cell(row, "rsid") == ""  # None -> empty
     # Review fields are pulled from the nested review object; the classification as the class
-    # the review shows, a class word as its label (CLIN-76).
+    # the review shows, a class word as its label.
     assert _family_export_cell(row, "classification") == "Pathogenic - class 5"
     assert _family_export_cell(row, "tags") == "candidate; confirmed"
     # Genotypes are flattened to "sample=gt" pairs.
@@ -82,7 +82,7 @@ def test_family_export_columns_are_resolvable() -> None:
 
 
 def test_family_export_names_the_transcript_the_filters_held_on() -> None:
-    # CLIN-51: the row describes the variant's primary transcript; when the annotation
+    # The row describes the variant's primary transcript; when the annotation
     # filters held on another one, the last columns name it with its own values. A variant
     # kept by SIFT deleterious on its second transcript read "tolerated" and nothing else.
     row = _variant().model_copy(
@@ -114,7 +114,7 @@ def test_family_export_names_the_transcript_the_filters_held_on() -> None:
         "tolerated(0.2)",
         "benign(0.1)",
     )
-    # ...and the filter-matched transcript follows, after every column there was before.
+    # ...and the filter-matched transcript follows, after every other column.
     assert labels[: labels.index("Genotypes") + 1] == [
         "Chromosome", "Start", "End", "Type", "Ref", "Alt", "rsID", "Gene", "Gene ID",
         "Transcript", "Impact", "Effect", "HGVSc", "HGVSp", "ClinVar", "gnomAD AF",
@@ -147,9 +147,8 @@ def test_family_export_leaves_the_filter_columns_empty_when_the_row_s_transcript
 
 @pytest.mark.asyncio
 async def test_a_variant_in_two_compound_het_pairs_is_one_row_of_the_export(monkeypatch) -> None:
-    # The export flattened each pair into its rows, so a variant in two pairs was listed
-    # twice; the file says nothing of pairs, so the second row only repeated the first
-    # (CLIN-52).
+    # The file says nothing of pairs, so a variant in two pairs is one row: a second row
+    # would only repeat the first.
     from types import SimpleNamespace
 
     from backend.app.schemas import SmallVariantGroupOut, VariantPage
@@ -185,7 +184,7 @@ _REVIEW_CLASS_CASES = (
 
 
 def test_the_export_writes_the_class_each_review_shows_on_the_family_page() -> None:
-    # CLIN-76: the Classification column held the classification text as stored, where the family
+    # The Classification column held the classification text as stored, where the family
     # page and the Variant Explorer's export show the class by one rule (review_class_label): text
     # "VUS" beside the tag of class 4 exported as "VUS", a review classified by its class tag alone
     # as nothing, and "VUS - class 3" beside the tag of class 4 as class 3 where the page shows 4.

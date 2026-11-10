@@ -47,7 +47,7 @@ const ReferenceDocPage: React.FC = () => {
       <PageState
         kicker="Documentation"
         title="Reference document not found"
-        message="This in-depth reference does not exist (or has been renamed)."
+        message="This in-depth reference does not exist."
         action={
           <Link to="/docs" className="button-secondary">
             Back to the user guide

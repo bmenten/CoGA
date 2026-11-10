@@ -33,9 +33,8 @@ export const cnvGeneCountTier = (
 };
 
 // An SV's type is read without its subtypes (`svKind`): DEL:ME is DEL and DUP:TANDEM is DUP,
-// as the server reads it (sv_copy_change.sv_kind). The exact type was matched, so a tandem
-// duplication opened on the loss criteria, with 2H pre-selected in a constrained gene
-// (CLIN-47).
+// as the server reads it (sv_copy_change.sv_kind): matched by its exact type, a tandem
+// duplication would open on the loss criteria, with 2H pre-selected in a constrained gene.
 const GAIN_TYPES = new Set(['DUP', 'GAIN', 'CNV_GAIN', 'INS']);
 
 export const cnvKindForType = (type?: string | null): CnvKind =>
@@ -61,7 +60,7 @@ export const cnvGeneCountHint = (type?: string | null): string =>
  * The criteria to pre-select for the SV scored as `kind`, by default the kind of its type.
  * The dialog asks for each kind on its own: the two kinds tier section 3 differently and only
  * a loss takes 2H from the pLI, and seeding both from the type's kind carried a loss's 3B
- * (+0.45 at 25–34 genes) and its 2H note into a switch to gain (CLIN-55).
+ * (+0.45 at 25–34 genes) and its 2H note into a switch to gain.
  */
 export const evaluateCnv = (
   input: CnvVariantInput,

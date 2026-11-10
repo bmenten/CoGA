@@ -1,5 +1,5 @@
-// A page that is loading says so with the spinner and the loading bar (ENG-10): `PageState`
-// draws them only with `loading`, and some 30 loading states showed their title alone. This
+// A page that is loading says so with the spinner and the loading bar: `PageState`
+// draws them only with `loading`, without which a loading state shows its title alone. This
 // renders both forms, and scans the app's source, tests left out, for a loading state without
 // it. The loading bar itself (`LoadingBar`) is an announced status.
 

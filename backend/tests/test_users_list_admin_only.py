@@ -1,4 +1,4 @@
-"""``GET /api/users``, the list of active accounts, answers administrators only (SEC-33).
+"""``GET /api/users``, the list of active accounts, answers administrators only.
 
 The list gives the name and e-mail address of every active account. No screen reads it: the
 case pickers read the family's own list (``GET /families/{id}/assignable-users``) and the

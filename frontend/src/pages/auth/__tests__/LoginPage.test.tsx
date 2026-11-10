@@ -10,7 +10,7 @@ import api from '../../../lib/api';
 import { clearSession } from '../../../lib/auth';
 import { createTestQueryClient } from '../../../test/createTestQueryClient';
 
-// LoginPage clears the query cache when a session starts (#521), so it needs a client.
+// LoginPage clears the query cache when a session starts, so it needs a client.
 let queryClient: QueryClient;
 const render = (ui: ReactElement) =>
   rtlRender(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
@@ -142,7 +142,7 @@ describe('LoginPage', () => {
     expect(localStorage.getItem('role')).toBe('admin');
   });
 
-  it('starts the new session with an empty query cache (#521)', async () => {
+  it('starts the new session with an empty query cache', async () => {
     // Data an earlier session loaded in this tab must not be shown to the next user.
     queryClient.setQueryData(['family', 'F1'], { family_id: 'F1', members: ['someone else'] });
     (api.post as unknown as Mock).mockResolvedValue({ data: { access_token: 'token-456' } });
@@ -160,7 +160,7 @@ describe('LoginPage', () => {
 // `next` that leaves the site, runs a script, is not a path, or leads back to the login or
 // sign-up page sends the user to the dashboard instead, after a sign-in and for a user
 // already signed in, and the login page promises no requested page. So does a `next` in
-// any form CoGA does not write itself (UI-2): RequireAuth and RequireAdmin write the
+// any form CoGA does not write itself: RequireAuth and RequireAdmin write the
 // page's path, query string and hash as the browser holds them, percent-encoded, so a
 // backslash, whitespace, a control character, or a path that starts with anything but a
 // letter or a digit, a percent-encoded character included, comes from someone else.
@@ -202,7 +202,7 @@ describe('LoginPage: the page `next` asks for', () => {
     ['another site', 'https://evil.example/phish'],
     ['another site, without a scheme', '//evil.example/phish'],
     // A browser reads a backslash as a slash and drops a tab, line feed or carriage return,
-    // so each of these is //evil.example to it (UI-2). In a link they are
+    // so each of these is //evil.example to it. In a link they are
     // `?next=/%5Cevil.example/phish`, `?next=/%09/evil.example/phish`, `/%0A/…` and `/%0D/…`.
     ['another site, through a backslash', '/\\evil.example/phish'],
     ['another site, through a tab', '/\t/evil.example/phish'],
@@ -210,7 +210,7 @@ describe('LoginPage: the page `next` asks for', () => {
     ['another site, through a carriage return', '/\r/evil.example/phish'],
     ['a script', 'javascript:alert(1)'],
     ['no path of this site', 'evil.example/phish'],
-    // No form CoGA writes (UI-2): its paths start with a word, carry no backslash, and hold
+    // No form CoGA writes: its paths start with a word, carry no backslash, and hold
     // no whitespace or control character that the browser has not percent-encoded.
     ['a path that starts with an encoded tab', '/%09/evil.example/phish'],
     ['a path that starts with an encoded line feed', '/%0A/evil.example/phish'],

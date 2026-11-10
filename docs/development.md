@@ -122,9 +122,11 @@ docker compose down      # stop; the data stays
 docker compose down -v   # stop and delete the local Postgres and ClickHouse data
 ```
 
-After `down -v`, the next start creates an empty database again and re-runs the reference
-bootstrap. A Postgres schema change needs no reset: each start brings the local database to
-the current schema and keeps its data ([database.md](database.md#schema-migrations)).
+After `down -v`, the next start makes the database again from empty and re-runs the reference
+bootstrap. Until the release candidate a Postgres schema change is an edit of a baseline, and a
+database made from the earlier baselines is not migrated: its start is refused ("The database was
+made from other baseline files than this version's"). Reset with `docker compose down -v` and
+import the test data again ([database.md](database.md#schema-migrations)).
 
 ### Upgrading the ClickHouse image
 
@@ -153,17 +155,11 @@ docker compose exec -T backend printenv | grep -E '^(APP_ENV|POSTGRES_(HOST|PORT
 
 - **"Refusing to start … with missing or weak secrets"** — `APP_ENV` is not `development`
   and a secret still holds a placeholder; see [First-time setup](#first-time-setup).
-- **"The database is at schema revision …, which this version of CoGA does not have"** — a
-  newer branch migrated your local Postgres. Start that branch again, or reset
-  (`docker compose down -v`). An older local database needs nothing: the next start brings it
-  to the current schema and logs `Postgres schema migrated from revision … to …`
+- **"The database was made from other baseline files than this version's"**, **"… which this
+  version of CoGA does not have"** or **"… holds … table(s) in its public schema but no schema
+  ledger"** — your local Postgres was made by another branch or build. The data is synthetic:
+  reset (`docker compose down -v`) and import it again
   ([database.md](database.md#schema-migrations)).
-- **"report_signouts holds … family ID(s) with a sign-out version taken twice"** — a family ID in
-  your local Postgres holds two sign-out records under one version, so its sign-out chain
-  does not verify reliably. The database cannot take the index
-  that keeps a family ID's versions unique, so the migration stops and changes nothing. The
-  local data is synthetic: reset (`docker compose down -v`) and load it again
-  ([database.md](database.md#04_traceabilitysql-provenance-audit-and-integrity)).
 - **The web app cannot reach the API** — the backend is still starting or keeps restarting;
   read its log.
 - **Families, samples or users look wrong** — that data is in Postgres; look for schema errors

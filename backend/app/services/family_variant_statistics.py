@@ -1,4 +1,4 @@
-"""The variant summary's statistics of a family's small variants (PROD-1).
+"""The variant summary's statistics of a family's small variants.
 
 Descriptive counts of what the family's callsets hold, for the *Variant summary* page; no
 clinical rule reads them. They cover the family's nuclear small variants from its directly
@@ -51,7 +51,7 @@ from .clickhouse_variant_ids import _small_table_name
 from .clickhouse_variant_queries import (
     IMPUTED_SMALL_VARIANT_SOURCES,
     _PASSING_FILTER_VALUES,
-    _display_sample_name,
+    _stored_sample_id,
     _visible_clickhouse_sample_ids,
 )
 from .data_scope import chromosome_aliases, normalize_chromosome
@@ -259,9 +259,9 @@ def _type_code_sql(prefix: str) -> str:
 
 
 def _members(context: FamilyMetadataContext) -> list[tuple[str, tuple[str, ...]]]:
-    """The family's members, in its order, with each identifier ClickHouse may store for them."""
+    """The family's members, in its order, each with the IDs its calls are stored under."""
     return [
-        (name, _stored_ids(context, name))
+        (name, (name,))
         for name in (str(row.get("sample_id") or "") for row in context.sample_rows)
         if name
     ]
@@ -442,7 +442,7 @@ async def _call_histograms(
         lambda: {"gq": defaultdict(int), "dp": defaultdict(int), "ab": defaultdict(int)}
     )
     for stored_sample, *maps in rows:
-        sample = _display_sample_name(context, stored_sample)
+        sample = _stored_sample_id(stored_sample)
         if not sample or sample not in context.sample_name_to_uuid:
             continue
         for metric, mapped in zip(("gq", "dp", "ab"), maps):
@@ -505,21 +505,13 @@ def _dosage_sql(sample_ids_param: str) -> str:
     )
 
 
-def _stored_ids(context: FamilyMetadataContext, sample: str) -> tuple[str, ...]:
-    ids = [sample]
-    uuid = context.sample_name_to_uuid.get(sample)
-    if uuid and uuid not in ids:
-        ids.append(uuid)
-    return tuple(ids)
-
-
 async def _mendelian_trio(
     context: FamilyMetadataContext, entries: str, *, child: str, father: str, mother: str
 ) -> list[MendelianTrioOut]:
     params: dict[str, Any] = {
-        "child_ids": _stored_ids(context, child),
-        "father_ids": _stored_ids(context, father),
-        "mother_ids": _stored_ids(context, mother),
+        "child_ids": (child,),
+        "father_ids": (father,),
+        "mother_ids": (mother,),
         "dosage_0": _DOSAGE_GENOTYPES[0],
         "dosage_1": _DOSAGE_GENOTYPES[1],
         "dosage_2": _DOSAGE_GENOTYPES[2],

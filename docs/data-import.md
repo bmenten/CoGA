@@ -39,11 +39,11 @@ alone.
 | GRCh38 gene loci | GENCODE GTF (see below); the UCSC gene table if GENCODE fails | `REFERENCE_GENCODE_GTF_URL`, `REFERENCE_GENCODE_REFSEQ_METADATA_URL` |
 | T2T-CHM13v2.0 (off by default) | UCSC `hs1` RefSeq GTF. UCSC has no `hs1` cytoband table, so each chromosome gets one band spanning it, from UCSC's chromosome sizes; without UCSC, none | `REFERENCE_BOOTSTRAP_T2T`, `REFERENCE_T2T_GTF_URL` |
 | Segmental duplications / LCRs | The ClinGen recurrent-CNV BED in `data/ref-data/`: ClinGen's V2.1 GRCh38 file, unchanged ([checked against ClinGen by SHA-256](../data/ref-data/clinical_cnv_syndromes_hg38_bundle/COGA-PROVENANCE.md)). The file read (the setting's, else the repository's) must be that file byte for byte, SHA-256 `e6a7428f58b0…` (`SEGMENTAL_DUPLICATIONS_PINNED_SHA256`; no setting overrides it). Another file is not loaded: the log names it, both digests and the fix (copy the repository's file there unchanged), and the start goes on without the track. GRCh38 only (below) | `REFERENCE_SEGMENTAL_DUPLICATIONS_PATH`, `REFERENCE_BOOTSTRAP_ASSEMBLY_NAME` |
-| Clinical CNV syndromes | Built, not read from a file: for a GRCh37 or GRCh38 assembly without clinical CNVs, a start queues the knowledgebase build in the background, which downloads its sources ([below](#loading-or-replacing-reference-data)). `REFERENCE_CLINICAL_CNVS_PATH` is no setting and is ignored if set | `REFERENCE_BOOTSTRAP_CLINICAL_CNVS` |
+| Clinical CNV syndromes | Built, not read from a file: for a GRCh37 or GRCh38 assembly without clinical CNVs, a start queues the knowledgebase build in the background, which downloads its sources ([below](#loading-or-replacing-reference-data)) | `REFERENCE_BOOTSTRAP_CLINICAL_CNVS` |
 | Monarch associations | For a database without Monarch data, a start loads Monarch's newest release, as **Admin → Monarch data** does: the gene–disease and disease–phenotype files of `monarch-kg/latest`, both tables in one transaction, refused when the release cannot be read. A failure is logged and the start goes on; the next start or the admin page tries again. The start builds no Mendeliome panel (a panel is created by an account): build it on the Gene panels page | `REFERENCE_BOOTSTRAP_MONARCH` |
 | DGV | For a GRCh37 or GRCh38 assembly without DGV rows, a start queues the load of the pinned DGV release in the background, from dgv.tcag.ca, committed only if the whole file matches its SHA-256 ([DGV](#dgv)) | `REFERENCE_BOOTSTRAP_DGV`, `DGV_LOAD_TIMEOUT_SECONDS` |
-| HPO ontology | HPO's newest release, read from HPO's latest GitHub release and downloaded over HTTPS from the release's versioned PURL; imported only if the file states that release, with the file's SHA-256 kept on the terms. The backup, when HPO cannot be reached, the file is refused, or the download is off: `data/ref-data/hpo/hp.obo`, imported only if its SHA-256 is the vendored file's. Another file in place (another release, say) is refused and logged (the file, both digests, the fix), and nothing is imported or downloaded instead. With no file in place, the vendored release is downloaded from its versioned URL, under the same check. The backup's URL and SHA-256 are fixed in code ([how a start loads HPO](../data/ref-data/hpo/README.md#how-a-start-loads-hpo)): `HPO_ONTOLOGY_URL`, `HPO_ONTOLOGY_SHA256` and `HPO_DOWNLOAD_IF_MISSING` are no settings and are ignored if set | `HPO_BOOTSTRAP_ON_STARTUP`, `HPO_DOWNLOAD_LATEST_ON_STARTUP`, `HPO_ONTOLOGY_PATH` |
-| TRGT repeat catalogue | The built-in loci (`repeat_expansion_catalog.py`) and the shipped STRchive release, `data/ref-data/STRchive-loci.json`, both refreshed on every start; any other STRchive file stops the start ([The STRchive release](#the-strchive-release)). A built-in locus carries its STRchive row's thresholds, so a call classifies the same whether its TRID is the gene name or STRchive's locus ID; for ARX and HOXA13 the call's region picks the locus. A call whose TRID no row names, or whose row states no intermediate, premutation or pathogenic threshold (STRchive's MUC1 and POLG), is not assessed (`not_assessed`), never normal, except a count inside the benign range such a row states (POLG: exactly 10; MUC1 states none). TRGT counts the catalogue motif across the locus, flanking copies included: in the TRGT catalogue in use (TRID `CPEO_POLG`, chr15:89333579-89333629, motifs GCT and GTT), POLG's common allele of 10 repeats counts 14 and stays not assessed. In a row without a grey zone of its own (24 of STRchive's 75 loci, ABCD3 and PRTS_ARX among them), a count between the benign range and the pathogenic threshold is grey zone (`intermediate`; the owner's decision of 2026-10-27, CLIN-14). The repeat page and the genome tracks both classify imported calls against the current catalogue | `TRGT_STRCHIVE_LOCI_PATH` |
+| HPO ontology | HPO's newest release, read from HPO's latest GitHub release and downloaded over HTTPS from the release's versioned PURL; imported only if the file states that release, with the file's SHA-256 kept on the terms. The backup, when HPO cannot be reached, the file is refused, or the download is off: `data/ref-data/hpo/hp.obo`, imported only if its SHA-256 is the vendored file's. Another file in place (another release, say) is refused and logged (the file, both digests, the fix), and nothing is imported or downloaded instead. With no file in place, the vendored release is downloaded from its versioned URL, under the same check. The backup's URL and SHA-256 are fixed in code, not set ([how a start loads HPO](../data/ref-data/hpo/README.md#how-a-start-loads-hpo)) | `HPO_BOOTSTRAP_ON_STARTUP`, `HPO_DOWNLOAD_LATEST_ON_STARTUP`, `HPO_ONTOLOGY_PATH` |
+| TRGT repeat catalogue | The built-in loci (`repeat_expansion_catalog.py`) and the shipped STRchive release, `data/ref-data/STRchive-loci.json`, both refreshed on every start; any other STRchive file stops the start ([The STRchive release](#the-strchive-release)). A built-in locus carries its STRchive row's thresholds, so a call classifies the same whether its TRID is the gene name or STRchive's locus ID; for ARX and HOXA13 the call's region picks the locus. A call whose TRID no row names, or whose row states no intermediate, premutation or pathogenic threshold (STRchive's MUC1 and POLG), is not assessed (`not_assessed`), never normal, except a count inside the benign range such a row states (POLG: exactly 10; MUC1 states none). TRGT counts the catalogue motif across the locus, flanking copies included: in the TRGT catalogue in use (TRID `CPEO_POLG`, chr15:89333579-89333629, motifs GCT and GTT), POLG's common allele of 10 repeats counts 14 and stays not assessed. In a row without a grey zone of its own (24 of STRchive's 75 loci, ABCD3 and PRTS_ARX among them), a count between the benign range and the pathogenic threshold is grey zone (`intermediate`; the owner's decision of 2026-10-27). The repeat page and the genome tracks both classify imported calls against the current catalogue | `TRGT_STRCHIVE_LOCI_PATH` |
 | First gene reference sync | Queued in the background, as no account, when no gene has been synced yet, with or without the dbNSFP gene file: its other sources (HGNC, ClinGen, GenCC, ClinVar) are each one's current export. Without the file every gene costs one NCBI request, so the sync takes hours, and dbNSFP's fields stay empty. A start also queues it once the file is in place while no cached gene was synced with it; after that a sync is the administrator's | `GENE_REFERENCE_BOOTSTRAP_ON_STARTUP`, `GENE_REFERENCE_DBNSFP_GENE_PATH` |
 
 **TRGT's counting units.** TRGT counts the motif across the region its own catalogue gives a
@@ -733,9 +733,9 @@ sign-out needs the acknowledgement.
 A pipeline, or the step that copies its output onto the share, can deliver a package without
 anyone typing its path: it writes the package folder into the folder of its project in a **watched
 import folder** (`<watched folder>/<project>/<package>`), with its **package file**
-`coga-package.json` ([coga-package.md](coga-package.md)). The file describes the
-package in place of a PED, a manifest and a ready marker, and its `status` says when the package
-is complete. The import watcher ([import_watcher.py](../backend/app/services/import_watcher.py))
+`coga-package.json` ([coga-package.md](coga-package.md)). The file describes the package (who is
+in the family, which datasets the import reads, and every file), and its `status` says when the
+package is complete. The import watcher ([import_watcher.py](../backend/app/services/import_watcher.py))
 finds it, checks it once and records where it stands. It imports nothing by itself: a person
 approves each delivery, on the Package Import page, and only then is its import queued (below).
 
@@ -757,7 +757,7 @@ that connection is gone.
 **The package file** (format `coga-package/1`, [coga_package.py](../backend/app/services/coga_package.py)):
 its fields, how to write it and the checks of the file itself are in
 [coga-package.md](coga-package.md). It is read as a regular file in the package folder, never
-through a link, at most 20 MB. A `coga-ready.json` or a `manifest.yaml` in the folder is not read.
+through a link, at most 20 MB. A `manifest.yaml` in the folder is not read.
 
 **A run under way.** A package file whose `status` is `running` or `failed` is no delivery: the
 pipeline is writing the folder, or stopped. An open delivery of the folder from before
@@ -856,7 +856,7 @@ and superseded ones on request), with how many wait.
 
 A pipeline's package file says what the pipeline knows; the laboratory completes or corrects the
 rest before the import ([import_delivery_revisions.py](../backend/app/services/import_delivery_revisions.py);
-the owner's decisions of 2026-11-10, [coga-package.md](coga-package.md#what-can-be-changed-in-coga-phase-2)).
+the owner's decisions of 2026-11-10, [coga-package.md](coga-package.md#what-can-be-changed-in-coga)).
 The pipeline's file is never changed: each correction is a **revision**, numbered from 1, in the
 append-only table `import_delivery_revisions`, which keeps what it changed (each field, its value
 before and after, and its kind), the reason, who made it and when, and the whole package after it
@@ -904,9 +904,8 @@ with its SHA-256. The import reads the latest.
 #### Adding a folder by hand
 
 A folder no pipeline delivered, or delivered without a package file, goes the same way
-([import_manual_delivery.py](../backend/app/services/import_manual_delivery.py); phase 3 of the
-owner's plan of 2026-11-10). On the Package Import page, **Add a folder by hand** under
-**Deliveries** (or `POST /family-imports/deliveries`, superuser) takes a folder under the import
+([import_manual_delivery.py](../backend/app/services/import_manual_delivery.py)). On the Package
+Import page, **Add a folder by hand** under **Deliveries** (or `POST /family-imports/deliveries`, superuser) takes a folder under the import
 roots, the project it belongs to, its analysis and, where it is not the folder's name, its family
 ID. CoGA makes the package a pipeline's `coga-package.json` would hold: the project and its
 assembly, the analysis, the family, and the members and datasets Discover proposes from the folder
@@ -1368,8 +1367,7 @@ as depth read only a BED declared as read depth ([below](#where-each-dataset-lan
 without `content` imports as `unknown`, and validation warns (`coverage_content_undeclared`): the
 track is drawn on its own range without an axis, with a note, and never read as depth. Any other
 `content` is an error (`coverage_content_invalid`). A per-target coverage table (`target_table:`)
-declares nothing: it holds each target's depth. A coverage BED stored without a declaration reads
-as `unknown`: import or upload it again with what it holds.
+declares nothing: it holds each target's depth.
 
 ### Where each dataset lands
 
@@ -2441,7 +2439,7 @@ the helper scripts are listed in [scripts/README.md](../scripts/README.md).
 ## Exploratory ancestry PCA after an import
 
 The exploratory ancestry PCA is outside the intended purpose ([ancestry-pca.md](ancestry-pca.md)).
-Nothing in a package or an upload declares anything for it. Within half a minute of an import or
+Nothing in a package or an upload has to declare anything for it. Within half a minute of an import or
 upload that changed a GRCh38 family's small variants, the ancestry worker calculates a projection
 from the stored callsets, once no import of the family is running; it reads whether each covers a
 genome, an exome or only part of the markers. It never fails or delays the import.

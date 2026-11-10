@@ -1,7 +1,7 @@
 // The embryos the PGT analysis leaves uncalled because their markers at the ROI mix both of a
 // parent's homologs (a possible trisomy): the genome views read no risk state from their
 // haplotype blocks, with the family page's warning, so the tracks and the family page give the
-// same call. Before this test the hook's reading of the analysis ran in no test.
+// same call.
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';

@@ -10,7 +10,7 @@ from .genotypes import HET, HOM_ALT, HOM_REF, GenotypeClass, classify_genotype
 
 
 GENOTYPE_TOKEN_PATTERN = re.compile(r"absent|hom_alt|hom_ref|hom|het|ref|wt|\.\/\.|[0-9.][/|][0-9.]")
-# A sample filter names genotype *classes* (#511). Words map to their class; a literal
+# A sample filter names genotype *classes*. Words map to their class; a literal
 # genotype such as ``1/1`` stands for its class too, so the UI's Hom group (``1/1|1|1``)
 # also matches a haploid ``1`` or a ``2/2``, and its Het group a ``1/2``.
 GENOTYPE_ALIASES: dict[str, GenotypeClass] = {
@@ -24,11 +24,10 @@ GENOTYPE_ALIASES: dict[str, GenotypeClass] = {
 
 
 class SampleFilterError(ValueError):
-    """A sample filter carries a value that cannot be read (#686).
+    """A sample filter carries a value that cannot be read.
 
-    The app answers it with a 422 naming the value. An unreadable AF or AD-alt minimum used to
-    be dropped, which widened the search without saying so, and an unreadable GQ or DP one
-    surfaced as a 500.
+    The app answers it with a 422 naming the value: an unreadable minimum (AF, AD-alt, GQ or
+    DP) is neither dropped, which would widen the search without saying so, nor a 500.
     """
 
 
@@ -89,7 +88,7 @@ class StructuralVariantQueryFilters:
 
     def __post_init__(self) -> None:
         # Read every sample filter once, so an unreadable value is refused before any
-        # search runs, whichever path the filters take (#686).
+        # search runs, whichever path the filters take.
         for entry in self.sample_filters:
             parse_structural_sample_filter(entry)
 
@@ -110,7 +109,7 @@ def structural_variant_length(*, sv_len: int | None, start: int, end: int) -> in
     """An SV's length as the SV list shows it: the call's SVLEN as stored, negative for a
     deletion as VCF writes it, or END − POS when the call has no SVLEN. A call written as a
     sequence allele without SVLEN is stored with the length its alleles state, len(ALT) −
-    len(REF) (``structural_variant_ingest.record_sv_len``, CLIN-41)."""
+    len(REF) (``structural_variant_ingest.record_sv_len``)."""
     return sv_len if sv_len is not None else end - start
 
 
@@ -128,19 +127,19 @@ def structural_variant_length_filters_match(
 
     Both measure the length the SV list shows (:func:`structural_variant_length`), as a
     positive number: the call's SVLEN, and END − POS only when it has none. Most callers
-    write an insertion with END at its POS and its length in SVLEN; measuring END − POS read
-    such an insertion as 0 bp, so a minimum dropped it and an exact length never found it
-    (CLIN-25). A call written as a sequence allele without SVLEN, as VCF 4.4 writes one, is
+    write an insertion with END at its POS and its length in SVLEN; measured as END − POS,
+    such an insertion would read as 0 bp, dropped by a minimum and never found by an exact
+    length. A call written as a sequence allele without SVLEN, as VCF 4.4 writes one, is
     stored with the length its alleles state, so an insertion is as long as the bases it
-    inserts (the owner's decision, 2026-10-14, CLIN-41). A translocation
+    inserts (the owner's decision, 2026-10-14). A translocation
     (:func:`is_translocation_sv_type`) has no length and is never a small event: it passes
     any minimum and matches no exact length, whatever SVLEN or END its caller wrote (the
     owner's decision, 2026-10-13). Another SV without SVLEN whose END is its POS measures
     0 bp, as the list shows it: any minimum above 0 drops it.
 
     Both filters are read without their sign, as they measure: the list writes a deletion's
-    length with a minus sign, and an exact length copied from it (``-5000``) matched nothing
-    (CLIN-39).
+    length with a minus sign, and an exact length copied from it (``-5000``) finds that
+    deletion.
     """
     if length is None and min_length is None:
         return True
@@ -159,11 +158,10 @@ def structural_variant_length_filters_match(
 # ``annotations`` table). A SIFT or PolyPhen filter keeps a transcript whose value names the
 # prediction the filter names, whatever its score: ``deleterious`` keeps
 # ``deleterious(0.01)`` and ``deleterious``, never ``deleterious_low_confidence(0.03)``, which
-# the filter form offers as a choice of its own. The SQL condition used to find the filter's
-# text anywhere in the value, so ``deleterious`` also kept ``deleterious_low_confidence`` and
-# ``tolerated`` kept ``tolerated_low_confidence``; a second, Python reading needed the whole
-# value, so ``deleterious(0.01)`` was not ``deleterious`` (CLIN-45). The SQL condition now
-# applies in_silico_prediction_pattern, the filter's one test.
+# the filter form offers as a choice of its own: the filter's text found anywhere in the
+# value would have ``deleterious`` keep ``deleterious_low_confidence`` too, and a reading of
+# the whole value would not take ``deleterious(0.01)`` for ``deleterious``. The SQL
+# condition applies in_silico_prediction_pattern, the filter's one test.
 _IN_SILICO_PREDICTION_SCORE = re.compile(r"\([^()]*\)\s*$")
 # What separates two predictions in one value, as it separates two terms of a ClinVar value.
 _IN_SILICO_PREDICTION_SEPARATOR = "[,;&|/]"
@@ -260,14 +258,14 @@ class SmallVariantQueryFilters:
 
     def __post_init__(self) -> None:
         # Read every sample filter once, so an unreadable value is refused before any
-        # search runs, whichever path the filters take (#686).
+        # search runs, whichever path the filters take.
         for entry in self.sample_filters:
             parse_small_variant_sample_filter(entry)
 
 
 def _sample_filter_number(sample_name: str, label: str, value: str) -> float | None:
     """One numeric field of a sample filter: blank restricts nothing; anything else must be a
-    finite number, or the filter is refused (#686)."""
+    finite number, or the filter is refused."""
     if not value.strip():
         return None
     try:

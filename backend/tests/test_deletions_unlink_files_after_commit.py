@@ -1,5 +1,5 @@
 """The admin's sample and family deletes unlink the kept copies of uploaded files only once
-they have committed (SAFE-35).
+they have committed.
 
 A web upload keeps a copy of its file under ``data/raw_imports`` (a ``managed`` row of
 ``raw_import_files``, with the file's size and SHA-256), and deleting the sample or the family
@@ -129,7 +129,7 @@ def deletions(monkeypatch: pytest.MonkeyPatch) -> None:
         "record_family_deleted": nothing,
         "read_structure_snapshot": no_pedigree,
         "record_structure_change": nothing,
-        # The mark is test_deletions_mark_the_family.py's (SAFE-31).
+        # The mark is test_deletions_mark_the_family.py's.
         "FamilyDeletion": UnmarkedDeletion,
     }.items():
         monkeypatch.setattr(admin_service, name, fake)
@@ -213,7 +213,7 @@ async def test_a_file_that_cannot_be_unlinked_after_the_commit_is_left_and_logge
     # The deletion stands: committed, counting the one file it unlinked. The other is left, a
     # file without a record, and said in the log by its record, the error's kind and the random
     # prefix of its name, which finds it in the upload folder: never the error's text, nor its
-    # path, which holds the family's ID and the uploaded file's name (SEC-39).
+    # path, which holds the family's ID and the uploaded file's name.
     assert session.commits == 1 and result["deleted"]["raw_files"] == 1
     assert not copies.family.exists() and copies.sample.read_text() == "S2 upload"
     messages = [record.getMessage() for record in caplog.records if record.name == rif.__name__]

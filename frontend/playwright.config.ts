@@ -4,7 +4,7 @@ import path from 'node:path';
 
 // Browser end-to-end (M6). Drives a real Chromium against a real running stack:
 // a uvicorn backend plus the production frontend server (server.mjs serving the built
-// bundle, with its CSP and /api proxy), so the journeys exercise what is deployed (#526).
+// bundle, with its CSP and /api proxy), so the journeys exercise what is deployed.
 // Seed the data first (golden trio + a known e2e user):
 //   python scripts/seed_playwright_e2e.py
 // then: npx playwright test   (locally pass E2E_PYTHON=/path/to/python with deps).

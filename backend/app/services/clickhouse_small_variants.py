@@ -132,7 +132,7 @@ def variants_share_gene(
 
 
 def _is_het_call(gt: str) -> bool:
-    # As every filter reads a genotype: only VCF's allele notation is stored (CLIN-16).
+    # As every filter reads a genotype: only VCF's allele notation is stored.
     return classify_genotype(gt) == HET
 
 

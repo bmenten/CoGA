@@ -1,13 +1,13 @@
 """Small-variant review persistence (``services/small_variant_review_pg.py``).
 
 A review list selects every field a review is served with and binds its variant ids as one
-array (DATA-3); the summary counts a review that holds only an ACMG record; clearing a review,
+array; the summary counts a review that holds only an ACMG record; clearing a review,
 and a re-classification that changes only a criterion's strength, are on the clinical audit
 trail in the save's transaction; a tag the review holds is kept whatever became of its
 definition, and only a tag the save adds is checked. A classification filter, here and on the
 structural-variant page, matches a review's text whatever its case; the small-variant
 one keeps a review, or its pair review, by the class it shows: its class tag, a bare class word
-or its text (CLIN-75).
+or its text.
 """
 
 from __future__ import annotations
@@ -63,17 +63,13 @@ def test_a_classification_filter_matches_a_review_whatever_the_case_of_its_label
     # holds "Likely Pathogenic - class 4" and one that holds the label find each other.
     session = _RecordingSession(
         [
-            {"variant_id": "1-100-A-G", "classification": "Likely Pathogenic - class 4", "tags": [], "note": None},
             {"variant_id": "1-200-A-G", "classification": "Likely pathogenic - class 4", "tags": [], "note": None},
             {"variant_id": "1-300-A-G", "classification": "VUS - class 3", "tags": [], "note": None},
             {"variant_id": "1-400-A-G", "classification": None, "tags": [], "note": None},
         ]
     )
     for wanted in ("Likely pathogenic - class 4", "Likely Pathogenic - class 4", " likely PATHOGENIC - class 4 "):
-        assert asyncio.run(lister(session, family_uuid="f1", classifications=[wanted])) == {
-            "1-100-A-G",
-            "1-200-A-G",
-        }, wanted
+        assert asyncio.run(lister(session, family_uuid="f1", classifications=[wanted])) == {"1-200-A-G"}, wanted
     assert asyncio.run(lister(session, family_uuid="f1", classifications=["vus - CLASS 3"])) == {"1-300-A-G"}
 
 
@@ -84,16 +80,21 @@ def test_a_compound_het_pair_classification_matches_whatever_its_case() -> None:
                 "variant_id": "1-100-A-G",
                 "classification": None,
                 "tags": [],
-                "compound_het_classification": "Likely Pathogenic - class 4",
+                "compound_het_classification": "Likely pathogenic - class 4",
                 "compound_het_tags": [],
             }
         ]
     )
     assert asyncio.run(
         small_variant_review_pg.list_matching_small_variant_review_ids(
-            session, family_uuid="f1", classifications=["Likely pathogenic - class 4"]
+            session, family_uuid="f1", classifications=["Likely Pathogenic - class 4"]
         )
     ) == {"1-100-A-G"}
+
+
+def _tag_metadata(tags) -> dict:
+    """Who added each tag, as every save records it beside the tags."""
+    return {tag: {"updated_by": "admin", "updated_at": "2026-09-01T10:00:00+00:00"} for tag in tags}
 
 
 def _review(variant_id: str, classification=None, tags=(), pair_classification=None, pair_tags=()):
@@ -101,14 +102,16 @@ def _review(variant_id: str, classification=None, tags=(), pair_classification=N
         "variant_id": variant_id,
         "classification": classification,
         "tags": list(tags),
+        "tag_metadata": _tag_metadata(tags),
         "note": None,
         "compound_het_classification": pair_classification,
         "compound_het_tags": list(pair_tags),
+        "compound_het_tag_metadata": _tag_metadata(pair_tags),
         "compound_het_note": None,
     }
 
 
-# A review of each shape the classification filter reads (CLIN-75), one per variant.
+# The reviews of the owner's before/after table, one per variant.
 _SHOWN_CLASS_REVIEWS = [
     _review("1-100-A-G", tags=["acmg_class_4", "report"]),  # a class tag alone
     _review("1-200-A-G", classification="VUS"),  # a bare class word
@@ -116,7 +119,6 @@ _SHOWN_CLASS_REVIEWS = [
     _review("1-400-A-G", pair_tags=["acmg_class_5"]),  # the pair review's class tag alone
     _review("1-500-A-G", classification="Some free text"),  # free text
     _review("1-600-A-G", classification="Some free text", tags=["acmg_class_1"]),  # free text, class tag
-    _review("1-700-A-G", classification="Likely Pathogenic - class 4"),  # a label in another case
 ]
 
 
@@ -124,22 +126,22 @@ _SHOWN_CLASS_REVIEWS = [
     ("wanted", "kept"),
     [
         ("Pathogenic - class 5", {"1-400-A-G"}),
-        ("Likely pathogenic - class 4", {"1-100-A-G", "1-300-A-G", "1-700-A-G"}),
+        ("Likely pathogenic - class 4", {"1-100-A-G", "1-300-A-G"}),
         ("VUS - class 3", {"1-200-A-G"}),
         ("Benign - class 1", {"1-600-A-G"}),
         # A bare class word asks for its class, as a review's text does.
         ("VUS", {"1-200-A-G"}),
-        (" likely PATHOGENIC ", {"1-100-A-G", "1-300-A-G", "1-700-A-G"}),
+        (" likely PATHOGENIC ", {"1-100-A-G", "1-300-A-G"}),
         # Free text keeps the reviews that show it: not one whose class tag shows a class.
         ("some free TEXT", {"1-500-A-G"}),
         ("acmg_class_4", set()),
     ],
 )
 def test_a_classification_filter_keeps_a_review_by_the_class_it_shows(wanted, kept) -> None:
-    # CLIN-75 (the owner's decision of 2026-11-10): the filter keeps a review, or its pair
-    # review, by the class it shows (review_class_label), in any case, not by its classification
-    # text alone: "Likely pathogenic - class 4" keeps a variant the family page shows with that
-    # class by its class tag, and "VUS - class 3" leaves out one shown as class 4.
+    # The filter keeps a review, or its pair review, by the class it shows (review_class_label),
+    # in any case (the owner's decision of 2026-11-10): "Likely pathogenic - class 4" keeps a
+    # variant the family page shows with that class by its class tag, and not one whose text
+    # says class 3 beside another class's tag.
     session = _RecordingSession(_SHOWN_CLASS_REVIEWS)
     assert asyncio.run(
         small_variant_review_pg.list_matching_small_variant_review_ids(
@@ -157,7 +159,7 @@ def test_a_classification_filter_with_several_classes_keeps_a_review_showing_any
             # The P/LP/VUS quick choice.
             classifications=["Pathogenic - class 5", "Likely pathogenic - class 4", "VUS - class 3"],
         )
-    ) == {"1-100-A-G", "1-200-A-G", "1-300-A-G", "1-400-A-G", "1-700-A-G"}
+    ) == {"1-100-A-G", "1-200-A-G", "1-300-A-G", "1-400-A-G"}
 
 
 def test_a_classification_filter_with_a_tag_filter_needs_both() -> None:
@@ -178,7 +180,7 @@ async def test_get_small_variant_review_map_binds_variant_ids_as_one_array() -> 
                 "variant_id": "var-1",
                 "classification": "review",
                 "tags": ["validated"],
-                "tag_metadata": {},
+                "tag_metadata": _tag_metadata(["validated"]),
                 "note": "kept",
                 "compound_het_group_id": None,
                 "compound_het_partner_variant_ids": [],
@@ -204,7 +206,7 @@ async def test_get_small_variant_review_map_binds_variant_ids_as_one_array() -> 
     )
 
     assert session.sql is not None
-    # One text[] parameter for every id, not one parameter per id (DATA-3).
+    # One text[] parameter for every id, not one parameter per id.
     assert "variant_id = ANY(CAST(:variant_ids AS text[]))" in session.sql
     assert session.params == {"family_id": "family-uuid", "variant_ids": ["var-1"]}
     assert result["var-1"].variant_id == "var-1"
@@ -220,7 +222,7 @@ _STORED_REVIEW = {
     "variant_id": "var-1",
     "classification": "Likely pathogenic - class 4",
     "tags": ["acmg_class_4", "report"],
-    "tag_metadata": {"report": {"updated_by": "admin", "updated_at": "2026-09-01T10:00:00+00:00"}},
+    "tag_metadata": _tag_metadata(["acmg_class_4", "report"]),
     "note": "kept",
     "compound_het_group_id": "group-1",
     "compound_het_partner_variant_ids": ["var-2"],
@@ -228,7 +230,7 @@ _STORED_REVIEW = {
     "compound_het_gene_id": "ENSG1",
     "compound_het_classification": "Pathogenic - class 5",
     "compound_het_tags": ["report"],
-    "compound_het_tag_metadata": {},
+    "compound_het_tag_metadata": _tag_metadata(["report"]),
     "compound_het_note": "pair",
     "compound_het_phase_status": "trans",
     "compound_het_updated_by": "admin",
@@ -277,9 +279,9 @@ def _selected_columns(sql: str) -> set[str]:
 
 @pytest.mark.asyncio
 async def test_a_review_list_selects_every_field_a_review_is_served_with() -> None:
-    # A list serves each review as a read of that one review does. Its query selects the ACMG
-    # record too: without it every list would serve a classified variant with acmg = None, and
-    # the ACMG dialog opened from a list would be seeded without the saved criteria.
+    # A list serves each review as a read of that one review does, the ACMG record included:
+    # served with acmg = None, a classified variant would open the ACMG dialog from a list
+    # seeded without the saved criteria.
     session = _RecordingSession([_STORED_REVIEW])
 
     served = await small_variant_review_pg.get_small_variant_review_map(
@@ -313,9 +315,9 @@ class _ProjectingSession:
 
 @pytest.mark.asyncio
 async def test_a_review_holding_only_an_acmg_record_counts_as_reviewed() -> None:
-    # A classification saved with no tag, class label or note is still a review: the
-    # summary's query selects the ACMG record and the compound-het partners, so such a
-    # review is counted.
+    # A classification saved with no tag, class label or note is still a review. The
+    # summary's query selects the ACMG record and the compound-het partners, so such a review
+    # is counted.
     acmg_only = {
         **{key: None for key in _STORED_REVIEW},
         "variant_id": "var-1",
@@ -379,6 +381,9 @@ def _stored_review(**fields) -> dict:
         "updated_at": datetime(2026, 9, 28, tzinfo=timezone.utc),
     }
     review.update(fields)
+    for tags_key, metadata_key in (("tags", "tag_metadata"), ("compound_het_tags", "compound_het_tag_metadata")):
+        if metadata_key not in fields:
+            review[metadata_key] = _tag_metadata(review.get(tags_key) or [])
     return review
 
 
@@ -491,7 +496,7 @@ def test_a_strength_only_reclassification_is_audited(monkeypatch) -> None:
     assert "PM2 moderate → supporting" in event["summary"]
 
 
-# --- the classification text is audited, however the save changed it (TRACE-20) -----------------
+# --- the classification text is audited, however the save changed it ----------------------------
 
 
 def test_a_classification_text_changed_through_the_api_alone_is_audited(monkeypatch) -> None:
@@ -544,12 +549,12 @@ def test_a_re_save_with_the_same_classification_text_audits_nothing(monkeypatch)
     assert clinical_audit_service.diff_review_changes(audit["existing"], audit["new_state"]) == []
 
 
-# --- a quick tag toggle changes the tags alone (CLIN-76) -------------------------------------------
+# --- a quick tag toggle changes the tags alone -----------------------------------------------------
 # The quick tag toggle (quickTagTogglePayload in smallVariantReview.ts) sends the classification
 # text back as stored, as these saves do: a tags event alone. Sending the class the review shows,
-# read from its class tag, would store "Likely pathogenic - class 4" when toggling Report on a
-# review of text "VUS - class 3" beside the tag of class 4, and the trail would record a change of
-# classification text no one made (TRACE-20).
+# read from its class tag, in its place would store "Likely pathogenic - class 4" when Report is
+# toggled on a review of text "VUS - class 3" beside the tag of class 4, and the trail would
+# record a change of classification text no one made.
 
 
 @pytest.mark.parametrize(
@@ -577,7 +582,7 @@ def test_a_quick_tag_toggle_records_the_tag_and_no_classification_change(
     events = clinical_audit_service.diff_review_changes(audit["existing"], audit["new_state"])
     assert [(event["action"], event["summary"]) for event in events] == [("tags", "Tags added report")]
 
-    # Sent with the class shown instead: recorded as a classification change.
+    # Sent with the class shown in its place: recorded as a classification change.
     payload = SmallVariantReviewUpdate(classification=shown, tags=toggled, note="reported")
     audits, _writes, _reads = _save_tags(monkeypatch, existing, payload, allowed=["report"])
     [audit] = audits

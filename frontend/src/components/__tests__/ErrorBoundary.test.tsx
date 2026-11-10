@@ -17,7 +17,7 @@ const tree = (resetKey: string, child: React.ReactNode) => (
 describe('ErrorBoundary', () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it('clears the error screen when the route changes (#510)', () => {
+  it('clears the error screen when the route changes', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     const { rerender } = render(tree('/families/F1', <Boom />));
     expect(screen.getByText('This view could not be displayed')).toBeInTheDocument();

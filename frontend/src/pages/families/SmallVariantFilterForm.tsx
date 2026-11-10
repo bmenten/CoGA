@@ -79,14 +79,14 @@ type SmallVariantFilterFormProps = Pick<
   /**
    * Filters the search behind this form does not apply. They get no control, so the
    * form never offers a filter the results would not reflect (the Global Small Variant
-   * Explorer, #526; the NIPT page; the family small-variant page, whose list applies none of
+   * Explorer; the NIPT page; the family small-variant page, whose list applies none of
    * the NIPT list's own filters). Defaults to none.
    */
   unsupportedFilters?: ReadonlySet<keyof SmallFilterState>;
   /**
    * Said once under the active filters: which filters of the search (from a saved search or
-   * a link) the list does not apply, and so has no chip for (the NIPT page, ENG-19; the family
-   * small-variant page, for a search saved on the NIPT page, found while fixing #1012).
+   * a link) the list does not apply, and so has no chip for (the NIPT page; the family
+   * small-variant page, for a search saved on the NIPT page).
    */
   unappliedFiltersNote?: string | null;
   /**
@@ -98,9 +98,9 @@ type SmallVariantFilterFormProps = Pick<
    */
   mode?: 'small-variant' | 'nipt';
   /** NIPT: per-category variant counts, shown next to each category option; null when
-   * they could not be loaded, so they read as unknown rather than 0 (#606). */
+   * they could not be loaded, so they read as unknown rather than 0. */
   categoryCounts?: Record<string, number> | null;
-  /** Draft location filters that cannot be read, named under their fields (#604). */
+  /** Draft location filters that cannot be read, named under their fields. */
   draftLocationProblems?: LocationProblems | null;
   /** NIPT: labels for the eight maternal/fetal categories. */
   categoryLabels?: Record<number, string>;
@@ -265,7 +265,7 @@ const SmallVariantFilterForm = ({
       const panel = panels.find((entry) => entry._id === chip.value);
       return `Gene panel: ${panel?.name || chip.value}`;
     }
-    // A deleted tag reads "(deleted)", as on the other chips (`reviewTagLabel`; ENG-10).
+    // A deleted tag reads "(deleted)", as on the other chips (`reviewTagLabel`).
     if (chip.kind === 'top' && chip.key === 'review_tags' && chip.value) {
       const tag = tags.find((entry) => entry.key === chip.value);
       return `Review tags: ${reviewTagLabel(tag, chip.value)}`;
@@ -412,7 +412,7 @@ const SmallVariantFilterForm = ({
     });
   };
 
-  // What the section components read (#528).
+  // What the section components read.
   const form: FilterSectionForm = {
     activeGenotypeMemberCount,
     activeQualityMemberCount,

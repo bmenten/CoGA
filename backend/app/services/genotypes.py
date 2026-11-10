@@ -1,14 +1,14 @@
-"""One classification of a VCF genotype, for every filter, count and presence check (#511).
+"""One classification of a VCF genotype, for every filter, count and presence check.
 
 Genotypes are stored exactly as the VCF writes them. The filters, presets, inheritance
-checks and counts each used to carry a literal diploid, biallelic list (``0/1``, ``1/0``,
-``0|1``, ``1|0``, ``1/1``, ``1|1``, ``0/0``), so a haploid call (``1`` or ``0``: chrM, and
-chrX/chrY in males from callers that emit ploidy-1 calls) and a multi-allelic call
-(``1/2``, ``0/2``, ``2/2``) matched none of them: a "Hom" or X-linked filter dropped a
-hemizygous alt call, and a sample whose calls were all haploid could look as if it had no
-small variants at all.
+checks and counts all read them through this one classification rather than a literal
+diploid, biallelic list (``0/1``, ``1/0``, ``0|1``, ``1|0``, ``1/1``, ``1|1``, ``0/0``),
+which a haploid call (``1`` or ``0``: chrM, and chrX/chrY in males from callers that emit
+ploidy-1 calls) and a multi-allelic call (``1/2``, ``0/2``, ``2/2``) would match none of: a
+"Hom" or X-linked filter would drop a hemizygous alt call, and a sample whose calls were all
+haploid could look as if it had no small variants at all.
 
-Every genotype now falls in exactly one class:
+Every genotype falls in exactly one class:
 
 * ``hom_alt`` — every allele called and the same ALT allele: ``1/1``, ``2|2``, haploid ``1``.
 * ``het`` — at least one ALT allele, and not ``hom_alt``: ``0/1``, ``1/2``, ``0/2``, and a
@@ -19,7 +19,7 @@ Every genotype now falls in exactly one class:
 
 A genotype written as a word (``HET``, ``HOMOZYGOUS``) is not stored: the small-variant
 import refuses a record that holds one (:func:`is_vcf_genotype`; the owner's decision of
-2026-10-28, CLIN-16). No reader maps a word to a class any more.
+2026-10-28). No reader maps a word to a class.
 
 Python code calls :func:`classify_genotype`. ClickHouse queries use
 :func:`clickhouse_genotype_condition`: a set lookup against every genotype string of up to
@@ -63,7 +63,7 @@ def is_vcf_genotype(gt: str | None) -> bool:
     """Whether ``gt`` is written in VCF's allele notation, as every caller writes a ``GT``:
     allele indices, ``.`` and the separators ``/`` and ``|`` alone (``0/1``, ``1|0``, ``./.``,
     haploid ``1``). Empty or missing is a missing call. A word (``HET``, ``REF``, ``A/G``) is
-    not: only a malformed VCF holds one, and the import refuses it (CLIN-16)."""
+    not: only a malformed VCF holds one, and the import refuses it."""
     return _VCF_GENOTYPE.fullmatch((gt or "").strip()) is not None
 
 

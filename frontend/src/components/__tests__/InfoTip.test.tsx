@@ -48,8 +48,8 @@ describe('InfoTip', () => {
 });
 
 describe('InfoTip around a control', () => {
-  // ENG-10: the QC chip that opens a report is a button inside the tip; focused, it was
-  // described by nothing, so a screen reader heard its value alone.
+  // The QC chip that opens a report is a button inside the tip; focused, it is described by
+  // the tip, so a screen reader hears more than its value alone.
   it('describes the control by the tip while it is shown, keeping its own name', async () => {
     const user = userEvent.setup();
     render(

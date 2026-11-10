@@ -1,4 +1,4 @@
-"""What a coverage track's values are, as a coverage BED declares it (TRACE-9).
+"""What a coverage track's values are, as a coverage BED declares it.
 
 A coverage BED says what it holds when it is loaded: the BED upload's ``content`` and the
 ``content`` key of a package manifest's coverage entry, ``read_depth`` or ``log2_ratio``. Its

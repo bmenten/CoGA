@@ -7,7 +7,7 @@ take a member's new sample ID and its father and mother from the request; the st
 control character (C0 or DEL: a line break, a tab, an escape, a NUL) or whitespace is refused
 (400) with the rule's message, before anything is read or written under it: no member of the
 request is renamed, and a NUL never reaches Postgres. So is one that holds a C1 control, a
-text-direction or zero-width character, a ``/`` or a ``\\``, or is ``.`` or ``..`` (SEC-15).
+text-direction or zero-width character, a ``/`` or a ``\\``, or is ``.`` or ``..``.
 The whitespace around an ID is still stripped, and an empty parent still clears the link. All
 IDs here are synthetic.
 """
@@ -43,13 +43,13 @@ from backend.tests._family_import_fakes import admin_user
 FAMILY = "FAM001"
 FATHER, MOTHER, CHILD = "FATHER1", "MOTHER1", "CHILD1"
 NUL, TAB, LF, ESC, DEL, NBSP = "\x00", "\t", "\n", "\x1b", "\x7f", "\xa0"
-# A C1 control, a text-direction character and a zero-width one (SEC-15).
+# A C1 control, a text-direction character and a zero-width one.
 NEL, RLO, ZWSP = "\x85", "\u202e", "\u200b"
 
 
 @pytest.fixture(autouse=True)
 def _no_pedigree_lock(monkeypatch: pytest.MonkeyPatch) -> None:
-    """An edit takes the family's pedigree lock before it reads the pedigree (SEC-7): a
+    """An edit takes the family's pedigree lock before it reads the pedigree: a
     statement on the session that reads and writes no row. These tests count every statement
     as a read or a write of the IDs, so it is left out here."""
 
@@ -133,7 +133,7 @@ def _refusal(detail: str) -> str:
         ({"mother_id": f"MOTHER{DEL}1"}, "Mother ID 'MOTHER\\x7f1' contains a control character (\\x7f)."),
         # A valid new ID does not let a bad parent through: nothing is renamed either.
         ({"sample_id": "CHILD2", "mother_id": "MOTHER 1"}, "Mother ID 'MOTHER 1' contains a space."),
-        # SEC-15: a path, and characters a reader cannot see.
+        # a path, and characters a reader cannot see.
         ({"sample_id": "../CHILD2"}, "Sample ID '../CHILD2' contains a slash (/)."),
         ({"sample_id": ".."}, "Sample ID '..' is '..'."),
         ({"father_id": f"FATHER{RLO}1"}, "Father ID 'FATHER\\u202e1' contains a text-direction character (\\u202e)."),
@@ -446,7 +446,7 @@ async def test_a_structure_edit_adds_a_member_without_the_whitespace_around_its_
 
 
 # --------------------------------------------------------------------------- #
-# A structure edit naming a member the family lacks (SEC-37)
+# A structure edit naming a member the family lacks
 # --------------------------------------------------------------------------- #
 
 # An ID no member has, holding characters a reader cannot see: an escape sequence that clears a
@@ -484,7 +484,7 @@ async def test_a_structure_edit_naming_a_member_the_family_lacks_shows_the_id_as
     monkeypatch: pytest.MonkeyPatch, update: FamilyStructureUpdate, answer: tuple[int, str]
 ) -> None:
     # The refusal quoted the request's ID raw: its escape sequence and override reached the
-    # page, the request audit and whatever showed the answer as they were (SEC-37). It is
+    # page, the request audit and whatever showed the answer as they were. It is
     # quoted as the ID rule's refusals quote one, each unseen character as its escape.
     _structure_family(monkeypatch)
 

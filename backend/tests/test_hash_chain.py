@@ -21,7 +21,7 @@ from backend.app.services.hash_chain import (
 
 
 def test_a_snapshot_float_is_one_jsonb_holds_and_hashes_alike_after_its_round_trip() -> None:
-    # ENG-23: the small-variant and the CNV evidence snapshots kept a copy each.
+    # The small-variant and the CNV evidence snapshots kept a copy each.
     assert jsonb_float(0.25) == 0.25
     assert jsonb_float(None) is None
     for not_stored in (float("nan"), float("inf"), float("-inf")):

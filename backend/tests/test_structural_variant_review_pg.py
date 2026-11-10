@@ -8,7 +8,7 @@ recorded in the hash-chained clinical audit trail, in the same transaction, like
 small-variant review save.
 
 The SV search's classification filter keeps an SV by the class its review shows on the SV page:
-a bare class word in its text, else its most severe class tag, else its text (CLIN-77).
+a bare class word in its text, else its most severe class tag, else its text.
 """
 
 from __future__ import annotations
@@ -87,7 +87,7 @@ def test_an_unknown_criterion_code_is_refused() -> None:
 
 
 def test_a_repeated_criterion_code_is_refused() -> None:
-    # CLIN-3: the dialog holds one entry per criterion, and the range caps that entry. Counted
+    # The dialog holds one entry per criterion, and the range caps that entry. Counted
     # twice, 2B at its 0.90 maximum would score 1.80: Pathogenic instead of Likely pathogenic.
     with pytest.raises(HTTPException) as refused:
         svr._normalize_cnv_acmg_payload(_payload("loss", ("2B", 0.9, True), ("2B", 0.9, True)))
@@ -209,7 +209,7 @@ def _sv_review(variant_id: str, classification=None, tags=(), cnv_class=None) ->
     }
 
 
-# The reviews of the owner's table of cases (CLIN-77), one per SV, with the class the SV table
+# The reviews of the owner's before/after table, one per SV, with the class the SV table
 # and cards show for each (normalizeReviewClassification of its text and its tags).
 _SHOWN_CLASS_SV_REVIEWS = [
     _sv_review("sv-tag", tags=["acmg_class_4", "report"]),  # a class tag alone: LP
@@ -247,12 +247,11 @@ _SHOWN_CLASS_SV_REVIEWS = [
     ],
 )
 def test_a_classification_filter_keeps_an_sv_by_the_class_its_review_shows(wanted: str, kept: set[str]) -> None:
-    # CLIN-77 (the owner's decision of 2026-11-10, as CLIN-75 for small variants): the filter keeps
-    # an SV by the class its review shows (review_class_label), in any case, not by its
-    # classification text alone: "Likely pathogenic - class 4" keeps an SV the SV page shows with
-    # that class by its class tag, and drops one shown as class 5 for text saying class 3. The CNV
-    # scoring's class counts as the page shows it: through the text the CNV dialog writes, never on
-    # its own.
+    # The owner's decision of 2026-11-10, as for small variants: the filter keeps an SV by the
+    # class its review shows (review_class_label), in any case, not by the classification text
+    # alone, which would drop an SV the SV page shows as class 4 by its class tag, and keep one
+    # shown as class 5 for text saying class 3. The CNV scoring's class counts as the page shows
+    # it: through the text the CNV dialog writes, never on its own.
     session = _ReviewRows(_SHOWN_CLASS_SV_REVIEWS)
     assert _matching(session, classifications=[wanted]) == kept
     [(sql, params)] = session.executed
@@ -296,7 +295,7 @@ def test_the_reviews_of_the_listed_svs_are_read_with_their_ids_bound_as_one_arra
 
     assert list(reviews) == ["sv-a"]
     assert (reviews["sv-a"].classification, reviews["sv-a"].tags) == ("pathogenic", ["report"])
-    # One text[] parameter, not one per id: an export reads up to 50,001 rows (DATA-3).
+    # One text[] parameter, not one per id: an export reads up to 50,001 rows.
     [(sql, params)] = session.executed
     assert "variant_id = ANY(CAST(:variant_ids AS text[]))" in sql
     assert params == {"family_id": FAMILY, "variant_ids": ["sv-a", "sv-b"]}

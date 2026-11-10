@@ -1,4 +1,4 @@
-"""A case is assigned to, and recorded as reviewed by, someone who may work on it (SEC-1).
+"""A case is assigned to, and recorded as reviewed by, someone who may work on it.
 
 A family's "Assigned to" and "Reviewed by" name an active analyst of one of the family's
 projects whose role lets them change records (not a viewer), or an active superuser or

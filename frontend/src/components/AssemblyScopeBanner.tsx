@@ -2,14 +2,14 @@ import React from 'react';
 
 /**
  * "Not validated for clinical use" — shown wherever a family on a reference assembly
- * outside the validated scope is analysed or reported (TF-06 H12, #515).
+ * outside the validated scope is analysed or reported (TF-06 H12).
  *
  * The scope itself is decided server-side (`VALIDATED_ASSEMBLIES`, default GRCh38) and
  * arrives as `assembly_validated` on the project; sign-out refuses such a family whatever
  * this banner does. Nothing is shown while the scope is loading, so a page still loading
  * its reference does not flash the warning. When the project catalogue could not be
  * loaded the scope stays unknown, and the banner says it is unconfirmed instead of
- * showing nothing (#608).
+ * showing nothing.
  */
 const AssemblyScopeBanner: React.FC<{
   assemblyName?: string;

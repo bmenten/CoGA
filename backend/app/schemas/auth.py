@@ -12,7 +12,7 @@ from .common import (
 
 # A password is the only factor for a local account, so it must be at least 15
 # characters (NIST SP 800-63B-4). Sign-up accepted any string, the empty one included.
-# bcrypt reads only the first 72 bytes (#554), so no maximum is needed for its cost.
+# bcrypt reads only the first 72 bytes, so no maximum is needed for its cost.
 SIGNUP_PASSWORD_MIN_LENGTH = 15
 
 
@@ -36,14 +36,14 @@ class UserRead(BaseModel):
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     affiliation: Optional[str] = None
-    # How the account signs in (SEC-4): through the organisation, bound to its object ID in
+    # How the account signs in: through the organisation, bound to its object ID in
     # the directory (with Microsoft, or through the organisation's CAS server when that is the
     # sign-in configured), or with a local password.
     sign_in: Literal["microsoft", "cas", "password"] = "password"
     is_active: bool
     role: str
-    # The projects the user is a member of, and those among them where they are a reader
-    # (SEC-1); in the others they are an analyst.
+    # The projects the user is a member of, and those among them where they are a reader;
+    # in the others they are an analyst.
     projects: List[str] = Field(default_factory=list)
     reader_projects: List[str] = Field(default_factory=list)
     created_at: datetime
@@ -72,7 +72,7 @@ class UserUpdate(BaseModel):
     # True archives the account, which deactivates it; False restores it, still inactive.
     archived: Optional[bool] = None
     # The account's projects, as a project's ``user_ids`` and ``reader_user_ids`` name its
-    # members (SEC-1): given, the account is a member of exactly these projects; the readers
+    # members: given, the account is a member of exactly these projects; the readers
     # among them are ``reader_project_ids``, and it is an analyst in the others. Without
     # ``reader_project_ids`` each project it stays in keeps its level and one added is an
     # analyst's; a reader project that is not one of its projects is refused (400).

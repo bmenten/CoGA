@@ -63,13 +63,13 @@ logger = logging.getLogger(__name__)
 # over every autosome, for relatedness and Mendelian errors, and of up to QC_X_SITES on
 # chrX outside the pseudo-autosomal regions, for sex (fetch_genotype_site_sample). The
 # sample must span the genome. Siblings share 0, 1 or 2 haplotypes in blocks tens of Mb
-# long, so the first 30,000 sites of chr1-3, which the checks once read, measured three
-# such blocks, and sibling embryos looked like duplicates.
+# long, so the first 30,000 sites of chr1-3 would measure three such blocks, and sibling
+# embryos would look like duplicates.
 QC_AUTOSOMAL_SITES = 90_000
 QC_X_SITES = 20_000
 # A callset whose sampled sites lie on fewer autosomes than this covers part of the genome
 # (one chromosome, a region): the checks still run on it, and the report warns that they
-# read only that part (CLIN-11, the owner's decision of 2026-10-27).
+# read only that part (the owner's decision of 2026-10-27).
 QC_MIN_AUTOSOMES = 20
 
 # Genotype callsets preferred for QC, best first: real SNV calls before imputed.
@@ -78,13 +78,13 @@ _SOURCE_PREFERENCE = ("clair3", "glimpse2")
 
 # A family's genotype strings are a handful of distinct values ("0|1", "1/1", "./."), read
 # over a million times for ten samples: each is parsed once, and its (immutable) genotype
-# shared (OPS-9).
+# shared.
 @functools.lru_cache(maxsize=1024)
 def _parse_genotype(gt: str | None) -> Genotype | None:
     """Parse a phased (``0|1``), unphased (``0/1``) or haploid (``1``) GT; None unless
     every allele is called.
 
-    The shared genotype classes (#511) decide what is a call. A haploid call -- a male's
+    The shared genotype classes decide what is a call. A haploid call -- a male's
     non-PAR chrX from callers that emit ploidy 1 -- is hemizygous and reads as the
     homozygote (``1`` -> (1, 1), ``0`` -> (0, 0)), so a haploid-called father is sexed
     rather than left indeterminate. A no-call, a half call (``./1``), a non-genotype
@@ -128,7 +128,7 @@ async def _load_genotype_sample(
 
     The query runs on the event loop; the parse, a genotype per sample and site (over a
     million for ten samples), runs in a worker thread, so the loop serves other requests
-    meanwhile (OPS-9)."""
+    meanwhile."""
     rows = await fetch_genotype_site_sample(context, scope=scope, limit=limit, source=source)
     if chromosomes is not None:
         chromosomes.update(normalize_chromosome(str(row[0])) for row in rows)
@@ -285,8 +285,8 @@ async def _nipt_parent_sex_checks(
                 x_het_rate=None,
                 x_sites=0,
                 status="skip",
-                # One clause the gate can name the sample before: "Sample X: sex could not be
-                # checked: the genotypes …" listed it with two colons (ENG-10).
+                # One clause, so the gate can name the sample before it without a second
+                # colon.
                 message="The genotypes could not be loaded, so the sex could not be checked.",
             )
             for pid in present
@@ -352,7 +352,7 @@ async def get_family_sample_integrity_qc(
 ) -> SampleIntegrityReport:
     """The family's sample-integrity QC. A monogenic NIPT family's NIPT checks read
     ``shared_nipt``'s analysis when given one: a sign-out's, which its record's NIPT section
-    reads too (#900)."""
+    reads too."""
     context = await build_family_metadata_context(
         session, family_identifier=family_id, user=user, project_id=project_id
     )
@@ -385,7 +385,7 @@ async def get_family_sample_integrity_qc(
             # In a savepoint: the NIPT analysis reads the family and the assay's artifact list
             # from Postgres, and a database error there aborts the transaction, which a
             # sign-out reads on in. Rolled back to the savepoint, it reads like the step's
-            # other failures (the note below) and the sign-out goes on (ENG-19).
+            # other failures (the note below) and the sign-out goes on.
             async with session.begin_nested():
                 nipt_checks = await _nipt_checks(
                     session,
@@ -445,7 +445,7 @@ async def get_family_sample_integrity_qc(
 
     # Relatedness over every pair of samples and the Mendelian checks are pure CPU work over
     # the genotypes: they run in a worker thread, so the event loop serves other requests
-    # meanwhile (OPS-9).
+    # meanwhile.
     return await asyncio.to_thread(
         evaluate_sample_integrity,
         autosomal,

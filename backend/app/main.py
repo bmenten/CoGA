@@ -204,7 +204,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    # The CSV exports report truncation in headers the UI reads (#512).
+    # The CSV exports report truncation in headers the UI reads.
     expose_headers=list(EXPORT_HEADERS),
 )
 
@@ -222,7 +222,7 @@ app.include_router(metrics_router)
 
 async def _refuse_unreadable_sample_filter(request: Request, exc: Exception) -> JSONResponse:
     # A sample filter value that cannot be read is the caller's error: answer 422 with the
-    # value named, whichever search it reached (#686).
+    # value named, whichever search it reached.
     return JSONResponse(status_code=422, content={"detail": str(exc)})
 
 
@@ -245,7 +245,7 @@ async def _answer_server_error(request: Request, exc: Exception) -> Response:
     # An exception nothing else answered. Starlette's ServerErrorMiddleware, outside every
     # middleware above, sends this 500 in place of its own, which has the same text but none
     # of the security headers, HSTS included (SEC-23). It then raises the exception again, so
-    # uvicorn still logs it (by its frames, #769) after the request middleware has logged and
+    # uvicorn still logs it (by its frames) after the request middleware has logged and
     # audited the request.
     return apply_security_headers(PlainTextResponse("Internal Server Error", status_code=500))
 
@@ -254,7 +254,7 @@ app.add_exception_handler(Exception, _answer_server_error)
 
 # The trailing-slash normaliser needs the set of `/api/...` collection-root paths
 # (e.g. `/api/families/`). We read them from the OpenAPI schema rather than
-# `app.routes`: Starlette 1.x no longer flattens included-router routes into
+# `app.routes`: Starlette 1.x does not flatten included-router routes into
 # `app.routes` (it wraps them in an opaque `_IncludedRouter`), so iterating
 # `app.routes` only sees the top-level docs routes. The OpenAPI `paths` map is a
 # stable public interface that exposes the full route paths on every version.
@@ -297,5 +297,5 @@ async def normalize_api_collection_root_paths(request, call_next):
 app.middleware("http")(security_headers_middleware)
 
 # Outermost of all: resolve the client address before logging, throttling or audit
-# read it (#520). A no-op unless TRUSTED_PROXY_HOPS is set.
+# read it. A no-op unless TRUSTED_PROXY_HOPS is set.
 app.add_middleware(TrustedProxyClientMiddleware, hops=settings.trusted_proxy_hops)

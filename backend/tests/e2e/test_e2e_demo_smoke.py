@@ -275,7 +275,7 @@ def test_quartet_bundle_loads_all_data_types(smoke):
 
 
 def test_quartet_loader_records_what_it_loads_for_the_family(smoke):
-    # SAFE-18. The loader writes through the upload services with their record, so the
+    # The loader writes through the upload services with their record, so the
     # family records what it holds, and a failed overwrite's restore that stops part-way can
     # name the demo's data.
     q = smoke["quartet"]

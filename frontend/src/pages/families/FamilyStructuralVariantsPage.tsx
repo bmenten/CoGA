@@ -51,7 +51,7 @@ const buildOptimisticReview = (
     tag_metadata: variant.review?.tag_metadata || {},
     note: payload.note ?? null,
     updated_by: variant.review?.updated_by ?? null,
-    // The loaded version, not a client clock: it is sent back with the next save (#513).
+    // The loaded version, not a client clock: it is sent back with the next save.
     updated_at: variant.review?.updated_at ?? null,
     compound_het: null,
     // The CNV classification comes back with the saved review: the server keeps or
@@ -194,7 +194,7 @@ const FamilyStructuralVariantsPage: React.FC = () => {
 
   // The list and its total are read in the page's project, as the export is: the project
   // picks the assembly, so a family of projects on two assemblies answered the list 400
-  // where the export worked (UI-5). They wait for the family and its reference, which the
+  // where the export worked. They wait for the family and its reference, which the
   // page waits for before it shows them anyway, so the search runs once, in that project.
   const projectKnown = Boolean(familyData) && !referenceLoading;
   const listQueryString = useMemo(() => withProjectId(requestQueryString, projectId), [requestQueryString, projectId]);
@@ -208,7 +208,7 @@ const FamilyStructuralVariantsPage: React.FC = () => {
     enabled: projectKnown,
     queryFn: async () => {
       // A location from the URL that reads as neither a gene nor a region fails the
-      // search: sent on, it was searched as a gene name and read as no SVs (#604).
+      // search: sent on, it would be searched as a gene name and read as no SVs.
       const locationProblem = structuralLocationProblem(filters);
       if (locationProblem) throw new Error(locationProblem);
       const res = await api.get(apiPath`/families/${familyId}/structural-variants?${raw(listQueryString)}`);
@@ -231,7 +231,7 @@ const FamilyStructuralVariantsPage: React.FC = () => {
   const filteredTotal = data?.total ?? 0;
   // A capped read counts only what it read: a lower bound, marked as one.
   const filteredTotalLabel = `${filteredTotal.toLocaleString()}${data?.total_is_estimated ? '+' : ''}`;
-  // A failed total is unknown, not the filtered count (#606).
+  // A failed total is unknown, not the filtered count.
   const overallTotal = allDataFailed ? null : (allData?.total ?? filteredTotal);
   const totalPages = Math.max(1, Math.ceil(filteredTotal / 100));
 
@@ -263,7 +263,7 @@ const FamilyStructuralVariantsPage: React.FC = () => {
   });
 
   // Delete one of the user's saved searches: this family's, or a reusable one, which goes from
-  // every family (PROD-3).
+  // every family.
   const deletePresetMutation = useMutation({
     mutationFn: async (preset: StructuralVariantFilterPreset) => {
       if (!familyId) throw new Error('Family id is required');
@@ -346,7 +346,7 @@ const FamilyStructuralVariantsPage: React.FC = () => {
   });
 
   // Without the family it is not known whether its import is complete, nor whether its
-  // assembly is validated: the SVs are not shown without those warnings (SAFE-14).
+  // assembly is validated: the SVs are not shown without those warnings.
   if (familyFailed) {
     return (
       <FamilyLoadFailure
@@ -389,7 +389,7 @@ const FamilyStructuralVariantsPage: React.FC = () => {
         className="variant-workbench-card"
         facts={
           <>
-            {/* A failed search counts nothing: its count is unknown, not 0 (#606). */}
+            {/* A failed search counts nothing: its count is unknown, not 0. */}
             <FamilyFact label="Showing" value={isError ? '—' : filteredTotalLabel} />
             <FamilyFact label="All variants" value={overallTotal ?? '—'} />
             <FamilyFact label="Active filters" value={activeFilterCount} />
@@ -473,8 +473,8 @@ const FamilyStructuralVariantsPage: React.FC = () => {
             message="Applying your filters to this family’s structural-variant calls."
           />
         ) : null}
-        {/* A failed search is said as such: its variants used to render as an empty
-            table, a family without SVs (#606). */}
+        {/* A failed search is said as such, never as an empty table, a family without
+            SVs. */}
         {isError ? (
           <QueryFailure what="the structural variants" error={error} onRetry={() => void refetch()} />
         ) : (

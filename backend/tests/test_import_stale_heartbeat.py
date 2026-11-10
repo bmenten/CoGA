@@ -20,9 +20,9 @@ the restore had just deleted. So:
   alone: all of it when the restore deleted nothing, none when it failed in any other way
   (part-way, say); such a restore may have removed rows of any dataset, so its flag names
   every dataset of the import as failed, and the family stays flagged until an import has
-  imported each again (SAFE-13); and the import's ``import_unfinished`` entry stays, naming
+  imported each again; and the import's ``import_unfinished`` entry stays, naming
   every dataset the family holds, those another import brought too, until each has been
-  imported again with overwrite (SAFE-16);
+  imported again with overwrite;
 * the heartbeat and the stale check use the database's clock, and an update of the job that
   matches no row is said in the log, by the job and the outcome alone.
 
@@ -858,7 +858,7 @@ def _reinserts_the_sv_calls(sql: str) -> bool:
 async def test_a_restore_that_fails_flags_every_dataset_of_the_import_as_failed(
     job, clickhouse, monkeypatch, failing
 ) -> None:
-    # SAFE-13. The overwrite imports snv, registers sv_needlr only (it writes no rows),
+    # The overwrite imports snv, registers sv_needlr only (it writes no rows),
     # fails coverage and imports paraphase after it. Then its restore fails: ClickHouse
     # fails its first re-insert, after its delete of the family's small variants (the
     # overwrite's snv rows are gone, and so are the ones from before); or the ClickHouse
@@ -883,7 +883,7 @@ async def test_a_restore_that_fails_flags_every_dataset_of_the_import_as_failed(
     result = await _overwrite_import(job)
 
     assert result.completed is False
-    # The job's record says what the flag says (SAFE-18): each dataset failed, with how its
+    # The job's record says what the flag says: each dataset failed, with how its
     # loader had ended.
     assert result.error == "Family package import failed for dataset(s): coverage, paraphase, snv, sv_needlr"
     statuses = {dataset.dataset_type: dataset.status for dataset in result.datasets}
@@ -910,7 +910,7 @@ async def test_a_restore_that_fails_flags_every_dataset_of_the_import_as_failed(
         [item["job_id"] for item in failures] == [JOB] for failures in flag["failed_scopes"].values()
     )
     # The sign-out reads every dataset failed. And the import's entry stays, every dataset
-    # of the family pending (SAFE-16): the family holds
+    # of the family pending: the family holds
     # nothing an earlier import recorded, so that is this import's.
     state = await _sign_out_reads(job)
     assert state is not None and state["failed_datasets"] == every
@@ -927,7 +927,7 @@ async def test_a_restore_that_fails_flags_every_dataset_of_the_import_as_failed(
 async def test_after_a_restore_that_failed_part_way_the_gate_holds_until_each_dataset_is_imported_again(
     job, clickhouse, monkeypatch
 ) -> None:
-    # SAFE-13: the restore removed the family's small variants and
+    # the restore removed the family's small variants and
     # failed, and only coverage, the dataset that had failed, is imported again.
     _datasets(monkeypatch, job, {"snv": _overwrite(clickhouse), "coverage": RuntimeError("bad BED")})
     _snapshot_postgres(monkeypatch)
@@ -942,7 +942,7 @@ async def test_after_a_restore_that_failed_part_way_the_gate_holds_until_each_da
 
     assert coverage_again.completed is True
     # snv stays flagged, with the job that flagged it, and still to import in the entry the
-    # restore left (SAFE-16).
+    # restore left.
     assert job.incomplete is not None
     assert job.incomplete["failed_datasets"] == ["snv"]
     assert job.incomplete["failed_jobs"] == {"snv": JOB}
@@ -969,7 +969,7 @@ async def test_after_a_restore_that_failed_part_way_the_gate_holds_until_each_da
 async def test_after_a_restore_that_failed_part_way_the_gate_holds_until_the_whole_family_is_imported_again(
     job, clickhouse, monkeypatch
 ) -> None:
-    # SAFE-16. The family's SV calls came with another import (another
+    # The family's SV calls came with another import (another
     # package); the overwrite that fails carries snv and coverage, not them. Its restore
     # puts the small variants back, then fails in the SV calls, after their delete.
     _snapshot_postgres(monkeypatch)
@@ -984,7 +984,7 @@ async def test_after_a_restore_that_failed_part_way_the_gate_holds_until_the_who
     assert result.completed is False
     assert clickhouse.family_rows("SNV_INDEL/entries") == [(FAMILY_UUID, "snv before")] * 2
     assert clickhouse.family_rows("SV/entries") == []
-    # The flag names this import's datasets (SAFE-13), not the SV calls it never carried.
+    # The flag names this import's datasets, not the SV calls it never carried.
     assert job.incomplete is not None and job.incomplete["failed_datasets"] == ["coverage", "snv"]
     # The entry stays beside the flag, and names them too.
     entry = job.unfinished[JOB]

@@ -667,7 +667,7 @@ def _package_ped(root: Path, relative_path: str) -> Path | None:
 def _package_peds(root: Path, found: Iterable[Path]) -> list[Path]:
     """The PED files a listing of the package found, in name order, but for one that is a
     symlink leading out of the package, and for a folder named like one (``FAM1.ped/``),
-    which Discover read as a file and failed on (SEC-27)."""
+    which is no file to read."""
     return sorted(
         path
         for path in found
@@ -1809,13 +1809,13 @@ def discover_family_package_manifest(request: FamilyPackageManifestBuildRequest)
             errors=errors,
         )
     # A PED folder or a long-read folder that is a symbolic link is followed below, wherever
-    # it leads; the user is told which and where (SEC-27).
+    # it leads; the user is told which and where.
     warnings.extend(package_folder_link_issues(root))
 
     # The family the package file names, else the folder's name.
     family_id = (request.family_id or root.name).strip()
     family_source = "the family_id of the request" if request.family_id else "the folder name"
-    # An ID the rule takes is one name (no `/` or `\`, not `.` or `..`, SEC-15), so no file
+    # An ID the rule takes is one name (no `/` or `\`, not `.` or `..`), so no file
     # Discover names after it lies outside the package.
     family_issue = family_id_issue(family_id, source=family_source)
     if family_issue is not None:
@@ -1921,7 +1921,7 @@ def discover_family_package_manifest(request: FamilyPackageManifestBuildRequest)
     )
     if parsed_ped is not None and not manifest_payload["datasets"].get("snv", {}).get("enabled"):
         # No joint VCF: a monogenic NIPT pair has one VCF per parent instead. A parent's VCF
-        # that cannot be read is refused by name (DATA-11).
+        # that cannot be read is refused by name.
         nipt_files = discover_nipt_package_files(root, parsed_ped, errors)
         if nipt_files is not None:
             _apply_nipt_package_files(manifest_payload, availability, root=root, files=nipt_files)
@@ -1964,7 +1964,7 @@ def discover_family_package_manifest(request: FamilyPackageManifestBuildRequest)
         manifest_payload["family"] = family_block
     # A NIPT file whose one column is named neither as its member nor in its entry, which the
     # import reads as the member's calls all the same: said before the manifest is written,
-    # as the validation says it (CLIN-13).
+    # as the validation says it.
     warnings.extend(nipt_draft_column_issues(root, manifest_payload, family_sample_ids=sample_ids))
     haplotypes_block = manifest_payload.get("datasets", {}).get("haplotypes")
     if isinstance(haplotypes_block, dict) and haplotypes_block.get("enabled") and isinstance(roi, str):

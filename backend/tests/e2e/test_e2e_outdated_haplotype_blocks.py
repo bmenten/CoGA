@@ -1,4 +1,4 @@
-"""Blocks built for another pedigree call no embryo, from import to sign-out (E2E, CLIN-66).
+"""Blocks built for another pedigree call no embryo, from import to sign-out (E2E).
 
 The haplotype blocks are built when the phased genotypes are imported, with the couple, the
 couple's children and the members' recorded sexes. Over the synthetic PGT family that

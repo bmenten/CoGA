@@ -4,10 +4,10 @@
 family's ``SNV_INDEL/entries`` rows and writing them back without that sample. It reads them
 with ``fetch_family_small_variant_entries`` (the family-wide delete's scope, every column as
 stored) and writes them back with ``rewrite_family_small_variant_entries`` (column for column),
-so the calls and fields it does not mean to change come back unchanged. The family view would
-not do: it leaves out the imputed callsets, inactive members' calls and rows under projects
-the family has left, and normalises the genotype, the allele fractions and the annotation
-version. ``test_e2e_small_variant_delete_keeps_every_call`` shows the same
+so the calls and fields it does not mean to change come back unchanged. It never reads them
+through the family view, which leaves out the imputed callsets, inactive members' calls and
+rows under projects the family has left, and normalises the genotype, the allele fractions
+and the annotation version. ``test_e2e_small_variant_delete_keeps_every_call`` shows the same
 against real ClickHouse and Postgres.
 """
 
@@ -77,7 +77,6 @@ _PROBAND = ("PROBAND", "HET", 99, 20, 0.4, [], [12, 8], None, [], {})
 # A call of a one-sample VCF keeps its own FILTER and caller metrics: they go with the call.
 _FATHER = ("FATHER", "0|1", 99, 30, 0.5, [0.5], [15, 15], 5001, ["PASS"], {"TLOD": 50.0})
 _SIB = ("SIB", "0/1", 99, 25, 0.5, [0.5], [12, 13], None, [], {})
-_SIB_BY_UUID = ("uuid-sib", "1/1", 99, 25, 1.0, [1.0], [0, 25], None, [], {})
 
 
 # --- the stored read ----------------------------------------------------------------------
@@ -138,9 +137,9 @@ async def test_stored_read_returns_each_row_as_stored_and_joins_a_row_stored_twi
 
 
 def test_removing_a_sample_keeps_every_other_value_as_stored() -> None:
-    entry = _entry([_PROBAND, _SIB, _FATHER, _SIB_BY_UUID])
+    entry = _entry([_PROBAND, _SIB, _FATHER])
 
-    kept = small_variant_entry_without_samples(entry, {"SIB", "uuid-sib"})
+    kept = small_variant_entry_without_samples(entry, {"SIB"})
 
     assert kept is not None
     assert _calls(kept) == [_PROBAND, _FATHER]
@@ -148,8 +147,8 @@ def test_removing_a_sample_keeps_every_other_value_as_stored() -> None:
         column: entry[column] for column in entry if column not in _CALL_COLUMNS
     }
     # A row left with no call is no row, whether it held one call or several.
-    assert small_variant_entry_without_samples(_entry([_SIB]), {"SIB", "uuid-sib"}) is None
-    assert small_variant_entry_without_samples(entry, {"PROBAND", "SIB", "FATHER", "uuid-sib"}) is None
+    assert small_variant_entry_without_samples(_entry([_SIB]), {"SIB"}) is None
+    assert small_variant_entry_without_samples(entry, {"PROBAND", "SIB", "FATHER"}) is None
 
 
 @pytest.mark.asyncio
@@ -220,7 +219,7 @@ def _context() -> FamilyMetadataContext:
 async def test_whole_sample_delete_rewrites_from_the_stored_rows(monkeypatch) -> None:
     stored = [
         _entry([_PROBAND, _FATHER, _SIB]),
-        _entry([_FATHER, _SIB_BY_UUID], key=102, variantId="1-1500-C-T", source="glimpse2"),
+        _entry([_FATHER, _SIB], key=102, variantId="1-1500-C-T", source="glimpse2"),
         _entry([_PROBAND, _SIB], key=103, variantId="1-9900-C-G", project_guid="project-left"),
         _entry([_SIB], key=104, variantId="1-9700-A-C"),
     ]
@@ -271,7 +270,7 @@ async def test_whole_sample_delete_rewrites_from_the_stored_rows(monkeypatch) ->
         "sample_managed_files": no_files,
         "record_phenotypes_deleted_with_sample": nothing,
         # The pedigree change of the delete is not what this test reads, nor its mark
-        # (test_deletions_mark_the_family.py, SAFE-31).
+        # (test_deletions_mark_the_family.py).
         "read_structure_snapshot": no_pedigree,
         "record_structure_change": nothing,
         "FamilyDeletion": UnmarkedDeletion,
@@ -282,7 +281,7 @@ async def test_whole_sample_delete_rewrites_from_the_stored_rows(monkeypatch) ->
 
     assert reads == [("GRCh38", "family-uuid")]
     [written] = rewrites
-    # SIB goes, under its id or its uuid; the inactive FATHER, the imputed row, the row
+    # SIB goes; the inactive FATHER, the imputed row, the row
     # under the project the family left and every stored value stay.
     assert [(_calls(entry), entry["source"], entry["project_guid"]) for entry in written] == [
         ([_PROBAND, _FATHER], "clair3", "project-uuid"),

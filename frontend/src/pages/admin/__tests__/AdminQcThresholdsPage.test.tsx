@@ -47,7 +47,6 @@ const CATALOGUE = {
           label: 'Mean depth',
           unit: 'x',
           direction: 'lower_is_worse' as const,
-          known_metric: true,
           warn_value: 20,
           error_value: 10,
         },
@@ -110,9 +109,8 @@ describe('AdminQcThresholdsPage', () => {
 
     expect(await screen.findByText('Mean depth')).toBeInTheDocument();
     expect(screen.getByText('Read-length spread (SD)')).toBeInTheDocument();
-    // Unit and direction sit inline with the metric now rather than in columns of
-    // their own, but the operator must still be able to see which way a bound is
-    // applied instead of guessing.
+    // Unit and direction sit inline with the metric: the operator sees which way a bound
+    // is applied.
     expect(screen.getByText(/^x ↓$/)).toBeInTheDocument();
     expect(screen.getByText(/^bp ↑$/)).toBeInTheDocument();
   });
@@ -160,44 +158,6 @@ describe('AdminQcThresholdsPage', () => {
     );
   });
 
-  it('lists a limit whose metric left the catalogue, and removes it with a reason', async () => {
-    // ENG-12 (REQ-QC-003). Before: the page listed the catalogue's metrics alone, so such a
-    // limit could be neither seen nor removed here.
-    const orphan = {
-      metric_key: 'depth.median_depth',
-      label: 'depth.median_depth',
-      unit: '',
-      direction: 'lower_is_worse' as const,
-      known_metric: false,
-      warn_value: 18,
-      error_value: null,
-    };
-    const [defaultProfile, ...others] = CATALOGUE.profiles;
-    mockedGet.mockResolvedValue({
-      data: { ...CATALOGUE, profiles: [{ ...defaultProfile, thresholds: [...defaultProfile.thresholds, orphan] }, ...others] },
-    });
-    const user = userEvent.setup();
-    renderPage();
-
-    const row = (await screen.findByText(/no longer in the catalogue: it gates nothing/)).closest('tr')!;
-    expect(row).toHaveTextContent('depth.median_depth');
-    expect(row).toHaveTextContent('18');
-    await user.click(within(row).getByRole('button', { name: 'Remove' }));
-    const dialog = await screen.findByRole('dialog', { name: /Confirm threshold change/i });
-    expect(dialog).toHaveTextContent('warning 18 → none, error none → none');
-    await user.type(within(dialog).getByLabelText(/Reason for the change/i), 'metric withdrawn');
-    await user.click(within(dialog).getByRole('button', { name: /Confirm change/i }));
-
-    await waitFor(() =>
-      expect(mockedPut).toHaveBeenCalledWith('/admin/qc-thresholds/default', {
-        metric_key: 'depth.median_depth',
-        warn_value: null,
-        error_value: null,
-        reason: 'metric withdrawn',
-      }),
-    );
-  });
-
   it('clears a threshold when both bounds are blanked', async () => {
     const user = userEvent.setup();
     renderPage();
@@ -226,8 +186,7 @@ describe('AdminQcThresholdsPage', () => {
     renderPage();
     const warn = await meanDepthWarning();
 
-    // Sixteen permanently disabled buttons were sixteen rows of noise; the control
-    // appears on the row being edited.
+    // The Save control appears only on the row being edited.
     expect(screen.queryByRole('button', { name: 'Save' })).not.toBeInTheDocument();
 
     await user.clear(warn);
@@ -252,7 +211,7 @@ describe('AdminQcThresholdsPage', () => {
     expect(mockedPut).not.toHaveBeenCalled();
   });
 
-  it('asks before Escape discards a typed reason, and Cancel takes the reason with it (#529)', async () => {
+  it('asks before Escape discards a typed reason, and Cancel takes the reason with it', async () => {
     const user = userEvent.setup();
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
     renderPage();

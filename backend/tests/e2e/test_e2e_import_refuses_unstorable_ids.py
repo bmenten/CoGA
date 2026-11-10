@@ -19,15 +19,14 @@ and Postgres, with synthetic packages:
   family, and writes no family or sample;
 * the Family Builder (``POST /api/ped/manual``) refuses a sample ID with a line break and a
   family ID with a NUL, and the PED upload (``POST /api/ped/upload``) a sample ID with an
-  escape, each with 400 and nothing written; before, the line break was stored.
+  escape, each with 400 and nothing written.
 
-Since SEC-15 an ID is no path and holds no other character a reader cannot see. Through the
-same API and Postgres:
+An ID is no path and holds no other character a reader cannot see. Through the same API and
+Postgres:
 
 * the Family Builder refuses a family ID holding ``/``, a sample ID that is ``..``, one with a
   zero-width character and one with a C1 control, and the PED upload a sample ID holding a
-  backslash, each with 400 naming the character as its escape, and nothing written; before,
-  each was stored;
+  backslash, each with 400 naming the character as its escape, and nothing written;
 * a folder added by hand as a family whose ID climbs out of the package (``../FAMID03``) is
   refused (400), and an import job of a package whose manifest ``family_id`` is ``..`` ends
   ``failed`` with ``family_id_invalid``;
@@ -57,7 +56,7 @@ from backend.tests.e2e._import_jobs import (
 pytestmark = pytest.mark.integration
 
 NUL, LF, ESC = "\x00", "\n", "\x1b"
-# A C1 control, a text-direction character and a zero-width one (SEC-15).
+# A C1 control, a text-direction character and a zero-width one.
 NEL, RLO, ZWSP = "\x85", "\u202e", "\u200b"
 _WORKER = "e2e-unstorable-ids-worker"
 
@@ -141,7 +140,7 @@ async def _collect(base: Path) -> dict[str, Any]:
             )
         )
 
-        # SEC-15: a path, and characters a reader cannot see.
+        # A path, and characters a reader cannot see.
         out["manual_unseen_or_path"] = [
             capture(
                 await ac.post(

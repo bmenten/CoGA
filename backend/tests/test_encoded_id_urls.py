@@ -1,8 +1,8 @@
-"""The URLs the backend hands out carry each family and sample ID as one encoded segment (SEC-2).
+"""The URLs the backend hands out carry each family and sample ID as one encoded segment.
 
 A family or sample ID is printable text without spaces (``family_identifiers.py``), so it may
 hold ``?``, ``#``, ``%`` or ``..`` inside a longer name; the ID rule refuses ``/`` and an ID
-that is ``..`` (SEC-15). The alignment and signal-track manifests and the QC-report link give
+that is ``..``. The alignment and signal-track manifests and the QC-report link give
 the browser a URL built from IDs. With the IDs put in as they are, ``?`` and ``#`` would cut
 the path short, and ``%41`` would reach the server as ``A`` (another family's sample). Each
 value is percent-encoded as one path segment (``core/url_path.py``), as the frontend's
@@ -30,7 +30,7 @@ from backend.app.routers import cram, family_qc_reports, signal_tracks
 from backend.tests._family_folder_app import ORIGIN, asgi_client, sign_in_a_viewer_who_reads
 
 # IDs holding each character that has a meaning in a URL and that the ID rule allows
-# (SEC-15), as (family, sample, source).
+#, as (family, sample, source).
 UNSAFE_IDS = {
     "question mark": ("F?1", "S?1", "caller?1"),
     "hash": ("F#1", "S#1", "caller#1"),

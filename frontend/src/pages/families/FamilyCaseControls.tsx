@@ -15,7 +15,7 @@ import type { FamilyDataPresence } from './familyDataPresence';
 /**
  * The case's workflow fields, in the top card of every family page: the status, who it is assigned
  * to and who reviewed it, each saved as it is picked. A reader in the family's projects changes
- * nothing (SEC-1): the server refuses it, and the controls say so.
+ * nothing: the server refuses it, and the controls say so.
  */
 const FamilyCaseControls: React.FC<{ familyId: string }> = ({ familyId }) => {
   const queryClient = useQueryClient();
@@ -50,7 +50,7 @@ const FamilyCaseControls: React.FC<{ familyId: string }> = ({ familyId }) => {
   });
 
   // The assignee and reviewer pickers offer the family's own list: the active analysts of its
-  // projects and the active administrators, never a reader (SEC-1).
+  // projects and the active administrators, never a reader.
   const {
     data: assignableUsers = [],
     isError: usersFailed,
@@ -128,7 +128,7 @@ const FamilyCaseControls: React.FC<{ familyId: string }> = ({ familyId }) => {
               </option>
             ))}
             {/* The current status stays shown when its list failed: it read "No
-                status" on a reviewed case (#607). */}
+                status" on a reviewed case. */}
             {statusDraft && !familyStatusOptions.some((option) => option.key === statusDraft) ? (
               <option value={statusDraft}>
                 {family?.status?.key === statusDraft ? family?.status.label : statusDraft}

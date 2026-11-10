@@ -40,7 +40,7 @@ type Segment = HaplotypeSegment & { chr: string };
 
 interface GenomeHaplotypes {
   segments: Record<string, Segment[]>;
-  // A source's blocks are outdated: no risk state is read from them (CLIN-66).
+  // A source's blocks are outdated: no risk state is read from them.
   outdated: boolean;
 }
 
@@ -98,10 +98,9 @@ const GenomeHaplotypeTrack: React.FC<Props> = ({
     queryKey: ['genome-haplotypes', urls.join(','), chroms.join(',')],
     queryFn: async () => {
       if (!layout) return NO_HAPLOTYPES;
-      // Every source must load. A failed source used to be dropped and the rest mapped,
-      // so the disease-haplotype model and the risk state were built from partial data —
-      // and cached for the session (#510). Now any failure fails the query, which is
-      // never cached as data.
+      // Every source must load: a disease-haplotype model and a risk state built from the
+      // sources that did load would rest on partial data. Any failure fails the query, which
+      // is never cached as data.
       const responses = await Promise.all(
         urls.map((u) => fetchTrackJson<HaplotypeResponse>(u)),
       );
@@ -118,7 +117,7 @@ const GenomeHaplotypeTrack: React.FC<Props> = ({
           map[s.sample] = arr;
         });
       });
-      // Blocks built for another pedigree or other sexes than the family's (CLIN-66).
+      // Blocks built for another pedigree or other sexes than the family's.
       return { segments: map, outdated: responses.some((j) => j?.blocks_outdated === true) };
     },
     enabled: !!layout && urls.length > 0,
@@ -155,8 +154,7 @@ const GenomeHaplotypeTrack: React.FC<Props> = ({
     [familyMembers, currentMember],
   );
   // The disease haplotype is inferred at a locus, the ROI. Without one there is none to
-  // assess: the whole of the first chromosome shown used to stand in, and the track then
-  // showed a risk state for a disorder whose locus it did not know (#588).
+  // assess, and the track shows no risk state for a disorder whose locus it does not know.
   // An ROI without a chromosome cannot be placed on the genome either.
   const analysisRegion = riskRegion?.chr ? riskRegion : null;
   const riskEnabled =
@@ -197,8 +195,8 @@ const GenomeHaplotypeTrack: React.FC<Props> = ({
     const recombXs: number[] = [];
     const prevByChr: Record<string, Segment> = {};
     // A signature is a parent of origin and a homolog label, and the labels are defined per
-    // chromosome: found at the ROI, it means nothing on another chromosome, where it matched
-    // unrelated homologs and drew them as the risk haplotype (#588).
+    // chromosome: found at the ROI, it means nothing on another chromosome, where it would
+    // match unrelated homologs and draw them as the risk haplotype.
     const riskChrom = analysisRegion ? normalizeHaplotypeChrom(analysisRegion.chr) : null;
 
     segments.forEach((seg) => {
@@ -284,12 +282,12 @@ const GenomeHaplotypeTrack: React.FC<Props> = ({
   );
 
   // A failed load has no risk state — not "uninformative", which is a real outcome — and
-  // without an ROI none was assessed (#588).
+  // without an ROI none was assessed.
   const shownRiskState = isError ? 'unavailable' : (riskState ?? 'not_assessed');
 
   // The accessible name: whose haplotypes, where, and the risk state the track's border
   // shows, with the ROI it was assessed at. A load in flight claims no risk state, a
-  // failed one says so (#510, #529), and without an ROI none was assessed (#588).
+  // failed one says so, and without an ROI none was assessed.
   const trackLabel = (() => {
     const where = chroms.length === 1 ? `on ${formatChromosomeLabel(chroms[0])}` : `across ${chroms.length} chromosomes`;
     const subject = `Haplotypes of ${sampleId} ${where}`;

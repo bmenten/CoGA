@@ -106,7 +106,7 @@ def test_gene_search_indexes_serve_their_real_queries() -> None:
                     "genes",
                     None,
                 ),
-                # region resolve — the terms as one array (ENG-14):
+                # region resolve — the terms as one array:
                 # (upper(hgnc_symbol) = ANY(:terms) OR upper(gene_id) = ANY(:terms))
                 (
                     "SELECT chr, start, \"end\" FROM genes WHERE "

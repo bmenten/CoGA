@@ -45,8 +45,8 @@ describe('nucleotideColor', () => {
   });
 
   it('draws every other allele in the one fallback grey', () => {
-    // The haplotype tooltip drew these #9ca3af, or #cbd5e1 for a multi-base allele; the ROI
-    // marker table drew all of them #cbd5e1, the colour of its uninformative alleles.
+    // The haplotype tooltip and the ROI marker table draw them alike: never #cbd5e1, the colour
+    // of the marker table's uninformative alleles.
     expect(NUCLEOTIDE_FALLBACK_COLOR).toBe('#9ca3af');
     for (const allele of ['N', '·', '?', '*', 'GT', 'ACGT', '']) {
       expect(nucleotideColor(allele)).toBe(NUCLEOTIDE_FALLBACK_COLOR);
@@ -58,7 +58,7 @@ describe('nucleotideColor', () => {
   });
 });
 
-// The rule the ROI marker review and the haplotype track's tooltip both draw a call by (ENG-19).
+// The rule the ROI marker review and the haplotype track's tooltip both draw a call by.
 describe('rowAlleles', () => {
   it('puts a phased call one allele on each homolog', () => {
     expect(rowAlleles('0|1', false, 'mother')).toEqual({ hap1: '0', hap2: '1' });

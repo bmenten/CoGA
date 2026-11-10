@@ -17,7 +17,7 @@ interface AdminModalProps {
 /**
  * Lightweight admin dialog: backdrop + centered card with a title and close.
  *
- * Escape, a focus trap and focus restore come from `useModalDialog` (#529). It closes
+ * Escape, a focus trap and focus restore come from `useModalDialog`. It closes
  * without asking about unsaved input: these dialogs stay open once an import has
  * succeeded, so a change count would ask about input that was already submitted.
  */

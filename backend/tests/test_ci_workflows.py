@@ -1,4 +1,4 @@
-"""The CI workflows' own gates (OPS-11, OPS-22).
+"""The CI workflows' own gates (OPS-22).
 
 The unit job's coverage gate is the floor script's global floor; a CI job recompiles the
 backend locks with ``scripts/compile-requirements.sh`` and fails on a diff (TF-13 S-7); the
@@ -71,7 +71,7 @@ def _check_names(job_id: str, job: dict) -> set[str]:
     return names
 
 
-# ---- The unit job's coverage gate (OPS-11) ----------------------------------------------------
+# ---- The unit job's coverage gate ----------------------------------------------------
 
 
 def _floor_script_constant(name: str) -> float:
@@ -84,7 +84,7 @@ def _floor_script_constant(name: str) -> float:
 
 def test_the_unit_jobs_coverage_gate_is_the_floor_scripts_global_floor() -> None:
     # Both read the total of the same unit run: pytest-cov rounds it to whole percent before
-    # comparing, the floor script compares coverage.json's unrounded total (OPS-11).
+    # comparing, the floor script compares coverage.json's unrounded total.
     steps = _workflow("ci.yml")["jobs"]["backend"]["steps"]
     tests = [step for step in steps if "python -m pytest" in step.get("run", "")]
     assert len(tests) == 1, "the backend job runs pytest once"
@@ -96,7 +96,7 @@ def test_the_unit_jobs_coverage_gate_is_the_floor_scripts_global_floor() -> None
     assert [step["run"].split()[2:] for step in floor] == [["coverage.json"]]
 
 
-# ---- The locks are what the compile script writes (OPS-11, TF-13 S-7) ------------------------
+# ---- The locks are what the compile script writes (TF-13 S-7) ------------------------
 
 
 def _lock_steps() -> tuple[dict, dict, dict]:
@@ -281,7 +281,7 @@ def test_the_build_metadata_refuses_a_branch_prepare_never_builds(tmp_path: Path
     assert "tag=" not in written and "app_version=" not in written
 
 
-# ---- One block of datastore settings (OPS-11) -------------------------------------------------
+# ---- One block of datastore settings -------------------------------------------------
 
 DATASTORE_JOBS = ("smoke", "e2e", "e2e-playwright")
 # What differs between the three jobs, set on the steps that start the app.
@@ -317,7 +317,7 @@ def test_the_datastore_jobs_share_one_block_of_settings() -> None:
             assert all(step["env"]["RUN_INTEGRATION"] == "1" for step in starting)
 
 
-# ---- The coverage job installs coverage.py only (OPS-11) --------------------------------------
+# ---- The coverage job installs coverage.py only --------------------------------------
 
 
 def _lock_entry(lock_text: str, package: str) -> str:

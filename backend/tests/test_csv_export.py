@@ -16,7 +16,7 @@ def test_csv_safe_cell_neutralises_formula_triggers(trigger: str) -> None:
     payload = f"{trigger}HYPERLINK(\"http://evil\",\"x\")"
     guarded = csv_safe_cell(payload)
     assert guarded == "'" + payload
-    # The guarded value no longer opens with a formula trigger for the spreadsheet.
+    # The guarded value does not open with a formula trigger for the spreadsheet.
     assert guarded[0] == "'"
 
 

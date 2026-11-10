@@ -1,5 +1,5 @@
 """The SV ranking scores an SV by the copy-number change it makes, read back from ClickHouse
-(E2E, CLIN-47), and the genome tracks draw it by that change (CLIN-54).
+(E2E), and the genome tracks draw it by that change.
 
 The SV ranking and the SNV + SV second-hit badge read one rule (``sv_copy_change.copy_change``):
 matched on exact type names, a ``DEL:ME``, a ``DUP:TANDEM`` and every CNV, whatever its copy
@@ -20,7 +20,7 @@ The list serves each SV with that change (``copy_change``), and so does each mem
 track (``track_mode=true`` with ``sample``, as the genome overview asks), from the member's own
 call; the track leaves it out where there is none. The genome, chromosome and Circos views draw
 an SV by it, so these CNVs, the ``DEL:ME`` and the ``DUP:TANDEM`` are drawn too, not only the
-exact types DEL, DUP, INV, INS and BND (CLIN-54).
+exact types DEL, DUP, INV, INS and BND.
 
 Everything runs in ONE event loop, with an in-process ``httpx.ASGITransport`` client for the
 API (see test_e2e_api_contract.py for why).

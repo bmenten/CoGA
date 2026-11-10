@@ -16,7 +16,7 @@ It then asserts, on a **real ``coga_app`` login connection** (stronger than the 
 check in ``test_app_role_privileges``), that the runtime role may append an audit row but may
 not update it — i.e. the append-only revoke is enforced against the actual app credential.
 
-The same start refuses a database its migration has not reached (OPS-23): with the ledger one
+The same start refuses a database its migration has not reached: with the ledger one
 revision back, the real lifespan, logged in as ``coga_app``, stops at the schema-revision check.
 
 Skipped unless RUN_INTEGRATION=1 (see conftest.py); the CI ``smoke`` job sets it.
@@ -81,8 +81,8 @@ def test_app_boots_and_serves_as_restricted_coga_app_role(monkeypatch) -> None:
             async with sm() as s:
                 await s.execute(
                     text(
-                        "INSERT INTO clinical_audit_events (actor, action, summary) "
-                        "VALUES ('smoke', 'boot', :m)"
+                        "INSERT INTO clinical_audit_events (actor, action, summary, row_hash) "
+                        "VALUES ('smoke', 'boot', :m, 'not-on-a-chain')"
                     ),
                     {"m": marker},
                 )
@@ -104,25 +104,21 @@ def test_the_app_as_coga_app_refuses_a_database_its_migration_has_not_reached(mo
     from backend.app import main as app_main
     from backend.app.core.config import settings
     from backend.app.core.postgres import close_postgres_engine
-    from backend.app.core.postgres_migrations import (
-        SchemaRevisionMismatch,
-        head_revision,
-        migration_script,
-    )
+    from backend.app.core.postgres_migrations import SchemaRevisionMismatch, head_revision
     from backend.app.db_migrate import run_schema_migrations
 
     monkeypatch.setattr(settings, "postgres_app_password", _APP_ROLE_PASSWORD)
     asyncio.run(run_schema_migrations())
     owner_dsn, connect_args = settings.postgres_dsn, settings.postgres_connect_args
-    previous = migration_script().get_revision(head_revision()).down_revision
-    assert isinstance(previous, str)
 
-    async def _set_ledger(revision: str) -> None:
+    async def _set_ledger(revision: str | None) -> None:
         # As the owner: coga_app may only read the ledger.
         engine = create_async_engine(owner_dsn, connect_args=connect_args)
         try:
             async with engine.begin() as conn:
-                await conn.execute(text("UPDATE alembic_version SET version_num = :r"), {"r": revision})
+                await conn.execute(text("DELETE FROM alembic_version"))
+                if revision is not None:
+                    await conn.execute(text("INSERT INTO alembic_version (version_num) VALUES (:r)"), {"r": revision})
         finally:
             await engine.dispose()
 
@@ -137,8 +133,8 @@ def test_the_app_as_coga_app_refuses_a_database_its_migration_has_not_reached(mo
         finally:
             await close_postgres_engine()
 
-    # A database the migration job has not brought to this version: one revision back.
-    asyncio.run(_set_ledger(previous))
+    # A database the migration job has not brought to this version: its ledger records none.
+    asyncio.run(_set_ledger(None))
     try:
         monkeypatch.setattr(settings, "postgres_user", "coga_app")
         monkeypatch.setattr(settings, "postgres_password", _APP_ROLE_PASSWORD)
@@ -148,7 +144,7 @@ def test_the_app_as_coga_app_refuses_a_database_its_migration_has_not_reached(mo
     finally:
         asyncio.run(_set_ledger(head_revision()))
 
-    assert f"at schema revision {previous}, and this version of CoGA needs revision {head_revision()}" in str(
+    assert f"at schema revision none (no ledger), and this version of CoGA needs revision {head_revision()}" in str(
         refused.value
     )
     assert "Run the migration job first" in str(refused.value)

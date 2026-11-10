@@ -15,10 +15,10 @@ interface TrackFetchOptions {
  * so the token is attached and an expired session is handled, and the base is not
  * prefixed a second time.
  *
- * Any failure other than an allowed "no data" 404 throws. The tracks used to turn a
- * failed source into null and draw the rest — a partial or empty track that looked like
- * real data and stayed cached for the session (#510). A failure must fail the track's
- * query, so the track can say it could not load.
+ * Any failure other than an allowed "no data" 404 throws: a failed source turned into null,
+ * with the rest drawn, would be a partial or empty track that looked like real data and
+ * stayed cached for the session. A failure fails the track's query, so the track can say it
+ * could not load.
  */
 export async function fetchTrackJson<T>(
   url: string,

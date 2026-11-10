@@ -178,7 +178,7 @@ const UnfinishedImport: React.FC<{ entry: FamilyImportUnfinished }> = ({ entry }
   const pending = pendingDatasets(entry);
   const writer = unfinishedWriter(entry.key);
   if (writer !== 'import') {
-    // A single-file upload (SAFE-28), and a deletion of the family's data (SAFE-31), mark the
+    // A single-file upload, and a deletion of the family's data, mark the
     // family before their first ClickHouse write. No import job.
     const when = entry.at ? ` (${bannerTime(entry.at)})` : '';
     return (

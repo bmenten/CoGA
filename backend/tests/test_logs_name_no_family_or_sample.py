@@ -1,4 +1,4 @@
-"""A server log line names no family and no sample by its ID (SEC-39; the owner, 2026-11-10).
+"""A server log line names no family and no sample by its ID (the owner, 2026-11-10).
 
 AGENTS.md: logs carry no values. The family and sample IDs are the lab's identifiers of a
 patient's samples, so a log line names a family by its UUID (``families.id``) or by the import

@@ -295,7 +295,7 @@ def test_the_record_names_the_reference_data_releases(signed) -> None:
 
 def test_the_record_names_the_hpo_release_the_matching_ran_on(signed) -> None:
     # The stack's HPO terms carry the shipped release and its file's SHA-256, as an import of
-    # the vendored ontology writes them (ENG-16, TRACE-18).
+    # the vendored ontology writes them.
     from backend.app.core.config import HPO_PINNED_ONTOLOGY_SHA256, HPO_PINNED_RELEASE
 
     [hpo] = [module for module in _snapshot(signed)["modules"] if module["key"] == "hpo"]

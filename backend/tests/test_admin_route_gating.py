@@ -178,7 +178,7 @@ def test_superuser_routes_reject_the_roles_below_superuser(method: str, path: st
 
 
 def test_dead_sample_projects_route_is_removed(viewer_client) -> None:
-    # The always-failing /admin/samples/{id}/projects route was removed entirely.
+    # There is no /admin/samples/{id}/projects route: the path answers 404.
     client, _session = viewer_client
     response = client.put("/api/admin/samples/SAMPLE1/projects", json={"project_ids": []})
     assert response.status_code == 404

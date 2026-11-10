@@ -150,7 +150,7 @@ versions in use at that moment.
 | `assembly` | the family's assembly, with its release date |
 | `gene_loci` | the source of the latest gene import for the assembly (GENCODE, or the UCSC table used when GENCODE could not be fetched), with its date |
 | `monarch` | the loaded Monarch release |
-| `hpo` | the release of the latest HPO ontology import, with its release date and, for an import that recorded it, the SHA-256 of the ontology file (`2026-02-16; SHA-256 8d6c…`) |
+| `hpo` | the release of the latest HPO ontology import, with its release date and the SHA-256 of the ontology file (`2026-02-16; SHA-256 8d6c…`) |
 
 Each lookup runs in its own savepoint, so a failure cannot break the sign-out around it. A
 failed lookup is listed as version `unavailable` with the detail `lookup failed`, never left
@@ -162,9 +162,7 @@ one on the most recently written term (`get_loaded_hpo_release` in `hpo_service.
 not the highest release string (an older release can be imported again), nor the latest one
 recorded. Each term also keeps the SHA-256 of its source file (`metadata.release_sha256`),
 recorded by the startup import of the pinned file and by the admin sync. The admin
-sync does not import a file without a `data-version` header. When the most recently written term
-holds no release, the module reads `unavailable` with the detail
-`release not recorded`. The HPO admin page and the cached phenotype ranking
+sync does not import a file without a `data-version` header. The HPO admin page and the cached phenotype ranking
 ([variant-ranking-cache.md](variant-ranking-cache.md)) read the release the same way.
 
 When the family's pipeline declares a module under the same key (for example `assembly` from a

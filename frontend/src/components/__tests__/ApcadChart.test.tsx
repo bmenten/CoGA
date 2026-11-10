@@ -18,9 +18,8 @@ vi.mock('../../lib/trackFetch', async () => {
 /**
  * The APCAD track normally shows parent-of-origin markers, but it is also where a
  * caller's minor-allele-fraction signal lands. bigWig has nowhere to record a
- * parental origin, so every one of those points is `und` — and this chart used to
- * drop them, showing "No APCAD data in this region" over a track holding 4.2M
- * points.
+ * parental origin, so every one of those points is `und`, and the chart draws them:
+ * never "No APCAD data in this region" over a track that holds such points.
  *
  * The server decides which markers to send (phased ones where they exist, unphased
  * otherwise); the chart's job is to draw what arrived.
@@ -29,7 +28,7 @@ vi.mock('../../lib/trackFetch', async () => {
 /**
  * Count the dots actually painted. A negative assertion ("the empty message is
  * absent") is useless here: it is satisfied on the first render, before the fetch
- * resolves, so it passes just as happily against the code that dropped every point.
+ * resolves, so it would pass just as happily against a chart that dropped every point.
  */
 const arcSpy = vi.fn();
 
@@ -107,8 +106,8 @@ describe('ApcadChart', () => {
     expect(screen.queryByText(/No APCAD data in this region/i)).not.toBeInTheDocument();
   });
 
-  it('reads a chromosome however the data spells it (#684)', async () => {
-    // Lower case and a leading zero used to miss the chromosome the chart draws.
+  it('reads a chromosome however the data spells it', async () => {
+    // Lower case and a leading zero still name the chromosome the chart draws.
     respondWith([
       { chr: 'chrx', start: 100, end: 101, value: 0.5, origin: 'und' },
       { chr: 'chr01', start: 200, end: 201, value: 0.5, origin: 'und' },
@@ -158,8 +157,8 @@ describe('ApcadChart', () => {
     expect(arcSpy).not.toHaveBeenCalled();
   });
 
-  // #529: the canvas is a named image, and its name says what is drawn on it now.
-  it('is named after the sample, the window and the sites drawn in it (#529)', async () => {
+  // The canvas is a named image, and its name says what is drawn on it now.
+  it('is named after the sample, the window and the sites drawn in it', async () => {
     respondWith([
       { chr: '1', start: 11564, end: 11565, value: 0.0, origin: 'und' },
       { chr: '1', start: 11771, end: 11772, value: 0.5, origin: 'und' },
@@ -177,7 +176,7 @@ describe('ApcadChart', () => {
     expect(arcSpy).toHaveBeenCalledTimes(2);
   });
 
-  it('fetches the PCF segment overlays apart from the raw points, and counts the segments drawn over the sites (#529)', async () => {
+  it('fetches the PCF segment overlays apart from the raw points, and counts the segments drawn over the sites', async () => {
     const fetchLike = vi.fn((url: string) =>
       Promise.resolve({
         ok: true,
@@ -258,7 +257,7 @@ describe('ApcadChart', () => {
     expect(tooltip()).toBeNull();
   });
 
-  it('names an empty region as empty, on the folded axis’s own terms (#529)', async () => {
+  it('names an empty region as empty, on the folded axis’s own terms', async () => {
     respondWith([]);
 
     renderChart({ maxValue: 0.5 });
@@ -268,7 +267,7 @@ describe('ApcadChart', () => {
     ).toBeInTheDocument();
   });
 
-  it('never names a load in flight or a failed load as an empty region (#529, #510)', async () => {
+  it('never names a load in flight or a failed load as an empty region', async () => {
     serveTrackFetchFrom(vi.fn(() => new Promise<never>(() => undefined)));
     const pending = renderChart({ sampleId: 'S1' });
     expect(

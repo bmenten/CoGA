@@ -8,11 +8,9 @@ import { describe, expect, it } from 'vitest';
 import { THEME_DIR, THEME_ENTRY, themeModules, themeText } from './themeSource';
 
 /**
- * The stylesheet (theme.css and the modules it imports) grew to 266 KB because nothing ever
- * removed a rule once the markup it styled was gone: 331 rules named classes that no component
- * rendered any more (#707). This keeps it honest. Every class a selector names must be one the source can put in the DOM,
- * every custom property it defines must be read somewhere, and every one it reads must be
- * defined.
+ * The stylesheet (theme.css and the modules it imports) holds no rule for markup that is gone.
+ * Every class a selector names must be one the source can put in the DOM, every custom property
+ * it defines must be read somewhere, and every one it reads must be defined.
  *
  * "Can put in the DOM" is read from the TypeScript AST of every non-test source file:
  * - every string literal contributes its whitespace-separated words;
@@ -356,7 +354,7 @@ describe('the stylesheet', () => {
 
   it('reads only custom properties that are defined', () => {
     // A var() of a name nothing defines renders its fallback, so the name only pretends to be
-    // a token; without a fallback the declaration is invalid and the property unset (#708).
+    // a token; without a fallback the declaration is invalid and the property unset.
     const defined = new Set<string>();
     walkCustomProperties((decl) => {
       defined.add(decl.prop);

@@ -13,7 +13,7 @@ import { CONSEQUENCE_GROUPS } from './smallVariantFilterSections';
 import { VariantSummarySectionState } from './VariantSummarySectionState';
 
 /**
- * The variant summary's small variants (PROD-1): the family's nuclear SNVs and indels from its
+ * The variant summary's small variants: the family's nuclear SNVs and indels from its
  * directly called callsets, as `GET /families/{id}/small-variant-statistics` counts them. The
  * server counts; this lays the figures out per sample.
  */

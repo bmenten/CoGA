@@ -16,7 +16,7 @@ interface FilterTranscriptNoteProps {
 
 /**
  * The transcript the search's annotation filters held on, when the primary transcript the
- * variant's values describe does not meet them (CLIN-51), with those of its values that
+ * variant's values describe does not meet them, with those of its values that
  * read otherwise. Nothing when the filters held on the variant's own transcript.
  */
 export default function FilterTranscriptNote({ variant, className, idClassName }: FilterTranscriptNoteProps) {

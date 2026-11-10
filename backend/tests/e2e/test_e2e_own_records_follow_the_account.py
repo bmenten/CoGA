@@ -1,11 +1,10 @@
-"""A Microsoft account keeps its import jobs and presets when its address and user name change (E2E, real Postgres, SEC-32).
+"""A Microsoft account keeps its import jobs and presets when its address and user name change (E2E, real Postgres).
 
-A Microsoft sign-in follows the token's e-mail address and user name (SEC-4). The records a
-user keeps as their own, an import job's requester and a user's filter presets, are kept by
-the account's id. Found by the e-mail address and the user name, a colleague whose address
-changed between an import's request and its run would have the import refused, or run as
-another colleague who signed in with the address they left behind, and the presets would go
-out of the first colleague's lists and into the other's.
+A Microsoft sign-in follows the token's e-mail address and user name. The records a user
+keeps as their own, an import job's requester and a user's filter presets, are kept by the
+account's id, not by either: a colleague whose address changes between an import's request
+and its run keeps the import, and another colleague who signs in with the address they left
+behind gets neither the import nor the presets.
 
 On real Postgres, through the app over HTTP (an in-process ``httpx.ASGITransport`` client on
 one event loop, see test_e2e_api_contract.py for why), a colleague, an administrator in the e2e
@@ -56,9 +55,9 @@ async def _exercise(run: str, directory, patch: pytest.MonkeyPatch) -> dict[str,
     old, new = f"colleague-{run}@example.org", f"colleague-renamed-{run}@example.org"
     colleague_oid, successor_oid = str(uuid4()), str(uuid4())
     names = {
-        "small": f"SEC-32 small {run}",
-        "sv_family": f"SEC-32 SV for the family {run}",
-        "sv_global": f"SEC-32 SV reusable {run}",
+        "small": f"own-records small {run}",
+        "sv_family": f"own-records SV for the family {run}",
+        "sv_global": f"own-records SV reusable {run}",
     }
     out: dict[str, Any] = {"run": run, "old": old, "new": new, "names": names}
 
@@ -246,7 +245,7 @@ def test_the_colleague_saved_presets_and_queued_an_import_then_signed_in_renamed
         "sv_global": 200,
     }
     assert ran["job_id"]
-    # The same account, with the token's new address; the old one went to a new account.
+    # The same account, with the token's new address; the old one goes to a new account.
     assert (ran["renamed"]["json"]["id"], ran["renamed"]["json"]["email"]) == (ran["colleague_id"], ran["new"])
     assert ran["successor_sign_in"]["status"] == 200
     assert ran["successor_sign_in"]["json"]["email"] == ran["old"]
@@ -256,7 +255,7 @@ def test_the_colleague_saved_presets_and_queued_an_import_then_signed_in_renamed
 def test_the_presets_stay_the_colleagues_after_the_change(ran) -> None:
     names = ran["names"]
     lists = ran["colleague_lists"]
-    # Each list reads the account's presets, not those of its old user name.
+    # Each list reads the colleague's presets by the account, not by its old user name.
     assert _names(lists["small"]) == [names["small"]]
     assert _names(lists["small_in_family"]) == [names["small"]]
     assert _names(lists["sv"]) == sorted([names["sv_family"], names["sv_global"]])
@@ -265,7 +264,7 @@ def test_the_presets_stay_the_colleagues_after_the_change(ran) -> None:
 
 
 def test_the_account_with_the_old_address_and_user_name_gets_none_of_them(ran) -> None:
-    # It lists none of the colleague's presets as its own, and deletes none.
+    # It neither lists the colleague's presets as its own nor deletes them.
     assert _names(ran["successor_lists"]["small"]) == []
     assert _names(ran["successor_lists"]["sv"]) == []
     assert {key: deleted["status"] for key, deleted in ran["successor_deletes"].items()} == {
@@ -286,7 +285,7 @@ def test_the_colleague_deletes_their_presets(ran) -> None:
 
 
 def test_the_import_runs_as_the_account_that_requested_it(ran) -> None:
-    # Not as the account that has the address by then, and without failing.
+    # Not as the account that has the address by then, and not refused as an unknown user.
     assert "run_error" not in ran, ran.get("run_error")
     assert ran["ran_as"] == [(ran["colleague_id"], ran["new"])]
     job = ran["job_after_run"]

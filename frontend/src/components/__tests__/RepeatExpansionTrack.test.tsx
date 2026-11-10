@@ -110,7 +110,7 @@ describe('RepeatExpansionTrack', () => {
     expect(screen.getByText(/no repeat loci in this region/i)).toBeInTheDocument();
   });
 
-  // The chart's accessible name summarises what it draws now (#529).
+  // The chart's accessible name summarises what it draws now.
   const locus = (locusId: string, start: number, status: string, chr = '1') => ({
     sample: 'S1',
     locus_id: locusId,
@@ -138,7 +138,7 @@ describe('RepeatExpansionTrack', () => {
     />
   );
 
-  it('names the loci of the whole chromosome in chromosome view mode (#529)', () => {
+  it('names the loci of the whole chromosome in chromosome view mode', () => {
     useQueryMock.mockReturnValue({
       data: {
         items: [
@@ -160,9 +160,8 @@ describe('RepeatExpansionTrack', () => {
     ).toBeInTheDocument();
   });
 
-  // Found while fixing ENG-7 (#1019): the track kept a locus whose chromosome without `chr`
-  // equalled the view's, so a locus on the mitochondrion stored as chrM or M never matched the
-  // view's MT and was not drawn. MT, M, chrM and chrMT are one chromosome, as the API reads them.
+  // A locus on the mitochondrion is drawn in the view of MT however it is stored: MT, M, chrM
+  // and chrMT are one chromosome, as the API reads them.
   it.each(['chrM', 'M', 'MT', 'chrMT'])('draws a locus on the mitochondrion stored as %s', (chr) => {
     useQueryMock.mockReturnValue({
       data: { items: [locus('MT_LOCUS', 3_000, 'pathogenic', chr)] },
@@ -215,7 +214,7 @@ describe('RepeatExpansionTrack', () => {
     ).toBeInTheDocument();
   });
 
-  it('counts a locus without thresholds as not assessed, not as unknown (CLIN-26)', () => {
+  it('counts a locus without thresholds as not assessed, not as unknown', () => {
     useQueryMock.mockReturnValue({
       data: {
         items: [
@@ -283,7 +282,7 @@ describe('RepeatExpansionTrack', () => {
     expect(screen.queryByText(/QA’s count correction/)).not.toBeInTheDocument();
   });
 
-  it('names only the loci in the region outside chromosome view mode (#529)', () => {
+  it('names only the loci in the region outside chromosome view mode', () => {
     useQueryMock.mockReturnValue({
       data: { items: [locus('ATXN1', 100, 'normal'), locus('FMR1', 700, 'pathogenic')] },
       isLoading: false,
@@ -295,7 +294,7 @@ describe('RepeatExpansionTrack', () => {
     ).toBeInTheDocument();
   });
 
-  it('an empty region is named as empty (#529)', () => {
+  it('an empty region is named as empty', () => {
     useQueryMock.mockReturnValue({ data: { items: [] }, isLoading: false });
     render(regionTrack());
 
@@ -304,7 +303,7 @@ describe('RepeatExpansionTrack', () => {
     ).toBeInTheDocument();
   });
 
-  it('a load or a failure is named as such, never as the held window’s loci (#510, #529)', () => {
+  it('a load or a failure is named as such, never as the held window’s loci', () => {
     useQueryMock.mockReturnValue({
       data: { items: [locus('FMR1', 250, 'pathogenic')] },
       isLoading: false,
@@ -330,7 +329,7 @@ describe('RepeatExpansionTrack', () => {
     expect(screen.queryByText(/no repeat loci in this region/i)).not.toBeInTheDocument();
   });
 
-  it('a failed pan draws nothing from the previous window (#586)', () => {
+  it('a failed pan draws nothing from the previous window', () => {
     useQueryMock.mockReturnValue({ data: { items: [locus('FMR1', 250, 'pathogenic')] }, isLoading: false });
     const { container, rerender } = render(regionTrack(200));
     expect(container.querySelectorAll('[data-repeat-locus-id]')).toHaveLength(1);

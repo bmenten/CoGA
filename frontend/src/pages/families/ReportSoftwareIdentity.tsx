@@ -5,7 +5,7 @@ import { DEVICE_MANUFACTURER, DEVICE_STATUS } from '../../lib/deviceLabel';
 
 /**
  * The device label on a report footer (TF-15 §1): the build that rendered the report, and
- * what CoGA is. A build that could not be loaded is said as such, never left out (#605).
+ * what CoGA is. A build that could not be loaded is said as such, never left out.
  * A signed version names its own build separately, so it labels this one as the build that
  * rendered the page.
  */

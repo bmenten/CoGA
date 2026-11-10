@@ -1,4 +1,4 @@
-"""A value beyond its ClickHouse column is stored as missing, never a failed write (SAFE-30).
+"""A value beyond its ClickHouse column is stored as missing, never a failed write.
 
 The loaders fill the ClickHouse columns from file values, and the ClickHouse client refuses
 a whole insert when one value falls outside its column. The depth columns ``calls.dp`` and
@@ -345,7 +345,7 @@ async def test_values_no_column_holds_are_stored_as_missing(clickhouse) -> None:
         "dp": None,  # beyond UInt32
         "ad": [0, 10],  # a depth no column holds is 0, as a missing one is, so 10 stays the alt depth
         # One beyond Float32: the list is not stored, as one with a fraction that is no number
-        # is not; leaving it out moved the next fraction onto its allele (DATA-7).
+        # is not; leaving it out moved the next fraction onto its allele.
         "af": [],
         "ab": 1.0,  # from the allele depths as stored
 
@@ -617,7 +617,7 @@ async def test_every_value_of_a_small_variant_record_meets_its_column(clickhouse
     # The records whose position no column holds are left out; the other is stored.
     [entry] = clickhouse.entries()
     assert entry["qual"] is None
-    # The fractions are stored all or none (DATA-7): with the NaN left out, the second allele's
+    # The fractions are stored all or none: with the NaN left out, the second allele's
     # 0.25 is not stored as the first allele's. The balance comes from the allele depths as
     # stored.
     assert _calls(entry) == {
@@ -630,7 +630,7 @@ async def test_every_value_of_a_small_variant_record_meets_its_column(clickhouse
         "metrics": {"FS": 2.0},
     }
     # 1e39, which no Float32 holds, is missing, as the frequency columns store it, not a
-    # frequency over 5 % (DATA-7); the population fallback is 1 %.
+    # frequency over 5 %; the population fallback is 1 %.
     assert entry["is_gnomad_gt_5_percent"] is False
     [stored] = clickhouse.rows[f"{_ASSEMBLY}/SNV_INDEL/variants/annotations"]
     assert stored["gnomad_af"] == 0.01  # the population fallback; 1e39 no Float32 holds

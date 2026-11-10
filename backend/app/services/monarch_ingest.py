@@ -103,8 +103,7 @@ class _Association:
 class MonarchSourceError(RuntimeError):
     """Monarch's files or release could not be used: a download too large, not gzip, not
     UTF-8 or without one association, or a release that cannot be read. A fault upstream, as
-    a failed download is: the refresh router answers it 502, and the tables stay as they were
-    (DATA-4)."""
+    a failed download is: the refresh router answers it 502, and the tables stay as they were."""
 
 
 async def _download_gzip_tsv(url: str) -> str:
@@ -135,11 +134,10 @@ async def _resolve_release_version(release_version: str | None) -> str:
 
     A signed-out analysis records which Monarch release its gene-disease / phenotype data
     came from (the annotation manifest's ``monarch`` module, frozen at sign-out), so we
-    refuse to load data with an unknown version.
-    Previously a failed metadata fetch only logged a warning and the refresh committed
-    every row with ``release_version = NULL`` and reported success — silently losing the
-    provenance of data that feeds the analysis. Pass an explicit ``release_version``
-    to bypass the network lookup.
+    refuse to load data with an unknown version: a failed metadata fetch fails the refresh
+    rather than committing every row with ``release_version = NULL``, which would silently
+    lose the provenance of data that feeds the analysis. Pass an explicit
+    ``release_version`` to bypass the network lookup.
     """
     if release_version is None:
         release_version = await _fetch_release_version()
@@ -275,7 +273,7 @@ async def refresh_monarch_gene_disease(
     records = list(associations.values())
     if not records:
         # A download that parses to nothing (a changed format, an empty file) would empty the
-        # table (#859): refused, and the loaded release kept.
+        # table: refused, and the loaded release kept.
         raise MonarchSourceError("Monarch's gene-disease files hold no human gene-disease association")
     written = await _replace_gene_disease_rows(
         session,
@@ -504,9 +502,9 @@ async def _rollback_quietly(session: AsyncSession) -> None:
 async def ensure_monarch_on_startup(session: AsyncSession) -> dict[str, Any] | None:
     """Load Monarch's newest release when no Monarch association is loaded yet.
 
-    A new instance had no Monarch data until an administrator loaded it, so phenotype matching
-    and the phenotype ranking had nothing to match against. A start now loads it as the admin
-    refresh does (``refresh_monarch``): the newest release, both tables in one transaction,
+    Without it a new instance would have no Monarch data until an administrator loaded it,
+    and phenotype matching and the phenotype ranking nothing to match against. A start loads
+    it as the admin refresh does (``refresh_monarch``): the newest release, both tables in one transaction,
     refused when the release cannot be read (the signed record names it) or a file holds no
     association. A database that has Monarch data keeps it: a newer release stays the
     administrator's refresh, which also rebuilds the Mendeliome panel. The start builds no

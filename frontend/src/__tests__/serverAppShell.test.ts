@@ -1,7 +1,7 @@
 // @vitest-environment node
-// The build and the app shell as server.mjs serves them. A tab opened before a
-// release asked for a page file the release had replaced, and got the app shell, an HTML page
-// with 200, which the browser cannot run: "Failed to fetch dynamically imported module".
+// The build and the app shell as server.mjs serves them. A tab opened before a release can ask
+// for a page file the release replaced: it gets a 404, never the app shell, an HTML page with
+// 200 that the browser cannot run ("Failed to fetch dynamically imported module").
 
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
@@ -55,7 +55,6 @@ describe('app shell', () => {
 
   it('answers 404, not the app shell, for a build file a release replaced', async () => {
     const res = await fetch(`${base}/assets/SomePage-OLDHASH.js`);
-    // Before: 200 with the app shell's HTML.
     expect(res.status).toBe(404);
     expect(res.headers.get('content-type')).toMatch(/^text\/plain/);
     expect(res.headers.get('cache-control')).toBe('no-store');
@@ -68,7 +67,6 @@ describe('app shell', () => {
       const res = await fetch(`${base}${route}`);
       expect(res.status).toBe(200);
       expect(res.headers.get('content-type')).toMatch(/^text\/html/);
-      // Before, `/` was the build's index.html as a static file: "public, max-age=0".
       expect(res.headers.get('cache-control')).toBe(SHELL_CACHE_CONTROL);
       expect(await res.text()).toBe(SHELL);
     }

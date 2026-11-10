@@ -96,7 +96,7 @@ def shipped_strchive_loci() -> list[dict[str, Any]]:
 
 async def seed_a_start(monkeypatch: pytest.MonkeyPatch) -> RecordingSession:
     """A start's seed of the catalogue, recorded: the upserts, then the removal of STRchive rows
-    of another release (CLIN-31)."""
+    of another release."""
     # The shipped STRchive file, not one an environment variable may point at.
     monkeypatch.setattr(repeat_expansion_pg.settings, "trgt_strchive_loci_path", None)
     session = RecordingSession()

@@ -1,5 +1,4 @@
-"""An uploaded SV record without END, SVTYPE or SVLEN is read as VCF 4.4 defines it (E2E,
-CLIN-33, CLIN-37, CLIN-41).
+"""An uploaded SV record without END, SVTYPE or SVLEN is read as VCF 4.4 defines it (E2E).
 
 VCF 4.4 lets a structural-variant record leave END and SVTYPE out, and writes SVLEN ``.`` for
 a sequence allele. The Sniffles and Spectre uploads read such a record as VCF 4.4 defines it.
@@ -7,7 +6,7 @@ Read as ending at its POS, a deletion written with SVLEN alone would lie on one 
 search for a gene it deletes downstream of its POS, or for a region inside it, would miss it;
 read as of the type its ALT spells, a breakend would be of type ``N]5:3000000]``, which the
 type filter and the translocation rule of the length filters do not know. And a call without
-SVLEN is measured by its alleles (CLIN-41; the owner's decision, 2026-10-14), not by END − POS,
+SVLEN is measured by its alleles (the owner's decision, 2026-10-14), not by END − POS,
 which makes an insertion written as its sequence, its END at its POS, 0 bp, so a minimum length
 would drop it.
 

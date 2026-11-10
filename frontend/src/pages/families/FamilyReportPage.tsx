@@ -150,7 +150,7 @@ const modesOfInheritance = (profile?: GeneProfileResponse): string[] =>
 // its frozen consequence, frequencies, in-silico scores and gene missense Z, else its
 // annotation set.
 const describeClassificationDrift = (item: ApiClassificationDriftItem): string => {
-  // Worded as the signed version words it (ENG-10; it said "in the dataset").
+  // Worded as the signed version words it.
   if (item.status === 'variant_missing') return 'no longer present in the data';
   return (
     describeSmallVariantDrift({
@@ -164,7 +164,7 @@ const describeClassificationDrift = (item: ApiClassificationDriftItem): string =
 };
 
 // What moved in the evidence of an SV/CNV classification, in the words of its inputs. A missing
-// one names the caller whose call is gone: another caller may still call the SV (TRACE-12).
+// one names the caller whose call is gone: another caller may still call the SV.
 const describeStructuralDrift = (item: ApiStructuralClassificationDriftItem): string => {
   if (item.status === 'variant_missing') return `${describeMissingStructuralCall(item.evidence_from)} in the data`;
   if (item.status === 'unknown') return 'its frozen evidence cannot be compared';
@@ -201,7 +201,7 @@ const LiveFamilyReport: React.FC = () => {
     },
   });
   // A reader in the family's projects reads and prints the report and its signed versions,
-  // but signs nothing out and does not see the audit trail (SEC-1).
+  // but signs nothing out and does not see the audit trail.
   const readOnly = Boolean(family?.read_only);
   // A supervisor or higher who may change the family signs it out (TF-06 H15).
   const canSignOut = Boolean(family?.can_sign_out);
@@ -330,7 +330,7 @@ const LiveFamilyReport: React.FC = () => {
     return map;
   }, [geneProfileQueries]);
   // A gene whose profile could not be loaded has no description on record as far as this
-  // page knows: said as such, not as "no curated description" (#605).
+  // page knows: said as such, not as "no curated description".
   const failedGeneProfiles = useMemo(
     () => new Set(geneSymbols.filter((_symbol, index) => geneProfileQueries[index]?.isError)),
     [geneSymbols, geneProfileQueries],
@@ -352,7 +352,7 @@ const LiveFamilyReport: React.FC = () => {
   // Provenance footer: which annotation/reference modules + versions backed the report.
   const { data: manifest, isError: manifestFailed, refetch: refetchManifest } =
     useAnnotationManifest(familyId);
-  // The moment the report was produced (becomes the frozen sign-out time in Phase 3).
+  // The moment the report was produced.
   const generatedAt = useMemo(() => new Date(), []);
   // The build that renders the report, named in its footer (TF-15 §1).
   const reportBuild = useReportBuild();
@@ -407,7 +407,7 @@ const LiveFamilyReport: React.FC = () => {
   } = useReportSignouts(familyId);
 
   // Does the live content below still match the latest signed version? It says so, and
-  // what changed, but even a match does not make this page the signed report (#508).
+  // what changed, but even a match does not make this page the signed report.
   const latestSignout = signouts?.latest ?? null;
   const { data: signoutCheck, isError: signoutCheckFailed } = useReportSignoutCheck(
     familyId,
@@ -426,8 +426,8 @@ const LiveFamilyReport: React.FC = () => {
   // included, which the signed record does not hold.
   const signedNotice = liveReportSignedNotice(signedState, latestSignout?.version ?? null);
   // The parts of the report that could not be loaded. Each says so where it belongs, and
-  // together they head every printed page: a printout without them used to read as
-  // complete, their sections as "none" (#605).
+  // together they head every printed page, so a printout never reads as complete with
+  // those sections as "none".
   const failedParts = [
     failedGeneProfiles.size
       ? `the description${failedGeneProfiles.size === 1 ? '' : 's'} of ${joinWithAnd(Array.from(failedGeneProfiles))}`
@@ -522,8 +522,8 @@ const LiveFamilyReport: React.FC = () => {
     );
   }
 
-  // Without the family the report queries never run: it used to render as a report of
-  // 0 small and 0 structural variants (#605).
+  // Without the family the report queries never run: the page says so, never a report of
+  // 0 small and 0 structural variants.
   if (familyFailed) {
     return (
       <PageState
@@ -540,7 +540,7 @@ const LiveFamilyReport: React.FC = () => {
   }
 
   // The project catalogue failed. The reported variants are read within the family's
-  // project, so without it the report would render with none (#608).
+  // project, so without it the report would render with none.
   if (referenceFailed) {
     return (
       <PageState
@@ -556,8 +556,8 @@ const LiveFamilyReport: React.FC = () => {
     );
   }
 
-  // Either list of reported variants: the SVs used to drop out of the report unnoticed,
-  // and the introduction to count none (#605).
+  // Either list of reported variants that failed stops the report: the SVs never drop out of
+  // it unnoticed, nor does the introduction count none.
   if (isError || structuralFailed) {
     return (
       <PageState
@@ -589,7 +589,7 @@ const LiveFamilyReport: React.FC = () => {
     <div className="page-shell report-page space-y-6">
       {printNotice ? (
         // Printed at the top of every page that is not the verified signed record, so a
-        // printout can never pass for the signed report (#508).
+        // printout can never pass for the signed report.
         <p className="report-print-notice print-only">{printNotice}</p>
       ) : null}
       <FamilyCaseHeader
@@ -623,8 +623,8 @@ const LiveFamilyReport: React.FC = () => {
               type="button"
               className="form-button"
               onClick={handleSignOut}
-              // Not to a reader (SEC-1), nor off the validated scope (#515), nor while the
-              // sign-out record is unknown (#605): the rule the NIPT page offers it by too.
+              // Not to a reader, nor off the validated scope, nor while the
+              // sign-out record is unknown: the rule the NIPT page offers it by too.
               disabled={signOutPending || signOutBlocked !== null}
               title={signOutBlocked ?? undefined}
             >
@@ -680,7 +680,7 @@ const LiveFamilyReport: React.FC = () => {
 
       {latestSignout ? (
         // The latest signed version, next to what this page is: never that version, only a
-        // comparison with it (#508). The version itself is rendered from its record.
+        // comparison with it. The version itself is rendered from its record.
         <section
           className={`surface-card report-signout report-signout-${
             signedState === 'matches' ? 'live' : signedState
@@ -806,7 +806,7 @@ const LiveFamilyReport: React.FC = () => {
           const profile = variant.gene ? geneProfiles.get(variant.gene) : undefined;
           const criteria = collectReportCriteria(variant);
           // The class the review shows, as the family page shows it, and the ACMG score beside
-          // it when that is another class (CLIN-80).
+          // it when that is another class.
           const classification = reportedSmallVariantClass(variant);
           const clinvarSentence = describeClinvar(variant);
           const segregation = buildSegregationSentence(variant, members);
@@ -967,7 +967,7 @@ const LiveFamilyReport: React.FC = () => {
         {structuralVariants.map((variant) => {
           const profile = variant.gene ? geneProfiles.get(variant.gene) : undefined;
           // The class the review shows, as the SV page shows it, and the ClinGen CNV scoring
-          // beside it as the score, never as the class (CLIN-80).
+          // beside it as the score, never as the class.
           const classification = reportedStructuralVariantClass(variant);
           const segregation = buildStructuralSegregationSentence(variant, members);
           const geneHpoTerms = profile?.extra?.hpo_terms ?? [];
@@ -1059,7 +1059,7 @@ const LiveFamilyReport: React.FC = () => {
 
               <p className="report-variant-locus">
                 {variant.chr}:{variant.start.toLocaleString()}-{variant.end.toLocaleString()}
-                {/* A breakend's mate, as the sentence above names it (CLIN-39). */}
+                {/* A breakend's mate, as the sentence above names it. */}
                 {variant.remote_chr && variant.remote_start
                   ? ` → ${variant.remote_chr}:${variant.remote_start.toLocaleString()}`
                   : ''}{' '}

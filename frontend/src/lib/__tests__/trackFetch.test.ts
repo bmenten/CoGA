@@ -7,7 +7,7 @@ import { fetchTrackJson } from '../trackFetch';
 
 const httpError = (status: number) => Object.assign(new Error(`HTTP ${status}`), { response: { status } });
 
-describe('fetchTrackJson (#510)', () => {
+describe('fetchTrackJson', () => {
   beforeEach(() => {
     apiMock.get.mockReset();
   });

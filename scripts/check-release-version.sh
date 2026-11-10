@@ -6,9 +6,8 @@
 # Why this exists: the release build stamps VERSION into the image as APP_VERSION
 # (build.yml, through scripts/build-version.sh --release), and that value is what ends up in
 # each signed version's footer (the signed-out analysis the EPD report refers to) and in
-# `/api/version`. Nothing previously tied it to the
-# tag, so tagging `v0.1.0-beta.1` while VERSION still read `0.1.0` would have produced a build
-# labelled `0.1.0`. For a device where the report footer is the record of which software
+# `/api/version`. Untied to the tag, tagging `v0.1.0-beta.1` while VERSION read `0.1.0`
+# would produce a build labelled `0.1.0`. For a device where the report footer is the record of which software
 # produced a result (TF-18 §2), that is a traceability defect, not a cosmetic one. Every
 # other build stamps VERSION with the pre-release identifier `dev` added, so VERSION itself
 # carries neither `dev` nor build metadata.

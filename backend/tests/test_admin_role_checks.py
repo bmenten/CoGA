@@ -196,7 +196,7 @@ async def test_a_family_gene_profile_reads_the_first_of_its_projects_the_user_se
             user=_user("viewer", [PROJECT]),
         )
 
-    # It took the family's first project, another team's, and read that project's assembly (SEC-9).
+    # It took the family's first project, another team's, and read that project's assembly.
     assert asked == [{"project_id": PROJECT}]
 
 
@@ -273,7 +273,7 @@ async def test_a_superuser_and_an_admin_see_every_import_job(role: str) -> None:
 @pytest.mark.parametrize("role", BELOW_SUPERUSER)
 async def test_a_role_below_superuser_reads_no_import_job(role: str) -> None:
     # Every import route needs a superuser (dependencies.get_current_superuser). The service
-    # refuses a user below one as the routes do (ENG-23), before it reads anything, their own
+    # refuses a user below one as the routes do, before it reads anything, their own
     # job included.
     user = _user(role)
     own_job = _Session(_Result([_job(user.email)]))

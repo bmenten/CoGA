@@ -15,7 +15,7 @@ router = APIRouter(prefix="/species", tags=["species"])
 @router.get("/", response_model=List[SpeciesOut])
 async def list_species(
     session: AsyncSession = Depends(get_postgres_session),
-    # Signed-in users only, like every sibling reference router (#522).
+    # Signed-in users only, like every sibling reference router.
     user: CurrentUser = Depends(get_current_user),
 ) -> List[SpeciesOut]:
     return await list_species_records(session)

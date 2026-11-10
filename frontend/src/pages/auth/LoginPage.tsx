@@ -20,7 +20,7 @@ import {
 // printable ASCII only (! to ~) without a backslash. A browser reads such a value as a
 // path on this site: it holds no character a browser drops (a tab, line feed or carriage
 // return) or reads as a slash (a backslash), and once a letter or digit follows the first
-// "/", nothing after it can name a host (UI-2). Any other `next` opens the dashboard, as
+// "/", nothing after it can name a host. Any other `next` opens the dashboard, as
 // an absent one does: a scheme, "//", a backslash, whitespace or a control character, and
 // a path that starts with a percent-encoded character, such as "/%09/" or "/%2F/".
 const SAME_SITE_PATH = /^\/[A-Za-z0-9][\x21-\x5B\x5D-\x7E]*$/;
@@ -37,7 +37,7 @@ const resolveNextPath = (rawNext: string | null): string => {
 
 interface LoginPageProps {
   // The emergency administrator's password sign-in beside the organisation's sign-in, Microsoft
-  // or CAS (/login/emergency, SEC-4). Without one the password sign-in is /login itself.
+  // or CAS (/login/emergency). Without one the password sign-in is /login itself.
   emergency?: boolean;
 }
 
@@ -84,7 +84,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ emergency = false }) => {
           headers: { Authorization: `Bearer ${completed.accessToken}` },
         });
         // Start the session with an empty cache: nothing loaded under an earlier session
-        // in this tab may be shown to this user (#521).
+        // in this tab may be shown to this user.
         queryClient.clear();
         persistSession(completed.accessToken, me.data.email, me.data.role, 'cas');
         setDestination(resolveNextPath(completed.nextPath));
@@ -115,7 +115,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ emergency = false }) => {
         });
         if (!current) return;
         // Start the session with an empty cache: nothing loaded under an earlier session
-        // in this tab may be shown to this user (#521).
+        // in this tab may be shown to this user.
         queryClient.clear();
         persistSession(completed.accessToken, me.data.email, me.data.role, 'microsoft');
         setDestination(resolveNextPath(completed.nextPath));
@@ -164,7 +164,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ emergency = false }) => {
         },
       });
       // Start the session with an empty cache: nothing loaded under an earlier session
-      // in this tab may be shown to this user (#521).
+      // in this tab may be shown to this user.
       queryClient.clear();
       persistSession(accessToken, me.data.email ?? email, me.data.role, 'password');
       navigate(nextPath, { replace: true });
@@ -173,7 +173,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ emergency = false }) => {
         networkFallback: buildApiUnavailableMessage(api.defaults.baseURL),
       });
       if (import.meta.env.DEV && import.meta.env.MODE !== 'test') {
-        // The message only: the error object carries the request, password included (#526).
+        // The message only: the error object carries the request, password included.
         console.error('Login failed:', message);
       }
       setError(message);

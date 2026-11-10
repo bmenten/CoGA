@@ -5,7 +5,7 @@
 # The ClickHouse VM holds every genotype. With the lockdown on it may open connections
 # only to Google APIs, through the private.googleapis.com range (Private Google Access);
 # every other outbound connection is refused at the VPC firewall. A compromised database
-# VM then cannot send data anywhere else, and the image pull no longer depends on Docker
+# VM then cannot send data anywhere else, and the image pull does not depend on Docker
 # Hub. Replies to the backend's connections are unaffected (firewall rules are stateful),
 # and the metadata server, which also answers DNS, is always reachable.
 #
@@ -14,7 +14,7 @@
 #     <region>-docker.pkg.dev host); the plan refuses a Docker Hub image;
 #   - let the VM's service account read that repository (roles/artifactregistry.reader);
 #   - enable the Cloud DNS API (dns.googleapis.com) for the private zones below.
-# Container-Optimized OS can then no longer update itself in place: patch it by
+# Container-Optimized OS then cannot update itself in place: patch it by
 # recreating the VM on a current image (the data disk is separate and is kept).
 
 locals {

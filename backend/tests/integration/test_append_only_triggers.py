@@ -1,7 +1,7 @@
 """Integration tests that FIRE the append-only triggers (real Postgres, smoke job).
 
 These prove the database-level immutability controls on six append-only tables (and on the
-six of the exploratory ancestry PCA, outside the intended purpose: ``wgs_sources``,
+five of the exploratory ancestry PCA, outside the intended purpose:
 ``ancestry_reference_panels``, ``ancestry_results``, ``ancestry_sample_choices``,
 ``ancestry_files`` and ``ancestry_file_scans``) —
 ``audit_log_events`` (the HTTP access log), ``clinical_audit_events`` (the clinical action
@@ -60,13 +60,7 @@ async def _assert_blocked(sessionmaker, sql: str, params: dict, expect_substr: s
     assert expect_substr in str(exc_info.value)
 
 
-# A marker WGS source, and a fresh reference checksum (the panels' key, 64 hex digits).
-_WGS_SOURCE_MARKER = (
-    "(family_uuid, family_identifier, project_id, package_path, relative_vcf, sha256, storage_version, "
-    "storage_fingerprint, samples, absent_record_is_hom_ref, file_size, file_mtime_ns) VALUES "
-    "(gen_random_uuid(), 'p1-5-test', gen_random_uuid(), '/p1-5-test', 'marker.vcf', 'deadbeef', '0:0', "
-    "'marker', '[]'::jsonb, false, 0, 0)"
-)
+# A fresh reference checksum (the panels' key, 64 hex digits).
 _MARKER_SHA256 = "md5(random()::text) || md5(random()::text)"
 
 # Per append-only table: a marker row's INSERT (returning its id), and an UPDATE of a value it
@@ -75,19 +69,20 @@ _MARKER_SHA256 = "md5(random()::text) || md5(random()::text)"
 # (that test fires it, on a database of its own).
 _FIRED = {
     "audit_log_events": (
-        "INSERT INTO audit_log_events (method, path, status_code) "
-        "VALUES ('GET', '/p1-5-trigger-test', 200) RETURNING id",
+        "INSERT INTO audit_log_events (event_id, method, path, status_code) "
+        "VALUES (gen_random_uuid(), 'GET', '/p1-5-trigger-test', 200) RETURNING id",
         "UPDATE audit_log_events SET status_code = 500 WHERE id = :id",
     ),
     "clinical_audit_events": (
-        "INSERT INTO clinical_audit_events (actor, action, summary) "
-        "VALUES ('p1-5-test', 'test', 'marker') RETURNING id",
+        "INSERT INTO clinical_audit_events (actor, action, summary, row_hash) "
+        "VALUES ('p1-5-test', 'test', 'marker', 'not-on-a-chain') RETURNING id",
         "UPDATE clinical_audit_events SET summary = 'tampered' WHERE id = :id",
     ),
     # A signed report must never change.
     "report_signouts": (
-        "INSERT INTO report_signouts (version, signed_out_by, content_hash, snapshot) "
-        "VALUES (1, 'p1-5-test', 'deadbeef', '{}'::jsonb) RETURNING id",
+        "INSERT INTO report_signouts (family_identifier, version, signed_out_by, content_hash, snapshot, row_hash) "
+        "VALUES ('p1-5-test-' || gen_random_uuid(), 1, 'p1-5-test', 'deadbeef', '{}'::jsonb, 'not-on-a-chain') "
+        "RETURNING id",
         "UPDATE report_signouts SET content_hash = 'tampered' WHERE id = :id",
     ),
     # A past acceptance limit must not be rewritten.
@@ -98,35 +93,31 @@ _FIRED = {
     ),
     # A recorded pedigree must not be rewritten.
     "family_structure_versions": (
-        "INSERT INTO family_structure_versions (family_identifier, version, structure_hash, snapshot) "
-        "VALUES ('p1-5-test', 1, 'deadbeef', '{}'::jsonb) RETURNING id",
+        "INSERT INTO family_structure_versions (family_identifier, version, structure_hash, snapshot, row_hash) "
+        "VALUES ('p1-5-test', 1, 'deadbeef', '{}'::jsonb, 'not-on-a-chain') RETURNING id",
         "UPDATE family_structure_versions SET structure_hash = 'tampered' WHERE id = :id",
     ),
     # The UI-event log is not rewritten or pruned.
     "ui_events": (
-        "INSERT INTO ui_events (event_type, label) VALUES ('click', 'p1-5-trigger-test') RETURNING id",
+        "INSERT INTO ui_events (event_id, event_type, label) "
+        "VALUES (gen_random_uuid(), 'click', 'p1-5-trigger-test') RETURNING id",
         "UPDATE ui_events SET label = 'tampered' WHERE id = :id",
     ),
     # The exploratory ancestry PCA: what a projection read, the reference it used and what it
     # found are not rewritten.
-    "wgs_sources": (
-        f"INSERT INTO wgs_sources {_WGS_SOURCE_MARKER} RETURNING id",
-        "UPDATE wgs_sources SET sha256 = 'tampered' WHERE id = :id",
-    ),
     "ancestry_reference_panels": (
         f"INSERT INTO ancestry_reference_panels (sha256, snapshot) VALUES ({_MARKER_SHA256}, '{{}}'::jsonb) "
         "RETURNING sha256",
         "UPDATE ancestry_reference_panels SET snapshot = '[]'::jsonb WHERE sha256 = :id",
     ),
     "ancestry_results": (
-        f"WITH s AS (INSERT INTO wgs_sources {_WGS_SOURCE_MARKER} RETURNING id), "
-        f"p AS (INSERT INTO ancestry_reference_panels (sha256, snapshot) VALUES ({_MARKER_SHA256}, '{{}}'::jsonb) "
+        f"WITH p AS (INSERT INTO ancestry_reference_panels (sha256, snapshot) VALUES ({_MARKER_SHA256}, '{{}}'::jsonb) "
         "RETURNING sha256), "
-        "r AS (INSERT INTO ancestry_runs (family_uuid, family_identifier, project_id, source_id, reference_sha256, "
-        "requested_by) SELECT gen_random_uuid(), 'p1-5-test', gen_random_uuid(), s.id, p.sha256, gen_random_uuid() "
-        "FROM s, p RETURNING id, source_id, reference_sha256) "
-        "INSERT INTO ancestry_results (run_id, source_id, reference_sha256, samples, calculation_version, assumptions) "
-        "SELECT id, source_id, reference_sha256, '[]'::jsonb, 'marker', '{}'::jsonb FROM r RETURNING run_id",
+        "r AS (INSERT INTO ancestry_runs (family_uuid, family_identifier, project_id, reference_sha256, "
+        "requested_by) SELECT gen_random_uuid(), 'p1-5-test', gen_random_uuid(), p.sha256, gen_random_uuid() "
+        "FROM p RETURNING id, reference_sha256) "
+        "INSERT INTO ancestry_results (run_id, reference_sha256, samples, calculation_version, assumptions) "
+        "SELECT id, reference_sha256, '[]'::jsonb, 'marker', '{}'::jsonb FROM r RETURNING run_id",
         "UPDATE ancestry_results SET calculation_version = 'tampered' WHERE run_id = :id",
     ),
     # A user's choice of how an individual is read stays as it was made.
@@ -245,8 +236,8 @@ def test_append_only_fk_null_carveout_is_permitted_but_nothing_else() -> None:
                 cae_id = (
                     await s.execute(
                         text(
-                            "INSERT INTO clinical_audit_events (actor, action, actor_id) "
-                            "VALUES ('p1-5-test', 'test', :uid) RETURNING id"
+                            "INSERT INTO clinical_audit_events (actor, action, actor_id, row_hash) "
+                            "VALUES ('p1-5-test', 'test', :uid, 'not-on-a-chain') RETURNING id"
                         ),
                         {"uid": user_id},
                     )
@@ -342,8 +333,8 @@ def test_append_only_fk_null_carveout_is_permitted_but_nothing_else() -> None:
                     await s.execute(
                         text(
                             "INSERT INTO family_structure_versions (family_id, "
-                            "family_identifier, version, structure_hash, snapshot, created_by) "
-                            "VALUES (:fid, 'p1-5-test', 1, 'deadbeef', '{}'::jsonb, :uid) "
+                            "family_identifier, version, structure_hash, snapshot, created_by, row_hash) "
+                            "VALUES (:fid, 'p1-5-test', 1, 'deadbeef', '{}'::jsonb, :uid, 'not-on-a-chain') "
                             "RETURNING id"
                         ),
                         {"fid": family_uuid, "uid": user_id},
@@ -398,8 +389,8 @@ def test_append_only_fk_null_carveout_is_permitted_but_nothing_else() -> None:
                 uie_id = (
                     await s.execute(
                         text(
-                            "INSERT INTO ui_events (event_type, label, user_id, user_email) "
-                            "VALUES ('click', 'p1-5-carveout', :uid, 'p1-5@x.org') RETURNING id"
+                            "INSERT INTO ui_events (event_id, event_type, label, user_id, user_email) "
+                            "VALUES (gen_random_uuid(), 'click', 'p1-5-carveout', :uid, 'p1-5@x.org') RETURNING id"
                         ),
                         {"uid": user_id},
                     )

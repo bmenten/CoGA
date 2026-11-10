@@ -35,7 +35,7 @@
   filter: brightness(0.97);
 }
 
-/* A visible keyboard focus ring (WCAG 2.4.7): the slight darkening alone was not one. */
+/* A visible keyboard focus ring (WCAG 2.4.7): the slight darkening alone is not one. */
 .sv-second-hit-badge:focus-visible {
   outline: 2px solid currentColor;
   outline-offset: 2px;
@@ -199,7 +199,7 @@ button.sv-second-hit-badge--del:hover {
   color: var(--color-signature-red-dark);
 }
 
-/* A call to look at again: violet, a colour no other status has (ENG-10). */
+/* A call to look at again: violet, a colour no other status has. */
 .variant-card-chip--review {
   border-color: rgba(124, 58, 237, 0.24);
   background: rgba(124, 58, 237, 0.1);
@@ -449,8 +449,8 @@ a.variant-card-gene:hover {
 }
 
 /* One grid for the whole list rather than a grid per row, so the key column is sized by
-   the longest label present (ALPHAMISSENSE overflowed the old fixed 5.25rem and ran
-   under its own value) and every row still lines up. */
+   the longest label present (ALPHAMISSENSE overflows a fixed 5.25rem and runs under its
+   own value) and every row still lines up. */
 .variant-card-mini-dl,
 .variant-card-detail-list,
 .variant-card-stat-list {
@@ -685,7 +685,7 @@ a.variant-card-gene:hover {
 }
 
 /* The transcript the search's annotation filters held on, when it is not the one the card
-   describes (CLIN-51): marked, as it says the card's values are not what the filters read. */
+   describes: marked, as it says the card's values are not what the filters read. */
 .variant-card-filter-transcript {
   margin: 0;
   padding: 0.125rem 0.375rem;
@@ -845,7 +845,7 @@ a.variant-card-gene:hover {
   color: var(--color-signature-red-dark);
 }
 
-/* A toggle's pressed state is not told by the tint alone (#529): a check mark, with empty
+/* A toggle's pressed state is not told by the tint alone: a check mark, with empty
    alternative text, since assistive technology reads aria-pressed instead. */
 .variant-quick-toggle--active::before {
   content: '✓ ';
@@ -1040,7 +1040,7 @@ a.variant-card-gene:hover {
   overflow-wrap: anywhere;
 }
 
-/* Which annotation version the CCDS/RefSeq came from, or why they are withheld (#536). */
+/* Which annotation version the CCDS/RefSeq came from, or why they are withheld. */
 .variant-transcript-xref-note {
   font-size: var(--fs-2xs);
   font-style: italic;

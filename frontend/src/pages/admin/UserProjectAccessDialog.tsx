@@ -5,7 +5,7 @@ import type { UserRead, UserUpdate } from '../../lib/apiSchema.generated';
 import { memberAccessLevel, type ProjectAccessLevel } from '../../lib/familyAccess';
 import type { ProjectOption } from './dataManagementTypes';
 
-/** What the dialog saves: the account's projects and the readers among them (SEC-1). */
+/** What the dialog saves: the account's projects and the readers among them. */
 export interface ProjectAccessChange extends UserUpdate {
   project_ids: string[];
   reader_project_ids: string[];

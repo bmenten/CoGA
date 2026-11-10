@@ -199,7 +199,7 @@ def test_genotype_site_sample_against_clickhouse(monkeypatch: pytest.MonkeyPatch
             (r.chr.removeprefix("chr"), r.start) for r in sorted(autosomal[:50], key=_key)[:10]
         ]
 
-        # Only SNVs are sampled (CLIN-11): an insertion, a deletion, an MNV and a spanning
+        # Only SNVs are sampled: an insertion, a deletion, an MNV and a spanning
         # deletion of the callset are never read, whatever their keys.
         het = ["0|1"] * len(_SAMPLES)
         not_snvs = [
@@ -236,7 +236,7 @@ def test_genotype_site_sample_against_clickhouse(monkeypatch: pytest.MonkeyPatch
         assert not any("covers part of the genome" in note for note in report.notes)
 
         # A callset on three autosomes covers part of the genome: the checks still run, and
-        # the report warns that they read only that part (CLIN-11).
+        # the report warns that they read only that part.
         part = str(uuid4())
         await insert_small_variant_records(
             _ASSEMBLY, part, [project], [r for r in autosomal if r.chr in {"chr1", "chr2", "chr3"}] + x_records

@@ -1,8 +1,9 @@
 """One clinical CNV knowledgebase rebuild at a time — real Postgres.
 
-The rule is a partial unique index: no job is queued beside a running one, and a build cut
-off with its server (a restart, a redeploy) is closed once its worker is gone, so neither
-leaves every later rebuild refused. Against the real schema, this checks that
+The rule is a partial unique index over every queued or running job, so a second job can
+be neither queued beside a running one nor left queued for good; a build cut off with its
+server (a restart, a redeploy) is closed once its worker is gone. Against the real schema,
+this checks that
 
 * a rebuild is refused (409) while another is queued or running, and accepted once none is;
 * two requests at the same moment get one job between them;
@@ -10,7 +11,7 @@ leaves every later rebuild refused. Against the real schema, this checks that
   closed as failed by the status and by a rebuild request, which is then accepted, while a
   job that still heartbeats is kept; its old worker can no longer write to it;
 * a queued job keeps the administrator who asked for it by the account's id, which its claim
-  gives the run to check (SEC-35);
+  gives the run to check;
 * a table created fresh gets the one-active index and the heartbeat columns.
 
 Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``smoke`` job sets it.
@@ -227,11 +228,12 @@ def test_a_rebuild_is_refused_while_another_is_queued_or_running(kb) -> None:
         first = await _queue(service, sm, assembly)
         assert await _refusal(service, sm, assembly) == 409  # while it is queued
 
-        # The claim its run makes; a request from here on is refused too.
+        # The claim its run makes. A request from here on is still refused: a second job
+        # accepted now could never start.
         claimed = await service._claim_job(str(first.id), "worker-a")
         assert claimed is not None
         # It gives the run the administrator who asked for the rebuild, by the account's id,
-        # which the run checks before it builds and before it loads (SEC-35).
+        # which the run checks before it builds and before it loads.
         requester = await _requester(sm, assembly)
         assert (claimed["requested_by_id"], claimed["requested_by"]) == (requester.id, requester.email)
         assert await _refusal(service, sm, assembly) == 409  # while it is running
@@ -391,10 +393,6 @@ def test_a_fresh_table_gets_the_new_index_and_the_heartbeat_columns() -> None:
         try:
             await init_postgres_schema()
             sm = get_postgres_sessionmaker()
-            async with sm() as s:
-                await s.execute(text("DROP TABLE clinical_cnv_kb_jobs"))
-                await s.commit()
-            await init_postgres_schema()  # creates it again, as on a new database
 
             indexes = await _indexes(sm)
             assert set(indexes) == {
@@ -405,7 +403,6 @@ def test_a_fresh_table_gets_the_new_index_and_the_heartbeat_columns() -> None:
             assert "((true))" in indexes[_NEW_INDEX]
             assert {"worker_id", "heartbeat_at"} <= await _columns(sm)
         finally:
-            await init_postgres_schema()
             await close_postgres_engine()
 
     asyncio.run(_run())

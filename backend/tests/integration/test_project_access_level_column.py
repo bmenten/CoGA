@@ -1,15 +1,11 @@
-"""Every project membership has an access level, an analyst's unless set (SEC-1).
+"""Every project membership has an access level, an analyst's unless set.
 
 ``project_users.access_level`` is ``analyst`` (read and change the project's records) or
 ``reader`` (read them only); a membership made without one is an analyst's, and any other
-value is refused. The baselines are re-applied on every start, and their one upgrade statement
-adds the column to a database made before it: each membership there becomes an analyst's, as
-every member could change the project's records until then, with the same default and check
-the ``CREATE TABLE`` gives a new database.
+value is refused.
 
-The test makes a user and a project of its own, reads the column as a new database has it,
-then drops it, as a database made before it lacks it, re-applies the baselines and reads the
-memberships again. It ends with the column in place and removes what it made.
+The test makes a user and a project of its own, reads the column and the memberships, and
+removes what it made.
 
 Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the values are synthetic.
 """
@@ -127,23 +123,7 @@ async def _run() -> dict[str, Any]:
                 )
                 await session.commit()
         out["refused"] = "project_users_access_level_check" in str(refused.value)
-
-        # A database made before the column: drop it, start again, read the memberships.
-        async with sm() as session:
-            await session.execute(text("ALTER TABLE project_users DROP COLUMN access_level"))
-            await session.commit()
-            out["dropped_shape"] = await _shape(session)
-        await init_postgres_schema()
-        async with sm() as session:
-            out["upgraded_shape"] = await _shape(session)
-            out["upgraded_levels"] = await _levels(session, made["project"])
-        # Applied again, the baselines change nothing.
-        await init_postgres_schema()
-        async with sm() as session:
-            out["reapplied_shape"] = await _shape(session)
     finally:
-        # Whatever happened above, the column is back.
-        await init_postgres_schema()
         sm = get_postgres_sessionmaker()
         async with sm() as session:
             if made.get("project"):
@@ -184,12 +164,3 @@ def test_a_membership_is_an_analysts_unless_it_says_reader(column: dict[str, Any
 
 def test_any_other_level_is_refused(column: dict[str, Any]) -> None:
     assert column["refused"] is True
-
-
-def test_a_database_made_before_the_column_gains_it_with_every_member_an_analyst(column: dict[str, Any]) -> None:
-    analyst, reader = column["users"]
-    assert column["dropped_shape"] == {"column": None, "checks": []}
-    # The same column and check a new database has; each membership an analyst's.
-    assert column["upgraded_shape"] == _SHAPE
-    assert column["upgraded_levels"] == {analyst: "analyst", reader: "analyst"}
-    assert column["reapplied_shape"] == _SHAPE

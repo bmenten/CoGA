@@ -16,7 +16,7 @@ const hpoBrowserHref = (term: string) =>
   `https://hpo.jax.org/browse/term/${encodeURIComponent(term)}`;
 
 // The SV page to return to, as the link sent it: only a path inside the app's family
-// pages, never another site. Without one, the family's SV page (id encoded, #526).
+// pages, never another site. Without one, the family's SV page (id encoded).
 const backToSvsHref = (from: string, familyId: string): string | null =>
   familyPagePath(from) ?? (familyId ? routePath`/families/${familyId}/structural-variants` : null);
 

@@ -158,7 +158,7 @@ def test_a_choice_of_levels_is_one_selection_whatever_its_order(levels, selectio
 @pytest.mark.asyncio
 async def test_fetch_panelapp_panel_builds_numeric_path(monkeypatch: pytest.MonkeyPatch) -> None:
     # The explicit int() at the URL sink pins panelapp_id to digits, so no '/' or
-    # traversal can enter the request path (partial-SSRF guard, CodeQL #10).
+    # traversal can enter the request path (partial-SSRF guard).
     captured: dict = {}
 
     async def fake_get(path, params=None):
@@ -183,7 +183,7 @@ async def test_a_panelapp_answer_that_is_no_json_is_answered_502(monkeypatch: py
 
     monkeypatch.setattr(panelapp_service.httpx, "AsyncClient", client)
 
-    # A 200 whose body is no JSON raised ValueError past the handler: a 500 (DATA-4).
+    # A 200 whose body is no JSON raised ValueError past the handler: a 500.
     with pytest.raises(HTTPException) as refused:
         await panelapp_service._get_panelapp_json("/panels/20/")
 

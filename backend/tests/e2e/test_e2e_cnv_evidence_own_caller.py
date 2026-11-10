@@ -1,7 +1,6 @@
-"""A CNV classification freezes the evidence of the caller's row it was made on (E2E, TRACE-11).
+"""A CNV classification freezes the evidence of the caller's row it was made on (E2E).
 
-A package's NeedlR call of a deletion and an uploaded Sniffles call of it have one SV id
-(CLIN-43), as two uploads' calls of one event do, and share its review. Each caller's call
+A package's NeedlR call of a deletion and an uploaded Sniffles call of it have one SV id, as two uploads' calls of one event do, and share its review. Each caller's call
 is a row of its own on the SV page, with its own evidence: NeedlR annotates the genes, their pLI
 and the inheritance; the upload's genes come from the gene loci, and it carries neither. The save
 freezes the evidence of the row the classification was made on, and the drift check reads that

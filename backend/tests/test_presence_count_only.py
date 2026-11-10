@@ -1,5 +1,5 @@
-"""count_only presence mode for the repeat-expansion and Paraphase family tables
-(#12): the landing page only needs a presence count, not the full table payload."""
+"""count_only presence mode for the repeat-expansion and Paraphase family tables:
+the landing page only needs a presence count, not the full table payload."""
 from types import SimpleNamespace
 
 import pytest

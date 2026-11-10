@@ -54,7 +54,7 @@ interface Props {
 }
 
 // Any call with an ALT allele — the backend reads these as genotype classes, so haploid
-// and multi-allelic calls count as present too (#511).
+// and multi-allelic calls count as present too.
 const samplePresenceFilter = (sampleId: string) => `${sampleId}:het|hom`;
 
 const hasActiveFilterValue = (value: unknown): boolean => {
@@ -129,7 +129,7 @@ const variantOrigin = (
 type PositionedVariant = Variant & { x: number; origin: ParentalOrigin };
 
 /**
- * The drawn variants in words, for the chart's accessible name (#529): how many, and how
+ * The drawn variants in words, for the chart's accessible name: how many, and how
  * many carry the salient marks. Counted by mark, as the legend reads them: a ClinVar P/LP
  * variant of HIGH impact is drawn, and counted, as P/LP.
  */
@@ -229,7 +229,7 @@ const SmallVariantTrack: React.FC<Props> = ({
     enabled: canRequestSmallVariants,
   });
 
-  // A view with no width asks for nothing; that is not a view with too many (#602).
+  // A view with no width asks for nothing; that is not a view with too many.
   const tooManyVariants =
     (regionInView && !canRequestSmallVariants) ||
     Boolean(
@@ -277,7 +277,7 @@ const SmallVariantTrack: React.FC<Props> = ({
     [variants, regionStart, span, width, originMode, sampleId, paternalSampleId, maternalSampleId]
   );
 
-  // A review tag rings the mark in the tag's colour; the mark keeps its own class (#529).
+  // A review tag rings the mark in the tag's colour; the mark keeps its own class.
   const getVariantTagColor = React.useCallback(
     (variant: Variant): string | undefined =>
       variant.review?.tags?.map((tagKey) => tagByKey.get(tagKey)?.color).find(Boolean) ?? undefined,
@@ -289,8 +289,8 @@ const SmallVariantTrack: React.FC<Props> = ({
       ? 'Too many variants to display. Zoom in or apply filters.'
       : 'no small variants for this region / sample';
 
-  // The chart's accessible name (#529): what it shows now. A failure, a load or a view
-  // over the cap is said as such, never as zero variants (#510).
+  // The chart's accessible name: what it shows now. A failure, a load or a view
+  // over the cap is said as such, never as zero variants.
   const markSummary = React.useMemo(() => describeMarks(variants), [variants]);
   const chartRegion = describeTrackRegion(chrom, regionStart, regionEnd);
   const chartState = isError
@@ -322,7 +322,7 @@ const SmallVariantTrack: React.FC<Props> = ({
     svg.selectAll('*').remove();
 
     // A failed request draws nothing: the error overlay says so, and the empty-state text
-    // below must never stand in for a failure (#510).
+    // below must never stand in for a failure.
     if (isError) {
       return;
     }
@@ -433,7 +433,7 @@ const SmallVariantTrack: React.FC<Props> = ({
       {tooltip && (
         <VizTooltip x={tooltip.x} y={tooltip.y}>
           <div>{tooltip.variant.gene || tooltip.variant.gene_id || 'Intergenic variant'}</div>
-          {/* The chromosome as the viewer names it (#602), however the variant is stored. */}
+          {/* The chromosome as the viewer names it, however the variant is stored. */}
           <div>
             {formatChromosomeLabel(tooltip.variant.chr)}:{tooltip.variant.start}
             {tooltip.variant.ref || tooltip.variant.alt

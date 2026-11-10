@@ -46,7 +46,7 @@ const uploadWithOverwrite = async <R extends { data: unknown }>(
 
 /**
  * What an SV upload left out: a deletion, duplication, inversion or CNV that states neither END
- * nor SVLEN, so how far it reaches is not known (CLIN-39).
+ * nor SVLEN, so how far it reaches is not known.
  */
 const withoutExtentNote = (data: Pick<StructuralVariantUploadResult, 'skipped_without_extent'>): string => {
   const count = data.skipped_without_extent;
@@ -54,7 +54,7 @@ const withoutExtentNote = (data: Pick<StructuralVariantUploadResult, 'skipped_wi
   return ` ${count} record${count === 1 ? '' : 's'} left out: a deletion, duplication, inversion or CNV that states neither END nor SVLEN.`;
 };
 
-/** What a coverage BED may declare it holds, as the form names it (TRACE-9). */
+/** What a coverage BED may declare it holds, as the form names it. */
 const BED_CONTENT_LABEL: Record<string, string> = {
   read_depth: 'read depth',
   log2_ratio: 'log2 ratio',
@@ -76,7 +76,7 @@ const SampleUpload: FC = () => {
   const [bedFile, setBedFile] = useState<File | null>(null);
   const [bedSample, setBedSample] = useState('');
   const [bedType, setBedType] = useState('coverage');
-  // What a coverage BED holds (TRACE-9): chosen for each upload, never a default.
+  // What a coverage BED holds: chosen for each upload, never a default.
   const [bedContent, setBedContent] = useState('');
   const [bedStatus, setBedStatus] = useState('');
   const [bedLoading, setBedLoading] = useState(false);
@@ -163,7 +163,7 @@ const SampleUpload: FC = () => {
     e.preventDefault();
     if (!bedFile || !bedSample.trim()) return;
     // A coverage BED declares what it holds: an undeclared one would be read as neither depth
-    // nor a log2 ratio, so the form asks rather than pick one (TRACE-9).
+    // nor a log2 ratio, so the form asks rather than pick one.
     const coverage = bedType === 'coverage';
     if (coverage && !bedContent) {
       setBedStatus('Choose what the coverage BED holds: read depth or log2 ratio.');

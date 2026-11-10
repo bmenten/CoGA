@@ -3,7 +3,7 @@ import type { SmallVariant, SmallVariantPage } from './smallVariantSearch';
 // A maximum gnomAD count filter keeps a variant whose annotation holds no such count, as
 // absent from gnomAD (the SQL's ifNull(count, 0) <= maximum). A pipeline that writes gnomAD's
 // frequencies but no counts therefore gets every variant past it, without a word: the list
-// says so for the variants it shows (CLIN-67).
+// says so for the variants it shows.
 type CountFilter = {
   param: 'max_gnomad_ac' | 'max_gnomad_hom_count' | 'max_gnomad_hemi_count';
   filterLabel: string;

@@ -1,4 +1,4 @@
-"""A PGT family's signed record holds the embryo calls the family page shows (REG-2).
+"""A PGT family's signed record holds the embryo calls the family page shows.
 
 The owner decided on 2026-10-14 that the signed record freezes the PGT analysis with its
 per-embryo results. Over a synthetic PGT family imported from a package (an affected father,

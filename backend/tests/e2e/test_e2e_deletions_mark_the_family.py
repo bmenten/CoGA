@@ -1,5 +1,5 @@
 """A deletion that fails mid-way leaves the family marked, and a refused SNV file costs no
-callset (SAFE-31, SAFE-32), E2E.
+callset, E2E.
 
 ClickHouse has no transactions. Into real Postgres and ClickHouse:
 
@@ -262,7 +262,7 @@ def test_the_deletion_again_completes_and_strikes_the_samples_items_off_the_mark
     assert again["unfinished"] is None and again["flag"] is None
 
 
-# --- a refused SNV file costs no callset (SAFE-32) -------------------------------------------
+# --- a refused SNV file costs no callset -------------------------------------------
 
 
 _SNV_VARIANTS = 4

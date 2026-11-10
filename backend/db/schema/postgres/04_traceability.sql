@@ -6,11 +6,30 @@
 -- One row: the Alembic revision (backend/db/migrations/versions) the database is at. Only
 -- the migration step writes it, as the owner (backend/app/core/postgres_migrations.py);
 -- 05_grants.sql leaves coga_app read access only. Alembic would create the same table; it is
--- created here so that 05_grants.sql finds it. An empty ledger means a new database, or one
--- created before the ledger: the migration then runs every revision.
+-- created here so that 05_grants.sql finds it. The ledger is empty only in an empty database,
+-- which revision 0001 makes from these baselines.
 CREATE TABLE IF NOT EXISTS alembic_version (
     version_num VARCHAR(32) NOT NULL,
     CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num)
+);
+
+-- ---------------------------------------------------------------------------
+-- schema_baselines — the baseline files the database was made from
+-- ---------------------------------------------------------------------------
+-- One row: the SHA-256 of the five baseline files (baseline_digest in
+-- backend/app/core/postgres_migrations.py), which revision 0001 writes when it makes the
+-- database. Every start compares it with its own baselines and refuses a database made from
+-- other ones: until the release candidate a schema change is an edit of a baseline, and a
+-- database is made again from empty rather than migrated (docs/database.md, "Schema
+-- Migrations"). Only the migration step writes it, as the owner; 05_grants.sql leaves coga_app
+-- read access only.
+CREATE TABLE IF NOT EXISTS schema_baselines (
+    singleton boolean DEFAULT true NOT NULL,
+    digest text NOT NULL,
+    created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
+    CONSTRAINT schema_baselines_pkey PRIMARY KEY (singleton),
+    CONSTRAINT schema_baselines_singleton_check CHECK (singleton),
+    CONSTRAINT schema_baselines_digest_check CHECK ((digest ~ '^[0-9a-f]{64}$'::text))
 );
 
 -- ---------------------------------------------------------------------------
@@ -37,16 +56,11 @@ CREATE TABLE IF NOT EXISTS audit_log_events (
     db_update JSONB,
     error TEXT,
     -- The event's own id, which the backend gives it when it makes the event, before the event
-    -- is queued (SEC-17). Every write of the event carries it, and the writer's INSERT does
-    -- nothing for an id the table holds (ON CONFLICT (event_id) DO NOTHING): a batch written
-    -- again after a commit whose outcome was unknown stores each event once. Empty in a row
-    -- written before it.
-    event_id UUID UNIQUE
+    -- is queued. Every write of the event carries it, and the writer's INSERT does nothing for
+    -- an id the table holds (ON CONFLICT (event_id) DO NOTHING): a batch written again after a
+    -- commit whose outcome was unknown stores each event once.
+    event_id UUID NOT NULL UNIQUE
 );
-
--- A database made before SEC-17 gains the column here; a no-op on a database the CREATE TABLE
--- above made (the same column, with the same audit_log_events_event_id_key).
-ALTER TABLE audit_log_events ADD COLUMN IF NOT EXISTS event_id UUID UNIQUE;
 
 CREATE INDEX IF NOT EXISTS idx_audit_log_events_created_at
     ON audit_log_events (created_at DESC);
@@ -116,14 +130,10 @@ CREATE TABLE IF NOT EXISTS ui_events (
     detail JSONB NOT NULL DEFAULT '{}'::jsonb,
     remote_ip TEXT,
     user_agent TEXT,
-    -- The event's own id, as in audit_log_events (SEC-17): a batch written again after a
-    -- commit whose outcome was unknown stores each event once. Empty in a row written before it.
-    event_id UUID UNIQUE
+    -- The event's own id, as in audit_log_events: a batch written again after a commit whose
+    -- outcome was unknown stores each event once.
+    event_id UUID NOT NULL UNIQUE
 );
-
--- A database made before SEC-17 gains the column here; a no-op on a database the CREATE TABLE
--- above made (the same column, with the same ui_events_event_id_key).
-ALTER TABLE ui_events ADD COLUMN IF NOT EXISTS event_id UUID UNIQUE;
 
 CREATE INDEX IF NOT EXISTS idx_ui_events_created_at
     ON ui_events (created_at DESC);
@@ -137,7 +147,7 @@ CREATE INDEX IF NOT EXISTS idx_ui_events_event_type
 CREATE INDEX IF NOT EXISTS idx_ui_events_session_id
     ON ui_events (session_id);
 
--- Append-only like audit_log_events, which it complements (SEC-7): the application only
+-- Append-only like audit_log_events, which it complements: the application only
 -- ever INSERTs here, and no job deletes or rewrites a UI event. DELETE is blocked
 -- outright, UPDATE too except the ON DELETE SET NULL unlink of user_id when an account is
 -- removed (user_email and user_role keep the actor). It is not hash-chained: its rows are
@@ -232,10 +242,10 @@ CREATE TABLE IF NOT EXISTS family_annotation_manifest (
 -- access log). Events are written in the same transaction as the change they
 -- describe, so the trail can never drift from the data.
 --
--- row_hash / prev_hash (#261): per-family tamper-evidence hash chain. row_hash binds
+-- row_hash / prev_hash: per-family tamper-evidence hash chain. row_hash binds
 -- each row's immutable content to the previous row's hash (per family), so
--- deleting/reordering/editing a row becomes detectable. Historical rows keep NULL
--- hashes — the verifier treats the first non-null row_hash as the chain origin.
+-- deleting/reordering/editing a row becomes detectable. prev_hash is NULL in the
+-- first event of a chain.
 CREATE TABLE IF NOT EXISTS clinical_audit_events (
     id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     created_at        TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now()),
@@ -249,7 +259,7 @@ CREATE TABLE IF NOT EXISTS clinical_audit_events (
     before            JSONB,
     after             JSONB,
     metadata          JSONB NOT NULL DEFAULT '{}'::jsonb,
-    row_hash          TEXT,
+    row_hash          TEXT NOT NULL,
     prev_hash         TEXT
 );
 
@@ -300,19 +310,19 @@ CREATE TRIGGER clinical_audit_events_immutable
 --
 -- Each sign-out is a new version (amendments append; nothing is ever overwritten).
 -- content_hash is the SHA-256 of the canonical snapshot, so tampering is detectable.
--- row_hash / prev_hash (#261) chain content_hash + the immutable identity across a
--- family's sign-out versions; pre-chain rows keep NULL hashes.
+-- row_hash / prev_hash chain content_hash + the immutable identity across a
+-- family's sign-out versions; prev_hash is NULL in a family's first version.
 CREATE TABLE IF NOT EXISTS report_signouts (
     id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     family_id         UUID REFERENCES families(id) ON DELETE SET NULL,
-    family_identifier TEXT,
+    family_identifier TEXT NOT NULL,
     version           INTEGER NOT NULL,
     signed_out_by     TEXT NOT NULL,   -- denormalised actor identity (survives account removal)
     signed_out_by_id  UUID REFERENCES users(id) ON DELETE SET NULL,
     signed_out_at     TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now()),
     content_hash      TEXT NOT NULL,
     snapshot          JSONB NOT NULL,
-    row_hash          TEXT,
+    row_hash          TEXT NOT NULL,
     prev_hash         TEXT,
     UNIQUE (family_id, version)
 );
@@ -323,38 +333,12 @@ CREATE INDEX IF NOT EXISTS idx_report_signouts_family
 -- The chain is partitioned on the IMMUTABLE family_identifier (not family_id, which the
 -- ON DELETE SET NULL cascade nulls) so a deleted family's signed history stays
 -- verifiable, and it is ordered by version. A family deleted and made again under its ID
--- signs on the same chain, its versions numbered on from the deleted family's (TRACE-13),
--- so a version names one signed record of the family ID, and so does its report code.
--- This unique index holds that: UNIQUE (family_id, version) above cannot, as the family's
--- deletion nulls family_id. It also serves the chain-head read and the verifier walk, for
--- which idx_report_signouts_chain was made, and replaces it.
---
--- A database where a family ID already holds one version twice (a family made again under
--- its ID and signed out in both, before TRACE-13) cannot take the index: the check before
--- it stops the migration, with a message that names no family.
-DO $$
-DECLARE
-    repeated bigint;
-BEGIN
-    SELECT count(DISTINCT family_identifier) INTO repeated
-    FROM (
-        SELECT family_identifier
-        FROM report_signouts
-        WHERE family_identifier IS NOT NULL
-        GROUP BY family_identifier, version
-        HAVING count(*) > 1
-    ) AS taken_twice;
-    IF repeated > 0 THEN
-        RAISE EXCEPTION USING MESSAGE =
-            'report_signouts holds ' || repeated || ' family ID(s) with a sign-out version '
-            || 'taken twice, by a family made again under its ID before TRACE-13; see '
-            || 'docs/development.md, Troubleshooting.';
-    END IF;
-END
-$$;
+-- signs on the same chain, its versions numbered on from the deleted family's, so a
+-- version names one signed record of the family ID, and so does its report code. This
+-- unique index holds that: UNIQUE (family_id, version) above cannot, as the family's
+-- deletion nulls family_id. It also serves the chain-head read and the verifier walk.
 CREATE UNIQUE INDEX IF NOT EXISTS uq_report_signouts_family_identifier_version
     ON report_signouts (family_identifier, version);
-DROP INDEX IF EXISTS idx_report_signouts_chain;
 
 -- Append-only at the database level (a signed-out report must never change). DELETE
 -- is blocked; UPDATE is blocked except the ON DELETE SET NULL cascades that null
@@ -382,8 +366,6 @@ CREATE TRIGGER report_signouts_immutable
 -- ---------------------------------------------------------------------------
 -- integrity_anchors — external SIGNED CHAIN-HEAD ANCHOR
 -- ---------------------------------------------------------------------------
--- External SIGNED CHAIN-HEAD ANCHOR (#263), the follow-up to the hash chains.
---
 -- The per-family hash chains (clinical_audit_events/report_signouts/
 -- family_structure_versions) detect tampering
 -- by anyone who cannot recompute them, but an OWNER who DISABLEs the trigger can
@@ -433,8 +415,8 @@ CREATE TRIGGER integrity_anchors_immutable
     BEFORE UPDATE OR DELETE ON integrity_anchors
     FOR EACH ROW EXECUTE FUNCTION integrity_anchors_block_mutation();
 
--- Runtime-role (coga_app) grants/revokes voor de append-only tabellen
--- zijn geconsolideerd in 05_grants.sql (na de brede GRANT ON ALL TABLES).
+-- The runtime role's (coga_app) grants and REVOKEs for the append-only tables are in
+-- 05_grants.sql, after its broad GRANT ON ALL TABLES.
 
 -- ---------------------------------------------------------------------------
 -- qc_threshold_changes — append-only QC cut-off history
@@ -496,7 +478,7 @@ CREATE TRIGGER import_delivery_revisions_immutable
 -- The table lives in 03_assay (next to the pedigree it records). A structure version is
 -- the record of a family's pedigree at a change (members, their sex, role and status, and
 -- the relationships), which the segregation, the haplotypes and the ranking rest on, so it
--- must not be rewritable (SEC-7). DELETE is blocked. UPDATE is blocked except the
+-- must not be rewritable. DELETE is blocked. UPDATE is blocked except the
 -- ON DELETE SET NULL cascades that null created_by or family_id when an account or the
 -- family is removed (family_identifier keeps the family, and the chain is partitioned on
 -- it).
@@ -521,40 +503,8 @@ CREATE TRIGGER family_structure_versions_immutable
     FOR EACH ROW EXECUTE FUNCTION family_structure_versions_block_mutation();
 
 -- The exploratory ancestry PCA (outside the intended purpose; docs/ancestry-pca.md): its
--- public reference snapshots, jobs and results, and the WGS file sources earlier projections
--- read (a projection now reads the family's stored callsets). Nothing here enters a sign-out.
--- The sources, references and results are append-only.
-CREATE TABLE IF NOT EXISTS wgs_sources (
-    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    family_uuid uuid NOT NULL,
-    family_identifier text NOT NULL,
-    project_id uuid NOT NULL,
-    import_job_id uuid,
-    package_path text NOT NULL,
-    relative_vcf text NOT NULL,
-    sha256 text NOT NULL,
-    storage_version text NOT NULL,
-    storage_fingerprint text NOT NULL,
-    samples jsonb NOT NULL,
-    absent_record_is_hom_ref boolean NOT NULL,
-    file_size bigint NOT NULL,
-    file_mtime_ns bigint NOT NULL,
-    raw_file_id uuid,
-    qualification jsonb NOT NULL DEFAULT '{}'::jsonb,
-    imported_at timestamptz NOT NULL DEFAULT now()
-);
-CREATE INDEX IF NOT EXISTS wgs_sources_family ON wgs_sources(family_uuid, project_id, imported_at DESC);
-CREATE OR REPLACE FUNCTION wgs_sources_block_mutation() RETURNS trigger AS $$
-BEGIN
-    RAISE EXCEPTION 'wgs_sources is append-only; % is not permitted', TG_OP;
-END;
-$$ LANGUAGE plpgsql;
-DROP TRIGGER IF EXISTS wgs_sources_no_mutation ON wgs_sources;
-CREATE TRIGGER wgs_sources_no_mutation BEFORE UPDATE OR DELETE ON wgs_sources
-    FOR EACH ROW EXECUTE FUNCTION wgs_sources_block_mutation();
-
--- Ancestry uses verified, project-scoped full-WGS sources. Reference
--- axes and published projections are immutable and never enter clinical sign-out.
+-- public reference snapshots, jobs and results. A projection reads the family's stored
+-- callsets. Nothing here enters a sign-out. The references and results are append-only.
 CREATE TABLE IF NOT EXISTS ancestry_reference_panels (
     sha256 text PRIMARY KEY CHECK (sha256 ~ '^[0-9a-f]{64}$'),
     snapshot jsonb NOT NULL,
@@ -565,8 +515,6 @@ CREATE TABLE IF NOT EXISTS ancestry_runs (
     family_uuid uuid NOT NULL,
     family_identifier text NOT NULL,
     project_id uuid NOT NULL,
-    -- The WGS file source of a run from before the callsets were read; NULL since.
-    source_id uuid REFERENCES wgs_sources(id),
     reference_sha256 text NOT NULL REFERENCES ancestry_reference_panels(sha256),
     -- A user's request, or the worker's own once the family's genotypes changed (no user).
     requested_by uuid,
@@ -584,8 +532,7 @@ CREATE INDEX IF NOT EXISTS ancestry_runs_queue ON ancestry_runs(status, requeste
 CREATE INDEX IF NOT EXISTS ancestry_runs_family ON ancestry_runs(family_uuid, project_id, requested_at DESC);
 CREATE TABLE IF NOT EXISTS ancestry_results (
     run_id uuid PRIMARY KEY REFERENCES ancestry_runs(id),
-    source_id uuid REFERENCES wgs_sources(id),
-    -- The family's small-variant data version the projection read (NULL for a file source's).
+    -- The family's small-variant data version the projection read.
     storage_version text,
     reference_sha256 text NOT NULL REFERENCES ancestry_reference_panels(sha256),
     samples jsonb NOT NULL,

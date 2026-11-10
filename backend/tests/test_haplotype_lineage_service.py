@@ -181,7 +181,7 @@ def test_identify_core_says_when_two_couples_share_as_many_children(caplog):
         core = identify_core(build_pedigree(members, rels))
     assert (core.father, core.mother, core.children) == ("GF", "GM", {"F"})
     # By counts: the couples and their children are named by their sample IDs, which a log
-    # line never carries (SEC-39).
+    # line never carries.
     assert [record.getMessage() for record in caplog.records] == [
         "identify_core: ambiguous nuclear core — 2 couples each share 1 child(ren); picking the "
         "first found. Lineage colouring may be grounded on the wrong couple."

@@ -95,7 +95,7 @@ Mislukte pogingen worden bijgehouden in de Postgres-tabel `auth_login_attempts`.
 
 | Kolom | Betekenis |
 | --- | --- |
-| `scope_type` / `scope_value` | Het bereik: `email`, `remote_ip` of `signup_ip` |
+| `scope_type` / `scope_value` | Het bereik: `email`, `remote_ip`, `signup_ip` of `cas_ip` (hieronder, *Aanmelden via CAS*) |
 | `failure_count` | Het aantal opeenvolgende mislukte pogingen |
 | `last_failure_at` | Het tijdstip van de laatste mislukking |
 | `locked_until` | Tot wanneer dit bereik geblokkeerd is |

@@ -121,7 +121,7 @@ APCAD_PCF_SOURCE = "pcf"
 
 # The source of the ``apcad`` track the ``apcad`` dataset writes. It replaces only that
 # source's track of a sample: HiFiCNV's minor allele fraction is stored on the same track
-# type (source ``hificnv``), and a BED upload's under ``web`` (SAFE-22).
+# type (source ``hificnv``), and a BED upload's under ``web``.
 APCAD_SOURCE = "apcad"
 
 
@@ -443,12 +443,12 @@ class ImportRefused(RuntimeError):
     """An import's refusal in CoGA's own words: a dataset whose package file it will not
     store, an account no longer allowed to run it. The job's record shows the message as it
     is written (``own_error_message``); any other error, which is not CoGA's sentence and can
-    quote what was being read, is shown there by its kind (SEC-39)."""
+    quote what was being read, is shown there by its kind."""
 
 
 class DatasetLeftMissing(RuntimeError):
     """A dataset failed after its write had deleted rows of samples beyond those it names,
-    which it could not put back (SAFE-28): ``samples`` (sample ids) are those whose data of
+    which it could not put back: ``samples`` (sample ids) are those whose data of
     the dataset may now be missing too. The import flags the dataset for them as well as for
     its own samples (``family_package_registration.scope_with_samples``)."""
 
@@ -485,7 +485,7 @@ async def known_vcf_sample_ids(
 def _quoted_columns(columns: Iterable[str]) -> str:
     """A file's column names as a refusal quotes them, ``['S1', 'S1_sort']``: each in quotes
     with every character a reader cannot see shown as its escape (``visible``), as the ID
-    rule's refusals show an ID (SEC-39)."""
+    rule's refusals show an ID."""
     return "[" + ", ".join(f"'{visible(column)}'" for column in columns) + "]"
 
 
@@ -501,8 +501,9 @@ def per_sample_vcf_column(
     """The index of the ``#CHROM`` sample column that holds ``target_sample_id``'s calls,
     in a file stored as that one sample's (a per-sample package file, an admin upload).
 
-    Such files used to be bound to their sample whatever their column named, so another
-    member's file -- or another patient's -- was stored as this sample's without a word.
+    The column is checked, never taken on trust: a file bound to its sample whatever its
+    column named would store another member's file -- or another patient's -- as this
+    sample's without a word.
 
     * ``declared`` (the entry's ``vcf_sample``) is the operator's recorded word: the column
       it names is read, or, when it is the target's own id, the file's single column.
@@ -592,7 +593,7 @@ def package_text_handle(path: Path) -> TextIO:
 def whole_package_text_handle(path: Path) -> TextIO:
     """``package_text_handle`` for a reader that stores the file, or checks it before it
     does: a BGZF file that does not end with BGZF's end-of-file block is refused first, as
-    cut short (``TruncatedBgzfError``, DATA-4). gzip reads one cut exactly where one of its
+    cut short (``TruncatedBgzfError``). gzip reads one cut exactly where one of its
     blocks ends as a whole file, the records after the cut gone without a word."""
     require_bgzf_path_end(path, label=path.name)
     return package_text_handle(path)
@@ -612,7 +613,7 @@ def _unreadable_reason(path: Path) -> str:
 
 class UnreadableVcf(ValueError):
     """A VCF whose header could not be read: a gzip file cut short or damaged, a file named
-    ``.gz`` that is not gzip, or one the disk would not give (DATA-11). Its message names the
+    ``.gz`` that is not gzip, or one the disk would not give. Its message names the
     file by its name, with ``label`` (the VCF, the SNV file of a sample), and never the
     error's own text, which can quote the file. A ValueError, so a reader that left such a
     file to the import still does."""
@@ -629,7 +630,7 @@ def unreadable_vcf_issue(
     root: Path, path: Path, *, dataset: str, label: str, sample_id: str | None = None
 ) -> FamilyImportValidationIssue:
     """The refusal of a VCF Discover or the validation could not read (``UnreadableVcf``),
-    naming the file as the package does and, when given, the sample (DATA-11)."""
+    naming the file as the package does and, when given, the sample."""
     return _issue(
         DATASET_VCF_UNREADABLE,
         f"{label} ({_display_path(root, path)}) could not be read{_unreadable_reason(path)}. "
@@ -663,8 +664,8 @@ def read_vcf_sample_columns(path: Path, *, label: str = "The VCF") -> list[str]:
 def read_whole_vcf_sample_columns(path: Path, *, label: str = "The VCF") -> list[str]:
     """``read_vcf_sample_columns`` for a VCF the import reads whole: a BGZF file that does not
     end with BGZF's end-of-file block, cut short wherever the cut lies, raises
-    ``UnreadableVcf`` too, as the import's reader refuses it (``whole_package_text_handle``,
-    DATA-4). Only the file's first bytes, its header and its last 28 bytes are read (DATA-12)."""
+    ``UnreadableVcf`` too, as the import's reader refuses it (``whole_package_text_handle``).
+    Only the file's first bytes, its header and its last 28 bytes are read."""
     try:
         require_bgzf_path_end(path, label=path.name)
     except UNREADABLE_FILE_ERRORS as exc:
@@ -676,7 +677,7 @@ def vcf_holds_a_data_line(path: Path, *, label: str = "The VCF") -> bool:
     """Whether a VCF holds a line after its header, reading only as far as the first one.
 
     Used by validation to report a data file the import refuses for holding no record
-    (SAFE-3) without materialising a multi-GB VCF. Any line counts: only the loader reads a
+    without materialising a multi-GB VCF. Any line counts: only the loader reads a
     record, so a file whose lines it cannot read passes here and fails at import. A file it
     cannot read at all raises ``UnreadableVcf``, named with ``label``.
     """
@@ -761,14 +762,14 @@ def _resolve_package_path(root: Path, value: str | None) -> Path | None:
     an absolute path inside it. Refused with 400: a path that leads out of the package (``ped:
     /etc/passwd``, ``../../etc/passwd``, a symlink that leads out), so that a crafted manifest
     reads no other host file; one that starts with ``~``; one that runs through a symlink
-    loop. A ``~`` was expanded: ``~/x`` named a file in the backend's home folder, and
-    ``~nouser/x`` failed with a RuntimeError (a 500), as a loop did on Python 3.12.
+    loop. Expanded, ``~/x`` would name a file in the backend's home folder, and ``~nouser/x``
+    raises a RuntimeError (a 500), as a loop does on Python 3.12.
     """
     if value is None or not str(value).strip():
         return None
     written = str(value).strip()
     if NUL in written:
-        # Every look-up of the path raised ValueError on it: a 500 (SAFE-5).
+        # Every look-up of the path raises ValueError on it: a 500.
         raise HTTPException(status_code=400, detail=f"Package manifest path '{visible(written)}' {NUL_IN_PATH}")
     if written.startswith("~"):
         raise HTTPException(

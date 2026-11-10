@@ -2,8 +2,7 @@
 
 One file describes a delivered package: the run that made it, where it belongs (the project, the
 assembly, the analysis), the family and its members (the pedigree), the datasets the import reads,
-every file with its checksum, and the pipeline's QC. It takes the place of three files: the PED,
-the manifest and the ready marker ``coga-ready.json`` (format ``coga-package/1``,
+every file with its checksum, and the pipeline's QC (format ``coga-package/1``,
 docs/coga-package.md).
 
 The pipeline writes the file whole each time, under a temporary name renamed over it, and may write

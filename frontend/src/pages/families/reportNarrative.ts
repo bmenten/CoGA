@@ -97,7 +97,7 @@ export const collectInSilicoPredictions = (variant: SmallVariant): InSilicoPredi
     predictions.push({ label: 'REVEL', value: variant.revel.toFixed(3) });
   }
   // Written as the cards write them, "deleterious low confidence (0.03)": the draft printed
-  // VEP's "deleterious_low_confidence(0.03)" (ENG-10).
+  // VEP's "deleterious_low_confidence(0.03)".
   if (variant.sift) {
     predictions.push({ label: 'SIFT', value: formatPredictionScore(variant.sift) });
   }
@@ -211,8 +211,8 @@ export const collectReportCriteria = (variant: SmallVariant): ReportCriterion[] 
 };
 
 /**
- * A reported variant's class as the report shows it, live and signed (CLIN-80, the owner's
- * decision of 2026-11-10): the class its review shows by the one rule of the family page
+ * A reported variant's class as the report shows it, live and signed (the owner's decision of
+ * 2026-11-10): the class its review shows by the one rule of the family page
  * (normalizeReviewClassification), and beside it the scoring's class when that is another.
  */
 export interface ReportedClass {
@@ -229,7 +229,7 @@ export interface ReportedClass {
 
 /**
  * The scoring's class beside the class shown: null when there is none, or when it is the class
- * shown (compared whatever their case).
+ * shown, compared whatever their case: the classification is free text.
  */
 export const scoreBesideClass = (shown: string | null, scored: string | null | undefined): string | null => {
   const score = scored?.trim() || null;
@@ -297,7 +297,7 @@ const structuralTypeLabel = (type?: string): string => {
 
 export const buildStructuralVariantSentence = (variant: StructuralVariant): string => {
   const typeLabel = structuralTypeLabel(variant.type);
-  // A translocation has no size: the sentence read "A 0 bp breakend" (CLIN-39).
+  // A translocation has no size: the sentence read "A 0 bp breakend".
   const translocation = TRANSLOCATION_TYPES.has((variant.type || '').trim().toUpperCase());
   const size = translocation ? null : formatStructuralLengthText(variant.length);
   const described = size ? `${size} ${typeLabel}` : typeLabel;

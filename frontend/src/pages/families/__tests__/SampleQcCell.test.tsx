@@ -475,7 +475,7 @@ describe('SampleQcCell sequencing-QC verdict', () => {
     );
   });
 
-  // ENG-10: without a report the chip took no keyboard focus, so its tooltip was mouse-only.
+  // Without a report the chip still takes keyboard focus, so its tooltip is not mouse-only.
   it.each([
     {
       state: 'fail',
@@ -511,9 +511,9 @@ describe('SampleQcCell sequencing-QC verdict', () => {
     },
   );
 
-  // ENG-10: the sentence gave the value as served, without its unit ("18.57" beside a chip
-  // reading 18.6x). It now writes the value as the chip and the metric list round it, and
-  // the limit exactly as configured, both in the metric's unit.
+  // The sentence writes the value as the chip and the metric list round it, never as served
+  // without its unit ("18.57" beside a chip reading 18.6x), and the limit exactly as
+  // configured, both in the metric's unit.
   it.each(UNIT_CASES)(
     '$label in $unit: "$says"',
     async ({ unit, label, direction, value, limit, says }) => {
@@ -596,10 +596,10 @@ const embryo = (
   role: 'embryo',
 });
 
-// CLIN-30: a sample whose recorded QC has no depth, N50 or report showed "-" even when the
-// server served a verdict, a fail included (REQ-QC-005). The chip now shows the verdict
-// with the value of the metric that decided it; where no metric decided it, the verdict
-// alone; the reason is in the tooltip, as on a chip with a depth.
+// A sample whose recorded QC has no depth, N50 or report, with a verdict the server served,
+// a fail included (REQ-QC-005), never shows "-": the chip shows the verdict with the value of
+// the metric that decided it; where no metric decided it, the verdict alone; the reason is in
+// the tooltip, as on a chip with a depth.
 describe('SampleQcCell with a verdict but no depth, N50 or report', () => {
   beforeEach(() => {
     mockedGet.mockReset();

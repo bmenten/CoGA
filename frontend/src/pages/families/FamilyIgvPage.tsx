@@ -22,7 +22,7 @@ const FamilyIgvPage: React.FC = () => {
   const initialLocus = searchParams.get('locus') || undefined;
   const projectIdParam = searchParams.get('project_id') || undefined;
   const backSearch = searchParams.get('back') || undefined;
-  // Only one of the app's family pages: the link chose it (SEC-15).
+  // Only one of the app's family pages: the link chose it.
   const backPathParam = familyPagePath(searchParams.get('back_path')) ?? undefined;
 
   const { data, isLoading, isError, error, refetch } = useQuery<
@@ -91,7 +91,7 @@ const FamilyIgvPage: React.FC = () => {
     );
   }
 
-  // The project catalogue failed: the reference is unknown, not missing (#608).
+  // The project catalogue failed: the reference is unknown, not missing.
   if (referenceFailed) {
     return (
       <PageState
@@ -117,8 +117,8 @@ const FamilyIgvPage: React.FC = () => {
     );
   }
 
-  // Another assembly's genome would draw the reads and variants at the wrong positions: any
-  // name the mapping did not know opened hg38, the T2T assembly's among them.
+  // Another assembly's genome would draw the reads and variants at the wrong positions: an
+  // assembly the mapping does not know opens no genome.
   if (!resolvedGenome) {
     return (
       <PageState

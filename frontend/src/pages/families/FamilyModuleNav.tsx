@@ -18,9 +18,9 @@ export type FamilyModuleKey =
  * The family's analyses as one row of equal, tab-like links, on the workspace and on every
  * analysis page, so an analyst moves from one to another without going back to the workspace.
  *
- * A link appears once its data is known to exist (a failed check shows it, #607); the page it
+ * A link appears once its data is known to exist (a failed check shows it); the page it
  * is on is always shown, marked as current. The variant summary comes last, at the row's right
- * end: it summarises the analyses' variant data, one section per kind (PROD-1), so it belongs
+ * end: it summarises the analyses' variant data, one section per kind, so it belongs
  * with the analyses, not with the family-level Sample QC and report.
  */
 const FamilyModuleNav: React.FC<{

@@ -1,4 +1,4 @@
-// The frontend's hand-written API types, checked against the backend's schema (#528).
+// The frontend's hand-written API types, checked against the backend's schema.
 //
 // apiSchema.generated.ts is generated from the backend's OpenAPI schema, and CI fails when
 // it is out of date (scripts/generate-api-types.py --check). Each check below fails to

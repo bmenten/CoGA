@@ -93,7 +93,7 @@ async def embryo_has_haplotype_blocks(session: AsyncSession, context: FamilyMeta
     A monogenic NIPT family's fetus is an embryo member too (the import reads a child of unknown
     sex whose status is unknown or unaffected as one, and the NIPT trio takes it for the fetus),
     but it has no sequencing column, so no blocks: its record holds no PGT section unless this
-    holds (TRACE-19, ``signed_record_sections.build_record_sections``)."""
+    holds (``signed_record_sections.build_record_sections``)."""
     embryos = {str(row.get("sample_id")) for row in context.sample_rows if is_embryo(row)}
     return any(str(row["sample"]) in embryos for row in await haplotype_source_rows(session, context))
 
@@ -314,7 +314,7 @@ async def family_pgt_analysis(session: AsyncSession, context: FamilyMetadataCont
         # No haplotypes to read (no assembly, or no member): no embryo is called.
         return analysis
     if analysis.inputs.blocks_outdated:
-        # Built for another pedigree or other sexes (CLIN-66): every embryo is uninformative
+        # Built for another pedigree or other sexes: every embryo is uninformative
         # until the phased genotypes are imported again, which the page and the record say.
         analysis.embryos = [
             PgtEmbryoOut(sample=str(row.get("sample_id")), sex=_text(row.get("sex")), call="uninformative")

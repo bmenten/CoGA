@@ -24,8 +24,8 @@ router = APIRouter(prefix="/ui-events", tags=["ui-events"])
 # Interactions the client is allowed to record. Anything else is dropped so a
 # misbehaving or tampered client cannot store arbitrary event types.
 _ALLOWED_EVENT_TYPES = {"click", "navigation", "submit", "view", "query"}
-# Single source of truth lives on the schema, which now rejects oversize
-# batches with 422; this slice stays as a defensive backstop.
+# Single source of truth lives on the schema, which rejects oversize
+# batches with 422; this slice is a defensive backstop.
 _MAX_EVENTS_PER_BATCH = UI_EVENT_BATCH_MAX_EVENTS
 _MAX_LABEL_LEN = 200
 _MAX_SHORT_LEN = 128
@@ -169,9 +169,9 @@ def _payload_from_event(
         user_email=getattr(user, "email", None),
         user_role=getattr(user, "role", None),
         # The id the browser gave the event (frontend lib/telemetry.ts): a batch it sends again,
-        # one in flight as its page closed, stores each event once (SEC-17: the INSERT does
-        # nothing for an id the table holds). An event without a UUID of the browser's gets one
-        # of the server's, as every event did before.
+        # one in flight as its page closed, stores each event once (the INSERT does nothing
+        # for an id the table holds). An event without a UUID of the browser's gets one of the
+        # server's.
         event_id=canonical_uuid(event.event_id) or new_event_id(),
     )
 

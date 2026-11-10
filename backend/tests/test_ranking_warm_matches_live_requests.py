@@ -1,4 +1,4 @@
-"""The background warm of the ranking cache ranks a view as a live request does (ENG-13).
+"""The background warm of the ranking cache ranks a view as a live request does.
 
 After an HPO or pedigree edit, ``precompute_family_ranking_safe`` replays the family's most
 recent prioritised query, so that the next open of that view is a cache hit. It resolves the
