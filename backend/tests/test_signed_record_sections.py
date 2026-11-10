@@ -533,6 +533,8 @@ def test_what_a_section_cannot_use_is_left_out_not_guessed() -> None:
     assert out["sources"] == [] and out["not_in_reference"] == ["GENE_PATH"]
     assert asyncio.run(srs.clinical_cnv_release(_Session(), None)) is None
     assert srs._int_or_none("not a number") is None and srs._int_or_none(True) is None
+    # An infinity is no whole number: int() raises OverflowError on it, which escaped.
+    assert srs._int_or_none(float("inf")) is None and srs._int_or_none(float("-inf")) is None
     # A region without a copy-number norm has none to freeze.
     assert srs._expected_copy_number({"expected_copy_number": {}}) is None
 
