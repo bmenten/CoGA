@@ -37,7 +37,6 @@ import {
 import { formatResolvedReferenceLabel, useFamilyReference } from '../../lib/reference';
 import { formatLocus } from './smallVariantResultUtils';
 import {
-  normalizeReviewClassification,
   REPORT_TAG_KEY,
   type FamilyMember,
   type FamilySmallVariantPage,
@@ -53,8 +52,8 @@ import {
 import PipelineSettingsPanel, { pipelineSettingsFromMetadata } from './PipelineSettingsPanel';
 import ReportSoftwareIdentity from './ReportSoftwareIdentity';
 import { useReportBuild } from '../../lib/appVersion';
+import { ClassificationMotivationSentence, ReportClassificationChip } from './ReportClassification';
 import {
-  acmgClassificationLabel,
   buildSegregationSentence,
   buildStructuralSegregationSentence,
   buildStructuralVariantSentence,
@@ -65,6 +64,8 @@ import {
   describeGnomadFrequency,
   describeInSilico,
   describeStructuralFrequency,
+  reportedSmallVariantClass,
+  reportedStructuralVariantClass,
 } from './reportNarrative';
 import { apiPath, raw } from '../../lib/apiPath';
 import { memberLabel, sortFamilyMembersProbandFirst } from '../../lib/familyMembers';
@@ -813,8 +814,9 @@ const LiveFamilyReport: React.FC = () => {
         {variants.map((variant) => {
           const profile = variant.gene ? geneProfiles.get(variant.gene) : undefined;
           const criteria = collectReportCriteria(variant);
-          const classification = acmgClassificationLabel(variant);
-          const pointTotal = variant.review?.acmg?.point_total;
+          // The class the review shows, as the family page shows it, and the ACMG score beside
+          // it when that is another class (CLIN-80).
+          const classification = reportedSmallVariantClass(variant);
           const clinvarSentence = describeClinvar(variant);
           const segregation = buildSegregationSentence(variant, members);
           const predictions = collectInSilicoPredictions(variant);
@@ -837,18 +839,7 @@ const LiveFamilyReport: React.FC = () => {
                     variant.hgvsc ? ` ${variant.hgvsc}` : ''
                   }`}
                 </h2>
-                {classification ? (
-                  <span className="table-chip report-classification-chip">
-                    {classification}
-                    {pointTotal !== undefined && pointTotal !== null
-                      ? ` · ${pointTotal} pts`
-                      : ''}
-                  </span>
-                ) : (
-                  <span className="table-chip report-classification-chip report-classification-chip--none">
-                    Not classified
-                  </span>
-                )}
+                <ReportClassificationChip value={classification} scoring="acmg" />
               </div>
 
               <div className="report-section">
@@ -866,11 +857,11 @@ const LiveFamilyReport: React.FC = () => {
                 <h3 className="report-subheading">Classification motivation</h3>
                 {criteria.length ? (
                   <>
-                    <p className="report-paragraph">
-                      This variant was classified as{' '}
-                      <strong>{classification || 'uncertain significance'}</strong> based on{' '}
-                      {joinWithAnd(criteria.map((criterion) => criterion.code))}.
-                    </p>
+                    <ClassificationMotivationSentence
+                      value={classification}
+                      scoring="acmg"
+                      codes={criteria.map((criterion) => criterion.code)}
+                    />
                     <ul className="report-criteria-list">
                       {criteria.map((criterion) => (
                         <li
@@ -984,10 +975,9 @@ const LiveFamilyReport: React.FC = () => {
 
         {structuralVariants.map((variant) => {
           const profile = variant.gene ? geneProfiles.get(variant.gene) : undefined;
-          const classification = normalizeReviewClassification(
-            variant.review?.classification,
-            variant.review?.tags,
-          );
+          // The class the review shows, as the SV page shows it, and the ClinGen CNV scoring
+          // beside it as the score, never as the class (CLIN-80).
+          const classification = reportedStructuralVariantClass(variant);
           const segregation = buildStructuralSegregationSentence(variant, members);
           const geneHpoTerms = profile?.extra?.hpo_terms ?? [];
           const overlappingHpo = geneHpoTerms
@@ -1005,13 +995,7 @@ const LiveFamilyReport: React.FC = () => {
                 <h2 className="section-title">
                   {`${structuralTypeHeading(variant)}${variant.gene ? ` — ${variant.gene}` : ''}`}
                 </h2>
-                {classification ? (
-                  <span className="table-chip report-classification-chip">{classification}</span>
-                ) : (
-                  <span className="table-chip report-classification-chip report-classification-chip--none">
-                    Not classified
-                  </span>
-                )}
+                <ReportClassificationChip value={classification} scoring="cnv" />
               </div>
 
               <div className="report-section">

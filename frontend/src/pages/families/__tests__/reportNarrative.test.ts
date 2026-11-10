@@ -16,6 +16,9 @@ import {
   describeZygosity,
   formatAlleleFrequency,
   humanizeEffect,
+  reportedSmallVariantClass,
+  reportedStructuralVariantClass,
+  scoreBesideClass,
 } from '../reportNarrative';
 
 const makeVariant = (overrides: Partial<SmallVariant> = {}): SmallVariant =>
@@ -327,5 +330,85 @@ describe('the frequency and segregation of a structural variant', () => {
     expect(buildStructuralSegregationSentence(sv({ inheritance: 'inherited' }))).toBe('The call is annotated as inherited.');
     expect(buildStructuralSegregationSentence(sv({ inheritance: ' ' }), members)).toBeNull();
     expect(buildStructuralSegregationSentence(sv(), members)).toBeNull();
+  });
+});
+
+// CLIN-80 (the owner's decision of 2026-11-10): the report shows the class a reported variant's
+// review shows, as the family page does, and the scoring's class beside it when that is another.
+describe('the class a reported variant shows on the report', () => {
+  const ACMG_CLASS_4 = {
+    criteria: [{ code: 'PVS1', strength: 'very_strong', accepted: true, auto_suggested: false }],
+    point_total: 8,
+    classification: 'Likely pathogenic - class 4',
+  };
+  const reviewed = (fields: Partial<SmallVariant['review'] & object>) =>
+    makeVariant({ review: review({ variant_id: 'v1', ...fields }) });
+
+  it('is the class the review shows, with the ACMG score beside it when that is another class', () => {
+    // ACMG class 4, then the review dialog's class 3: the class the analyst chose, the score beside it.
+    expect(
+      reportedSmallVariantClass(
+        reviewed({ classification: 'VUS - class 3', tags: ['acmg_class_3', 'report'], acmg: ACMG_CLASS_4 }),
+      ),
+    ).toEqual({ shown: 'VUS - class 3', score: 'Likely pathogenic - class 4', points: '8' });
+    // A class tag alone: the report said Not classified.
+    expect(reportedSmallVariantClass(reviewed({ tags: ['acmg_class_4', 'report'] }))).toEqual({
+      shown: 'Likely pathogenic - class 4',
+      score: null,
+      points: null,
+    });
+    // A class word before a class tag; a class word alone.
+    expect(reportedSmallVariantClass(reviewed({ classification: 'VUS', tags: ['acmg_class_4'] })).shown).toBe(
+      'VUS - class 3',
+    );
+    expect(reportedSmallVariantClass(reviewed({ classification: 'Pathogenic' })).shown).toBe('Pathogenic - class 5');
+    // The ACMG score that is the class shown stands with it, its points too.
+    expect(
+      reportedSmallVariantClass(
+        reviewed({ classification: 'Likely pathogenic - class 4', tags: ['acmg_class_4'], acmg: ACMG_CLASS_4 }),
+      ),
+    ).toEqual({ shown: 'Likely pathogenic - class 4', score: null, points: '8' });
+    // A review that shows no class beside an ACMG classification: Not classified, the score beside it.
+    expect(reportedSmallVariantClass(reviewed({ acmg: ACMG_CLASS_4 }))).toEqual({
+      shown: null,
+      score: 'Likely pathogenic - class 4',
+      points: '8',
+    });
+    expect(reportedSmallVariantClass(makeVariant())).toEqual({ shown: null, score: null, points: null });
+  });
+
+  it("is an SV's review class as the SV page shows it, its CNV scoring the score, never the class", () => {
+    const scored = {
+      kind: 'loss' as const,
+      criteria: [{ code: '2A', points: 1, accepted: true, auto_suggested: false }],
+      point_total: 1,
+      classification: 'Pathogenic - class 5',
+    };
+    const sv = (fields: Partial<StructuralVariant['review'] & object>) =>
+      structuralVariant({ _id: 'sv1', type: 'DEL', chr: '1', start: 7000, end: 12000, review: review({ variant_id: 'sv1', ...fields }) });
+    expect(reportedStructuralVariantClass(sv({ tags: ['acmg_class_4', 'report'] }))).toEqual({
+      shown: 'Likely pathogenic - class 4',
+      score: null,
+      points: null,
+    });
+    expect(reportedStructuralVariantClass(sv({ classification: 'Pathogenic - class 5', cnv_acmg: scored }))).toEqual({
+      shown: 'Pathogenic - class 5',
+      score: null,
+      points: '+1.00',
+    });
+    // The text cleared: no class, the CNV scoring beside Not classified.
+    expect(reportedStructuralVariantClass(sv({ cnv_acmg: scored }))).toEqual({
+      shown: null,
+      score: 'Pathogenic - class 5',
+      points: '+1.00',
+    });
+  });
+
+  it('reads a score in another case as the class shown', () => {
+    expect(scoreBesideClass('Likely pathogenic - class 4', 'Likely Pathogenic - class 4')).toBeNull();
+    expect(scoreBesideClass('VUS - class 3', ' Likely pathogenic - class 4 ')).toBe('Likely pathogenic - class 4');
+    expect(scoreBesideClass(null, 'Benign - class 1')).toBe('Benign - class 1');
+    expect(scoreBesideClass('Benign - class 1', null)).toBeNull();
+    expect(scoreBesideClass('Benign - class 1', '  ')).toBeNull();
   });
 });

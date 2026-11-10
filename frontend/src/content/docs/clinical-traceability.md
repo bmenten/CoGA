@@ -180,6 +180,10 @@ SHA-256 content hash), the version the clinical report in the EPD refers to. It 
   reports is frozen with that pair review;
 - the reported structural variants and CNVs, with their classification, CNV criteria, tags, note and
   frozen evidence;
+- for each reported variant, the class its review shows, as the family page shows it (a class word in
+  its text, else its most severe ACMG class tag, else its text), with that text. CoGA works it out
+  from the saved review at sign-out. The ACMG classification and the CNV scoring are kept beside it,
+  so a class you chose over the ACMG score keeps that score in the record;
 - the drift state, the Sample QC verdict, and the sequencing-QC values and verdicts with the cut-offs
   they were judged against. The signed version lists every value (a PGT embryo's ADO, ADI and
   concordance included), not only those outside a cut-off;
@@ -405,6 +409,10 @@ It shows what the record holds (section 4):
   partner, the gene, the phase, the pair's tags and classification, and its note);
 - each reported structural variant or CNV, with its description, classification and ClinGen CNV
   criteria;
+- as each variant's class, the class its review showed when the version was signed, *Not classified*
+  when it showed none, and beside it the ACMG (or CNV) score when that is another class: *VUS - class
+  3 (ACMG score: Likely pathogenic - class 4 · 8 pts)*, *Not classified (CNV score: Pathogenic - class
+  5 · +1.00 pts)*. A version signed before CoGA froze that class shows the class as it was signed;
 - in a PGT family, the embryo calls (*PGT embryo results*), with the haplotypes named as the track names
   them (P1, P2, M1, M2). Since CoGA checks the QC against thresholds, the verdict shows too (*⚠ The
   phasing QC at the ROI did not meet its thresholds …*), with the thresholds in force. A call that did
@@ -471,7 +479,9 @@ Sign out again to issue a new version.
 ### The live report
 
 **Open the live report** shows the current data: the variant descriptions, the gene context, the
-phenotype match, the drift banner and the audit trail. The case is signed out here, but it is never the
+phenotype match, the drift banner and the audit trail. Each variant's class is the class its review
+shows on the family page, with the ACMG (or CNV) score beside it when that is another class, as on the
+signed version. The case is signed out here, but it is never the
 signed report. Its top card says *This is the live report, not signed version 2*, and whether it still
 matches that version:
 

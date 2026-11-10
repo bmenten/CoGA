@@ -14,6 +14,7 @@ import {
   SIGNED_REPEAT_EXPANSIONS_WITH_CORRECTION,
   SIGNED_STATEMENT,
 } from '../../../test/signedAnalysisFixture';
+import CLASS_SHOWN_E2E from './fixtures/signed-class-shown-e2e.json';
 
 const apiMock = vi.hoisted(() => ({
   get: vi.fn(),
@@ -3153,6 +3154,168 @@ describe('FamilyReportPage', () => {
 
       expect(await screen.findByText('Not a signed version')).toBeInTheDocument();
       expect(screen.getByText('“abc” is not the number of a signed version.')).toBeInTheDocument();
+    });
+  });
+
+  // CLIN-80 (the owner's decision of 2026-11-10): the live report and the signed version show
+  // the class each reported variant's review shows, by the family page's rule, and beside it the
+  // ACMG (or CNV) score when that is another class. Rendered from what the API served on real
+  // Postgres and ClickHouse (backend/tests/e2e/test_e2e_signed_class_shown.py): the live lists,
+  // the record signed from them, the record signed after a class changed, and one signed as a
+  // build from before CLIN-80.
+  describe('the class each reported variant shows (CLIN-80)', () => {
+    // A signed version as GET …/report/sign-outs/{version} served it.
+    type SignedDetail = Pick<(typeof CLASS_SHOWN_E2E)['signed'], 'version' | 'report_code' | 'content_hash' | 'signed_out_by' | 'signed_out_at'>;
+
+    const classChips = (container: HTMLElement) =>
+      Array.from(container.querySelectorAll('article.report-variant .report-classification-chip')).map(
+        (chip) => chip.textContent,
+      );
+
+    const mockLiveLists = (structural: unknown[] = CLASS_SHOWN_E2E.live.structural) => {
+      mockApi();
+      const base = apiMock.get.getMockImplementation()!;
+      apiMock.get.mockImplementation((url: string, config?: unknown) => {
+        if (url.startsWith('/families/F1/small-variants')) {
+          return Promise.resolve({ data: { variants: CLASS_SHOWN_E2E.live.small, total: CLASS_SHOWN_E2E.live.small.length } });
+        }
+        if (url.startsWith('/families/F1/structural-variants')) {
+          return Promise.resolve({ data: { variants: structural, total: structural.length } });
+        }
+        return base(url, config);
+      });
+    };
+
+    const mockSignedRecord = (record: SignedDetail, check = () => checkResult({ version: record.version })) =>
+      mockSignedCase({
+        versions: [
+          {
+            ...SIGNED_ENTRY,
+            version: record.version,
+            report_code: record.report_code,
+            content_hash: record.content_hash,
+            signed_out_by: record.signed_out_by,
+            signed_out_at: record.signed_out_at,
+          },
+        ],
+        detail: (version) =>
+          version === record.version
+            ? Promise.resolve({ data: record })
+            : Promise.reject({ response: { status: 404, data: { detail: 'Sign-out version not found' } } }),
+        check,
+      });
+
+    it('shows on the live report the class each review shows, with the score beside it when another', async () => {
+      mockLiveLists();
+      const { container } = renderPage(undefined, '/families/F1/report?view=live');
+
+      await waitFor(() => expect(classChips(container)).toHaveLength(6));
+      expect(classChips(container)).toEqual([
+        // ACMG class 4, then the review dialog's class 3: the class chosen, the score beside it.
+        'VUS - class 3 (ACMG score: Likely pathogenic - class 4 · 8 pts)',
+        // A class tag alone: it read Not classified.
+        'Likely pathogenic - class 4',
+        // "VUS" beside the tag of class 4: it read "VUS".
+        'VUS - class 3',
+        // "Pathogenic" alone: it read "Pathogenic".
+        'Pathogenic - class 5',
+        // The CNV-scored deletion, its text and its scoring alike; the breakend's class tag.
+        'Pathogenic - class 5 · +1.00 pts',
+        'Likely pathogenic - class 4',
+      ]);
+      // The criteria are named for the class they score, never as the grounds of the class chosen.
+      expect(
+        screen.getByText(/score this variant/, { selector: 'p' }),
+      ).toHaveTextContent(
+        'The ACMG/AMP criteria PVS1 score this variant Likely pathogenic - class 4; it is classified as VUS - class 3.',
+      );
+    });
+
+    it('shows on the live report an SV whose text was cleared as not classified, its CNV score beside it', async () => {
+      mockLiveLists(CLASS_SHOWN_E2E.live.structural_text_cleared);
+      const { container } = renderPage(undefined, '/families/F1/report?view=live');
+
+      await waitFor(() => expect(classChips(container)).toHaveLength(6));
+      expect(classChips(container).slice(4)).toEqual([
+        'Not classified (CNV score: Pathogenic - class 5 · +1.00 pts)',
+        'Likely pathogenic - class 4',
+      ]);
+    });
+
+    it('shows on the signed version the class its record froze, the score beside it, in print too', async () => {
+      mockSignedRecord(CLASS_SHOWN_E2E.signed);
+      const print = vi.spyOn(window, 'print').mockImplementation(() => undefined);
+      const { container } = renderPage();
+
+      await screen.findByRole('heading', { name: '1-2000-C-T' });
+      // The record's order: the small variants, then the SVs, each by its ID.
+      expect(classChips(container)).toEqual([
+        'VUS - class 3 (ACMG score: Likely pathogenic - class 4 · 8 pts)',
+        'Likely pathogenic - class 4',
+        'VUS - class 3',
+        'Pathogenic - class 5',
+        'Likely pathogenic - class 4',
+        'Pathogenic - class 5 · +1.00 pts',
+      ]);
+      const overridden = screen.getByRole('heading', { name: '1-2000-C-T' }).closest('article')!;
+      expect(overridden).toHaveTextContent(
+        'The ACMG/AMP criteria PVS1 score this variant Likely pathogenic - class 4; it is classified as VUS - class 3.',
+      );
+      // The deletion's ClinGen criteria give the class its review shows: one sentence, as before.
+      const scored = screen.getByRole('heading', { name: 'Structural variant 1-7000-12000-DEL---' }).closest('article')!;
+      expect(scored).toHaveTextContent('This variant was classified as Pathogenic - class 5 by the ClinGen CNV criteria 2A.');
+      // Print prints this view: the classes are on the printout.
+      fireEvent.click(screen.getByRole('button', { name: `Print signed version ${CLASS_SHOWN_E2E.signed.version}` }));
+      expect(print).toHaveBeenCalledTimes(1);
+      container.querySelectorAll('.report-classification-chip').forEach((chip) => expect(chip.closest('.no-print')).toBeNull());
+      print.mockRestore();
+    });
+
+    it('shows a record signed after a class changed with the classes then shown', async () => {
+      mockSignedRecord(CLASS_SHOWN_E2E.signed_after_change);
+      const { container } = renderPage();
+
+      await screen.findByRole('heading', { name: '1-4000-T-C' });
+      expect(classChips(container)).toEqual([
+        'VUS - class 3 (ACMG score: Likely pathogenic - class 4 · 8 pts)',
+        'Likely pathogenic - class 4',
+        // "VUS" became "Likely benign", its tags as they were.
+        'Likely benign - class 2',
+        'Pathogenic - class 5',
+        'Likely pathogenic - class 4',
+        // Its text cleared, its CNV scoring kept: the score, never the class.
+        'Not classified (CNV score: Pathogenic - class 5 · +1.00 pts)',
+      ]);
+      const cleared = screen.getByRole('heading', { name: 'Structural variant 1-7000-12000-DEL---' }).closest('article')!;
+      expect(cleared).toHaveTextContent('The ClinGen CNV criteria 2A score this variant Pathogenic - class 5; it is not classified.');
+    });
+
+    it('shows a record signed before CLIN-80 exactly as it was signed, and names what the check could not compare', async () => {
+      const record = CLASS_SHOWN_E2E.signed_before_class_shown;
+      mockSignedRecord(record, () =>
+        checkResult({
+          version: record.version,
+          not_compared: ['reported_variants.class_shown', 'reported_structural_variants.class_shown'],
+        }),
+      );
+      const { container } = renderPage();
+
+      await screen.findByRole('heading', { name: '1-2000-C-T' });
+      // The record holds no class shown: read as it was read when signed, the ACMG
+      // classification first, then the class tag, an SV's CNV scoring last; no score beside.
+      expect(classChips(container)).toEqual([
+        'Likely pathogenic - class 4 · 8 pts',
+        'Likely pathogenic - class 4',
+        'Likely pathogenic - class 4',
+        'Not classified',
+        'Likely pathogenic - class 4',
+        'Pathogenic - class 5 · +1.00 pts',
+      ]);
+      expect(
+        await screen.findByText(/so not compared: the class each reported small variant’s review showed/),
+      ).toHaveTextContent(
+        `Not in this version, so not compared: the class each reported small variant’s review showed (with its classification text) and the class each reported structural variant’s review showed.`,
+      );
     });
   });
 

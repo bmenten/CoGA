@@ -290,6 +290,11 @@ pull request updates this list only when it adds clinical behaviour that no area
   - The frozen snapshot and its drift gates (small variants, SVs and CNVs); the
     sample-integrity, sample-QC, incomplete-import and assembly-scope gates.
   - The signed view rendered from its record in the release-candidate format.
+  - Each reported variant's class, frozen at sign-out as its review shows it on the family page
+    (a bare class word in the text, else its class tag, else the text) and shown so on the live
+    report and the signed version, with the ACMG or CNV score beside it when that is another
+    class; an SV's CNV scoring never shown as its class; a class changed since sign-out, by its
+    text alone too, named by the check.
   - The software, annotation, reference, HPO and QC-limit versions it binds.
   - What the analysis looked at, frozen with it: each reported variant's description and
     genotypes; the gene-panel versions the family's searches applied; the reference-data

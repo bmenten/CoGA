@@ -12,9 +12,11 @@ import { sexUnknownWarning } from '../../lib/embryoSegregation';
 import { isNotFoundError } from '../../lib/errorMessage';
 import PageState from '../../components/PageState';
 import FamilyPageHeader from './FamilyPageHeader';
+import { ClassificationMotivationSentence, ReportClassificationChip } from './ReportClassification';
 import ReportSoftwareIdentity from './ReportSoftwareIdentity';
 import { formatCount, joinWithAnd } from '../../lib/format';
 import { CATEGORY_LABELS, depth, pct } from './niptClassification';
+import type { ReportedClass } from './reportNarrative';
 import { NIPT_QUALITY_FAILURE_LABELS } from './NiptQcPanel';
 import {
   failuresByJob,
@@ -288,6 +290,19 @@ type CardContext = {
   version: number;
 };
 
+// A reported variant's class as its record holds it (CLIN-80): the class shown, the score beside
+// it when the record holds another, and the scoring's points.
+const smallVariantClass = (variant: SignedSmallVariant): ReportedClass => ({
+  shown: variant.classification,
+  score: variant.score,
+  points: variant.pointTotal !== null ? String(variant.pointTotal) : null,
+});
+const structuralVariantClass = (variant: SignedStructuralVariant): ReportedClass => ({
+  shown: variant.classification,
+  score: variant.score,
+  points: variant.pointTotal !== null ? formatCnvPoints(variant.pointTotal) : null,
+});
+
 const SmallVariantCard: React.FC<{ variant: SignedSmallVariant } & CardContext> = ({
   variant,
   descriptions,
@@ -296,16 +311,7 @@ const SmallVariantCard: React.FC<{ variant: SignedSmallVariant } & CardContext> 
   <article className="surface-card report-variant">
     <div className="report-variant-head">
       <h2 className="section-title">{variant.variantId ?? 'An entry that cannot be read'}</h2>
-      {variant.classification ? (
-        <span className="table-chip report-classification-chip">
-          {variant.classification}
-          {variant.pointTotal !== null ? ` · ${variant.pointTotal} pts` : ''}
-        </span>
-      ) : (
-        <span className="table-chip report-classification-chip report-classification-chip--none">
-          Not classified
-        </span>
-      )}
+      <ReportClassificationChip value={smallVariantClass(variant)} scoring="acmg" />
     </div>
     {variant.variantId === null ? (
       <p className="report-paragraph" role="alert">
@@ -324,11 +330,11 @@ const SmallVariantCard: React.FC<{ variant: SignedSmallVariant } & CardContext> 
           <h3 className="report-subheading">Classification motivation</h3>
           {variant.criteria.length ? (
             <>
-              <p className="report-paragraph">
-                This variant was classified as{' '}
-                <strong>{variant.classification || 'uncertain significance'}</strong> based on{' '}
-                {joinWithAnd(variant.criteria.map((criterion) => criterion.code))}.
-              </p>
+              <ClassificationMotivationSentence
+                value={smallVariantClass(variant)}
+                scoring="acmg"
+                codes={variant.criteria.map((criterion) => criterion.code)}
+              />
               <ul className="report-criteria-list">
                 {variant.criteria.map((criterion) => (
                   <li
@@ -422,16 +428,7 @@ const StructuralVariantCard: React.FC<{ variant: SignedStructuralVariant } & Car
         <h2 className="section-title">
           {title ? `Structural variant ${title}` : 'An entry that cannot be read'}
         </h2>
-        {variant.classification ? (
-          <span className="table-chip report-classification-chip">
-            {variant.classification}
-            {variant.pointTotal !== null ? ` · ${formatCnvPoints(variant.pointTotal)} pts` : ''}
-          </span>
-        ) : (
-          <span className="table-chip report-classification-chip report-classification-chip--none">
-            Not classified
-          </span>
-        )}
+        <ReportClassificationChip value={structuralVariantClass(variant)} scoring="cnv" />
       </div>
       {title === null ? (
         <p className="report-paragraph" role="alert">
@@ -452,11 +449,11 @@ const StructuralVariantCard: React.FC<{ variant: SignedStructuralVariant } & Car
             <h3 className="report-subheading">Classification motivation</h3>
             {variant.criteria.length ? (
               <>
-                <p className="report-paragraph">
-                  This variant was classified as{' '}
-                  <strong>{variant.classification || 'uncertain significance'}</strong> by the
-                  ClinGen CNV criteria {joinWithAnd(variant.criteria.map((criterion) => criterion.code))}.
-                </p>
+                <ClassificationMotivationSentence
+                  value={structuralVariantClass(variant)}
+                  scoring="cnv"
+                  codes={variant.criteria.map((criterion) => criterion.code)}
+                />
                 <ul className="report-criteria-list">
                   {variant.criteria.map((criterion) => (
                     <li key={criterion.code} className="report-criterion">

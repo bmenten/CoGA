@@ -639,6 +639,7 @@ describe('parseSignedReport', () => {
       variantId: null,
       variantKey: null,
       classification: null,
+      score: null,
       pointTotal: null,
       criteria: [],
       unreadableCriteria: 0,
@@ -654,6 +655,96 @@ describe('parseSignedReport', () => {
       { code: '2A', name: 'Complete overlap of an established triplosensitive (TS) gene/region', points: 1, evidence: null },
     ]);
     expect(gain.unreadableCriteria).toBe(2);
+  });
+
+  // CLIN-80 (the owner's decision of 2026-11-10): a record freezes the class each reported
+  // variant's review showed (class_shown), by the family page's rule; the signed version shows
+  // it, with the ACMG (or CNV) score beside it when that is another class.
+  it('reads the class a reported small variant’s review showed, and the ACMG score beside it', () => {
+    const acmg = {
+      criteria: [{ code: 'PVS1', strength: 'very_strong', accepted: true }],
+      point_total: 8,
+      classification: 'Likely pathogenic - class 4',
+    };
+    const [overridden, tagOnly, wordBeforeTag, wordOnly, none, agreed] = parseSignedReport({
+      ...SNAPSHOT,
+      reported_variants: [
+        { variant_id: '1-2000-C-T', classification: 'VUS - class 3', class_shown: 'VUS - class 3', acmg_class: 'acmg_class_4', acmg, tags: ['acmg_class_3', 'report'] },
+        { variant_id: '1-3000-G-A', classification: null, class_shown: 'Likely pathogenic - class 4', acmg: null, tags: ['acmg_class_4', 'report'] },
+        { variant_id: '1-4000-T-C', classification: 'VUS', class_shown: 'VUS - class 3', acmg: null, tags: ['acmg_class_4', 'report'] },
+        { variant_id: '1-5000-A-T', classification: 'Pathogenic', class_shown: 'Pathogenic - class 5', acmg: null, tags: ['report'] },
+        // A review that showed no class beside an ACMG classification: Not classified, the score beside.
+        { variant_id: '1-6000-C-G', classification: null, class_shown: null, acmg, tags: ['report'] },
+        // The score that is the class shown, in the case of a record from before ENG-6: no score beside.
+        { variant_id: '1-7000-AG-A', classification: null, class_shown: 'Likely pathogenic - class 4', acmg: { ...acmg, classification: 'Likely Pathogenic - class 4' }, tags: ['acmg_class_4'] },
+      ],
+    })!.reportedVariants!;
+
+    // The class the analyst chose, the ACMG score it overrode beside it, with its points.
+    expect([overridden.classification, overridden.score, overridden.pointTotal]).toEqual([
+      'VUS - class 3',
+      'Likely pathogenic - class 4',
+      8,
+    ]);
+    expect([tagOnly.classification, tagOnly.score]).toEqual(['Likely pathogenic - class 4', null]);
+    expect([wordBeforeTag.classification, wordBeforeTag.score]).toEqual(['VUS - class 3', null]);
+    expect([wordOnly.classification, wordOnly.score]).toEqual(['Pathogenic - class 5', null]);
+    expect([none.classification, none.score]).toEqual([null, 'Likely pathogenic - class 4']);
+    expect([agreed.classification, agreed.score, agreed.pointTotal]).toEqual(['Likely pathogenic - class 4', null, 8]);
+  });
+
+  it('reads a record signed before the class shown as it was read when signed', () => {
+    // No class_shown: the ACMG classification, else the class tag's, and no score beside it.
+    const [overridden, tagOnly, wordOnly] = parseSignedReport({
+      ...SNAPSHOT,
+      reported_variants: [
+        {
+          variant_id: '1-2000-C-T',
+          acmg_class: 'acmg_class_4',
+          acmg: { criteria: [], point_total: 8, classification: 'Likely pathogenic - class 4' },
+          tags: ['acmg_class_3', 'report'],
+        },
+        { variant_id: '1-3000-G-A', acmg_class: null, acmg: null, tags: ['acmg_class_4', 'report'] },
+        { variant_id: '1-5000-A-T', acmg_class: null, acmg: null, tags: ['report'] },
+      ],
+      reported_structural_variants: [
+        {
+          variant_id: '1-7000-12000-DEL---',
+          classification: null,
+          cnv_class: 'cnv_class_5',
+          cnv_point_total: 1,
+          cnv_acmg: { kind: 'loss', criteria: [], point_total: 1, classification: 'Pathogenic - class 5' },
+          tags: ['report'],
+        },
+      ],
+    })!.reportedVariants!;
+    expect([overridden.classification, overridden.score]).toEqual(['Likely pathogenic - class 4', null]);
+    expect([tagOnly.classification, tagOnly.score]).toEqual(['Likely pathogenic - class 4', null]);
+    expect([wordOnly.classification, wordOnly.score]).toEqual([null, null]);
+  });
+
+  it('reads the class a reported SV’s review showed, its CNV scoring the score, never the class', () => {
+    const scoring = {
+      kind: 'loss',
+      criteria: [{ code: '2A', points: 1, accepted: true }],
+      point_total: 1,
+      classification: 'Pathogenic - class 5',
+    };
+    const [tagOnly, scored, cleared, olderCleared] = parseSignedReport({
+      ...SNAPSHOT,
+      reported_structural_variants: [
+        { variant_id: '1-20000-20000-BND-5-3000000-3000000', classification: null, class_shown: 'Likely pathogenic - class 4', cnv_class: null, cnv_acmg: null, tags: ['acmg_class_4', 'report'] },
+        { variant_id: '1-7000-12000-DEL---', classification: 'Pathogenic - class 5', class_shown: 'Pathogenic - class 5', cnv_class: 'cnv_class_5', cnv_point_total: 1, cnv_acmg: scoring, tags: ['report'] },
+        // Its text cleared: no class shown, the CNV scoring beside it.
+        { variant_id: '1-7000-12000-DEL---', classification: null, class_shown: null, cnv_class: 'cnv_class_5', cnv_point_total: 1, cnv_acmg: scoring, tags: ['report'] },
+        // The same in a record signed before: read then as the CNV scoring's class.
+        { variant_id: '1-7000-12000-DEL---', classification: null, cnv_class: 'cnv_class_5', cnv_point_total: 1, cnv_acmg: scoring, tags: ['report'] },
+      ],
+    })!.reportedStructuralVariants!;
+    expect([tagOnly.classification, tagOnly.score, tagOnly.pointTotal]).toEqual(['Likely pathogenic - class 4', null, null]);
+    expect([scored.classification, scored.score, scored.pointTotal]).toEqual(['Pathogenic - class 5', null, 1]);
+    expect([cleared.classification, cleared.score, cleared.pointTotal]).toEqual([null, 'Pathogenic - class 5', 1]);
+    expect([olderCleared.classification, olderCleared.score]).toEqual(['Pathogenic - class 5', null]);
   });
 
   it('reads a section an older record predates as absent, never as empty', () => {
@@ -1603,6 +1694,10 @@ describe('what the sign-out check could not compare', () => {
     );
     expect(describeNotCompared(['nipt.coverage_notes'])).toBe(
       'the NIPT coverage check’s notes on the coverage tracks it did not read as depth',
+    );
+    // The class each reported variant's review showed, which records hold since CLIN-80.
+    expect(describeNotCompared(['reported_variants.class_shown', 'reported_structural_variants.class_shown'])).toBe(
+      'the class each reported small variant’s review showed (with its classification text) and the class each reported structural variant’s review showed',
     );
     // A reference module CoGA records since: by its name, else by its key.
     expect(describeNotCompared(['modules.hpo', 'modules.gene_loci', 'modules.gencc'])).toBe(

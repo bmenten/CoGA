@@ -47,7 +47,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.config import settings
-from .review_pg_utils import current_class_label
+from .review_pg_utils import current_class_label, review_class_label
 from .annotation_manifest_service import (
     REFERENCE_MODULE_KEYS,
     UNAVAILABLE_MODULE_VERSION,
@@ -119,6 +119,26 @@ _IMPORT_FLAG_DATASET_LISTS = ("failed_datasets", "imported_datasets")
 
 # The snapshot section holding the SV/CNV evidence drift.
 STRUCTURAL_DRIFT_SECTION = "structural_drift"
+
+# The sections of the reported variants, and the key, in each entry, of the class its review
+# showed when it was signed (CLIN-80, the owner's decision of 2026-11-10): the class the family
+# page shows by the one rule (``review_pg_utils.review_class_label``: a bare class word in the
+# text, else the most severe ACMG class tag, else the text), worked out here from the review as
+# stored, never taken from the request. A small variant's entry freezes its classification text
+# beside it (an SV's froze it already), so the record holds what the class was read from. The
+# live report and the signed view show this class, "Not classified" when there is none, and the
+# ACMG record's (or the CNV scoring's) class beside it as the score when that is another class.
+REPORTED_VARIANTS_SECTION = "reported_variants"
+REPORTED_STRUCTURAL_SECTION = "reported_structural_variants"
+CLASS_SHOWN_KEY = "class_shown"
+# What a record signed before CoGA froze the class shown holds none of, per section: a small
+# variant's classification text came with it. The sign-out check leaves these out of the
+# comparison with such a record and names ``<section>.class_shown`` as not compared
+# (:func:`reported_comparable_with_record`).
+_CLASS_SHOWN_KEYS: dict[str, tuple[str, ...]] = {
+    REPORTED_VARIANTS_SECTION: ("classification", CLASS_SHOWN_KEY),
+    REPORTED_STRUCTURAL_SECTION: (CLASS_SHOWN_KEY,),
+}
 
 # What a signed record is, frozen into it and said on the report page (owner decision of
 # 2026-10-14). The report code is not in the record: it is made from the record's content
@@ -952,14 +972,15 @@ async def _reported_reviews(session: AsyncSession, family_uuid: str) -> list[dic
     The pair review that holds the tag is frozen with the variant (``compound_het``: the
     partner, the gene, the pair's classification, tags and note, and its phase), so the record
     says why a variant is reported whose own tags do not; a variant reported by its own tag
-    alone is frozen as before.
+    alone is frozen as before. Each holds its classification text as stored; the class its review
+    shows is added by :func:`build_report_snapshot` (``class_shown``, CLIN-80).
     """
     rows = (
         await session.execute(
             text(
                 """
-                SELECT variant_id, acmg_class, acmg, tags, note, acmg_evidence_snapshot,
-                       compound_het_group_id, compound_het_partner_variant_ids,
+                SELECT variant_id, classification, acmg_class, acmg, tags, note,
+                       acmg_evidence_snapshot, compound_het_group_id, compound_het_partner_variant_ids,
                        compound_het_gene, compound_het_classification, compound_het_tags,
                        compound_het_note, compound_het_phase_status
                 FROM small_variant_reviews
@@ -975,6 +996,8 @@ async def _reported_reviews(session: AsyncSession, family_uuid: str) -> list[dic
     for row in rows:
         entry: dict[str, Any] = {
             "variant_id": row["variant_id"],
+            # The classification text as stored, which the class shown is read from (CLIN-80).
+            "classification": row["classification"],
             "acmg_class": row["acmg_class"],
             "acmg": row["acmg"],
             "tags": sorted(row["tags"] or []),
@@ -999,7 +1022,8 @@ async def _reported_structural_reviews(
 
     Each keeps ``variant_key``, null: the review's column of that name was never written
     (#853) and went with ENG-6, so every record signed before holds null there, and the
-    sign-out's change check compares this section with theirs whole.
+    sign-out's change check compares this section with theirs on what they hold. The class
+    the review shows is added by :func:`build_report_snapshot` (``class_shown``, CLIN-80).
     """
     rows = (
         await session.execute(
@@ -1150,6 +1174,15 @@ def snapshot_gaps(snapshot: Mapping[str, Any] | None) -> list[dict[str, str]]:
     return gaps
 
 
+def _with_class_shown(entry: Mapping[str, Any]) -> dict[str, Any]:
+    """A reported variant's entry with the class its review shows (``class_shown``, CLIN-80):
+    :func:`review_pg_utils.review_class_label` over the review's classification text and tags
+    as stored, as the family page, the Variant Explorer and the classification filters read it.
+    None when the review shows no class: the report says *Not classified*. The ACMG record and
+    the CNV scoring stay in the entry as they were, and are shown beside it as the score."""
+    return {**entry, CLASS_SHOWN_KEY: review_class_label(entry.get("classification"), entry.get("tags"))}
+
+
 async def build_report_snapshot(
     session: AsyncSession,
     *,
@@ -1174,8 +1207,11 @@ async def build_report_snapshot(
     qc_report = await get_family_sample_integrity_qc(
         session, family_id=family_id, user=user, project_id=project_id, shared_nipt=shared_nipt
     )
-    reported = await _reported_reviews(session, context.family_uuid)
-    reported_structural = await _reported_structural_reviews(session, context.family_uuid)
+    # Each with the class its review shows, by the family page's rule (CLIN-80).
+    reported = [_with_class_shown(entry) for entry in await _reported_reviews(session, context.family_uuid)]
+    reported_structural = [
+        _with_class_shown(entry) for entry in await _reported_structural_reviews(session, context.family_uuid)
+    ]
     sequencing_qc = await _canonical_sequencing_qc(session, context)
     import_incomplete = await _import_incomplete_state(session, context.family_uuid)
     import_unfinished = await _import_unfinished_state(session, context.family_uuid)
@@ -1282,8 +1318,8 @@ async def build_report_snapshot(
         # The imports that began writing the family and stopped part-way ({}: none), with
         # the datasets each had not finished, which may be partly written or missing.
         "import_unfinished": import_unfinished,
-        "reported_variants": reported,
-        "reported_structural_variants": reported_structural,
+        REPORTED_VARIANTS_SECTION: reported,
+        REPORTED_STRUCTURAL_SECTION: reported_structural,
         **sections,
         **finding_reviews,
     }
@@ -2006,8 +2042,8 @@ async def find_report_signout_by_code(
 REPORT_CONTENT_SECTIONS = (
     "assembly",
     "modules",
-    "reported_variants",
-    "reported_structural_variants",
+    REPORTED_VARIANTS_SECTION,
+    REPORTED_STRUCTURAL_SECTION,
     "drift",
     STRUCTURAL_DRIFT_SECTION,
     "sample_qc",
@@ -2040,6 +2076,11 @@ def _section_fingerprint(value: Any) -> str:
     return _canonical_hash(json.loads(json.dumps(value, default=str)))
 
 
+# The keys whose text names a class label: a review's classification, and the class a reported
+# variant's review showed (CLIN-80).
+_CLASS_LABEL_KEYS = frozenset({"classification", CLASS_SHOWN_KEY})
+
+
 def _with_current_class_labels(value: Any) -> Any:
     """``value`` with each classification that names a class label in another case written
     as the label is now (:func:`current_class_label`).
@@ -2047,13 +2088,14 @@ def _with_current_class_labels(value: Any) -> Any:
     The labels were put in sentence case (ENG-6), and revision 0013 rewrote the stored reviews
     to match; a record signed before keeps "Likely Pathogenic - class 4". The comparison with
     the latest sign-out reads the two as one, so the case alone is no change since sign-out.
-    Only a string under a ``classification`` key is read; any other text compares as it is.
+    Only a string under a ``classification`` or ``class_shown`` key is read; any other text
+    compares as it is.
     """
     if isinstance(value, Mapping):
         return {
             key: (
                 current_class_label(item)
-                if key == "classification" and isinstance(item, str)
+                if key in _CLASS_LABEL_KEYS and isinstance(item, str)
                 else _with_current_class_labels(item)
             )
             for key, item in value.items()
@@ -2061,6 +2103,36 @@ def _with_current_class_labels(value: Any) -> Any:
     if isinstance(value, list):
         return [_with_current_class_labels(item) for item in value]
     return value
+
+
+def reported_comparable_with_record(section: str, signed: Any, current: Any) -> tuple[Any, list[str]]:
+    """The current reported variants of ``section`` (``reported_variants``,
+    ``reported_structural_variants``) to compare with a signed record's, and what of them the
+    record predates.
+
+    A record signed before CoGA froze the class each reported variant's review showed (CLIN-80)
+    holds no ``class_shown`` in its entries, and its small variants hold no classification text.
+    Like a part of a section a record predates, these are left out of the comparison and named as
+    not compared (``<section>.class_shown``), rather than every such record reading as changed;
+    the rest is compared on what the record holds, so a class tag, an ACMG classification, a CNV
+    scoring or an SV's classification text changed since still reads as a change. A record that
+    holds them is compared whole, so a class changed since signing reads as a change, a small
+    variant's classification text changed alone too. A record whose list is empty holds no
+    entry to tell by: it is compared whole, and a variant reported since is a change.
+    """
+    keys = _CLASS_SHOWN_KEYS.get(section)
+    if keys is None or not isinstance(signed, list) or not isinstance(current, list):
+        return current, []
+    entries = [entry for entry in signed if isinstance(entry, Mapping)]
+    if not entries or any(CLASS_SHOWN_KEY in entry for entry in entries):
+        return current, []
+    comparable = [
+        {key: value for key, value in entry.items() if key not in keys} if isinstance(entry, Mapping) else entry
+        for entry in current
+    ]
+    if comparable == current:
+        return current, []
+    return comparable, [f"{section}.{CLASS_SHOWN_KEY}"]
 
 
 def _modules_comparable_with(
@@ -2111,11 +2183,13 @@ async def compare_report_with_latest_signout(
     section or reference module the signed record predates is listed in ``not_compared``
     (a module as ``modules.<key>``) rather than reported as changed, and so is what a section
     gained since (``pgt_analysis.qc_verdict``, ``repeat_expansions.count_units``,
-    ``nipt.coverage_notes``): the rest of such a section is compared on what the record holds.
-    A section of one application that neither holds (``pgt_analysis`` of a family without an
-    embryo, or of a monogenic NIPT family whose embryo, its fetus, has no haplotype blocks;
-    ``nipt`` of a family that is no monogenic NIPT family) is neither compared nor listed. The
-    report page and the signed view name what is listed as not compared beside what changed,
+    ``nipt.coverage_notes``, and the class each reported variant's review showed,
+    ``reported_variants.class_shown`` and ``reported_structural_variants.class_shown``, CLIN-80:
+    :func:`reported_comparable_with_record`): the rest of such a section is compared on what the
+    record holds. A section of one application that neither holds (``pgt_analysis`` of a family
+    without an embryo, or of a monogenic NIPT family whose embryo, its fetus, has no haplotype
+    blocks; ``nipt`` of a family that is no monogenic NIPT family) is neither compared nor
+    listed. The report page and the signed view name what is listed as not compared beside what changed,
     and beside "still matches" (TRACE-19). A class label compares whatever its case
     (:func:`_with_current_class_labels`): a record signed before the labels were put in
     sentence case (ENG-6) still matches a report whose only difference is that case.
@@ -2169,6 +2243,11 @@ async def compare_report_with_latest_signout(
         if section == "modules" and isinstance(current_value, list):
             current_value, postdating = _modules_comparable_with(signed, current_value)
             not_compared.extend(f"modules.{key}" for key in postdating)
+        if section in _CLASS_SHOWN_KEYS:
+            # The class each reported variant's review showed, and a small variant's
+            # classification text, which a record signed before CLIN-80 does not hold.
+            current_value, predated = reported_comparable_with_record(section, signed_value, current_value)
+            not_compared.extend(predated)
         if section == "pgt_analysis":
             # The embryos' QC verdict, which a record signed before it does not hold.
             current_value, predated = pgt_analysis_comparable_with_record(signed_value, current_value)
