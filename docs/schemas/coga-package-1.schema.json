@@ -1,0 +1,751 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "coga-package-1.schema.json",
+  "$defs": {
+    "PackageCouple": {
+      "additionalProperties": false,
+      "properties": {
+        "partners": {
+          "items": {
+            "minLength": 1,
+            "pattern": "^(?!\\.\\.?$)[^\\s/\\\\\\u0000-\\u001f\\u007f-\\u009f]+$",
+            "type": "string"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "title": "Partners",
+          "type": "array"
+        },
+        "context": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Context"
+        }
+      },
+      "required": [
+        "partners"
+      ],
+      "title": "PackageCouple",
+      "type": "object"
+    },
+    "PackageFamily": {
+      "additionalProperties": false,
+      "properties": {
+        "family_id": {
+          "minLength": 1,
+          "pattern": "^(?!\\.\\.?$)[^\\s/\\\\\\u0000-\\u001f\\u007f-\\u009f]+$",
+          "title": "Family Id",
+          "type": "string"
+        },
+        "roi": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Roi"
+        },
+        "pgt": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PackagePgt"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "family_id"
+      ],
+      "title": "PackageFamily",
+      "type": "object"
+    },
+    "PackageFile": {
+      "additionalProperties": false,
+      "anyOf": [
+        {
+          "properties": {
+            "sha256": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "sha256"
+          ]
+        },
+        {
+          "properties": {
+            "md5": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "md5"
+          ]
+        }
+      ],
+      "description": "A file of the package: its path in the folder, its size in bytes and its checksum, as the\npipeline made it. SHA-256 is preferred; MD5 is read where a pipeline has only that.",
+      "properties": {
+        "path": {
+          "minLength": 1,
+          "pattern": "^(?![/~])(?!.*//)(?!.*/$)(?!(?:.*/)?\\.\\.?(?:/|$))[^\\\\\\u0000-\\u001f\\u007f]+$",
+          "title": "Path",
+          "type": "string"
+        },
+        "size": {
+          "minimum": 0,
+          "title": "Size",
+          "type": "integer"
+        },
+        "sha256": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sha256"
+        },
+        "md5": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{32}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Md5"
+        }
+      },
+      "required": [
+        "path",
+        "size"
+      ],
+      "title": "PackageFile",
+      "type": "object"
+    },
+    "PackageHpo": {
+      "additionalProperties": false,
+      "properties": {
+        "present": {
+          "items": {
+            "pattern": "^HP:[0-9]{7}$",
+            "type": "string"
+          },
+          "title": "Present",
+          "type": "array"
+        },
+        "absent": {
+          "items": {
+            "pattern": "^HP:[0-9]{7}$",
+            "type": "string"
+          },
+          "title": "Absent",
+          "type": "array"
+        }
+      },
+      "title": "PackageHpo",
+      "type": "object"
+    },
+    "PackageMember": {
+      "additionalProperties": false,
+      "description": "One member of the family: the only place the package describes them. ``father`` and\n``mother`` are members; a member without data (a fetus) is listed too.",
+      "properties": {
+        "sample_id": {
+          "minLength": 1,
+          "pattern": "^(?!\\.\\.?$)[^\\s/\\\\\\u0000-\\u001f\\u007f-\\u009f]+$",
+          "title": "Sample Id",
+          "type": "string"
+        },
+        "sex": {
+          "enum": [
+            "male",
+            "female",
+            "unknown"
+          ],
+          "title": "Sex",
+          "type": "string"
+        },
+        "father": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "pattern": "^(?!\\.\\.?$)[^\\s/\\\\\\u0000-\\u001f\\u007f-\\u009f]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Father"
+        },
+        "mother": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "pattern": "^(?!\\.\\.?$)[^\\s/\\\\\\u0000-\\u001f\\u007f-\\u009f]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mother"
+        },
+        "role": {
+          "anyOf": [
+            {
+              "enum": [
+                "proband",
+                "father",
+                "mother",
+                "sibling",
+                "embryo",
+                "relative"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Role"
+        },
+        "clinical_status": {
+          "anyOf": [
+            {
+              "enum": [
+                "affected",
+                "unaffected",
+                "unknown"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Clinical Status"
+        },
+        "carrier_status": {
+          "anyOf": [
+            {
+              "enum": [
+                "carrier",
+                "not_carrier",
+                "unknown"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Carrier Status"
+        },
+        "carrier_type": {
+          "anyOf": [
+            {
+              "enum": [
+                "obligate",
+                "proven",
+                "reported",
+                "inferred"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Carrier Type"
+        },
+        "assay": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Assay"
+        },
+        "assay_panel": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Assay Panel"
+        },
+        "hpo": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PackageHpo"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "related_to": {
+          "items": {
+            "minLength": 1,
+            "pattern": "^(?!\\.\\.?$)[^\\s/\\\\\\u0000-\\u001f\\u007f-\\u009f]+$",
+            "type": "string"
+          },
+          "title": "Related To",
+          "type": "array"
+        }
+      },
+      "required": [
+        "sample_id",
+        "sex"
+      ],
+      "title": "PackageMember",
+      "type": "object"
+    },
+    "PackagePgt": {
+      "additionalProperties": false,
+      "description": "What a PGT-M analysis needs beyond the pedigree.",
+      "properties": {
+        "inheritance_model": {
+          "anyOf": [
+            {
+              "enum": [
+                "AD",
+                "AR",
+                "XLD",
+                "XLR",
+                "mitochondrial"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Inheritance Model"
+        },
+        "affected_parents": {
+          "items": {
+            "minLength": 1,
+            "pattern": "^(?!\\.\\.?$)[^\\s/\\\\\\u0000-\\u001f\\u007f-\\u009f]+$",
+            "type": "string"
+          },
+          "title": "Affected Parents",
+          "type": "array"
+        },
+        "indexes": {
+          "items": {
+            "minLength": 1,
+            "pattern": "^(?!\\.\\.?$)[^\\s/\\\\\\u0000-\\u001f\\u007f-\\u009f]+$",
+            "type": "string"
+          },
+          "title": "Indexes",
+          "type": "array"
+        }
+      },
+      "title": "PackagePgt",
+      "type": "object"
+    },
+    "PackagePipeline": {
+      "additionalProperties": false,
+      "description": "The pipeline and its run. ``run_id`` is one per run: a run that writes the file again (as\n``running``, then ``complete``) keeps it.",
+      "properties": {
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "version": {
+          "minLength": 1,
+          "title": "Version",
+          "type": "string"
+        },
+        "run_id": {
+          "minLength": 1,
+          "title": "Run Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version",
+        "run_id"
+      ],
+      "title": "PackagePipeline",
+      "type": "object"
+    },
+    "PackageQc": {
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "enum": [
+            "pass",
+            "warn",
+            "fail"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "report": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "pattern": "^(?![/~])(?!.*//)(?!.*/$)(?!(?:.*/)?\\.\\.?(?:/|$))[^\\\\\\u0000-\\u001f\\u007f]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Report"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "title": "PackageQc",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "The package file a pipeline writes into a package folder for CoGA to import (docs/coga-package.md). Only a file whose status is complete is offered for import. CoGA also checks what a schema cannot say: that every member, file and dataset named is one the file describes, and the ID rule in full.",
+  "properties": {
+    "schema": {
+      "const": "coga-package/1",
+      "title": "Schema",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "running",
+        "complete",
+        "failed"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "written_at": {
+      "format": "date-time",
+      "title": "Written At",
+      "type": "string"
+    },
+    "pipeline": {
+      "$ref": "#/$defs/PackagePipeline"
+    },
+    "project": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Project"
+    },
+    "assembly": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Assembly"
+    },
+    "analysis_type": {
+      "anyOf": [
+        {
+          "enum": [
+            "wgs",
+            "wgs_trio",
+            "pgt_m",
+            "monogenic_nipt",
+            "long_read_wgs",
+            "long_read_couple"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Analysis Type"
+    },
+    "family": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PackageFamily"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "members": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/PackageMember"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Members"
+    },
+    "couples": {
+      "items": {
+        "$ref": "#/$defs/PackageCouple"
+      },
+      "title": "Couples",
+      "type": "array"
+    },
+    "datasets": {
+      "anyOf": [
+        {
+          "additionalProperties": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "propertyNames": {
+            "enum": [
+              "snv",
+              "sv_needlr",
+              "repeats_trgt",
+              "wisecondorx",
+              "qdnaseq",
+              "apcad",
+              "pcf",
+              "haplotypes",
+              "paraphase",
+              "coverage",
+              "cnv",
+              "mito",
+              "alignments",
+              "qc",
+              "pipeline_info"
+            ]
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Datasets"
+    },
+    "pipeline_used_pedigree": {
+      "items": {
+        "enum": [
+          "snv",
+          "sv_needlr",
+          "repeats_trgt",
+          "wisecondorx",
+          "qdnaseq",
+          "apcad",
+          "pcf",
+          "haplotypes",
+          "paraphase",
+          "coverage",
+          "cnv",
+          "mito",
+          "alignments",
+          "qc",
+          "pipeline_info"
+        ],
+        "type": "string"
+      },
+      "title": "Pipeline Used Pedigree",
+      "type": "array"
+    },
+    "files": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/PackageFile"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Files"
+    },
+    "qc": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PackageQc"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "request_id": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Request Id"
+    },
+    "reference": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Reference"
+    },
+    "notes": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Notes"
+    },
+    "extra": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Extra"
+    }
+  },
+  "required": [
+    "schema",
+    "status",
+    "written_at",
+    "pipeline"
+  ],
+  "title": "coga-package/1",
+  "type": "object",
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "complete"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "required": [
+          "project",
+          "assembly",
+          "analysis_type",
+          "family",
+          "files"
+        ],
+        "properties": {
+          "project": {
+            "not": {
+              "type": "null"
+            }
+          },
+          "assembly": {
+            "not": {
+              "type": "null"
+            }
+          },
+          "analysis_type": {
+            "not": {
+              "type": "null"
+            }
+          },
+          "family": {
+            "not": {
+              "type": "null"
+            }
+          },
+          "files": {
+            "type": "array",
+            "minItems": 1
+          }
+        }
+      }
+    }
+  ]
+}

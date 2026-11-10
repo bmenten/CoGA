@@ -1,0 +1,157 @@
+{
+  "schema": "coga-package/1",
+  "status": "complete",
+  "written_at": "2026-11-10T20:15:00+01:00",
+  "pipeline": {
+    "name": "nf-core/lrsvar",
+    "version": "1.0.0",
+    "run_id": "RUN-2026-0003"
+  },
+  "project": "Carrier screening",
+  "assembly": "GRCh38",
+  "analysis_type": "long_read_couple",
+  "family": {
+    "family_id": "COUPLE1"
+  },
+  "members": [
+    {
+      "sample_id": "MOTHER",
+      "sex": "female",
+      "role": "mother"
+    },
+    {
+      "sample_id": "FATHER1",
+      "sex": "male",
+      "role": "father"
+    }
+  ],
+  "couples": [
+    {
+      "partners": [
+        "MOTHER",
+        "FATHER1"
+      ],
+      "context": "carrier screening"
+    }
+  ],
+  "datasets": {
+    "snv": {
+      "source_format": "clair3",
+      "exclude_filters": [
+        "RefCall",
+        "NoCall"
+      ],
+      "per_sample": {
+        "MOTHER": {
+          "vcf": "snv/MOTHER/annotation/MOTHER_annot.vcf.gz",
+          "index": "snv/MOTHER/annotation/MOTHER_annot.vcf.gz.tbi"
+        },
+        "FATHER1": {
+          "vcf": "snv/FATHER1/annotation/FATHER1_annot.vcf.gz",
+          "index": "snv/FATHER1/annotation/FATHER1_annot.vcf.gz.tbi"
+        }
+      }
+    },
+    "sv_needlr": {
+      "per_sample": {
+        "MOTHER": {
+          "vcf": "sv/MOTHER/needlr/MOTHER_sv_phased.needLR.4.0.vcf.gz"
+        },
+        "FATHER1": {
+          "vcf": "sv/FATHER1/needlr/FATHER1_sv_phased.needLR.4.0.vcf.gz"
+        }
+      }
+    },
+    "repeats_trgt": {
+      "per_sample": {
+        "MOTHER": {
+          "file": "repeats/MOTHER/MOTHER_tr.vcf.gz"
+        },
+        "FATHER1": {
+          "file": "repeats/FATHER1/FATHER1_tr.vcf.gz"
+        }
+      }
+    },
+    "paraphase": {
+      "per_sample": {
+        "MOTHER": {
+          "json": "paraphase/MOTHER/MOTHER.paraphase.json"
+        },
+        "FATHER1": {
+          "json": "paraphase/FATHER1/FATHER1.paraphase.json"
+        }
+      }
+    },
+    "pipeline_info": {
+      "params": "pipeline_info/params_2026-11-10_08-00-00.json",
+      "versions": "pipeline_info/software_versions.yaml"
+    }
+  },
+  "pipeline_used_pedigree": [],
+  "files": [
+    {
+      "path": "paraphase/FATHER1/FATHER1.paraphase.json",
+      "size": 1000,
+      "sha256": "e92145ea3bb5b5c7aba743aa9f69238aa76382b93a562b75acc08a1d6b7de8b4"
+    },
+    {
+      "path": "paraphase/MOTHER/MOTHER.paraphase.json",
+      "size": 1001,
+      "sha256": "484bfc2f0da1f539295cb5452763a4925540169e35b3371b8fb22829b28f6db7"
+    },
+    {
+      "path": "pipeline_info/params_2026-11-10_08-00-00.json",
+      "size": 1002,
+      "sha256": "89d46deabcee4e1323f8365647514e12b31d001c986b827d391daa278597e0d3"
+    },
+    {
+      "path": "pipeline_info/software_versions.yaml",
+      "size": 1003,
+      "sha256": "da15a2f295bfa49bd9b981efcb87ba3045798c00463e7733e219f51c9b8b7687"
+    },
+    {
+      "path": "repeats/FATHER1/FATHER1_tr.vcf.gz",
+      "size": 1004,
+      "sha256": "1ab9df629bf69a00da7f43ead4d725bf3116812162108c2bbcda9365bb0e4703"
+    },
+    {
+      "path": "repeats/MOTHER/MOTHER_tr.vcf.gz",
+      "size": 1005,
+      "sha256": "c1927edbb715feeaed3260a1aa8aba03d87c434cf46cc9d19d3e8484d727cdde"
+    },
+    {
+      "path": "snv/FATHER1/annotation/FATHER1_annot.vcf.gz",
+      "size": 1006,
+      "sha256": "52fc7ed81cc9dc4dd860e578412bde91a27e95bed69c3753d78625e98c96c4eb"
+    },
+    {
+      "path": "snv/FATHER1/annotation/FATHER1_annot.vcf.gz.tbi",
+      "size": 1007,
+      "sha256": "d76f27ae5e68819c950e7d3a934f6a6d29a2f90b05f3a40322f2b1606c94a52b"
+    },
+    {
+      "path": "snv/MOTHER/annotation/MOTHER_annot.vcf.gz",
+      "size": 1008,
+      "sha256": "a9f3a3750565d4804c7677999561d7cdae941ffedc5de03ddcad453b8ae166f7"
+    },
+    {
+      "path": "snv/MOTHER/annotation/MOTHER_annot.vcf.gz.tbi",
+      "size": 1009,
+      "sha256": "c0035098e023cf92115aaf22fc7a22b8f2b84e3cb778b91185c218c8887487e7"
+    },
+    {
+      "path": "sv/FATHER1/needlr/FATHER1_sv_phased.needLR.4.0.vcf.gz",
+      "size": 1010,
+      "sha256": "47bb0b46f75a5dd091abacc2d0874eb4dbaa190789b391bfddc2bd7da3c2d8e2"
+    },
+    {
+      "path": "sv/MOTHER/needlr/MOTHER_sv_phased.needLR.4.0.vcf.gz",
+      "size": 1011,
+      "sha256": "3566934fc8be93726bb5d124c1b23b14ab8c9a7e22cf1a7a3f4f75f2247317e1"
+    }
+  ],
+  "qc": {
+    "status": "warn"
+  },
+  "notes": "Median depth below the laboratory's target for FATHER1."
+}

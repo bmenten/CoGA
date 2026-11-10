@@ -27,7 +27,8 @@ brackets.
     - Watching the packages already imported: a change after the import is noticed, shown with what changed and noted on the family page (the delivery states `approved` and `changed_after_import` are reserved for it).
     - Optionally, a mail to the administrators when a delivery is ready.
     - An import without a person's approval, only by a separate decision of the owner.
-    - The marker's open points, to settle with the pipeline owners (REG-12).
+    - One package file, `coga-package.json`, in place of the PED, the manifest and `coga-ready.json` ([coga-package.md](coga-package.md); format defined): CoGA reads it, a delivery is completed and corrected in Deliveries before it is approved, and adding a family by hand makes the same file.
+    - The format's open points, to settle with the pipeline owners (REG-12).
   - Each backend container runs one uvicorn process, whose event loop the API shares with the refresh worker. With Docker Compose the imports run in import-worker processes of their own, one core each; on Google Cloud they still run in the API's instances.
 - **Regression truth set**: no GIAB or GeT-RM truth set with a concordance harness for minor-release validation.
 - **Request tracing** (SEC-16): nothing carries a request ID from a log line to its audit row; `/api/health/ready`, which also checks that Postgres and ClickHouse answer, is polled by nothing (the probes and the uptime check use `/api/health`; the deployment guide calls it by hand).

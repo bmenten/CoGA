@@ -52,6 +52,8 @@ MODULE_FLOORS: dict[str, float] = {
     # conditions as a list)
     "backend/app/services/clinvar_review_status.py": 97.0,
     "backend/app/services/cnv_acmg_points.py": 97.0,  # (100.0, 2026-11-03)
+    # (100.0 measured locally when it was added: the package file coga-package.json)
+    "backend/app/services/coga_package.py": 97.0,
     "backend/app/services/compound_het_phase.py": 97.0,  # (100.0, 2026-11-03)
     "backend/app/services/coverage_content.py": 97.0,  # (100.0, measured when added for TRACE-9)
     "backend/app/services/coverage_read_depth.py": 97.0,  # (100.0, measured when added for CLIN-46)
