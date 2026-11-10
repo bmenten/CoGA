@@ -95,8 +95,6 @@ secondary-findings list that ships with CoGA (ACMG SF v3.3), and the HGNC, ClinG
 downloads for every gene. It asks NCBI Gene for a summary of the genes dbNSFP does not cover. It adds
 identifiers, names and aliases, disease context (OMIM, Orphanet, GenCC), ClinGen dosage, HPO and pathway
 terms, expression and constraint metrics, and whether the gene is on the ACMG secondary-findings list.
-A gene refreshed before CoGA had the list reads *Not checked* on the gene page until the next full
-refresh.
 
 ---
 
@@ -139,8 +137,7 @@ and each transcript of it names the ALT its annotation is of; split such records
 (`bcftools norm -m -any`) to filter and classify each allele on its own. A gnomAD count is gnomAD's total: its combined count, or else its exome and genome counts
 (`gnomADe_…`, `gnomADg_…`) added. A variant whose annotation gives no gnomAD count has none. A maximum
 gnomAD count filter keeps it, as absent from gnomAD; the variant list then says how many of the
-variants it shows were kept that way. A family loaded before keeps the counts it was loaded with until
-it is uploaded or imported again.
+variants it shows were kept that way.
 
 Several of these also feed the [Sample-integrity QC](/docs/reference/sample-qc) and the versions
 recorded for the [report](/docs/reference/clinical-traceability).
@@ -304,7 +301,7 @@ or runs through a link that loops.
 A pipeline can deliver a package by itself: it copies the family folder into a **watched import
 folder**, with its **package file** `coga-package.json`. That one file describes the package: the
 run, the project, the family and its members, the data, every file with its checksum. It takes the
-place of the PED, the manifest and the old ready marker. CoGA looks into the watched folders every
+place of the PED and the manifest. CoGA looks into the watched folders every
 few minutes (5 by default), checks each new delivery once and lists it under **Deliveries** at the
 top of the page, with how many wait. Nothing is imported until a superuser approves it.
 
@@ -491,8 +488,6 @@ upload form (*Coverage BED holds*), and in the manifest with `content: read_dept
   NIPT coverage.
 - A manifest entry without `content` imports as *unknown*, and validation warns. Such a track is drawn
   on its own range without an axis, with a note, and never read as depth.
-- A coverage BED loaded before BEDs said what they hold reads as unknown too: load it again with what it
-  holds.
 - A sign-out freezes what each coverage track held, and whether an upload or a package loaded it, in
   the signed record (*Coverage tracks*).
 
@@ -516,7 +511,7 @@ files, ends every file with an empty block. A file cut exactly where one of its 
 whole gzip, so without this check its later records would be lost without a word. Such a file is refused
 as cut short (*… is not valid gzip: it is truncated (it does not end with BGZF's end-of-file block)*):
 an upload replaces nothing, and a dataset fails before anything is replaced. Copy the file again from
-the pipeline's output. A gzip file that bgzip did not write has no such block and is read as before.
+the pipeline's output. A gzip file that bgzip did not write has no such block and is read without this check.
 
 **Every sample's file is checked before any sample's data is replaced.** A dataset of one file per
 sample reads or checks every sample's file first: the TRGT files, HiFiCNV's VCFs and signal files, the
@@ -748,8 +743,7 @@ A call written as its sequence (REF and ALT bases of other lengths) without an S
 it, is as long as its alleles say: an insertion the bases it inserts, a deletion the bases it deletes,
 shown with a minus sign as a deletion's SVLEN is. The structural-variant list shows that length and the
 length filters measure it. Every caller's file, a package's included, is read this way. A call that
-gives its SVLEN keeps it. An SV loaded before this rule keeps the length it had until its file is loaded
-again.
+gives its SVLEN keeps it.
 
 A breakend keeps its mate, the position its ALT names in brackets (5:3000000 here). The
 structural-variant list and its CSV export show it in the **Remote chr** and **Remote start** columns,
@@ -789,7 +783,7 @@ a failed overwrite could not put the family's data back, the warning names what 
 - a BED track as `bed_coverage`, `bed_segments`, `bed_apcad` or `bed_apcad_pcf`.
 
 Upload each again with **overwrite** to complete the family; an upload without overwrite does not
-count. Data uploaded before CoGA recorded uploads is not named: upload it again to record it. A dataset
+count. A dataset
 named as failed (a small-variant upload that failed after deleting the calls it replaced, or a dataset
 an import failed for) is completed by an upload that brings it again, with or without overwrite.
 

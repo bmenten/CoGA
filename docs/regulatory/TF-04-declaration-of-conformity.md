@@ -37,7 +37,7 @@ the relevant general safety and performance requirements of Annex I.
 
 > **🔲 RA DECISION REQUIRED — the declaring institution and the accreditation holder are not
 > the same legal person.** Verified against the BELAC source on 2026-09-30: certificate 351-MED
-> version 9, like version 8 before it, is issued to **Universiteit Gent**,
+> version 9 is issued to **Universiteit Gent**,
 > Sint-Pietersnieuwstraat 25, 9000 Gent, enterprise number **0248.015.142**. *Universitair
 > ziekenhuis Gent — Centrum Medische Genetica Gent (CMGG)*, Corneel Heymanslaan 10, appears in
 > scope annex V. 21 as an **activity site**, not as the certificate holder.

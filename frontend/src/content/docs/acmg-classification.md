@@ -29,9 +29,8 @@ Each criterion you accept adds points by its strength; benign criteria subtract 
 | −1 to −6 | Likely benign - class 2 |
 | −7 or less | Benign - class 1 |
 
-The labels are written in sentence case. A record signed before that shows *Likely Pathogenic -
-class 4*, as it was signed. The filters, and the check of a report against its latest signed version,
-read a class label whatever its case.
+The labels are written in sentence case. The filters, and the check of a report against its latest
+signed version, read a class label whatever its case.
 
 The score bar at the top of the form draws this scale as posterior probabilities of pathogenicity
 (Tavtigian: a prior of 10%; the odds double with roughly every point). Benign is below 0.1% and

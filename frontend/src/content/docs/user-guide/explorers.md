@@ -11,9 +11,8 @@ resources.
 
 - **ACMG secondary finding** says whether the gene is on the ACMG secondary-findings list that CoGA
   ships: *On ACMG SF v3.3*, with the phenotype, category, inheritance, variants to report and
-  footnotes the list gives for the gene, or *Not on ACMG SF v3.3*. *Not checked* means the list was
-  not read for this gene: its gene information was refreshed before CoGA had the list, or the list could
-  not be read.
+  footnotes the list gives for the gene, or *Not on ACMG SF v3.3*. *Not checked* means the list could
+  not be read for this gene.
 - **ClinGen dosage curation** gives ClinGen's haploinsufficiency and triplosensitivity curations of the
   gene, the date of the curation and a link to ClinGen's report. The item with an *HI score* is
   ClinGen's haploinsufficiency score as dbNSFP carries it.

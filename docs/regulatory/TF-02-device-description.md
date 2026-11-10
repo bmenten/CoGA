@@ -209,7 +209,7 @@ configuration management.
   with that server and binds the account to the Entra object ID it releases; a first sign-in
   waits for an administrator's approval. One local emergency administrator signs in with a
   password only while `AZURE_ADMIN_OVERRIDE` is on. Without Azure AD (development) accounts sign in
-  with a password and an HS256 token (SEC-4, [TF-13 §2](TF-13-cybersecurity.md)). Project-scoped
+  with a password and an HS256 token ([TF-13 §2](TF-13-cybersecurity.md)). Project-scoped
   RBAC; admin-gated mutations.
 - The **device** is not transferred to any other legal entity (Art. 5(5)(a)). Hosting of
   patient data by Google Cloud, the DPIA and the data-processing agreement:
