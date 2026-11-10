@@ -365,17 +365,23 @@ def test_remote_object_identity_against_fake_gcs(gcs_backend):
 def test_provenance_of_a_package_imported_from_fake_gcs(gcs_backend, monkeypatch, tmp_path):
     """raw_import_files rows (real Postgres) for a package staged from the bucket: the
     staged file hashed from its staged copy, the CRAM left in the store identified by the
-    store's record of it, both named by their gs:// URI."""
+    store's record of it, both named by their gs:// URI; the manifest CoGA kept for the
+    import stored as a managed copy with its SHA-256."""
     from sqlalchemy import text
 
     from app.services import family_package_registration
+    from app.services import raw_import_files_pg as rif
     from app.services.family_package_validation import load_validated_family_package
+
+    managed = tmp_path / "managed"
+    monkeypatch.setattr(rif, "DATA_DIR", managed)
 
     async def body(sm, family) -> None:
         with _import_from_the_bucket(monkeypatch, tmp_path) as staged:
+            manifest_text = kept_manifest(staged.root)
             validation, bundle = load_validated_family_package(
                 staged.root,
-                manifest_text=kept_manifest(staged.root),
+                manifest_text=manifest_text,
                 remote_only_files=staged.remote_only_files,
                 source_uri=staged.source_uri,
             )
@@ -390,13 +396,21 @@ def test_provenance_of_a_package_imported_from_fake_gcs(gcs_backend, monkeypatch
             rows: Sequence[Any] = (
                 await session.execute(
                     text(
-                        "SELECT storage_path, sha256, file_size, metadata FROM raw_import_files "
-                        "WHERE family_id = CAST(:f AS uuid)"
+                        "SELECT id, storage_path, sha256, file_size, metadata, dataset, managed "
+                        "FROM raw_import_files WHERE family_id = CAST(:f AS uuid)"
                     ),
                     {"f": family.uuid},
                 )
             ).mappings().all()
-        by_path = {row["storage_path"]: row for row in rows}
+        kept_rows = [row for row in rows if row["dataset"] == "manifest"]
+        assert len(kept_rows) == 1
+        kept_row = kept_rows[0]
+        kept_bytes = manifest_text.encode("utf-8")
+        assert kept_row["managed"] is True
+        assert Path(kept_row["storage_path"]).is_relative_to(managed)
+        assert Path(kept_row["storage_path"]).read_bytes() == kept_bytes
+        assert (kept_row["sha256"], kept_row["file_size"]) == (hashlib.sha256(kept_bytes).hexdigest(), len(kept_bytes))
+        by_path = {row["storage_path"]: row for row in rows if row["dataset"] != "manifest"}
         source = f"gs://{_BUCKET}/imports/F1"
         assert set(by_path) == {
             f"{source}/bams/S1.cram",
@@ -415,9 +429,8 @@ def test_provenance_of_a_package_imported_from_fake_gcs(gcs_backend, monkeypatch
 
         # Verify reads the row back as the admin page does, with the package folder the
         # family's import read (as the import's registration records it), and checks the
-        # object: only an object in that folder is asked about (SEC-38).
-        from app.services import raw_import_files_pg as rif
-
+        # object: only an object in that folder is asked about (SEC-38). The kept manifest's
+        # managed copy is checked where CoGA stored it.
         async with sm() as session:
             await session.execute(
                 text(
@@ -430,15 +443,22 @@ def test_provenance_of_a_package_imported_from_fake_gcs(gcs_backend, monkeypatch
             await session.commit()
             ids: Sequence[str] = (
                 await session.execute(
-                    text("SELECT id::text FROM raw_import_files WHERE family_id = CAST(:f AS uuid)"),
+                    text(
+                        "SELECT id::text FROM raw_import_files "
+                        "WHERE family_id = CAST(:f AS uuid) AND dataset <> 'manifest'"
+                    ),
                     {"f": family.uuid},
                 )
             ).scalars().all()
             records = [await rif.get_raw_import_file(session, file_id) for file_id in ids]
+            kept_record = await rif.get_raw_import_file(session, str(kept_row["id"]))
+        assert len(records) == 3
         for record in records:
             assert record is not None and record["in_object_store"] and record["exists"] is None
             assert record["package_folder"] == source and not record["outside_read_folders"]
             assert (await rif.verify_raw_import_file(record))["status"] == "verified", record["storage_path"]
+        assert kept_record is not None and not kept_record["in_object_store"] and kept_record["exists"]
+        assert (await rif.verify_raw_import_file(kept_record))["status"] == "verified"
 
     _on_postgres_with_a_fresh_family(body)
 

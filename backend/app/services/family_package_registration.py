@@ -344,7 +344,6 @@ async def _record_package_raw_files(
         logger.warning("Failed to record raw import file provenance", exc_info=True)
 
 
-# The file name a manifest CoGA kept for an import is recorded and stored under.
 # The key of a package record (``families.metadata.package_import``) that keeps the record the
 # family had before this import registered it again, itself without one: an import undone because
 # its package changed while it was read puts it back (``put_back_family_package_record``).
@@ -373,6 +372,7 @@ async def put_back_family_package_record(session: AsyncSession, family_uuid: str
     await session.commit()
 
 
+# The file name a manifest CoGA kept for an import is recorded and stored under.
 KEPT_MANIFEST_FILE_NAME = "manifest.yaml"
 
 
