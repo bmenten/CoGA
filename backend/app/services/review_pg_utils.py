@@ -91,11 +91,12 @@ def review_shows_class(
 ) -> bool:
     """Whether a review shows one of the ``requested`` classes (:func:`review_class_filter`).
 
-    The rule of the small-variant classification filters, the family search's and the
-    Variant Explorer's (CLIN-75, the owner's decision of 2026-11-10): a review is kept by the
-    class it shows (:func:`review_class_label`), so a class filter keeps every review shown with
-    that class, one classified by its class tag alone too, and none shown with another. The
-    Explorer applies it in SQL (:func:`review_class_label_sql`).
+    The rule of the classification filters, the small-variant family search's and the
+    Variant Explorer's (CLIN-75) and the structural-variant search's (CLIN-77), the owner's
+    decisions of 2026-11-10: a review is kept by the class it shows (:func:`review_class_label`),
+    so a class filter keeps every review shown with that class, one classified by its class tag
+    alone too, and none shown with another. The Explorer applies it in SQL
+    (:func:`review_class_label_sql`).
     """
     shown = review_class_label(classification, tags)
     return shown is not None and shown.lower() in requested

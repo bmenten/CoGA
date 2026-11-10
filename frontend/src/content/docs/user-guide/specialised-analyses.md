@@ -23,6 +23,13 @@ annotation names that gene otherwise, and a small panel an SV annotated with one
 not overlap it, such as a gene a few kilobases away. With both a gene panel and a **Gene symbol**
 filled in, an SV must meet both.
 
+The classification under **Review** keeps an SV by the class its review shows, as on the small-variant
+page. A class word typed as the classification (*VUS*) gives its class; otherwise the review's class tag
+gives it, the most severe of two; otherwise the classification as typed. A CNV classification counts
+with the class it saved as the classification. So *Likely pathogenic - class 4* also finds an SV
+classified by its class tag alone, and not one classified as *VUS - class 3* beside the *Pathogenic -
+class 5* tag: that SV shows class 5. Capitals do not matter.
+
 **Min length** and **Exact length**, under **Class and Breakpoints**, measure an SV by the **Length**
 the list shows, without a deletion's minus sign. That length is:
 

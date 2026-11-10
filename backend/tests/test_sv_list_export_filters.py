@@ -20,6 +20,7 @@ import csv
 import io
 from dataclasses import fields
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from typing import Any, Callable, Iterator
 
 import pytest
@@ -46,6 +47,7 @@ from backend.app.services.clickhouse_variant_records import (
 )
 from backend.app.services.family_metadata_context import FamilyMetadataContext
 from backend.app.services.family_variant_filters import StructuralVariantQueryFilters
+from backend.app.services.structural_variant_review_pg import list_matching_structural_variant_review_ids
 
 _LIST_ROUTE = "/{family_id}/structural-variants"
 _EXPORT_ROUTE = "/{family_id}/structural-variants/export"
@@ -486,18 +488,23 @@ def search(routes: TestClient, monkeypatch: pytest.MonkeyPatch) -> Callable[[lis
         tags: list[str] | None = None,
         has_notes: bool = False,
     ) -> set[str]:
-        # The rule of list_matching_structural_variant_review_ids, over _REVIEWS.
-        wanted_classes = {value.strip() for value in classifications or [] if value.strip()}
-        wanted_tags = {value.strip() for value in tags or [] if value.strip()}
-        if not (wanted_classes or wanted_tags or has_notes):
-            return set()
-        return {
-            variant_id
+        # The review selection itself (list_matching_structural_variant_review_ids), over _REVIEWS.
+        rows = [
+            {"variant_id": variant_id, "classification": classification, "tags": list(review_tags), "note": note}
             for variant_id, (classification, review_tags, note) in _REVIEWS.items()
-            if (not wanted_classes or classification in wanted_classes)
-            and (not wanted_tags or bool(wanted_tags.intersection(review_tags)))
-            and (not has_notes or bool(note))
-        }
+        ]
+
+        class _ReviewRows:
+            async def execute(self, _statement: Any, _params: Any = None) -> Any:
+                return SimpleNamespace(mappings=lambda: SimpleNamespace(all=lambda: list(rows)))
+
+        return await list_matching_structural_variant_review_ids(
+            _ReviewRows(),
+            family_uuid=family_uuid,
+            classifications=classifications,
+            tags=tags,
+            has_notes=has_notes,
+        )
 
     async def gene_regions(_session: Any, *, gene_query: str, assembly_id: Any) -> list[Region]:
         return _GENE_REGIONS.get(gene_query, [])

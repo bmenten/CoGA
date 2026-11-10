@@ -206,6 +206,9 @@ pull request updates this list only when it adds clinical behaviour that no area
   - SV gene and panel filters before the candidate cap. A gene panel of any size, the
     Mendeliome included, keeps the SVs whose annotation names one of its genes as well as
     those overlapping one of its regions.
+  - The SV review-classification filter keeps an SV by the class its review shows on the SV
+    page: a bare class word in the text, else its class tag, else the text; a CNV
+    classification through the class label it saves as the text.
   - SV length filters measure a call's SVLEN (without one, the length its alleles state for a
     call written as its sequence, END − POS otherwise), include an insertion written with END
     at POS, and let a translocation pass any minimum but no exact length.

@@ -17,7 +17,8 @@ the built-in classification and VUS-tier tags carry them; all are in sentence ca
 
 The server reads the class a review shows from its text and its tags as the family page does
 (``review_class_label`` and ``normalizeReviewClassification``): both read one table of cases
-(CLIN-71). The classification filters keep a review by that class (CLIN-75).
+(CLIN-71). The classification filters keep a review by that class (CLIN-75); the SV page reads an
+SV review's class by the same rule, and the SV search's filter keeps an SV by it (CLIN-77).
 """
 
 from __future__ import annotations
@@ -315,3 +316,55 @@ def test_a_classification_filter_keeps_each_review_by_the_class_the_family_page_
     # Tags that are no list hold no class tag, as in SQL.
     assert not review_shows_class(None, {"acmg_class_4": True}, review_class_filter(labels))
     assert not review_shows_class(None, "acmg_class_4", review_class_filter(labels))
+
+
+# --- the class an SV review shows (CLIN-77) -------------------------------------------------------
+
+SV_PAGE_VIEWS = [
+    SMALL_VARIANT_SEARCH_TS.parent / "StructuralVariantTable.tsx",
+    SMALL_VARIANT_SEARCH_TS.parent / "StructuralVariantCards.tsx",
+]
+
+
+def test_the_sv_classification_filter_keeps_each_review_by_the_class_the_sv_page_shows() -> None:
+    # CLIN-77 (the owner's decision of 2026-11-10): the SV table and cards show a review's class as
+    # the family page does, by normalizeReviewClassification of its text and its tags (no CNV
+    # scoring of their own), and the SV search's classification filter keeps an SV by that class.
+    # Over the shared cases a class filter keeps every review shown with that class and none shown
+    # with another. Were either view to read the class otherwise (from the CNV class, say), this
+    # fails: the filter would then need the same rule.
+    import asyncio
+    import types
+
+    from backend.app.services.structural_variant_review_pg import list_matching_structural_variant_review_ids
+
+    for view in SV_PAGE_VIEWS:
+        source = view.read_text(encoding="utf-8")
+        assert re.search(
+            r"normalizeReviewClassification\(\s*variant\.review\?\.classification,\s*variant\.review\?\.tags,?\s*\)",
+            source,
+        ), f"{view.name} no longer shows a review's class from its text and its tags"
+        assert len(re.findall(r"normalizeReviewClassification\(", source)) == 1, view.name
+
+    cases = json.loads(REVIEW_CLASS_CASES.read_text(encoding="utf-8"))["cases"]
+    rows = [
+        {"variant_id": f"sv-{index}", "classification": case["classification"], "tags": case["tags"], "note": None}
+        for index, case in enumerate(cases)
+    ]
+
+    class _Rows:
+        async def execute(self, _statement, _params=None):
+            return types.SimpleNamespace(mappings=lambda: types.SimpleNamespace(all=lambda: list(rows)))
+
+    def _kept(wanted: str) -> set[str]:
+        return asyncio.run(
+            list_matching_structural_variant_review_ids(_Rows(), family_uuid="f1", classifications=[wanted])
+        )
+
+    for label in acmg_points.CLASS_LABELS.values():
+        assert _kept(label) == {
+            f"sv-{index}" for index, case in enumerate(cases) if case["shown"].lower() == label.lower()
+        }, label
+    for index, case in enumerate(cases):
+        if case["shown"]:
+            assert f"sv-{index}" in _kept(case["shown"].upper()), case["why"]

@@ -6,6 +6,9 @@ points and the class, so a stored classification cannot drift from its criteria.
 Every save that changes the classification, the CNV scoring, the tags or the note is
 recorded in the hash-chained clinical audit trail, in the same transaction, like a
 small-variant review save.
+
+The SV search's classification filter keeps an SV by the class its review shows on the SV page:
+a bare class word in its text, else its most severe class tag, else its text (CLIN-77).
 """
 
 from __future__ import annotations
@@ -194,6 +197,77 @@ def test_a_blank_review_selection_selects_nothing_and_reads_nothing() -> None:
     session = _ReviewRows(_REVIEWED)
     assert _matching(session, classifications=[" "], tags=[""], has_notes=False) == set()
     assert session.executed == []
+
+
+def _sv_review(variant_id: str, classification=None, tags=(), cnv_class=None) -> dict:
+    return {
+        "variant_id": variant_id,
+        "classification": classification,
+        "tags": list(tags),
+        "note": None,
+        "cnv_class": cnv_class,
+    }
+
+
+# The reviews of the owner's before/after table (CLIN-77), one per SV, with the class the SV table
+# and cards show for each (normalizeReviewClassification of its text and its tags).
+_SHOWN_CLASS_SV_REVIEWS = [
+    _sv_review("sv-tag", tags=["acmg_class_4", "report"]),  # a class tag alone: LP
+    _sv_review("sv-word", classification="VUS"),  # a bare class word: VUS
+    _sv_review("sv-text-tag", classification="VUS - class 3", tags=["acmg_class_4"]),  # text and tag apart: LP
+    _sv_review("sv-word-tag", classification="VUS", tags=["acmg_class_4"]),  # a class word before a tag: VUS
+    # Scored in the CNV dialog, which writes its class label as the text: LP.
+    _sv_review("sv-cnv", classification="Likely pathogenic - class 4", cnv_class="cnv_class_4"),
+    # Scored VUS in the CNV dialog, then tagged class 5: P.
+    _sv_review("sv-cnv-tag", classification="VUS - class 3", tags=["acmg_class_5"], cnv_class="cnv_class_3"),
+    # Scored, its text cleared afterwards: the SV page shows no class, so no class filter keeps it.
+    _sv_review("sv-cnv-only", cnv_class="cnv_class_4"),
+    _sv_review("sv-free", classification="Some free text"),  # free text
+    _sv_review("sv-free-tag", classification="Some free text", tags=["acmg_class_1"]),  # free text, tag: B
+    _sv_review("sv-old-case", classification="Likely Pathogenic - class 4"),  # a label in an older case
+]
+
+
+@pytest.mark.parametrize(
+    ("wanted", "kept"),
+    [
+        ("Pathogenic - class 5", {"sv-cnv-tag"}),
+        ("Likely pathogenic - class 4", {"sv-tag", "sv-text-tag", "sv-cnv", "sv-old-case"}),
+        ("VUS - class 3", {"sv-word", "sv-word-tag"}),
+        ("Likely benign - class 2", set()),
+        ("Benign - class 1", {"sv-free-tag"}),
+        # A bare class word asks for its class, as a review's text does.
+        ("VUS", {"sv-word", "sv-word-tag"}),
+        (" likely PATHOGENIC ", {"sv-tag", "sv-text-tag", "sv-cnv", "sv-old-case"}),
+        # Free text keeps the reviews that show it: not one whose class tag shows a class.
+        ("some free TEXT", {"sv-free"}),
+        # A CNV class key or a tag key is no class the page shows.
+        ("cnv_class_4", set()),
+        ("acmg_class_4", set()),
+    ],
+)
+def test_a_classification_filter_keeps_an_sv_by_the_class_its_review_shows(wanted: str, kept: set[str]) -> None:
+    # CLIN-77 (the owner's decision of 2026-11-10, as CLIN-75 for small variants): the filter read
+    # the classification text alone, so "Likely pathogenic - class 4" dropped an SV the SV page shows
+    # with that class by its class tag, and kept one shown as class 5 for text saying class 3. It now
+    # keeps an SV by the class its review shows (review_class_label), in any case. The CNV scoring's
+    # class counts as the page shows it: through the text the CNV dialog writes, never on its own.
+    session = _ReviewRows(_SHOWN_CLASS_SV_REVIEWS)
+    assert _matching(session, classifications=[wanted]) == kept
+    [(sql, params)] = session.executed
+    assert "SELECT variant_id, classification, tags, note FROM structural_variant_reviews" in sql
+    assert params == {"family_id": FAMILY}
+
+
+def test_an_sv_classification_filter_with_several_classes_or_a_tag_filter() -> None:
+    session = _ReviewRows(_SHOWN_CLASS_SV_REVIEWS)
+    assert _matching(
+        session, classifications=["Pathogenic - class 5", "Likely pathogenic - class 4", "VUS - class 3"]
+    ) == {"sv-tag", "sv-word", "sv-text-tag", "sv-word-tag", "sv-cnv", "sv-cnv-tag", "sv-old-case"}
+    # Every part of the selection must hold.
+    assert _matching(session, classifications=["Likely pathogenic - class 4"], tags=["report"]) == {"sv-tag"}
+    # The tag filters read the tags as before: the class tag finds the SVs that hold it.
+    assert _matching(session, tags=["acmg_class_4"]) == {"sv-tag", "sv-text-tag", "sv-word-tag"}
 
 
 def test_the_review_summary_counts_the_reviewed_svs_their_notes_and_tags() -> None:
