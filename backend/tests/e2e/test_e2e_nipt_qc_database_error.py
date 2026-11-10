@@ -97,7 +97,7 @@ def signed(tmp_path_factory, request) -> dict:
     from backend.app.core.config import settings
     from backend.tests.e2e import _harness
 
-    if not (DEMO / "manifest.yaml").exists():
+    if not (DEMO / "coga-package.json").exists():
         pytest.fail("the demo NIPT package is missing: it is committed (scripts/generate_nipt_demo.py rebuilds it)")
     copy = prepare_copy(tmp_path_factory.mktemp("nipt_qc_database_error"))
     root = Path(copy["root"])
