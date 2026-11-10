@@ -4,10 +4,10 @@ The report sign-out refuses a family while a package-import job of it is queued,
 or running, and finds that job by the family the job records (``family_id``) or the one its
 request named (``report_signout_service._ACTIVE_IMPORT_JOB``). An import writes the family's
 pedigree, samples and provenance before it takes the family's variant-write locks, so until
-it holds them its job is all that keeps a sign-out out. The update that recorded the job as
-``running`` on its family was one of the import's best-effort progress updates: when it
-failed, or matched no row because another worker had claimed the job, the import registered
-the family all the same, under a job no sign-out could find.
+it holds them its job is all that keeps a sign-out out. The update that records the job as
+``running`` on its family is therefore no best-effort progress update: when it fails, or
+matches no row because another worker claimed the job, the import writes nothing of the
+family, which would otherwise be written under a job no sign-out finds.
 
 The job row is modelled as Postgres keeps it: an UPDATE applies only when its WHERE clause
 matches the row (the job's id, the worker that runs it, its status) and others see it once
@@ -37,6 +37,7 @@ from backend.app.services import sv_gene_index_service, variant_ranking_cache
 from backend.app.services.access_control import CurrentUser
 from backend.app.services.family_metadata_context import FamilyMetadataContext
 from backend.tests._family_import_fakes import admin_user, no_variant_copy, two_sample_context
+from backend.tests._kept_manifest import manifest_with_members
 
 FAMILY = "FAM001"
 JOB = "00000000-0000-0000-0000-0000000000a1"
@@ -188,12 +189,12 @@ class _Session:
 @pytest.fixture
 def jobs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> _JobTable:
     """A re-import of FAM001, claimed by worker-1, whose request named no family: a sign-out
-    can find it only by the family its job records. Every write of the family is recorded."""
+    can find it only by the family its job records. The job keeps the manifest the import
+    reads. Every write of the family is recorded."""
     root = tmp_path / FAMILY
     root.mkdir()
-    (root / "family.ped").write_text(f"{FAMILY} S1 0 0 1 2\n{FAMILY} S2 0 0 2 1\n", encoding="utf-8")
-    (root / "manifest.yaml").write_text(
-        f"schema_version: 1\nfamily_id: {FAMILY}\nped: family.ped\n", encoding="utf-8"
+    manifest = manifest_with_members(
+        {"schema_version": 1, "family_id": FAMILY}, f"{FAMILY} S1 0 0 1 2\n{FAMILY} S2 0 0 2 1\n"
     )
     monkeypatch.setattr(settings, "family_import_roots", [str(tmp_path)])
     now = datetime.now(timezone.utc)
@@ -218,6 +219,7 @@ def jobs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> _JobTable:
             "dataset_summaries": "[]",
             "metadata": {"requested_family_id": None, "conflict_mode": "update"},
             "error": None,
+            "manifest_text": json.dumps(manifest),
         }
     )
 
@@ -308,8 +310,8 @@ async def test_an_import_whose_job_cannot_name_its_family_writes_nothing(jobs) -
 
     await _run(jobs)
 
-    # Before: the progress update failed, was logged, and the import registered the family
-    # under a job that named no family, so a sign-out then would have frozen it part-way.
+    # The job names no family, so a sign-out then would freeze the family part-way: nothing of
+    # it is written.
     assert jobs.writes == []
     assert ("variant-write locks held",) not in jobs.events
     assert jobs.committed["status"] == "failed"
@@ -340,8 +342,8 @@ async def test_an_import_whose_job_another_worker_claimed_writes_nothing(jobs, m
 
     await _run(jobs)
 
-    # Before: worker-1's progress update matched no row, which went unnoticed, and it
-    # registered the family beside worker-2's run of the same job.
+    # worker-1's progress update matches no row: it registers nothing beside worker-2's run of
+    # the same job.
     assert jobs.writes == []
     # The job is worker-2's: worker-1 neither ran it nor ended it.
     assert jobs.committed["worker_id"] == "worker-2"
@@ -391,8 +393,8 @@ async def test_a_progress_update_that_fails_once_the_job_names_its_family_does_n
 async def test_an_import_that_writes_nothing_names_no_family_as_running(jobs, case, ends) -> None:
     if case == "dry run":
         jobs.committed = {**jobs.committed, "dry_run": True}
-    else:  # its PED names another family
-        Path(jobs.committed["submitted_path"], "family.ped").write_text("OTHER S1 0 0 1 2\n", encoding="utf-8")
+    else:  # its manifest names no members
+        jobs.committed = {**jobs.committed, "manifest_text": json.dumps({"schema_version": 1, "family_id": FAMILY})}
 
     await _run(jobs)
 

@@ -30,6 +30,7 @@ from backend.app.services.import_progress import DatasetTimer
 from backend.app.services.family_package_source import package_folder_path
 from backend.app.services.hpo_service import PhenotypeImport
 from backend.tests._family_import_fakes import admin_user, no_variant_copy
+from backend.tests._kept_manifest import kept_manifest, validated
 
 
 @pytest.fixture(autouse=True)
@@ -92,7 +93,7 @@ def test_manifest_parsing_supports_yaml_and_optional_dataset_warnings(tmp_path: 
     package_root = tmp_path / "FAM001"
     _write_minimal_package(package_root)
 
-    result = family_package_validation.validate_family_package(package_root)
+    result = validated(package_root)
 
     assert result.valid is True
     assert result.family_id == "FAM001"
@@ -102,79 +103,60 @@ def test_manifest_parsing_supports_yaml_and_optional_dataset_warnings(tmp_path: 
     assert {summary.dataset_type for summary in result.datasets} == set(family_package_common.SUPPORTED_DATASETS)
 
 
-def test_family_id_defaults_to_folder_name_and_must_match_ped(tmp_path: Path) -> None:
+def test_family_id_defaults_to_folder_name(tmp_path: Path) -> None:
+    # A manifest without family_id names the family after its folder; its members are that
+    # family's.
     package_root = tmp_path / "FOLDER_FAM"
     package_root.mkdir()
-    (package_root / "family.ped").write_text("PED_FAM S1 0 0 1 2\n", encoding="utf-8")
-    (package_root / "manifest.yaml").write_text("schema_version: 1\nped: family.ped\n", encoding="utf-8")
+    manifest = {
+        "schema_version": 1,
+        "family": {"add_members": [{"sample_id": "S1", "sex": "male", "clinical_status": "affected"}]},
+    }
 
-    result = family_package_validation.validate_family_package(package_root)
+    result, bundle = family_package_validation.load_validated_family_package(
+        package_root, manifest_text=json.dumps(manifest)
+    )
 
-    assert result.valid is False
+    assert result.valid is True
     assert result.family_id == "FOLDER_FAM"
-    assert "ped_family_mismatch" in {error.code for error in result.errors}
-
-
-# --- A package without a PED file: the existing family's PED, from the database --------------
-
-
-def _write_manifest_without_its_ped(root: Path, *, ped_name: str = "FAM1.ped") -> None:
-    (root / "manifest.yaml").write_text(
-        "schema_version: 1\n"
-        "family_id: FAM1\n"
-        f"ped: {ped_name}\n",
-        encoding="utf-8",
-    )
-
-
-def test_validation_uses_database_fallback_when_ped_absent(tmp_path: Path) -> None:
-    _write_manifest_without_its_ped(tmp_path)
-
-    validation, bundle = family_package_validation.load_validated_family_package(
-        tmp_path,
-        fallback_ped_text="FAM1 KID 0 0 1 2\n",
-    )
-
-    assert validation.valid is True
-    assert validation.sample_ids == ["KID"]
-    assert validation.metadata.get("ped_source") == "database"
     assert bundle is not None
-    assert bundle.ped.sample_ids == ["KID"]
+    assert bundle.ped.family_ids == ["FOLDER_FAM"]
+    assert bundle.ped.sample_ids == ["S1"]
 
 
-def test_validation_requires_ped_without_fallback(tmp_path: Path) -> None:
-    _write_manifest_without_its_ped(tmp_path)
+def test_a_manifest_that_names_a_ped_is_refused_and_no_ped_is_read(tmp_path: Path) -> None:
+    # The members are the manifest's family.add_members: a PED it names, even one in the folder
+    # beside members of its own, is refused rather than read.
+    package_root = tmp_path / "FAM001"
+    _write_minimal_package(package_root)
+    manifest = {**json.loads(kept_manifest(package_root)), "ped": "family.ped"}
 
-    validation, bundle = family_package_validation.load_validated_family_package(tmp_path)
+    result, bundle = family_package_validation.load_validated_family_package(
+        package_root, manifest_text=json.dumps(manifest)
+    )
 
-    assert validation.valid is False
     assert bundle is None
-    assert any(issue.code == "ped_file_missing" for issue in validation.errors)
+    assert result.valid is False
+    assert [issue.code for issue in result.errors] == ["manifest_names_a_ped"]
+    assert result.sample_ids == []
 
 
-@pytest.mark.asyncio
-async def test_the_database_fallback_is_the_requested_familys_ped_and_none_for_a_family_it_lacks(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    asked: list[str] = []
+@pytest.mark.parametrize("add_members", [None, []], ids=["no add_members", "empty add_members"])
+def test_a_manifest_that_names_no_members_is_refused(tmp_path: Path, add_members: list | None) -> None:
+    # The folder's PED is not read in their place.
+    package_root = tmp_path / "FAM001"
+    _write_minimal_package(package_root)
+    manifest: dict[str, Any] = {"schema_version": 1, "family_id": "FAM001"}
+    if add_members is not None:
+        manifest["family"] = {"add_members": add_members}
 
-    async def build_pedigree_text(_session: Any, *, family_id: str) -> str:
-        asked.append(family_id)
-        if family_id == "FAM1":
-            return "FAM1 KID 0 0 1 2\n"
-        raise HTTPException(status_code=404, detail="not found")
+    result, bundle = family_package_validation.load_validated_family_package(
+        package_root, manifest_text=json.dumps(manifest)
+    )
 
-    monkeypatch.setattr(package_import.ped_service, "build_pedigree_text", build_pedigree_text)
-    session = object()
-
-    assert await package_import.db_pedigree_fallback(session, " FAM1 ") == "FAM1 KID 0 0 1 2\n"  # type: ignore[arg-type]
-    # A family the database does not hold has no PED to fall back to: the package must bring one.
-    assert await package_import.db_pedigree_fallback(session, "FAM2") is None  # type: ignore[arg-type]
-    # No family asked for, an ID no family can have, or no session: nothing is looked up.
-    assert await package_import.db_pedigree_fallback(session, None) is None  # type: ignore[arg-type]
-    assert await package_import.db_pedigree_fallback(session, "FAM\x001") is None  # type: ignore[arg-type]
-    assert await package_import.db_pedigree_fallback(None, "FAM1") is None
-    assert asked == ["FAM1", "FAM2"]
+    assert bundle is None
+    assert [issue.code for issue in result.errors] == ["members_missing"]
+    assert result.sample_ids == []
 
 
 def test_missing_referenced_files_are_validation_errors(tmp_path: Path) -> None:
@@ -191,7 +173,7 @@ def test_missing_referenced_files_are_validation_errors(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    result = family_package_validation.validate_family_package(package_root)
+    result = validated(package_root)
 
     assert result.valid is False
     codes = {error.code for error in result.errors}
@@ -220,7 +202,7 @@ def test_dataset_sample_id_mismatches_are_validation_errors(tmp_path: Path) -> N
         encoding="utf-8",
     )
 
-    result = family_package_validation.validate_family_package(package_root)
+    result = validated(package_root)
 
     assert result.valid is False
     assert "dataset_unknown_sample" in {error.code for error in result.errors}
@@ -245,7 +227,7 @@ def test_vcf_index_checks_accept_manifest_index(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    result = family_package_validation.validate_family_package(package_root)
+    result = validated(package_root)
 
     assert result.valid is True
     snv_summary = next(summary for summary in result.datasets if summary.dataset_type == "snv")
@@ -278,7 +260,7 @@ def test_snv_dataset_accepts_optional_vep_annotation_tsv(tmp_path: Path) -> None
         encoding="utf-8",
     )
 
-    result = family_package_validation.validate_family_package(package_root)
+    result = validated(package_root)
 
     assert result.valid is True
     snv_summary = next(summary for summary in result.datasets if summary.dataset_type == "snv")
@@ -311,7 +293,7 @@ def test_uncompressed_trgt_family_vcf_does_not_require_index(tmp_path: Path) -> 
         encoding="utf-8",
     )
 
-    result = family_package_validation.validate_family_package(package_root)
+    result = validated(package_root)
 
     assert result.valid is True
     summary = next(summary for summary in result.datasets if summary.dataset_type == "repeats_trgt")
@@ -332,7 +314,7 @@ def test_unsupported_dataset_types_are_clear_errors(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    result = family_package_validation.validate_family_package(package_root)
+    result = validated(package_root)
 
     assert result.valid is False
     assert result.errors[0].code == "dataset_unsupported"
@@ -360,7 +342,7 @@ def test_wisecondorx_per_sample_validation_requires_bins_and_segments(tmp_path: 
         encoding="utf-8",
     )
 
-    result = family_package_validation.validate_family_package(package_root)
+    result = validated(package_root)
 
     assert result.valid is True
     summary = next(summary for summary in result.datasets if summary.dataset_type == "wisecondorx")
@@ -470,7 +452,7 @@ def test_pgt_manifest_validates_glimpse2_apcad_and_qdnaseq_files(tmp_path: Path)
     )
     (package_root / "GLIMPSE2").mkdir()
     # A gzip VCF whose #CHROM line names the members: one that cannot be read, or names
-    # none, is refused (DATA-12).
+    # none, is refused.
     (package_root / "GLIMPSE2" / "FAM001.vcf.gz").write_bytes(
         gzip.compress(
             b"##fileformat=VCFv4.2\n"
@@ -509,7 +491,7 @@ def test_pgt_manifest_validates_glimpse2_apcad_and_qdnaseq_files(tmp_path: Path)
         encoding="utf-8",
     )
 
-    result = family_package_validation.validate_family_package(package_root)
+    result = validated(package_root)
 
     assert result.valid is True
     assert result.metadata["roi"] == "CFTR"
@@ -634,10 +616,9 @@ async def test_qdnaseq_overwrite_import_does_not_report_update_skipped_tracks(
 
     bundle = family_package_common.FamilyPackageBundle(
         root=root,
-        manifest_path=root / "manifest.yaml",
-        manifest=family_package_common.PackageManifest(schema_version=1, ped="family.ped"),
-        ped_path=root / "family.ped",
+        manifest=family_package_common.PackageManifest(schema_version=1),
         ped=family_package_common.ParsedPed(family_ids=[], members=[], sample_ids=[], text=""),
+        kept_manifest_text="{}",
     )
     dataset = family_package_common.ManifestDataset(
         per_sample={
@@ -660,12 +641,12 @@ async def test_qdnaseq_overwrite_import_does_not_report_update_skipped_tracks(
     async def fake_import_copy_number_track(*args, **kwargs) -> dict[str, int]:
         return {"processed": 1, "inserted": 1, "skipped": 1}
 
-    # _import_qdnaseq_dataset now lives in family_package_datasets; patch the helpers
-    # it calls where that module resolves them.
+    # Patch the helpers _import_qdnaseq_dataset calls where family_package_datasets resolves
+    # them.
     monkeypatch.setattr(
         "backend.app.services.family_package_datasets._interval_track_count", fake_interval_track_count
     )
-    # Nor are rows of the track stored without a record (SAFE-18).
+    # Nor are rows of the track stored without a record.
     monkeypatch.setattr(
         "backend.app.services.family_package_datasets._stored_track_rows", fake_interval_track_count
     )
@@ -974,6 +955,7 @@ async def test_dry_run_validates_without_database_session(tmp_path: Path) -> Non
     result = await package_import.execute_family_package_import(
         None,
         folder_path=package_root,
+        manifest_text=kept_manifest(package_root),
         project_id=None,
         dry_run=True,
         user=None,
@@ -1012,6 +994,7 @@ async def test_a_package_of_another_family_than_the_one_selected_is_refused_befo
     result = await package_import.execute_family_package_import(
         None,
         folder_path=package_root,
+        manifest_text=kept_manifest(package_root),
         project_id=None,
         dry_run=False,
         user=admin_user(),
@@ -1065,6 +1048,7 @@ async def test_an_import_that_cancels_on_an_existing_family_is_refused_before_an
     result = await package_import.execute_family_package_import(
         _ExistingFamilySession(),  # type: ignore[arg-type]
         folder_path=package_root,
+        manifest_text=kept_manifest(package_root),
         project_id=None,
         dry_run=dry_run,
         user=admin_user(),
@@ -1092,6 +1076,7 @@ async def test_an_update_of_an_existing_family_goes_on_to_register_it(
         await package_import.execute_family_package_import(
             _ExistingFamilySession(),  # type: ignore[arg-type]
             folder_path=package_root,
+            manifest_text=kept_manifest(package_root),
             project_id=None,
             dry_run=False,
             user=admin_user(),
@@ -1110,6 +1095,7 @@ async def test_an_import_that_writes_needs_a_session_and_a_user(tmp_path: Path) 
         await package_import.execute_family_package_import(
             None,
             folder_path=package_root,
+            manifest_text=kept_manifest(package_root),
             project_id=None,
             dry_run=False,
             user=None,
@@ -1161,6 +1147,7 @@ async def test_successful_minimal_import_registers_family(monkeypatch: pytest.Mo
     result = await package_import.execute_family_package_import(
         object(),  # type: ignore[arg-type]
         folder_path=package_root,
+        manifest_text=kept_manifest(package_root),
         project_id="project-uuid",
         dry_run=False,
         user=admin_user(),
@@ -1231,15 +1218,16 @@ async def test_package_import_continues_after_dataset_failure(
     result = await package_import.execute_family_package_import(
         FakeSession(),  # type: ignore[arg-type]
         folder_path=package_root,
+        manifest_text=kept_manifest(package_root),
         project_id="project-uuid",
         dry_run=False,
         user=admin_user(),
     )
 
     statuses = {dataset.dataset_type: dataset.status for dataset in result.datasets}
-    # Fail-clean hardening: any failed enabled dataset now marks the whole import as
-    # failed (error set -> job status 'failed'), but a partial success keeps the
-    # datasets that did import (no family-shell rollback when something succeeded).
+    # Any failed enabled dataset marks the whole import as failed (error set -> job status
+    # 'failed'), but a partial success keeps the datasets that did import (no family-shell
+    # rollback when something succeeded).
     assert result.completed is False
     assert result.error is not None and "snv" in result.error
     assert imported == ["snv", "repeats_trgt"]
@@ -1252,9 +1240,9 @@ async def test_package_import_continues_after_dataset_failure(
 async def test_a_dataset_failure_shows_cogas_own_refusal_and_names_any_other_error_by_its_kind(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    # SEC-39. The dataset's message and the job's log line, which the import page shows, held
+    # The dataset's message and the job's log line, which the import page shows, never hold
     # the error's text: for a failed statement, its SQL and the values it was given. CoGA's own
-    # refusal (a loader's HTTPException, an ImportRefused) is still shown as it is written.
+    # refusal (a loader's HTTPException, an ImportRefused) is shown as it is written.
     from sqlalchemy.exc import OperationalError
 
     from backend.app.services.family_package_common import ImportRefused
@@ -1298,6 +1286,7 @@ async def test_a_dataset_failure_shows_cogas_own_refusal_and_names_any_other_err
     result = await package_import.execute_family_package_import(
         FakeSession(),  # type: ignore[arg-type]
         folder_path=package_root,
+        manifest_text=kept_manifest(package_root),
         project_id="project-uuid",
         dry_run=False,
         user=admin_user(),
@@ -1397,6 +1386,7 @@ async def test_each_dataset_is_timed_and_a_running_one_tells_its_time_left(
     result = await package_import.execute_family_package_import(
         _CommitRollbackSession(),  # type: ignore[arg-type]
         folder_path=package_root,
+        manifest_text=kept_manifest(package_root),
         project_id="project-uuid",
         dry_run=False,
         user=admin_user(),
@@ -1471,6 +1461,7 @@ async def test_total_failure_on_new_family_rolls_back_shell(
     result = await package_import.execute_family_package_import(
         _CommitRollbackSession(),  # type: ignore[arg-type]
         folder_path=package_root,
+        manifest_text=kept_manifest(package_root),
         project_id="project-uuid",
         dry_run=False,
         user=admin_user(),
@@ -1488,8 +1479,7 @@ async def test_a_new_family_keeps_a_dataset_imported_with_warnings_when_the_rest
 ) -> None:
     """A dataset that ended `warning` imported its data (the rows its input got wrong left
     out, each named in the job's record), so a new family holding it is no empty shell: it is
-    kept and flagged with that dataset as imported, not deleted with it (SAFE-34, found with a
-    family's phenotypes)."""
+    kept and flagged with that dataset as imported, not deleted with it."""
     package_root = tmp_path / "FAM001"
     _write_minimal_package(package_root)
     deleted: list[str] = []
@@ -1517,13 +1507,14 @@ async def test_a_new_family_keeps_a_dataset_imported_with_warnings_when_the_rest
     result = await package_import.execute_family_package_import(
         _CommitRollbackSession(),  # type: ignore[arg-type]
         folder_path=package_root,
+        manifest_text=kept_manifest(package_root),
         project_id="project-uuid",
         dry_run=False,
         user=admin_user(),
     )
 
     assert result.completed is False
-    # Counted only `imported`: the family was deleted with the repeats it had imported.
+    # A count of `imported` alone would delete the family with the repeats it imported.
     assert deleted == []
     assert [(flag["failed_datasets"], flag["imported_datasets"]) for flag in flagged] == [(["snv"], ["repeats_trgt"])]
 
@@ -1542,6 +1533,7 @@ async def test_total_failure_on_existing_family_is_not_rolled_back(
     result = await package_import.execute_family_package_import(
         _CommitRollbackSession(),  # type: ignore[arg-type]
         folder_path=package_root,
+        manifest_text=kept_manifest(package_root),
         project_id="project-uuid",
         dry_run=False,
         user=admin_user(),
@@ -1571,6 +1563,7 @@ async def test_a_failed_import_flags_the_family_with_its_import_job(
     await package_import.execute_family_package_import(
         _CommitRollbackSession(),  # type: ignore[arg-type]
         folder_path=package_root,
+        manifest_text=kept_manifest(package_root),
         project_id="project-uuid",
         dry_run=False,
         user=admin_user(),
@@ -1580,6 +1573,7 @@ async def test_a_failed_import_flags_the_family_with_its_import_job(
     await package_import.execute_family_package_import(
         _CommitRollbackSession(),  # type: ignore[arg-type]
         folder_path=package_root,
+        manifest_text=kept_manifest(package_root),
         project_id="project-uuid",
         dry_run=False,
         user=admin_user(),
@@ -1640,6 +1634,7 @@ async def test_the_import_names_who_runs_it_its_package_and_its_job_to_the_pheno
     result = await package_import.execute_family_package_import(
         _CommitRollbackSession(),  # type: ignore[arg-type]
         folder_path=package_root,
+        manifest_text=kept_manifest(package_root),
         project_id="project-uuid",
         dry_run=False,
         user=admin,

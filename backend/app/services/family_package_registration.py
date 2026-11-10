@@ -63,8 +63,8 @@ from . import ped_service
 from .raw_import_files_pg import family_managed_files, record_raw_import_file, store_managed_file
 from .roi_gene_lookup import roi_gene_region
 
-from .family_package_common import HAPLOTYPE_ORIGIN_ROLES, LONG_READ_DATASET_ROLES, MANIFEST_IN_FOLDER, MANIFEST_KEPT_IN_COGA, PCF_ROLE_KEYS, QC_FAMILY_ROLES, FamilyPackageBundle, ImportRefused, ManifestDataset, _display_path, _issue, _metadata_dict, _resolve_package_path, manifest_text_sha256
-from .family_package_manifest import _manifest_carrier_types, _manifest_member_status_overrides, _manifest_pgt_metadata, _manifest_relationships, _manifest_roi_value, _normalize_manifest_samples, _ped_carrier_type, _ped_is_carrier, _ped_members_for_import
+from .family_package_common import HAPLOTYPE_ORIGIN_ROLES, LONG_READ_DATASET_ROLES, MANIFEST_KEPT_IN_COGA, PCF_ROLE_KEYS, QC_FAMILY_ROLES, FamilyPackageBundle, ImportRefused, ParsedPed, ManifestDataset, _display_path, _issue, _metadata_dict, _resolve_package_path, manifest_text_sha256
+from .family_package_manifest import _manifest_carrier_types, _manifest_member_status_overrides, _manifest_pgt_metadata, _manifest_relationships, _manifest_roi_value, _normalize_manifest_samples, _parse_ped_text_strict, _ped_carrier_type, _ped_is_carrier, _ped_members_for_import
 
 
 logger = logging.getLogger(__name__)
@@ -337,10 +337,9 @@ async def _record_package_raw_files(
                         dataset_type=dataset_type,
                         sample_uuid=sample_uuid,
                     )
-        if bundle.kept_manifest_text is not None:
-            await _record_kept_manifest(
-                session, bundle=bundle, family_uuid=family_uuid, family_identifier=family_identifier
-            )
+        await _record_kept_manifest(
+            session, bundle=bundle, family_uuid=family_uuid, family_identifier=family_identifier
+        )
     except Exception:  # pragma: no cover - provenance is non-critical
         logger.warning("Failed to record raw import file provenance", exc_info=True)
 
@@ -387,8 +386,6 @@ async def _record_kept_manifest(
     """Store the manifest CoGA kept for the import's job as a managed copy and record it as the
     family's ``manifest`` file, with the SHA-256 the job and the package record name it by."""
     text_value = bundle.kept_manifest_text
-    if text_value is None:
-        return
     content = text_value.encode("utf-8")
     stored = await store_managed_file(family_identifier, KEPT_MANIFEST_FILE_NAME, content)
     await record_raw_import_file(
@@ -435,18 +432,13 @@ async def _register_package_provenance(
         # The folder the package was imported from: for a bucket, its gs:// or s3://
         # URI, since the staging copy is deleted after the import.
         "folder_path": bundle.source_uri or str(bundle.root),
-        # The manifest the import read: the folder's file (its path in the package), or the text
-        # CoGA kept for the import's job (no path; the family's raw files hold its copy), with
-        # its SHA-256.
-        "manifest_path": (
-            _display_path(bundle.root, bundle.manifest_path) if bundle.manifest_path is not None else None
-        ),
-        "manifest_source": MANIFEST_KEPT_IN_COGA if bundle.kept_manifest_text is not None else MANIFEST_IN_FOLDER,
+        # The manifest the import read, the text CoGA kept for the import's job (the family's
+        # raw files hold its copy), with its SHA-256.
+        "manifest_source": MANIFEST_KEPT_IN_COGA,
         "manifest_sha256": bundle.manifest_sha256,
         # The fingerprint of the package folder the import read, taken before it read the folder
         # (family_package_fingerprint.py); None for a package staged from a bucket.
         "package_fingerprint": bundle.package_fingerprint,
-        "ped_path": _display_path(bundle.root, bundle.ped_path) if bundle.ped_path is not None else None,
         "schema_version": bundle.manifest.schema_version,
         "family_id": validation.family_id,
         "metadata": bundle.manifest.metadata,
@@ -1860,13 +1852,11 @@ async def _ensure_family_from_ped(
             raise ImportRefused(
                 f"Family '{family_id}' already exists; choose update or overwrite to import data."
             )
-        existing_samples = set(str(sample_id) for sample_id in existing.get("sample_ids", []) if sample_id)
-        requested_samples = set(bundle.ped.sample_ids)
-        if existing_samples != requested_samples:
-            raise ImportRefused(
-                "Existing family has different sample IDs; refusing to attach package import "
-                f"to {family_id}"
-            )
+        # The package's members are the pedigree the import reads: one that says otherwise than
+        # the family, a member more or less, another sex or other parents, is refused.
+        differences = await family_member_differences(session, family_id=family_id, ped=bundle.ped)
+        if differences:
+            raise ImportRefused(members_differ_message(family_id, differences))
         if resolved_project_id is not None:
             # The family is linked to the import's project below: one on another assembly
             # than its stored variants is refused, as for a change of its projects, before
@@ -3123,6 +3113,62 @@ async def _existing_sample_ids(
         {"sample_ids": list(dict.fromkeys(sample_ids))},
     )
     return [str(row["sample_id"]) for row in result.mappings().all()]
+
+
+_SEX_NAMES = {"1": "male", "2": "female"}
+
+
+def _member_described(member: Any) -> tuple[str, str | None, str | None]:
+    """A member's sex and parents, as two pedigrees are compared."""
+    return (
+        _SEX_NAMES.get(member.sex, "unknown"),
+        member.pid if member.pid not in {"", "0"} else None,
+        member.mid if member.mid not in {"", "0"} else None,
+    )
+
+
+def _shown(described: tuple[str, str | None, str | None]) -> str:
+    sex, father, mother = described
+    return f"{sex}, father {father or 'none'}, mother {mother or 'none'}"
+
+
+async def family_member_differences(session: AsyncSession, *, family_id: str, ped: ParsedPed) -> list[str]:
+    """How the members of a package (``ped``, made of its ``family.add_members``) differ from the
+    family ``family_id`` as CoGA holds it (``ped_service.build_pedigree_text``): a member of the one
+    the other lacks, or one whose sex or parents differ. Empty when the family does not exist, or
+    agrees. The package's members are the pedigree an import reads (the owner's decision of
+    2026-11-10): one that says otherwise than the family is corrected before its import."""
+    if identifier_problem(family_id) is not None:
+        return []
+    if await _fetch_existing_family(session, family_id=family_id) is None:
+        return []
+    try:
+        stored_text = await ped_service.build_pedigree_text(session, family_id=family_id)
+    except HTTPException:
+        return []
+    stored, _errors = _parse_ped_text_strict(stored_text) if stored_text.strip() else (None, [])
+    held = {member.iid: _member_described(member) for member in (stored.members if stored is not None else [])}
+    given = {member.iid: _member_described(member) for member in ped.members}
+    differences: list[str] = []
+    for sample_id in sorted(held.keys() | given.keys()):
+        if sample_id not in given:
+            differences.append(f"{sample_id} is a member of the family, not of the package")
+        elif sample_id not in held:
+            differences.append(f"{sample_id} is a member of the package, not of the family")
+        elif held[sample_id] != given[sample_id]:
+            differences.append(
+                f"{sample_id} is {_shown(given[sample_id])} in the package, {_shown(held[sample_id])} in CoGA"
+            )
+    return differences
+
+
+def members_differ_message(family_id: str, differences: list[str]) -> str:
+    """The sentence that says how a package's members differ from its family in CoGA."""
+    shown = "; ".join(differences[:5]) + (f"; and {len(differences) - 5} more" if len(differences) > 5 else "")
+    return (
+        f"The package's members differ from family '{family_id}' in CoGA: {shown}. Correct the package "
+        "to the family's members before its import."
+    )
 
 
 async def _existing_package_entity_warnings(

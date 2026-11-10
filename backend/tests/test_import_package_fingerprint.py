@@ -31,7 +31,14 @@ from backend.app.services.family_package_fingerprint import PackageFolderTooLarg
 from backend.app.services.family_package_validation import load_validated_family_package, take_package_fingerprint
 
 _PED = "FAM1\tPROBAND\t0\t0\t1\t2\n"
-_MANIFEST = "schema_version: 1\nfamily_id: FAM1\nped: family.ped\n"
+# The manifest CoGA keeps for the import of the package: its one member under family.add_members.
+_MANIFEST = (
+    "schema_version: 1\n"
+    "family_id: FAM1\n"
+    "family:\n"
+    "  add_members:\n"
+    "    - {sample_id: PROBAND, sex: male, clinical_status: affected}\n"
+)
 
 
 def _sha256(text: str) -> str:
@@ -40,7 +47,9 @@ def _sha256(text: str) -> str:
 
 @pytest.fixture
 def package(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
-    """A one-member package with its own manifest, under no import root (development)."""
+    """A one-member package folder as a pipeline writes it, under no import root (development).
+    Its ``manifest.yaml`` and PED are files like any other: the import reads the manifest CoGA
+    keeps for it (``_MANIFEST``)."""
     monkeypatch.setattr(settings, "family_import_roots", [])
     root = tmp_path / "FAM1"
     (root / "snv").mkdir(parents=True)
@@ -211,7 +220,7 @@ def test_an_entry_that_cannot_be_looked_up_or_is_no_file_is_part_of_the_fingerpr
 def test_the_validation_reports_the_fingerprint_taken_before_it_read_the_folder(
     package: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    expected = _fingerprint(package)
+    expected = _fingerprint(package, _sha256(_MANIFEST))
     taken: list[str] = []
     real = family_package_validation._validate_and_load_package
 
@@ -223,27 +232,33 @@ def test_the_validation_reports_the_fingerprint_taken_before_it_read_the_folder(
 
     monkeypatch.setattr(family_package_validation, "_validate_and_load_package", validate)
 
-    validation, bundle = load_validated_family_package(package)
+    validation, bundle = load_validated_family_package(package, manifest_text=_MANIFEST)
 
     assert taken == ["validated"]
     assert validation.valid, validation.errors
     assert validation.package_fingerprint == expected
     assert bundle is not None and bundle.package_fingerprint == expected
-    assert _fingerprint(package) != expected
+    assert _fingerprint(package, _sha256(_MANIFEST)) != expected
 
 
-def test_the_validation_with_a_kept_manifest_reports_the_fingerprint_with_it(package: Path) -> None:
-    (package / "manifest.yaml").unlink()
+def test_the_validation_reports_the_fingerprint_read_with_its_kept_manifest(package: Path) -> None:
+    edited = _MANIFEST + "# edited\n"
 
     validation, bundle = load_validated_family_package(package, manifest_text=_MANIFEST)
+    other, _other_bundle = load_validated_family_package(package, manifest_text=edited)
 
     assert validation.valid, validation.errors
     assert validation.package_fingerprint == _fingerprint(package, _sha256(_MANIFEST))
     assert bundle is not None and bundle.package_fingerprint == validation.package_fingerprint
+    # The same folder with another kept manifest: another fingerprint.
+    assert other.package_fingerprint == _fingerprint(package, _sha256(edited))
+    assert other.package_fingerprint != validation.package_fingerprint
 
 
 def test_a_package_staged_from_a_bucket_has_no_fingerprint(package: Path) -> None:
-    validation, bundle = load_validated_family_package(package, source_uri="gs://bucket/packages/FAM1")
+    validation, bundle = load_validated_family_package(
+        package, manifest_text=_MANIFEST, source_uri="gs://bucket/packages/FAM1"
+    )
 
     assert validation.valid, validation.errors
     assert validation.package_fingerprint is None
@@ -260,7 +275,7 @@ def test_a_folder_too_large_is_refused_before_anything_in_it_is_read(
 
     monkeypatch.setattr(family_package_validation, "_validate_and_load_package", never)
 
-    validation, bundle = load_validated_family_package(package)
+    validation, bundle = load_validated_family_package(package, manifest_text=_MANIFEST)
 
     assert bundle is None
     assert [issue.code for issue in validation.errors] == ["package_folder_too_large"]
@@ -273,7 +288,7 @@ def test_a_folder_that_cannot_be_listed_is_refused(package: Path, monkeypatch: p
 
     monkeypatch.setattr(family_package_validation, "package_fingerprint", refuse)
 
-    validation, bundle = load_validated_family_package(package)
+    validation, bundle = load_validated_family_package(package, manifest_text=_MANIFEST)
 
     assert bundle is None
     assert [issue.code for issue in validation.errors] == ["package_folder_unreadable"]
@@ -281,11 +296,11 @@ def test_a_folder_that_cannot_be_listed_is_refused(package: Path, monkeypatch: p
 
 
 def test_a_folder_the_validation_refuses_itself_has_no_fingerprint(package: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    assert take_package_fingerprint(package / "missing", manifest_text=None) == (None, None)
-    assert take_package_fingerprint(package / "family.ped", manifest_text=None) == (None, None)
+    assert take_package_fingerprint(package / "missing", manifest_text=_MANIFEST) == (None, None)
+    assert take_package_fingerprint(package / "family.ped", manifest_text=_MANIFEST) == (None, None)
     assert take_package_fingerprint(package, manifest_text=_MANIFEST + "# \x00\n") == (None, None)
     monkeypatch.setattr(settings, "family_import_roots", [str(package.parent / "elsewhere")])
-    assert take_package_fingerprint(package, manifest_text=None) == (None, None)
+    assert take_package_fingerprint(package, manifest_text=_MANIFEST) == (None, None)
 
 
 # --- the queue ------------------------------------------------------------------------------
@@ -324,34 +339,27 @@ _REQUESTER = SimpleNamespace(id="00000000-0000-4000-8000-0000000000aa", email="s
 _PROJECT = "00000000-0000-4000-8000-0000000000bb"
 
 
-async def _queue(session: _JobSession, folder: str, **kwargs: Any) -> Any:
+async def _queue(session: _JobSession, folder: str) -> Any:
     return await family_package_jobs.queue_family_import_job(
         session,  # type: ignore[arg-type]
         folder_path=folder,
         project_id=_PROJECT,
         dry_run=False,
         requested_by=_REQUESTER,  # type: ignore[arg-type]
-        **kwargs,
+        manifest_text=_MANIFEST,
     )
 
 
 @pytest.mark.asyncio
 async def test_the_job_keeps_the_fingerprint_of_the_folder_as_it_is_queued(package: Path) -> None:
+    # Read with the manifest the job keeps.
     session = _JobSession()
 
     job = await _queue(session, str(package))
 
     assert session.inserted is not None
-    assert session.inserted["package_fingerprint"] == _fingerprint(package)
-    assert job.package_fingerprint == _fingerprint(package)
-
-
-@pytest.mark.asyncio
-async def test_the_job_keeps_the_fingerprint_read_with_its_kept_manifest(package: Path) -> None:
-    session = _JobSession()
-
-    job = await _queue(session, str(package), manifest_text=_MANIFEST)
-
+    assert session.inserted["manifest_sha256"] == _sha256(_MANIFEST)
+    assert session.inserted["package_fingerprint"] == _fingerprint(package, _sha256(_MANIFEST))
     assert job.package_fingerprint == _fingerprint(package, _sha256(_MANIFEST))
 
 
@@ -431,7 +439,7 @@ def test_a_folder_the_validation_refused_keeps_that_refusal_alone() -> None:
 
 @pytest.mark.asyncio
 async def test_a_folder_as_the_validation_read_it_has_not_changed(package: Path) -> None:
-    _validation_out, bundle = load_validated_family_package(package)
+    _validation_out, bundle = load_validated_family_package(package, manifest_text=_MANIFEST)
     assert bundle is not None
     logs: list[str] = []
 
@@ -445,7 +453,6 @@ async def test_a_folder_as_the_validation_read_it_has_not_changed(package: Path)
 
 @pytest.mark.asyncio
 async def test_a_folder_changed_since_the_validation_read_it_is_told(package: Path) -> None:
-    (package / "manifest.yaml").unlink()
     _validation_out, bundle = load_validated_family_package(package, manifest_text=_MANIFEST)
     assert bundle is not None and bundle.package_fingerprint is not None
     (package / "snv" / "family.vcf").write_text("##fileformat=VCFv4.2\n#rerun\n", encoding="utf-8")
@@ -461,7 +468,7 @@ async def test_a_folder_changed_since_the_validation_read_it_is_told(package: Pa
 
 @pytest.mark.asyncio
 async def test_a_folder_that_can_no_longer_be_read_counts_as_changed(package: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    _validation_out, bundle = load_validated_family_package(package)
+    _validation_out, bundle = load_validated_family_package(package, manifest_text=_MANIFEST)
     assert bundle is not None and bundle.package_fingerprint is not None
 
     def refuse(*_args: Any, **_kwargs: Any) -> Any:
@@ -479,7 +486,9 @@ async def test_a_folder_that_can_no_longer_be_read_counts_as_changed(package: Pa
 
 @pytest.mark.asyncio
 async def test_a_package_from_a_bucket_is_not_read_again(package: Path) -> None:
-    _validation_out, bundle = load_validated_family_package(package, source_uri="gs://bucket/packages/FAM1")
+    _validation_out, bundle = load_validated_family_package(
+        package, manifest_text=_MANIFEST, source_uri="gs://bucket/packages/FAM1"
+    )
     assert bundle is not None
     (package / "late.txt").write_text("changed", encoding="utf-8")
     logs: list[str] = []

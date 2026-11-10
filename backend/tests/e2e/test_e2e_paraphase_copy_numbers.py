@@ -30,6 +30,7 @@ from uuid import uuid4
 
 import pytest
 
+from backend.tests._kept_manifest import kept_manifest
 from backend.tests.e2e._harness import ensure_postgres_schema
 
 pytestmark = pytest.mark.integration
@@ -93,6 +94,7 @@ async def _exercise(base: Path, family_id: str) -> dict[str, Any]:
             result = await package_import.execute_family_package_import(
                 session,
                 folder_path=str(root),
+                manifest_text=kept_manifest(root),
                 project_id=project_id,
                 dry_run=False,
                 user=admin,

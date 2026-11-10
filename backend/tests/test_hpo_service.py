@@ -20,7 +20,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from backend.app.services.family_package_validation import validate_family_package
+from backend.tests._kept_manifest import validated
 from backend.app.services import hpo_service
 from backend.app.services.hpo_service import (
     compute_hpo_closure,
@@ -705,7 +705,7 @@ def test_family_package_validation_accepts_hpo_phenotype_manifest(
         encoding="utf-8",
     )
 
-    validation = validate_family_package(package)
+    validation = validated(package)
     phenotype_summary = next(
         summary for summary in validation.datasets if summary.dataset_type == "phenotypes"
     )

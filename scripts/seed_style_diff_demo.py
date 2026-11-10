@@ -21,6 +21,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+from backend.tests._kept_manifest import kept_manifest
+
 os.environ.setdefault("APP_ENV", "test")
 os.environ.setdefault("REFERENCE_BOOTSTRAP_ENABLED", "false")
 os.environ.setdefault("HPO_BOOTSTRAP_ON_STARTUP", "false")
@@ -50,6 +52,7 @@ async def _seed() -> None:
         result = await package_import.execute_family_package_import(
             session,
             folder_path=str(nipt_root),
+            manifest_text=kept_manifest(nipt_root),
             project_id=project_id,
             dry_run=False,
             user=admin,

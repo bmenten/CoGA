@@ -60,6 +60,7 @@ from backend.app.services import sv_gene_index_service, variant_ranking_cache
 from backend.app.services.access_control import CurrentUser
 from backend.app.services.family_package_common import ImportRefused
 from backend.tests._family_import_fakes import admin_user, no_variant_copy, two_sample_context
+from backend.tests._kept_manifest import kept_manifest
 
 FAMILY = "FAM001"
 FAMILY_UUID = "family-uuid"
@@ -103,6 +104,8 @@ class _Store:
             "dataset_summaries": [],
             "error": None,
             "completed_at": None,
+            # The manifest CoGA keeps for the job, which the import reads.
+            "manifest_text": kept_manifest(root),
         }
         self.unfinished: dict[str, Any] = {}
         self.incomplete: dict[str, Any] | None = None
@@ -755,6 +758,7 @@ async def _overwrite_import(job: _Store, job_id: str = JOB) -> Any:
         user=admin_user(),
         conflict_mode="overwrite",
         job_id=job_id,
+        manifest_text=job.job["manifest_text"],
     )
 
 
@@ -845,6 +849,7 @@ async def _import(job: _Store, job_id: str = JOB, conflict_mode: str = "overwrit
         user=admin_user(),
         conflict_mode=conflict_mode,
         job_id=job_id,
+        manifest_text=job.job["manifest_text"],
     )
 
 

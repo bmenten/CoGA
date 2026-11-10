@@ -1,25 +1,19 @@
-"""Package paths through the import: a manifest through a symlink, ``~``, a symlink loop (E2E).
+"""Package paths through the import: ``~`` and a symlink loop in the manifest, and package folders (E2E).
 
 Over the real API (an in-process ``httpx.ASGITransport`` client that answers an app failure
 with 500, see test_e2e_api_contract.py) and Postgres, with synthetic packages:
 
-* a package whose ``manifest.yaml`` is a symlink to a manifest outside the import root: an
-  import job of it ends ``failed`` with ``manifest_outside_package``, having written no family,
-  and the outside file is as it was. Before, the outside manifest was read as the package's,
-  and the job imported the family by it;
 * a package whose manifest names a file under ``~coga-no-such-user``: the job ends failed with
-  that refusal; before, a job failed on "Could not determine home directory.";
+  that refusal (400), never expanding a home folder;
 * a package whose manifest names a file through a symlink loop: the job ends failed with that
-  refusal; before, on Python 3.12, which CI runs, a job failed on "Symlink loop from ...", and
-  on 3.13 a missing file;
+  refusal (400), on every Python;
 * a package whose PED names a father it lacks, with an escape in his ID, added to Deliveries
   by hand: CoGA proposes no members for it, and the delivery needs attention, naming the ID
   (``sample_id_invalid``);
 * the package list, with a package folder that is a symlink to a package outside the import
   root, one that loops and one that leads to a folder in the root: it leaves out the first
   two and lists the third by the folder it leads to, and adding the first by hand, typed, is
-  refused. Before, the list showed the first by its path outside the root, under the family
-  and analysis type of the manifest it read there.
+  refused; nothing of the outside package is shown.
 
 Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``e2e`` job sets it.
 """
@@ -84,11 +78,7 @@ async def _collect(base: Path) -> dict[str, Any]:
     imports = base / "imports"
     outside = base / "outside"
     outside.mkdir()
-    # A manifest for the package, kept outside the import root.
-    decoy = outside / "manifest.yaml"
-    decoy.write_text(_manifest("FAMPATH1"), encoding="utf-8")
-    linked = _package(imports, "FAMPATH1", "1", manifest=None)
-    (linked / "manifest.yaml").symlink_to(decoy)
+    _package(imports, "FAMPATH1", "1", manifest=_manifest("FAMPATH1"))
     tilde = _package(
         imports, "FAMPATH2", "2", manifest=_manifest("FAMPATH2", datasets={"snv": {"family_vcf": f"{UNKNOWN_HOME}/FAMPATH2.vcf.gz"}})
     )
@@ -109,7 +99,6 @@ async def _collect(base: Path) -> dict[str, Any]:
 
     out: dict[str, Any] = {
         "before": await row_counts(),
-        "decoy_before": decoy.read_text(),
         "foreign": str(foreign.resolve()),
         "archived": str(archived.resolve()),
     }
@@ -127,11 +116,10 @@ async def _collect(base: Path) -> dict[str, Any]:
             )
 
         out["added_parent"] = await add(parent)
-        for name, folder in (("linked", linked), ("tilde", tilde), ("looping", looping)):
+        for name, folder in (("tilde", tilde), ("looping", looping)):
             out[f"job_{name}"] = await run_import_job(folder, project_id, _WORKER)
         out["packages"] = capture(await ac.get("/api/family-imports/packages"))
         out["added_linked_folder"] = await add(imports / "FAMPATH5")
-    out["decoy_after"] = decoy.read_text()
     out["after"] = await row_counts()
     return out
 
@@ -146,14 +134,6 @@ def snap(tmp_path_factory: pytest.TempPathFactory, request: pytest.FixtureReques
     mp.setattr(settings, "family_import_roots", [str(base / "imports")])
     request.addfinalizer(mp.undo)
     return _harness.run_async(lambda: _collect(base))
-
-
-def test_a_manifest_through_a_symlink_out_of_the_package_is_refused(snap: dict[str, Any]) -> None:
-    assert snap["decoy_after"] == snap["decoy_before"]
-    job = snap["job_linked"]
-    assert "raised" not in job, job
-    assert (job["status"], job["ended"], job["error"], job["family_id"]) == ("failed", True, "Package validation failed", None)
-    assert [issue["code"] for issue in job["validation_errors"]] == ["manifest_outside_package"]
 
 
 def test_a_manifest_path_starting_with_a_tilde_is_refused(snap: dict[str, Any]) -> None:
@@ -203,5 +183,5 @@ def test_the_package_list_leaves_out_a_package_folder_linked_out_of_the_import_r
 def test_nothing_of_a_refused_package_was_written(snap: dict[str, Any]) -> None:
     before, after = snap["before"], snap["after"]
     assert (after["families"], after["samples"]) == (before["families"], before["samples"])
-    # The three import jobs run above, and no other.
-    assert after["jobs"] == before["jobs"] + 3
+    # The two import jobs run above, and no other.
+    assert after["jobs"] == before["jobs"] + 2

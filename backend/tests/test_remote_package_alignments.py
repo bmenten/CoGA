@@ -20,12 +20,14 @@ keeps its reads (``imports/<family>/bams/<sample>.cram``). These tests pin the c
 
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
+import yaml
 from fastapi import HTTPException
 
 from app.core import object_storage
@@ -46,6 +48,7 @@ from app.services.family_package_common import (
     ParsedPed,
 )
 from app.services.family_package_datasets import DatasetImportJob
+from backend.tests._kept_manifest import manifest_with_members
 from backend.tests._object_store_fakes import BUCKET, package_objects, stage_under, use_store
 
 
@@ -95,6 +98,36 @@ def _files_under(root: Path) -> set[str]:
     return {path.relative_to(root).as_posix() for path in root.rglob("*") if path.is_file()}
 
 
+@pytest.fixture(autouse=True)
+def managed_copies(monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """The folder the managed copies the registration stores (the kept manifest) go to: a
+    temporary one, not CoGA's data folder."""
+    folder = tmp_path_factory.mktemp("managed")
+
+    async def store(family_id: str, file_name: str, content: bytes) -> Path:
+        target = folder / family_id / file_name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(content)
+        return target
+
+    monkeypatch.setattr(family_package_registration, "store_managed_file", store)
+    return folder
+
+
+def _validate_remote(source: str, manifest_yaml: str) -> Any:
+    """The validation of the package at the bucket URI ``source``, staged as the import stages
+    it, with the manifest CoGA keeps for it: ``manifest_yaml`` with the members of ``PED``."""
+    manifest_text = json.dumps(manifest_with_members(yaml.safe_load(manifest_yaml), PED))
+    with family_package_source.staged_package_source(source) as staged:
+        validation, _bundle = family_package_validation.load_validated_family_package(
+            staged.root,
+            manifest_text=manifest_text,
+            remote_only_files=staged.remote_only_files,
+            source_uri=staged.source_uri,
+        )
+    return validation
+
+
 # ---------------------------------------------------------------------------
 # (a) Staging leaves alignments in the store
 # ---------------------------------------------------------------------------
@@ -126,7 +159,7 @@ def test_a_remote_package_validates_without_downloading_its_alignments(
     store = use_store(monkeypatch, scheme, package_objects(PACKAGE))
     stage_under(monkeypatch, tmp_path)
 
-    result = family_package_validation.validate_family_package(f"{scheme}://{BUCKET}/imports/F1")
+    result = _validate_remote(f"{scheme}://{BUCKET}/imports/F1", ALIGNMENTS_MANIFEST)
 
     assert result.valid, result.errors
     assert "imports/F1/bams/S1.cram" not in store.downloaded
@@ -147,18 +180,15 @@ def test_a_dataset_that_reads_its_file_cannot_use_one_left_in_the_store(
 ) -> None:
     # These importers read their file; a manifest pointing one at an alignment must fail
     # validation rather than import from a file that was never staged.
-    package = {
-        "manifest.yaml": (
-            "schema_version: 1\nfamily_id: F1\nped: family.ped\n"
-            f"datasets:\n  {dataset_type}:\n    per_sample:\n      S1:\n        {role}: bams/S1.bam\n"
-        ),
-        "family.ped": PED,
-        "bams/S1.bam": "bam",
-    }
+    manifest = (
+        "schema_version: 1\nfamily_id: F1\nped: family.ped\n"
+        f"datasets:\n  {dataset_type}:\n    per_sample:\n      S1:\n        {role}: bams/S1.bam\n"
+    )
+    package = {"manifest.yaml": manifest, "family.ped": PED, "bams/S1.bam": "bam"}
     use_store(monkeypatch, "gs", package_objects(package))
     stage_under(monkeypatch, tmp_path)
 
-    result = family_package_validation.validate_family_package(f"gs://{BUCKET}/imports/F1")
+    result = _validate_remote(f"gs://{BUCKET}/imports/F1", manifest)
 
     assert not result.valid
     assert [error.code for error in result.errors] == ["dataset_file_missing"]
@@ -167,11 +197,11 @@ def test_a_dataset_that_reads_its_file_cannot_use_one_left_in_the_store(
 def test_an_alignment_missing_from_the_store_is_still_a_validation_error(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    package = {**PACKAGE, "manifest.yaml": ALIGNMENTS_MANIFEST.replace("bams/S1.cram\n", "bams/S9.cram\n")}
-    use_store(monkeypatch, "gs", package_objects(package))
+    manifest = ALIGNMENTS_MANIFEST.replace("bams/S1.cram\n", "bams/S9.cram\n")
+    use_store(monkeypatch, "gs", package_objects({**PACKAGE, "manifest.yaml": manifest}))
     stage_under(monkeypatch, tmp_path)
 
-    result = family_package_validation.validate_family_package(f"gs://{BUCKET}/imports/F1")
+    result = _validate_remote(f"gs://{BUCKET}/imports/F1", manifest)
 
     assert not result.valid
     assert [(error.code, error.sample_id) for error in result.errors] == [("dataset_file_missing", "S1")]
@@ -198,10 +228,9 @@ def _sample_context(sample_id: str) -> SampleMetadataContext:
 def _bundle(root: Path, *, source_uri: str | None = None, **extra: Any) -> FamilyPackageBundle:
     return FamilyPackageBundle(
         root=root,
-        manifest_path=root / "manifest.yaml",
-        manifest=PackageManifest(schema_version=1, ped="family.ped"),
-        ped_path=root / "family.ped",
+        manifest=PackageManifest(schema_version=1, family_id="F1"),
         ped=ParsedPed(family_ids=["F1"], members=[], sample_ids=["S1", "S2"], text=PED),
+        kept_manifest_text='{"schema_version": 1, "family_id": "F1"}',
         source_uri=source_uri,
         **extra,
     )
@@ -325,7 +354,7 @@ class _SampleRowsSession:
 
 @pytest.mark.asyncio
 async def test_provenance_names_the_store_location_of_files_left_in_the_store(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, managed_copies: Path
 ) -> None:
     (tmp_path / "paraphase" / "S1").mkdir(parents=True)
     (tmp_path / "paraphase" / "S1" / "S1.paraphase.json").write_text("{}")
@@ -351,7 +380,7 @@ async def test_provenance_names_the_store_location_of_files_left_in_the_store(
     )
     bundle.manifest = PackageManifest(
         schema_version=1,
-        ped="family.ped",
+        family_id="F1",
         datasets={
             "alignments": ManifestDataset(
                 per_sample={"S1": {"file": "bams/S1.cram", "index": "bams/S1.cram.crai"}}
@@ -382,8 +411,10 @@ async def test_provenance_names_the_store_location_of_files_left_in_the_store(
         ("alignments", f"{source}/bams/S1.cram.crai"),
         ("paraphase", f"{source}/paraphase/S1/S1.paraphase.json"),
         ("paraphase", f"{source}/paraphase/S1/S1.paraphase.bam"),
+        # The manifest the import read, the one CoGA keeps, is the family's managed copy.
+        ("manifest", str(managed_copies / "FAM1" / "manifest.yaml")),
     }
-    assert {row["sample_uuid"] for row in rows} == {"uuid-S1"}
+    assert {row["sample_uuid"] for row in rows if row["dataset"] != "manifest"} == {"uuid-S1"}
 
 
 # ---------------------------------------------------------------------------

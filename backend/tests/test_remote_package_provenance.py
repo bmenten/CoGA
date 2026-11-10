@@ -23,6 +23,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+import yaml
 
 from app.services import family_package_registration
 from app.services.family_package_common import (
@@ -39,8 +40,31 @@ from backend.tests._object_store_fakes import (
     stage_under,
     use_store,
 )
+from backend.tests._kept_manifest import manifest_with_members
 
 PED = "F1 S1 0 0 1 2\n"
+
+
+def _kept(manifest_yaml: str) -> str:
+    """The manifest CoGA keeps for the import of a package described by ``manifest_yaml``,
+    whose members are those of ``PED``."""
+    return json.dumps(manifest_with_members(yaml.safe_load(manifest_yaml), PED))
+
+
+@pytest.fixture(autouse=True)
+def managed_copies(monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """The folder the managed copies the registration stores (the kept manifest) go to: a
+    temporary one, not CoGA's data folder."""
+    folder = tmp_path_factory.mktemp("managed")
+
+    async def store(family_id: str, file_name: str, content: bytes) -> Path:
+        target = folder / family_id / file_name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(content)
+        return target
+
+    monkeypatch.setattr(family_package_registration, "store_managed_file", store)
+    return folder
 
 
 class _ProvenanceSession:
@@ -64,21 +88,19 @@ def _package_bundle(root: Path, *, source_uri: str | None, remote_only_files: fr
     json_path = root / "paraphase" / "S1" / "S1.paraphase.json"
     json_path.parent.mkdir(parents=True, exist_ok=True)
     json_path.write_text("{}")
+    manifest = PackageManifest(
+        schema_version=1,
+        family_id="F1",
+        datasets={
+            "alignments": ManifestDataset(per_sample={"S1": {"file": "bams/S1.cram"}}),
+            "paraphase": ManifestDataset(per_sample={"S1": {"json": "paraphase/S1/S1.paraphase.json"}}),
+        },
+    )
     return FamilyPackageBundle(
         root=root,
-        manifest_path=root / "manifest.yaml",
-        manifest=PackageManifest(
-            schema_version=1,
-            ped="family.ped",
-            datasets={
-                "alignments": ManifestDataset(per_sample={"S1": {"file": "bams/S1.cram"}}),
-                "paraphase": ManifestDataset(
-                    per_sample={"S1": {"json": "paraphase/S1/S1.paraphase.json"}}
-                ),
-            },
-        ),
-        ped_path=root / "family.ped",
+        manifest=manifest,
         ped=ParsedPed(family_ids=["F1"], members=[], sample_ids=["S1"], text=PED),
+        kept_manifest_text=manifest.model_dump_json(exclude_none=True),
         source_uri=source_uri,
         remote_only_files=remote_only_files,
     )
@@ -254,7 +276,6 @@ async def test_a_local_package_is_still_hashed_where_it_lies(tmp_path: Path) -> 
 
 MISSING_FILE_MANIFEST = """schema_version: 1
 family_id: F1
-ped: family.ped
 datasets:
   alignments:
     per_sample:
@@ -282,6 +303,22 @@ class _RegistrationSession:
         return None
 
 
+def _validate_remote(source: str, manifest_text: str) -> Any:
+    """The validation of the package at the bucket URI ``source`` with the kept manifest
+    ``manifest_text``, staged as the import stages it."""
+    from app.services import family_package_source
+    from app.services.family_package_validation import load_validated_family_package
+
+    with family_package_source.staged_package_source(source) as staged:
+        validation, _bundle = load_validated_family_package(
+            staged.root,
+            manifest_text=manifest_text,
+            remote_only_files=staged.remote_only_files,
+            source_uri=staged.source_uri,
+        )
+    return validation
+
+
 @pytest.mark.asyncio
 async def test_the_package_provenance_names_the_source_folder_not_the_staging_copy(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -304,17 +341,17 @@ async def test_the_package_provenance_names_the_source_folder_not_the_staging_co
 
     assert session.family_metadata is not None
     package_import = session.family_metadata["package_import"]
-    # The staging copy is deleted after the import; the record names the folder it came from.
+    # The staging copy is deleted after the import; the record names the folder it came from,
+    # and the manifest it read is the one CoGA keeps, never a file of the staging copy.
     assert package_import["folder_path"] == source
-    assert (package_import["manifest_path"], package_import["ped_path"]) == ("manifest.yaml", "family.ped")
+    assert package_import["manifest_source"] == "coga"
+    assert str(tmp_path) not in json.dumps(package_import)
 
 
 @pytest.mark.parametrize("scheme", ["gs", "s3"])
 def test_validating_a_remote_package_reports_its_objects_not_the_staging_copy(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, scheme: str
 ) -> None:
-    from app.services import family_package_validation
-
     use_store(
         monkeypatch,
         scheme,
@@ -323,13 +360,11 @@ def test_validating_a_remote_package_reports_its_objects_not_the_staging_copy(
     staging = stage_under(monkeypatch, tmp_path)
     source = f"{scheme}://{BUCKET}/imports/F1"
 
-    result = family_package_validation.validate_family_package(source)
+    result = _validate_remote(source, _kept(MISSING_FILE_MANIFEST))
 
     assert [(error.code, error.path) for error in result.errors] == [
         ("dataset_file_missing", f"{source}/bams/S9.cram")
     ]
-    assert result.manifest_path == f"{source}/manifest.yaml"
-    assert result.ped_path == f"{source}/family.ped"
     # Nothing the job stores or the import panel shows names the temporary directory.
     assert str(staging) not in result.model_dump_json()
 
@@ -351,7 +386,10 @@ def test_the_loaded_package_carries_its_source_folder(
 
     with family_package_source.staged_package_source(source) as staged:
         validation, bundle = load_validated_family_package(
-            staged.root, remote_only_files=staged.remote_only_files, source_uri=staged.source_uri
+            staged.root,
+            manifest_text=_kept(MISSING_FILE_MANIFEST.replace("S9", "S1")),
+            remote_only_files=staged.remote_only_files,
+            source_uri=staged.source_uri,
         )
 
     assert validation.valid, validation.errors
@@ -373,7 +411,12 @@ async def test_the_import_log_names_the_source_folder(
     source = f"gs://{BUCKET}/imports/F1"
 
     result = await family_package_import.execute_family_package_import(
-        None, folder_path=source, project_id=None, dry_run=True, user=None
+        None,
+        folder_path=source,
+        project_id=None,
+        dry_run=True,
+        user=None,
+        manifest_text=_kept(MISSING_FILE_MANIFEST.replace("S9", "S1")),
     )
 
     assert result.completed, result.validation.errors
@@ -395,33 +438,13 @@ def test_a_remote_manifest_without_family_id_takes_the_source_folder_name(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, scheme: str, folder: str
 ) -> None:
     # As a local import takes its folder's name -- not the staging directory's (pkg-...).
-    from app.services import family_package_validation
-
     use_store(monkeypatch, scheme, package_objects({"manifest.yaml": NO_FAMILY_ID_MANIFEST, "family.ped": PED}))
     stage_under(monkeypatch, tmp_path)
 
-    result = family_package_validation.validate_family_package(f"{scheme}://{BUCKET}/{folder}")
+    result = _validate_remote(f"{scheme}://{BUCKET}/{folder}", _kept(NO_FAMILY_ID_MANIFEST))
 
     assert result.family_id == "F1"
     assert result.valid, result.errors
-
-
-def test_the_source_folder_name_must_match_the_ped_as_a_local_folder_name_must(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    from app.services import family_package_validation
-
-    use_store(
-        monkeypatch,
-        "gs",
-        package_objects({"manifest.yaml": NO_FAMILY_ID_MANIFEST, "family.ped": PED}, family="F2"),
-    )
-    stage_under(monkeypatch, tmp_path)
-
-    result = family_package_validation.validate_family_package(f"gs://{BUCKET}/imports/F2")
-
-    assert result.family_id == "F2"
-    assert [error.code for error in result.errors] == ["ped_family_mismatch"]
 
 
 @pytest.mark.asyncio
@@ -442,7 +465,12 @@ async def test_the_staging_directory_name_never_reaches_the_import(
     monkeypatch.setattr(family_package_source.tempfile, "mkdtemp", recording_mkdtemp)
 
     result = await family_package_import.execute_family_package_import(
-        None, folder_path=f"gs://{BUCKET}/imports/F1", project_id=None, dry_run=True, user=None
+        None,
+        folder_path=f"gs://{BUCKET}/imports/F1",
+        project_id=None,
+        dry_run=True,
+        user=None,
+        manifest_text=_kept(NO_FAMILY_ID_MANIFEST),
     )
 
     assert result.completed, result.validation.errors

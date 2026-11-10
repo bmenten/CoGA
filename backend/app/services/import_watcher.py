@@ -90,7 +90,9 @@ from .family_package_manifest import (
 from .family_package_nipt import NIPT_VCF_COLUMN_WARNING
 from .family_package_registration import (
     _existing_package_entity_warnings,
+    family_member_differences,
     manifest_roi_issue,
+    members_differ_message,
 )
 from .family_package_source import _authorized_local_roots, _listed_package_folder
 from .family_package_validation import load_validated_family_package
@@ -282,12 +284,9 @@ def _relative(root: Path, path: str | None) -> str | None:
 
 
 def _files_the_import_reads(folder: Path, validation: FamilyPackageValidationOut) -> list[str]:
-    """The files the import reads, as paths in the package: the PED, when the import reads one,
-    and each file an enabled dataset names (a folder it names, every file in it)."""
+    """The files the import reads, as paths in the package: each file an enabled dataset names (a
+    folder it names, every file in it)."""
     paths: set[str] = set()
-    ped = _relative(folder, validation.ped_path)
-    if ped:
-        paths.add(ped)
     for dataset in validation.datasets:
         if not dataset.enabled:
             continue
@@ -462,6 +461,14 @@ async def assess_content(
                 session, family_id=validation.family_id, sample_ids=validation.sample_ids
             )
         )
+        # The package's members are the pedigree the import reads: one that says otherwise than
+        # the family in CoGA is corrected first, whatever the approver chooses.
+        if bundle is not None and validation.family_id:
+            differences = await family_member_differences(session, family_id=validation.family_id, ped=bundle.ped)
+            if differences:
+                issues.append(
+                    _issue("package_members_differ_from_family", members_differ_message(validation.family_id, differences))
+                )
         if project_id is not None:
             roi = await manifest_roi_issue(
                 session, roi_query=validation.metadata.get("roi"), project_id=project_id, family_id=validation.family_id

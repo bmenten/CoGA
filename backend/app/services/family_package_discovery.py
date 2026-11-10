@@ -19,7 +19,7 @@ from ..schemas import (
 from .family_identifiers import visible
 from .family_package_common import HAPLOTYPE_ORIGIN_ROLES, IDENTIFIER_ISSUE_CODES, LONG_READ_DATASET_ROLES, PED_FOLDER, QC_FAMILY_ROLES, ParsedPed, _display_path, _is_uncompressed_vcf, _issue, _package_path_or_none, family_id_issue, package_path_within, package_text_handle, path_leaves_package, sample_id_issues
 from .family_package_long_read import long_read_family_block, long_read_sample_ids
-from .family_package_manifest import _parse_ped_text_strict
+from .family_package_manifest import _parse_ped_text_strict, ped_member_entries
 from .family_package_mito_table import MITO_TABLE_PATTERNS, read_mito_table, table_id_member
 from .family_package_nipt import NiptPackageFiles, discover_nipt_package_files, nipt_draft_column_issues
 from .nipt import MONOGENIC_NIPT_ANALYSIS_TYPE, NIPT_CFDNA_ASSAY
@@ -1490,7 +1490,6 @@ def _build_manifest_payload(
     *,
     root: Path,
     family_id: str,
-    ped_relative_path: str | None,
     sample_ids: list[str],
     newest_run_records: bool = False,
 ) -> tuple[dict[str, Any], list[FamilyManifestDatasetAvailability]]:
@@ -1628,8 +1627,6 @@ def _build_manifest_payload(
         "schema_version": 1,
         "family_id": family_id,
     }
-    if ped_relative_path is not None:
-        payload["ped"] = ped_relative_path
     payload["samples"] = {sample_id: {} for sample_id in sample_ids}
     payload["datasets"] = datasets
     return payload, availability
@@ -1912,17 +1909,11 @@ def discover_family_package_manifest(request: FamilyPackageManifestBuildRequest)
         )
     sample_ids = [*sample_ids, *added_ids]
 
-    # No PED file when the draft names the members (family.add_members of a PED-less
-    # long-read package). Without one found, the draft names the PED it expects after the
-    # family, unless the family ID puts that outside the package.
-    expected_ped = None if path_leaves_package(f"{family_id}.ped") else f"{family_id}.ped"
-    ped_relative_path: str | None = (
-        _display_path(root, ped_path) if ped_path is not None else None if folder_sample_ids else expected_ped
-    )
+    # The PED Discover read, said with the draft; the draft names its members itself.
+    ped_relative_path = _display_path(root, ped_path) if ped_path is not None else None
     manifest_payload, availability = _build_manifest_payload(
         root=root,
         family_id=family_id,
-        ped_relative_path=ped_relative_path,
         sample_ids=sample_ids,
         # The PGT pipeline's region and traced parent are read from its newest params
         # (pgt_run_context): its run records stay the newest too, so both name one run.
@@ -1958,6 +1949,17 @@ def discover_family_package_manifest(request: FamilyPackageManifestBuildRequest)
         metadata_block["pgt"] = pgt_block
     if roi:
         manifest_payload["roi"] = roi
+    if parsed_ped is not None:
+        # The PED's members as the draft names them (the import reads no PED), before the
+        # members the PGT pipeline's samplesheet adds; the carriers its rows mark with them.
+        entries, carriers = ped_member_entries(parsed_ped)
+        added = [entry for entry in family_block.get("add_members") or [] if isinstance(entry, dict)]
+        family_block["add_members"] = [*entries, *added]
+        members_block = family_block.setdefault("members", {})
+        for sample_id, carrier in carriers.items():
+            members_block[sample_id] = {**carrier, **(members_block.get(sample_id) or {})}
+        if not members_block:
+            del family_block["members"]
     if family_block:
         manifest_payload["family"] = family_block
     # A NIPT file whose one column is named neither as its member nor in its entry, which the

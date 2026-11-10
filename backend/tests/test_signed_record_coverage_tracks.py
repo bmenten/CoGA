@@ -602,10 +602,9 @@ async def test_a_package_coverage_bed_records_that_a_package_loaded_it(stores: _
         session=_StoreSession(stores),  # type: ignore[arg-type]
         bundle=FamilyPackageBundle(
             root=tmp_path,
-            manifest_path=tmp_path / "manifest.yaml",
-            manifest=PackageManifest(ped="family.ped", datasets={"coverage": dataset}),
-            ped_path=tmp_path / "family.ped",
+            manifest=PackageManifest(datasets={"coverage": dataset}),
             ped=ParsedPed(family_ids=[FAMILY], members=[], sample_ids=list(SAMPLES), text=""),
+            kept_manifest_text="{}",
         ),
         dataset=dataset,
         summary=FamilyImportDatasetSummary(dataset_type="coverage", status="valid"),
@@ -628,10 +627,9 @@ def _package_job(tmp_path: Path, stores: _Stores, name: str, dataset: ManifestDa
         session=_StoreSession(stores),  # type: ignore[arg-type]
         bundle=FamilyPackageBundle(
             root=tmp_path,
-            manifest_path=tmp_path / "manifest.yaml",
-            manifest=PackageManifest(ped="family.ped", datasets={name: dataset}),
-            ped_path=tmp_path / "family.ped",
+            manifest=PackageManifest(datasets={name: dataset}),
             ped=ParsedPed(family_ids=[FAMILY], members=[], sample_ids=list(SAMPLES), text=""),
+            kept_manifest_text="{}",
         ),
         dataset=dataset,
         summary=FamilyImportDatasetSummary(dataset_type=name, status="valid"),

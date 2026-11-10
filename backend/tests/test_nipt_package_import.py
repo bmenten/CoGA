@@ -14,26 +14,9 @@ from backend.app.services.family_package_validation import (
 )
 from backend.app.services.family_package_discovery import discover_family_package_manifest
 from backend.app.services.family_package_source import scan_family_import_packages
+from backend.tests._kept_manifest import kept_manifest
 
 _DEMO_DIR = Path(__file__).resolve().parents[2] / "demo" / "nipt_family"
-
-
-def _write_nipt_package(folder) -> None:
-    folder.mkdir()
-    (folder / "manifest.yaml").write_text(
-        "schema_version: 1\n"
-        "family_id: FAM_NIPT_DEMO\n"
-        "analysis_type: monogenic_nipt\n"
-        "ped: nipt_trio.ped\n"
-        "samples:\n"
-        "  CFDNA_NIPT:\n"
-        "    assay: nipt_cfdna\n"
-    )
-    (folder / "nipt_trio.ped").write_text(
-        "FAM_NIPT_DEMO\tFATHER_NIPT\t0\t0\t1\t1\n"
-        "FAM_NIPT_DEMO\tCFDNA_NIPT\t0\t0\t2\t1\n"
-        "FAM_NIPT_DEMO\tFETUS_NIPT\tFATHER_NIPT\tCFDNA_NIPT\t0\t2\n"
-    )
 
 
 def test_the_scan_lists_the_folders_that_can_be_added_by_hand(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
@@ -71,7 +54,7 @@ def test_scan_returns_empty_without_roots(monkeypatch: pytest.MonkeyPatch) -> No
 
 
 def test_manifest_accepts_analysis_type() -> None:
-    manifest = PackageManifest(ped="trio.ped", analysis_type="monogenic_nipt")
+    manifest = PackageManifest(analysis_type="monogenic_nipt")
     assert manifest.analysis_type == "monogenic_nipt"
 
 
@@ -102,7 +85,7 @@ def test_demo_package_validates_with_snv_and_coverage_datasets(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(settings, "family_import_roots", [])
-    validation, _bundle = load_validated_family_package(_DEMO_DIR)
+    validation, _bundle = load_validated_family_package(_DEMO_DIR, manifest_text=kept_manifest(_DEMO_DIR))
 
     assert validation.valid, validation.errors
     assert validation.family_id == "FAM_NIPT_DEMO"
@@ -189,7 +172,7 @@ def test_a_nipt_pair_package_validates(monkeypatch: pytest.MonkeyPatch, tmp_path
     monkeypatch.setattr(settings, "family_import_roots", [])
     package = tmp_path / "NIPTPAIR"
     _write_pair_folder(package, manifest=_PAIR_MANIFEST.format(analysis_type="analysis_type: monogenic_nipt\n"))
-    validation, _bundle = load_validated_family_package(package)
+    validation, _bundle = load_validated_family_package(package, manifest_text=kept_manifest(package))
     assert validation.valid, validation.errors
     datasets = {summary.dataset_type: summary for summary in validation.datasets}
     assert datasets["snv"].status == "valid" and datasets["snv"].samples == ["CFDNA1", "FATHER1"]
@@ -200,7 +183,7 @@ def test_a_per_sample_snv_callset_is_read_only_for_a_nipt_family(monkeypatch: py
     monkeypatch.setattr(settings, "family_import_roots", [])
     package = tmp_path / "NIPTPAIR"
     _write_pair_folder(package, manifest=_PAIR_MANIFEST.format(analysis_type=""))
-    validation, _bundle = load_validated_family_package(package)
+    validation, _bundle = load_validated_family_package(package, manifest_text=kept_manifest(package))
     assert not validation.valid
     assert any(issue.code == "dataset_per_sample_unsupported" for issue in validation.errors)
 
@@ -216,14 +199,14 @@ def test_a_per_sample_file_must_hold_one_sample_and_a_table_its_columns(
     with gzip.open(package / "FATHER1.mutect2.vcf.gz", "wt") as handle:
         handle.write(_one_sample_vcf("FATHER1").replace("\tFATHER1\n", "\tFATHER1\tCFDNA1\n"))
     (package / "coverage_CFDNA1.txt").write_text("#build\tchromosome\tstart\tend\n")
-    validation, _bundle = load_validated_family_package(package)
+    validation, _bundle = load_validated_family_package(package, manifest_text=kept_manifest(package))
     codes = {issue.code for issue in validation.errors}
     assert "dataset_vcf_not_single_sample" in codes
     assert "coverage_target_table_columns" in codes
 
 
 # --------------------------------------------------------------------------- #
-# The column a NIPT file is read as (CLIN-13)
+# The column a NIPT file is read as
 # --------------------------------------------------------------------------- #
 #
 # The import reads a NIPT per-sample SNV file's one sample column as its entry's sample, whatever
@@ -259,7 +242,7 @@ def _pair_whose_father_column_is(
 
 
 def _column_warnings(package: Path) -> list:
-    validation, _bundle = load_validated_family_package(package)
+    validation, _bundle = load_validated_family_package(package, manifest_text=kept_manifest(package))
     # A warning, never a refusal: the package validates.
     assert validation.valid, validation.errors
     assert {summary.dataset_type: summary.status for summary in validation.datasets}["snv"] == "valid"
@@ -332,7 +315,7 @@ def test_a_nipt_files_column_named_as_the_member_or_in_its_entry_is_not_warned_o
 
 def test_discover_warns_of_the_column_of_a_nipt_file_it_finds(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     # The father's file is named after him and its one column after another tube: Discover
-    # drafts the pair as before, and says so before the manifest is written.
+    # drafts the pair all the same, and says so before the manifest is written.
     import yaml
 
     monkeypatch.setattr(settings, "family_import_roots", [])
@@ -358,7 +341,7 @@ def test_discover_warns_of_the_column_of_a_nipt_file_it_finds(monkeypatch: pytes
 async def test_the_import_reads_a_nipt_files_one_column_as_its_entrys_sample(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
-    # As before: the column another tube's name gives is read as the father's calls. The
+    # The column another tube's name gives is read as the father's calls. The
     # dataset's summary records which column each sample's calls were read from.
     from backend.app.schemas import FamilyImportDatasetSummary
     from backend.app.services import family_package_datasets
@@ -366,7 +349,7 @@ async def test_the_import_reads_a_nipt_files_one_column_as_its_entrys_sample(
 
     monkeypatch.setattr(settings, "family_import_roots", [])
     package = _pair_whose_father_column_is(tmp_path, "TUBE9")
-    validation, bundle = load_validated_family_package(package)
+    validation, bundle = load_validated_family_package(package, manifest_text=kept_manifest(package))
     assert bundle is not None
     bound: dict[str, dict[str, str]] = {}
 

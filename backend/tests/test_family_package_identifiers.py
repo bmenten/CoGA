@@ -6,16 +6,16 @@ break, an escape, a NUL) or whitespace could start a line in a log or report, hi
 screen shows, or (a NUL) not be stored at all. Discover and the package validation report
 it (``family_id_invalid``, ``sample_id_invalid``) and read nothing else under it; the import
 job, the Family Builder and the PED upload refuse it; the whitespace around an ID is
-stripped. A PED field holds no whitespace but can hold the other control characters, and a
-package without a PED takes its IDs from the request, the manifest or folder names. Discover
-holds a parent the PED names but lacks as a member to the rule too.
+stripped. A PED field holds no whitespace but can hold the other control characters. Discover
+reads a folder's PED and per-sample folder names, and holds a parent the PED names but lacks
+as a member to the rule too; the package validation reads the IDs of the manifest CoGA keeps
+for the import (its family_id, or the folder name, and the members of family.add_members).
 
-Since SEC-15 an ID holds no other character a reader cannot see either (a C1 control, a
-text-direction or zero-width character, or any other character that is not printable: two IDs
-that look the same would name different records), and it is no path: no ``/`` or ``\\``, and
-not ``.`` or ``..`` (a folder named after it, or a URL's path segment, would read it as a
-separator, the folder itself or its parent). Every writer above refuses such an ID. All IDs
-here are synthetic.
+An ID holds no other character a reader cannot see either (a C1 control, a text-direction or
+zero-width character, or any other character that is not printable: two IDs that look the same
+would name different records), and it is no path: no ``/`` or ``\\``, and not ``.`` or ``..``
+(a folder named after it, or a URL's path segment, would read it as a separator, the folder
+itself or its parent). Every writer above refuses such an ID. All IDs here are synthetic.
 """
 
 from __future__ import annotations
@@ -41,7 +41,8 @@ from backend.app.services.family_package_common import PackageManifest, _issue, 
 from backend.app.services.family_package_discovery import discover_family_package_manifest
 from backend.app.services.family_package_jobs import queue_family_import_job
 from backend.app.services.family_package_long_read import long_read_sample_ids
-from backend.app.services.family_package_manifest import _manifest_added_ped_rows
+from backend.app.services.family_package_manifest import _manifest_added_ped_rows, _parse_ped_text_strict
+from backend.app.services.family_package_registration import family_member_differences
 from backend.app.services.family_package_validation import load_validated_family_package
 from backend.tests._family_import_fakes import admin_user
 
@@ -66,15 +67,33 @@ def _trio_ped(family_id: str = FAMILY, *, mother: str = MOTHER, father: str = FA
     return f"{family_id} {father} 0 0 1 1\n{family_id} {mother} 0 0 2 1\n{family_id} {child} {father} {mother} 1 2\n"
 
 
-def _write_package(root: Path, *, manifest: dict[str, Any] | None = None, ped: str | None = None) -> Path:
+def _trio_members(*, mother: str = MOTHER, father: str = FATHER, child: str = CHILD) -> list[dict[str, str]]:
+    """The trio of ``_trio_ped`` as the manifest names its members (``family.add_members``)."""
+    return [
+        {"sample_id": father, "sex": "male", "clinical_status": "unaffected"},
+        {"sample_id": mother, "sex": "female", "clinical_status": "unaffected"},
+        {"sample_id": child, "sex": "male", "clinical_status": "affected", "father": father, "mother": mother},
+    ]
+
+
+def _write_package(root: Path, *, ped: str | None = None) -> Path:
+    """The package folder Discover reads: its PED, when given."""
     root.mkdir(parents=True, exist_ok=True)
     if ped is not None:
         (root / "family.ped").write_text(ped, encoding="utf-8")
-    if manifest is not None:
-        # safe_dump writes a control character as a YAML escape ("\e", "\0"), as an editor
-        # or a script would have to.
-        (root / "manifest.yaml").write_text(yaml.safe_dump({"schema_version": 1, **manifest}), encoding="utf-8")
     return root
+
+
+def _kept_manifest_text(manifest: dict[str, Any]) -> str:
+    """The manifest CoGA keeps for the import: safe_dump writes a control character as a YAML
+    escape ("\\e", "\\0"), as an editor or a script would have to."""
+    return yaml.safe_dump({"schema_version": 1, **manifest})
+
+
+def _validate(root: Path, manifest: dict[str, Any]) -> tuple[Any, Any]:
+    """The validation of the package folder ``root`` with the kept manifest ``manifest``."""
+    root.mkdir(parents=True, exist_ok=True)
+    return load_validated_family_package(root, manifest_text=_kept_manifest_text(manifest))
 
 
 def _write_long_read_sample(root: Path, sample_id: str, karyotype: str) -> None:
@@ -145,14 +164,14 @@ def test_a_validation_issue_carries_no_control_character() -> None:
     # An ID, a file name or an exception's text an issue names becomes a space there, as in
     # a log line: the import job stores the issue, and Postgres cannot store a NUL.
     issue = _issue(
-        "ped_family_mismatch",
-        f"PED family ID 'FAM{NUL}001'{LF}does not match",
+        "selected_family_mismatch",
+        f"Selected existing family 'FAM{NUL}001'{LF}does not match",
         dataset=f"snv{DEL}",
         sample_id=f"MOTHER{ESC}1",
-        path=f"/data/FAM{BEL}001/family.ped",
+        path=f"/data/FAM{BEL}001/snv.vcf.gz",
     )
-    assert issue.message == "PED family ID 'FAM 001' does not match"
-    assert (issue.dataset, issue.sample_id, issue.path) == ("snv ", "MOTHER 1", "/data/FAM 001/family.ped")
+    assert issue.message == "Selected existing family 'FAM 001' does not match"
+    assert (issue.dataset, issue.sample_id, issue.path) == ("snv ", "MOTHER 1", "/data/FAM 001/snv.vcf.gz")
 
 
 # --------------------------------------------------------------------------- #
@@ -274,15 +293,16 @@ def test_discover_reports_a_per_sample_folder_no_sample_can_be_stored_under(tmp_
 
 @pytest.mark.parametrize("family_id", [f"FAM{LF}001", f"FAM{ESC}001", f"FAM{NUL}001", f"FAM{DEL}001", "FAM 001"])
 def test_a_manifest_family_id_no_family_can_have_stops_the_validation(tmp_path: Path, family_id: str) -> None:
-    root = _write_package(
+    validation, bundle = _validate(
         tmp_path / FAMILY,
-        manifest={"family_id": family_id, "ped": "family.ped", "datasets": {"snv": {"family_vcf": "missing.vcf"}}},
-        ped=_trio_ped(),
+        {
+            "family_id": family_id,
+            "family": {"add_members": _trio_members()},
+            "datasets": {"snv": {"family_vcf": "missing.vcf"}},
+        },
     )
 
-    validation, bundle = load_validated_family_package(root)
-
-    # Nothing else is read under it: no PED mismatch, no missing file, no dataset.
+    # Nothing else is read under it: no member, no missing file, no dataset.
     assert bundle is None
     assert [issue.code for issue in validation.errors] == ["family_id_invalid"]
     assert validation.errors[0].message.startswith(f"Family ID '{visible(family_id)}' (the manifest's family_id)")
@@ -292,9 +312,7 @@ def test_a_manifest_family_id_no_family_can_have_stops_the_validation(tmp_path: 
 
 
 def test_a_folder_name_no_family_can_have_is_refused(tmp_path: Path) -> None:
-    root = _write_package(tmp_path / f"FAM{ESC}001", manifest={"ped": "family.ped"}, ped=_trio_ped(f"FAM{ESC}001"))
-
-    validation, bundle = load_validated_family_package(root)
+    validation, bundle = _validate(tmp_path / f"FAM{ESC}001", {"family": {"add_members": _trio_members()}})
 
     assert bundle is None
     assert [issue.code for issue in validation.errors] == ["family_id_invalid"]
@@ -302,45 +320,32 @@ def test_a_folder_name_no_family_can_have_is_refused(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("control", [NUL, ESC, BEL, DEL])
-def test_a_sample_id_in_the_ped_that_cannot_be_stored_stops_the_validation(tmp_path: Path, control: str) -> None:
+def test_a_member_id_that_cannot_be_stored_stops_the_validation(tmp_path: Path, control: str) -> None:
     mother = f"MOTHER{control}1"
-    root = _write_package(
+    validation, bundle = _validate(
         tmp_path / FAMILY,
-        manifest={
+        {
             "family_id": FAMILY,
-            "ped": "family.ped",
+            "family": {"add_members": _trio_members(mother=mother)},
             "datasets": {"coverage": {"per_sample": {mother: {"bed": "coverage/mother.bed"}}}},
         },
-        ped=_trio_ped(mother=mother),
     )
 
-    validation, bundle = load_validated_family_package(root)
-
     assert bundle is None
+    # Named once, as the member: the child's row names the same member as its mother.
     assert [issue.code for issue in validation.errors] == ["sample_id_invalid"]
-    assert validation.errors[0].message.startswith(f"Sample ID '{visible(mother)}' (in the PED) contains a control")
+    assert validation.errors[0].message.startswith(
+        f"Sample ID '{visible(mother)}' (under family.add_members) contains a control"
+    )
     # The datasets were not read: their summaries would carry the ID into the job's record.
     assert (validation.family_id, validation.sample_ids, validation.datasets) == (FAMILY, [], [])
     assert _strings_with_control_characters(validation.model_dump(mode="json")) == []
-
-
-def test_a_ped_family_id_no_family_can_have_is_named(tmp_path: Path) -> None:
-    root = _write_package(
-        tmp_path / FAMILY, manifest={"family_id": FAMILY, "ped": "family.ped"}, ped=_trio_ped(f"FAM{ESC}001")
-    )
-
-    validation, bundle = load_validated_family_package(root)
-
-    assert bundle is None
-    assert [issue.code for issue in validation.errors] == ["family_id_invalid"]
-    assert "Family ID 'FAM\\x1b001' (in the PED)" in validation.errors[0].message
 
 
 def _added_rows(add_members: Any) -> tuple[list[str], list[Any]]:
     return _manifest_added_ped_rows(
         PackageManifest.model_validate({"family": {"add_members": add_members}}),
         family_id=FAMILY,
-        ped_sample_ids={FATHER, MOTHER},
     )
 
 
@@ -365,39 +370,17 @@ def test_the_whitespace_around_an_added_member_is_stripped() -> None:
     rows, errors = _added_rows({f" {INDEX}\t": {"sex": "female", "father": f" {FATHER} "}})
 
     assert errors == []
-    assert rows == [f"{FAMILY} {INDEX} {FATHER} 0 2 0 role=relative"]
-
-
-def test_a_package_without_a_ped_refuses_a_member_no_sample_can_be_stored_under(tmp_path: Path) -> None:
-    root = _write_package(
-        tmp_path / "COUPLE1",
-        manifest={
-            "family_id": "COUPLE1",
-            "family": {"add_members": [{"sample_id": f"MOTHER{ESC}1", "sex": "female"}, {"sample_id": FATHER, "sex": "male"}]},
-            "datasets": {"repeats_trgt": {"per_sample": {f"MOTHER{ESC}1": {"file": "repeats/missing.vcf.gz"}}}},
-        },
-    )
-
-    validation, bundle = load_validated_family_package(root)
-
-    assert bundle is None
-    assert [issue.code for issue in validation.errors] == ["sample_id_invalid"]
-    assert (validation.sample_ids, validation.datasets) == ([], [])
-    assert _strings_with_control_characters(validation.model_dump(mode="json")) == []
+    assert rows == [f"{FAMILY} {INDEX} {FATHER} 0 2 0"]
 
 
 def test_the_whitespace_around_the_ids_of_a_package_is_stripped(tmp_path: Path) -> None:
-    root = _write_package(
+    validation, bundle = _validate(
         tmp_path / FAMILY,
-        manifest={
+        {
             "family_id": f"  {FAMILY} ",
-            "ped": "family.ped",
-            "family": {"add_members": [{"sample_id": f" {INDEX} ", "sex": "female"}]},
+            "family": {"add_members": [*_trio_members(), {"sample_id": f" {INDEX} ", "sex": "female"}]},
         },
-        ped=_trio_ped(),
     )
-
-    validation, bundle = load_validated_family_package(root)
 
     assert validation.valid, validation.errors
     assert bundle is not None
@@ -414,9 +397,7 @@ def test_the_whitespace_around_the_ids_of_a_package_is_stripped(tmp_path: Path) 
 async def test_an_import_of_a_family_id_no_family_can_have_writes_nothing(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    root = _write_package(
-        tmp_path / FAMILY, manifest={"family_id": f"FAM{NUL}001", "ped": "family.ped"}, ped=_trio_ped()
-    )
+    root = _write_package(tmp_path / FAMILY)
     recorded: list[str] = []
     registered: list[Any] = []
 
@@ -432,6 +413,7 @@ async def test_an_import_of_a_family_id_no_family_can_have_writes_nothing(
     result = await package_import.execute_family_package_import(
         _ExplodingSession(),  # type: ignore[arg-type]
         folder_path=root,
+        manifest_text=_kept_manifest_text({"family_id": f"FAM{NUL}001", "family": {"add_members": _trio_members()}}),
         project_id="project-uuid",
         dry_run=False,
         user=admin_user(),
@@ -446,32 +428,23 @@ async def test_an_import_of_a_family_id_no_family_can_have_writes_nothing(
 
 
 @pytest.mark.asyncio
-async def test_the_lookups_of_a_requested_family_skip_an_id_no_family_can_have(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    # The import looks the request's family up before the package is read; such an ID reaches
-    # no query (Postgres cannot even take a NUL).
-    for family_id in (f"FAM{NUL}001", f"FAM{ESC}001", "FAM 001", "  "):
-        assert await package_import.db_pedigree_fallback(_ExplodingSession(), family_id) is None  # type: ignore[arg-type]
-
-    asked: list[str] = []
-
-    async def build_pedigree_text(_session: Any, *, family_id: str) -> str:
-        asked.append(family_id)
-        return _trio_ped(family_id)
-
-    monkeypatch.setattr(package_import.ped_service, "build_pedigree_text", build_pedigree_text)
-    assert await package_import.db_pedigree_fallback(object(), f" {FAMILY}\t") == _trio_ped()  # type: ignore[arg-type]
-    assert asked == [FAMILY]
+async def test_the_comparison_with_a_stored_family_skips_an_id_no_family_can_have() -> None:
+    # An import into an existing family compares the package's members with the family CoGA
+    # holds; such an ID reaches no query (Postgres cannot even take a NUL).
+    ped, errors = _parse_ped_text_strict(_trio_ped())
+    assert errors == [] and ped is not None
+    for family_id in (f"FAM{NUL}001", f"FAM{ESC}001", "FAM 001", "../FAM001"):
+        assert await family_member_differences(_ExplodingSession(), family_id=family_id, ped=ped) == []  # type: ignore[arg-type]
 
 
 @pytest.mark.asyncio
 async def test_the_requested_family_is_compared_without_the_whitespace_around_it(tmp_path: Path) -> None:
-    root = _write_package(tmp_path / FAMILY, manifest={"family_id": FAMILY, "ped": "family.ped"}, ped=_trio_ped())
+    root = _write_package(tmp_path / FAMILY)
 
     result = await package_import.execute_family_package_import(
         None,
         folder_path=root,
+        manifest_text=_kept_manifest_text({"family_id": FAMILY, "family": {"add_members": _trio_members()}}),
         project_id=None,
         dry_run=True,
         user=None,
@@ -493,6 +466,7 @@ async def test_an_import_job_for_a_family_id_no_family_can_have_is_refused_befor
             dry_run=True,
             requested_family_id=family_id,
             requested_by=admin_user(),
+            manifest_text=_kept_manifest_text({"family_id": FAMILY, "family": {"add_members": _trio_members()}}),
         )
 
     assert refused.value.status_code == 400
@@ -520,6 +494,7 @@ async def test_an_import_job_records_the_requested_family_without_the_whitespace
             dry_run=True,
             requested_family_id=f" {FAMILY} ",
             requested_by=admin_user(),
+            manifest_text=_kept_manifest_text({"family_id": FAMILY, "family": {"add_members": _trio_members()}}),
         )
 
     assert json.loads(session.params["metadata"])["requested_family_id"] == FAMILY
@@ -623,7 +598,7 @@ async def test_a_ped_upload_is_refused_before_anything_is_written() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# Characters a reader cannot see, and paths (SEC-15)
+# Characters a reader cannot see, and paths
 # --------------------------------------------------------------------------- #
 
 # The characters that turn the text around them on screen (Unicode's bidirectional formatting
@@ -701,8 +676,7 @@ def test_dots_and_url_characters_inside_an_id_are_kept(value: str) -> None:
 
 
 def test_no_id_the_rule_accepts_leads_a_path_out_of_its_folder() -> None:
-    # Discover, the family's data folders and a URL take an ID as one name in a folder. Before,
-    # '..', '../x' and '/abs/x' were IDs, and Discover only warned about them.
+    # Discover, the family's data folders and a URL take an ID as one name in a folder.
     candidates = [".", "..", "../x", "a/..", "a/../..", "./x", "x/.", "/abs/x", "x/", "a\\..\\b", "..\\x", "~/x"]
     candidates += ["F..1", "...", "..x", "x..", ".x", "~x"]
     parent = os.path.join(os.sep, "data", "families")
@@ -760,13 +734,14 @@ def test_discover_refuses_a_per_sample_folder_named_with_a_backslash_or_a_zero_w
 def test_a_manifest_family_id_that_is_a_path_or_holds_a_character_unseen_stops_the_validation(
     tmp_path: Path, family_id: str
 ) -> None:
-    root = _write_package(
+    validation, bundle = _validate(
         tmp_path / FAMILY,
-        manifest={"family_id": family_id, "ped": "family.ped", "datasets": {"snv": {"family_vcf": "missing.vcf"}}},
-        ped=_trio_ped(),
+        {
+            "family_id": family_id,
+            "family": {"add_members": _trio_members()},
+            "datasets": {"snv": {"family_vcf": "missing.vcf"}},
+        },
     )
-
-    validation, bundle = load_validated_family_package(root)
 
     assert bundle is None
     assert [issue.code for issue in validation.errors] == ["family_id_invalid"]
@@ -774,16 +749,15 @@ def test_a_manifest_family_id_that_is_a_path_or_holds_a_character_unseen_stops_t
     assert (validation.family_id, validation.sample_ids, validation.datasets) == (None, [], [])
 
 
-def test_a_ped_sample_id_with_a_text_direction_character_stops_the_validation(tmp_path: Path) -> None:
-    root = _write_package(
-        tmp_path / FAMILY, manifest={"family_id": FAMILY, "ped": "family.ped"}, ped=_trio_ped(mother=f"MOTHER{RLO}1")
+def test_a_member_id_with_a_text_direction_character_stops_the_validation(tmp_path: Path) -> None:
+    validation, bundle = _validate(
+        tmp_path / FAMILY, {"family_id": FAMILY, "family": {"add_members": _trio_members(mother=f"MOTHER{RLO}1")}}
     )
-
-    validation, bundle = load_validated_family_package(root)
 
     assert bundle is None
     assert [issue.message for issue in validation.errors] == [
-        f"Sample ID 'MOTHER\\u202e1' (in the PED) contains a text-direction character (\\u202e). {IDENTIFIER_RULE}"
+        f"Sample ID 'MOTHER\\u202e1' (under family.add_members) contains a text-direction character (\\u202e). "
+        f"{IDENTIFIER_RULE}",
     ]
 
 
@@ -820,6 +794,7 @@ async def test_an_import_job_for_a_family_id_that_is_a_path_or_holds_a_character
             dry_run=True,
             requested_family_id=family_id,
             requested_by=admin_user(),
+            manifest_text=_kept_manifest_text({"family_id": FAMILY, "family": {"add_members": _trio_members()}}),
         )
 
     assert refused.value.status_code == 400

@@ -272,7 +272,7 @@ def test_an_import_job_records_the_refusal_of_a_sample_id_with_a_text_direction_
         "FAMID12",
     ), job
     assert [issue["code"] for issue in job["validation_errors"]] == ["sample_id_invalid"], job["validation_errors"]
-    assert "'MOTHER\\u202e12' (in the PED) contains a text-direction character (\\u202e)" in (
+    assert "'MOTHER\\u202e12' (under family.add_members) contains a text-direction character (\\u202e)" in (
         job["validation_errors"][0]["message"]
     )
 

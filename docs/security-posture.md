@@ -280,10 +280,9 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   `services/family_package_common.py`). Validation refuses with 400, before anything is read:
   an absolute path elsewhere, `..` that climbs out, a symlink that leads out, a path starting
   with `~` (never expanded to a home folder), and one that runs through a symlink loop.
-  - A `manifest.yaml`, `.yml` or `.json` in the package folder that is a symlink leading out of
-    the folder, or one that loops, is refused (`manifest_outside_package`): validation does not
-    read it. CoGA writes nothing into a package folder: the import reads the manifest CoGA keeps
-    ([data-import.md](data-import.md)).
+  - The import opens no file of the package folder as its manifest, and no PED: it reads the
+    manifest CoGA keeps, made from the delivery's package. CoGA writes nothing into a package
+    folder ([data-import.md](data-import.md)).
   - A package staged from a bucket is read only by the import or validation that staged it. A
     typed folder in the staging folder, or an import root linked there, is refused
     (`package_folder_not_allowed`).

@@ -287,10 +287,8 @@ or sample ID matches only itself, so one sample never takes another's file. A fa
 is a path out of the folder (an absolute path, or one that climbs out with `..`) names no file CoGA
 looks for, and is refused.
 
-**CoGA reads no manifest in the family folder**: the import reads the one CoGA keeps, made from the
-delivery's package, and the family's files hold a copy of it. A `manifest.yaml` in the folder that is a
-link to a file elsewhere, or a link that loops, is refused (`manifest_outside_package`). Every path the
-package names is relative to the family folder. A path is refused when it leads out of the folder, starts with `~` (CoGA reads no home folder)
+**CoGA reads no manifest and no PED in the family folder**: the import reads the one CoGA keeps, made
+from the delivery's package, and the family's files hold a copy of it. Every path the package names is relative to the family folder. A path is refused when it leads out of the folder, starts with `~` (CoGA reads no home folder)
 or runs through a link that loops.
 
 ### Deliveries from the pipelines
@@ -438,6 +436,10 @@ ends. The decided and superseded deliveries are listed on request.
 | Update: add missing datasets only | the data is added to the existing family; datasets that already hold data are skipped (tracks and Paraphase results sample by sample), and a dataset skipped whole shows *skipped* |
 | Overwrite imported dataset rows | the data is added to the existing family; the selected datasets are replaced. For administrators only; a superuser may run it as a dry run |
 
+**An existing family.** The package's members must be the family's as CoGA holds them: the same
+members, each with the same sex and parents. A package that says otherwise needs attention; correct
+it with **Correct…** to the family's members before you approve it.
+
 **An existing family imported into another project.** The family is linked to that **Project**
 too, and before its datasets the import gives the project the family's small and structural
 variants it does not hold yet. Whoever sees only that project sees all of them, not just what the
@@ -518,16 +520,16 @@ Paraphase results are replaced.
 
 ### What validation checks
 
-- The folder exists, and holds no manifest file that is a link out of it.
+- The folder exists.
 - Every family and sample ID follows the ID rule above (*The two ways in*): the manifest's family ID or
   the folder name, the PED's IDs, and, as CoGA proposes members, a parent the PED names without a row of
   its own, the members the manifest adds and a long-read package's per-sample folders. An ID that fails
   is refused (`family_id_invalid`, `sample_id_invalid`), and nothing else is checked until it is
   corrected: CoGA proposes no members for it.
-- The PED is a six-column PED with **one family**, whose identifier matches the manifest's (by default
-  the folder name). Sample identifiers are unique, and every parent is a sample in the same PED. A
-  manifest without a PED names every member under `family.add_members`.
-- Every sample and every per-sample dataset in the manifest is a sample in the PED.
+- The package's members are the pedigree the import reads: each member listed once, every parent a
+  member. CoGA reads no PED: a folder's PED only tells CoGA which members to propose when the folder
+  is added by hand.
+- Every per-sample dataset names a member.
 - Every file exists, in the family folder. A compressed family VCF for small variants, structural
   variants or repeats needs its index (`.tbi`, `.csi` or `.idx`); a plain `.vcf` does not. Other index
   files are checked only when the manifest names one.

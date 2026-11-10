@@ -33,6 +33,7 @@ from uuid import uuid4
 
 import pytest
 
+from backend.tests._kept_manifest import kept_manifest
 from backend.tests.e2e._harness import capture
 from backend.tests.e2e.test_e2e_family_project_move_keeps_variants import (
     _family_projects,
@@ -154,6 +155,7 @@ async def _exercise(root: Path, sv_only: Path) -> dict[str, Any]:
                 result = await package_import.execute_family_package_import(
                     session,
                     folder_path=str(sv_only),
+                    manifest_text=kept_manifest(sv_only),
                     project_id=project_id,
                     dry_run=False,
                     user=admin,

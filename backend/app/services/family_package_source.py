@@ -5,7 +5,6 @@ from contextlib import asynccontextmanager, contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 import errno
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -33,7 +32,6 @@ from .family_package_common import (
     PED_FOLDER,
     PackageManifest,
     _issue,
-    package_path_within,
     runs_through_symlink_loop,
 )
 from .family_package_long_read import LONG_READ_SAMPLE_DATASET_FOLDERS, long_read_sample_ids
@@ -389,42 +387,6 @@ async def staged_package_source_async(folder_path: str | Path):
         yield StagedPackage(root=str(folder_path))
 
 
-def _manifest_candidates(root: Path) -> list[Path]:
-    return [root / "manifest.yaml", root / "manifest.yml", root / "manifest.json"]
-
-
-def _find_manifest(root: Path) -> Path | None:
-    return next((candidate for candidate in _manifest_candidates(root) if candidate.is_file()), None)
-
-
-def manifest_link_out_of_package(root: Path) -> Path | None:
-    """The first manifest name in the package folder ``root`` (``manifest.yaml``, ``.yml``,
-    ``.json``) that is a symlink leading out of the folder, or one that loops; None when none
-    is.
-
-    No manifest is read or written through it. Read, it was any YAML or JSON file the backend
-    can read, and Discover and validation took the package's family and files from it;
-    written, the manifest replaced or created a file wherever the link pointed. Told by the
-    package guard (``package_path_within``), as for a PED or a dataset's file: a symlink that
-    stays in the package is followed."""
-    for candidate in _manifest_candidates(root):
-        if candidate.is_symlink() and package_path_within(root, candidate.name) is None:
-            return candidate
-    return None
-
-
-def manifest_outside_package_issue(link: Path) -> FamilyImportValidationIssue:
-    """The error Discover and validation refuse a package with when ``link``, one of its
-    manifest names, is a symlink out of the folder or one that loops."""
-    return _issue(
-        "manifest_outside_package",
-        f"{link.name} is a symlink that leads out of the package folder, or one that loops: "
-        "CoGA reads and writes a package's manifest only in the package folder. Put the "
-        "manifest itself in the folder.",
-        path=link,
-    )
-
-
 def package_folder_link_issues(root: Path) -> list[FamilyImportValidationIssue]:
     """A ``package_folder_link`` warning for each folder of the package at ``root`` that the
     package list and Discover read by its layout and that is a symbolic link to a folder:
@@ -505,16 +467,6 @@ def _package_folder_link_message(root: Path, folder: Path, target: str) -> str:
         f"Folder '{visible(folder.relative_to(root).as_posix())}' of the package is a symbolic link "
         f"to {leads_to}: check that what it holds belongs to this family."
     )
-
-
-def _parse_manifest(path: Path) -> tuple[dict[str, Any], PackageManifest, str]:
-    """Return the raw parsed payload, the validated model and the SHA-256 of the file's
-    bytes as read, so callers can inspect the original keys (e.g. schema_version presence)
-    without re-reading and re-parsing the file from disk, and record which manifest they
-    read."""
-    raw = path.read_bytes()
-    payload, manifest = parse_manifest_text(raw.decode("utf-8"), json_format=path.suffix.lower() == ".json")
-    return payload, manifest, hashlib.sha256(raw).hexdigest()
 
 
 def parse_manifest_text(raw_text: str, *, json_format: bool = False) -> tuple[dict[str, Any], PackageManifest]:

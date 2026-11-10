@@ -70,8 +70,6 @@ class FamilyImportDatasetSummary(BaseModel):
 class FamilyPackageValidationOut(BaseModel):
     valid: bool
     family_id: Optional[str] = None
-    manifest_path: Optional[str] = None
-    ped_path: Optional[str] = None
     sample_ids: List[str] = Field(default_factory=list)
     errors: List[FamilyImportValidationIssue] = Field(default_factory=list)
     warnings: List[FamilyImportValidationIssue] = Field(default_factory=list)

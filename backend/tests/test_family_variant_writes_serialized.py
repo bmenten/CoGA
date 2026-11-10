@@ -74,6 +74,7 @@ from backend.app.services.family_variant_write_lock import (
 )
 from backend.tests._deletion_mark_fakes import UnmarkedDeletion
 from backend.tests._family_structure_fakes import admin_user
+from backend.tests._kept_manifest import kept_manifest
 
 _FAMILY = "family-uuid"
 _SAMPLES = {"PROBAND": "uuid-proband", "MOTHER": "uuid-mother", "FATHER": "uuid-father"}
@@ -1101,6 +1102,7 @@ async def test_the_package_import_holds_the_familys_locks_from_its_snapshot_unti
     result = await family_package_import.execute_family_package_import(
         postgres.session("import"),  # type: ignore[arg-type]
         folder_path=tmp_path / "FAM",
+        manifest_text=kept_manifest(tmp_path / "FAM"),
         project_id="project-uuid",
         dry_run=False,
         user=admin_user(),

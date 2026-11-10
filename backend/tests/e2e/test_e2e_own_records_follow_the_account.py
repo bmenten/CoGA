@@ -144,6 +144,8 @@ async def _exercise(run: str, directory, patch: pytest.MonkeyPatch) -> dict[str,
                 project_id,
                 dry_run=True,
                 requested_by=CurrentUser.model_validate({**me.json(), "role": "admin"}),
+                # No package lies there: the dry run's validation is not what this follows.
+                manifest_text="{}",
             )
 
             # The next sign-in carries a new address and user name; then a second colleague

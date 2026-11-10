@@ -1,18 +1,16 @@
-"""A corrupt APCAD VCF or phased family VCF is refused at validation, by name (DATA-12).
+"""A corrupt APCAD VCF or phased family VCF is refused at validation, by name.
 
-The validation read an APCAD VCF's and the phased family VCF's sample columns through a reader
-that took a file it could not read for one without columns, and checked nothing else: a
-``.vcf.gz`` cut short (in its header, or a BGZF file anywhere), damaged or not gzip at all passed
-Validate, the manifest write and a dry run, and failed its dataset only at import. A phased
-family VCF without a ``#CHROM`` line naming its samples passed too, although the import reads
-each member's genotypes from the member's own column. Now:
+The validation reads an APCAD VCF's and the phased family VCF's samples from the whole file, so a
+``.vcf.gz`` cut short (in its header, or a BGZF file anywhere), damaged or not gzip at all fails
+the validation and a dry run, not its dataset at import:
 
 - the validation refuses such an APCAD VCF (an embryo's, or the family's) and such a phased
   family VCF with ``dataset_vcf_unreadable``, naming the file and, for an embryo's, the embryo,
   never the error's own text; a BGZF file without its end-of-file block is refused so too;
-- it refuses a phased family VCF that names no sample (``dataset_vcf_no_sample_columns``);
+- it refuses a phased family VCF that names no sample (``dataset_vcf_no_sample_columns``): the
+  import reads each member's genotypes from the member's own column;
 - an APCAD file without a VCF header is not refused: the import reads it as a BED, by design;
-- Discover reads none of these files' content, and drafts their manifest as before.
+- Discover reads none of these files' content, and drafts their manifest all the same.
 
 All values are synthetic.
 """
@@ -31,7 +29,7 @@ from backend.app.schemas import FamilyPackageManifestBuildRequest
 from backend.app.services import family_package_common as common
 from backend.app.services.family_package_discovery import discover_family_package_manifest
 from backend.app.services.family_package_import import execute_family_package_import
-from backend.app.services.family_package_validation import validate_family_package
+from backend.tests._kept_manifest import kept_manifest, validated
 from backend.tests._bgzf import bgzip, bgzip_cut_after
 
 FAMILY = "PGTFAM"
@@ -116,7 +114,7 @@ def _plain_text(text: str) -> bytes:
 
 def _bgzf_cut_in_its_records(text: str) -> bytes:
     # Cut where the first block ends: gzip reads it as a whole file holding the header and
-    # the first records; only the missing end-of-file block tells it was cut (DATA-4).
+    # the first records; only the missing end-of-file block tells it was cut.
     return bgzip_cut_after(text.encode(), 1)
 
 
@@ -161,7 +159,7 @@ def _refusals(errors: list) -> list[tuple[str, str, str | None, str | None]]:
     ]
 
 
-# --- What the validation read before --------------------------------------------------------
+# --- What a header reader sees -------------------------------------------------------------
 
 
 def test_the_bgzf_file_cut_in_its_records_reads_whole_as_its_header() -> None:
@@ -176,7 +174,7 @@ def test_the_bgzf_file_cut_in_its_records_reads_whole_as_its_header() -> None:
 
 @pytest.mark.parametrize("broken", sorted(BROKEN))
 def test_the_validation_refuses_an_embryos_apcad_vcf_it_cannot_read(tmp_path: Path, broken: str) -> None:
-    validation = validate_family_package(_package(tmp_path, emb1=BROKEN[broken](_trio("EMB1"))))
+    validation = validated(_package(tmp_path, emb1=BROKEN[broken](_trio("EMB1"))))
 
     assert validation.valid is False
     assert _refusals(validation.errors) == [
@@ -184,7 +182,7 @@ def test_the_validation_refuses_an_embryos_apcad_vcf_it_cannot_read(tmp_path: Pa
     ]
     [error] = [issue for issue in validation.errors if issue.code == "dataset_vcf_unreadable"]
     assert error.path is not None and error.path.endswith(APCAD_EMB1)
-    # The other embryo's file, and the phased VCF, are read as before.
+    # The other embryo's file, and the phased VCF, are read.
     assert not [issue for issue in validation.errors if issue.sample_id == "EMB2"]
     apcad = next(summary for summary in validation.datasets if summary.dataset_type == "apcad")
     haplotypes = next(summary for summary in validation.datasets if summary.dataset_type == "haplotypes")
@@ -195,7 +193,7 @@ def test_the_validation_refuses_an_embryos_apcad_vcf_it_cannot_read(tmp_path: Pa
 def test_the_validation_refuses_a_family_apcad_vcf_it_cannot_read(tmp_path: Path, broken: str) -> None:
     package = _package(tmp_path, emb1=BROKEN[broken](_trio("EMB1")), manifest=FAMILY_APCAD_MANIFEST)
 
-    validation = validate_family_package(package)
+    validation = validated(package)
 
     assert validation.valid is False
     assert _refusals(validation.errors) == [
@@ -208,7 +206,7 @@ def test_an_apcad_file_without_a_vcf_header_is_still_read_as_a_bed(tmp_path: Pat
     # (`_import_apcad_track_file`), by design: no header is no refusal.
     bed = gzip.compress(b"chr1\t999\t1000\t0.4\nchr1\t1999\t2000\t0.6\n")
 
-    validation = validate_family_package(_package(tmp_path, emb1=bed))
+    validation = validated(_package(tmp_path, emb1=bed))
 
     assert validation.valid is True, validation.errors
 
@@ -218,7 +216,7 @@ def test_an_apcad_file_without_a_vcf_header_is_still_read_as_a_bed(tmp_path: Pat
 
 @pytest.mark.parametrize("broken", sorted(BROKEN))
 def test_the_validation_refuses_a_phased_family_vcf_it_cannot_read(tmp_path: Path, broken: str) -> None:
-    validation = validate_family_package(_package(tmp_path, phased=BROKEN[broken](_phased())))
+    validation = validated(_package(tmp_path, phased=BROKEN[broken](_phased())))
 
     assert validation.valid is False
     assert _refusals(validation.errors) == [
@@ -244,7 +242,7 @@ _NO_SAMPLES = (
     ],
 )
 def test_the_validation_refuses_a_phased_family_vcf_naming_no_sample(tmp_path: Path, text: str) -> None:
-    validation = validate_family_package(_package(tmp_path, phased=bgzip(text.encode())))
+    validation = validated(_package(tmp_path, phased=bgzip(text.encode())))
 
     assert validation.valid is False
     assert _refusals(validation.errors) == [("dataset_vcf_no_sample_columns", _NO_SAMPLES, "haplotypes", None)]
@@ -254,7 +252,7 @@ def test_the_validation_refuses_a_phased_family_vcf_naming_no_sample(tmp_path: P
 
 
 @pytest.mark.parametrize("compress", [bgzip, gzip.compress, None], ids=["bgzf", "gzip", "plain"])
-def test_whole_files_pass_as_before(tmp_path: Path, compress: Callable[[bytes], bytes] | None) -> None:
+def test_whole_files_pass(tmp_path: Path, compress: Callable[[bytes], bytes] | None) -> None:
     emb1, phased = _trio("EMB1").encode(), _phased().encode()
     package = _package(
         tmp_path,
@@ -268,7 +266,7 @@ def test_whole_files_pass_as_before(tmp_path: Path, compress: Callable[[bytes], 
             (package / name).rename(package / name.removesuffix(".gz"))
         (package / "manifest.yaml").write_text(MANIFEST.replace(".vcf.gz", ".vcf"), encoding="utf-8")
 
-    validation = validate_family_package(package)
+    validation = validated(package)
 
     assert validation.valid is True, validation.errors
 
@@ -294,7 +292,9 @@ def test_the_whole_vcf_reader_reads_columns_and_refuses_a_cut_by_name(tmp_path: 
 async def test_a_dry_run_stops_at_the_refusal(tmp_path: Path, broken: str) -> None:
     package = _package(tmp_path, emb1=BROKEN[broken](_trio("EMB1")), phased=BROKEN[broken](_phased()))
 
-    result = await execute_family_package_import(None, folder_path=package, project_id=None, dry_run=True, user=None)
+    result = await execute_family_package_import(
+        None, folder_path=package, project_id=None, dry_run=True, user=None, manifest_text=kept_manifest(package)
+    )
 
     assert (result.completed, result.error) == (False, "Package validation failed")
     assert sorted(code for code, *_ in _refusals(result.validation.errors)) == ["dataset_vcf_unreadable"] * 2
@@ -305,7 +305,7 @@ async def test_a_dry_run_stops_at_the_refusal(tmp_path: Path, broken: str) -> No
 
 
 @pytest.mark.parametrize("broken", sorted(BROKEN))
-def test_discover_reads_neither_file_and_drafts_them_as_before(tmp_path: Path, broken: str) -> None:
+def test_discover_reads_neither_file_and_drafts_them(tmp_path: Path, broken: str) -> None:
     package = _package(
         tmp_path, emb1=BROKEN[broken](_trio("EMB1")), phased=BROKEN[broken](_phased()), manifest=None
     )

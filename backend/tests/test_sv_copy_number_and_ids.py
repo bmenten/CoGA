@@ -123,10 +123,9 @@ def _hificnv_job(tmp_path: Path) -> family_package_datasets.DatasetImportJob:
         session=None,  # type: ignore[arg-type]
         bundle=FamilyPackageBundle(
             root=tmp_path,
-            manifest_path=tmp_path / "manifest.yaml",
-            manifest=PackageManifest(ped="family.ped", datasets={"cnv": dataset}),
-            ped_path=tmp_path / "family.ped",
+            manifest=PackageManifest(datasets={"cnv": dataset}),
             ped=ParsedPed(family_ids=["FAM"], members=[], sample_ids=list(_SAMPLES), text=""),
+            kept_manifest_text="{}",
         ),
         dataset=dataset,
         summary=FamilyImportDatasetSummary(dataset_type="cnv", status="valid"),

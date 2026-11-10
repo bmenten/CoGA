@@ -5,11 +5,11 @@ file, its dataset, scope and sample, its SHA-256 and size) and lists it in its s
 package record (``samples.metadata.package_import``): the traceability record of the files a
 released interpretation rests on, which *Verify* checks the files against later. It records
 the files named under the keys it knows (``_PROVENANCE_PATH_KEYS``); a file named under any
-other key is validated and imported without a row. A monogenic NIPT pair's per-target
-coverage tables (``target_table``), which give the NIPT analysis its depths, were imported
-that way, and so were a PCF entry's segment tables named ``maternal_file``, ``mat_file``,
-``paternal_file`` or ``pat_file``. The guard explores every key validation reads as a file,
-so a new kind of file cannot be left out again.
+other key would be validated and imported without a row. A monogenic NIPT pair's per-target
+coverage tables (``target_table``), which give the NIPT analysis its depths, and a PCF entry's
+segment tables under each of their names (``maternal``, ``mat``, ``maternal_file``,
+``mat_file`` and the paternal ones) have their rows. The guard explores every key validation
+reads as a file, so a new kind of file cannot be left out.
 
 All samples and values here are synthetic.
 """
@@ -27,13 +27,21 @@ from typing import Any
 import pytest
 
 from backend.app.core.config import settings
-from backend.app.services import family_package_registration, family_package_validation
+from backend.app.services import family_package_registration, family_package_validation, raw_import_files_pg
 from backend.app.services.family_package_common import (
     SUPPORTED_DATASETS,
     FamilyPackageBundle,
     ManifestDataset,
 )
 from backend.app.services.family_package_validation import load_validated_family_package
+from backend.tests._kept_manifest import kept_manifest
+
+
+@pytest.fixture(autouse=True)
+def _managed_files_in_tmp(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # The import stores the manifest CoGA kept for it as a managed copy: under the test's
+    # folder, never the repository's data/.
+    monkeypatch.setattr(raw_import_files_pg, "DATA_DIR", tmp_path / "data")
 
 
 class _RawFileSession:
@@ -132,7 +140,8 @@ async def test_a_nipt_pairs_coverage_tables_are_recorded_with_their_checksums(
     # The NIPT analysis reads each parent's depths from its coverage table: the table must
     # be in the record, with a checksum, as the VCFs are.
     monkeypatch.setattr(settings, "family_import_roots", [])
-    validation, bundle = load_validated_family_package(_write_nipt_pair(tmp_path / "NIPTPAIR"))
+    package = _write_nipt_pair(tmp_path / "NIPTPAIR")
+    validation, bundle = load_validated_family_package(package, manifest_text=kept_manifest(package))
     assert validation.valid, validation.errors
     assert bundle is not None
 
@@ -141,7 +150,11 @@ async def test_a_nipt_pairs_coverage_tables_are_recorded_with_their_checksums(
     for sample_id in ("CFDNA1", "FATHER1"):
         _assert_recorded(rows, bundle, f"coverage_{sample_id}.txt", dataset="coverage", sample_id=sample_id)
         _assert_recorded(rows, bundle, f"{sample_id}.mutect2.vcf.gz", dataset="snv", sample_id=sample_id)
-    assert len(rows) == 4
+    # The four files, and the manifest CoGA kept for the import, recorded as the family's.
+    assert len(rows) == 5
+    [kept] = [row for row in rows.values() if row["dataset"] == "manifest"]
+    assert (kept["scope"], kept["managed"], kept["sample_id"]) == ("family", True, None)
+    assert Path(kept["storage_path"]).is_relative_to(tmp_path / "data")
     # The sample's own package record names its table too.
     package_record = family_package_registration._sample_provenance(bundle)
     assert package_record["CFDNA1"]["coverage"] == {"target_table": "coverage_CFDNA1.txt"}
@@ -183,9 +196,8 @@ async def test_a_pcf_entry_records_its_tables_under_each_of_their_names(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, maternal_key: str, paternal_key: str
 ) -> None:
     monkeypatch.setattr(settings, "family_import_roots", [])
-    validation, bundle = load_validated_family_package(
-        _write_pcf_package(tmp_path / "PGTFAM", maternal_key=maternal_key, paternal_key=paternal_key)
-    )
+    package = _write_pcf_package(tmp_path / "PGTFAM", maternal_key=maternal_key, paternal_key=paternal_key)
+    validation, bundle = load_validated_family_package(package, manifest_text=kept_manifest(package))
     assert validation.valid, validation.errors
     assert {summary.dataset_type: summary.status for summary in validation.datasets}["pcf"] == "valid"
     assert bundle is not None

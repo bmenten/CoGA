@@ -54,6 +54,7 @@ from backend.app.services.clickhouse_variant_records import (
 )
 from backend.app.services.family_metadata_context import FamilyMetadataContext, SampleMetadataContext
 from backend.tests._family_import_fakes import no_variant_copy
+from backend.tests._kept_manifest import kept_manifest
 
 _SAMPLES = ("S1", "S2", "S3")
 _FAMILY = FamilyMetadataContext(
@@ -681,6 +682,7 @@ def mito_update(monkeypatch, tmp_path):
             user=SimpleNamespace(id="admin"),
             conflict_mode="update",
             job_id="job-mito",
+            manifest_text=kept_manifest(root),
         )
 
     return run

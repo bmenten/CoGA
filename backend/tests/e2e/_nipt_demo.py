@@ -14,6 +14,7 @@ import shutil
 from pathlib import Path
 from uuid import uuid4
 
+from backend.tests._kept_manifest import kept_manifest
 from backend.tests.e2e._harness import ensure_postgres_schema
 
 DEMO = Path(__file__).resolve().parents[3] / "demo" / "nipt_family"
@@ -39,6 +40,7 @@ async def import_demo(root: Path) -> dict:
         result = await package_import.execute_family_package_import(
             session,
             folder_path=str(root),
+            manifest_text=kept_manifest(root),
             project_id=project_id,
             dry_run=False,
             user=admin,

@@ -1,13 +1,12 @@
-"""A package is validated and imported with the manifest CoGA keeps, instead of the folder's own.
+"""A package is validated and imported with the manifest CoGA keeps, and no file of its folder.
 
 The test deployment reads packages from a share mounted read-only, and CoGA writes nothing into a
 package folder. An approved delivery queues its import with the manifest its package makes: the
 job keeps it with its SHA-256
-(``family_import_jobs.manifest_text``, ``manifest_sha256``), validation and the import read it
-instead of a file in the folder, and its paths are read relative to the package, which they
-must not leave. The report and the family's package record name the manifest read
-(``manifest_source``, ``manifest_sha256``), the folder's file too, by the SHA-256 of its bytes;
-the family's raw files hold a managed copy of a kept one.
+(``family_import_jobs.manifest_text``, ``manifest_sha256``), validation and the import read it,
+never a manifest or a PED in the folder, and its paths are read relative to the package, which
+they must not leave. The report and the family's package record name the manifest read
+(``manifest_source``, ``manifest_sha256``); the family's raw files hold a managed copy of it.
 
 All samples and values here are synthetic.
 """
@@ -26,8 +25,13 @@ from backend.app.core.config import settings
 from backend.app.services import family_package_jobs, family_package_registration, raw_import_files_pg
 from backend.app.services.family_package_validation import load_validated_family_package
 
-_PED = "FAM1\tPROBAND\t0\t0\t1\t2\n"
-_KEPT = "schema_version: 1\nfamily_id: FAM1\nped: family.ped\n"
+_KEPT = (
+    "schema_version: 1\n"
+    "family_id: FAM1\n"
+    "family:\n"
+    "  add_members:\n"
+    "    - {sample_id: PROBAND, sex: male, clinical_status: affected}\n"
+)
 
 
 def _sha256(text: str) -> str:
@@ -36,47 +40,46 @@ def _sha256(text: str) -> str:
 
 @pytest.fixture
 def package(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
-    """A one-member package with a PED and no manifest, under no import root (development)."""
+    """A package folder with an SNV VCF and no manifest, under no import root (development)."""
     monkeypatch.setattr(settings, "family_import_roots", [])
     root = tmp_path / "FAM1"
-    root.mkdir()
-    (root / "family.ped").write_text(_PED, encoding="utf-8")
+    (root / "snv").mkdir(parents=True)
+    (root / "snv" / "family.vcf").write_text("##fileformat=VCFv4.2\n", encoding="utf-8")
     return root
 
 
-def test_a_folder_without_a_manifest_validates_with_the_kept_one(package: Path) -> None:
-    folder_only, _ = load_validated_family_package(package)
-    assert [issue.code for issue in folder_only.errors] == ["manifest_missing"]
-    assert "kept in CoGA" in folder_only.errors[0].message
-
+def test_the_kept_manifest_is_the_one_read(package: Path) -> None:
     validation, bundle = load_validated_family_package(package, manifest_text=_KEPT)
 
     assert validation.valid, validation.errors
-    assert (validation.family_id, validation.sample_ids, validation.manifest_path) == ("FAM1", ["PROBAND"], None)
+    assert (validation.family_id, validation.sample_ids) == ("FAM1", ["PROBAND"])
     assert validation.metadata["manifest_source"] == "coga"
     assert validation.metadata["manifest_sha256"] == _sha256(_KEPT)
     assert bundle is not None
-    assert (bundle.manifest_path, bundle.kept_manifest_text, bundle.manifest_sha256) == (None, _KEPT, _sha256(_KEPT))
-    assert sorted(path.name for path in package.iterdir()) == ["family.ped"]
+    assert (bundle.kept_manifest_text, bundle.manifest_sha256) == (_KEPT, _sha256(_KEPT))
+    # CoGA wrote nothing into the folder.
+    assert sorted(path.name for path in package.iterdir()) == ["snv"]
 
 
-def test_the_kept_manifest_is_read_instead_of_the_folders_own_and_says_so(package: Path) -> None:
-    # A folder manifest naming another family: the kept one is the one read.
-    (package / "manifest.yaml").write_text(_KEPT.replace("FAM1", "OTHER"), encoding="utf-8")
+def test_a_manifest_and_a_ped_in_the_folder_are_not_read(package: Path) -> None:
+    # A folder manifest naming another family and a PED of other members: the kept manifest
+    # alone is read.
+    (package / "OTHER.ped").write_text("OTHER\tMOTHER\t0\t0\t2\t1\nOTHER\tFATHER\t0\t0\t1\t1\n", encoding="utf-8")
+    (package / "manifest.yaml").write_text("schema_version: 1\nfamily_id: OTHER\nped: OTHER.ped\n", encoding="utf-8")
 
     validation, bundle = load_validated_family_package(package, manifest_text=_KEPT)
 
     assert validation.valid, validation.errors
-    assert validation.family_id == "FAM1"
-    assert "manifest_in_folder_not_read" in [issue.code for issue in validation.warnings]
+    assert (validation.family_id, validation.sample_ids) == ("FAM1", ["PROBAND"])
     assert bundle is not None and bundle.kept_manifest_text == _KEPT
+    assert bundle.ped.sample_ids == ["PROBAND"]
 
 
 def test_a_kept_manifests_paths_stay_in_the_package(package: Path) -> None:
     (package.parent / "outside.vcf").write_text("##fileformat=VCFv4.2\n", encoding="utf-8")
     leaving = _KEPT + "datasets:\n  snv:\n    family_vcf: ../outside.vcf\n"
 
-    # Refused as a folder manifest naming such a path is.
+    # A file is read only when it lies in the package.
     with pytest.raises(HTTPException) as refused:
         load_validated_family_package(package, manifest_text=leaving)
 
@@ -96,17 +99,14 @@ def test_a_kept_manifest_that_no_text_can_hold_does_not_parse(package: Path, tex
     assert words in validation.errors[0].message
 
 
-def test_a_folder_manifest_is_named_by_the_sha256_of_its_bytes(package: Path) -> None:
-    raw = _KEPT.replace("\n", "\r\n").encode("utf-8")
-    (package / "manifest.yaml").write_bytes(raw)
+def test_an_empty_manifest_is_refused(package: Path) -> None:
+    # What a job that keeps no manifest is run with: the folder's files are not read in its place.
+    (package / "manifest.yaml").write_text(_KEPT, encoding="utf-8")
 
-    validation, bundle = load_validated_family_package(package)
+    validation, bundle = load_validated_family_package(package, manifest_text="")
 
-    assert validation.valid, validation.errors
-    assert validation.manifest_path == str(package / "manifest.yaml")
-    assert validation.metadata["manifest_source"] == "folder"
-    assert validation.metadata["manifest_sha256"] == hashlib.sha256(raw).hexdigest()
-    assert bundle is not None and bundle.kept_manifest_text is None
+    assert bundle is None
+    assert [issue.code for issue in validation.errors] == ["manifest_parse_failed"]
 
 
 class _JobSession:
@@ -157,23 +157,6 @@ async def test_the_job_keeps_the_manifest_with_its_sha256() -> None:
     assert session.inserted is not None
     assert (session.inserted["manifest_text"], session.inserted["manifest_sha256"]) == (_KEPT, _sha256(_KEPT))
     assert job.manifest_sha256 == _sha256(_KEPT)
-
-
-@pytest.mark.asyncio
-async def test_a_job_without_a_kept_manifest_keeps_none() -> None:
-    session = _JobSession()
-
-    job = await family_package_jobs.queue_family_import_job(
-        session,  # type: ignore[arg-type]
-        folder_path="/data/families/FAM1",
-        project_id=_PROJECT,
-        dry_run=True,
-        requested_by=_REQUESTER,  # type: ignore[arg-type]
-    )
-
-    assert session.inserted is not None
-    assert (session.inserted["manifest_text"], session.inserted["manifest_sha256"]) == (None, None)
-    assert job.manifest_sha256 is None
 
 
 @pytest.mark.asyncio
@@ -230,22 +213,3 @@ async def test_the_family_holds_a_managed_copy_of_the_kept_manifest(
     stored = Path(session.rows[0]["storage_path"])
     assert stored.parent == tmp_path / "data" / "raw_imports" / "FAM1"
     assert stored.read_text(encoding="utf-8") == _KEPT
-
-
-@pytest.mark.asyncio
-async def test_a_folder_manifest_gets_no_managed_copy(package: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.setattr(raw_import_files_pg, "DATA_DIR", tmp_path / "data")
-    (package / "manifest.yaml").write_text(_KEPT, encoding="utf-8")
-    _validation, bundle = load_validated_family_package(package)
-    assert bundle is not None
-    session = _RawFileSession()
-
-    await family_package_registration._record_package_raw_files(
-        session,  # type: ignore[arg-type]
-        bundle=bundle,
-        family_uuid="family-uuid",
-        family_identifier="FAM1",
-    )
-
-    assert session.rows == []
-    assert not (tmp_path / "data").exists()

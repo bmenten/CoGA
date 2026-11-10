@@ -1,9 +1,9 @@
-"""A manifest's region of interest that does not resolve is reported, and clears the family's (DATA-10).
+"""A manifest's region of interest that does not resolve is reported, and clears the family's.
 
 The PGT calls (``pgt_analysis.family_pgt_analysis``) and the NIPT coverage check read the family's
-region of interest. An import used to keep the family's earlier region, without a word, when it
-could not find the one its manifest names: the embryos were then called at a region the package
-does not name. Now:
+region of interest. A family that kept its earlier region, without a word, when the import could
+not find the one its manifest names would have its embryos called at a region the package does
+not name. So:
 
 - the import leaves the family with the manifest's region or with none, and its result warns
   ``manifest_roi_unresolved``, naming the region it cleared;
@@ -31,6 +31,7 @@ from backend.app.services import family_package_import as package_import
 from backend.app.services import family_package_registration as registration
 from backend.app.services.family_metadata_context import FamilyMetadataContext
 from backend.tests._family_import_fakes import admin_user
+from backend.tests._kept_manifest import kept_manifest
 
 FAMILY_UUID = "00000000-0000-0000-0000-00000000f001"
 ASSEMBLY = "00000000-0000-0000-0000-0000000000a1"
@@ -354,6 +355,7 @@ async def test_the_dry_run_warns_of_an_roi_the_import_will_not_find(package: Pat
     result = await package_import.execute_family_package_import(
         session,  # type: ignore[arg-type]
         folder_path=package,
+        manifest_text=kept_manifest(package),
         project_id=PROJECT,
         dry_run=True,
         user=admin_user(),
@@ -393,6 +395,7 @@ async def test_the_import_puts_the_roi_warning_in_its_result(monkeypatch: pytest
     result = await package_import.execute_family_package_import(
         _Session(),  # type: ignore[arg-type]
         folder_path=package,
+        manifest_text=kept_manifest(package),
         project_id=PROJECT,
         dry_run=False,
         user=admin_user(),

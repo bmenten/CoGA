@@ -615,34 +615,49 @@ def _manifest_added_member_entries(manifest: PackageManifest) -> list[tuple[str,
 _ADDED_MEMBER_PHENOTYPE_CODES = {"unknown": "0", "unaffected": "1", "affected": "2"}
 
 
+def ped_member_entries(ped: ParsedPed) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]]]:
+    """The members of the PED ``ped`` as a manifest names them: each row one ``family.add_members``
+    entry (its sex, its parents, its clinical status, and its role when the row gives one), and
+    each carrier its rows mark one ``family.members`` entry (carrier status, and type). Discover
+    drafts a folder's PED so, for the package a delivery proposes: the import reads no PED."""
+    entries: list[dict[str, Any]] = []
+    carriers: dict[str, dict[str, Any]] = {}
+    for member in ped.members:
+        entry: dict[str, Any] = {"sample_id": member.iid, "sex": {"1": "male", "2": "female"}.get(member.sex, "unknown")}
+        if member.pid not in {"", "0"}:
+            entry["father"] = member.pid
+        if member.mid not in {"", "0"}:
+            entry["mother"] = member.mid
+        if member.clinical_status in {"affected", "unaffected"}:
+            entry["clinical_status"] = member.clinical_status
+        if member.role_hint in _PED_ROLE_VALUES:
+            entry["role"] = member.role_hint
+        entries.append(entry)
+        carrier_type = _ped_carrier_type(member)
+        if carrier_type is not None or _ped_is_carrier(member):
+            carriers[member.iid] = {"carrier_status": "carrier", **({"carrier_type": carrier_type} if carrier_type else {})}
+    return entries, carriers
+
+
 def _manifest_added_ped_rows(
     manifest: PackageManifest,
     *,
     family_id: str,
-    ped_sample_ids: set[str],
-    ped_from_database: bool = False,
-    default_role: str | None = "relative",
 ) -> tuple[list[str], list[FamilyImportValidationIssue]]:
-    """PED rows for the members ``family.add_members`` adds to the PED's.
+    """The PED rows of the members ``family.add_members`` names: the pedigree the import reads.
 
-    A pipeline PED may lack a member the analysis uses: the PGT pipeline's PED holds the
-    couple and the embryos, not the index whose haplotypes identify the affected one.
-    Each added member becomes one more PED row, so every later step (validation, the
-    family's members, the stored pedigree) sees it like any other member; its role is
-    written as a ``role=`` column. Its ``father`` and ``mother``, when given, go into the
-    row, so a child of the couple is one in the PED too; the PED checks then see that
-    they are members of the right sex. Other links go under ``family.relationships``.
+    Each member becomes one PED row, so every later step (validation, the family's members, the
+    stored pedigree) sees it as a PED's member; its role is written as a ``role=`` column. Its
+    ``father`` and ``mother``, when given, go into the row; the PED checks then see that they are
+    members of the right sex. Other links go under ``family.relationships``. A member without a
+    role gets one as a PED row does, from the pedigree (``_ped_members_for_import``): a parent's
+    from its children, then embryo, proband or sibling.
 
-    A member added to a PED without a role is a ``relative`` (``default_role``). Where the added
-    members are the whole pedigree (no PED: a package file's members, a long-read couple),
-    ``default_role`` is None and a member without a role gets one as a PED row does, from the
-    pedigree (``_ped_members_for_import``): a parent's from its children, then embryo, proband
-    or sibling.
-
-    A member already in the PED is an error, except when the PED is the stored pedigree
-    of an existing family, which holds the members an earlier import added. So is an ID,
-    the member's or a parent's, that a sample cannot be stored under (``sample_id_invalid``).
+    A member listed twice is an error, and so is an ID, the member's or a parent's, that a sample
+    cannot be stored under (``sample_id_invalid``): a parent that is a listed member is reported
+    once, under its own entry.
     """
+    listed = {sample_id for sample_id, _payload in _manifest_added_member_entries(manifest) if sample_id}
     rows: list[str] = []
     errors: list[FamilyImportValidationIssue] = []
     seen: set[str] = set()
@@ -653,18 +668,6 @@ def _manifest_added_ped_rows(
         id_issues = sample_id_issues([sample_id], source="under family.add_members")
         if id_issues:
             errors.extend(id_issues)
-            continue
-        if sample_id in ped_sample_ids:
-            if ped_from_database:
-                continue
-            errors.append(
-                _issue(
-                    "manifest_added_member_in_ped",
-                    f"family.add_members adds '{sample_id}', which is already in the PED; "
-                    "change it under family.members instead",
-                    sample_id=sample_id,
-                )
-            )
             continue
         if sample_id in seen:
             errors.append(
@@ -688,7 +691,7 @@ def _manifest_added_ped_rows(
             )
             continue
         role_value = _lookup_normalized_key(payload, "role")
-        role = str(role_value).strip().lower() if role_value is not None else default_role
+        role = str(role_value).strip().lower() if role_value is not None else None
         if role is not None and role not in _PED_ROLE_VALUES:
             errors.append(
                 _issue(
@@ -717,7 +720,7 @@ def _manifest_added_ped_rows(
             for value in (_lookup_normalized_key(payload, "father"), _lookup_normalized_key(payload, "mother"))
         ]
         parent_issues = sample_id_issues(
-            [parent for parent in parents if parent != "0"],
+            [parent for parent in parents if parent != "0" and parent not in listed],
             source=f"a parent of {sample_id} under family.add_members",
         )
         if parent_issues:

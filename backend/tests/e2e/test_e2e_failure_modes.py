@@ -9,7 +9,7 @@ Scenarios (each on a fresh family id so the shared dev DB stays clean):
   * manifest references a missing file -> validation fails, nothing created;
   * a malformed VCF body (passes validation, fails on import) -> failed + the
     freshly-created family shell is rolled back (the hardening);
-  * a PED whose family id mismatches the manifest -> validation fails;
+  * a manifest that names a PED, which the import does not read -> validation fails;
   * idempotent re-import (overwrite) -> no row duplication;
   * job lifecycle: queue -> run -> terminal status (completed for a good package,
     failed for a malformed one, with no partial family).
@@ -19,11 +19,14 @@ Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``e2e`` job sets 
 
 from __future__ import annotations
 
+import json
+
 from pathlib import Path
 from uuid import uuid4
 
 import pytest
 
+from backend.tests._kept_manifest import kept_manifest
 from backend.tests.e2e._harness import ensure_postgres_schema
 
 pytestmark = pytest.mark.integration
@@ -66,17 +69,15 @@ def _write_pkg(
     root: Path,
     *,
     family_id: str,
-    ped_family_id: str | None = None,
     snv_body: str | None = _GOOD_VCF,
     snv_path: str = "snv/family.vcf",
 ) -> Path:
     """Write a minimal single-sample package. ``snv_body=None`` leaves the
-    referenced VCF absent (missing-file case). ``ped_family_id`` differing from
-    ``family_id`` triggers ped_family_mismatch."""
+    referenced VCF absent (missing-file case)."""
     root.mkdir(parents=True, exist_ok=True)
     sample = f"{family_id}_S1"  # globally-unique sample id
     (root / "family.ped").write_text(
-        f"{ped_family_id or family_id}\t{sample}\t0\t0\t1\t2\n", encoding="utf-8"
+        f"{family_id}\t{sample}\t0\t0\t1\t2\n", encoding="utf-8"
     )
     (root / "manifest.yaml").write_text(
         _MANIFEST.format(family_id=family_id, snv_path=snv_path), encoding="utf-8"
@@ -124,11 +125,12 @@ async def _collect(base: Path) -> dict:
                 )
             ).scalar_one_or_none()
 
-    async def run_import(root: Path, *, conflict_mode: str = "cancel"):
+    async def run_import(root: Path, *, conflict_mode: str = "cancel", manifest_text: str | None = None):
         async with sm() as s:
             return await package_import.execute_family_package_import(
                 s,
                 folder_path=str(root),
+                manifest_text=manifest_text if manifest_text is not None else kept_manifest(root),
                 project_id=project_id,
                 dry_run=False,
                 user=admin,
@@ -158,9 +160,10 @@ async def _collect(base: Path) -> dict:
         "family_exists": fu is not None,
     }
 
-    # --- bad PED (family id mismatch): validation fails ---
+    # --- a manifest that names a PED, which the import does not read: validation fails ---
     fid = f"FAM_BADPED_{uuid4().hex[:8]}"
-    res = await run_import(_write_pkg(base / fid, family_id=fid, ped_family_id="SOME_OTHER_FAMILY"))
+    root = _write_pkg(base / fid, family_id=fid)
+    res = await run_import(root, manifest_text=json.dumps({**json.loads(kept_manifest(root)), "ped": "family.ped"}))
     out["bad_ped"] = {
         "completed": res.completed,
         "codes": [e.code for e in res.validation.errors],
@@ -367,6 +370,7 @@ async def _collect(base: Path) -> dict:
             job = await family_package_jobs.queue_family_import_job(
                 s,
                 folder_path=str(root),
+                manifest_text=kept_manifest(root),
                 project_id=project_id,
                 dry_run=False,
                 requested_by=admin,
@@ -425,10 +429,10 @@ def test_missing_file_fails_validation_with_no_partial_state(results):
     assert r["family_exists"] is False, r
 
 
-def test_bad_ped_fails_validation(results):
+def test_a_manifest_naming_a_ped_fails_validation(results):
     r = results["bad_ped"]
     assert r["completed"] is False, r
-    assert "ped_family_mismatch" in r["codes"], r
+    assert "manifest_names_a_ped" in r["codes"], r
     assert r["family_exists"] is False, r
 
 
