@@ -240,6 +240,26 @@ describe('CnvAcmgClassificationModal', () => {
     expect(serverRescoring(scoring, CNV_LOSS_CRITERIA).pointTotal).toBe(0.9);
   });
 
+  it('replaces the review’s ACMG class tags with the class it saves, keeping its other tags', async () => {
+    // A class tag outranks a class label in the class a review shows: kept beside the CNV class,
+    // acmg_class_5 would show class 5 for a CNV this dialog classifies otherwise (CLIN-76).
+    let saved: StructuralVariantReviewSavePayload | undefined;
+    const onSave = vi.fn(async (payload: StructuralVariantReviewSavePayload) => {
+      saved = payload;
+    });
+    const held = {
+      ...variant,
+      review: { ...(variant.review ?? {}), tags: ['acmg_class_5', 'acmg_vus_hot', 'report', 'secondary_finding'], note: null },
+    } as StructuralVariant;
+    render(<CnvAcmgClassificationModal variant={held} onClose={vi.fn()} onSave={onSave} />);
+
+    await userEvent.click(screen.getByRole('button', { name: /save classification/i }));
+
+    expect(onSave).toHaveBeenCalledTimes(1);
+    expect(saved?.tags).toEqual(['acmg_vus_hot', 'report', 'secondary_finding']);
+    expect(saved?.classification).toBe(saved?.cnv_acmg?.classification);
+  });
+
   it('lets a criterion be overridden and reflects it in the saved payload', async () => {
     let saved: StructuralVariantReviewSavePayload | undefined;
     const onSave = vi.fn(async (payload: StructuralVariantReviewSavePayload) => {
