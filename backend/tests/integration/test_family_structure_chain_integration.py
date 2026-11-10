@@ -16,7 +16,9 @@ affected, a member removed in the editor and a sample deleted with its data. The
 - a signed anchor records the structure chain's head;
 - an UPDATE or DELETE of a structure version is refused, and a version edited behind the
   trigger's back breaks the chain at that version;
-- compound-het pair events round-trip through Postgres on an intact chain.
+- compound-het pair events round-trip through Postgres on an intact chain;
+- a structure version inserted without the writer, with no hashes, is on the family's chain
+  and breaks it there.
 
 The values are synthetic, under labels of the run's own; the append-only rows stay.
 Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``smoke`` job sets it.
@@ -353,6 +355,59 @@ def test_compound_het_pair_events_round_trip_on_an_intact_chain() -> None:
             assert rows[0]["after"]["partner_variant_ids"] == ["1-200-C-T"]
             assert rows[2]["after"] is None and rows[2]["metadata"] == {"compound_het_group_id": "group-1"}
             assert (chain.verified, chain.rows_checked) == (True, 3), chain
+        finally:
+            await close_postgres_engine()
+
+    asyncio.run(_run())
+
+
+def test_a_structure_version_added_without_the_writer_breaks_the_chain() -> None:
+    from backend.app.core.postgres import close_postgres_engine, get_postgres_sessionmaker, init_postgres_schema
+    from backend.app.services.family_structure_audit import (
+        append_structure_version,
+        verify_family_structure_chain,
+    )
+    from backend.tests.integration._datastores import fresh_family
+
+    async def _run() -> None:
+        try:
+            await init_postgres_schema()
+            sm = get_postgres_sessionmaker()
+            label = f"sec7-unhashed-{uuid4()}"
+            async with sm() as s:
+                family_uuid = await fresh_family(s, label)
+                for _ in range(2):
+                    await append_structure_version(
+                        s,
+                        family_uuid=family_uuid,
+                        family_identifier=label,
+                        snapshot={"members": [], "relationships": []},
+                    )
+                await s.commit()
+            async with sm() as s:
+                written = await verify_family_structure_chain(s, label)
+            assert (written.verified, written.rows_checked) == (True, 2), written
+
+            # A version inserted by hand after the head, with no hashes (the trigger lets an
+            # INSERT through): every version of the family ID is on its chain, so it breaks there.
+            async with sm() as s:
+                unhashed = (
+                    await s.execute(
+                        text(
+                            "INSERT INTO family_structure_versions (family_id, family_identifier, version, "
+                            "structure_hash, snapshot, created_at) SELECT CAST(:f AS uuid), :fl, 3, 'deadbeef', "
+                            "'{}'::jsonb, max(created_at) + interval '1 second' FROM family_structure_versions "
+                            "WHERE family_identifier = :fl RETURNING id::text"
+                        ),
+                        {"f": family_uuid, "fl": label},
+                    )
+                ).scalar_one()
+                await s.commit()
+            async with sm() as s:
+                added = await verify_family_structure_chain(s, label)
+            assert (added.verified, added.rows_checked, added.first_bad_row) == (False, 2, unhashed), added
+            # It names no predecessor: the walk stops at its missing link.
+            assert "prev_hash does not match" in (added.reason or ""), added
         finally:
             await close_postgres_engine()
 

@@ -388,7 +388,6 @@ async def list_repeat_locus_count_units(session: AsyncSession) -> dict[str, Any]
                 "locus_id": after.get("locus_id"),
                 "gene": after.get("gene"),
                 "validated": bool(after.get("validated")),
-                # Absent from an event recorded before corrections existed: none then.
                 "count_offset": int(after.get("count_offset") or 0),
                 "summary": row.get("summary"),
                 "reason": after.get("reason"),

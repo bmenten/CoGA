@@ -8,7 +8,8 @@ their distinct statuses. This is the evidence that the anchor (#263) closes the 
 owner-re-chain / truncation gap that the in-DB chain alone cannot detect.
 
 Assertions are scoped to THIS test's families (the whole-system anchor also captures other
-tests' chains in the shared DB, so a bare ``status == "ok"`` would be brittle).
+tests' chains in the shared DB, so a bare ``status == "ok"`` would be brittle). The unsigned
+and unknown-key modes, whose verdict is on every chain, run on a database of their own.
 
 The admin's check of the WHOLE anchor chain (``verify_anchor_chain``, which
 ``/api/admin/integrity/anchor/verify-chain`` serves) runs on a database of its own, where the anchor
@@ -65,7 +66,7 @@ async def _head_id(session, label: str) -> str:
         await session.execute(
             text(
                 "SELECT id::text FROM clinical_audit_events WHERE family_identifier = :f "
-                "AND row_hash IS NOT NULL ORDER BY created_at DESC, id DESC LIMIT 1"
+                "ORDER BY created_at DESC, id DESC LIMIT 1"
             ),
             {"f": label},
         )
@@ -160,20 +161,23 @@ def test_integrity_anchor_signs_verifies_and_detects_rechain_and_truncation(monk
 
 
 def test_integrity_anchor_unsigned_and_unknown_key_modes(monkeypatch) -> None:
-    from backend.app.core.postgres import (
-        close_postgres_engine,
-        get_postgres_sessionmaker,
-        init_postgres_schema,
-    )
+    from backend.app.core import postgres
     from backend.app.services.integrity_anchor_service import (
         create_integrity_anchor,
         verify_against_latest_anchor,
     )
 
+    admin_database = settings.postgres_db
+
     async def _run() -> None:
+        database = await create_database(admin_database, prefix="coga_anchor_test")
         try:
-            await init_postgres_schema()
-            sm = get_postgres_sessionmaker()
+            # A database of its own: the anchor's verdict is on every chain it holds, and
+            # another test's rows (a marker row without a hash) would decide it.
+            monkeypatch.setattr(settings, "postgres_db", database)
+            await postgres.close_postgres_engine()
+            await postgres.init_postgres_schema()
+            sm = postgres.get_postgres_sessionmaker()
             label = f"p1-anchor-u-{uuid4()}"
             async with sm() as s:
                 fam = await fresh_family(s, label)
@@ -199,9 +203,10 @@ def test_integrity_anchor_unsigned_and_unknown_key_modes(monkeypatch) -> None:
                 v = await verify_against_latest_anchor(s)
                 assert v.status == "unknown_key", v
         finally:
-            await close_postgres_engine()
+            await postgres.close_postgres_engine()
+            await drop_database(admin_database, database)
 
-    asyncio.run(_run())
+    run_closing_stores(_run)
 
 
 def test_the_whole_anchor_chain_is_verified_anchor_by_anchor(monkeypatch) -> None:

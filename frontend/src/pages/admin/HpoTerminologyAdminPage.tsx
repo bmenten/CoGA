@@ -249,11 +249,7 @@ const HpoTerminologyAdminPage: React.FC = () => {
         <div className="admin-data-summary-item">
           <span className="admin-data-summary-label">File SHA-256</span>
           <strong className="admin-data-summary-value font-mono text-xs" title={summary?.release_sha256 ?? undefined}>
-            {summary?.release_sha256
-              ? `${summary.release_sha256.slice(0, 12)}…`
-              : ontologyLoaded
-                ? 'Not recorded'
-                : 'Not installed'}
+            {summary?.release_sha256 ? `${summary.release_sha256.slice(0, 12)}…` : 'Not installed'}
           </strong>
         </div>
         <div className="admin-data-summary-item">

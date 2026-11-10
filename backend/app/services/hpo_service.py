@@ -958,7 +958,7 @@ async def import_hpo_ontology(
     source_format: str | None = None,
     release_version: str | None = None,
     release_date: date | None = None,
-    release_sha256: str | None = None,
+    release_sha256: str,
 ) -> dict[str, int]:
     """Import the ontology at ``path``, or ``ontology_text`` when given: the file's text as the
     caller read (and checked) it, so the file is not read again (TRACE-14). ``release_sha256``,
@@ -989,9 +989,7 @@ async def import_hpo_ontology(
             "replaced_by": term.replaced_by,
             "release_version": effective_release_version,
             "release_date": effective_release_date,
-            "metadata": json.dumps(
-                {**term.metadata, "release_sha256": release_sha256} if release_sha256 else term.metadata
-            ),
+            "metadata": json.dumps({**term.metadata, "release_sha256": release_sha256}),
         }
         for term in ontology.terms.values()
     ]
@@ -1595,8 +1593,7 @@ async def search_hpo_terms(
 
 async def get_loaded_hpo_release(session: AsyncSession) -> dict[str, Any] | None:
     """The HPO ontology that is loaded: its release, release date, the SHA-256 of the file its
-    terms were imported from (``release_sha256``; None for an import from before TRACE-18) and
-    its import time.
+    terms were imported from (``release_sha256``) and its import time.
 
     No table holds the release: an import writes it onto every term in the file, and a
     term the new release no longer lists keeps the release it came with. So the loaded

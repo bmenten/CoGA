@@ -328,10 +328,10 @@ def _classified_row(rows: Sequence[StructuralVariantRecord]) -> StructuralVarian
 
     Several callers can call one SV under one id and share its review, each with its own
     genes, pLI and inheritance, and the scoring rests on the row it was made on (TRACE-11).
-    A save that names no caller (a client from before ``source``) cannot say which row that
-    was when several callers call the SV, so it is refused rather than freezing another
-    caller's evidence, as taking the lowest storage key did: 422, since the request lacks
-    what the server needs, not 409, which here means another reviewer's save (#513).
+    A save that names no caller cannot say which row that was when several callers call the
+    SV, so it is refused rather than freezing another caller's evidence: 422, since the
+    request lacks what the server needs, not 409, which here means another reviewer's save
+    (#513).
     """
     if not rows:
         raise HTTPException(status_code=404, detail="Structural variant not found")

@@ -607,8 +607,8 @@ const curationDay = (value?: string | null) => {
 /**
  * Whether the gene is on the ACMG secondary-findings list the gene reference sync read, and
  * with which phenotype and category. "Not on" is said only when the list was read for this
- * gene: a list that could not be read, or a gene cached before the sync read the list, says
- * so instead (CLIN-19).
+ * gene: a list that could not be read, or a gene no sync has read yet, says so instead
+ * (CLIN-19).
  */
 const AcmgSecondaryFindingValue: React.FC<{
   entry?: GeneAcmgSecondaryFinding;

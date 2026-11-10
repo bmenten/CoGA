@@ -239,8 +239,14 @@ class _ProvenanceResult:
         return self._scalar
 
 
-# The HPO ontology as an import writes it: every term carries the release it came from.
-_HPO_RELEASE_ROW = {"release_version": "hp/releases/2026-06-06", "release_date": date(2026, 6, 6)}
+# The HPO ontology as an import writes it: every term carries the release it came from and
+# the SHA-256 of its file.
+_HPO_SHA256 = "ab" * 32
+_HPO_RELEASE_ROW = {
+    "release_version": "hp/releases/2026-06-06",
+    "release_date": date(2026, 6, 6),
+    "release_sha256": _HPO_SHA256,
+}
 
 
 class _ProvenanceSession:
@@ -281,8 +287,9 @@ def test_platform_modules_read_the_reference_versions() -> None:
         # could not be fetched (#536).
         "gene_loci": {"version": "ucsc ncbiRefSeq", "detail": "imported 2026-09-01"},
         "monarch": {"version": "2026-03-01"},
-        # The HPO release phenotype matching and HPO-driven ranking ran on, with its date.
-        "hpo": {"version": "hp/releases/2026-06-06", "detail": "2026-06-06"},
+        # The HPO release phenotype matching and HPO-driven ranking ran on, with its date and
+        # the SHA-256 of its file.
+        "hpo": {"version": "hp/releases/2026-06-06", "detail": f"2026-06-06; SHA-256 {_HPO_SHA256}"},
     }
 
 
@@ -291,14 +298,16 @@ def test_the_hpo_release_is_read_for_a_family_without_an_assembly() -> None:
     modules = asyncio.run(ams._platform_modules(_ProvenanceSession(fail=False), None))
     assert modules == {
         "monarch": {"version": "2026-03-01"},
-        "hpo": {"version": "hp/releases/2026-06-06", "detail": "2026-06-06"},
+        "hpo": {"version": "hp/releases/2026-06-06", "detail": f"2026-06-06; SHA-256 {_HPO_SHA256}"},
     }
 
 
-def test_an_hpo_release_without_a_date_has_no_detail() -> None:
-    session = _ProvenanceSession(fail=False, hpo_row={"release_version": "v2026-06", "release_date": None})
+def test_an_hpo_release_without_a_date_names_its_files_digest_alone() -> None:
+    session = _ProvenanceSession(
+        fail=False, hpo_row={"release_version": "v2026-06", "release_date": None, "release_sha256": _HPO_SHA256}
+    )
     modules = asyncio.run(ams._platform_modules(session, None))
-    assert modules["hpo"] == {"version": "v2026-06", "detail": None}
+    assert modules["hpo"] == {"version": "v2026-06", "detail": f"SHA-256 {_HPO_SHA256}"}
 
 
 def test_an_hpo_ontology_loaded_without_a_release_is_recorded_as_such() -> None:

@@ -355,7 +355,7 @@ class _ChainDatabase:
 
     def _chain(self, rows: list[dict[str, Any]], family_identifier: Any) -> list[dict[str, Any]]:
         return sorted(
-            (row for row in rows if row["family_identifier"] == family_identifier and row["row_hash"]),
+            (row for row in rows if row["family_identifier"] == family_identifier),
             key=lambda row: (row["created_at"], row["id"]),
         )
 

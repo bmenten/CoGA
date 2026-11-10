@@ -247,11 +247,8 @@ async def _platform_modules(session: AsyncSession, assembly_id: str | None) -> d
         if hpo_release:
             version = str(hpo_release["release_version"] or "").strip()
             if version:
-                # The release date, and the SHA-256 of the file the terms came from where the
-                # import recorded it (TRACE-18).
-                details = [str(hpo_release["release_date"] or "")]
-                if hpo_release.get("release_sha256"):
-                    details.append(f"SHA-256 {hpo_release['release_sha256']}")
+                # The release date, and the SHA-256 of the file the terms came from (TRACE-18).
+                details = [str(hpo_release["release_date"] or ""), f"SHA-256 {hpo_release['release_sha256']}"]
                 modules["hpo"] = {"version": version, "detail": "; ".join(d for d in details if d) or None}
             else:
                 # Loaded without a release: say so rather than leave HPO out as if no

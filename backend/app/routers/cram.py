@@ -57,8 +57,8 @@ def _alignment_candidate_paths(
 ) -> list[Path]:
     """Where the layouts put ``<sample>.<ext><suffix>`` in the family's own folders.
 
-    The IDs come from the request, and may hold ``/`` and ``..`` (the ID rule refuses both
-    for a new ID since SEC-15, not in a request or an ID stored before). Each path is joined
+    The IDs come from the request, and may hold ``/`` and ``..`` (the ID rule refuses both in
+    a stored ID, SEC-15, but a request is not held to it). Each path is joined
     and normalised as a string, and one that leaves the family's folder (a sample ID such as
     ``../F2/S2``) is dropped before anything is looked up. One that
     stays is kept only when its real path lies inside one of the family's folders too, so

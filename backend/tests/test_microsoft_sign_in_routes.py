@@ -258,8 +258,9 @@ def azure(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
 
 
 def _bearer(email: str) -> dict[str, str]:
+    now = datetime.now(timezone.utc)
     token = jwt.encode(
-        {"sub": email, "exp": datetime.now(timezone.utc) + timedelta(minutes=5)}, _LOCAL_SIGNER, algorithm="HS256"
+        {"sub": email, "exp": now + timedelta(minutes=5), "iat": now.timestamp()}, _LOCAL_SIGNER, algorithm="HS256"
     )
     return {"Authorization": f"Bearer {token}"}
 

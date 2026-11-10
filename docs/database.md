@@ -357,7 +357,8 @@ verifiable.
   signed anchors record its head.
 - Who made each change is in the matching `pedigree` event of the clinical audit trail.
   `created_by` is a user link that the account's deletion nulls, so the chain does not bind it.
-- A version without a `row_hash` and a `family_identifier` is not part of the chain.
+- Every version of the family identifier is on the chain: one without a `row_hash` does not
+  verify. The same holds for the clinical audit events.
 - A table without the chain gains its columns, the nullable `family_id` and the
   `ON DELETE SET NULL` link from upgrade statements in `03_assay.sql` (each a no-op on a table
   that has them), and from revision `0004` once the baselines are frozen

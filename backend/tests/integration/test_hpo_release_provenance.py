@@ -37,22 +37,26 @@ _LEFT_BEHIND = ("HP:9999902", "hp/releases/2026-09-01", date(2026, 9, 1), _OLDER
 _DOWNGRADE = [("HP:9999901", "hp/releases/2026-06-06", date(2026, 6, 6), _LATEST_IMPORT), _LEFT_BEHIND]
 # An import from a file without a release, after one with a release.
 _UNVERSIONED = [("HP:9999901", None, None, _LATEST_IMPORT), _LEFT_BEHIND]
+# The SHA-256 of the file an import read, which it keeps on each term (TRACE-18).
+_FILE_SHA256 = "ab" * 32
 
 
 async def _write_terms(session: Any, terms: list[tuple]) -> None:
     for hpo_id, release_version, release_date, updated_at in terms:
         await session.execute(
             text(
-                "INSERT INTO hpo_term (hpo_id, label, release_version, release_date, updated_at) "
+                "INSERT INTO hpo_term (hpo_id, label, release_version, release_date, metadata, updated_at) "
                 "VALUES (:hpo_id, 'Integration-test term', :release_version, :release_date, "
-                ":updated_at) "
+                "jsonb_build_object('release_sha256', CAST(:sha256 AS text)), :updated_at) "
                 "ON CONFLICT (hpo_id) DO UPDATE SET release_version = EXCLUDED.release_version, "
-                "release_date = EXCLUDED.release_date, updated_at = EXCLUDED.updated_at"
+                "release_date = EXCLUDED.release_date, metadata = EXCLUDED.metadata, "
+                "updated_at = EXCLUDED.updated_at"
             ),
             {
                 "hpo_id": hpo_id,
                 "release_version": release_version,
                 "release_date": release_date,
+                "sha256": _FILE_SHA256,
                 "updated_at": updated_at,
             },
         )
@@ -87,6 +91,7 @@ def test_the_admin_summary_and_the_ranking_key_name_the_loaded_release() -> None
                 date(2026, 6, 6),
             )
             assert summary["last_sync_date"] == _LATEST_IMPORT
+            assert summary["release_sha256"] == _FILE_SHA256
             # The ranking key follows the ontology the scores read, so rankings computed on
             # the later release are not served after the downgrade.
             assert reference["hpo_release"] == "hp/releases/2026-06-06"
@@ -135,7 +140,7 @@ def test_the_manifest_reads_the_release_of_the_latest_hpo_import() -> None:
         try:
             await init_postgres_schema()
             downgrade = await _hpo_module(_DOWNGRADE)
-            assert downgrade == {"version": "hp/releases/2026-06-06", "detail": "2026-06-06"}
+            assert downgrade == {"version": "hp/releases/2026-06-06", "detail": f"2026-06-06; SHA-256 {_FILE_SHA256}"}
 
             # Without a release: unknown, never the release before it.
             unversioned = await _hpo_module(_UNVERSIONED)

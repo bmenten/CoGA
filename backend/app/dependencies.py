@@ -75,10 +75,11 @@ def _refused(detail: str = _CREDENTIALS_DETAIL) -> HTTPException:
     )
 
 
-def _local_token_claims(token: str) -> tuple[str | None, float | None]:
-    """The account a token this server issued names (``sub``), and when it was issued (``iat``;
-    None for a token issued before tokens carried it): HS256, signed with SECRET_KEY, unexpired.
-    Raises the 401 for any other token."""
+def _local_token_claims(token: str) -> tuple[str | None, float]:
+    """The account a token this server issued names (``sub``), and when it was issued (``iat``):
+    HS256, signed with SECRET_KEY, unexpired, and dated, as ``create_access_token`` dates every
+    token. Raises the 401 for any other token, one without an issue time included: no logout
+    could refuse it."""
     try:
         payload = jwt.decode(
             token,
@@ -92,17 +93,16 @@ def _local_token_claims(token: str) -> tuple[str | None, float | None]:
         raise _refused() from exc
     email = payload.get("sub")
     issued = payload.get("iat")
-    return (
-        email if isinstance(email, str) and email else None,
-        float(issued) if isinstance(issued, (int, float)) and not isinstance(issued, bool) else None,
-    )
+    if not isinstance(issued, (int, float)) or isinstance(issued, bool):
+        raise _refused()
+    return email if isinstance(email, str) and email else None, float(issued)
 
 
 def _refuse_if_signed_out(user: CurrentUser, issued_at: float | None, request: Request | None) -> None:
     """Refuse a token issued to the account before its last logout (``POST /auth/logout``):
     the logout ends every session of the account, on every device, CoGA's tokens and
-    Microsoft's alike, instead of leaving each valid until it expires. A token that does not
-    say when it was issued (one from before tokens said it) counts as issued before.
+    Microsoft's alike, instead of leaving each valid until it expires. An issue time that is
+    not known counts as before the logout.
 
     A token admitted leaves its issue time on the request (``token_issued_at``), so that a
     logout made with it refuses it too, however early Microsoft dated it.

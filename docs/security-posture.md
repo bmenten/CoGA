@@ -413,7 +413,7 @@ three things bound the damage an XSS, or a token copied from the browser, could 
   token issued to the account before then, CoGA's own and Microsoft's, on every device
   (`_refuse_if_signed_out` in `dependencies.py`). CoGA's own tokens say when they were issued to
   the microsecond (`iat`), so a sign-in right after a logout is not taken for one before it; a
-  token that does not say counts as issued before. Entra ID
+  token that does not say is refused, as no logout could refuse it. Entra ID
   dates its tokens about five minutes early, so a Microsoft token counts as issued at its `iat`
   plus five minutes, the latest it can have been (`TOKEN_DATED_EARLY_SECONDS` in
   `core/azure.py`): a sign-in right after a logout works. The logout ends the sessions at least

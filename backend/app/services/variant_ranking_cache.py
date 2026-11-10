@@ -48,45 +48,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..core.sql import canonical_uuid
 from .hpo_service import get_loaded_hpo_release
 
-# Bump when the scoring/ranking logic changes so old cached rankings are ignored. A change
-# to what the hash covers needs no bump: the hashed payload itself changes, so no row
-# cached before can match (adding `hpo_imported_at` retired every earlier key this way).
-# 2: a compound-het pair whose two hits trace to one parent is no longer a candidate,
-#    which moves the segregation weight of both variants (compound_het_phase).
-# 3: a SIFT or PolyPhen filter keeps a transcript whose value names the prediction with its
-#    score, "deleterious(0.01)" (CLIN-45). A ranking cached before under such a filter, on
-#    the same filters and data, lacks those variants (an empty ranking is cached too).
-# 4: a ranked compound-het, recessive or carrier-screening search ranks only the variants
-#    and pairs the search keeps unranked (CLIN-44); it ranked every prefiltered candidate.
-# 5: the ranked search keeps what the plain page keeps (ENG-1): its Python record filter
-#    reads every filter as the SQL does, both compare a frequency, score or allele fraction
-#    with its threshold at the precision it is stored at, and a gene filter keeps the gene's
-#    variants outside its loci. A ranking cached before lacks the variants it dropped (chrM
-#    named MT or M, an interval in lower case, an MNV, an indel running past a location's
-#    end, a SpliceAI score of 0, a value at its threshold, a gene's upstream variant).
-# 6: a gene panel of more than 1,000 regions, the Mendeliome among them, keeps a variant in
-#    one of its regions as well as one annotated with one of its genes (owner decision
-#    2026-10-14, reversing CLIN-34's limit). A ranking cached before on such a panel lacks
-#    the variants it reaches by position only; its digest of the panel is unchanged.
-# 7: a variant's gene pLI and missense Z, which its score reads, come from the gene profiles
-#    of the family's assembly, its symbol matched in any case (TRACE-15). A ranking cached
-#    before may have scored a gene on another assembly's profile, or without its constraint.
-# 8: the phase set and *Pass variants only* read the calls of the family's members alone
-#    (the owner's decision of 2026-11-06). A ranking cached before under either filter may
-#    lack a variant a hidden member's failed call held back, or hold one only a hidden
-#    member's phase set or own FILTER kept.
-# 9: the single-variant inheritance modes a variant fits (de novo / dominant, homozygous
-#    recessive, X-linked), which its segregation weight reads, come from the SQL that the
-#    inheritance filter applies, not a Python copy of it (One filter definition). Defensive:
-#    the two agreed on every case of the filter spec.
-# 10: the ranked search keeps exactly what the SQL keeps: the Python record filter, which
-#    read some values and gene names apart from the stored ones the SQL reads and dropped
-#    what the SQL kept, is gone (One filter definition). A ranking cached before may lack a
-#    variant with a value no 32-bit column holds or a gene named under another key.
-# 11: the annotation filters read a row's annotation by its key and annotation set, whatever
-#    the version it came under (vcf_info, vep_tsv). A ranking cached before under the rsID
-#    filter may lack a variant whose rsID another import wrote with the same annotations
-#    under another version.
+# Bump when the scoring or ranking logic changes, or which variants a filter keeps, so the
+# rankings cached under the old logic are ignored. A change to what the hash covers needs no
+# bump: the hashed payload itself changes, so no row cached under the old payload can match.
 _ALGORITHM_VERSION = "11"
 # Keep only the few most-recent distinct query signatures per family.
 _MAX_CACHE_ROWS_PER_FAMILY = 6

@@ -482,8 +482,7 @@ const AdminQcThresholdsPage: React.FC = () => {
                     <td className="table-subtle">
                       {boundText(change.previous_error_value) || '—'} → {boundText(change.error_value) || '—'}
                     </td>
-                    {/* Null only for edits made before a reason was required. */}
-                    <td>{change.reason || <span className="table-subtle">not recorded</span>}</td>
+                    <td>{change.reason}</td>
                   </tr>
                 ))}
               </tbody>

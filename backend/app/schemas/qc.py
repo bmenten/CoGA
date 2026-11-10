@@ -65,8 +65,8 @@ class QcThresholdChangeOut(BaseModel):
     error_value: Optional[float] = None
     changed_by_email: Optional[str] = None
     changed_at: datetime
-    # Null only for edits made before the field was required.
-    reason: Optional[str] = None
+    # Why the cut-off moved: every edit states it (QcThresholdUpdate.reason).
+    reason: str
 
 
 class QcThresholdSetOut(BaseModel):
