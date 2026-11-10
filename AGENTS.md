@@ -11,8 +11,15 @@
   refers 1:1 to that analysis; CoGA's sign-out is the analytical sign-off (a supervisor's),
   never the medical one. The technical file is in `docs/regulatory/`. Weigh every change for its
   clinical-safety, traceability and security consequences, not engineering merit alone.
-- The **repository's data is synthetic** — there is no production PHI and no legacy code or
-  data to preserve. Build cleanly; ignore old datasets.
+- **CoGA is still entirely in development, with test data only: there is no history and no
+  legacy** (the owner, 2026-11-10). Any database can be recreated from zero. Never add read
+  shims, fallbacks, data repair, backfills, or an "older record is read as signed" or "compared on
+  what it holds" path for rows, records or files an earlier build wrote, and never ask how older
+  records should behave: there are none. Where such handling exists, remove it rather than
+  extend it.
+- The same holds for the **technical file and the other docs**: start from a clean slate. They
+  describe the device as it is, with no patchwork: no "before X it did Y", no pre-release history
+  of fixes, no transitional statements.
 - The folders under `data/` that `.gitignore` excludes (`data/families/` and the like) may
   hold **real patient data** on a developer's machine. Nothing from them reaches git, GitHub or
   any outside service: no file, family or sample ID, gene, region or value, not in a test, a
