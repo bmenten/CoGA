@@ -257,17 +257,29 @@ id (an unversioned S3 object is compared by ETag). It reports a vanished object 
 and a replaced one as `mismatch`. The file is not downloaded through CoGA.
 
 **Where a recorded file is read.** `storage_path` is read back as data, so an edited row could
-name any file. The admin page lists, downloads and verifies a file only where an import puts
-one. Its real path (symlinks resolved) must lie inside a local `FAMILY_IMPORT_ROOTS` folder,
-the temporary folder a bucket package is staged in, or the upload folder `data/raw_imports`
-(`services/raw_import_files_pg.py`); the file is read by that real path.
+name any file. The admin page lists, downloads and verifies a file only where an import of its
+family puts one. Its real path (symlinks resolved) must lie inside the package folder the
+family's import read (`families.metadata.package_import.folder_path`, read with the row, when it
+lies below a local `FAMILY_IMPORT_ROOTS` entry and is not the root itself, as for the files IGV
+reads), or the upload folder `data/raw_imports`, which holds every managed copy: an upload, a
+manifest kept for an import's job (`services/raw_import_files_pg.py`). The file is read by that
+real path. Every file a local package import records lies in its package folder, so the two
+folders hold every file of the family; another family's package in the import area is not read
+(SEC-38).
 
 - A row naming any other path is listed as unavailable without being looked up; its download
-  and **Verify** answer 403. Verify asks the store only about an object below a remote
-  `FAMILY_IMPORT_ROOTS` entry. The list marks a row of either kind `outside_read_folders`, and
-  the admin page says it is not read and why a Verify was refused (SEC-27).
-- With `FAMILY_IMPORT_ROOTS` empty (the import then takes a package folder anywhere), only the
-  upload and staging folders are read.
+  and **Verify** answer 403. Verify asks the store only about an object in the family's bucket
+  package folder (`within_family_package`). The list marks a row of either kind
+  `outside_read_folders`, and the admin page says it is not read and why a Verify was refused
+  (SEC-27).
+- A family without a usable package folder (none recorded, the import root itself, outside the
+  roots) and, with `FAMILY_IMPORT_ROOTS` empty (the import then takes a package folder
+  anywhere), every family has only its upload folder read. The staging folder of a bucket
+  package is not read: such an import records the objects' URIs, and its staged copy is deleted
+  after it.
+- The package folder is the one the family's latest import read. A file recorded by an earlier
+  import of the family from another folder is listed as not read, as IGV no longer reads that
+  folder either.
 - Deleting a family or a sample unlinks its `managed` copies only inside the upload folder. A
   managed row naming any other path is skipped with a log line, and nothing is deleted for it.
   A package folder need not be named after its family, nor an upload folder after the family's

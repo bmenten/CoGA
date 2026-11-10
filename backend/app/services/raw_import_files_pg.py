@@ -18,13 +18,17 @@ Two kinds of records exist:
   (``metadata.store_object``) rather than re-hashed, and is not downloaded here.
 
 The recorded ``storage_path`` is read back as data: an edited row can name any path. So a
-file is read (downloaded, verified, or checked for in the list) only where the import may
-have put it: below a local FAMILY_IMPORT_ROOTS folder, in the staging folder of a package
-downloaded from a bucket, or in the managed upload folder (``data/raw_imports``), its real
-path, symlinks resolved, inside one of them; an object only below a remote
-FAMILY_IMPORT_ROOTS entry. A family or sample delete unlinks a managed copy only inside the
-upload folder. A package folder need not be named after its family, nor a managed folder
-after the family's present ID, so neither rule looks at the family (SEC-29).
+file is read (downloaded, verified, or checked for in the list) only where an import of its
+family put it: in the package folder the family's import read
+(``families.metadata.package_import.folder_path``, below a local FAMILY_IMPORT_ROOTS entry,
+``local_family_package_folder``), or in the managed upload folder (``data/raw_imports``),
+which holds every managed copy; its real path, symlinks resolved, inside one of them. An
+object only in the family's bucket package folder (``within_family_package``). The IGV
+endpoints serve a sample's recorded files by the same rule. So an edited row can point at
+most at another file of its family's own package, never at another family's package in the
+import area (SEC-38; SEC-29 kept it to the import area). The upload folder is not split by
+family: a managed folder need not be named after the family's present ID. A family or sample
+delete unlinks a managed copy only inside the upload folder (SEC-29).
 """
 
 from __future__ import annotations
@@ -112,12 +116,12 @@ def _managed_dir(family_id: str) -> Path:
 
 # The answers to a download or Verify of a file whose recorded location CoGA does not read.
 OUTSIDE_FOLDERS_DETAIL = (
-    "The file's recorded storage path lies outside the folders CoGA reads source files from "
-    "(FAMILY_IMPORT_ROOTS and its upload folder), so the file is not read."
+    "The file's recorded storage path lies outside its family's package folder (below "
+    "FAMILY_IMPORT_ROOTS) and CoGA's upload folder, so the file is not read."
 )
-OUTSIDE_IMPORT_ROOTS_DETAIL = (
-    "The file's recorded storage path names no object below FAMILY_IMPORT_ROOTS, so the "
-    "object store is not asked about it."
+OUTSIDE_PACKAGE_OBJECT_DETAIL = (
+    "The file's recorded storage path names no object in its family's package folder below "
+    "FAMILY_IMPORT_ROOTS, so the object store is not asked about it."
 )
 
 
@@ -132,26 +136,25 @@ def _inside(path: str, folder: str) -> bool:
     return Path(folder) in Path(path).parents
 
 
-def readable_folders() -> tuple[str, ...]:
-    """The real paths of the local folders a recorded file is read from: the managed upload
-    folder, the staging folder a bucket package is downloaded to, and each local
-    FAMILY_IMPORT_ROOTS folder.
+def readable_folders(package_folder: object = None) -> tuple[str, ...]:
+    """The real paths of the local folders a family's recorded file is read from: the managed
+    upload folder, and the family's package folder ``package_folder`` (the folder its import
+    read, ``families.metadata.package_import.folder_path``) when it lies below a local
+    FAMILY_IMPORT_ROOTS entry (``local_family_package_folder``).
 
-    With FAMILY_IMPORT_ROOTS empty -- the development mode in which the import takes a
-    package folder anywhere -- they are the upload and staging folders alone: a recorded
-    path is data, and nothing else would bound it. A folder that cannot be found (the
-    staging folder cannot be made, a root runs through a symlink loop) admits nothing.
-    Blocking (file-system look-ups).
+    Every managed copy CoGA writes (an upload, a manifest kept for an import's job) is in the
+    upload folder, and every file a local package import records is in its package folder: a
+    file of the family lies in one of the two, wherever the row says it is. Not the rest of
+    the import area (another family's package there), and not the staging folder of a bucket
+    package: such an import records the objects' URIs, and its staged copy is deleted after
+    it (SEC-38). Without a usable package folder (none recorded, a bucket's URI, the import
+    root itself, outside the roots, FAMILY_IMPORT_ROOTS empty as in development) it is the
+    upload folder alone. Blocking (file-system look-ups).
     """
     folders = [_managed_root()]
-    try:
-        folders.append(str(family_package_source._staging_root()))
-    except OSError:
-        pass
-    try:
-        folders.extend(str(root) for root in family_package_source._authorized_local_roots())
-    except (OSError, RuntimeError, ValueError):
-        pass
+    package = family_package_source.local_family_package_folder(package_folder)
+    if package is not None:
+        folders.append(package)
     return tuple(folders)
 
 
@@ -160,9 +163,9 @@ def readable_local_path(storage_path: str, folders: Iterable[str] | None = None)
     ``None`` otherwise.
 
     The recorded path must be absolute, and its real path, symlinks resolved, must lie inside
-    one of ``folders`` (``readable_folders()`` unless given), so a symlink that leads out of
-    them is not followed. The file is read by the real path returned, never by the recorded
-    one. Blocking.
+    one of ``folders`` (``readable_folders()``, the upload folder alone, unless given), so a
+    symlink that leads out of them is not followed. The file is read by the real path
+    returned, never by the recorded one. Blocking.
     """
     if not storage_path or not os.path.isabs(storage_path):
         return None
@@ -175,27 +178,28 @@ def readable_local_path(storage_path: str, folders: Iterable[str] | None = None)
     return real if any(_inside(real, folder) for folder in allowed) else None
 
 
-def readable_remote_uri(uri: str) -> bool:
-    """Whether the object store may be asked about the object ``uri`` names: one below a
-    remote FAMILY_IMPORT_ROOTS entry, the only folders a package's files are read from,
-    written as nothing but scheme, bucket and key, with no empty, ``.`` or ``..`` segment in
-    its key (the rules the CRAM endpoint signs a recorded location by, without its
-    configured bucket: a package may come from any bucket the roots name)."""
+def readable_remote_uri(uri: str, package_folder: object = None) -> bool:
+    """Whether the object store may be asked about the object ``uri`` names: one in the
+    family's own package folder ``package_folder`` (the bucket folder its import read), below a
+    remote FAMILY_IMPORT_ROOTS entry (``within_family_package``), written as nothing but
+    scheme, bucket and key, with no empty, ``.`` or ``..`` segment in its key (the rules the
+    CRAM endpoint signs a recorded location by, without its configured bucket: a package may
+    come from any bucket the roots name). Never without such a folder (SEC-38)."""
     try:
         location = parse_remote_uri(uri)
     except ValueError:
         return False
     if location.uri != uri or any(segment in {"", ".", ".."} for segment in location.key.split("/")):
         return False
-    return family_package_source.within_remote_import_roots(uri)
+    return family_package_source.within_family_package(uri, package_folder)
 
 
 def _refuse_outside_folders(record: dict[str, Any], detail: str) -> HTTPException:
     """The 403 for a read of a file whose recorded location CoGA does not read, logged with
     the record and the path it names, so an edited row leaves a trace."""
     logger.warning(
-        "Raw file %s was not read: its recorded storage path %s is outside FAMILY_IMPORT_ROOTS "
-        "and the upload folder",
+        "Raw file %s was not read: its recorded storage path %s is outside its family's "
+        "package folder and the upload folder",
         scrub_log(record.get("id")),
         scrub_log(record.get("storage_path")),
     )
@@ -206,8 +210,9 @@ def local_file_to_download(record: dict[str, Any]) -> str:
     """The real path of the file to serve for a download of ``record``.
 
     409 for a file kept in an object store (it is not downloaded through CoGA), 403 for a
-    recorded path outside the folders a file is read from (``readable_local_path``), 410
-    when the file is no longer there. Blocking.
+    recorded path outside the folders its family's files are read from
+    (``readable_folders``, with the family's ``package_folder`` the record was read with),
+    410 when the file is no longer there. Blocking.
     """
     storage_path = record.get("storage_path") or ""
     if is_remote_uri(storage_path):
@@ -216,7 +221,8 @@ def local_file_to_download(record: dict[str, Any]) -> str:
             status_code=409,
             detail="The file is kept in an object store at its gs:// or s3:// URI; it is not downloaded through CoGA.",
         )
-    path = readable_local_path(storage_path) if storage_path else None
+    folders = readable_folders(record.get("package_folder"))
+    path = readable_local_path(storage_path, folders) if storage_path else None
     if storage_path and path is None:
         raise _refuse_outside_folders(record, OUTSIDE_FOLDERS_DETAIL)
     if path is None or not os.path.isfile(path):
@@ -443,22 +449,26 @@ async def record_upload_file_obj(
 
 
 def _row_to_dict(row: Any, folders: Iterable[str] | None = None) -> dict[str, Any]:
-    """A row as the API serves it, with whether its file is there to download. ``folders``:
-    ``readable_folders()``, when the caller already has them."""
+    """A row as the API serves it, with whether its file is there to download. The row
+    carries its family's ``package_folder``; ``folders``: ``readable_folders`` of it, when the
+    caller already has them."""
     record = dict(row)
     storage_path = record.get("storage_path") or ""
+    package_folder = record.get("package_folder")
     # A file kept in an object store is not a local path: it is not checked when the
     # list is built (that would cost a store request per row) -- Verify asks the store
     # -- and it is not downloaded through CoGA.
     in_object_store = is_remote_uri(storage_path)
     exists: bool | None = None
-    # A recorded location CoGA does not read from: a local path outside its folders, or an
-    # object below no remote FAMILY_IMPORT_ROOTS entry. Such a remote row was listed as kept
+    # A recorded location CoGA does not read from: a local path outside its family's folders,
+    # or an object outside its family's bucket package. Such a remote row was listed as kept
     # in the object store, though Verify refuses it (SEC-27).
-    outside = in_object_store and not readable_remote_uri(storage_path)
+    outside = in_object_store and not readable_remote_uri(storage_path, package_folder)
     if not in_object_store:
-        # A recorded path outside the folders a file is read from is shown unavailable,
-        # whether or not a file lies there: it is not looked up.
+        # A recorded path outside the folders its family's files are read from is shown
+        # unavailable, whether or not a file lies there: it is not looked up.
+        if folders is None:
+            folders = readable_folders(package_folder)
         path = readable_local_path(storage_path, folders) if storage_path else None
         exists = path is not None and os.path.isfile(path)
         outside = bool(storage_path) and path is None
@@ -473,8 +483,15 @@ def _row_to_dict(row: Any, folders: Iterable[str] | None = None) -> dict[str, An
 
 
 def _rows_to_dicts(rows: Iterable[Any]) -> list[dict[str, Any]]:
-    folders = readable_folders()
-    return [_row_to_dict(row, folders) for row in rows]
+    # The rows are one family's, read with its package folder: its folders are found once.
+    folders: dict[Any, tuple[str, ...]] = {}
+    listed = []
+    for row in rows:
+        package_folder = row.get("package_folder")
+        if package_folder not in folders:
+            folders[package_folder] = readable_folders(package_folder)
+        listed.append(_row_to_dict(row, folders[package_folder]))
+    return listed
 
 
 async def list_raw_import_files(session: AsyncSession, family_uuid: str) -> list[dict[str, Any]]:
@@ -494,8 +511,10 @@ async def list_raw_import_files(session: AsyncSession, family_uuid: str) -> list
                 rif.source,
                 rif.metadata,
                 rif.created_at,
-                s.sample_id AS sample_identifier
+                s.sample_id AS sample_identifier,
+                f.metadata -> 'package_import' ->> 'folder_path' AS package_folder
             FROM raw_import_files rif
+            JOIN families f ON f.id = rif.family_id
             LEFT JOIN samples s ON s.id = rif.sample_id
             WHERE rif.family_id = CAST(:family_uuid AS uuid)
             ORDER BY
@@ -532,8 +551,10 @@ async def get_raw_import_file(session: AsyncSession, file_id: str) -> dict[str, 
                 rif.source,
                 rif.metadata,
                 rif.created_at,
-                s.sample_id AS sample_identifier
+                s.sample_id AS sample_identifier,
+                f.metadata -> 'package_import' ->> 'folder_path' AS package_folder
             FROM raw_import_files rif
+            JOIN families f ON f.id = rif.family_id
             LEFT JOIN samples s ON s.id = rif.sample_id
             WHERE rif.id = CAST(:file_id AS uuid)
             """
@@ -560,16 +581,21 @@ async def verify_raw_import_file(record: dict[str, Any]) -> dict[str, Any]:
     file kept in an object store, compare the object with the store's record of it.
 
     A recorded location CoGA does not read from is refused (403) before anything is read or
-    the store is asked: a local path outside the folders a file is read from
-    (``readable_local_path``), an object not below a remote FAMILY_IMPORT_ROOTS entry
-    (``readable_remote_uri``)."""
+    the store is asked: a local path outside its family's package folder and the upload folder
+    (``readable_folders``, with the record's ``package_folder``), an object outside its
+    family's bucket package folder (``readable_remote_uri``; SEC-38)."""
     storage_path = record.get("storage_path") or ""
+    package_folder = record.get("package_folder")
     if is_remote_uri(storage_path):
-        if not readable_remote_uri(storage_path):
-            raise _refuse_outside_folders(record, OUTSIDE_IMPORT_ROOTS_DETAIL)
+        if not readable_remote_uri(storage_path, package_folder):
+            raise _refuse_outside_folders(record, OUTSIDE_PACKAGE_OBJECT_DETAIL)
         return await asyncio.to_thread(_verify_object_in_store, record)
     expected = record.get("sha256")
-    real = await asyncio.to_thread(readable_local_path, storage_path) if storage_path else None
+
+    def readable() -> str | None:
+        return readable_local_path(storage_path, readable_folders(package_folder))
+
+    real = await asyncio.to_thread(readable) if storage_path else None
     if storage_path and real is None:
         raise _refuse_outside_folders(record, OUTSIDE_FOLDERS_DETAIL)
     if real is None or not await asyncio.to_thread(os.path.isfile, real):
