@@ -368,124 +368,85 @@ names the publication, how the list was transcribed and checked, and how to upda
 
 ### Where packages live
 
-`FAMILY_IMPORT_ROOTS` lists the places Package Import may read (comma-separated). The default is
-the local folder `/data/families`, which Docker Compose mounts from `./data`. A cloud deployment
-points it at a bucket prefix:
+`FAMILY_IMPORT_ROOTS` lists the local folders Package Import may read (comma-separated). The
+default is `/data/families`, which Docker Compose mounts from `./data`:
 
 ```env
-FAMILY_IMPORT_ROOTS=/data/families                # local (default)
-FAMILY_IMPORT_ROOTS=gs://my-coga-bucket/imports   # a bucket; s3:// also works
+FAMILY_IMPORT_ROOTS=/data/families
 ```
 
-On Google Cloud, Terraform sets `gs://<phi bucket>/imports` when `storage_backend` is `gcs` (see
-[deployment-gcp.md](deployment-gcp.md) §11). The backend's cloud identity needs read access to
-the bucket. A path outside these roots is refused (`package_folder_not_allowed`), and so is a
-local path that cannot be followed: one through a symlink loop, or starting with `~` for a home
-folder the server does not have.
+A path outside these roots is refused (`package_folder_not_allowed`), and so is a path that
+cannot be followed: one through a symlink loop, or starting with `~` for a home folder the server
+does not have.
 
-A package in a bucket is downloaded to a temporary folder for validation and import, except its
-aligned reads: `.cram`, `.crai`, `.bam` and `.bai` files, and a `.csi` named after an alignment
-(`<sample>.bam.csi`), stay in the bucket. No importer reads them, and a whole-genome CRAM is tens
-of GB. Only the `alignments` dataset may name such a file: its importer checks that the object
-exists and records its URI, and the genome browser reads it from there. Every other file must be
-downloaded. On Cloud Run the temporary folder is held in memory; see
-[deployment-gcp.md](deployment-gcp.md) §11 for sizing.
-
-The temporary folder is deleted after the import, so what the import records and reports names
-the bucket folder and its objects: the job's log and validation report, the family's package
-record and the raw-file provenance ([database.md](database.md), `raw_import_files`). A manifest
-without `family_id` takes the bucket folder's name (the last part of its URI), as a local
-package takes its folder's name.
-
-Only the import or validation that downloaded a package reads its temporary folder. A typed
-folder path into it, or an import root linked there, is refused (`package_folder_not_allowed`).
-The temporary folders lie in
-`coga-family-imports` in the server's temp folder, which the backend makes private to itself.
-If it finds a symlink, a file or another user's folder there, it refuses to stage a bucket
-package rather than follow it.
-
-**Discover** and **Write manifest** work on local folders only, so a package in a bucket must
-already contain its manifest. A local folder CoGA cannot write, such as a share mounted
-read-only, needs no manifest of its own: import it with the manifest CoGA keeps
+A package reaches an import only as a delivery: delivered into a watched import folder, or added
+to Deliveries by hand ([below](#watched-import-folders)). Both read local folders only, so a
+package in a bucket is not imported: mount the bucket as a local folder under
+`FAMILY_IMPORT_ROOTS` instead. CoGA writes nothing into a package folder, so a share mounted
+read-only serves as it is: the import reads the manifest CoGA keeps
 ([below](#a-manifest-kept-in-coga)).
 
 ### The import job
 
-The Package Import page lists the packages under the roots (**Rescan** to refresh); you can also
-type a folder path. The list shows only folders the import takes, and reads nothing in the
-others. Left out: a package folder that is a symlink leading out of the roots, one that loops,
-and one leading into a bucket package's temporary folder, which is no import root
-(`_listed_package_folder` in
-[family_package_source.py](../backend/app/services/family_package_source.py) checks each folder
-with the import's own folder guard before looking into it). A symlink that stays under the roots
-is followed, and its target listed. A package's `ped/` or long-read folder that is a symlink is
-followed wherever it leads; Discover and validation report it
-([A package folder that is a symbolic link](#4-package-layout-and-manifest)). A typed path to a
-folder the list leaves out is refused with the reason (`package_folder_not_allowed`).
+The Package Import page shows the deliveries ([below](#watched-import-folders)), where a package
+is checked, corrected and approved, and **Recent family imports**, the import jobs an approval
+queued: each one's status, its progress while it runs (each dataset's share read and the time
+left), and on **View** its report: the datasets, validation errors and warnings, the log, the
+SHA-256 of the manifest CoGA kept and the package fingerprint, and a link to the imported family.
 
-**Imported folders are hidden.** A package folder stays on the share after its import: CoGA never
+**Add a folder by hand** chooses from the folders under the roots that can be added
+(`GET /family-imports/packages`, [family_package_source.py](../backend/app/services/family_package_source.py)):
+each one holding a `*.ped` file, at its top or in its `ped/` folder, or laid out per sample as
+the long-read pipeline writes its output, and holding no `coga-package.json` of its own (a
+pipeline delivers that one through a watched folder). The list reads nothing in a folder the
+import would refuse: a package folder that is a symlink leading out of the roots, or one that
+loops (`_listed_package_folder` checks each folder with the import's own folder guard before
+looking into it). A symlink that stays under the roots is followed, and its target listed. A
+package's `ped/` or long-read folder that is a symlink is followed wherever it leads; Discover and
+validation report it ([A package folder that is a symbolic link](#4-package-layout-and-manifest)).
+A typed path to a folder the list leaves out is refused with the reason.
+
+**Imported folders are marked.** A package folder stays on the share after its import: CoGA never
 moves it, and serves the alignments and the QC report from it. The list gives each folder the
 families whose package record names it as the folder they were imported from
-(`families.metadata.package_import.folder_path`; a bucket folder's URI with or without its closing
-`/`), with when their last import registered them, and whether that import did not complete or
-still runs (the family is flagged import-incomplete, or carries an import's unfinished mark). The
-page hides a folder whose families all imported completely; **Show imported folders** lists them,
-marked *imported as …*. A folder whose last import did not complete stays listed, marked *import
-incomplete*. A folder chosen or typed that families were imported from says so, with when: import
-it again only to add or replace data, with update or overwrite. The list reads the families'
-records, not the folders, so a folder whose family is deleted is listed again. It does not tell whether a folder changed after its
-import. A folder whose latest import was undone because the package changed while it was read
-(`changed_during_import`) stays listed, marked *changed during import*, whatever families were
-imported from it before; a job is found by the folder it was asked for, the listed one when it was
-chosen from the list.
-
-You choose a project, a new or existing family, and what to do with data that already exists.
-**Discover manifest** drafts a manifest; edit it and save it with **Write manifest.yaml**. **Dry
-run** is on by default: it validates without writing anything. Untick it and **Start import** to
-load the data. Jobs show under "Recent family imports". The in-app guide walks through these
-steps.
+(`families.metadata.package_import.folder_path`, with or without its closing `/`), with when their
+last import registered them, and whether that import did not complete or still runs (the family is
+flagged import-incomplete, or carries an import's unfinished mark); the form marks such a folder
+*imported*. Add it again only to add or replace data, with update or overwrite. The list reads the
+families' records, not the folders, so a folder whose family is deleted is no longer marked. A
+folder whose latest import was undone because the package changed while it was read is flagged
+(`changed_during_import`), whatever families were imported from it before.
 
 The API behind the page:
 
 | Call | Does |
 | --- | --- |
-| `GET /family-imports/packages` | lists the packages under `FAMILY_IMPORT_ROOTS`, each with the families imported from it (`imported_families`: `family_id`, `registered_at`, `import_incomplete`) and whether its latest import was undone because the package changed (`changed_during_import`) |
+| `GET /family-imports/packages` | lists the folders under `FAMILY_IMPORT_ROOTS` that can be added by hand, each with the families imported from it (`imported_families`: `family_id`, `registered_at`, `import_incomplete`) and whether its latest import was undone because the package changed (`changed_during_import`) |
 | `GET /family-imports/deliveries` | lists the packages pipelines delivered into the watched import folders, with their state ([below](#watched-import-folders)) |
 | `POST /family-imports/deliveries` | adds a package folder to the deliveries by hand: CoGA makes its package from the folder (`folder_path`, `project_id`, `analysis_type`, `family_id`; [below](#adding-a-folder-by-hand)) |
 | `GET /family-imports/deliveries/{id}/package` | a delivery's package as its import would read it now, the pipeline's file, what CoGA proposed, and every correction ([below](#correcting-a-delivery)) |
 | `POST /family-imports/deliveries/{id}/revisions` | corrects a delivery's package before it is approved (`revision`, `reason`, `changes`) |
 | `POST /family-imports/deliveries/{id}/approve` | queues the import, or a dry run, of a delivery that is ready or whose family exists (`revision`, `dry_run`, `conflict_mode`, `acknowledge_warnings`) |
 | `POST /family-imports/deliveries/{id}/refuse` | refuses an open delivery, with a `reason` |
-| `POST /family-imports/manifest/discover` | reads the PED, looks for the expected files and returns a draft manifest |
-| `POST /family-imports/manifest/write` | saves the manifest into the folder |
-| `POST /family-imports/validate` | validates at once, without creating a job; with `manifest_yaml`, with that manifest instead of the folder's |
-| `POST /family-imports` | queues a job: `folder_path`, `project_id`, `dry_run`, `family_id` (for an existing family; one that is not an ID is refused with 400 before the job is written), `conflict_mode`, and `manifest_yaml`, a manifest the job keeps and reads instead of the folder's ([below](#a-manifest-kept-in-coga)) |
 | `GET /family-imports`, `GET /family-imports/{job_id}` | job status, logs, validation errors and warnings, and a summary per dataset |
 
 #### A manifest kept in CoGA
 
-Validation and the import read a package's manifest from its folder. A folder CoGA cannot write,
-such as a share mounted read-only as a second import root, holds none unless its pipeline wrote
-one, and **Write manifest.yaml** cannot add it: it answers 409, saying so (a read-only mount, or a
-folder whose permissions refuse the backend's user). Such a
-package imports with the manifest CoGA keeps. On the Package Import page, Discover the manifest,
-edit it if needed, and tick **Import with this manifest, kept in CoGA**; the page sends the draft
-only with the folder Discover drafted it for.
+Every import reads the manifest CoGA keeps: the one an approved delivery's package makes
+(`coga_package_manifest.package_manifest`), its members under `family.add_members`, never a file
+in the package folder. CoGA writes nothing into the folder, so a share mounted read-only, or a
+folder whose permissions refuse the backend's user, imports as any other.
 
-- The request gives the manifest as `manifest_yaml` (YAML, at most 1,000,000 characters). The job
-  keeps it in `family_import_jobs.manifest_text`, with its SHA-256 in `manifest_sha256`, which the
-  job's record shows; a worker that takes the job up, also again after its worker stopped, reads
-  the kept text. One that holds a NUL or a lone surrogate is refused (400) before the job is
-  written.
-- Validation and the import read it instead of a file in the folder. Its paths are relative to the
-  package folder, as a folder manifest's are, and the same guards hold: a path out of the folder is
-  refused. A folder that holds a manifest of its own too is warned that it is not read
+- The job keeps the manifest in `family_import_jobs.manifest_text`, with its SHA-256 in
+  `manifest_sha256`, which the job's record shows; a worker that takes the job up, also again
+  after its worker stopped, reads the kept text.
+- Its paths are relative to the package folder, and the same guards hold: a path out of the
+  folder is refused. A folder that holds a manifest file of its own is warned that it is not read
   (`manifest_in_folder_not_read`).
-- The validation report names the manifest read in its metadata: `manifest_source` (`coga`, or
-  `folder` for the folder's file) and `manifest_sha256` (of the kept text, or of the file's bytes
-  as read). The family's package record (`families.metadata.package_import`) keeps both, with
-  `manifest_path` null for a kept manifest, and the family's raw files hold a managed copy of it,
-  as dataset `manifest`, for download and **Verify** ([database.md](database.md)).
+- The validation report names the manifest read in its metadata: `manifest_source` (`coga`) and
+  `manifest_sha256`. The family's package record (`families.metadata.package_import`) keeps
+  both, with `manifest_path` null, and the family's raw files hold a managed copy of it, as dataset
+  `manifest`, for download and **Verify** ([database.md](database.md)).
 
 #### A package that changes after it was checked
 
@@ -501,11 +462,10 @@ if any. Files a file browser writes and no import reads (`.DS_Store`, `Thumbs.db
   that holds more than 100,000 entries (`package_folder_too_large`, most likely an import folder
   named by mistake) or that cannot be listed (`package_folder_unreadable`) is refused before
   anything in it is read.
+- A delivery keeps the fingerprint its check read the folder with, and its approval is refused
+  (409) when the folder's differs now ([below](#watched-import-folders)).
 - The job keeps the fingerprint of the folder as it is queued (`family_import_jobs.package_fingerprint`,
-  shown with the job). An import request may give the fingerprint of the dry run it follows
-  (`expected_package_fingerprint`): it is refused (409) before a job is written when the folder's
-  differs now, or the folder can no longer be read. The Package Import page sends it for an import
-  of the folder, with the manifest, that the shown dry run checked, and says so.
+  shown with the job).
 - As the job starts, its validation takes the fingerprint again. When it differs from the one the
   job was queued with, the job ends `failed` with `package_changed_since_queued`, having written
   nothing. The job's log names the fingerprint the import read the folder with.
@@ -520,13 +480,12 @@ if any. Files a file browser writes and no import reads (`.DS_Store`, `Thumbs.db
   and descriptive metadata the registration refreshed from the validated package stay, as for any
   failed overwrite, each change on the family's clinical audit trail. Where the family cannot be put
   back, it is flagged import-incomplete. The job ends `failed` with `package_changed_during_import`,
-  and the package list offers the folder again (below): import it again once it is complete, dry
-  run first.
+  and the package list flags the folder (above): import it again once it is complete, dry run
+  first.
 - The family's package record keeps the fingerprint it was imported with
   (`families.metadata.package_import.package_fingerprint`).
 
-A package in a bucket (`gs://`, `s3://`) has no fingerprint: the job downloads it again, and a
-copy's times are the download's. Its log says it is not checked.
+
 
 `conflict_mode` decides what happens when the family or its samples already exist:
 
@@ -943,8 +902,6 @@ family's record names it as added by hand.
 - The addition is the event `import_delivery_added` on the `system:import-inbox` chain, by the
   person who made it.
 
-The earlier form of the page (Discover, the manifest, **Start import**) stays until phase 4.
-
 **Approving a delivery** ([import_delivery_review.py](../backend/app/services/import_delivery_review.py)).
 Nothing is imported until a superuser decides, on the Package Import page or through the API:
 
@@ -1215,19 +1172,12 @@ package is not read.
 
 ### The manifest
 
-The manifest is a file in the package folder. A `manifest.yaml`, `.yml` or `.json` that is a
-symlink leading out of the folder, or that loops, is refused (`manifest_outside_package`,
+The manifest is the one CoGA keeps for the import ([above](#a-manifest-kept-in-coga)), made from
+the delivery's package. A package folder that holds a `manifest.yaml`, `.yml` or `.json` that is
+a symlink leading out of the folder, or that loops, is refused (`manifest_outside_package`,
 `manifest_link_out_of_package` in
-[family_package_source.py](../backend/app/services/family_package_source.py)): Discover drafts
-nothing, validation reads nothing more of the package, the package list shows it under its
-folder's name, and **Write manifest.yaml** answers 400. A symlink that stays in the package is
-followed when the manifest is read.
-
-**Write manifest.yaml** follows no link: it writes the text into a new file in the package
-folder and renames that file over `manifest.yaml`. The check for a link out of the
-package runs before the write, and a link put in the manifest's place between the two is
-replaced by the rename. A `manifest.yaml` that is a link within the
-package is replaced by the written file too, and the file it pointed at is left as it was.
+[family_package_source.py](../backend/app/services/family_package_source.py)): validation reads
+nothing more of the package.
 
 Every path the manifest names is relative to the package folder, or an absolute path inside it.
 Validation refuses with 400 a path that leads out of the package (an absolute path elsewhere,
@@ -1311,8 +1261,8 @@ or none:
 - An `roi` the import does not find clears the family's region of interest. The import warns
   (`manifest_roi_unresolved`) and names the region it cleared. No embryo is called until the
   region is set again, on the family page or by a corrected manifest.
-- The dry run and `POST /family-imports/validate` look the region up the same way and give the
-  same warning ahead of the import. With no project and no existing family to look it up in,
+- The dry run and the delivery's check look the region up the same way and give the same warning
+  ahead of the import. With no project and no existing family to look it up in,
   they say it was not checked (`manifest_roi_not_checked`).
 - A manifest without `roi` leaves the family's region as it is.
 
@@ -2412,10 +2362,9 @@ capture panel takes the panel's key, the `assay_panel` of its cfDNA samples).
 | A folder in the import folder is not in the package list | It holds no manifest, no PED (at its top or in `ped/`) and no long-read per-sample folders, or the import refuses it: a symlink leading out of `FAMILY_IMPORT_ROOTS`, or one that loops. Type its path and validate it to see the reason (`package_folder_not_allowed`). |
 | `family_id_invalid` | The family ID holds a control character, whitespace, a text-direction, zero-width or other non-printable character, a `/` or a `\`, or is `.`, `..` or empty ([Validation](#validation)). The message says where it comes from (the manifest's `family_id`, the folder name, the request's `family_id`, the PED): correct it there. |
 | `sample_id_invalid` | A sample ID breaks the same rule. The message says where it comes from (the PED, `family.add_members`, a per-sample folder's name, the existing family): correct it there. |
-| `manifest_missing` | The folder has no `manifest.yaml`, `.yml` or `.json`. Run Discover and Write manifest (local folders only). |
-| `manifest_outside_package` | The folder's `manifest.yaml` (`.yml`, `.json`) is a symlink leading out of the folder, or one that loops. Put the manifest itself in the folder. Write manifest answers 400 with the same message. |
+| `manifest_outside_package` | The folder's `manifest.yaml` (`.yml`, `.json`) is a symlink leading out of the folder, or one that loops. Remove the link: CoGA reads no manifest in the folder. |
 | `package_folder_link` (warning) | The package's `ped/` folder, a long-read dataset folder, a sample's folder in one, or a folder in that is a symbolic link. The message says where it leads, relative to its import folder, or that it lies outside the import folders. The package list and Discover follow it (a member may come from it): check that what it holds belongs to this family, or put the files themselves in the package. |
-| "Package manifest path '…' starts with '~'", "… runs through a symlink loop", "Package manifest paths must stay within the package directory" (400) | A path in the manifest, or the PED path given to Discover, names no file in the package. Write it relative to the package folder, without `~`, and replace a symlink on it that leads out of the package or loops. An import job of such a package ends failed with the message. |
+| "Package manifest path '…' starts with '~'", "… runs through a symlink loop", "Package manifest paths must stay within the package directory" (400) | A path in the manifest names no file in the package. Write it relative to the package folder, without `~`, and replace a symlink on it that leads out of the package or loops. An import job of such a package ends failed with the message. |
 | `manifest_schema_version_unsupported` | `schema_version` is not 1. |
 | `ped_family_mismatch`, `ped_multiple_families` | The PED's family ID differs from `family_id`, or it holds more than one family. |
 | `dataset_vcf_index_missing` | A compressed VCF has no `.tbi`, `.csi` or `.idx`. |
@@ -2431,7 +2380,7 @@ capture panel takes the panel's key, the `assay_panel` of its cfDNA samples).
 | `nipt_pair_detected` (warning) | Discover took the folder for a monogenic NIPT pair. Check the samples it took for the maternal plasma and for the father. |
 | `dataset_per_sample_unsupported` | `snv.per_sample` in a family that is not `analysis_type: monogenic_nipt` and does not say `source_format: clair3`. For the long-read pipeline's per-sample calls set `source_format: clair3`; else give a joint VCF as `snv.family_vcf`. |
 | `ped_missing_path` | The manifest names no PED and no members under `family.add_members`. |
-| `ped_proposed_from_folders` (warning) | Discover found no PED and took the members from the long-read per-sample folders (a couple when of opposite sex). Check them before writing the manifest. |
+| `ped_proposed_from_folders` (warning) | Discover found no PED and took the members from the long-read per-sample folders (a couple when of opposite sex). Check them before approving the delivery. |
 | "The family's callset also holds the calls of …" | A per-sample SNV import that does not bring every sample's file would drop the others' calls: import every sample's SNV file together. |
 | `dataset_vcf_not_single_sample` | A VCF under `snv.per_sample` (a NIPT pair's, or a long-read sample's) holds no sample column or more than one. |
 | `dataset_vcf_unreadable` | A sample's VCF under `snv.per_sample` (or a NIPT pair's parent VCF, in Discover), an APCAD VCF or the phased family VCF could not be read: a `.vcf.gz` cut short or damaged in a copy, or a plain-text VCF named `.gz`; for an APCAD or phased VCF also a BGZF file without its end-of-file block. The message names the file, and the sample where the file is a sample's. Copy the file again from where the pipeline wrote it. An import that meets such a file fails its dataset with "… could not be read: it is cut short or damaged, or is not gzip". |

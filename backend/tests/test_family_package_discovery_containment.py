@@ -36,7 +36,7 @@ import yaml
 from backend.app.schemas import FamilyPackageManifestBuildOut, FamilyPackageManifestBuildRequest
 from backend.app.services.family_identifiers import IDENTIFIER_RULE
 from backend.app.services.family_package_discovery import NAMING_SCHEMES, discover_family_package_manifest
-from backend.tests._family_import_fakes import authorize_import_root, signed_in_client
+from backend.tests._family_import_fakes import authorize_import_root
 
 FAMILY = "FAM1"
 TRIO_PED = f"{FAMILY} F1 0 0 1 1\n{FAMILY} M1 0 0 2 1\n{FAMILY} C1 F1 M1 1 2\n"
@@ -206,21 +206,18 @@ _FAMILY_IDS_OUT = {
 }
 
 
-@pytest.mark.parametrize("source", ["request", "manifest"])
 @pytest.mark.parametrize("case", sorted(_FAMILY_IDS_OUT))
 def test_a_family_id_that_leads_out_of_the_package_is_refused_and_reads_no_ped_there(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, imports: Path, case: str, source: str
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, imports: Path, case: str
 ) -> None:
     family_id, decoy_relative = _FAMILY_IDS_OUT[case]
     family_id = family_id.format(tmp=tmp_path)
     decoy = tmp_path / decoy_relative
     decoy.write_text(DECOY_PED, encoding="utf-8")
     package = _package(imports)
-    if source == "manifest":
-        (package / "manifest.yaml").write_text(yaml.safe_dump({"schema_version": 1, "family_id": family_id}))
 
     with _recording(monkeypatch) as access:
-        answer = _discover(package, family_id=family_id if source == "request" else None)
+        answer = _discover(package, family_id=family_id)
 
     # The decoy was never opened nor looked up.
     assert access.touching(decoy, tmp_path / "outside") == []
@@ -229,9 +226,8 @@ def test_a_family_id_that_leads_out_of_the_package_is_refused_and_reads_no_ped_t
     assert _paths_naming(answer, package, decoy) == []
     # The ID holds a '/': no ID (SEC-15). Before, Discover warned (family_id_leaves_package)
     # and drafted a manifest for it from the package's own PED.
-    origin = "the family_id of the request" if source == "request" else "the manifest's family_id"
     assert [(issue.code, issue.message) for issue in answer.errors] == [
-        ("family_id_invalid", f"Family ID '{family_id}' ({origin}) contains a slash (/). {IDENTIFIER_RULE}")
+        ("family_id_invalid", f"Family ID '{family_id}' (the family_id of the request) contains a slash (/). {IDENTIFIER_RULE}")
     ]
     assert (answer.manifest_yaml, answer.ped_path, answer.sample_ids, answer.warnings) == ("", None, [], [])
 
@@ -540,40 +536,3 @@ def test_an_id_leads_a_path_out_of_the_package_only_when_it_is_a_path_out_itself
 # --------------------------------------------------------------------------- #
 
 
-@pytest.mark.parametrize("role", ["viewer", "superuser", "admin"])
-def test_discover_stays_admin_only_and_reads_nothing_outside_through_the_route(
-    monkeypatch: pytest.MonkeyPatch, imports: Path, role: str
-) -> None:
-    from backend.app.routers import family_imports
-
-    decoy = imports / "decoy.ped"
-    decoy.write_text(DECOY_PED, encoding="utf-8")
-    package = _package(imports)
-    calls: list[str | None] = []
-
-    async def no_family(session: Any, family_id: str | None) -> list[str]:
-        return []
-
-    def discover(request: FamilyPackageManifestBuildRequest, **kwargs: Any) -> FamilyPackageManifestBuildOut:
-        calls.append(request.family_id)
-        return discover_family_package_manifest(request, **kwargs)
-
-    monkeypatch.setattr(family_imports, "existing_family_sample_ids", no_family)
-    monkeypatch.setattr(family_imports, "discover_family_package_manifest", discover)
-    with signed_in_client(role) as client:
-        response = client.post(
-            "/api/family-imports/manifest/discover", json={"folder_path": str(package), "family_id": "../decoy"}
-        )
-
-    if role == "viewer":
-        assert (response.status_code, response.json()) == (403, {"detail": "Superuser access required"})
-        assert calls == []
-        return
-    assert response.status_code == 200, response.text
-    assert calls == ["../decoy"]
-    answer = FamilyPackageManifestBuildOut.model_validate(response.json())
-    assert _holds(answer, *DECOY_MARKERS) == []
-    assert _paths_naming(answer, package, decoy) == []
-    # No ID (SEC-15): refused, with no draft.
-    assert [issue.code for issue in answer.errors] == ["family_id_invalid"]
-    assert (answer.sample_ids, answer.manifest_yaml) == ([], "")

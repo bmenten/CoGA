@@ -9,14 +9,14 @@ records, or the job could not record why it failed.
 Over the real API (an in-process ``httpx.ASGITransport`` client, see test_e2e_api_contract.py)
 and Postgres, with synthetic packages:
 
-* Discover and Validate answer a package whose manifest ``family_id`` holds a NUL, and a
-  Discover request whose ``family_id`` holds one, with ``family_id_invalid``; before, the
-  request's family was looked up in Postgres with the NUL, and the request failed (500);
-* an import request naming such a family is refused (400) before its job is written;
-* a real import job (``POST /api/family-imports``, then the worker's ``run_family_import_job``)
-  of a package whose manifest ``family_id`` holds a NUL, and of one whose PED has a sample ID
-  with an escape character, ends ``failed`` with ``family_id_invalid`` or ``sample_id_invalid``
-  in its stored validation errors, names no family, and writes no family or sample;
+* a folder added to Deliveries by hand as a family whose ID holds a NUL is refused (400), and
+  no delivery is written;
+* an import naming such a family is refused (400) before its job is written;
+* a real import job (queued as an approved delivery queues it, then the worker's
+  ``run_family_import_job``) of a package whose manifest ``family_id`` holds a NUL, and of one
+  whose PED has a sample ID with an escape character, ends ``failed`` with
+  ``family_id_invalid`` or ``sample_id_invalid`` in its stored validation errors, names no
+  family, and writes no family or sample;
 * the Family Builder (``POST /api/ped/manual``) refuses a sample ID with a line break and a
   family ID with a NUL, and the PED upload (``POST /api/ped/upload``) a sample ID with an
   escape, each with 400 and nothing written; before, the line break was stored.
@@ -28,9 +28,9 @@ same API and Postgres:
   zero-width character and one with a C1 control, and the PED upload a sample ID holding a
   backslash, each with 400 naming the character as its escape, and nothing written; before,
   each was stored;
-* Discover answers a request whose ``family_id`` climbs out of the package (``../FAMID03``)
-  with ``family_id_invalid`` and no draft (before: a warning and a draft), and Validate a
-  package whose manifest ``family_id`` is ``..`` the same way;
+* a folder added by hand as a family whose ID climbs out of the package (``../FAMID03``) is
+  refused (400), and an import job of a package whose manifest ``family_id`` is ``..`` ends
+  ``failed`` with ``family_id_invalid``;
 * a real import job of a package whose PED has a sample ID with a text-direction character
   ends ``failed`` with ``sample_id_invalid``, and writes no family or sample.
 
@@ -44,9 +44,15 @@ from typing import Any
 
 import pytest
 import yaml
+from fastapi import HTTPException
+from sqlalchemy import text
 
 from backend.tests.e2e._harness import capture, ensure_postgres_schema
-from backend.tests.e2e._import_jobs import issue_codes, row_counts, run_import_job
+from backend.tests.e2e._import_jobs import (
+    queue_import,
+    row_counts,
+    run_import_job,
+)
 
 pytestmark = pytest.mark.integration
 
@@ -98,32 +104,22 @@ async def _collect(base: Path) -> dict[str, Any]:
         token = await _harness.login_admin_token(ac)
         ac.headers["Authorization"] = f"Bearer {token}"
 
-        out["discover_manifest"] = capture(
-            await ac.post("/api/family-imports/manifest/discover", json={"folder_path": str(nul_family)})
-        )
-        out["discover_request"] = capture(
+        out["added_nul"] = capture(
             await ac.post(
-                "/api/family-imports/manifest/discover",
-                json={"folder_path": str(clean), "family_id": f"FAMID{NUL}03"},
-            )
-        )
-        out["validate"] = capture(
-            await ac.post(
-                "/api/family-imports/validate",
-                json={"folder_path": str(nul_family), "family_id": f"FAMID{NUL}01"},
+                "/api/family-imports/deliveries",
+                json={"folder_path": str(clean), "project_id": project_id, "family_id": f"FAMID{NUL}03", "analysis_type": "wgs"},
             )
         )
         jobs_before = (await row_counts())["jobs"]
-        out["import_request"] = capture(
-            await ac.post(
-                "/api/family-imports",
-                json={"folder_path": str(clean), "family_id": f"FAMID{NUL}03", "dry_run": True},
-            )
-        )
+        try:
+            await queue_import(clean, None, family_id=f"FAMID{NUL}03", dry_run=True)
+            out["import_request"] = {"status": 200}
+        except HTTPException as exc:
+            out["import_request"] = {"status": exc.status_code, "detail": exc.detail}
         out["jobs_written_by_refused_request"] = (await row_counts())["jobs"] - jobs_before
 
-        out["job_nul_family"] = await run_import_job(ac, nul_family, project_id, _WORKER)
-        out["job_esc_sample"] = await run_import_job(ac, esc_sample, project_id, _WORKER)
+        out["job_nul_family"] = await run_import_job(nul_family, project_id, _WORKER)
+        out["job_esc_sample"] = await run_import_job(esc_sample, project_id, _WORKER)
 
         out["manual_sample"] = capture(
             await ac.post(
@@ -167,16 +163,20 @@ async def _collect(base: Path) -> dict[str, Any]:
                 files={"file": ("family.ped", _trio_ped("FAMID11", mother="MOTHER\\11").encode(), "text/plain")},
             )
         )
-        out["discover_climbing"] = capture(
+        out["added_climbing"] = capture(
             await ac.post(
-                "/api/family-imports/manifest/discover",
-                json={"folder_path": str(clean), "family_id": "../FAMID03"},
+                "/api/family-imports/deliveries",
+                json={"folder_path": str(clean), "project_id": project_id, "family_id": "../FAMID03", "analysis_type": "wgs"},
             )
         )
-        out["validate_dot_dot"] = capture(
-            await ac.post("/api/family-imports/validate", json={"folder_path": str(dot_dot_family)})
-        )
-        out["job_text_direction"] = await run_import_job(ac, text_direction_sample, project_id, _WORKER)
+        out["job_dot_dot"] = await run_import_job(dot_dot_family, project_id, _WORKER)
+        async with get_postgres_sessionmaker()() as session:
+            out["deliveries_of_the_folder"] = (
+                await session.execute(
+                    text("SELECT count(*) FROM import_deliveries WHERE folder_path = :f"), {"f": str(clean.resolve())}
+                )
+            ).scalar_one()
+        out["job_text_direction"] = await run_import_job(text_direction_sample, project_id, _WORKER)
     out["after"] = await row_counts()
     return out
 
@@ -193,21 +193,17 @@ def snap(tmp_path_factory: pytest.TempPathFactory, request: pytest.FixtureReques
     return _harness.run_async(lambda: _collect(base))
 
 
-def test_discover_and_validate_report_a_family_id_holding_a_nul(snap: dict[str, Any]) -> None:
-    for name in ("discover_manifest", "discover_request", "validate"):
-        response = snap[name]
-        assert response["status"] == 200, (name, response["text"])
-        assert issue_codes(response) == ["family_id_invalid"], (name, response["json"])
-        assert response["json"]["family_id"] is None
-    messages = {name: snap[name]["json"]["errors"][0]["message"] for name in ("discover_manifest", "discover_request")}
-    assert "'FAMID\\x0001' (the manifest's family_id) contains a control character (\\x00)" in messages["discover_manifest"]
-    assert "'FAMID\\x0003' (the family_id of the request) contains a control character (\\x00)" in messages["discover_request"]
-
-
-def test_an_import_request_naming_such_a_family_is_refused_before_its_job_is_written(snap: dict[str, Any]) -> None:
-    response = snap["import_request"]
+def test_a_folder_added_by_hand_as_a_family_id_holding_a_nul_is_refused(snap: dict[str, Any]) -> None:
+    response = snap["added_nul"]
     assert response["status"] == 400, response["text"]
-    assert "contains a control character (\\x00)" in response["json"]["detail"]
+    assert response["json"]["detail"] == "The family ID contains a control character (\\x00)."
+    assert snap["deliveries_of_the_folder"] == 0
+
+
+def test_an_import_naming_such_a_family_is_refused_before_its_job_is_written(snap: dict[str, Any]) -> None:
+    response = snap["import_request"]
+    assert response["status"] == 400, response
+    assert "contains a control character (\\x00)" in response["detail"]
     assert snap["jobs_written_by_refused_request"] == 0
 
 
@@ -257,16 +253,13 @@ def test_the_family_builder_and_the_ped_upload_refuse_an_id_that_is_a_path_or_ho
     )
 
 
-def test_discover_and_validate_refuse_a_family_id_that_is_a_path(snap: dict[str, Any]) -> None:
-    discover, validate = snap["discover_climbing"], snap["validate_dot_dot"]
-    for response in (discover, validate):
-        assert response["status"] == 200, response["text"]
-        assert issue_codes(response) == ["family_id_invalid"], response["json"]
-        assert response["json"]["family_id"] is None
-    # No draft, and no warning that the ID leads out of the package.
-    assert (discover["json"]["manifest_yaml"], discover["json"]["warnings"]) == ("", [])
-    assert "'../FAMID03' (the family_id of the request) contains a slash (/)" in discover["json"]["errors"][0]["message"]
-    assert "'..' (the manifest's family_id) is '..'" in validate["json"]["errors"][0]["message"]
+def test_a_family_id_that_is_a_path_is_refused(snap: dict[str, Any]) -> None:
+    added = snap["added_climbing"]
+    assert (added["status"], added["json"]["detail"]) == (400, "The family ID contains a slash (/)."), added
+    job = snap["job_dot_dot"]
+    assert (job["status"], job["family_id"]) == ("failed", None), job
+    assert [issue["code"] for issue in job["validation_errors"]] == ["family_id_invalid"], job["validation_errors"]
+    assert "'..' (the manifest's family_id) is '..'" in job["validation_errors"][0]["message"]
 
 
 def test_an_import_job_records_the_refusal_of_a_sample_id_with_a_text_direction_character(snap: dict[str, Any]) -> None:
@@ -287,5 +280,5 @@ def test_an_import_job_records_the_refusal_of_a_sample_id_with_a_text_direction_
 def test_nothing_of_a_refused_family_or_sample_was_written(snap: dict[str, Any]) -> None:
     before, after = snap["before"], snap["after"]
     assert (after["families"], after["samples"]) == (before["families"], before["samples"])
-    # The three import jobs run above, and no other.
-    assert after["jobs"] == before["jobs"] + 3
+    # The four import jobs run above, and no other.
+    assert after["jobs"] == before["jobs"] + 4

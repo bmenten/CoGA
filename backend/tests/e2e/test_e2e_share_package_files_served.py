@@ -88,7 +88,7 @@ async def _exercise(base: Path, run: str) -> dict[str, Any]:
     try:
         async with AsyncClient(transport=transport, base_url="http://e2e") as admin:
             admin.headers["Authorization"] = f"Bearer {await _harness.login_admin_token(admin)}"
-            out["job"] = await run_import_job(admin, package, project_id, _WORKER)
+            out["job"] = await run_import_job(package, project_id, _WORKER)
 
             manifest = await admin.get(f"/api/cram/{family}/manifest", params={"sample": sample})
             entries = manifest.json() if manifest.status_code == 200 else []

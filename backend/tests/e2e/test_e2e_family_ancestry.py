@@ -93,12 +93,9 @@ async def exercise(root: Path, monkeypatch):
             ac.headers["Authorization"] = f"Bearer {token}"
             url = f"/api/families/{family}/ancestry"
             params = {"project_id": project}
-            response = await ac.post("/api/family-imports", json={"folder_path": str(root), "project_id": project,
-                                    "dry_run": False, "conflict_mode": "overwrite"})
-            assert response.status_code == 200, response.text
-            job = response.json()["_id"]
-            if isinstance(job, dict):
-                job = job["$oid"]
+            from backend.tests.e2e._import_jobs import queue_import
+
+            job = await queue_import(root, project, conflict_mode="overwrite")
             async with sm() as session:
                 # The import is queued: the sweep queues nothing for the family while it runs.
                 claimed = await claim_next_family_import_job(session, worker_id="synthetic-ancestry")

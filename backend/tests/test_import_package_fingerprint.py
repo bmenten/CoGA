@@ -5,8 +5,7 @@ pipeline's output on a share that other hosts write. The fingerprint of a local 
 (``family_package_fingerprint``) is the SHA-256 of each entry's path with a file's size and
 modification time, or a link's target, and of the manifest CoGA keeps for the import: it tells
 that the folder changed without reading a file's content. The validation takes it before reading
-the folder and reports it; an import that follows a dry run is refused (409) when the folder's
-differs from the dry run's; the job keeps the one it was queued with, and imports nothing when the
+the folder and reports it; the job keeps the one it was queued with, and imports nothing when the
 folder's differs as it starts; after each dataset it is taken again, and a change stops and
 undoes the import (test_import_undone_when_package_changes.py). The family's package record
 keeps it.
@@ -22,11 +21,10 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-from fastapi import HTTPException
 import pytest
 
 from backend.app.core.config import settings
-from backend.app.schemas import FamilyPackageImportCreate, FamilyPackageValidationOut
+from backend.app.schemas import FamilyPackageValidationOut
 from backend.app.services import family_package_fingerprint, family_package_import, family_package_jobs, family_package_validation
 from backend.app.services.family_package_common import _issue
 from backend.app.services.family_package_fingerprint import PackageFolderTooLarge, package_fingerprint
@@ -358,57 +356,6 @@ async def test_the_job_keeps_the_fingerprint_read_with_its_kept_manifest(package
 
 
 @pytest.mark.asyncio
-async def test_an_import_that_follows_its_dry_run_is_queued_while_the_folder_is_as_it_was(package: Path) -> None:
-    session = _JobSession()
-    dry_run = _fingerprint(package)
-
-    job = await _queue(session, str(package), expected_package_fingerprint=dry_run)
-
-    assert job.package_fingerprint == dry_run
-
-
-@pytest.mark.asyncio
-async def test_an_import_of_a_folder_that_changed_since_its_dry_run_is_refused_before_the_job_is_written(
-    package: Path,
-) -> None:
-    session = _JobSession()
-    dry_run = _fingerprint(package)
-    (package / "snv" / "family.vcf").write_text("##fileformat=VCFv4.2\n#rerun\n", encoding="utf-8")
-
-    with pytest.raises(HTTPException) as refused:
-        await _queue(session, str(package), expected_package_fingerprint=dry_run)
-
-    assert refused.value.status_code == 409
-    assert refused.value.detail == family_package_jobs.PACKAGE_CHANGED_SINCE_CHECKED
-    assert session.inserted is None
-
-
-@pytest.mark.asyncio
-async def test_an_import_with_another_manifest_than_its_dry_run_is_refused(package: Path) -> None:
-    session = _JobSession()
-    dry_run = _fingerprint(package, _sha256(_MANIFEST))
-
-    with pytest.raises(HTTPException) as refused:
-        await _queue(
-            session, str(package), manifest_text=_MANIFEST + "# edited\n", expected_package_fingerprint=dry_run
-        )
-
-    assert refused.value.status_code == 409
-    assert session.inserted is None
-
-
-@pytest.mark.asyncio
-async def test_an_import_of_a_folder_gone_since_its_dry_run_is_refused(package: Path) -> None:
-    session = _JobSession()
-
-    with pytest.raises(HTTPException) as refused:
-        await _queue(session, str(package / "gone"), expected_package_fingerprint="0" * 64)
-
-    assert refused.value.status_code == 409
-    assert session.inserted is None
-
-
-@pytest.mark.asyncio
 async def test_a_folder_the_queue_cannot_read_and_a_bucket_are_queued_without_a_fingerprint(package: Path) -> None:
     session = _JobSession()
 
@@ -416,15 +363,6 @@ async def test_a_folder_the_queue_cannot_read_and_a_bucket_are_queued_without_a_
     remote = await _queue(session, "gs://bucket/packages/FAM1")
 
     assert (missing.package_fingerprint, remote.package_fingerprint) == (None, None)
-
-
-def test_the_expected_fingerprint_must_be_a_sha256() -> None:
-    with pytest.raises(ValueError):
-        FamilyPackageImportCreate(folder_path="/data/FAM1", expected_package_fingerprint="ABC")
-    assert FamilyPackageImportCreate(folder_path="/data/FAM1", expected_package_fingerprint="a" * 64)
-
-
-# --- the job --------------------------------------------------------------------------------
 
 
 def _validation(fingerprint: str | None, *, errors: list[Any] | None = None) -> FamilyPackageValidationOut:

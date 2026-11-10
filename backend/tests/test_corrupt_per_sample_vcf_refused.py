@@ -5,7 +5,7 @@ The read was unguarded: a gzip file cut short in its header (``EOFError``), one 
 data is damaged (``zlib.error``) or a plain-text VCF named ``.vcf.gz`` (``gzip.BadGzipFile``)
 raised out of the request, which failed with a 500. Now:
 
-- the validation (``/family-imports/validate``, the manifest write, a dry run) refuses the file
+- the validation (a delivery's check, a dry run) refuses the file
   with ``dataset_vcf_unreadable``, naming the sample and the file, never the error's own text;
 - Discover refuses a NIPT pair's parent file the same way, and drafts its manifest without the
   pair;
@@ -30,7 +30,6 @@ from backend.app.schemas import FamilyPackageManifestBuildRequest
 from backend.app.services import family_package_common as common
 from backend.app.services.family_package_discovery import discover_family_package_manifest
 from backend.app.services.family_package_validation import validate_family_package
-from backend.tests._family_import_fakes import signed_in_client
 
 PED = "NIPTPAIR\tFATHER1\t0\t0\t1\t1\nNIPTPAIR\tCFDNA1\t0\t0\t2\t1\nNIPTPAIR\tFETUS1\tFATHER1\tCFDNA1\t0\t2\n"
 MANIFEST = (
@@ -128,26 +127,6 @@ def test_the_validation_refuses_the_file_by_its_sample_and_name(tmp_path: Path, 
 
 
 @pytest.mark.parametrize("broken", sorted(BROKEN))
-def test_the_routes_answer_with_the_refusal_not_a_500(tmp_path: Path, broken: str) -> None:
-    package = _package(tmp_path, broken)
-
-    with signed_in_client("admin", raise_server_exceptions=False) as client:
-        validate = client.post("/api/family-imports/validate", json={"folder_path": str(package)})
-        write = client.post(
-            "/api/family-imports/manifest/write",
-            json={"folder_path": str(package), "manifest_yaml": MANIFEST, "overwrite": True},
-        )
-
-    assert validate.status_code == 200, validate.text
-    assert write.status_code == 200, write.text
-    for errors in (validate.json()["errors"], write.json()["validation"]["errors"]):
-        assert [(issue["code"], issue["message"]) for issue in errors] == [("dataset_vcf_unreadable", _MESSAGE)]
-
-
-# --- Discover -------------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize("broken", sorted(BROKEN))
 def test_discover_refuses_a_nipt_parents_file_it_cannot_read(tmp_path: Path, broken: str) -> None:
     package = _package(tmp_path, broken, manifest=False)
 
@@ -160,19 +139,6 @@ def test_discover_refuses_a_nipt_parents_file_it_cannot_read(tmp_path: Path, bro
     # No NIPT pair is proposed from a file Discover could not read.
     assert not any(issue.code == "nipt_pair_detected" for issue in result.warnings)
     assert "per_sample" not in (yaml.safe_load(result.manifest_yaml)["datasets"].get("snv") or {})
-
-
-def test_the_discover_route_answers_with_the_refusal_not_a_500(tmp_path: Path) -> None:
-    package = _package(tmp_path, "plain_text", manifest=False)
-
-    with signed_in_client("admin", raise_server_exceptions=False) as client:
-        response = client.post("/api/family-imports/manifest/discover", json={"folder_path": str(package)})
-
-    assert response.status_code == 200, response.text
-    assert [issue["code"] for issue in response.json()["errors"]] == ["dataset_vcf_unreadable"]
-
-
-# --- The import's readers -------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("broken", sorted(BROKEN))

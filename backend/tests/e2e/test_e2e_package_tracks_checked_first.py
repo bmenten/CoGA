@@ -8,12 +8,12 @@ replaced. An overwrite's backup then put them back; one without a backup (it cou
 taken) left them replaced, and the family flagged.
 
 Here a family of two embryos (a new id each run) goes through real import jobs
-(``POST /api/family-imports``, then the worker's ``run_family_import_job``) into Postgres and
-ClickHouse:
+(queued as an approved delivery queues them, then the worker's ``run_family_import_job``) into
+Postgres and ClickHouse:
 
 * package 1 (cancel): each embryo's APCAD VCF (2 sites) and coverage BED (2 bins) are stored;
-* a dry run of package 2 (``POST /api/family-imports/validate``) warns of the second embryo's
-  APCAD VCF and coverage BED, which hold nothing after their header (before: no warning);
+* a dry run of package 2 warns of the second embryo's APCAD VCF and coverage BED, which hold
+  nothing after their header (before: no warning);
 * package 2 (overwrite; the family's backup fails, so nothing puts the family back): the
   first embryo's new APCAD VCF (3 sites) and coverage BED (3 bins), the second embryo's
   holding nothing after their header. Both datasets fail, each naming the second embryo and
@@ -39,7 +39,7 @@ import pytest
 from sqlalchemy import text
 
 from backend.tests.e2e._harness import ensure_postgres_schema, write_file
-from backend.tests.e2e._import_jobs import claim_import_job
+from backend.tests.e2e._import_jobs import claim_import_job, queue_import
 
 pytestmark = pytest.mark.integration
 
@@ -176,17 +176,9 @@ async def _collect(base: Path, mp: pytest.MonkeyPatch) -> dict[str, Any]:
             ac.headers["Authorization"] = f"Bearer {await _harness.login_admin_token(ac)}"
 
             async def run_import(name: str, root: Path, conflict_mode: str, *, backup_fails: bool = False) -> None:
-                body: dict[str, Any] = {
-                    "folder_path": str(root),
-                    "project_id": project_id,
-                    "dry_run": False,
-                    "conflict_mode": conflict_mode,
-                }
-                if conflict_mode != "cancel":
-                    body["family_id"] = family_id
-                resp = await ac.post("/api/family-imports", json=body)
-                assert resp.status_code == 200, resp.text
-                job_id = str(resp.json()["_id"])
+                job_id = await queue_import(
+                    root, project_id, conflict_mode=conflict_mode, family_id=family_id if conflict_mode != "cancel" else None
+                )
                 jobs.append(job_id)
                 worker = f"e2e-first-{uuid4().hex[:8]}"
                 await claim_import_job(job_id, worker)
@@ -216,15 +208,25 @@ async def _collect(base: Path, mp: pytest.MonkeyPatch) -> dict[str, Any]:
                     second: (_APCAD_HEADER.format(embryo=second), ""),
                 },
             )
-            resp = await ac.post(
-                "/api/family-imports/validate", json={"folder_path": str(package_2), "family_id": family_id}
+            dry_run = await queue_import(
+                package_2, project_id, conflict_mode="overwrite", family_id=family_id, dry_run=True
             )
-            assert resp.status_code == 200, resp.text
+            jobs.append(dry_run)
+            dry_worker = f"e2e-first-dry-{uuid4().hex[:8]}"
+            await claim_import_job(dry_run, dry_worker)
+            await package_import.run_family_import_job(job_id=dry_run, worker_id=dry_worker)
+            async with sm() as s:
+                dry = (
+                    await s.execute(
+                        text("SELECT status, validation_warnings FROM family_import_jobs WHERE id = CAST(:j AS uuid)"),
+                        {"j": dry_run},
+                    )
+                ).mappings().one()
             out["steps"]["2_dry_run"] = {
-                "valid": resp.json()["valid"],
+                "valid": dry["status"] == "completed",
                 "warnings": sorted(
                     (warning["code"], warning.get("dataset"), warning.get("sample_id"))
-                    for warning in resp.json()["warnings"]
+                    for warning in dry["validation_warnings"] or []
                 ),
             }
             await run_import("3_second_embryo_empty", package_2, "overwrite", backup_fails=True)

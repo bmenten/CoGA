@@ -31,13 +31,15 @@ Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``e2e`` job sets 
 from __future__ import annotations
 
 from types import SimpleNamespace
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
 import pytest
 
+from backend.app.services.access_control import CurrentUser
 from backend.tests.e2e._harness import capture, ensure_postgres_schema
-from backend.tests.e2e._import_jobs import claim_import_job
+from backend.tests.e2e._import_jobs import claim_import_job, queue_import
 
 pytestmark = pytest.mark.integration
 
@@ -136,13 +138,13 @@ async def _exercise(run: str, directory, patch: pytest.MonkeyPatch) -> dict[str,
                     await client.post(sv, json={"name": names["sv_global"], "scope": "global"}, headers=colleague)
                 ),
             }
-            queued = await client.post(
-                "/api/family-imports",
-                json={"folder_path": f"/data/families/{family_id}", "project_id": project_id, "dry_run": True},
-                headers=colleague,
+            # The colleague approves a delivery: the dry run is queued as they asked it.
+            out["job_id"] = job_id = await queue_import(
+                Path(f"/data/families/{family_id}"),
+                project_id,
+                dry_run=True,
+                requested_by=CurrentUser.model_validate({**me.json(), "role": "admin"}),
             )
-            out["queued"] = capture(queued)
-            out["job_id"] = job_id = queued.json()["_id"]
 
             # The next sign-in carries a new address and user name; then a second colleague
             # signs in with the ones the first left behind, and is a viewer in the project.
@@ -242,7 +244,7 @@ def test_the_colleague_saved_presets_and_queued_an_import_then_signed_in_renamed
         "sv_family": 200,
         "sv_global": 200,
     }
-    assert ran["queued"]["status"] == 200 and ran["queued"]["json"]["requested_by"] == ran["old"]
+    assert ran["job_id"]
     # The same account, with the token's new address; the old one went to a new account.
     assert (ran["renamed"]["json"]["id"], ran["renamed"]["json"]["email"]) == (ran["colleague_id"], ran["new"])
     assert ran["successor_sign_in"]["status"] == 200

@@ -36,62 +36,33 @@ def _write_nipt_package(folder) -> None:
     )
 
 
-def test_discover_uses_manifest_family_id_not_folder_name(
-    monkeypatch: pytest.MonkeyPatch, tmp_path
-) -> None:
-    monkeypatch.setattr(settings, "family_import_roots", [])
-    # Folder name (nipt_family) deliberately differs from the declared family_id.
-    package = tmp_path / "nipt_family"
-    _write_nipt_package(package)
-
-    result = discover_family_package_manifest(
-        FamilyPackageManifestBuildRequest(folder_path=str(package))
-    )
-
-    assert result.family_id == "FAM_NIPT_DEMO"
-    assert not any(issue.code == "ped_family_mismatch" for issue in result.errors)
-    # The NIPT tags are preserved in the regenerated manifest preview.
-    assert "analysis_type: monogenic_nipt" in result.manifest_yaml
-    assert "nipt_cfdna" in result.manifest_yaml
-
-
-def test_scan_lists_packages_with_manifest_and_ped(
-    monkeypatch: pytest.MonkeyPatch, tmp_path
-) -> None:
+def test_the_scan_lists_the_folders_that_can_be_added_by_hand(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     nipt = tmp_path / "FAM_NIPT_DEMO"
     nipt.mkdir()
-    (nipt / "manifest.yaml").write_text(
-        "schema_version: 1\n"
-        "family_id: FAM_NIPT_DEMO\n"
-        "analysis_type: monogenic_nipt\n"
-        "ped: nipt_trio.ped\n"
-    )
     (nipt / "nipt_trio.ped").write_text("FAM_NIPT_DEMO\tF\t0\t0\t1\t1\n")
-
-    ped_only = tmp_path / "PLAIN_FAM"
-    ped_only.mkdir()
-    (ped_only / "family.ped").write_text("PLAIN_FAM\tP\t0\t0\t1\t2\n")
-
-    (tmp_path / "not-a-package").mkdir()  # no manifest, no ped -> skipped
+    # A manifest alone makes no package: CoGA reads none in a folder.
+    manifest_only = tmp_path / "MANIFEST_ONLY"
+    manifest_only.mkdir()
+    (manifest_only / "manifest.yaml").write_text("schema_version: 1\nfamily_id: MANIFEST_ONLY\n")
+    # A folder with its own package file is delivered through a watched folder.
+    delivered = tmp_path / "DELIVERED"
+    delivered.mkdir()
+    (delivered / "family.ped").write_text("DELIVERED\tP\t0\t0\t1\t2\n")
+    (delivered / "coga-package.json").write_text("{}")
+    (tmp_path / "not-a-package").mkdir()
 
     monkeypatch.setattr(settings, "family_import_roots", [str(tmp_path)])
 
     packages = {pkg["name"]: pkg for pkg in scan_family_import_packages()}
 
-    assert set(packages) == {"FAM_NIPT_DEMO", "PLAIN_FAM"}
-
-    nipt_pkg = packages["FAM_NIPT_DEMO"]
-    assert nipt_pkg["family_id"] == "FAM_NIPT_DEMO"
-    assert nipt_pkg["has_manifest"] is True
-    assert nipt_pkg["has_ped"] is True
-    assert nipt_pkg["analysis_type"] == "monogenic_nipt"
-    assert nipt_pkg["folder_path"] == str(nipt.resolve())
-
-    plain_pkg = packages["PLAIN_FAM"]
-    assert plain_pkg["family_id"] == "PLAIN_FAM"  # falls back to the folder name
-    assert plain_pkg["has_manifest"] is False
-    assert plain_pkg["has_ped"] is True
-    assert plain_pkg["analysis_type"] is None
+    assert packages == {
+        "FAM_NIPT_DEMO": {
+            "folder_path": str(nipt.resolve()),
+            "name": "FAM_NIPT_DEMO",
+            "family_id": "FAM_NIPT_DEMO",
+            "has_ped": True,
+        }
+    }
 
 
 def test_scan_returns_empty_without_roots(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -118,39 +89,6 @@ def test_family_import_roots_default_is_data_families() -> None:
     assert default == ["/data/families"]
 
 
-def test_scan_includes_s3_packages(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(settings, "family_import_roots", ["s3://bucket/families"])
-
-    def fake_list(uri: str):
-        assert uri == "s3://bucket/families"
-        return [
-            {
-                "name": "FAM_S3",
-                "uri": "s3://bucket/families/FAM_S3",
-                "has_manifest": True,
-                "has_ped": True,
-            }
-        ]
-
-    monkeypatch.setattr("backend.app.services.family_package_source.list_remote_package_candidates", fake_list)
-
-    packages = {pkg["name"]: pkg for pkg in scan_family_import_packages()}
-    assert "FAM_S3" in packages
-    assert packages["FAM_S3"]["folder_path"] == "s3://bucket/families/FAM_S3"
-    assert packages["FAM_S3"]["has_manifest"] is True
-    assert packages["FAM_S3"]["family_id"] == "FAM_S3"
-
-
-def test_scan_s3_failure_is_best_effort(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(settings, "family_import_roots", ["s3://bucket/families"])
-
-    def boom(_uri: str):
-        raise RuntimeError("no credentials")
-
-    monkeypatch.setattr("backend.app.services.family_package_source.list_remote_package_candidates", boom)
-    assert scan_family_import_packages() == []
-
-
 def test_coverage_dataset_requires_per_sample() -> None:
     errors: list = []
     summary = _validate_coverage_dataset(
@@ -174,35 +112,6 @@ def test_demo_package_validates_with_snv_and_coverage_datasets(
     assert datasets["snv"].status == "valid"
     assert datasets["coverage"].status == "valid"
 
-
-def test_discover_preserves_explicit_snv_and_coverage(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    import yaml
-
-    monkeypatch.setattr(settings, "family_import_roots", [])
-    result = discover_family_package_manifest(
-        FamilyPackageManifestBuildRequest(folder_path=str(_DEMO_DIR))
-    )
-    manifest = yaml.safe_load(result.manifest_yaml)
-    # The scanner's disabled auto-detected snv block must not clobber the
-    # manifest's explicit combined-VCF dataset; coverage is augmented in.
-    assert manifest["datasets"]["snv"]["family_vcf"] == "nipt_combined.vcf"
-    assert (
-        manifest["datasets"]["coverage"]["per_sample"]["CFDNA_NIPT"]["bed"]
-        == "nipt_coverage.bed"
-    )
-
-    # The availability table reflects the manifest's datasets as enabled/available
-    # (not "not enabled" just because the filenames don't match scanner patterns).
-    availability = {item.dataset_type: item for item in result.datasets}
-    assert availability["snv"].enabled and availability["snv"].complete
-    assert availability["coverage"].enabled and availability["coverage"].complete
-
-
-# --------------------------------------------------------------------------- #
-# A monogenic NIPT pair: one VCF per parent and per-target coverage tables
-# --------------------------------------------------------------------------- #
 
 _PAIR_PED = (
     "NIPTPAIR\tFATHER1\t0\t0\t1\t1\n"
@@ -442,41 +351,6 @@ def test_discover_warns_of_the_column_of_a_nipt_file_it_finds(monkeypatch: pytes
     assert warning.message == (
         "The NIPT SNV file of FATHER1 (FATHER1.mutect2.vcf.gz) names its one sample column 'TUBE9', not FATHER1"
         + _SET_VCF_SAMPLE.format(column="TUBE9")
-    )
-
-
-@pytest.mark.parametrize(
-    ("father_entry", "warned"),
-    [
-        pytest.param("", True, id="warned-of"),
-        pytest.param(", vcf_sample: TUBE9", False, id="named-in-the-entry"),
-    ],
-)
-def test_discover_checks_the_file_a_nipt_manifest_maps(
-    monkeypatch: pytest.MonkeyPatch, tmp_path, father_entry: str, warned: bool
-) -> None:
-    # The package's manifest maps the father to the file of the tube the laboratory verified as
-    # his, named after another tube as its column is. Discover keeps the manifest's entry and
-    # checks that file, not the one named after the father.
-    import yaml
-
-    monkeypatch.setattr(settings, "family_import_roots", [])
-    package = _pair_whose_father_column_is(
-        tmp_path, "TUBE9", father_file="TUBE9.mutect2.vcf.gz", father_entry=father_entry
-    )
-
-    result = discover_family_package_manifest(FamilyPackageManifestBuildRequest(folder_path=str(package)))
-
-    assert yaml.safe_load(result.manifest_yaml)["datasets"]["snv"]["per_sample"]["FATHER1"]["vcf"] == (
-        "TUBE9.mutect2.vcf.gz"
-    )
-    assert [issue.message for issue in result.warnings if issue.code == _COLUMN_WARNING] == (
-        [
-            "The NIPT SNV file of FATHER1 (TUBE9.mutect2.vcf.gz) names its one sample column 'TUBE9', not FATHER1"
-            + _SET_VCF_SAMPLE.format(column="TUBE9")
-        ]
-        if warned
-        else []
     )
 
 

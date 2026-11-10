@@ -38,9 +38,10 @@ CoGA takes either input; the analysis is the same for both.
   mapping quality, mismatches, repeat units and so on), which the quality filter and the de novo triage
   read. Each file's sample column is read as the sample its manifest entry names, whatever the column
   is called: the laboratory maps its verified tubes to files that can be named after another tube. When
-  the column is named neither after the sample nor in the entry (`vcf_sample`), Discover, the dry run
-  and the import show a warning naming the sample, the file and the column. Check that the file holds
-  that sample's tube; if it does, record the column as the entry's `vcf_sample`.
+  the column is named neither after the sample nor in the entry (`vcf_sample`), the delivery, the dry
+  run and the import show a warning naming the sample, the file and the column. Check that the file
+  holds that sample's tube; if it does, record the column as the entry's `vcf_sample` with
+  **Correct…**.
 - **One combined VCF** with a father column and a cfDNA column, genotyped jointly. The quality is the
   site's QUAL.
 

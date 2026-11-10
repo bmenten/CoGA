@@ -11,7 +11,7 @@ since, an analyst of that project, still had it run (SEC-35; refused as the owne
 
 Through the app over HTTP (an in-process ``httpx.ASGITransport`` client on one event loop, see
 test_e2e_api_contract.py), for each of two colleagues, administrators and analysts in the e2e
-project with a password of their own: the colleague queues the import of a new one-sample
+project with a password of their own: the colleague approves the import of a new one-sample
 family with an SNV callset. The e2e administrator then deactivates the first colleague's
 account, and sets the second's role to viewer (``PATCH /api/auth/users/{id}``); the first
 colleague's next request is refused (401), the second's (403: no longer an administrator).
@@ -37,7 +37,8 @@ import pytest
 from sqlalchemy import text
 
 from backend.tests.e2e._harness import capture, ensure_postgres_schema
-from backend.tests.e2e._import_jobs import claim_import_job
+from backend.app.services.access_control import CurrentUser
+from backend.tests.e2e._import_jobs import claim_import_job, queue_import
 
 pytestmark = pytest.mark.integration
 
@@ -195,12 +196,6 @@ async def _exercise(base: Path, run: str) -> dict[str, Any]:
 
     out: dict[str, Any] = {}
     jobs: list[str] = []
-    body = {
-        "folder_path": str(package),
-        "project_id": project_id,
-        "dry_run": False,
-        "conflict_mode": "cancel",
-    }
     transport = ASGITransport(app=app, raise_app_exceptions=False)
     try:
         async with AsyncClient(transport=transport, base_url="http://e2e") as client:
@@ -214,9 +209,10 @@ async def _exercise(base: Path, run: str) -> dict[str, Any]:
                 seen["colleague_sign_in"] = signed_in.status_code
                 colleague = {"Authorization": f"Bearer {signed_in.json()['access_token']}"}
 
-                queued = await client.post("/api/family-imports", json=body, headers=colleague)
-                seen["queued"] = capture(queued)
-                job_id = str(queued.json()["_id"])
+                # The colleague approves the package's delivery: the job is queued as theirs.
+                me = (await client.get("/api/auth/me", headers=colleague)).json()
+                job_id = await queue_import(package, project_id, requested_by=CurrentUser.model_validate(me))
+                seen["queued"] = await job_row(job_id)
                 jobs.append(job_id)
 
                 # The e2e administrator deactivates the colleague, or sets their role to viewer,
@@ -241,9 +237,7 @@ async def _exercise(base: Path, run: str) -> dict[str, Any]:
                 out[change] = seen
 
             # The same package, queued by the e2e administrator, active.
-            control = await client.post("/api/family-imports", json=body, headers=administrator)
-            out["control_queued"] = capture(control)
-            control_id = str(control.json()["_id"])
+            control_id = await queue_import(package, project_id)
             jobs.append(control_id)
             out["control_raised"] = await claim_and_run(control_id)
             out["control_job"] = await job_row(control_id)
@@ -280,9 +274,8 @@ def ran(tmp_path_factory, request) -> dict[str, Any]:
 def test_the_colleague_queued_the_import_and_was_then_deactivated_or_demoted(ran, change: str) -> None:
     seen = ran[change]
     assert seen["colleague_sign_in"] == 200
-    assert seen["queued"]["status"] == 200, seen["queued"]
-    assert seen["queued"]["json"]["status"] == "queued"
-    assert seen["queued"]["json"]["requested_by"] == seen["email"]
+    assert seen["queued"]["status"] == "queued", seen["queued"]
+    assert seen["queued"]["requested_by"] == seen["email"]
     assert seen["changed"]["status"] == 200, seen["changed"]
     if change == "deactivated":
         assert seen["changed"]["json"]["is_active"] is False
@@ -329,7 +322,6 @@ def test_the_log_names_neither_the_account_nor_its_address(ran, change: str) -> 
 
 
 def test_the_same_package_queued_by_an_active_administrator_is_imported(ran) -> None:
-    assert ran["control_queued"]["status"] == 200, ran["control_queued"]
     assert ran["control_raised"] is None
     assert ran["control_job"]["status"] == "completed", ran["control_job"]
     assert ran["control_written"] == {

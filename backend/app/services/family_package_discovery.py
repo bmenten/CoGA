@@ -1,13 +1,9 @@
 from __future__ import annotations
 
-from contextlib import suppress
-import errno
 import glob
-import os
 from pathlib import Path
 import re
 from typing import Any, Iterable
-from uuid import uuid4
 
 from fastapi import HTTPException
 import yaml
@@ -18,21 +14,21 @@ from ..schemas import (
     FamilyImportValidationIssue,
     FamilyPackageManifestBuildOut,
     FamilyPackageManifestBuildRequest,
-    FamilyPackageManifestWriteOut,
 )
 
 from .family_identifiers import visible
-from .family_package_common import HAPLOTYPE_ORIGIN_ROLES, IDENTIFIER_ISSUE_CODES, LONG_READ_DATASET_ROLES, PED_FOLDER, QC_FAMILY_ROLES, PackageManifest, ParsedPed, _display_path, _is_uncompressed_vcf, _issue, _package_path_or_none, _resolve_package_path, family_id_issue, nul_location, package_path_within, package_text_handle, path_leaves_package, sample_id_issues
+from .family_package_common import HAPLOTYPE_ORIGIN_ROLES, IDENTIFIER_ISSUE_CODES, LONG_READ_DATASET_ROLES, PED_FOLDER, QC_FAMILY_ROLES, ParsedPed, _display_path, _is_uncompressed_vcf, _issue, _package_path_or_none, family_id_issue, package_path_within, package_text_handle, path_leaves_package, sample_id_issues
 from .family_package_long_read import long_read_family_block, long_read_sample_ids
 from .family_package_manifest import _parse_ped_text_strict
 from .family_package_mito_table import MITO_TABLE_PATTERNS, read_mito_table, table_id_member
 from .family_package_nipt import NiptPackageFiles, discover_nipt_package_files, nipt_draft_column_issues
 from .nipt import MONOGENIC_NIPT_ANALYSIS_TYPE, NIPT_CFDNA_ASSAY
 from .family_package_pgt import pgt_family_block, pgt_roi_phasing_issue, pgt_run_context, read_pgt_pipeline_roles
-from .family_package_source import _ensure_authorized_package_path, _existing_manifest_dict, manifest_link_out_of_package, manifest_outside_package_issue, package_folder_link_issues, package_folder_path
-from .family_package_validation import validate_family_package
+from .family_package_source import _ensure_authorized_package_path, package_folder_link_issues, package_folder_path
 
 
+# The file names Discover looks for, by dataset.
+NAMING_SCHEME = "standard_v1"
 NAMING_SCHEMES: dict[str, dict[str, Any]] = {
     "standard_v1": {
         "label": "Standard family package",
@@ -682,24 +678,10 @@ def _package_peds(root: Path, found: Iterable[Path]) -> list[Path]:
 def _detect_ped_path(
     root: Path,
     *,
-    requested_ped_path: str | None,
     family_id: str,
 ) -> tuple[Path | None, list[FamilyImportValidationIssue], list[FamilyImportValidationIssue]]:
     errors: list[FamilyImportValidationIssue] = []
     warnings: list[FamilyImportValidationIssue] = []
-    if requested_ped_path:
-        ped_path = _resolve_package_path(root, requested_ped_path)
-        if ped_path is None or not ped_path.is_file():
-            errors.append(
-                _issue(
-                    "ped_file_missing",
-                    "PED file does not exist",
-                    path=ped_path or requested_ped_path,
-                )
-            )
-            return None, errors, warnings
-        return ped_path, errors, warnings
-
     preferred = _package_ped(root, f"{family_id}.ped")
     if preferred is not None:
         return preferred, errors, warnings
@@ -717,7 +699,7 @@ def _detect_ped_path(
         warnings.append(
             _issue(
                 "ped_multiple_candidates",
-                "Multiple PED files were found; choose one explicitly before writing a manifest",
+                "Multiple PED files were found: leave one in the folder, or name the members in the package file",
                 path=root,
             )
         )
@@ -730,84 +712,6 @@ def _detect_ped_path(
         )
     )
     return None, errors, warnings
-
-
-# Manifest keys that configure a dataset rather than pointing at a file, so the
-# availability scan must not try to stat them.
-_NON_PATH_MANIFEST_KEYS = frozenset(
-    {
-        "enabled",
-        "per_sample",
-        "source_format",
-        "source",
-        "format",
-        "sample_name",
-        "vcf_sample",
-        "exclude_filters",
-        "track_type",
-        # What a coverage BED holds, read_depth or log2_ratio (TRACE-9).
-        "content",
-    }
-)
-
-
-def _availability_from_manifest_dataset(
-    root: Path, dataset_type: str, config: Any
-) -> FamilyManifestDatasetAvailability:
-    """Availability for a dataset the manifest already declares, based on whether
-    its declared files exist -- so the discover table reflects an explicit
-    manifest rather than only the filename scanner (which would mark a
-    custom-named file like nipt_combined.vcf as not detected)."""
-    files: list[FamilyManifestFileAvailability] = []
-    samples: list[str] = []
-    enabled = True
-
-    def _add(role: str, value: Any, sample_id: str | None = None) -> None:
-        if isinstance(value, str) and value.strip():
-            # Resolve through the containment guard rather than probing `root / value`
-            # directly: a manifest declaring `../../etc/passwd` must not have its
-            # existence stat'd outside the package root. An escaping path resolves to
-            # None here and is reported as not-present.
-            resolved = _package_path_or_none(root, value)
-            files.append(
-                FamilyManifestFileAvailability(
-                    role=role,
-                    path=value,
-                    exists=bool(resolved is not None and resolved.exists()),
-                    sample_id=sample_id,
-                )
-            )
-
-    if isinstance(config, dict):
-        enabled = bool(config.get("enabled", True))
-        # Any string-valued key is a declared path. Enumerating roles explicitly used
-        # to silently ignore new ones (a manifest's `params:` or `report:` showed the
-        # dataset as having no files), so scan every scalar entry instead and skip the
-        # handful of keys that are configuration rather than paths.
-        for role, value in config.items():
-            if role in _NON_PATH_MANIFEST_KEYS:
-                continue
-            _add(role, value)
-        per_sample = config.get("per_sample")
-        if isinstance(per_sample, dict):
-            for sample_id, entry in per_sample.items():
-                samples.append(str(sample_id))
-                if isinstance(entry, dict):
-                    for role, value in entry.items():
-                        if role in _NON_PATH_MANIFEST_KEYS:
-                            continue
-                        _add(role, value, sample_id=str(sample_id))
-    complete = bool(files) and all(item.exists for item in files)
-    return FamilyManifestDatasetAvailability(
-        dataset_type=dataset_type,
-        enabled=enabled and complete,
-        complete=complete,
-        files=files,
-        samples=samples,
-        message="Available (declared in manifest)"
-        if complete
-        else "Declared in manifest, but some files are missing",
-    )
 
 
 def _single_sample_id(sample_ids: list[str]) -> str | None:
@@ -1588,15 +1492,12 @@ def _build_manifest_payload(
     family_id: str,
     ped_relative_path: str | None,
     sample_ids: list[str],
-    naming_scheme: str,
-    hpo_terms: list[str],
-    notes: str | None,
     newest_run_records: bool = False,
 ) -> tuple[dict[str, Any], list[FamilyManifestDatasetAvailability]]:
     """The manifest's datasets as Discover drafts them, and what it found for each.
     ``pipeline_info`` names the records of the last Nextflow run that completed
     (``_completed_nextflow_run``), or with ``newest_run_records`` the newest of each."""
-    scheme = NAMING_SCHEMES[naming_scheme]["datasets"]
+    scheme = NAMING_SCHEMES[NAMING_SCHEME]["datasets"]
     datasets: dict[str, Any] = {}
     availability: list[FamilyManifestDatasetAvailability] = []
     for dataset_type in ("snv", "sv_needlr", "repeats_trgt"):
@@ -1723,20 +1624,12 @@ def _build_manifest_payload(
     availability.append(item)
     datasets["haplotypes"] = block
 
-    metadata: dict[str, Any] = {}
-    cleaned_hpo = [term.strip() for term in hpo_terms if term.strip()]
-    if cleaned_hpo:
-        metadata["hpo"] = cleaned_hpo
-    if notes and notes.strip():
-        metadata["notes"] = notes.strip()
     payload: dict[str, Any] = {
         "schema_version": 1,
         "family_id": family_id,
     }
     if ped_relative_path is not None:
         payload["ped"] = ped_relative_path
-    if metadata:
-        payload["metadata"] = metadata
     payload["samples"] = {sample_id: {} for sample_id in sample_ids}
     payload["datasets"] = datasets
     return payload, availability
@@ -1851,8 +1744,6 @@ def _no_draft_for_an_id(
     return FamilyPackageManifestBuildOut(
         valid=False,
         family_id=family_id,
-        manifest_path=str(root / "manifest.yaml"),
-        naming_scheme=request.naming_scheme,
         manifest_yaml="",
         errors=errors,
         warnings=warnings,
@@ -1881,11 +1772,12 @@ def _absent_parent_id_issues(ped: ParsedPed, *, path: Path | None) -> list[Famil
     ]
 
 
-def discover_family_package_manifest(
-    request: FamilyPackageManifestBuildRequest,
-    *,
-    db_sample_ids: list[str] | None = None,
-) -> FamilyPackageManifestBuildOut:
+def discover_family_package_manifest(request: FamilyPackageManifestBuildRequest) -> FamilyPackageManifestBuildOut:
+    """Discover's draft of the manifest for the package folder ``request.folder_path``: the
+    members from its PED (or from a long-read package's per-sample folders, or the PGT pipeline's
+    samplesheet), the datasets from its layout, for the family ``request.family_id`` (the folder's
+    name when None). It proposes what a delivery's package file leaves out
+    (``import_watcher._proposal``); it reads no manifest in the folder and writes nothing."""
     try:
         root = _ensure_authorized_package_path(Path(request.folder_path))
     except HTTPException as exc:
@@ -1894,8 +1786,6 @@ def discover_family_package_manifest(
         typed_folder = package_folder_path(request.folder_path)
         return FamilyPackageManifestBuildOut(
             valid=False,
-            manifest_path=os.path.join(typed_folder, "manifest.yaml"),
-            naming_scheme=request.naming_scheme,
             manifest_yaml="",
             errors=[
                 _issue(
@@ -1907,21 +1797,6 @@ def discover_family_package_manifest(
         )
     errors: list[FamilyImportValidationIssue] = []
     warnings: list[FamilyImportValidationIssue] = []
-    if request.naming_scheme not in NAMING_SCHEMES:
-        errors.append(
-            _issue(
-                "naming_scheme_unsupported",
-                f"Unsupported naming scheme: {request.naming_scheme}",
-            )
-        )
-        return FamilyPackageManifestBuildOut(
-            valid=False,
-            family_id=request.family_id,
-            manifest_path=str(root / "manifest.yaml"),
-            naming_scheme=request.naming_scheme,
-            manifest_yaml="",
-            errors=errors,
-        )
     if not root.exists() or not root.is_dir():
         errors.append(
             _issue(
@@ -1933,76 +1808,27 @@ def discover_family_package_manifest(
         return FamilyPackageManifestBuildOut(
             valid=False,
             family_id=request.family_id,
-            manifest_path=str(root / "manifest.yaml"),
-            naming_scheme=request.naming_scheme,
             manifest_yaml="",
             errors=errors,
-        )
-    # A manifest name that is a symlink out of the package (or one that loops): its manifest
-    # is not read, and no draft is made that Write manifest would write through the link.
-    manifest_link = manifest_link_out_of_package(root)
-    if manifest_link is not None:
-        return FamilyPackageManifestBuildOut(
-            valid=False,
-            family_id=request.family_id,
-            manifest_path=str(root / "manifest.yaml"),
-            naming_scheme=request.naming_scheme,
-            manifest_yaml="",
-            errors=[manifest_outside_package_issue(manifest_link)],
         )
     # A PED folder or a long-read folder that is a symbolic link is followed below, wherever
     # it leads; the user is told which and where (SEC-27).
     warnings.extend(package_folder_link_issues(root))
 
-    # Prefer an explicit request id, then an existing manifest's family_id (the
-    # validate/import path already does this), and only fall back to the folder
-    # name. Otherwise a package whose folder name differs from its declared
-    # family_id (and PED) is wrongly rejected as a mismatch on discover.
-    existing_manifest = _existing_manifest_dict(root)
-    manifest_family_id = existing_manifest.get("family_id")
-    family_id = (
-        request.family_id
-        or (manifest_family_id if isinstance(manifest_family_id, str) else None)
-        or root.name
-    ).strip()
-    family_source = (
-        "the family_id of the request"
-        if request.family_id
-        else "the manifest's family_id"
-        if isinstance(manifest_family_id, str) and manifest_family_id
-        else "the folder name"
-    )
+    # The family the package file names, else the folder's name.
+    family_id = (request.family_id or root.name).strip()
+    family_source = "the family_id of the request" if request.family_id else "the folder name"
     # An ID the rule takes is one name (no `/` or `\`, not `.` or `..`, SEC-15), so no file
     # Discover names after it lies outside the package.
     family_issue = family_id_issue(family_id, source=family_source)
     if family_issue is not None:
         return _no_draft_for_an_id(request, root, family_id=None, errors=[family_issue], warnings=warnings)
-    ped_path, ped_errors, ped_warnings = _detect_ped_path(
-        root,
-        requested_ped_path=request.ped_path,
-        family_id=family_id,
-    )
+    ped_path, ped_errors, ped_warnings = _detect_ped_path(root, family_id=family_id)
     parsed_ped: ParsedPed | None = None
-    use_db_structure = ped_path is None and bool(db_sample_ids)
     # A long-read package without a PED (the pipeline writes none for a couple screened
-    # for carriership): the members are its per-sample folders, named in the manifest.
-    existing_family_block = existing_manifest.get("family")
-    folder_sample_ids = (
-        long_read_sample_ids(root)
-        if ped_path is None and not use_db_structure and not request.ped_path and not ped_warnings
-        else []
-    )
-    if use_db_structure:
-        # Existing family with no PED on disk: take the sample list from the
-        # family already configured in the database instead of erroring.
-        warnings.append(
-            _issue(
-                "ped_from_database",
-                "No PED file found; using the family structure already configured in the database.",
-                path=root,
-            )
-        )
-    elif not folder_sample_ids:
+    # for carriership): the members are its per-sample folders.
+    folder_sample_ids = long_read_sample_ids(root) if ped_path is None and not ped_warnings else []
+    if not folder_sample_ids:
         errors.extend(ped_errors)
         warnings.extend(ped_warnings)
         if ped_path is not None:
@@ -2018,9 +1844,6 @@ def discover_family_package_manifest(
         sample_ids = parsed_ped.sample_ids
         errors.extend(sample_id_issues(sample_ids, source="in the PED", path=ped_path))
         errors.extend(_absent_parent_id_issues(parsed_ped, path=ped_path))
-    elif use_db_structure:
-        sample_ids = list(db_sample_ids or [])
-        errors.extend(sample_id_issues(sample_ids, source="of the family in the database"))
     else:
         sample_ids = []
     if parsed_ped is not None:
@@ -2045,7 +1868,7 @@ def discover_family_package_manifest(
                 if ped_family_issue is not None:
                     errors.append(ped_family_issue)
 
-    # The family block: an existing manifest's own, else what the PGT pipeline's
+    # The family block: a long-read package's per-sample folders, or what the PGT pipeline's
     # samplesheet says (embryo roles, an index the PED lacks). Members it adds count as
     # samples for the per-sample datasets below.
     parent_ids = (
@@ -2067,13 +1890,11 @@ def discover_family_package_manifest(
         root, sample_ids=[*sample_ids, *pipeline_roles], parent_ids=parent_ids
     )
     warnings.extend(run_warnings)
-    family_block: dict[str, Any] = existing_family_block if isinstance(existing_family_block, dict) else {}
-    added_source = "under family.add_members"
-    if folder_sample_ids and not _added_member_ids(family_block):
-        proposed_block, folder_warnings = long_read_family_block(root, folder_sample_ids)
-        family_block = {**proposed_block, **family_block}
+    family_block: dict[str, Any] = {}
+    added_source = "the name of its per-sample folder"
+    if folder_sample_ids:
+        family_block, folder_warnings = long_read_family_block(root, folder_sample_ids)
         warnings.extend(folder_warnings)
-        added_source = "the name of its per-sample folder"
     if not family_block and parsed_ped is not None and pipeline_roles:
         family_block, pgt_warnings = pgt_family_block(
             root=root,
@@ -2091,25 +1912,18 @@ def discover_family_package_manifest(
         )
     sample_ids = [*sample_ids, *added_ids]
 
-    # No PED file when the manifest names the members (family.add_members of a PED-less
+    # No PED file when the draft names the members (family.add_members of a PED-less
     # long-read package). Without one found, the draft names the PED it expects after the
     # family, unless the family ID puts that outside the package.
     expected_ped = None if path_leaves_package(f"{family_id}.ped") else f"{family_id}.ped"
     ped_relative_path: str | None = (
-        _display_path(root, ped_path)
-        if ped_path is not None
-        else None
-        if folder_sample_ids
-        else (request.ped_path or expected_ped)
+        _display_path(root, ped_path) if ped_path is not None else None if folder_sample_ids else expected_ped
     )
     manifest_payload, availability = _build_manifest_payload(
         root=root,
         family_id=family_id,
         ped_relative_path=ped_relative_path,
         sample_ids=sample_ids,
-        naming_scheme=request.naming_scheme,
-        hpo_terms=request.hpo_terms,
-        notes=request.notes,
         # The PGT pipeline's region and traced parent are read from its newest params
         # (pgt_run_context): its run records stay the newest too, so both name one run.
         newest_run_records=bool(pipeline_roles),
@@ -2129,14 +1943,6 @@ def discover_family_package_manifest(
                     dataset="snv",
                 )
             )
-    existing_roi = existing_manifest.get("roi")
-    if existing_roi:
-        roi = existing_roi
-    existing_metadata = existing_manifest.get("metadata")
-    if isinstance(existing_metadata, dict) and existing_metadata:
-        # The request's HPO terms and notes win; everything else the manifest recorded
-        # (the PGT context, say) stays.
-        manifest_payload["metadata"] = {**existing_metadata, **manifest_payload.get("metadata", {})}
     # The run's index, when it is a member: with the inheritance model set, the import
     # derives its status as it does the affected parent's.
     indexes = sorted(
@@ -2144,49 +1950,16 @@ def discover_family_package_manifest(
     )
     if traced_parent or indexes:
         metadata_block = manifest_payload.setdefault("metadata", {})
-        existing_pgt = metadata_block.get("pgt")
-        pgt_block = dict(existing_pgt) if isinstance(existing_pgt, dict) else {}
-        # An affected parent or index the manifest already names stays.
-        if traced_parent and not any(key in pgt_block for key in ("affected_parents", "affected_parent")):
+        pgt_block: dict[str, Any] = {}
+        if traced_parent:
             pgt_block["affected_parents"] = [traced_parent]
-        if indexes and "indexes" not in pgt_block:
+        if indexes:
             pgt_block["indexes"] = indexes
         metadata_block["pgt"] = pgt_block
     if roi:
         manifest_payload["roi"] = roi
     if family_block:
         manifest_payload["family"] = family_block
-    for key in ("phenotypes", "individuals"):
-        if key in existing_manifest:
-            manifest_payload[key] = existing_manifest[key]
-    # Preserve an existing manifest's analysis_type / samples (e.g. the NIPT tags)
-    # so re-discovering and writing the manifest does not silently drop them.
-    existing_analysis_type = existing_manifest.get("analysis_type")
-    if isinstance(existing_analysis_type, str) and existing_analysis_type.strip():
-        manifest_payload["analysis_type"] = existing_analysis_type.strip()
-    existing_samples = existing_manifest.get("samples")
-    if existing_samples:
-        manifest_payload["samples"] = existing_samples
-    # The existing manifest is authoritative for the datasets it declares; the
-    # scanner only augments with newly detected ones. Without this, an explicit
-    # dataset (e.g. snv: {family_vcf: nipt_combined.vcf}) is clobbered by the
-    # disabled auto-detected block whose naming pattern matched nothing, so the
-    # combined VCF would silently not import.
-    existing_datasets = existing_manifest.get("datasets")
-    if isinstance(existing_datasets, dict):
-        payload_datasets = manifest_payload.setdefault("datasets", {})
-        availability_by_type = {item.dataset_type: index for index, item in enumerate(availability)}
-        for dataset_type, dataset_config in existing_datasets.items():
-            payload_datasets[dataset_type] = dataset_config
-            # Reflect the explicit dataset in the availability table too, so it is
-            # not shown as "not enabled" just because its filename does not match
-            # a scanner pattern.
-            item = _availability_from_manifest_dataset(root, dataset_type, dataset_config)
-            if dataset_type in availability_by_type:
-                availability[availability_by_type[dataset_type]] = item
-            else:
-                availability_by_type[dataset_type] = len(availability)
-                availability.append(item)
     # A NIPT file whose one column is named neither as its member nor in its entry, which the
     # import reads as the member's calls all the same: said before the manifest is written,
     # as the validation says it (CLIN-13).
@@ -2217,110 +1990,9 @@ def discover_family_package_manifest(
         valid=not errors,
         family_id=family_id,
         ped_path=ped_relative_path,
-        manifest_path=str(root / "manifest.yaml"),
-        naming_scheme=request.naming_scheme,
         sample_ids=sample_ids,
         manifest_yaml=manifest_yaml,
         datasets=availability,
         errors=errors,
         warnings=warnings,
-        metadata={
-            "hpo_terms": [term.strip() for term in request.hpo_terms if term.strip()],
-            "notes": request.notes.strip() if request.notes and request.notes.strip() else None,
-        },
-    )
-
-
-_MANIFEST_FILE = "manifest.yaml"
-
-
-def _write_manifest_in_folder(root: Path, manifest_yaml: str) -> Path:
-    """Write ``manifest.yaml`` in the package folder ``root``, never through a symlink.
-
-    The checks before find no link out of the package, but a link put in the manifest's place
-    between them and the write was followed: the text replaced, or created, the file the link
-    names, wherever it lies (SEC-27). So the text goes into a new file of the folder, created
-    exclusively and never through a link (``O_CREAT | O_EXCL | O_NOFOLLOW``), which is then
-    renamed over ``manifest.yaml``: a rename replaces the name itself, never what a link of
-    that name points at. Both are made relative to the folder, opened once and not through a
-    link either, so the file lands in the folder that was checked. A ``manifest.yaml`` that is
-    a link within the package is replaced by the file, the link's target left as it was."""
-    folder = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-    temporary = f".{_MANIFEST_FILE}.{uuid4().hex}.tmp"
-    try:
-        # Owner read-write only: a manifest names the samples and may hold HPO terms and
-        # notes, so neither the group nor others read or write it, whatever the umask. CoGA
-        # reads it as the same user that writes it.
-        descriptor = os.open(
-            temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=folder
-        )
-        try:
-            with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-                handle.write(manifest_yaml)
-                handle.flush()
-                os.fsync(handle.fileno())
-            os.replace(temporary, _MANIFEST_FILE, src_dir_fd=folder, dst_dir_fd=folder)
-        except BaseException:
-            with suppress(FileNotFoundError):
-                os.unlink(temporary, dir_fd=folder)
-            raise
-    finally:
-        os.close(folder)
-    return root / _MANIFEST_FILE
-
-
-# The errors writing into a folder CoGA may not write gives: a read-only mount (EROFS), or a
-# folder whose permissions refuse the backend's user (EACCES, EPERM).
-_UNWRITABLE_FOLDER_ERRORS = frozenset({errno.EROFS, errno.EACCES, errno.EPERM})
-MANIFEST_FOLDER_NOT_WRITABLE = (
-    "The package folder cannot be written (it is read-only, as a share mounted read-only is), "
-    "so manifest.yaml was not written. Import the package with this manifest kept in CoGA "
-    "instead: the import job keeps it, and reads it instead of a file in the folder."
-)
-
-
-def write_family_package_manifest(
-    *,
-    folder_path: str | Path,
-    manifest_yaml: str,
-    overwrite: bool,
-    fallback_ped_text: str | None = None,
-) -> FamilyPackageManifestWriteOut:
-    root = _ensure_authorized_package_path(Path(folder_path))
-    if not root.exists() or not root.is_dir():
-        raise HTTPException(status_code=404, detail="Family package folder not found")
-    # Never written through a symlink out of the package: the manifest replaced, or created,
-    # a file wherever the link pointed. Nor through one that loops.
-    manifest_link = manifest_link_out_of_package(root)
-    if manifest_link is not None:
-        raise HTTPException(status_code=400, detail=manifest_outside_package_issue(manifest_link).message)
-    manifest_path = root / "manifest.yaml"
-    if manifest_path.exists() and not overwrite:
-        raise HTTPException(status_code=409, detail="manifest.yaml already exists")
-    try:
-        payload = yaml.safe_load(manifest_yaml)
-    except yaml.YAMLError as exc:
-        raise HTTPException(status_code=400, detail=f"Manifest YAML does not parse: {exc}") from exc
-    if not isinstance(payload, dict):
-        raise HTTPException(status_code=400, detail="Manifest YAML must contain a mapping/object")
-    # Refused before it is written: no path or name holds one, and every look-up of a path
-    # with one raised ValueError (SAFE-5).
-    nul_at = nul_location(payload)
-    if nul_at is not None:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Manifest YAML holds a NUL character at {nul_at}, which no path or name can hold",
-        )
-    PackageManifest.model_validate(payload)
-    try:
-        manifest_path = _write_manifest_in_folder(root, manifest_yaml)
-    except OSError as exc:
-        # A folder CoGA cannot write, such as a share mounted read-only: said as such, not as a
-        # server error, with what to do instead.
-        if exc.errno not in _UNWRITABLE_FOLDER_ERRORS:
-            raise
-        raise HTTPException(status_code=409, detail=MANIFEST_FOLDER_NOT_WRITABLE) from exc
-    return FamilyPackageManifestWriteOut(
-        manifest_path=str(manifest_path),
-        validation=validate_family_package(root, fallback_ped_text=fallback_ped_text),
     )

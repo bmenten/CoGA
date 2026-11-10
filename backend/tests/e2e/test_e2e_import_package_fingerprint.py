@@ -6,14 +6,15 @@ over each file's path, size and modification time and the manifest CoGA keeps) i
 the validation reads the folder: a dry run reports it, the job keeps the one it was queued with,
 and the family's package record the one it was imported with.
 
-Through the app over HTTP (an in-process ``httpx.ASGITransport`` client on one event loop, see
-test_e2e_api_contract.py), as the e2e administrator, for a one-sample package: validation reports
-the fingerprint; a dry run queued with it keeps it and the worker finds the folder as it was; a
-file is then added to the folder, and the import that follows the dry run is refused (409) before
-a job is written. The import queued without the dry run's fingerprint keeps the folder's as it is
-then; the pipeline rewrites a file before the worker starts the job, and the job ends failed
-having written nothing: no family. Queued again, the import runs: the family's package record
-keeps the fingerprint, and the job says the folder did not change while it was imported.
+As the e2e administrator, for a one-sample package, its jobs queued as an approved delivery
+queues them and read over HTTP (an in-process ``httpx.ASGITransport`` client on one event loop,
+see test_e2e_api_contract.py): validation reports the fingerprint; a dry run keeps it and the
+worker finds the folder as it was. A file is then added to the folder, and an import is queued
+with the folder's fingerprint as it is then; the pipeline rewrites a file before the worker
+starts the job, and the job ends failed having written nothing: no family. Queued again, the
+import runs: the family's package record keeps the fingerprint, and the job says the folder did
+not change while it was imported. (A delivery whose folder changed since it was checked is
+refused at its approval: test_e2e_import_delivery_approval.py.)
 
 The values are synthetic: the family is new and uniquely named, the job rows end completed or
 failed. Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``e2e`` job sets it.
@@ -29,7 +30,7 @@ import pytest
 from sqlalchemy import text
 
 from backend.tests.e2e._harness import capture, ensure_postgres_schema
-from backend.tests.e2e._import_jobs import claim_import_job, one_sample_package
+from backend.tests.e2e._import_jobs import claim_import_job, one_sample_package, queue_import
 
 pytestmark = pytest.mark.integration
 
@@ -48,6 +49,7 @@ async def _exercise(base: Path, run: str) -> dict[str, Any]:
         ensure_clickhouse_variant_tables,
     )
     from backend.app.services.family_package_fingerprint import package_fingerprint
+    from backend.app.services.family_package_validation import load_validated_family_package
     from backend.tests.e2e import _harness
 
     await ensure_postgres_schema()
@@ -81,49 +83,25 @@ async def _exercise(base: Path, run: str) -> dict[str, Any]:
     try:
         async with AsyncClient(transport=transport, base_url="http://e2e") as client:
             headers = {"Authorization": f"Bearer {await _harness.login_admin_token(client)}"}
-            body = {"folder_path": str(package), "project_id": project_id, "conflict_mode": "cancel"}
             out["fingerprint_before"] = fingerprint()
-            out["validated"] = capture(
-                await client.post("/api/family-imports/validate", json=body, headers=headers)
-            )
+            validation, _bundle = load_validated_family_package(package)
+            out["validated"] = {"valid": validation.valid, "package_fingerprint": validation.package_fingerprint}
 
-            dry_run = await client.post("/api/family-imports", json={**body, "dry_run": True}, headers=headers)
-            out["dry_run_queued"] = capture(dry_run)
-            jobs.append(str(dry_run.json()["_id"]))
+            jobs.append(await queue_import(package, project_id, dry_run=True))
             out["dry_run"] = await run_job(client, headers, jobs[-1])
-            checked = out["dry_run"]["json"]["package_fingerprint"]
 
-            # The pipeline adds a file after the dry run: the import that follows it is refused.
+            # The pipeline adds a file after the dry run; the import is queued as the folder is
+            # now, and the pipeline rewrites a file before the job starts.
             (package / "snv" / "family.vcf.md5").write_text("0" * 32 + "  family.vcf\n", encoding="utf-8")
-            out["refused"] = capture(
-                await client.post(
-                    "/api/family-imports",
-                    json={**body, "dry_run": False, "expected_package_fingerprint": checked},
-                    headers=headers,
-                )
-            )
-            async with sessionmaker() as session:
-                out["jobs_after_refusal"] = (
-                    await session.execute(
-                        text("SELECT count(*) FROM family_import_jobs WHERE submitted_path = :p"),
-                        {"p": str(package)},
-                    )
-                ).scalar_one()
-
-            # Queued as the folder is now; the pipeline rewrites a file before the job starts.
             out["fingerprint_queued"] = fingerprint()
-            changed = await client.post("/api/family-imports", json={**body, "dry_run": False}, headers=headers)
-            out["changed_queued"] = capture(changed)
-            jobs.append(str(changed.json()["_id"]))
+            jobs.append(await queue_import(package, project_id))
             (package / "snv" / "family.vcf.md5").write_text("1" * 32 + "  family.vcf\n", encoding="utf-8")
             out["fingerprint_changed"] = fingerprint()
             out["changed"] = await run_job(client, headers, jobs[-1])
             out["families_after_changed"] = await families()
 
             # Queued again, as the folder is now: it imports.
-            imported = await client.post("/api/family-imports", json={**body, "dry_run": False}, headers=headers)
-            out["imported_queued"] = capture(imported)
-            jobs.append(str(imported.json()["_id"]))
+            jobs.append(await queue_import(package, project_id))
             out["imported"] = await run_job(client, headers, jobs[-1])
         async with sessionmaker() as session:
             family = (
@@ -177,32 +155,19 @@ def ran(tmp_path_factory, request) -> dict[str, Any]:
 
 
 def test_validation_and_the_dry_run_report_the_folders_fingerprint(ran) -> None:
-    validated = ran["validated"]
-    assert validated["status"] == 200, validated
-    assert validated["json"]["valid"] is True, validated["json"]["errors"]
-    assert validated["json"]["package_fingerprint"] == ran["fingerprint_before"]
-    assert ran["dry_run_queued"]["json"]["package_fingerprint"] == ran["fingerprint_before"]
+    assert ran["validated"] == {"valid": True, "package_fingerprint": ran["fingerprint_before"]}
     dry_run = ran["dry_run"]["json"]
+    assert dry_run["package_fingerprint"] == ran["fingerprint_before"]
     assert dry_run["status"] == "completed", (dry_run["error"], dry_run["validation_errors"])
     assert f"Package fingerprint {ran['fingerprint_before'][:12]}: the folder is as it was when the job was queued." in dry_run["logs"]
-
-
-def test_an_import_of_a_folder_that_changed_since_its_dry_run_is_refused_before_a_job_is_written(ran) -> None:
-    from backend.app.services.family_package_jobs import PACKAGE_CHANGED_SINCE_CHECKED
-
-    refused = ran["refused"]
-    assert refused["status"] == 409, refused
-    assert refused["json"]["detail"] == PACKAGE_CHANGED_SINCE_CHECKED
-    # The dry run is the folder's one job by then.
-    assert ran["jobs_after_refusal"] == 1
 
 
 def test_a_job_whose_folder_changed_after_it_was_queued_writes_nothing(ran) -> None:
     from backend.app.services.family_package_import import PACKAGE_CHANGED_SINCE_QUEUED
 
     assert ran["fingerprint_queued"] != ran["fingerprint_before"]
-    assert ran["changed_queued"]["json"]["package_fingerprint"] == ran["fingerprint_queued"]
     changed = ran["changed"]["json"]
+    assert changed["package_fingerprint"] == ran["fingerprint_queued"]
     assert changed["status"] == "failed", changed
     assert [(issue["code"], issue["message"]) for issue in changed["validation_errors"]] == [
         ("package_changed_since_queued", PACKAGE_CHANGED_SINCE_QUEUED)

@@ -50,7 +50,7 @@ import pytest
 from sqlalchemy import text
 
 from backend.tests.e2e._harness import DRIFT_AND_QC_ACKNOWLEDGED, capture, ensure_postgres_schema, gate_refusal
-from backend.tests.e2e._import_jobs import claim_import_job
+from backend.tests.e2e._import_jobs import claim_import_job, queue_import
 
 pytestmark = pytest.mark.integration
 
@@ -179,17 +179,12 @@ async def _collect(base: Path, mp: pytest.MonkeyPatch) -> dict:
                 sign_out: bool = True,
             ) -> None:
                 root = _write_package(base / name / family_id, family_id, imputed=imputed)
-                body: dict[str, Any] = {
-                    "folder_path": str(root),
-                    "project_id": project_id,
-                    "dry_run": False,
-                    "conflict_mode": conflict_mode,
-                }
-                if conflict_mode != "cancel":
-                    body["family_id"] = family_id
-                resp = await ac.post("/api/family-imports", json=body)
-                assert resp.status_code == 200, resp.text
-                job_id = str(resp.json()["_id"])
+                job_id = await queue_import(
+                    root,
+                    project_id,
+                    conflict_mode=conflict_mode,
+                    family_id=family_id if conflict_mode != "cancel" else None,
+                )
                 jobs.append(job_id)
                 worker = f"e2e-auto-{uuid4().hex[:8]}"
                 await claim_import_job(job_id, worker)

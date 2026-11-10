@@ -21,7 +21,6 @@ from ..core.config import settings
 from ..core.object_storage import (
     download_prefix,
     is_remote_uri,
-    list_remote_package_candidates,
     parse_remote_uri,
     remote_uri_within,
 )
@@ -38,6 +37,7 @@ from .family_package_common import (
     runs_through_symlink_loop,
 )
 from .family_package_long_read import LONG_READ_SAMPLE_DATASET_FOLDERS, long_read_sample_ids
+from .coga_package import PACKAGE_FILE_NAME
 
 
 # Aligned reads and their indexes. Staging a remote package leaves these in the store:
@@ -180,30 +180,6 @@ def local_family_package_folder(package_folder: object) -> str | None:
     return folder
 
 
-def _load_manifest_dict(manifest_path: Path) -> dict[str, Any]:
-    """Loosely load a manifest (YAML/JSON) to a dict, or {} on any error."""
-    try:
-        text_value = manifest_path.read_text()
-        if manifest_path.suffix in (".yaml", ".yml"):
-            data = yaml.safe_load(text_value)
-        else:
-            data = json.loads(text_value)
-    except Exception:  # noqa: BLE001 - an unreadable manifest is listed without its details
-        return {}
-    return data if isinstance(data, dict) else {}
-
-
-def _scan_manifest_info(manifest_path: Path) -> dict[str, Any]:
-    """Loosely read a manifest's family_id / analysis_type for the package list."""
-    data = _load_manifest_dict(manifest_path)
-    return {"family_id": data.get("family_id"), "analysis_type": data.get("analysis_type")}
-
-
-def _existing_manifest_dict(root: Path) -> dict[str, Any]:
-    manifest_path = _find_manifest(root)
-    return _load_manifest_dict(manifest_path) if manifest_path is not None else {}
-
-
 def _listed_package_folder(entry: Path) -> Path | None:
     """The folder ``entry``, a name in a local import root, leads to, as selection takes it
     (``_ensure_authorized_package_path``: its symlinks resolved); None when the package list
@@ -226,13 +202,11 @@ def _listed_package_folder(entry: Path) -> Path | None:
 
 
 def scan_family_import_packages() -> list[dict[str, Any]]:
-    """List candidate family packages directly under each local import root.
-
-    A candidate is an immediate subdirectory containing a manifest
-    (manifest.yaml/.yml/.json) or a ``*.ped`` file, at its top or in its ``ped/``
-    folder (where the PGT pipeline writes it), or laid out per sample as the long-read
-    pipeline writes its output (which has no PED for a couple screened for carriership).
-    The folder path can then be selected in the import UI instead of typed by hand.
+    """The package folders directly under each local import root that can be added to Deliveries
+    by hand (import_manual_delivery.py): each one holding a ``*.ped`` file, at its top or in its
+    ``ped/`` folder (where the PGT pipeline writes it), or laid out per sample as the long-read
+    pipeline writes its output (which has no PED for a couple screened for carriership). A folder
+    that holds its own package file is left out: a pipeline delivers it through a watched folder.
 
     A folder selection would refuse is not listed, and nothing in it is read: one that is a
     symlink leading out of the import roots, or one that loops (``_listed_package_folder``).
@@ -247,56 +221,24 @@ def scan_family_import_packages() -> list[dict[str, Any]]:
             # Checked before anything in it is looked up, and read through the folder
             # selection reads.
             folder = _listed_package_folder(child)
-            if folder is None or not folder.is_dir():
+            if folder is None or not folder.is_dir() or os.path.lexists(folder / PACKAGE_FILE_NAME):
                 continue
-            manifest_path = _find_manifest(folder)
             # A folder named like a PED (``FAM1.ped/``) is none, as Discover reads it (SEC-27).
             ped_paths = [path for path in sorted(folder.glob("*.ped")) if path.is_file()] or [
                 path for path in sorted((folder / PED_FOLDER).glob("*.ped")) if path.is_file()
             ]
-            if manifest_path is None and not ped_paths and not long_read_sample_ids(folder):
+            if not ped_paths and not long_read_sample_ids(folder):
                 continue
             resolved = str(folder)
             if resolved in seen:
                 continue
             seen.add(resolved)
-            info: dict[str, Any] = {}
-            # A manifest that is a symlink out of the package is not read: the package is
-            # listed without its details, as an unreadable manifest is.
-            if manifest_path is not None and manifest_link_out_of_package(folder) is None:
-                info = _scan_manifest_info(manifest_path)
-            family_id = info.get("family_id") or child.name
             packages.append(
                 {
                     "folder_path": resolved,
                     "name": child.name,
-                    "family_id": str(family_id),
-                    "has_manifest": manifest_path is not None,
+                    "family_id": child.name,
                     "has_ped": bool(ped_paths),
-                    "analysis_type": info.get("analysis_type"),
-                }
-            )
-    for root_uri in _authorized_s3_roots():
-        # S3 listing is best-effort: a misconfigured or unreachable bucket must
-        # not break the local scan.
-        try:
-            candidates = list_remote_package_candidates(root_uri)
-        except Exception:  # noqa: BLE001 - an unreachable bucket must not break the local scan
-            continue
-        for candidate in candidates:
-            uri = str(candidate["uri"])
-            if uri in seen:
-                continue
-            seen.add(uri)
-            name = str(candidate["name"])
-            packages.append(
-                {
-                    "folder_path": uri,
-                    "name": name,
-                    "family_id": name,
-                    "has_manifest": bool(candidate["has_manifest"]),
-                    "has_ped": bool(candidate["has_ped"]),
-                    "analysis_type": None,
                 }
             )
     return packages

@@ -8,9 +8,8 @@ embryos, a phased GLIMPSE2 family VCF on chr1, AD, an ROI on chr1), imported fro
 read through the API, this:
 
 * imports the package: the family's ROI is the manifest's, and the embryos are called;
-* points the manifest's ``roi`` at a gene the assembly does not have, and runs a dry run and
-  ``POST /api/family-imports/validate``: both warn ``manifest_roi_unresolved`` and write nothing,
-  the family's ROI and calls as they were;
+* points the manifest's ``roi`` at a gene the assembly does not have, and runs a dry run: it
+  warns ``manifest_roi_unresolved`` and writes nothing, the family's ROI and calls as they were;
 * imports the package again (``update``): the family's ROI is cleared, the import's result warns
   and names the region it cleared, and no embryo is called.
 
@@ -78,12 +77,6 @@ async def _collect(root: Path, family_id: str) -> dict:
         manifest = root / "manifest.yaml"
         manifest.write_text(manifest.read_text(encoding="utf-8").replace(f'roi: "{ROI}"', f"roi: {UNKNOWN_GENE}"))
         out["dry_run"] = await run(dry_run=True, conflict_mode="update")
-        r["validate"] = capture(
-            await ac.post(
-                "/api/family-imports/validate",
-                json={"folder_path": str(root), "project_id": project_id, "family_id": family_id},
-            )
-        )
         r["after_checks"] = capture(await ac.get(f"{family}/pgt-analysis"))
 
         out["again"] = await run(dry_run=False, conflict_mode="update")
@@ -132,16 +125,14 @@ def test_the_import_gives_the_family_the_manifests_roi(unresolved) -> None:
     assert _calls(analysis) == {names["E_RISK"]: "affected_or_at_risk", names["E_CLEAR"]: "unaffected_non_carrier"}
 
 
-def test_the_dry_run_and_the_validation_warn_ahead_and_change_nothing(unresolved) -> None:
+def test_the_dry_run_warns_ahead_and_changes_nothing(unresolved) -> None:
     dry_run = unresolved["dry_run"]
-    validate = _ok(unresolved, "validate")
 
     assert dry_run["completed"] is True and dry_run["error"] is None
-    for warnings in (dry_run["warnings"], validate["warnings"]):
-        [warning] = _roi_warnings(warnings)
-        assert warning["code"] == "manifest_roi_unresolved"
-        assert f"({UNKNOWN_GENE}) was not found" in warning["message"]
-        assert "The import leaves the family without a region of interest" in warning["message"]
+    [warning] = _roi_warnings(dry_run["warnings"])
+    assert warning["code"] == "manifest_roi_unresolved"
+    assert f"({UNKNOWN_GENE}) was not found" in warning["message"]
+    assert "The import leaves the family without a region of interest" in warning["message"]
     # A check writes nothing: the family's region and its calls are as they were.
     assert _ok(unresolved, "after_checks") == _ok(unresolved, "imported")
 

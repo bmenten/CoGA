@@ -33,7 +33,6 @@ from backend.app.services.family_package_discovery import discover_family_packag
 from backend.app.services.family_package_import import execute_family_package_import
 from backend.app.services.family_package_validation import validate_family_package
 from backend.tests._bgzf import bgzip, bgzip_cut_after
-from backend.tests._family_import_fakes import signed_in_client
 
 FAMILY = "PGTFAM"
 PED = (
@@ -288,27 +287,6 @@ def test_the_whole_vcf_reader_reads_columns_and_refuses_a_cut_by_name(tmp_path: 
 
 
 # --- The routes and the dry run ---------------------------------------------------------------
-
-
-@pytest.mark.parametrize("broken", ["plain_text", "bgzf_cut_in_its_records"])
-def test_validate_and_the_manifest_write_answer_with_the_refusal(tmp_path: Path, broken: str) -> None:
-    package = _package(tmp_path, emb1=BROKEN[broken](_trio("EMB1")), phased=BROKEN[broken](_phased()))
-
-    with signed_in_client("admin", raise_server_exceptions=False) as client:
-        validate = client.post("/api/family-imports/validate", json={"folder_path": str(package)})
-        write = client.post(
-            "/api/family-imports/manifest/write",
-            json={"folder_path": str(package), "manifest_yaml": MANIFEST, "overwrite": True},
-        )
-
-    assert validate.status_code == 200, validate.text
-    assert write.status_code == 200, write.text
-    expected = [
-        ("dataset_vcf_unreadable", f"The APCAD VCF of EMB1 ({APCAD_EMB1}) could not be read{_REASON}"),
-        ("dataset_vcf_unreadable", f"The phased family VCF ({PHASED}) could not be read{_REASON}"),
-    ]
-    for errors in (validate.json()["errors"], write.json()["validation"]["errors"]):
-        assert sorted((issue["code"], issue["message"]) for issue in errors) == expected
 
 
 @pytest.mark.asyncio

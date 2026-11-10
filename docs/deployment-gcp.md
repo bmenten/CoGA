@@ -590,9 +590,7 @@ counts against `backend_memory` (2 GiB by default).
   default), all on its one core: `terraform/` runs the imports in the API's instances, not
   in import-worker processes of their own as Docker Compose does
   ([application-scheme.md](application-scheme.md#import-worker-processes)).
-- A **Validate package** run is a dry-run import job and stages the package the same way.
-  Only the API's `POST /api/family-imports/validate` stages a copy outside the jobs, and
-  deletes it before it answers.
+- A dry run is an import job and stages the package the same way.
 
 Set `backend_memory` to fit the largest package without its alignments, plus that parsing,
 for every import that may run at once.

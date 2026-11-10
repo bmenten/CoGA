@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from .common import (
     ApiDocumentModel,
@@ -100,38 +100,28 @@ class FamilyManifestDatasetAvailability(BaseModel):
 
 
 class FamilyPackageManifestBuildRequest(BaseModel):
+    """What Discover drafts a manifest for: a package folder, for the family its package file
+    names (the folder's name when None). Not served: a delivery's proposal asks for it
+    (``import_watcher._proposal``)."""
+
+    model_config = ConfigDict(extra="forbid")
+
     folder_path: str = Field(min_length=1)
-    ped_path: Optional[str] = None
     family_id: Optional[str] = None
-    naming_scheme: str = "standard_v1"
-    hpo_terms: List[str] = Field(default_factory=list)
-    notes: Optional[str] = None
 
 
 class FamilyPackageManifestBuildOut(BaseModel):
+    """Discover's draft: the manifest, the members it found, what it found of each dataset, and
+    what kept it from drafting one."""
+
     valid: bool
     family_id: Optional[str] = None
     ped_path: Optional[str] = None
-    manifest_path: str
-    naming_scheme: str
     sample_ids: List[str] = Field(default_factory=list)
     manifest_yaml: str
     datasets: List[FamilyManifestDatasetAvailability] = Field(default_factory=list)
     errors: List[FamilyImportValidationIssue] = Field(default_factory=list)
     warnings: List[FamilyImportValidationIssue] = Field(default_factory=list)
-    metadata: Dict[str, Any] = Field(default_factory=dict)
-
-
-class FamilyPackageManifestWriteRequest(BaseModel):
-    folder_path: str = Field(min_length=1)
-    manifest_yaml: str = Field(min_length=1)
-    overwrite: bool = False
-    family_id: Optional[str] = None
-
-
-class FamilyPackageManifestWriteOut(BaseModel):
-    manifest_path: str
-    validation: FamilyPackageValidationOut
 
 
 class ImportedPackageFamily(BaseModel):
@@ -146,43 +136,18 @@ class ImportedPackageFamily(BaseModel):
 
 
 class FamilyPackageCandidateOut(BaseModel):
-    """A family package discovered under the configured import roots."""
+    """A package folder under the import roots that can be added to Deliveries by hand."""
 
     folder_path: str
     name: str
     family_id: str
-    has_manifest: bool
     has_ped: bool
-    analysis_type: Optional[str] = None
     # The families imported from this folder, by their package record (none for a folder not
     # imported yet): the import page hides a folder whose families all imported completely.
     imported_families: List[ImportedPackageFamily] = Field(default_factory=list)
     # The folder's latest import was undone because the package changed while it was read: the
     # import page offers the folder again, whatever families were imported from it before.
     changed_during_import: bool = False
-
-
-# The longest manifest text an import request may give: a manifest names files and members,
-# with at most a few HPO terms and notes each, and is a few kilobytes long.
-MANIFEST_YAML_MAX_LENGTH = 1_000_000
-# A package fingerprint as the API gives it: a SHA-256, 64 lowercase hexadecimal digits.
-PACKAGE_FINGERPRINT_PATTERN = r"^[0-9a-f]{64}$"
-
-
-class FamilyPackageImportCreate(BaseModel):
-    folder_path: str = Field(min_length=1)
-    project_id: Optional[str] = None
-    dry_run: bool = False
-    family_id: Optional[str] = None
-    conflict_mode: Literal["cancel", "update", "overwrite"] = "cancel"
-    # The manifest to validate and import the package with, kept by CoGA (the job stores it),
-    # instead of the package folder's own: for a folder CoGA cannot write, such as a share
-    # mounted read-only, where Write manifest cannot put one. None reads the folder's.
-    manifest_yaml: Optional[str] = Field(default=None, min_length=1, max_length=MANIFEST_YAML_MAX_LENGTH)
-    # The package fingerprint of the dry run or validation the import follows: the import is
-    # refused (409) when the folder's, read with the same manifest, differs now. None queues the
-    # import with the folder as it is.
-    expected_package_fingerprint: Optional[str] = Field(default=None, pattern=PACKAGE_FINGERPRINT_PATTERN)
 
 
 class FamilyPackageImportJobOut(ApiDocumentModel):
@@ -203,8 +168,8 @@ class FamilyPackageImportJobOut(ApiDocumentModel):
     datasets: List[FamilyImportDatasetSummary] = Field(default_factory=list)
     metadata: Dict[str, Any] = Field(default_factory=dict)
     error: Optional[str] = None
-    # The SHA-256 of the manifest CoGA keeps for the job (FamilyPackageImportCreate.manifest_yaml);
-    # None for a job that reads the package folder's own.
+    # The SHA-256 of the manifest CoGA keeps for the job: the one an approved delivery's package
+    # makes (import_delivery_review.py).
     manifest_sha256: Optional[str] = None
     # The fingerprint of the local package folder when the job was queued: the job imports nothing
     # when the folder's differs as it starts. None for a package in a bucket, one the queue could

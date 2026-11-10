@@ -15,7 +15,7 @@ bioinformatics team keeps the technical detail (file formats, manifest fields, c
 | Page | Who | What it does |
 | --- | --- | --- |
 | **Family builder** | the analysts of a project (role analyst or higher), superusers and administrators; PED upload for administrators | Build a new family by hand: add samples, set sex and roles, link parents and couples, set affected and carrier status. An administrator can also upload a PED file. Metadata only: no data files. |
-| **Package import** | superusers and administrators; overwriting an existing family for administrators | Point at a family folder on the CoGA server, generate its manifest, validate it, then import the family **and all its data** in one job. |
+| **Package import** | superusers and administrators; overwriting an existing family for administrators | Check, correct and approve the family folders the pipelines deliver, or add a folder by hand; the family **and all its data** are then imported in one job. |
 
 **What needs an administrator.** An analyst of a project (role analyst or higher) can build a new
 family in it by hand, and add, change and remove a family's HPO terms; a viewer, or a reader of the
@@ -146,19 +146,17 @@ recorded for the [report](/docs/reference/clinical-traceability).
 
 ## Package import
 
-A package is one family folder on the CoGA server, holding the PED, the data files and a manifest that
-maps them. The folder must sit under an import folder the server is configured for; it is **not** a
-folder on your own computer. CoGA reads a package where it lies, and the genome browser reads its aligned
-reads (CRAM/BAM) from the package folder. On a cloud installation the import folder is a storage bucket.
-CoGA then copies the package for the import, except the aligned reads: they stay in the bucket, where
-the genome browser reads them. A bucket package must already hold its manifest.
+A package is one family folder on the CoGA server, holding the data files and the pipeline's package
+file (`coga-package.json`), which names the family, its members and its datasets. The folder must sit
+under an import folder the server is configured for; it is **not** a folder on your own computer. CoGA
+reads a package where it lies, and writes nothing into it; the genome browser reads its aligned reads
+(CRAM/BAM) from the package folder. A folder without a package file is added by hand: CoGA then makes
+its package from the folder's PED and layout (*Add a folder by hand*, below).
 
-A standard package looks like this. Only the PED is needed to start: CoGA writes `manifest.yaml` for
-you. Every data folder is optional.
+A standard package looks like this. Every data folder is optional.
 
 ```text
 FAM001/
-  manifest.yaml
   family.ped
   snv/        family.annotated.vcf.gz (+ .tbi)
   needlr/     family.sv.annotated.vcf.gz (+ .tbi)
@@ -174,7 +172,6 @@ Long-read packages (nf-core/lrsvar) are laid out per sample and recognised by th
 
 ```text
 pacbio/
-  manifest.yaml
   pacbio.ped
   bams/       HG002.cram (+ .crai)                          alignments
   snv/        HG002/annotation/HG002_annot.vcf.gz (+ .tbi)  VEP-annotated
@@ -189,15 +186,15 @@ pacbio/
 
 A couple screened for carriership on the long-read pipeline has **no PED** and no joint call set. Each
 partner has their own files (`snv/A/annotation/A_annot.vcf.gz`, `sv/A/needlr/A_sv_phased.needLR.4.0.vcf.gz`,
-`repeats/A/A_tr.vcf.gz`, `paraphase/A/A.paraphase.json`). The import page lists such a folder.
-**Discover manifest**:
+`repeats/A/A_tr.vcf.gz`, `paraphase/A/A.paraphase.json`). *Add a folder by hand* lists such a
+folder. Added by hand, CoGA:
 
 - takes the members from the per-sample folders, each with the sex TRGT genotyped its repeats with;
 - proposes two members of opposite sex as a couple (the female partner as mother, the male as father);
-- names them in the manifest under `family.add_members`, so no PED is needed.
+- names them as the package's members, so no PED is needed.
 
-The page shows what it proposed under *Check before writing the manifest*: check both partners, and
-their sex, before you write the manifest. The two SNV files become one call set. A site both partners
+The delivery says what CoGA proposed: check both partners, and their sex, before you approve it
+(**Correct…** changes them). The two SNV files become one call set. A site both partners
 carry is one variant with both calls. A partner whose file has no record at the other's variant is read
 as reference, as a joint VCF would call a covered site. DeepVariant's reference and no-call records are
 kept only where the other partner has a variant.
@@ -216,7 +213,7 @@ FAM001/
   pipeline_info/  software_versions.yaml, params_*.json, execution_report_*.html
 ```
 
-**Discover manifest** reads the family call set as DeepVariant's own calls: not as imputed genotypes, and
+CoGA reads the family call set as DeepVariant's own calls: not as imputed genotypes, and
 without DeepVariant's reference and no-call records. It takes only `bams/<sample>/<sample>.cram` as a
 sample's alignment, not a `<sample>_phased.bam` beside it. When the run was started several times, it names
 the pipeline records of the last run that completed.
@@ -240,16 +237,16 @@ FAM001/
   pipeline_info/  params_*.json, copgtm_software_mqc_versions.yml
 ```
 
-**Discover manifest** reads the samplesheet: the embryos get the embryo role, and an index the PED lacks
-is added. The pipeline does not say how the index is related, so Discover proposes a link from what KING
+Added by hand, CoGA reads the samplesheet: the embryos get the embryo role, and an index the PED lacks
+is added. The pipeline does not say how the index is related, so CoGA proposes a link from what KING
 measured against the couple:
 
 - the couple's child, when it is first-degree to both parents;
 - otherwise a relative of unknown degree (**Related to**, a dotted arc in the pedigree) of the parent it
   is related to, or of the affected parent.
 
-The warning says which link it proposed. Change it before you write the manifest, or afterwards in
-**Admin → Family & sample data**. Without a link, the index's haplotype stays grey and does not help
+The warning says which link it proposed. Change it with **Correct…** before you approve the delivery,
+or afterwards in **Admin → Family & sample data**. Without a link, the index's haplotype stays grey and does not help
 find the risk haplotype.
 
 The parent the pipeline traced is recorded as the affected parent (`metadata.pgt.affected_parents`), and
@@ -277,23 +274,23 @@ The rest of a PGT package:
 - The run's segregation table (`_APCAD_segregation_data.csv`, the sites where one parent is
   heterozygous) goes into the embryo's *Parental origin* track of the chromosome view.
 - The run's mtDNA-Server table (`mito/variants.annotated.txt`) gives each member it holds rows for its
-  chrM calls. Discover matches the table's `ID` (the sample's chrM BAM) to the member.
+  chrM calls. CoGA matches the table's `ID` (the sample's chrM BAM) to the member.
 
 CoGA knows several usual file names per layer, so packages from slightly different pipelines are still
-found; **Discover manifest** shows what it found. When a caller names a VCF's sample column after its
+found; a folder added by hand shows what CoGA found. When a caller names a VCF's sample column after its
 input file (`Sample0`, `HG002_sort`) rather than the sample, CoGA binds a single-sample VCF to the sample
 it was declared for. A column that matches no sample in the family stops the import instead of being
 dropped silently.
 
-**Discover manifest** looks only inside the family folder, and reads each ID as written: a `*`, `?` or
-`[` in a family or sample ID matches only itself, so one sample never takes another's file. A family or
-sample ID that is a path out of the folder (an absolute path, or one that climbs out with `..`) names no
-file Discover looks for; Discover warns about it under *Check before writing the manifest*.
+CoGA looks only inside the family folder, and reads each ID as written: a `*`, `?` or `[` in a family
+or sample ID matches only itself, so one sample never takes another's file. A family or sample ID that
+is a path out of the folder (an absolute path, or one that climbs out with `..`) names no file CoGA
+looks for, and is refused.
 
-**The manifest is a file in the family folder**, or the one CoGA keeps for the import (step 5). A `manifest.yaml` that is a link to a file elsewhere,
-or a link that loops, is refused (`manifest_outside_package`): Discover drafts nothing, and **Write
-manifest.yaml** does not write through the link. Every path in the manifest is relative to the family
-folder. A path is refused when it leads out of the folder, starts with `~` (CoGA reads no home folder)
+**CoGA reads no manifest in the family folder**: the import reads the one CoGA keeps, made from the
+delivery's package, and the family's files hold a copy of it. A `manifest.yaml` in the folder that is a
+link to a file elsewhere, or a link that loops, is refused (`manifest_outside_package`). Every path the
+package names is relative to the family folder. A path is refused when it leads out of the folder, starts with `~` (CoGA reads no home folder)
 or runs through a link that loops.
 
 ### Deliveries from the pipelines
@@ -355,14 +352,14 @@ the repository (`docs/coga-package.md`, `docs/schemas/`). A short one:
 ```
 
 - `members` is the pedigree: the import reads it, not a PED. A package file without `members` or
-  `datasets` has them proposed from the folder, as **Discover manifest** does (from its PED and its
-  layout); the delivery then warns you to check them.
+  `datasets` has them proposed from the folder (from its PED and its layout); the delivery then warns
+  you to check them.
 - A field the format does not know is refused, so a misspelt one is never ignored.
 
 **What CoGA checks.** The package file follows the format. Every listed file is there at its size,
 with its checksum. Every file the import reads is listed; a file in the folder the package file
 does not list is a warning. The project exists with the package file's assembly, and the package
-passes validation as **Validate package** runs it. A PED in the folder that says otherwise than the
+passes validation as a dry run runs it. A PED in the folder that says otherwise than the
 package file's members is a warning: the pipeline may have used it. Each check that fails is listed
 with the delivery.
 
@@ -397,8 +394,8 @@ with the delivery.
     open it again.
 - **Add a folder by hand** (above the list) adds a folder no pipeline delivered: choose it (or type
   its path), its project and its analysis, and, when it is not the folder's name, its family ID. CoGA
-  makes its package from the folder, with the members and datasets **Discover manifest** would
-  propose, and checks it as a pipeline's delivery; it is listed as *Added by hand*. Check and correct
+  makes its package from the folder, with the members and datasets it proposes from the folder's PED
+  and layout, and checks it as a pipeline's delivery; it is listed as *Added by hand*. Check and correct
   it with **Correct…**, then approve it. CoGA writes nothing in the folder and computes no checksums:
   the import records each file it reads. A folder that holds its own `coga-package.json` is delivered
   through a watched folder instead, and a folder whose delivery waits already is not added twice.
@@ -412,33 +409,22 @@ ends. The decided and superseded deliveries are listed on request.
 
 ### The steps
 
-1. **Family folder.** Pick the folder from the list of families found in the import folder (or type
-   its path), and the **Project** the family goes into. The PED is found automatically. A folder that
-   is a link leading out of the import folder, or a link that loops, is not listed, and CoGA reads
-   nothing in it; typed, it is refused with the reason. A folder a family was imported from is
-   hidden: tick **Show imported folders** to list it, marked *imported as …*. A folder whose last
-   import did not complete stays listed, marked *import incomplete*. Choose or type an imported
-   folder, and the page says which family came from it, and when.
-2. **Family destination.** Choose *New family* or *Existing family*, and the **Existing data policy**
-   (table below).
-3. **HPO terms and notes** for the family (optional). To add a phenotype file or HPO terms per person,
-   edit the manifest before you write it.
-4. **Discover manifest.** CoGA reads the PED, looks for the expected files and shows a draft manifest
-   with a table of the data it found.
-5. **Write manifest.yaml** (edit it first if needed). A folder CoGA cannot write, such as a share
-   mounted read-only, gets no file: tick **Import with this manifest, kept in CoGA** instead. The
-   import job keeps the manifest and reads it instead of a file in the folder, and the family's files
-   hold a copy of it. The draft is used only with the folder it was drafted for.
-6. **Validate, then import.** With **Dry run** ticked, **Validate package** checks everything without
-   writing anything. When it is clean, untick it and press **Start import**. Only an administrator
-   overwrites an existing family: for anyone else, *Overwrite* without a dry run shows a note and
-   **Start import** stays disabled. An import of the same folder, with the same manifest, is checked
-   against that dry run: if a file in the folder was added, removed or changed since, the import is
-   refused and nothing is queued. Run the dry run again and check its report. A job also imports
-   nothing when the folder changed after it was queued, and is undone when it changed while it was
-   read: a new family is removed, an existing family put back as it was (*package fingerprint*,
-   shown with the job). The folder is then listed again, marked *changed during import*.
-7. **Follow the job** under *Recent family imports*: status, log, validation errors, warnings and a
+1. **A delivery arrives.** A pipeline writes its package into a watched import folder, and the
+   delivery is listed under *Deliveries* once its package file says the run is complete. A folder no
+   pipeline delivered is added with **Add a folder by hand**: choose it (or type its path), its
+   **Project** and its analysis. A folder that is a link leading out of the import folder, or a link
+   that loops, is not listed, and CoGA reads nothing in it; typed, it is refused with the reason. A
+   folder a family was imported from is marked *imported*.
+2. **Check and correct.** Read the delivery's issues and warnings, and open **Correct…** to complete or
+   correct what the package says (the project, the analysis, the members, the datasets), with a reason.
+3. **Dry run.** **Dry run** checks the delivery as an import would, without writing anything; its job
+   shows under *Recent family imports*.
+4. **Approve.** **Approve…** queues the import. When the family exists already, choose the **Existing
+   data policy** (table below); only an administrator overwrites an existing family. An approval of a
+   delivery whose folder changed since it was checked is refused. A job also imports nothing when the
+   folder changed after it was queued, and is undone when it changed while it was read: a new family
+   is removed, an existing family put back as it was (*package fingerprint*, shown with the job).
+5. **Follow the job** under *Recent family imports*: status, log, validation errors, warnings and a
    summary per dataset. While a dataset imports, the page shows how much of its files has been read and
    about how long it should still take, at the pace so far. A finished dataset shows how long it took.
    The estimate covers the running dataset only; the page says how many datasets follow. A dataset
@@ -532,12 +518,12 @@ Paraphase results are replaced.
 
 ### What validation checks
 
-- The folder and the manifest exist, and the manifest is a file in the folder, not a link out of it.
+- The folder exists, and holds no manifest file that is a link out of it.
 - Every family and sample ID follows the ID rule above (*The two ways in*): the manifest's family ID or
-  the folder name, the PED's IDs, and in Discover a parent the PED names without a row of its own, the
-  members the manifest adds and a long-read package's per-sample folders. An ID that fails is refused
-  (`family_id_invalid`, `sample_id_invalid`), and nothing else is checked until it is corrected: Discover
-  drafts no manifest for it.
+  the folder name, the PED's IDs, and, as CoGA proposes members, a parent the PED names without a row of
+  its own, the members the manifest adds and a long-read package's per-sample folders. An ID that fails
+  is refused (`family_id_invalid`, `sample_id_invalid`), and nothing else is checked until it is
+  corrected: CoGA proposes no members for it.
 - The PED is a six-column PED with **one family**, whose identifier matches the manifest's (by default
   the folder name). Sample identifiers are unique, and every parent is a sample in the same PED. A
   manifest without a PED names every member under `family.add_members`.
@@ -546,17 +532,17 @@ Paraphase results are replaced.
   variants or repeats needs its index (`.tbi`, `.csi` or `.idx`); a plain `.vcf` does not. Other index
   files are checked only when the manifest names one.
 - A `ped/` folder or a long-read folder (`snv/`, `repeats/`, a sample's folder in one) that is a link to
-  another folder is a warning, in Discover too (`package_folder_link`). It says where the link leads:
-  within the import folders or outside them. CoGA still follows it, and Discover may take a member from
-  it, so check that what it holds belongs to this family.
+  another folder is a warning (`package_folder_link`). It says where the link leads: within the import
+  folders or outside them. CoGA still follows it, and may take a member from it, so check that what it
+  holds belongs to this family.
 - A monogenic NIPT pair's two SNV files are not refused for their column: each file's one column is
   read as the sample of its entry, whatever its name, because the laboratory maps its verified tubes to
   files that can be named after another tube. When the column is named after neither the sample nor the
-  entry's `vcf_sample`, Discover, the dry run and the import warn (`nipt_vcf_column_named_otherwise`),
+  entry's `vcf_sample`, the delivery, the dry run and the import warn (`nipt_vcf_column_named_otherwise`),
   naming the sample, the file and the column. Check that the file holds that sample's tube: if it does,
   record the column as the entry's `vcf_sample`, which ends the warning; if not, correct the manifest.
 - A sample's SNV file that cannot be read (a `.vcf.gz` cut short or damaged in a copy, or a plain-text VCF
-  named `.gz`) is an error that names the sample and the file (`dataset_vcf_unreadable`), in Discover too
+  named `.gz`) is an error that names the sample and the file (`dataset_vcf_unreadable`), as CoGA proposes members too
   for a NIPT pair's parent file. Copy the file again from where the pipeline wrote it.
 - So is an embryo's or the family's APCAD VCF, or the phased family VCF, that cannot be read, a BGZF file
   that lacks its end-of-file block (cut short anywhere) included: the error names the file, and the embryo

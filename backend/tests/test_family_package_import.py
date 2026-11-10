@@ -152,19 +152,6 @@ def test_validation_requires_ped_without_fallback(tmp_path: Path) -> None:
     assert any(issue.code == "ped_file_missing" for issue in validation.errors)
 
 
-def test_discover_uses_db_sample_ids_when_no_ped(tmp_path: Path) -> None:
-    request = FamilyPackageManifestBuildRequest(
-        folder_path=str(tmp_path),
-        family_id="FAM1",
-    )
-
-    result = family_package_discovery.discover_family_package_manifest(request, db_sample_ids=["KID", "MOM"])
-
-    assert result.sample_ids == ["KID", "MOM"]
-    assert not any(issue.code == "ped_file_missing" for issue in result.errors)
-    assert any(issue.code == "ped_from_database" for issue in result.warnings)
-
-
 @pytest.mark.asyncio
 async def test_the_database_fallback_is_the_requested_familys_ped_and_none_for_a_family_it_lacks(
     monkeypatch: pytest.MonkeyPatch,
@@ -744,19 +731,12 @@ def test_discover_manifest_generates_yaml_from_ped_and_available_files(tmp_path:
     (wise_root / "segments.bed").write_text("1\t0\t10\t0.1\n", encoding="utf-8")
 
     result = family_package_discovery.discover_family_package_manifest(
-        FamilyPackageManifestBuildRequest(
-            folder_path=str(package_root),
-            ped_path="family.ped",
-            hpo_terms=["HP:0001250"],
-            notes="Example",
-        )
+        FamilyPackageManifestBuildRequest(folder_path=str(package_root))
     )
 
     assert result.valid is True
     assert result.family_id == "FAM001"
     assert result.sample_ids == ["S1", "S2"]
-    assert "hpo:" in result.manifest_yaml
-    assert "HP:0001250" in result.manifest_yaml
     assert "snv:" in result.manifest_yaml
     assert "enabled: true" in result.manifest_yaml
     assert "annotation_tsv: snv/annotation/FAM001_annot.tsv.gz" in result.manifest_yaml
@@ -778,10 +758,7 @@ def test_discover_manifest_detects_uncompressed_trgt_family_vcf(tmp_path: Path) 
     )
 
     result = family_package_discovery.discover_family_package_manifest(
-        FamilyPackageManifestBuildRequest(
-            folder_path=str(package_root),
-            ped_path="family.ped",
-        )
+        FamilyPackageManifestBuildRequest(folder_path=str(package_root))
     )
 
     manifest = yaml.safe_load(result.manifest_yaml)
@@ -792,29 +769,6 @@ def test_discover_manifest_detects_uncompressed_trgt_family_vcf(tmp_path: Path) 
     }
     repeats = next(dataset for dataset in result.datasets if dataset.dataset_type == "repeats_trgt")
     assert repeats.complete is True
-
-
-def test_write_manifest_creates_manifest_yaml_and_validates_package(tmp_path: Path) -> None:
-    package_root = tmp_path / "FAM001"
-    _write_minimal_package(package_root)
-    (package_root / "manifest.yaml").unlink()
-    manifest_yaml = (
-        "schema_version: 1\n"
-        "family_id: FAM001\n"
-        "ped: family.ped\n"
-        "datasets:\n"
-        "  snv:\n"
-        "    enabled: false\n"
-    )
-
-    result = family_package_discovery.write_family_package_manifest(
-        folder_path=package_root,
-        manifest_yaml=manifest_yaml,
-        overwrite=False,
-    )
-
-    assert Path(result.manifest_path).read_text(encoding="utf-8") == manifest_yaml
-    assert result.validation.valid is True
 
 
 def test_wisecondorx_parser_handles_headers_and_skips_nan_values(tmp_path: Path) -> None:

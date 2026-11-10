@@ -35,7 +35,7 @@ from uuid import uuid4
 import pytest
 
 from backend.tests.e2e._harness import DRIFT_AND_QC_ACKNOWLEDGED, ensure_postgres_schema
-from backend.tests.e2e._import_jobs import claim_import_job
+from backend.tests.e2e._import_jobs import claim_import_job, queue_import
 from backend.tests.e2e._trio_uploads import DEL_30000, SNIFFLES_HEADER, TRIO_VCF_HEADER, the_one_mark, trio_calls
 
 pytestmark = pytest.mark.integration
@@ -367,17 +367,12 @@ async def _refused_overwrite(base: Path, mp: pytest.MonkeyPatch) -> dict[str, An
 
             async def run_import(name: str, conflict_mode: str, *, annotation: str | None, fails: bool) -> None:
                 root = _write_package(base / name / family_id, family_id, annotation=annotation)
-                body: dict[str, Any] = {
-                    "folder_path": str(root),
-                    "project_id": project_id,
-                    "dry_run": False,
-                    "conflict_mode": conflict_mode,
-                }
-                if conflict_mode != "cancel":
-                    body["family_id"] = family_id
-                resp = await ac.post("/api/family-imports", json=body)
-                assert resp.status_code == 200, resp.text
-                job_id = str(resp.json()["_id"])
+                job_id = await queue_import(
+                    root,
+                    project_id,
+                    conflict_mode=conflict_mode,
+                    family_id=family_id if conflict_mode != "cancel" else None,
+                )
                 jobs.append(job_id)
                 worker = f"e2e-refused-{uuid4().hex[:8]}"
                 await claim_import_job(job_id, worker)

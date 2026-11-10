@@ -59,13 +59,6 @@ const AddDeliveryForm: React.FC<{
     },
   });
 
-  const choose = (path: string) => {
-    setFolderPath(path);
-    const chosen = packages.find((pkg) => pkg.folder_path === path);
-    if (chosen?.analysis_type && !analysisType) {
-      setAnalysisType(chosen.analysis_type);
-    }
-  };
   const canAdd =
     !addMutation.isPending &&
     folderPath.trim().length > 0 &&
@@ -91,7 +84,7 @@ const AddDeliveryForm: React.FC<{
                   ? folderPath
                   : ''
               }
-              onChange={(event) => choose(event.target.value)}
+              onChange={(event) => setFolderPath(event.target.value)}
               disabled={packagesQuery.isLoading}
             >
               <option value="">

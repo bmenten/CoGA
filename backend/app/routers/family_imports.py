@@ -1,5 +1,4 @@
 import asyncio
-from functools import partial
 import json
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -9,13 +8,7 @@ from ..core.postgres import get_postgres_session
 from ..dependencies import get_current_superuser
 from ..schemas import (
     FamilyPackageCandidateOut,
-    FamilyPackageManifestBuildOut,
-    FamilyPackageManifestBuildRequest,
-    FamilyPackageImportCreate,
     FamilyPackageImportJobOut,
-    FamilyPackageManifestWriteOut,
-    FamilyPackageManifestWriteRequest,
-    FamilyPackageValidationOut,
     ImportDeliveryAdd,
     ImportDeliveryApprove,
     ImportDeliveryApproveOut,
@@ -26,19 +19,11 @@ from ..schemas import (
     ImportDeliveryRevisedOut,
 )
 from ..schemas.imports import ImportDeliveryState
-from ..services.family_package_import import db_pedigree_fallback
-from ..services.family_package_discovery import (
-    discover_family_package_manifest,
-    write_family_package_manifest,
-)
-from ..services.family_package_registration import existing_family_sample_ids, manifest_roi_issue
 from ..services.family_package_jobs import (
     get_family_import_job,
     list_family_import_jobs,
-    queue_family_import_job,
 )
 from ..services.family_package_source import scan_family_import_packages
-from ..services.family_package_validation import validate_family_package
 from ..services.family_package_common import manifest_text_problem
 from ..services.import_delivery_review import approve_delivery, refuse_delivery
 from ..services.import_delivery_revisions import delivery_package, revise_delivery
@@ -68,87 +53,6 @@ async def list_family_package_import_jobs(
         user=user,
         limit=max(1, min(limit, 100)),
     )
-
-
-@router.post("/manifest/discover", response_model=FamilyPackageManifestBuildOut)
-async def discover_family_import_manifest(
-    payload: FamilyPackageManifestBuildRequest,
-    session: AsyncSession = Depends(get_postgres_session),
-    user: CurrentUser = Depends(get_current_superuser),
-) -> FamilyPackageManifestBuildOut:
-    del user
-    db_sample_ids = await existing_family_sample_ids(session, payload.family_id)
-    return discover_family_package_manifest(payload, db_sample_ids=db_sample_ids)
-
-
-@router.post("/manifest/write", response_model=FamilyPackageManifestWriteOut)
-async def write_family_import_manifest(
-    payload: FamilyPackageManifestWriteRequest,
-    session: AsyncSession = Depends(get_postgres_session),
-    user: CurrentUser = Depends(get_current_superuser),
-) -> FamilyPackageManifestWriteOut:
-    del user
-    fallback_ped_text = await db_pedigree_fallback(session, payload.family_id)
-    return write_family_package_manifest(
-        folder_path=payload.folder_path,
-        manifest_yaml=payload.manifest_yaml,
-        overwrite=payload.overwrite,
-        fallback_ped_text=fallback_ped_text,
-    )
-
-
-@router.post("", response_model=FamilyPackageImportJobOut)
-async def start_family_package_import(
-    payload: FamilyPackageImportCreate,
-    session: AsyncSession = Depends(get_postgres_session),
-    user: CurrentUser = Depends(get_current_superuser),
-) -> FamilyPackageImportJobOut:
-    if payload.conflict_mode == "overwrite" and not payload.dry_run and not is_admin_user(user):
-        raise HTTPException(status_code=403, detail=OVERWRITE_ADMIN_ONLY_DETAIL)
-    return await queue_family_import_job(
-        session,
-        folder_path=payload.folder_path,
-        project_id=payload.project_id,
-        dry_run=payload.dry_run,
-        requested_family_id=payload.family_id,
-        conflict_mode=payload.conflict_mode,
-        requested_by=user,
-        manifest_text=payload.manifest_yaml,
-        expected_package_fingerprint=payload.expected_package_fingerprint,
-    )
-
-
-@router.post("/validate", response_model=FamilyPackageValidationOut)
-async def validate_family_import_package(
-    payload: FamilyPackageImportCreate,
-    session: AsyncSession = Depends(get_postgres_session),
-    user: CurrentUser = Depends(get_current_superuser),
-) -> FamilyPackageValidationOut:
-    del user
-    # When targeting an existing family, fall back to its database-configured
-    # pedigree so a PED file is not required to validate the package.
-    fallback_ped_text = await db_pedigree_fallback(session, payload.family_id)
-    # Offloaded: validating an s3:// source stages (downloads) the package, which
-    # would otherwise block the event loop. A manifest the request gives is read instead of
-    # the folder's own, as the import reads the one its job keeps.
-    validation = await asyncio.to_thread(
-        partial(
-            validate_family_package,
-            payload.folder_path,
-            fallback_ped_text=fallback_ped_text,
-            manifest_text=payload.manifest_yaml,
-        )
-    )
-    # The manifest's region of interest, looked up as the import will (DATA-10).
-    roi_issue = await manifest_roi_issue(
-        session,
-        roi_query=validation.metadata.get("roi"),
-        project_id=payload.project_id,
-        family_id=validation.family_id or payload.family_id,
-    )
-    if roi_issue is not None:
-        validation = validation.model_copy(update={"warnings": [*validation.warnings, roi_issue]})
-    return validation
 
 
 @router.get("/packages", response_model=list[FamilyPackageCandidateOut])

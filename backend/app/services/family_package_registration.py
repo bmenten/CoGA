@@ -70,24 +70,6 @@ from .family_package_manifest import _manifest_carrier_types, _manifest_member_s
 logger = logging.getLogger(__name__)
 
 
-async def existing_family_sample_ids(
-    session: AsyncSession,
-    family_id: str | None,
-) -> list[str]:
-    """Sample IDs of an already-configured family, or ``[]`` when it does not
-    exist. Used so manifest discovery can scan per-sample dataset files for an
-    incremental import without requiring a PED file."""
-    family_id = (family_id or "").strip()
-    if identifier_problem(family_id) is not None:
-        # No family is stored under such an ID (and a NUL could not even be sent to
-        # Postgres): Discover reports it as family_id_invalid.
-        return []
-    existing = await _fetch_existing_family(session, family_id=family_id)
-    if existing is None:
-        return []
-    return [str(sample_id) for sample_id in existing.get("sample_ids", []) if sample_id]
-
-
 async def _fetch_existing_family(
     session: AsyncSession,
     *,

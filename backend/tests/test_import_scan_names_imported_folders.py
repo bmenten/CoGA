@@ -128,7 +128,7 @@ def test_the_package_list_gives_each_folder_its_imported_families(monkeypatch: p
 
     def scan() -> list[dict[str, Any]]:
         return [
-            {"folder_path": folder, "name": name, "family_id": name, "has_manifest": True, "has_ped": True}
+            {"folder_path": folder, "name": name, "family_id": name, "has_ped": True}
             for name, folder in (("FAM1", "/data/families/FAM1"), ("FAM2", "/data/families/FAM2"))
         ]
 

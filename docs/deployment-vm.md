@@ -451,8 +451,9 @@ copy.
 rsync -av --progress <package folder> <user>@coga-test.example.org:/srv/coga/data/families/
 ```
 
-Package Import's **Discover** and **Write manifest** draft a manifest for a folder without one.
-A long-read small-variant dataset takes hours to import.
+A folder without a package file of its own is added under **Deliveries** with **Add a folder by
+hand**: CoGA makes its package from the folder, and writes nothing into it. A long-read
+small-variant dataset takes hours to import.
 
 **Aligned reads** stay in their package. The manifest's `alignments` dataset names each
 sample's CRAM and its index, whatever they are called, and the genome browser (IGV) reads them
@@ -491,11 +492,9 @@ sudo systemctl daemon-reload && sudo mount /srv/coga/data/share
   ```
 
 - Set `FAMILY_IMPORT_ROOTS=/data/families,/data/share` in `.env` and run `docker compose up -d`.
-- The mount is read-only, so Write manifest cannot add a manifest to a package there (it says
-  so). Discover the manifest, edit it if needed, and tick **Import with this manifest, kept in
-  CoGA**: the import job keeps the manifest and reads it instead of a file in the folder
-  ([data-import.md](data-import.md#a-manifest-kept-in-coga)). A package whose pipeline wrote
-  its own manifest imports as before.
+- The mount is read-only, which suits CoGA: it writes nothing into a package folder. Every import
+  reads the manifest CoGA keeps, made from the delivery's package
+  ([data-import.md](data-import.md#a-manifest-kept-in-coga)).
 - To have CoGA watch the share for packages the pipelines deliver with their package file
   (`coga-package.json`, [coga-package.md](coga-package.md)), add `FAMILY_IMPORT_WATCH_ROOTS=/data/share` to `.env` and run
   `docker compose up -d`: the import-worker service checks each new delivery every five minutes

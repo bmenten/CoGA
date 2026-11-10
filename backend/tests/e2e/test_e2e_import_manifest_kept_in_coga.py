@@ -1,21 +1,18 @@
-"""A package in a folder CoGA cannot write imports with the manifest CoGA keeps (E2E, real Postgres and ClickHouse).
+"""A delivered package in a folder CoGA cannot write imports with the manifest CoGA keeps (E2E, real Postgres and ClickHouse).
 
-The test deployment reads its packages from a share mounted read-only, as a second import root.
-A package there loaded only when the pipeline itself wrote a CoGA manifest into the folder:
-Write manifest could not add one, and validation and the import read the manifest from the
-folder alone. The import request now takes the manifest (``manifest_yaml``), which the job
-keeps with its SHA-256 and the import reads instead of a file in the folder; the family's
-package record names it, and the family's raw files hold a managed copy of it.
+The test deployment reads its packages from a share mounted read-only. CoGA writes nothing into a
+package folder: the import reads the manifest an approved delivery's package makes
+(``coga_package_manifest.package_manifest``), which the job keeps with its SHA-256 and the import
+reads instead of any file in the folder; the family's package record names it, and the family's
+raw files hold a managed copy of it.
 
 Through the app over HTTP (an in-process ``httpx.ASGITransport`` client on one event loop, see
-test_e2e_api_contract.py), as the e2e administrator, for a one-sample package without a
-manifest, in a folder made read-only: Discover drafts the manifest; the draft, with the SNV
-dataset added as a user edits it, cannot be written into the folder (409, saying to keep it in
-CoGA instead, where the backend's user is refused the write); validation with it is valid and
-names it; the import queued with it keeps it, and the worker runs it (``run_family_import_job``,
-which reads the kept text from the job): the family and its variants are imported. The folder
-holds no manifest afterwards. A request with a manifest that holds a NUL is refused (400)
-before a job is written.
+test_e2e_api_contract.py), as the e2e administrator, for a one-sample package whose
+``coga-package.json`` names its member and its SNV callset, in a watched folder made read-only:
+the watcher's round offers it as a ready delivery; approved, its import is queued with the
+manifest the delivery kept, and the worker runs it (``run_family_import_job``, which reads the
+kept text from the job): the family and its variants are imported. The folder holds no manifest
+afterwards.
 
 The values are synthetic: the family is new and uniquely named, the job rows end completed.
 Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``e2e`` job sets it.
@@ -31,10 +28,10 @@ from uuid import uuid4
 
 import pytest
 from sqlalchemy import text
-import yaml
 
 from backend.tests.e2e._harness import capture, ensure_postgres_schema
 from backend.tests.e2e._import_jobs import claim_import_job, one_sample_package
+from backend.tests.e2e.test_e2e_import_watcher import write_package
 
 pytestmark = pytest.mark.integration
 
@@ -48,6 +45,7 @@ async def _exercise(base: Path, run: str) -> dict[str, Any]:
     from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.main import app
     from backend.app.services import family_package_import as package_import
+    from backend.app.services import import_watcher
     from backend.app.services.clickhouse_variant_storage import (
         count_family_small_variants,
         ensure_clickhouse_variant_tables,
@@ -60,72 +58,39 @@ async def _exercise(base: Path, run: str) -> dict[str, Any]:
     sessionmaker = get_postgres_sessionmaker()
     async with sessionmaker() as session:
         _admin, project_id, _assembly_id = await _harness.ensure_e2e_project(session)
+        project = (
+            await session.execute(text("SELECT name FROM projects WHERE id = CAST(:p AS uuid)"), {"p": project_id})
+        ).scalar_one()
 
     family_id = f"E2E_KEPT_MANIFEST_{run}"
     package = one_sample_package(base / family_id, family_id, variants=_VARIANTS, datasets=("snv",))
     # No manifest in the folder, which CoGA cannot write: as a package on a read-only share.
     (package / "manifest.yaml").unlink()
+    write_package(package, project=project, family_id=family_id)
     out: dict[str, Any] = {"family_id": family_id, "package": str(package)}
     jobs: list[str] = []
     os.chmod(package, 0o555)
     transport = ASGITransport(app=app, raise_app_exceptions=False)
     try:
+        await import_watcher.run_watch_round(sessionmaker, [base.resolve()])
         async with AsyncClient(transport=transport, base_url="http://e2e") as client:
             headers = {"Authorization": f"Bearer {await _harness.login_admin_token(client)}"}
-            discovered = await client.post(
-                "/api/family-imports/manifest/discover",
-                json={"folder_path": str(package)},
+            listed = await client.get("/api/family-imports/deliveries", params={"limit": 200}, headers=headers)
+            [delivery] = [item for item in listed.json() if item["family_id"] == family_id]
+            out["delivery"] = delivery
+            approved = await client.post(
+                f"/api/family-imports/deliveries/{delivery['_id']}/approve",
+                json={"revision": 0, "acknowledge_warnings": True},
                 headers=headers,
             )
-            out["discovered"] = capture(discovered)
-            draft = yaml.safe_load(discovered.json()["manifest_yaml"])
-            # The user adds the callset Discover's naming scheme does not know.
-            draft.setdefault("datasets", {})["snv"] = {"enabled": True, "family_vcf": "snv/family.vcf"}
-            manifest_yaml = yaml.safe_dump(draft, sort_keys=False)
-            out["manifest_sha256"] = hashlib.sha256(manifest_yaml.encode("utf-8")).hexdigest()
-
-            out["written"] = capture(
-                await client.post(
-                    "/api/family-imports/manifest/write",
-                    json={"folder_path": str(package), "manifest_yaml": manifest_yaml},
-                    headers=headers,
-                )
-            )
-            out["validated"] = capture(
-                await client.post(
-                    "/api/family-imports/validate",
-                    json={"folder_path": str(package), "project_id": project_id, "manifest_yaml": manifest_yaml},
-                    headers=headers,
-                )
-            )
-            body = {
-                "folder_path": str(package),
-                "project_id": project_id,
-                "dry_run": False,
-                "conflict_mode": "cancel",
-            }
-            out["nul_refused"] = capture(
-                await client.post(
-                    "/api/family-imports", json={**body, "manifest_yaml": manifest_yaml + "# \x00\n"}, headers=headers
-                )
-            )
-            queued = await client.post(
-                "/api/family-imports", json={**body, "manifest_yaml": manifest_yaml}, headers=headers
-            )
-            out["queued"] = capture(queued)
-            job_id = str(queued.json()["_id"])
+            out["approved"] = capture(approved)
+            job_id = str(approved.json()["job"]["_id"])
             jobs.append(job_id)
             worker = f"e2e-kept-manifest-{uuid4().hex[:8]}"
             await claim_import_job(job_id, worker)
             await package_import.run_family_import_job(job_id=job_id, worker_id=worker)
             out["job"] = capture(await client.get(f"/api/family-imports/{job_id}", headers=headers))
         async with sessionmaker() as session:
-            out["jobs_of_the_folder"] = (
-                await session.execute(
-                    text("SELECT count(*) FROM family_import_jobs WHERE submitted_path = :p"),
-                    {"p": str(package)},
-                )
-            ).scalar_one()
             out["kept"] = (
                 await session.execute(
                     text("SELECT manifest_text, manifest_sha256 FROM family_import_jobs WHERE id = CAST(:j AS uuid)"),
@@ -168,7 +133,6 @@ async def _exercise(base: Path, run: str) -> dict[str, Any]:
                 {"jobs": jobs},
             )
             await session.commit()
-    out["manifest_yaml"] = manifest_yaml
     return out
 
 
@@ -188,58 +152,30 @@ def ran(tmp_path_factory, request) -> dict[str, Any]:
     return _harness.run_async(lambda: _exercise(base, run))
 
 
-def test_discover_drafts_the_manifest_of_a_folder_it_cannot_write(ran) -> None:
-    discovered = ran["discovered"]
-    assert discovered["status"] == 200, discovered
-    assert discovered["json"]["family_id"] == ran["family_id"]
-    assert discovered["json"]["manifest_yaml"]
-
-
-@pytest.mark.skipif(hasattr(os, "geteuid") and os.geteuid() == 0, reason="root writes a read-only folder")
-def test_writing_the_manifest_into_the_folder_is_refused_saying_what_to_do(ran) -> None:
-    # Before, the write failed with a 500.
-    written = ran["written"]
-    assert written["status"] == 409, written
-    assert "kept in CoGA" in written["json"]["detail"]
-    assert ran["folder_manifest"] == []
-
-
-def test_validation_with_the_kept_manifest_is_valid_and_names_it(ran) -> None:
-    validated = ran["validated"]
-    assert validated["status"] == 200, validated
-    report = validated["json"]
-    assert report["valid"] is True, report["errors"]
-    assert report["manifest_path"] is None
-    assert report["metadata"]["manifest_source"] == "coga"
-    assert report["metadata"]["manifest_sha256"] == ran["manifest_sha256"]
-
-
-def test_a_manifest_with_a_nul_is_refused_before_a_job_is_written(ran) -> None:
-    assert ran["nul_refused"]["status"] == 400, ran["nul_refused"]
-    assert "NUL" in ran["nul_refused"]["json"]["detail"]
-    # The one job of the folder is the import queued after it.
-    assert ran["jobs_of_the_folder"] == 1
+def test_the_read_only_package_is_a_ready_delivery(ran) -> None:
+    assert ran["delivery"]["state"] == "ready", ran["delivery"]
+    assert ran["approved"]["status"] == 200, ran["approved"]
 
 
 def test_the_job_keeps_the_manifest_and_imports_the_family_with_it(ran) -> None:
-    queued = ran["queued"]
-    assert queued["status"] == 200, queued
-    assert queued["json"]["manifest_sha256"] == ran["manifest_sha256"]
+    kept = ran["kept"]
+    sha256 = hashlib.sha256(kept["manifest_text"].encode("utf-8")).hexdigest()
+    assert kept["manifest_sha256"] == sha256
     job = ran["job"]["json"]
     assert job["status"] == "completed", (job["error"], job["validation_errors"])
     assert job["family_id"] == ran["family_id"]
-    assert job["manifest_sha256"] == ran["manifest_sha256"]
+    assert job["manifest_sha256"] == sha256
     assert job["metadata"]["manifest_source"] == "coga"
-    assert dict(ran["kept"]) == {"manifest_text": ran["manifest_yaml"], "manifest_sha256": ran["manifest_sha256"]}
     assert ran["variants"] == _VARIANTS
 
 
 def test_the_family_records_the_kept_manifest_and_holds_its_copy(ran) -> None:
     record = ran["package_import"]
+    kept = ran["kept"]
     assert record["folder_path"] == str(Path(ran["package"]).resolve())
     assert record["manifest_path"] is None
-    assert (record["manifest_source"], record["manifest_sha256"]) == ("coga", ran["manifest_sha256"])
-    content = ran["manifest_yaml"].encode("utf-8")
+    assert (record["manifest_source"], record["manifest_sha256"]) == ("coga", kept["manifest_sha256"])
+    content = kept["manifest_text"].encode("utf-8")
     assert [
         {key: row[key] for key in ("scope", "file_name", "managed", "sha256", "file_size", "source")}
         for row in ran["raw_manifest"]
@@ -248,9 +184,11 @@ def test_the_family_records_the_kept_manifest_and_holds_its_copy(ran) -> None:
             "scope": "family",
             "file_name": "manifest.yaml",
             "managed": True,
-            "sha256": ran["manifest_sha256"],
+            "sha256": kept["manifest_sha256"],
             "file_size": len(content),
             "source": "family_package",
         }
     ]
-    assert ran["kept_copy"] == [ran["manifest_yaml"]]
+    assert ran["kept_copy"] == [kept["manifest_text"]]
+    # CoGA wrote nothing into the folder.
+    assert ran["folder_manifest"] == []

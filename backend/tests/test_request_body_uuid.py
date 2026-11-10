@@ -158,7 +158,7 @@ ROUTES = {
     "add": (ASSEMBLY_NOT_FOUND, "FROM assemblies"),
     "seed": (ASSEMBLY_NOT_FOUND, "FROM assemblies"),
     "import": (ASSEMBLY_NOT_FOUND, "FROM assemblies"),
-    "job": (PROJECT_NOT_FOUND, "FROM projects"),
+    "delivery": (PROJECT_NOT_FOUND, "FROM projects"),
 }
 
 
@@ -174,9 +174,10 @@ def _send(api: _Api, route: str, value: str) -> tuple[int, Any]:
             files={"file": ("recurrent.tsv", TABLE.encode(), "text/tab-separated-values")},
         )
     else:
+        # A folder added to Deliveries by hand: its project is looked up before the folder.
         response = api.client.post(
-            "/api/family-imports",
-            json={"folder_path": "/data/families/FAM1", "project_id": value, "dry_run": True},
+            "/api/family-imports/deliveries",
+            json={"folder_path": "/data/families/FAM1", "project_id": value, "analysis_type": "wgs"},
         )
     return response.status_code, response.json()
 
@@ -221,7 +222,7 @@ def test_a_uuid_of_no_record_is_looked_up_by_its_canonical_text_and_nothing_is_w
 def test_a_viewer_is_refused_before_the_id_is_read(api: _Api, route: str, value: str) -> None:
     api.user = _user("viewer")
     # The NIPT artifacts are an admin's; package import is a superuser's too.
-    refusal = "Superuser access required" if route == "job" else "Admin access required"
+    refusal = "Superuser access required" if route == "delivery" else "Admin access required"
     assert _send(api, route, value) == (403, {"detail": refusal})
     assert api.session.calls == []
 

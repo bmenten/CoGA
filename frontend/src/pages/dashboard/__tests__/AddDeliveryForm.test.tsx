@@ -16,9 +16,7 @@ const packages = [
     folder_path: '/data/families/FAM001',
     name: 'FAM001',
     family_id: 'FAM001',
-    has_manifest: false,
     has_ped: true,
-    analysis_type: null,
     imported_families: [],
     changed_during_import: false,
   },
@@ -26,9 +24,7 @@ const packages = [
     folder_path: '/data/families/NIPT1',
     name: 'NIPT1',
     family_id: 'NIPT1',
-    has_manifest: true,
     has_ped: true,
-    analysis_type: 'monogenic_nipt',
     imported_families: [
       { family_id: 'NIPT1', registered_at: null, import_incomplete: false },
     ],
@@ -107,7 +103,7 @@ describe('AddDeliveryForm', () => {
     );
   });
 
-  it('takes the analysis a folder names, marks an imported folder, and takes a typed path', async () => {
+  it('marks an imported folder, and takes a typed path', async () => {
     vi.mocked(api.post).mockResolvedValue({ data: { _id: 'd2' } });
     renderForm();
 
@@ -117,9 +113,10 @@ describe('AddDeliveryForm', () => {
     fireEvent.change(screen.getByRole('combobox', { name: 'Folder to add' }), {
       target: { value: '/data/families/NIPT1' },
     });
-    expect(
-      screen.getByRole('combobox', { name: 'Analysis of the folder' })
-    ).toHaveValue('monogenic_nipt');
+    fireEvent.change(
+      screen.getByRole('combobox', { name: 'Analysis of the folder' }),
+      { target: { value: 'monogenic_nipt' } }
+    );
     fireEvent.change(
       screen.getByRole('textbox', { name: 'Or the path of the folder to add' }),
       {

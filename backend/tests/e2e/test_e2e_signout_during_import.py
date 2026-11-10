@@ -6,7 +6,7 @@ dataset to its end, but the sign-out took none of them, and the family is flagge
 import-incomplete only once an import has failed. So a sign-out while an import ran froze a
 half-imported family into a signed record as if it were complete (TF-06 H16).
 
-Over the golden trio this runs a real re-import job (``POST /api/family-imports``, then the
+Over the golden trio this runs a real re-import job (queued as an approved delivery queues it, then the
 worker's ``run_family_import_job``) and signs the report out through
 ``POST /api/families/FAM_TRIO/report/sign-out`` with every acknowledgement given:
 
@@ -36,7 +36,7 @@ import pytest
 from sqlalchemy import text
 
 from backend.tests.e2e._harness import capture, gate_refusal
-from backend.tests.e2e._import_jobs import claim_import_job
+from backend.tests.e2e._import_jobs import claim_import_job, queue_import
 
 pytestmark = pytest.mark.integration
 
@@ -136,18 +136,7 @@ async def _collect(root: Path, mp: pytest.MonkeyPatch) -> dict:
             signout_url = f"/api/families/{FAMILY}/report/sign-out"
 
             async def _queue() -> str:
-                resp = await ac.post(
-                    "/api/family-imports",
-                    json={
-                        "folder_path": str(root),
-                        "project_id": facts["project_id"],
-                        "dry_run": False,
-                        "family_id": FAMILY,
-                        "conflict_mode": "overwrite",
-                    },
-                )
-                assert resp.status_code == 200, resp.text
-                job_id = str(resp.json()["_id"])
+                job_id = await queue_import(root, facts["project_id"], family_id=FAMILY, conflict_mode="overwrite")
                 jobs.append(job_id)
                 return job_id
 

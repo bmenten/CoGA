@@ -24,7 +24,7 @@ from backend.app.schemas import FamilyImportDatasetSummary, FamilyPackageManifes
 from backend.app.services import family_package_datasets, sample_integrity_service
 from backend.app.services.family_metadata_context import FamilyMetadataContext, SampleMetadataContext
 from backend.app.services.family_package_common import ManifestDataset, ParsedPed, PedMember, VcfSampleColumnError
-from backend.app.services.family_package_discovery import discover_family_package_manifest, write_family_package_manifest
+from backend.app.services.family_package_discovery import discover_family_package_manifest
 from backend.app.services.family_package_long_read import (
     long_read_family_block,
     long_read_sample_ids,
@@ -166,7 +166,7 @@ def test_discover_drafts_the_couple_and_its_per_sample_callsets(monkeypatch: pyt
 
     assert [package["name"] for package in scan_family_import_packages()] == ["COUPLE1"]
     out = discover_family_package_manifest(
-        FamilyPackageManifestBuildRequest(folder_path=str(root), naming_scheme="standard_v1")
+        FamilyPackageManifestBuildRequest(folder_path=str(root))
     )
 
     assert out.valid, out.errors
@@ -191,9 +191,8 @@ def test_discover_drafts_the_couple_and_its_per_sample_callsets(monkeypatch: pyt
     assert manifest["datasets"]["repeats_trgt"]["per_sample"][MOTHER]["file"] == f"repeats/{MOTHER}/{MOTHER}_tr.vcf.gz"
     assert manifest["datasets"]["paraphase"]["per_sample"][FATHER]["json"] == f"paraphase/{FATHER}/{FATHER}.paraphase.json"
 
-    written = write_family_package_manifest(folder_path=root, manifest_yaml=out.manifest_yaml, overwrite=False)
-    assert written.validation.valid, written.validation.errors
-    validation, bundle = load_validated_family_package(root)
+    validation, bundle = load_validated_family_package(root, manifest_text=out.manifest_yaml)
+    assert validation.valid, validation.errors
     assert validation.metadata["ped_source"] == "manifest"
     assert bundle is not None and bundle.ped_path is None
     sexes = {member.iid: (member.sex, member.role_hint) for member in bundle.ped.members}

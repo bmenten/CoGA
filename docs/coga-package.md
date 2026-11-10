@@ -28,9 +28,13 @@ owner approved the plan on 2026-11-10, in phases:
    if there is one, and what the person adds, and keeps it with a delivery of origin `manual`,
    which goes through Deliveries like a pipeline's
    ([data-import.md](data-import.md#adding-a-folder-by-hand)). The owner decided on 2026-11-10 that
-   CoGA computes no checksums for it (the import records each file's SHA-256), and that the
-   Package Import page's other form (Discover, the manifest, **Start import**) goes in phase 4.
-4. To do: the import of a typed folder stops reading the PED and the manifest.
+   CoGA computes no checksums for it (the import records each file's SHA-256).
+4. In progress: a delivery is the only way into an import. Done: the earlier form of the Package
+   Import page and its routes (Discover, Write manifest, Validate, a typed folder's import) are
+   gone, and Discover reads no manifest in the folder. Still to come: the import reads only the
+   manifest CoGA keeps, never a PED, and an existing family follows the package's members; the
+   test packages and the demo data become package files; a bucket is mounted as a local folder
+   (the owner's decisions of 2026-11-10).
 
 ## Writing the file
 

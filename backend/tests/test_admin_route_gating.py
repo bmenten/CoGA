@@ -137,7 +137,7 @@ def test_every_admin_route_is_walked_and_none_is_left_unguarded() -> None:
         ("POST", "/api/panels/mendeliome/regenerate"),
         ("DELETE", "/api/families/{family_id}/small-variant-tags/{tag_key}"),
         ("PUT", "/api/admin/qc-thresholds/{profile_key}"),
-        ("POST", "/api/family-imports"),
+        ("POST", "/api/family-imports/deliveries"),
     } <= set(SUPERUSER_OPERATIONS)
     # A floor, so a walk that found no route cannot pass.
     assert len(ADMIN_CHANGES) >= 40 and len(ADMIN_READS) >= 25 and len(SUPERUSER_OPERATIONS) >= 24

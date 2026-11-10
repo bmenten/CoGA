@@ -15,7 +15,7 @@ through a looping manifest.yaml (OSError, a 500), and a long-read package with a
 per-sample entry failed Discover and the package list.
 
 Now a manifest name that is a symlink out of the package, or one that loops, is refused and
-nothing is read or written through it (``manifest_outside_package``; Write manifest 400); a
+nothing is read through it (``manifest_outside_package``; CoGA writes no manifest at all); a
 manifest path starting with ``~`` is refused (400) and never expanded; a package folder whose
 path names an unknown home folder or loops is refused (``package_folder_not_allowed``, 400); a
 manifest path through a loop is refused (400); what Discover looks for counts as absent when
@@ -44,7 +44,6 @@ import gzip
 import io
 import json
 import os
-import stat
 from pathlib import Path
 from typing import Any
 
@@ -55,7 +54,7 @@ import yaml
 from backend.app.core.config import settings
 from backend.app.schemas import FamilyPackageManifestBuildOut, FamilyPackageManifestBuildRequest
 from backend.app.services.family_package_common import NUL_IN_PATH, _package_path_or_none, _resolve_package_path, package_path_within
-from backend.app.services.family_package_discovery import discover_family_package_manifest, write_family_package_manifest
+from backend.app.services.family_package_discovery import discover_family_package_manifest
 from backend.app.services import family_package_discovery as discovery_module
 from backend.app.services.family_package_source import scan_family_import_packages
 from backend.app.services.family_package_validation import load_validated_family_package, validate_family_package
@@ -170,10 +169,6 @@ def _discover(folder: Path | str, **request: Any) -> FamilyPackageManifestBuildO
     return discover_family_package_manifest(FamilyPackageManifestBuildRequest(folder_path=str(folder), **request))
 
 
-def _write(folder: Path | str, *, overwrite: bool = True) -> Any:
-    return write_family_package_manifest(folder_path=folder, manifest_yaml=MANIFEST_YAML, overwrite=overwrite)
-
-
 def _codes(issues: Any) -> list[str]:
     return [issue.code for issue in issues]
 
@@ -208,78 +203,17 @@ def test_validation_reads_no_manifest_through_a_symlink_out_of_the_package(
     assert DECOY_FAMILY not in validation.model_dump_json()
 
 
-def test_discover_reads_no_manifest_through_a_symlink_out_of_the_package(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, imports: Path
-) -> None:
-    decoy = _decoy_manifest(tmp_path)
-    package = _package(imports)
-    (package / "manifest.yaml").symlink_to(decoy)
-
-    with _opened(monkeypatch) as opened:
-        answer = _discover(package)
-
-    # Discover took the decoy's family for the package's, and drafted from it.
-    assert os.path.realpath(decoy) not in opened
-    assert (answer.valid, answer.family_id, answer.manifest_yaml, answer.datasets) == (False, None, "", [])
-    assert [(issue.code, issue.message) for issue in answer.errors] == [
-        ("manifest_outside_package", _manifest_link_message("manifest.yaml"))
-    ]
-    assert DECOY_FAMILY not in answer.model_dump_json()
-
-
-@pytest.mark.parametrize("overwrite", [True, False])
-def test_write_manifest_writes_nothing_through_a_symlink_out_of_the_package(
-    tmp_path: Path, imports: Path, overwrite: bool
-) -> None:
-    decoy = _decoy_manifest(tmp_path)
-    before = decoy.read_bytes()
-    package = _package(imports)
-    (package / "manifest.yaml").symlink_to(decoy)
-
-    with pytest.raises(HTTPException) as refused:
-        _write(package, overwrite=overwrite)
-
-    # The decoy was replaced by the package's manifest (without overwrite, a 409 said it
-    # existed).
-    assert (refused.value.status_code, refused.value.detail) == (400, _manifest_link_message("manifest.yaml"))
-    assert decoy.read_bytes() == before
-    assert (package / "manifest.yaml").is_symlink()
-
-
-def test_a_dangling_manifest_link_out_of_the_package_is_refused_and_nothing_written_through_it(
+def test_a_dangling_manifest_link_out_of_the_package_is_refused(
     tmp_path: Path, imports: Path
 ) -> None:
     planted = tmp_path / "outside" / "planted.yaml"
     package = _package(imports)
     (package / "manifest.yaml").symlink_to(planted)
 
-    answer = _discover(package)
     validation, bundle = load_validated_family_package(package)
-    with pytest.raises(HTTPException) as refused:
-        _write(package, overwrite=False)
 
-    # Discover drafted as for a package without a manifest, and Write manifest then created
-    # the file the link named, outside the package.
-    assert (_codes(answer.errors), answer.manifest_yaml) == (["manifest_outside_package"], "")
     assert (_codes(validation.errors), bundle) == (["manifest_outside_package"], None)
-    assert (refused.value.status_code, refused.value.detail) == (400, _manifest_link_message("manifest.yaml"))
     assert not planted.exists()
-
-
-def test_the_package_list_reads_no_manifest_through_a_symlink_out_of_the_package(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, imports: Path
-) -> None:
-    decoy = _decoy_manifest(tmp_path)
-    package = _package(imports, "LINKED")
-    (package / "manifest.yaml").symlink_to(decoy)
-
-    with _opened(monkeypatch) as opened:
-        listed = {item["name"]: item for item in scan_family_import_packages()}
-
-    # It was listed under the decoy's family and analysis type; now as an unreadable
-    # manifest is, under its folder's name.
-    assert os.path.realpath(decoy) not in opened
-    assert (listed["LINKED"]["family_id"], listed["LINKED"]["analysis_type"]) == ("LINKED", None)
 
 
 def test_a_manifest_symlink_that_stays_in_the_package_is_followed(imports: Path) -> None:
@@ -292,22 +226,9 @@ def test_a_manifest_symlink_that_stays_in_the_package_is_followed(imports: Path)
     (package / "manifest.yaml").symlink_to(Path("manifests") / "current.yaml")
 
     validation, bundle = load_validated_family_package(package)
-    answer = _discover(package)
-    listed = {item["name"]: item for item in scan_family_import_packages()}
-    written = write_family_package_manifest(
-        folder_path=package, manifest_yaml=MANIFEST_YAML + "notes: rewritten\n", overwrite=True
-    )
 
     assert validation.valid, validation.errors
     assert bundle is not None and bundle.manifest.analysis_type == "trio_check"
-    assert yaml.safe_load(answer.manifest_yaml)["analysis_type"] == "trio_check"
-    assert listed[FAMILY]["analysis_type"] == "trio_check"
-    # Written as manifest.yaml itself, which replaces the link (SEC-27: the write follows no
-    # link); the link's target is left as it was.
-    assert written.validation.valid
-    assert not (package / "manifest.yaml").is_symlink()
-    assert yaml.safe_load((package / "manifest.yaml").read_text())["notes"] == "rewritten"
-    assert yaml.safe_load(current.read_text())["analysis_type"] == "trio_check"
 
 
 def _link_swapped_in_after_the_check(
@@ -326,55 +247,6 @@ def _link_swapped_in_after_the_check(
         return found
 
     monkeypatch.setattr(discovery_module, "manifest_link_out_of_package", check_then_swap)
-
-
-@pytest.mark.parametrize("before", ["no manifest", "a manifest"])
-def test_write_manifest_writes_nothing_through_a_link_swapped_in_after_its_check(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, imports: Path, before: str
-) -> None:
-    decoy = _decoy_manifest(tmp_path)
-    decoy_bytes = decoy.read_bytes()
-    planted = tmp_path / "outside" / "planted.yaml"
-    package = _package(imports)
-    if before == "a manifest":
-        (package / "manifest.yaml").write_text(MANIFEST_YAML)
-
-    for target in (decoy, planted):
-        _link_swapped_in_after_the_check(monkeypatch, package, target)
-        written = _write(package)
-
-        # The write followed the link: it replaced the decoy outside the package, or created
-        # the file a dangling link named there.
-        assert decoy.read_bytes() == decoy_bytes
-        assert not planted.exists()
-        manifest = package / "manifest.yaml"
-        assert not manifest.is_symlink() and manifest.read_text() == MANIFEST_YAML
-        assert written.validation.family_id == FAMILY
-    # Nothing is left of the file the text went into first.
-    assert sorted(path.name for path in package.iterdir()) == ["family.ped", "manifest.yaml"]
-
-
-def test_write_manifest_leaves_no_file_behind_when_the_write_fails(
-    monkeypatch: pytest.MonkeyPatch, imports: Path
-) -> None:
-    package = _package(imports)
-    (package / "manifest.yaml").write_text("schema_version: 1\n")
-
-    def refuse(*_args: Any, **_kwargs: Any) -> None:
-        raise OSError(28, "No space left on device")
-
-    monkeypatch.setattr(discovery_module.os, "replace", refuse)
-    with pytest.raises(OSError):
-        _write(package)
-
-    # The manifest is as it was, and no partial file is left in the package.
-    assert (package / "manifest.yaml").read_text() == "schema_version: 1\n"
-    assert sorted(path.name for path in package.iterdir()) == ["family.ped", "manifest.yaml"]
-
-
-# --------------------------------------------------------------------------- #
-# A manifest path that starts with ~
-# --------------------------------------------------------------------------- #
 
 
 @pytest.mark.parametrize("value", ["~/x.vcf", f"{UNKNOWN_HOME}/x.vcf", "~", "  ~/x.vcf"])
@@ -426,45 +298,20 @@ def test_validation_refuses_a_manifest_path_starting_with_a_tilde(imports: Path,
     assert refused.value.detail.endswith("starts with '~': a manifest path is relative to the package directory, and CoGA does not read a home folder")
 
 
-def test_discover_answers_for_a_manifest_naming_a_path_that_starts_with_a_tilde(imports: Path) -> None:
-    package = _package(imports, manifest={"datasets": {"snv": {"family_vcf": f"{UNKNOWN_HOME}/x.vcf.gz"}}})
-
-    answer = _discover(package)
-
-    # Discover's availability check expanded the `~` and failed with a RuntimeError (a 500).
-    assert answer.manifest_yaml
-    assert [(item.path, item.exists) for item in _dataset(answer, "snv").files] == [(f"{UNKNOWN_HOME}/x.vcf.gz", False)]
-
-
-def test_discover_refuses_a_requested_ped_path_that_starts_with_a_tilde(imports: Path) -> None:
-    package = _package(imports)
-
-    with pytest.raises(HTTPException) as refused:
-        _discover(package, ped_path=f"{UNKNOWN_HOME}/family.ped")
-
-    # A RuntimeError: a 500.
-    assert (refused.value.status_code, refused.value.detail) == (400, _tilde_message(f"{UNKNOWN_HOME}/family.ped"))
-
-
 def test_a_package_folder_in_a_home_folder_the_server_lacks_is_refused(imports: Path) -> None:
     folder = f"{UNKNOWN_HOME}/{FAMILY}"
 
     answer = _discover(folder)
     validation, bundle = load_validated_family_package(folder)
-    with pytest.raises(HTTPException) as refused:
-        _write(folder)
-
-    # Path.expanduser raised a RuntimeError: Discover, validation and Write manifest failed (500).
+    # Path.expanduser raised a RuntimeError: Discover and validation failed (500).
     message = f"Family import path '{folder}' starts with '~', and the server has no such home folder"
     assert [(issue.code, issue.message, issue.path) for issue in answer.errors] == [
         ("package_folder_not_allowed", message, folder)
     ]
-    assert answer.manifest_path == f"{folder}/manifest.yaml"
     assert [(issue.code, issue.message, issue.path) for issue in validation.errors] == [
         ("package_folder_not_allowed", message, folder)
     ]
     assert bundle is None
-    assert (refused.value.status_code, refused.value.detail) == (400, message)
 
 
 # --------------------------------------------------------------------------- #
@@ -477,15 +324,12 @@ def test_a_package_folder_that_loops_is_refused(imports: Path, resolve_as: str) 
 
     answer = _discover(folder)
     validation, bundle = load_validated_family_package(folder)
-    with pytest.raises(HTTPException) as refused:
-        _write(folder)
 
     # Python 3.12 raised RuntimeError (a 500); 3.13 said the folder does not exist.
     message = f"Family import path '{folder}' {LOOP}"
     assert [(issue.code, issue.message) for issue in answer.errors] == [("package_folder_not_allowed", message)]
     assert [(issue.code, issue.message) for issue in validation.errors] == [("package_folder_not_allowed", message)]
     assert bundle is None
-    assert (refused.value.status_code, refused.value.detail) == (400, message)
 
 
 @pytest.mark.parametrize("looping", ["a folder on the path", "the file itself"])
@@ -513,17 +357,10 @@ def test_a_manifest_that_loops_is_refused(imports: Path, resolve_as: str) -> Non
     package = _package(imports)
     _loop(package / "manifest.yaml")
 
-    answer = _discover(package)
     validation, bundle = load_validated_family_package(package)
-    with pytest.raises(HTTPException) as refused:
-        _write(package)
 
-    # Discover drafted as for a package without a manifest, validation said it had none,
-    # and Write manifest failed with an OSError (a 500).
-    assert (_codes(answer.errors), answer.manifest_yaml) == (["manifest_outside_package"], "")
+    # Validation said the package had none.
     assert (_codes(validation.errors), bundle) == (["manifest_outside_package"], None)
-    assert (refused.value.status_code, refused.value.detail) == (400, _manifest_link_message("manifest.yaml"))
-    assert (package / "manifest.yaml").is_symlink()
 
 
 def test_a_ped_that_loops_counts_as_absent(imports: Path, resolve_as: str) -> None:
@@ -575,28 +412,6 @@ def test_a_file_discover_finds_by_a_pattern_that_loops_counts_as_absent(imports:
     assert not any(item.exists for item in sv.files)
 
 
-def test_discover_answers_for_a_manifest_naming_a_path_through_a_loop(imports: Path, resolve_as: str) -> None:
-    package = _package(imports, manifest={"datasets": {"snv": {"family_vcf": "loop/x.vcf.gz"}}})
-    _loop(package / "loop")
-
-    answer = _discover(package)
-
-    # Its availability check raised RuntimeError (a 500) on Python 3.12.
-    assert answer.manifest_yaml
-    assert [(item.path, item.exists) for item in _dataset(answer, "snv").files] == [("loop/x.vcf.gz", False)]
-
-
-def test_discover_refuses_a_requested_ped_path_through_a_loop(imports: Path, resolve_as: str) -> None:
-    package = _package(imports)
-    _loop(package / "loop")
-
-    with pytest.raises(HTTPException) as refused:
-        _discover(package, ped_path="loop/family.ped")
-
-    # Python 3.12 raised RuntimeError (a 500); 3.13 said the PED does not exist.
-    assert (refused.value.status_code, refused.value.detail) == (400, f"Package manifest path 'loop/family.ped' {LOOP}")
-
-
 def _long_read_file(path: Path, sample_id: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with gzip.open(path, "wt") as handle:
@@ -632,13 +447,10 @@ def test_a_loop_that_resolve_reports_refuses_the_package_folder(monkeypatch: pyt
 
         monkeypatch.setattr(Path, "resolve", resolve)
         answer = _discover(package)
-        with pytest.raises(HTTPException) as refused:
-            _write(package)
 
         # Python 3.12 raises the RuntimeError, and a strict resolve the OSError: a 500.
         message = f"Family import path '{package}' {LOOP}"
         assert [(issue.code, issue.message) for issue in answer.errors] == [("package_folder_not_allowed", message)]
-        assert (refused.value.status_code, refused.value.detail) == (400, message)
 
 
 def test_another_error_resolve_raises_is_not_taken_for_a_loop(monkeypatch: pytest.MonkeyPatch, imports: Path) -> None:
@@ -764,9 +576,9 @@ def test_the_package_list_follows_a_package_folder_linked_under_the_import_roots
     listed = scan_family_import_packages()
     validation, bundle = load_validated_family_package(imports / "LINKED")
 
-    # Listed, read and named as before: the folder it leads to lies under the import roots.
-    assert [(item["name"], item["folder_path"], item["family_id"], item["analysis_type"]) for item in listed] == [
-        ("LINKED", str(target.resolve()), FAMILY, "trio_check")
+    # Listed and read as before: the folder it leads to lies under the import roots.
+    assert [(item["name"], item["folder_path"], item["family_id"]) for item in listed] == [
+        ("LINKED", str(target.resolve()), "LINKED")
     ]
     # And selection takes it.
     assert validation.valid, validation.errors
@@ -912,78 +724,18 @@ def _admin_client() -> Any:
     return signed_in_client("admin", raise_server_exceptions=False)
 
 
-def test_the_routes_refuse_a_manifest_symlink_out_of_the_package(tmp_path: Path, imports: Path) -> None:
-    decoy = _decoy_manifest(tmp_path)
-    before = decoy.read_bytes()
-    package = _package(imports)
-    (package / "manifest.yaml").symlink_to(decoy)
-
-    with _admin_client() as client:
-        discover = client.post("/api/family-imports/manifest/discover", json={"folder_path": str(package)})
-        validate = client.post("/api/family-imports/validate", json={"folder_path": str(package)})
-        write = client.post(
-            "/api/family-imports/manifest/write",
-            json={"folder_path": str(package), "manifest_yaml": MANIFEST_YAML, "overwrite": True},
-        )
-        listed = client.get("/api/family-imports/packages")
-
-    for response in (discover, validate):
-        assert response.status_code == 200, response.text
-        assert [issue["code"] for issue in response.json()["errors"]] == ["manifest_outside_package"]
-        assert DECOY_FAMILY not in response.text
-    assert (write.status_code, write.json()) == (400, {"detail": _manifest_link_message("manifest.yaml")})
-    assert decoy.read_bytes() == before
-    assert listed.status_code == 200, listed.text
-    assert DECOY_FAMILY not in listed.text
-
-
-def test_the_routes_refuse_a_tilde_and_a_symlink_loop_without_a_500(imports: Path) -> None:
-    tilde = _package(imports, "TILDE", manifest={"datasets": {"snv": {"family_vcf": f"{UNKNOWN_HOME}/x.vcf"}}})
-    looping = _package(imports, "LOOPED", manifest={"datasets": {"snv": {"family_vcf": "loop/x.vcf"}}})
-    _loop(looping / "loop")
-    looping_folder = _loop(imports / "LOOPFOLDER")
+def test_the_package_list_route_lists_a_long_read_package_beside_an_entry_that_loops(imports: Path) -> None:
     long_read = imports / "COUPLE1"
     _long_read_file(long_read / "snv" / "MOTHER1" / "MOTHER1_annot.vcf.gz", "MOTHER1")
     _loop(long_read / "snv" / "GHOST1")
+    _loop(imports / "LOOPFOLDER")
 
     with _admin_client() as client:
-        validate_tilde = client.post("/api/family-imports/validate", json={"folder_path": str(tilde)})
-        validate_loop = client.post("/api/family-imports/validate", json={"folder_path": str(looping)})
-        discover_tilde_ped = client.post(
-            "/api/family-imports/manifest/discover",
-            json={"folder_path": str(tilde), "ped_path": f"{UNKNOWN_HOME}/family.ped"},
-        )
-        discover_tilde_folder = client.post(
-            "/api/family-imports/manifest/discover", json={"folder_path": f"{UNKNOWN_HOME}/{FAMILY}"}
-        )
-        discover_loop_folder = client.post(
-            "/api/family-imports/manifest/discover", json={"folder_path": str(looping_folder)}
-        )
-        discover_long_read = client.post("/api/family-imports/manifest/discover", json={"folder_path": str(long_read)})
         listed = client.get("/api/family-imports/packages")
 
-    # Each was a 500 (the folder that loops on Python 3.12 only; the manifest path through a
-    # loop a 500 there, a missing file on 3.13); the package list failed whole on the looping
-    # long-read entry.
-    for response, detail in (
-        (validate_tilde, _tilde_message(f"{UNKNOWN_HOME}/x.vcf")),
-        (validate_loop, f"Package manifest path 'loop/x.vcf' {LOOP}"),
-        (discover_tilde_ped, _tilde_message(f"{UNKNOWN_HOME}/family.ped")),
-    ):
-        assert response.status_code == 400, response.text
-        assert response.json() == {"detail": detail}
-    for response, message in (
-        (discover_tilde_folder, f"Family import path '{UNKNOWN_HOME}/{FAMILY}' starts with '~', and the server has no such home folder"),
-        (discover_loop_folder, f"Family import path '{looping_folder}' {LOOP}"),
-    ):
-        assert response.status_code == 200, response.text
-        assert [(issue["code"], issue["message"]) for issue in response.json()["errors"]] == [
-            ("package_folder_not_allowed", message)
-        ]
-    assert discover_long_read.status_code == 200, discover_long_read.text
-    assert discover_long_read.json()["sample_ids"] == ["MOTHER1"]
+    # The package list failed whole on the looping long-read entry.
     assert listed.status_code == 200, listed.text
-    assert {item["name"] for item in listed.json()} >= {"TILDE", "LOOPED", "COUPLE1"}
+    assert [item["name"] for item in listed.json()] == ["COUPLE1"]
 
 
 def test_the_package_list_route_leaves_out_a_folder_linked_out_of_the_import_root(tmp_path: Path, imports: Path) -> None:
@@ -997,7 +749,6 @@ def test_the_package_list_route_leaves_out_a_folder_linked_out_of_the_import_roo
 
     with _admin_client() as client:
         listed = client.get("/api/family-imports/packages")
-        typed = client.post("/api/family-imports/validate", json={"folder_path": str(imports / "LINKED")})
 
     # The list showed LINKED by its path outside the root, under the family and analysis type
     # of the manifest found there.
@@ -1008,11 +759,6 @@ def test_the_package_list_route_leaves_out_a_folder_linked_out_of_the_import_roo
     ]
     for value in (str(outside), DECOY_FAMILY, DECOY_TYPE):
         assert value not in listed.text
-    # Typed, the folder is refused with the reason, as it was.
-    assert typed.status_code == 200, typed.text
-    assert [(issue["code"], issue["message"]) for issue in typed.json()["errors"]] == [
-        ("package_folder_not_allowed", f"Family import path is outside configured FAMILY_IMPORT_ROOTS: {imports.resolve()}")
-    ]
 
 
 # --------------------------------------------------------------------------- #
@@ -1054,109 +800,16 @@ def test_validation_refuses_a_manifest_path_holding_a_nul(imports: Path, manifes
     assert (refused.value.status_code, refused.value.detail) == (400, _nul_message(written))
 
 
-def test_discover_answers_for_a_manifest_naming_a_path_holding_a_nul(imports: Path) -> None:
-    package = _package(imports, manifest={"datasets": {"snv": {"family_vcf": "x\x00.vcf.gz"}}})
-
-    answer = _discover(package)
-
-    assert answer.manifest_yaml
-    assert [(item.path, item.exists) for item in _dataset(answer, "snv").files] == [("x\x00.vcf.gz", False)]
-
-
-def test_discover_refuses_a_requested_ped_path_holding_a_nul(imports: Path) -> None:
-    package = _package(imports)
-
-    with pytest.raises(HTTPException) as refused:
-        _discover(package, ped_path="family\x00.ped")
-
-    assert (refused.value.status_code, refused.value.detail) == (400, _nul_message("family\\x00.ped"))
-
-
 def test_a_package_folder_holding_a_nul_is_refused(imports: Path) -> None:
     folder = f"{imports}/FAM\x001"
 
     answer = _discover(folder)
     validation, bundle = load_validated_family_package(folder)
-    with pytest.raises(HTTPException) as refused:
-        _write(folder)
 
-    # Path.resolve raised ValueError: Discover, validation and Write manifest failed (500).
+    # Path.resolve raised ValueError: Discover and validation failed (500).
     message = f"Family import path '{imports}/FAM\\x001' {NUL_IN_PATH}"
     assert [(issue.code, issue.message) for issue in answer.errors] == [("package_folder_not_allowed", message)]
     assert [(issue.code, issue.message) for issue in validation.errors] == [("package_folder_not_allowed", message)]
     assert bundle is None
-    assert (refused.value.status_code, refused.value.detail) == (400, message)
 
 
-@pytest.mark.parametrize(
-    ("manifest_yaml", "where"),
-    [
-        (MANIFEST_YAML.replace("ped: family.ped", 'ped: "family\\0.ped"'), "ped"),
-        (MANIFEST_YAML + 'datasets:\n  snv:\n    family_vcf: "x\\0.vcf"\n', "datasets.snv.family_vcf"),
-        (MANIFEST_YAML + 'samples:\n  - id: "C\\01"\n', "samples[0].id"),
-    ],
-    ids=["ped", "dataset", "sample"],
-)
-def test_write_manifest_refuses_a_nul_and_writes_nothing(imports: Path, manifest_yaml: str, where: str) -> None:
-    package = _package(imports)
-
-    with pytest.raises(HTTPException) as refused:
-        write_family_package_manifest(folder_path=package, manifest_yaml=manifest_yaml, overwrite=True)
-
-    # The manifest was written, then validation raised ValueError on the NUL: a 500.
-    assert (refused.value.status_code, refused.value.detail) == (
-        400,
-        f"Manifest YAML holds a NUL character at {where}, which no path or name can hold",
-    )
-    assert not (package / "manifest.yaml").exists()
-
-
-def test_the_routes_refuse_a_nul_without_a_500(imports: Path) -> None:
-    package = _package(imports, "NULFAM", manifest={"datasets": {"snv": {"family_vcf": "x\x00.vcf"}}})
-    before = (package / "manifest.yaml").read_bytes()
-
-    with _admin_client() as client:
-        validate = client.post("/api/family-imports/validate", json={"folder_path": str(package)})
-        discover_ped = client.post(
-            "/api/family-imports/manifest/discover",
-            json={"folder_path": str(package), "ped_path": "family\x00.ped"},
-        )
-        discover_folder = client.post(
-            "/api/family-imports/manifest/discover", json={"folder_path": f"{imports}/FAM\x001"}
-        )
-        write = client.post(
-            "/api/family-imports/manifest/write",
-            json={
-                "folder_path": str(package),
-                "manifest_yaml": MANIFEST_YAML.replace("ped: family.ped", 'ped: "family\\0.ped"'),
-                "overwrite": True,
-            },
-        )
-
-    # Each was a 500 (ValueError: embedded null byte), Write manifest after writing the file.
-    assert (validate.status_code, validate.json()) == (400, {"detail": _nul_message("x\\x00.vcf")})
-    assert (discover_ped.status_code, discover_ped.json()) == (400, {"detail": _nul_message("family\\x00.ped")})
-    assert discover_folder.status_code == 200, discover_folder.text
-    assert [(issue["code"], issue["message"]) for issue in discover_folder.json()["errors"]] == [
-        ("package_folder_not_allowed", f"Family import path '{imports}/FAM\\x001' {NUL_IN_PATH}")
-    ]
-    assert (write.status_code, write.json()) == (
-        400,
-        {"detail": "Manifest YAML holds a NUL character at ped, which no path or name can hold"},
-    )
-    assert (package / "manifest.yaml").read_bytes() == before
-
-
-def test_a_written_manifest_is_read_and_written_by_its_owner_alone(imports: Path) -> None:
-    # A manifest names the samples and may hold HPO terms and notes: whatever the umask, it is
-    # written owner read-write only, nothing for the group or others (CodeQL
-    # py/overly-permissive-file).
-    package = _package(imports)
-    previous = os.umask(0)
-    try:
-        written = write_family_package_manifest(folder_path=package, manifest_yaml=MANIFEST_YAML, overwrite=True)
-    finally:
-        os.umask(previous)
-
-    assert stat.S_IMODE((package / "manifest.yaml").stat().st_mode) == 0o600
-    assert written.manifest_path == str(package / "manifest.yaml")
