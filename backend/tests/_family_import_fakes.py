@@ -7,6 +7,9 @@
   authorised import root, with ``tmp_path/outside`` beside it under none.
 * ``signed_in_client(role)``: the app as a user of that role sees it, with no database
   behind it; for requests that look no family up.
+* ``no_variant_copy``: in place of the import's copy of an existing family's callsets to
+  the projects that hold none of them (``copy_variants_to_linked_projects``, which reads
+  Postgres and ClickHouse): nothing to copy.
 """
 
 from __future__ import annotations
@@ -36,6 +39,12 @@ def admin_user() -> CurrentUser:
         role="admin",
         created_at=datetime.now(timezone.utc),
     )
+
+
+async def no_variant_copy(*_args: Any, **_kwargs: Any) -> bool:
+    """Nothing copied: every project of the family holds each of its callsets
+    (``family_project_variants.copy_variants_to_linked_projects``)."""
+    return False
 
 
 def _default_sample_uuid(sample_id: str) -> str:

@@ -18,6 +18,14 @@ therefore runs in two steps, each under the family's variant-write locks:
 
 A project on another assembly than the family's stored variants is refused: its reads look in
 that assembly's tables, so the family's variants would show in none of its projects.
+
+A package import into an existing family links it to the import's project as well, before it
+takes the family's variant-write locks, and writes only the callsets it imports, under each of
+the family's projects (an update leaves out those stored). So it is refused a project on
+another assembly in the same way (:func:`refuse_project_on_other_assembly`), and once it holds
+the locks, before its snapshot, every project the family is linked to gets the callsets it
+holds none of (:func:`copy_variants_to_linked_projects`): the snapshot then holds them, and a
+failed import's restore keeps them (the owner's decisions of 2026-11-10).
 """
 
 from __future__ import annotations
@@ -121,6 +129,43 @@ async def copy_variants_to_projects(
             project_ids=project_ids,
             linked_project_ids=linked,
         )
+
+
+async def refuse_project_on_other_assembly(session: AsyncSession, family_uuid: str, project_id: str) -> None:
+    """Before a writer links the family to ``project_id`` without changing its other links (a
+    package import into an existing family): refused (409) when the family's variants are
+    stored on another assembly than the project's, as a change of its projects is
+    (:func:`family_variant_assemblies`). A project it is linked to already is not checked."""
+    linked = await linked_project_ids(session, family_uuid) or []
+    if project_id in linked:
+        return
+    await family_variant_assemblies(session, family_uuid, linked=linked, project_ids=[project_id])
+
+
+async def copy_variants_to_linked_projects(
+    session: AsyncSession, family_uuid: str, assembly_name: str | None
+) -> bool:
+    """Each project the family is linked to gets, on ``assembly_name``, the family's callsets
+    it holds none of (``unassigned`` stands for none when it has no project); returns whether
+    anything was written.
+
+    Run by a package import under the family's variant-write locks, both types, before its
+    snapshot: a project the import linked the family to holds then the callsets the import
+    does not write, and so does one linked before this was done. A linked project's rows are
+    never deleted (:func:`clickhouse_variant_storage.copy_family_variants_to_projects`).
+    The projects are read here, under the locks: a change of them that committed while the
+    import waited for the locks decides."""
+    if not assembly_name:
+        return False
+    linked = await linked_project_ids(session, family_uuid)
+    if linked is None:
+        return False
+    return await copy_family_variants_to_projects(
+        assembly_name,
+        family_uuid,
+        project_ids=linked,
+        linked_project_ids=linked,
+    )
 
 
 async def prune_left_project_variants(session: AsyncSession, family_uuid: str, assemblies: list[str]) -> None:

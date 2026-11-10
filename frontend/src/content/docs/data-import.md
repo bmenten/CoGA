@@ -430,6 +430,12 @@ ends. The decided and superseded deliveries are listed on request.
 | Update: add missing datasets only | the data is added to the existing family; datasets that already hold data are skipped (tracks and Paraphase results sample by sample), and a dataset skipped whole shows *skipped* |
 | Overwrite imported dataset rows | the data is added to the existing family; the selected datasets are replaced. For administrators only; a superuser may run it as a dry run |
 
+**An existing family imported into another project.** The family is linked to that **Project**
+too, and before its datasets the import gives the project the family's small and structural
+variants it does not hold yet. Whoever sees only that project sees all of them, not just what the
+import brought, also when the import fails and the family is put back. A project on another
+assembly than the family's variants is refused, and nothing of the family is written.
+
 **Mitochondrial calls are replaced per sample.** A package holds one mitochondrial file per sample, and
 each file replaces only that sample's calls. The other members' calls stay, so the mtDNA analysis keeps
 the mother's calls beside the children's for the maternal transmission. A mitochondrial file without a

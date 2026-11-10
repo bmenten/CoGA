@@ -29,7 +29,7 @@ from backend.app.services.family_metadata_context import FamilyMetadataContext, 
 from backend.app.services.import_progress import DatasetTimer
 from backend.app.services.family_package_source import package_folder_path
 from backend.app.services.hpo_service import PhenotypeImport
-from backend.tests._family_import_fakes import admin_user
+from backend.tests._family_import_fakes import admin_user, no_variant_copy
 
 
 @pytest.fixture(autouse=True)
@@ -54,6 +54,7 @@ def _no_family_write_hold(monkeypatch: pytest.MonkeyPatch) -> None:
         yield
 
     monkeypatch.setattr(package_import, "hold_family_variant_writes", hold)
+    monkeypatch.setattr(package_import, "copy_variants_to_linked_projects", no_variant_copy)
 
 
 def _write_minimal_package(root: Path, *, family_id: str | None = None) -> None:

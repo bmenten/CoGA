@@ -551,6 +551,13 @@ copy's times are the download's. Its log says it is not checked.
     sample holds WisecondorX bins, an APCAD though it holds HiFiCNV's minor allele fraction.
 - `overwrite`: import into the existing family, and replace each imported dataset.
 
+An import into an existing family links it to the job's `project_id` too. Every project the
+family is linked to gets the small and structural variant callsets it holds none of, under the
+family's variant-write locks and before the import's snapshot, so the family's other callsets
+show in the new project and a failed import's restore keeps them. A project on another assembly
+than the family's stored variants is refused before anything of the family is written
+([A family's rows follow its projects](database.md#a-familys-rows-follow-its-projects)).
+
 While a job runs, the page shows each dataset's progress (`progress` in its summary): how long a
 finished dataset took and, for the running one, the share of its files read and the time left at
 its pace so far. The loaders that count what they read are the small variants (the SNV VCF, the

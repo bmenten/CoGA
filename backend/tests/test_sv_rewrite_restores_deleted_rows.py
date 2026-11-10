@@ -53,6 +53,7 @@ from backend.app.services.clickhouse_variant_records import (
     StructuralVariantRecord,
 )
 from backend.app.services.family_metadata_context import FamilyMetadataContext, SampleMetadataContext
+from backend.tests._family_import_fakes import no_variant_copy
 
 _SAMPLES = ("S1", "S2", "S3")
 _FAMILY = FamilyMetadataContext(
@@ -661,6 +662,7 @@ def mito_update(monkeypatch, tmp_path):
 
     monkeypatch.setattr(family_package_import, "_ensure_family_from_ped", register)
     monkeypatch.setattr(family_package_import, "hold_family_variant_writes", hold)
+    monkeypatch.setattr(family_package_import, "copy_variants_to_linked_projects", no_variant_copy)
     monkeypatch.setattr(family_package_import, "_existing_package_entity_warnings", no_warnings)
     monkeypatch.setattr(family_package_datasets, "count_family_small_variants", none_stored)
     monkeypatch.setattr(family_package_datasets, "known_vcf_sample_ids", known)

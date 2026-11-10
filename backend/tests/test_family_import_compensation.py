@@ -42,6 +42,12 @@ from app.services.hpo_service import PhenotypeImport
 from app.services import family_package_registration as registration
 
 
+async def no_variant_copy(*_args, **_kwargs) -> bool:
+    """Nothing copied: every project of the family holds each of its callsets
+    (``copy_variants_to_linked_projects``, which reads Postgres and ClickHouse)."""
+    return False
+
+
 class _FakeSession:
     def __init__(self) -> None:
         self.executed: list[tuple[str, dict | None]] = []
@@ -1659,6 +1665,7 @@ async def test_an_import_records_the_callset_its_auto_snv_dataset_stores(monkeyp
 
     monkeypatch.setattr(fpi, "_ensure_family_from_ped", register)
     monkeypatch.setattr(fpi, "hold_family_variant_writes", hold)
+    monkeypatch.setattr(fpi, "copy_variants_to_linked_projects", no_variant_copy)
     monkeypatch.setattr(fpi, "_existing_package_entity_warnings", no_warnings)
     monkeypatch.setattr(fpi, "_import_dataset", import_dataset)
     monkeypatch.setattr(variant_ranking_cache, "clear_family_ranking_cache", nothing)
@@ -2463,6 +2470,7 @@ async def test_an_import_clears_what_it_registered_carrying_nothing_or_imported_
 
     monkeypatch.setattr(fpi, "_ensure_family_from_ped", register)
     monkeypatch.setattr(fpi, "hold_family_variant_writes", hold)
+    monkeypatch.setattr(fpi, "copy_variants_to_linked_projects", no_variant_copy)
     monkeypatch.setattr(fpi, "_existing_package_entity_warnings", no_warnings)
     monkeypatch.setattr(fpi, "_import_dataset", import_dataset)
     monkeypatch.setattr(variant_ranking_cache, "clear_family_ranking_cache", nothing)
