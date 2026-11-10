@@ -681,6 +681,14 @@
   align-items: center;
 }
 
+/* Why Delete project is off: a line of its own under the buttons. */
+.project-delete-blocked {
+  flex-basis: 100%;
+  max-width: 32rem;
+  margin: 0 0 0 auto;
+  text-align: right;
+}
+
 .project-toolbar {
   display: flex;
   flex-wrap: wrap;
